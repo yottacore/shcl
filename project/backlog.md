@@ -75,6 +75,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `loosethou`
 	- Commit: `4527cc4e`, `bae0d847`, `10deaa99`
 
+- On musl, the C binding's schema-line check fails on `/proc/self/pagemap` with the wrong error
+	- ID: 2026101316013508
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261013-160135
+	- Opened by: me, from the Alpine image run in 2026101309250977
+	- Related IDs: 2026101309250977
+	- Target OS: Linux with musl
+	- Steps to reproduce: `cicd/cicd.bash --container=alpine`, then read cli-regress row `ErTZaL2` (`schema-line-pagemap`).
+	- Incorrect behavior: the C CLI exits 8 with `/proc/self/pagemap: Invalid argument`.
+	- Expected behavior: the same as on glibc and the other 3 bindings, exit 8 with "too large for a schema".
+	- Reproduced: 20261013, in the Alpine image. Why musl differs is not checked yet.
+	- Note: no musl build is released, so this only reaches someone who builds the C library on musl.
+
+- On musl, the C binding's `reads` workload is about 4 times slower than on glibc
+	- ID: 2026101316013509
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261013-160135
+	- Opened by: me, from the Alpine image run in 2026101309250977
+	- Related IDs: 2026101309250977
+	- Target OS: Linux with musl
+	- Steps to reproduce: `cicd/cicd.bash --container=alpine`, then read perf-gate's `reads` row for C.
+	- Incorrect behavior: about 370 ms against a 300 ms budget. glibc takes about 90 ms.
+	- Expected behavior: close to glibc, like every other C workload in that run.
+	- Reproduced: 20261013, in the Alpine image. Not profiled yet. musl's allocator is the first thing to rule out.
+	- Note: no musl build is released, so this only reaches someone who builds the C library on musl.
+
 - Build and test in a pinned container.
 	- ID: 2026101303344553
 	- Type: Enhancement
