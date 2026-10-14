@@ -11,7 +11,8 @@ mod common;
 use common::test_id;
 use shcl::{
 	Document, FORMAT_MAJOR, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens,
-	format_value, format_version, migrate, quote_segment, schema_ref, tokenize, tokenize_value,
+	format_array, format_value, format_version, migrate, quote_segment, schema_ref, tokenize,
+	tokenize_value,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -1316,6 +1317,13 @@ fn writer_roundtrips_and_stays_fixpoint() {
 		assert_eq!(
 			da.set_string_array("k", &[s.as_str(), b.as_str()]),
 			shcl::SetStatus::Ok
+		);
+		assert_eq!(
+			format_array(&[s.as_str(), b.as_str()]).map(|v| format!("k: {v}\n")),
+			Some(da.to_canonical()),
+			"format_array #{} for {:?}",
+			i,
+			(&s, &b)
 		);
 		let ra = Document::parse(&da.to_canonical()).read_string_array("k");
 		assert_eq!(

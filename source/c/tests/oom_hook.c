@@ -128,6 +128,13 @@ static char *format_value_one_failure(const char *text, long k, int *hooked) {
 	return shcl_format_value(text, strlen(text), NULL);
 }
 
+static char *format_array_one_failure(const char *const *texts, const size_t *lens, size_t n, long k, int *hooked) {
+	*hooked = 0;
+	if (SHCL_SETJMP(oom_jmp)) { fail_one = 0; *hooked = 1; return NULL; }
+	fail_one = k;
+	return shcl_format_array(texts, lens, n, NULL);
+}
+
 // 2.x spellings the current rules read differently, so every line gets rewritten
 // and the working arenas fill.
 static char *v2_doc(size_t n, size_t *len) {
@@ -329,6 +336,30 @@ int main(void) {
 		if (!reached_end) { fprintf(stderr, "FAIL oom_hook: format_value did not finish inside 4000 allocations\n"); failures++; }
 		if (!sawHook) { fprintf(stderr, "FAIL oom_hook: no failing allocation reached the hook in format_value\n"); failures++; }
 		free(fv);
+	}
+	// shcl_format_array the same, over many elements, so its list of texts
+	// and the elements built from them are in those arenas too.
+	{
+		const char *unit = "He said \"hi\", it's";
+		size_t un = strlen(unit), nel = 4000;
+		const char **els = (const char **)malloc(nel * sizeof *els);
+		size_t *lens = (size_t *)malloc(nel * sizeof *lens);
+		for (size_t i = 0; i < nel; i++) { els[i] = unit; lens[i] = un; }
+		int reached_end = 0, sawHook = 0;
+		for (long k = 1; k < 4000 && !reached_end; k++) {
+			long before = live_blocks;
+			int hooked;
+			char *v = format_array_one_failure(els, lens, nel, k, &hooked);
+			reached_end = fail_one > 0;
+			fail_one = 0;
+			if (hooked) sawHook = 1;
+			if (!hooked && !v) { fprintf(stderr, "FAIL oom_hook: format_array gave nothing with allocation %ld failing\n", k); failures++; }
+			tracked_free(v);
+			if (live_blocks != before) { fprintf(stderr, "FAIL oom_hook: format_array with allocation %ld failing left %ld block(s)\n", k, live_blocks - before); failures++; break; }
+		}
+		if (!reached_end) { fprintf(stderr, "FAIL oom_hook: format_array did not finish inside 4000 allocations\n"); failures++; }
+		if (!sawHook) { fprintf(stderr, "FAIL oom_hook: no failing allocation reached the hook in format_array\n"); failures++; }
+		free(els); free(lens);
 	}
 
 	if (oom_hits == 0) { fprintf(stderr, "FAIL oom_hook: the hook never fired\n"); failures++; }

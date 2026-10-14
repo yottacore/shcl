@@ -1044,6 +1044,16 @@ size_t shcl_format_float(double v, char *out);
 // the text (SHCL_SET_NOT_UTF8, SHCL_SET_NO_READ_BACK). A value has no length
 // bound, so there is no fixed buffer as for shcl_format_float.
 char *shcl_format_value(const char *text, size_t len, size_t *out_len);
+// An array the way shcl_set_string_array writes it after the colon of a field
+// it makes, brackets and all, so `k: [80, "a b", "1,200"]`. One element is
+// `[80]` and none is `[]`. An element is quoted where shcl_format_value would
+// leave it bare only for a thousands number, whose comma would split it in
+// brackets. Every typed array setter writes its values' texts the same way.
+// Takes texts and lens as shcl_set_string_array does. malloc'd and
+// NUL-terminated; the caller frees it. *out_len, when out_len isn't NULL, gets
+// the byte length. NULL when shcl_set_string_array would refuse the texts
+// (SHCL_SET_NOT_UTF8, SHCL_SET_NO_READ_BACK).
+char *shcl_format_array(const char *const *texts, const size_t *lens, size_t n, size_t *out_len);
 // Renders a datetime into out (>= SHCL_DT_BUF bytes); returns byte length. A
 // frac longer than 30 bytes is truncated, and the whole rendering is clamped to
 // SHCL_DT_BUF bytes, so a hand-built value cannot overrun the documented buffer
@@ -10949,11 +10959,12 @@ int shcl_parse_datetime(const char *text, size_t tlen, shcl_datetime *out) {
 	if (ok) *out = got;
 	return ok;
 }
-char *shcl_format_value(const char *text, size_t len, size_t *out_len) {
+/* shcl_format_value and shcl_format_array: the setter's own path, the same
+   element, emitter and read-back check. A cell when array is 0, from texts[0]
+   alone. There's no document to lend an arena, so it has its own, given back
+   before the hook on an allocation failure, as restamp_text's are. */
+static char *w_format(int array, const char *const *texts, const size_t *lens, size_t n, size_t *out_len) {
 	if (out_len) *out_len = 0;
-	/* The setter's own path: the same element, emitter and read-back check.
-	   There's no document to lend an arena, so it has its own, given back
-	   before the hook on an allocation failure, as restamp_text's are. */
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(NULL);
 	jmp_buf panic;
@@ -10963,8 +10974,9 @@ char *shcl_format_value(const char *text, size_t len, size_t *out_len) {
 		arena_panic(NULL);
 	}
 	arena_guard(&own->a, &panic);
-	ShclStr in; in.p = text ? text : ""; in.n = len;
-	ShclValue v = w_cell1(&own->a, s_dup(&own->a, in));
+	ShclStr *ins = (ShclStr *)arena_alloc(&own->a, (n ? n : 1) * sizeof(ShclStr));
+	for (size_t i = 0; i < n; i++) { ins[i].p = texts[i] ? texts[i] : ""; ins[i].n = lens[i]; ins[i] = s_dup(&own->a, ins[i]); }
+	ShclValue v = array ? w_array(&own->a, ins, n) : w_cell1(&own->a, ins[0]);
 	ShclStr t;
 	char *out = NULL;
 	if (value_reads_back(&own->a, &v) && emit_value_text(&own->a, &v, &t)) {
@@ -10977,6 +10989,12 @@ char *shcl_format_value(const char *text, size_t len, size_t *out_len) {
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
 	return out;
+}
+char *shcl_format_value(const char *text, size_t len, size_t *out_len) {
+	return w_format(0, &text, &len, 1, out_len);
+}
+char *shcl_format_array(const char *const *texts, const size_t *lens, size_t n, size_t *out_len) {
+	return w_format(1, texts, lens, n, out_len);
 }
 
 int shcl_strictness_from_arg(const char *s, size_t n, shcl_strictness *out) {

@@ -584,6 +584,22 @@ func FormatValue(text string) (string, bool) {
 	return emitValueText(&v)
 }
 
+// FormatArray gives an array the way SetStringArray writes it after the colon
+// of a field it makes, brackets and all, so `k: [80, "a b", "1,200"]`. One
+// element is `[80]` and none is `[]`. An element is quoted where FormatValue
+// would leave it bare only for a thousands number, whose comma would split it
+// in brackets. Every typed array setter writes its values' texts the same
+// way. ok is false when SetStringArray would refuse the texts (SetNotUtf8,
+// SetNoReadBack).
+func FormatArray(texts []string) (string, bool) {
+	// The array setter's own path, as FormatValue is the scalar one's.
+	v := arrayCell(texts)
+	if !valueReadsBack(&v) {
+		return "", false
+	}
+	return emitValueText(&v)
+}
+
 // ---------------------------------------------------------------------------
 // In-memory model
 // ---------------------------------------------------------------------------

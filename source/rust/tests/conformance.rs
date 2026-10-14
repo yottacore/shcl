@@ -5132,3 +5132,85 @@ const FORMAT_VALUE_EXTRA: &[&str] = &[
 	"a◉NEWLINE◉b",
 	"x\u{200b}y",
 ];
+
+/// format_array is the text set_string_array writes after `k: ` in a fresh
+/// document, None exactly where set_string_array refuses, and it reads back as
+/// the texts it was handed. Each text of the format_value fixture alone and
+/// after another element, all of them at once, and none; an element is
+/// format_value's text but for a thousands number, which brackets quote; and
+/// the typed array setters' texts. Same fixture in every runner.
+#[test]
+fn format_array_is_the_setters_text() {
+	let _id = test_id("EsiL1FW");
+	use shcl::{SetStatus, format_array, format_float, format_value};
+	let mut texts = soup_inputs();
+	for s in FORMAT_VALUE_EXTRA {
+		texts.push(s.to_string());
+	}
+	let mut arrays: Vec<Vec<&str>> = texts.iter().map(|s| vec![s.as_str()]).collect();
+	arrays.extend(texts.iter().map(|s| vec!["x", s.as_str()]));
+	arrays.push(FORMAT_VALUE_EXTRA.to_vec());
+	arrays.push(Vec::new());
+	for a in &arrays {
+		let mut doc = Document::new();
+		let st = doc.set_string_array("k", a);
+		let got = format_array(a);
+		if st != SetStatus::Ok {
+			assert_eq!(got, None, "set_string_array refused {a:?} ({st:?})");
+			continue;
+		}
+		let text = got.unwrap_or_else(|| panic!("no text for {a:?}, which set_string_array took"));
+		assert_eq!(doc.to_canonical(), format!("k: {text}\n"), "{a:?}");
+		assert_eq!(
+			Document::parse(&format!("k: {text}\n"))
+				.read_string_array("k")
+				.value,
+			*a,
+			"{a:?} did not read back"
+		);
+	}
+	// One element is format_value's text in brackets, but for a thousands
+	// number.
+	let thousands = ["1,200", "$1,200", "1,200.50", "-1,200", "80,443"];
+	for s in &texts {
+		let (Some(el), Some(one)) = (format_array(&[s.as_str()]), format_value(s)) else {
+			continue;
+		};
+		if thousands.contains(&s.as_str()) {
+			assert_eq!((one.as_str(), el), (s.as_str(), format!("[\"{s}\"]")));
+		} else {
+			assert_eq!(el, format!("[{one}]"), "{s:?}");
+		}
+	}
+	assert_eq!(format_array(&[]).as_deref(), Some("[]"));
+	assert_eq!(format_array(&["80"]).as_deref(), Some("[80]"));
+	assert_eq!(
+		format_array(&["80", "a b", "1,200", "@null"]).as_deref(),
+		Some("[80, \"a b\", \"1,200\", @null]")
+	);
+	// The typed array setters write their values' texts the way
+	// set_string_array would.
+	let one = |set: &dyn Fn(&mut Document) -> SetStatus| {
+		let mut d = Document::new();
+		assert_eq!(set(&mut d), SetStatus::Ok);
+		d.to_canonical()
+	};
+	let want = |t: &[&str]| format!("k: {}\n", format_array(t).unwrap_or_default());
+	assert_eq!(
+		one(&|d| d.set_int_array("k", &[-2020, 80])),
+		want(&["-2020", "80"])
+	);
+	let f = format_float(0.1);
+	assert_eq!(one(&|d| d.set_float_array("k", &[0.1])), want(&[&f]));
+	assert_eq!(
+		one(&|d| d.set_bool_array("k", &[true, false])),
+		want(&["true", "false"])
+	);
+	let dt = parse_datetime("2026-07-12T14:30").unwrap_or_default();
+	let dts = dt.to_string();
+	assert_eq!(
+		one(&|d| d.set_datetime_array("k", std::slice::from_ref(&dt))),
+		want(&[&dts])
+	);
+	assert_eq!(want(&[&dts]), "k: [\"2026-07-12T14:30\"]\n");
+}

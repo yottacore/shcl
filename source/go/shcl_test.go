@@ -6261,3 +6261,102 @@ var formatValueExtra = []string{
 	"a◉NEWLINE◉b",
 	"x\u200by",
 }
+
+// FormatArray is the text SetStringArray writes after `k: ` in a fresh
+// document, refused exactly where SetStringArray refuses, and it reads back as
+// the texts it was handed. Each text of the FormatValue fixture alone and
+// after another element, all of them at once, and none; an element is
+// FormatValue's text but for a thousands number, which brackets quote; and
+// the typed array setters' texts. Same fixture in every runner.
+func TestFormatArrayIsTheSettersText(t *testing.T) {
+	defer testID(t, "EsiL1IE")
+	texts := append(soupInputs(), formatValueExtra...)
+	var arrays [][]string
+	for _, s := range texts {
+		arrays = append(arrays, []string{s})
+	}
+	for _, s := range texts {
+		arrays = append(arrays, []string{"x", s})
+	}
+	arrays = append(arrays, formatValueExtra, []string{})
+	for _, a := range arrays {
+		doc := New()
+		st := doc.SetStringArray("k", a)
+		text, ok := FormatArray(a)
+		if st != SetOk {
+			if ok {
+				t.Errorf("SetStringArray refused %q (%v), FormatArray gave %q", a, st, text)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("no text for %q, which SetStringArray took", a)
+			continue
+		}
+		if got := doc.ToCanonical(); got != "k: "+text+"\n" {
+			t.Errorf("%q: canonical %q, FormatArray %q", a, got, text)
+		}
+		back := Parse("k: " + text + "\n").ReadStringArray("k").Value
+		same := len(back) == len(a)
+		for i := 0; same && i < len(a); i++ {
+			same = back[i] == a[i]
+		}
+		if !same {
+			t.Errorf("%q read back as %q", a, back)
+		}
+	}
+	// One element is FormatValue's text in brackets, but for a thousands
+	// number.
+	thousands := map[string]bool{"1,200": true, "$1,200": true, "1,200.50": true, "-1,200": true, "80,443": true}
+	for _, s := range texts {
+		el, ok1 := FormatArray([]string{s})
+		one, ok2 := FormatValue(s)
+		if !ok1 || !ok2 {
+			continue
+		}
+		if thousands[s] {
+			if one != s || el != "[\""+s+"\"]" {
+				t.Errorf("thousands %q: FormatValue %q, FormatArray %q", s, one, el)
+			}
+		} else if el != "["+one+"]" {
+			t.Errorf("%q: FormatValue %q, FormatArray %q", s, one, el)
+		}
+	}
+	for _, c := range []struct {
+		in   []string
+		want string
+	}{
+		{[]string{}, "[]"},
+		{[]string{"80"}, "[80]"},
+		{[]string{"80", "a b", "1,200", "@null"}, "[80, \"a b\", \"1,200\", @null]"},
+	} {
+		if v, ok := FormatArray(c.in); !ok || v != c.want {
+			t.Errorf("%q: FormatArray %q, want %q", c.in, v, c.want)
+		}
+	}
+	// The typed array setters write their values' texts the way
+	// SetStringArray would.
+	one := func(set func(d *Document) SetStatus) string {
+		d := New()
+		if st := set(d); st != SetOk {
+			t.Errorf("typed array setter refused: %v", st)
+		}
+		return d.ToCanonical()
+	}
+	want := func(s ...string) string {
+		v, _ := FormatArray(s)
+		return "k: " + v + "\n"
+	}
+	dt, _ := ParseDateTime("2026-07-12T14:30")
+	for _, c := range [][2]string{
+		{one(func(d *Document) SetStatus { return d.SetIntArray("k", []int64{-2020, 80}) }), want("-2020", "80")},
+		{one(func(d *Document) SetStatus { return d.SetFloatArray("k", []float64{0.1}) }), want(FormatFloat(0.1))},
+		{one(func(d *Document) SetStatus { return d.SetBoolArray("k", []bool{true, false}) }), want("true", "false")},
+		{one(func(d *Document) SetStatus { return d.SetDateTimeArray("k", []DateTime{dt}) }), want(dt.String())},
+		{want(dt.String()), "k: [\"2026-07-12T14:30\"]\n"},
+	} {
+		if c[0] != c[1] {
+			t.Errorf("typed array setter wrote %q, want %q", c[0], c[1])
+		}
+	}
+}

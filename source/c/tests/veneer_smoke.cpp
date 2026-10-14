@@ -181,6 +181,13 @@ int main() {
 		auto fw = shcl::Document::parse("");
 		CHECK(fw.set_string("k", "x\ty") == shcl::SetStatus::Ok && fw.to_canonical() == "k: " + *shcl::format_value("x\ty") + "\n");
 	}
+	// An array as set_string_array writes it, through the core.
+	{
+		CHECK(shcl::format_array({"80", "a b", "1,200"}) == "[80, \"a b\", \"1,200\"]" && shcl::format_array({}) == "[]");
+		CHECK(!shcl::format_array({"x", "a\xff" "b"}));
+		auto fa = shcl::Document::parse("");
+		CHECK(fa.set_string_array("k", {"x\ty", ""}) == shcl::SetStatus::Ok && fa.to_canonical() == "k: " + *shcl::format_array({"x\ty", ""}) + "\n");
+	}
 	// The CLI's stderr line, through the core.
 	{
 		auto fdoc = shcl::Document::parse("a: 1\nb: [x\n");

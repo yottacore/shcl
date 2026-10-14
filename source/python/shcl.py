@@ -86,6 +86,7 @@ __all__ = [
 	"WriteError",
 	"WriteStatus",
 	"backup_file_name",
+	"format_array",
 	"format_diagnostic",
 	"format_float",
 	"format_value",
@@ -448,6 +449,22 @@ def format_value(text: str) -> str | None:
 	_want("format_value", text, "str")
 	# The setter's own path: the same element, emitter and read-back check.
 	v = _cell_of(text)
+	if not _value_reads_back(v):
+		return None
+	return _emit_value_text(v)
+
+
+def format_array(texts: list[str]) -> str | None:
+	"""An array the way set_string_array writes it after the colon of a field
+	it makes, brackets and all, so `k: [80, "a b", "1,200"]`. One element is
+	`[80]` and none is `[]`. An element is quoted where format_value would
+	leave it bare only for a thousands number, whose comma would split it in
+	brackets. Every typed array setter writes its values' texts the same way.
+	None when set_string_array would refuse the texts (NotUtf8, NoReadBack); a
+	str or a non-str element is a TypeError, as there."""
+	texts = _want_all("format_array", texts, "str")
+	# The array setter's own path, as format_value is the scalar one's.
+	v = _array_cell(texts)
 	if not _value_reads_back(v):
 		return None
 	return _emit_value_text(v)

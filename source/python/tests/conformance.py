@@ -5085,6 +5085,65 @@ def main():
 	):
 		if fvgot != fvwant:
 			raise SystemExit(f"typed setter wrote {fvgot!r}, want {fvwant!r}")
+	test_id("EsiL1Kh", "format_array_is_the_setters_text")
+	# format_array is the text set_string_array writes after `k: ` in a fresh
+	# document, None exactly where set_string_array refuses, and it reads back
+	# as the texts it was handed. Each text of the format_value fixture alone
+	# and after another element, all of them at once, and none; an element is
+	# format_value's text but for a thousands number, which brackets quote; and
+	# the typed array setters' texts. Same fixture in every runner, plus a lone
+	# surrogate, which only a Python string can hold.
+	fatexts = soup_inputs() + list(FORMAT_VALUE_EXTRA) + ["\ud800"]
+	faarrays = [[s] for s in fatexts] + [["x", s] for s in fatexts] + [list(FORMAT_VALUE_EXTRA), []]
+	for faa in faarrays:
+		fadoc = shcl.Document.parse("")
+		fast = fadoc.set_string_array("k", faa)
+		fatext = shcl.format_array(faa)
+		if not fast:
+			if fatext is not None:
+				raise SystemExit(f"set_string_array refused {faa!r} ({fast}), format_array gave {fatext!r}")
+			continue
+		if fatext is None:
+			raise SystemExit(f"no text for {faa!r}, which set_string_array took")
+		if fadoc.to_canonical() != f"k: {fatext}\n":
+			raise SystemExit(f"{faa!r}: canonical {fadoc.to_canonical()!r}, format_array {fatext!r}")
+		if shcl.Document.parse(f"k: {fatext}\n").read_string_array("k").value != faa:
+			raise SystemExit(f"{faa!r} did not read back")
+	# One element is format_value's text in brackets, but for a thousands
+	# number.
+	for fas in fatexts:
+		fael, faone = shcl.format_array([fas]), shcl.format_value(fas)
+		if fael is None or faone is None:
+			continue
+		if fas in ("1,200", "$1,200", "1,200.50", "-1,200", "80,443"):
+			if faone != fas or fael != f'["{fas}"]':
+				raise SystemExit(f"thousands {fas!r}: format_value {faone!r}, format_array {fael!r}")
+		elif fael != f"[{faone}]":
+			raise SystemExit(f"{fas!r}: format_value {faone!r}, format_array {fael!r}")
+	for fain, fawant in (([], "[]"), (["80"], "[80]"), (["80", "a b", "1,200", "@null"], '[80, "a b", "1,200", @null]')):
+		if shcl.format_array(fain) != fawant:
+			raise SystemExit(f"{fain!r}: format_array {shcl.format_array(fain)!r}, want {fawant!r}")
+	for fabad in ("abc", [5]):
+		try:
+			shcl.format_array(fabad)
+			raise SystemExit(f"format_array took {fabad!r}")
+		except TypeError:
+			pass
+
+	# The typed array setters write their values' texts the way
+	# set_string_array would.
+	def fa_want(*t):
+		return f"k: {shcl.format_array(list(t))}\n"
+
+	for fagot, fawant in (
+		(fv_one(lambda d: d.set_int_array("k", [-2020, 80])), fa_want("-2020", "80")),
+		(fv_one(lambda d: d.set_float_array("k", [0.1])), fa_want(shcl.format_float(0.1))),
+		(fv_one(lambda d: d.set_bool_array("k", [True, False])), fa_want("true", "false")),
+		(fv_one(lambda d: d.set_datetime_array("k", [fvdt])), fa_want(str(fvdt))),
+		(fa_want(str(fvdt)), 'k: ["2026-07-12T14:30"]\n'),
+	):
+		if fagot != fawant:
+			raise SystemExit(f"typed array setter wrote {fagot!r}, want {fawant!r}")
 
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")

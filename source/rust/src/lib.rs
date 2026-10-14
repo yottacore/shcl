@@ -8277,6 +8277,22 @@ pub fn format_value(text: &str) -> Option<String> {
 	emit_value_text(&v)
 }
 
+/// An array the way `set_string_array` writes it after the colon of a field
+/// it makes, brackets and all, so `k: [80, "a b", "1,200"]`. One element is
+/// `[80]` and none is `[]`. An element is quoted where `format_value` would
+/// leave it bare only for a thousands number, whose comma would split it in
+/// brackets. Every typed array setter writes its values' texts the same way.
+/// None when `set_string_array` would refuse the texts (`NoReadBack`).
+#[must_use]
+pub fn format_array(texts: &[&str]) -> Option<String> {
+	// The array setter's own path, as format_value is the scalar one's.
+	let v = array_cell(texts.iter().map(|t| (*t).to_string()).collect());
+	if !value_reads_back(&v) {
+		return None;
+	}
+	emit_value_text(&v)
+}
+
 /// One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
 /// message`. V090 to V095 count lines in the schema file, so theirs reads
 /// `schema line N`. The message is this binding's own prose, and only the code
