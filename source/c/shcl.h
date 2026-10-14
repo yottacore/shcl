@@ -796,17 +796,18 @@ shcl_read_str shcl_read_schema_ref(const char *text, size_t len);
 // current or ambiguous. current: the input loads with no error under these
 // rules and, with from_v2, migrates to the same text, or it names this
 // format, so it is left as it is. A beta build of 3.0 stamped the same Format
-// line as a release, so a beta file is current here too. format: the format
-// the input was written for, which goes in the backup's name: what its Format
-// line names, else 2. ambiguous: as shcl_migration's; nonzero means the text
-// reads two ways and nothing is written. lost: lines and values of the input
-// the fresh text does not carry over, the ones 2.x bound that nothing binds
-// now and the ones the load of the migrated text drops. The backup still has
-// them. diagnostics: the input's load, whose shcl_diag_* calls give what it
-// found, which is why it needed the upgrade unless it loaded clean and
-// from_v2 said it reads as 2.x; NULL when current. backup: where
-// shcl_upgrade_file put the original, malloc'd; NULL from shcl_upgrade, and
-// when nothing was written.
+// line as a release, so a beta file is current here too, unless from_v2 says a
+// 2.x build wrote it, it loads with an error, and the fresh text would not.
+// format: the format the input was written for, which goes in the backup's
+// name: what its Format line names, else 2. ambiguous: as shcl_migration's;
+// nonzero means the text reads two ways and nothing is written. lost: lines
+// and values of the input the fresh text does not carry over, the ones 2.x
+// bound that nothing binds now and the ones the load of the migrated text
+// drops. The backup still has them. diagnostics: the input's load, whose
+// shcl_diag_* calls give what it found, which is why it needed the upgrade
+// unless it loaded clean and from_v2 said it reads as 2.x; NULL when current.
+// backup: where shcl_upgrade_file put the original, malloc'd; NULL from
+// shcl_upgrade, and when nothing was written.
 typedef struct {
 	char *text; size_t len;
 	int current;
@@ -824,7 +825,11 @@ typedef struct {
 // these rules, since a program calling this on every start must never rewrite
 // a good file. from_v2 is shcl_migrate's: the file can only have been written
 // for 2.x. Then a file that loads clean is still made over when migrate would
-// change it, as it would `p: a,b`, an array under 2.x and one string now.
+// change it, as it would `p: a,b`, an array under 2.x and one string now. The
+// one file naming this format that is made over is one that loads with an
+// error when from_v2 says a 2.x build wrote it, as with a beta of 3.0 that
+// wrote 2.x lines. It is taken as 2.x, and only when the fresh text loads
+// clean, so the next start leaves it alone.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
@@ -928,8 +933,10 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // takes it as its comment. A block at the top of the file is left alone. A
 // dotted first line hangs it on its last name, which a saved file writes as the
 // first field's first child, so a block there is left alone too, however it got
-// there. The library save never adds the block by itself; this is for a program
-// that wants it in a file it writes. Returns how many old blocks came off.
+// there. A lone Format line there comes off with on, since the new block names
+// the format. The library save never adds the block by itself; this is for a
+// program that wants it in a file it writes. Returns how many old blocks came
+// off.
 size_t shcl_set_banner(shcl_doc *d, int on);
 shcl_set_status shcl_set_empty(shcl_doc *d, const char *path, size_t plen);
 // Whether a setter could write at this path, and why not when it could not,
@@ -3545,8 +3552,10 @@ static void migrate_unload(ShclMigrateOwn *own) { shcl_free(own->doc); own->doc 
    read the line cleanly, counted in st->ambiguous for the caller to refuse
    over. A rewritten file is stamped with the version line, so the second run
    has an answer the first one did not; stamp 0 leaves it off. An older Format
-   line becomes that line where it is; a file with none gets it at the end. */
-static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int *current, int stamp) {
+   line becomes that line where it is; a file with none gets it at the end.
+   beta takes a file naming this format as 2.x too, which only shcl_upgrade
+   asks for, once the caller has said so. */
+static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int *current, int stamp, int beta) {
 	ShclArena *a = &own->a, *sc = &own->sc;
 	ShclStr whole = text, bom = s_empty();
 	if (text.n >= 3 && (unsigned char)text.p[0] == 0xEF && (unsigned char)text.p[1] == 0xBB && (unsigned char)text.p[2] == 0xBF) {
@@ -3555,7 +3564,7 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	}
 	ShclStamp named = format_line_read(a, sc, text);
 	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
-	if (version >= SHCL_FORMAT_MAJOR) { *current = 1; return whole; }
+	if (version > SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && !beta)) { *current = 1; return whole; }
 	if (version >= 0) st->from_v2 = 1;
 	/* Per line: these rules refuse it (1), or it put a 2.x comma list in
 	   brackets (2). */
@@ -3670,7 +3679,7 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    every line's scratch on top. An allocation failure goes to outer when it is
    not NULL, the recovery point of a call that holds memory of its own around
    this one, else to SHCL_OOM. */
-static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, jmp_buf *outer) {
+static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, jmp_buf *outer) {
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(outer);
 	jmp_buf panic;
@@ -3686,7 +3695,7 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	ShclStr in; in.p = text ? text : ""; in.n = len;
 	ShclMigrating st; memset(&st, 0, sizeof st); st.from_v2 = from_v2;
 	shcl_migration m; m.current = 0;
-	ShclStr r = migrate(own, in, &st, &m.current, stamp);
+	ShclStr r = migrate(own, in, &st, &m.current, stamp, beta);
 	m.ambiguous = st.ambiguous; m.lost = st.lost; m.len = r.n;
 	m.text = (char *)malloc(r.n + 1);
 	if (!m.text) {
@@ -3735,11 +3744,11 @@ static char *restamp_text(const char *text, size_t len, size_t *out_len, jmp_buf
 }
 
 shcl_migration shcl_migrate(const char *text, size_t len, int from_v2) {
-	return migrate_text(text, len, from_v2, 1, NULL);
+	return migrate_text(text, len, from_v2, 1, 0, NULL);
 }
 
 shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2) {
-	return migrate_text(text, len, from_v2, 0, NULL);
+	return migrate_text(text, len, from_v2, 0, 0, NULL);
 }
 
 static size_t swap_banner(shcl_doc *d, int on, int v2);
@@ -3754,13 +3763,17 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	up->format = version < 0 ? 2 : (uint32_t)version;
 	shcl_str keep; keep.p = text; keep.n = len;
 	int restamped = 0;
-	if (version < SHCL_FORMAT_MAJOR) {
+	if (version < SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && from_v2)) {
 		own->before = shcl_parse(text, len);
 		if (!own->before) longjmp(*panic, 1);
 		int clean = shcl_error_count(own->before) == 0;
 		shcl_migration m; memset(&m, 0, sizeof m);
-		if (!clean || from_v2) {
-			m = migrate_text(text, len, from_v2, 0, panic);
+		/* A beta of 3.0 wrote this format's line too, so only the caller can
+		   say a 2.x build wrote the file. One that loads clean is what an
+		   upgrade leaves, so a caller passing from_v2 on every start never
+		   converts it twice. */
+		if (!clean || (from_v2 && version != SHCL_FORMAT_MAJOR)) {
+			m = migrate_text(text, len, from_v2, 0, 1, panic);
 			own->migrated = m.text;
 			/* A 2.x file can load clean and still read differently now, as
 			   `a,b` does. One migrate leaves as it was has nothing to do, but an
@@ -3789,6 +3802,19 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			up->lost = m.lost + shcl_lost_count(own->fresh);
 			swap_banner(own->fresh, 1, 1);
 			keep = shcl_to_canonical(own->fresh);
+			/* A file naming this format goes only when that leaves it loading
+			   clean, so the next start, from_v2 or not, leaves the result
+			   alone. */
+			if (version == SHCL_FORMAT_MAJOR) {
+				shcl_doc *made = shcl_parse(keep.p, keep.n);
+				if (!made) longjmp(*panic, 1);
+				size_t errs = shcl_error_count(made);
+				shcl_free(made);
+				if (errs) {
+					up->current = 1; up->lost = 0;
+					keep.p = text; keep.n = len;
+				}
+			}
 		}
 	}
 	own->text = (char *)malloc(keep.n + 1);
@@ -7796,8 +7822,9 @@ static int banner_in_run(const ShclLead *l, const char *mark) { return s_starts(
    stays, and so does any other comment around one, even written right against
    it. Returns how many came off; *owed says whether the last one had a blank
    above it with no line after it to take that blank. A mark of "#" takes
-   2.x's block instead, which had no version line. */
-static size_t drop_banners(ShclVecLead *v, const char *mark, int *owed) {
+   2.x's block instead, which had no version line. With blocks 0 a block stays
+   whole, and only a Format line outside one comes off. */
+static size_t drop_banners(ShclVecLead *v, const char *mark, int blocks, int *owed) {
 	char title[64], name[64], field[16];
 	snprintf(title, sizeof title, "%s%s", mark, banner_title + 2);
 	snprintf(name, sizeof name, "%s%s", mark, banner_name + 2);
@@ -7809,10 +7836,6 @@ static size_t drop_banners(ShclVecLead *v, const char *mark, int *owed) {
 	while (i < v->len) {
 		size_t start = i, end = i + 1;
 		if (s_eq(v->data[i].text, s_lit(title))) {
-			if (prev_kept && !v->data[i].blank_before && s_eq(v->data[w - 1].text, s_lit(mark))) {
-				w--;
-				start = i - 1;
-			}
 			size_t close = end;
 			while (close < v->len && banner_in_run(&v->data[close], mark) && !s_eq(v->data[close].text, s_lit(mark))) close++;
 			if (close < v->len && banner_in_run(&v->data[close], mark)) end = close + 1;
@@ -7820,6 +7843,15 @@ static size_t drop_banners(ShclVecLead *v, const char *mark, int *owed) {
 				while (end < v->len && banner_in_run(&v->data[end], mark) &&
 				       (s_starts(v->data[end].text, field) || s_eq(v->data[end].text, s_lit(name))))
 					end++;
+			if (!blocks) {
+				while (i < end) v->data[w++] = v->data[i++];
+				prev_kept = 1;
+				continue;
+			}
+			if (prev_kept && !v->data[i].blank_before && s_eq(v->data[w - 1].text, s_lit(mark))) {
+				w--;
+				start = i - 1;
+			}
 		} else if (v3 && s_starts(v->data[i].text, SHCL_FORMAT_LINE_HEAD)) {
 			if (end < v->len && banner_in_run(&v->data[end], mark) && s_eq(v->data[end].text, s_lit(SHCL_MIGRATED_LINE))) end++;
 		} else {
@@ -7873,10 +7905,10 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) {
 		for (size_t i = 0; i < NODE(d, n).children.len; i++) ShclVecSize_push(t, &stack, NODE(d, n).children.data[i]);
 		int at_top = 0;
 		for (size_t i = 0; i < top.len && !at_top; i++) at_top = top.data[i] == n;
-		if (at_top) continue;
+		if (at_top && !on) continue;
 		for (size_t k = 0; k < nmarks; k++) {
 			if (!NODE(d, n).trivia) continue;
-			size_t gone = drop_banners(&NODE(d, n).trivia->leading, marks[k], &owed);
+			size_t gone = drop_banners(&NODE(d, n).trivia->leading, marks[k], !at_top, &owed);
 			if (gone) {
 				removed += gone;
 				NODE(d, n).blank_before |= owed;
@@ -7884,7 +7916,7 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) {
 		}
 	}
 	ShclVecLead *o = &d->orphans;
-	for (size_t k = 0; k < nmarks; k++) removed += drop_banners(o, marks[k], &owed);
+	for (size_t k = 0; k < nmarks; k++) removed += drop_banners(o, marks[k], 1, &owed);
 	if (on) {
 		int open = o->len || NODE(d, ROOT).children.len;
 		/* The lines point into the literal, which outlives any document. */

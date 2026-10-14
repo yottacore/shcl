@@ -980,6 +980,12 @@ rows=(
 	'EsFrOVU|upgrade-restamp-unsaid|upgrade -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   2\n|nothing to upgrade'
 	'EsFrOVS|migrate-restamp|migrate -|port: 80\n##    Format   2\n|0|port: 80\n##    Format   3\n|-'
 	'EsFrOVX|migrate-restamp-changed|migrate -|x: a,b\n##    Format   2\ny: 1\n|0|x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n|-'
+	## 2026101407100010: a file naming this format is taken as 2.x only by an
+	## upgrade told --from-2x, and only when it loads with an error. migrate
+	## leaves it, since its text can keep such a line and a second run would
+	## convert it again.
+	'EsgoThd|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to upgrade'
+	'EsgoThe|migrate-beta-left|migrate --from-2x -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to migrate'
 	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
 	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual. A shcl made\n  for that format reads it as written.\n\n|-"
@@ -2348,6 +2354,8 @@ fSaveSetup() {
 		upgrade-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
 		upgrade-restamp) printf 'p: 1\n##    Format   2\n' > f.shcl ;;
 		migrate-restamp) printf 'port: 80\n##    Format   2\n' > f.shcl ;;
+		upgrade-top-format) printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl ;;
+		upgrade-beta) printf 'tags: a, b\n##    Format   3\n' > f.shcl ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -2413,6 +2421,13 @@ saveCases=(
 	## An older Format line becomes this one, backed up like any upgrade
 	## (2026100717500017) and any migrate that rewrites a line (2026100916475300).
 	'EsFrOVV|upgrade-restamp|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	## The fresh file names one format, and the old line goes even from the top
+	## of the file (2026101407100001).
+	'Esgj35S|upgrade-top-format|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "##    Format   3" f.shcl && grep -qx "q: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "##    Format   2\nname: x\nq: a,b\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	## A file naming this format that loads with an error is taken as 2.x when
+	## the caller says so, backed up under the format it names, and a second
+	## run leaves the fresh file alone (2026101407100010).
+	'EsgoThf|upgrade-beta|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "tags: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v3.shcl <(printf "tags: a, b\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]] && cp f.shcl ../beta-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../beta-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'EsFrOVW|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )

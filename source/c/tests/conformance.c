@@ -5134,12 +5134,56 @@ int main(int argc, char **argv) {
 		up = shcl_upgrade(stamped, strlen(stamped), 1);
 		if (!up.current) fail("upgrade_clean", "stamped");
 		shcl_upgraded_free(&up);
+		/* 2026101407100010: with from_v2 a beta file that loads with an error
+		   is taken as 2.x now, so this holds only without it. That test is
+		   with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x. */
 		/* A beta build stamped the same Format line, so its errors are left
 		   too. */
-		const char *beta = "tags: a, b\n\n" SHCL_GEN_BANNER;
+		/* const char *beta = "tags: a, b\n\n" SHCL_GEN_BANNER;
 		up = shcl_upgrade(beta, strlen(beta), 1);
 		if (!up.current || !up_is(&up, beta) || up.format != 3) fail("upgrade_clean", "beta");
+		shcl_upgraded_free(&up); */
+	}
+	test_id("EsgoThc", "with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x");
+	{
+		/* The caller says a 2.x build wrote it, as a beta of 3.0 could have
+		   (2026101407100010). The backup name keeps the format the line
+		   names. */
+		const char *beta = "tags: a, b\n\n" SHCL_GEN_BANNER;
+		shcl_upgraded up = shcl_upgrade(beta, strlen(beta), 1);
+		if (up.current || up.format != 3 || up.lost != 0 || !up_is(&up, "tags: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_beta", up.text);
+		int e026 = 0;
+		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) e026 |= !strcmp(shcl_diag_code(up.diagnostics, i), "E026");
+		if (!e026) fail("upgrade_beta", "no E026");
+		/* What it leaves loads clean, so the next start leaves it alone. */
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, 1);
+		if (!again.current) fail("upgrade_beta", "the fresh text is not current");
+		shcl_upgraded_free(&again);
 		shcl_upgraded_free(&up);
+		/* Without from_v2, or when it loads clean, nothing changes. */
+		up = shcl_upgrade(beta, strlen(beta), 0);
+		if (!up.current || !up_is(&up, beta)) fail("upgrade_beta", "without from_v2");
+		shcl_upgraded_free(&up);
+		const char *stamped = "p: a,b\n\n" SHCL_GEN_BANNER;
+		up = shcl_upgrade(stamped, strlen(stamped), 1);
+		if (!up.current) fail("upgrade_beta", "a clean stamped file");
+		shcl_upgraded_free(&up);
+		/* Nor when the fresh text would keep an error, which the next start
+		   would take as 2.x again. */
+		const char *stuck = "a: 1\nb 2\n##    Format   3\n";
+		up = shcl_upgrade(stuck, strlen(stuck), 1);
+		if (!up.current || !up_is(&up, stuck) || up.diagnostics) fail("upgrade_beta", "stuck");
+		shcl_upgraded_free(&up);
+		/* A lone stamp at the top goes too. */
+		const char *top = "##    Format   3\nname: x\nrange: 0, 100\n";
+		up = shcl_upgrade(top, strlen(top), 1);
+		if (!up_is(&up, "name: x\nrange: [0, 100]\n\n" SHCL_GEN_BANNER)) fail("upgrade_beta", up.text);
+		shcl_upgraded_free(&up);
+		/* migrate keeps leaving it alone: its text can keep a line with an
+		   error, and a second run would take that as 2.x again. */
+		shcl_migration m = shcl_migrate(beta, strlen(beta), 1);
+		if (!m.current || m.len != strlen(beta) || memcmp(m.text, beta, m.len) != 0) fail("upgrade_beta", "migrate");
+		free(m.text);
 	}
 	test_id("Es2qPd1", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently");
 	{
@@ -5187,6 +5231,28 @@ int main(int argc, char **argv) {
 			shcl_migration m = shcl_migrate(mig[i][0], strlen(mig[i][0]), 0);
 			if (m.len != strlen(mig[i][1]) || memcmp(m.text, mig[i][1], m.len) != 0) fail("migrate_restamp", m.text);
 			free(m.text);
+		}
+	}
+	test_id("Esgj35R", "a_format_line_at_the_top_goes_when_the_block_goes_on");
+	{
+		/* The block names the format, so the file names one (2026101407100001). */
+		const char *top = "##    Format   2\nname: x\nq: a,b\n";
+		shcl_upgraded up = shcl_upgrade(top, strlen(top), 1);
+		if (!up_is(&up, "name: x\nq: [a, b]\n\n" SHCL_GEN_BANNER)) fail("top_format_line", up.text);
+		shcl_upgraded_free(&up);
+		static const struct { const char *in; int on; size_t gone; const char *want; } bc[] = {
+			{"##    Format   2\nname: x\n", 1, 1, "name: x\n\n" SHCL_GEN_BANNER},
+			/* Taking the block off leaves the top alone, as does putting one
+			   on over a whole block there. */
+			{"##    Format   2\nname: x\n", 0, 0, "##    Format   2\nname: x\n"},
+			{SHCL_GEN_BANNER "name: x\n", 1, 0, SHCL_GEN_BANNER "name: x\n\n" SHCL_GEN_BANNER},
+		};
+		for (size_t i = 0; i < sizeof bc / sizeof bc[0]; i++) {
+			shcl_doc *d = shcl_parse(bc[i].in, strlen(bc[i].in));
+			size_t gone = shcl_set_banner(d, bc[i].on);
+			shcl_str c = shcl_to_canonical(d);
+			if (gone != bc[i].gone || c.n != strlen(bc[i].want) || memcmp(c.p, bc[i].want, c.n) != 0) fail("top_format_line", bc[i].in);
+			shcl_free(d);
 		}
 	}
 	test_id("Es2qPd2", "upgrade_writes_a_fresh_file_with_the_info_block");

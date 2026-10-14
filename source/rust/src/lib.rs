@@ -2883,14 +2883,14 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// so the second run has an answer the first one did not. An older Format
 /// line becomes that line where it is; a file with none gets it at the end.
 pub fn migrate(text: &str, from_v2: bool) -> Migration {
-	migrate_text(text, from_v2, true)
+	migrate_text(text, from_v2, true, false)
 }
 
 /// migrate() without the version line or the migrated note, for a program
 /// that writes `GEN_BANNER` itself, which includes the version line. The
 /// next run can tell the result is current only once that is written.
 pub fn migrate_unstamped(text: &str, from_v2: bool) -> Migration {
-	migrate_text(text, from_v2, false)
+	migrate_text(text, from_v2, false, false)
 }
 
 /// The line ending most of the text's lines end with. A tie goes to LF.
@@ -2900,14 +2900,16 @@ fn majority_eol(text: &str) -> &'static str {
 	if crlf > lf { "\r\n" } else { "\n" }
 }
 
-fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
+/// `beta` takes a file naming this format as 2.x too, which only `upgrade`
+/// asks for, once the caller has said so.
+fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool) -> Migration {
 	let (bom, body_text) = match text.strip_prefix('\u{feff}') {
 		Some(t) => ("\u{feff}", t),
 		None => ("", text),
 	};
 	let named = format_line_read(body_text);
 	let version = (named.status == Status::Good).then_some(named.value);
-	if version.is_some_and(|n| n >= FORMAT_MAJOR) {
+	if version.is_some_and(|n| n > FORMAT_MAJOR || (n == FORMAT_MAJOR && !beta)) {
 		return Migration {
 			text: text.to_string(),
 			current: true,
@@ -3034,7 +3036,9 @@ pub struct Upgrade {
 	/// The input loads with no error under these rules and, with `from_v2`,
 	/// migrates to the same text and names no older format, or it names this
 	/// format, so it is left as it is. A beta build of 3.0 stamped the same
-	/// Format line as a release, so a beta file is current here too.
+	/// Format line as a release, so a beta file is current here too, unless
+	/// `from_v2` says a 2.x build wrote it, it loads with an error, and the
+	/// fresh text would not.
 	pub current: bool,
 	/// The format the input was written for, which goes in the backup's
 	/// name: what its Format line names, else 2.
@@ -3066,6 +3070,10 @@ pub struct Upgrade {
 /// still made over when `migrate` would change it, as it would `p: a,b`,
 /// an array under 2.x and one string now. One it would not change that names
 /// an older format gets this format on that Format line, and nothing else.
+/// The one file naming this format that is made over is one that loads with
+/// an error when `from_v2` says a 2.x build wrote it, as with a beta of 3.0
+/// that wrote 2.x lines. It is taken as 2.x, and only when the fresh text
+/// loads clean, so the next start leaves it alone.
 pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
@@ -3078,15 +3086,19 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 		diagnostics: Vec::new(),
 		backup: String::new(),
 	};
-	if version.is_some_and(|v| v >= FORMAT_MAJOR) {
+	if version.is_some_and(|v| v > FORMAT_MAJOR || (v == FORMAT_MAJOR && !from_v2)) {
 		return up;
 	}
 	let before = Document::parse(text);
 	let clean = before.error_count() == 0;
-	if clean && !from_v2 {
+	// A beta of 3.0 wrote this format's line too, so only the caller can say
+	// a 2.x build wrote the file. One that loads clean is what an upgrade
+	// leaves, so a caller passing from_v2 on every start never converts it
+	// twice.
+	if clean && (!from_v2 || version == Some(FORMAT_MAJOR)) {
 		return up;
 	}
-	let m = migrate_text(text, from_v2, false);
+	let m = migrate_text(text, from_v2, false, true);
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
@@ -3105,9 +3117,18 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 		return up;
 	}
 	let mut fresh = Document::parse(&m.text);
-	up.lost = m.lost + fresh.lost_count();
+	let lost = m.lost + fresh.lost_count();
 	fresh.swap_banner(true, true);
-	up.text = fresh.to_canonical();
+	let made = fresh.to_canonical();
+	// A file naming this format goes only when that leaves it loading clean,
+	// so the next start, from_v2 or not, leaves the result alone.
+	if version == Some(FORMAT_MAJOR) && Document::parse(&made).error_count() != 0 {
+		up.current = true;
+		up.diagnostics.clear();
+		return up;
+	}
+	up.lost = lost;
+	up.text = made;
 	up
 }
 
@@ -7969,8 +7990,10 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 /// line in a block stays, and so does any other comment around one, even
 /// written right against it. Returns how many came off, and whether the last
 /// one had a blank above it with no line after it to take that blank. A
-/// `mark` of `#` takes 2.x's block instead, which had no version line.
-fn drop_banners(leads: &mut Vec<Lead>, mark: &str) -> (usize, bool) {
+/// `mark` of `#` takes 2.x's block instead, which had no version line. With
+/// `blocks` false a block stays whole, and only a Format line outside one
+/// comes off.
+fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool) {
 	let in_run = |l: &Lead| l.text.starts_with(mark) && !l.blank_before;
 	let title = format!("{mark}{}", &BANNER_TITLE[2..]);
 	let name = format!("{mark}{}", &BANNER_NAME[2..]);
@@ -7982,10 +8005,6 @@ fn drop_banners(leads: &mut Vec<Lead>, mark: &str) -> (usize, bool) {
 		let mut start = i;
 		let mut end = i + 1;
 		if leads[i].text == title {
-			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
-				keep.pop();
-				start = i - 1;
-			}
 			match (end..leads.len())
 				.take_while(|&k| in_run(&leads[k]))
 				.find(|&k| leads[k].text == mark)
@@ -7999,6 +8018,16 @@ fn drop_banners(leads: &mut Vec<Lead>, mark: &str) -> (usize, bool) {
 						end += 1;
 					}
 				}
+			}
+			if !blocks {
+				keep.extend_from_slice(&leads[i..end]);
+				prev_kept = true;
+				i = end;
+				continue;
+			}
+			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
+				keep.pop();
+				start = i - 1;
 			}
 		} else if mark == "##" && leads[i].text.starts_with(FORMAT_LINE_HEAD) {
 			if end < leads.len() && in_run(&leads[end]) && leads[end].text == MIGRATED_LINE {
@@ -11597,9 +11626,10 @@ impl Document {
 	/// as its comment. A block at the top of the file is left alone.
 	/// A dotted first line hangs it on its last name, which a saved file
 	/// writes as the first field's first child, so a block there is left
-	/// alone too, however it got there. The library save never adds the
-	/// block by itself; this is for a program that wants it in a file it
-	/// writes. Returns how many old blocks came off.
+	/// alone too, however it got there. A lone Format line there comes off
+	/// with `on`, since the new block names the format. The library save
+	/// never adds the block by itself; this is for a program that wants it in
+	/// a file it writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
 		self.swap_banner(on, false)
 	}
@@ -11621,14 +11651,15 @@ impl Document {
 		let mut stack: Vec<usize> = self.arena[ROOT].children.clone();
 		while let Some(n) = stack.pop() {
 			stack.extend_from_slice(&self.arena[n].children);
-			if top.contains(&n) {
+			let at_top = top.contains(&n);
+			if at_top && !on {
 				continue;
 			}
 			for mark in marks {
 				let Some(tr) = self.arena[n].trivia.as_deref_mut() else {
 					continue;
 				};
-				let (gone, blank) = drop_banners(&mut tr.leading, mark);
+				let (gone, blank) = drop_banners(&mut tr.leading, mark, !at_top);
 				if gone > 0 {
 					removed += gone;
 					self.arena[n].blank_before |= blank;
@@ -11636,7 +11667,7 @@ impl Document {
 			}
 		}
 		for mark in marks {
-			removed += drop_banners(&mut self.orphans, mark).0;
+			removed += drop_banners(&mut self.orphans, mark, true).0;
 		}
 		if on {
 			let open = !self.orphans.is_empty() || !self.arena[ROOT].children.is_empty();

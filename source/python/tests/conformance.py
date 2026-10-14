@@ -4505,11 +4505,48 @@ def main():
 		raise SystemExit(f"clean: {up.current} {up.text!r} {up.diagnostics}")
 	if not shcl.upgrade(f"p: a,b\n\n{shcl.GEN_BANNER}", True).current:
 		raise SystemExit("stamped: not current")
+	# 2026101407100010: with from_v2 a beta file that loads with an error is
+	# taken as 2.x now, so this holds only without it. That test is
+	# with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x.
 	# A beta build stamped the same Format line, so its errors are left too.
+	# up_beta = f"tags: a, b\n\n{shcl.GEN_BANNER}"
+	# up = shcl.upgrade(up_beta, True)
+	# if not up.current or up.text != up_beta or up.format != 3:
+	# 	raise SystemExit(f"beta: {up.current} {up.format} {up.text!r}")
+
+	test_id("EsgoThb", "with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x")
+	# The caller says a 2.x build wrote it, as a beta of 3.0 could have
+	# (2026101407100010). The backup name keeps the format the line names.
 	up_beta = f"tags: a, b\n\n{shcl.GEN_BANNER}"
 	up = shcl.upgrade(up_beta, True)
-	if not up.current or up.text != up_beta or up.format != 3:
-		raise SystemExit(f"beta: {up.current} {up.format} {up.text!r}")
+	if up.current or up.format != 3 or up.lost != 0 or up.text != f"tags: [a, b]\n\n{shcl.GEN_BANNER}":
+		raise SystemExit(f"beta: {up.current} {up.format} {up.lost} {up.text!r}")
+	if not any(d.code == "E026" for d in up.diagnostics):
+		raise SystemExit(f"beta: no E026 in {up.diagnostics}")
+	# What it leaves loads clean, so the next start leaves it alone.
+	if not shcl.upgrade(up.text, True).current:
+		raise SystemExit("beta: the fresh text is not current")
+	# Without from_v2, or when it loads clean, nothing changes.
+	up = shcl.upgrade(up_beta, False)
+	if not up.current or up.text != up_beta:
+		raise SystemExit(f"beta without from_v2: {up.current} {up.text!r}")
+	if not shcl.upgrade(f"p: a,b\n\n{shcl.GEN_BANNER}", True).current:
+		raise SystemExit("beta: a clean stamped file is not current")
+	# Nor when the fresh text would keep an error, which the next start would
+	# take as 2.x again.
+	up_stuck = "a: 1\nb 2\n##    Format   3\n"
+	up = shcl.upgrade(up_stuck, True)
+	if not up.current or up.text != up_stuck or up.diagnostics:
+		raise SystemExit(f"beta stuck: {up.current} {up.text!r} {up.diagnostics}")
+	# A lone stamp at the top goes too.
+	up = shcl.upgrade("##    Format   3\nname: x\nrange: 0, 100\n", True)
+	if up.text != f"name: x\nrange: [0, 100]\n\n{shcl.GEN_BANNER}":
+		raise SystemExit(f"beta top stamp: {up.text!r}")
+	# migrate keeps leaving it alone: its text can keep a line with an error,
+	# and a second run would take that as 2.x again.
+	up_m = shcl.migrate(up_beta, True)
+	if not up_m.current or up_m.text != up_beta:
+		raise SystemExit(f"beta migrate: {up_m.current} {up_m.text!r}")
 
 	test_id("Es2k1DD", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently")
 	# The caller says it is 2.x, where a,b was an array.
@@ -4550,6 +4587,27 @@ def main():
 	):
 		if shcl.migrate(up_in, False).text != up_want:
 			raise SystemExit(f"migrate {up_in!r}: {shcl.migrate(up_in, False).text!r}")
+
+	test_id("Esgj35Q", "a_format_line_at_the_top_goes_when_the_block_goes_on")
+	# The block names the format, so the file names one (2026101407100001).
+	up = shcl.upgrade("##    Format   2\nname: x\nq: a,b\n", True)
+	if up.text != f"name: x\nq: [a, b]\n\n{shcl.GEN_BANNER}":
+		raise SystemExit(f"upgrade: {up.text!r}")
+	top_doc = shcl.Document.parse("##    Format   2\nname: x\n")
+	top_n = top_doc.set_banner(True)
+	if top_n != 1 or top_doc.to_canonical() != f"name: x\n\n{shcl.GEN_BANNER}":
+		raise SystemExit(f"on: {top_n} {top_doc.to_canonical()!r}")
+	# Taking the block off leaves the top alone, as does putting one on over
+	# a whole block there.
+	top_doc = shcl.Document.parse("##    Format   2\nname: x\n")
+	top_n = top_doc.set_banner(False)
+	if top_n != 0 or top_doc.to_canonical() != "##    Format   2\nname: x\n":
+		raise SystemExit(f"off: {top_n} {top_doc.to_canonical()!r}")
+	top_text = f"{shcl.GEN_BANNER}name: x\n"
+	top_doc = shcl.Document.parse(top_text)
+	top_n = top_doc.set_banner(True)
+	if top_n != 0 or top_doc.to_canonical() != f"{top_text}\n{shcl.GEN_BANNER}":
+		raise SystemExit(f"top block: {top_n} {top_doc.to_canonical()!r}")
 
 	test_id("Es2k1Fd", "upgrade_writes_a_fresh_file_with_the_info_block")
 	up = shcl.upgrade(up_v2, False)
