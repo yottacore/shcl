@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `fmt --check` with `--layer` or `--set` always exits 6, and its message names a `--write` the CLI refuses
 	- ID: 2026101407100002
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 2
@@ -49,11 +49,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261014, all four CLIs.
 	- Origin: `--check` on `fmt` came in `af1fd746` (2026-09-19), and `--layer` and `--set` were never judged against it. Not seen by an earlier round. Confirmed.
 	- Sweep: `migrate --check` and `check` with the same two options.
+	- Actual cause: `fmt --check` compares FILE with the document it would print, and with a layer or an edit that is the merged or edited document, never FILE. Nothing refused the pair.
+	- Actual fix: `fmt --check` with `--layer`, `--set` or any of its 4 siblings is a usage error at exit 1, `--check cannot be combined with --layer (see --help)`, naming the option given. The help's refused list has it beside `--write`, and so do the man page and spec.md. The check sits in each CLI's option check (Rust and C `check_opts`, Go `checkOpts`, Python `check_opts`).
+	- Swept: `migrate --check` and `check` already refuse `--layer` and the `--set` options at exit 1, since neither subcommand takes them (`option --layer not valid for migrate (see --help)`, and `check` names the pipe to use instead). Run in all 4 CLIs. The 5 `--set` options share one list, so the refusal covers all of them.
+	- Verified: the 3 new rows fail on dev's 4 CLIs (exit 0 or 6) and pass after. Also cargo build and the other 3 CLIs, cli-regress (580 rows, 3351 checks, all 4 CLIs), crosscheck over the corpus (22053 comparisons), check-docs with `SHCL_GATE_REF=main`, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for the host and windows, ruff, mypy, cppcheck at the normal level, the C CLI under gcc and clang, shellcheck and markdownlint. The help stays byte-identical in all 4 at 80 columns.
+	- Test case: cli-regress `EshMywd` (`fmt-check-layer`), `EshMywe` (`fmt-check-set`) and `EshMywf` (`fmt-check-remove`).
+	- Branch: `usagemsgs`
+	- Commit: `75c1067f`
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and the Sweep has its Swept answer.
+	- Closed: 20261014-110400
 
 - `get --on-bad=default` without `--default` prints an empty line at exit 0 for a missing or bad value
 	- ID: 2026101407100004
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 4
@@ -66,6 +75,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261014, all four CLIs.
 	- Origin: `--on-bad` is from `5756a593` (2026-07-12). Not seen by an earlier round. Confirmed.
 	- Note: the 20261007 call that a supplied `--default` substitutes silently stands. This is the case with none supplied.
+	- Actual cause: the default mode prints what `--default` gave, and with no `--default` that was an empty string. Nothing tied the mode to the option.
+	- Actual fix: `get --on-bad=default` without `--default` is a usage error at exit 1, `--on-bad=default needs --default (see --help)`, whatever the read would give. An empty `--default=` still counts as given, in all 4. The help's refused list, the man page and spec.md say so. A supplied `--default` still substitutes silently.
+	- Swept: only `get` takes `--on-bad`. The check is in each CLI's option check, beside the `--default` with `--on-bad=error` one. crosscheck, sanitize-c and the docs pass `--on-bad=error` only, and the one row using `--on-bad=default` (`EomzUys`) gives a `--default`.
+	- Verified: the 2 new rows fail on dev's 4 CLIs (an empty line at exit 0) and pass after. The gate list on 2026101407100002 covers this branch.
+	- Test case: cli-regress `EshMywg` (`onbad-default-needs-default`, a missing path) and `EshMywh` (`onbad-default-needs-default-good`, a good one).
+	- Branch: `usagemsgs`
+	- Commit: `75c1067f`
+	- Acceptance signoff: Self-closed: the message is the one the item named, and the new rows failed before and pass after.
+	- Closed: 20261014-110400
 
 - The help, the man page, the README and the CLI style guide disagree on what the CLI does
 	- ID: 2026101407100006
@@ -91,7 +109,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Seven usage messages end without `(see --help)` and name no fix
 	- ID: 2026101407100007
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 7
@@ -100,6 +118,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: each ends with `(see --help)` or says the fix, or the guide says which messages are exempt. Stderr prose is pinned by cli-regress rows, so those rows move with it.
 	- Reproduced: 20261014, all four CLIs.
 	- Origin: several commits, not blamed. Not seen by an earlier round. Confirmed.
+	- Actual cause: every op-script error goes out through one print site per CLI, and so does every `--set` refusal, and neither added the pointer. The 7 listed were a sample: 45 cli-regress rows got an exit 1 with neither the pointer nor a fix.
+	- Actual fix: each op-script error and each `--set`, `--set-literal`, `-default` and `--remove` refusal ends with `(see --help)`, added at its print site, so a new message there gets it too. C's field-count message, which printed on its own, goes through `op_err` now. The stdin message gets the pointer too.
+	- Decisions:
+		- 20261014: `bad banner` gets the pointer like every other op error, `op line 1: bad banner: maybe (on or off) (see --help)`, the way `bad --remove value (want PATH) (see --help)` already reads. One print site with no exception is what keeps a new op message from missing it (me).
+		- 20261014: a message that says its own fix gets no pointer, and cli-regress lists them: `(try --X=VALUE)`, `write it --X=VALUE`, `drop --write to print, or pass a FILE`, `check`'s `Pipe instead:`, `invalid argument encoding (expected UTF-8)`, and `explain`'s `(shcl explain lists them all)` (me).
+	- Swept: the op-line and `--set` print sites in all 4 CLIs, and every exit 1 any cli-regress row gets, in all 4, through the new check. Rust's `set_value_opt` fallback arm, which no caller reaches, got the pointer too.
+	- Verified: the new check fails on dev's 4 CLIs (180 lines: 45 rows in each of the 4) and passes after. The 27 rows that pinned the old text moved with it. The gate list on 2026101407100002 covers this branch.
+	- Test case: cli-regress `EshMywc` (`usage-errors-name-a-fix`): every exit 1 a row gets ends with `(see --help)` or one of the listed fixes. Rows `Equbm1b` (`banner-bad-value`) and the `ops-too-few-*` rows pin the new text exactly.
+	- Branch: `usagemsgs`
+	- Commit: `75c1067f`
+	- Acceptance signoff: Self-closed: reproduced, the new check failed before and passes after, and the two wording calls are noted above.
+	- Closed: 20261014-110400
 
 - The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
 	- ID: 2026101407100008
