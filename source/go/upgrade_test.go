@@ -41,10 +41,58 @@ func TestUpgradeLeavesACleanOrStampedFile(t *testing.T) {
 	if up := Upgrade("p: a,b\n\n"+GenBanner, true); !up.Current {
 		t.Fatalf("stamped file: %+v", up)
 	}
+	// 2026101407100010: with fromV2 a beta file that loads with an error is
+	// taken as 2.x now, so this holds only without it. That test is
+	// TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x.
 	// A beta build stamped the same Format line, so its errors are left too.
+	// beta := "tags: a, b\n\n" + GenBanner
+	// if up := Upgrade(beta, true); !up.Current || up.Text != beta || up.Format != 3 {
+	// 	t.Fatalf("beta file: %+v", up)
+	// }
+}
+
+func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
+	defer testID(t, "EsgoTha")
+	t.Setenv("SHCL_TEST_CLOCK", upgradeClock)
+	// The caller says a 2.x build wrote it, as a beta of 3.0 could have
+	// (2026101407100010). The backup name keeps the format the line names.
 	beta := "tags: a, b\n\n" + GenBanner
-	if up := Upgrade(beta, true); !up.Current || up.Text != beta || up.Format != 3 {
+	up := Upgrade(beta, true)
+	if up.Current || up.Format != 3 || up.Lost != 0 || up.Text != "tags: [a, b]\n\n"+GenBanner {
 		t.Fatalf("beta file: %+v", up)
+	}
+	e026 := false
+	for _, d := range up.Diagnostics {
+		e026 = e026 || d.Code == "E026"
+	}
+	if !e026 {
+		t.Fatalf("no E026 in %+v", up.Diagnostics)
+	}
+	// What it leaves loads clean, so the next start leaves it alone.
+	if !Upgrade(up.Text, true).Current {
+		t.Fatal("the fresh text is not current")
+	}
+	// Without fromV2, or when it loads clean, nothing changes.
+	if up := Upgrade(beta, false); !up.Current || up.Text != beta {
+		t.Fatalf("without fromV2: %+v", up)
+	}
+	if !Upgrade("p: a,b\n\n"+GenBanner, true).Current {
+		t.Fatal("a clean stamped file is not current")
+	}
+	// Nor when the fresh text would keep an error, which the next start would
+	// take as 2.x again.
+	stuck := "a: 1\nb 2\n##    Format   3\n"
+	if up := Upgrade(stuck, true); !up.Current || up.Text != stuck || len(up.Diagnostics) != 0 {
+		t.Fatalf("stuck: %+v", up)
+	}
+	// A lone stamp at the top goes too.
+	if got, want := Upgrade("##    Format   3\nname: x\nrange: 0, 100\n", true).Text, "name: x\nrange: [0, 100]\n\n"+GenBanner; got != want {
+		t.Fatalf("top stamp: got %q, want %q", got, want)
+	}
+	// Migrate keeps leaving it alone: its text can keep a line with an error,
+	// and a second run would take that as 2.x again.
+	if m := Migrate(beta, true); !m.Current || m.Text != beta {
+		t.Fatalf("migrate: %+v", m)
 	}
 }
 
@@ -103,6 +151,30 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 		if got := Migrate(c[0], false).Text; got != c[1] {
 			t.Fatalf("migrate %q: got %q, want %q", c[0], got, c[1])
 		}
+	}
+}
+
+func TestAFormatLineAtTheTopGoesWhenTheBlockGoesOn(t *testing.T) {
+	defer testID(t, "Esgj35P")
+	t.Setenv("SHCL_TEST_CLOCK", upgradeClock)
+	// The block names the format, so the file names one (2026101407100001).
+	if got, want := Upgrade("##    Format   2\nname: x\nq: a,b\n", true).Text, "name: x\nq: [a, b]\n\n"+GenBanner; got != want {
+		t.Fatalf("upgrade: got %q, want %q", got, want)
+	}
+	doc := Parse("##    Format   2\nname: x\n")
+	if n := doc.SetBanner(true); n != 1 || doc.ToCanonical() != "name: x\n\n"+GenBanner {
+		t.Fatalf("on: %d %q", n, doc.ToCanonical())
+	}
+	// Taking the block off leaves the top alone, as does putting one on over
+	// a whole block there.
+	doc = Parse("##    Format   2\nname: x\n")
+	if n := doc.SetBanner(false); n != 0 || doc.ToCanonical() != "##    Format   2\nname: x\n" {
+		t.Fatalf("off: %d %q", n, doc.ToCanonical())
+	}
+	top := GenBanner + "name: x\n"
+	doc = Parse(top)
+	if n := doc.SetBanner(true); n != 0 || doc.ToCanonical() != top+"\n"+GenBanner {
+		t.Fatalf("top block: %d %q", n, doc.ToCanonical())
 	}
 }
 

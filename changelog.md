@@ -52,7 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`, in local time.
 
-- A file a pre-release build of 3.0 stamped `Format 3` is read as current, and `migrate` and `upgrade` leave it alone. Nothing tells it apart from a file this release wrote. A line the current rules refuse says so when it loads.
+- A file a pre-release build of 3.0 stamped `Format 3` is read as current, and `migrate` and `upgrade` leave it alone. Nothing tells it apart from a file this release wrote. A line the current rules refuse says so when it loads. With `upgrade --from-2x` or `upgrade_file(path, true)`, one that loads with an error is taken as 2.x and backed up as `format-v3`, when the fresh file loads clean.
 
 - Exit 1 is a usage error only. A save-gate refusal is 7, and a file or stream that cannot be read or written is 8.
 
@@ -122,7 +122,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `upgrade_file()` in every binding, for a program to call on start: a config file it cannot load clean is kept under a timestamped backup name and written fresh, with whatever settings carry over and the info block. A file that loads clean is left alone, unless the caller says it is 2.x and it reads differently now. When the only change would be an older Format line, that line alone is rewritten to name this format, after the backup. `upgrade()` is the text half, and `backup_file_name()` and `write_backup()` the backup half. `shcl upgrade FILE` does the same, printing or with `--write`.
 
-- `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay.
+- `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay. A lone Format line comes off when the new block goes on, even above the first field, so the file names one format. `upgrade` gets the same, so an older Format line at the top of a 2.x file no longer stays above the new block.
 
 - `clear_comments()` in every binding, and the `clear-comments` op, take off the comment lines above a node, so a comment can be replaced. `comments()` reads them.
 

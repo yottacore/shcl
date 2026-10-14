@@ -604,7 +604,7 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 
 - A program may also give up on an old file: read what it can, then write a fresh one from the values it kept. That is fine for every program using SHCL so far.
 
-- Files stamped `Format 3` by a pre-release build are on their own, as 2.x files are. `migrate` treats them as current, and a program can give up on one the same way. Item 2026100115403385.
+- Files stamped `Format 3` by a pre-release build are on their own, as 2.x files are. `migrate` treats them as current, and a program can give up on one the same way. Item 2026100115403385. `upgrade --from-2x` is the exception: the caller says a 2.x build wrote it, so one that loads with an error is taken as 2.x when the fresh file loads clean (2026101407100010).
 
 ## Alternative ideas
 

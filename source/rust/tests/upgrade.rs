@@ -9,7 +9,7 @@
 mod common;
 
 use common::test_id;
-use shcl::{GEN_BANNER, UpgradeError, backup_file_name, migrate, upgrade, upgrade_file};
+use shcl::{Document, GEN_BANNER, UpgradeError, backup_file_name, migrate, upgrade, upgrade_file};
 
 const CLOCK: &str = "2026-10-04 00:15:00 -420 PDT";
 
@@ -40,10 +40,47 @@ fn upgrade_leaves_a_clean_or_stamped_file() {
 	assert!(up.current && up.text == clean && up.diagnostics.is_empty());
 	let up = upgrade(&stamped_comma_list(), true);
 	assert!(up.current);
+	// 2026101407100010: with from_v2 a beta file that loads with an error is
+	// taken as 2.x now, so this holds only without it. That test is
+	// with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x.
 	// A beta build stamped the same Format line, so its errors are left too.
+	// let beta = format!("tags: a, b\n\n{}", GEN_BANNER);
+	// let up = upgrade(&beta, true);
+	// assert!(up.current && up.text == beta && up.format == 3);
+}
+
+#[test]
+fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
+	let _id = test_id("EsgoThZ");
+	pin_clock();
+	// The caller says a 2.x build wrote it, as a beta of 3.0 could have
+	// (2026101407100010). The backup name keeps the format the line names.
 	let beta = format!("tags: a, b\n\n{}", GEN_BANNER);
 	let up = upgrade(&beta, true);
-	assert!(up.current && up.text == beta && up.format == 3);
+	assert!(!up.current && up.format == 3 && up.lost == 0);
+	assert!(up.diagnostics.iter().any(|d| d.code == "E026"));
+	assert_eq!(up.text, format!("tags: [a, b]\n\n{}", GEN_BANNER));
+	// What it leaves loads clean, so the next start leaves it alone.
+	assert!(upgrade(&up.text, true).current);
+	// Without from_v2, or when it loads clean, nothing changes.
+	let up = upgrade(&beta, false);
+	assert!(up.current && up.text == beta);
+	assert!(upgrade(&stamped_comma_list(), true).current);
+	// Nor when the fresh text would keep an error, which the next start would
+	// take as 2.x again.
+	let stuck = "a: 1\nb 2\n##    Format   3\n";
+	let up = upgrade(stuck, true);
+	assert!(up.current && up.text == stuck && up.diagnostics.is_empty());
+	// A lone stamp at the top goes too.
+	let up = upgrade("##    Format   3\nname: x\nrange: 0, 100\n", true);
+	assert_eq!(
+		up.text,
+		format!("name: x\nrange: [0, 100]\n\n{}", GEN_BANNER)
+	);
+	// migrate keeps leaving it alone: its text can keep a line with an error,
+	// and a second run would take that as 2.x again.
+	let m = migrate(&beta, true);
+	assert!(m.current && m.text == beta);
 }
 
 fn stamped_comma_list() -> String {
@@ -92,6 +129,27 @@ fn an_older_format_line_becomes_this_one_in_place() {
 		migrate("port: 80\n", false).text,
 		"port: 80\n##    Format   3\n"
 	);
+}
+
+#[test]
+fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
+	let _id = test_id("Esgj35O");
+	pin_clock();
+	// The block names the format, so the file names one (2026101407100001).
+	let up = upgrade("##    Format   2\nname: x\nq: a,b\n", true);
+	assert_eq!(up.text, format!("name: x\nq: [a, b]\n\n{}", GEN_BANNER));
+	let mut doc = Document::parse("##    Format   2\nname: x\n");
+	assert_eq!(doc.set_banner(true), 1);
+	assert_eq!(doc.to_canonical(), format!("name: x\n\n{}", GEN_BANNER));
+	// Taking the block off leaves the top alone, as does putting one on over
+	// a whole block there.
+	let mut doc = Document::parse("##    Format   2\nname: x\n");
+	assert_eq!(doc.set_banner(false), 0);
+	assert_eq!(doc.to_canonical(), "##    Format   2\nname: x\n");
+	let top = format!("{}name: x\n", GEN_BANNER);
+	let mut doc = Document::parse(&top);
+	assert_eq!(doc.set_banner(true), 0);
+	assert_eq!(doc.to_canonical(), format!("{}\n{}", top, GEN_BANNER));
 }
 
 #[test]
