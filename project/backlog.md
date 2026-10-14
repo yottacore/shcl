@@ -163,7 +163,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `load_and_validate` takes schema text, so a cached schema is re-parsed on every load, and the two-step form differs
 	- ID: 2026101407100013
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
 	- Priority: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 13, from the consumer survey
@@ -173,7 +174,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A form taking a schema document with the one-shot's combined list and strict rule, or a spec sentence saying how the two-step differs and how to merge.
 	- Decisions:
 		- 20261014: a new call beside the old one, `load_and_validate_with`, taking a parsed schema document, with the one-shot's combined diagnostics and strict rule (JC). The text form stays.
+		- 20261014: the schema is the type `validate` takes in each binding: Rust `&Document`, Go `*Document`, Python `Document`, C `shcl_doc *`, C++ `const Document &` (me).
+		- 20261014: only the text form skips an empty schema. An empty schema document is validated against like any other, so every field is unknown (`V001`), which is what `validate` gives it (me).
 	- Reason: a program that validates on every start shouldn't parse its embedded schema each time, and the strict difference is a trap.
+	- Actual fix: `load_and_validate_with` in all four and C++ (Go `LoadAndValidateWith`, C `shcl_load_and_validate_with`). `load_and_validate` parses its schema text and calls it, so the two share one path; an empty schema text still skips validation there. spec.md names the new call, says how parse then validate differs, and adds it to the V099 and Strict lists. Changelog line under New. Python's `__all__` is unchanged, since both calls are `Document` methods there as in Rust.
+	- Swept: every caller of the one-shot in `source/`, the runners, the C++ veneer and oom_hook. No CLI calls it. The strict entry-point list in each runner and the C++ smoke now include the new call. `check-veneer.bash` counts it made by `shcl.hpp`.
+	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang, the C CLI under both, the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (22053 comparisons) over all 4 CLIs. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. With the text form split off its own path and made to differ, each runner's new test went red: Rust and Go at Strict, Python and C at Loose. oom_hook went red with the new call's recovery leaking.
+	- Test case: `load_and_validate_with_matches_the_text_form`, one fixture in every runner: Rust `Eshi8hz`, Go `Eshi8i0`, Python `Eshi8i1` and C `Eshi8i2`. Each compares strict result, every diagnostic line and the canonical text against `load_and_validate` for each corpus schema at Loose, Standard and Strict, reusing one schema document, plus a validation error alone at Strict and a schema that doesn't load. C++'s checks are in `EjtkR0S` (veneer smoke), and the C recovery path in `EoH8aeO` (oom_hook).
+	- Branch: `validwith`
+	- Commit: `3305630e`
+	- Acceptance signoff: Self-closed: it is the call and semantics JC named, and its tests pass. The two (me) calls above are on the item.
+	- Closed: 20261014-122817
 
 - `Cargo.toml` has no `rust-version`, so cargo 1.85 to 1.87 fails on a let-chain syntax error rather than naming the version the crate needs
 	- ID: 2026101411292443
