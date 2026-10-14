@@ -2096,6 +2096,12 @@ _OP_FIELDS = {
 	"int-default": 3, "float-default": 3, "bool-default": 3, "string-default": 3,
 	"datetime-default": 3, "literal-default": 3,
 }
+# Any number of elements, none included, but always a PATH.
+_OP_FIELDS_AT_LEAST = {
+	"int-array": 2, "float-array": 2, "bool-array": 2, "string-array": 2, "datetime-array": 2,
+	"int-array-default": 2, "float-array-default": 2, "bool-array-default": 2,
+	"string-array-default": 2, "datetime-array-default": 2,
+}
 
 
 def apply_op(doc, line):
@@ -2103,10 +2109,14 @@ def apply_op(doc, line):
 	# Every op but the array forms takes a fixed number of tab-separated fields.
 	# Extra ones used to be dropped, so a `raw` whose content held a literal tab
 	# lost everything after it and still reported success; the escape for a tab
-	# inside a value is `◉TAB◉`.
+	# inside a value is `◉TAB◉`. Missing ones read as empty, so
+	# `raw<TAB>n<TAB>info` wrote an empty block (2026101407100003).
 	want = _OP_FIELDS.get(f[0])
-	if want is not None and len(f) > want:
+	if want is not None and len(f) != want:
 		raise ValueError(f"{f[0]} takes {want} tab-separated field(s), got {len(f)}")
+	least = _OP_FIELDS_AT_LEAST.get(f[0])
+	if least is not None and len(f) < least:
+		raise ValueError(f"{f[0]} takes at least {least} tab-separated field(s), got {len(f)}")
 
 	def get(i):
 		return f[i] if i < len(f) else ""
@@ -2261,7 +2271,9 @@ def do_set(o):
 		# One CR off each piece: the CR of a CRLF, or of a CRLF at EOF that lost
 		# its LF. A second one is the value's.
 		line = line[:-1] if line.endswith("\r") else line
-		if line == "" or line.startswith("#"):
+		# A line of blanks is skipped like an empty one, so an indented blank
+		# line in a here-doc isn't an op with no name (2026101407100005).
+		if line.strip(" \t\r") == "" or line.startswith("#"):
 			continue
 		try:
 			apply_op(doc, line)

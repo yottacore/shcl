@@ -100,6 +100,34 @@ const UNKNOWN_OP: &str = "unknown op: ";
 
 fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 	let f: Vec<&str> = line.split('\t').collect();
+	// The CLI's field count, both ways (2026101407100003).
+	let (want, at_least) = match f[0] {
+		"empty" | "remove" | "clear-comments" | "banner" => (2, false),
+		"raw" | "raw-default" => (4, false),
+		"int" | "float" | "bool" | "string" | "datetime" | "literal" | "comment"
+		| "int-default" | "float-default" | "bool-default" | "string-default"
+		| "datetime-default" | "literal-default" => (3, false),
+		"int-array"
+		| "float-array"
+		| "bool-array"
+		| "string-array"
+		| "datetime-array"
+		| "int-array-default"
+		| "float-array-default"
+		| "bool-array-default"
+		| "string-array-default"
+		| "datetime-array-default" => (2, true),
+		_ => (0, false),
+	};
+	if want != 0 && (f.len() < want || (!at_least && f.len() > want)) {
+		return Err(format!(
+			"{} takes {}{} tab-separated field(s), got {}",
+			f[0],
+			if at_least { "at least " } else { "" },
+			want,
+			f.len()
+		));
+	}
 	let path = f.get(1).copied().unwrap_or("");
 	let v = f.get(2).copied().unwrap_or("");
 	let pint = |s: &str| s.parse::<i64>().map_err(|_| format!("bad int: {}", s));
@@ -183,6 +211,12 @@ fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		return Err(format!("cannot write {}: {:?}", path, wrote));
 	}
 	Ok(())
+}
+
+/// A line of blanks is skipped like an empty one, as the CLI does
+/// (2026101407100005).
+fn is_blank_op(line: &str) -> bool {
+	line.bytes().all(|b| matches!(b, b' ' | b'\t' | b'\r'))
 }
 
 /// Good-path wrapper: the op must apply.
@@ -736,7 +770,7 @@ fn write_ops_match_expected() {
 		let mut doc = Document::parse(&case.input);
 		let mut kept = Document::parse_keep_lines(&case.input, Strictness::Standard).unwrap();
 		for (n, line) in ops.lines().enumerate() {
-			if line.is_empty() || line.starts_with('#') {
+			if is_blank_op(line) || line.starts_with('#') {
 				continue;
 			}
 			let at = format!("{}: write.ops line {}", case.name, n + 1);
@@ -1416,7 +1450,7 @@ fn write_bad_ops_are_rejected() {
 			return;
 		};
 		for (n, line) in bad.lines().enumerate() {
-			if line.is_empty() || line.starts_with('#') {
+			if is_blank_op(line) || line.starts_with('#') {
 				continue;
 			}
 			let mut doc = Document::parse(&case.input);

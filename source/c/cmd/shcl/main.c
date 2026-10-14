@@ -1746,22 +1746,28 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 	// Every op but the array forms takes a fixed number of tab-separated
 	// fields. Extra ones used to be dropped, so a `raw` whose content held a
 	// literal tab lost everything after it and still reported success; the
-	// escape for a tab inside a value is `◉TAB◉`.
+	// escape for a tab inside a value is `◉TAB◉`. Missing ones read as empty,
+	// so `raw<TAB>n<TAB>info` wrote an empty block (2026101407100003). An
+	// array form takes any number of elements, none included, but always a PATH.
 	{
 		int bad = 0;
-		static const struct { const char *op; size_t want; } counts[] = {
-			{ "empty", 2 }, { "remove", 2 }, { "clear-comments", 2 }, { "banner", 2 },
-			{ "raw", 4 }, { "raw-default", 4 },
-			{ "int", 3 }, { "float", 3 }, { "bool", 3 }, { "string", 3 },
-			{ "datetime", 3 }, { "literal", 3 }, { "comment", 3 },
-			{ "int-default", 3 }, { "float-default", 3 }, { "bool-default", 3 },
-			{ "string-default", 3 }, { "datetime-default", 3 }, { "literal-default", 3 },
+		static const struct { const char *op; size_t want; int at_least; } counts[] = {
+			{ "empty", 2, 0 }, { "remove", 2, 0 }, { "clear-comments", 2, 0 }, { "banner", 2, 0 },
+			{ "raw", 4, 0 }, { "raw-default", 4, 0 },
+			{ "int", 3, 0 }, { "float", 3, 0 }, { "bool", 3, 0 }, { "string", 3, 0 },
+			{ "datetime", 3, 0 }, { "literal", 3, 0 }, { "comment", 3, 0 },
+			{ "int-default", 3, 0 }, { "float-default", 3, 0 }, { "bool-default", 3, 0 },
+			{ "string-default", 3, 0 }, { "datetime-default", 3, 0 }, { "literal-default", 3, 0 },
+			{ "int-array", 2, 1 }, { "float-array", 2, 1 }, { "bool-array", 2, 1 },
+			{ "string-array", 2, 1 }, { "datetime-array", 2, 1 },
+			{ "int-array-default", 2, 1 }, { "float-array-default", 2, 1 }, { "bool-array-default", 2, 1 },
+			{ "string-array-default", 2, 1 }, { "datetime-array-default", 2, 1 },
 		};
 		for (size_t i = 0; i < sizeof counts / sizeof counts[0]; i++) {
 			if (strlen(counts[i].op) != fn[0] || memcmp(counts[i].op, fp[0], fn[0]) != 0) continue;
-			if (nf > counts[i].want) {
-				fprintf(stderr, "op line %zu: %s takes %zu tab-separated field(s), got %zu\n",
-					lineno, counts[i].op, counts[i].want, nf);
+			if (nf < counts[i].want || (!counts[i].at_least && nf > counts[i].want)) {
+				fprintf(stderr, "op line %zu: %s takes %s%zu tab-separated field(s), got %zu\n",
+					lineno, counts[i].op, counts[i].at_least ? "at least " : "", counts[i].want, nf);
 				bad = 1;
 			}
 			break;
@@ -1900,7 +1906,11 @@ static int do_set(Opts *o) {
 			if (end > start && ops[end - 1] == '\r') end--; // match Rust lines() CRLF
 			size_t n = end - start;
 			lineno++;
-			if (n > 0 && ops[start] != '#') { if (apply_op(d, ops + start, n, lineno)) { rc = 1; break; } }
+			// A line of blanks is skipped like an empty one, so an indented blank
+			// line in a here-doc isn't an op with no name (2026101407100005).
+			size_t nb = 0;
+			while (nb < n && (ops[start + nb] == ' ' || ops[start + nb] == '\t' || ops[start + nb] == '\r')) nb++;
+			if (nb < n && ops[start] != '#') { if (apply_op(d, ops + start, n, lineno)) { rc = 1; break; } }
 			if (i == opslen) break;
 			start = i + 1;
 		}

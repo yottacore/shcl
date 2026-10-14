@@ -1330,6 +1330,21 @@ rows=(
 	## An array setter writes brackets whatever the length (2026100207032800).
 	'ErqYWEv|ops-array-one-keeps-brackets|set %F%|int-array\tk\t80\n|0|a: 1\n\nk: [80]\n|-'
 	'ErqYWEw|ops-array-none-is-empty-brackets|set %F%|int-array\tk\n|0|a: 1\n\nk: []\n|-'
+	## 2026101407100003: too few fields read as empty, so a raw op with no
+	## content wrote an empty block at exit 0. Refused like too many, per shape.
+	'Esgiz1x|ops-too-few-scalar|set %F%|string\tk\n|1||=op line 1: string takes 3 tab-separated field(s), got 2\n'
+	'Esgiz1y|ops-too-few-raw|set %F%|raw\tk\tinfo\n|1||=op line 1: raw takes 4 tab-separated field(s), got 3\n'
+	'Esgiz1z|ops-too-few-default|set %F%|raw-default\tk\n|1||=op line 1: raw-default takes 4 tab-separated field(s), got 2\n'
+	'Esgiz20|ops-too-few-op-alone|set %F%|int\n|1||=op line 1: int takes 3 tab-separated field(s), got 1\n'
+	'Esgiz21|ops-too-few-remove|set %F%|remove\n|1||=op line 1: remove takes 2 tab-separated field(s), got 1\n'
+	'Esgiz22|ops-too-few-empty|set %F%|empty\n|1||=op line 1: empty takes 2 tab-separated field(s), got 1\n'
+	'Esgiz23|ops-too-few-clear-comments|set %F%|clear-comments\n|1||=op line 1: clear-comments takes 2 tab-separated field(s), got 1\n'
+	'Esgiz24|ops-too-few-banner|set %F%|banner\n|1||=op line 1: banner takes 2 tab-separated field(s), got 1\n'
+	'Esgiz25|ops-too-few-array|set %F%|int-array\n|1||=op line 1: int-array takes at least 2 tab-separated field(s), got 1\n'
+	'Esgiz26|ops-too-few-later-line|set %F%|int\tx\t1\ncomment\tx\n|1||=op line 2: comment takes 3 tab-separated field(s), got 2\n'
+	## 2026101407100005: a line of blanks was an op with no name.
+	'Esgiz27|ops-tab-only-line|set %F%|\t\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
+	'Esgiz28|ops-blanks-only-line|set %F%|int\tx\t1\n  \t \r\r\n \n|0|a: 1\n\nx: 1\n|='
 	## 20260902 item 41: --default and --on-bad=error each overwrote the other's
 	## mode, so which one applied depended on which was typed last.
 	'EomzUyq|default-vs-onbad|get --int --default=7 --on-bad=error %F% nope|-|1|-|--default cannot be combined with --on-bad=error'

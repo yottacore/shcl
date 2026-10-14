@@ -21,3 +21,33 @@ float	k	-inf
 float	k	infinity
 float-array	k	1	inf
 float-default	new	nan
+# Too few fields, one line per op (2026101407100003).
+int	k
+float	k
+bool	k
+string	k
+datetime	k
+literal	k
+comment	k
+int-default	k
+float-default	k
+bool-default	k
+string-default	k
+datetime-default	k
+literal-default	k
+raw	k	c
+raw-default	new	c
+empty
+remove
+clear-comments
+banner
+int-array
+float-array
+bool-array
+string-array
+datetime-array
+int-array-default
+float-array-default
+bool-array-default
+string-array-default
+datetime-array-default
