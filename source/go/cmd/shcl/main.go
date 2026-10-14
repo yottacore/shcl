@@ -266,12 +266,13 @@ print once, in the order given.
 An option a subcommand does not use is a usage error, not ignored. Also refused:
 --write with --layer; --write with --set outside 'set'; --write with a FILE of
 '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
---check with --write; --paths with --json; --layer=- on 'set'; --array with
---raw, --rawinfo, --duration or --size; --default with --on-bad=error or
---on-bad=flag; '-' named more than once across FILE, --layer and --schema; a
-PATH that cannot parse, --default or not. Two options that ask for different
-answers are a usage error whichever order they came in, and both are named: two
-different type options, or one value option given two different values.
+--check with --write, --layer or --set; --paths with --json; --layer=- on
+'set'; --array with --raw, --rawinfo, --duration or --size; --default with
+--on-bad=error or --on-bad=flag; --on-bad=default without --default; '-' named
+more than once across FILE, --layer and --schema; a PATH that cannot parse,
+--default or not. Two options that ask for different answers are a usage error
+whichever order they came in, and both are named: two different type options,
+or one value option given two different values.
 Repeating an option with the same value is allowed, and --layer and --set are
 ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
@@ -1486,6 +1487,12 @@ func checkOpts(cmd string, o *opts) int {
 		fmt.Fprintf(os.Stderr, "--default cannot be combined with --on-bad=%s (see --help)\n", o.onBadWanted.name())
 		return 1
 	}
+	// Without a --default there is nothing to substitute, and a bad read
+	// printed an empty line at exit 0 (2026101407100004).
+	if o.onBadSet && o.onBadWanted == onBadDefault && !o.was("--default") {
+		fmt.Fprintln(os.Stderr, "--on-bad=default needs --default (see --help)")
+		return 1
+	}
 	// --lossy only overrides a refusal, and fmt refuses only in place, so there
 	// it would read as protection the command never had. set and migrate ask
 	// the gate on stdout too (2026100717500003).
@@ -1501,6 +1508,16 @@ func checkOpts(cmd string, o *opts) int {
 	}
 	if o.check && o.write {
 		fmt.Fprintln(os.Stderr, "--check cannot be combined with --write (see --help)")
+		return 1
+	}
+	// --check asks whether FILE is canonical, and a merge or an edit is never
+	// FILE, so it said "would rewrite" every time (2026101407100002).
+	if o.check && len(o.layers) > 0 {
+		fmt.Fprintln(os.Stderr, "--check cannot be combined with --layer (see --help)")
+		return 1
+	}
+	if o.check && len(o.sets) > 0 {
+		fmt.Fprintf(os.Stderr, "--check cannot be combined with %s (see --help)\n", o.sets[0].opt())
 		return 1
 	}
 	// Both say what a line holds, and a JSON line already has the path.
@@ -1531,7 +1548,7 @@ func checkOpts(cmd string, o *opts) int {
 		stdinUses++
 	}
 	if stdinUses > 1 {
-		fmt.Fprintln(os.Stderr, "'-' (stdin) can be named only once across FILE, --layer and --schema")
+		fmt.Fprintln(os.Stderr, "'-' (stdin) can be named only once across FILE, --layer and --schema (see --help)")
 		return 1
 	}
 	return 0
@@ -1874,7 +1891,7 @@ func loadLayeredFrom(o *opts, file string, given *string, keep bool) (*shcl.Docu
 	}
 	for _, s := range o.sets {
 		if st := s.apply(doc); st != shcl.SetOk {
-			fmt.Fprintf(os.Stderr, "%s: cannot write %s: %s\n", s.opt(), s.path, refusal(st, s.path))
+			fmt.Fprintf(os.Stderr, "%s: cannot write %s: %s (see --help)\n", s.opt(), s.path, refusal(st, s.path))
 			return nil, "", 1
 		}
 	}
@@ -3181,7 +3198,9 @@ func doSet(o *opts) int {
 			continue
 		}
 		if aerr := applyOp(doc, line); aerr != nil {
-			fmt.Fprintf(os.Stderr, "op line %d: %s\n", n+1, aerr)
+			// Every op error is a usage error, so the pointer goes on here
+			// rather than on each message (2026101407100007).
+			fmt.Fprintf(os.Stderr, "op line %d: %s (see --help)\n", n+1, aerr)
 			return 1
 		}
 	}

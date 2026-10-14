@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-10 shcl "User Commands"
+.TH SHCL 1 2026-10-14 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -674,6 +674,13 @@ asks for both answers at once, and so does
 .B \-\-paths
 with
 .BR \-\-json .
+.B \-\-check
+with
+.B \-\-layer
+or
+.B \-\-set
+has nothing to compare, since the merged or edited document is never
+.IR FILE .
 .B \-\-write
 with a
 .I FILE
@@ -685,7 +692,11 @@ with
 .B \-\-on\-bad=error
 or
 .B \-\-on\-bad=flag
-gives a value that neither mode would print.
+gives a value that neither mode would print, and
+.B \-\-on\-bad=default
+without
+.B \-\-default
+has nothing to print in its place.
 .B \-\-layer=\-
 is not valid on
 .BR set ,

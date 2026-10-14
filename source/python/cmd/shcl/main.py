@@ -252,12 +252,13 @@ print once, in the order given.
 An option a subcommand does not use is a usage error, not ignored. Also refused:
 --write with --layer; --write with --set outside 'set'; --write with a FILE of
 '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
---check with --write; --paths with --json; --layer=- on 'set'; --array with
---raw, --rawinfo, --duration or --size; --default with --on-bad=error or
---on-bad=flag; '-' named more than once across FILE, --layer and --schema; a
-PATH that cannot parse, --default or not. Two options that ask for different
-answers are a usage error whichever order they came in, and both are named: two
-different type options, or one value option given two different values.
+--check with --write, --layer or --set; --paths with --json; --layer=- on
+'set'; --array with --raw, --rawinfo, --duration or --size; --default with
+--on-bad=error or --on-bad=flag; --on-bad=default without --default; '-' named
+more than once across FILE, --layer and --schema; a PATH that cannot parse,
+--default or not. Two options that ask for different answers are a usage error
+whichever order they came in, and both are named: two different type options,
+or one value option given two different values.
 Repeating an option with the same value is allowed, and --layer and --set are
 ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
@@ -1133,7 +1134,7 @@ def load_layered_from(o, file, given, keep):
 	for st in o.sets:
 		wrote = st.apply(doc)
 		if wrote is not shcl.SetStatus.Ok:
-			sys.stderr.write(f"{st.opt()}: cannot write {st.path}: {refusal(wrote, st.path)}\n")
+			sys.stderr.write(f"{st.opt()}: cannot write {st.path}: {refusal(wrote, st.path)} (see --help)\n")
 			return None, "", 1
 	return doc, texts[-1], None
 
@@ -1302,6 +1303,11 @@ def check_opts(cmd, o):
 	if "--default" in o.seen and o.on_bad_arg is not None and o.on_bad_arg != "default":
 		sys.stderr.write(f"--default cannot be combined with --on-bad={o.on_bad_arg} (see --help)\n")
 		return 1
+	# Without a --default there is nothing to substitute, and a bad read
+	# printed an empty line at exit 0 (2026101407100004).
+	if o.on_bad_arg == "default" and "--default" not in o.seen:
+		sys.stderr.write("--on-bad=default needs --default (see --help)\n")
+		return 1
 	# --lossy only overrides a refusal, and fmt refuses only in place, so there
 	# it would read as protection the command never had. set and migrate ask
 	# the gate on stdout too (2026100717500003).
@@ -1316,6 +1322,14 @@ def check_opts(cmd, o):
 	if o.check and o.write:
 		sys.stderr.write("--check cannot be combined with --write (see --help)\n")
 		return 1
+	# --check asks whether FILE is canonical, and a merge or an edit is never
+	# FILE, so it said "would rewrite" every time (2026101407100002).
+	if o.check and o.layers:
+		sys.stderr.write("--check cannot be combined with --layer (see --help)\n")
+		return 1
+	if o.check and o.sets:
+		sys.stderr.write(f"--check cannot be combined with {o.sets[0].opt()} (see --help)\n")
+		return 1
 	# Both say what a line holds, and a JSON line already has the path.
 	if o.paths and o.json:
 		sys.stderr.write("--paths cannot be combined with --json (see --help)\n")
@@ -1327,7 +1341,7 @@ def check_opts(cmd, o):
 	# Stdin reads once; a second '-' would silently get an empty document.
 	stdin_uses = sum(1 for lf in o.layers if lf == "-") + int(o.schema == "-") + int(bool(o.args) and o.args[0] == "-")
 	if stdin_uses > 1:
-		sys.stderr.write("'-' (stdin) can be named only once across FILE, --layer and --schema\n")
+		sys.stderr.write("'-' (stdin) can be named only once across FILE, --layer and --schema (see --help)\n")
 		return 1
 	return None
 
@@ -2278,7 +2292,9 @@ def do_set(o):
 		try:
 			apply_op(doc, line)
 		except ValueError as e:
-			sys.stderr.write(f"op line {n + 1}: {e}\n")
+			# Every op error is a usage error, so the pointer goes on here
+			# rather than on each message (2026101407100007).
+			sys.stderr.write(f"op line {n + 1}: {e} (see --help)\n")
 			return 1
 	if o.write:
 		# "Create" was decided before the wait on stdin, so a file that turned

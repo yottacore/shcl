@@ -251,12 +251,13 @@ print once, in the order given.
 An option a subcommand does not use is a usage error, not ignored. Also refused:
 --write with --layer; --write with --set outside 'set'; --write with a FILE of
 '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
---check with --write; --paths with --json; --layer=- on 'set'; --array with
---raw, --rawinfo, --duration or --size; --default with --on-bad=error or
---on-bad=flag; '-' named more than once across FILE, --layer and --schema; a
-PATH that cannot parse, --default or not. Two options that ask for different
-answers are a usage error whichever order they came in, and both are named: two
-different type options, or one value option given two different values.
+--check with --write, --layer or --set; --paths with --json; --layer=- on
+'set'; --array with --raw, --rawinfo, --duration or --size; --default with
+--on-bad=error or --on-bad=flag; --on-bad=default without --default; '-' named
+more than once across FILE, --layer and --schema; a PATH that cannot parse,
+--default or not. Two options that ask for different answers are a usage error
+whichever order they came in, and both are named: two different type options,
+or one value option given two different values.
 Repeating an option with the same value is allowed, and --layer and --set are
 ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
@@ -1151,7 +1152,7 @@ fn set_value_opt(o: &mut Opts, name: &str, v: &str) -> Result<(), String> {
 			});
 			o.seen.push(canon);
 		}
-		_ => return Err(format!("unknown option: {}", name)),
+		_ => return Err(format!("unknown option: {} (see --help)", name)),
 	}
 	Ok(())
 }
@@ -1462,6 +1463,12 @@ fn check_opts(cmd: &str, o: &Opts) -> Result<(), u8> {
 		);
 		return Err(1);
 	}
+	// Without a --default there is nothing to substitute, and a bad read
+	// printed an empty line at exit 0 (2026101407100004).
+	if o.on_bad_arg == Some(OnBad::Default) && o.default.is_none() {
+		errln!("--on-bad=default needs --default (see --help)");
+		return Err(1);
+	}
 	// --lossy only overrides a refusal, and fmt refuses only in place, so there
 	// it would read as protection the command never had. set and migrate ask
 	// the gate on stdout too (2026100717500003).
@@ -1477,6 +1484,19 @@ fn check_opts(cmd: &str, o: &Opts) -> Result<(), u8> {
 	}
 	if o.check && o.write {
 		errln!("--check cannot be combined with --write (see --help)");
+		return Err(1);
+	}
+	// --check asks whether FILE is canonical, and a merge or an edit is never
+	// FILE, so it said "would rewrite" every time (2026101407100002).
+	if o.check && !o.layers.is_empty() {
+		errln!("--check cannot be combined with --layer (see --help)");
+		return Err(1);
+	}
+	if o.check && !o.sets.is_empty() {
+		errln!(
+			"--check cannot be combined with {} (see --help)",
+			o.sets[0].opt()
+		);
 		return Err(1);
 	}
 	// Both say what a line holds, and a JSON line already has the path.
@@ -1496,7 +1516,7 @@ fn check_opts(cmd: &str, o: &Opts) -> Result<(), u8> {
 		+ usize::from(o.schema.as_deref() == Some("-"))
 		+ usize::from(o.args.first().map(|f| f == "-").unwrap_or(false));
 	if stdin_uses > 1 {
-		errln!("'-' (stdin) can be named only once across FILE, --layer and --schema");
+		errln!("'-' (stdin) can be named only once across FILE, --layer and --schema (see --help)");
 		return Err(1);
 	}
 	Ok(())
@@ -1640,7 +1660,7 @@ fn load_layered_from(
 		let st = s.apply(&mut doc);
 		if st != shcl::SetStatus::Ok {
 			errln!(
-				"{}: cannot write {}: {}",
+				"{}: cannot write {}: {} (see --help)",
 				s.opt(),
 				s.path,
 				refusal(st, &s.path)
@@ -2982,7 +3002,9 @@ fn do_set(o: &Opts) -> u8 {
 			continue;
 		}
 		if let Err(e) = apply_op(&mut doc, line) {
-			errln!("op line {}: {}", n + 1, e);
+			// Every op error is a usage error, so the pointer goes on here
+			// rather than on each message (2026101407100007).
+			errln!("op line {}: {} (see --help)", n + 1, e);
 			return 1;
 		}
 	}
