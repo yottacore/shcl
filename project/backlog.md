@@ -60,34 +60,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `ad9af077`
 	- Test case: `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` (Rust `EsgoThZ`, Go `EsgoTha`, Python `EsgoThb`, C `EsgoThc`), cli-regress `EsgoThd`, `EsgoThe` and save case `EsgoThf`, and check-migrate `Es34DZk`. The beta assertion in `upgrade_leaves_a_clean_or_stamped_file` (`Es2R4RP` and its twins) is commented out with the reason.
 
-- `upgrade --from-2x` and `upgrade_file` leave an older Format line above the new info block, so the file names two formats
-	- ID: 2026101407100001
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
-	- Severity: Avg
-	- Opened: 20261014-071000
-	- Opened by: Code review 20261014 item 1
-	- Version and build: dev at `9dff6949`
-	- Related IDs: 2026100916475300, 2026100313461649
-	- Steps to reproduce:
-		- `printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl`
-		- `shcl upgrade --from-2x --write f.shcl`
-	- Incorrect behavior: exit 0, and the file now has `##    Format   2` on line 1 and `##    Format   3` inside the new block at the end. `upgrade_file(path, true)` does the same.
-	- Expected behavior: one Format line. The old one comes off when the block goes on, the way `set_banner` takes off the line `migrate` stamps, or is written over in place the way `migrate --write` does since 2026100916475300.
-	- Reproduced: 20261014, all four CLIs and the Python library.
-	- Origin: `upgrade_file` is from `60d0196c` (2026-10-07). 2026100916475300 fixed the same thing for `migrate` and didn't reach `upgrade`. Not seen by an earlier round. Confirmed.
-	- Sweep: every path that writes a Format line or the block: `migrate`, `upgrade_file`, `set_banner`, `set --write` creating a file. Check each against a file holding a lone older Format line and one holding a 2.x `#` block.
-	- Actual cause [Bug]: the block goes on through `set_banner`'s own code, which takes an old block or stamp off from above every field but the first. An older Format line above the first field stayed, so a 2.x file stamped at the top kept it. `set_banner` and the `banner on` op had the same hole.
-	- Actual fix [Bug]: when the block goes on, a lone Format line above the first field comes off too. A whole block there still stays, as before, and taking the block off leaves the top alone. One change in each binding's banner code, so `upgrade`, `upgrade_file`, `set_banner` and the `banner` op all get it. spec.md and the changelog say so.
-	- Swept: `drop_banners` and `swap_banner` in Rust, Go (`dropBanners`, `swapBanner`), Python and C. The C++ interface needs nothing, since no call changed. `migrate` writes its stamp over the old line since 2026100916475300. `set --write` creating a file has no old text. Each was run in all four CLIs on a file with `Format 2` at the top and on one holding a 2.x `#` block: one Format line in every output.
-	- Verified: the new tests and save case fail on dev's code in all four and pass after. Also: `cargo test`, `go test` (both modules), the Python and C conformance suites, veneer_smoke, cli-regress (561 rows, 3271 checks, all four), clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level.
-	- Branch: `upfmt`
-	- Commit: `2d5276b7`
-	- Test case: `a_format_line_at_the_top_goes_when_the_block_goes_on` (Rust `Esgj35O`, Go `Esgj35P`, Python `Esgj35Q`, C `Esgj35R`) and cli-regress save case `Esgj35S`.
-	- Acceptance signoff: self-closed 20261014. Reproduced, the new tests fail before the fix and pass after, and the Sweep has its Swept answer.
-	- Closed: 20261014-082520
-
 - `fmt --check` with `--layer` or `--set` always exits 6, and its message names a `--write` the CLI refuses
 	- ID: 2026101407100002
 	- Type: Bug
@@ -269,6 +241,34 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261014: a new call beside the old one, `load_and_validate_with`, taking a parsed schema document, with the one-shot's combined diagnostics and strict rule (JC). The text form stays.
 	- Reason: a program that validates on every start shouldn't parse its embedded schema each time, and the strict difference is a trap.
+
+- `upgrade --from-2x` and `upgrade_file` leave an older Format line above the new info block, so the file names two formats
+	- ID: 2026101407100001
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Severity: Avg
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 1
+	- Version and build: dev at `9dff6949`
+	- Related IDs: 2026100916475300, 2026100313461649
+	- Steps to reproduce:
+		- `printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl`
+		- `shcl upgrade --from-2x --write f.shcl`
+	- Incorrect behavior: exit 0, and the file now has `##    Format   2` on line 1 and `##    Format   3` inside the new block at the end. `upgrade_file(path, true)` does the same.
+	- Expected behavior: one Format line. The old one comes off when the block goes on, the way `set_banner` takes off the line `migrate` stamps, or is written over in place the way `migrate --write` does since 2026100916475300.
+	- Reproduced: 20261014, all four CLIs and the Python library.
+	- Origin: `upgrade_file` is from `60d0196c` (2026-10-07). 2026100916475300 fixed the same thing for `migrate` and didn't reach `upgrade`. Not seen by an earlier round. Confirmed.
+	- Sweep: every path that writes a Format line or the block: `migrate`, `upgrade_file`, `set_banner`, `set --write` creating a file. Check each against a file holding a lone older Format line and one holding a 2.x `#` block.
+	- Actual cause [Bug]: the block goes on through `set_banner`'s own code, which takes an old block or stamp off from above every field but the first. An older Format line above the first field stayed, so a 2.x file stamped at the top kept it. `set_banner` and the `banner on` op had the same hole.
+	- Actual fix [Bug]: when the block goes on, a lone Format line above the first field comes off too. A whole block there still stays, as before, and taking the block off leaves the top alone. One change in each binding's banner code, so `upgrade`, `upgrade_file`, `set_banner` and the `banner` op all get it. spec.md and the changelog say so.
+	- Swept: `drop_banners` and `swap_banner` in Rust, Go (`dropBanners`, `swapBanner`), Python and C. The C++ interface needs nothing, since no call changed. `migrate` writes its stamp over the old line since 2026100916475300. `set --write` creating a file has no old text. Each was run in all four CLIs on a file with `Format 2` at the top and on one holding a 2.x `#` block: one Format line in every output.
+	- Verified: the new tests and save case fail on dev's code in all four and pass after. Also: `cargo test`, `go test` (both modules), the Python and C conformance suites, veneer_smoke, cli-regress (561 rows, 3271 checks, all four), clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level.
+	- Branch: `upfmt`
+	- Commit: `2d5276b7`
+	- Test case: `a_format_line_at_the_top_goes_when_the_block_goes_on` (Rust `Esgj35O`, Go `Esgj35P`, Python `Esgj35Q`, C `Esgj35R`) and cli-regress save case `Esgj35S`.
+	- Acceptance signoff: self-closed 20261014. Reproduced, the new tests fail before the fix and pass after, and the Sweep has its Swept answer.
+	- Closed: 20261014-082520
 
 - Loose doesn't read a quoted thousands number, such as `"1,200"` or `"$1,200"`, as a number
 	- ID: 2026101309122757
@@ -5501,17 +5501,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
 
-- Decide how to handle `,` as a decimal point
-	- ID: 2026101309122877
-	- Type: Feature
-	- Status: Deferred
-	- Priority: Low
-	- Opened: 20261013-091227
-	- Opened by: JC
-	- Related IDs: 2026101309122757
-	- Problem description: much of the world writes `1.200,50` for what SHCL reads as `1,200.50`. Today `1,5` is text at every level, and at Loose `"1,200"` will read as 1200, which a reader using a decimal comma would mean as 1.2.
-	- Note: after the next cut (JC).
-
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
 	- Type: Bug
@@ -5543,6 +5532,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- These splits are rough. The box was loaded and the later rounds were too noisy to use.
 	- Test case: none. A clock-based check would be noise on this box, and the perf gate takes counts, not times.
 	- Note: deferred to after 3.0.0, per the decision above. Recheck with the same three versions when it's picked up.
+
+- Decide how to handle `,` as a decimal point
+	- ID: 2026101309122877
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261013-091227
+	- Opened by: JC
+	- Related IDs: 2026101309122757
+	- Problem description: much of the world writes `1.200,50` for what SHCL reads as `1,200.50`. Today `1,5` is text at every level, and at Loose `"1,200"` will read as 1200, which a reader using a decimal comma would mean as 1.2.
+	- Note: after the next cut (JC).
 
 - Reads, sets and removes by selector cost time in the number of instances
 	- ID: 2026100307163919
@@ -5637,6 +5637,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261002: closed as Moot. A backslash is plain text under 2026100207032800.
 	- Closed: 20261002-184515
 
+- Lookups walk every instance of a name, so a loop over instances is quadratic
+	- ID: 2026100717500019
+	- Type: Enhancement
+	- Status: Moot
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 19
+	- Problem description: `children_named` in `lib.rs` collects every same-named child before a `(k)` or `(value)` selector picks one, and `remove` rebuilds the parent's child list on every call. In Rust, reading `rep(i).v` for each of 20,000 instances took 4.8 s by index and 13 s by value; C and Go are close. 40,000 creating `set_int("rep(kI).v")` calls took 42 s. Wildcard reads and `instance_paths()` stay fast.
+	- Reason: typical configs have under 1,000 instances, where this doesn't show. Generated and inventory files do.
+	- Note: 20261008, folded into 2026100307163919 (JC). Same cause, and its timings are copied there.
+	- Superseded by ID: 2026100307163919
+	- Test case: none. Nothing is built for it; any test goes under 2026100307163919.
+	- Origin: Confirmed, all four, by timing.
+	- Closed: 20261008-105752
+
 - No way to ask a setter for single quotes
 	- ID: 2026100115323222
 	- Type: Enhancement
@@ -5657,21 +5672,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
 		- 20261002: closed as Moot. No setter options. A setter that overwrites a value keeps its quote kind when it can, and `SetLiteral` takes any quotes as written.
 	- Closed: 20261002-184515
-
-- Lookups walk every instance of a name, so a loop over instances is quadratic
-	- ID: 2026100717500019
-	- Type: Enhancement
-	- Status: Moot
-	- Priority: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 19
-	- Problem description: `children_named` in `lib.rs` collects every same-named child before a `(k)` or `(value)` selector picks one, and `remove` rebuilds the parent's child list on every call. In Rust, reading `rep(i).v` for each of 20,000 instances took 4.8 s by index and 13 s by value; C and Go are close. 40,000 creating `set_int("rep(kI).v")` calls took 42 s. Wildcard reads and `instance_paths()` stay fast.
-	- Reason: typical configs have under 1,000 instances, where this doesn't show. Generated and inventory files do.
-	- Note: 20261008, folded into 2026100307163919 (JC). Same cause, and its timings are copied there.
-	- Superseded by ID: 2026100307163919
-	- Test case: none. Nothing is built for it; any test goes under 2026100307163919.
-	- Origin: Confirmed, all four, by timing.
-	- Closed: 20261008-105752
 
 ## Old format
 
