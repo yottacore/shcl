@@ -33,6 +33,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- No public call gives an array, or one element of it, the way the writer writes it
+	- ID: 2026101412591471
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261014-125914
+	- Opened by: 2026101407100011
+	- Prereq IDs: 2026101407100011, since the element form follows whatever input `format_value` is signed off with
+	- Version and build: dev at `835ac487`
+	- Problem description: `format_value` gives one value after the colon. A program writing `[a, b]` itself has no call for an element, and a bare thousands number such as `1,200` is quoted inside brackets where `format_value` leaves it bare.
+	- Requirements:
+		- A call for one element, or for a whole array, in all four and C++, built through the same emitter.
+	- Reason: the consumer survey in code review 20261014 named array elements among what gets scraped from `to_canonical`.
+
 - Move the detailed comparisons out of README.md into their own doc
 	- ID: 2026101414312546
 	- Type: Task
@@ -100,20 +114,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `b30d70a8`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are the name and place, and keeping the web server file in the README as the snippet.
 	- Closed: 20261014-152200
-
-- No public call gives an array, or one element of it, the way the writer writes it
-	- ID: 2026101412591471
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261014-125914
-	- Opened by: 2026101407100011
-	- Prereq IDs: 2026101407100011, since the element form follows whatever input `format_value` is signed off with
-	- Version and build: dev at `835ac487`
-	- Problem description: `format_value` gives one value after the colon. A program writing `[a, b]` itself has no call for an element, and a bare thousands number such as `1,200` is quoted inside brackets where `format_value` leaves it bare.
-	- Requirements:
-		- A call for one element, or for a whole array, in all four and C++, built through the same emitter.
-	- Reason: the consumer survey in code review 20261014 named array elements among what gets scraped from `to_canonical`.
 
 - A public call that spells one value the way the writer would
 	- ID: 2026101407100011
