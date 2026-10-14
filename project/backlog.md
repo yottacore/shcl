@@ -33,10 +33,76 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- No public call gives an array, or one element of it, the way the writer writes it
+	- ID: 2026101412591471
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261014-125914
+	- Opened by: 2026101407100011
+	- Prereq IDs: 2026101407100011, since the element form follows whatever input `format_value` is signed off with
+	- Version and build: dev at `835ac487`
+	- Problem description: `format_value` gives one value after the colon. A program writing `[a, b]` itself has no call for an element, and a bare thousands number such as `1,200` is quoted inside brackets where `format_value` leaves it bare.
+	- Requirements:
+		- A call for one element, or for a whole array, in all four and C++, built through the same emitter.
+	- Reason: the consumer survey in code review 20261014 named array elements among what gets scraped from `to_canonical`.
+
+- A public call that spells one value the way the writer would
+	- ID: 2026101407100011
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
+	- Priority: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 11, from the consumer survey
+	- Version and build: dev at `9dff6949`
+	- Problem description: three consumers (gitsby, silkterm, nemo) set a value on a throwaway document and scrape `to_canonical` to learn how shcl writes it. `format_float` covers a float and `quote_segment` a name; nothing covers a string with a quote, a datetime, an array element or a backtick value, and `quote_segment` quotes `2020`, `@null`, `1,200`, `a.b` and `-x` where the writer leaves them bare.
+	- Requirements:
+		- One call per binding and the C++ interface, giving the writer's own spelling of a scalar as it would go after the colon, named beside `quote_segment`.
+	- Decisions:
+		- 20261014: the call is `format_value`, beside `format_float` (JC).
+		- 20261014: it takes the value's text, as `set_string` does, and gives what `set_string` writes for a new field (me). Every scalar setter writes its value's text through the same element and emitter, so an int, a float as `format_float` gives it, `true` or `false` and a datetime's text all come out as their setter writes them, and the tests check each one. The reference has no public value enum to take instead. It gives nothing where `set_string` refuses. An overwrite can keep the old quote kind, and that isn't covered.
+		- 20261014: it covers a value after the colon or a `- ` item, not one array element (me). Inside `[]` a bare thousands number such as `1,200` is quoted, since its comma would split it there, so the two differ on that alone. The item asked for the value after the colon; an array form is 2026101412591471.
+	- Reason: least surprise for a program that writes config text itself. The scrape depends on one line per key and on `to_canonical`'s layout.
+	- Actual fix: `format_value` in all four and C++ (Go `FormatValue`, C `shcl_format_value`). Each builds the value the way the string setter does, runs the setter's read-back check and returns the emitter's text, so there's no second copy of the quoting rules. Rust gives an `Option`, Go a second `bool`, Python `None` (and a TypeError for a non-str, as `set_string`), C++ an empty `std::optional`, and C a malloc'd string the caller frees or NULL. C's working arena is given back before the out-of-memory hook, as `restamp_text`'s is. spec.md has it under the Writer with a line under `QuoteSegment`, and the changelog has it under New. Python's `__all__` has it.
+	- Swept: every scalar setter's path in the four bindings (`cell_of` and its ports), which is the one `format_value` calls. `check-veneer.bash` counts it made by `shcl.hpp`. No CLI or runner had its own copy of the value quoting to switch over.
+	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. The writer fuzz test at 2,000,000 in release. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang and under ASan and UBSan, the C CLI under gcc, clang and mingw, the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (49725 comparisons) over all 4 CLIs. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. The Go, Python and C tests went red with the call returning the array element's text, and the Rust test and the fuzz test with it returning `quote_segment`'s. check-veneer went red with the wrapper not calling C. oom_hook went red with C's arena a frame local.
+	- Test case: `format_value_is_the_setters_text`, one fixture in every runner: Rust `EshnBvV`, Go `EshnBxd`, Python `EshnCyX` and C `EshnD0s`. Over the setter soup, the review's examples and the typed setters' texts, each must equal what the string setter writes into `to_canonical` and read back as itself, or be refused by both. `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks it over the fuzz soup too. C++ is in `EjtkR0S` (veneer smoke), and C's out-of-memory path in `EoH8aeO` (oom_hook).
+	- Branch: `fmtvalue`
+	- Commit: `85ea3f9b`
+	- Acceptance signoff: closed on JC's 20261014 criteria. It is JC's `format_value`, built through the setter's own path, so there's no second copy of the quoting rules. Text input matches `set_string`. Array elements are 2026101412591471. The four runner tests failed against a broken call and pass.
+	- Closed: 20261014-142729
+
+- A one-line text for a diagnostic in the library
+	- ID: 2026101407100012
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
+	- Priority: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 12, from the consumer survey
+	- Version and build: dev at `9dff6949`
+	- Problem description: the CLI prints `line N: Error: CODE message` from its own code, and seven of eight consumers rebuild that line and the errors-only filter. The library has `error_count` and the `Diagnostic` fields and no text form: Go's `Diagnostic` has no `String()`, Rust no `Display`, C no `shcl_severity_name`.
+	- Requirements:
+		- A text form of one diagnostic, the CLI's line, in all four and the C++ interface, with the CLI using it.
+	- Reason: one less thing every consumer writes, and the CLI's line stops being a copy.
+	- Actual fix: `format_diagnostic` in all four and C++ (Go `FormatDiagnostic`, C `shcl_format_diagnostic`) gives the CLI's stderr line, `line N: Error: CODE message`, and `schema line N` for V090 to V095. With no message the line ends at the code. Rust's `Display`, Go's `String()` and Python's `str()` give the same line, and Rust's `Severity` has a `Display` now. C has `shcl_severity_name`, and C++ `to_string(Severity)`. All four CLIs print every stderr diagnostic line through it, with a `--layer` file name or `schema` in front where they had one. spec.md, the changelog and a style guide line for C's form.
+	- Decisions:
+		- 20261014: the name is `format_diagnostic`, a free function beside `format_float`, and each language's display hook calls it (me). The style guide leaves the surface to each language, and Rust already has `Display` on `Status` and Go `String()` on its enums, so the hooks needed no guide line.
+		- 20261014: the call gives the stderr line, message included, and the `schema line` rule for V090 to V095 moved from the CLIs into it, since that number counts schema lines (me). `check`'s codes-only stdout line stays the CLI's own: it's the cross-binding contract and has no message.
+		- 20261014: C takes the line, severity, code and message rather than a document and index, so one call covers `shcl_diag_*` and `shcl_validation_*`. It returns malloc'd text and its length, as `shcl_read_file` does, since a message may hold a NUL (me).
+	- Swept: the CLIs' print sites in all four: `say_diagnostics_from`, and the schema's own diagnostics in `check` and `init`. C's inline `"Error"`/`"Hint"` picks in its CLI and its runner's code lines use `shcl_severity_name`. No other site in `source/` builds the stderr line. The README names no `format_*` call, so it's unchanged.
+	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang, the C CLI under both, check-c-compilers (140 builds), the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (22053 comparisons) over all 4 CLIs, both unchanged. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. A mark put into each library's format came out on that CLI's stderr line, so no CLI keeps a copy. `EshYXXC` went red with `format_diagnostic` left out of Python's `__all__`.
+	- Test case: `format_diagnostic_is_the_cli_line`, one fixture in every runner: Rust `EshdmF9`, Go `EshdmI8`, Python `EshdmLB` and C `EshdmOB`. C++'s checks are in `EjtkR0S` (veneer smoke). The CLI lines are pinned by the existing cli-regress rows, `EomzUym`, `EqzuLVu` to `EqzuLVx`, `Eon9YY4` and `Eon2Qoy` among them.
+	- Branch: `diagline`
+	- Commit: `02241ff5`
+	- Acceptance signoff: JC, 20261014: the names and the display hooks.
+	- Closed: 20261014-142729
+
 - The help, the man page, the README and the CLI style guide disagree on what the CLI does
 	- ID: 2026101407100006
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 6
@@ -62,11 +128,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `EshU8Hz` (`help-lists-refusals`): every refusal a row gets that names two options has an entry in the help's refused list naming them all. `EshU8KI` (`help-says`): the help's lines on `--remove`, raw INFO, exit 8, the stderr note and flag mode, each run by a row: `EshU86R`, `EshU88j`, `EshU8B1`, `EshU8DJ` and `EshU8Fc` (new), `Er5ivub` and `Es8aXnz`. The man SYNOPSIS, README and style guide points have none, since nothing reads that text against the CLI.
 	- Branch: `docsync`
 	- Commit: `6314a79b`
+	- Acceptance signoff: closed on JC's 20261014 criteria. Each doc now says what the CLI does, the help changes past the item's list fix points 3, 4, 6 and 7 where the help was wrong too, and `EshU8Hz` and `EshU8KI` failed before and pass after.
+	- Closed: 20261014-142729
 
 - The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
 	- ID: 2026101407100008
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 8
@@ -91,71 +159,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-docs `EshYXXC` (`python-surface-matches-reference`). It failed on dev with 20 findings and passes after. Its other branches failed under an injected pub item and enum on one side only. The C renames have no test of their own, past the C runner, the veneer and the C CLI building against them.
 	- Branch: `bindparity`
 	- Commit: `3f870f9d`
-	- Acceptance signoff: waits on 2 public-name calls: `Quote.None_` for the keyword, and dropping Python's `RULES_CURRENT` and `RULES_V2` aliases. The C unit enum values were renamed past the item's list too, `SHCL_DURATION_MS` to `SHCL_DURATION_MILLIS` and the rest, to the other bindings' words.
-
-- A one-line text for a diagnostic in the library
-	- ID: 2026101407100012
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
-	- Priority: Low
-	- Opened: 20261014-071000
-	- Opened by: Code review 20261014 item 12, from the consumer survey
-	- Version and build: dev at `9dff6949`
-	- Problem description: the CLI prints `line N: Error: CODE message` from its own code, and seven of eight consumers rebuild that line and the errors-only filter. The library has `error_count` and the `Diagnostic` fields and no text form: Go's `Diagnostic` has no `String()`, Rust no `Display`, C no `shcl_severity_name`.
-	- Requirements:
-		- A text form of one diagnostic, the CLI's line, in all four and the C++ interface, with the CLI using it.
-	- Reason: one less thing every consumer writes, and the CLI's line stops being a copy.
-	- Actual fix: `format_diagnostic` in all four and C++ (Go `FormatDiagnostic`, C `shcl_format_diagnostic`) gives the CLI's stderr line, `line N: Error: CODE message`, and `schema line N` for V090 to V095. With no message the line ends at the code. Rust's `Display`, Go's `String()` and Python's `str()` give the same line, and Rust's `Severity` has a `Display` now. C has `shcl_severity_name`, and C++ `to_string(Severity)`. All four CLIs print every stderr diagnostic line through it, with a `--layer` file name or `schema` in front where they had one. spec.md, the changelog and a style guide line for C's form.
-	- Decisions:
-		- 20261014: the name is `format_diagnostic`, a free function beside `format_float`, and each language's display hook calls it (me). The style guide leaves the surface to each language, and Rust already has `Display` on `Status` and Go `String()` on its enums, so the hooks needed no guide line.
-		- 20261014: the call gives the stderr line, message included, and the `schema line` rule for V090 to V095 moved from the CLIs into it, since that number counts schema lines (me). `check`'s codes-only stdout line stays the CLI's own: it's the cross-binding contract and has no message.
-		- 20261014: C takes the line, severity, code and message rather than a document and index, so one call covers `shcl_diag_*` and `shcl_validation_*`. It returns malloc'd text and its length, as `shcl_read_file` does, since a message may hold a NUL (me).
-	- Swept: the CLIs' print sites in all four: `say_diagnostics_from`, and the schema's own diagnostics in `check` and `init`. C's inline `"Error"`/`"Hint"` picks in its CLI and its runner's code lines use `shcl_severity_name`. No other site in `source/` builds the stderr line. The README names no `format_*` call, so it's unchanged.
-	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang, the C CLI under both, check-c-compilers (140 builds), the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (22053 comparisons) over all 4 CLIs, both unchanged. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. A mark put into each library's format came out on that CLI's stderr line, so no CLI keeps a copy. `EshYXXC` went red with `format_diagnostic` left out of Python's `__all__`.
-	- Test case: `format_diagnostic_is_the_cli_line`, one fixture in every runner: Rust `EshdmF9`, Go `EshdmI8`, Python `EshdmLB` and C `EshdmOB`. C++'s checks are in `EjtkR0S` (veneer smoke). The CLI lines are pinned by the existing cli-regress rows, `EomzUym`, `EqzuLVu` to `EqzuLVx`, `Eon9YY4` and `Eon2Qoy` among them.
-	- Branch: `diagline`
-	- Commit: `02241ff5`
-	- Acceptance signoff: waits on the public names, `format_diagnostic`, `shcl_severity_name` and C++ `to_string(Severity)`, and on the display hooks in Rust, Go and Python.
-
-- A public call that spells one value the way the writer would
-	- ID: 2026101407100011
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
-	- Priority: Low
-	- Opened: 20261014-071000
-	- Opened by: Code review 20261014 item 11, from the consumer survey
-	- Version and build: dev at `9dff6949`
-	- Problem description: three consumers (gitsby, silkterm, nemo) set a value on a throwaway document and scrape `to_canonical` to learn how shcl writes it. `format_float` covers a float and `quote_segment` a name; nothing covers a string with a quote, a datetime, an array element or a backtick value, and `quote_segment` quotes `2020`, `@null`, `1,200`, `a.b` and `-x` where the writer leaves them bare.
-	- Requirements:
-		- One call per binding and the C++ interface, giving the writer's own spelling of a scalar as it would go after the colon, named beside `quote_segment`.
-	- Decisions:
-		- 20261014: the call is `format_value`, beside `format_float` (JC).
-		- 20261014: it takes the value's text, as `set_string` does, and gives what `set_string` writes for a new field (me). Every scalar setter writes its value's text through the same element and emitter, so an int, a float as `format_float` gives it, `true` or `false` and a datetime's text all come out as their setter writes them, and the tests check each one. The reference has no public value enum to take instead. It gives nothing where `set_string` refuses. An overwrite can keep the old quote kind, and that isn't covered.
-		- 20261014: it covers a value after the colon or a `- ` item, not one array element (me). Inside `[]` a bare thousands number such as `1,200` is quoted, since its comma would split it there, so the two differ on that alone. The item asked for the value after the colon; an array form is 2026101412591471.
-	- Reason: least surprise for a program that writes config text itself. The scrape depends on one line per key and on `to_canonical`'s layout.
-	- Actual fix: `format_value` in all four and C++ (Go `FormatValue`, C `shcl_format_value`). Each builds the value the way the string setter does, runs the setter's read-back check and returns the emitter's text, so there's no second copy of the quoting rules. Rust gives an `Option`, Go a second `bool`, Python `None` (and a TypeError for a non-str, as `set_string`), C++ an empty `std::optional`, and C a malloc'd string the caller frees or NULL. C's working arena is given back before the out-of-memory hook, as `restamp_text`'s is. spec.md has it under the Writer with a line under `QuoteSegment`, and the changelog has it under New. Python's `__all__` has it.
-	- Swept: every scalar setter's path in the four bindings (`cell_of` and its ports), which is the one `format_value` calls. `check-veneer.bash` counts it made by `shcl.hpp`. No CLI or runner had its own copy of the value quoting to switch over.
-	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. The writer fuzz test at 2,000,000 in release. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang and under ASan and UBSan, the C CLI under gcc, clang and mingw, the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (49725 comparisons) over all 4 CLIs. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. The Go, Python and C tests went red with the call returning the array element's text, and the Rust test and the fuzz test with it returning `quote_segment`'s. check-veneer went red with the wrapper not calling C. oom_hook went red with C's arena a frame local.
-	- Test case: `format_value_is_the_setters_text`, one fixture in every runner: Rust `EshnBvV`, Go `EshnBxd`, Python `EshnCyX` and C `EshnD0s`. Over the setter soup, the review's examples and the typed setters' texts, each must equal what the string setter writes into `to_canonical` and read back as itself, or be refused by both. `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks it over the fuzz soup too. C++ is in `EjtkR0S` (veneer smoke), and C's out-of-memory path in `EoH8aeO` (oom_hook).
-	- Branch: `fmtvalue`
-	- Commit: `85ea3f9b`
-	- Acceptance signoff: waits on JC for the two (me) calls above, the text input and leaving array elements out.
-
-- No public call gives an array, or one element of it, the way the writer writes it
-	- ID: 2026101412591471
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261014-125914
-	- Opened by: 2026101407100011
-	- Prereq IDs: 2026101407100011, since the element form follows whatever input `format_value` is signed off with
-	- Version and build: dev at `835ac487`
-	- Problem description: `format_value` gives one value after the colon. A program writing `[a, b]` itself has no call for an element, and a bare thousands number such as `1,200` is quoted inside brackets where `format_value` leaves it bare.
-	- Requirements:
-		- A call for one element, or for a whole array, in all four and C++, built through the same emitter.
-	- Reason: the consumer survey in code review 20261014 named array elements among what gets scraped from `to_canonical`.
+	- Acceptance signoff: JC, 20261014: `Quote.None_`, the dropped `RULES_*` aliases and the C unit value names.
+	- Closed: 20261014-142729
 
 - spec.md leaves out what consumers had to find by probing
 	- ID: 2026101407100009
