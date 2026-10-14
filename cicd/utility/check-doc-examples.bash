@@ -43,8 +43,9 @@ for k in "${!bindings[@]}"; do
 	if [[ "${b#*|}" != /* ]]; then bindings[k]="${b%%|*}|${PWD}/${b#*|}"; fi
 done
 readme="${repoDir}/README.md"
+examples="${repoDir}/project/examples.md"
 manPage="${repoDir}/source/man/shcl.1"
-[[ -f "${readme}" && -f "${manPage}" ]] || { echo "check-doc-examples: no README or man page" >&2; exit 2; }
+[[ -f "${readme}" && -f "${examples}" && -f "${manPage}" ]] || { echo "check-doc-examples: no README, examples doc or man page" >&2; exit 2; }
 
 fOnExit(){
 	local rc=$?
@@ -95,13 +96,13 @@ if ((nRun < 5)); then
 	echo "check-doc-examples: only ${nRun} example block(s) found in the man page" >&2
 	nBad=$((nBad + 1))
 fi
-##	The page names its files without showing them. server.shcl and the schema
-##	are the README's, app.shcl passes that schema, and base.shcl under
+##	The page names its files without showing them. server.shcl is the README's
+##	and the schema the examples doc's, app.shcl passes that schema, and base.shcl under
 ##	site.shcl merges to a document that passes it too.
-awk '/^## What a .shcl file looks like/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tmpDir}/server.shcl"
-awk '/^Hand it a schema/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tmpDir}/app-schema.shcl"
+awk '/^## What a .shcl file looks like/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" "${examples}" > "${tmpDir}/server.shcl"
+awk '/^Hand it a schema/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" "${examples}" > "${tmpDir}/app-schema.shcl"
 [[ -s "${tmpDir}/server.shcl" && -s "${tmpDir}/app-schema.shcl" ]] \
-	|| { echo "check-doc-examples: the README's server.shcl or schema block is gone" >&2; exit 2; }
+	|| { echo "check-doc-examples: the server.shcl or schema block is gone from the README and project/examples.md" >&2; exit 2; }
 if command -v jq >/dev/null 2>&1; then
 	firstOut=""; manBad="${nBad}"
 	for b in "${bindings[@]}"; do
@@ -161,3 +162,5 @@ echo "check-doc-examples: OK"
 ##	History:
 ##		2026-10-10  Created: the value syntax doc's and the spec's tables, and
 ##		            the man page's example blocks (2026100719122102).
+##		2026-10-14  The schema block moved to project/examples.md; both files
+##		            are read for it and for server.shcl.

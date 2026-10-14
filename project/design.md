@@ -795,7 +795,7 @@ Two portability rules bind every binding:
 
 ### Format comparison
 
-The feature comparison on the front page says how SHCL differs from JSON, YAML, TOML and XML. Nothing said what any of it costs, so `cicd/utility/comparison/` measures that, and the numbers README quotes come from there.
+The feature comparison on the front page says how SHCL differs from JSON, YAML, TOML and XML. Nothing said what any of it costs, so `cicd/utility/comparison/` measures that, and the numbers [comparison.md](comparison.md) quotes come from there.
 
 Method, and why each part of it is the way it is:
 
@@ -870,7 +870,7 @@ The responsibility is split rather than duplicate the pipeline:
 	- The three installer scripts count as front-page material for that rule, not as product code. Nothing ships them - no package, no release asset includes them - and the one-liners fetch them from `main` at the moment somebody runs one, so a fix that sits on `dev` reaches nobody. The alternative was to fetch them at a tag, which was rejected: it would freeze an installer's bugs into every release that shipped with them, and the installer's job is to fetch the newest release, not to be part of one. So an installer fix may go to `main` on its own, under the same no-tag, no-version-bump, no-changelog-entry rule as a docs merge.
 
 - One canonical version source: `source/rust/Cargo.toml`. The pipeline reads it for artifact names and release tags. (An automatic bump-before-push guard was tried and dropped: dev is the integration branch, and versions there are cut deliberately at release time, not policed per push.)
-	- The Go/Python/C CLI version strings and `source/python/pyproject.toml` are hand-kept mirrors of it, moved together at a cut along with the changelog heading and the front-page README's literal version strings.
+	- The Go/Python/C CLI version strings and `source/python/pyproject.toml` are hand-kept mirrors of it, moved together at a cut along with the changelog heading and the literal version strings in `install.md` and `examples.md`.
 	- A release binary prints a build number after its version, as in `shcl v3.0.0 build dd2f6`. It is the minutes from 2000 to the commit's time, in lower-case Crockford base32. It comes from the commit rather than the clock, so a rebuild of one commit still gives the same bytes. Only the pipeline's release builds are stamped. A `cargo install` from crates.io has no git history to read, so it prints the version alone, and so do the other three CLIs, which are compared byte for byte against an unstamped build.
 	- Two tags per cut, not one: `vX.Y.Z` for the release, and `source/go/vX.Y.Z` for the Go module. Go resolves a module in a subdirectory only through a path-prefixed tag, so skipping the second one silently strands every Go consumer on a pseudo-version.
 	- Release assets are signed before the release is published: both installers refuse a release whose sums file has no valid signature, so publishing first would offer an install nothing can verify.
@@ -937,11 +937,11 @@ The responsibility is split rather than duplicate the pipeline:
 
 ### Shell wrappers (retired)
 
-- Retired 2026-10-08. Bash and PowerShell scripts call the `shcl` binary directly, and the README shows how. The two wrappers are frozen in `project/legacy/`, unmaintained and not installed, and an installer update removes the copies an older release put in `scripts/`. Why:
+- Retired 2026-10-08. Bash and PowerShell scripts call the `shcl` binary directly, and [examples.md](examples.md#bash) shows how. The two wrappers are frozen in `project/legacy/`, unmaintained and not installed, and an installer update removes the copies an older release put in `scripts/`. Why:
 	- They added little over the binary. `shcl_int f p` is `shcl get --int f p`.
 	- The PowerShell one did fix two real 5.1 problems, its output encoding and its old way of quoting native arguments. But about a third of it fixed problems that come from putting a PowerShell script or function in front of a native command: `--` and unquoted commas eaten before the function sees them, colon arguments split under `-File`, and pipeline input to forward.
 	- The two took 33 commits from August to October 2026, against a binary that needs none of it.
-	- What 5.1 needs from a caller is one encoding line, and the README says so.
+	- What 5.1 needs from a caller is one encoding line, and [examples.md](examples.md#powershell) says so.
 
 - The superseded design, kept for the record:
 	- The shell binding wrapped the `shcl` CLI, not a parser, so it inherited conformance for free.

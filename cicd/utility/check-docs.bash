@@ -24,6 +24,11 @@ fBad(){ echo "check-docs: $1" >&2; nBad+=1 ;}
 testWhere="check-docs"; testCounter="nBad"
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+##	The README's install steps, examples and benchmarks live in their own docs.
+readme="${repoDir}/README.md"
+installDoc="${repoDir}/project/install.md"
+examplesDoc="${repoDir}/project/examples.md"
+comparisonDoc="${repoDir}/project/comparison.md"
 
 fTest Ep19Ax7 default-ops-in-help-table
 ##	Every write op the CLI dispatches with a -default form has to be written in
@@ -52,16 +57,16 @@ pyVer="$(sed -n '/^version = "/{s/^version = "\(.*\)"$/\1/p;q;}' "${repoDir}/sou
 	|| fBad "source/python/pyproject.toml is version '${pyVer}', but Cargo.toml says '${cargoVer}'"
 
 fTest EshaoyP toolchain-floors-match-readme
-##	The README's toolchain floors are what the manifests ask for. With no
+##	The examples doc's toolchain floors are what the manifests ask for. With no
 ##	rust-version, cargo 1.85 to 1.87 stopped on a let chain in lib.rs instead
 ##	of naming the version the crate needs.
 rustFloor="$(sed -n '/^rust-version = "/{s/^rust-version = "\(.*\)"$/\1/p;q;}' "${repoDir}/source/rust/Cargo.toml" || true)"
 pyFloor="$(sed -n '/^requires-python = ">=/{s/^requires-python = ">=\(.*\)"$/\1/p;q;}' "${repoDir}/source/python/pyproject.toml" || true)"
 [[ -n "${rustFloor}" ]] || fBad "source/rust/Cargo.toml has no rust-version"
-grep -qxF -- "- Toolchain: Rust ${rustFloor} or newer." "${repoDir}/README.md" \
-	|| fBad "README.md: the Rust toolchain line doesn't say ${rustFloor:-a version}, the rust-version in Cargo.toml"
-grep -qxF -- "- Toolchain: Python ${pyFloor} or newer." "${repoDir}/README.md" \
-	|| fBad "README.md: the Python toolchain line doesn't say ${pyFloor:-a version}, the requires-python in pyproject.toml"
+grep -qxF -- "- Toolchain: Rust ${rustFloor} or newer." "${examplesDoc}" \
+	|| fBad "project/examples.md: the Rust toolchain line doesn't say ${rustFloor:-a version}, the rust-version in Cargo.toml"
+grep -qxF -- "- Toolchain: Python ${pyFloor} or newer." "${examplesDoc}" \
+	|| fBad "project/examples.md: the Python toolchain line doesn't say ${pyFloor:-a version}, the requires-python in pyproject.toml"
 grep -qxF -- "Python ${pyFloor} or newer." "${repoDir}/source/python/README.md" \
 	|| fBad "source/python/README.md doesn't say Python ${pyFloor:-a version}, the requires-python in pyproject.toml"
 
@@ -316,18 +321,17 @@ if ((! buildsSharedLib)); then
 fi
 
 fTest EoXVY4O installer-tar-prerequisite
-##	The Windows installer refuses outright without `tar`, and the README's
+##	The Windows installer refuses outright without `tar`, and the install doc's
 ##	prerequisites used to cover only the Linux side, so the requirement was
 ##	reachable only by running it and failing.
 ps1="${repoDir}/install.ps1"
-readme="${repoDir}/README.md"
-if [[ -f "${ps1}" && -f "${readme}" ]] && grep -q "needs tar to unpack" "${ps1}"; then
-	grep -qE '(^|[^a-z])tar([^a-z]|$).*[Ww]indows|[Ww]indows.*(^|[^a-z])tar([^a-z]|$)' "${readme}" \
-		|| fBad "install.ps1 requires tar and README.md never says so on the Windows side"
+if [[ -f "${ps1}" ]] && grep -q "needs tar to unpack" "${ps1}"; then
+	grep -qE '(^|[^a-z])tar([^a-z]|$).*[Ww]indows|[Ww]indows.*(^|[^a-z])tar([^a-z]|$)' "${installDoc}" \
+		|| fBad "install.ps1 requires tar and project/install.md never says so on the Windows side"
 fi
 
 fTest EqKhPQP install-ps1-ascii-no-bom
-##	The README runs install.ps1 through `irm | iex`, and irm keeps a byte-order
+##	The install doc runs install.ps1 through `irm | iex`, and irm keeps a byte-order
 ##	mark as the first character, which puts `param` second and fails the parse.
 ##	Every test ran the file with -File, which strips the mark. So the file stays
 ##	ASCII with no mark: nothing then needs one, PSScriptAnalyzer's BOM rule
@@ -377,7 +381,7 @@ fTest EqL4fPc withdrawn-lexical-wording-gone
 while IFS= read -r hit; do
 	fBad "states a withdrawn lexical rule: ${hit}"
 done < <(grep -nHiE 'behind a blank|a `#` anywhere else|swallowing the trailing comment|comma hides inside the open quote' \
-	"${repoDir}/README.md" "${repoDir}/project/style-guide_code.md" "${repoDir}/project/spec.md" "${repoDir}/project/design.md" \
+	"${readme}" "${installDoc}" "${examplesDoc}" "${comparisonDoc}" "${repoDir}/project/style-guide_code.md" "${repoDir}/project/spec.md" "${repoDir}/project/design.md" \
 	"${repoDir}/project/conformance/README.md" "${repoDir}/source/man/shcl.1" 2>/dev/null | sed "s|^${repoDir}/||" || true)
 
 fTest EqL4fPd corpus-readme-notes-every-case
@@ -538,7 +542,7 @@ if [[ -f "${man}" ]] && git -C "${repoDir}" rev-parse --is-inside-work-tree >/de
 fi
 
 fTest EqQW89I performance-numbers-match-results
-##	The README's performance numbers and design.md's table come out of
+##	The comparison doc's performance numbers and design.md's table come out of
 ##	cicd/utility/comparison/, which is not a gate and runs only when asked. They
 ##	sat at 1.2.0 figures for two majors, and the only thing saying how old they
 ##	were was a date in design.md's prose. The rule: that date is the day of the
@@ -576,8 +580,8 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 			fBad "could not read the newest comparison run's parse times out of results.shcl"
 		else
 			#  shellcheck disable=2016  ## the backticks are the document's own markdown.
-			grep -qF "SHCL reads ${pyRatio} times slower than \`tomllib\`; in Rust, ${rustRatio} times slower than \`toml\`" "${readme}" \
-				|| fBad "README.md: the performance sentence does not print the newest run's ratios (${pyRatio} Python, ${rustRatio} Rust)"
+			grep -qF "SHCL reads ${pyRatio} times slower than \`tomllib\`; in Rust, ${rustRatio} times slower than \`toml\`" "${comparisonDoc}" \
+				|| fBad "project/comparison.md: the performance sentence does not print the newest run's ratios (${pyRatio} Python, ${rustRatio} Rust)"
 			#  shellcheck disable=2016  ## the backticks are the document's own markdown.
 			grep -qF "SHCL ${pyRatio}x behind \`tomllib\`" "${designDoc}" \
 				|| fBad "project/design.md: the Python tier bullet does not print the newest run's ratio (${pyRatio})"
@@ -626,7 +630,7 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 			grep -qF "Gzipped, SHCL is within ${gzPct}% of the smallest file" "${designDoc}" \
 				|| fBad "project/design.md: the gzip sentence does not say within ${gzPct}%, the newest run's widest gap"
 		fi
-		##	The README's schema section: SHCL's size against JSON and XML, and a
+		##	The comparison doc's schema section: SHCL's size against JSON and XML, and a
 		##	read time given as a fraction of a second, which has to be true.
 		ddlSecs="$(fRead float "tier(rust).shape(ddl).library(shcl).parse-secs")"
 		ddlSizes="$(fRead int "tier(rust).shape(ddl).library(shcl).bytes") $(fRead int "tier(rust).shape(ddl).library(json).bytes") $(fRead int "tier(rust).shape(ddl).library(xml).bytes")"
@@ -636,16 +640,16 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 		else
 			vsJson="$(awk -v a="${ddlShcl}" -v b="${ddlJson}" 'BEGIN { printf "%.0f", (1 - a / b) * 100 }')"
 			vsXml="$(awk -v a="${ddlShcl}" -v b="${ddlXml}" 'BEGIN { printf "%.0f", (1 - a / b) * 100 }')"
-			grep -qF "SHCL is ${vsJson}% smaller than JSON and ${vsXml}% smaller than XML" "${readme}" \
-				|| fBad "README.md: the schema sentence does not give the newest run's sizes (${vsJson}% smaller than JSON, ${vsXml}% than XML)"
-			frac="$(sed -nE 's/.*reads in under an? ([a-z]+) of a second.*/\1/p' "${readme}" | head -n1)"
+			grep -qF "SHCL is ${vsJson}% smaller than JSON and ${vsXml}% smaller than XML" "${comparisonDoc}" \
+				|| fBad "project/comparison.md: the schema sentence does not give the newest run's sizes (${vsJson}% smaller than JSON, ${vsXml}% than XML)"
+			frac="$(sed -nE 's/.*reads in under an? ([a-z]+) of a second.*/\1/p' "${comparisonDoc}" | head -n1)"
 			denom="$(awk -v f="${frac}" 'BEGIN { split("tenth 10 twentieth 20 thirtieth 30 fortieth 40 fiftieth 50 sixtieth 60 seventieth 70 eightieth 80 ninetieth 90 hundredth 100 thousandth 1000", t, " ")
 				for (i = 1; i < 24; i += 2) if (t[i] == f) print t[i + 1] }')"
 			if [[ -z "${denom}" ]]; then
-				fBad "README.md: no 'reads in under a ... of a second' sentence to check the schema read time against"
+				fBad "project/comparison.md: no 'reads in under a ... of a second' sentence to check the schema read time against"
 			else
 				awk -v s="${ddlSecs}" -v d="${denom}" 'BEGIN { exit !(s * d < 1) }' \
-					|| fBad "README.md: SHCL reads the schema shape in ${ddlSecs} s, which is not under a ${frac} of a second"
+					|| fBad "project/comparison.md: SHCL reads the schema shape in ${ddlSecs} s, which is not under a ${frac} of a second"
 			fi
 		fi
 	elif [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
@@ -690,15 +694,14 @@ fTest EoXX3yy setter-examples-check-the-result
 ##	three of the four called the first two bare. The Rust one checks all three,
 ##	because the type system makes it, so it is the comparison a reader has.
 ##	A check is a negated call, or a status compared with Ok (2026100907362300).
-readme="${repoDir}/README.md"
-if [[ -f "${readme}" ]]; then
+if [[ -f "${examplesDoc}" ]]; then
 	for fence in rust go python c; do
-		block="$(awk -v f="^~~~+${fence}\$" '$0 ~ f, /^~~~+$/' "${readme}")"
-		[[ -n "${block}" ]] || { fBad "README.md has no \`\`\`${fence} example, so its setter checks went unread"; continue ;}
+		block="$(awk -v f="^~~~+${fence}\$" '$0 ~ f, /^~~~+$/' "${examplesDoc}")"
+		[[ -n "${block}" ]] || { fBad "project/examples.md has no \`\`\`${fence} example, so its setter checks went unread"; continue ;}
 		calls="$(grep -cE '(doc\.[Ss]et[A-Za-z_]+\(|shcl_set_[a-z]+\(doc)' <<<"${block}" || true)"
 		checked="$(grep -cE '(if !doc\.[Ss]et|if not doc\.set_|!= *(SetStatus::Ok|shcl\.SetOk|SHCL_SET_OK)|is not (shcl\.)?SetStatus\.Ok)' <<<"${block}" || true)"
 		((calls == 0)) && continue
-		((checked >= calls)) || fBad "README ${fence} example calls ${calls} setter(s) and checks ${checked}"
+		((checked >= calls)) || fBad "project/examples.md: the ${fence} example calls ${calls} setter(s) and checks ${checked}"
 	done
 fi
 
@@ -839,8 +842,8 @@ fi
 if [[ -n "${help}" ]]; then
 	for opt in --remove --set-default --set-literal-default; do
 		grep -q -- "${opt}" <<<"${help}" || continue
-		grep -q -- "\`${opt}" "${repoDir}/README.md" \
-			|| fBad "README.md: ${opt} is in the help and not in the edit-options paragraph"
+		grep -q -- "\`${opt}" "${examplesDoc}" \
+			|| fBad "project/examples.md: ${opt} is in the help and not in the edit-options paragraph"
 		grep -qF -- "${opt//-/\\-}" "${repoDir}/source/man/shcl.1" \
 			|| fBad "shcl.1: ${opt} is in the help and not in the man page"
 	done
@@ -1038,12 +1041,12 @@ fi
 
 fTest Eom0qpm readme-get-transcript-shows-diagnostic
 ##	Every subcommand that loads a document prints the load's diagnostics, so a
-##	README transcript reading a damaged file has to show them - the get example
+##	transcript in the examples doc reading a damaged file has to show them - the get example
 ##	sat under a check example that showed the same file's diagnostic and said
 ##	nothing itself.
-readmeGet="$(sed -n '/shcl get server.shcl log-level/,/^~~~~*$/p' "${repoDir}/README.md")"
+readmeGet="$(sed -n '/shcl get server.shcl log-level/,/^~~~~*$/p' "${examplesDoc}")"
 grep -q 'E014' <<<"${readmeGet}" \
-	|| fBad "README.md: the get transcript on the damaged file shows no load diagnostic"
+	|| fBad "project/examples.md: the get transcript on the damaged file shows no load diagnostic"
 ##	And the diagnostic it shows is the one the CLI prints. The file is the
 ##	README's own example with the colon knocked off line 3, as the prose says.
 if [[ -n "${help}" ]]; then
@@ -1053,7 +1056,7 @@ if [[ -n "${help}" ]]; then
 	shown="$(grep -m1 'E014 malformed' <<<"${readmeGet}" || true)"
 	actual="$(cd "${tmpDoc}" && "${repoDir}/source/rust/target/debug/shcl" get server.shcl log-level 2>&1 >/dev/null || true)"
 	[[ -n "${shown}" && "${shown}" == "${actual}" ]] \
-		|| fBad "README.md: the E014 transcript line is not what the CLI prints (${actual})"
+		|| fBad "project/examples.md: the E014 transcript line is not what the CLI prints (${actual})"
 	rm -rf "${tmpDoc}"
 fi
 
@@ -1142,7 +1145,7 @@ fBuildToc(){  ## fBuildToc FILE: the contents block those headings would generat
 		{ prev = $0 }
 	' "$1"
 }
-for doc in README.md contributing.md project/design.md project/spec.md ai_policy.md; do
+for doc in README.md contributing.md project/design.md project/spec.md ai_policy.md project/install.md project/examples.md project/comparison.md; do
 	[[ -f "${repoDir}/${doc}" ]] || continue
 	live="$(sed -n '/^<!-- TOC -->$/,/^<!-- \/TOC -->$/p' "${repoDir}/${doc}" | sed '1d;$d' | sed '/^$/d')"
 	if [[ -z "${live}" ]]; then
@@ -1155,6 +1158,54 @@ for doc in README.md contributing.md project/design.md project/spec.md ai_policy
 	dupe="$(sed -E 's/.*\(#(.*)\)/\1/' <<<"${want}" | sort | uniq -d | head -n1)"
 	[[ -z "${dupe}" ]] || fBad "${doc}: two headings share the anchor #${dupe}, so one of the contents links goes to the wrong place"
 done
+
+fTest EsiRFl2 doc-links-resolve
+##	The README's install steps, examples and benchmarks moved to docs of their
+##	own, and links between documents now name a heading in another file. A
+##	link to a file that moved, or to a heading that was renamed, still renders
+##	and goes nowhere. Every relative link in a tracked .md has to reach a file,
+##	and its #anchor a heading there, by the same slug rule as the contents
+##	blocks plus underscores, which the git host keeps.
+while IFS= read -r hit; do fBad "${hit}"; done < <(python3 - "${repoDir}" <(git -C "${repoDir}" ls-files -z -- '*.md' || true) <<'PYEOF'
+import re, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+def lines_outside_fences(p):
+	fence = ""
+	for n, line in enumerate(p.read_text(encoding="utf-8").split("\n"), 1):
+		m = re.match(r"^\s*(`{3,}|~{3,})", line)
+		if fence:
+			if m and line.strip() == fence:
+				fence = ""
+		elif m:
+			fence = m.group(1)
+		else:
+			yield n, line
+anchors = {}
+def anchors_of(p):
+	if p not in anchors:
+		anchors[p] = {re.sub(r"[^a-z0-9 _-]", "", h.lower()).replace(" ", "-")
+			for _, line in lines_outside_fences(p) for h in re.findall(r"^#{1,6} (.*?)\s*$", line)}
+	return anchors[p]
+docs = sorted(f for f in Path(sys.argv[2]).read_text(encoding="utf-8").split("\0") if f)
+if not docs:
+	print("doc-links-resolve: git listed no .md files to check")
+for rel in docs:
+	doc = root / rel
+	if not doc.is_file():
+		continue
+	for n, line in lines_outside_fences(doc):
+		for target in re.findall(r"\]\(([^)\s]+)\)", re.sub(r"`[^`]*`", "", line)):
+			if re.match(r"^[a-z]+:", target):
+				continue
+			path, _, anchor = target.partition("#")
+			dest = (doc.parent / path).resolve() if path else doc
+			if not dest.exists():
+				print(f"{rel}:{n}: links to {target}, which is not there")
+			elif anchor and dest.suffix == ".md" and anchor not in anchors_of(dest):
+				print(f"{rel}:{n}: links to {target}, and no heading there makes #{anchor}")
+PYEOF
+)
 
 fTest EqQW89K flame-report-keys-exist
 ##	The hot-spot report buckets a sample by the names in its ancestor frames, so
@@ -1206,7 +1257,7 @@ grep -qF '// The write side'"'"'s one rule: what is written has to read back' "$
 	|| fBad "lib.rs: the write-side section header is gone"
 
 fTest EpHGoa0 installers-match-main
-##	Nothing ships the installers and the README one-liners fetch them from main
+##	Nothing ships the installers and the install doc's one-liners fetch them from main
 ##	as they run, so a fix that stops at dev reaches nobody. That is the one
 ##	drift in the tree that reaches users the moment it happens, and until now it
 ##	rested on remembering the docs-only exception at every merge. Skipped rather
@@ -1278,3 +1329,8 @@ echo "check-docs: OK"
 ##		2026-09-26  Every exported Go name and Rust pub item has a doc comment,
 ##		            the C sources call no forbidden string function or bare
 ##		            goto, and explain's codes match the spec's tables.
+##		2026-10-14  The install steps, examples and benchmarks moved out of the
+##		            README into project/install.md, examples.md and
+##		            comparison.md; their checks read those, and all three get
+##		            the contents-block and withdrawn-wording checks. Every
+##		            relative link in a tracked .md reaches its file and heading.
