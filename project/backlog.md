@@ -36,7 +36,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - No public call gives an array, or one element of it, the way the writer writes it
 	- ID: 2026101412591471
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
 	- Priority: Low
 	- Opened: 20261014-125914
 	- Opened by: 2026101407100011
@@ -46,6 +47,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- A call for one element, or for a whole array, in all four and C++, built through the same emitter.
 	- Reason: the consumer survey in code review 20261014 named array elements among what gets scraped from `to_canonical`.
+	- Decisions:
+		- 20261014: a whole array, named `format_array` beside `format_value` (me). It takes what `set_string_array` takes and gives what that writes after the colon of a field it makes, brackets and all, so `[80, "a b", "1,200"]`, `[80]` for one and `[]` for none. That's the array setter's own value, emitter and read-back check, as `format_value` is the string setter's. An element alone has no read-back of its own, and a program joining elements itself would hold a second copy of the bracket and separator rule. One element is `format_array` of one, and inside the brackets it is `format_value`'s text but for a thousands number, which is quoted. It refuses, returns and frees per binding as `format_value` does, and Python raises TypeError for a str or a non-str element, as `set_string_array` does.
+	- Actual fix: `format_array` in all four and C++ (Go `FormatArray`, C `shcl_format_array`), each building the value `set_string_array` builds, running its read-back check and returning the emitter's text. C takes texts and lengths as `shcl_set_string_array` does, and shares one helper with `shcl_format_value`, so the working arena goes back before the out-of-memory hook the same way. spec.md has it under the Writer below `FormatValue`, and the changelog has it under New. Python's `__all__` has it.
+	- Swept: every array setter's path in the four bindings (`array_cell` and its ports), which is the one `format_array` calls. `check-veneer.bash` counts it made by `shcl.hpp`. No CLI or runner builds bracket text of its own to switch over. README.md has no `format_value` example, so it gets no `format_array` one either.
+	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. The writer fuzz test at 2,000,000 in release. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang and under ASan and UBSan, the C CLI under gcc, clang and mingw, check-c-compilers, the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (49725 comparisons) over all 4 CLIs. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. The Rust, Go, Python and C tests and the veneer smoke went red with the call joining `format_value`'s texts in brackets, and the fuzz test with it joining them with a bare comma. check-veneer went red with the wrapper not calling C. oom_hook went red with the array call keeping its arenas on the hook path.
+	- Test case: `format_array_is_the_setters_text`, one fixture in every runner: Rust `EsiL1FW`, Go `EsiL1IE`, Python `EsiL1Kh` and C `EsiL1NB`. Over each text of the `format_value` fixture alone and after another element, all of them at once, and none, each must equal what `set_string_array` writes into `to_canonical` and read back as the same texts, or be refused by both. It checks one element against `format_value` and the typed array setters' texts too. `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks it over the fuzz soup. C++ is in `EjtkR0S` (veneer smoke), and C's out-of-memory path in `EoH8aeO` (oom_hook).
+	- Branch: `fmtelem`
+	- Commit: `6d5d8dd1`
+	- Acceptance signoff: closed on JC's 20261014 criteria. The call is mine: a whole array, `format_array`, built through the array setter's own path, so there's no second copy of the quoting or bracket rules. It matches value-syntax.md's Arrays and Canonical output and moves no closed decision. The four runner tests failed against a broken call and pass.
+	- Closed: 20261014-152747
 
 - Move the detailed comparisons out of README.md into their own doc
 	- ID: 2026101414312546

@@ -128,6 +128,13 @@ static void fv_fail(const char *msg, const char *in, size_t n) {
 	fprintf(stderr, ")\n");
 	nfail++;
 }
+/* The same for the format_array fixture, its last element named. */
+static void fa_fail(const char *msg, const char *in, size_t n) {
+	fprintf(stderr, "FAIL format_array: %s (last element", msg);
+	for (size_t i = 0; i < n; i++) fprintf(stderr, " %02x", (unsigned char)in[i]);
+	fprintf(stderr, ")\n");
+	nfail++;
+}
 /* One input of the format_value fixture: shcl_format_value against what
    shcl_set_string writes into a fresh document, and the text read back. */
 static void fv_check(const char *in, size_t inn) {
@@ -159,6 +166,44 @@ static void fv_typed(shcl_doc *d, const char *text, const char *what) {
 	char *v = shcl_format_value(text, strlen(text), &n);
 	shcl_str c = shcl_to_canonical(d);
 	if (!v || c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n') fail("format_value", what);
+	free(v); shcl_free(d);
+}
+/* One array of the format_array fixture: shcl_format_array against what
+   shcl_set_string_array writes into a fresh document, and the texts read
+   back. */
+static void fa_check(const char *const *av, const size_t *al, size_t an) {
+	shcl_doc *d = shcl_parse("", 0);
+	shcl_set_status st = shcl_set_string_array(d, "k", 1, av, al, an);
+	size_t n = 0;
+	char *v = shcl_format_array(av, al, an, &n);
+	const char *last = an ? av[an - 1] : "";
+	size_t lastn = an ? al[an - 1] : 0;
+	if (st != SHCL_SET_OK || !v) {
+		if (st != SHCL_SET_OK && v) fa_fail("gave text shcl_set_string_array refused", last, lastn);
+		if (st == SHCL_SET_OK) fa_fail("gave no text for what shcl_set_string_array took", last, lastn);
+		free(v); shcl_free(d); return;
+	}
+	shcl_str c = shcl_to_canonical(d);
+	if (c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || v[n] || strlen(v) != n)
+		fa_fail("not the canonical text", last, lastn);
+	char *line = (char *)malloc(n + 4);
+	if (!line) { fail("format_array", "out of memory"); free(v); shcl_free(d); return; }
+	memcpy(line, "k: ", 3); memcpy(line + 3, v, n); line[n + 3] = '\n';
+	shcl_doc *b = shcl_parse(line, n + 4);
+	shcl_read_str_arr r = shcl_read_string_array(b, "k", 1);
+	int same = r.status == SHCL_GOOD && r.n == an;
+	for (size_t i = 0; same && i < an; i++) same = r.values[i].n == al[i] && (!al[i] || !memcmp(r.values[i].p, av[i], al[i]));
+	if (!same) fa_fail("texts did not read back", last, lastn);
+	shcl_free(b); free(line); free(v); shcl_free(d);
+}
+/* The typed array setter's canonical text equals `k: ` plus
+   shcl_format_array of its values' texts. */
+static void fa_typed(shcl_doc *d, const char *const *texts, size_t n, const char *what) {
+	size_t lens[4], vn = 0;
+	for (size_t i = 0; i < n; i++) lens[i] = strlen(texts[i]);
+	char *v = shcl_format_array(texts, lens, n, &vn);
+	shcl_str c = shcl_to_canonical(d);
+	if (!v || c.n != vn + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, vn) || c.p[vn + 3] != '\n') fail("format_array", what);
 	free(v); shcl_free(d);
 }
 /* A capped parse's diagnostics as "LINE:CODE" words, its lost count and its
@@ -6028,6 +6073,107 @@ int main(int argc, char **argv) {
 		fv_typed(td, db, "set_datetime");
 		char *dv = shcl_format_value(db, strlen(db), NULL);
 		if (!dv || strcmp(dv, "\"2026-07-12T14:30\"")) fail("format_value", "datetime quoted");
+		free(dv);
+	}
+	test_id("EsiL1NB", "format_array_is_the_setters_text");
+	/* shcl_format_array is the text shcl_set_string_array writes after `k: `
+	   in a fresh document, NULL exactly where shcl_set_string_array refuses,
+	   and it reads back as the texts it was handed. Each text of the
+	   format_value fixture alone and after another element, all of them at
+	   once, and none; an element is shcl_format_value's text but for a
+	   thousands number, which brackets quote; and the typed array setters'
+	   texts. Same fixture in every runner, plus a byte that is not UTF-8. */
+	{
+		static const char *const soup[] = { "\"", "'", "\\", "#", ",", "[", "]", "\r", "\n", " ", "\t", "\xc2\xa0", "a" };
+		static const char *const extra[] = {
+			"2020", "@null", "1,200", "a.b", "-x", "He said \"hi\", it's", "`#FF8800`", "`",
+			"$1,200", "1,200.50", "-1,200", "80,443", "rw,noatime", "2026-07-12T14:30", "-0.5",
+			"true", "\xe2\x97\x89", ("a\xe2\x97\x89NEWLINE\xe2\x97\x89" "b"), "x\xe2\x80\x8by", "\xff",
+		};
+		const size_t nsoup = sizeof soup / sizeof soup[0], nextra = sizeof extra / sizeof extra[0];
+		static const char *const thousands[] = { "1,200", "$1,200", "1,200.50", "-1,200", "80,443" };
+		size_t ntexts = 0;
+		char texts[(13 + 1) * (13 + 1) + 20][8];
+		size_t tlens[(13 + 1) * (13 + 1) + 20];
+		for (size_t ai = 0; ai <= nsoup; ai++) for (size_t bi = 0; bi < (ai == 0 ? 1u : nsoup + 1); bi++) {
+			size_t inn = 0;
+			if (ai) { size_t l = strlen(soup[ai - 1]); memcpy(texts[ntexts], soup[ai - 1], l); inn = l; }
+			if (ai && bi) { size_t l = strlen(soup[bi - 1]); memcpy(texts[ntexts] + inn, soup[bi - 1], l); inn += l; }
+			tlens[ntexts++] = inn;
+		}
+		size_t nsouped = ntexts;
+		for (size_t i = 0; i < ntexts; i++) {
+			const char *av[2] = { "x", texts[i] };
+			size_t al[2] = { 1, tlens[i] };
+			fa_check(av + 1, al + 1, 1);
+			fa_check(av, al, 2);
+		}
+		size_t xlens[sizeof extra / sizeof extra[0]];
+		for (size_t i = 0; i < nextra; i++) {
+			xlens[i] = strlen(extra[i]);
+			const char *av[2] = { "x", extra[i] };
+			size_t al[2] = { 1, xlens[i] };
+			fa_check(av + 1, al + 1, 1);
+			fa_check(av, al, 2);
+		}
+		fa_check(extra, xlens, nextra);
+		fa_check(NULL, NULL, 0);
+		/* One element is shcl_format_value's text in brackets, but for a
+		   thousands number. */
+		for (size_t i = 0; i < nsouped + nextra; i++) {
+			const char *t = i < nsouped ? texts[i] : extra[i - nsouped];
+			size_t tn = i < nsouped ? tlens[i] : xlens[i - nsouped];
+			size_t eln = 0, onen = 0;
+			char *el = shcl_format_array(&t, &tn, 1, &eln), *one = shcl_format_value(t, tn, &onen);
+			if (el && one) {
+				int thou = 0;
+				for (size_t k = 0; k < sizeof thousands / sizeof thousands[0]; k++) thou |= tn == strlen(thousands[k]) && !memcmp(t, thousands[k], tn);
+				if (thou ? (onen != tn || memcmp(one, t, tn) || eln != tn + 4 || el[0] != '[' || el[1] != '"' || memcmp(el + 2, t, tn) || el[tn + 2] != '"' || el[tn + 3] != ']')
+				         : (eln != onen + 2 || el[0] != '[' || memcmp(el + 1, one, onen) || el[onen + 1] != ']'))
+					fa_fail("one element is not format_value's text", t, tn);
+			}
+			free(el); free(one);
+		}
+		static const struct { const char *in[4]; size_t n; const char *want; } spelled[] = {
+			{ { NULL }, 0, "[]" },
+			{ { "80" }, 1, "[80]" },
+			{ { "80", "a b", "1,200", "@null" }, 4, "[80, \"a b\", \"1,200\", @null]" },
+		};
+		for (size_t i = 0; i < sizeof spelled / sizeof spelled[0]; i++) {
+			size_t sl[4] = { 0 };
+			for (size_t k = 0; k < spelled[i].n; k++) sl[k] = strlen(spelled[i].in[k]);
+			char *v = shcl_format_array(spelled[i].in, sl, spelled[i].n, NULL);
+			if (!v || strcmp(v, spelled[i].want)) fail("format_array", spelled[i].want);
+			free(v);
+		}
+		/* The typed array setters write their values' texts the way
+		   shcl_set_string_array would. */
+		shcl_doc *td = shcl_parse("", 0);
+		static const int64_t ints[] = { -2020, 80 };
+		if (shcl_set_int_array(td, "k", 1, ints, 2) != SHCL_SET_OK) fail("format_array", "set_int_array");
+		static const char *const intt[] = { "-2020", "80" };
+		fa_typed(td, intt, 2, "set_int_array");
+		td = shcl_parse("", 0);
+		static const double fl[] = { 0.1 };
+		if (shcl_set_float_array(td, "k", 1, fl, 1) != SHCL_SET_OK) fail("format_array", "set_float_array");
+		char fb[SHCL_FLOAT_BUF]; fb[shcl_format_float(0.1, fb)] = 0;
+		const char *flt[1] = { fb };
+		fa_typed(td, flt, 1, "set_float_array");
+		td = shcl_parse("", 0);
+		static const int bools[] = { 1, 0 };
+		if (shcl_set_bool_array(td, "k", 1, bools, 2) != SHCL_SET_OK) fail("format_array", "set_bool_array");
+		static const char *const boolt[] = { "true", "false" };
+		fa_typed(td, boolt, 2, "set_bool_array");
+		shcl_datetime fdt;
+		if (!shcl_parse_datetime("2026-07-12T14:30", 16, &fdt)) fail("format_array", "parse_datetime");
+		td = shcl_parse("", 0);
+		if (shcl_set_datetime_array(td, "k", 1, &fdt, 1) != SHCL_SET_OK) fail("format_array", "set_datetime_array");
+		char db[SHCL_DT_BUF]; db[shcl_datetime_str(&fdt, db)] = 0;
+		const char *dtt[1] = { db };
+		fa_typed(td, dtt, 1, "set_datetime_array");
+		size_t dbn = strlen(db);
+		char *dv = shcl_format_array(dtt, &dbn, 1, NULL);
+		if (!dv || strcmp(dv, "[\"2026-07-12T14:30\"]")) fail("format_array", "datetime quoted");
 		free(dv);
 	}
 	test_id_end();

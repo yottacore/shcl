@@ -168,6 +168,11 @@ std::string format_float(double v);
 // so `k: 2020`, `k: "a b"`, `k: 1,200`. A typed setter writes its value's text
 // the same way. Empty when set_string would refuse the text.
 std::optional<std::string> format_value(std::string_view text);
+// An array the way set_string_array writes it after the colon of a field it
+// makes, brackets and all, so `k: [80, "a b", "1,200"]`. A thousands number
+// is quoted in brackets, where format_value leaves it bare. Empty when
+// set_string_array would refuse the texts.
+std::optional<std::string> format_array(const std::vector<std::string> &texts);
 // One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
 // message`, or `schema line N` for V090 to V095, which count schema lines.
 // Only the code is the same in every binding. With no message the line ends
@@ -977,6 +982,14 @@ std::string format_float(double v) { char b[SHCL_FLOAT_BUF]; return std::string(
 std::optional<std::string> format_value(std::string_view text) {
 	std::size_t n = 0;
 	std::unique_ptr<char, void (*)(void *)> p(shcl_format_value(text.data(), text.size(), &n), &std::free);
+	if (!p) return std::nullopt;
+	return std::string(p.get(), n);
+}
+
+std::optional<std::string> format_array(const std::vector<std::string> &texts) {
+	std::size_t n = 0;
+	auto a = detail::str_args(texts);
+	std::unique_ptr<char, void (*)(void *)> p(shcl_format_array(a.p.data(), a.n.data(), texts.size(), &n), &std::free);
 	if (!p) return std::nullopt;
 	return std::string(p.get(), n);
 }

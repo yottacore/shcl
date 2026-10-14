@@ -190,6 +190,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `format_value()` in every binding (Go `FormatValue`, C `shcl_format_value`) gives one value the way `set_string` writes it after the colon, such as `2020`, `1,200` or `"a b"`, so a program no longer sets a value on a spare document and reads `to_canonical` to learn it. `quote_segment` quotes more, since what it gives is a path segment.
 
+- `format_array()` in every binding (Go `FormatArray`, C `shcl_format_array`) gives a whole array the way `set_string_array` writes it, such as `[80, "a b", "1,200"]`. Inside brackets a thousands number is quoted, where `format_value` leaves it bare.
+
 ### Parsing
 
 - A line indented under a skipped line is skipped with it (`E018`) instead of moving up a level. That now holds under `E006`, `E012`, `E013` and a dropped `- ` item as well.
