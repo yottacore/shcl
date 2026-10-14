@@ -413,6 +413,13 @@ public:
 	// validation, and one that does not load adds a lone V099, as validate()
 	// does; the H001 and H002 hints the schema disavows are dropped.
 	static Document load_and_validate(std::string_view text, std::string_view schema, Strictness s);
+	// load_and_validate with a schema already parsed, so a program that
+	// validates on every start parses its schema once. Same list, same strict
+	// rule, same V099. The schema is always validated against, as validate()
+	// does; only the text form skips an empty one. parse_with then validate()
+	// is not the same: diagnostics() and error_count() keep the load's values,
+	// the disavowed hints stay, and strict fails only on a load error.
+	static Document load_and_validate_with(std::string_view text, const Document &schema, Strictness s);
 
 #ifndef SHCL_NO_FILE_IO
 	// File tier. The status separates absent, unreadable, parsed with errors
@@ -1112,6 +1119,9 @@ Document Document::parse_limited(std::string_view text, Strictness s, std::size_
 }
 Document Document::load_and_validate(std::string_view text, std::string_view schema, Strictness s) {
 	return Access::wrap(shcl_load_and_validate(text.data(), text.size(), schema.data(), schema.size(), static_cast<shcl_strictness>(s)));
+}
+Document Document::load_and_validate_with(std::string_view text, const Document &schema, Strictness s) {
+	return Access::wrap(shcl_load_and_validate_with(text.data(), text.size(), detail::held(schema), static_cast<shcl_strictness>(s)));
 }
 
 #ifndef SHCL_NO_FILE_IO

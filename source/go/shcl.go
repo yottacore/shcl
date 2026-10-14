@@ -6240,21 +6240,33 @@ func (d *Document) ErrorCount() int {
 // either way. Below Strict, ErrorCount answers "did it fail". An empty schema
 // text skips validation entirely, and one that does not load adds a lone
 // V099, as Validate does. H001 hints the schema disavows (a declared repeat
-// upper bound above 1) are dropped.
+// upper bound above 1) are dropped. The schema text is parsed and handed to
+// LoadAndValidateWith.
 func LoadAndValidate(text, schemaText string, strictness Strictness) (*Document, error) {
-	doc := newParser().parse(text, strictness)
-	if strings.TrimSpace(schemaText) != "" {
-		schema := Parse(schemaText)
-		// Validate would give the same lone V099; a broken schema disavows no
-		// hints either, so nothing is suppressed.
-		if fault, ok := schemaLoadFault(schema); ok {
-			doc.diags = append(doc.diags, fault)
-			return doc.strictGate()
-		}
-		doc.diags = append(doc.diags, doc.Validate(schema)...)
-		doc.diags = SuppressDeclaredRepeats(schema, doc.diags)
-		doc.diags = SuppressDeclaredReopens(schema, doc.diags)
+	if strings.TrimSpace(schemaText) == "" {
+		return newParser().parse(text, strictness).strictGate()
 	}
+	return LoadAndValidateWith(text, Parse(schemaText), strictness)
+}
+
+// LoadAndValidateWith is LoadAndValidate with a schema already parsed, so a
+// program that validates on every start parses its schema once. Same combined
+// list, same strict rule, same lone V099 for a schema that did not load, and
+// the same hints dropped. The schema is always validated against, as Validate
+// does; only the text form skips an empty one. ParseWith then Validate is not
+// the same: Diagnostics and ErrorCount keep the load's values, the disavowed
+// hints stay, and Strict fails only on a load error.
+func LoadAndValidateWith(text string, schema *Document, strictness Strictness) (*Document, error) {
+	doc := newParser().parse(text, strictness)
+	// Validate would give the same lone V099; a broken schema disavows no
+	// hints either, so nothing is suppressed.
+	if fault, ok := schemaLoadFault(schema); ok {
+		doc.diags = append(doc.diags, fault)
+		return doc.strictGate()
+	}
+	doc.diags = append(doc.diags, doc.Validate(schema)...)
+	doc.diags = SuppressDeclaredRepeats(schema, doc.diags)
+	doc.diags = SuppressDeclaredReopens(schema, doc.diags)
 	return doc.strictGate()
 }
 

@@ -6075,20 +6075,33 @@ class Document:
 		error_count() answers "did it fail". An empty schema text skips
 		validation entirely, and one that does not load adds a lone V099, as
 		validate() does. H001 hints the schema disavows (a declared repeat
-		upper bound above 1) are dropped."""
+		upper bound above 1) are dropped. The schema text is parsed and handed
+		to load_and_validate_with."""
+		if not _trim(schema_text):
+			return _Parser().parse(text, strictness)._strict_gate()
+		return Document.load_and_validate_with(text, Document.parse(schema_text), strictness)
+
+	@staticmethod
+	def load_and_validate_with(text: str, schema: Document, strictness: Strictness) -> Document:
+		"""load_and_validate with a schema already parsed, so a program that
+		validates on every start parses its schema once. Same combined list,
+		same strict rule, same lone V099 for a schema that did not load, and
+		the same hints dropped. The schema is always validated against, as
+		validate() does; only the text form skips an empty one. parse_with
+		then validate() is not the same: diagnostics() and error_count() keep
+		the load's values, the disavowed hints stay, and Strict fails only on
+		a load error."""
 		doc = _Parser().parse(text, strictness)
-		if _trim(schema_text):
-			schema = Document.parse(schema_text)
-			# validate() would give the same lone V099; a broken schema
-			# disavows no hints either, so nothing is suppressed.
-			fault = _schema_load_fault(schema)
-			if fault is not None:
-				doc.diags.append(fault)
-				return doc._strict_gate()
-			vdiags = doc.validate(schema)
-			doc.diags.extend(vdiags)
-			suppress_declared_repeats(schema, doc.diags)
-			suppress_declared_reopens(schema, doc.diags)
+		# validate() would give the same lone V099; a broken schema disavows
+		# no hints either, so nothing is suppressed.
+		fault = _schema_load_fault(schema)
+		if fault is not None:
+			doc.diags.append(fault)
+			return doc._strict_gate()
+		vdiags = doc.validate(schema)
+		doc.diags.extend(vdiags)
+		suppress_declared_repeats(schema, doc.diags)
+		suppress_declared_reopens(schema, doc.diags)
 		return doc._strict_gate()
 
 	def strictness(self) -> Strictness:

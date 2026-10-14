@@ -280,7 +280,18 @@ void shcl_suppress_declared_reopens(shcl_doc *schema, shcl_doc *doc);
 // "did it fail". An empty schema text skips validation entirely, and one that does not load adds
 // a lone V099, as shcl_validate does. H001 hints the schema disavows
 // (a declared repeat upper bound above 1) are dropped. Free with shcl_free.
+// The schema text is parsed and handed to shcl_load_and_validate_with.
 shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schema, size_t slen, shcl_strictness s);
+// shcl_load_and_validate with a schema already parsed, so a program that
+// validates on every start parses its schema once. Same combined list, same
+// strict rule, same lone V099 for a schema that did not load, and the same
+// hints dropped. The schema is always validated against, as shcl_validate
+// does; only the text form skips an empty one. The schema stays the caller's.
+// shcl_parse_with then shcl_validate is not the same: the shcl_diag_*
+// accessors and shcl_error_count keep the load's values, the disavowed hints
+// stay, and strict fails only on a load error. NULL only on an allocation
+// failure. Free with shcl_free.
+shcl_doc *shcl_load_and_validate_with(const char *text, size_t len, shcl_doc *schema, shcl_strictness s);
 
 // File tier (optional companion; compile out with -DSHCL_NO_FILE_IO to keep
 // the core free of file I/O). Paths are UTF-8 on every platform: on windows
@@ -12611,16 +12622,30 @@ size_t shcl_error_count(const shcl_doc *d) {
    the validation for good (20260918b item 22). */
 typedef struct { shcl_doc *d, *sd; shcl_validation *v; ShclArena tmp; } ShclLoadOwn;
 
+/* sd is the caller's schema, armed for the call and handed back disarmed.
+   Validation reads its nodes without allocating on it today, but a cut-short
+   call must never leave half a name index on a schema the caller keeps. */
 static void load_release(ShclLoadOwn *own, int keep_doc) {
 	arena_free(&own->tmp);
 	shcl_validation_free(own->v);
-	shcl_free(own->sd);
+	if (!keep_doc && own->sd) index_drop(own->sd);
+	doc_guard(own->sd, NULL);
 	if (keep_doc) doc_guard(own->d, NULL);
 	else shcl_free(own->d);
 	free(own);
 }
 
 shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schema, size_t slen, shcl_strictness s) {
+	ShclStr st; st.p = schema ? schema : ""; st.n = schema ? slen : 0;
+	if (s_trim(st).n == 0) return shcl_parse_with(text, len, s);
+	shcl_doc *sd = shcl_parse(schema, slen);
+	if (!sd) return NULL;
+	shcl_doc *d = shcl_load_and_validate_with(text, len, sd, s);
+	shcl_free(sd);
+	return d;
+}
+
+shcl_doc *shcl_load_and_validate_with(const char *text, size_t len, shcl_doc *schema, shcl_strictness s) {
 	ShclLoadOwn *volatile own = (ShclLoadOwn *)calloc(1, sizeof *own);
 	if (!own) return NULL;
 	jmp_buf panic;
@@ -12632,32 +12657,28 @@ shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schem
 	shcl_doc *d = own->d = shcl_parse_with(text, len, s);
 	if (!d) { load_release(own, 0); return NULL; }
 	doc_guard(d, &panic);
-	ShclStr st; st.p = schema ? schema : ""; st.n = schema ? slen : 0;
-	if (s_trim(st).n != 0) {
-		shcl_doc *sd = own->sd = shcl_parse(schema, slen);
-		if (!sd) { load_release(own, 0); return NULL; }
-		doc_guard(sd, &panic);
-		// shcl_validate would give the same lone V099; a broken schema
-		// disavows no hints either, so nothing is suppressed.
-		ShclDiag fault;
-		if (schema_load_fault(sd, &fault)) {
-			push_diag(d, fault.line, fault.sev, fault.code, fault.message);
-			load_release(own, 1);
-			return d;
-		}
-		shcl_validation *v = own->v = shcl_validate(d, sd);
-		if (!v) { load_release(own, 0); return NULL; }
-		// The validate disarmed the document's read arenas on its way out.
-		doc_guard(d, &panic);
-		for (size_t i = 0; i < v->diags.len; i++) {
-			ShclDiag dg = v->diags.data[i];
-			/* the validation arena dies below; codes are static strings */
-			dg.message = s_dup(&d->arena, dg.message);
-			ShclVecDiag_push(&d->arena, &d->diags, dg);
-		}
-		suppress_repeats_in(&own->tmp, sd, d);
-		suppress_reopens_in(&own->tmp, sd, d);
+	own->sd = schema;
+	doc_guard(schema, &panic);
+	// shcl_validate would give the same lone V099; a broken schema disavows
+	// no hints either, so nothing is suppressed.
+	ShclDiag fault;
+	if (schema_load_fault(schema, &fault)) {
+		push_diag(d, fault.line, fault.sev, fault.code, fault.message);
+		load_release(own, 1);
+		return d;
 	}
+	shcl_validation *v = own->v = shcl_validate(d, schema);
+	if (!v) { load_release(own, 0); return NULL; }
+	// The validate disarmed the document's read arenas on its way out.
+	doc_guard(d, &panic);
+	for (size_t i = 0; i < v->diags.len; i++) {
+		ShclDiag dg = v->diags.data[i];
+		/* the validation arena dies below; codes are static strings */
+		dg.message = s_dup(&d->arena, dg.message);
+		ShclVecDiag_push(&d->arena, &d->diags, dg);
+	}
+	suppress_repeats_in(&own->tmp, schema, d);
+	suppress_reopens_in(&own->tmp, schema, d);
 	load_release(own, 1);
 	return d;
 }

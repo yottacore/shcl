@@ -105,6 +105,14 @@ static shcl_doc *load_one_failure(const char *text, const char *schema, long k, 
 	return shcl_load_and_validate(text, strlen(text), schema, strlen(schema), SHCL_STANDARD);
 }
 
+// The same with the schema already parsed, which stays the caller's.
+static shcl_doc *load_with_one_failure(const char *text, shcl_doc *schema, long k, int *hooked) {
+	*hooked = 0;
+	if (SHCL_SETJMP(oom_jmp)) { fail_one = 0; *hooked = 1; return NULL; }
+	fail_one = k;
+	return shcl_load_and_validate_with(text, strlen(text), schema, SHCL_STANDARD);
+}
+
 // A compaction with its Kth allocation failing: 1 when the hook fired.
 static int compact_one_failure(shcl_doc *d, long k) {
 	if (SHCL_SETJMP(oom_jmp)) { fail_one = 0; return 1; }
@@ -240,6 +248,35 @@ int main(void) {
 			if (live_blocks != before) { fprintf(stderr, "FAIL oom_hook: load_and_validate with allocation %ld failing left %ld block(s)\n", k, live_blocks - before); failures++; break; }
 		}
 		if (!reached_end) { fprintf(stderr, "FAIL oom_hook: load_and_validate did not finish inside 4000 allocations\n"); failures++; }
+		// The schema outlives a cut-short call, so it has to come back whole:
+		// the same call again on it gives the full answer.
+		reached_end = 0;
+		size_t want_diags = 0;
+		{
+			shcl_doc *sd = shcl_parse(good, strlen(good));
+			shcl_doc *d = shcl_load_and_validate_with(doc, strlen(doc), sd, SHCL_STANDARD);
+			want_diags = d ? shcl_diag_count(d) : 0;
+			shcl_free(d); shcl_free(sd);
+		}
+		if (!want_diags) { fprintf(stderr, "FAIL oom_hook: load_and_validate_with fixture found nothing\n"); failures++; }
+		for (long k = 1; k < 4000 && !reached_end; k++) {
+			long before = live_blocks;
+			int hooked;
+			shcl_doc *sd = shcl_parse(good, strlen(good));
+			shcl_doc *d = load_with_one_failure(doc, sd, k, &hooked);
+			reached_end = fail_one > 0;
+			fail_one = 0;
+			shcl_free(d);
+			if (!hooked) {
+				d = shcl_load_and_validate_with(doc, strlen(doc), sd, SHCL_STANDARD);
+				if (!d || shcl_diag_count(d) != want_diags) { fprintf(stderr, "FAIL oom_hook: the schema read wrong after load_and_validate_with with allocation %ld failing\n", k); failures++; }
+				shcl_free(d);
+			}
+			shcl_free(sd);
+			if (hooked) { fprintf(stderr, "FAIL oom_hook: load_and_validate_with reached the hook with allocation %ld failing; the header says NULL\n", k); failures++; break; }
+			if (live_blocks != before) { fprintf(stderr, "FAIL oom_hook: load_and_validate_with with allocation %ld failing left %ld block(s)\n", k, live_blocks - before); failures++; break; }
+		}
+		if (!reached_end) { fprintf(stderr, "FAIL oom_hook: load_and_validate_with did not finish inside 4000 allocations\n"); failures++; }
 		reached_end = 0;
 		const char *mixed = "a: 1\n# c\nb:\n\tc: [x]\n\td: 2, 3\nbad line\n";
 		for (long k = 1; k < 4000 && !reached_end; k++) {

@@ -188,6 +188,37 @@ static void *xrealloc(void *p, size_t n) {
 	return q;
 }
 
+// What a load hands back, as one string to compare: whether strict failed,
+// each diagnostic as shcl_format_diagnostic gives it, then the canonical text.
+// Frees the document. malloc'd, with its length in *n.
+static char *lvw_answer(shcl_doc *d, size_t *n) {
+	if (!d) { fprintf(stderr, "out of memory\n"); exit(2); }
+	char *out = xrealloc(NULL, 16);
+	size_t len = (size_t)snprintf(out, 16, "failed: %d\n", shcl_strict_failed(d));
+	for (size_t i = 0; i < shcl_diag_count(d); i++) {
+		size_t fl;
+		char *f = shcl_format_diagnostic(shcl_diag_line(d, i), shcl_diag_severity(d, i), shcl_diag_code(d, i), shcl_diag_message(d, i), &fl);
+		if (!f) { fprintf(stderr, "out of memory\n"); exit(2); }
+		out = xrealloc(out, len + fl + 2);
+		memcpy(out + len, f, fl); len += fl; out[len++] = '\n';
+		free(f);
+	}
+	shcl_str c = shcl_to_canonical(d);
+	out = xrealloc(out, len + c.n + 1);
+	memcpy(out + len, c.p, c.n); len += c.n;
+	shcl_free(d);
+	*n = len;
+	return out;
+}
+
+static int lvw_same(shcl_doc *want_doc, shcl_doc *got_doc) {
+	size_t wn, gn;
+	char *want = lvw_answer(want_doc, &wn), *got = lvw_answer(got_doc, &gn);
+	int same = wn == gn && memcmp(want, got, wn) == 0;
+	free(want); free(got);
+	return same;
+}
+
 static char *read_file(const char *path, size_t *len) {
 	FILE *f = fopen(path, "rb");
 	if (!f) { *len = 0; return NULL; }
@@ -1803,6 +1834,56 @@ int main(int argc, char **argv) {
 		char cname[4200]; snprintf(cname, sizeof cname, "corpus/%s", names[ci]);
 		test_line(nfail > case_fails ? "FAIL" : "ok", id, cname);
 	}
+	// The parsed-schema form gives what the text form gives: the same combined
+	// list and the same strict answer, over every corpus schema at every level,
+	// with one schema document reused across the loads. Same fixture in every
+	// runner.
+	test_id("Eshi8i2", "load_and_validate_with_matches_the_text_form");
+	{
+		const shcl_strictness levels[3] = {SHCL_LOOSE, SHCL_STANDARD, SHCL_STRICT};
+		size_t compared = 0;
+		for (size_t ci = 0; ci < nn; ci++) {
+			char path[4096];
+			snprintf(path, sizeof path, "%s/%s/schema.shcl", corpus, names[ci]); size_t schlen; char *sch = read_file(path, &schlen);
+			if (!sch) continue;
+			snprintf(path, sizeof path, "%s/%s/input.shcl", corpus, names[ci]); size_t ilen; char *input = read_file(path, &ilen);
+			shcl_doc *sd = shcl_parse(sch, schlen);
+			if (!input || !sd) { fprintf(stderr, "out of memory\n"); exit(2); }
+			for (int lv = 0; lv < 3; lv++) {
+				if (!lvw_same(shcl_load_and_validate(input, ilen, sch, schlen, levels[lv]), shcl_load_and_validate_with(input, ilen, sd, levels[lv]))) {
+					fail(names[ci], "shcl_load_and_validate_with disagrees with the text form");
+					fprintf(stderr, "  at level %d\n", lv);
+				}
+				compared++;
+			}
+			shcl_free(sd); free(input); free(sch);
+		}
+		if (compared <= 30) fail("load_and_validate_with", "only a few corpus schema loads compared");
+		// A validation error alone fails both at strict, and a schema that does
+		// not load gives both the lone V099.
+		const char *is = "field: port\n\ttype: int\n";
+		const char *pairs[3][2] = {{"port: x\n", is}, {": nope\nport: x\n", is}, {"port: 1\n", "field: \"port\n"}};
+		for (int k = 0; k < 3; k++) {
+			for (int lv = 0; lv < 3; lv++) {
+				shcl_doc *sd = shcl_parse(pairs[k][1], strlen(pairs[k][1]));
+				if (!lvw_same(shcl_load_and_validate(pairs[k][0], strlen(pairs[k][0]), pairs[k][1], strlen(pairs[k][1]), levels[lv]), shcl_load_and_validate_with(pairs[k][0], strlen(pairs[k][0]), sd, levels[lv])))
+					fail("load_and_validate_with", pairs[k][0]);
+				shcl_free(sd);
+			}
+		}
+		shcl_doc *sd = shcl_parse(is, strlen(is));
+		shcl_doc *vd = shcl_load_and_validate_with("port: x\n", 8, sd, SHCL_STRICT);
+		if (!vd || !shcl_strict_failed(vd) || shcl_diag_count(vd) != 1 || strcmp(shcl_diag_code(vd, 0), "V003")) fail("load_and_validate_with", "schema finding at strict");
+		shcl_free(vd); shcl_free(sd);
+		// Only the text form skips an empty schema. An empty schema document
+		// declares nothing, so shcl_validate and this call find every field
+		// unknown.
+		sd = shcl_parse("", 0);
+		vd = shcl_load_and_validate_with("a: 1\n", 5, sd, SHCL_STANDARD);
+		if (!vd || shcl_diag_count(vd) != 1 || strcmp(shcl_diag_code(vd, 0), "V001")) fail("load_and_validate_with", "empty schema document");
+		shcl_free(vd); shcl_free(sd);
+	}
+	test_id_end();
 	for (size_t i = 0; i < nn; i++) free(names[i]);
 	free(names);
 	// paths(): file order, deduplicated, non-bare segments quoted so every
@@ -3780,19 +3861,21 @@ int main(int argc, char **argv) {
 		const char *ss = "field: port\n\ttype: int\n";
 		FILE *sf = fopen(sfile, "wb");
 		if (!sf || fputs(st, sf) == EOF || fclose(sf) != 0) fail("strict_same", "seed write failed");
-		const char *entries[] = {"parse_with", "parse_limited", "parse_keep_lines", "load_and_validate", "load_file_with", "load_file_keep_lines"};
+		const char *entries[] = {"parse_with", "parse_limited", "parse_keep_lines", "load_and_validate", "load_file_with", "load_file_keep_lines", "load_and_validate_with"};
+		shcl_doc *ssd = shcl_parse(ss, strlen(ss));
 		for (int lv = 0; lv < 2; lv++) {
 			shcl_strictness level = lv ? SHCL_STRICT : SHCL_STANDARD;
 			shcl_file_status fs1 = SHCL_FILE_CLEAN, fs2 = SHCL_FILE_CLEAN;
-			shcl_doc *docs[6] = {
+			shcl_doc *docs[7] = {
 				shcl_parse_with(st, strlen(st), level),
 				shcl_parse_limited(st, strlen(st), level, 0, 0, 0),
 				shcl_parse_keep_lines(st, strlen(st), level),
 				shcl_load_and_validate(st, strlen(st), ss, strlen(ss), level),
 				shcl_load_file_with(sfile, level, &fs1),
 				shcl_load_file_keep_lines(sfile, level, &fs2),
+				shcl_load_and_validate_with(st, strlen(st), ssd, level),
 			};
-			for (int k = 0; k < 6; k++) {
+			for (int k = 0; k < 7; k++) {
 				if (!docs[k]) { fail("strict_same", entries[k]); continue; }
 				if (shcl_strict_failed(docs[k]) != lv) fail("strict_same", entries[k]);
 				if (shcl_diag_count(docs[k]) != 1 || strcmp(shcl_diag_code(docs[k], 0), "E014")) fail("strict_same", entries[k]);
@@ -3814,6 +3897,7 @@ int main(int argc, char **argv) {
 		shcl_doc *vd = shcl_load_and_validate("port: x\n", 8, ss, strlen(ss), SHCL_STRICT);
 		if (!vd || !shcl_strict_failed(vd) || shcl_diag_count(vd) != 1 || strcmp(shcl_diag_code(vd, 0), "V003")) fail("strict_same", "schema finding");
 		shcl_free(vd);
+		shcl_free(ssd);
 		dir_clear(sdir);
 	}
 	// A schema that does not load would otherwise drop the constraints on its

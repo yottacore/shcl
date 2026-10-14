@@ -1541,6 +1541,7 @@ def main():
 			("parse_limited", lambda: D.parse_limited(stext, strict)),
 			("parse_keep_lines", lambda: D.parse_keep_lines(stext, strict)),
 			("load_and_validate", lambda: D.load_and_validate(stext, sschema, strict)),
+			("load_and_validate_with", lambda: D.load_and_validate_with(stext, D.parse(sschema), strict)),
 			("load_file_with", lambda: D.load_file_with(sf, strict)),
 			("load_file_keep_lines", lambda: D.load_file_keep_lines(sf, strict)),
 		]
@@ -1579,6 +1580,55 @@ def main():
 			raise SystemExit("load_file_with on a missing file")
 		if D.load_file_keep_lines(snone, strict)[1] != shcl.FileStatus.NotFound:
 			raise SystemExit("load_file_keep_lines on a missing file")
+	test_id("Eshi8i1", "load_and_validate_with_matches_the_text_form")
+	# The parsed-schema form gives what the text form gives: the same
+	# combined list and the same strict answer, over every corpus schema at
+	# every level, with one schema document reused across the loads. Same
+	# fixture in every runner.
+
+	def lvw_answer(run, *args):
+		try:
+			doc = run(*args)
+			failed = False
+		except shcl.LoadError as e:
+			doc = e.document
+			failed = True
+		return (failed, [shcl.format_diagnostic(d) for d in doc.diagnostics()], doc.to_canonical())
+
+	lvw_levels = (shcl.Strictness.Loose, shcl.Strictness.Standard, shcl.Strictness.Strict)
+	lvw_compared = 0
+	for case in cases:
+		if case["schema"] is None:
+			continue
+		lvw_schema = shcl.Document.parse(case["schema"])
+		for level in lvw_levels:
+			want = lvw_answer(shcl.Document.load_and_validate, case["input"], case["schema"], level)
+			got = lvw_answer(shcl.Document.load_and_validate_with, case["input"], lvw_schema, level)
+			if got != want:
+				raise SystemExit(f"{case['name']} at {level}: load_and_validate_with gave {got}, want {want}")
+			lvw_compared += 1
+	if lvw_compared <= 30:
+		raise SystemExit(f"only {lvw_compared} corpus schema loads compared")
+	# A validation error alone fails both at Strict, and a schema that does
+	# not load gives both the lone V099.
+	lvw_int = "field: port\n\ttype: int\n"
+	for ltext, lschema in (("port: x\n", lvw_int), (": nope\nport: x\n", lvw_int), ("port: 1\n", 'field: "port\n')):
+		for level in lvw_levels:
+			want = lvw_answer(shcl.Document.load_and_validate, ltext, lschema, level)
+			got = lvw_answer(shcl.Document.load_and_validate_with, ltext, shcl.Document.parse(lschema), level)
+			if got != want:
+				raise SystemExit(f"{ltext!r} against {lschema!r} at {level}: got {got}, want {want}")
+	try:
+		shcl.Document.load_and_validate_with("port: x\n", shcl.Document.parse(lvw_int), shcl.Strictness.Strict)
+		raise SystemExit("load_and_validate_with: a schema finding at Strict did not raise")
+	except shcl.LoadError as e:
+		if [d.code for d in e.diagnostics] != ["V003"]:
+			raise SystemExit(f"load_and_validate_with at Strict: {[d.code for d in e.diagnostics]}") from e
+	# Only the text form skips an empty schema. An empty schema document
+	# declares nothing, so validate() and this call find every field unknown.
+	lvw_empty = shcl.Document.load_and_validate_with("a: 1\n", shcl.Document.parse(""), shcl.Strictness.Standard)
+	if [d.code for d in lvw_empty.diagnostics()] != ["V001"]:
+		raise SystemExit(f"empty schema document: {[d.code for d in lvw_empty.diagnostics()]}")
 	test_id("Eqzz38d", "one_shot_load_reports_a_broken_schema")
 	# A schema that does not load would otherwise drop the constraints on its
 	# broken lines, or report every field as unknown - blaming the document.
