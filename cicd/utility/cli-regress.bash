@@ -2333,6 +2333,7 @@ fSaveSetup() {
 		upgrade-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
 		upgrade-restamp) printf 'p: 1\n##    Format   2\n' > f.shcl ;;
 		migrate-restamp) printf 'port: 80\n##    Format   2\n' > f.shcl ;;
+		upgrade-top-format) printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -2398,6 +2399,9 @@ saveCases=(
 	## An older Format line becomes this one, backed up like any upgrade
 	## (2026100717500017) and any migrate that rewrites a line (2026100916475300).
 	'EsFrOVV|upgrade-restamp|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	## The fresh file names one format, and the old line goes even from the top
+	## of the file (2026101407100001).
+	'Esgj35S|upgrade-top-format|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "##    Format   3" f.shcl && grep -qx "q: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "##    Format   2\nname: x\nq: a,b\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'EsFrOVW|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )

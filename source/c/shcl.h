@@ -928,8 +928,10 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // takes it as its comment. A block at the top of the file is left alone. A
 // dotted first line hangs it on its last name, which a saved file writes as the
 // first field's first child, so a block there is left alone too, however it got
-// there. The library save never adds the block by itself; this is for a program
-// that wants it in a file it writes. Returns how many old blocks came off.
+// there. A lone Format line there comes off with on, since the new block names
+// the format. The library save never adds the block by itself; this is for a
+// program that wants it in a file it writes. Returns how many old blocks came
+// off.
 size_t shcl_set_banner(shcl_doc *d, int on);
 shcl_set_status shcl_set_empty(shcl_doc *d, const char *path, size_t plen);
 // Whether a setter could write at this path, and why not when it could not,
@@ -7796,8 +7798,9 @@ static int banner_in_run(const ShclLead *l, const char *mark) { return s_starts(
    stays, and so does any other comment around one, even written right against
    it. Returns how many came off; *owed says whether the last one had a blank
    above it with no line after it to take that blank. A mark of "#" takes
-   2.x's block instead, which had no version line. */
-static size_t drop_banners(ShclVecLead *v, const char *mark, int *owed) {
+   2.x's block instead, which had no version line. With blocks 0 a block stays
+   whole, and only a Format line outside one comes off. */
+static size_t drop_banners(ShclVecLead *v, const char *mark, int blocks, int *owed) {
 	char title[64], name[64], field[16];
 	snprintf(title, sizeof title, "%s%s", mark, banner_title + 2);
 	snprintf(name, sizeof name, "%s%s", mark, banner_name + 2);
@@ -7809,10 +7812,6 @@ static size_t drop_banners(ShclVecLead *v, const char *mark, int *owed) {
 	while (i < v->len) {
 		size_t start = i, end = i + 1;
 		if (s_eq(v->data[i].text, s_lit(title))) {
-			if (prev_kept && !v->data[i].blank_before && s_eq(v->data[w - 1].text, s_lit(mark))) {
-				w--;
-				start = i - 1;
-			}
 			size_t close = end;
 			while (close < v->len && banner_in_run(&v->data[close], mark) && !s_eq(v->data[close].text, s_lit(mark))) close++;
 			if (close < v->len && banner_in_run(&v->data[close], mark)) end = close + 1;
@@ -7820,6 +7819,15 @@ static size_t drop_banners(ShclVecLead *v, const char *mark, int *owed) {
 				while (end < v->len && banner_in_run(&v->data[end], mark) &&
 				       (s_starts(v->data[end].text, field) || s_eq(v->data[end].text, s_lit(name))))
 					end++;
+			if (!blocks) {
+				while (i < end) v->data[w++] = v->data[i++];
+				prev_kept = 1;
+				continue;
+			}
+			if (prev_kept && !v->data[i].blank_before && s_eq(v->data[w - 1].text, s_lit(mark))) {
+				w--;
+				start = i - 1;
+			}
 		} else if (v3 && s_starts(v->data[i].text, SHCL_FORMAT_LINE_HEAD)) {
 			if (end < v->len && banner_in_run(&v->data[end], mark) && s_eq(v->data[end].text, s_lit(SHCL_MIGRATED_LINE))) end++;
 		} else {
@@ -7873,10 +7881,10 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) {
 		for (size_t i = 0; i < NODE(d, n).children.len; i++) ShclVecSize_push(t, &stack, NODE(d, n).children.data[i]);
 		int at_top = 0;
 		for (size_t i = 0; i < top.len && !at_top; i++) at_top = top.data[i] == n;
-		if (at_top) continue;
+		if (at_top && !on) continue;
 		for (size_t k = 0; k < nmarks; k++) {
 			if (!NODE(d, n).trivia) continue;
-			size_t gone = drop_banners(&NODE(d, n).trivia->leading, marks[k], &owed);
+			size_t gone = drop_banners(&NODE(d, n).trivia->leading, marks[k], !at_top, &owed);
 			if (gone) {
 				removed += gone;
 				NODE(d, n).blank_before |= owed;
@@ -7884,7 +7892,7 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) {
 		}
 	}
 	ShclVecLead *o = &d->orphans;
-	for (size_t k = 0; k < nmarks; k++) removed += drop_banners(o, marks[k], &owed);
+	for (size_t k = 0; k < nmarks; k++) removed += drop_banners(o, marks[k], 1, &owed);
 	if (on) {
 		int open = o->len || NODE(d, ROOT).children.len;
 		/* The lines point into the literal, which outlives any document. */

@@ -5697,7 +5697,7 @@ def _keep_lines(src, doc):
 	return None
 
 
-def _drop_banners(leads, mark):
+def _drop_banners(leads, mark, blocks):
 	"""Take the info block out of `leads`, from the lone "##" above its "This
 	config file format is SHCL." line to the next lone "##", and each version
 	line migrate stamped, with the note under it. A block with no closing "##"
@@ -5705,7 +5705,8 @@ def _drop_banners(leads, mark):
 	stays, and so does any other comment around one, even written right against
 	it. Returns how many came off, whether the last one had a blank above it
 	with no line after it to take that blank, and the lines left. A `mark` of
-	"#" takes 2.x's block instead, which had no version line."""
+	"#" takes 2.x's block instead, which had no version line. With `blocks`
+	false a block stays whole, and only a Format line outside one comes off."""
 	def in_run(c):
 		return c.text.startswith(mark) and not c.blank_before
 
@@ -5718,9 +5719,6 @@ def _drop_banners(leads, mark):
 	while i < len(leads):
 		start, end = i, i + 1
 		if leads[i].text == title:
-			if prev_kept and not leads[i].blank_before and leads[i - 1].text == mark:
-				keep.pop()
-				start = i - 1
 			close = end
 			while close < len(leads) and in_run(leads[close]) and leads[close].text != mark:
 				close += 1
@@ -5733,6 +5731,14 @@ def _drop_banners(leads, mark):
 					and (leads[end].text.startswith(field) or leads[end].text == name)
 				):
 					end += 1
+			if not blocks:
+				keep.extend(leads[i:end])
+				prev_kept = True
+				i = end
+				continue
+			if prev_kept and not leads[i].blank_before and leads[i - 1].text == mark:
+				keep.pop()
+				start = i - 1
 		elif mark == "##" and leads[i].text.startswith(FORMAT_LINE_HEAD):
 			if end < len(leads) and in_run(leads[end]) and leads[end].text == MIGRATED_LINE:
 				end += 1
@@ -7610,8 +7616,10 @@ class Document:
 		its comment. A block at the top of the file is left alone. A dotted
 		first line hangs it on its last name, which a saved file writes as
 		the first field's first child, so a block there is left alone too,
-		however it got there. The library save never adds the block by
-		itself; this is for a program that wants it in a file it writes.
+		however it got there. A lone Format line there comes off with on,
+		since the new block names the format. The library save never adds the
+		block by itself; this is for a program that wants it in a file it
+		writes.
 		Returns how many old blocks came off."""
 		_want("set_banner", on, "bool")
 		return self._swap_banner(on, False)
@@ -7634,17 +7642,18 @@ class Document:
 			n = stack.pop()
 			nd = self.arena[n]
 			stack.extend(nd.children)
-			if n in top:
+			at_top = n in top
+			if at_top and not on:
 				continue
 			for mark in marks:
 				if nd.trivia is None:
 					continue
-				gone, blank, nd.trivia.leading = _drop_banners(nd.trivia.leading, mark)
+				gone, blank, nd.trivia.leading = _drop_banners(nd.trivia.leading, mark, not at_top)
 				if gone:
 					removed += gone
 					nd.blank_before = nd.blank_before or blank
 		for mark in marks:
-			gone, _, self.orphans = _drop_banners(self.orphans, mark)
+			gone, _, self.orphans = _drop_banners(self.orphans, mark, True)
 			removed += gone
 		if on:
 			open_ = bool(self.orphans) or bool(self.arena[ROOT].children)

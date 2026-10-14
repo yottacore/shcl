@@ -5164,6 +5164,28 @@ int main(int argc, char **argv) {
 			free(m.text);
 		}
 	}
+	test_id("Esgj35R", "a_format_line_at_the_top_goes_when_the_block_goes_on");
+	{
+		/* The block names the format, so the file names one (2026101407100001). */
+		const char *top = "##    Format   2\nname: x\nq: a,b\n";
+		shcl_upgraded up = shcl_upgrade(top, strlen(top), 1);
+		if (!up_is(&up, "name: x\nq: [a, b]\n\n" SHCL_GEN_BANNER)) fail("top_format_line", up.text);
+		shcl_upgraded_free(&up);
+		static const struct { const char *in; int on; size_t gone; const char *want; } bc[] = {
+			{"##    Format   2\nname: x\n", 1, 1, "name: x\n\n" SHCL_GEN_BANNER},
+			/* Taking the block off leaves the top alone, as does putting one
+			   on over a whole block there. */
+			{"##    Format   2\nname: x\n", 0, 0, "##    Format   2\nname: x\n"},
+			{SHCL_GEN_BANNER "name: x\n", 1, 0, SHCL_GEN_BANNER "name: x\n\n" SHCL_GEN_BANNER},
+		};
+		for (size_t i = 0; i < sizeof bc / sizeof bc[0]; i++) {
+			shcl_doc *d = shcl_parse(bc[i].in, strlen(bc[i].in));
+			size_t gone = shcl_set_banner(d, bc[i].on);
+			shcl_str c = shcl_to_canonical(d);
+			if (gone != bc[i].gone || c.n != strlen(bc[i].want) || memcmp(c.p, bc[i].want, c.n) != 0) fail("top_format_line", bc[i].in);
+			shcl_free(d);
+		}
+	}
 	test_id("Es2qPd2", "upgrade_writes_a_fresh_file_with_the_info_block");
 	{
 		shcl_upgraded up = shcl_upgrade(UP_V2, strlen(UP_V2), 0);

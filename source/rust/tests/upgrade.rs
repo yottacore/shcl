@@ -9,7 +9,7 @@
 mod common;
 
 use common::test_id;
-use shcl::{GEN_BANNER, UpgradeError, backup_file_name, migrate, upgrade, upgrade_file};
+use shcl::{Document, GEN_BANNER, UpgradeError, backup_file_name, migrate, upgrade, upgrade_file};
 
 const CLOCK: &str = "2026-10-04 00:15:00 -420 PDT";
 
@@ -92,6 +92,27 @@ fn an_older_format_line_becomes_this_one_in_place() {
 		migrate("port: 80\n", false).text,
 		"port: 80\n##    Format   3\n"
 	);
+}
+
+#[test]
+fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
+	let _id = test_id("Esgj35O");
+	pin_clock();
+	// The block names the format, so the file names one (2026101407100001).
+	let up = upgrade("##    Format   2\nname: x\nq: a,b\n", true);
+	assert_eq!(up.text, format!("name: x\nq: [a, b]\n\n{}", GEN_BANNER));
+	let mut doc = Document::parse("##    Format   2\nname: x\n");
+	assert_eq!(doc.set_banner(true), 1);
+	assert_eq!(doc.to_canonical(), format!("name: x\n\n{}", GEN_BANNER));
+	// Taking the block off leaves the top alone, as does putting one on over
+	// a whole block there.
+	let mut doc = Document::parse("##    Format   2\nname: x\n");
+	assert_eq!(doc.set_banner(false), 0);
+	assert_eq!(doc.to_canonical(), "##    Format   2\nname: x\n");
+	let top = format!("{}name: x\n", GEN_BANNER);
+	let mut doc = Document::parse(&top);
+	assert_eq!(doc.set_banner(true), 0);
+	assert_eq!(doc.to_canonical(), format!("{}\n{}", top, GEN_BANNER));
 }
 
 #[test]

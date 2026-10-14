@@ -106,6 +106,30 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 	}
 }
 
+func TestAFormatLineAtTheTopGoesWhenTheBlockGoesOn(t *testing.T) {
+	defer testID(t, "Esgj35P")
+	t.Setenv("SHCL_TEST_CLOCK", upgradeClock)
+	// The block names the format, so the file names one (2026101407100001).
+	if got, want := Upgrade("##    Format   2\nname: x\nq: a,b\n", true).Text, "name: x\nq: [a, b]\n\n"+GenBanner; got != want {
+		t.Fatalf("upgrade: got %q, want %q", got, want)
+	}
+	doc := Parse("##    Format   2\nname: x\n")
+	if n := doc.SetBanner(true); n != 1 || doc.ToCanonical() != "name: x\n\n"+GenBanner {
+		t.Fatalf("on: %d %q", n, doc.ToCanonical())
+	}
+	// Taking the block off leaves the top alone, as does putting one on over
+	// a whole block there.
+	doc = Parse("##    Format   2\nname: x\n")
+	if n := doc.SetBanner(false); n != 0 || doc.ToCanonical() != "##    Format   2\nname: x\n" {
+		t.Fatalf("off: %d %q", n, doc.ToCanonical())
+	}
+	top := GenBanner + "name: x\n"
+	doc = Parse(top)
+	if n := doc.SetBanner(true); n != 0 || doc.ToCanonical() != top+"\n"+GenBanner {
+		t.Fatalf("top block: %d %q", n, doc.ToCanonical())
+	}
+}
+
 func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 	defer testID(t, "Es2fws2")
 	t.Setenv("SHCL_TEST_CLOCK", upgradeClock)

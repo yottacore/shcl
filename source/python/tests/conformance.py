@@ -4523,6 +4523,27 @@ def main():
 		if shcl.migrate(up_in, False).text != up_want:
 			raise SystemExit(f"migrate {up_in!r}: {shcl.migrate(up_in, False).text!r}")
 
+	test_id("Esgj35Q", "a_format_line_at_the_top_goes_when_the_block_goes_on")
+	# The block names the format, so the file names one (2026101407100001).
+	up = shcl.upgrade("##    Format   2\nname: x\nq: a,b\n", True)
+	if up.text != f"name: x\nq: [a, b]\n\n{shcl.GEN_BANNER}":
+		raise SystemExit(f"upgrade: {up.text!r}")
+	top_doc = shcl.Document.parse("##    Format   2\nname: x\n")
+	top_n = top_doc.set_banner(True)
+	if top_n != 1 or top_doc.to_canonical() != f"name: x\n\n{shcl.GEN_BANNER}":
+		raise SystemExit(f"on: {top_n} {top_doc.to_canonical()!r}")
+	# Taking the block off leaves the top alone, as does putting one on over
+	# a whole block there.
+	top_doc = shcl.Document.parse("##    Format   2\nname: x\n")
+	top_n = top_doc.set_banner(False)
+	if top_n != 0 or top_doc.to_canonical() != "##    Format   2\nname: x\n":
+		raise SystemExit(f"off: {top_n} {top_doc.to_canonical()!r}")
+	top_text = f"{shcl.GEN_BANNER}name: x\n"
+	top_doc = shcl.Document.parse(top_text)
+	top_n = top_doc.set_banner(True)
+	if top_n != 0 or top_doc.to_canonical() != f"{top_text}\n{shcl.GEN_BANNER}":
+		raise SystemExit(f"top block: {top_n} {top_doc.to_canonical()!r}")
+
 	test_id("Es2k1Fd", "upgrade_writes_a_fresh_file_with_the_info_block")
 	up = shcl.upgrade(up_v2, False)
 	if up.current or up.ambiguous != 0 or up.lost != 0 or up.format != 2:

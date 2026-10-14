@@ -7746,8 +7746,9 @@ func keepLines(src string, doc *Document) (string, bool) {
 // in a block stays, and so does any other comment around one, even written
 // right against it. It returns how many came off, and whether the last one
 // had a blank above it with no line after it to take that blank. A mark of
-// "#" takes 2.x's block instead, which had no version line.
-func dropBanners(leads *[]lead, mark string) (int, bool) {
+// "#" takes 2.x's block instead, which had no version line. With blocks false
+// a block stays whole, and only a Format line outside one comes off.
+func dropBanners(leads *[]lead, mark string, blocks bool) (int, bool) {
 	ls := *leads
 	inRun := func(l lead) bool { return strings.HasPrefix(l.text, mark) && !l.blankBefore }
 	title := mark + bannerTitle[2:]
@@ -7759,10 +7760,6 @@ func dropBanners(leads *[]lead, mark string) (int, bool) {
 		start, end := i, i+1
 		switch {
 		case ls[i].text == title:
-			if prevKept && !ls[i].blankBefore && ls[i-1].text == mark {
-				keep = keep[:len(keep)-1]
-				start = i - 1
-			}
 			closed := false
 			for k := end; k < len(ls) && inRun(ls[k]); k++ {
 				if ls[k].text == mark {
@@ -7773,6 +7770,16 @@ func dropBanners(leads *[]lead, mark string) (int, bool) {
 			for !closed && end < len(ls) && inRun(ls[end]) &&
 				(strings.HasPrefix(ls[end].text, field) || ls[end].text == name) {
 				end++
+			}
+			if !blocks {
+				keep = append(keep, ls[i:end]...)
+				prevKept = true
+				i = end
+				continue
+			}
+			if prevKept && !ls[i].blankBefore && ls[i-1].text == mark {
+				keep = keep[:len(keep)-1]
+				start = i - 1
 			}
 		case mark == "##" && strings.HasPrefix(ls[i].text, FormatLineHead):
 			if end < len(ls) && inRun(ls[end]) && ls[end].text == MigratedLine {
@@ -11210,8 +11217,9 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // below one by hand takes it as its comment. A block at the top of the file is
 // left alone. A dotted first line hangs it on its last name, which a saved file
 // writes as the first field's first child, so a block there is left alone too,
-// however it got there. The library save never adds the block by itself; this
-// is for a program that wants it in a file it writes. Returns how many old
+// however it got there. A lone Format line there comes off with on, since the
+// new block names the format. The library save never adds the block by itself;
+// this is for a program that wants it in a file it writes. Returns how many old
 // blocks came off.
 func (d *Document) SetBanner(on bool) int {
 	return d.swapBanner(on, false)
@@ -11242,11 +11250,11 @@ func (d *Document) swapBanner(on, v2 bool) int {
 			first = first || t == n
 		}
 		tr := d.arena[n].trivia
-		if first || tr == nil {
+		if (first && !on) || tr == nil {
 			continue
 		}
 		for _, mark := range marks {
-			gone, blank := dropBanners(&tr.leading, mark)
+			gone, blank := dropBanners(&tr.leading, mark, !first)
 			if gone > 0 {
 				removed += gone
 				d.arena[n].blankBefore = d.arena[n].blankBefore || blank
@@ -11254,7 +11262,7 @@ func (d *Document) swapBanner(on, v2 bool) int {
 		}
 	}
 	for _, mark := range marks {
-		gone, _ := dropBanners(&d.orphans, mark)
+		gone, _ := dropBanners(&d.orphans, mark, true)
 		removed += gone
 	}
 	if on {

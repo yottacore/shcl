@@ -7969,8 +7969,10 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 /// line in a block stays, and so does any other comment around one, even
 /// written right against it. Returns how many came off, and whether the last
 /// one had a blank above it with no line after it to take that blank. A
-/// `mark` of `#` takes 2.x's block instead, which had no version line.
-fn drop_banners(leads: &mut Vec<Lead>, mark: &str) -> (usize, bool) {
+/// `mark` of `#` takes 2.x's block instead, which had no version line. With
+/// `blocks` false a block stays whole, and only a Format line outside one
+/// comes off.
+fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool) {
 	let in_run = |l: &Lead| l.text.starts_with(mark) && !l.blank_before;
 	let title = format!("{mark}{}", &BANNER_TITLE[2..]);
 	let name = format!("{mark}{}", &BANNER_NAME[2..]);
@@ -7982,10 +7984,6 @@ fn drop_banners(leads: &mut Vec<Lead>, mark: &str) -> (usize, bool) {
 		let mut start = i;
 		let mut end = i + 1;
 		if leads[i].text == title {
-			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
-				keep.pop();
-				start = i - 1;
-			}
 			match (end..leads.len())
 				.take_while(|&k| in_run(&leads[k]))
 				.find(|&k| leads[k].text == mark)
@@ -7999,6 +7997,16 @@ fn drop_banners(leads: &mut Vec<Lead>, mark: &str) -> (usize, bool) {
 						end += 1;
 					}
 				}
+			}
+			if !blocks {
+				keep.extend_from_slice(&leads[i..end]);
+				prev_kept = true;
+				i = end;
+				continue;
+			}
+			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
+				keep.pop();
+				start = i - 1;
 			}
 		} else if mark == "##" && leads[i].text.starts_with(FORMAT_LINE_HEAD) {
 			if end < leads.len() && in_run(&leads[end]) && leads[end].text == MIGRATED_LINE {
@@ -11597,9 +11605,10 @@ impl Document {
 	/// as its comment. A block at the top of the file is left alone.
 	/// A dotted first line hangs it on its last name, which a saved file
 	/// writes as the first field's first child, so a block there is left
-	/// alone too, however it got there. The library save never adds the
-	/// block by itself; this is for a program that wants it in a file it
-	/// writes. Returns how many old blocks came off.
+	/// alone too, however it got there. A lone Format line there comes off
+	/// with `on`, since the new block names the format. The library save
+	/// never adds the block by itself; this is for a program that wants it in
+	/// a file it writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
 		self.swap_banner(on, false)
 	}
@@ -11621,14 +11630,15 @@ impl Document {
 		let mut stack: Vec<usize> = self.arena[ROOT].children.clone();
 		while let Some(n) = stack.pop() {
 			stack.extend_from_slice(&self.arena[n].children);
-			if top.contains(&n) {
+			let at_top = top.contains(&n);
+			if at_top && !on {
 				continue;
 			}
 			for mark in marks {
 				let Some(tr) = self.arena[n].trivia.as_deref_mut() else {
 					continue;
 				};
-				let (gone, blank) = drop_banners(&mut tr.leading, mark);
+				let (gone, blank) = drop_banners(&mut tr.leading, mark, !at_top);
 				if gone > 0 {
 					removed += gone;
 					self.arena[n].blank_before |= blank;
@@ -11636,7 +11646,7 @@ impl Document {
 			}
 		}
 		for mark in marks {
-			removed += drop_banners(&mut self.orphans, mark).0;
+			removed += drop_banners(&mut self.orphans, mark, true).0;
 		}
 		if on {
 			let open = !self.orphans.is_empty() || !self.arena[ROOT].children.is_empty();
