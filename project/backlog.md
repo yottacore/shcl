@@ -33,6 +33,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- shell-regress red on dev since the usage message fixes
+	- ID: 2026101415332594
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261014-153325
+	- Opened by: me, found by the README split's gate run
+	- Version and build: dev at `99497638`
+	- Steps to reproduce:
+		- Run `cicd/utility/shell-regress.bash` on dev.
+	- Incorrect behavior: `EoXOPYu` (`no-failed-test-loop-bodies`) and `EoTJb0N` (`no-unguarded-grep`) fail on two lines `75c1067f` added to `cli-regress.bash`.
+	- Expected behavior: green.
+	- Actual cause: the round that made 2026101407100002, 04 and 07 didn't run shell-regress. Line 2037's `have=" $(grep ... | xargs) "` dies with no message under `pipefail` when an entry has no flag, since the assignment takes grep's exit 1. Line 1589's loop ends on a failed `[[ ]] &&`, which is only the lint's pattern there, since a line follows it.
+	- Actual fix: `|| true` inside the substitution, and an `if` in the loop.
+	- Verified: shell-regress and shellcheck pass, and cli-regress over all 4 CLIs (585 rows, 3467 checks). The old line 2037 form exits 1 with no output under `set -Eeuo pipefail` on an entry with no flag, and the new one carries on.
+	- Test case: shell-regress `EoXOPYu` and `EoTJb0N`, which failed on dev before the fix and pass after.
+	- Branch: `srfix`
+	- Acceptance signoff: closed on JC's 20261014 criteria. Gate-script fix only, no behavior change.
+	- Closed: 20261014-154200
+
 - No public call gives an array, or one element of it, the way the writer writes it
 	- ID: 2026101412591471
 	- Type: Enhancement
