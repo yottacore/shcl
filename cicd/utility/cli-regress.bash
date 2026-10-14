@@ -1586,7 +1586,7 @@ usageFixes=(
 fFindNoHelp(){   ## fFindNoHelp HITFILE WHAT STDERR: notes a last line naming no fix
 	local last="${3%$'\n'}" re
 	last="${last##*$'\n'}"
-	for re in "${usageFixes[@]}"; do [[ "${last}" =~ ${re} ]] && return 0; done
+	for re in "${usageFixes[@]}"; do if [[ "${last}" =~ ${re} ]]; then return 0; fi; done
 	printf '%s: %s\n' "$2" "${last}" >> "$1"
 }
 
@@ -2035,7 +2035,7 @@ for b in "${bindings[@]}"; do
 		nPairs=$((nPairs + 1)); nRun+=1
 		found=0
 		for e in "${entries[@]}"; do
-			have=" $(grep -oE -- '--[a-z0-9-]+(=[a-z0-9]+)?' <<<"${e}" | xargs) "
+			have=" $(grep -oE -- '--[a-z0-9-]+(=[a-z0-9]+)?' <<<"${e}" | xargs || true) "
 			all=1
 			for t in "${toks[@]}"; do [[ "${have}" == *" ${t} "* ]] || all=0; done
 			if ((all)); then found=1; break; fi
