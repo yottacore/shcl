@@ -33,33 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- `upgrade --from-2x` leaves a file a beta build stamped `Format 3` alone, so every user file of two consumers needs its Format line stripped by hand first
-	- ID: 2026101407100010
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
-	- Priority: Avg
-	- Opened: 20261014-071000
-	- Opened by: Code review 20261014 item 10, from the consumer survey
-	- Version and build: dev at `9dff6949`
-	- Related IDs: 2026100115403385, 2026100313461649
-	- Problem description: nemo and slodworld wrote `##    Format   3` with 2.x bare comma lists (`range: 0, 100`) under the dev snapshots they pin, into every user's config. On dev such a file loads with `E026` on each list line, kept, and the field reads `NotFound`. `upgrade`, `upgrade --from-2x`, `upgrade_file(path, true)` and `migrate --from-2x` all answer "nothing to upgrade". The consumer has to delete the Format line itself, then upgrade.
-	- Against: 2026100115403385, beta-stamped files are on their own, and the spec's "A file that names this format is never written. Neither is a file a beta build of 3.0 wrote".
-	- Decisions:
-		- 20261014: the flag wins (JC). With `--from-2x` or `from_v2`, a file whose Format line names this format is treated as 2.x, converted and backed up like any upgrade. The caller is saying what wrote the file, which shcl can't tell from the text. Without the flag nothing changes, so 2026100115403385 still holds for a file nobody vouches for. The backup name keeps the spec's rule, the number the Format line names, so `format-v3` here.
-		- 20261014, my call: only `upgrade` and `upgrade_file` take it. `migrate --from-2x` still leaves the file alone, since its output can keep a line with an error, and the next run would take the file as 2.x again. A first try that took it in `migrate` too failed the migrate fixpoint test on 9 corpus cases.
-		- 20261014, my call: only a file that loads with an error is taken. One that loads clean stays. `upgrade --from-2x` on a clean file a creating `set --write` wrote turned `◉TAB◉` into literal text and dropped 2 values, at exit 0. A program passing `from_v2` on every start would do that to its own upgraded file each time.
-		- 20261014, my call: and only when the fresh file loads clean. Otherwise the file is left alone and reported as current, since the next start would take the fresh file as 2.x again and stack up a backup each time.
-	- Reason: of every 3.0 change the survey found, this is the one that puts a hand step in front of each user of two programs.
-	- Question: the three calls above narrow JC's rule. A clean beta file whose 2.x lines read differently now, such as `range: 0,100` with no space, still needs its Format line taken off by hand. Is that OK, or should a clean one convert too, with the every-start loop handled some other way?
-	- Progress log:
-		- 20261014: built in all four, on top of 2026101407100001, which takes the old Format line off when the new block goes on. The nemo and slodworld shape (`range: 0, 100` under `##    Format   3`) comes out as `range: [0, 100]` with the info block, and the original goes to `NAME_backup_..._format-v3.EXT`. A second `upgrade --from-2x` leaves the result alone.
-	- Swept: `upgrade` and `migrate_text` in Rust, Go (`Upgrade`, `migrateText`), Python and C (`upgrade_into`, `migrate_text`). `upgrade_file` and the four CLIs go through `upgrade`, so they needed nothing, and the backup name already came from the Format line. The C++ interface needs nothing, since no call changed. spec.md (both places it said a beta file is never written), design.md, value-syntax.md and the changelog say so. check-migrate's Format 3 checks (`Es34DZk` and the main loop) learned the new case; the old lines are commented out with the reason.
-	- Verified: the new tests and save case fail on the code before this item and pass after, and so does check-migrate `Es34DZk`. A run with the fresh-file check taken out fails the Rust test. Also: `cargo test`, the 2,000,000 release fuzz (all 28), `go test` (both modules), the Python and C conformance suites, veneer_smoke, oom_hook, oom_recover, mem_bounds, check-veneer, cli-regress (563 rows, 3283 checks, all four), crosscheck over the corpus (21966 comparisons), check-migrate, check-docs (gated on main), check-doc-examples, check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for the host and windows, ruff, mypy, shellcheck, markdownlint, cppcheck at the normal level, and the C CLI under gcc 15 and clang.
-	- Branch: `upfmt`
-	- Commit: `ad9af077`
-	- Test case: `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` (Rust `EsgoThZ`, Go `EsgoTha`, Python `EsgoThb`, C `EsgoThc`), cli-regress `EsgoThd`, `EsgoThe` and save case `EsgoThf`, and check-migrate `Es34DZk`. The beta assertion in `upgrade_leaves_a_clean_or_stamped_file` (`Es2R4RP` and its twins) is commented out with the reason.
-
 - `fmt --check` with `--layer` or `--set` always exits 6, and its message names a `--write` the CLI refuses
 	- ID: 2026101407100002
 	- Type: Bug
@@ -208,6 +181,35 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261014: a new call beside the old one, `load_and_validate_with`, taking a parsed schema document, with the one-shot's combined diagnostics and strict rule (JC). The text form stays.
 	- Reason: a program that validates on every start shouldn't parse its embedded schema each time, and the strict difference is a trap.
+
+- `upgrade --from-2x` leaves a file a beta build stamped `Format 3` alone, so every user file of two consumers needs its Format line stripped by hand first
+	- ID: 2026101407100010
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Priority: Avg
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 10, from the consumer survey
+	- Version and build: dev at `9dff6949`
+	- Related IDs: 2026100115403385, 2026100313461649
+	- Problem description: nemo and slodworld wrote `##    Format   3` with 2.x bare comma lists (`range: 0, 100`) under the dev snapshots they pin, into every user's config. On dev such a file loads with `E026` on each list line, kept, and the field reads `NotFound`. `upgrade`, `upgrade --from-2x`, `upgrade_file(path, true)` and `migrate --from-2x` all answer "nothing to upgrade". The consumer has to delete the Format line itself, then upgrade.
+	- Against: 2026100115403385, beta-stamped files are on their own, and the spec's "A file that names this format is never written. Neither is a file a beta build of 3.0 wrote".
+	- Decisions:
+		- 20261014: the flag wins (JC). With `--from-2x` or `from_v2`, a file whose Format line names this format is treated as 2.x, converted and backed up like any upgrade. The caller is saying what wrote the file, which shcl can't tell from the text. Without the flag nothing changes, so 2026100115403385 still holds for a file nobody vouches for. The backup name keeps the spec's rule, the number the Format line names, so `format-v3` here.
+		- 20261014, my call: only `upgrade` and `upgrade_file` take it. `migrate --from-2x` still leaves the file alone, since its output can keep a line with an error, and the next run would take the file as 2.x again. A first try that took it in `migrate` too failed the migrate fixpoint test on 9 corpus cases.
+		- 20261014, my call: only a file that loads with an error is taken. One that loads clean stays. `upgrade --from-2x` on a clean file a creating `set --write` wrote turned `◉TAB◉` into literal text and dropped 2 values, at exit 0. A program passing `from_v2` on every start would do that to its own upgraded file each time.
+		- 20261014, my call: and only when the fresh file loads clean. Otherwise the file is left alone and reported as current, since the next start would take the fresh file as 2.x again and stack up a backup each time.
+		- 20261014: the narrowing stands (JC). A clean beta file whose 2.x lines read differently on dev, such as `range: 0,100`, which 2.x reads as the array `0` and `100` and dev as the text `0,100`, still needs its Format line taken off by hand.
+	- Reason: of every 3.0 change the survey found, this is the one that puts a hand step in front of each user of two programs.
+	- Progress log:
+		- 20261014: built in all four, on top of 2026101407100001, which takes the old Format line off when the new block goes on. The nemo and slodworld shape (`range: 0, 100` under `##    Format   3`) comes out as `range: [0, 100]` with the info block, and the original goes to `NAME_backup_..._format-v3.EXT`. A second `upgrade --from-2x` leaves the result alone.
+	- Swept: `upgrade` and `migrate_text` in Rust, Go (`Upgrade`, `migrateText`), Python and C (`upgrade_into`, `migrate_text`). `upgrade_file` and the four CLIs go through `upgrade`, so they needed nothing, and the backup name already came from the Format line. The C++ interface needs nothing, since no call changed. spec.md (both places it said a beta file is never written), design.md, value-syntax.md and the changelog say so. check-migrate's Format 3 checks (`Es34DZk` and the main loop) learned the new case; the old lines are commented out with the reason.
+	- Verified: the new tests and save case fail on the code before this item and pass after, and so does check-migrate `Es34DZk`. A run with the fresh-file check taken out fails the Rust test. Also: `cargo test`, the 2,000,000 release fuzz (all 28), `go test` (both modules), the Python and C conformance suites, veneer_smoke, oom_hook, oom_recover, mem_bounds, check-veneer, cli-regress (563 rows, 3283 checks, all four), crosscheck over the corpus (21966 comparisons), check-migrate, check-docs (gated on main), check-doc-examples, check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for the host and windows, ruff, mypy, shellcheck, markdownlint, cppcheck at the normal level, and the C CLI under gcc 15 and clang.
+	- Branch: `upfmt`
+	- Commit: `ad9af077`
+	- Test case: `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` (Rust `EsgoThZ`, Go `EsgoTha`, Python `EsgoThb`, C `EsgoThc`), cli-regress `EsgoThd`, `EsgoThe` and save case `EsgoThf`, and check-migrate `Es34DZk`. The beta assertion in `upgrade_leaves_a_clean_or_stamped_file` (`Es2R4RP` and its twins) is commented out with the reason.
+	- Acceptance signoff: JC, 20261014, on the narrowed rule.
+	- Closed: 20261014-095800
 
 - An ops-script line with too few fields is read with the missing ones empty, so `raw<TAB>n<TAB>info` replaces a raw block with an empty one at exit 0
 	- ID: 2026101407100003
