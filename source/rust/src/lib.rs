@@ -8261,6 +8261,22 @@ pub fn format_float(v: f64) -> String {
 	out
 }
 
+/// One value the way `set_string` writes it after the colon of a field it
+/// makes, so `k: 2020`, `k: "a b"`, `k: 1,200`. Every scalar setter writes its
+/// value's text the same way, so `format_value(&format_float(v))` is what
+/// `set_float` writes, and the same goes for an int, a bool or a datetime's
+/// text. An overwrite can keep the old value's quote kind instead. None when
+/// `set_string` would refuse the text (`NoReadBack`).
+#[must_use]
+pub fn format_value(text: &str) -> Option<String> {
+	// The setter's own path: the same element, emitter and read-back check.
+	let v = cell_of(text.to_string());
+	if !value_reads_back(&v) {
+		return None;
+	}
+	emit_value_text(&v)
+}
+
 /// One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
 /// message`. V090 to V095 count lines in the schema file, so theirs reads
 /// `schema line N`. The message is this binding's own prose, and only the code

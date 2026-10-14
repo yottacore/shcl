@@ -164,6 +164,10 @@ int status_code(Status s);
 std::optional<Strictness> strictness_from_arg(std::string_view s);
 // A float in the reference's textual form, the spelling a save writes.
 std::string format_float(double v);
+// One value the way set_string writes it after the colon of a field it makes,
+// so `k: 2020`, `k: "a b"`, `k: 1,200`. A typed setter writes its value's text
+// the same way. Empty when set_string would refuse the text.
+std::optional<std::string> format_value(std::string_view text);
 // One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
 // message`, or `schema line N` for V090 to V095, which count schema lines.
 // Only the code is the same in every binding. With no message the line ends
@@ -969,6 +973,13 @@ std::optional<Strictness> strictness_from_arg(std::string_view s) {
 }
 
 std::string format_float(double v) { char b[SHCL_FLOAT_BUF]; return std::string(b, shcl_format_float(v, b)); }
+
+std::optional<std::string> format_value(std::string_view text) {
+	std::size_t n = 0;
+	std::unique_ptr<char, void (*)(void *)> p(shcl_format_value(text.data(), text.size(), &n), &std::free);
+	if (!p) return std::nullopt;
+	return std::string(p.get(), n);
+}
 
 std::string format_diagnostic(const Diagnostic &d) {
 	std::size_t n = 0;

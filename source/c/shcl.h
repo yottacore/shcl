@@ -1034,6 +1034,16 @@ int shcl_strictness_from_arg(const char *s, size_t n, shcl_strictness *out);
 // out must be at least SHCL_FLOAT_BUF bytes; returns the byte length written.
 #define SHCL_FLOAT_BUF 512
 size_t shcl_format_float(double v, char *out);
+// One value the way shcl_set_string writes it after the colon of a field it
+// makes, so `k: 2020`, `k: "a b"`, `k: 1,200`. Every scalar setter writes its
+// value's text the same way, so shcl_format_value of shcl_format_float's text
+// is what shcl_set_float writes, and the same goes for an int, a bool or a
+// datetime's text. An overwrite can keep the old value's quote kind instead.
+// malloc'd and NUL-terminated; the caller frees it. *out_len, when out_len
+// isn't NULL, gets the byte length. NULL when shcl_set_string would refuse
+// the text (SHCL_SET_NOT_UTF8, SHCL_SET_NO_READ_BACK). A value has no length
+// bound, so there is no fixed buffer as for shcl_format_float.
+char *shcl_format_value(const char *text, size_t len, size_t *out_len);
 // Renders a datetime into out (>= SHCL_DT_BUF bytes); returns byte length. A
 // frac longer than 30 bytes is truncated, and the whole rendering is clamped to
 // SHCL_DT_BUF bytes, so a hand-built value cannot overrun the documented buffer
@@ -10938,6 +10948,35 @@ int shcl_parse_datetime(const char *text, size_t tlen, shcl_datetime *out) {
 	arena_free(&a);
 	if (ok) *out = got;
 	return ok;
+}
+char *shcl_format_value(const char *text, size_t len, size_t *out_len) {
+	if (out_len) *out_len = 0;
+	/* The setter's own path: the same element, emitter and read-back check.
+	   There's no document to lend an arena, so it has its own, given back
+	   before the hook on an allocation failure, as restamp_text's are. */
+	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
+	if (!own) arena_panic(NULL);
+	jmp_buf panic;
+	if (SHCL_SETJMP(panic)) {
+		ShclMigrateOwn *bad = own;
+		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
+		arena_panic(NULL);
+	}
+	arena_guard(&own->a, &panic);
+	ShclStr in; in.p = text ? text : ""; in.n = len;
+	ShclValue v = w_cell1(&own->a, s_dup(&own->a, in));
+	ShclStr t;
+	char *out = NULL;
+	if (value_reads_back(&own->a, &v) && emit_value_text(&own->a, &v, &t)) {
+		out = (char *)malloc(t.n + 1);
+		if (!out) longjmp(panic, 1);
+		if (t.n) memcpy(out, t.p, t.n);
+		out[t.n] = 0;
+		if (out_len) *out_len = t.n;
+	}
+	ShclMigrateOwn *done = own;
+	arena_free(&done->a); arena_free(&done->sc); free(done);
+	return out;
 }
 
 int shcl_strictness_from_arg(const char *s, size_t n, shcl_strictness *out) {

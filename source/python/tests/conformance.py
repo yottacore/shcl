@@ -487,6 +487,15 @@ def apply_op(doc, line, at):
 SETTER_SOUP = ('"', "'", "\\", "#", ",", "[", "]", "\r", "\n", " ", "\t", "\u00a0", "a")
 
 
+# What the format_value fixture adds to the setter soup: the review's
+# examples, thousands numbers, and the typed setters' texts.
+FORMAT_VALUE_EXTRA = (
+	"2020", "@null", "1,200", "a.b", "-x", "He said \"hi\", it's", "`#FF8800`", "`",
+	"$1,200", "1,200.50", "-1,200", "80,443", "rw,noatime", "2026-07-12T14:30", "-0.5",
+	"true", "\u25c9", "a\u25c9NEWLINE\u25c9b", "x\u200by",
+)
+
+
 def soup_inputs():
 	# Every string of one and two characters over that alphabet, and the empty
 	# string.
@@ -5018,6 +5027,64 @@ def main():
 			raise SystemExit(f"format_diagnostic {shcl.format_diagnostic(fdd)!r}, want {fdwant!r}")
 	if (fdE.name, fdH.name) != ("Error", "Hint"):
 		raise SystemExit("severity names")
+	test_id("EshnCyX", "format_value_is_the_setters_text")
+	# format_value is the text set_string writes after `k: ` in a fresh
+	# document, None exactly where set_string refuses, and it reads back as the
+	# text it was handed. Over the setter soup, the review's examples and the
+	# typed setters' texts. Same fixture in every runner, plus a lone
+	# surrogate, which only a Python string can hold.
+	for fvs in soup_inputs() + list(FORMAT_VALUE_EXTRA) + ["\ud800"]:
+		fvdoc = shcl.Document.parse("")
+		fvst = fvdoc.set_string("k", fvs)
+		fvtext = shcl.format_value(fvs)
+		if not fvst:
+			if fvtext is not None:
+				raise SystemExit(f"set_string refused {fvs!r} ({fvst}), format_value gave {fvtext!r}")
+			continue
+		if fvtext is None:
+			raise SystemExit(f"no text for {fvs!r}, which set_string took")
+		if fvdoc.to_canonical() != f"k: {fvtext}\n":
+			raise SystemExit(f"{fvs!r}: canonical {fvdoc.to_canonical()!r}, format_value {fvtext!r}")
+		if shcl.Document.parse(f"k: {fvtext}\n").read_string("k").value != fvs:
+			raise SystemExit(f"{fvs!r} did not read back")
+	# Bare where quote_segment quotes them.
+	for fvs in ("2020", "@null", "1,200", "a.b", "-x"):
+		if shcl.format_value(fvs) != fvs or shcl.quote_segment(fvs) == fvs:
+			raise SystemExit(f"{fvs!r}: format_value {shcl.format_value(fvs)!r}")
+	fvq = shcl.format_value("He said \"hi\", it's")
+	if fvq != "\"He said \u25c9DOUBLE_QUOTE\u25c9hi\u25c9DOUBLE_QUOTE\u25c9, it's\"":
+		raise SystemExit(f"both quotes {fvq!r}")
+	fvq = shcl.format_value("`#FF8800`")
+	if fvq != "\"`#FF8800`\"":
+		raise SystemExit(f"backticks {fvq!r}")
+	try:
+		shcl.format_value(5)
+		raise SystemExit("format_value took an int")
+	except TypeError:
+		pass
+
+	# The typed setters write their value's text the way set_string would.
+	def fv_one(set_k):
+		d = shcl.Document.parse("")
+		if not set_k(d):
+			raise SystemExit("typed setter refused")
+		return d.to_canonical()
+
+	def fv_want(t):
+		return f"k: {shcl.format_value(t)}\n"
+
+	fvdt = shcl.parse_datetime("2026-07-12T14:30")
+	if fvdt is None:
+		raise SystemExit("parse_datetime")
+	for fvgot, fvwant in (
+		(fv_one(lambda d: d.set_int("k", -2020)), fv_want("-2020")),
+		(fv_one(lambda d: d.set_float("k", 0.1)), fv_want(shcl.format_float(0.1))),
+		(fv_one(lambda d: d.set_bool("k", True)), fv_want("true")),
+		(fv_one(lambda d: d.set_datetime("k", fvdt)), fv_want(str(fvdt))),
+		(fv_want(str(fvdt)), 'k: "2026-07-12T14:30"\n'),
+	):
+		if fvgot != fvwant:
+			raise SystemExit(f"typed setter wrote {fvgot!r}, want {fvwant!r}")
 
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")

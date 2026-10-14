@@ -121,6 +121,13 @@ static int compact_one_failure(shcl_doc *d, long k) {
 	return 0;
 }
 
+static char *format_value_one_failure(const char *text, long k, int *hooked) {
+	*hooked = 0;
+	if (SHCL_SETJMP(oom_jmp)) { fail_one = 0; *hooked = 1; return NULL; }
+	fail_one = k;
+	return shcl_format_value(text, strlen(text), NULL);
+}
+
 // 2.x spellings the current rules read differently, so every line gets rewritten
 // and the working arenas fill.
 static char *v2_doc(size_t n, size_t *len) {
@@ -297,6 +304,31 @@ int main(void) {
 			if (live_blocks != before) { fprintf(stderr, "FAIL oom_hook: compact with allocation %ld failing left %ld block(s)\n", k, live_blocks - before); failures++; break; }
 		}
 		if (!reached_end) { fprintf(stderr, "FAIL oom_hook: compact did not finish inside 4000 allocations\n"); failures++; }
+	}
+	// shcl_format_value builds in arenas of its own, which a cut-short call has
+	// to give back before the hook. The text is long enough that they hold
+	// several blocks.
+	{
+		const char *unit = "He said \"hi\", it's ";
+		size_t un = strlen(unit), reps = 8000;
+		char *fv = (char *)malloc(un * reps + 1);
+		for (size_t r = 0; r < reps; r++) memcpy(fv + r * un, unit, un);
+		fv[un * reps] = 0;
+		int reached_end = 0, sawHook = 0;
+		for (long k = 1; k < 4000 && !reached_end; k++) {
+			long before = live_blocks;
+			int hooked;
+			char *v = format_value_one_failure(fv, k, &hooked);
+			reached_end = fail_one > 0;
+			fail_one = 0;
+			if (hooked) sawHook = 1;
+			if (!hooked && !v) { fprintf(stderr, "FAIL oom_hook: format_value gave nothing with allocation %ld failing\n", k); failures++; }
+			tracked_free(v);  // the library's malloc is the counting one
+			if (live_blocks != before) { fprintf(stderr, "FAIL oom_hook: format_value with allocation %ld failing left %ld block(s)\n", k, live_blocks - before); failures++; break; }
+		}
+		if (!reached_end) { fprintf(stderr, "FAIL oom_hook: format_value did not finish inside 4000 allocations\n"); failures++; }
+		if (!sawHook) { fprintf(stderr, "FAIL oom_hook: no failing allocation reached the hook in format_value\n"); failures++; }
+		free(fv);
 	}
 
 	if (oom_hits == 0) { fprintf(stderr, "FAIL oom_hook: the hook never fired\n"); failures++; }

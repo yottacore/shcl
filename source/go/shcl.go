@@ -569,6 +569,21 @@ func FormatFloat(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
+// FormatValue gives one value the way SetString writes it after the colon of
+// a field it makes, so `k: 2020`, `k: "a b"`, `k: 1,200`. Every scalar setter
+// writes its value's text the same way, so FormatValue(FormatFloat(v)) is
+// what SetFloat writes, and the same goes for an int, a bool or a datetime's
+// text. An overwrite can keep the old value's quote kind instead. ok is false
+// when SetString would refuse the text (SetNotUtf8, SetNoReadBack).
+func FormatValue(text string) (string, bool) {
+	// The setter's own path: the same element, emitter and read-back check.
+	v := cellOf(text)
+	if !valueReadsBack(&v) {
+		return "", false
+	}
+	return emitValueText(&v)
+}
+
 // ---------------------------------------------------------------------------
 // In-memory model
 // ---------------------------------------------------------------------------

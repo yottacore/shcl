@@ -5053,3 +5053,82 @@ fn format_diagnostic_is_the_cli_line() {
 	assert_eq!(Severity::Error.to_string(), "Error");
 	assert_eq!(Severity::Hint.to_string(), "Hint");
 }
+
+/// format_value is the text set_string writes after `k: ` in a fresh document,
+/// None exactly where set_string refuses, and it reads back as the text it was
+/// handed. Over the setter soup, the review's examples and the typed setters'
+/// texts. Same fixture in every runner.
+#[test]
+fn format_value_is_the_setters_text() {
+	let _id = test_id("EshnBvV");
+	use shcl::{SetStatus, format_float, format_value};
+	let mut inputs = soup_inputs();
+	for s in FORMAT_VALUE_EXTRA {
+		inputs.push(s.to_string());
+	}
+	for s in &inputs {
+		let mut doc = Document::new();
+		let st = doc.set_string("k", s);
+		let got = format_value(s);
+		if st != SetStatus::Ok {
+			assert_eq!(got, None, "set_string refused {s:?} ({st:?})");
+			continue;
+		}
+		let text = got.unwrap_or_else(|| panic!("no text for {s:?}, which set_string took"));
+		assert_eq!(doc.to_canonical(), format!("k: {text}\n"), "{s:?}");
+		assert_eq!(
+			Document::parse(&format!("k: {text}\n"))
+				.read_string("k")
+				.value,
+			*s,
+			"{s:?} did not read back"
+		);
+	}
+	// Bare where quote_segment quotes them.
+	for s in ["2020", "@null", "1,200", "a.b", "-x"] {
+		assert_eq!(format_value(s).as_deref(), Some(s));
+		assert_ne!(quote_segment(s), s);
+	}
+	assert_eq!(
+		format_value("He said \"hi\", it's").as_deref(),
+		Some("\"He said ◉DOUBLE_QUOTE◉hi◉DOUBLE_QUOTE◉, it's\"")
+	);
+	assert_eq!(format_value("`#FF8800`").as_deref(), Some("\"`#FF8800`\""));
+	// The typed setters write their value's text the way set_string would.
+	let one = |set: &dyn Fn(&mut Document) -> SetStatus| {
+		let mut d = Document::new();
+		assert_eq!(set(&mut d), SetStatus::Ok);
+		d.to_canonical()
+	};
+	let want = |t: &str| format!("k: {}\n", format_value(t).unwrap_or_default());
+	assert_eq!(one(&|d| d.set_int("k", -2020)), want("-2020"));
+	assert_eq!(one(&|d| d.set_float("k", 0.1)), want(&format_float(0.1)));
+	assert_eq!(one(&|d| d.set_bool("k", true)), want("true"));
+	let dt = parse_datetime("2026-07-12T14:30").unwrap_or_default();
+	assert_eq!(one(&|d| d.set_datetime("k", &dt)), want(&dt.to_string()));
+	assert_eq!(want(&dt.to_string()), "k: \"2026-07-12T14:30\"\n");
+}
+
+/// Texts the format_value fixture adds to the setter soup: the review's
+/// examples, thousands numbers, and the typed setters' texts.
+const FORMAT_VALUE_EXTRA: &[&str] = &[
+	"2020",
+	"@null",
+	"1,200",
+	"a.b",
+	"-x",
+	"He said \"hi\", it's",
+	"`#FF8800`",
+	"`",
+	"$1,200",
+	"1,200.50",
+	"-1,200",
+	"80,443",
+	"rw,noatime",
+	"2026-07-12T14:30",
+	"-0.5",
+	"true",
+	"◉",
+	"a◉NEWLINE◉b",
+	"x\u{200b}y",
+];

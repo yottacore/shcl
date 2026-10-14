@@ -11,7 +11,7 @@ mod common;
 use common::test_id;
 use shcl::{
 	Document, FORMAT_MAJOR, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens,
-	format_version, migrate, quote_segment, schema_ref, tokenize, tokenize_value,
+	format_value, format_version, migrate, quote_segment, schema_ref, tokenize, tokenize_value,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -1283,6 +1283,14 @@ fn writer_roundtrips_and_stays_fixpoint() {
 		assert_eq!(mem.value, s, "in-memory set/read #{} for {:?}", i, s);
 		// Through emit + reparse: the value survives quoting/escaping intact.
 		let text = d.to_canonical();
+		// format_value is the setter's own text, not a second copy of the rule.
+		assert_eq!(
+			format_value(&s).map(|v| format!("k: {v}\n")),
+			Some(text.clone()),
+			"format_value #{} for {:?}",
+			i,
+			s
+		);
 		let rt = Document::parse(&text).read_string("k");
 		assert_eq!(rt.value, s, "reparse round-trip #{} for {:?}", i, s);
 		assert_eq!(
