@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Loose doesn't read a quoted thousands number, such as `"1,200"` or `"$1,200"`, as a number
 	- ID: 2026101309122757
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Done
 	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck exhaustive over the C change.
 	- Needs external testing: a hosted run with the next main push.
 	- Priority: Avg
@@ -75,6 +75,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: `loose_reads_a_quoted_thousands_number`, Rust `EsbaIWJ`, Go `EsbaIYt`, Python `EsbaIba`, C `EsbaIe1`; corpus `206-loose-thousands` (`EsbaIuk`) with reads at all 3 levels, `fmt`, write ops and a merge, plus new rows in `100` and `202`; cli-regress `EsbaIgH`, `EsbaIia`, `EsbaIkt`, `EsbaInW`, `EsbaIq7`, `EsbaIsU`, `EsbaIx6`; fuzz `EsZikJr` (`typed_reads_survive_a_save`), which now also makes thousands values bare and quoted, stacked and in brackets, merges them, and compares int and float array reads.
 	- Branch: `loosethou`
 	- Commit: `4527cc4e`, `bae0d847`, `10deaa99`
+	- Acceptance signoff: JC 20261013, the calls above, with the trailing `.` moved to 2026101318521195. Then the full `--ci` here on dev at `c741ccbf`, judged as main and recorded, and hosted run 38505851633 on dev, green on all 5 jobs.
+	- Closed: 20261013-211124
 
 - On musl, the C binding's schema-line check fails on `/proc/self/pagemap` with the wrong error
 	- ID: 2026101316013508
