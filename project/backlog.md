@@ -33,6 +33,216 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- `upgrade --from-2x` leaves a file a beta build stamped `Format 3` alone, so every user file of two consumers needs its Format line stripped by hand first
+	- ID: 2026101407100010
+	- Type: Enhancement
+	- Status: Waiting for answers
+	- Priority: Avg
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 10, from the consumer survey
+	- Version and build: dev at `9dff6949`
+	- Related IDs: 2026100115403385, 2026100313461649
+	- Problem description: nemo and slodworld wrote `##    Format   3` with 2.x bare comma lists (`range: 0, 100`) under the dev snapshots they pin, into every user's config. On dev such a file loads with `E026` on each list line, kept, and the field reads `NotFound`. `upgrade`, `upgrade --from-2x`, `upgrade_file(path, true)` and `migrate --from-2x` all answer "nothing to upgrade". The consumer has to delete the Format line itself, then upgrade.
+	- Against: 2026100115403385, beta-stamped files are on their own, and the spec's "A file that names this format is never written. Neither is a file a beta build of 3.0 wrote".
+	- Question: should `--from-2x` and `from_v2` convert a file stamped with this format too? The flag is the caller saying the file is 2.x, and the backup keeps the original either way. With it a consumer calls `upgrade_file(path, true)` once, keyed on its own version marker, and nothing else changes. Without it the answer stays as recorded and the two programs keep the hand step.
+	- Reason: of every 3.0 change the survey found, this is the one that puts a hand step in front of each user of two programs.
+
+- `upgrade --from-2x` and `upgrade_file` leave an older Format line above the new info block, so the file names two formats
+	- ID: 2026101407100001
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 1
+	- Version and build: dev at `9dff6949`
+	- Related IDs: 2026100916475300, 2026100313461649
+	- Steps to reproduce:
+		- `printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl`
+		- `shcl upgrade --from-2x --write f.shcl`
+	- Incorrect behavior: exit 0, and the file now has `##    Format   2` on line 1 and `##    Format   3` inside the new block at the end. `upgrade_file(path, true)` does the same.
+	- Expected behavior: one Format line. The old one comes off when the block goes on, the way `set_banner` takes off the line `migrate` stamps, or is written over in place the way `migrate --write` does since 2026100916475300.
+	- Reproduced: 20261014, all four CLIs and the Python library.
+	- Origin: `upgrade_file` is from `60d0196c` (2026-10-07). 2026100916475300 fixed the same thing for `migrate` and didn't reach `upgrade`. Not seen by an earlier round. Confirmed.
+	- Sweep: every path that writes a Format line or the block: `migrate`, `upgrade_file`, `set_banner`, `set --write` creating a file. Check each against a file holding a lone older Format line and one holding a 2.x `#` block.
+
+- `fmt --check` with `--layer` or `--set` always exits 6, and its message names a `--write` the CLI refuses
+	- ID: 2026101407100002
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 2
+	- Version and build: dev at `9dff6949`
+	- Steps to reproduce:
+		- `printf 'a: 1\n' > base.shcl; printf 'b: 2\n' > plain.shcl`
+		- `shcl fmt --check --layer=base.shcl plain.shcl`
+	- Incorrect behavior: `plain.shcl: not canonical; fmt --write would rewrite it`, exit 6, though `plain.shcl` is canonical and `fmt --write --layer` is refused at exit 1. Same with `--set a=1`. A script gating on `fmt --check` reads "needs formatting" on every layered call.
+	- Expected behavior: `--check` with `--layer` or `--set` is a usage error, in the help's refused list beside `--write` with either. The CLI style guide says the help lists every refused combination.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: `--check` on `fmt` came in `af1fd746` (2026-09-19), and `--layer` and `--set` were never judged against it. Not seen by an earlier round. Confirmed.
+	- Sweep: `migrate --check` and `check` with the same two options.
+
+- An ops-script line with too few fields is read with the missing ones empty, so `raw<TAB>n<TAB>info` replaces a raw block with an empty one at exit 0
+	- ID: 2026101407100003
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 3
+	- Version and build: dev at `9dff6949`
+	- Steps to reproduce:
+		- `printf 'n: 1\n' > o.shcl`
+		- `printf 'string\tn\n' | shcl set o.shcl`
+		- `printf 'raw\tn\tinfo\n' | shcl set o.shcl`
+	- Incorrect behavior: the first prints `n: ""` at exit 0, the second an empty `info` block in place of the value. Only a type that refuses an empty value, such as `int`, catches it, and `remove` alone says `cannot remove : not a usable path`. Too many fields are refused: `int takes 3 tab-separated field(s), got 4`. With `--write` the lenient read goes to disk.
+	- Expected behavior: too few fields is refused the way too many is, with the same message, for every op in the help's table.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: the field-count check is from `d22f5593` (2026-09-02) and counts only past the shape. Not seen by an earlier round. Confirmed.
+	- Sweep: every op in the table. `remove`, `empty`, `clear-comments` and `banner` give a different message for the same mistake today.
+
+- `get --on-bad=default` without `--default` prints an empty line at exit 0 for a missing or bad value
+	- ID: 2026101407100004
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 4
+	- Version and build: dev at `9dff6949`
+	- Steps to reproduce:
+		- `printf 'b: 2\n' > p.shcl`
+		- `shcl get --int --on-bad=default p.shcl nothere`
+	- Incorrect behavior: an empty line, exit 0. `--default` is what names the fallback, and without it the mode substitutes nothing and reports success.
+	- Expected behavior: a usage error, `--on-bad=default needs --default (see --help)`, the way `--unit` without `--duration` or `--size` is refused, and a line for it in the help's refused list.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: `--on-bad` is from `5756a593` (2026-07-12). Not seen by an earlier round. Confirmed.
+	- Note: the 20261007 call that a supplied `--default` substitutes silently stands. This is the case with none supplied.
+
+- A whitespace-only line in the ops script is refused as `unknown op: ` where a blank line is skipped
+	- ID: 2026101407100005
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 5
+	- Version and build: dev at `9dff6949`
+	- Steps to reproduce:
+		- `printf '\t\nint\tn\t5\n' | shcl set o.shcl`
+	- Incorrect behavior: `op line 1: unknown op: ` at exit 1, naming nothing. A here-doc with an indented blank line hits it.
+	- Expected behavior: a line holding only blanks is skipped like an empty one, or the message says the op name is empty.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: the ops decoder from `5756a593` (2026-07-12). Not seen by an earlier round. Confirmed.
+
+- The help, the man page, the README and the CLI style guide disagree on what the CLI does
+	- ID: 2026101407100006
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 6
+	- Version and build: dev at `9dff6949`
+	- Incorrect behavior, one per line:
+		- `--unit` without `--duration` or `--size`, and `--decimal` without `--size`, are refused but aren't in the help's refused list, which the style guide says is complete.
+		- `--remove` and the `remove` op take a wildcard and delete every match, as the spec says, but the help, the man page and the README say only "delete what is at the path". Beside `--set`'s wildcard refusal a reader can't tell.
+		- The help's "String, raw and comment values read escapes" reads as if a `raw` op's INFO decodes. It doesn't, since a fence label has no escapes, so `md◉NEWLINE◉x` is written with the marks in it.
+		- A taken backup name is exit 8 in the man page and only "write nothing" in the help.
+		- The man SYNOPSIS for `fmt` and `set` leaves out `--lossy`; `migrate`'s has it.
+		- The man `set` paragraph mentions the canonical-fallback note on stderr; the help doesn't.
+		- Flag mode prints the type's zero (`0`, `false`) on stdout at exit 3 or 4. Neither the help nor the README's Bash section says so.
+		- style-guide_ui-ux.md says `version`, `about` and `donate` "also work as options", which reads as if the words still exist. They were removed (design.md), and `shcl version` is a did-you-mean.
+		- style-guide_ui-ux.md's Streams rule leaves out the `(run 'shcl explain CODE' ...)` line `check` prints on stderr.
+	- Expected behavior: each doc says what the CLI does. The style guide says a CLI that does otherwise is the bug, so the refused list and the `--remove` wording change in the help text, and the rest in the docs.
+	- Origin: text from several rounds, not blamed line by line. Not seen by an earlier round. Confirmed for the behavior, all four CLIs; the text by reading.
+
+- Seven usage messages end without `(see --help)` and name no fix
+	- ID: 2026101407100007
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 7
+	- Version and build: dev at `9dff6949`
+	- Incorrect behavior: style-guide_ui-ux.md's Messages rule says a usage error ends with `(see --help)` unless it says the fix. These exit 1 and do neither: `--set: cannot write name(*): a wildcard path cannot be written`; `--set: cannot write port(7): no instance at that index`; `op line 1: unknown op: frob`; `op line 1: bad int: notint`; `op line 1: int takes 3 tab-separated field(s), got 4`; `'-' (stdin) can be named only once across FILE, --layer and --schema`; and `op line 1: bad banner: maybe (on or off)`, which arguably names the fix.
+	- Expected behavior: each ends with `(see --help)` or says the fix, or the guide says which messages are exempt. Stderr prose is pinned by cli-regress rows, so those rows move with it.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: several commits, not blamed. Not seen by an earlier round. Confirmed.
+
+- The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
+	- ID: 2026101407100008
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 8
+	- Version and build: dev at `9dff6949`
+	- Incorrect behavior: style-guide_code.md says its exceptions "are the whole list". These aren't on it:
+		- C's `shcl_quote_segment` takes a document; the other four take only the name, so a path builder with no document yet has nothing to pass.
+		- C spells `from_spelling` as `shcl_duration_unit_of` and `shcl_size_unit_of`.
+		- A status-to-exit-code helper exists in C (`shcl_status_code`), C++ and Python (the enum values); Rust keeps it private in `main.rs` and Go has none.
+		- C++ `read_datetime_str` and `read_datetime_array_str` have no counterpart anywhere, and C++ has no status-tier `get_duration` or `get_size`.
+		- The duration read's value type differs in all five (`std::time::Duration`, `time.Duration`, `timedelta`, `std::chrono::milliseconds`, `int64_t` ms) and the "no unit" argument has five spellings, while the spec says "whole milliseconds".
+		- Python's `Quote` and `Rules` members are UPPER_CASE; every other Python enum follows the reference's CamelCase.
+		- Python exposes `ROOT`, `DEAD`, `UNOPENED`, `LAZY`, `NIL`, `OUT_DROPPED`, `OUT_VALUE_DROPPED`, `TMP_NAME_BYTES` and `T` with no underscore and outside `__all__`.
+		- The five `DateTime` layouts share only the names `date`, `time`, `frac` and `zone`; C's `sec` is `second` elsewhere.
+	- Expected behavior: each gets a guide line with its reason, or is made to match. The Python casing and the leaked names are mechanical, and nobody holds the 3.0 surface yet.
+	- Origin: the guide's list was last extended for the C++ interface (20260916) and the 20261007 round's `_or` rename. Not seen by an earlier round. Plausible, by reading all five surfaces.
+
+- spec.md leaves out what consumers had to find by probing
+	- ID: 2026101407100009
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 9
+	- Version and build: dev at `9dff6949`
+	- Incorrect behavior: each of these is true on dev and in no public doc, or in design.md only, and a consumer program worked around it:
+		- A string read of a raw block gives the body, so `read_string` is the one call for a field that may be a scalar or a block. Two consumers try `read_raw` first.
+		- `quote_segment` output is valid as a selector body, so `name(` plus `quote_segment(value)` plus `)` selects by a held value, numeric values included. The spec describes it for names only, and consumers built index paths to avoid the question.
+		- A remove takes the leading comments of what it removes. design.md says so; the spec's `Remove` entry doesn't.
+		- `migrate(text, false)` on unstamped text that needs no rewrite adds the Format line alone, and `FORMAT_LINE` is public. That is the "stamp the format without the links block" one consumer asked for. The spec says `migrate` adds its two lines "to a file it rewrote".
+		- Concurrency: Rust's `Document` is `Sync` (design.md only, not the crate docs). Go's and Python's rules are stated nowhere; C's and C++'s are in their headers.
+		- The README doesn't state `requires-python >= 3.9`, or that the crate's edition needs cargo 1.85 or newer.
+	- Expected behavior: a sentence for each where the spec covers the call.
+	- Origin: doc gaps, not blamed. Not seen by an earlier round. Confirmed on dev by probes, the text by reading.
+
+- A public call that spells one value the way the writer would
+	- ID: 2026101407100011
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 11, from the consumer survey
+	- Version and build: dev at `9dff6949`
+	- Problem description: three consumers (gitsby, silkterm, nemo) set a value on a throwaway document and scrape `to_canonical` to learn how shcl writes it. `format_float` covers a float and `quote_segment` a name; nothing covers a string with a quote, a datetime, an array element or a backtick value, and `quote_segment` quotes `2020`, `@null`, `1,200`, `a.b` and `-x` where the writer leaves them bare.
+	- Requirements:
+		- One call per binding and the C++ interface, giving the writer's own spelling of a scalar as it would go after the colon, named beside `quote_segment`.
+	- Reason: least surprise for a program that writes config text itself. The scrape depends on one line per key and on `to_canonical`'s layout.
+
+- A one-line text for a diagnostic in the library
+	- ID: 2026101407100012
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 12, from the consumer survey
+	- Version and build: dev at `9dff6949`
+	- Problem description: the CLI prints `line N: Error: CODE message` from its own code, and seven of eight consumers rebuild that line and the errors-only filter. The library has `error_count` and the `Diagnostic` fields and no text form: Go's `Diagnostic` has no `String()`, Rust no `Display`, C no `shcl_severity_name`.
+	- Requirements:
+		- A text form of one diagnostic, the CLI's line, in all four and the C++ interface, with the CLI using it.
+	- Reason: one less thing every consumer writes, and the CLI's line stops being a copy.
+
+- `load_and_validate` takes schema text, so a cached schema is re-parsed on every load, and the two-step form differs
+	- ID: 2026101407100013
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 13, from the consumer survey
+	- Version and build: dev at `9dff6949`
+	- Problem description: all four take `schema_text`. nano-git-db keeps a parsed schema and calls `parse_with` then `validate`, which leaves `diagnostics()` and `error_count` at the load's values and passes at Strict where the one-shot fails on a validation error.
+	- Requirements:
+		- A form taking a schema document with the one-shot's combined list and strict rule, or a spec sentence saying how the two-step differs and how to merge.
+	- Reason: a program that validates on every start shouldn't parse its embedded schema each time, and the strict difference is a trap.
+
 - Loose doesn't read a quoted thousands number, such as `"1,200"` or `"$1,200"`, as a number
 	- ID: 2026101309122757
 	- Type: Enhancement
@@ -14758,6 +14968,19 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Dropped: strictness and on-bad are the consuming program's contract, not the user's. A user-level override would silently weaken guarantees an app makes about its own config handling, and would make the same `shcl` command mean different things on different machines. Nothing else the CLI exposes is presentation-only, so there is nothing left for a config file to hold. Rationale in `design.md`; runtime options and the library's per-document strictness argument stay as they are.
 	- Opened: 20260711-150807
 	- Closed: 20260723-134323
+
+- Code review 20261014:
+	- Decided against: `--remove` on a wildcard deleting every match. The spec and design.md say `Remove` acts on every node a path reaches, so only the help wording is filed (2026101407100006).
+	- Decided against: a one-call "set this field whatever duplicates exist". The spec prescribes `name(0)`, or a remove then a set.
+	- Decided against: a create-only save. Canceled before, and `set --write` has no such mode either, by design.
+	- Decided against: replacing only the comment lines a program wrote. `comments`, `clear_comments` and `set_comment` cover it, and a program tells its own lines by the text it chose.
+	- Decided against: the blank line before each appended top-level field. The spec gives a writer-made top-level node the grouping a hand-written file has.
+	- Decided against: `children` listing a repeated name once per line. Documented as duplicates included.
+	- Decided against: `0.9` from an f32 writing as `0.8999999761581421`. The writer spells the double it was given, shortest round trip, the same in all four.
+	- Decided against: the README's Zig snippet not compiling at container scope. The Rust and Go fragments aren't programs either.
+	- Decided against: reopening the thousands rule. JC settled it 2026-10-13 after four changes in nine days, with corpus `206`.
+	- Opened: 20261014-071000
+	- Closed: 20261014-071000
 
 - Code review 20260924c:
 
