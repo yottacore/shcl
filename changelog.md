@@ -186,6 +186,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `format_diagnostic()` in every binding (Go `FormatDiagnostic`, C `shcl_format_diagnostic`) gives one diagnostic as the line the CLI prints, such as `line 3: Error: E019 malformed array, ...`. Rust's `Display`, Go's `String()` and Python's `str()` give the same line. C has `shcl_severity_name`, and C++ `to_string(Severity)`.
 
+- `load_and_validate_with()` in every binding (Go `LoadAndValidateWith`, C `shcl_load_and_validate_with`) takes a schema already parsed, so a program that validates on every start parses its schema once. It gives the same combined diagnostics and the same Strict failure as `load_and_validate`, which now parses its schema text and calls it.
+
 ### Parsing
 
 - A line indented under a skipped line is skipped with it (`E018`) instead of moving up a level. That now holds under `E006`, `E012`, `E013` and a dropped `- ` item as well.

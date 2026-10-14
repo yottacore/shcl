@@ -1042,6 +1042,8 @@ func TestStrictFailsTheSameFromEveryEntryPoint(t *testing.T) {
 	add("ParseKeepLines", doc, err)
 	doc, err = LoadAndValidate(text, schema, Strict)
 	add("LoadAndValidate", doc, err)
+	doc, err = LoadAndValidateWith(text, Parse(schema), Strict)
+	add("LoadAndValidateWith", doc, err)
 	doc, _, err = LoadFileWith(f, Strict)
 	add("LoadFileWith", doc, err)
 	doc, _, err = LoadFileKeepLines(f, Strict)
@@ -1092,6 +1094,62 @@ func TestStrictFailsTheSameFromEveryEntryPoint(t *testing.T) {
 	}
 	if _, st, err := LoadFileKeepLines(none, Strict); err != nil || st != FileNotFound {
 		t.Errorf("LoadFileKeepLines on a missing file: %v, %v", st, err)
+	}
+}
+
+func TestLoadAndValidateWithMatchesTheTextForm(t *testing.T) {
+	defer testID(t, "Eshi8i0")
+	// The parsed-schema form gives what the text form gives: the same
+	// combined list and the same strict answer, over every corpus schema at
+	// every level, with one schema document reused across the loads. Same
+	// fixture in every runner.
+	answer := func(doc *Document, err error) string {
+		var b strings.Builder
+		fmt.Fprintf(&b, "failed: %v\n", err != nil)
+		for _, d := range doc.Diagnostics() {
+			b.WriteString(FormatDiagnostic(d) + "\n")
+		}
+		return b.String() + doc.ToCanonical()
+	}
+	levels := []Strictness{Loose, Standard, Strict}
+	compared := 0
+	for _, c := range loadCases(t) {
+		if !c.hasSchema {
+			continue
+		}
+		schema := Parse(c.schema)
+		for _, level := range levels {
+			want := answer(LoadAndValidate(c.input, c.schema, level))
+			got := answer(LoadAndValidateWith(c.input, schema, level))
+			if got != want {
+				t.Errorf("%s at %v:\ngot:\n%s\nwant:\n%s", c.name, level, got, want)
+			}
+			compared++
+		}
+	}
+	if compared <= 30 {
+		t.Errorf("only %d corpus schema loads compared", compared)
+	}
+	// A validation error alone fails both at Strict, and a schema that does
+	// not load gives both the lone V099.
+	schema := "field: port\n\ttype: int\n"
+	for _, p := range [][2]string{{"port: x\n", schema}, {": nope\nport: x\n", schema}, {"port: 1\n", "field: \"port\n"}} {
+		for _, level := range levels {
+			want := answer(LoadAndValidate(p[0], p[1], level))
+			got := answer(LoadAndValidateWith(p[0], Parse(p[1]), level))
+			if got != want {
+				t.Errorf("%q against %q at %v:\ngot:\n%s\nwant:\n%s", p[0], p[1], level, got, want)
+			}
+		}
+	}
+	var le *LoadError
+	if _, err := LoadAndValidateWith("port: x\n", Parse(schema), Strict); !errors.As(err, &le) || len(le.Diagnostics) != 1 || le.Diagnostics[0].Code != "V003" {
+		t.Errorf("schema finding at Strict: got %v, want a LoadError with a lone V003", err)
+	}
+	// Only the text form skips an empty schema. An empty schema document
+	// declares nothing, so Validate and this call find every field unknown.
+	if d, err := LoadAndValidateWith("a: 1\n", Parse(""), Standard); err != nil || len(d.Diagnostics()) != 1 || d.Diagnostics()[0].Code != "V001" {
+		t.Errorf("empty schema document: %v %v", d.Diagnostics(), err)
 	}
 }
 

@@ -1534,6 +1534,10 @@ fn strict_fails_the_same_from_every_entry_point() {
 			Document::load_and_validate(text, schema, strict),
 		),
 		(
+			"load_and_validate_with",
+			Document::load_and_validate_with(text, &Document::parse(schema), strict),
+		),
+		(
 			"load_file_with",
 			Document::load_file_with(fs, strict).map(|r| r.0),
 		),
@@ -1591,6 +1595,78 @@ fn strict_fails_the_same_from_every_entry_point() {
 		FileStatus::NotFound
 	);
 	let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn load_and_validate_with_matches_the_text_form() {
+	let _id = test_id("Eshi8hz");
+	// The parsed-schema form gives what the text form gives: the same
+	// combined list and the same strict answer, over every corpus schema at
+	// every level, with one schema document reused across the loads. Same
+	// fixture in every runner.
+	fn answer(r: Result<Document, shcl::LoadError>) -> (bool, String, String) {
+		let (failed, doc) = match r {
+			Ok(d) => (false, d),
+			Err(e) => (true, e.document),
+		};
+		let mut got = String::new();
+		for d in doc.diagnostics() {
+			got.push_str(&format!("{}\n", shcl::format_diagnostic(d)));
+		}
+		(failed, got, doc.to_canonical())
+	}
+	let levels = [Strictness::Loose, Strictness::Standard, Strictness::Strict];
+	let mut compared = 0;
+	for case in load_cases() {
+		let Some(schema_text) = &case.schema else {
+			continue;
+		};
+		let schema = Document::parse(schema_text);
+		for level in levels {
+			let want = answer(Document::load_and_validate(&case.input, schema_text, level));
+			let got = answer(Document::load_and_validate_with(
+				&case.input,
+				&schema,
+				level,
+			));
+			assert_eq!(got, want, "{} at {:?}", case.name, level);
+			compared += 1;
+		}
+	}
+	assert!(
+		compared > 30,
+		"only {compared} corpus schema loads compared"
+	);
+	// A validation error alone fails both at Strict, and a schema that does
+	// not load gives both the lone V099.
+	let schema = "field: port\n\ttype: int\n";
+	for (text, schema) in [
+		("port: x\n", schema),
+		(": nope\nport: x\n", schema),
+		("port: 1\n", "field: \"port\n"),
+	] {
+		for level in levels {
+			let want = answer(Document::load_and_validate(text, schema, level));
+			let got = answer(Document::load_and_validate_with(
+				text,
+				&Document::parse(schema),
+				level,
+			));
+			assert_eq!(got, want, "{text:?} against {schema:?} at {level:?}");
+		}
+	}
+	let e =
+		Document::load_and_validate_with("port: x\n", &Document::parse(schema), Strictness::Strict)
+			.unwrap_err();
+	let codes: Vec<&str> = e.diagnostics.iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V003"]);
+	// Only the text form skips an empty schema. An empty schema document
+	// declares nothing, so validate() and this call find every field unknown.
+	let empty =
+		Document::load_and_validate_with("a: 1\n", &Document::parse(""), Strictness::Standard)
+			.unwrap();
+	let codes: Vec<&str> = empty.diagnostics().iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V001"]);
 }
 
 #[test]

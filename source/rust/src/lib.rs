@@ -6153,26 +6153,44 @@ impl Document {
 	/// fail". An empty schema text skips validation entirely, and one that
 	/// does not load adds a lone V099, as `validate` does. H001 hints the
 	/// schema disavows (a declared repeat upper bound above 1) are dropped.
+	/// The schema text is parsed and handed to load_and_validate_with.
 	#[allow(clippy::result_large_err)]
 	pub fn load_and_validate(
 		text: &str,
 		schema_text: &str,
 		strictness: Strictness,
 	) -> Result<Document, LoadError> {
-		let mut doc = Parser::new().parse(text, strictness);
-		if !schema_text.trim().is_empty() {
-			let schema = Document::parse(schema_text);
-			// validate() would give the same lone V099; a broken schema
-			// disavows no hints either, so nothing is suppressed.
-			if let Some(fault) = schema_load_fault(&schema) {
-				doc.diags.push(fault);
-				return doc.strict_gate();
-			}
-			let vdiags = doc.validate(&schema);
-			doc.diags.extend(vdiags);
-			suppress_declared_repeats(&schema, &mut doc.diags);
-			suppress_declared_reopens(&schema, &mut doc.diags);
+		if schema_text.trim().is_empty() {
+			return Parser::new().parse(text, strictness).strict_gate();
 		}
+		Document::load_and_validate_with(text, &Document::parse(schema_text), strictness)
+	}
+
+	/// load_and_validate with a schema already parsed, so a program that
+	/// validates on every start parses its schema once. Same combined list,
+	/// same strict rule, same lone V099 for a schema that did not load, and the
+	/// same hints dropped. The schema is always validated against, as
+	/// `validate` does; only the text form skips an empty one. Parse then
+	/// validate is not the same: diagnostics() and error_count() keep the
+	/// load's values, the disavowed hints stay, and Strict fails only on a
+	/// load error.
+	#[allow(clippy::result_large_err)]
+	pub fn load_and_validate_with(
+		text: &str,
+		schema: &Document,
+		strictness: Strictness,
+	) -> Result<Document, LoadError> {
+		let mut doc = Parser::new().parse(text, strictness);
+		// validate() would give the same lone V099; a broken schema disavows
+		// no hints either, so nothing is suppressed.
+		if let Some(fault) = schema_load_fault(schema) {
+			doc.diags.push(fault);
+			return doc.strict_gate();
+		}
+		let vdiags = doc.validate(schema);
+		doc.diags.extend(vdiags);
+		suppress_declared_repeats(schema, &mut doc.diags);
+		suppress_declared_reopens(schema, &mut doc.diags);
 		doc.strict_gate()
 	}
 

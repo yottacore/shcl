@@ -413,6 +413,21 @@ int main() {
 	CHECK(combined.get_or<std::string>("port", std::string()) == "x"); // doc still usable
 	auto clean = shcl::Document::load_and_validate("a: 1\n", "", shcl::Strictness::Standard);
 	CHECK(clean.error_count() == 0 && clean.diagnostics().empty());
+	// The parsed-schema form: the same list as the text form, from one schema
+	// document reused, and the same strict answer on a validation error alone.
+	{
+		auto vschema = shcl::Document::parse("field: port\n\ttype: int\n");
+		for (int round = 0; round < 2; round++) {
+			auto viaDoc = shcl::Document::load_and_validate_with(": nope\nport: x\n", vschema, shcl::Strictness::Standard).diagnostics();
+			CHECK(viaDoc.size() == cdiags.size());
+			for (std::size_t i = 0; i < viaDoc.size() && i < cdiags.size(); i++)
+				CHECK(shcl::format_diagnostic(viaDoc[i]) == shcl::format_diagnostic(cdiags[i]));
+		}
+		auto strictWith = shcl::Document::load_and_validate_with("port: x\n", vschema, shcl::Strictness::Strict);
+		CHECK(strictWith.strict_failed() && strictWith.error_count() == 1 && strictWith.diagnostics()[0].code == "V003");
+		auto emptyWith = shcl::Document::load_and_validate_with("a: 1\n", shcl::Document::parse(""), shcl::Strictness::Standard).diagnostics();
+		CHECK(emptyWith.size() == 1 && emptyWith[0].code == "V001");
+	}
 
 	// A read must stay usable after the document it came from is gone; the
 	// datetime one used to hand back a pointer into the freed arena.
@@ -601,12 +616,14 @@ int main() {
 				const shcl::Document *all[] = {&sfd, &kd};
 				auto pw = shcl::Document::parse_with(bad, lv), pl = shcl::Document::parse_limited(bad, lv, 0, 0, 0);
 				auto pk = shcl::Document::parse_keep_lines(bad, lv), lav = shcl::Document::load_and_validate(bad, sch, lv);
-				const shcl::Document *more[] = {&pw, &pl, &pk, &lav};
+				auto lavw = shcl::Document::load_and_validate_with(bad, shcl::Document::parse(sch), lv);
+				const shcl::Document *more[] = {&pw, &pl, &pk, &lav, &lavw};
 				CHECK(fst == shcl::FileStatus::HadErrors && kst == shcl::FileStatus::HadErrors);
 				for (auto *d : all) CHECK(d->strict_failed() == want && d->error_count() == 1 && d->get_or<std::int64_t>("port", 0) == 1);
 				for (auto *d : more) CHECK(d->strict_failed() == want && d->error_count() == 1 && d->get_or<std::int64_t>("port", 0) == 1);
 			}
 			CHECK(shcl::Document::load_and_validate("port: x\n", sch, shcl::Strictness::Strict).strict_failed());
+			CHECK(shcl::Document::load_and_validate_with("port: x\n", shcl::Document::parse(sch), shcl::Strictness::Strict).strict_failed());
 			auto [nd, nst] = shcl::Document::load_file_with(dir + "/none.shcl", shcl::Strictness::Strict);
 			CHECK(nst == shcl::FileStatus::NotFound && !nd.strict_failed());
 		}
