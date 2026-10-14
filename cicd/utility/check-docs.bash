@@ -51,6 +51,20 @@ pyVer="$(sed -n '/^version = "/{s/^version = "\(.*\)"$/\1/p;q;}' "${repoDir}/sou
 [[ -n "${cargoVer}" && "${cargoVer}" == "${pyVer}" ]] \
 	|| fBad "source/python/pyproject.toml is version '${pyVer}', but Cargo.toml says '${cargoVer}'"
 
+fTest EshaoyP toolchain-floors-match-readme
+##	The README's toolchain floors are what the manifests ask for. With no
+##	rust-version, cargo 1.85 to 1.87 stopped on a let chain in lib.rs instead
+##	of naming the version the crate needs.
+rustFloor="$(sed -n '/^rust-version = "/{s/^rust-version = "\(.*\)"$/\1/p;q;}' "${repoDir}/source/rust/Cargo.toml" || true)"
+pyFloor="$(sed -n '/^requires-python = ">=/{s/^requires-python = ">=\(.*\)"$/\1/p;q;}' "${repoDir}/source/python/pyproject.toml" || true)"
+[[ -n "${rustFloor}" ]] || fBad "source/rust/Cargo.toml has no rust-version"
+grep -qxF -- "- Toolchain: Rust ${rustFloor} or newer." "${repoDir}/README.md" \
+	|| fBad "README.md: the Rust toolchain line doesn't say ${rustFloor:-a version}, the rust-version in Cargo.toml"
+grep -qxF -- "- Toolchain: Python ${pyFloor} or newer." "${repoDir}/README.md" \
+	|| fBad "README.md: the Python toolchain line doesn't say ${pyFloor:-a version}, the requires-python in pyproject.toml"
+grep -qxF -- "Python ${pyFloor} or newer." "${repoDir}/source/python/README.md" \
+	|| fBad "source/python/README.md doesn't say Python ${pyFloor:-a version}, the requires-python in pyproject.toml"
+
 fTest EpPR0oa migrate-section-in-spec-and-man
 ##	`migrate` is the one path across the 3.0 lexical change, and it needs a
 ##	place in the spec and the man page that says what it rewrites and what it

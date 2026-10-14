@@ -482,6 +482,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The drop-ins tarball's file modes no longer depend on the checkout's umask.
 
+- The crate declares Rust 1.88 as its minimum, so an older cargo names the version it needs rather than stopping on a syntax error.
+
 ### Performance
 
 - Formatting a large file takes about a tenth less time in every binding, and more in Rust and Go. C and Go use less memory doing it.

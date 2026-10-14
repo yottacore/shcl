@@ -93,12 +93,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `Cargo.toml` has no `rust-version`, so cargo 1.85 to 1.87 fails on a let-chain syntax error rather than naming the version the crate needs
 	- ID: 2026101411292443
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-112924
 	- Opened by: found while working 2026101407100009
 	- Incorrect behavior: `lib.rs` uses let chains, stable from Rust 1.88. An older cargo stops with a syntax error in the source.
 	- Expected behavior: `rust-version = "1.88"` in the manifest, so cargo says the crate needs 1.88. The README now gives 1.88 as the floor.
+	- Actual fix: `rust-version = "1.88"` in `Cargo.toml`. check-docs holds the README's Rust line to it, and the README's and the Python README's Python line to `requires-python`.
+	- Verified: clippy with `-D warnings` is clean at 1.88 on the host and on `x86_64-pc-windows-gnu`, all targets. At 1.85 clippy's MSRV lint flags an item stable since 1.87, so it reads the field. cargo test, cargo fmt and check-docs pass.
+	- Swept: the Python floor is the same kind of claim and is in the same check. Go's `go.mod` says `go 1.20`, and no doc states a Go floor.
+	- Test case: check-docs `EshaoyP` (`toolchain-floors-match-readme`). It failed before the fix (no `rust-version`) and passes after. A raised `requires-python` turns it red too.
+	- Branch: `bindparity`
+	- Commit: COMMIT_MSRV
+	- Acceptance signoff: Self-closed: mechanical, and its test failed before and passes after.
+	- Closed: 20261014-CLOSED_MSRV
 
 - The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
 	- ID: 2026101407100008
