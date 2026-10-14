@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
 ##	Purpose:
-##		Build the README's six code examples the way a reader would: each block
-##		verbatim, wrapped in whatever a reader has to add around it, and built
-##		with the line the README itself gives. The five that end in a save are
-##		then run against the config file the README shows, and the file they
-##		leave is compared with the block that says what the save does.
+##		Build the six code examples in project/examples.md the way a reader
+##		would: each block verbatim, wrapped in whatever a reader has to add
+##		around it, and built with the line the doc itself gives. The five that
+##		end in a save are then run against the config file the README shows,
+##		and the file they leave is compared with the block that says what the
+##		save does.
 ##
 ##		These are the first thing a consumer copies, and nothing else in the
 ##		pipeline builds them. The C one also has a build order that is easy
@@ -16,7 +17,7 @@
 ##		compile error, not a warning, so a fragment that reads fine does not
 ##		build.
 ##	Syntax:
-##		check-readme.bash [README] [HEADER]
+##		check-readme.bash [README] [EXAMPLES] [HEADER]
 ##	Exit: 0 = every example builds, 1 = one does not, 2 = usage or missing input.
 ##	History: At bottom of script.
 
@@ -30,8 +31,14 @@ set -Eeuo pipefail
 
 repoDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 readme="${1:-${repoDir}/README.md}"
-header="${2:-${repoDir}/source/c/shcl.h}"
+examples="${2:-${repoDir}/project/examples.md}"
+header="${3:-${repoDir}/source/c/shcl.h}"
 [[ -f "${readme}" ]] || { echo "check-readme: no README at ${readme}" >&2; exit 2 ;}
+[[ -f "${examples}" ]] || { echo "check-readme: no examples doc at ${examples}" >&2; exit 2 ;}
+##	Every block is looked for in both, so one that moves between them is still
+##	read. The README keeps the config and the Escapes sample.
+docs=("${readme}" "${examples}")
+docNames="${readme} or ${examples}"
 [[ -f "${header}" ]] || { echo "check-readme: no header at ${header}" >&2; exit 2 ;}
 
 testWhere="check-readme"; testCounter="nBad"; nBad=0
@@ -47,13 +54,14 @@ fOnExit(){
 tmpDir="$(mktemp -d)"; trap fOnExit EXIT
 cp "${header}" "${tmpDir}/"
 
-##	The config the examples read, and the file the README says the save leaves.
+##	The config the examples read, from the README, and the file the examples
+##	doc says the save leaves.
 ##	Every example but Zig's ends in a save, and until 2026-09-20 nothing ran any
 ##	of them, so the shown result and the code that produces it could drift apart.
-awk '/^## What a .shcl file looks like/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tmpDir}/server-in.shcl"
-awk '/^### What saving does/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tmpDir}/expected.shcl"
-[[ -s "${tmpDir}/server-in.shcl" && -s "${tmpDir}/expected.shcl" ]] \
-	|| { echo "check-readme: the config block or the 'What saving does' block is gone from ${readme}" >&2; exit 2 ;}
+awk '/^## What a .shcl file looks like/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${docs[@]}" > "${tmpDir}/server-in.shcl"
+awk '/^### What saving does/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${docs[@]}" > "${tmpDir}/expected.shcl"
+[[ -s "${tmpDir}/server-in.shcl" ]] || { echo "check-readme: the config block is gone from ${docNames}" >&2; exit 2 ;}
+[[ -s "${tmpDir}/expected.shcl" ]] || { echo "check-readme: the 'What saving does' block is gone from ${docNames}" >&2; exit 2 ;}
 
 ##	Run an example in its own directory, on a fresh copy of the config, and
 ##	compare what it saved.
@@ -61,12 +69,12 @@ fRunExample(){   ## fRunExample NAME DIR CMD...
 	local name="$1" dir="$2"; shift 2
 	cp "${tmpDir}/server-in.shcl" "${dir}/server.shcl"
 	if ! ( cd "${dir}" && "$@" ) > "${dir}/run.out" 2>&1; then
-		echo "check-readme: the README's ${name} example does not run:" >&2
+		echo "check-readme: the ${name} example in ${docNames} does not run:" >&2
 		head -n 20 "${dir}/run.out" >&2
 		exit 1
 	fi
 	if ! diff -u "${tmpDir}/expected.shcl" "${dir}/server.shcl" > "${dir}/run.diff"; then
-		echo "check-readme: the ${name} example saves a file the README's 'What saving does' block does not show:" >&2
+		echo "check-readme: the ${name} example saves a file the 'What saving does' block in ${docNames} does not show:" >&2
 		head -n 20 "${dir}/run.diff" >&2
 		exit 1
 	fi
@@ -74,8 +82,8 @@ fRunExample(){   ## fRunExample NAME DIR CMD...
 
 fTest EpHHs8W c-example
 ##	The C example is the fenced ~~~c block; the file has exactly one.
-awk '/^~~~+c$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.c"
-[[ -s "${tmpDir}/block.c" ]] || { echo "check-readme: no c example found in ${readme}" >&2; exit 2 ;}
+awk '/^~~~+c$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/block.c"
+[[ -s "${tmpDir}/block.c" ]] || { echo "check-readme: no c example found in ${docNames}" >&2; exit 2 ;}
 
 ##	Without a system include of its own the ordering is not being exercised at
 ##	all - the header pulls in what the example uses, and any order compiles.
@@ -90,10 +98,10 @@ awk 'BEGIN { pre = 1 }
      { print }
      END { print "\treturn 0;"; print "}" }' "${tmpDir}/block.c" > "${tmpDir}/example.c"
 
-##	The compile line the README gives its readers, plus -Werror so a warning
+##	The compile line the doc gives its readers, plus -Werror so a warning
 ##	the reader would see is a failure here.
 if ! cc -std=c11 -O2 -Wall -Wextra -Werror -I"${tmpDir}" "${tmpDir}/example.c" -o "${tmpDir}/example" -lm 2> "${tmpDir}/cc.err"; then
-	echo "check-readme: the README's C example does not build:" >&2
+	echo "check-readme: the C example in ${docNames} does not build:" >&2
 	head -n 20 "${tmpDir}/cc.err" >&2
 	exit 1
 fi
@@ -101,13 +109,13 @@ fRunExample C "${tmpDir}" ./example
 
 ##	C++. Two blocks: the implementation file verbatim, then the example, whose
 ##	statements go in a main() from its first comment on. The two files build
-##	apart with the line the README gives, which is the point: the example's
+##	apart with the line the doc gives, which is the point: the example's
 ##	file sees no C.
 fTest Er1ohBI cpp-example
 mkdir -p "${tmpDir}/cppex"
 cp "${header}" "${repoDir}/source/c/shcl.hpp" "${tmpDir}/cppex/"
-awk '/^~~~+cpp$/ { n++; inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock { print > (dir "/block" n ".cpp") }' dir="${tmpDir}/cppex" "${readme}"
-[[ -s "${tmpDir}/cppex/block1.cpp" && -s "${tmpDir}/cppex/block2.cpp" ]] || { echo "check-readme: the two cpp blocks are gone from ${readme}" >&2; exit 2 ;}
+awk '/^~~~+cpp$/ { n++; inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock { print > (dir "/block" n ".cpp") }' dir="${tmpDir}/cppex" "${docs[@]}"
+[[ -s "${tmpDir}/cppex/block1.cpp" && -s "${tmpDir}/cppex/block2.cpp" ]] || { echo "check-readme: the two cpp blocks are gone from ${docNames}" >&2; exit 2 ;}
 mv "${tmpDir}/cppex/block1.cpp" "${tmpDir}/cppex/impl.cpp"
 awk 'BEGIN { pre = 1 }
      pre && /^\/\/ One call reads and parses/ { pre = 0; print "int main() {"; print; next }
@@ -116,7 +124,7 @@ awk 'BEGIN { pre = 1 }
 grep -q '^int main' "${tmpDir}/cppex/main.cpp" \
 	|| { echo "check-readme: the cpp example no longer has the line the main() split is taken at" >&2; exit 1 ;}
 if ! ( cd "${tmpDir}/cppex" && c++ -std=c++17 -O2 -Wall -Wextra -Werror main.cpp impl.cpp -o ex -lm ) 2> "${tmpDir}/cpp.err"; then
-	echo "check-readme: the README's C++ example does not build:" >&2
+	echo "check-readme: the C++ example in ${docNames} does not build:" >&2
 	head -n 20 "${tmpDir}/cpp.err" >&2
 	exit 1
 fi
@@ -127,8 +135,8 @@ fRunExample C++ "${tmpDir}/cppex" ./ex
 ##	body calls. The module resolves the library from the tree rather than the
 ##	proxy, so this needs no network.
 fTest EpHHs8X go-example
-awk '/^~~~+go$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.go"
-[[ -s "${tmpDir}/block.go" ]] || { echo "check-readme: no go example found in ${readme}" >&2; exit 2 ;}
+awk '/^~~~+go$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/block.go"
+[[ -s "${tmpDir}/block.go" ]] || { echo "check-readme: no go example found in ${docNames}" >&2; exit 2 ;}
 mkdir -p "${tmpDir}/goex"
 {
 	echo 'package main'
@@ -153,7 +161,7 @@ mkdir -p "${tmpDir}/goex"
 	echo "replace github.com/yottacore/shcl/source/go/v2 => ${repoDir}/source/go"
 } > "${tmpDir}/goex/go.mod"
 if ! ( cd "${tmpDir}/goex" && GOFLAGS=-mod=mod go build -o goex . ) 2> "${tmpDir}/go.err"; then
-	echo "check-readme: the README's Go example does not build:" >&2
+	echo "check-readme: the Go example in ${docNames} does not build:" >&2
 	head -n 20 "${tmpDir}/go.err" >&2
 	exit 1
 fi
@@ -164,20 +172,20 @@ fRunExample Go "${tmpDir}/goex" ./goex
 ##	pip put there, and here is the tree's own copy.
 fTest EqRTWFf python-example
 mkdir -p "${tmpDir}/pyex"
-awk '/^~~~+python$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/pyex/example.py"
-[[ -s "${tmpDir}/pyex/example.py" ]] || { echo "check-readme: no python example found in ${readme}" >&2; exit 2 ;}
+awk '/^~~~+python$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/pyex/example.py"
+[[ -s "${tmpDir}/pyex/example.py" ]] || { echo "check-readme: no python example found in ${docNames}" >&2; exit 2 ;}
 cp "${repoDir}/source/python/shcl.py" "${tmpDir}/pyex/"
 fRunExample Python "${tmpDir}/pyex" python3 example.py
 
 ##	Rust. The block is statements plus its own use line, so a reader adds a
 ##	main(); the `?` on the save makes that main return the save's error type.
-##	The dependency is a path rather than the README's `shcl = "2"`, since the
+##	The dependency is a path rather than the doc's `shcl = "2"`, since the
 ##	gate must not need crates.io - what is being checked is the code, and the
 ##	crate it resolves to is this tree's.
 fTest EqRTWFg rust-example
 mkdir -p "${tmpDir}/rsex/src"
-awk '/^~~~+rust$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.rs"
-[[ -s "${tmpDir}/block.rs" ]] || { echo "check-readme: no rust example found in ${readme}" >&2; exit 2 ;}
+awk '/^~~~+rust$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/block.rs"
+[[ -s "${tmpDir}/block.rs" ]] || { echo "check-readme: no rust example found in ${docNames}" >&2; exit 2 ;}
 {
 	sed -n '/^use /p' "${tmpDir}/block.rs"
 	echo
@@ -200,7 +208,7 @@ awk '/^~~~+rust$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${rea
 ##	ahead of rustup is not the one anything else here builds with.
 cp "${repoDir}/rust-toolchain.toml" "${tmpDir}/rsex/"
 if ! ( cd "${tmpDir}/rsex" && CARGO_NET_OFFLINE=true CARGO_TARGET_DIR="${tmpDir}/rstarget" cargo build -q ) 2> "${tmpDir}/rs.err"; then
-	echo "check-readme: the README's Rust example does not build:" >&2
+	echo "check-readme: the Rust example in ${docNames} does not build:" >&2
 	head -n 20 "${tmpDir}/rs.err" >&2
 	exit 1
 fi
@@ -208,12 +216,12 @@ fRunExample Rust "${tmpDir}/rsex" "${tmpDir}/rstarget/debug/readme-example"
 
 ##	Zig. The block is helper functions and then statements, so the statements
 ##	go in a main(); everything else is verbatim, including the two-line impl.c
-##	and the build line the README prints beside it. Skipped out loud where
+##	and the build line the doc prints beside it. Skipped out loud where
 ##	there is no zig - it is not a build dependency of anything shipped.
 fTest EpHHs8Y zig-example
 if command -v zig >/dev/null 2>&1; then
-	awk '/^~~~+zig$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.zig"
-	[[ -s "${tmpDir}/block.zig" ]] || { echo "check-readme: no zig example found in ${readme}" >&2; exit 2 ;}
+	awk '/^~~~+zig$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/block.zig"
+	[[ -s "${tmpDir}/block.zig" ]] || { echo "check-readme: no zig example found in ${docNames}" >&2; exit 2 ;}
 	mkdir -p "${tmpDir}/zigex"
 	cp "${header}" "${tmpDir}/zigex/"
 	printf '#define SHCL_IMPLEMENTATION\n#include "shcl.h"\n' > "${tmpDir}/zigex/impl.c"
@@ -224,7 +232,7 @@ if command -v zig >/dev/null 2>&1; then
 	grep -q '^pub fn main' "${tmpDir}/zigex/main.zig" \
 		|| { echo "check-readme: the zig example no longer has the line the main() split is taken at" >&2; exit 1 ;}
 	if ! ( cd "${tmpDir}/zigex" && zig build-exe main.zig impl.c -lc -lm -I. ) > "${tmpDir}/zig.err" 2>&1; then
-		echo "check-readme: the README's Zig example does not build:" >&2
+		echo "check-readme: the Zig example in ${docNames} does not build:" >&2
 		head -n 20 "${tmpDir}/zig.err" >&2
 		exit 1
 	fi
@@ -237,10 +245,10 @@ else
 	fTestSkip
 fi
 ##	The transcripts. A ~~~console block reads as real output, so every `$ shcl`
-##	line in one is run against the README's own server.shcl and schema, and has
+##	line in one is run against the README's server.shcl and the doc's schema, and has
 ##	to print what the block shows, stderr included, in the order a terminal
 ##	shows it. They drifted twice, each time a new line of output reached no
-##	transcript. Two files the README describes rather than shows are made here:
+##	transcript. Two files the doc describes rather than shows are made here:
 ##	server.shcl with the colon knocked off line 3, for the block that starts
 ##	with `shcl check server.shcl`, and an app.shcl whose line 2 has the
 ##	misspelled key its schema block reports.
@@ -250,10 +258,10 @@ cli="${SHCL_CLI:-${repoDir}/source/rust/target/debug/shcl}"
 tx="${tmpDir}/tx"
 mkdir -p "${tx}/bin" "${tx}/cases"
 ln -s "${cli}" "${tx}/bin/shcl"
-awk '/^## What a .shcl file looks like/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tx}/server-shown.shcl"
-awk '/^Hand it a schema/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tx}/app-schema.shcl"
-[[ -s "${tx}/server-shown.shcl" && -s "${tx}/app-schema.shcl" ]] \
-	|| { echo "check-readme: the transcripts' server.shcl or schema block is gone from ${readme}" >&2; exit 2 ;}
+awk '/^## What a .shcl file looks like/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${docs[@]}" > "${tx}/server-shown.shcl"
+awk '/^Hand it a schema/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${docs[@]}" > "${tx}/app-schema.shcl"
+[[ -s "${tx}/server-shown.shcl" ]] || { echo "check-readme: the transcripts' server.shcl is gone from ${docNames}" >&2; exit 2 ;}
+[[ -s "${tx}/app-schema.shcl" ]] || { echo "check-readme: the transcripts' schema block is gone from ${docNames}" >&2; exit 2 ;}
 sed '3s/://' "${tx}/server-shown.shcl" > "${tx}/server-knocked.shcl"
 printf 'workers: 4\nlog-levle: warn\n' > "${tx}/app.shcl"
 ##	One case per command: N.cmd, N.want (the lines under it, less the blank that
@@ -263,7 +271,7 @@ awk -v dir="${tx}/cases" '
 	/^~~~+console$/ { inb = 1; blk++; next }
 	inb && /^~~~+$/ { if (n) done_case(); inb = 0; next }
 	inb && /^\$ / { if (n) done_case(); n = ++cases; print substr($0, 3) > (dir "/" n ".cmd"); close(dir "/" n ".cmd"); print blk > (dir "/" n ".blk"); close(dir "/" n ".blk"); buf = ""; next }
-	inb && n { buf = buf $0 "\n" }' "${readme}"
+	inb && n { buf = buf $0 "\n" }' "${docs[@]}"
 nCases=0; nTxBad=0; lastBlk=""
 for cmdFile in $(find "${tx}/cases" -name '*.cmd' | sort -t/ -k1 -V); do
 	base="${cmdFile%.cmd}"
@@ -288,17 +296,17 @@ for cmdFile in $(find "${tx}/cases" -name '*.cmd' | sort -t/ -k1 -V); do
 	fi
 done
 if ((nCases < 10)); then
-	echo "check-readme: transcript: only ${nCases} command(s) found in the README's console blocks" >&2
+	echo "check-readme: transcript: only ${nCases} command(s) found in the console blocks of ${docNames}" >&2
 	exit 1
 fi
 ((nTxBad == 0)) || exit 1
 fTestEnd
-echo "check-readme: the ${nCases} transcript command(s) print what the README shows"
+echo "check-readme: the ${nCases} transcript command(s) print what the examples doc shows"
 
 ##	The Escapes sample went in with a bad escape that nothing read.
 fTest Es3cEBF escapes-sample
-awk '/^## Escapes/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tmpDir}/escapes.shcl"
-[[ -s "${tmpDir}/escapes.shcl" ]] || { echo "check-readme: the Escapes sample is gone from ${readme}" >&2; exit 1 ;}
+awk '/^## Escapes/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${docs[@]}" > "${tmpDir}/escapes.shcl"
+[[ -s "${tmpDir}/escapes.shcl" ]] || { echo "check-readme: the Escapes sample is gone from ${docNames}" >&2; exit 1 ;}
 escOut="$("${cli}" check "${tmpDir}/escapes.shcl" 2>&1 || true)"
 if [[ "${escOut}" != "ok (0 diagnostic(s))" ]]; then
 	echo "check-readme: the Escapes sample does not load clean:" >&2
@@ -318,13 +326,13 @@ fSectionBlocks(){   ## fSectionBlocks HEADING LANG DIR: writes DIR/N.blk, prints
 		fence != "" { if ($0 == fence) { fence = ""; if (out != "") { close(out); out = "" } } else if (out != "") print > out; next }
 		/^~~~+/ { fence = $0; sub(/[^~].*$/, "", fence); if (f && $0 == fence lang) out = dir "/" (++n) ".blk"; next }
 		/^#+ / { f = ($0 == head) }
-		END { print n + 0 }' "${readme}"
+		END { print n + 0 }' "${docs[@]}"
 }
 fSectionLoadsClean(){   ## fSectionLoadsClean NAME DIR
 	local out
 	out="$("${cli}" check "$2/server.shcl" 2>&1 || true)"
 	[[ "${out}" == "ok (0 diagnostic(s))" ]] && return 0
-	echo "check-readme: the README's $1 blocks leave a server.shcl that does not load clean:" >&2
+	echo "check-readme: the $1 blocks in ${docNames} leave a server.shcl that does not load clean:" >&2
 	printf '%s\n' "${out}" | sed 's/^/	/' >&2
 	exit 1
 }
@@ -334,7 +342,7 @@ fSectionLoadsClean(){   ## fSectionLoadsClean NAME DIR
 fRunBashSection(){   ## fRunBashSection HEADING LANG
 	local dir="${tmpDir}/sh-${2}-${1//[^A-Za-z]/}" n i name want
 	n="$(fSectionBlocks "$1" "$2" "${dir}")"
-	if [[ "${n}" == 0 ]]; then echo "check-readme: no ${2} block under '${1}' in ${readme}" >&2; exit 1; fi
+	if [[ "${n}" == 0 ]]; then echo "check-readme: no ${2} block under '${1}' in ${docNames}" >&2; exit 1; fi
 	cp "${tmpDir}/server-in.shcl" "${dir}/server.shcl"
 	{
 		echo 'set -Eeo pipefail'
@@ -344,11 +352,11 @@ fRunBashSection(){   ## fRunBashSection HEADING LANG
 		for ((i = 1; i <= n; i++)); do
 			sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=\$\(.*\)[[:space:]]+#[[:space:]]*([0-9]+)([^0-9].*)?$/\1 \2/p' "${dir}/${i}.blk"
 		done | while read -r name want; do
-			echo "[[ \"\${${name}}\" == '${want}' ]] || { echo \"check-readme: README ${2} block: ${name} is '\${${name}}', its comment says ${want}\" >&2; exit 1; }"
+			echo "[[ \"\${${name}}\" == '${want}' ]] || { echo \"check-readme: ${2} block: ${name} is '\${${name}}', its comment says ${want}\" >&2; exit 1; }"
 		done
 	} > "${dir}/run.bash"
 	if ! ( cd "${dir}" && PATH="${tx}/bin:${PATH}" bash "${dir}/run.bash" ) > "${dir}/run.out" 2>&1 </dev/null; then
-		echo "check-readme: the README's ${2} blocks under '${1}' do not run:" >&2
+		echo "check-readme: the ${2} blocks under '${1}' in ${docNames} do not run:" >&2
 		head -n 20 "${dir}/run.out" | sed 's/^/	/' >&2
 		exit 1
 	fi
@@ -367,7 +375,7 @@ fTest Es9JhOf powershell-blocks
 if command -v pwsh >/dev/null 2>&1; then
 	psDir="${tmpDir}/ps"
 	nPs="$(fSectionBlocks '### PowerShell' powershell "${psDir}")"
-	if [[ "${nPs}" == 0 ]]; then echo "check-readme: no powershell block under '### PowerShell' in ${readme}" >&2; exit 1; fi
+	if [[ "${nPs}" == 0 ]]; then echo "check-readme: no powershell block under '### PowerShell' in ${docNames}" >&2; exit 1; fi
 	cp "${tmpDir}/server-in.shcl" "${psDir}/server.shcl"
 	cat > "${tmpDir}/run-ps-blocks.ps1" << 'EOF'
 $ErrorActionPreference = 'Stop'
@@ -390,7 +398,7 @@ foreach ($__readmeBlock in (Get-ChildItem -Path $args[0] -Filter '*.blk' | Sort-
 exit 0
 EOF
 	if ! ( cd "${psDir}" && PATH="${tx}/bin:${PATH}" env -u DISPLAY pwsh -NoProfile -NonInteractive -File "${tmpDir}/run-ps-blocks.ps1" "${psDir}" ) > "${psDir}/run.out" 2>&1 </dev/null; then
-		echo "check-readme: the README's PowerShell blocks do not run:" >&2
+		echo "check-readme: the PowerShell blocks in ${docNames} do not run:" >&2
 		head -n 20 "${psDir}/run.out" | sed 's/^/	/' >&2
 		exit 1
 	fi
@@ -411,19 +419,19 @@ fTestEnd
 ##	It said so of comma text after 3.0 made that an error.
 fTest Es9JhQu set-spellings
 # shellcheck disable=SC2016  ## the backticks are markdown, not expansions
-setText="$(awk '/^The two spellings differ/' "${readme}" | grep -oE '`[a-z.-]+=[^`]*,[^`]*`' | head -n1 | tr -d '`' || true)"
+setText="$(awk '/^The two spellings differ/' "${docs[@]}" | grep -oE '`[a-z.-]+=[^`]*,[^`]*`' | head -n1 | tr -d '`' || true)"
 [[ -n "${setText}" ]] || { echo "check-readme: the paragraph on --set and --set-literal no longer shows its comma text" >&2; exit 1 ;}
 for setOpt in --set --set-literal; do
 	if [[ "${setOpt}" == --set ]]; then wantN=1; else wantN=2; fi
 	printf 'x: 1\n' > "${tmpDir}/spell.shcl"
 	if ! "${cli}" set --write "${tmpDir}/spell.shcl" "${setOpt}" "${setText}" > "${tmpDir}/spell.out" 2>&1; then
-		echo "check-readme: '${setOpt} ${setText}', from the README, fails:" >&2
+		echo "check-readme: '${setOpt} ${setText}', from the examples doc, fails:" >&2
 		sed 's/^/	/' "${tmpDir}/spell.out" >&2
 		exit 1
 	fi
 	gotN="$("${cli}" get --array "${tmpDir}/spell.shcl" "${setText%%=*}" 2>/dev/null | wc -l | tr -d ' ' || true)"
 	if [[ "${gotN}" != "${wantN}" ]]; then
-		echo "check-readme: '${setOpt} ${setText}', from the README, writes ${gotN} element(s), not ${wantN}" >&2
+		echo "check-readme: '${setOpt} ${setText}', from the examples doc, writes ${gotN} element(s), not ${wantN}" >&2
 		exit 1
 	fi
 done
@@ -432,7 +440,7 @@ fTestEnd
 ##	The paragraph on 2.x files names the value that needs --from-2x and the one
 ##	that comes through as it was. It went stale once already, on backslashes.
 fTest Es9KiYw migrate-claims
-migPara="$(awk '/^If you have files written for 2.x/' "${readme}")"
+migPara="$(awk '/^If you have files written for 2.x/' "${docs[@]}")"
 # shellcheck disable=SC2016  ## the backticks are markdown, not expansions
 migComma="$(grep -oE '`[a-z]+: [^`]*,[^`]*`' <<< "${migPara}" | head -n1 | tr -d '`' || true)"
 # shellcheck disable=SC2016  ## the backticks are markdown, not expansions
@@ -442,13 +450,13 @@ migSlash="$(grep -oE '`[a-z]+: [^`]*\\[^`]*`' <<< "${migPara}" | head -n1 | tr -
 printf '%s\n' "${migComma}" > "${tmpDir}/mig.shcl"
 migRc=0; migOut="$("${cli}" migrate "${tmpDir}/mig.shcl" 2>/dev/null)" || migRc=$?
 if [[ "${migRc}" != 7 || "${migOut}" != "${migComma}" ]]; then
-	echo "check-readme: migrate on '${migComma}' exits ${migRc} and prints '${migOut}'; the README says it is left alone at exit 7" >&2
+	echo "check-readme: migrate on '${migComma}' exits ${migRc} and prints '${migOut}'; the examples doc says it is left alone at exit 7" >&2
 	exit 1
 fi
 printf '%s\n' "${migSlash}" > "${tmpDir}/mig.shcl"
 migRc=0; migOut="$("${cli}" migrate "${tmpDir}/mig.shcl" 2>/dev/null)" || migRc=$?
 if [[ "${migRc}" != 0 || "${migOut%%$'\n'*}" != "${migSlash}" ]]; then
-	echo "check-readme: migrate on '${migSlash}' exits ${migRc} and prints '${migOut%%$'\n'*}'; the README says it comes through as it was" >&2
+	echo "check-readme: migrate on '${migSlash}' exits ${migRc} and prints '${migOut%%$'\n'*}'; the examples doc says it comes through as it was" >&2
 	exit 1
 fi
 fTestEnd
@@ -473,3 +481,6 @@ echo "check-readme: OK"
 ##		            and the 2.x migrate paragraph's two values.
 ##		2026-10-08  The Bash and PowerShell blocks call the CLI on PATH; the
 ##		            wrappers are retired.
+##		2026-10-14  The examples, transcripts and shell blocks moved from the
+##		            README to project/examples.md. Every block is looked for in
+##		            both files, so a move between them keeps it checked.

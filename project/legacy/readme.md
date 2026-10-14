@@ -7,6 +7,6 @@
 
 - No installer, package or release asset includes them. Releases up to 2.0.0 installed them under `scripts/`, and the installers remove those copies on the next update.
 
-- Call the `shcl` binary instead. Each `shcl_*` helper was `shcl get` with a type option, or the subcommand of the same name, so `shcl_int --default=4 server.shcl workers` is `shcl get --int --default=4 server.shcl workers`. The README's [Bash](../../README.md#bash) and [PowerShell](../../README.md#powershell) sections show both.
+- Call the `shcl` binary instead. Each `shcl_*` helper was `shcl get` with a type option, or the subcommand of the same name, so `shcl_int --default=4 server.shcl workers` is `shcl get --int --default=4 server.shcl workers`. The [Bash](../examples.md#bash) and [PowerShell](../examples.md#powershell) sections of `project/examples.md` show both.
 
 - Why they went is in the the [design notes](../design.md#shell-wrappers-retired).

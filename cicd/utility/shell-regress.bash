@@ -747,7 +747,7 @@ if [[ "$(grep -c . <<<"${rerunCode}")" != 3 ]]; then
 else
 	printf 'target=user\n%s\n' "${rerunCode}" > "${tmpDir}/rerun.bash"
 	oneLiner="bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install.bash)"
-	grep -qF -- "${oneLiner}" "${repoDir}/README.md" || fBad "the README no longer documents the one-liner install.bash names: ${oneLiner}"
+	grep -qF -- "${oneLiner}" "${repoDir}/project/install.md" || fBad "project/install.md no longer documents the one-liner install.bash names: ${oneLiner}"
 	out="$(bash <(cat "${tmpDir}/rerun.bash"))"
 	[[ "${out}" == "to remove it again: ${oneLiner} --uninstall --target=user" ]] || fBad "install.bash's uninstall hint under the one-liner: ${out@Q}"
 	out="$(cd "${tmpDir}" && bash < "${tmpDir}/rerun.bash")"
@@ -3060,8 +3060,8 @@ if [[ -f "${ps1}" ]]; then
 		[[ "${out}" == *"file=False & ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1)))"* ]] \
 			|| fBad "install.ps1's uninstall hint under the one-liner: ${out@Q}"
 		[[ "${out}" == *"file=True & 'C:\x\install.ps1'"* ]] || fBad "install.ps1's uninstall hint from a file: ${out@Q}"
-		grep -qF '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1)))' "${repoDir}/README.md" \
-			|| fBad "the README no longer documents the one-liner install.ps1 names"
+		grep -qF '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1)))' "${repoDir}/project/install.md" \
+			|| fBad "project/install.md no longer documents the one-liner install.ps1 names"
 	fi
 else
 	fTestSkipBlock
@@ -3513,3 +3513,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-08  The shell wrappers are retired, and their rows with them. An
 ##		            install update over an older one drops its scripts/.
 ##		2026-10-13  check-pins over the cicd/container recipes.
+##		2026-10-14  The install one-liners are looked for in project/install.md.
