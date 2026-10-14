@@ -124,9 +124,10 @@ option holds the edits, an empty base when the ops script has stdin instead.
 With --write, a FILE that does not exist yet is created. Lines the edits leave
 alone come back as they were written; with --layer, or where the edited text
 would not load back the same, the whole document comes out canonical, the way
-fmt writes it. A result that would delete lines or values from the file is
-refused at exit 7, printed or written (--lossy overrides). PATH ends at the
-first '=' outside quotes and parens, so a selector may hold one. Ops:
+fmt writes it, and without --layer a note on stderr says so. A result that
+would delete lines or values from the file is refused at exit 7, printed or
+written (--lossy overrides). PATH ends at the first '=' outside quotes and
+parens, so a selector may hold one. Ops:
   int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar
   <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array
   <type>[-array]-default<TAB>...                          set if not that type
@@ -135,9 +136,10 @@ first '=' outside quotes and parens, so a selector may hold one. Ops:
   empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH
   clear-comments<TAB>PATH                                 drop comments above
   banner<TAB>on|off                                       add or drop info block
-String, raw and comment values read escapes as a file does: NEWLINE or TAB
-between two U+25C9 marks. A backslash is text, and a line starting with # is a
-script comment.
+String, comment and raw CONTENT values read escapes as a file does: NEWLINE or
+TAB between two U+25C9 marks. A raw op's INFO is taken as written, since a
+fence label has no escapes. A backslash is text, and a line starting with # is
+a script comment.
 
 Types (get only; default --string):
   --int --float --bool --datetime --string --raw --rawinfo --duration --size
@@ -152,8 +154,9 @@ Options (the subcommands each belongs to are in parentheses):
                                          arrays, substituted per bad slot)
   --on-bad=error|default|flag            (get) error: fail loudly; default:
                                          print the default; flag: print the
-                                         value anyway and report via exit code
-                                         (the default)
+                                         value, or the type's zero (0, false,
+                                         empty) when the read is not Good, and
+                                         report via exit code (the default)
   --slots                                (get) prefix each line with its slot
                                          status and a tab (per element, or per
                                          wildcard slot)
@@ -227,8 +230,10 @@ Options (the subcommands each belongs to are in parentheses):
   --set-literal-default=PATH=TEXT        path is missing or has an empty
                                          value - the write-out-defaults half
                                          of the writer
-  --remove=PATH                          (same) delete what is at the path,
-                                         with its subtree. Removing nothing is
+  --remove=PATH                          (same) delete every field the path
+                                         reaches, with its subtree: each
+                                         instance of a repeated name, each
+                                         wildcard match. Removing nothing is
                                          not an error, but a PATH that cannot
                                          parse is
 The five above share one ordered list, so two of them touching the same path
@@ -254,11 +259,12 @@ An option a subcommand does not use is a usage error, not ignored. Also refused:
 '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
 --check with --write, --layer or --set; --paths with --json; --layer=- on
 'set'; --array with --raw, --rawinfo, --duration or --size; --default with
---on-bad=error or --on-bad=flag; --on-bad=default without --default; '-' named
-more than once across FILE, --layer and --schema; a PATH that cannot parse,
---default or not. Two options that ask for different answers are a usage error
-whichever order they came in, and both are named: two different type options,
-or one value option given two different values.
+--on-bad=error or --on-bad=flag; --on-bad=default without --default; --unit
+without --duration or --size; --decimal without --size; '-' named more than
+once across FILE, --layer and --schema; a PATH that cannot parse, --default or
+not. Two options that ask for different answers are a usage error whichever
+order they came in, and both are named: two different type options, or one
+value option given two different values.
 Repeating an option with the same value is allowed, and --layer and --set are
 ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
@@ -270,9 +276,9 @@ written for, when the two readings differ (--from-2x says it is 2.x), and
 reports a 2.x binding it cannot convert. With --write, migrate
 and upgrade keep the original beside FILE as
 NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format
-it was written for, and write nothing when that name is taken. An upgrade
-writes even when the fresh file drops lines or values, since the backup keeps
-them.
+it was written for, and write nothing at exit 8 when that name is taken.
+An upgrade writes even when the fresh file drops lines or values, since the
+backup keeps them.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
 each --layer is merged under it in order; --set applies last. 'fmt' with
 layers prints the merged canonical document.

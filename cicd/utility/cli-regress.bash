@@ -1264,6 +1264,9 @@ rows=(
 	'Es9aZSP|ops-set-repeated-path|set %FD%|int\tp\t9\n|1||^op line 1: cannot write p: the path matches multiple instances; name\(0\) picks one \(see --help\)$'
 	'Es9aZSQ|set-index-picks-one|set --set=p(1)=9 --set=s(b).r=z %FD%|-|0|p: 1\np: 9\ns: a\n\tr: x\ns: b\n\tr: z\n|-'
 	'Es9cyaF|remove-repeated-takes-all|set --remove=p %FD%|-|0|s: a\n\tr: x\ns: b\n\tr: y\n|-'
+	## 2026101407100006: and so does a wildcard, as the help says now.
+	'EshU86R|remove-wildcard-takes-all|set --remove=s(*).r %FD%|-|0|p: 1\np: 2\ns: a\ns: b\n|-'
+	'EshU88j|ops-remove-wildcard-takes-all|set %FD%|remove\ts(*)\n|0|p: 1\np: 2\n|-'
 	## 2026100907362300: a setter says why it wrote nothing, and the CLI
 	## prints the reason from that. Same text in all four.
 	'EsDRhLy|set-no-such-index|set --set=a(5).b=1 %F%|-|1||^--set: cannot write a\(5\)\.b: no instance at that index \(see --help\)$'
@@ -1273,6 +1276,12 @@ rows=(
 	'EsDRhUp|ops-literal-not-one-value|set %F%|literal\ta\tx, y\n|1||^op line 1: cannot write a: the value text is not one value \(see --help\)$'
 	'EsDTA92|ops-comment-under-array|set %F%|literal\ta\t[1, 2]\ncomment\ta.x\tc\n|1||^op line 2: cannot write a\.x: an array takes no lines under it \(see --help\)$'
 	'EsDTA93|ops-raw-bad-info-whole|set %F%|raw\tk\tc#x\tbody\n|1||^op line 1: cannot write k: the info string has no spelling that reads back: a .#. in it opens a comment, and a line break has no inline spelling \(see --help\)$'
+	## 2026101407100006: the content reads escapes and the info is taken as
+	## written, since a fence label has none.
+	'EshU8B1|ops-raw-info-as-written|set %F%|raw\tn\tmd\xe2\x97\x89NEWLINE\xe2\x97\x89x\tl1\xe2\x97\x89NEWLINE\xe2\x97\x89l2\n|0|a: 1\n\nn:\n\t\x60\x60\x60md\xe2\x97\x89NEWLINE\xe2\x97\x89x\n\tl1\n\tl2\n\t\x60\x60\x60\n|-'
+	## Flag mode, the default, prints the type's zero where there is no value.
+	'EshU8DJ|flag-zero-missing-int|get --int %F% nope|-|3|0\n|no value at that path'
+	'EshU8Fc|flag-zero-missing-bool|get --bool %F% nope|-|3|false\n|no value at that path'
 	## 20260830b item 19: a script could read an open section's values but never
 	## learn its keys, so the only route was parsing fmt output in shell. A name
 	## needing quotes comes back path-ready, or enumerating it buys nothing.
@@ -1929,6 +1938,7 @@ for row in "${rows[@]}"; do
 		n2x+=1
 		if ((rc == 1)) && [[ "${stdinSpec}" != @fullerr ]]; then
 			fFindNoHelp "${tmpDir}/nohelp-out" "${tid} ${id} [${name}]" "${scanErr}"
+			usageLast="${scanErr%$'\n'}"; printf '%s %s\t%s\n' "${tid}" "${id}" "${usageLast##*$'\n'}" >> "${tmpDir}/usage-${name}"
 			nUsage+=1
 		fi
 		if ((rc == 124 && wantRc != 124)); then
@@ -1997,6 +2007,67 @@ if [[ -s "${tmpDir}/nohelp-out" ]]; then
 		echo "cli-regress: usage-errors-name-a-fix: ${hit}" >&2; nBad+=1
 	done <"${tmpDir}/nohelp-out"
 fi
+
+## 2026101407100006: the style guide says the help lists every refused
+## combination, and --unit and --decimal were refused without being listed.
+## Each refusal a row gets that names two options has to be an entry in the
+## help's "Also refused" list naming them all. Two type options, or one option
+## given two values, are the general sentence after the list. The five edit
+## options share one list, which the entries call --set.
+fTest EshU8Hz help-lists-refusals
+typeOpts=' --int --float --bool --datetime --string --raw --rawinfo --duration --size '
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	refused="$("${cli}" help 2>/dev/null </dev/null | tr -s ' \n' '  ' || true)"
+	refused="${refused#*Also refused: }"; refused="${refused%%Two options that ask*}"
+	mapfile -t entries < <(tr ';' '\n' <<<"${refused}")
+	if ((${#entries[@]} < 10)) || [[ ! -s "${tmpDir}/usage-${name}" ]]; then
+		echo "cli-regress: help-lists-refusals [${name}]: ${#entries[@]} refused entries, or no row exited 1" >&2; nBad+=1; continue
+	fi
+	nPairs=0
+	while IFS=$'\t' read -r where msg; do
+		msg="${msg% (see --help)}"
+		[[ "${msg}" =~ ^--[a-z0-9-]+(=[a-z0-9]+)?\ (needs|is\ only\ meaningful\ with|cannot\ be\ combined\ with|has\ no)\  ]] || continue
+		mapfile -t toks < <(grep -oE -- '--[a-z0-9-]+(=[a-z0-9]+)?' <<<"${msg}" | sed -E 's/^--(set-literal-default|set-literal|set-default|remove)$/--set/')
+		((${#toks[@]} >= 2)) || continue
+		if [[ "${toks[0]%%=*}" == "${toks[1]%%=*}" ]]; then continue; fi
+		if [[ "${typeOpts}" == *" ${toks[0]} "* && "${typeOpts}" == *" ${toks[1]} "* ]]; then continue; fi
+		nPairs=$((nPairs + 1)); nRun+=1
+		found=0
+		for e in "${entries[@]}"; do
+			have=" $(grep -oE -- '--[a-z0-9-]+(=[a-z0-9]+)?' <<<"${e}" | xargs) "
+			all=1
+			for t in "${toks[@]}"; do [[ "${have}" == *" ${t} "* ]] || all=0; done
+			if ((all)); then found=1; break; fi
+		done
+		if ((found == 0)); then
+			echo "cli-regress: help-lists-refusals [${name}]: ${where}: '${msg}' is refused and no entry in the help's refused list names ${toks[*]}" >&2; nBad+=1
+		fi
+	done < "${tmpDir}/usage-${name}"
+	if ((nPairs < 8)); then
+		echo "cli-regress: help-lists-refusals [${name}]: only ${nPairs} refused pair(s) found in the rows" >&2; nBad+=1
+	fi
+done
+
+## 2026101407100006: what the help says these do, each run by a row:
+## remove-wildcard-takes-all, ops-raw-info-as-written, migrate-taken,
+## set-print-says-canonical and flag-zero-missing-int.
+fTest EshU8KI help-says
+helpSays=(
+	'--remove=PATH (same) delete every field the path reaches'
+	"A raw op's INFO is taken as written"
+	'write nothing at exit 8 when that name is taken'
+	'without --layer a note on stderr says so'
+	"flag: print the value, or the type's zero"
+)
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	text="$("${cli}" help 2>/dev/null </dev/null | tr -s ' \n' '  ' || true)"
+	for s in "${helpSays[@]}"; do
+		nRun+=1
+		[[ "${text}" == *"${s}"* ]] || { echo "cli-regress: help-says [${name}]: the help does not say: ${s}" >&2; nBad+=1; }
+	done
+done
 
 ## 20260817 item 28: a bare run printed the help and exited 1, -v was refused
 ## while -V worked, and set sat on stdin saying nothing. Checked against help

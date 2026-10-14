@@ -12,7 +12,7 @@ There are four CLIs, one per binding. Only the Rust one is distributed. The Go, 
 
 - The first argument is the subcommand. Each is one lower-case word: `get`, `set`, `fmt`, `check`, `init`, `count`, `instances`, `children`, `paths`, `migrate`, `upgrade`, `tokens`, `explain`.
 
-- `help`, `version`, `about` and `donate` also work as options: `--help` and `-h`, `--version`, `-v` and `-V`, `--about`, `--donate`. `shcl help CMD` and `shcl CMD --help` print that subcommand's part of the help.
+- `help` also works as an option, `--help` or `-h`. The version, about and donate texts are options only: `--version`, `-v` and `-V`, `--about`, `--donate`. `shcl version` is an unknown command that suggests `--version`. `shcl help CMD` and `shcl CMD --help` print that subcommand's part of the help.
 
 - Bare `shcl` prints the help and exits 0.
 
@@ -56,7 +56,7 @@ There are four CLIs, one per binding. Only the Rust one is distributed. The Go, 
 
 - Stderr is for a person: errors, the load's diagnostics with their prose, and notes such as `n.shcl: migrated, 0 line(s) rewritten`.
 
-- `check` is the one command whose output is its diagnostics. It prints `line N: severity: CODE` on stdout for each, then a summary line, and the same line plus its prose on stderr. A diagnostic line always starts with `line ` and the summary never does.
+- `check` is the one command whose output is its diagnostics. It prints `line N: severity: CODE` on stdout for each, then a summary line, and the same line plus its prose on stderr. When there is at least one, stderr then gets `(run 'shcl explain CODE' for the rule behind a code)`. A diagnostic line always starts with `line ` and the summary never does.
 
 - Every subcommand that loads a document prints the load's diagnostics to stderr, once per run.
 

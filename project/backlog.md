@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The help, the man page, the README and the CLI style guide disagree on what the CLI does
 	- ID: 2026101407100006
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 6
@@ -53,6 +53,52 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- style-guide_ui-ux.md's Streams rule leaves out the `(run 'shcl explain CODE' ...)` line `check` prints on stderr.
 	- Expected behavior: each doc says what the CLI does. The style guide says a CLI that does otherwise is the bug, so the refused list and the `--remove` wording change in the help text, and the rest in the docs.
 	- Origin: text from several rounds, not blamed line by line. Not seen by an earlier round. Confirmed for the behavior, all four CLIs; the text by reading.
+	- Reproduced: 20261014, all four CLIs. `--unit` and `--decimal` are refused as listed. `--remove` and the `remove` op take every wildcard match. A raw op's INFO keeps `◉NEWLINE◉` as written. A taken backup name is exit 8 from `migrate` and `upgrade`. `set` prints the canonical-form note when it falls back. Flag mode prints `0`, `false` or an empty line at exit 2 to 5. `shcl version` is a did-you-mean, and `check` prints the explain line after its diagnostics.
+	- Actual fix: in the help, the refused list names `--unit` without `--duration` or `--size` and `--decimal` without `--size`. `--remove` deletes every field the path reaches, each instance of a repeated name and each wildcard match. String and comment values and a raw op's CONTENT read escapes, and INFO is taken as written. A taken backup name is exit 8. The `set` paragraph names the stderr note, and flag mode prints the type's zero when the read isn't Good. All 4 CLIs, byte-identical at 80 columns. The man page says the same and has `--lossy` in the `fmt` and `set` SYNOPSIS. The README's Bash section names the zero on stdout and what a remove takes. The style guide says the version, about and donate texts are options only, and names `check`'s explain line.
+	- Decisions:
+		- 20261014: the help changes for points 3, 4, 6 and 7 too, not only the refused list and `--remove`. Each was a gap or a wrong reading in the help itself, so a docs-only fix would leave the help disagreeing (me).
+	- Swept: the changelog's Unreleased entry on ops escapes said "a string, raw or comment value" too, and now says a raw op's content. The man page's refused list gained the same two entries. The completions have no option text. spec.md's CLI section makes no claim on what `--remove` takes, and already says flag mode returns the zero. No "value anyway", "delete what" or "string, raw" is left outside the backlog and code comments.
+	- Verified: the 2 new checks failed on dev's 4 CLIs (28 lines) and pass after. The 5 new rows pass before and after, since they pin behavior that didn't change. Also cargo build and the other 3 CLIs, cli-regress (585 rows, 3467 checks, all 4 CLIs, man-width included), crosscheck over the corpus (22053 comparisons), check-docs with `SHCL_GATE_REF=main`, check-readme, check-doc-examples, test-ids check, rustfmt, gofmt, ruff, shellcheck and markdownlint.
+	- Test case: cli-regress `EshU8Hz` (`help-lists-refusals`): every refusal a row gets that names two options has an entry in the help's refused list naming them all. `EshU8KI` (`help-says`): the help's lines on `--remove`, raw INFO, exit 8, the stderr note and flag mode, each run by a row: `EshU86R`, `EshU88j`, `EshU8B1`, `EshU8DJ` and `EshU8Fc` (new), `Er5ivub` and `Es8aXnz`. The man SYNOPSIS, README and style guide points have none, since nothing reads that text against the CLI.
+	- Branch: `docsync`
+	- Commit: `6314a79b`
+
+- spec.md leaves out what consumers had to find by probing
+	- ID: 2026101407100009
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs external testing: a build of the crate on Rust 1.88, and the Python conformance suite on Python 3.9. Neither toolchain is here.
+	- Severity: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 9
+	- Version and build: dev at `9dff6949`
+	- Incorrect behavior: each of these is true on dev and in no public doc, or in design.md only, and a consumer program worked around it:
+		- A string read of a raw block gives the body, so `read_string` is the one call for a field that may be a scalar or a block. Two consumers try `read_raw` first.
+		- `quote_segment` output is valid as a selector body, so `name(` plus `quote_segment(value)` plus `)` selects by a held value, numeric values included. The spec describes it for names only, and consumers built index paths to avoid the question.
+		- A remove takes the leading comments of what it removes. design.md says so; the spec's `Remove` entry doesn't.
+		- `migrate(text, false)` on unstamped text that needs no rewrite adds the Format line alone, and `FORMAT_LINE` is public. That is the "stamp the format without the links block" one consumer asked for. The spec says `migrate` adds its two lines "to a file it rewrote".
+		- Concurrency: Rust's `Document` is `Sync` (design.md only, not the crate docs). Go's and Python's rules are stated nowhere; C's and C++'s are in their headers.
+		- The README doesn't state `requires-python >= 3.9`, or that the crate's edition needs cargo 1.85 or newer.
+	- Expected behavior: a sentence for each where the spec covers the call.
+	- Origin: doc gaps, not blamed. Not seen by an earlier round. Confirmed on dev by probes, the text by reading.
+	- Reproduced: 20261014 on dev, in Python and Go. A string read of a raw block gives the body. `QuoteSegment` output in parens selects by value, `"0"` and `"2020"` included. A remove takes the comment lines above the node and the one on its line. `migrate(text, false)` on clean unstamped text adds the Format line alone, and `FORMAT_LINE` is public in all 5. Rust's `Document` is `Send` and `Sync`.
+	- Note: the crate needs Rust 1.88, not 1.85. lib.rs uses let chains, stable from 1.88, and clippy's MSRV lint is clean at 1.88 for the library and the CLI. Cargo.toml has no `rust-version`.
+	- Note: the Go and Python lines say only what the code does. Go builds the lookup index under a lock, and 8 goroutines running every read call on one document pass the race detector, while a setter among them fails it. Python has no lock. By reading, a read changes only the lookup index, which is built whole and then assigned. 8 threads on one document gave the one-thread answers under the GIL; a free-threaded build wasn't run.
+	- Actual fix: spec.md says each one. Raw blocks: a string read gives a block's body, and `GetRaw` of a plain value is `BadType`. `QuoteSegment`: its output is a selector body. `Remove`: which comments go with the node. Migrating: a clean unstamped file gets the Format line alone, and `FORMAT_LINE` is that line. A list of what each binding allows across threads, before The core call. The README's Rust and Python entries name Rust 1.88 and Python 3.9.
+	- Swept: C's and C++'s rules were already in their headers, and the spec's list points at them. `source/python/README.md` already says 3.9.
+	- Test case: none. These are sentences on behavior that didn't change, each probed above.
+	- Branch: `docsync`
+	- Commit: `6314a79b`
+
+- `Cargo.toml` has no `rust-version`, so cargo 1.85 to 1.87 fails on a let-chain syntax error rather than naming the version the crate needs
+	- ID: 2026101411292443
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-112924
+	- Opened by: found while working 2026101407100009
+	- Incorrect behavior: `lib.rs` uses let chains, stable from Rust 1.88. An older cargo stops with a syntax error in the source.
+	- Expected behavior: `rust-version = "1.88"` in the manifest, so cargo says the crate needs 1.88. The README now gives 1.88 as the floor.
 
 - The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
 	- ID: 2026101407100008
@@ -73,24 +119,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The five `DateTime` layouts share only the names `date`, `time`, `frac` and `zone`; C's `sec` is `second` elsewhere.
 	- Expected behavior: each gets a guide line with its reason, or is made to match. The Python casing and the leaked names are mechanical, and nobody holds the 3.0 surface yet.
 	- Origin: the guide's list was last extended for the C++ interface (20260916) and the 20261007 round's `_or` rename. Not seen by an earlier round. Plausible, by reading all five surfaces.
-
-- spec.md leaves out what consumers had to find by probing
-	- ID: 2026101407100009
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261014-071000
-	- Opened by: Code review 20261014 item 9
-	- Version and build: dev at `9dff6949`
-	- Incorrect behavior: each of these is true on dev and in no public doc, or in design.md only, and a consumer program worked around it:
-		- A string read of a raw block gives the body, so `read_string` is the one call for a field that may be a scalar or a block. Two consumers try `read_raw` first.
-		- `quote_segment` output is valid as a selector body, so `name(` plus `quote_segment(value)` plus `)` selects by a held value, numeric values included. The spec describes it for names only, and consumers built index paths to avoid the question.
-		- A remove takes the leading comments of what it removes. design.md says so; the spec's `Remove` entry doesn't.
-		- `migrate(text, false)` on unstamped text that needs no rewrite adds the Format line alone, and `FORMAT_LINE` is public. That is the "stamp the format without the links block" one consumer asked for. The spec says `migrate` adds its two lines "to a file it rewrote".
-		- Concurrency: Rust's `Document` is `Sync` (design.md only, not the crate docs). Go's and Python's rules are stated nowhere; C's and C++'s are in their headers.
-		- The README doesn't state `requires-python >= 3.9`, or that the crate's edition needs cargo 1.85 or newer.
-	- Expected behavior: a sentence for each where the spec covers the call.
-	- Origin: doc gaps, not blamed. Not seen by an earlier round. Confirmed on dev by probes, the text by reading.
 
 - A public call that spells one value the way the writer would
 	- ID: 2026101407100011
