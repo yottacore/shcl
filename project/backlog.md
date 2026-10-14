@@ -79,7 +79,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - On musl, the C binding's schema-line check fails on `/proc/self/pagemap` with the wrong error
 	- ID: 2026101316013508
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261013-160135
 	- Opened by: me, from the Alpine image run in 2026101309250977
@@ -90,11 +90,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: the same as on glibc and the other 3 bindings, exit 8 with "too large for a schema".
 	- Reproduced: 20261013, in the Alpine image. Why musl differs is not checked yet.
 	- Note: no musl build is released, so this only reaches someone who builds the C library on musl.
+	- Actual cause: the schema read goes through stdio. musl's `fread` sends the kernel one `readv` of the caller's size less a byte plus its own 1 KB buffer, so the first read asks for 65535 bytes. The page map refuses any read that isn't a multiple of 8, with EINVAL. glibc passes the 64 KB read through whole.
+	- Actual fix: the schema read turns stdio buffering off before its fixed 64 KB reads, so every libc asks the kernel for exactly that. Nothing looks at the path, so the size check still comes from the read.
+	- Progress log:
+		- 20261013: Seen in the Alpine image: `readv(3, [{iov_len=65535}, {iov_len=1024}]) = -1 EINVAL`. With the fix it reads 64 KB at a time and stops at the 16 MiB cap with the usual message.
+	- Swept: the other C reads through `fread` (the library's `shcl_read_file`, the CLI's `read_stream`, `read_all_fp` and its changed-since-read compare) read regular files and streams, where musl's split read changes nothing. No row loads the page map as a document, and none of the 4 bindings defines what that does, so they stay. The Windows half of the schema read gets the same unbuffered stream, built with mingw and run under wine. The other 3 bindings passed the row in 2026101309250977's Alpine run.
+	- Verified: 20261013. Row `ErTZaL2` fails on the old C CLI in the Alpine image and passes with the fix; the whole cli-regress for C there passes, 561 rows. Also in the Alpine image, the C conformance suite, `mem_bounds`, `oom_hook` and `oom_recover`. On this box, the same 4 suites, sanitize-c (ASan and UBSan), cli-regress (561 rows, 4 bindings), crosscheck (21966 comparisons), check-docs with `SHCL_GATE_REF=main`, check-veneer, test-ids check, cppcheck at the normal level, the mingw build, the `SHCL_NO_FILE_IO` build and gcc 15 with `_FORTIFY_SOURCE`.
+	- Test case: cli-regress `ErTZaL2` (`schema-line-pagemap`), which already pinned this and fails only on musl. It runs in the Alpine image's test stage. A glibc test can't see it, since glibc never splits the read.
+	- Branch: `muslfix`
+	- Commit: `60d9719a`
+	- Acceptance signoff: Self-closed: the fix gives the answer the other 3 bindings and glibc already give, and the existing row was seen to fail before and pass after in the Alpine image.
+	- Closed: 20261013-201858
 
 - On musl, the C binding's `reads` workload is about 4 times slower than on glibc
 	- ID: 2026101316013509
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261013-160135
 	- Opened by: me, from the Alpine image run in 2026101309250977
@@ -105,6 +116,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: close to glibc, like every other C workload in that run.
 	- Reproduced: 20261013, in the Alpine image. Not profiled yet. musl's allocator is the first thing to rule out.
 	- Note: no musl build is released, so this only reaches someone who builds the C library on musl.
+	- Actual cause: the allocator, through how our arena uses it. A default form on a present path judges the value on an empty probe document and rolls the probe's arena back after. The rollback freed the 64 KB block the value had just opened, so every call did a 64 KB malloc and free. glibc keeps a block that size on its heap. musl maps a fresh one and unmaps it on free, so the 40000 calls cost 40000 `mmap` and `munmap` pairs.
+	- Actual fix: rolling an arena back to a mark keeps the first block opened after the mark, empty, when it's the standard 64 KB size. Larger blocks still go back, so a big value's working set isn't held. The fix is in the one rollback helper, so every mark and release gets it, the document's own arena on a refused write included.
+	- Progress log:
+		- 20261013: Measured in the Alpine image before changing anything. Instruction counts were close to glibc's (730M against 633M), so the time was outside the program. The `reads` run made 40147 `mmap` and 40147 `munmap` calls, against 104 for the parse-only baseline, and every one came from the probe's `arena_alloc` under `shcl_set_int`.
+		- 20261013: After the fix, the same run makes 149 `mmap` calls. The `string-default` and `datetime-default` ops had the same pattern and drop the same way. In the Alpine image `reads` takes about 105 ms against 370 ms before, with the baseline unchanged. Instruction counts dropped 3.5% on musl and 1.9% on glibc, with the baseline count unchanged on both. On this box the glibc time is within noise, at a load near 17.
+		- 20261013: Each arena can now hold one empty 64 KB block after a rollback. The default-probe check in `mem_bounds` reads 320 KB held, up from 192 KB, under its 1 MB limit.
+		- 20261013: No glibc-only switch was needed. The fix changes how often we call the allocator, not how it behaves.
+	- Swept: every `arena_release` caller goes through the changed helper (the setters' marks, `w_set_default`'s read mark, `read_copied` and the array reads). `arena_reset`, `arena_reset_smallest` and `arena_reset_largest` already keep a block. The `writes`, `defaults`, `string-default`, `datetime-default` and refused-write runs on musl make no other per-op `mmap`. `shcl_parse_datetime` still opens and frees its own arena per call, by its contract that nothing outlives the call. That's a fixed cost per call and on no CLI path, so it stays.
+	- Verified: 20261013. `mem_bounds_mark_at_block_end` fails on dev's header (131 MB allocated over 2000 calls for each of its 2 checks) and passes on the fix (0 bytes). perf-gate `EoUsQuG` fails on the old C CLI in the Alpine image (370 ms against 301) and passes with the fix, as does the full perf-gate there for C. The full perf-gate on this box, dev's C CLI against the fix, all green. Also the gates listed on 2026101316013508, which ran on the same commit.
+	- Test case: `mem_bounds_mark_at_block_end` (`EsdfEvu`) in `source/c/tests/mem_bounds.c`, a count of bytes allocated, so it fails on glibc too; perf-gate `EoUsQuG` (`reads`) in the Alpine image.
+	- Branch: `muslfix`
+	- Commit: `60d9719a`
+	- Acceptance signoff: Self-closed: the cause was measured before the fix, the fix is in one helper, and the new count test and the Alpine perf row were each seen to fail before and pass after.
+	- Closed: 20261013-201858
 
 - Loose refuses a quoted thousands number with a trailing `.`, such as `"1,200."`
 	- ID: 2026101318521195
