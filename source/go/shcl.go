@@ -3143,14 +3143,14 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // answer the first one did not. An older Format line becomes that line where
 // it is; a file with none gets it at the end.
 func Migrate(text string, fromV2 bool) Migration {
-	return migrateText(text, fromV2, true)
+	return migrateText(text, fromV2, true, false)
 }
 
 // MigrateUnstamped is Migrate without the version line or the migrated note,
 // for a program that writes GenBanner itself, which includes the version line.
 // The next run can tell the result is current only once that is written.
 func MigrateUnstamped(text string, fromV2 bool) Migration {
-	return migrateText(text, fromV2, false)
+	return migrateText(text, fromV2, false, false)
 }
 
 // majorityEol is the line ending most of the text's lines end with. A tie
@@ -3164,7 +3164,9 @@ func majorityEol(text string) string {
 	return "\n"
 }
 
-func migrateText(text string, fromV2, stamp bool) Migration {
+// migrateText: beta takes a file naming this format as 2.x too, which only
+// Upgrade asks for, once the caller has said so.
+func migrateText(text string, fromV2, stamp, beta bool) Migration {
 	whole := text
 	bom := ""
 	if strings.HasPrefix(text, "\ufeff") {
@@ -3173,7 +3175,7 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 	}
 	named := formatLineRead(text)
 	version, hasVersion := named.Value, named.Status == Good
-	if hasVersion && version >= FormatMajor {
+	if hasVersion && (version > FormatMajor || (version == FormatMajor && !beta)) {
 		return Migration{Text: whole, Current: true}
 	}
 	st := migrating{fromV2: fromV2 || hasVersion}
@@ -3292,7 +3294,9 @@ type Upgraded struct {
 	// Current: the input loads with no error under these rules and, with
 	// fromV2, migrates to the same text and names no older format, or it
 	// names this format, so it is left as it is. A beta build of 3.0 stamped
-	// the same Format line as a release, so a beta file is current here too.
+	// the same Format line as a release, so a beta file is current here too,
+	// unless fromV2 says a 2.x build wrote it, it loads with an error, and the
+	// fresh text would not.
 	Current bool
 	// Format is the format the input was written for, which goes in the
 	// backup's name: what its Format line names, else 2.
@@ -3323,7 +3327,11 @@ type Upgraded struct {
 // written for 2.x. Then a file that loads clean is still made over when
 // Migrate would change it, as it would `p: a,b`, an array under 2.x and one
 // string now. One it would not change that names an older format gets this
-// format on that Format line, and nothing else.
+// format on that Format line, and nothing else. The one file naming this
+// format that is made over is one that loads with an error when fromV2 says a
+// 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is taken
+// as 2.x, and only when the fresh text loads clean, so the next start leaves
+// it alone.
 func Upgrade(text string, fromV2 bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
@@ -3331,15 +3339,19 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 	if hasVersion {
 		up.Format = version
 	}
-	if hasVersion && version >= FormatMajor {
+	if hasVersion && (version > FormatMajor || (version == FormatMajor && !fromV2)) {
 		return up
 	}
 	before := Parse(text)
 	clean := before.ErrorCount() == 0
-	if clean && !fromV2 {
+	// A beta of 3.0 wrote this format's line too, so only the caller can say
+	// a 2.x build wrote the file. One that loads clean is what an upgrade
+	// leaves, so a caller passing fromV2 on every start never converts it
+	// twice.
+	if clean && (!fromV2 || (hasVersion && version == FormatMajor)) {
 		return up
 	}
-	m := migrateText(text, fromV2, false)
+	m := migrateText(text, fromV2, false, true)
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
@@ -3361,9 +3373,18 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 		return up
 	}
 	fresh := Parse(m.Text)
-	up.Lost = m.Lost + fresh.LostCount()
+	lost := m.Lost + fresh.LostCount()
 	fresh.swapBanner(true, true)
-	up.Text = fresh.ToCanonical()
+	made := fresh.ToCanonical()
+	// A file naming this format goes only when that leaves it loading clean,
+	// so the next start, fromV2 or not, leaves the result alone.
+	if hasVersion && version == FormatMajor && Parse(made).ErrorCount() != 0 {
+		up.Current = true
+		up.Diagnostics = nil
+		return up
+	}
+	up.Lost = lost
+	up.Text = made
 	return up
 }
 

@@ -40,10 +40,47 @@ fn upgrade_leaves_a_clean_or_stamped_file() {
 	assert!(up.current && up.text == clean && up.diagnostics.is_empty());
 	let up = upgrade(&stamped_comma_list(), true);
 	assert!(up.current);
+	// 2026101407100010: with from_v2 a beta file that loads with an error is
+	// taken as 2.x now, so this holds only without it. That test is
+	// with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x.
 	// A beta build stamped the same Format line, so its errors are left too.
+	// let beta = format!("tags: a, b\n\n{}", GEN_BANNER);
+	// let up = upgrade(&beta, true);
+	// assert!(up.current && up.text == beta && up.format == 3);
+}
+
+#[test]
+fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
+	let _id = test_id("EsgoThZ");
+	pin_clock();
+	// The caller says a 2.x build wrote it, as a beta of 3.0 could have
+	// (2026101407100010). The backup name keeps the format the line names.
 	let beta = format!("tags: a, b\n\n{}", GEN_BANNER);
 	let up = upgrade(&beta, true);
-	assert!(up.current && up.text == beta && up.format == 3);
+	assert!(!up.current && up.format == 3 && up.lost == 0);
+	assert!(up.diagnostics.iter().any(|d| d.code == "E026"));
+	assert_eq!(up.text, format!("tags: [a, b]\n\n{}", GEN_BANNER));
+	// What it leaves loads clean, so the next start leaves it alone.
+	assert!(upgrade(&up.text, true).current);
+	// Without from_v2, or when it loads clean, nothing changes.
+	let up = upgrade(&beta, false);
+	assert!(up.current && up.text == beta);
+	assert!(upgrade(&stamped_comma_list(), true).current);
+	// Nor when the fresh text would keep an error, which the next start would
+	// take as 2.x again.
+	let stuck = "a: 1\nb 2\n##    Format   3\n";
+	let up = upgrade(stuck, true);
+	assert!(up.current && up.text == stuck && up.diagnostics.is_empty());
+	// A lone stamp at the top goes too.
+	let up = upgrade("##    Format   3\nname: x\nrange: 0, 100\n", true);
+	assert_eq!(
+		up.text,
+		format!("name: x\nrange: [0, 100]\n\n{}", GEN_BANNER)
+	);
+	// migrate keeps leaving it alone: its text can keep a line with an error,
+	// and a second run would take that as 2.x again.
+	let m = migrate(&beta, true);
+	assert!(m.current && m.text == beta);
 }
 
 fn stamped_comma_list() -> String {

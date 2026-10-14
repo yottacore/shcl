@@ -2596,14 +2596,14 @@ def migrate(text: str, from_v2: bool) -> Migration:
 	refuse over. A rewritten file is stamped with the version line, so the
 	second run has an answer the first one did not. An older Format line
 	becomes that line where it is; a file with none gets it at the end."""
-	return _migrate_text(text, from_v2, True)
+	return _migrate_text(text, from_v2, True, False)
 
 
 def migrate_unstamped(text: str, from_v2: bool) -> Migration:
 	"""migrate() without the version line or the migrated note, for a program
 	that writes GEN_BANNER itself, which includes the version line. The next
 	run can tell the result is current only once that is written."""
-	return _migrate_text(text, from_v2, False)
+	return _migrate_text(text, from_v2, False, False)
 
 
 def _majority_eol(text):
@@ -2613,7 +2613,9 @@ def _majority_eol(text):
 	return "\r\n" if crlf > lf else "\n"
 
 
-def _migrate_text(text, from_v2, stamp):
+def _migrate_text(text, from_v2, stamp, beta):
+	"""beta takes a file naming this format as 2.x too, which only upgrade()
+	asks for, once the caller has said so."""
 	whole = text
 	bom = ""
 	if text.startswith("\ufeff"):
@@ -2621,7 +2623,7 @@ def _migrate_text(text, from_v2, stamp):
 		text = text[1:]
 	named = _format_line_read(text)
 	version = named.value if named.status is Status.Good else None
-	if version is not None and version >= FORMAT_MAJOR:
+	if version is not None and (version > FORMAT_MAJOR or (version == FORMAT_MAJOR and not beta)):
 		return Migration(whole, current=True)
 	st = _Migrating(from_v2 or version is not None)
 	bracketed = []
@@ -2707,8 +2709,10 @@ class Upgrade:
 	current: the input loads with no error under these rules and, with
 	from_v2, migrates to the same text and names no older format, or it names
 	this format, so it is left as it is. A beta build of 3.0 stamped the same
-	Format line as a release, so a beta file is current here too. format: the format the input was
-	written for, which goes in the backup's name: what its Format line names,
+	Format line as a release, so a beta file is current here too, unless
+	from_v2 says a 2.x build wrote it, it loads with an error, and the fresh
+	text would not. format: the format the input was written for, which goes
+	in the backup's name: what its Format line names,
 	else 2. ambiguous: as Migration.ambiguous; nonzero means the text reads
 	two ways and nothing is written. lost: lines and values of the input the
 	fresh text does not carry over, the ones 2.x bound that nothing binds now
@@ -2741,17 +2745,25 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	been written for 2.x. Then a file that loads clean is still made over
 	when migrate would change it, as it would `p: a,b`, an array under 2.x and
 	one string now. One it would not change that names an older format gets
-	this format on that Format line, and nothing else."""
+	this format on that Format line, and nothing else. The one file naming
+	this format that is made over is one that loads with an error when from_v2
+	says a 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It
+	is taken as 2.x, and only when the fresh text loads clean, so the next
+	start leaves it alone."""
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
-	if version is not None and version >= FORMAT_MAJOR:
+	if version is not None and (version > FORMAT_MAJOR or (version == FORMAT_MAJOR and not from_v2)):
 		return up
 	before = Document.parse(text)
 	clean = before.error_count() == 0
-	if clean and not from_v2:
+	# A beta of 3.0 wrote this format's line too, so only the caller can say
+	# a 2.x build wrote the file. One that loads clean is what an upgrade
+	# leaves, so a caller passing from_v2 on every start never converts it
+	# twice.
+	if clean and (not from_v2 or version == FORMAT_MAJOR):
 		return up
-	m = _migrate_text(text, from_v2, False)
+	m = _migrate_text(text, from_v2, False, True)
 	# A 2.x file can load clean and still read differently now, as `a,b`
 	# does. One migrate leaves as it was has nothing to do, but an older
 	# Format line, which would keep the load's H007 hint, becomes this one.
@@ -2768,9 +2780,17 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	if m.ambiguous != 0:
 		return up
 	fresh = Document.parse(m.text)
-	up.lost = m.lost + fresh.lost_count()
+	lost = m.lost + fresh.lost_count()
 	fresh._swap_banner(True, True)
-	up.text = fresh.to_canonical()
+	made = fresh.to_canonical()
+	# A file naming this format goes only when that leaves it loading clean,
+	# so the next start, from_v2 or not, leaves the result alone.
+	if version == FORMAT_MAJOR and Document.parse(made).error_count() != 0:
+		up.current = True
+		up.diagnostics = []
+		return up
+	up.lost = lost
+	up.text = made
 	return up
 
 

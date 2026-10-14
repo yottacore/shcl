@@ -44,11 +44,13 @@
 ##		without --from-2x. A rewrite leaves the original bytes under the dated
 ##		backup name, and a fresh file that loads clean, has the info block
 ##		once, reads as the migrated text, and is left alone by a second run.
-##		A file left alone keeps its bytes, and one naming format 3 always is.
+##		A file left alone keeps its bytes. One naming format 3 is left alone
+##		too, unless --from-2x vouches for it and it loads with an error.
 ##
 ##		A document that names format 3 is not a 2.x file. It is checked for
-##		being left as written by both, and is not compared with 2.x
-##		(fNamesFormat3, asserted on a corpus case).
+##		being left as written by migrate, and by upgrade but for that one case,
+##		and is not compared with 2.x (fNamesFormat3, asserted on a corpus
+##		case).
 ##	Syntax:
 ##		check-migrate.bash [--corpus DIR] [--iters N] [--min N] [--min-corpus N] [--min-fuzz N]
 ##		  --corpus DIR  conformance corpus root (default project/conformance)
@@ -416,8 +418,8 @@ for n, line in enumerate(text.split("\n"), 1):
 }
 
 ##	A document that names this format is not a 2.x file, whatever 2.x makes of
-##	it: migrate leaves it as written and upgrade never touches it, beta files
-##	included (value-syntax.md, Migration). A fuzz document mutated from a
+##	it: migrate leaves it as written, and so does upgrade but for one case,
+##	beta files included (value-syntax.md, Migration; fUpFormat3). A fuzz document mutated from a
 ##	corpus input with the info block is one. So it is checked for that and
 ##	not compared with 2.x. Taken only when the text has the line and migrate
 ##	says so too, so a 2.x file migrate wrongly passes over still compares.
@@ -482,6 +484,7 @@ fUpgradeAgain(){
 	SHCL_TEST_CLOCK="${upClock}" "${newCli}" upgrade --write "$@" "${upDir}/cfg.shcl" >/dev/null 2>"${tmpDir}/upgrade.err" || upRc=$?
 }
 fUpBad(){ nUpBad+=1; echo "check-migrate: UPGRADE ${upName}: $*"; }
+declare -i nUpFormat3=0
 fUpEntries(){ find "${upDir}" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' '; }
 
 ##	Left alone: exit 0, the same bytes, and no backup.
@@ -508,6 +511,24 @@ fUpRewritten(){
 		((upRc == 0)) && cmp -s "${tmpDir}/fresh.again" "${fresh}" && [[ "$(fUpEntries)" == 2 ]] \
 			|| fUpBad "${how}: a second upgrade ${opt:-without --from-2x} did not leave it alone (exit ${upRc})"
 	done
+}
+
+##	A file naming format 3 is left alone without --from-2x. With it, one that
+##	loads with an error is taken as 2.x when the fresh file loads clean, and
+##	backed up under the format its line names (2026101407100010). Anything
+##	else is left alone. The fresh file loads clean, so a second run, with the
+##	flag or not, leaves it.
+fUpFormat3(){
+	local upBackup="cfg_backup_20261004-001500_format-v3.shcl"
+	fUpgradeRun "${upSrc}" --from-2x
+	if [[ "$(fErrors "${upSrc}")" != 0 ]] && ! cmp -s "${upSrc}" "${upDir}/cfg.shcl"; then
+		nUpFormat3+=1
+		fUpRewritten "format 3 with an error, with --from-2x"
+	else
+		fUpUntouched "format 3, with --from-2x"
+	fi
+	fUpgradeRun "${upSrc}"
+	fUpUntouched "format 3, without --from-2x"
 }
 
 ##	With --from-2x a file is rewritten when it loads with an error, or when
@@ -562,8 +583,10 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 			echo "check-migrate: DIVERGE ${name}: it names format 3, and migrate exited ${rc} or changed it"
 		fi
 		upName="${name}"; upSrc="${f}"
-		fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
-		fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+		## 2026101407100010: --from-2x takes one with an error as 2.x now.
+		# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
+		# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+		fUpFormat3
 		continue
 	fi
 	## Every document here is a 2.x file by construction, which is exactly what
@@ -647,18 +670,23 @@ if ((nUpRewritten == 0 || nUpCleanRewritten == 0 || nUpCurrent == 0 || nUpPlain 
 fi
 
 ##	A file naming format 3 is never touched, even one that loads with an
-##	error.
-fTest Es34DZk a file naming format 3 is never upgraded
+##	error. 2026101407100010: but for one that loads with an error, which
+##	--from-2x takes as 2.x when the fresh file loads clean. The first file
+##	here would keep `b 2`, so it stays; the second is a beta's comma list.
+fTest Es34DZk a file naming format 3 is upgraded only when --from-2x vouches for it
 printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
-declare -i nFormat3=0; nUpBad=0
-for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl"; do
+printf 'tags: a, b\n##    Format   3\n' > "${tmpDir}/format3-beta.shcl"
+declare -i nFormat3=0; nUpBad=0; nUpFormat3=0
+for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format3-beta.shcl"; do
 	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "${f}" || continue
 	upName="${f%/input.shcl}"; upName="${upName##*/}"; upSrc="${f}"; nFormat3+=1
-	fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
-	fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+	# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
+	# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+	fUpFormat3
 done
 nBad+=nUpBad
 ((nFormat3 > 1)) || { echo "check-migrate: no corpus input names format 3" >&2; nBad+=1; }
+((nUpFormat3 == 1)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 upgraded with --from-2x, not the one beta file" >&2; nBad+=1; }
 
 ##	Each named case has to keep its shape, or the exception is stale.
 fTest EpUIoZd 068 still has a fence label holding a hash
@@ -744,3 +772,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            and a file naming format 3 is never upgraded.
 ##		2026-10-10  A document naming format 3 is checked for being left as
 ##		            written, not compared with 2.x.
+##		2026-10-14  upgrade --from-2x takes a file naming format 3 as 2.x when
+##		            it loads with an error and the fresh file loads clean.
