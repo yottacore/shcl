@@ -77,34 +77,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `--check` on `fmt` came in `af1fd746` (2026-09-19), and `--layer` and `--set` were never judged against it. Not seen by an earlier round. Confirmed.
 	- Sweep: `migrate --check` and `check` with the same two options.
 
-- An ops-script line with too few fields is read with the missing ones empty, so `raw<TAB>n<TAB>info` replaces a raw block with an empty one at exit 0
-	- ID: 2026101407100003
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck exhaustive over the C change.
-	- Severity: Avg
-	- Opened: 20261014-071000
-	- Opened by: Code review 20261014 item 3
-	- Version and build: dev at `9dff6949`
-	- Steps to reproduce:
-		- `printf 'n: 1\n' > o.shcl`
-		- `printf 'string\tn\n' | shcl set o.shcl`
-		- `printf 'raw\tn\tinfo\n' | shcl set o.shcl`
-	- Incorrect behavior: the first prints `n: ""` at exit 0, the second an empty `info` block in place of the value. Only a type that refuses an empty value, such as `int`, catches it, and `remove` alone says `cannot remove : not a usable path`. Too many fields are refused: `int takes 3 tab-separated field(s), got 4`. With `--write` the lenient read goes to disk.
-	- Expected behavior: too few fields is refused the way too many is, with the same message, for every op in the help's table.
-	- Reproduced: 20261014, all four CLIs.
-	- Origin: the field-count check is from `d22f5593` (2026-09-02) and counts only past the shape. Not seen by an earlier round. Confirmed.
-	- Sweep: every op in the table. `remove`, `empty`, `clear-comments` and `banner` give a different message for the same mistake today.
-	- Actual cause: the count check refused only too many fields. A missing field read as empty, so the op ran with an empty path, value or body. The 4 conformance runners had their own copy of the decoder, with no count check at all.
-	- Actual fix: each op in the table takes exactly its field count, and too few gets the too-many message: `raw takes 4 tab-separated field(s), got 3`. An array form takes any number of elements, so `int-array<TAB>k` still writes `[]`, but needs its PATH: `int-array takes at least 2 tab-separated field(s), got 1`. The "at least" wording for the array forms is my call (me). The 4 runners check the same way.
-	- Swept: all 29 ops in the help's table, in the 4 CLIs' op decoders and the 4 runners' (Rust `try_apply_op`, Go `tryApplyOpTest`, Python `try_apply_op`, C `try_apply_op_c`). `remove`, `empty`, `clear-comments` and `banner` give the count message now. Nothing that writes op lines relied on the short read: the corpus `write.ops` files, the fuzz smoke test's op lines, the profiler and perf-gate scripts, crosscheck's generated ops, and the README and man page examples. The only short line found, `int-array<TAB>w0` in corpus 196, is an empty array and stays legal.
-	- Verified: the 10 new too-few cli-regress rows fail on dev's 4 CLIs and pass on the fix. Corpus 029's new `write-bad.ops` lines fail dev's 4 runners and pass on the fix. With the fix, all 29 ops at 1, 2 and 3 fields give the same stdout, stderr and exit in all 4 CLIs. Also cargo test, the four conformance suites, `go test -count=1` per module, cli-regress (573 rows, 4 bindings), crosscheck (22053 comparisons), check-docs with `SHCL_GATE_REF=main`, check-completions, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
-	- Test case: cli-regress `Esgiz1x` to `Esgiz26` (`ops-too-few-*`), one per op form plus a later line; corpus `029-write-gate`, whose `write-bad.ops` has a too-few line for every op in the table, in all 4 runners and crosscheck's bad-op dimension.
-	- Branch: `opsfld`
-	- Commit: `366f8e6a`
-	- Acceptance signoff: Self-closed: reproduced, the new rows and corpus lines failed before and pass after, the Sweep is answered, and the one wording call is noted above.
-	- Closed: 20261014-082700
-
 - `get --on-bad=default` without `--default` prints an empty line at exit 0 for a missing or bad value
 	- ID: 2026101407100004
 	- Type: Bug
@@ -121,31 +93,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261014, all four CLIs.
 	- Origin: `--on-bad` is from `5756a593` (2026-07-12). Not seen by an earlier round. Confirmed.
 	- Note: the 20261007 call that a supplied `--default` substitutes silently stands. This is the case with none supplied.
-
-- A whitespace-only line in the ops script is refused as `unknown op: ` where a blank line is skipped
-	- ID: 2026101407100005
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261014-071000
-	- Opened by: Code review 20261014 item 5
-	- Version and build: dev at `9dff6949`
-	- Steps to reproduce:
-		- `printf '\t\nint\tn\t5\n' | shcl set o.shcl`
-	- Incorrect behavior: `op line 1: unknown op: ` at exit 1, naming nothing. A here-doc with an indented blank line hits it.
-	- Expected behavior: a line holding only blanks is skipped like an empty one, or the message says the op name is empty.
-	- Reproduced: 20261014, all four CLIs.
-	- Origin: the ops decoder from `5756a593` (2026-07-12). Not seen by an earlier round. Confirmed.
-	- Decisions:
-		- 20261014: a line holding only blanks (spaces, tabs, a CR) is skipped like an empty one, rather than refused with a message naming the empty op (me).
-	- Actual cause: the line loop skipped only an empty line or a `#` one, so a line of blanks went to the decoder and came back as an op with no name.
-	- Actual fix: the 4 CLIs skip a line of only spaces, tabs and CRs. The 4 runners skip it the same way in `write.ops` and `write-bad.ops`.
-	- Verified: the 2 new cli-regress rows fail on dev's 4 CLIs and pass on the fix, and dev's 4 runners fail on corpus 029's new blank-only lines. The gate list on 2026101407100003 covers this branch.
-	- Test case: cli-regress `Esgiz27` (`ops-tab-only-line`) and `Esgiz28` (`ops-blanks-only-line`); corpus `029-write-gate`, whose `write.ops` has a tab-only line and a line of spaces and a tab, in all 4 runners.
-	- Branch: `opsfld`
-	- Commit: `366f8e6a`
-	- Acceptance signoff: Self-closed: the call is noted above, and the new rows and corpus lines failed before and pass after.
-	- Closed: 20261014-082700
 
 - The help, the man page, the README and the CLI style guide disagree on what the CLI does
 	- ID: 2026101407100006
@@ -261,6 +208,59 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261014: a new call beside the old one, `load_and_validate_with`, taking a parsed schema document, with the one-shot's combined diagnostics and strict rule (JC). The text form stays.
 	- Reason: a program that validates on every start shouldn't parse its embedded schema each time, and the strict difference is a trap.
+
+- An ops-script line with too few fields is read with the missing ones empty, so `raw<TAB>n<TAB>info` replaces a raw block with an empty one at exit 0
+	- ID: 2026101407100003
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck exhaustive over the C change.
+	- Severity: Avg
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 3
+	- Version and build: dev at `9dff6949`
+	- Steps to reproduce:
+		- `printf 'n: 1\n' > o.shcl`
+		- `printf 'string\tn\n' | shcl set o.shcl`
+		- `printf 'raw\tn\tinfo\n' | shcl set o.shcl`
+	- Incorrect behavior: the first prints `n: ""` at exit 0, the second an empty `info` block in place of the value. Only a type that refuses an empty value, such as `int`, catches it, and `remove` alone says `cannot remove : not a usable path`. Too many fields are refused: `int takes 3 tab-separated field(s), got 4`. With `--write` the lenient read goes to disk.
+	- Expected behavior: too few fields is refused the way too many is, with the same message, for every op in the help's table.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: the field-count check is from `d22f5593` (2026-09-02) and counts only past the shape. Not seen by an earlier round. Confirmed.
+	- Sweep: every op in the table. `remove`, `empty`, `clear-comments` and `banner` give a different message for the same mistake today.
+	- Actual cause: the count check refused only too many fields. A missing field read as empty, so the op ran with an empty path, value or body. The 4 conformance runners had their own copy of the decoder, with no count check at all.
+	- Actual fix: each op in the table takes exactly its field count, and too few gets the too-many message: `raw takes 4 tab-separated field(s), got 3`. An array form takes any number of elements, so `int-array<TAB>k` still writes `[]`, but needs its PATH: `int-array takes at least 2 tab-separated field(s), got 1`. The "at least" wording for the array forms is my call (me). The 4 runners check the same way.
+	- Swept: all 29 ops in the help's table, in the 4 CLIs' op decoders and the 4 runners' (Rust `try_apply_op`, Go `tryApplyOpTest`, Python `try_apply_op`, C `try_apply_op_c`). `remove`, `empty`, `clear-comments` and `banner` give the count message now. Nothing that writes op lines relied on the short read: the corpus `write.ops` files, the fuzz smoke test's op lines, the profiler and perf-gate scripts, crosscheck's generated ops, and the README and man page examples. The only short line found, `int-array<TAB>w0` in corpus 196, is an empty array and stays legal.
+	- Verified: the 10 new too-few cli-regress rows fail on dev's 4 CLIs and pass on the fix. Corpus 029's new `write-bad.ops` lines fail dev's 4 runners and pass on the fix. With the fix, all 29 ops at 1, 2 and 3 fields give the same stdout, stderr and exit in all 4 CLIs. Also cargo test, the four conformance suites, `go test -count=1` per module, cli-regress (573 rows, 4 bindings), crosscheck (22053 comparisons), check-docs with `SHCL_GATE_REF=main`, check-completions, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
+	- Test case: cli-regress `Esgiz1x` to `Esgiz26` (`ops-too-few-*`), one per op form plus a later line; corpus `029-write-gate`, whose `write-bad.ops` has a too-few line for every op in the table, in all 4 runners and crosscheck's bad-op dimension.
+	- Branch: `opsfld`
+	- Commit: `366f8e6a`
+	- Acceptance signoff: Self-closed: reproduced, the new rows and corpus lines failed before and pass after, the Sweep is answered, and the one wording call is noted above.
+	- Closed: 20261014-082700
+
+- A whitespace-only line in the ops script is refused as `unknown op: ` where a blank line is skipped
+	- ID: 2026101407100005
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 5
+	- Version and build: dev at `9dff6949`
+	- Steps to reproduce:
+		- `printf '\t\nint\tn\t5\n' | shcl set o.shcl`
+	- Incorrect behavior: `op line 1: unknown op: ` at exit 1, naming nothing. A here-doc with an indented blank line hits it.
+	- Expected behavior: a line holding only blanks is skipped like an empty one, or the message says the op name is empty.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: the ops decoder from `5756a593` (2026-07-12). Not seen by an earlier round. Confirmed.
+	- Decisions:
+		- 20261014: a line holding only blanks (spaces, tabs, a CR) is skipped like an empty one, rather than refused with a message naming the empty op (me).
+	- Actual cause: the line loop skipped only an empty line or a `#` one, so a line of blanks went to the decoder and came back as an op with no name.
+	- Actual fix: the 4 CLIs skip a line of only spaces, tabs and CRs. The 4 runners skip it the same way in `write.ops` and `write-bad.ops`.
+	- Verified: the 2 new cli-regress rows fail on dev's 4 CLIs and pass on the fix, and dev's 4 runners fail on corpus 029's new blank-only lines. The gate list on 2026101407100003 covers this branch.
+	- Test case: cli-regress `Esgiz27` (`ops-tab-only-line`) and `Esgiz28` (`ops-blanks-only-line`); corpus `029-write-gate`, whose `write.ops` has a tab-only line and a line of spaces and a tab, in all 4 runners.
+	- Branch: `opsfld`
+	- Commit: `366f8e6a`
+	- Acceptance signoff: Self-closed: the call is noted above, and the new rows and corpus lines failed before and pass after.
+	- Closed: 20261014-082700
 
 - `upgrade --from-2x` and `upgrade_file` leave an older Format line above the new info block, so the file names two formats
 	- ID: 2026101407100001
