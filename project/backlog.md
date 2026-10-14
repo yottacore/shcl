@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Move the detailed comparisons out of README.md into their own doc
 	- ID: 2026101414312546
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261014-143125
 	- Opened by: JC
@@ -46,11 +46,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Keep the brief feature comparison table.
 	- Decisions:
 		- 20261014: before the next cut (JC).
+		- 20261014: the benchmarks and the Pkl, CUE and Dhall section are in `project/comparison.md`, beside the other long docs the README's Docs list points into (me). The README keeps the feature table, its note on types, and "When SHCL is the wrong choice", since who it isn't for belongs on the front page.
+	- Actual fix: moved as written, with the heading levels raised one and the relative links fixed. The README links to it under the table and in its Docs list. check-docs' performance, schema size and read time sentences read the new doc.
+	- Swept: every gate and script that reads README.md text or names its sections (check-readme, check-docs, check-doc-examples, shell-regress, compare.bash, sign-release, config.bash, cicd.bash, the installers' messages), design.md's pointers, `project/legacy/readme.md`'s anchors, and every relative link in a tracked .md. The crates.io and PyPI pages are `source/rust/README.md` and `source/python/README.md`, which use full URLs, so the split doesn't reach them.
+	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `EsiRFl2` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `EoXOPYu` and `EoTJb0N` on `cli-regress.bash` without this branch.
+	- Test case: check-docs `EqQW89I` (performance numbers) and `EqQW89J` (contents blocks) over `project/comparison.md`, and the new `EsiRFl2` (doc-links-resolve), which checks every relative link and anchor in a tracked .md.
+	- Branch: `readmesplit`
+	- Commit: `b30d70a8`
+	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are the name and place, `project/comparison.md`, and keeping the wrong-choice bullets in the README.
+	- Closed: 20261014-152200
 
 - Move the installation instructions out of README.md
 	- ID: 2026101414312547
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261014-143125
 	- Opened by: JC
@@ -59,11 +68,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Move installation instructions, including development, to one or more .mds, and link to it/them.
 	- Decisions:
 		- 20261014: before the next cut (JC).
+		- 20261014: one doc, `project/install.md`, has every install route and the development setup (me). contributing.md already has the long toolchain list, and the setup section links to it. The README keeps short Installation and development sections that link out.
+	- Actual fix: moved as written, with the heading levels raised one and the relative links fixed. The stable-channel sentence that goes at 3.0.0 final is now in `project/install.md`, under "Install scripts, stable or dev". So are the cut's version strings, except the Go dependency line, which is in `project/examples.md`. check-docs' tar note and shell-regress's two one-liner rows read the new doc.
+	- Swept: every gate and script that reads README.md text or names its sections (check-readme, check-docs, check-doc-examples, shell-regress, compare.bash, sign-release, config.bash, cicd.bash, the installers' messages), design.md's pointers, `project/legacy/readme.md`'s anchors, and every relative link in a tracked .md. The crates.io and PyPI pages are `source/rust/README.md` and `source/python/README.md`, which use full URLs, so the split doesn't reach them.
+	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `EsiRFl2` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `EoXOPYu` and `EoTJb0N` on `cli-regress.bash` without this branch.
+	- Test case: check-docs `EoXVY4O` (installer-tar-prerequisite) and `EqQW89J`, shell-regress `EqzwPFI` and `EqzwPFQ` (the one-liners), and `EsiRFl2`.
+	- Branch: `readmesplit`
+	- Commit: `b30d70a8`
+	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are one doc for both, and its name and place.
+	- Closed: 20261014-152200
 
 - Move CLI usage and other examples out of README.md
 	- ID: 2026101414312548
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261014-143125
 	- Opened by: JC
@@ -73,6 +91,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Leave a small snippet of example shcl contents.
 	- Decisions:
 		- 20261014: before the next cut (JC).
+		- 20261014: `project/examples.md` has "Using the CLI" and the per-language examples through "What saving does" (me). The README keeps "What a .shcl file looks like" as its snippet, and the Escapes section, which explains a feature. The examples read that file and link to it rather than repeat it.
+	- Actual fix: moved as written, at the same heading levels, with the relative links fixed. The languages badge links there. check-readme reads every block from both the README and the new doc, so a block moved either way stays checked. check-docs' toolchain floors, setter checks, edit options and get transcript read the new doc, and check-doc-examples its schema.
+	- Swept: every gate and script that reads README.md text or names its sections (check-readme, check-docs, check-doc-examples, shell-regress, compare.bash, sign-release, config.bash, cicd.bash, the installers' messages), design.md's pointers, `project/legacy/readme.md`'s anchors, and every relative link in a tracked .md. The crates.io and PyPI pages are `source/rust/README.md` and `source/python/README.md`, which use full URLs, so the split doesn't reach them.
+	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `EsiRFl2` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `EoXOPYu` and `EoTJb0N` on `cli-regress.bash` without this branch.
+	- Test case: check-readme `EpHHs8W`, `Er1ohBI`, `EpHHs8X`, `EqRTWFf`, `EqRTWFg`, `EpHHs8Y`, `EqGg9jM`, `Es3cEBF`, `Es9JhMP`, `Es9JhOf`, `Es9JhQu` and `Es9KiYw`; check-docs `EshaoyP`, `EoXX3yy`, `Eom0qpk`, `Eom0qpm` and `EqQW89J`; check-doc-examples `EsJLUJz`; and `EsiRFl2`.
+	- Branch: `readmesplit`
+	- Commit: `b30d70a8`
+	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are the name and place, and keeping the web server file in the README as the snippet.
+	- Closed: 20261014-152200
 
 - No public call gives an array, or one element of it, the way the writer writes it
 	- ID: 2026101412591471
