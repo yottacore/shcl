@@ -662,6 +662,8 @@ Every binding is one file with no dependencies. You can optionally just copy it 
 
 - Dependency line: `shcl = "2"`
 
+- Toolchain: Rust 1.88 or newer.
+
 - Note: The Rust crate includes the library and the CLI together. See [Language packages](#language-packages) if the binary is what you are after.
 
 ~~~rust
@@ -760,6 +762,8 @@ if err := doc.SaveFile("server.shcl"); err != nil {
 - Install: `pip install shcl`
 
 - Dependency line: `shcl~=2.0`
+
+- Toolchain: Python 3.9 or newer.
 
 - Note: The PyPI distribution is the library module by itself; the `shcl` command comes from a package or an installer.
 
@@ -965,11 +969,11 @@ shcl set --write server.shcl \
     --set-literal 'cluster.hosts=[a.example.com, b.example.com]'
 ~~~
 
-A missing value with no `--default`, or one that isn't the type asked for, exits nonzero and says why on stderr.
+A missing value with no `--default`, or one that isn't the type asked for, exits nonzero and says why on stderr. Stdout still gets the type's zero, such as `0`, `false` or an empty line, so check the exit code rather than the value.
 
 The two spellings differ in how the value is read. `--set` takes **data**: its type follows the text, so `workers=8` writes an integer, but a bracket or a comma in it is content - `hosts=[a, b]` would store one quoted string. `--set-literal` takes **value syntax**, the way a file writes it, so that same text writes a two-element array. Reach for it whenever the value is not a plain scalar.
 
-Removal and defaults have option forms too - `--remove=PATH`, `--set-default=PATH=VALUE`, `--set-literal-default=PATH=TEXT`, where a default fills a field that is missing or empty - and all five share one ordered list, so two options touching the same path resolve in the order given. Raw blocks are the one edit with no option form; those go in as a write-ops script on stdin, one op per line, fields separated by a literal tab:
+Removal and defaults have option forms too - `--remove=PATH`, `--set-default=PATH=VALUE`, `--set-literal-default=PATH=TEXT`, where a default fills a field that is missing or empty - and all five share one ordered list, so two options touching the same path resolve in the order given. A remove takes every field its path reaches, each instance of a repeated name and each wildcard match. Raw blocks are the one edit with no option form; those go in as a write-ops script on stdin, one op per line, fields separated by a literal tab:
 
 ~~~bash
 shcl set --write server.shcl <<OPS

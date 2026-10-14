@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An escape is a name between two `◉` marks, from a fixed list: `◉NEWLINE◉`, `◉TAB◉`, `◉U+200B◉`, and `◉ESCAPE_CHAR◉` for the mark itself. Anything else between two marks is `E023`.
 
-- `set`'s write-ops script reads the same escapes in a string, raw or comment value, so `◉TAB◉` and `◉NEWLINE◉` put a tab or a line break on one op line, and a backslash is text. It read `\n`, `\t` and `\\` there. An unknown name refuses the op.
+- `set`'s write-ops script reads the same escapes in a string or comment value and a raw op's content, so `◉TAB◉` and `◉NEWLINE◉` put a tab or a line break on one op line, and a backslash is text. It read `\n`, `\t` and `\\` there. An unknown name refuses the op.
 
 - `get --array`, `get --slots` and `instances` print a value holding a line break quoted with `◉` escapes, `"a◉NEWLINE◉b"`, where they wrote `"a\nb"`.
 

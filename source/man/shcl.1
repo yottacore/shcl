@@ -16,12 +16,14 @@ shcl \- read, edit, validate and format Simple Hierarchical Config Language file
 .SY shcl
 .B set
 .RB [ \-\-write | \-w ]
+.RB [ \-\-lossy ]
 .RI [ options ]
 .I FILE
 .YS
 .SY shcl
 .B fmt
 .RB [ \-\-write | \-w | \-\-check ]
+.RB [ \-\-lossy ]
 .RI [ options ]
 .I FILE
 .YS
@@ -409,8 +411,11 @@ fails loudly;
 .B default
 prints the default;
 .B flag
-prints the value anyway and reports through the exit code. The last is the
-default.
+prints the value, or the type's zero
+.RB ( 0 ,
+.B false
+or an empty line) when the read is not Good, and reports through the exit
+code. The last is the default.
 .TP
 .B \-\-slots
 .RB ( get )
@@ -606,9 +611,10 @@ value \- the write-out-defaults half of the writer.
 .TP
 .BI \-\-remove= PATH
 .RB ( get ", " fmt ", " count ", " instances ", " children ", " paths ", " set )
-Delete whatever is at
-.IR PATH ,
-with its subtree. Repeatable. Removing nothing is not an error, but a
+Delete every field
+.I PATH
+reaches, with its subtree: each instance of a repeated name, and each
+wildcard match. Repeatable. Removing nothing is not an error, but a
 .I PATH
 that cannot parse is.
 .PP
@@ -701,6 +707,16 @@ has nothing to print in its place.
 is not valid on
 .BR set ,
 where stdin already has the ops script or the document.
+.B \-\-unit
+without
+.B \-\-duration
+or
+.BR \-\-size ,
+and
+.B \-\-decimal
+without
+.BR \-\-size ,
+have no number of that kind to read.
 .BR \-\-raw ,
 .BR \-\-rawinfo ,
 .B \-\-duration
@@ -830,8 +846,8 @@ replaced instead of added to.
 .B banner on
 puts the info block at the end, taking off an old one first;
 .B banner off
-only takes it off. String, comment and raw values read escapes the way a file
-does, a name such as
+only takes it off. String and comment values, and a raw op's CONTENT, read
+escapes the way a file does, a name such as
 .B TAB
 or
 .B NEWLINE
@@ -842,7 +858,8 @@ is a script comment. At a terminal,
 .B set
 says on stderr that it is waiting for the ops. A
 .B raw
-op's INFO may not hold a line break or a
+op's INFO is taken as written, since a fence label has no escapes. It may not
+hold a line break or a
 .BR # ,
 which would read back as a comment on the fence line.
 .PP
