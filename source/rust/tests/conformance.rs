@@ -4924,3 +4924,56 @@ fn kind_reads_say_what_is_there() {
 	}
 	assert_eq!(doc.read_kind("built").line, 0);
 }
+
+/// format_diagnostic gives the CLI's stderr line, and Display is the same.
+/// Same fixture in every runner; the prose is each binding's own.
+#[test]
+fn format_diagnostic_is_the_cli_line() {
+	let _id = test_id("EshdmF9");
+	use shcl::{Diagnostic, Severity, format_diagnostic};
+	let doc = shcl::Document::parse("a: 1\nb: [x\n");
+	let d = &doc.diagnostics()[0];
+	assert_eq!(
+		format_diagnostic(d),
+		format!("line 2: Error: E019 {}", d.message)
+	);
+	assert!(!d.message.is_empty());
+	assert_eq!(d.to_string(), format_diagnostic(d));
+	let made = |line, severity, code, message: &str| Diagnostic {
+		line,
+		severity,
+		code,
+		message: message.to_string(),
+	};
+	for (d, want) in [
+		(made(4, Severity::Hint, "H001", ""), "line 4: Hint: H001"),
+		(
+			made(3, Severity::Error, "V091", "x y"),
+			"schema line 3: Error: V091 x y",
+		),
+		(
+			made(7, Severity::Error, "V095", "z"),
+			"schema line 7: Error: V095 z",
+		),
+		(
+			made(0, Severity::Error, "V096", "z"),
+			"line 0: Error: V096 z",
+		),
+		(
+			made(0, Severity::Error, "V097", "z"),
+			"line 0: Error: V097 z",
+		),
+		(
+			made(0, Severity::Error, "V099", "z"),
+			"line 0: Error: V099 z",
+		),
+		(
+			made(5, Severity::Error, "V001", "z"),
+			"line 5: Error: V001 z",
+		),
+	] {
+		assert_eq!(format_diagnostic(&d), want);
+	}
+	assert_eq!(Severity::Error.to_string(), "Error");
+	assert_eq!(Severity::Hint.to_string(), "Hint");
+}

@@ -156,12 +156,19 @@ const char *to_string(Status s);
 const char *to_string(SetStatus s);
 // A value kind as text, "Empty" to "Raw". Static storage.
 const char *to_string(ValueKind k);
+// A severity as text, "Error" or "Hint". Static storage.
+const char *to_string(Severity s);
 // The CLI exit code a read with this status ends on.
 int status_code(Status s);
 // The CLI's strictness spellings, loose|standard|strict or 1|2|3, in any case.
 std::optional<Strictness> strictness_from_arg(std::string_view s);
 // A float in the reference's textual form, the spelling a save writes.
 std::string format_float(double v);
+// One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
+// message`, or `schema line N` for V090 to V095, which count schema lines.
+// Only the code is the same in every binding. With no message the line ends
+// at the code.
+std::string format_diagnostic(const Diagnostic &d);
 // Text to a datetime, per the whitelist. Empty when the text is not one.
 std::optional<DateTime> parse_datetime(std::string_view s);
 // Quote one path segment for splicing into a lookup path, so a user-typed
@@ -945,6 +952,7 @@ std::string DateTime::str() const { return detail::dt_str(detail::to_c(*this)); 
 const char *to_string(Status s) { return shcl_status_name(static_cast<shcl_status>(s)); }
 const char *to_string(SetStatus s) { return shcl_set_status_name(static_cast<shcl_set_status>(s)); }
 const char *to_string(ValueKind k) { return shcl_value_kind_name(static_cast<shcl_value_kind>(k)); }
+const char *to_string(Severity s) { return shcl_severity_name(static_cast<shcl_severity>(s)); }
 int status_code(Status s) { return shcl_status_code(static_cast<shcl_status>(s)); }
 
 std::optional<Strictness> strictness_from_arg(std::string_view s) {
@@ -954,6 +962,13 @@ std::optional<Strictness> strictness_from_arg(std::string_view s) {
 }
 
 std::string format_float(double v) { char b[SHCL_FLOAT_BUF]; return std::string(b, shcl_format_float(v, b)); }
+
+std::string format_diagnostic(const Diagnostic &d) {
+	std::size_t n = 0;
+	shcl_str m = {d.message.data(), d.message.size()};
+	std::unique_ptr<char, void (*)(void *)> p(shcl_format_diagnostic(d.line, static_cast<shcl_severity>(d.severity), d.code.c_str(), m, &n), &std::free);
+	return std::string(p.get(), n);
+}
 
 std::optional<DateTime> parse_datetime(std::string_view s) {
 	shcl_datetime out;

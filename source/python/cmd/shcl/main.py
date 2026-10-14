@@ -1395,12 +1395,8 @@ def say_diagnostics_from(file, diags):
 	# screen, so two layers with a bad line 2 printed the same thing twice with
 	# nothing to tell them apart.
 	for d in diags:
-		# V090-V095 have a schema line; V096 and V097 are about generation as a
-		# whole and have line 0, so "schema line 0" named a line space they are
-		# not in. V099 stands for a schema that did not load and is line 0 too.
-		space = "schema line" if d.code.startswith("V09") and d.code not in ("V096", "V097", "V099") else "line"
-		where = f"{file} {space}" if file else space
-		sys.stderr.write(f"{where} {d.line}: {d.severity.name}: {d.code} {d.message}\n")
+		where = f"{file} " if file else ""
+		sys.stderr.write(f"{where}{shcl.format_diagnostic(d)}\n")
 
 
 def _fmt_scalar(kind, value):
@@ -2389,7 +2385,7 @@ def do_check(o):
 		sdoc = shcl.Document.parse(stext)
 		if any(sd.severity == shcl.Severity.Error for sd in sdoc.diagnostics()):
 			for sd in sdoc.diagnostics():
-				sys.stderr.write(f"schema line {sd.line}: {sd.severity.name}: {sd.code} {sd.message}\n")
+				sys.stderr.write(f"schema {shcl.format_diagnostic(sd)}\n")
 			diags.append(shcl.Diagnostic(0, shcl.Severity.Error, "schema failed to load", "V099"))
 		else:
 			# The schema's own load has something to say too: an H001 on a
@@ -2397,7 +2393,7 @@ def do_check(o):
 			# stderr with the schema's own line numbers, the way a V099's
 			# are - stdout is the code contract.
 			for sd in sdoc.diagnostics():
-				sys.stderr.write(f"schema line {sd.line}: {sd.severity.name}: {sd.code} {sd.message}\n")
+				sys.stderr.write(f"schema {shcl.format_diagnostic(sd)}\n")
 			diags.extend(doc.validate(sdoc))
 			shcl.suppress_declared_repeats(sdoc, diags)
 			shcl.suppress_declared_reopens(sdoc, diags)
@@ -2440,7 +2436,7 @@ def do_init(o):
 	sdoc = shcl.Document.parse(stext)
 	if any(d.severity == shcl.Severity.Error for d in sdoc.diagnostics()):
 		for d in sdoc.diagnostics():
-			sys.stderr.write(f"schema line {d.line}: {d.severity.name}: {d.code} {d.message}\n")
+			sys.stderr.write(f"schema {shcl.format_diagnostic(d)}\n")
 		sys.stderr.write("init: schema failed to load\n")
 		# A broken schema is a config-semantics failure, not a usage error:
 		# same exit as `check --schema` reporting it.

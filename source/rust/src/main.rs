@@ -6,8 +6,8 @@
 
 use shcl::{
 	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
-	SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError, format_float,
-	format_version, generate, migrate, parse_datetime, read_named_schema,
+	SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError, format_diagnostic,
+	format_float, format_version, generate, migrate, parse_datetime, read_named_schema,
 	suppress_declared_reopens, suppress_declared_repeats, tokenize, upgrade, upgrade_file,
 	write_backup, write_file_atomic,
 };
@@ -1573,33 +1573,10 @@ fn say_diagnostics(diags: &[Diagnostic]) {
 /// nothing to tell them apart.
 fn say_diagnostics_from(file: &str, diags: &[Diagnostic]) {
 	for d in diags {
-		// V090-V095 have a schema line; V096 and V097 are about generation as a
-		// whole and have line 0, so "schema line 0" named a line space they are
-		// not in. V099 stands for a schema that did not load and is line 0 too.
-		let space = if d.code.starts_with("V09") && !matches!(d.code, "V096" | "V097" | "V099") {
-			"schema line"
-		} else {
-			"line"
-		};
 		if file.is_empty() {
-			errln!(
-				"{} {}: {:?}: {} {}",
-				space,
-				d.line,
-				d.severity,
-				d.code,
-				d.message
-			);
+			errln!("{}", format_diagnostic(d));
 		} else {
-			errln!(
-				"{} {} {}: {:?}: {} {}",
-				file,
-				space,
-				d.line,
-				d.severity,
-				d.code,
-				d.message
-			);
+			errln!("{} {}", file, format_diagnostic(d));
 		}
 	}
 }
@@ -3134,13 +3111,7 @@ fn do_check(o: &Opts) -> u8 {
 				.any(|d| d.severity == Severity::Error)
 			{
 				for d in sdoc.diagnostics() {
-					errln!(
-						"schema line {}: {:?}: {} {}",
-						d.line,
-						d.severity,
-						d.code,
-						d.message
-					);
+					errln!("schema {}", format_diagnostic(d));
 				}
 				diags.push(Diagnostic {
 					line: 0,
@@ -3154,13 +3125,7 @@ fn do_check(o: &Opts) -> u8 {
 				// it. On stderr with the schema's own line numbers, the
 				// way a V099's are - stdout is the code contract.
 				for d in sdoc.diagnostics() {
-					errln!(
-						"schema line {}: {:?}: {} {}",
-						d.line,
-						d.severity,
-						d.code,
-						d.message
-					);
+					errln!("schema {}", format_diagnostic(d));
 				}
 				diags.extend(doc.validate(&sdoc));
 				suppress_declared_repeats(&sdoc, &mut diags);
@@ -3174,7 +3139,7 @@ fn do_check(o: &Opts) -> u8 {
 	// A V090-V093 line number is a SCHEMA line (the code table says so); the
 	// prose names the file so the two number spaces cannot be confused.
 	for d in &diags {
-		outln!("line {}: {:?}: {}", d.line, d.severity, d.code);
+		outln!("line {}: {}: {}", d.line, d.severity, d.code);
 	}
 	say_diagnostics(&diags);
 	// The codes are the portable half of a diagnostic and nothing else on
@@ -3223,13 +3188,7 @@ fn do_init(o: &Opts) -> u8 {
 		.any(|d| d.severity == Severity::Error)
 	{
 		for d in sdoc.diagnostics() {
-			errln!(
-				"schema line {}: {:?}: {} {}",
-				d.line,
-				d.severity,
-				d.code,
-				d.message
-			);
+			errln!("schema {}", format_diagnostic(d));
 		}
 		errln!("init: schema failed to load");
 		// A broken schema is a config-semantics failure, not a usage error:
