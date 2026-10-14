@@ -81,13 +81,18 @@ static double wall_ms(void) {
 
 static void fail(const char *what) { fprintf(stderr, "FAIL mem_bounds: %s\n", what); failures++; }
 
-/* The pipeline's status line for this file's one test, with its test ID. */
+/* The pipeline's status line for each test, with its test ID. A new one
+   closes the one before. */
 static const char *open_id, *open_name;
-static void test_id(const char *id, const char *name) { open_id = id; open_name = name; }
+static int open_base = 0;
 static int test_id_end(int failed) {
 	printf("%-4s %s c %s\n", failed ? "FAIL" : "ok", open_id, open_name);
 	fflush(stdout);
 	return failed ? 1 : 0;
+}
+static void test_id(const char *id, const char *name) {
+	if (open_id) test_id_end(failures > open_base);
+	open_id = id; open_name = name; open_base = failures;
 }
 
 int main(void) {
@@ -549,7 +554,45 @@ int main(void) {
 		shcl_free(db);
 	}
 
-	if (failures) return test_id_end(failures);
-	printf("mem_bounds: OK\n");
-	return test_id_end(failures);
+	// Rolling back to a mark taken where a block is full gave the block it
+	// opened back to the system, so the next call opened another. A default
+	// form on a present path does that every call, on its empty probe, and
+	// musl maps and unmaps each one: the reads gate ran 4x its glibc time.
+	test_id("EsdfEvu", "mem_bounds_mark_at_block_end");
+	{
+		size_t keys = 2000, cap = keys * 24 + 16, tl = 0;
+		char *txt = (char *)malloc(cap);
+		for (size_t i = 0; i < keys; i++) tl += (size_t)sprintf(txt + tl, "k%zu: %zu\n", i, i);
+		d = shcl_parse(txt, tl);
+		char p[32];
+		size_t grew = 0;
+		for (int pass = 0; pass < 2; pass++) {
+			if (pass == 1) before = allocated;
+			for (size_t i = 0; i < keys; i++) {
+				int pl = snprintf(p, sizeof p, "k%zu", i);
+				if (shcl_set_int_default(d, p, (size_t)pl, 0) != SHCL_SET_OK) { fail("block-end mark: a default was refused"); break; }
+			}
+		}
+		grew = allocated - before;
+		printf("mem_bounds: default on present paths: %zu bytes allocated over %zu calls\n", grew, keys);
+		if (shcl_get_int_or(d, "k7", 2, -1) != 7) fail("block-end mark: the document changed");
+		if (grew > 4096) fail("a default form on a present path allocates a block per call");
+		// The same in the document arena: a refused write with its head block
+		// filled to the end.
+		ShclArena *da = &d->arena;
+		if (da->head && da->head->cap > da->head->used) arena_alloc(da, da->head->cap - da->head->used);
+		for (int pass = 0; pass < 2; pass++) {
+			if (pass == 1) before = allocated;
+			for (int i = 0; i < 2000; i++) if (shcl_set_int(d, "k1(*)", 5, i) == SHCL_SET_OK) { fail("block-end mark: the wildcard write was accepted"); break; }
+		}
+		grew = allocated - before;
+		printf("mem_bounds: refused write at a block end: %zu bytes allocated over 2000 calls\n", grew);
+		if (grew > 4096) fail("a refused write at a block end allocates a block per call");
+		shcl_free(d); free(txt);
+	}
+
+	int last_failed = failures > open_base;
+	if (!failures) printf("mem_bounds: OK\n");
+	test_id_end(last_failed);
+	return failures ? 1 : 0;
 }

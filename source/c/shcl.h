@@ -1163,10 +1163,26 @@ static ShclMark arena_mark(ShclArena *a) {
 	return m;
 }
 
+/* The first block opened after the mark stays, empty, when it is the plain
+   64K one. A mark taken where a block is full, as on a default form's empty
+   probe, otherwise mallocs and frees a block on every call, and musl maps and
+   unmaps one that size each time, which made the reads gate 4x slower there
+   (2026101316013509). */
 static void arena_release(ShclArena *a, ShclMark m) {
-	while (a->head && a->head != m.head) { ShclBlock *n = a->head->next; free(a->head); a->head = n; }
+	ShclBlock *keep = NULL;
+	while (a->head && a->head != m.head) {
+		ShclBlock *n = a->head->next;
+		if (n == m.head && a->head->cap == (size_t)65536) keep = a->head;
+		else free(a->head);
+		a->head = n;
+	}
 	if (a->head) a->head->used = m.used;
 	a->last = m.last; a->last_n = m.last_n;
+	if (keep) {
+		keep->used = 0; keep->next = a->head; a->head = keep;
+		/* `last` points into head, and the mark's is in the block below. */
+		a->last = NULL; a->last_n = 0;
+	}
 }
 
 // Reset a scratch arena, keeping its newest (largest) block so steady-state
@@ -13423,7 +13439,16 @@ static void s_read_schema_file(shcl_named_schema *ns) {
 	if (!f) { int e = errno; close(fd); s_schema_refuse(ns, SHCL_SCHEMA_UNREADABLE, strerror(e)); return; }
 #endif
 	/* Fixed reads, since the page map refuses one that is not a multiple of 8.
-	   One read past the cap is what tells a file at it from one over it. */
+	   Unbuffered, or musl's stdio asks the kernel for the size less a byte plus
+	   its own buffer, and the page map refuses that (2026101316013508). One
+	   read past the cap is what tells a file at it from one over it. */
+	errno = 0;
+	if (setvbuf(f, NULL, _IONBF, 0) != 0) {
+		int e = errno ? errno : EIO;
+		fclose(f);
+		s_schema_refuse(ns, SHCL_SCHEMA_UNREADABLE, strerror(e));
+		return;
+	}
 	size_t cap = (size_t)1 << 16, n = 0;
 	char *buf = (char *)malloc(cap + 1);
 	if (!buf) { fclose(f); SHCL_OOM(); abort(); }
