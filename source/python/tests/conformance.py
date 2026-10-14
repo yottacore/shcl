@@ -361,11 +361,39 @@ def _op_flt(s):
 _UNKNOWN_OP = "unknown op: "
 
 
+# The CLI's field counts, both ways (2026101407100003). An array form takes any
+# number of elements, but always a PATH.
+_OP_FIELDS = {
+	"empty": 2, "remove": 2, "clear-comments": 2, "banner": 2,
+	"raw": 4, "raw-default": 4,
+	"int": 3, "float": 3, "bool": 3, "string": 3, "datetime": 3, "literal": 3, "comment": 3,
+	"int-default": 3, "float-default": 3, "bool-default": 3, "string-default": 3,
+	"datetime-default": 3, "literal-default": 3,
+}
+_OP_FIELDS_AT_LEAST = {
+	"int-array": 2, "float-array": 2, "bool-array": 2, "string-array": 2, "datetime-array": 2,
+	"int-array-default": 2, "float-array-default": 2, "bool-array-default": 2,
+	"string-array-default": 2, "datetime-array-default": 2,
+}
+
+
+def _blank_op(line):
+	# A line of blanks is skipped like an empty one, as the CLI does
+	# (2026101407100005).
+	return line.strip(" \t\r") == ""
+
+
 def try_apply_op(doc, line):
 	# Apply one write-ops line via the library Writer, with the same value gates
 	# the CLI applies. A returned string = the op must be rejected (bad value or
 	# unusable path); None = applied.
 	f = line.split("\t")
+	want = _OP_FIELDS.get(f[0])
+	if want is not None and len(f) != want:
+		return f"{f[0]} takes {want} tab-separated field(s), got {len(f)}"
+	least = _OP_FIELDS_AT_LEAST.get(f[0])
+	if least is not None and len(f) < least:
+		return f"{f[0]} takes at least {least} tab-separated field(s), got {len(f)}"
 
 	def g(i):
 		return f[i] if i < len(f) else ""
@@ -1122,7 +1150,7 @@ def main():
 		keep = shcl.Document.parse_keep_lines(case["input"], shcl.Strictness.Standard)
 		for n, line in enumerate(case["write_ops"].split("\n")):
 			line = line[:-1] if line.endswith("\r") else line
-			if line == "" or line.startswith("#"):
+			if _blank_op(line) or line.startswith("#"):
 				continue
 			at = f"{case['name']}: write.ops line {n + 1}"
 			apply_op(doc, line, at)
@@ -1166,7 +1194,7 @@ def main():
 			continue
 		for n, line in enumerate(case["write_bad_ops"].split("\n")):
 			line = line[:-1] if line.endswith("\r") else line
-			if line == "" or line.startswith("#"):
+			if _blank_op(line) or line.startswith("#"):
 				continue
 			doc = shcl.Document.parse(case["input"])
 			before = doc.to_canonical()

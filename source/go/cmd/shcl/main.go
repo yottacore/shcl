@@ -2809,8 +2809,9 @@ func applyOp(doc *shcl.Document, line string) error {
 	// Every op but the array forms takes a fixed number of tab-separated
 	// fields. Extra ones used to be dropped, so a `raw` whose content held a
 	// literal tab lost everything after it and still reported success; the
-	// escape for a tab inside a value is `◉TAB◉`.
-	want := 0
+	// escape for a tab inside a value is `◉TAB◉`. Missing ones read as empty,
+	// so `raw<TAB>n<TAB>info` wrote an empty block (2026101407100003).
+	want, atLeast := 0, false
 	switch f[0] {
 	case "empty", "remove", "clear-comments", "banner":
 		want = 2
@@ -2820,9 +2821,18 @@ func applyOp(doc *shcl.Document, line string) error {
 		"int-default", "float-default", "bool-default", "string-default",
 		"datetime-default", "literal-default":
 		want = 3
+	// Any number of elements, none included, but always a PATH.
+	case "int-array", "float-array", "bool-array", "string-array", "datetime-array",
+		"int-array-default", "float-array-default", "bool-array-default",
+		"string-array-default", "datetime-array-default":
+		want, atLeast = 2, true
 	}
-	if want != 0 && len(f) > want {
-		return fmt.Errorf("%s takes %d tab-separated field(s), got %d", f[0], want, len(f))
+	if want != 0 && (len(f) < want || (!atLeast && len(f) > want)) {
+		least := ""
+		if atLeast {
+			least = "at least "
+		}
+		return fmt.Errorf("%s takes %s%d tab-separated field(s), got %d", f[0], least, want, len(f))
 	}
 	get := func(i int) string {
 		if i < len(f) {
@@ -3165,7 +3175,9 @@ func doSet(o *opts) int {
 	// then read as unknown. No op starts with one.
 	for n, line := range strings.Split(strings.TrimLeft(string(ops), "\ufeff"), "\n") {
 		line = strings.TrimSuffix(line, "\r") // match Rust lines() CRLF handling
-		if line == "" || strings.HasPrefix(line, "#") {
+		// A line of blanks is skipped like an empty one, so an indented blank
+		// line in a here-doc isn't an op with no name (2026101407100005).
+		if strings.Trim(line, " \t\r") == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		if aerr := applyOp(doc, line); aerr != nil {

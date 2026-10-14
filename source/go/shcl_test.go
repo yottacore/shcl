@@ -378,11 +378,40 @@ func floatGrammarTest(s string) bool {
 // apart it counted as exactly the refusal the row exists to assert.
 var errUnknownOp = errors.New("unknown op")
 
+// isBlankOpTest says a line holds only blanks, which is skipped like an empty
+// one, as the CLI does (2026101407100005).
+func isBlankOpTest(line string) bool {
+	return strings.Trim(line, " \t\r") == ""
+}
+
 // tryApplyOpTest applies one write-ops line via the library Writer, with the
 // same value gates the CLI applies. A non-nil error = the op must be rejected
 // (bad value or unusable path).
 func tryApplyOpTest(doc *Document, line string) error {
 	f := strings.Split(line, "\t")
+	// The CLI's field count, both ways (2026101407100003).
+	want, atLeast := 0, false
+	switch f[0] {
+	case "empty", "remove", "clear-comments", "banner":
+		want = 2
+	case "raw", "raw-default":
+		want = 4
+	case "int", "float", "bool", "string", "datetime", "literal", "comment",
+		"int-default", "float-default", "bool-default", "string-default",
+		"datetime-default", "literal-default":
+		want = 3
+	case "int-array", "float-array", "bool-array", "string-array", "datetime-array",
+		"int-array-default", "float-array-default", "bool-array-default",
+		"string-array-default", "datetime-array-default":
+		want, atLeast = 2, true
+	}
+	if want != 0 && (len(f) < want || (!atLeast && len(f) > want)) {
+		least := ""
+		if atLeast {
+			least = "at least "
+		}
+		return fmt.Errorf("%s takes %s%d tab-separated field(s), got %d", f[0], least, want, len(f))
+	}
 	get := func(i int) string {
 		if i < len(f) {
 			return f[i]
@@ -857,7 +886,7 @@ func TestWriteOpsMatchExpected(t *testing.T) {
 		}
 		for n, line := range strings.Split(c.writeOps, "\n") {
 			line = strings.TrimSuffix(line, "\r")
-			if line == "" || strings.HasPrefix(line, "#") {
+			if isBlankOpTest(line) || strings.HasPrefix(line, "#") {
 				continue
 			}
 			at := fmt.Sprintf("%s: write.ops line %d", c.name, n+1)
@@ -917,7 +946,7 @@ func TestWriteBadOpsAreRejected(t *testing.T) {
 		}
 		for n, line := range strings.Split(c.writeBadOps, "\n") {
 			line = strings.TrimSuffix(line, "\r")
-			if line == "" || strings.HasPrefix(line, "#") {
+			if isBlankOpTest(line) || strings.HasPrefix(line, "#") {
 				continue
 			}
 			doc := Parse(c.input)

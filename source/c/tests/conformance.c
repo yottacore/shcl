@@ -395,6 +395,24 @@ static int try_apply_op_c(shcl_doc *d, char *line) {
 	size_t oplen = strlen(op);
 	int only_absent = 0, rc = 0;
 	shcl_set_status wrote = SHCL_SET_OK;
+	// The CLI's field count, both ways (2026101407100003), on the op as written.
+	static const struct { const char *op; size_t want; int at_least; } counts[] = {
+		{ "empty", 2, 0 }, { "remove", 2, 0 }, { "clear-comments", 2, 0 }, { "banner", 2, 0 },
+		{ "raw", 4, 0 }, { "raw-default", 4, 0 },
+		{ "int", 3, 0 }, { "float", 3, 0 }, { "bool", 3, 0 }, { "string", 3, 0 },
+		{ "datetime", 3, 0 }, { "literal", 3, 0 }, { "comment", 3, 0 },
+		{ "int-default", 3, 0 }, { "float-default", 3, 0 }, { "bool-default", 3, 0 },
+		{ "string-default", 3, 0 }, { "datetime-default", 3, 0 }, { "literal-default", 3, 0 },
+		{ "int-array", 2, 1 }, { "float-array", 2, 1 }, { "bool-array", 2, 1 },
+		{ "string-array", 2, 1 }, { "datetime-array", 2, 1 },
+		{ "int-array-default", 2, 1 }, { "float-array-default", 2, 1 }, { "bool-array-default", 2, 1 },
+		{ "string-array-default", 2, 1 }, { "datetime-array-default", 2, 1 },
+	};
+	for (size_t i = 0; i < sizeof counts / sizeof counts[0]; i++) {
+		if (strcmp(counts[i].op, op) != 0) continue;
+		if (nf < counts[i].want || (!counts[i].at_least && nf > counts[i].want)) { free(f); return 1; }
+		break;
+	}
 	if (oplen >= 8 && !strcmp(op + oplen - 8, "-default")) {
 		only_absent = 1;
 		op[oplen - 8] = '\0';
@@ -455,6 +473,13 @@ static int try_apply_op_c(shcl_doc *d, char *line) {
 	#undef SET
 	free(f);
 	return rc;
+}
+
+// A line of blanks is skipped like an empty one, as the CLI does
+// (2026101407100005).
+static int blank_op(const char *line) {
+	while (*line == ' ' || *line == '\t' || *line == '\r') line++;
+	return *line == '\0';
 }
 
 // Good-path wrapper: the op must apply.
@@ -1461,7 +1486,7 @@ int main(int argc, char **argv) {
 			shcl_doc *kd = shcl_parse_keep_lines(input, ilen, SHCL_STANDARD);
 			char **olines; size_t nol = split_lines(ops, olen, &olines);
 			for (size_t li = 0; li < nol; li++) {
-				if (olines[li][0] == '\0' || olines[li][0] == '#') continue;
+				if (blank_op(olines[li]) || olines[li][0] == '#') continue;
 				// The op is split in place, so each document gets its own copy.
 				size_t on = strlen(olines[li]);
 				char *op2 = (char *)xrealloc(NULL, on + 1);
@@ -1492,7 +1517,7 @@ int main(int argc, char **argv) {
 		if (bops) {
 			char **blines; size_t nbl = split_lines(bops, blen, &blines);
 			for (size_t li = 0; li < nbl; li++) {
-				if (blines[li][0] == '\0' || blines[li][0] == '#') continue;
+				if (blank_op(blines[li]) || blines[li][0] == '#') continue;
 				shcl_doc *bd = shcl_parse(input, ilen);
 				shcl_str before = shcl_to_canonical(bd);
 				char *before_copy = (char *)xrealloc(NULL, before.n ? before.n : 1);

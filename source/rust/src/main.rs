@@ -2749,20 +2749,33 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 	// Every op but the array forms takes a fixed number of tab-separated
 	// fields. Extra ones used to be dropped, so a `raw` whose content held a
 	// literal tab lost everything after it and still reported success; the
-	// escape for a tab inside a value is `◉TAB◉`.
-	let want = match f.first().copied().unwrap_or("") {
-		"empty" | "remove" | "clear-comments" | "banner" => 2,
-		"raw" | "raw-default" => 4,
+	// escape for a tab inside a value is `◉TAB◉`. Missing ones read as empty,
+	// so `raw<TAB>n<TAB>info` wrote an empty block (2026101407100003).
+	let (want, at_least) = match f.first().copied().unwrap_or("") {
+		"empty" | "remove" | "clear-comments" | "banner" => (2, false),
+		"raw" | "raw-default" => (4, false),
 		"int" | "float" | "bool" | "string" | "datetime" | "literal" | "comment"
 		| "int-default" | "float-default" | "bool-default" | "string-default"
-		| "datetime-default" | "literal-default" => 3,
-		// An array form takes any number of elements; an unknown op is named below.
-		_ => 0,
+		| "datetime-default" | "literal-default" => (3, false),
+		// Any number of elements, none included, but always a PATH.
+		"int-array"
+		| "float-array"
+		| "bool-array"
+		| "string-array"
+		| "datetime-array"
+		| "int-array-default"
+		| "float-array-default"
+		| "bool-array-default"
+		| "string-array-default"
+		| "datetime-array-default" => (2, true),
+		// An unknown op is named below.
+		_ => (0, false),
 	};
-	if want != 0 && f.len() > want {
+	if want != 0 && (f.len() < want || (!at_least && f.len() > want)) {
 		return Err(format!(
-			"{} takes {} tab-separated field(s), got {}",
+			"{} takes {}{} tab-separated field(s), got {}",
 			f[0],
+			if at_least { "at least " } else { "" },
 			want,
 			f.len()
 		));
@@ -2963,7 +2976,9 @@ fn do_set(o: &Opts) -> u8 {
 	// and `lines()` plus a strip used to eat it.
 	for (n, line) in ops.split('\n').enumerate() {
 		let line = line.strip_suffix('\r').unwrap_or(line);
-		if line.is_empty() || line.starts_with('#') {
+		// A line of blanks is skipped like an empty one, so an indented blank
+		// line in a here-doc isn't an op with no name (2026101407100005).
+		if line.bytes().all(|b| matches!(b, b' ' | b'\t' | b'\r')) || line.starts_with('#') {
 			continue;
 		}
 		if let Err(e) = apply_op(&mut doc, line) {
