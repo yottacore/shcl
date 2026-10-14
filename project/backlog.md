@@ -104,9 +104,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the Python floor is the same kind of claim and is in the same check. Go's `go.mod` says `go 1.20`, and no doc states a Go floor.
 	- Test case: check-docs `EshaoyP` (`toolchain-floors-match-readme`). It failed before the fix (no `rust-version`) and passes after. A raised `requires-python` turns it red too.
 	- Branch: `bindparity`
-	- Commit: COMMIT_MSRV
+	- Commit: `1a7c41a6`
 	- Acceptance signoff: Self-closed: mechanical, and its test failed before and passes after.
-	- Closed: 20261014-CLOSED_MSRV
+	- Closed: 20261014-114937
 
 - The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
 	- ID: 2026101407100008
@@ -135,9 +135,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: Python suite, ruff and mypy; C conformance, the veneer smoke, oom and mem_bounds tests, and check-veneer; cargo test; go test `-count=1`; crosscheck (22053 comparisons) and cli-regress (585 rows) over all 4 CLIs; check-docs as `SHCL_GATE_REF=main`; shellcheck and markdownlint.
 	- Test case: check-docs `EshYXXC` (`python-surface-matches-reference`). It failed on dev with 20 findings and passes after. Its other branches failed under an injected pub item and enum on one side only. The C renames have no test of their own, past the C runner, the veneer and the C CLI building against them.
 	- Branch: `bindparity`
-	- Commit: COMMIT_BIND
+	- Commit: `3f870f9d`
 	- Acceptance signoff: Self-closed: the Python names and the C renames are mechanical, the guide lines state what each binding does, and the check failed before and passes after.
-	- Closed: 20261014-CLOSED_BIND
+	- Closed: 20261014-114937
 
 - A public call that spells one value the way the writer would
 	- ID: 2026101407100011
