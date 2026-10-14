@@ -51,7 +51,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade --from-2x` and `upgrade_file` leave an older Format line above the new info block, so the file names two formats
 	- ID: 2026101407100001
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
 	- Severity: Avg
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 1
@@ -65,6 +66,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261014, all four CLIs and the Python library.
 	- Origin: `upgrade_file` is from `60d0196c` (2026-10-07). 2026100916475300 fixed the same thing for `migrate` and didn't reach `upgrade`. Not seen by an earlier round. Confirmed.
 	- Sweep: every path that writes a Format line or the block: `migrate`, `upgrade_file`, `set_banner`, `set --write` creating a file. Check each against a file holding a lone older Format line and one holding a 2.x `#` block.
+	- Actual cause [Bug]: the block goes on through `set_banner`'s own code, which takes an old block or stamp off from above every field but the first. An older Format line above the first field stayed, so a 2.x file stamped at the top kept it. `set_banner` and the `banner on` op had the same hole.
+	- Actual fix [Bug]: when the block goes on, a lone Format line above the first field comes off too. A whole block there still stays, as before, and taking the block off leaves the top alone. One change in each binding's banner code, so `upgrade`, `upgrade_file`, `set_banner` and the `banner` op all get it. spec.md and the changelog say so.
+	- Swept: `drop_banners` and `swap_banner` in Rust, Go (`dropBanners`, `swapBanner`), Python and C. The C++ interface needs nothing, since no call changed. `migrate` writes its stamp over the old line since 2026100916475300. `set --write` creating a file has no old text. Each was run in all four CLIs on a file with `Format 2` at the top and on one holding a 2.x `#` block: one Format line in every output.
+	- Verified: the new tests and save case fail on dev's code in all four and pass after. Also: `cargo test`, `go test` (both modules), the Python and C conformance suites, veneer_smoke, cli-regress (561 rows, 3271 checks, all four), clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level.
+	- Branch: `upfmt`
+	- Commit: `2d5276b7`
+	- Test case: `a_format_line_at_the_top_goes_when_the_block_goes_on` (Rust `Esgj35O`, Go `Esgj35P`, Python `Esgj35Q`, C `Esgj35R`) and cli-regress save case `Esgj35S`.
+	- Acceptance signoff: self-closed 20261014. Reproduced, the new tests fail before the fix and pass after, and the Sweep has its Swept answer.
+	- Closed: 20261014-082520
 
 - `fmt --check` with `--layer` or `--set` always exits 6, and its message names a `--write` the CLI refuses
 	- ID: 2026101407100002
