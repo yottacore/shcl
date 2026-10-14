@@ -33,6 +33,47 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Move the detailed comparisons out of README.md into their own doc
+	- ID: 2026101414312546
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261014-143125
+	- Opened by: JC
+	- Related IDs: 2026101414312547, 2026101414312548
+	- Requirements:
+		- Move detailed comparisons of syntax, performance, and features to something like a "compared to other config languages" md, and link to it.
+		- Keep the brief feature comparison table.
+	- Decisions:
+		- 20261014: before the next cut (JC).
+
+- Move the installation instructions out of README.md
+	- ID: 2026101414312547
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261014-143125
+	- Opened by: JC
+	- Related IDs: 2026101414312546, 2026101414312548
+	- Requirements:
+		- Move installation instructions, including development, to one or more .mds, and link to it/them.
+	- Decisions:
+		- 20261014: before the next cut (JC).
+
+- Move CLI usage and other examples out of README.md
+	- ID: 2026101414312548
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261014-143125
+	- Opened by: JC
+	- Related IDs: 2026101414312546, 2026101414312547
+	- Requirements:
+		- Move CLI usage and other examples to its own .md, and link to it.
+		- Leave a small snippet of example shcl contents.
+	- Decisions:
+		- 20261014: before the next cut (JC).
+
 - No public call gives an array, or one element of it, the way the writer writes it
 	- ID: 2026101412591471
 	- Type: Enhancement
