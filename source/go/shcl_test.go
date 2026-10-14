@@ -6172,10 +6172,10 @@ func TestFormatDiagnosticIsTheCLILine(t *testing.T) {
 	}
 }
 
-// FormatValue is the text SetString writes after `k: ` in a fresh document,
-// refused exactly where SetString refuses, and it reads back as the text it
-// was handed. Over the setter soup, the review's examples and the typed
-// setters' texts. Same fixture in every runner.
+// The text SetString writes after `k: ` in a fresh document is FormatValue's,
+// both refuse the same texts, and it reads back as the text it was handed.
+// Over the setter soup, the review's examples and the typed setters' texts.
+// Same fixture in every runner.
 func TestFormatValueIsTheSettersText(t *testing.T) {
 	defer testID(t, "EshnBxd")
 	inputs := append(soupInputs(), formatValueExtra...)
