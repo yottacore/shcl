@@ -51,6 +51,20 @@ pyVer="$(sed -n '/^version = "/{s/^version = "\(.*\)"$/\1/p;q;}' "${repoDir}/sou
 [[ -n "${cargoVer}" && "${cargoVer}" == "${pyVer}" ]] \
 	|| fBad "source/python/pyproject.toml is version '${pyVer}', but Cargo.toml says '${cargoVer}'"
 
+fTest EshaoyP toolchain-floors-match-readme
+##	The README's toolchain floors are what the manifests ask for. With no
+##	rust-version, cargo 1.85 to 1.87 stopped on a let chain in lib.rs instead
+##	of naming the version the crate needs.
+rustFloor="$(sed -n '/^rust-version = "/{s/^rust-version = "\(.*\)"$/\1/p;q;}' "${repoDir}/source/rust/Cargo.toml" || true)"
+pyFloor="$(sed -n '/^requires-python = ">=/{s/^requires-python = ">=\(.*\)"$/\1/p;q;}' "${repoDir}/source/python/pyproject.toml" || true)"
+[[ -n "${rustFloor}" ]] || fBad "source/rust/Cargo.toml has no rust-version"
+grep -qxF -- "- Toolchain: Rust ${rustFloor} or newer." "${repoDir}/README.md" \
+	|| fBad "README.md: the Rust toolchain line doesn't say ${rustFloor:-a version}, the rust-version in Cargo.toml"
+grep -qxF -- "- Toolchain: Python ${pyFloor} or newer." "${repoDir}/README.md" \
+	|| fBad "README.md: the Python toolchain line doesn't say ${pyFloor:-a version}, the requires-python in pyproject.toml"
+grep -qxF -- "Python ${pyFloor} or newer." "${repoDir}/source/python/README.md" \
+	|| fBad "source/python/README.md doesn't say Python ${pyFloor:-a version}, the requires-python in pyproject.toml"
+
 fTest EpPR0oa migrate-section-in-spec-and-man
 ##	`migrate` is the one path across the 3.0 lexical change, and it needs a
 ##	place in the spec and the man page that says what it rewrites and what it
@@ -176,6 +190,70 @@ while IFS= read -r problem; do fBad "${problem}"; done < <(
 				if (line[j] !~ /^[ \t]*\/\/\//) { nm = line[i]; sub(/^[ \t]*/, "", nm); sub(/[({<:=].*/, "", nm); print f ":" i ": " nm " has no doc comment" }
 			}
 		}' "${repoDir}/source/rust/src/lib.rs"
+)
+
+fTest EshYXXC python-surface-matches-reference
+##	The style guide says its list of names that differ between bindings is the
+##	whole list, and a review found Python enums cased apart from the reference
+##	and nine internals that looked public. For Python it is checked here: every
+##	name shcl.py binds at module level is in __all__ or starts with `_`,
+##	__all__ is the reference's top-level pub items, and each enum has the
+##	reference's members in order, a keyword with PEP 8's trailing `_`. A name
+##	on only one side is allowed only if the guide names it.
+while IFS= read -r hit; do fBad "${hit}"; done < <(python3 - "${repoDir}" <<'PYEOF'
+import ast, keyword, re, sys
+root = sys.argv[1]
+tree = ast.parse(open(f"{root}/source/python/shcl.py", encoding="utf-8").read())
+rs = open(f"{root}/source/rust/src/lib.rs", encoding="utf-8").read()
+guide = open(f"{root}/project/style-guide_code.md", encoding="utf-8").read()
+# Python raises one exception class per variant of the reference's error
+# enums, and StatusError where get_* returns Err. Zone is a tuple in Python.
+python_only = {"SaveRefused", "SaveFailed", "UpgradeNotFound", "UpgradeAmbiguous", "UpgradeBackupTaken", "UpgradeFailed", "StatusError"}
+rust_only = {"Zone"}
+def bound(body):
+	for st in body:
+		if isinstance(st, (ast.FunctionDef, ast.ClassDef)):
+			yield st.name
+		elif isinstance(st, ast.Assign):
+			for t in st.targets:
+				if isinstance(t, ast.Name):
+					yield t.id
+		elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+			yield st.target.id
+		elif isinstance(st, (ast.If, ast.Try)):
+			yield from bound(st.body)
+			yield from bound(st.orelse)
+			for h in getattr(st, "handlers", []):
+				yield from bound(h.body)
+exported = []
+for st in tree.body:
+	if isinstance(st, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__all__" for t in st.targets):
+		exported = [e.value for e in st.value.elts]
+if not exported:
+	print("shcl.py: no __all__ found")
+for name in sorted(set(bound(tree.body))):
+	if not name.startswith("_") and name not in exported:
+		print(f"shcl.py: {name} looks public but is not in __all__; add it there or prefix it with _")
+pub = set(re.findall(r"^pub (?:const fn|fn|struct|enum|const|type|static|trait)\s+(\w+)", rs, re.M))
+for name in sorted(set(exported) - pub - python_only):
+	print(f"shcl.py: {name} is in __all__ and is no top-level pub item in lib.rs")
+for name in sorted(pub - set(exported) - rust_only):
+	print(f"lib.rs: {name} is pub and not in shcl.py's __all__")
+for name in sorted(python_only | rust_only):
+	if f"`{name}`" not in guide:
+		print(f"style-guide_code.md: {name} differs between Python and the reference and the guide does not name it")
+variants = {}
+for m in re.finditer(r"^pub enum (\w+)[^{]*\{(.*?)^\}", rs, re.M | re.S):
+	body = re.sub(r"//[^\n]*|#\[[^\]]*\]", "", m.group(2))
+	variants[m.group(1)] = [v + "_" if keyword.iskeyword(v) else v for v in re.findall(r"^\s*([A-Z]\w*)", body, re.M)]
+for st in tree.body:
+	if isinstance(st, ast.ClassDef) and st.name in exported and any(isinstance(b, ast.Name) and b.id.endswith("Enum") for b in st.bases):
+		members = [n for n in bound(st.body) if not n.startswith("_") and not any(isinstance(f, ast.FunctionDef) and f.name == n for f in st.body)]
+		if st.name not in variants:
+			print(f"shcl.py: enum {st.name} has no pub enum of that name in lib.rs")
+		elif members != variants[st.name]:
+			print(f"shcl.py: enum {st.name} has {members}, the reference has {variants[st.name]}")
+PYEOF
 )
 
 fTest Er1z2hV c-banned-string-calls-and-goto

@@ -727,9 +727,9 @@ static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<in
 	&& static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
 static_assert(static_cast<int>(Rules::Current) == SHCL_RULES_CURRENT && static_cast<int>(Rules::V2) == SHCL_RULES_V2, "Rules drifted from shcl_rules");
 // The C enums put NONE first, so each unit sits one past its C value.
-static_assert(static_cast<int>(DurationUnit::Millis) + 1 == SHCL_DURATION_MS && static_cast<int>(DurationUnit::Days) + 1 == SHCL_DURATION_D, "DurationUnit drifted from shcl_duration_unit");
-static_assert(static_cast<int>(SizeUnit::Bytes) + 1 == SHCL_SIZE_B && static_cast<int>(SizeUnit::Tera) + 1 == SHCL_SIZE_TB
-	&& static_cast<int>(SizeUnit::Kibi) + 1 == SHCL_SIZE_KIB && static_cast<int>(SizeUnit::Tebi) + 1 == SHCL_SIZE_TIB, "SizeUnit drifted from shcl_size_unit");
+static_assert(static_cast<int>(DurationUnit::Millis) + 1 == SHCL_DURATION_MILLIS && static_cast<int>(DurationUnit::Days) + 1 == SHCL_DURATION_DAYS, "DurationUnit drifted from shcl_duration_unit");
+static_assert(static_cast<int>(SizeUnit::Bytes) + 1 == SHCL_SIZE_BYTES && static_cast<int>(SizeUnit::Tera) + 1 == SHCL_SIZE_TERA
+	&& static_cast<int>(SizeUnit::Kibi) + 1 == SHCL_SIZE_KIBI && static_cast<int>(SizeUnit::Tebi) + 1 == SHCL_SIZE_TEBI, "SizeUnit drifted from shcl_size_unit");
 #ifndef SHCL_NO_FILE_IO
 static_assert(static_cast<int>(FileStatus::Clean) == SHCL_FILE_CLEAN && static_cast<int>(FileStatus::HadErrors) == SHCL_FILE_HAD_ERRORS
 	&& static_cast<int>(FileStatus::NotFound) == SHCL_FILE_NOT_FOUND && static_cast<int>(FileStatus::Unreadable) == SHCL_FILE_UNREADABLE, "FileStatus drifted from shcl_file_status");
@@ -802,7 +802,7 @@ static shcl_datetime to_c(const DateTime &v) {
 	if (v.date) { c.has_date = 1; c.year = v.date->year; c.month = v.date->month; c.day = v.date->day; }
 	if (v.time) {
 		c.has_time = 1; c.hour = v.time->hour; c.minute = v.time->minute;
-		if (v.time->second) { c.has_sec = 1; c.sec = *v.time->second; }
+		if (v.time->second) { c.has_second = 1; c.second = *v.time->second; }
 	}
 	if (v.frac) { c.has_frac = 1; c.frac.p = v.frac->data(); c.frac.n = v.frac->size(); }
 	if (v.zone) { c.zone = v.zone->kind == ZoneKind::Utc ? SHCL_ZONE_UTC : SHCL_ZONE_OFFSET; c.off_min = v.zone->offset_minutes; }
@@ -811,7 +811,7 @@ static shcl_datetime to_c(const DateTime &v) {
 static DateTime from_c(const shcl_datetime &c) {
 	DateTime v;
 	if (c.has_date) v.date = Date{c.year, c.month, c.day};
-	if (c.has_time) v.time = Time{c.hour, c.minute, c.has_sec ? std::optional<std::uint32_t>(c.sec) : std::nullopt};
+	if (c.has_time) v.time = Time{c.hour, c.minute, c.has_second ? std::optional<std::uint32_t>(c.second) : std::nullopt};
 	if (c.has_frac) v.frac = c.frac.p ? std::string(c.frac.p, c.frac.n) : std::string();
 	if (c.zone != SHCL_ZONE_NONE) v.zone = Zone{c.zone == SHCL_ZONE_UTC ? ZoneKind::Utc : ZoneKind::Offset, c.off_min};
 	return v;
@@ -1002,12 +1002,12 @@ Read<std::uint32_t> read_format_version(std::string_view text) {
 }
 
 std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s) {
-	shcl_duration_unit u = shcl_duration_unit_of(s.data(), s.size());
+	shcl_duration_unit u = shcl_duration_unit_from_spelling(s.data(), s.size());
 	if (u == SHCL_DURATION_NONE) return std::nullopt;
 	return static_cast<DurationUnit>(static_cast<int>(u) - 1);
 }
 std::optional<SizeUnit> size_unit_from_spelling(std::string_view s) {
-	shcl_size_unit u = shcl_size_unit_of(s.data(), s.size());
+	shcl_size_unit u = shcl_size_unit_from_spelling(s.data(), s.size());
 	if (u == SHCL_SIZE_NONE) return std::nullopt;
 	return static_cast<SizeUnit>(static_cast<int>(u) - 1);
 }

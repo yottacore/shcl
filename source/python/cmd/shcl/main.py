@@ -688,7 +688,7 @@ def bracket_path(path):
 	# A path with a selector in brackets, the old spelling (E029). A 2.x habit
 	# still types it, so a refusal names it.
 	tok = shcl.Tokens()
-	shcl.tokenize(path, ":", True, shcl.RULES_CURRENT, tok)
+	shcl.tokenize(path, ":", True, shcl.Rules.Current, tok)
 	return tok.bracket_selector is not None
 
 
@@ -718,7 +718,7 @@ def split_set(arg):
 	# is not a path at all has no `=` to split at. The offset is a byte
 	# offset, so the split is made on the bytes.
 	tok = shcl.Tokens()
-	shcl.tokenize(arg, "=", True, shcl.RULES_CURRENT, tok)
+	shcl.tokenize(arg, "=", True, shcl.Rules.Current, tok)
 	if tok.sep is None:
 		return None
 	return tok.src[:tok.sep].decode("utf-8"), tok.src[tok.sep + 1:].decode("utf-8")
@@ -1847,7 +1847,7 @@ def do_upgrade(o):
 
 
 def _span(p):
-	mark = {shcl.Quote.NONE: "", shcl.Quote.SINGLE: "'", shcl.Quote.DOUBLE: '"', shcl.Quote.BACKTICK: "`", shcl.Quote.OPEN: "?"}[p.quote]
+	mark = {shcl.Quote.None_: "", shcl.Quote.Single: "'", shcl.Quote.Double: '"', shcl.Quote.Backtick: "`", shcl.Quote.Open: "?"}[p.quote]
 	return f"{p.start}-{p.end}{mark}"
 
 
@@ -1968,7 +1968,7 @@ def do_tokens(o):
 		item = body.startswith("-") and line[after:after + 1] in (" ", "\t", "\r")
 		fence = body.startswith("```") or body.startswith("~~~")
 		if item or fence:
-			shcl.tokenize_value(rest, lead + int(item), shcl.RULES_CURRENT, tok)
+			shcl.tokenize_value(rest, lead + int(item), shcl.Rules.Current, tok)
 			out.append(" item" if item else " fence")
 			out.append(f" value={tok.value[0]}-{tok.value[1]}")
 			_push_array(out, tok)
@@ -1977,7 +1977,7 @@ def do_tokens(o):
 				out.append(f" comment={tok.comment}")
 			out.append("\n")
 			continue
-		shcl.tokenize(rest, ":", False, shcl.RULES_CURRENT, tok)
+		shcl.tokenize(rest, ":", False, shcl.Rules.Current, tok)
 		for seg in tok.segments:
 			out.append(f" {'star' if seg.star else 'name'}={_span(seg.name)}")
 			if seg.selector is not None:

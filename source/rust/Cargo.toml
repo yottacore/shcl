@@ -2,6 +2,7 @@
 name = "shcl"
 version = "2.0.0"
 edition = "2024"
+rust-version = "1.88"
 license = "MIT"
 description = "SHCL - Simple Hierarchical Config Language. Reference parser, accessor, writer, and CLI."
 repository = "https://github.com/yottacore/shcl"

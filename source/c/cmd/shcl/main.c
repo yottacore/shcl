@@ -1079,11 +1079,11 @@ static int do_get(Opts *o) {
 		else if (!strcmp(o->kind, "raw")) { shcl_read_str r = shcl_read_raw(d, path, plen); status = r.status; PUSHLINE_BYTES(r.value.p, r.value.n); }
 		else if (!strcmp(o->kind, "rawinfo")) { shcl_read_str r = shcl_read_raw_info(d, path, plen); status = r.status; PUSHLINE_BYTES(r.value.p, r.value.n); }
 		else if (!strcmp(o->kind, "duration")) {
-			shcl_duration_unit u = o->unit ? shcl_duration_unit_of(o->unit, strlen(o->unit)) : SHCL_DURATION_NONE;
+			shcl_duration_unit u = o->unit ? shcl_duration_unit_from_spelling(o->unit, strlen(o->unit)) : SHCL_DURATION_NONE;
 			shcl_read_i64 r = shcl_read_duration(d, path, plen, u); status = r.status; PUSHLINE_FMT("%" PRId64, r.value);
 		}
 		else if (!strcmp(o->kind, "size")) {
-			shcl_size_unit u = o->unit ? shcl_size_unit_of(o->unit, strlen(o->unit)) : SHCL_SIZE_NONE;
+			shcl_size_unit u = o->unit ? shcl_size_unit_from_spelling(o->unit, strlen(o->unit)) : SHCL_SIZE_NONE;
 			shcl_read_i64 r = shcl_read_size(d, path, plen, u, o->decimal); status = r.status; PUSHLINE_FMT("%" PRId64, r.value);
 		}
 		else { shcl_read_str r = shcl_read_string(d, path, plen); status = r.status; PUSHLINE_BYTES(r.value.p, r.value.n); }
@@ -2456,7 +2456,7 @@ static int check_opts(const char *cmd, const Opts *o) {
 	if (o->decimal && strcmp(o->kind, "size") != 0) { fprintf(stderr, "--decimal needs --size (see --help)\n"); return 1; }
 	if (o->unit) {
 		size_t n = strlen(o->unit);
-		int known = !strcmp(o->kind, "duration") ? shcl_duration_unit_of(o->unit, n) != SHCL_DURATION_NONE : shcl_size_unit_of(o->unit, n) != SHCL_SIZE_NONE;
+		int known = !strcmp(o->kind, "duration") ? shcl_duration_unit_from_spelling(o->unit, n) != SHCL_DURATION_NONE : shcl_size_unit_from_spelling(o->unit, n) != SHCL_SIZE_NONE;
 		if (!known) { fprintf(stderr, "bad --unit value for --%s: %s (see --help)\n", o->kind, o->unit); return 1; }
 	}
 	// Writing back the merged document would fold the lower layers permanently
