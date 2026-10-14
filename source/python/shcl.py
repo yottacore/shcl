@@ -88,6 +88,7 @@ __all__ = [
 	"backup_file_name",
 	"format_diagnostic",
 	"format_float",
+	"format_value",
 	"format_version",
 	"generate",
 	"migrate",
@@ -434,6 +435,22 @@ def format_float(v: float) -> str:
 	if v == -math.inf:
 		return "-inf"
 	return format(Decimal(repr(v)).normalize(), "f")
+
+
+def format_value(text: str) -> str | None:
+	"""One value the way set_string writes it after the colon of a field it
+	makes, so `k: 2020`, `k: "a b"`, `k: 1,200`. Every scalar setter writes
+	its value's text the same way, so format_value(format_float(v)) is what
+	set_float writes, and the same goes for an int, a bool or a datetime's
+	text. An overwrite can keep the old value's quote kind instead. None when
+	set_string would refuse the text (NotUtf8, NoReadBack); a non-str is a
+	TypeError, as there."""
+	_want("format_value", text, "str")
+	# The setter's own path: the same element, emitter and read-back check.
+	v = _cell_of(text)
+	if not _value_reads_back(v):
+		return None
+	return _emit_value_text(v)
 
 
 # ---------------------------------------------------------------------------

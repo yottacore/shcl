@@ -6171,3 +6171,93 @@ func TestFormatDiagnosticIsTheCLILine(t *testing.T) {
 		t.Errorf("severity names")
 	}
 }
+
+// FormatValue is the text SetString writes after `k: ` in a fresh document,
+// refused exactly where SetString refuses, and it reads back as the text it
+// was handed. Over the setter soup, the review's examples and the typed
+// setters' texts. Same fixture in every runner.
+func TestFormatValueIsTheSettersText(t *testing.T) {
+	defer testID(t, "EshnBxd")
+	inputs := append(soupInputs(), formatValueExtra...)
+	for _, s := range inputs {
+		doc := New()
+		st := doc.SetString("k", s)
+		text, ok := FormatValue(s)
+		if st != SetOk {
+			if ok {
+				t.Errorf("SetString refused %q (%v), FormatValue gave %q", s, st, text)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("no text for %q, which SetString took", s)
+			continue
+		}
+		if got := doc.ToCanonical(); got != "k: "+text+"\n" {
+			t.Errorf("%q: canonical %q, FormatValue %q", s, got, text)
+		}
+		if back := Parse("k: " + text + "\n").ReadString("k").Value; back != s {
+			t.Errorf("%q read back as %q", s, back)
+		}
+	}
+	// Bare where QuoteSegment quotes them.
+	for _, s := range []string{"2020", "@null", "1,200", "a.b", "-x"} {
+		if v, ok := FormatValue(s); !ok || v != s || QuoteSegment(s) == s {
+			t.Errorf("%q: FormatValue %q, QuoteSegment %q", s, v, QuoteSegment(s))
+		}
+	}
+	if v, _ := FormatValue("He said \"hi\", it's"); v != "\"He said ◉DOUBLE_QUOTE◉hi◉DOUBLE_QUOTE◉, it's\"" {
+		t.Errorf("both quotes: %q", v)
+	}
+	if v, _ := FormatValue("`#FF8800`"); v != "\"`#FF8800`\"" {
+		t.Errorf("backticks: %q", v)
+	}
+	// The typed setters write their value's text the way SetString would.
+	one := func(set func(d *Document) SetStatus) string {
+		d := New()
+		if st := set(d); st != SetOk {
+			t.Errorf("typed setter refused: %v", st)
+		}
+		return d.ToCanonical()
+	}
+	want := func(s string) string {
+		v, _ := FormatValue(s)
+		return "k: " + v + "\n"
+	}
+	dt, _ := ParseDateTime("2026-07-12T14:30")
+	for _, c := range [][2]string{
+		{one(func(d *Document) SetStatus { return d.SetInt("k", -2020) }), want("-2020")},
+		{one(func(d *Document) SetStatus { return d.SetFloat("k", 0.1) }), want(FormatFloat(0.1))},
+		{one(func(d *Document) SetStatus { return d.SetBool("k", true) }), want("true")},
+		{one(func(d *Document) SetStatus { return d.SetDateTime("k", dt) }), want(dt.String())},
+		{want(dt.String()), "k: \"2026-07-12T14:30\"\n"},
+	} {
+		if c[0] != c[1] {
+			t.Errorf("typed setter wrote %q, want %q", c[0], c[1])
+		}
+	}
+}
+
+// formatValueExtra is what the FormatValue fixture adds to the setter soup:
+// the review's examples, thousands numbers, and the typed setters' texts.
+var formatValueExtra = []string{
+	"2020",
+	"@null",
+	"1,200",
+	"a.b",
+	"-x",
+	"He said \"hi\", it's",
+	"`#FF8800`",
+	"`",
+	"$1,200",
+	"1,200.50",
+	"-1,200",
+	"80,443",
+	"rw,noatime",
+	"2026-07-12T14:30",
+	"-0.5",
+	"true",
+	"◉",
+	"a◉NEWLINE◉b",
+	"x\u200by",
+}

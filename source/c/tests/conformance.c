@@ -121,6 +121,46 @@ static shcl_set_status soup_set(shcl_doc *d, int kind, const char *p, size_t pn,
 	default: { const char *av[2]; size_t al[2]; av[0] = "x"; al[0] = 1; av[1] = in; al[1] = inn; return shcl_set_string_array(d, p, pn, av, al, 2); }
 	}
 }
+/* A format_value fixture failure, its input named as bytes. */
+static void fv_fail(const char *msg, const char *in, size_t n) {
+	fprintf(stderr, "FAIL format_value: %s (input", msg);
+	for (size_t i = 0; i < n; i++) fprintf(stderr, " %02x", (unsigned char)in[i]);
+	fprintf(stderr, ")\n");
+	nfail++;
+}
+/* One input of the format_value fixture: shcl_format_value against what
+   shcl_set_string writes into a fresh document, and the text read back. */
+static void fv_check(const char *in, size_t inn) {
+	shcl_doc *d = shcl_parse("", 0);
+	shcl_set_status st = shcl_set_string(d, "k", 1, in, inn);
+	size_t n = 0;
+	char *v = shcl_format_value(in, inn, &n);
+	if (st != SHCL_SET_OK || !v) {
+		if (st != SHCL_SET_OK && v) fv_fail("gave text shcl_set_string refused", in, inn);
+		if (st == SHCL_SET_OK) fv_fail("gave no text for what shcl_set_string took", in, inn);
+		free(v); shcl_free(d); return;
+	}
+	shcl_str c = shcl_to_canonical(d);
+	if (c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || v[n] || strlen(v) != n)
+		fv_fail("not the canonical text", in, inn);
+	char line[SOUP_BUF];
+	if (n + 4 > sizeof line) { fv_fail("text longer than the fixture buffer", in, inn); free(v); shcl_free(d); return; }
+	memcpy(line, "k: ", 3); memcpy(line + 3, v, n); line[n + 3] = '\n';
+	shcl_doc *b = shcl_parse(line, n + 4);
+	shcl_read_str r = shcl_read_string(b, "k", 1);
+	if (r.status != SHCL_GOOD || r.value.n != inn || (inn && memcmp(r.value.p, in, inn)))
+		fv_fail("text did not read back", in, inn);
+	shcl_free(b); free(v); shcl_free(d);
+}
+/* The typed setter's canonical text equals `k: ` plus shcl_format_value of
+   its value's text. */
+static void fv_typed(shcl_doc *d, const char *text, const char *what) {
+	size_t n = 0;
+	char *v = shcl_format_value(text, strlen(text), &n);
+	shcl_str c = shcl_to_canonical(d);
+	if (!v || c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n') fail("format_value", what);
+	free(v); shcl_free(d);
+}
 /* A capped parse's diagnostics as "LINE:CODE" words, its lost count and its
    canonical text, for the cap fixture. */
 static void cap_codes(const char *text, size_t cap, char *got, size_t gn, size_t *lost, char *out, size_t on) {
@@ -5924,6 +5964,71 @@ int main(int argc, char **argv) {
 		free(fs);
 		if (strcmp(shcl_severity_name(SHCL_SEV_ERROR), "Error") || strcmp(shcl_severity_name(SHCL_SEV_HINT), "Hint"))
 			fail("format_diagnostic", "shcl_severity_name");
+	}
+	test_id("EshnD0s", "format_value_is_the_setters_text");
+	/* shcl_format_value is the text shcl_set_string writes after `k: ` in a
+	   fresh document, NULL exactly where shcl_set_string refuses, and it reads
+	   back as the text it was handed. Over the setter soup, the review's
+	   examples and the typed setters' texts. Same fixture in every runner,
+	   plus a byte that is not UTF-8, which C leaves to its caller. */
+	{
+		static const char *const soup[] = { "\"", "'", "\\", "#", ",", "[", "]", "\r", "\n", " ", "\t", "\xc2\xa0", "a" };
+		const size_t nsoup = sizeof soup / sizeof soup[0];
+		for (size_t ai = 0; ai <= nsoup; ai++) for (size_t bi = 0; bi < (ai == 0 ? 1u : nsoup + 1); bi++) {
+			char in[8]; size_t inn = 0;
+			if (ai) { size_t l = strlen(soup[ai - 1]); memcpy(in, soup[ai - 1], l); inn = l; }
+			if (ai && bi) { size_t l = strlen(soup[bi - 1]); memcpy(in + inn, soup[bi - 1], l); inn += l; }
+			fv_check(in, inn);
+		}
+		/* The review's examples, thousands numbers, and the typed setters'
+		   texts. */
+		static const char *const extra[] = {
+			"2020", "@null", "1,200", "a.b", "-x", "He said \"hi\", it's", "`#FF8800`", "`",
+			"$1,200", "1,200.50", "-1,200", "80,443", "rw,noatime", "2026-07-12T14:30", "-0.5",
+			"true", "\xe2\x97\x89", ("a\xe2\x97\x89NEWLINE\xe2\x97\x89" "b"), "x\xe2\x80\x8by", "\xff",
+		};
+		for (size_t i = 0; i < sizeof extra / sizeof extra[0]; i++) fv_check(extra[i], strlen(extra[i]));
+		/* Bare where shcl_quote_segment quotes them. */
+		shcl_doc *qd = shcl_parse("", 0);
+		static const char *const bare[] = { "2020", "@null", "1,200", "a.b", "-x" };
+		for (size_t i = 0; i < sizeof bare / sizeof bare[0]; i++) {
+			size_t n = 0, bn = strlen(bare[i]);
+			char *v = shcl_format_value(bare[i], bn, &n);
+			shcl_str q = shcl_quote_segment(qd, bare[i], bn);
+			if (!v || strcmp(v, bare[i]) || (q.n == bn && !memcmp(q.p, bare[i], bn))) fail("format_value", bare[i]);
+			free(v);
+		}
+		shcl_free(qd);
+		static const struct { const char *in, *want; } spelled[] = {
+			{ "He said \"hi\", it's", "\"He said \xe2\x97\x89" "DOUBLE_QUOTE\xe2\x97\x89hi\xe2\x97\x89" "DOUBLE_QUOTE\xe2\x97\x89, it's\"" },
+			{ "`#FF8800`", "\"`#FF8800`\"" },
+		};
+		for (size_t i = 0; i < sizeof spelled / sizeof spelled[0]; i++) {
+			char *v = shcl_format_value(spelled[i].in, strlen(spelled[i].in), NULL);
+			if (!v || strcmp(v, spelled[i].want)) fail("format_value", spelled[i].in);
+			free(v);
+		}
+		/* The typed setters write their value's text the way
+		   shcl_set_string would. */
+		shcl_doc *td = shcl_parse("", 0);
+		if (shcl_set_int(td, "k", 1, -2020) != SHCL_SET_OK) fail("format_value", "set_int");
+		fv_typed(td, "-2020", "set_int");
+		td = shcl_parse("", 0);
+		if (shcl_set_float(td, "k", 1, 0.1) != SHCL_SET_OK) fail("format_value", "set_float");
+		char fb[SHCL_FLOAT_BUF]; fb[shcl_format_float(0.1, fb)] = 0;
+		fv_typed(td, fb, "set_float");
+		td = shcl_parse("", 0);
+		if (shcl_set_bool(td, "k", 1, 1) != SHCL_SET_OK) fail("format_value", "set_bool");
+		fv_typed(td, "true", "set_bool");
+		shcl_datetime fdt;
+		if (!shcl_parse_datetime("2026-07-12T14:30", 16, &fdt)) fail("format_value", "parse_datetime");
+		td = shcl_parse("", 0);
+		if (shcl_set_datetime(td, "k", 1, &fdt) != SHCL_SET_OK) fail("format_value", "set_datetime");
+		char db[SHCL_DT_BUF]; db[shcl_datetime_str(&fdt, db)] = 0;
+		fv_typed(td, db, "set_datetime");
+		char *dv = shcl_format_value(db, strlen(db), NULL);
+		if (!dv || strcmp(dv, "\"2026-07-12T14:30\"")) fail("format_value", "datetime quoted");
+		free(dv);
 	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }

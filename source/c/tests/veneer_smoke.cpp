@@ -174,6 +174,13 @@ int main() {
 	CHECK(shcl::strictness_from_arg("STRICT") == shcl::Strictness::Strict && shcl::strictness_from_arg("1") == shcl::Strictness::Loose);
 	CHECK(!shcl::strictness_from_arg("4") && !shcl::strictness_from_arg(""));
 	CHECK(shcl::format_float(0.1) == "0.1" && shcl::format_float(-2.5) == "-2.5");
+	// A value as set_string writes it, through the core.
+	{
+		CHECK(shcl::format_value("1,200") == "1,200" && shcl::format_value("a b") == "\"a b\"");
+		CHECK(!shcl::format_value("a\xff" "b"));
+		auto fw = shcl::Document::parse("");
+		CHECK(fw.set_string("k", "x\ty") == shcl::SetStatus::Ok && fw.to_canonical() == "k: " + *shcl::format_value("x\ty") + "\n");
+	}
 	// The CLI's stderr line, through the core.
 	{
 		auto fdoc = shcl::Document::parse("a: 1\nb: [x\n");
