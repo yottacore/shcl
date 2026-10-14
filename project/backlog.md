@@ -60,11 +60,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Calls made here, for signoff (me):
 			- A `%` goes with it, so Loose reads `"1,200%"` as 12, as it reads `1200%`.
 			- No blank anywhere in it, so `"$ 1,200"` stays text while `"$ 1200"` reads as 1200. That keeps the writer's exception to text that is safe bare.
-			- A `.` needs a digit after it, so `"1,200."` is text.
+			- A `.` needs a digit after it, so `"1,200."` is text. Changed by JC, see 2026101318521195.
 			- The merge rule covers every item going into brackets, so the `quoted` flag on a merged `- rw,noatime` is true before the save, as after it.
 			- A setter's `1,000` is written bare and reads as text, like a hand-typed one. Through an array setter it is quoted and reads as 1000.
 		- The old tests that pinned the 10-10 rule are commented out with the reason: `a_thousands_comma_reads_the_same_after_a_save` in all four (`EsZikJi` to `EsZikJl`) and cli-regress `EsZikJq`.
 	- Decisions:
+		- 20261013: the `%`, setter and merge calls are signed off. A blank still makes it text. A trailing `.` is OK, which 2026101318521195 builds (JC).
 		- 20261013: Loose only. Standard and Strict still refuse commas, currency and `%` (JC).
 		- 20261013: quoted only, bare `1,200` stays text, and `"1, 200"` is not a number (JC).
 		- 20261013: `fmt` keeps a bare thousands-shaped value bare, so the read can't change across a save. That was the 10-10 bug (me, agreed by JC).
@@ -74,6 +75,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: `loose_reads_a_quoted_thousands_number`, Rust `EsbaIWJ`, Go `EsbaIYt`, Python `EsbaIba`, C `EsbaIe1`; corpus `206-loose-thousands` (`EsbaIuk`) with reads at all 3 levels, `fmt`, write ops and a merge, plus new rows in `100` and `202`; cli-regress `EsbaIgH`, `EsbaIia`, `EsbaIkt`, `EsbaInW`, `EsbaIq7`, `EsbaIsU`, `EsbaIx6`; fuzz `EsZikJr` (`typed_reads_survive_a_save`), which now also makes thousands values bare and quoted, stacked and in brackets, merges them, and compares int and float array reads.
 	- Branch: `loosethou`
 	- Commit: `4527cc4e`, `bae0d847`, `10deaa99`
+
+- Loose refuses a quoted thousands number with a trailing `.`, such as `"1,200."`
+	- ID: 2026101318521195
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261013-185211
+	- Opened by: JC, at the signoff of 2026101309122757
+	- Related IDs: 2026101309122757
+	- Problem description: at Loose, `"1,200."`, `"$1,200."` and `"1,200.%"` are refused on an int or float read, while `"5."` reads as 5 and `".5"` as 0.5 at every level.
+	- Requirements:
+		- At Loose, a quoted thousands number may end in a `.` with no digits after it. `"1,200."` reads as 1200, `"$1,200."` as 1200 and `"1,200.%"` as 12.
+		- A leading `.` already reads on a plain number. It has no meaning on a grouped one, so `".1,200"` stays text.
+		- A blank anywhere still makes it text.
+		- `fmt` and the writer keep a bare `1,200.` bare too, so a save can't change the read.
+	- Reason: "a trailing or leading '.' is OK" (JC). Plain numbers already take both.
 
 - On musl, the C binding's schema-line check fails on `/proc/self/pagemap` with the wrong error
 	- ID: 2026101316013508
