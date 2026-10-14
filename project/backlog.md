@@ -79,7 +79,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Loose refuses a quoted thousands number with a trailing `.`, such as `"1,200."`
 	- ID: 2026101318521195
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261013-185211
 	- Opened by: JC, at the signoff of 2026101309122757
@@ -91,6 +91,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A blank anywhere still makes it text.
 		- `fmt` and the writer keep a bare `1,200.` bare too, so a save can't change the read.
 	- Reason: "a trailing or leading '.' is OK" (JC). Plain numbers already take both.
+	- Progress log:
+		- 20261013: Built in all four. The grouping test takes a `.` with no digits after it, so `"1,200."` and `"$1,200."` read as 1200 and `"1,200.%"` as 12. An int read of one goes through the float path and rounds, like `"5."` and `"1,200.50"`.
+		- 20261013: The read and the writer's keep-bare exception use the one grouping test in each binding, so they take exactly the same set. A bare `1,200.` stays bare through `fmt`, a setter and the line-keeping save, and goes in quotes when a merge puts it in brackets.
+	- Swept: in all four, every caller of the grouping test: the int and float reads, `emit_scalar`, `new_scalar` and their ports, which feed the canonical save, the line-keeping save, `keep_mark`, `cell_of` and the selector's value. No other copy of the grouping rule. The C++ veneer has no public change (check-veneer). spec.md, value-syntax.md, the corpus notes and the changelog say so. The README's Loose line doesn't state the grouping rule, so it stays.
+	- Verified: the new runner test fails on dev's library and passes on the fix, in all four. Corpus 206's new rows fail on dev in all four (canonical, write, merge and reads). cli-regress `EsdUlxn`, `EsdUlxo` and `EsdUlxp` fail on dev's 4 CLIs; `EsdUlxq` and `EsdUlxr` pin what dev already does (Standard refuses, a leading `.` stays text). `EsZikJr` fails with the writer's exception kept off a trailing-dot value. Also cargo test, the 2,000,000 release fuzz (all 28), the four conformance suites, the C suite under ASan and UBSan, the veneer smoke test, `go test -count=1` per module, cli-regress (561 rows, 4 bindings), crosscheck (49638 comparisons), check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, check-veneer, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
+	- Test case: `loose_reads_a_quoted_thousands_number_with_a_trailing_dot`, Rust `EsdUlxj`, Go `EsdUlxk`, Python `EsdUlxl`, C `EsdUlxm`; new rows in corpus `206-loose-thousands`; cli-regress `EsdUlxn`, `EsdUlxo`, `EsdUlxp`, `EsdUlxq`, `EsdUlxr`; fuzz `EsZikJr`, whose thousands values now also start with a `.` now and then.
+	- Branch: `loosedot`
+	- Commit: `738a6b64`
+	- Acceptance signoff: Self-closed: JC's call was clear and narrow, the change does that and no more, and each new test was seen to fail on dev.
+	- Closed: 20261013-193000
 
 - On musl, the C binding's schema-line check fails on `/proc/self/pagemap` with the wrong error
 	- ID: 2026101316013508
