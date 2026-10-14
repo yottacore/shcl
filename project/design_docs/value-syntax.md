@@ -511,7 +511,7 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 	- Why: `fmt` is how a file gets made canonical, and canonical text shouldn't leave a person working out whether `a,b` is one value or two, or whether a colon starts another field. The reader's leeway is for hand-typed lines.
 	- The writer quotes any value with a space the same way. A tab inside quotes is written `◉TAB◉`.
 	- Typed reads don't care about the quotes, so a datetime a setter writes comes out quoted, `"2026-07-12T14:30"`.
-	- The one exception is a bare thousands number, such as `80,443`, `1,200.50` or `$1,200`: the form Loose reads as a number in quotes, with no blank in it. A value or `- ` item like that stays bare, and so does a setter's (answered 2026-10-13, item 2026101309122757).
+	- The one exception is a bare thousands number, such as `80,443`, `1,200.`, `1,200.50` or `$1,200`: the form Loose reads as a number in quotes, with no blank in it. A value or `- ` item like that stays bare, and so does a setter's (answered 2026-10-13, item 2026101309122757).
 		- Why: Loose reads `"1,200"` as 1200, so a writer that quoted a bare `1,200` would turn text into a number on a save. That was the 2026-10-10 bug.
 		- Inside `[]` it is quoted, since the comma would split it there. An item a merge moves into brackets counts as quoted from then on, so a read of it is the same before the save and after.
 
@@ -793,6 +793,7 @@ What the build has today, and what replaces it.
 | 2026100609552447 | Don't allow the `[#N]` index selector                                                         | Moot, folded into 2026100610073400
 | 2026100719122101 | `fmt` leaves a value bare that a reader could misread                                         | The writer's quoting, under Canonical output
 | 2026101309122757 | Loose doesn't read a quoted thousands number as a number                                      | The bare thousands exception, under Canonical output
+| 2026101318521195 | Loose refuses a quoted thousands number with a trailing `.`                                   | The bare thousands exception, under Canonical output
 
 ## Copyright and license
 

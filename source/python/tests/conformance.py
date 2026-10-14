@@ -4014,6 +4014,52 @@ def main():
 			if lt_doc.read_string(lt_path).quoted != lt_back.read_string(lt_path).quoted:
 				raise SystemExit(f"{lt_path} quoted")
 
+	test_id("EsdUlxl", "loose_reads_a_quoted_thousands_number_with_a_trailing_dot")
+	# A trailing `.` is fine on a quoted thousands number, as on a plain one.
+	# A leading one is not, and a bare one stays bare (2026101318521195).
+	td_text = "a: \"1,200.\"\nb: \"$1,200.\"\nc: \"1,200.%\"\nd: 1,200.\ne: \".1,200\"\nf: \"1,200 .\"\ng: \"1,200..\"\nh: '-1,200.'\nl:\n\t- 9,000.\n"
+	td_loose = shcl.Document.parse_with(td_text, shcl.Strictness.Loose)
+	for td_path, td_want in (("a", 1200), ("b", 1200), ("c", 12), ("d", None), ("e", None), ("f", None),
+			("g", None), ("h", -1200)):
+		td_r, td_f = td_loose.read_int(td_path), td_loose.read_float(td_path)
+		if td_want is None and (td_r.status != shcl.Status.BadType or td_f.status != shcl.Status.BadType):
+			raise SystemExit(f"{td_path}: {td_r!r} {td_f!r}")
+		if td_want is not None and (td_r.status != shcl.Status.Good or td_r.value != td_want or td_f.status != shcl.Status.Good):
+			raise SystemExit(f"{td_path}: {td_r!r} {td_f!r}")
+	if td_loose.read_float("a").value != 1200.0 or td_loose.read_float("c").value != 12.0:
+		raise SystemExit(f"float: {td_loose.read_float('a')!r} {td_loose.read_float('c')!r}")
+	if td_loose.get_string("a", None) != "1,200." or td_loose.read_int_array("l").status != shcl.Status.BadType:
+		raise SystemExit(f"a: {td_loose.read_string('a')!r} {td_loose.read_int_array('l')!r}")
+	for td_level in (shcl.Strictness.Standard, shcl.Strictness.Strict):
+		td_doc = shcl.Document.parse_with(td_text, td_level)
+		for td_path in ("a", "b", "c", "d", "h"):
+			if td_doc.read_int(td_path).status != shcl.Status.BadType or td_doc.read_float(td_path).status != shcl.Status.BadType:
+				raise SystemExit(f"{td_path} at {td_level}: {td_doc.read_int(td_path)!r}")
+	td_out = td_loose.to_canonical()
+	if "\nd: 1,200.\n" not in td_out or "\n\t- 9,000.\n" not in td_out or '\ne: ".1,200"\n' not in td_out:
+		raise SystemExit(f"wrote {td_out!r}")
+	td_set = shcl.Document.parse_with("", shcl.Strictness.Loose)
+	if not td_set.set_string("s", "1,000."):
+		raise SystemExit("set")
+	if not td_set.to_canonical().startswith("s: 1,000.\n") or td_set.read_int("s").status != shcl.Status.BadType:
+		raise SystemExit(f"set wrote {td_set.to_canonical()!r}")
+	td_merged = shcl.Document.parse_with(td_text, shcl.Strictness.Loose)
+	td_merged.merge(shcl.Document.parse("z: 1\n"))
+	if '\nl: ["9,000."]\n' not in td_merged.to_canonical() or td_merged.read_int_array("l").value != [9000]:
+		raise SystemExit(f"merged {td_merged.to_canonical()!r} {td_merged.read_int_array('l')!r}")
+	for td_doc in (td_loose, td_set, td_merged):
+		td_back = shcl.Document.parse_with(td_doc.to_canonical(), shcl.Strictness.Loose)
+		for td_path in ("a", "b", "c", "d", "e", "f", "g", "h", "l", "s"):
+			td_x, td_y = td_doc.read_int(td_path), td_back.read_int(td_path)
+			if (td_x.status, td_x.value) != (td_y.status, td_y.value):
+				raise SystemExit(f"{td_path} int: {td_x!r} vs {td_y!r}")
+			td_xf, td_yf = td_doc.read_float(td_path), td_back.read_float(td_path)
+			if (td_xf.status, td_xf.value) != (td_yf.status, td_yf.value):
+				raise SystemExit(f"{td_path} float: {td_xf!r} vs {td_yf!r}")
+			td_xa, td_ya = td_doc.read_int_array(td_path), td_back.read_int_array(td_path)
+			if (td_xa.status, td_xa.value) != (td_ya.status, td_ya.value):
+				raise SystemExit(f"{td_path} int[]: {td_xa!r} vs {td_ya!r}")
+
 	test_id("ErylLpa", "a_list_no_text_loads_back_refuses_to_save")
 	# A list with a field under it (E001) after an empty binding of its name
 	# that has fields: no text loads it back, since a reload joins the list's

@@ -10220,10 +10220,10 @@ def _rust_round(f):
 def _thousands_number(t):
 	"""A thousands number the way Loose reads one in quotes (spec.md): a
 	currency sign, a sign, 1 to 3 digits then groups of exactly 3 behind
-	commas, a `.` and digits, and a `%`, all optional but the digits and one
-	comma. No blanks anywhere, so the writer can keep a bare one bare. Gives
-	the number with the commas, the currency and the `%` off, and whether the
-	`%` was there, or None."""
+	commas, a `.` and any digits, and a `%`, all optional but the digits and
+	one comma. No blanks anywhere, so the writer can keep a bare one bare.
+	Gives the number with the commas, the currency and the `%` off, and
+	whether the `%` was there, or None."""
 	if "," not in t:
 		return None
 	if t[:1] in _CURRENCY:
@@ -10235,9 +10235,10 @@ def _thousands_number(t):
 	whole, dot, frac = body.partition(".")
 	groups = whole.split(",")
 	head = groups[0]
+	# A bare trailing `.` is fine, as on a plain number.
 	if (len(groups) < 2 or not head or len(head) > 3 or not _all_ascii_digits(head)
 			or not all(len(g) == 3 and _all_ascii_digits(g) for g in groups[1:])
-			or (dot and (not frac or not _all_ascii_digits(frac)))):
+			or (dot and not _all_ascii_digits(frac))):
 		return None
 	return t.replace(",", ""), percent
 

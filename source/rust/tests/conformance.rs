@@ -4235,6 +4235,84 @@ fn loose_reads_a_quoted_thousands_number() {
 	}
 }
 
+// A trailing `.` is fine on a quoted thousands number, as on a plain one. A
+// leading one is not, and a bare one stays bare (2026101318521195).
+#[test]
+fn loose_reads_a_quoted_thousands_number_with_a_trailing_dot() {
+	let _id = test_id("EsdUlxj");
+	let text = "a: \"1,200.\"\nb: \"$1,200.\"\nc: \"1,200.%\"\nd: 1,200.\ne: \".1,200\"\nf: \"1,200 .\"\ng: \"1,200..\"\nh: '-1,200.'\nl:\n\t- 9,000.\n";
+	let loose = Document::parse_with(text, Strictness::Loose).unwrap();
+	for (path, want) in [
+		("a", Some(1200)),
+		("b", Some(1200)),
+		("c", Some(12)),
+		("d", None),
+		("e", None),
+		("f", None),
+		("g", None),
+		("h", Some(-1200)),
+	] {
+		let r = loose.read_int(path);
+		let f = loose.read_float(path);
+		match want {
+			Some(v) => {
+				assert_eq!((r.status, r.value), (Status::Good, v), "{path} int");
+				assert_eq!(f.status, Status::Good, "{path} float");
+			}
+			None => {
+				assert_eq!(r.status, Status::BadType, "{path} int");
+				assert_eq!(f.status, Status::BadType, "{path} float");
+			}
+		}
+	}
+	assert_eq!(loose.read_float("a").value, 1200.0);
+	assert_eq!(loose.read_float("c").value, 12.0);
+	assert_eq!(loose.get_string("a").as_deref(), Ok("1,200."));
+	assert_eq!(loose.read_int_array("l").status, Status::BadType);
+	for level in [Strictness::Standard, Strictness::Strict] {
+		let doc = Document::parse_with(text, level).unwrap();
+		for path in ["a", "b", "c", "d", "h"] {
+			assert_eq!(
+				doc.read_int(path).status,
+				Status::BadType,
+				"{path} int {level:?}"
+			);
+			assert_eq!(
+				doc.read_float(path).status,
+				Status::BadType,
+				"{path} float {level:?}"
+			);
+		}
+	}
+	let out = loose.to_canonical();
+	assert!(out.contains("\nd: 1,200.\n"), "{out}");
+	assert!(out.contains("\n\t- 9,000.\n"), "{out}");
+	assert!(out.contains("\ne: \".1,200\"\n"), "{out}");
+	let mut set = Document::parse_with("", Strictness::Loose).unwrap();
+	assert_eq!(set.set_string("s", "1,000."), shcl::SetStatus::Ok);
+	assert!(set.to_canonical().starts_with("s: 1,000.\n"));
+	assert_eq!(set.read_int("s").status, Status::BadType);
+	let mut merged = Document::parse_with(text, Strictness::Loose).unwrap();
+	merged.merge(&Document::parse("z: 1\n"));
+	assert!(merged.to_canonical().contains("\nl: [\"9,000.\"]\n"));
+	assert_eq!(merged.read_int_array("l").value, vec![9000]);
+	for doc in [&loose, &set, &merged] {
+		let back = Document::parse_with(&doc.to_canonical(), Strictness::Loose).unwrap();
+		for path in ["a", "b", "c", "d", "e", "f", "g", "h", "l", "s"] {
+			let (x, y) = (doc.read_int(path), back.read_int(path));
+			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int");
+			let (x, y) = (doc.read_float(path), back.read_float(path));
+			assert_eq!(
+				(x.status, x.value.to_bits()),
+				(y.status, y.value.to_bits()),
+				"{path} float"
+			);
+			let (x, y) = (doc.read_int_array(path), back.read_int_array(path));
+			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int[]");
+		}
+	}
+}
+
 // migrate writes a 2.x comma list in brackets, with or without a blank
 // after the comma, since 2.x read both as arrays. In a file that does not
 // say it is 2.x, `a,b` is a string under these rules, so it is left and

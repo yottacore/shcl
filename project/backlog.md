@@ -60,11 +60,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Calls made here, for signoff (me):
 			- A `%` goes with it, so Loose reads `"1,200%"` as 12, as it reads `1200%`.
 			- No blank anywhere in it, so `"$ 1,200"` stays text while `"$ 1200"` reads as 1200. That keeps the writer's exception to text that is safe bare.
-			- A `.` needs a digit after it, so `"1,200."` is text.
+			- A `.` needs a digit after it, so `"1,200."` is text. Changed by JC, see 2026101318521195.
 			- The merge rule covers every item going into brackets, so the `quoted` flag on a merged `- rw,noatime` is true before the save, as after it.
 			- A setter's `1,000` is written bare and reads as text, like a hand-typed one. Through an array setter it is quoted and reads as 1000.
 		- The old tests that pinned the 10-10 rule are commented out with the reason: `a_thousands_comma_reads_the_same_after_a_save` in all four (`EsZikJi` to `EsZikJl`) and cli-regress `EsZikJq`.
 	- Decisions:
+		- 20261013: the `%`, setter and merge calls are signed off. A blank still makes it text. A trailing `.` is OK, which 2026101318521195 builds (JC).
 		- 20261013: Loose only. Standard and Strict still refuse commas, currency and `%` (JC).
 		- 20261013: quoted only, bare `1,200` stays text, and `"1, 200"` is not a number (JC).
 		- 20261013: `fmt` keeps a bare thousands-shaped value bare, so the read can't change across a save. That was the 10-10 bug (me, agreed by JC).
@@ -104,6 +105,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: close to glibc, like every other C workload in that run.
 	- Reproduced: 20261013, in the Alpine image. Not profiled yet. musl's allocator is the first thing to rule out.
 	- Note: no musl build is released, so this only reaches someone who builds the C library on musl.
+
+- Loose refuses a quoted thousands number with a trailing `.`, such as `"1,200."`
+	- ID: 2026101318521195
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261013-185211
+	- Opened by: JC, at the signoff of 2026101309122757
+	- Related IDs: 2026101309122757
+	- Problem description: at Loose, `"1,200."`, `"$1,200."` and `"1,200.%"` are refused on an int or float read, while `"5."` reads as 5 and `".5"` as 0.5 at every level.
+	- Requirements:
+		- At Loose, a quoted thousands number may end in a `.` with no digits after it. `"1,200."` reads as 1200, `"$1,200."` as 1200 and `"1,200.%"` as 12.
+		- A leading `.` already reads on a plain number. It has no meaning on a grouped one, so `".1,200"` stays text.
+		- A blank anywhere still makes it text.
+		- `fmt` and the writer keep a bare `1,200.` bare too, so a save can't change the read.
+	- Reason: "a trailing or leading '.' is OK" (JC). Plain numbers already take both.
+	- Progress log:
+		- 20261013: Built in all four. The grouping test takes a `.` with no digits after it, so `"1,200."` and `"$1,200."` read as 1200 and `"1,200.%"` as 12. An int read of one goes through the float path and rounds, like `"5."` and `"1,200.50"`.
+		- 20261013: The read and the writer's keep-bare exception use the one grouping test in each binding, so they take exactly the same set. A bare `1,200.` stays bare through `fmt`, a setter and the line-keeping save, and goes in quotes when a merge puts it in brackets.
+	- Swept: in all four, every caller of the grouping test: the int and float reads, `emit_scalar`, `new_scalar` and their ports, which feed the canonical save, the line-keeping save, `keep_mark`, `cell_of` and the selector's value. No other copy of the grouping rule. The C++ veneer has no public change (check-veneer). spec.md, value-syntax.md, the corpus notes and the changelog say so. The README's Loose line doesn't state the grouping rule, so it stays.
+	- Verified: the new runner test fails on dev's library and passes on the fix, in all four. Corpus 206's new rows fail on dev in all four (canonical, write, merge and reads). cli-regress `EsdUlxn`, `EsdUlxo` and `EsdUlxp` fail on dev's 4 CLIs; `EsdUlxq` and `EsdUlxr` pin what dev already does (Standard refuses, a leading `.` stays text). `EsZikJr` fails with the writer's exception kept off a trailing-dot value. Also cargo test, the 2,000,000 release fuzz (all 28), the four conformance suites, the C suite under ASan and UBSan, the veneer smoke test, `go test -count=1` per module, cli-regress (561 rows, 4 bindings), crosscheck (49638 comparisons), check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, check-veneer, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
+	- Test case: `loose_reads_a_quoted_thousands_number_with_a_trailing_dot`, Rust `EsdUlxj`, Go `EsdUlxk`, Python `EsdUlxl`, C `EsdUlxm`; new rows in corpus `206-loose-thousands`; cli-regress `EsdUlxn`, `EsdUlxo`, `EsdUlxp`, `EsdUlxq`, `EsdUlxr`; fuzz `EsZikJr`, whose thousands values now also start with a `.` now and then.
+	- Branch: `loosedot`
+	- Commit: `738a6b64`
+	- Acceptance signoff: Self-closed: JC's call was clear and narrow, the change does that and no more, and each new test was seen to fail on dev.
+	- Closed: 20261013-193000
 
 - Build and test in a pinned container.
 	- ID: 2026101303344553

@@ -11974,8 +11974,8 @@ func stripCurrency(t string) string {
 
 // thousandsNumber is a thousands number the way Loose reads one in quotes
 // (spec.md): a currency sign, a sign, 1 to 3 digits then groups of exactly 3
-// behind commas, a `.` and digits, and a `%`, all optional but the digits and
-// one comma. No blanks anywhere, so the writer can keep a bare one bare.
+// behind commas, a `.` and any digits, and a `%`, all optional but the digits
+// and one comma. No blanks anywhere, so the writer can keep a bare one bare.
 // Gives the number with the commas, the currency and the `%` off, and
 // whether the `%` was there.
 func thousandsNumber(t string) (string, bool, bool) {
@@ -12002,7 +12002,8 @@ func thousandsNumber(t string) (string, bool, bool) {
 			return "", false, false
 		}
 	}
-	if hasFrac && !digits(frac) {
+	// A bare trailing `.` is fine, as on a plain number.
+	if hasFrac && !allDigits(frac) {
 		return "", false, false
 	}
 	return strings.ReplaceAll(t, ",", ""), percent, true
