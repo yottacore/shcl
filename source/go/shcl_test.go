@@ -6262,12 +6262,12 @@ var formatValueExtra = []string{
 	"x\u200by",
 }
 
-// FormatArray is the text SetStringArray writes after `k: ` in a fresh
-// document, refused exactly where SetStringArray refuses, and it reads back as
-// the texts it was handed. Each text of the FormatValue fixture alone and
-// after another element, all of them at once, and none; an element is
-// FormatValue's text but for a thousands number, which brackets quote; and
-// the typed array setters' texts. Same fixture in every runner.
+// The text SetStringArray writes after `k: ` in a fresh document is
+// FormatArray's, both refuse the same texts, and it reads back as the texts it
+// was handed. Each text of the FormatValue fixture alone and after another
+// element, all of them at once, and none; an element is FormatValue's text
+// but for a thousands number, which brackets quote; and the typed array
+// setters' texts. Same fixture in every runner.
 func TestFormatArrayIsTheSettersText(t *testing.T) {
 	defer testID(t, "EsiL1IE")
 	texts := append(soupInputs(), formatValueExtra...)
