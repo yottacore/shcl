@@ -1333,8 +1333,9 @@ fn numeric_soup(rng: &mut Rng) -> String {
 }
 
 /// A value near a thousands number: a currency sign, a sign, groups that are
-/// mostly 3 digits, a decimal part and a `%`, each now and then, and now and
-/// then a blank where a person would not put one.
+/// mostly 3 digits, a decimal part that may have no digits, a `%` and a
+/// leading `.`, each now and then, and now and then a blank where a person
+/// would not put one.
 fn thousands_soup(rng: &mut Rng) -> String {
 	fn digits(rng: &mut Rng, n: usize, s: &mut String) {
 		for _ in 0..n {
@@ -1350,6 +1351,9 @@ fn thousands_soup(rng: &mut Rng) -> String {
 	}
 	if rng.below(4) == 0 {
 		s.push(['-', '+'][rng.below(2)]);
+	}
+	if rng.below(12) == 0 {
+		s.push('.');
 	}
 	let n = 1 + rng.below(4);
 	digits(rng, n, &mut s);
@@ -1445,7 +1449,9 @@ fn read_drift(a: &Document, b: &Document, p: &str) -> Option<String> {
 /// `80,443`, and a quoted thousands number once read as a number, so `fmt`
 /// changed the answer at exit 0 (2026101010054746). Loose reads one again,
 /// so a bare one stays bare, and a merge that puts stacked items in brackets
-/// counts the ones it quotes as quoted (2026101309122757).
+/// counts the ones it quotes as quoted (2026101309122757). A trailing `.`
+/// reads too, so the writer keeps `1,200.` bare the same way
+/// (2026101318521195).
 #[test]
 fn typed_reads_survive_a_save() {
 	let _id = test_id("EsZikJr");

@@ -689,6 +689,12 @@ rows=(
 	"EsbaIq7|fmt-keeps-bare-thousands|fmt -|p: 80,443\nq: \$1,200.50\n|0|p: 80,443\nq: \$1,200.50\n|-"
 	'EsbaIsU|set-keeps-bare-thousands|set --set=p=1,200 -|a: 1\n|0|a: 1\n\np: 1,200\n|-'
 	'EsbaIx6|loose-set-thousands-text|get --int --strictness=loose --set=a=1,000 %F% a|-|4|0\n|not a valid int'
+	## 2026101318521195: a trailing `.` is fine on one, a leading one is not.
+	'EsdUlxn|loose-quoted-thousands-dot-int|get --int --strictness=loose - p|p: "1,200."\n|0|1200\n|-'
+	"EsdUlxo|loose-quoted-money-dot-pct|get --float --strictness=loose - p|p: \"\$1,200.%\"\n|0|12\n|-"
+	'EsdUlxp|fmt-keeps-bare-thousands-dot|fmt -|p: 1,200.\n|0|p: 1,200.\n|-'
+	'EsdUlxq|standard-quoted-thousands-dot|get --float - p|p: "1,200."\n|4|0\n|not a valid float'
+	'EsdUlxr|loose-leading-dot-thousands-text|get --float --strictness=loose - p|p: ".1,200"\n|4|0\n|not a valid float'
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
 	## 2.x selector sugar is that shape now too, and migrate is what brings
 	## a file written with it across.

@@ -26,6 +26,18 @@ h	float	12	Good	loose
 h	float	-	BadType
 i	float	-	BadType	loose
 i	string	$1,200.50	Good	loose
+j	int	1200	Good	loose
+j	float	1200	Good	loose
+j	int	-	BadType
+j	float	-	BadType	strict
+k	float	12	Good	loose
+k	int	12	Good	loose
+k	float	-	BadType
+m	int	-	BadType	loose
+m	float	-	BadType	loose
+m	string	1,200.	Good	loose
+n	float	-	BadType	loose
+n	int	-	BadType	loose
 items	int[]	-	BadType	loose	BadType|Good
 items	string[]	80,443|2,500	Good	loose
 arr	float[]	1000|3000.25	Good	loose

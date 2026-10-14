@@ -4546,6 +4546,69 @@ int main(int argc, char **argv) {
 		shcl_free(ls);
 		shcl_free(ll);
 	}
+	test_id("EsdUlxm", "loose_reads_a_quoted_thousands_number_with_a_trailing_dot");
+	/* A trailing `.` is fine on a quoted thousands number, as on a plain one.
+	   A leading one is not, and a bare one stays bare (2026101318521195). */
+	{
+		const char *dtext = "a: \"1,200.\"\nb: \"$1,200.\"\nc: \"1,200.%\"\nd: 1,200.\ne: \".1,200\"\nf: \"1,200 .\"\ng: \"1,200..\"\nh: '-1,200.'\nl:\n\t- 9,000.\n";
+		shcl_doc *dl = shcl_parse_with(dtext, strlen(dtext), SHCL_LOOSE);
+		const char *ipaths[] = { "a", "b", "c", "d", "e", "f", "g", "h" };
+		const int igood[] = { 1, 1, 1, 0, 0, 0, 0, 1 };
+		const int64_t iwant[] = { 1200, 1200, 12, 0, 0, 0, 0, -1200 };
+		for (size_t i = 0; i < 8; i++) {
+			shcl_read_i64 r = shcl_read_int(dl, ipaths[i], 1);
+			shcl_read_f64 f = shcl_read_float(dl, ipaths[i], 1);
+			if (igood[i] && (r.status != SHCL_GOOD || r.value != iwant[i] || f.status != SHCL_GOOD)) fail("thousands_dot", ipaths[i]);
+			if (!igood[i] && (r.status != SHCL_BAD_TYPE || f.status != SHCL_BAD_TYPE)) fail("thousands_dot", ipaths[i]);
+		}
+		if (shcl_read_float(dl, "a", 1).value != 1200.0 || shcl_read_float(dl, "c", 1).value != 12.0) fail("thousands_dot", "float");
+		shcl_read_str da = shcl_read_string(dl, "a", 1);
+		if (da.value.n != 6 || memcmp(da.value.p, "1,200.", 6) != 0) fail("thousands_dot", "a string");
+		if (shcl_read_int_array(dl, "l", 1).status != SHCL_BAD_TYPE) fail("thousands_dot", "l");
+		shcl_strictness levels[] = { SHCL_STANDARD, SHCL_STRICT };
+		for (size_t k = 0; k < 2; k++) {
+			shcl_doc *dd = shcl_parse_with(dtext, strlen(dtext), levels[k]);
+			const char *spaths[] = { "a", "b", "c", "d", "h" };
+			for (size_t i = 0; i < 5; i++) {
+				if (shcl_read_int(dd, spaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands_dot", spaths[i]);
+				if (shcl_read_float(dd, spaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands_dot", spaths[i]);
+			}
+			shcl_free(dd);
+		}
+		shcl_str dout = shcl_to_canonical(dl);
+		if (!contains(dout.p, dout.n, "\nd: 1,200.\n") || !contains(dout.p, dout.n, "\n\t- 9,000.\n") || !contains(dout.p, dout.n, "\ne: \".1,200\"\n")) fail("thousands_dot", "the canonical text");
+		shcl_doc *ds = shcl_parse_with("", 0, SHCL_LOOSE);
+		if (shcl_set_string(ds, "s", 1, "1,000.", 6) != SHCL_SET_OK) fail("thousands_dot", "set");
+		shcl_str sout = shcl_to_canonical(ds);
+		if (sout.n < 10 || memcmp(sout.p, "s: 1,000.\n", 10) != 0) fail("thousands_dot", "the setter's text");
+		if (shcl_read_int(ds, "s", 1).status != SHCL_BAD_TYPE) fail("thousands_dot", "s");
+		shcl_doc *dm = shcl_parse_with(dtext, strlen(dtext), SHCL_LOOSE);
+		shcl_doc *dz = shcl_parse("z: 1\n", 5);
+		shcl_merge(dm, dz);
+		shcl_free(dz);
+		shcl_str mout = shcl_to_canonical(dm);
+		if (!contains(mout.p, mout.n, "\nl: [\"9,000.\"]\n")) fail("thousands_dot", "the merged text");
+		shcl_read_i64_arr dla = shcl_read_int_array(dm, "l", 1);
+		if (dla.n != 1 || dla.values[0] != 9000) fail("thousands_dot", "l merged");
+		shcl_doc *ddocs[] = { dl, ds, dm };
+		const char *cpaths[] = { "a", "b", "c", "d", "e", "f", "g", "h", "l", "s" };
+		for (size_t k = 0; k < 3; k++) {
+			shcl_str out = shcl_to_canonical(ddocs[k]);
+			shcl_doc *back = shcl_parse_with(out.p, out.n, SHCL_LOOSE);
+			for (size_t i = 0; i < 10; i++) {
+				shcl_read_i64 x = shcl_read_int(ddocs[k], cpaths[i], 1), y = shcl_read_int(back, cpaths[i], 1);
+				if (x.status != y.status || x.value != y.value) fail("thousands_dot", cpaths[i]);
+				shcl_read_f64 xf = shcl_read_float(ddocs[k], cpaths[i], 1), yf = shcl_read_float(back, cpaths[i], 1);
+				if (xf.status != yf.status || memcmp(&xf.value, &yf.value, sizeof xf.value) != 0) fail("thousands_dot", cpaths[i]);
+				shcl_read_i64_arr xa = shcl_read_int_array(ddocs[k], cpaths[i], 1), ya = shcl_read_int_array(back, cpaths[i], 1);
+				if (xa.status != ya.status || xa.n != ya.n || (xa.n && memcmp(xa.values, ya.values, xa.n * sizeof(int64_t)) != 0)) fail("thousands_dot", cpaths[i]);
+			}
+			shcl_free(back);
+		}
+		shcl_free(dm);
+		shcl_free(ds);
+		shcl_free(dl);
+	}
 	test_id("Es1gWRs", "a_list_no_text_loads_back_refuses_to_save");
 	/* A list with a field under it (E001) after an empty binding of its name
 	   that has fields: no text loads it back, since a reload joins the list's

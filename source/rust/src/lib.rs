@@ -12366,10 +12366,10 @@ fn strip_currency(t: &str) -> &str {
 
 /// A thousands number the way Loose reads one in quotes (spec.md): a
 /// currency sign, a sign, 1 to 3 digits then groups of exactly 3 behind
-/// commas, a `.` and digits, and a `%`, all optional but the digits and one
-/// comma. No blanks anywhere, so the writer can keep a bare one bare. Gives
-/// the number with the commas, the currency and the `%` off, and whether
-/// the `%` was there.
+/// commas, a `.` and any digits, and a `%`, all optional but the digits and
+/// one comma. No blanks anywhere, so the writer can keep a bare one bare.
+/// Gives the number with the commas, the currency and the `%` off, and
+/// whether the `%` was there.
 fn thousands_number(t: &str) -> Option<(String, bool)> {
 	if !t.contains(',') {
 		return None;
@@ -12398,7 +12398,9 @@ fn thousands_number(t: &str) -> Option<(String, bool)> {
 			tail += 1;
 			g.len() == 3 && digits(g)
 		});
-	(grouped && tail > 0 && frac.is_none_or(digits)).then(|| (t.replace(',', ""), percent))
+	// A bare trailing `.` is fine, as on a plain number.
+	let frac_ok = frac.is_none_or(|f| f.bytes().all(|b| b.is_ascii_digit()));
+	(grouped && tail > 0 && frac_ok).then(|| (t.replace(',', ""), percent))
 }
 
 fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {

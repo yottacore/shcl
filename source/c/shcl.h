@@ -4048,10 +4048,10 @@ static ShclStr strip_currency(ShclStr t) {
 
 /* A thousands number the way Loose reads one in quotes (spec.md): a currency
    sign, a sign, 1 to 3 digits then groups of exactly 3 behind commas, a `.`
-   and digits, and a `%`, all optional but the digits and one comma. No blanks
-   anywhere, so the writer can keep a bare one bare. With plain set, gives the
-   number with the commas, the currency and the `%` off, in a, and whether
-   the `%` was there. */
+   and any digits, and a `%`, all optional but the digits and one comma. No
+   blanks anywhere, so the writer can keep a bare one bare. With plain set,
+   gives the number with the commas, the currency and the `%` off, in a, and
+   whether the `%` was there. */
 static int thousands_number(ShclArena *a, ShclStr t, ShclStr *plain, int *percent) {
 	if (t.n == 0 || !memchr(t.p, ',', t.n)) return 0;
 	uint32_t c; size_t l = utf8_decode(t.p, t.n, 0, &c);
@@ -4073,10 +4073,11 @@ static int thousands_number(ShclArena *a, ShclStr t, ShclStr *plain, int *percen
 	}
 	if (!groups) return 0;
 	if (i < body.n) {
+		/* A bare trailing `.` is fine, as on a plain number. */
 		if (body.p[i] != '.') return 0;
 		size_t j = i + 1;
 		while (j < body.n && is_adigit((unsigned char)body.p[j])) j++;
-		if (j == i + 1 || j != body.n) return 0;
+		if (j != body.n) return 0;
 	}
 	if (plain) {
 		ShclSB o = {0, 0, 0}; sb_reserve(a, &o, t.n);

@@ -5082,6 +5082,107 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 	}
 }
 
+// A trailing `.` is fine on a quoted thousands number, as on a plain one. A
+// leading one is not, and a bare one stays bare (2026101318521195).
+func TestLooseReadsAQuotedThousandsNumberWithATrailingDot(t *testing.T) {
+	defer testID(t, "EsdUlxk")
+	text := "a: \"1,200.\"\nb: \"$1,200.\"\nc: \"1,200.%\"\nd: 1,200.\ne: \".1,200\"\nf: \"1,200 .\"\ng: \"1,200..\"\nh: '-1,200.'\nl:\n\t- 9,000.\n"
+	loose, err := ParseWith(text, Loose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		path string
+		want int64
+		good bool
+	}{
+		{"a", 1200, true},
+		{"b", 1200, true},
+		{"c", 12, true},
+		{"d", 0, false},
+		{"e", 0, false},
+		{"f", 0, false},
+		{"g", 0, false},
+		{"h", -1200, true},
+	} {
+		r, f := loose.ReadInt(c.path), loose.ReadFloat(c.path)
+		if c.good && (r.Status != Good || r.Value != c.want || f.Status != Good) {
+			t.Fatalf("%s: %v %d, float %v", c.path, r.Status, r.Value, f.Status)
+		}
+		if !c.good && (r.Status != BadType || f.Status != BadType) {
+			t.Fatalf("%s: %v, float %v", c.path, r.Status, f.Status)
+		}
+	}
+	if r := loose.ReadFloat("a"); r.Value != 1200 {
+		t.Fatalf("a float: %v", r.Value)
+	}
+	if r := loose.ReadFloat("c"); r.Value != 12 {
+		t.Fatalf("c float: %v", r.Value)
+	}
+	if v, st := loose.GetString("a"); st != Good || v != "1,200." {
+		t.Fatalf("a: %q %v", v, st)
+	}
+	if r := loose.ReadIntArray("l"); r.Status != BadType {
+		t.Fatalf("l: %v", r.Status)
+	}
+	for _, level := range []Strictness{Standard, Strict} {
+		doc, err := ParseWith(text, level)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"a", "b", "c", "d", "h"} {
+			if r := doc.ReadInt(path); r.Status != BadType {
+				t.Fatalf("%s int %v: %v", path, level, r.Status)
+			}
+			if r := doc.ReadFloat(path); r.Status != BadType {
+				t.Fatalf("%s float %v: %v", path, level, r.Status)
+			}
+		}
+	}
+	out := loose.ToCanonical()
+	if !strings.Contains(out, "\nd: 1,200.\n") || !strings.Contains(out, "\n\t- 9,000.\n") || !strings.Contains(out, "\ne: \".1,200\"\n") {
+		t.Fatalf("wrote %q", out)
+	}
+	set, _ := ParseWith("", Loose)
+	if st := set.SetString("s", "1,000."); st != SetOk {
+		t.Fatalf("set: %v", st)
+	}
+	if out := set.ToCanonical(); !strings.HasPrefix(out, "s: 1,000.\n") {
+		t.Fatalf("wrote %q", out)
+	}
+	if r := set.ReadInt("s"); r.Status != BadType {
+		t.Fatalf("s: %v", r.Status)
+	}
+	merged, _ := ParseWith(text, Loose)
+	merged.Merge(Parse("z: 1\n"))
+	if out := merged.ToCanonical(); !strings.Contains(out, "\nl: [\"9,000.\"]\n") {
+		t.Fatalf("merged %q", out)
+	}
+	if r := merged.ReadIntArray("l"); len(r.Value) != 1 || r.Value[0] != 9000 {
+		t.Fatalf("l merged: %v %v", r.Status, r.Value)
+	}
+	for _, doc := range []*Document{loose, set, merged} {
+		back, err := ParseWith(doc.ToCanonical(), Loose)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "l", "s"} {
+			x, y := doc.ReadInt(path), back.ReadInt(path)
+			if x.Status != y.Status || x.Value != y.Value {
+				t.Fatalf("%s int: %v %d vs %v %d", path, x.Status, x.Value, y.Status, y.Value)
+			}
+			xf, yf := doc.ReadFloat(path), back.ReadFloat(path)
+			if xf.Status != yf.Status || math.Float64bits(xf.Value) != math.Float64bits(yf.Value) {
+				t.Fatalf("%s float: %v %v vs %v %v", path, xf.Status, xf.Value, yf.Status, yf.Value)
+			}
+			xa, ya := doc.ReadIntArray(path), back.ReadIntArray(path)
+			if xa.Status != ya.Status || fmt.Sprint(xa.Value) != fmt.Sprint(ya.Value) {
+				t.Fatalf("%s int[]: %v %v vs %v %v", path, xa.Status, xa.Value, ya.Status, ya.Value)
+			}
+		}
+	}
+}
+
 // migrate writes a 2.x comma list in brackets, with or without a blank
 // after the comma, since 2.x read both as arrays. In a file that does not
 // say it is 2.x, `a,b` is a string under these rules, so it is left and
