@@ -1119,8 +1119,8 @@ def main():
 	# nothing else it can mean. Go panicked and Python read it as an offset
 	# from the end (20260918b item 31). Same fixture in the Go test.
 	neg, zero = shcl.Tokens(), shcl.Tokens()
-	shcl.tokenize_value("x, 'y' # c", -3, shcl.Rules.CURRENT, neg)
-	shcl.tokenize_value("x, 'y' # c", 0, shcl.Rules.CURRENT, zero)
+	shcl.tokenize_value("x, 'y' # c", -3, shcl.Rules.Current, neg)
+	shcl.tokenize_value("x, 'y' # c", 0, shcl.Rules.Current, zero)
 	if [(p.start, p.end, p.quote) for p in neg.elements] != [(p.start, p.end, p.quote) for p in zero.elements] \
 			or neg.value != zero.value or neg.comment != zero.comment:
 		fails.append("a negative tokenizer offset did not read as zero")
@@ -2461,7 +2461,7 @@ def main():
 	kbase = "x: 1\nr: [1, 2\ny: 3\n"
 
 	def kept_child(doc, name):
-		return next(c for c in doc.arena[shcl.ROOT].children if doc.arena[c].name == name)
+		return next(c for c in doc.arena[shcl._ROOT].children if doc.arena[c].name == name)
 
 	kdoc = shcl.Document.parse_keep_lines(kbase, shcl.Strictness.Standard)
 	if kdoc.lost_count() != 0:
@@ -3775,7 +3775,7 @@ def main():
 	# the loop strides past a comma that bytes.find would have split on. U+00E9
 	# is two bytes, so offset 1 is its continuation byte and the comma is at 2.
 	nbtok = shcl.Tokens()
-	shcl.tokenize_value("é,", 1, shcl.Rules.CURRENT, nbtok)
+	shcl.tokenize_value("é,", 1, shcl.Rules.Current, nbtok)
 	nbspans = [(p.start, p.end) for p in nbtok.elements]
 	if nbspans != [(1, 3)]:
 		raise SystemExit(f"tokenize_value from a mid-character offset gave {nbspans}, want [(1, 3)]")
@@ -3783,8 +3783,8 @@ def main():
 	# as in the loop. A `#` after the value sends the same text down the loop.
 	for fv in ("a,b", "a, b", "a,", "a ,b", ",a", "a,,b", "a, ,b", " a , b", "x,\t,y", "rw,noatime, c"):
 		ftok, ltok = shcl.Tokens(), shcl.Tokens()
-		shcl.tokenize_value(fv, 0, shcl.Rules.CURRENT, ftok)
-		shcl.tokenize_value(fv + "#c", 0, shcl.Rules.CURRENT, ltok)
+		shcl.tokenize_value(fv, 0, shcl.Rules.Current, ftok)
+		shcl.tokenize_value(fv + "#c", 0, shcl.Rules.Current, ltok)
 		fspans = [(p.start, p.end) for p in ftok.elements]
 		lspans = [(p.start, p.end) for p in ltok.elements]
 		if fspans != lspans or ftok.value != ltok.value:
@@ -3864,7 +3864,7 @@ def main():
 		("x: [a,b]", 2),
 		("x: [rw,noatime, c]", 3),
 	):
-		shcl.tokenize(cline, ":", False, shcl.Rules.CURRENT, ctok)
+		shcl.tokenize(cline, ":", False, shcl.Rules.Current, ctok)
 		if len(ctok.elements) != cpieces:
 			raise SystemExit(f"{cline!r}: {len(ctok.elements)} pieces, want {cpieces}")
 	shcl.tokenize("x: a,b", ":", False, shcl.Rules.V2, ctok)
@@ -4316,10 +4316,10 @@ def main():
 	if not odoc.to_canonical().startswith("srv[web]:\nsrv: web\n"):
 		raise SystemExit(f"got {odoc.to_canonical()!r}")
 	otok = shcl.Tokens()
-	shcl.tokenize("a(x).b[y].c: 1", ":", False, shcl.Rules.CURRENT, otok)
+	shcl.tokenize("a(x).b[y].c: 1", ":", False, shcl.Rules.Current, otok)
 	if otok.bracket_selector != 6:
 		raise SystemExit(f"bracket_selector {otok.bracket_selector}, want 6")
-	shcl.tokenize("a(x).b(y).c: 1", ":", False, shcl.Rules.CURRENT, otok)
+	shcl.tokenize("a(x).b(y).c: 1", ":", False, shcl.Rules.Current, otok)
 	if otok.bracket_selector is not None:
 		raise SystemExit(f"bracket_selector {otok.bracket_selector}, want None")
 	oschema = shcl.Document.parse('field: "srv[*].port"\n')

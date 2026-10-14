@@ -111,7 +111,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
 	- ID: 2026101407100008
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 8
@@ -127,6 +127,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The five `DateTime` layouts share only the names `date`, `time`, `frac` and `zone`; C's `sec` is `second` elsewhere.
 	- Expected behavior: each gets a guide line with its reason, or is made to match. The Python casing and the leaked names are mechanical, and nobody holds the 3.0 surface yet.
 	- Origin: the guide's list was last extended for the C++ interface (20260916) and the 20261007 round's `_or` rename. Not seen by an earlier round. Plausible, by reading all five surfaces.
+	- Reproduced: 20261014 on dev at `47a35aba`. The new check listed the 9 Python names, the two enums, two more Python-only names (`RULES_CURRENT` and `RULES_V2`, aliases with no reference counterpart) and 7 Python exception classes the guide doesn't name. The C and C++ points are as stated in the headers, except that Go's CLI has a private status-to-exit-code helper like Rust's.
+	- Actual fix: made to match where it was a name. Python's `Quote` and `Rules` members are the reference's, `Quote.None_` with PEP 8's underscore for a keyword. The 9 internals start with `_`, and `RULES_CURRENT` and `RULES_V2` are gone. C's unit lookups are `shcl_duration_unit_from_spelling` and `shcl_size_unit_from_spelling`, its unit values are `SHCL_DURATION_MILLIS` to `SHCL_SIZE_TEBI`, and `shcl_datetime`'s seconds are `has_second` and `second`. The rest got a guide line with its reason: C's `shcl_quote_segment` taking a document, the exit-code helpers, the C++ datetime text reads and status tier, the duration types and "no unit" spellings, the datetime layouts, and Python's exception classes. Changelog lines for the renames.
+	- Decisions:
+		- 20261014: shapes and calls that exist for a reason got a guide line, and only names were changed. The C unit values weren't in the item, but they're the same kind of drift and C was the only binding with other words (me).
+	- Swept: check-docs now walks every Python module-level name, `__all__` against the reference's pub items, and each Python enum's members against the reference's. The C++ enums already match the reference by name. Go's enum prefixes and C's `SET`, `WRITE`, `SCHEMA`, `KIND` and `SEV` prefixes are prefixes on the reference's words. No check walks the Go or C names against the reference; check-veneer covers C against C++.
+	- Verified: Python suite, ruff and mypy; C conformance, the veneer smoke, oom and mem_bounds tests, and check-veneer; cargo test; go test `-count=1`; crosscheck (22053 comparisons) and cli-regress (585 rows) over all 4 CLIs; check-docs as `SHCL_GATE_REF=main`; shellcheck and markdownlint.
+	- Test case: check-docs `EshYXXC` (`python-surface-matches-reference`). It failed on dev with 20 findings and passes after. Its other branches failed under an injected pub item and enum on one side only. The C renames have no test of their own, past the C runner, the veneer and the C CLI building against them.
+	- Branch: `bindparity`
+	- Commit: COMMIT_BIND
+	- Acceptance signoff: Self-closed: the Python names and the C renames are mechanical, the guide lines state what each binding does, and the check failed before and passes after.
+	- Closed: 20261014-CLOSED_BIND
 
 - A public call that spells one value the way the writer would
 	- ID: 2026101407100011

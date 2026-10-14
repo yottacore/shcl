@@ -266,8 +266,8 @@ static char *scalar_read(shcl_doc *d, const char *kind, const char *q, size_t qn
 		const char *unit = at ? at + 1 : "";
 		size_t un = at ? (size_t)(kind + kn - unit) : 0;
 		int64_t v;
-		if (kind[0] == 'd') { shcl_read_i64 r = shcl_read_duration(d, q, qn, un ? shcl_duration_unit_of(unit, un) : SHCL_DURATION_NONE); *st = r.status; v = r.value; }
-		else { shcl_read_i64 r = shcl_read_size(d, q, qn, un ? shcl_size_unit_of(unit, un) : SHCL_SIZE_NONE, decimal); *st = r.status; v = r.value; }
+		if (kind[0] == 'd') { shcl_read_i64 r = shcl_read_duration(d, q, qn, un ? shcl_duration_unit_from_spelling(unit, un) : SHCL_DURATION_NONE); *st = r.status; v = r.value; }
+		else { shcl_read_i64 r = shcl_read_size(d, q, qn, un ? shcl_size_unit_from_spelling(unit, un) : SHCL_SIZE_NONE, decimal); *st = r.status; v = r.value; }
 		int k = snprintf(nb, sizeof nb, "%" PRId64, v); tsv_escape(nb, (size_t)k, &out, &olen, &ocap);
 	}
 	else { fprintf(stderr, "unknown type '%s'\n", kind); exit(2); }
@@ -3106,7 +3106,7 @@ int main(int argc, char **argv) {
 		char frac[4096]; memset(frac, '9', sizeof frac);
 		worst.has_date = 1; worst.year = INT32_MIN; worst.month = UINT32_MAX; worst.day = UINT32_MAX;
 		worst.has_time = 1; worst.hour = UINT32_MAX; worst.minute = UINT32_MAX;
-		worst.has_sec = 1; worst.sec = UINT32_MAX;
+		worst.has_second = 1; worst.second = UINT32_MAX;
 		worst.has_frac = 1; worst.frac.p = frac; worst.frac.n = sizeof frac;
 		worst.zone = SHCL_ZONE_OFFSET; worst.off_min = INT32_MIN;
 		// On the heap and exactly the documented size, so a write past it is a
@@ -3694,7 +3694,7 @@ int main(int argc, char **argv) {
 		bad[3].has_date = 1; bad[3].year = -1; bad[3].month = 1; bad[3].day = 1;
 		bad[4].has_time = 1; bad[4].hour = 24;
 		bad[5].has_time = 1; bad[5].hour = 1; bad[5].minute = 2; bad[5].has_frac = 1; bad[5].frac = s_lit("5"); // fraction with no seconds
-		bad[6].has_time = 1; bad[6].hour = 1; bad[6].minute = 2; bad[6].has_sec = 1; bad[6].sec = 3; bad[6].has_frac = 1; bad[6].frac = s_lit(""); // empty fraction
+		bad[6].has_time = 1; bad[6].hour = 1; bad[6].minute = 2; bad[6].has_second = 1; bad[6].second = 3; bad[6].has_frac = 1; bad[6].frac = s_lit(""); // empty fraction
 		bad[7] = bad[6]; bad[7].frac = s_lit("12345678901"); // 11 digits
 		bad[8].has_time = 1; bad[8].hour = 1; bad[8].minute = 2; bad[8].zone = SHCL_ZONE_OFFSET; bad[8].off_min = 9999; // +166:39
 		bad[9].has_date = 1; bad[9].year = 2026; bad[9].month = 1; bad[9].day = 1; bad[9].zone = SHCL_ZONE_UTC; // zone on a date alone
@@ -3706,7 +3706,7 @@ int main(int argc, char **argv) {
 			if (shcl_set_datetime_default(sd, "z", 1, &bad[i]) != SHCL_SET_BAD_DATETIME || shcl_set_datetime_array_default(sd, "z", 1, pair, 2) != SHCL_SET_BAD_DATETIME)
 				fail("setters_refuse", "a datetime the reader refuses passed a default form on a present path");
 		}
-		shcl_datetime ok = good; ok.day = 2; ok.has_time = 1; ok.hour = 3; ok.minute = 4; ok.has_sec = 1; ok.sec = 5; ok.has_frac = 1; ok.frac = s_lit("60"); ok.zone = SHCL_ZONE_OFFSET; ok.off_min = -90;
+		shcl_datetime ok = good; ok.day = 2; ok.has_time = 1; ok.hour = 3; ok.minute = 4; ok.has_second = 1; ok.second = 5; ok.has_frac = 1; ok.frac = s_lit("60"); ok.zone = SHCL_ZONE_OFFSET; ok.off_min = -90;
 		if (shcl_set_datetime(sd, "d", 1, &ok) != SHCL_SET_OK) fail("setters_refuse", "a valid datetime was refused");
 		shcl_read_dt rd = shcl_read_datetime(sd, "d", 1);
 		char okb[SHCL_DT_BUF], rdb[SHCL_DT_BUF]; size_t okn = shcl_datetime_str(&ok, okb), rdn = shcl_datetime_str(&rd.value, rdb);

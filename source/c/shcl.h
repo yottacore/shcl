@@ -135,7 +135,7 @@ typedef struct shcl_doc shcl_doc;
 typedef enum { SHCL_ZONE_NONE, SHCL_ZONE_UTC, SHCL_ZONE_OFFSET } shcl_zone_kind;
 typedef struct {
 	int has_date; int32_t year; uint32_t month; uint32_t day;
-	int has_time; uint32_t hour; uint32_t minute; int has_sec; uint32_t sec;
+	int has_time; uint32_t hour; uint32_t minute; int has_second; uint32_t second;
 	int has_frac; shcl_str frac;      // fractional-second digits, as typed
 	shcl_zone_kind zone; int32_t off_min;
 } shcl_datetime;
@@ -589,15 +589,15 @@ shcl_read_str  shcl_read_raw(shcl_doc *d, const char *path, size_t plen);
 shcl_read_str  shcl_read_raw_info(shcl_doc *d, const char *path, size_t plen);
 
 // The unit a duration or size read gives a bare number, when the field name
-// gives none; the NONE value asks for none. SHCL_SIZE_KB to SHCL_SIZE_TB are
-// powers of 1024 unless the read asks for decimal; KIB to TIB always are.
-typedef enum { SHCL_DURATION_NONE, SHCL_DURATION_MS, SHCL_DURATION_S, SHCL_DURATION_M, SHCL_DURATION_H, SHCL_DURATION_D } shcl_duration_unit;
-typedef enum { SHCL_SIZE_NONE, SHCL_SIZE_B, SHCL_SIZE_KB, SHCL_SIZE_MB, SHCL_SIZE_GB, SHCL_SIZE_TB, SHCL_SIZE_KIB, SHCL_SIZE_MIB, SHCL_SIZE_GIB, SHCL_SIZE_TIB } shcl_size_unit;
+// gives none; the NONE value asks for none. SHCL_SIZE_KILO to SHCL_SIZE_TERA
+// are powers of 1024 unless the read asks for decimal; KIBI to TEBI always are.
+typedef enum { SHCL_DURATION_NONE, SHCL_DURATION_MILLIS, SHCL_DURATION_SECONDS, SHCL_DURATION_MINUTES, SHCL_DURATION_HOURS, SHCL_DURATION_DAYS } shcl_duration_unit;
+typedef enum { SHCL_SIZE_NONE, SHCL_SIZE_BYTES, SHCL_SIZE_KILO, SHCL_SIZE_MEGA, SHCL_SIZE_GIGA, SHCL_SIZE_TERA, SHCL_SIZE_KIBI, SHCL_SIZE_MEBI, SHCL_SIZE_GIBI, SHCL_SIZE_TEBI } shcl_size_unit;
 // The unit a value spelling names (ms s m h d; B KB kB MB GB TB KiB MiB GiB
 // TiB, letter case read), or the NONE value; and the spelling back, "" for
 // NONE. Static strings.
-shcl_duration_unit shcl_duration_unit_of(const char *s, size_t n);
-shcl_size_unit shcl_size_unit_of(const char *s, size_t n);
+shcl_duration_unit shcl_duration_unit_from_spelling(const char *s, size_t n);
+shcl_size_unit shcl_size_unit_from_spelling(const char *s, size_t n);
 const char *shcl_duration_unit_spelling(shcl_duration_unit u);
 const char *shcl_size_unit_spelling(shcl_size_unit u);
 // A duration in whole milliseconds: `500ms`, `30s`, `1h 30m`, `2d`. A bare
@@ -2475,26 +2475,26 @@ static size_t invisible_at(ShclStr t, size_t i, uint32_t *cp) {
 
 static uint64_t duration_millis(shcl_duration_unit u) {
 	switch (u) {
-	case SHCL_DURATION_MS: return 1;
-	case SHCL_DURATION_S: return 1000;
-	case SHCL_DURATION_M: return 60000;
-	case SHCL_DURATION_H: return 3600000;
-	case SHCL_DURATION_D: return 86400000;
+	case SHCL_DURATION_MILLIS: return 1;
+	case SHCL_DURATION_SECONDS: return 1000;
+	case SHCL_DURATION_MINUTES: return 60000;
+	case SHCL_DURATION_HOURS: return 3600000;
+	case SHCL_DURATION_DAYS: return 86400000;
 	default: return 0;
 	}
 }
 static uint64_t size_bytes(shcl_size_unit u, int decimal) {
 	uint64_t k = decimal ? 1000 : 1024;
 	switch (u) {
-	case SHCL_SIZE_B: return 1;
-	case SHCL_SIZE_KB: return k;
-	case SHCL_SIZE_MB: return k * k;
-	case SHCL_SIZE_GB: return k * k * k;
-	case SHCL_SIZE_TB: return k * k * k * k;
-	case SHCL_SIZE_KIB: return (uint64_t)1 << 10;
-	case SHCL_SIZE_MIB: return (uint64_t)1 << 20;
-	case SHCL_SIZE_GIB: return (uint64_t)1 << 30;
-	case SHCL_SIZE_TIB: return (uint64_t)1 << 40;
+	case SHCL_SIZE_BYTES: return 1;
+	case SHCL_SIZE_KILO: return k;
+	case SHCL_SIZE_MEGA: return k * k;
+	case SHCL_SIZE_GIGA: return k * k * k;
+	case SHCL_SIZE_TERA: return k * k * k * k;
+	case SHCL_SIZE_KIBI: return (uint64_t)1 << 10;
+	case SHCL_SIZE_MEBI: return (uint64_t)1 << 20;
+	case SHCL_SIZE_GIBI: return (uint64_t)1 << 30;
+	case SHCL_SIZE_TEBI: return (uint64_t)1 << 40;
 	default: return 0;
 	}
 }
@@ -2506,15 +2506,15 @@ const char *shcl_duration_unit_spelling(shcl_duration_unit u) {
 const char *shcl_size_unit_spelling(shcl_size_unit u) {
 	return (unsigned)u < sizeof size_spellings / sizeof *size_spellings ? size_spellings[u] : "";
 }
-shcl_duration_unit shcl_duration_unit_of(const char *s, size_t n) {
+shcl_duration_unit shcl_duration_unit_from_spelling(const char *s, size_t n) {
 	for (size_t u = 1; u < sizeof duration_spellings / sizeof *duration_spellings; u++)
 		if (strlen(duration_spellings[u]) == n && memcmp(duration_spellings[u], s, n) == 0) return (shcl_duration_unit)u;
 	return SHCL_DURATION_NONE;
 }
 /* Letter case is read, since Mb is megabits to most readers; kB is the one
    other spelling taken. */
-shcl_size_unit shcl_size_unit_of(const char *s, size_t n) {
-	if (n == 2 && memcmp(s, "kB", 2) == 0) return SHCL_SIZE_KB;
+shcl_size_unit shcl_size_unit_from_spelling(const char *s, size_t n) {
+	if (n == 2 && memcmp(s, "kB", 2) == 0) return SHCL_SIZE_KILO;
 	for (size_t u = 1; u < sizeof size_spellings / sizeof *size_spellings; u++)
 		if (strlen(size_spellings[u]) == n && memcmp(size_spellings[u], s, n) == 0) return (shcl_size_unit)u;
 	return SHCL_SIZE_NONE;
@@ -2528,12 +2528,12 @@ shcl_size_unit shcl_size_unit_of(const char *s, size_t n) {
    usually a plural. A capitalized word (`timeoutMs`) is not a boundary,
    since names fold to lower case and fmt writes them folded. */
 static const struct { const char *end; shcl_duration_unit unit; } duration_names[] = {
-	{"ms", SHCL_DURATION_MS}, {"sec", SHCL_DURATION_S}, {"seconds", SHCL_DURATION_S},
-	{"minutes", SHCL_DURATION_M}, {"hours", SHCL_DURATION_H}, {"days", SHCL_DURATION_D},
+	{"ms", SHCL_DURATION_MILLIS}, {"sec", SHCL_DURATION_SECONDS}, {"seconds", SHCL_DURATION_SECONDS},
+	{"minutes", SHCL_DURATION_MINUTES}, {"hours", SHCL_DURATION_HOURS}, {"days", SHCL_DURATION_DAYS},
 };
 static const struct { const char *end; shcl_size_unit unit; } size_names[] = {
-	{"bytes", SHCL_SIZE_B}, {"kb", SHCL_SIZE_KB}, {"mb", SHCL_SIZE_MB}, {"gb", SHCL_SIZE_GB}, {"tb", SHCL_SIZE_TB},
-	{"kib", SHCL_SIZE_KIB}, {"mib", SHCL_SIZE_MIB}, {"gib", SHCL_SIZE_GIB}, {"tib", SHCL_SIZE_TIB},
+	{"bytes", SHCL_SIZE_BYTES}, {"kb", SHCL_SIZE_KILO}, {"mb", SHCL_SIZE_MEGA}, {"gb", SHCL_SIZE_GIGA}, {"tb", SHCL_SIZE_TERA},
+	{"kib", SHCL_SIZE_KIBI}, {"mib", SHCL_SIZE_MEBI}, {"gib", SHCL_SIZE_GIBI}, {"tib", SHCL_SIZE_TEBI},
 };
 /* name ends in end, in any letter case, after a `-` or `_`. */
 static int name_ends(ShclStr name, const char *end) {
@@ -2617,7 +2617,7 @@ static int parse_duration_text(ShclStr t, shcl_duration_unit bare, int64_t *ms, 
 		rest = trim_wsp_start(s_slice(rest, end, rest.n));
 		size_t n = 0;
 		while (n < rest.n && ((unsigned char)rest.p[n] | 0x20) >= 'a' && ((unsigned char)rest.p[n] | 0x20) <= 'z') n++;
-		shcl_duration_unit u = shcl_duration_unit_of(rest.p, n);
+		shcl_duration_unit u = shcl_duration_unit_from_spelling(rest.p, n);
 		if (u == SHCL_DURATION_NONE || (last != SHCL_DURATION_NONE && last <= u)) return 0;
 		uint64_t v;
 		if (!scaled(ip, fp, duration_millis(u), &v) || total > UINT64_MAX - v) return 0;
@@ -2639,7 +2639,7 @@ static int parse_size_text(ShclStr t, shcl_size_unit bare, int decimal, int64_t 
 	if (!decimal_at(t, &ip, &fp, &end)) return 0;
 	ShclStr rest = trim_wsp_start(s_slice(t, end, t.n));
 	*unit = SHCL_SIZE_NONE;
-	if (rest.n && (*unit = shcl_size_unit_of(rest.p, rest.n)) == SHCL_SIZE_NONE) return 0;
+	if (rest.n && (*unit = shcl_size_unit_from_spelling(rest.p, rest.n)) == SHCL_SIZE_NONE) return 0;
 	shcl_size_unit use = *unit != SHCL_SIZE_NONE ? *unit : bare;
 	uint64_t v;
 	if (use == SHCL_SIZE_NONE || !scaled(ip, fp, size_bytes(use, decimal), &v) || v > (uint64_t)INT64_MAX) return 0;
@@ -4496,7 +4496,7 @@ static int parse_datetime(ShclArena *a, ShclStr text, shcl_datetime *out) {
 			ShclTimePart tp = parse_time_part(a, t);
 			if (!tp.ok) return 0;
 			out->has_time = 1; out->hour = tp.h; out->minute = tp.mi;
-			out->has_sec = tp.has_sec; out->sec = tp.sec;
+			out->has_second = tp.has_sec; out->second = tp.sec;
 			out->has_frac = tp.has_frac; out->frac = tp.frac; out->zone = tp.zone; out->off_min = tp.off;
 			return 1;
 		}
@@ -4508,7 +4508,7 @@ static int parse_datetime(ShclArena *a, ShclStr text, shcl_datetime *out) {
 		if (!tp.ok) return 0;
 		out->has_date = 1; out->year = dp.y; out->month = dp.m; out->day = dp.d;
 		out->has_time = 1; out->hour = tp.h; out->minute = tp.mi;
-		out->has_sec = tp.has_sec; out->sec = tp.sec;
+		out->has_second = tp.has_sec; out->second = tp.sec;
 		out->has_frac = tp.has_frac; out->frac = tp.frac; out->zone = tp.zone; out->off_min = tp.off;
 		return 1;
 	}
@@ -7036,9 +7036,9 @@ static int dt_reads_back(ShclArena *scratch, const shcl_datetime *dt) {
 	char b[SHCL_DT_BUF]; ShclStr t; t.p = b; t.n = shcl_datetime_str(dt, b);
 	shcl_datetime back;
 	if (!parse_datetime(scratch, t, &back)) return 0;
-	if (back.has_date != dt->has_date || back.has_time != dt->has_time || back.has_sec != dt->has_sec || back.has_frac != dt->has_frac || back.zone != dt->zone) return 0;
+	if (back.has_date != dt->has_date || back.has_time != dt->has_time || back.has_second != dt->has_second || back.has_frac != dt->has_frac || back.zone != dt->zone) return 0;
 	if (dt->has_date && (back.year != dt->year || back.month != dt->month || back.day != dt->day)) return 0;
-	if (dt->has_time && (back.hour != dt->hour || back.minute != dt->minute || (dt->has_sec && back.sec != dt->sec))) return 0;
+	if (dt->has_time && (back.hour != dt->hour || back.minute != dt->minute || (dt->has_second && back.second != dt->second))) return 0;
 	if (dt->has_frac && !s_eq(back.frac, dt->frac)) return 0;
 	if (dt->zone == SHCL_ZONE_OFFSET && back.off_min != dt->off_min) return 0;
 	return 1;
@@ -10828,7 +10828,7 @@ size_t shcl_datetime_str(const shcl_datetime *dt, char *out) {
 	if (dt->has_date) { o += snprintf(o, sizeof b, "%04d-%02u-%02u", dt->year, dt->month, dt->day); if (dt->has_time) *o++ = 'T'; }
 	if (dt->has_time) {
 		o += snprintf(o, (size_t)(b + sizeof b - o), "%02u:%02u", dt->hour, dt->minute);
-		if (dt->has_sec) o += snprintf(o, (size_t)(b + sizeof b - o), ":%02u", dt->sec);
+		if (dt->has_second) o += snprintf(o, (size_t)(b + sizeof b - o), ":%02u", dt->second);
 		if (dt->has_frac) {
 			// frac keeps its own cap: the fixed parts plus 30 digits stay
 			// inside the clamp for every parsed value.
@@ -11122,7 +11122,7 @@ static int64_t v_moment_minutes(const shcl_datetime *x, int32_t off) {
 }
 static int v_same_moment(const shcl_datetime *x, const shcl_datetime *y) {
 	if (x->has_date != y->has_date || x->has_time != y->has_time) return 0;
-	if (x->has_time && (x->has_sec != y->has_sec || (x->has_sec && x->sec != y->sec))) return 0;
+	if (x->has_time && (x->has_second != y->has_second || (x->has_second && x->second != y->second))) return 0;
 	{
 		ShclStr a; a.p = x->has_frac ? x->frac.p : ""; a.n = x->has_frac ? x->frac.n : 0;
 		ShclStr b; b.p = y->has_frac ? y->frac.p : ""; b.n = y->has_frac ? y->frac.n : 0;
@@ -11282,8 +11282,8 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 	if (unit_at != (size_t)-1) {
 		ShclNode *kid = &NODE(schema, unit_at);
 		ShclStr t = kid->value.els[0].text;
-		if (is_duration) c.unit_d = shcl_duration_unit_of(t.p, t.n);
-		if (is_size) c.unit_s = shcl_size_unit_of(t.p, t.n);
+		if (is_duration) c.unit_d = shcl_duration_unit_from_spelling(t.p, t.n);
+		if (is_size) c.unit_s = shcl_size_unit_from_spelling(t.p, t.n);
 		if (c.unit_d == SHCL_DURATION_NONE && c.unit_s == SHCL_SIZE_NONE) v_diag(a, faults, kid->line, "V092", v_msg_key(a, "unit"));
 	}
 	if (decimal_key_at != (size_t)-1 && !is_size) {

@@ -40,7 +40,8 @@ from typing import Any, Generic, TypeVar
 
 # The public surface, stated rather than inferred: without this `from shcl
 # import *` hands out this module's own imports (math, os, stat, Decimal, Enum)
-# and its internal ROOT constant alongside the real API.
+# alongside the real API. Anything else at module level starts with `_`, and
+# check-docs holds this list to the reference's pub items.
 __all__ = [
 	"DateTime",
 	"Diagnostic",
@@ -59,8 +60,6 @@ __all__ = [
 	"NamedSchema",
 	"Piece",
 	"Quote",
-	"RULES_CURRENT",
-	"RULES_V2",
 	"Read",
 	"Rules",
 	"SCHEMA_LINE_HEAD",
@@ -246,10 +245,10 @@ class Field:
 		return f"Field(path={self.path!r}, name={self.name!r}, value={self.value!r}, line={self.line})"
 
 
-T = TypeVar("T")
+_T = TypeVar("_T")
 
 
-class Read(Generic[T]):
+class Read(Generic[_T]):
 	"""Value plus status plus the original raw text (when the path resolved).
 	Array reads also give one status per slot (element, or wildcard instance)
 	in .slots; .status is then the worst slot. Scalar reads and the status
@@ -265,7 +264,7 @@ class Read(Generic[T]):
 	that element was a backtick value: raw text the program decodes itself,
 	which SHCL hands back as written. A backtick value counts as quoted too."""
 	__slots__ = ("value", "status", "raw", "slots", "line", "quoted", "backtick")
-	value: T
+	value: _T
 	status: Status
 	raw: str | None
 	slots: list[Status]
@@ -273,7 +272,7 @@ class Read(Generic[T]):
 	quoted: bool
 	backtick: bool
 
-	def __init__(self, value: T, status: Status, raw: str | None, slots: list[Status] | None = None):
+	def __init__(self, value: _T, status: Status, raw: str | None, slots: list[Status] | None = None):
 		self.value = value
 		self.status = status
 		self.raw = raw
@@ -290,7 +289,7 @@ class Read(Generic[T]):
 		return (f"Read(value={self.value!r}, status={self.status}, raw={self.raw!r}, "
 			f"slots=[{slots}], line={self.line}, quoted={self.quoted}, backtick={self.backtick})")
 
-	def _at(self, line: int, el: _Element | None) -> Read[T]:
+	def _at(self, line: int, el: _Element | None) -> Read[_T]:
 		self.line = line
 		self.quoted = el is not None and el.quoted
 		self.backtick = el is not None and el.mark is _Mark.BACKTICK
@@ -862,23 +861,23 @@ class _Node:
 		return t
 
 
-ROOT = 0
+_ROOT = 0
 # Stack entry for a binding line that was skipped: it still owns its indent
 # level, so the lines written under it are skipped with it instead of
 # re-parenting one level up. sys.maxsize so an arena index through it fails
 # loudly rather than reading a real node.
-DEAD = sys.maxsize
+_DEAD = sys.maxsize
 # Stack entry for a line whose indent matched no open level (E012): never a
 # level a sibling can bind at, but deeper lines are still under it. It sits
 # on top of the levels open before it without closing any of them.
-UNOPENED = sys.maxsize - 1
+_UNOPENED = sys.maxsize - 1
 # Stack entry for a field line refused for its value alone (E017, E019,
 # E023, E025) or for a bare name that still reads (E014): it binds nothing,
 # but its path is fine, so the first line that binds under it opens the path
 # as `name:` would and binds there.
-LAZY = sys.maxsize - 2
+_LAZY = sys.maxsize - 2
 # Ends a name-index chain (see _NameIndex).
-NIL = sys.maxsize
+_NIL = sys.maxsize
 
 
 def _fold_node_into(arena, survivor, loser):
@@ -1075,7 +1074,7 @@ def _settle_first_blank(arena, orphans):
 	that kept one there would not survive its own canonical form, and a merge or
 	a new first line - where it is no longer first - would place a blank nobody
 	wrote. Clear it wherever output starts."""
-	kids = arena[ROOT].children
+	kids = arena[_ROOT].children
 	if kids:
 		n = arena[kids[0]]
 		if n.trivia is not None and n.trivia.leading:
@@ -1094,7 +1093,7 @@ def _settle_first_blank(arena, orphans):
 MAX_DEPTH = 512
 
 # How much of a file's own name the temporary file beside it borrows, in bytes.
-TMP_NAME_BYTES = 64
+_TMP_NAME_BYTES = 64
 
 
 # ---------------------------------------------------------------------------
@@ -1236,15 +1235,16 @@ _BARE_NAME_CHARS = frozenset(
 
 
 class Quote(Enum):
-	"""How a piece was quoted. OPEN is a piece that began with a quote and
+	"""How a piece was quoted. Open is a piece that began with a quote and
 	never closed with the matching quote as its last character: the whole
-	piece is kept literally, quotes and all. BACKTICK is a raw value, read as
-	written: value elements only."""
-	NONE = 0
-	SINGLE = 1
-	DOUBLE = 2
-	BACKTICK = 3
-	OPEN = 4
+	piece is kept literally, quotes and all. Backtick is a raw value, read as
+	written: value elements only. None_ has PEP 8's trailing underscore, since
+	None is a keyword."""
+	None_ = 0
+	Single = 1
+	Double = 2
+	Backtick = 3
+	Open = 4
 
 
 class Piece:
@@ -1285,12 +1285,8 @@ class SegTok:
 class Rules(Enum):
 	"""Which spelling the tokenizer reads: the current rules, listed at the top
 	of this section, or the 2.x rules, for migrate only."""
-	CURRENT = 0
+	Current = 0
 	V2 = 1
-
-
-RULES_CURRENT = Rules.CURRENT
-RULES_V2 = Rules.V2
 
 
 class Tokens:
@@ -1364,7 +1360,7 @@ class Tokens:
 	def element_count(self) -> int:
 		"""How many elements the value holds: a quoted piece counts even when
 		empty (`""` is a real element), an empty bare slot does not."""
-		return sum(1 for p in self.elements if p.quote is not Quote.NONE or p.end > p.start)
+		return sum(1 for p in self.elements if p.quote is not Quote.None_ or p.end > p.start)
 
 
 # The structure bytes the scan compares against. All ASCII, which UTF-8
@@ -1467,11 +1463,11 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 	n = len(s)
 	pos = _skip_wsp(s, pos)
 	start = pos
-	quote = Quote.NONE
+	quote = Quote.None_
 	every_comma = term != _B_COMMA or array or rules is Rules.V2
 	# A backtick quotes a raw value element. 2.x had none, a selector body
 	# takes none, and a run of three opens a raw block instead.
-	tick = rules is Rules.CURRENT and term == _B_COMMA and not s.startswith(b"```", min(pos, n))
+	tick = rules is Rules.Current and term == _B_COMMA and not s.startswith(b"```", min(pos, n))
 	if pos < n and (s[pos] == _B_DQUOTE or s[pos] == _B_SQUOTE or (tick and s[pos] == _B_BACKTICK)):
 		close = _quote_close(s, pos, rules)
 		if close is not None:
@@ -1487,20 +1483,20 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 				ended = term == _B_COMMA
 			if ended:
 				if s[pos] == _B_DQUOTE:
-					q = Quote.DOUBLE
+					q = Quote.Double
 				elif s[pos] == _B_BACKTICK:
-					q = Quote.BACKTICK
+					q = Quote.Backtick
 				else:
-					q = Quote.SINGLE
+					q = Quote.Single
 				return Piece(pos + 1, close, q), i
 			# Text after the closing quote: the quote was a character after
 			# all, and the scan restarts at it. 2.x went on from the close
 			# with the quotes read as a pair.
-			quote = Quote.OPEN
+			quote = Quote.Open
 			if rules is Rules.V2:
 				pos = close + 1
 		else:
-			quote = Quote.OPEN
+			quote = Quote.Open
 			if rules is Rules.V2:
 				# 2.x: an open quote swallowed the rest of the line.
 				end = n
@@ -1532,14 +1528,14 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 	# 2.x judged a value piece quoted by its shape after the scan: a quote at
 	# both ends, the last one not escaped, however many closes sat between. A
 	# selector body had to close right before its `]`, or the line was E014.
-	if rules is Rules.V2 and term == _B_COMMA and quote is Quote.OPEN and content_end - start >= 2 and s[content_end - 1] == s[start]:
+	if rules is Rules.V2 and term == _B_COMMA and quote is Quote.Open and content_end - start >= 2 and s[content_end - 1] == s[start]:
 		run = 0
 		k = content_end - 2
 		while k >= start and s[k] == _B_BACKSLASH:
 			run += 1
 			k -= 1
 		if run % 2 == 0:
-			q = Quote.DOUBLE if s[start] == _B_DQUOTE else Quote.SINGLE
+			q = Quote.Double if s[start] == _B_DQUOTE else Quote.Single
 			return Piece(start + 1, content_end - 1, q), min(pos, n)
 	return Piece(start, content_end, quote), min(pos, n)
 
@@ -1564,7 +1560,7 @@ def tokenize_value(text: str, from_: int, rules: Rules, out: Tokens) -> None:
 
 def _scan_value(s, from_, rules, out):
 	n = len(s)
-	if rules is Rules.CURRENT:
+	if rules is Rules.Current:
 		pos = _skip_wsp(s, from_)
 		if pos < n and s[pos] == _B_LBRACKET:
 			_scan_array(s, from_, pos, out)
@@ -1573,7 +1569,7 @@ def _scan_value(s, from_, rules, out):
 	# would ever stop: it strides whole characters, so a comma inside a stride
 	# never splits there, while bytes.find would split on it. No in-tree caller
 	# does that, but tokenize_value is public, so fall through to the loop.
-	if rules is Rules.CURRENT and (from_ >= n or s[from_] & 0xC0 != 0x80) and not _VALUE_SLOW.search(s, from_):
+	if rules is Rules.Current and (from_ >= n or s[from_] & 0xC0 != 0x80) and not _VALUE_SLOW.search(s, from_):
 		# Fast path: with no quote, no backtick and no `#` after the
 		# separator, every piece is bare and a comma splits when a blank or
 		# the end follows it, so the scan would only ever trim. bytes.find
@@ -1592,7 +1588,7 @@ def _scan_value(s, from_, rules, out):
 			chunk = s[at:n if cut < 0 else cut]
 			a = at + len(chunk) - len(chunk.lstrip(_WSP_BYTES))
 			b = a + len(chunk.strip(_WSP_BYTES))
-			out.elements.append(Piece(a, b, Quote.NONE))
+			out.elements.append(Piece(a, b, Quote.None_))
 			if b > a:
 				count += 1
 				if out.cap and count > out.cap:
@@ -1609,7 +1605,7 @@ def _scan_value(s, from_, rules, out):
 	while True:
 		piece, stop = _scan_piece(s, pos, _B_COMMA, rules, True)
 		out.elements.append(piece)
-		if piece.quote is not Quote.NONE or piece.end > piece.start:
+		if piece.quote is not Quote.None_ or piece.end > piece.start:
 			count += 1
 			if out.cap and count > out.cap:
 				out.capped = True
@@ -1633,7 +1629,7 @@ def _end_value(s: bytes, from_: int, stop_at: int, out: Tokens) -> None:
 	out.value = (min(a, b), b)
 	if out.elements:
 		last = out.elements[-1]
-		if last.quote is not Quote.SINGLE and last.quote is not Quote.DOUBLE and last.quote is not Quote.BACKTICK and last.end > b:
+		if last.quote is not Quote.Single and last.quote is not Quote.Double and last.quote is not Quote.Backtick and last.end > b:
 			out.elements[-1] = Piece(last.start, max(b, last.start), last.quote)
 
 
@@ -1649,9 +1645,9 @@ def _scan_array(s, from_, open_at, out):
 	count = 0
 	close = None
 	while True:
-		piece, stop = _scan_piece(s, pos, _B_COMMA, Rules.CURRENT, True, True)
+		piece, stop = _scan_piece(s, pos, _B_COMMA, Rules.Current, True, True)
 		out.elements.append(piece)
-		if piece.quote is Quote.NONE and piece.end == piece.start:
+		if piece.quote is Quote.None_ and piece.end == piece.start:
 			# `[]`, blanks or not, is the empty array; any other empty piece
 			# is a slip.
 			only = len(out.elements) == 1 and stop < n and s[stop] == _B_RBRACKET
@@ -1663,7 +1659,7 @@ def _scan_array(s, from_, open_at, out):
 				out.capped = True
 				out.value = (from_, from_)
 				return
-			if piece.quote is Quote.NONE and out.array_fault is None:
+			if piece.quote is Quote.None_ and out.array_fault is None:
 				k = s.find(b"[", piece.start, piece.end)
 				if k >= 0:
 					out.array_fault = (k, "a '[' inside an array")
@@ -1683,7 +1679,7 @@ def _scan_array(s, from_, open_at, out):
 				out.array_fault = (after, "text after ']'")
 			# The comment past the stray text, found the way a value finds it.
 			while True:
-				_, stop = _scan_piece(s, after, _B_COMMA, Rules.CURRENT, True)
+				_, stop = _scan_piece(s, after, _B_COMMA, Rules.Current, True)
 				if stop < n and s[stop] == _B_COMMA:
 					after = stop + 1
 					continue
@@ -1694,7 +1690,7 @@ def _scan_array(s, from_, open_at, out):
 		out.array_fault = (open_at, "no closing ']' on the line")
 	if end < n:
 		out.comment = end
-	if len(out.elements) == 1 and out.elements[0].quote is Quote.NONE and out.elements[0].end == out.elements[0].start:
+	if len(out.elements) == 1 and out.elements[0].quote is Quote.None_ and out.elements[0].end == out.elements[0].start:
 		out.elements = []
 	b = end
 	while b > open_at and _is_wsp_byte(s[b - 1]):
@@ -1726,12 +1722,12 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			if close is None:
 				out.fault = (pos, "unterminated quote in a field name")
 				return
-			name = Piece(pos + 1, close, Quote.DOUBLE if b == _B_DQUOTE else Quote.SINGLE)
+			name = Piece(pos + 1, close, Quote.Double if b == _B_DQUOTE else Quote.Single)
 			pos = close + 1
 		elif path and b == _B_STAR:
 			star = True
 			pos += 1
-			name = Piece(pos - 1, pos, Quote.NONE)
+			name = Piece(pos - 1, pos, Quote.None_)
 		else:
 			start = pos
 			# The bare-name run, matched at C speed rather than a byte at a
@@ -1745,7 +1741,7 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			# a byte order mark does not read: at the start of a file the
 			# load strips the mark, so the line would bind as something else.
 			# One led by a `*` is a list item's line, which never gets here.
-			if not path and rules is Rules.CURRENT and s[start] != _B_STAR and not s.startswith(_BOM_BYTES, start):
+			if not path and rules is Rules.Current and s[start] != _B_STAR and not s.startswith(_BOM_BYTES, start):
 				run = pos
 				end = pos
 				while pos < n and not _name_stop(s[pos], sep_b):
@@ -1759,7 +1755,7 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			if pos == start:
 				out.fault = (pos, "expected a field name")
 				return
-			name = Piece(start, pos, Quote.NONE)
+			name = Piece(start, pos, Quote.None_)
 		pos = _skip_wsp(s, pos)
 		selector = None
 		# 2.x wrote a selector in brackets only. Now it is parens, and a
@@ -1767,10 +1763,10 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 		open_at = None
 		close_b = _B_RBRACKET
 		if pos < n:
-			if s[pos] == _B_LPAREN and rules is Rules.CURRENT:
+			if s[pos] == _B_LPAREN and rules is Rules.Current:
 				open_at, close_b = pos, _B_RPAREN
 			elif s[pos] == _B_LBRACKET:
-				if rules is Rules.CURRENT and out.bracket_selector is None:
+				if rules is Rules.Current and out.bracket_selector is None:
 					out.bracket_selector = pos
 				open_at = pos
 		if open_at is None and rules is Rules.V2 and pos < n and s[pos] == sep_b:
@@ -1785,10 +1781,10 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			if stop >= n or s[stop] != close_b:
 				out.fault = (open_at, "unterminated selector")
 				return
-			if piece.end == piece.start and piece.quote is Quote.NONE:
+			if piece.end == piece.start and piece.quote is Quote.None_:
 				out.fault = (open_at, "empty selector")
 				return
-			if piece.quote is Quote.OPEN and rules is Rules.V2:
+			if piece.quote is Quote.Open and rules is Rules.V2:
 				out.fault = (open_at, "unterminated quote in a selector")
 				return
 			selector = piece
@@ -1814,14 +1810,14 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 # The quote kinds whose `◉` escapes are read (the reference's decodes()):
 # bare and quoted text. A backtick value is raw, and an open piece is refused
 # before anything reads it.
-_DECODES = frozenset((Quote.NONE, Quote.SINGLE, Quote.DOUBLE))
+_DECODES = frozenset((Quote.None_, Quote.Single, Quote.Double))
 _MARK_BYTES = "\u25c9".encode()
 _MARK_OF = {
-	Quote.NONE: _Mark.BARE,
-	Quote.SINGLE: _Mark.SINGLE,
-	Quote.DOUBLE: _Mark.DOUBLE,
-	Quote.BACKTICK: _Mark.BACKTICK,
-	Quote.OPEN: _Mark.BARE,
+	Quote.None_: _Mark.BARE,
+	Quote.Single: _Mark.SINGLE,
+	Quote.Double: _Mark.DOUBLE,
+	Quote.Backtick: _Mark.BACKTICK,
+	Quote.Open: _Mark.BARE,
 }
 
 
@@ -1848,7 +1844,7 @@ def _piece_is(p, s, want):
 def _element_of(p, s):
 	"""The element a value piece makes, or None for an empty bare slot
 	(dropped, never an error)."""
-	if p.quote is Quote.NONE and p.end == p.start:
+	if p.quote is Quote.None_ and p.end == p.start:
 		return None
 	return _Element(_piece_text(p, s), _MARK_OF[p.quote])
 
@@ -2243,7 +2239,7 @@ def _src_matches_display(v, s):
 
 def _child_fence(rest, tok):
 	"""The fence a line opens under the field above it, read as a value."""
-	tokenize_value(rest, 0, Rules.CURRENT, tok)
+	tokenize_value(rest, 0, Rules.Current, tok)
 	# A capped scan zeroed the value, and a fence is told by its leading run
 	# alone.
 	if tok.capped:
@@ -2282,7 +2278,7 @@ def _line_fence(tok):
 			return None
 		value = Tokens()
 		value.src = s
-		_scan_value(s, sep + 1, Rules.CURRENT, value)
+		_scan_value(s, sep + 1, Rules.Current, value)
 		return _fence_open(s[value.value[0]:value.value[1]].decode("utf-8", "surrogatepass"))
 	if tok.sep is None:
 		return None
@@ -2405,7 +2401,7 @@ def _format_line_read(text: str) -> Read[int]:
 	# Most documents have no Format line, and every load asks.
 	if _FORMAT_WORD not in text:
 		return Read(0, Status.NotFound, None)
-	now = _RawLines(Rules.CURRENT)
+	now = _RawLines(Rules.Current)
 	then = _RawLines(Rules.V2)
 	found: Read[int] | None = None
 	unread: Read[int] | None = None
@@ -2501,7 +2497,7 @@ def read_schema_ref(text: str) -> Read[str]:
 	if word not in text:
 		return Read("", Status.NotFound, None)
 	# The Schema line is new in this format, so the blocks are the parser's.
-	lines = _RawLines(Rules.CURRENT)
+	lines = _RawLines(Rules.Current)
 	empty = 0
 	for i, line in enumerate(text.split("\n")):
 		rest = lines.step(line)
@@ -2545,7 +2541,7 @@ class _RawLines:
 		# Only a line with a run of three backticks or tildes can open a
 		# block, so the rest skip the tokenizer.
 		if "```" in rest or "~~~" in rest:
-			if self.rules == Rules.CURRENT:
+			if self.rules == Rules.Current:
 				self.fence = _opens_raw(rest, self.tok)
 			else:
 				_, self.fence = _migrate_line(rest, self.tok, self.fence, self.dry)
@@ -2563,7 +2559,7 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 	elif not _is_field_text(rest):
 		fence = None
 	else:
-		tokenize(rest, ":", False, Rules.CURRENT, tok)
+		tokenize(rest, ":", False, Rules.Current, tok)
 		fence = _line_fence(tok)
 	return None if fence is None else (fence[0], fence[1])
 
@@ -2637,7 +2633,7 @@ def _migrate_text(text, from_v2, stamp, beta):
 	fence = None
 	changed = False
 	# The output as the parser will read it, for where its raw blocks are.
-	now = _RawLines(Rules.CURRENT)
+	now = _RawLines(Rules.Current)
 	split = False
 	for i, line in enumerate(text.split("\n")):
 		if i > 0:
@@ -2811,12 +2807,12 @@ def _reads_same(spelling, quoted, logical):
 	"""True when the current tokenizer reads this spelling as one whole piece,
 	quoted the same way, with exactly this text, so nothing has to change."""
 	tok = Tokens()
-	tokenize_value(spelling, 0, Rules.CURRENT, tok)
+	tokenize_value(spelling, 0, Rules.Current, tok)
 	if len(tok.elements) != 1 or tok.value != (0, len(tok.src)):
 		return False
 	p = tok.elements[0]
 	return (
-		(p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE) == quoted
+		(p.quote is Quote.Single or p.quote is Quote.Double) == quoted
 		and _piece_fault(p, tok.src, _BARE_VALUE) is None
 		and _piece_text(p, tok.src) == logical
 	)
@@ -2848,13 +2844,13 @@ def _value_edits(s, tok, edits):
 	a backslash pair included, so the same bytes mean the same either way."""
 	for p in tok.elements:
 		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
-		quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
+		quoted = p.quote is Quote.Single or p.quote is Quote.Double
 		if quoted:
 			a, b = p.start - 1, p.end + 1
 		else:
 			a, b = p.start, p.end
 		if (
-			p.quote is Quote.NONE
+			p.quote is Quote.None_
 			and "\\" not in raw
 			and _ESCAPE_MARK not in raw
 			and raw
@@ -2863,7 +2859,7 @@ def _value_edits(s, tok, edits):
 			continue
 		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, raw):
 			continue
-		spelling = _migrate_spelling(raw, not (quoted or p.quote is Quote.OPEN))
+		spelling = _migrate_spelling(raw, not (quoted or p.quote is Quote.Open))
 		edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
 
 
@@ -2874,7 +2870,7 @@ def _v2_array_text(s, tok):
 	already reads the same."""
 	out = ["["]
 	for p in tok.elements:
-		if p.quote is Quote.NONE and p.end <= p.start:
+		if p.quote is Quote.None_ and p.end <= p.start:
 			continue
 		if len(out) > 1:
 			out.append(", ")
@@ -2887,10 +2883,10 @@ def _v2_element_text(s, p):
 	"""One 2.x element as the writer writes it, unless its quoted spelling
 	already reads the same."""
 	raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
-	quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
+	quoted = p.quote is Quote.Single or p.quote is Quote.Double
 	if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, raw):
 		return s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass")
-	if p.quote is Quote.NONE and not _needs_quotes(raw):
+	if p.quote is Quote.None_ and not _needs_quotes(raw):
 		return raw
 	return _quote_text(raw)
 
@@ -2899,7 +2895,7 @@ def _reads_clean_now(text, from_):
 	"""True when the current rules read a value with no fault, as one piece:
 	then `a,b` is a string now and was an array under 2.x."""
 	tok = Tokens()
-	tokenize_value(text, from_, Rules.CURRENT, tok)
+	tokenize_value(text, from_, Rules.Current, tok)
 	return tok.array is None and len(tok.elements) == 1 and _value_fault(tok, tok.src) is None
 
 
@@ -2908,11 +2904,11 @@ def _quoted_name_now(spelled):
 	current rules, or None when it does not read as one clean name."""
 	line = spelled + ":"
 	tok = Tokens()
-	tokenize(line, ":", False, Rules.CURRENT, tok)
+	tokenize(line, ":", False, Rules.Current, tok)
 	if tok.fault is not None or tok.misspelled is not None or len(tok.segments) != 1:
 		return None
 	seg = tok.segments[0]
-	if seg.selector is not None or not (seg.name.quote is Quote.SINGLE or seg.name.quote is Quote.DOUBLE):
+	if seg.selector is not None or not (seg.name.quote is Quote.Single or seg.name.quote is Quote.Double):
 		return None
 	name, _ = _resolve_marks(tok.src[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass"))
 	return name
@@ -2956,7 +2952,7 @@ def _migrate_line(rest, tok, fence, st):
 			# A file that does not say it is 2.x could be a 3.0 one. Where it
 			# reads clean under these rules as well, it is left and counted.
 			respell = clean_now = False
-			if seg.name.quote is Quote.SINGLE or seg.name.quote is Quote.DOUBLE:
+			if seg.name.quote is Quote.Single or seg.name.quote is Quote.Double:
 				if "\\" in name or _ESCAPE_MARK in name:
 					now = _quoted_name_now(s[seg.name.start - 1:seg.name.end + 1].decode("utf-8", "surrogatepass"))
 					respell = now != name
@@ -2969,7 +2965,7 @@ def _migrate_line(rest, tok, fence, st):
 			if respell and clean_now and not st.from_v2 and not st.refused_now:
 				st.ambiguous += 1
 			elif respell:
-				if seg.name.quote is Quote.NONE:
+				if seg.name.quote is Quote.None_:
 					a, b = seg.name.start, seg.name.end
 				else:
 					a, b = seg.name.start - 1, seg.name.end + 1
@@ -2977,7 +2973,7 @@ def _migrate_line(rest, tok, fence, st):
 			sel = seg.selector
 			if sel is None:
 				continue
-			quoted = sel.quote is Quote.SINGLE or sel.quote is Quote.DOUBLE
+			quoted = sel.quote is Quote.Single or sel.quote is Quote.Double
 			# Back from the body to the `[`, and forward to the `]`.
 			open_at = sel.start - 1 if quoted else sel.start
 			while open_at > 0 and _is_wsp_byte(s[open_at - 1]):
@@ -3015,7 +3011,7 @@ def _migrate_line(rest, tok, fence, st):
 					# `[a]` is a one-element array now.
 					if not st.from_v2 and not st.refused_now:
 						now_tok = Tokens()
-						tokenize_value(rest, colon + 1, Rules.CURRENT, now_tok)
+						tokenize_value(rest, colon + 1, Rules.Current, now_tok)
 						if now_tok.array is not None and now_tok.array_fault is None and _value_fault(now_tok, now_tok.src) is None:
 							st.ambiguous += 1
 							return rest, fence
@@ -3073,7 +3069,7 @@ def _migrate_line(rest, tok, fence, st):
 						# One left, which 2.x read as the plain value: `s,`
 						# is `s`, and joins a `k: s` beside it, which `[s]`
 						# would not.
-						p = next(p for p in tok.elements if p.quote is not Quote.NONE or p.end > p.start)
+						p = next(p for p in tok.elements if p.quote is not Quote.None_ or p.end > p.start)
 						edits.append((tok.value[0], tok.value[1], _v2_element_text(s, p).encode("utf-8", "surrogatepass")))
 					else:
 						st.bracketed = True
@@ -3145,7 +3141,7 @@ def _selector_of(p, s):
 	"""What a selector body means: `*` the wildcard, an index shape an index,
 	a quoted body a value match, anything else a bare value match."""
 	body = _piece_text(p, s)
-	if p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE:
+	if p.quote is Quote.Single or p.quote is Quote.Double:
 		# quotes force a value match, even numeric - and scalar-only
 		return ("val", body, True)
 	if body == "*":
@@ -3232,16 +3228,16 @@ def _piece_fault(p, s, kind):
 	"""What is wrong with one piece of value text, as (code, message): an open
 	quote (E017), a bad escape (E023), or what a bare piece of its kind may not
 	hold (E025). A backtick value is raw, so only an open one is wrong."""
-	if p.quote is Quote.OPEN:
+	if p.quote is Quote.Open:
 		return ("E017", f"unterminated quote in {kind}")
-	if p.quote is Quote.BACKTICK:
+	if p.quote is Quote.Backtick:
 		return None
 	raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
 	if _ESCAPE_MARK in raw:
 		_, why = _resolve_marks(raw)
 		if why is not None:
 			return ("E023", why)
-	if p.quote is Quote.NONE:
+	if p.quote is Quote.None_:
 		why = _bare_trouble(raw, kind)
 		if why is not None:
 			return ("E025", why)
@@ -3284,7 +3280,7 @@ def _item_fault(tok, s):
 			return _Fault(f[0], f[1], True)
 	if len(tok.elements) > 1:
 		return _Fault("E026", "a comma then a space or the end in a list item; an item is one value, so quote the text", True)
-	if len(tok.elements) == 1 and tok.elements[0].quote is Quote.NONE:
+	if len(tok.elements) == 1 and tok.elements[0].quote is Quote.None_:
 		p = tok.elements[0]
 		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
 		if any(_loose_colon(raw, i) for i in range(len(raw))):
@@ -3298,7 +3294,7 @@ def _path_fault(tok, s):
 	takes its block with it, since there is no name to hold open."""
 	for seg in tok.segments:
 		name = seg.name
-		if name.quote is Quote.SINGLE or name.quote is Quote.DOUBLE:
+		if name.quote is Quote.Single or name.quote is Quote.Double:
 			raw = s[name.start:name.end]
 			if _MARK_BYTES in raw:
 				_, why = _resolve_marks(raw.decode("utf-8", "surrogatepass"))
@@ -3344,7 +3340,7 @@ def _name_fault(tok):
 		return _Fault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'", True)
 	blank = None
 	for seg in tok.segments:
-		if seg.name.quote is not Quote.NONE:
+		if seg.name.quote is not Quote.None_:
 			continue
 		blank = next((k for k in range(seg.name.start, seg.name.end) if _is_wsp_byte(s[k])), None)
 		if blank is not None:
@@ -3368,19 +3364,19 @@ def _value_side_fault(tok):
 
 
 def _opens_as_written(seg):
-	"""A path segment a LAZY level can open: no index or wildcard selector,
+	"""A path segment a _LAZY level can open: no index or wildcard selector,
 	which could fail to place it."""
 	return seg.selector is None or seg.selector[0] == "val"
 
 
 def _opens_later(text):
-	"""True when a reload holds this kept line's level open (LAZY): a field
+	"""True when a reload holds this kept line's level open (_LAZY): a field
 	line refused for its value alone, or a bare name that still reads, with a
 	path that opens."""
 	if not _is_field_text(text):
 		return False
 	tok = Tokens()
-	tokenize(text, ":", False, Rules.CURRENT, tok)
+	tokenize(text, ":", False, Rules.Current, tok)
 	try:
 		segments, _ = _path_of(tok, tok.src)
 	except _PathError:
@@ -3422,7 +3418,7 @@ def _path_of(tok, s):
 		# nothing else is built. That is nearly every name in a document, and
 		# this runs once per segment per line. A bare name takes no escapes,
 		# so only a quoted one resolves them.
-		if (seg.name.quote is Quote.SINGLE or seg.name.quote is Quote.DOUBLE) and _ESCAPE_MARK in raw:
+		if (seg.name.quote is Quote.Single or seg.name.quote is Quote.Double) and _ESCAPE_MARK in raw:
 			name = _fold_name(_piece_text(seg.name, s))
 		else:
 			name = _fold_name(raw)
@@ -3446,7 +3442,7 @@ def _scan_lookup(inp):
 	(E029), a bad escape, or a bare selector body with whitespace, a quote, a
 	colon, a comma, a bracket, a paren or a leading `#` in it (E025)."""
 	tok = Tokens()
-	tokenize(inp, ":", True, Rules.CURRENT, tok)
+	tokenize(inp, ":", True, Rules.Current, tok)
 	if tok.bracket_selector is not None:
 		raise _PathError(_BRACKET_LOOKUP)
 	f = _path_fault(tok, tok.src)
@@ -3469,20 +3465,20 @@ def _locate_in(stack, indent):
 	for i in range(len(stack) - 1, -1, -1):
 		ind, node = stack[i]
 		if ind == indent:
-			if node == UNOPENED:
+			if node == _UNOPENED:
 				# Back at a skipped line's column: refused the same way.
 				return (None, i + 1, False)
 			# Sibling of stack[i]: its parent is the entry below it.
-			parent = ROOT if i == 0 else stack[i - 1][1]
-			# Keep the sentinel; a top-level line resolves to ROOT.
-			return (DEAD if parent == UNOPENED else parent, max(i, 1), False)
+			parent = _ROOT if i == 0 else stack[i - 1][1]
+			# Keep the sentinel; a top-level line resolves to _ROOT.
+			return (_DEAD if parent == _UNOPENED else parent, max(i, 1), False)
 		if len(indent) > len(ind) and indent.startswith(ind):
 			# A skipped line's unopened level sits on top without opening
 			# anything, so it does not count as a level in between.
-			if i + 1 < len(stack) and stack[i + 1][1] != UNOPENED:
+			if i + 1 < len(stack) and stack[i + 1][1] != _UNOPENED:
 				break
-			return (DEAD if node == UNOPENED else node, i + 1, False)
-		if node == UNOPENED:
+			return (_DEAD if node == _UNOPENED else node, i + 1, False)
+		if node == _UNOPENED:
 			hold = i
 	# Skipped, but it holds its own column: whatever is written deeper is
 	# skipped with it, and a line back at it is refused the same way instead of
@@ -3507,10 +3503,10 @@ class _Outcome:
 
 
 # The line binds; a value on it has nowhere to go and is gone.
-OUT_VALUE_DROPPED = _Outcome("value_dropped")
+_OUT_VALUE_DROPPED = _Outcome("value_dropped")
 # Read but not applicable here; re-emitted it could bind elsewhere, so it is
 # gone and counts.
-OUT_DROPPED = _Outcome("dropped")
+_OUT_DROPPED = _Outcome("dropped")
 
 
 def _out_retained(text, blank_before):
@@ -3529,7 +3525,7 @@ class _Parser:
 		self.arena = [_Node("", _empty(), 0, 0)]
 		self.diags = []
 		# (indent string, node) for each open level; [0] is the virtual root.
-		self.stack = [("", ROOT)]
+		self.stack = [("", _ROOT)]
 		# Per-node (name, value-key) -> first matching child, parallel to arena
 		# and None until a parent's first insert, so leaves never allocate one.
 		# Pure lookup accelerator for _select_or_create; children keeps the
@@ -3594,7 +3590,7 @@ class _Parser:
 		# since a capped parse of a huge bad file would hold one per line.
 		self.track_dropped = False
 		self.dropped: list[int] = []
-		# A LAZY level's line, for opening it: [stack index it sits at, path,
+		# A _LAZY level's line, for opening it: [stack index it sits at, path,
 		# line, indent, how many pending lines go with it (its own included),
 		# depth it opens to].
 		self.lazies: list[list] = []
@@ -3643,7 +3639,7 @@ class _Parser:
 				t.trailing = ""
 			else:
 				ttok = Tokens()
-				tokenize(text, ":", False, Rules.CURRENT, ttok)
+				tokenize(text, ":", False, Rules.Current, ttok)
 				if ttok.comment is not None and moved:
 					moved.pop()
 			opened = self._select_or_create(up, name, name_src, _empty(), line)
@@ -3731,7 +3727,7 @@ class _Parser:
 		parents = set()
 		for n in self.late_dups:
 			depth, up = 0, n
-			while up != ROOT:
+			while up != _ROOT:
 				up = self.arena[up].parent
 				depth += 1
 			parents.add((depth, n))
@@ -3841,7 +3837,7 @@ class _Parser:
 				at = None
 				for si in range(len(self.stack) - 1, -1, -1):
 					ind, node = self.stack[si]
-					if node != ROOT and node != DEAD and node != UNOPENED and node != LAZY and len(ind) >= len(new_indent) and p.indent.startswith(ind):
+					if node != _ROOT and node != _DEAD and node != _UNOPENED and node != _LAZY and len(ind) >= len(new_indent) and p.indent.startswith(ind):
 						# A list element's column is an entry with the list's
 						# node on the list's own entry. It is inside the list,
 						# not its level.
@@ -3855,7 +3851,7 @@ class _Parser:
 				# reload of this document's own output reads it. A comment
 				# deeper than the node keeps an indent of its own and comes back
 				# where it was, so it still hangs.
-				if at is not None and (not at[2] or self.arena[at[1]].parent != ROOT):
+				if at is not None and (not at[2] or self.arena[at[1]].parent != _ROOT):
 					# A deeper block is written out first, and a block's inside
 					# comments before its after ones.
 					if last is not None and not field and (at[0], not at[2]) > (last[0], not last[2]):
@@ -3904,7 +3900,7 @@ class _Parser:
 		parent, cut, push = found
 		del self.stack[cut:]
 		if push:
-			self.stack.append((indent, UNOPENED))
+			self.stack.append((indent, _UNOPENED))
 		return parent
 
 	def _refuse(self, line, code, msg, outcome, indent):
@@ -3939,8 +3935,8 @@ class _Parser:
 		# A refused line owns its indent, so what is written deeper is skipped
 		# with it (E018). An indent that matched no level already holds an
 		# unopened one, which refuses a sibling the same way; that one stays.
-		if holds and not (self.stack and self.stack[-1] == (indent, UNOPENED)):
-			self.stack.append((indent, DEAD))
+		if holds and not (self.stack and self.stack[-1] == (indent, _UNOPENED)):
+			self.stack.append((indent, _DEAD))
 
 	def _misplaced(self, line, code, indent, rest, had_blank, raw):
 		"""A line refused for where it sits rather than for what it says: E012,
@@ -3963,12 +3959,12 @@ class _Parser:
 			msg = "indentation matches no open level"
 		else:
 			msg = "parent line was skipped; line skipped"
-		self._refuse(line, code, msg, _out_retained(indent + _trim_wsp_end(rest), had_blank) if keep else OUT_DROPPED, indent)
+		self._refuse(line, code, msg, _out_retained(indent + _trim_wsp_end(rest), had_blank) if keep else _OUT_DROPPED, indent)
 
 	def _skip_under_dead(self, line, indent):
 		"""Diagnose a line written under a skipped line, and skip it too. Its own
 		level stays dead so deeper lines go the same way."""
-		self._refuse(line, "E018", "parent line was skipped; line skipped", OUT_DROPPED, indent)
+		self._refuse(line, "E018", "parent line was skipped; line skipped", _OUT_DROPPED, indent)
 
 	def _hold_open(self, parent, segs, line, indent):
 		"""A field line refused for its value alone holds its level open for
@@ -3976,33 +3972,33 @@ class _Parser:
 		line's level. A path that could not open, or would open past the
 		nesting cap, leaves the level dead."""
 		at = len(self.stack) - 1
-		if self.stack[at] != (indent, DEAD) or not all(_opens_as_written(g) for g in segs):
+		if self.stack[at] != (indent, _DEAD) or not all(_opens_as_written(g) for g in segs):
 			return
 		self.lazies = [lz for lz in self.lazies if lz[0] < at]
 		depth = 0
-		if parent == LAZY:
+		if parent == _LAZY:
 			if self.lazies:
 				depth = self.lazies[-1][5]
 		else:
 			up = parent
-			while up != ROOT:
+			while up != _ROOT:
 				depth += 1
 				up = self.arena[up].parent
 		if depth + len(segs) > MAX_DEPTH:
 			return
-		self.stack[at] = (indent, LAZY)
+		self.stack[at] = (indent, _LAZY)
 		self.lazies.append([at, segs, line, indent, len(self.pending), depth + len(segs)])
 
 	def _open_lazy(self, parent):
-		"""The node a line binds under: a LAZY level, and any LAZY one it sits
+		"""The node a line binds under: a _LAZY level, and any _LAZY one it sits
 		under, opens here as an empty field, the way its line would have bound
 		with nothing after the colon. Its own line and the comments before it
 		go with it."""
-		if parent != LAZY:
+		if parent != _LAZY:
 			return parent
 		top = len(self.stack) - 1
 		start = top
-		while start > 1 and self.stack[start - 1][1] == LAZY:
+		while start > 1 and self.stack[start - 1][1] == _LAZY:
 			start -= 1
 		node = self.stack[start - 1][1]
 		for at in range(start, top + 1):
@@ -4085,7 +4081,7 @@ class _Parser:
 		"""Walk path segments under `parent`, select-or-creating; returns the node
 		for the last segment with `value`. None aborts the line (diagnosed)."""
 		self._star_flush()
-		if parent != ROOT and not self.arena[parent].star_list and self.arena[parent].value.kind == "array":
+		if parent != _ROOT and not self.arena[parent].star_list and self.arena[parent].value.kind == "array":
 			parent = self._array_under(parent)
 		# Field child under a stacked list: diagnose the mix once, keep the field.
 		pnode = self.arena[parent]
@@ -4096,11 +4092,11 @@ class _Parser:
 		# before any node is created so a rejected line leaves nothing behind.
 		parent_depth = 0
 		up = parent
-		while up != ROOT:
+		while up != _ROOT:
 			parent_depth += 1
 			up = self.arena[up].parent
 		if parent_depth + len(segs) > MAX_DEPTH:
-			self._refuse(line, "E016", f"nesting deeper than {MAX_DEPTH} levels; line skipped", OUT_DROPPED, indent)
+			self._refuse(line, "E016", f"nesting deeper than {MAX_DEPTH} levels; line skipped", _OUT_DROPPED, indent)
 			return None
 		cur = parent
 		last = len(segs) - 1
@@ -4128,7 +4124,7 @@ class _Parser:
 				if is_last and not value.is_empty():
 					# `a.b(X): v` - the discriminator is the value; a second
 					# value has nowhere unambiguous to go.
-					self._refuse(line, "E002", f"value after selector on '{_diag_name(seg.name)}' ignored", OUT_VALUE_DROPPED, indent)
+					self._refuse(line, "E002", f"value after selector on '{_diag_name(seg.name)}' ignored", _OUT_VALUE_DROPPED, indent)
 			elif sel is not None and sel[0] == "idx":
 				k = sel[1]
 				found = None
@@ -4142,14 +4138,14 @@ class _Parser:
 				if found is not None:
 					cur = found
 				else:
-					self._refuse(line, "E003", f"no instance {k} of '{_diag_name(seg.name)}'", OUT_DROPPED, indent)
+					self._refuse(line, "E003", f"no instance {k} of '{_diag_name(seg.name)}'", _OUT_DROPPED, indent)
 					return None
 				if is_last and not value.is_empty():
 					# Same as the value selector: the instance is already chosen,
 					# so a trailing value has nowhere to bind.
-					self._refuse(line, "E002", f"value after selector on '{_diag_name(seg.name)}' ignored", OUT_VALUE_DROPPED, indent)
+					self._refuse(line, "E002", f"value after selector on '{_diag_name(seg.name)}' ignored", _OUT_VALUE_DROPPED, indent)
 			elif sel is not None and sel[0] == "wild":
-				self._refuse(line, "E004", "wildcard selector is query-only", OUT_DROPPED, indent)
+				self._refuse(line, "E004", "wildcard selector is query-only", _OUT_DROPPED, indent)
 				return None
 			elif not is_last:
 				cur = self._select_or_create(cur, seg.name, seg.name_src, _empty(), line)
@@ -4226,8 +4222,8 @@ class _Parser:
 		"""A bare fence line is a value line for its parent field: fills an empty
 		value, else creates a new instance of that field (the repeated-leaf rule).
 		Returns the node the block ended up on (None = no parent, diagnosed)."""
-		if parent == ROOT:
-			self._refuse(line, "E006", "raw block with no parent field", OUT_DROPPED, indent)
+		if parent == _ROOT:
+			self._refuse(line, "E006", "raw block with no parent field", _OUT_DROPPED, indent)
 			return None
 		if self.arena[parent].value.is_empty():
 			pnode = self.arena[parent]
@@ -4246,28 +4242,28 @@ class _Parser:
 		the caller's element cap allows, so another item line is refused
 		(E021)."""
 		# A held-open level has no node yet, and its index is past the arena.
-		if not self.max_elements or parent == ROOT or parent >= len(self.arena):
+		if not self.max_elements or parent == _ROOT or parent >= len(self.arena):
 			return False
 		nd = self.arena[parent]
 		return not nd.children and nd.star_list and nd.value.kind == "array" and len(nd.value.els) >= self.max_elements
 
 	def _refuse_capped(self, line, indent):
-		self._refuse(line, "E021", f"array longer than {self.max_elements} elements; line skipped", OUT_DROPPED, indent)
+		self._refuse(line, "E021", f"array longer than {self.max_elements} elements; line skipped", _OUT_DROPPED, indent)
 
 	def _add_star_element(self, parent, tok, s, line, indent):
 		"""One stacked-list item (`- scalar`) appends to the parent's array.
 		True when it joined the list."""
-		if parent == ROOT:
-			self._refuse(line, "E007", "list element with no parent field", OUT_DROPPED, indent)
+		if parent == _ROOT:
+			self._refuse(line, "E007", "list element with no parent field", _OUT_DROPPED, indent)
 			return False
 		# Uniform-or-nothing (spec): a mix with field children is not a block array.
 		if self.arena[parent].children:
-			self._refuse(line, "E008", "list element mixed with field children; ignored", OUT_DROPPED, indent)
+			self._refuse(line, "E008", "list element mixed with field children; ignored", _OUT_DROPPED, indent)
 			return False
 		piece = tok.elements[0]
 		el = _element_of(piece, s)
 		if el is None:
-			self._refuse(line, "E009", "empty list element", OUT_DROPPED, indent)
+			self._refuse(line, "E009", "empty list element", _OUT_DROPPED, indent)
 			return False
 		clash = _unit_clash(self.arena[parent].name, el.text)
 		# Element cap: each element line past it is refused on its own, the way
@@ -4298,7 +4294,7 @@ class _Parser:
 				self.star_open = (parent, old_key, old_disp)
 			node.value.els.append(el)
 		else:
-			self._refuse(line, "E011", "field already has a value; list element ignored", OUT_DROPPED, indent)
+			self._refuse(line, "E011", "field already has a value; list element ignored", _OUT_DROPPED, indent)
 			return False
 		if clash is not None:
 			self._diag(Diagnostic(line, Severity.Hint, clash, "H005"))
@@ -4433,7 +4429,7 @@ class _Parser:
 			# its indent would measure the levels differently on a reload, and
 			# dropped, a reload never sees it.
 			found = locate(self.stack, indent)
-			if found[0] is not None and found[0] != DEAD:
+			if found[0] is not None and found[0] != _DEAD:
 				self._hang_deeper_pending(indent)
 			# Child-indent fence: a value line for its parent field. The fence
 			# and its info string are the value; a comment may follow them.
@@ -4447,15 +4443,15 @@ class _Parser:
 				if parent is None:
 					# The body goes with its fence: parsed live, it would read as
 					# root bindings and the closing fence would open a second block.
-					self._refuse(lineno, "E012", "indentation matches no open level", OUT_DROPPED, indent)
+					self._refuse(lineno, "E012", "indentation matches no open level", _OUT_DROPPED, indent)
 					i = nxt
 					continue
-				if parent == DEAD:
+				if parent == _DEAD:
 					self._skip_under_dead(lineno, indent)
 				elif tok.capped:
 					# The block goes with its line, or the body would read as live
 					# lines.
-					self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", OUT_DROPPED, indent)
+					self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", _OUT_DROPPED, indent)
 				else:
 					parent = self._open_lazy(parent)
 					# The fence binds its field again, so a kept field line
@@ -4464,7 +4460,7 @@ class _Parser:
 					# never hangs on a block, so it waits for the next line.
 					k = next((j for j in range(len(self.pending) - 1, -1, -1) if _is_field(self.pending[j].text)), None)
 					base = next((ind for ind, n in reversed(self.stack) if n == parent), None)
-					if parent != ROOT and k is not None and base is not None:
+					if parent != _ROOT and k is not None and base is not None:
 						moved = [p for p in self.pending[:k + 1] if not p.text.startswith((" ", "\t"))]
 						misplaced = [p for p in self.pending[:k + 1] if p.text.startswith((" ", "\t"))]
 						self.pending[:k + 1] = moved + misplaced
@@ -4493,11 +4489,11 @@ class _Parser:
 						self._misplaced(lineno, "E012", indent, rest, had_blank, False)
 						i += 1
 						continue
-					if parent == DEAD:
+					if parent == _DEAD:
 						self._misplaced(lineno, "E018", indent, rest, had_blank, False)
 						i += 1
 						continue
-					tokenize_value(rest, 1, Rules.CURRENT, tok)
+					tokenize_value(rest, 1, Rules.Current, tok)
 					# An item past the cap is refused for that, whatever its
 					# value. A good one finds out where it would join.
 					f = _item_fault(tok, tok.src)
@@ -4513,7 +4509,7 @@ class _Parser:
 					# Elements have no node of their own; trivia rides the field. At the
 					# root there is no field (E007), so the comment rides the document
 					# like any other pending one.
-					if parent != ROOT:
+					if parent != _ROOT:
 						if self._add_star_element(parent, tok, tok.src, lineno, indent):
 							self._keep_among(parent, indent)
 							# A comment on an item stays on its item.
@@ -4537,7 +4533,7 @@ class _Parser:
 					self._misplaced(lineno, "E012", indent, rest, had_blank, False)
 					i += 1
 					continue
-				if parent == DEAD:
+				if parent == _DEAD:
 					self._misplaced(lineno, "E018", indent, rest, had_blank, False)
 					i += 1
 					continue
@@ -4549,7 +4545,7 @@ class _Parser:
 				i += 1
 				continue
 			# Field line.
-			tokenize(rest, ":", False, Rules.CURRENT, tok)
+			tokenize(rest, ":", False, Rules.Current, tok)
 			s = tok.src
 			comment = s[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
 			parent = self._resolve_parent(indent, found)
@@ -4557,7 +4553,7 @@ class _Parser:
 				self._misplaced(lineno, "E012", indent, rest, had_blank, _line_fence(tok) is not None)
 				i = self._skip_field_line(lines, i, indent, tok)
 				continue
-			if parent == DEAD:
+			if parent == _DEAD:
 				self._misplaced(lineno, "E018", indent, rest, had_blank, _line_fence(tok) is not None)
 				i = self._skip_field_line(lines, i, indent, tok)
 				continue
@@ -4568,7 +4564,7 @@ class _Parser:
 				# led by a BOM, which the file-start strip would rewrite into
 				# something that can bind.
 				bom = rest.startswith("\ufeff")
-				out = OUT_DROPPED if bom else _out_retained(_trim_wsp_end(rest), had_blank)
+				out = _OUT_DROPPED if bom else _out_retained(_trim_wsp_end(rest), had_blank)
 				# The column counts bytes from the line start, so all four
 				# bindings report it the same on non-ASCII text. The indent
 				# and the blank run after it are blanks only, so their lengths
@@ -4602,7 +4598,7 @@ class _Parser:
 			# built either, and the value span is empty: this has to come
 			# before the value is read, or the line would bind as empty.
 			if tok.capped:
-				self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", OUT_DROPPED, indent)
+				self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", _OUT_DROPPED, indent)
 				i = self._skip_field_line(lines, i, indent, tok)
 				continue
 			# The verbatim value span, kept for reads' `raw` (only the plain
@@ -4726,12 +4722,12 @@ class _NameIndex:
 	def __init__(self, first, last, next_same):
 		self.first = first            # (parent, name) -> first child
 		self.last = last              # (parent, name) -> last child
-		self.next_same = next_same    # per node; NIL ends the chain
+		self.next_same = next_same    # per node; _NIL ends the chain
 
 	def append(self, key, node):
 		if len(self.next_same) <= node:
-			self.next_same.extend([NIL] * (node + 1 - len(self.next_same)))
-		self.next_same[node] = NIL
+			self.next_same.extend([_NIL] * (node + 1 - len(self.next_same)))
+		self.next_same[node] = _NIL
 		prev = self.last.get(key)
 		self.last[key] = node
 		if prev is not None:
@@ -4746,21 +4742,21 @@ class _NameIndex:
 			return
 		nxt = self.next_same[node]
 		if head == node:
-			if nxt == NIL:
+			if nxt == _NIL:
 				del self.first[key]
 				del self.last[key]
 			else:
 				self.first[key] = nxt
 		else:
 			c = head
-			while c != NIL and self.next_same[c] != node:
+			while c != _NIL and self.next_same[c] != node:
 				c = self.next_same[c]
-			if c == NIL:
+			if c == _NIL:
 				return
 			self.next_same[c] = nxt
-			if nxt == NIL:
+			if nxt == _NIL:
 				self.last[key] = c
-		self.next_same[node] = NIL
+		self.next_same[node] = _NIL
 
 
 def _name_key(parent, name):
@@ -4812,13 +4808,13 @@ class _Emit:
 		"""A line at this indent through the reload's _resolve_parent(): the
 		parent it finds, and the model as it leaves it, not yet taken."""
 		levels = self.open + 2
-		stack = [("", ROOT)]
-		stack.extend(("\t" * d, ROOT) for d in range(levels - 1))
+		stack = [("", _ROOT)]
+		stack.extend(("\t" * d, _ROOT) for d in range(levels - 1))
 		stack.extend(self.tail)
 		parent, cut, push = _locate_in(stack, indent)
 		del stack[cut:]
 		if push:
-			stack.append((indent, UNOPENED))
+			stack.append((indent, _UNOPENED))
 		if len(stack) <= levels:
 			return parent, len(stack) - 2, []
 		return parent, self.open, stack[levels:]
@@ -4828,14 +4824,14 @@ class _Emit:
 		own column unless it already sits there as a skipped line's."""
 		self.open = open_
 		self.tail = tail
-		if not (tail and tail[-1] == (indent, UNOPENED)):
-			tail.append((indent, DEAD))
+		if not (tail and tail[-1] == (indent, _UNOPENED)):
+			tail.append((indent, _DEAD))
 
 	def placed(self, indent):
 		"""A line a reload binds, such as a list element: it resolves, then
 		holds its column with a live node."""
 		_, self.open, self.tail = self.resolve(indent)
-		self.tail.append((indent, ROOT))
+		self.tail.append((indent, _ROOT))
 		self.hold = None
 
 
@@ -4904,7 +4900,7 @@ def _opened_by_kept(node):
 	if lead.depth != 0 or lead.text.startswith((" ", "\t")) or not _opens_later(lead.text):
 		return False
 	tok = Tokens()
-	tokenize(lead.text, ":", False, Rules.CURRENT, tok)
+	tokenize(lead.text, ":", False, Rules.Current, tok)
 	try:
 		segments, _ = _path_of(tok, tok.src)
 	except _PathError:
@@ -4944,7 +4940,7 @@ def _array_kept(text):
 	if not _is_field(text) or not _is_field_text(text):
 		return False
 	tok = Tokens()
-	tokenize(text, ":", False, Rules.CURRENT, tok)
+	tokenize(text, ":", False, Rules.Current, tok)
 	if tok.array is None:
 		return False
 	try:
@@ -4967,7 +4963,7 @@ def _kept_naming(lead, name):
 	if lead.depth != 0 or not _is_field_text(lead.text) or lead.text.startswith((" ", "\t")) or "\n" in lead.text:
 		return None
 	tok = Tokens()
-	tokenize(lead.text, ":", False, Rules.CURRENT, tok)
+	tokenize(lead.text, ":", False, Rules.Current, tok)
 	try:
 		segments, _ = _path_of(tok, tok.src)
 	except _PathError:
@@ -5073,7 +5069,7 @@ def _push_leads(e, leads, base, at):
 			under = h is not None and len(indent) > len(h) and indent.startswith(h)
 			if parent is None:
 				keep = " " in indent
-			elif parent == DEAD:
+			elif parent == _DEAD:
 				keep = under
 			else:
 				keep = False
@@ -5104,10 +5100,10 @@ def _push_leads(e, leads, base, at):
 			indent = "\t" * pad
 			parent, open_, tail = e.resolve(indent)
 			e.hold = None
-			if parent is not None and parent != DEAD and _opens_later(text):
+			if parent is not None and parent != _DEAD and _opens_later(text):
 				e.open = open_
 				e.tail = tail
-				tail.append((indent, ROOT))
+				tail.append((indent, _ROOT))
 			else:
 				e.refused(indent, open_, tail)
 		out.append("\t" * pad)
@@ -5336,7 +5332,7 @@ def _authored_head(src, canon):
 	for text in (rest, c):
 		if not _is_field_text(text):
 			return None
-		tokenize(text, ":", False, Rules.CURRENT, tok)
+		tokenize(text, ":", False, Rules.Current, tok)
 		if len(tok.segments) != 1 or tok.segments[0].selector is not None or tok.fault is not None:
 			return None
 		if tok.sep is None:
@@ -5373,7 +5369,7 @@ def _splice_value(line, was, w, now, u):
 	if not _is_field_text(rest):
 		return None
 	tok = Tokens()
-	tokenize(rest, ":", False, Rules.CURRENT, tok)
+	tokenize(rest, ":", False, Rules.Current, tok)
 	colon = tok.sep
 	if colon is None or tok.fault is not None:
 		return None
@@ -6002,7 +5998,7 @@ class Document:
 		the list. Then the source text loads it back, so the save that keeps
 		lines still writes it."""
 		n = 0
-		stack = [ROOT]
+		stack = [_ROOT]
 		arena = self.arena
 		while stack:
 			kids = arena[stack.pop()].children
@@ -6028,11 +6024,11 @@ class Document:
 		return max(self._kept_owed - self._kept_lines(), 0)
 
 	def _kept_lines(self) -> int:
-		"""Kept lines in the live tree and the orphans. From ROOT, since a
+		"""Kept lines in the live tree and the orphans. From _ROOT, since a
 		removed node stays in the arena; a stack, since a recursive walk
 		overflowed Windows' 1 MB main stack on the deepest legal document."""
 		n = _kept_in(self.orphans)
-		stack = [ROOT]
+		stack = [_ROOT]
 		while stack:
 			nd = self.arena[stack.pop()]
 			n += _kept_in_lists(nd)
@@ -6170,7 +6166,7 @@ class Document:
 		# Explicit stack, children pushed in reverse: the reference handles depths
 		# far past Python's recursion limit, so emit must not recurse.
 		stack: list = []
-		self._emit_children(self.arena[ROOT].children, 0, stack)
+		self._emit_children(self.arena[_ROOT].children, 0, stack)
 		while stack:
 			idx, depth, would_merge, pos = stack.pop()
 			if would_merge is None:
@@ -6190,8 +6186,8 @@ class Document:
 			self._emit_children(self.arena[idx].children, depth + 1, stack)
 		# Comments that never found a following line re-emit at the end.
 		if e.record:
-			e.near.append((ROOT, 0))
-		_push_leads(e, self.orphans, 0, (ROOT, "orphans", 0))
+			e.near.append((_ROOT, 0))
+		_push_leads(e, self.orphans, 0, (_ROOT, "orphans", 0))
 
 	def _settle_kept(self):
 		"""Make a misplaced line kept as written into the comment the emitter
@@ -6220,7 +6216,7 @@ class Document:
 		if not self._arrays:
 			return
 		arena = self.arena
-		stack = list(arena[ROOT].children)
+		stack = list(arena[_ROOT].children)
 		while stack:
 			n = stack.pop()
 			stack.extend(arena[n].children)
@@ -6261,7 +6257,7 @@ class Document:
 		parts: list[tuple] = []
 		for n, pos in self._kept_near:
 			nd = arena[n]
-			if n == ROOT:
+			if n == _ROOT:
 				parts.append((n, len(nd.children), tuple((c.depth, c.text) for c in self.orphans)))
 				continue
 			kids = arena[nd.parent].children if 0 <= nd.parent < len(arena) else ()
@@ -6465,13 +6461,13 @@ class Document:
 	def _name_index(self):
 		idx = self._index
 		if idx is None:
-			idx = _NameIndex({}, {}, [NIL] * len(self.arena))
+			idx = _NameIndex({}, {}, [_NIL] * len(self.arena))
 			# From the root, not across the arena: a removed subtree's nodes are
 			# still there with their child lists intact, so an arena walk
 			# indexes every node the document ever held. Chains stay in file
 			# order - a chain is one parent's same-named children, and each
 			# parent's are appended in order.
-			stack = [ROOT]
+			stack = [_ROOT]
 			while stack:
 				p = stack.pop()
 				for c in self.arena[p].children:
@@ -6483,8 +6479,8 @@ class Document:
 	def _children_named(self, parent, name):
 		idx = self._name_index()
 		out = []
-		c = idx.first.get(_name_key(parent, name), NIL)
-		while c != NIL:
+		c = idx.first.get(_name_key(parent, name), _NIL)
+		while c != _NIL:
 			if self.arena[c].name == name and self.arena[c].parent == parent:
 				out.append(c)
 			c = idx.next_same[c]
@@ -6608,7 +6604,7 @@ class Document:
 			return ("err", Status.BadPath)
 		if value_text is not None or not segments:
 			return ("err", Status.BadPath)
-		return self._resolve_from([ROOT], segments, group)
+		return self._resolve_from([_ROOT], segments, group)
 
 	def count(self, path: str) -> int:
 		"""Instance count at a path (0 when nothing matches)."""
@@ -6637,7 +6633,7 @@ class Document:
 		hidden."""
 		out = []
 		seen = set()
-		stack = [(c, "") for c in reversed(self.arena[ROOT].children)]
+		stack = [(c, "") for c in reversed(self.arena[_ROOT].children)]
 		while stack:
 			node, prefix = stack.pop()
 			seg = _emit_name(self.arena[node].name)
@@ -6746,7 +6742,7 @@ class Document:
 		set when the path reaches one node."""
 		line = 0
 		if not _trim(path):
-			nodes = [ROOT]
+			nodes = [_ROOT]
 		else:
 			r = self._resolve(path)
 			tag = r[0]
@@ -6803,7 +6799,7 @@ class Document:
 		level."""
 		line = 0
 		if not _trim(path):
-			nodes = [ROOT]
+			nodes = [_ROOT]
 		else:
 			r = self._resolve(path)
 			tag = r[0]
@@ -6839,7 +6835,7 @@ class Document:
 	def _instance_walk(self) -> list[tuple[int, str]]:
 		# Every node under the root with its instance path, in file order.
 		out: list[tuple[int, str]] = []
-		stack = [(ROOT, "")]
+		stack = [(_ROOT, "")]
 		while stack:
 			node, prefix = stack.pop()
 			kids = self.arena[node].children
@@ -6858,7 +6854,7 @@ class Document:
 					path += f"({i})"
 					at[name] = i + 1
 				paths.append((c, path))
-			if node != ROOT:
+			if node != _ROOT:
 				out.append((node, prefix))
 			stack.extend(reversed(paths))
 		return out
@@ -6908,7 +6904,7 @@ class Document:
 		node = _Node(name, value, parent, 0, name_src)
 		# Hand-written files separate top-level sections with a blank line;
 		# writer-built ones do the same (the emitter never blanks line 1).
-		node.blank_before = parent == ROOT
+		node.blank_before = parent == _ROOT
 		self.arena.append(node)
 		self.arena[parent].children.append(idx)
 		if self._index is not None:
@@ -6917,7 +6913,7 @@ class Document:
 		# goes after the last of them, as a reload files them. The comments
 		# after it stay at the end, and so does a kept line the settle wrote as
 		# a comment, since a reload reads it as one.
-		if parent == ROOT:
+		if parent == _ROOT:
 			tail = self.orphans
 		else:
 			t = self.arena[parent].trivia
@@ -6958,7 +6954,7 @@ class Document:
 		# The probe walk _place() validates with: once it falls off the existing
 		# tree, a later `(k)` can never match (fresh intermediates are created
 		# childless), so an index segment past that point is unresolvable.
-		probe = ROOT
+		probe = _ROOT
 		for seg in segments:
 			if seg.star:
 				return SetStatus.Wildcard
@@ -7034,7 +7030,7 @@ class Document:
 		checked = self._probe_write(segments, value_text, trail)
 		if checked != SetStatus.Ok:
 			return (-1, checked)
-		cur = ROOT
+		cur = _ROOT
 		for i, seg in enumerate(segments):
 			# The probe already resolved every segment that exists; only the
 			# tail it fell off has anything to create.
@@ -7170,8 +7166,8 @@ class Document:
 			scan("leading", c, self.arena[c].leading())
 			scan("after", c, self.arena[c].after())
 		scan("inside", parent, self.arena[parent].inside())
-		if parent == ROOT:
-			scan("orphans", ROOT, self.orphans)
+		if parent == _ROOT:
+			scan("orphans", _ROOT, self.orphans)
 		return out
 
 	def _leads_mut(self, site, owner):
@@ -7382,22 +7378,22 @@ class Document:
 		pairs: list[tuple[int, int]] = []
 		for t in targets:
 			p = self.arena[t].parent
-			# A node already marked would pass DEAD into the rebuild below as
+			# A node already marked would pass _DEAD into the rebuild below as
 			# an index, so skip it rather than trust resolve never to name one
 			# twice.
-			if p == DEAD:
+			if p == _DEAD:
 				continue
 			if self._kept_owed > 0:
 				self._kept_owed = max(self._kept_owed - self._taken(t), 0)
 			if self._index is not None:
 				self._index.unlink(_name_key(p, self.arena[t].name), t)
-			self.arena[t].parent = DEAD
+			self.arena[t].parent = _DEAD
 			pairs.append((t, p))
 		# Rebuilding a list puts back the parent of every node it drops, so a
 		# mark still standing is also the answer to "has this parent been done
 		# yet" - no separate pass to dedupe the parents.
 		for t, p in pairs:
-			if self.arena[t].parent != DEAD:
+			if self.arena[t].parent != _DEAD:
 				continue
 			# A list written stacked for the fields under it stays stacked: a
 			# remove only takes lines away.
@@ -7405,7 +7401,7 @@ class Document:
 			keep: list[int] = []
 			left: list[_Lead] = []
 			for c in self.arena[p].children:
-				if self.arena[c].parent == DEAD:
+				if self.arena[c].parent == _DEAD:
 					self.arena[c].parent = p
 					left.extend(_beside_kept(self.arena[c]))
 				else:
@@ -7425,7 +7421,7 @@ class Document:
 		emptied = list(open_)
 		while open_:
 			p = open_.pop()
-			if p == ROOT or self.arena[p].children or not _opened_by_kept(self.arena[p]) or not self._live(p):
+			if p == _ROOT or self.arena[p].children or not _opened_by_kept(self.arena[p]) or not self._live(p):
 				continue
 			pp = self.arena[p].parent
 			t = self.arena[p]._triv()
@@ -7454,7 +7450,7 @@ class Document:
 		# there, as a reload reads them (2026100520243961).
 		for p in sorted(set(emptied)):
 			nd = self.arena[p]
-			if p != ROOT and not nd.children and nd.value.kind in ("empty", "array") and self._live(p):
+			if p != _ROOT and not nd.children and nd.value.kind in ("empty", "array") and self._live(p):
 				self._settle_fence_name(nd.parent, nd.name)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
@@ -7472,7 +7468,7 @@ class Document:
 		inside the block. A misplaced line has no level there, so a reload
 		files it with the next binding line, and the comments after it go
 		along; kept field lines still go to the block."""
-		if parent == ROOT:
+		if parent == _ROOT:
 			self.orphans[:0] = left
 			_restep(self.orphans)
 			return
@@ -7502,7 +7498,7 @@ class Document:
 		"""Lines a remove left right after `node`'s block: above the next
 		binding line, or the footer when there is none."""
 		at = node
-		while at != ROOT:
+		while at != _ROOT:
 			up = self.arena[at].parent
 			kids = self.arena[up].children
 			k = kids.index(at)
@@ -7514,11 +7510,11 @@ class Document:
 		_restep(self.orphans)
 
 	def _live(self, node: int) -> bool:
-		"""Still in the tree: each node up to ROOT is in its parent's list. A
+		"""Still in the tree: each node up to _ROOT is in its parent's list. A
 		removed node keeps its parent link, so the link alone does not say."""
-		while node != ROOT:
+		while node != _ROOT:
 			p = self.arena[node].parent
-			if p == DEAD or node not in self.arena[p].children:
+			if p == _DEAD or node not in self.arena[p].children:
 				return False
 			node = p
 		return True
@@ -7653,11 +7649,11 @@ class Document:
 		# The first line's comments are the top of the file, on the first node
 		# down, as a dotted line puts them on its last name.
 		top = []
-		n = ROOT
+		n = _ROOT
 		while self.arena[n].children:
 			n = self.arena[n].children[0]
 			top.append(n)
-		stack = list(self.arena[ROOT].children)
+		stack = list(self.arena[_ROOT].children)
 		while stack:
 			n = stack.pop()
 			nd = self.arena[n]
@@ -7676,7 +7672,7 @@ class Document:
 			gone, _, self.orphans = _drop_banners(self.orphans, mark, True)
 			removed += gone
 		if on:
-			open_ = bool(self.orphans) or bool(self.arena[ROOT].children)
+			open_ = bool(self.orphans) or bool(self.arena[_ROOT].children)
 			for n, line in enumerate(GEN_BANNER.rstrip("\n").split("\n")):
 				self.orphans.append(_Lead(line, n == 0 and open_))
 		_settle_first_blank(self.arena, self.orphans)
@@ -7949,7 +7945,7 @@ class Document:
 			for n in range(1, len(self.arena)):
 				_bracket(self.arena[n])
 			self._bracketed = True
-		for n in self._overlay(ROOT, over, ROOT):
+		for n in self._overlay(_ROOT, over, _ROOT):
 			self._settle(n, 1)
 		# Layers commonly share a footer; keeping one copy of each keeps a
 		# stack of files from repeating it once per layer. Only the lines
@@ -8235,7 +8231,7 @@ class Document:
 			return ("err", Status.Empty)
 		return ("err", Status.BadType)
 
-	def _read_scalar(self, path: str, coerce: Callable[[Any], T | None], default: T) -> Read[T]:
+	def _read_scalar(self, path: str, coerce: Callable[[Any], _T | None], default: _T) -> Read[_T]:
 		na = self._node_at(path)
 		if na[0] == "err":
 			return Read(default, na[1], None)
@@ -8265,7 +8261,7 @@ class Document:
 	def read_datetime(self, path: str) -> Read[ShclDateTime]:
 		return self._read_scalar(path, lambda e: parse_datetime(e.text), ShclDateTime())
 
-	def _read_named(self, path: str, coerce: Callable[[Any, str], T | None], default: T) -> Read[T]:
+	def _read_named(self, path: str, coerce: Callable[[Any, str], _T | None], default: _T) -> Read[_T]:
 		"""_read_scalar with the node's name, for the reads whose bare number
 		takes its unit from the name."""
 		na = self._node_at(path)
@@ -8347,7 +8343,7 @@ class Document:
 			return Read("", Status.Empty, raw)._at(line, None)
 		return Read("", Status.BadType, raw)._at(line, None)
 
-	def _read_array(self, path: str, coerce: Callable[[Any], T | None], default: T) -> Read[list[T]]:
+	def _read_array(self, path: str, coerce: Callable[[Any], _T | None], default: _T) -> Read[list[_T]]:
 		r = self._resolve(path)
 		tag = r[0]
 		if tag == "err":
@@ -8382,7 +8378,7 @@ class Document:
 		value = self.arena[r[1]].value
 		raw = self._raw_of(r[1])
 		line = self.arena[r[1]].line
-		nothing: list[T] = []
+		nothing: list[_T] = []
 		if value.kind == "empty":
 			return Read(nothing, Status.Empty, raw)._at(line, None)
 		if value.kind == "raw":
@@ -8424,7 +8420,7 @@ class Document:
 	# forms fall back to the whole default list; per-slot substitution is the
 	# read_*_array tier or the CLI --default.
 
-	def _get(self, r: Read[T], default: Any) -> T:
+	def _get(self, r: Read[_T], default: Any) -> _T:
 		if r.status == Status.Good:
 			return r.value
 		if default is _NO_DEFAULT:
@@ -8558,7 +8554,7 @@ class Document:
 		# says each fragment runs once per node.
 		mounted: set = set()
 		for c in sdef.cons:
-			self._v_check_from(c, sdef, ROOT, 0, out, mounted)
+			self._v_check_from(c, sdef, _ROOT, 0, out, mounted)
 		if sdef.paths_complete:
 			self._v_unknown(sdef, out)
 		return out
@@ -8825,7 +8821,7 @@ class Document:
 			set_idx[""] = _first_index([c.segs for c in cons])
 			for name, fcs in sdef.frags.items():
 				set_idx[name] = _first_index([c.segs for c in fcs])
-		stack = [(c, "", "") for c in reversed(self.arena[ROOT].children)]
+		stack = [(c, "", "") for c in reversed(self.arena[_ROOT].children)]
 		while stack:
 			n, pchain, pshown = stack.pop()
 			node = self.arena[n]
@@ -9537,7 +9533,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 	# bytes each put it back over. A truncated name can collide; the exclusive
 	# create and the eight attempts already answer that.
 	raw = os.fsencode(base)
-	cut = min(len(raw), TMP_NAME_BYTES)
+	cut = min(len(raw), _TMP_NAME_BYTES)
 	while 0 < cut < len(raw) and (raw[cut] & 0xC0) == 0x80:
 		cut -= 1
 	# A cut that backs off to nothing leaves nothing, as in the other three: the
@@ -10110,7 +10106,7 @@ def _emit_fence_line(v):
 def _value_half(text, tok):
 	# Scan text as a line's value half, behind the colon a field line puts
 	# there. Returns the line the token spans index into.
-	tokenize_value(":" + text, 1, Rules.CURRENT, tok)
+	tokenize_value(":" + text, 1, Rules.Current, tok)
 	return tok.src
 
 
@@ -10131,7 +10127,7 @@ def _value_reads_back(v):
 			return False
 		# Compared against the pieces rather than against a rebuilt value: a
 		# bulk write runs this per set, and the text is right there.
-		back = [p for p in tok.elements if p.quote is not Quote.NONE or p.end > p.start]
+		back = [p for p in tok.elements if p.quote is not Quote.None_ or p.end > p.start]
 		if len(back) != len(v.els):
 			return False
 		return all(_piece_is(p, tok.src, e.text) for p, e in zip(back, v.els))
@@ -10150,7 +10146,7 @@ def _fence_reads_back(v):
 	if "\n" in line or not _encodable(line):
 		return False
 	tok = Tokens()
-	tokenize_value(line, 0, Rules.CURRENT, tok)
+	tokenize_value(line, 0, Rules.Current, tok)
 	return _fence_open(tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")) == (v.fence_char, v.fence_len, v.info)
 
 
@@ -10168,7 +10164,7 @@ def _name_reads_back(name):
 	if "\n" in text or not _encodable(text):
 		return False
 	tok = Tokens()
-	tokenize(text, ":", False, Rules.CURRENT, tok)
+	tokenize(text, ":", False, Rules.Current, tok)
 	return (
 		tok.fault is None
 		and len(tok.segments) == 1
@@ -10194,7 +10190,7 @@ def _comment_line(text):
 	if not _encodable(line):
 		return None
 	tok = Tokens()
-	tokenize_value(line, 0, Rules.CURRENT, tok)
+	tokenize_value(line, 0, Rules.Current, tok)
 	if tok.comment == 0 and _trim_wsp_end(line) == line:
 		return line
 	return None
@@ -11120,7 +11116,7 @@ def _build_schema(schema: Document) -> tuple[_SchemaDef, list]:
 	cons = []
 	frags = {}
 	paths_complete = True
-	for f in schema.arena[ROOT].children:
+	for f in schema.arena[_ROOT].children:
 		node = schema.arena[f]
 		if node.name == "field":
 			c = _parse_field(schema, f, faults)
@@ -11763,10 +11759,10 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 			for d in one.diagnostics()
 			if d.severity == Severity.Error
 		]
-		if not one.arena[ROOT].children:
+		if not one.arena[_ROOT].children:
 			continue
 		ctxs: list = []
-		one._v_contexts([ROOT], cons[i].segs, 0, ctxs)
+		one._v_contexts([_ROOT], cons[i].segs, 0, ctxs)
 		nodes = [n for _, f in ctxs for n in f]
 		if not nodes:
 			path = _schema_text(cons[i].path)
@@ -11858,13 +11854,13 @@ def _gen_selector_text(v):
 	so an array has no body."""
 	spelled = _gen_default_text(v)
 	tok = Tokens()
-	tokenize_value(spelled, 0, Rules.CURRENT, tok)
+	tokenize_value(spelled, 0, Rules.Current, tok)
 	if len(tok.elements) != 1 or tok.array is not None:
 		return None
 	only = tok.elements[0]
 	text = _piece_text(only, tok.src)
 	tries = []
-	if only.quote is Quote.SINGLE or only.quote is Quote.DOUBLE:
+	if only.quote is Quote.Single or only.quote is Quote.Double:
 		tries.append((tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass"), True))
 	tries += [(text, False), (_quote_text(text), True)]
 	for body, quoted in tries:
@@ -11884,7 +11880,7 @@ def _selector_reads_back(body, text, quoted):
 	if "\n" in line or "\r" in line:
 		return False
 	tok = Tokens()
-	tokenize(line, ":", False, Rules.CURRENT, tok)
+	tokenize(line, ":", False, Rules.Current, tok)
 	if tok.comment is not None or tok.misspelled is not None or _path_fault(tok, tok.src) is not None:
 		return False
 	try:
@@ -11905,7 +11901,7 @@ def _path_reads_back(path, segs):
 	if "\n" in line or "\r" in line:
 		return False
 	tok = Tokens()
-	tokenize(line, ":", False, Rules.CURRENT, tok)
+	tokenize(line, ":", False, Rules.Current, tok)
 	if tok.comment is not None or tok.misspelled is not None or _path_fault(tok, tok.src) is not None:
 		return False
 	try:

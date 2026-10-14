@@ -96,6 +96,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The Bash and PowerShell wrappers are retired. Call `shcl` directly: `shcl_int f p` is `shcl get --int f p`. No package or installer includes them now, and an installer update removes the old copies from `scripts/`.
 
+- Python's `Quote` members are `None_`, `Single`, `Double`, `Backtick` and `Open`, and `Rules`' are `Current` and `V2`, the names the other bindings use. `RULES_CURRENT` and `RULES_V2` are removed; use `Rules.Current` and `Rules.V2`. The module's internal sentinels and type variable, such as `ROOT` and `T`, start with `_`.
+
+- C's `shcl_duration_unit_of` and `shcl_size_unit_of` are `shcl_duration_unit_from_spelling` and `shcl_size_unit_from_spelling`. The unit values have the other bindings' names, `SHCL_DURATION_MILLIS` to `SHCL_DURATION_DAYS` and `SHCL_SIZE_BYTES` to `SHCL_SIZE_TEBI`, where they were `SHCL_DURATION_MS` and `SHCL_SIZE_KIB` and the like. `shcl_datetime`'s `has_sec` and `sec` are `has_second` and `second`.
+
 ### New
 
 - A failed write says why as a value, a `WriteStatus`, beside the message: `NotFound` for a missing folder, `PermissionDenied`, `DiskFull`, `ReadOnly`, `IsDirectory`, `NotRegular`, `Unreadable` from `upgrade_file`, or `Other`. It comes from `write_file_atomic`, the saves, `write_backup` and `upgrade_file` in every binding. Go's values are `WriteOk` to `WriteOther`, and C's `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER` with `shcl_write_status_name`.
