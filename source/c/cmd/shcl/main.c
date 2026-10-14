@@ -238,12 +238,13 @@ static const char *HELP =
 	"An option a subcommand does not use is a usage error, not ignored. Also refused:\n"
 	"--write with --layer; --write with --set outside 'set'; --write with a FILE of\n"
 	"'-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;\n"
-	"--check with --write; --paths with --json; --layer=- on 'set'; --array with\n"
-	"--raw, --rawinfo, --duration or --size; --default with --on-bad=error or\n"
-	"--on-bad=flag; '-' named more than once across FILE, --layer and --schema; a\n"
-	"PATH that cannot parse, --default or not. Two options that ask for different\n"
-	"answers are a usage error whichever order they came in, and both are named: two\n"
-	"different type options, or one value option given two different values.\n"
+	"--check with --write, --layer or --set; --paths with --json; --layer=- on\n"
+	"'set'; --array with --raw, --rawinfo, --duration or --size; --default with\n"
+	"--on-bad=error or --on-bad=flag; --on-bad=default without --default; '-' named\n"
+	"more than once across FILE, --layer and --schema; a PATH that cannot parse,\n"
+	"--default or not. Two options that ask for different answers are a usage error\n"
+	"whichever order they came in, and both are named: two different type options,\n"
+	"or one value option given two different values.\n"
 	"Repeating an option with the same value is allowed, and --layer and --set are\n"
 	"ordered lists, so they repeat.\n"
 	"Every subcommand that loads a document prints the load's diagnostics to stderr,\n"
@@ -959,7 +960,7 @@ static int load_layered_from(Opts *o, const char *file, char *given, size_t give
 	for (int i = 0; i < o->nsets; i++) {
 		shcl_set_status st = set_apply(out->doc, &o->sets[i]);
 		if (st != SHCL_SET_OK) {
-			fprintf(stderr, "%s: cannot write %.*s: %s\n", o->sets[i].opt, (int)o->sets[i].plen, o->sets[i].path, refusal(st, o->sets[i].path, o->sets[i].plen));
+			fprintf(stderr, "%s: cannot write %.*s: %s (see --help)\n", o->sets[i].opt, (int)o->sets[i].plen, o->sets[i].path, refusal(st, o->sets[i].path, o->sets[i].plen));
 			layered_free(out);
 			return 1;
 		}
@@ -1703,14 +1704,16 @@ static int g_bool(const char *p, size_t n, int *out) {
 	return 0;
 }
 
-// The `op line N:` prefix every ops-script error has.
+// The `op line N:` prefix every ops-script error has. Every one is a usage
+// error, so the help pointer goes on here rather than on each message
+// (2026101407100007).
 static void op_err(size_t lineno, const char *fmt, ...) {
 	va_list ap;
 	fprintf(stderr, "op line %zu: ", lineno);
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
 	va_end(ap);
-	fputc('\n', stderr);
+	fputs(" (see --help)\n", stderr);
 }
 
 // Windows calls NUL a terminal through _isatty, so a console mode decides there.
@@ -1766,8 +1769,8 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 		for (size_t i = 0; i < sizeof counts / sizeof counts[0]; i++) {
 			if (strlen(counts[i].op) != fn[0] || memcmp(counts[i].op, fp[0], fn[0]) != 0) continue;
 			if (nf < counts[i].want || (!counts[i].at_least && nf > counts[i].want)) {
-				fprintf(stderr, "op line %zu: %s takes %s%zu tab-separated field(s), got %zu\n",
-					lineno, counts[i].op, counts[i].at_least ? "at least " : "", counts[i].want, nf);
+				op_err(lineno, "%s takes %s%zu tab-separated field(s), got %zu",
+					counts[i].op, counts[i].at_least ? "at least " : "", counts[i].want, nf);
 				bad = 1;
 			}
 			break;
@@ -2470,6 +2473,12 @@ static int check_opts(const char *cmd, const Opts *o) {
 		fprintf(stderr, "--default cannot be combined with --on-bad=%s (see --help)\n", o->on_bad_arg);
 		return 1;
 	}
+	// Without a --default there is nothing to substitute, and a bad read
+	// printed an empty line at exit 0 (2026101407100004).
+	if (!o->deflt && o->on_bad_arg && !strcmp(o->on_bad_arg, "default")) {
+		fprintf(stderr, "--on-bad=default needs --default (see --help)\n");
+		return 1;
+	}
 	// --lossy only overrides a refusal, and fmt refuses only in place, so there
 	// it would read as protection the command never had. set and migrate ask
 	// the gate on stdout too (2026100717500003).
@@ -2485,6 +2494,16 @@ static int check_opts(const char *cmd, const Opts *o) {
 	}
 	if (o->check && o->write) {
 		fprintf(stderr, "--check cannot be combined with --write (see --help)\n");
+		return 1;
+	}
+	// --check asks whether FILE is canonical, and a merge or an edit is never
+	// FILE, so it said "would rewrite" every time (2026101407100002).
+	if (o->check && o->nlayers > 0) {
+		fprintf(stderr, "--check cannot be combined with --layer (see --help)\n");
+		return 1;
+	}
+	if (o->check && o->nsets > 0) {
+		fprintf(stderr, "--check cannot be combined with %s (see --help)\n", o->sets[0].opt);
 		return 1;
 	}
 	// Both say what a line holds, and a JSON line already has the path.
@@ -2507,7 +2526,7 @@ static int check_opts(const char *cmd, const Opts *o) {
 	if (o->schema && !strcmp(o->schema, "-")) stdin_uses++;
 	if (o->nargs > 0 && !strcmp(o->args[0], "-")) stdin_uses++;
 	if (stdin_uses > 1) {
-		fprintf(stderr, "'-' (stdin) can be named only once across FILE, --layer and --schema\n");
+		fprintf(stderr, "'-' (stdin) can be named only once across FILE, --layer and --schema (see --help)\n");
 		return 1;
 	}
 	return 0;

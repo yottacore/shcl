@@ -482,7 +482,7 @@ rows=(
 	'EoTHA7a|bad-op-unknown|set %F%|bogus\ta\t1\n|1|-|op line 1: unknown op: bogus'
 	## 20260925: the banner op takes on or off where other ops take a path.
 	'Equbm1a|banner-on-off|set %F%|banner\ton\nbanner\toff\n|0|a: 1\n|-'
-	'Equbm1b|banner-bad-value|set %F%|banner\tmaybe\n|1|-|op line 1: bad banner: maybe \(on or off\)$'
+	'Equbm1b|banner-bad-value|set %F%|banner\tmaybe\n|1|-|op line 1: bad banner: maybe \(on or off\) \(see --help\)$'
 	## 2026100307163904: banner took the file's own comments written against
 	## the block with it, at exit 0.
 	'Erg8DKv|banner-off-keeps-own-comments|set %BN%|banner\toff\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n|-'
@@ -791,8 +791,8 @@ rows=(
 	"ErrQs1l|set-keeps-backtick-kind|set --set=c=y -|c: \`x\`\n|0|c: \`y\`\n|-"
 	## A setter that would put a field under an array, or an array over
 	## fields, is refused (E028 on a reload).
-	'ErrQs1m|set-field-under-array-refused|set --set=l.c=1 -|l: [a]\n|1||^--set: cannot write l.c: an array takes no lines under it$'
-	'ErrQs1n|set-array-over-fields-refused|set --set-literal=c=[1,2] -|c: 1\n\tk: 2\n|1||^--set-literal: cannot write c: a field with lines under it takes one plain value or none$'
+	'ErrQs1m|set-field-under-array-refused|set --set=l.c=1 -|l: [a]\n|1||^--set: cannot write l.c: an array takes no lines under it \(see --help\)$'
+	'ErrQs1n|set-array-over-fields-refused|set --set-literal=c=[1,2] -|c: 1\n\tk: 2\n|1||^--set-literal: cannot write c: a field with lines under it takes one plain value or none \(see --help\)$'
 	## A selector matches one plain value. A bare body with a space or a quote
 	## is E025 in a lookup too, and an array value is never selected.
 	'ErrQs1o|get-bare-space-selector|get - base(New◉SPACE◉York).lat|base: "New York"\n\tlat: 1\n|0|1\n|-'
@@ -807,9 +807,9 @@ rows=(
 	'ErxfmqO|e029-fmt-keeps-line|fmt -|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|srv[web]:\nsrv: web\n\tport: 80\n\thost: h\n|E029'
 	## Exit 1 since 2026100717500001, with the same reason; Es8PcNw below.
 	#'ErxfmqP|get-bracket-path-named|get %F% a[0]|-|3|\n|a selector is written in parens now, name\(value\)'
-	'ErxfmqQ|set-bracket-path-named|set --set=a[0].b=1 %F%|-|1||^--set: cannot write a\[0\]\.b: a selector is written in parens now, name\(value\)$'
+	'ErxfmqQ|set-bracket-path-named|set --set=a[0].b=1 %F%|-|1||^--set: cannot write a\[0\]\.b: a selector is written in parens now, name\(value\) \(see --help\)$'
 	'ErxfmqR|remove-bracket-path-named|set --remove=a[0] %F2%|-|1||^bad --remove value \(a selector is written in parens now, name\(value\)\): a\[0\] \(see --help\)$'
-	'ErxfmqS|ops-remove-bracket-path-named|set %F2%|remove\ta[0]\n|1||^op line 1: cannot remove a\[0\]: a selector is written in parens now, name\(value\)$'
+	'ErxfmqS|ops-remove-bracket-path-named|set %F2%|remove\ta[0]\n|1||^op line 1: cannot remove a\[0\]: a selector is written in parens now, name\(value\) \(see --help\)$'
 	'ErxfmqT|schema-bracket-path-named|check --schema=- %F%|field: "a[*].b"\n|6|line 1: Error: V093\nfailed: 1 diagnostic(s), 1 error(s)\n|V093 bad schema path: a\[\*\]\.b; selector in brackets; write it in parens'
 	## Exit 1 since 2026100717500001; Es8PcNz below.
 	#'ErxfmqU|get-hash-index-refused|get %F% a(#0)|-|3|\n|no value at that path'
@@ -1075,6 +1075,11 @@ rows=(
 	'EqMO8f3|fmt-check-noncanonical|fmt --check %NC%|-|6||noncanon\.shcl: not canonical; fmt --write would rewrite it'
 	'EqMO8f4|fmt-check-canonical|fmt --check %F%|-|0||!.'
 	'EqMO8f5|fmt-check-write|fmt --check --write %NC%|-|1|-|--check cannot be combined with --write'
+	## 2026101407100002: with a layer or an edit, fmt --check said "would
+	## rewrite" every time, since the merge is never FILE. A usage error now.
+	'EshMywd|fmt-check-layer|fmt --check --layer=%F% %F%|-|1||=--check cannot be combined with --layer (see --help)\n'
+	'EshMywe|fmt-check-set|fmt --check --set=a=1 %F%|-|1||=--check cannot be combined with --set (see --help)\n'
+	'EshMywf|fmt-check-remove|fmt --check --remove=a %F%|-|1||=--check cannot be combined with --remove (see --help)\n'
 	## 20260920 item 1: --check promised a rewrite --write then refused. The
 	## sugar file's --write row two dozen lines up is the other half of the pair.
 	## The sugar file loses nothing now (2026100115403384), so the pair moved
@@ -1246,28 +1251,28 @@ rows=(
 	'EqvZOh8|remove-bad-path-on-get|get --remove=a..b %F2% a|-|1||^bad --remove value \(not a usable path\)'
 	'EqvZOh9|remove-missing-ok|set --remove=nope %F2%|-|0|a: 1\nb: 2\n|-'
 	'EqvZOhA|remove-wildcard-ok|set --remove=a.* %F2%|-|0|a: 1\nb: 2\n|-'
-	'EqvZOhB|ops-remove-bad-path|set %F2%|remove\tb(|1||^op line 1: cannot remove b\(: not a usable path$'
-	'EqvZOhC|ops-clear-comments-bad-path|set %F2%|clear-comments\ta..b|1||^op line 1: cannot clear-comments a\.\.b: not a usable path$'
+	'EqvZOhB|ops-remove-bad-path|set %F2%|remove\tb(|1||^op line 1: cannot remove b\(: not a usable path \(see --help\)$'
+	'EqvZOhC|ops-clear-comments-bad-path|set %F2%|clear-comments\ta..b|1||^op line 1: cannot clear-comments a\.\.b: not a usable path \(see --help\)$'
 	## 2026100717500010: a setter on a path that matches more than one field
 	## wrote the first and said yes, and the read after it said Multiple. It is
 	## a usage error now, the default forms and ops lines too. An index or a
 	## value picks one, and a remove still takes every instance.
-	'Es9aZSL|set-repeated-path|set --set=p=9 %FD%|-|1||^--set: cannot write p: the path matches multiple instances; name\(0\) picks one$'
+	'Es9aZSL|set-repeated-path|set --set=p=9 %FD%|-|1||^--set: cannot write p: the path matches multiple instances; name\(0\) picks one \(see --help\)$'
 	'Es9aZSM|set-repeated-parent|set --set=s.r=z %FD%|-|1||^--set: cannot write s\.r: the path matches multiple instances'
 	'Es9aZSN|get-set-repeated-path|get --set=p=9 %FD% p(0)|-|1||^--set: cannot write p: the path matches multiple instances'
 	'Es9aZSO|set-default-repeated-path|set --set-literal-default=p=9 %FD%|-|1||^--set-literal-default: cannot write p: the path matches multiple instances'
-	'Es9aZSP|ops-set-repeated-path|set %FD%|int\tp\t9\n|1||^op line 1: cannot write p: the path matches multiple instances; name\(0\) picks one$'
+	'Es9aZSP|ops-set-repeated-path|set %FD%|int\tp\t9\n|1||^op line 1: cannot write p: the path matches multiple instances; name\(0\) picks one \(see --help\)$'
 	'Es9aZSQ|set-index-picks-one|set --set=p(1)=9 --set=s(b).r=z %FD%|-|0|p: 1\np: 9\ns: a\n\tr: x\ns: b\n\tr: z\n|-'
 	'Es9cyaF|remove-repeated-takes-all|set --remove=p %FD%|-|0|s: a\n\tr: x\ns: b\n\tr: y\n|-'
 	## 2026100907362300: a setter says why it wrote nothing, and the CLI
 	## prints the reason from that. Same text in all four.
-	'EsDRhLy|set-no-such-index|set --set=a(5).b=1 %F%|-|1||^--set: cannot write a\(5\)\.b: no instance at that index$'
-	"EsDRhOB|set-too-deep|set --set=$(printf 'd.%.0s' {1..512})d=1 %F%|-|1||: deeper than the nesting cap\$"
-	'EsDRhQM|ops-value-in-path|set %F%|int\ta: 2\t1\n|1||^op line 1: cannot write a: 2: a path with a value part cannot be written$'
-	'EsDRhSf|ops-comment-not-one-line|set %F%|comment\ta\tx\xe2\x97\x89NEWLINE\xe2\x97\x89y\n|1||^op line 1: cannot write a: the comment text is not one line$'
-	'EsDRhUp|ops-literal-not-one-value|set %F%|literal\ta\tx, y\n|1||^op line 1: cannot write a: the value text is not one value$'
-	'EsDTA92|ops-comment-under-array|set %F%|literal\ta\t[1, 2]\ncomment\ta.x\tc\n|1||^op line 2: cannot write a\.x: an array takes no lines under it$'
-	'EsDTA93|ops-raw-bad-info-whole|set %F%|raw\tk\tc#x\tbody\n|1||^op line 1: cannot write k: the info string has no spelling that reads back: a .#. in it opens a comment, and a line break has no inline spelling$'
+	'EsDRhLy|set-no-such-index|set --set=a(5).b=1 %F%|-|1||^--set: cannot write a\(5\)\.b: no instance at that index \(see --help\)$'
+	"EsDRhOB|set-too-deep|set --set=$(printf 'd.%.0s' {1..512})d=1 %F%|-|1||: deeper than the nesting cap \\(see --help\\)\$"
+	'EsDRhQM|ops-value-in-path|set %F%|int\ta: 2\t1\n|1||^op line 1: cannot write a: 2: a path with a value part cannot be written \(see --help\)$'
+	'EsDRhSf|ops-comment-not-one-line|set %F%|comment\ta\tx\xe2\x97\x89NEWLINE\xe2\x97\x89y\n|1||^op line 1: cannot write a: the comment text is not one line \(see --help\)$'
+	'EsDRhUp|ops-literal-not-one-value|set %F%|literal\ta\tx, y\n|1||^op line 1: cannot write a: the value text is not one value \(see --help\)$'
+	'EsDTA92|ops-comment-under-array|set %F%|literal\ta\t[1, 2]\ncomment\ta.x\tc\n|1||^op line 2: cannot write a\.x: an array takes no lines under it \(see --help\)$'
+	'EsDTA93|ops-raw-bad-info-whole|set %F%|raw\tk\tc#x\tbody\n|1||^op line 1: cannot write k: the info string has no spelling that reads back: a .#. in it opens a comment, and a line break has no inline spelling \(see --help\)$'
 	## 20260830b item 19: a script could read an open section's values but never
 	## learn its keys, so the only route was parsing fmt output in shell. A name
 	## needing quotes comes back path-ready, or enumerating it buys nothing.
@@ -1338,16 +1343,16 @@ rows=(
 	'ErqYWEw|ops-array-none-is-empty-brackets|set %F%|int-array\tk\n|0|a: 1\n\nk: []\n|-'
 	## 2026101407100003: too few fields read as empty, so a raw op with no
 	## content wrote an empty block at exit 0. Refused like too many, per shape.
-	'Esgiz1x|ops-too-few-scalar|set %F%|string\tk\n|1||=op line 1: string takes 3 tab-separated field(s), got 2\n'
-	'Esgiz1y|ops-too-few-raw|set %F%|raw\tk\tinfo\n|1||=op line 1: raw takes 4 tab-separated field(s), got 3\n'
-	'Esgiz1z|ops-too-few-default|set %F%|raw-default\tk\n|1||=op line 1: raw-default takes 4 tab-separated field(s), got 2\n'
-	'Esgiz20|ops-too-few-op-alone|set %F%|int\n|1||=op line 1: int takes 3 tab-separated field(s), got 1\n'
-	'Esgiz21|ops-too-few-remove|set %F%|remove\n|1||=op line 1: remove takes 2 tab-separated field(s), got 1\n'
-	'Esgiz22|ops-too-few-empty|set %F%|empty\n|1||=op line 1: empty takes 2 tab-separated field(s), got 1\n'
-	'Esgiz23|ops-too-few-clear-comments|set %F%|clear-comments\n|1||=op line 1: clear-comments takes 2 tab-separated field(s), got 1\n'
-	'Esgiz24|ops-too-few-banner|set %F%|banner\n|1||=op line 1: banner takes 2 tab-separated field(s), got 1\n'
-	'Esgiz25|ops-too-few-array|set %F%|int-array\n|1||=op line 1: int-array takes at least 2 tab-separated field(s), got 1\n'
-	'Esgiz26|ops-too-few-later-line|set %F%|int\tx\t1\ncomment\tx\n|1||=op line 2: comment takes 3 tab-separated field(s), got 2\n'
+	'Esgiz1x|ops-too-few-scalar|set %F%|string\tk\n|1||=op line 1: string takes 3 tab-separated field(s), got 2 (see --help)\n'
+	'Esgiz1y|ops-too-few-raw|set %F%|raw\tk\tinfo\n|1||=op line 1: raw takes 4 tab-separated field(s), got 3 (see --help)\n'
+	'Esgiz1z|ops-too-few-default|set %F%|raw-default\tk\n|1||=op line 1: raw-default takes 4 tab-separated field(s), got 2 (see --help)\n'
+	'Esgiz20|ops-too-few-op-alone|set %F%|int\n|1||=op line 1: int takes 3 tab-separated field(s), got 1 (see --help)\n'
+	'Esgiz21|ops-too-few-remove|set %F%|remove\n|1||=op line 1: remove takes 2 tab-separated field(s), got 1 (see --help)\n'
+	'Esgiz22|ops-too-few-empty|set %F%|empty\n|1||=op line 1: empty takes 2 tab-separated field(s), got 1 (see --help)\n'
+	'Esgiz23|ops-too-few-clear-comments|set %F%|clear-comments\n|1||=op line 1: clear-comments takes 2 tab-separated field(s), got 1 (see --help)\n'
+	'Esgiz24|ops-too-few-banner|set %F%|banner\n|1||=op line 1: banner takes 2 tab-separated field(s), got 1 (see --help)\n'
+	'Esgiz25|ops-too-few-array|set %F%|int-array\n|1||=op line 1: int-array takes at least 2 tab-separated field(s), got 1 (see --help)\n'
+	'Esgiz26|ops-too-few-later-line|set %F%|int\tx\t1\ncomment\tx\n|1||=op line 2: comment takes 3 tab-separated field(s), got 2 (see --help)\n'
 	## 2026101407100005: a line of blanks was an op with no name.
 	'Esgiz27|ops-tab-only-line|set %F%|\t\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
 	'Esgiz28|ops-blanks-only-line|set %F%|int\tx\t1\n  \t \r\r\n \n|0|a: 1\n\nx: 1\n|='
@@ -1357,6 +1362,10 @@ rows=(
 	'EomzUyr|onbad-vs-default|get --int --on-bad=error --default=7 %F% nope|-|1|-|--default cannot be combined with --on-bad=error'
 	'EomzUys|default-with-onbad-default|get --int --default=7 --on-bad=default %F% nope|-|0|7\n|-'
 	'Eon0wTA|default-alone|get --int --default=7 %F% nope|-|0|7\n|-'
+	## 2026101407100004: --on-bad=default with no --default printed an empty
+	## line at exit 0. Refused whatever the read would give.
+	'EshMywg|onbad-default-needs-default|get --int --on-bad=default %F% nope|-|1||=--on-bad=default needs --default (see --help)\n'
+	'EshMywh|onbad-default-needs-default-good|get --int --on-bad=default %F% a|-|1||=--on-bad=default needs --default (see --help)\n'
 	## 20260920 idea 2, the same disease one step wider: two options asking for
 	## different answers resolved last-wins and said nothing, so the answer
 	## depended on typing order. Both orders refuse, and a repeat with the same
@@ -1542,13 +1551,35 @@ rows=(
 	## its type and keeps the old line as a comment, refuses over a raw block,
 	## and the data options fill only a missing or empty field.
 	'EsJZkoC|default-op-replaces|set -|string\tport\tabc\nint-default\tport\t9\n|0|# port: abc  ## replaced by shcl when setting a default for port, 2026-10-04 00:15:00 PDT: not an int\nport: 9\n|-'
-	'EsJZkoD|default-op-raw-block|set -|raw\tscript\tsh\techo hi\nint-default\tscript\t1\n|1||^op line 2: cannot write script: a raw block is there, and a default of another type would lose its body$'
+	'EsJZkoD|default-op-raw-block|set -|raw\tscript\tsh\techo hi\nint-default\tscript\t1\n|1||^op line 2: cannot write script: a raw block is there, and a default of another type would lose its body \(see --help\)$'
 	'EsJZkoE|set-default-fills-empty|set --set-default=e=3 -|e:\n|0|e: 3\n|-'
 	'EsJZkoF|set-default-keeps-any-value|set --set-default=p=9 -|p: abc\n|0|p: abc\n|-'
 	'EsaLLI5|set-literal-default-keeps-any-value|set --set-literal-default=p=9 -|p: abc\n|0|p: abc\n|-'
 )
 
-declare -i nRun=0 nBad=0 n2x=0
+declare -i nRun=0 nBad=0 n2x=0 nUsage=0
+
+##	Review 20261014 item 7: a usage error ends with (see --help), unless it
+##	says the fix itself (style-guide_ui-ux.md, Messages). Exit 1 is usage only,
+##	so every exit 1 a row gets is checked, whatever the row itself pins, and a
+##	new message can't slip past by having no row of its own. The rest say
+##	their fix, each in its own words.
+usageFixes=(
+	'\(see --help\)$'
+	'\(try --[a-z-]+=VALUE\)$'
+	'; write it --[a-z-]+=VALUE$'
+	'; drop --write to print, or pass a FILE$'
+	'\. Pipe instead: shcl fmt '
+	'\(expected UTF-8\)$'
+	## explain points at itself, where the answer is.
+	'\(shcl explain lists them all\)$'
+)
+fFindNoHelp(){   ## fFindNoHelp HITFILE WHAT STDERR: notes a last line naming no fix
+	local last="${3%$'\n'}" re
+	last="${last##*$'\n'}"
+	for re in "${usageFixes[@]}"; do [[ "${last}" =~ ${re} ]] && return 0; done
+	printf '%s: %s\n' "$2" "${last}" >> "$1"
+}
 
 ##	2.x wrote a line break as \n, a tab as \t and a backslash as \\. Since 3.0
 ##	a backslash is plain text, and the old forms still turned up in help and
@@ -1896,6 +1927,10 @@ for row in "${rows[@]}"; do
 		fFind2x "${tmpDir}/esc2x-out" "${tid} ${id} [${name}] stdout" "${scanOut}"
 		fFind2x "${tmpDir}/esc2x-out" "${tid} ${id} [${name}] stderr" "${scanErr}"
 		n2x+=1
+		if ((rc == 1)) && [[ "${stdinSpec}" != @fullerr ]]; then
+			fFindNoHelp "${tmpDir}/nohelp-out" "${tid} ${id} [${name}]" "${scanErr}"
+			nUsage+=1
+		fi
 		if ((rc == 124 && wantRc != 124)); then
 			echo "cli-regress: ${id} [${name}]: timed out after ${rowSecs} s" >&2; nBad+=1; continue
 		fi
@@ -1950,6 +1985,17 @@ if [[ -s "${tmpDir}/esc2x-out" ]]; then
 	while IFS= read -r hit; do
 		echo "cli-regress: output-no-2x-escapes: ${hit}" >&2; nBad+=1
 	done <"${tmpDir}/esc2x-out"
+fi
+
+## Review 20261014 item 7, over the rows above.
+fTest EshMywc usage-errors-name-a-fix
+if ((nUsage == 0)); then
+	echo "cli-regress: usage-errors-name-a-fix: no row exited 1" >&2; nBad+=1
+fi
+if [[ -s "${tmpDir}/nohelp-out" ]]; then
+	while IFS= read -r hit; do
+		echo "cli-regress: usage-errors-name-a-fix: ${hit}" >&2; nBad+=1
+	done <"${tmpDir}/nohelp-out"
 fi
 
 ## 20260817 item 28: a bare run printed the help and exited 1, -v was refused
