@@ -765,26 +765,22 @@ static const char *refusal(shcl_set_status st, const char *path, size_t plen) {
 	return "the value has no spelling that reads back";
 }
 
-// One diagnostic line in the shape every command uses: `line N: Severity:
-// CODE message` (`schema line` for the V090-V093 schema-fault codes).
+// One diagnostic line in the shape every command uses, shcl_format_diagnostic's.
 static void say_diag_from(const char *file, size_t line, shcl_severity sev, const char *code, shcl_str msg);
 static void say_diag(size_t line, shcl_severity sev, const char *code, shcl_str msg) {
 	say_diag_from("", line, sev, code, msg);
 }
 
-// The same, labeled with the file the diagnostic came from. Under --layer
-// several files are loaded and their line numbers share one space on the
-// screen, so two layers with a bad line 2 printed the same thing twice with
-// nothing to tell them apart.
+// The same, labeled with the file the diagnostic came from, or with `schema`
+// for the schema's own load. Under --layer several files are loaded and their
+// line numbers share one space on the screen, so two layers with a bad line 2
+// printed the same thing twice with nothing to tell them apart.
 static void say_diag_from(const char *file, size_t line, shcl_severity sev, const char *code, shcl_str msg) {
-	/* V090-V095 have a schema line; V096 and V097 are about generation as a
-	   whole and have line 0, so "schema line 0" named a line space they are not
-	   in. V099 stands for a schema that did not load and is line 0 too. */
-	const char *space = (!strncmp(code, "V09", 3) && strcmp(code, "V096") && strcmp(code, "V097")
-		&& strcmp(code, "V099")) ? "schema line" : "line";
+	size_t n = 0;
+	char *text = shcl_format_diagnostic(line, sev, code, msg, &n);
 	if (*file) fprintf(stderr, "%s ", file);
-	fprintf(stderr, "%s %zu: %s: %s ", space, line, sev == SHCL_SEV_ERROR ? "Error" : "Hint", code);
-	fwrite(msg.p, 1, msg.n, stderr); fputc('\n', stderr);
+	fwrite(text, 1, n, stderr); fputc('\n', stderr);
+	free(text);
 }
 // The load's diagnostics, one line each.
 static void say_diagnostics_from(const char *file, const shcl_doc *d) {
@@ -2033,23 +2029,15 @@ static int do_check(const Opts *o) {
 		size_t sn = shcl_diag_count(sd);
 		for (size_t i = 0; i < sn; i++) if (shcl_diag_severity(sd, i) == SHCL_SEV_ERROR) v99 = 1;
 		if (v99) {
-			for (size_t i = 0; i < sn; i++) {
-				const char *sev = shcl_diag_severity(sd, i) == SHCL_SEV_ERROR ? "Error" : "Hint";
-				shcl_str m = shcl_diag_message(sd, i);
-				fprintf(stderr, "schema line %zu: %s: %s ", shcl_diag_line(sd, i), sev, shcl_diag_code(sd, i));
-				fwrite(m.p, 1, m.n, stderr); fputc('\n', stderr);
-			}
+			for (size_t i = 0; i < sn; i++)
+				say_diag_from("schema", shcl_diag_line(sd, i), shcl_diag_severity(sd, i), shcl_diag_code(sd, i), shcl_diag_message(sd, i));
 		} else {
 			/* The schema's own load has something to say too: an H001 on a
 			   repeated `allowed` is what explains the V092 below it. On stderr
 			   with the schema's own line numbers, the way a V099's are -
 			   stdout is the code contract. */
-			for (size_t i = 0; i < sn; i++) {
-				const char *sev = shcl_diag_severity(sd, i) == SHCL_SEV_ERROR ? "Error" : "Hint";
-				shcl_str m = shcl_diag_message(sd, i);
-				fprintf(stderr, "schema line %zu: %s: %s ", shcl_diag_line(sd, i), sev, shcl_diag_code(sd, i));
-				fwrite(m.p, 1, m.n, stderr); fputc('\n', stderr);
-			}
+			for (size_t i = 0; i < sn; i++)
+				say_diag_from("schema", shcl_diag_line(sd, i), shcl_diag_severity(sd, i), shcl_diag_code(sd, i), shcl_diag_message(sd, i));
 			val = xdoc(shcl_validate(d, sd));
 			shcl_suppress_declared_repeats(sd, d);
 			shcl_suppress_declared_reopens(sd, d);
@@ -2061,7 +2049,7 @@ static int do_check(const Opts *o) {
 	// stdout gets the stable codes - the cross-binding contract. The prose is
 	// per-binding voice and goes to stderr (which the differential check drops).
 	for (size_t i = 0; i < n; i++) {
-		const char *sev = shcl_diag_severity(d, i) == SHCL_SEV_ERROR ? "Error" : "Hint";
+		const char *sev = shcl_severity_name(shcl_diag_severity(d, i));
 		if (shcl_diag_severity(d, i) == SHCL_SEV_ERROR) nerr++;
 		printf("line %zu: %s: %s\n", shcl_diag_line(d, i), sev, shcl_diag_code(d, i));
 		say_diag(shcl_diag_line(d, i), shcl_diag_severity(d, i), shcl_diag_code(d, i), shcl_diag_message(d, i));
@@ -2073,7 +2061,7 @@ static int do_check(const Opts *o) {
 		nerr++;
 	}
 	for (size_t i = 0; i < nval; i++) {
-		const char *sev = shcl_validation_severity(val, i) == SHCL_SEV_ERROR ? "Error" : "Hint";
+		const char *sev = shcl_severity_name(shcl_validation_severity(val, i));
 		if (shcl_validation_severity(val, i) == SHCL_SEV_ERROR) nerr++;
 		const char *code = shcl_validation_code(val, i);
 		printf("line %zu: %s: %s\n", shcl_validation_line(val, i), sev, code);
@@ -2109,12 +2097,8 @@ static int do_init(const Opts *o) {
 	int bad = 0; size_t sn = shcl_diag_count(sd);
 	for (size_t i = 0; i < sn; i++) if (shcl_diag_severity(sd, i) == SHCL_SEV_ERROR) bad = 1;
 	if (bad) {
-		for (size_t i = 0; i < sn; i++) {
-			const char *sev = shcl_diag_severity(sd, i) == SHCL_SEV_ERROR ? "Error" : "Hint";
-			shcl_str m = shcl_diag_message(sd, i);
-			fprintf(stderr, "schema line %zu: %s: %s ", shcl_diag_line(sd, i), sev, shcl_diag_code(sd, i));
-			fwrite(m.p, 1, m.n, stderr); fputc('\n', stderr);
-		}
+		for (size_t i = 0; i < sn; i++)
+			say_diag_from("schema", shcl_diag_line(sd, i), shcl_diag_severity(sd, i), shcl_diag_code(sd, i), shcl_diag_message(sd, i));
 		fprintf(stderr, "init: schema failed to load\n");
 		// A broken schema is a config-semantics failure, not a usage error:
 		// same exit as `check --schema` reporting it.

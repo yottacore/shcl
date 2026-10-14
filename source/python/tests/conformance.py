@@ -4946,6 +4946,28 @@ def main():
 			raise SystemExit(f"read_kind({kpath!r}) after setters {kr!r}")
 	if kdoc.read_kind("built").line != 0:
 		raise SystemExit(f"read_kind(built) {kdoc.read_kind('built')!r}")
+	test_id("EshdmLB", "format_diagnostic_is_the_cli_line")
+	# format_diagnostic gives the CLI's stderr line, and str() is the same.
+	# Same fixture in every runner; the prose is each binding's own.
+	fd = shcl.Document.parse("a: 1\nb: [x\n").diagnostics()[0]
+	if not fd.message or shcl.format_diagnostic(fd) != f"line 2: Error: E019 {fd.message}":
+		raise SystemExit(f"format_diagnostic {shcl.format_diagnostic(fd)!r}")
+	if str(fd) != shcl.format_diagnostic(fd) or f"{fd}" != str(fd):
+		raise SystemExit(f"str {str(fd)!r}")
+	fdE, fdH = shcl.Severity.Error, shcl.Severity.Hint
+	for fdd, fdwant in (
+		(shcl.Diagnostic(4, fdH, "", "H001"), "line 4: Hint: H001"),
+		(shcl.Diagnostic(3, fdE, "x y", "V091"), "schema line 3: Error: V091 x y"),
+		(shcl.Diagnostic(7, fdE, "z", "V095"), "schema line 7: Error: V095 z"),
+		(shcl.Diagnostic(0, fdE, "z", "V096"), "line 0: Error: V096 z"),
+		(shcl.Diagnostic(0, fdE, "z", "V097"), "line 0: Error: V097 z"),
+		(shcl.Diagnostic(0, fdE, "z", "V099"), "line 0: Error: V099 z"),
+		(shcl.Diagnostic(5, fdE, "z", "V001"), "line 5: Error: V001 z"),
+	):
+		if shcl.format_diagnostic(fdd) != fdwant:
+			raise SystemExit(f"format_diagnostic {shcl.format_diagnostic(fdd)!r}, want {fdwant!r}")
+	if (fdE.name, fdH.name) != ("Error", "Hint"):
+		raise SystemExit("severity names")
 
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")

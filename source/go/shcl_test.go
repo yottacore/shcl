@@ -6080,3 +6080,36 @@ func TestKindReadsSayWhatIsThere(t *testing.T) {
 		t.Errorf("ReadKind(built) line %d", k.Line)
 	}
 }
+
+// The CLI's stderr line comes from FormatDiagnostic, and String is the same.
+// Same fixture in every runner; the prose is each binding's own.
+func TestFormatDiagnosticIsTheCLILine(t *testing.T) {
+	defer testID(t, "EshdmI8")
+	doc := Parse("a: 1\nb: [x\n")
+	d := doc.Diagnostics()[0]
+	if got := FormatDiagnostic(d); got != "line 2: Error: E019 "+d.Message || d.Message == "" {
+		t.Errorf("FormatDiagnostic = %q", got)
+	}
+	if d.String() != FormatDiagnostic(d) || fmt.Sprint(d) != FormatDiagnostic(d) {
+		t.Errorf("String = %q", d.String())
+	}
+	for _, c := range []struct {
+		d    Diagnostic
+		want string
+	}{
+		{Diagnostic{Line: 4, Severity: SeverityHint, Code: "H001"}, "line 4: Hint: H001"},
+		{Diagnostic{Line: 3, Severity: SeverityError, Code: "V091", Message: "x y"}, "schema line 3: Error: V091 x y"},
+		{Diagnostic{Line: 7, Severity: SeverityError, Code: "V095", Message: "z"}, "schema line 7: Error: V095 z"},
+		{Diagnostic{Line: 0, Severity: SeverityError, Code: "V096", Message: "z"}, "line 0: Error: V096 z"},
+		{Diagnostic{Line: 0, Severity: SeverityError, Code: "V097", Message: "z"}, "line 0: Error: V097 z"},
+		{Diagnostic{Line: 0, Severity: SeverityError, Code: "V099", Message: "z"}, "line 0: Error: V099 z"},
+		{Diagnostic{Line: 5, Severity: SeverityError, Code: "V001", Message: "z"}, "line 5: Error: V001 z"},
+	} {
+		if got := FormatDiagnostic(c.d); got != c.want {
+			t.Errorf("FormatDiagnostic = %q, want %q", got, c.want)
+		}
+	}
+	if SeverityError.String() != "Error" || SeverityHint.String() != "Hint" {
+		t.Errorf("severity names")
+	}
+}

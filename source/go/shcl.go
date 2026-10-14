@@ -114,6 +114,11 @@ type Diagnostic struct {
 	Code string
 }
 
+// String is the line FormatDiagnostic gives.
+func (d Diagnostic) String() string {
+	return FormatDiagnostic(d)
+}
+
 // Status is the read sentinel. Empty is informational - the empty value is
 // still returned. Ordered by severity so a worst-of aggregate is the largest.
 type Status int
@@ -8032,6 +8037,24 @@ func escapeName(name string) string {
 
 func emitName(name string) string {
 	return escapeName(name)
+}
+
+// FormatDiagnostic gives one diagnostic the way the CLI prints it on stderr:
+// `line N: Error: CODE message`. V090 to V095 count lines in the schema file,
+// so theirs reads `schema line N`. The message is this binding's own prose,
+// and only the code is the same in all four. With no message the line ends at
+// the code.
+func FormatDiagnostic(d Diagnostic) string {
+	// V096 and V097 are about generation as a whole and V099 a schema that did
+	// not load, all line 0, which is no schema line.
+	space := "line"
+	if strings.HasPrefix(d.Code, "V09") && d.Code != "V096" && d.Code != "V097" && d.Code != "V099" {
+		space = "schema line"
+	}
+	if d.Message == "" {
+		return fmt.Sprintf("%s %d: %s: %s", space, d.Line, d.Severity, d.Code)
+	}
+	return fmt.Sprintf("%s %d: %s: %s %s", space, d.Line, d.Severity, d.Code, d.Message)
 }
 
 // QuoteSegment quotes one path segment so it can be spliced into a lookup

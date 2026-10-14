@@ -174,6 +174,17 @@ int main() {
 	CHECK(shcl::strictness_from_arg("STRICT") == shcl::Strictness::Strict && shcl::strictness_from_arg("1") == shcl::Strictness::Loose);
 	CHECK(!shcl::strictness_from_arg("4") && !shcl::strictness_from_arg(""));
 	CHECK(shcl::format_float(0.1) == "0.1" && shcl::format_float(-2.5) == "-2.5");
+	// The CLI's stderr line, through the core.
+	{
+		auto fdoc = shcl::Document::parse("a: 1\nb: [x\n");
+		auto fd = fdoc.diagnostics().at(0);
+		CHECK(!fd.message.empty() && shcl::format_diagnostic(fd) == "line 2: Error: E019 " + fd.message);
+		CHECK(shcl::format_diagnostic({4, shcl::Severity::Hint, "", "H001"}) == "line 4: Hint: H001");
+		CHECK(shcl::format_diagnostic({3, shcl::Severity::Error, "x y", "V091"}) == "schema line 3: Error: V091 x y");
+		CHECK(shcl::format_diagnostic({0, shcl::Severity::Error, "z", "V099"}) == "line 0: Error: V099 z");
+		CHECK(shcl::format_diagnostic({1, shcl::Severity::Error, std::string("a\0b", 3), "E001"}) == std::string("line 1: Error: E001 a\0b", 23));
+		CHECK(std::string(shcl::to_string(shcl::Severity::Error)) == "Error" && std::string(shcl::to_string(shcl::Severity::Hint)) == "Hint");
+	}
 	CHECK(shcl::parse_datetime("2026-07-12T09:30Z")->str() == "2026-07-12T09:30Z");
 	// The fields are the reference's: what was written, and nothing else.
 	{

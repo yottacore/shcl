@@ -184,6 +184,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `kind()` and `read_kind()` in every binding (Go `Kind` and `ReadKind`, C `shcl_kind` and `shcl_read_kind`) say whether the value at a path is a scalar, an array, a raw block or empty, so a tool no longer has to try each read to find out. `read_kind()` says `NotFound`, `Multiple` or `BadPath` for a miss.
 
+- `format_diagnostic()` in every binding (Go `FormatDiagnostic`, C `shcl_format_diagnostic`) gives one diagnostic as the line the CLI prints, such as `line 3: Error: E019 malformed array, ...`. Rust's `Display`, Go's `String()` and Python's `str()` give the same line. C has `shcl_severity_name`, and C++ `to_string(Severity)`.
+
 ### Parsing
 
 - A line indented under a skipped line is skipped with it (`E018`) instead of moving up a level. That now holds under `E006`, `E012`, `E013` and a dropped `- ` item as well.

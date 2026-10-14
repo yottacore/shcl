@@ -1037,6 +1037,16 @@ int shcl_parse_datetime(const char *text, size_t tlen, shcl_datetime *out);
 // Status <-> the CLI exit code / textual name.
 int shcl_status_code(shcl_status s);
 const char *shcl_status_name(shcl_status s);
+// "Error" or "Hint", the way check prints a severity. Static storage.
+const char *shcl_severity_name(shcl_severity s);
+// One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
+// message`, from the parts shcl_diag_* or shcl_validation_* give. V090 to
+// V095 count lines in the schema file, so theirs reads `schema line N`. The
+// message is this binding's own prose, and only the code is the same in all
+// four. With no message the line ends at the code. malloc'd and
+// NUL-terminated; the caller frees it. *len, when len isn't NULL, gets the
+// byte length, since a message may hold a NUL.
+char *shcl_format_diagnostic(size_t line, shcl_severity sev, const char *code, shcl_str message, size_t *len);
 // Whether the author addressed the field at all: Good or Empty. A status
 // predicate rather than a per-struct helper, since every read struct has
 // the same status. Note this deliberately answers differently from the
@@ -10856,6 +10866,28 @@ const char *shcl_status_name(shcl_status s) {
 	return "Good";
 }
 int shcl_status_ok(shcl_status s) { return s == SHCL_GOOD || s == SHCL_EMPTY; }
+const char *shcl_severity_name(shcl_severity s) { return s == SHCL_SEV_HINT ? "Hint" : "Error"; }
+char *shcl_format_diagnostic(size_t line, shcl_severity sev, const char *code, shcl_str message, size_t *len) {
+	/* V096 and V097 are about generation as a whole and V099 a schema that
+	   did not load, all line 0, which is no schema line. */
+	const char *space = (!strncmp(code, "V09", 3) && strcmp(code, "V096") && strcmp(code, "V097")
+		&& strcmp(code, "V099")) ? "schema line" : "line";
+	char head[64];
+	int hn = snprintf(head, sizeof head, "%s %zu: %s: ", space, line, shcl_severity_name(sev));
+	if (hn < 0 || (size_t)hn >= sizeof head) hn = 0;
+	size_t cn = strlen(code), n = (size_t)hn + cn + (message.n ? 1 + message.n : 0);
+	char *out = (char *)malloc(n + 1);
+	if (!out) { SHCL_OOM(); abort(); }
+	memcpy(out, head, (size_t)hn);
+	memcpy(out + (size_t)hn, code, cn);
+	if (message.n) {
+		out[(size_t)hn + cn] = ' ';
+		memcpy(out + (size_t)hn + cn + 1, message.p, message.n);
+	}
+	out[n] = 0;
+	if (len) *len = n;
+	return out;
+}
 const char *shcl_value_kind_name(shcl_value_kind k) {
 	switch (k) { case SHCL_KIND_EMPTY: return "Empty"; case SHCL_KIND_SCALAR: return "Scalar"; case SHCL_KIND_ARRAY: return "Array"; case SHCL_KIND_RAW: return "Raw"; }
 	return "Unknown";

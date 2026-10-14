@@ -57,6 +57,16 @@ pub enum Severity {
 	Hint,
 }
 
+impl std::fmt::Display for Severity {
+	/// `Error` or `Hint`, the way `check` prints it.
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			Severity::Error => "Error",
+			Severity::Hint => "Hint",
+		})
+	}
+}
+
 /// One parser or validator finding, tied to a source line.
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
@@ -66,6 +76,13 @@ pub struct Diagnostic {
 	/// Stable machine code (E001.., H001..) identifying the diagnostic kind. The
 	/// contract lives here; the `message` prose is a free, per-binding voice.
 	pub code: &'static str,
+}
+
+impl std::fmt::Display for Diagnostic {
+	/// The line `format_diagnostic` gives.
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(&format_diagnostic(self))
+	}
 }
 
 /// Read status sentinels. `Empty` is informational - the empty value is still returned.
@@ -8224,6 +8241,28 @@ pub fn format_float(v: f64) -> String {
 		out.push_str(&digits[point as usize..]);
 	}
 	out
+}
+
+/// One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
+/// message`. V090 to V095 count lines in the schema file, so theirs reads
+/// `schema line N`. The message is this binding's own prose, and only the code
+/// is the same in all four. With no message the line ends at the code.
+#[must_use]
+pub fn format_diagnostic(d: &Diagnostic) -> String {
+	// V096 and V097 are about generation as a whole and V099 a schema that did
+	// not load, all line 0, which is no schema line.
+	let space = if d.code.starts_with("V09") && !matches!(d.code, "V096" | "V097" | "V099") {
+		"schema line"
+	} else {
+		"line"
+	};
+	if d.message.is_empty() {
+		return format!("{} {}: {}: {}", space, d.line, d.severity, d.code);
+	}
+	format!(
+		"{} {}: {}: {} {}",
+		space, d.line, d.severity, d.code, d.message
+	)
 }
 
 /// Quote one path segment so it can be spliced into a lookup path: a bare name

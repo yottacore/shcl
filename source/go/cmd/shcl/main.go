@@ -1619,17 +1619,10 @@ func sayDiagnostics(diags []shcl.Diagnostic) {
 // twice with nothing to tell them apart.
 func sayDiagnosticsFrom(file string, diags []shcl.Diagnostic) {
 	for _, d := range diags {
-		// V090-V095 have a schema line; V096 and V097 are about generation as a
-		// whole and have line 0, so "schema line 0" named a line space they are
-		// not in. V099 stands for a schema that did not load and is line 0 too.
-		space := "line"
-		if strings.HasPrefix(d.Code, "V09") && d.Code != "V096" && d.Code != "V097" && d.Code != "V099" {
-			space = "schema line"
-		}
 		if file == "" {
-			fmt.Fprintf(os.Stderr, "%s %d: %s: %s %s\n", space, d.Line, d.Severity, d.Code, d.Message)
+			fmt.Fprintln(os.Stderr, shcl.FormatDiagnostic(d))
 		} else {
-			fmt.Fprintf(os.Stderr, "%s %s %d: %s: %s %s\n", file, space, d.Line, d.Severity, d.Code, d.Message)
+			fmt.Fprintln(os.Stderr, file, shcl.FormatDiagnostic(d))
 		}
 	}
 }
@@ -3316,7 +3309,7 @@ func doCheck(o *opts) int {
 		}
 		if bad {
 			for _, sd := range sdoc.Diagnostics() {
-				fmt.Fprintf(os.Stderr, "schema line %d: %s: %s %s\n", sd.Line, sd.Severity, sd.Code, sd.Message)
+				fmt.Fprintln(os.Stderr, "schema", shcl.FormatDiagnostic(sd))
 			}
 			diags = append(diags, shcl.Diagnostic{
 				Line: 0, Severity: shcl.SeverityError, Message: "schema failed to load", Code: "V099",
@@ -3327,7 +3320,7 @@ func doCheck(o *opts) int {
 			// stderr with the schema's own line numbers, the way a V099's
 			// are - stdout is the code contract.
 			for _, sd := range sdoc.Diagnostics() {
-				fmt.Fprintf(os.Stderr, "schema line %d: %s: %s %s\n", sd.Line, sd.Severity, sd.Code, sd.Message)
+				fmt.Fprintln(os.Stderr, "schema", shcl.FormatDiagnostic(sd))
 			}
 			diags = append(diags, doc.Validate(sdoc)...)
 			diags = shcl.SuppressDeclaredRepeats(sdoc, diags)
@@ -3389,7 +3382,7 @@ func doInit(o *opts) int {
 	}
 	if bad {
 		for _, d := range sdoc.Diagnostics() {
-			fmt.Fprintf(os.Stderr, "schema line %d: %s: %s %s\n", d.Line, d.Severity, d.Code, d.Message)
+			fmt.Fprintln(os.Stderr, "schema", shcl.FormatDiagnostic(d))
 		}
 		fmt.Fprintln(os.Stderr, "init: schema failed to load")
 		// A broken schema is a config-semantics failure, not a usage error:

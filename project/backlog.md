@@ -93,6 +93,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `3f870f9d`
 	- Acceptance signoff: waits on 2 public-name calls: `Quote.None_` for the keyword, and dropping Python's `RULES_CURRENT` and `RULES_V2` aliases. The C unit enum values were renamed past the item's list too, `SHCL_DURATION_MS` to `SHCL_DURATION_MILLIS` and the rest, to the other bindings' words.
 
+- A one-line text for a diagnostic in the library
+	- ID: 2026101407100012
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
+	- Priority: Low
+	- Opened: 20261014-071000
+	- Opened by: Code review 20261014 item 12, from the consumer survey
+	- Version and build: dev at `9dff6949`
+	- Problem description: the CLI prints `line N: Error: CODE message` from its own code, and seven of eight consumers rebuild that line and the errors-only filter. The library has `error_count` and the `Diagnostic` fields and no text form: Go's `Diagnostic` has no `String()`, Rust no `Display`, C no `shcl_severity_name`.
+	- Requirements:
+		- A text form of one diagnostic, the CLI's line, in all four and the C++ interface, with the CLI using it.
+	- Reason: one less thing every consumer writes, and the CLI's line stops being a copy.
+	- Actual fix: `format_diagnostic` in all four and C++ (Go `FormatDiagnostic`, C `shcl_format_diagnostic`) gives the CLI's stderr line, `line N: Error: CODE message`, and `schema line N` for V090 to V095. With no message the line ends at the code. Rust's `Display`, Go's `String()` and Python's `str()` give the same line, and Rust's `Severity` has a `Display` now. C has `shcl_severity_name`, and C++ `to_string(Severity)`. All four CLIs print every stderr diagnostic line through it, with a `--layer` file name or `schema` in front where they had one. spec.md, the changelog and a style guide line for C's form.
+	- Decisions:
+		- 20261014: the name is `format_diagnostic`, a free function beside `format_float`, and each language's display hook calls it (me). The style guide leaves the surface to each language, and Rust already has `Display` on `Status` and Go `String()` on its enums, so the hooks needed no guide line.
+		- 20261014: the call gives the stderr line, message included, and the `schema line` rule for V090 to V095 moved from the CLIs into it, since that number counts schema lines (me). `check`'s codes-only stdout line stays the CLI's own: it's the cross-binding contract and has no message.
+		- 20261014: C takes the line, severity, code and message rather than a document and index, so one call covers `shcl_diag_*` and `shcl_validation_*`. It returns malloc'd text and its length, as `shcl_read_file` does, since a message may hold a NUL (me).
+	- Swept: the CLIs' print sites in all four: `say_diagnostics_from`, and the schema's own diagnostics in `check` and `init`. C's inline `"Error"`/`"Hint"` picks in its CLI and its runner's code lines use `shcl_severity_name`. No other site in `source/` builds the stderr line. The README names no `format_*` call, so it's unchanged.
+	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang, the C CLI under both, check-c-compilers (140 builds), the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (22053 comparisons) over all 4 CLIs, both unchanged. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. A mark put into each library's format came out on that CLI's stderr line, so no CLI keeps a copy. `EshYXXC` went red with `format_diagnostic` left out of Python's `__all__`.
+	- Test case: `format_diagnostic_is_the_cli_line`, one fixture in every runner: Rust `EshdmF9`, Go `EshdmI8`, Python `EshdmLB` and C `EshdmOB`. C++'s checks are in `EjtkR0S` (veneer smoke). The CLI lines are pinned by the existing cli-regress rows, `EomzUym`, `EqzuLVu` to `EqzuLVx`, `Eon9YY4` and `Eon2Qoy` among them.
+	- Branch: `diagline`
+	- Commit: `02241ff5`
+	- Acceptance signoff: waits on the public names, `format_diagnostic`, `shcl_severity_name` and C++ `to_string(Severity)`, and on the display hooks in Rust, Go and Python.
+
 - spec.md leaves out what consumers had to find by probing
 	- ID: 2026101407100009
 	- Type: Bug
@@ -134,19 +159,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261014: the call is `format_value`, beside `format_float` (JC).
 	- Reason: least surprise for a program that writes config text itself. The scrape depends on one line per key and on `to_canonical`'s layout.
-
-- A one-line text for a diagnostic in the library
-	- ID: 2026101407100012
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261014-071000
-	- Opened by: Code review 20261014 item 12, from the consumer survey
-	- Version and build: dev at `9dff6949`
-	- Problem description: the CLI prints `line N: Error: CODE message` from its own code, and seven of eight consumers rebuild that line and the errors-only filter. The library has `error_count` and the `Diagnostic` fields and no text form: Go's `Diagnostic` has no `String()`, Rust no `Display`, C no `shcl_severity_name`.
-	- Requirements:
-		- A text form of one diagnostic, the CLI's line, in all four and the C++ interface, with the CLI using it.
-	- Reason: one less thing every consumer writes, and the CLI's line stops being a copy.
 
 - `load_and_validate` takes schema text, so a cached schema is re-parsed on every load, and the two-step form differs
 	- ID: 2026101407100013

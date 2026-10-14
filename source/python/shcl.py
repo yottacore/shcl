@@ -86,6 +86,7 @@ __all__ = [
 	"WriteError",
 	"WriteStatus",
 	"backup_file_name",
+	"format_diagnostic",
 	"format_float",
 	"format_version",
 	"generate",
@@ -210,9 +211,13 @@ class Diagnostic:
 		self.message = message
 		self.code = code          # stable machine code (E001.., H001..); the contract
 
-	# The reference derives Debug; print() is how Python gets debugged.
+	# The reference derives Debug, and repr() is that.
 	def __repr__(self) -> str:
 		return f"Diagnostic(line={self.line}, severity={self.severity}, message={self.message!r}, code={self.code!r})"
+
+	# The reference's Display: the line format_diagnostic gives.
+	def __str__(self) -> str:
+		return format_diagnostic(self)
 
 
 class Field:
@@ -8906,6 +8911,20 @@ def _diag_list(items, total):
 
 def _diag_more(total):
 	return f" (and {total - _DIAG_LIST_MAX} more)" if total > _DIAG_LIST_MAX else ""
+
+
+def format_diagnostic(d: Diagnostic) -> str:
+	"""One diagnostic the way the CLI prints it on stderr: `line N: Error:
+	CODE message`. V090 to V095 count lines in the schema file, so theirs
+	reads `schema line N`. The message is this binding's own prose, and only
+	the code is the same in all four. With no message the line ends at the
+	code."""
+	# V096 and V097 are about generation as a whole and V099 a schema that did
+	# not load, all line 0, which is no schema line.
+	space = "schema line" if d.code.startswith("V09") and d.code not in ("V096", "V097", "V099") else "line"
+	if not d.message:
+		return f"{space} {d.line}: {d.severity.name}: {d.code}"
+	return f"{space} {d.line}: {d.severity.name}: {d.code} {d.message}"
 
 
 def quote_segment(name: str) -> str:

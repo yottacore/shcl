@@ -497,7 +497,7 @@ static char *diag_text(shcl_doc *d, size_t *len) {
 	char *dj = xrealloc(NULL, 64); size_t jl = 0, jc = 64;
 	for (size_t i = 0; i < ndiag; i++) {
 		if (shcl_diag_severity(d, i) == SHCL_SEV_ERROR) nerr++;
-		char ln[128]; int w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_diag_line(d, i), shcl_diag_severity(d, i) == SHCL_SEV_ERROR ? "Error" : "Hint", shcl_diag_code(d, i));
+		char ln[128]; int w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_diag_line(d, i), shcl_severity_name(shcl_diag_severity(d, i)), shcl_diag_code(d, i));
 		if (jl + (size_t)w + 1 > jc) { jc = (jl + (size_t)w + 1) * 2; dj = xrealloc(dj, jc); }
 		memcpy(dj + jl, ln, (size_t)w); jl += (size_t)w;
 	}
@@ -1556,11 +1556,11 @@ int main(int argc, char **argv) {
 					char ln[128]; int w;
 					if (i < nd) {
 						if (shcl_diag_severity(vd, i) == SHCL_SEV_ERROR) nerr++;
-						w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_diag_line(vd, i), shcl_diag_severity(vd, i) == SHCL_SEV_ERROR ? "Error" : "Hint", shcl_diag_code(vd, i));
+						w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_diag_line(vd, i), shcl_severity_name(shcl_diag_severity(vd, i)), shcl_diag_code(vd, i));
 					} else {
 						size_t k = i - nd;
 						if (shcl_validation_severity(vv, k) == SHCL_SEV_ERROR) nerr++;
-						w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_validation_line(vv, k), shcl_validation_severity(vv, k) == SHCL_SEV_ERROR ? "Error" : "Hint", shcl_validation_code(vv, k));
+						w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_validation_line(vv, k), shcl_severity_name(shcl_validation_severity(vv, k)), shcl_validation_code(vv, k));
 					}
 					if (jl + (size_t)w + 1 > jc) { jc = (jl + (size_t)w + 1) * 2; vj = xrealloc(vj, jc); }
 					memcpy(vj + jl, ln, (size_t)w); jl += (size_t)w;
@@ -1571,7 +1571,7 @@ int main(int argc, char **argv) {
 					char *lj = xrealloc(NULL, 64); size_t ll = 0, lc = 64;
 					for (size_t i = 0; i < shcl_diag_count(lv); i++) {
 						char ln[128];
-						int w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_diag_line(lv, i), shcl_diag_severity(lv, i) == SHCL_SEV_ERROR ? "Error" : "Hint", shcl_diag_code(lv, i));
+						int w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_diag_line(lv, i), shcl_severity_name(shcl_diag_severity(lv, i)), shcl_diag_code(lv, i));
 						if (ll + (size_t)w + 1 > lc) { lc = (ll + (size_t)w + 1) * 2; lj = xrealloc(lj, lc); }
 						memcpy(lj + ll, ln, (size_t)w); ll += (size_t)w;
 					}
@@ -5802,6 +5802,44 @@ int main(int argc, char **argv) {
 		}
 		if (shcl_read_line(kd, "built", 5).value != 0) fail("kind_reads", "line(built)");
 		shcl_free(kd);
+	}
+	test_id("EshdmOB", "format_diagnostic_is_the_cli_line");
+	// shcl_format_diagnostic gives the CLI's stderr line. Same fixture in
+	// every runner; the prose is each binding's own.
+	{
+		const char *ft = "a: 1\nb: [x\n";
+		shcl_doc *fdoc = shcl_parse(ft, strlen(ft));
+		shcl_str fm = shcl_diag_message(fdoc, 0);
+		size_t fn = 0;
+		char *fs = shcl_format_diagnostic(shcl_diag_line(fdoc, 0), shcl_diag_severity(fdoc, 0), shcl_diag_code(fdoc, 0), fm, &fn);
+		const char *fhead = "line 2: Error: E019 ";
+		size_t fhn = strlen(fhead);
+		if (!fm.n || fn != fhn + fm.n || memcmp(fs, fhead, fhn) || memcmp(fs + fhn, fm.p, fm.n) || fs[fn] || strlen(fs) != fn)
+			fail("format_diagnostic", fs);
+		free(fs);
+		shcl_free(fdoc);
+		static const struct { size_t line; shcl_severity sev; const char *code, *msg, *want; } fcases[] = {
+			{4, SHCL_SEV_HINT, "H001", "", "line 4: Hint: H001"},
+			{3, SHCL_SEV_ERROR, "V091", "x y", "schema line 3: Error: V091 x y"},
+			{7, SHCL_SEV_ERROR, "V095", "z", "schema line 7: Error: V095 z"},
+			{0, SHCL_SEV_ERROR, "V096", "z", "line 0: Error: V096 z"},
+			{0, SHCL_SEV_ERROR, "V097", "z", "line 0: Error: V097 z"},
+			{0, SHCL_SEV_ERROR, "V099", "z", "line 0: Error: V099 z"},
+			{5, SHCL_SEV_ERROR, "V001", "z", "line 5: Error: V001 z"},
+		};
+		for (size_t i = 0; i < sizeof fcases / sizeof fcases[0]; i++) {
+			shcl_str m; m.p = fcases[i].msg; m.n = strlen(fcases[i].msg);
+			fs = shcl_format_diagnostic(fcases[i].line, fcases[i].sev, fcases[i].code, m, NULL);
+			if (strcmp(fs, fcases[i].want)) fail("format_diagnostic", fs);
+			free(fs);
+		}
+		// A NUL in the message comes through, counted.
+		shcl_str nul; nul.p = "a\0b"; nul.n = 3;
+		fs = shcl_format_diagnostic(1, SHCL_SEV_ERROR, "E001", nul, &fn);
+		if (fn != 23 || memcmp(fs, "line 1: Error: E001 a\0b", 24)) fail("format_diagnostic", "NUL");
+		free(fs);
+		if (strcmp(shcl_severity_name(SHCL_SEV_ERROR), "Error") || strcmp(shcl_severity_name(SHCL_SEV_HINT), "Hint"))
+			fail("format_diagnostic", "shcl_severity_name");
 	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }
