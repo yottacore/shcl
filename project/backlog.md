@@ -27,9 +27,9 @@
 
 ## Introduction
 
-Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. No more status emojis. Refer to '## Reference' for sort order. Issues in the old format (with status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues going forward more structured and importable.)
+Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. Refer to '## Reference' for sort order. Issues in the old format (with the status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues more structured and importable.)
 
-The product backlog: bugs, features, enhancements, and code-review findings. Outside reports come in through GitHub Issues (see `contributing.md`); the work itself is tracked here.
+Outside reports use GitHub Issues (see `contributing.md`), but the work itself is tracked here.
 
 ## Issues
 
@@ -216,6 +216,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Problem description: three consumers (gitsby, silkterm, nemo) set a value on a throwaway document and scrape `to_canonical` to learn how shcl writes it. `format_float` covers a float and `quote_segment` a name; nothing covers a string with a quote, a datetime, an array element or a backtick value, and `quote_segment` quotes `2020`, `@null`, `1,200`, `a.b` and `-x` where the writer leaves them bare.
 	- Requirements:
 		- One call per binding and the C++ interface, giving the writer's own spelling of a scalar as it would go after the colon, named beside `quote_segment`.
+	- Decisions:
+		- 20261014: the call is `format_value`, beside `format_float` (JC).
 	- Reason: least surprise for a program that writes config text itself. The scrape depends on one line per key and on `to_canonical`'s layout.
 
 - A one-line text for a diagnostic in the library
@@ -242,6 +244,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Problem description: all four take `schema_text`. nano-git-db keeps a parsed schema and calls `parse_with` then `validate`, which leaves `diagnostics()` and `error_count` at the load's values and passes at Strict where the one-shot fails on a validation error.
 	- Requirements:
 		- A form taking a schema document with the one-shot's combined list and strict rule, or a spec sentence saying how the two-step differs and how to merge.
+	- Decisions:
+		- 20261014: a new call beside the old one, `load_and_validate_with`, taking a parsed schema document, with the one-shot's combined diagnostics and strict rule (JC). The text form stays.
 	- Reason: a program that validates on every start shouldn't parse its embedded schema each time, and the strict difference is a trap.
 
 - Loose doesn't read a quoted thousands number, such as `"1,200"` or `"$1,200"`, as a number
