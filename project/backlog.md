@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `upgrade --from-2x` leaves a file a beta build stamped `Format 3` alone, so every user file of two consumers needs its Format line stripped by hand first
 	- ID: 2026101407100010
 	- Type: Enhancement
-	- Status: Waiting for answers
+	- Status: Queued
 	- Priority: Avg
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 10, from the consumer survey
@@ -44,7 +44,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Related IDs: 2026100115403385, 2026100313461649
 	- Problem description: nemo and slodworld wrote `##    Format   3` with 2.x bare comma lists (`range: 0, 100`) under the dev snapshots they pin, into every user's config. On dev such a file loads with `E026` on each list line, kept, and the field reads `NotFound`. `upgrade`, `upgrade --from-2x`, `upgrade_file(path, true)` and `migrate --from-2x` all answer "nothing to upgrade". The consumer has to delete the Format line itself, then upgrade.
 	- Against: 2026100115403385, beta-stamped files are on their own, and the spec's "A file that names this format is never written. Neither is a file a beta build of 3.0 wrote".
-	- Question: should `--from-2x` and `from_v2` convert a file stamped with this format too? The flag is the caller saying the file is 2.x, and the backup keeps the original either way. With it a consumer calls `upgrade_file(path, true)` once, keyed on its own version marker, and nothing else changes. Without it the answer stays as recorded and the two programs keep the hand step.
+	- Decisions:
+		- 20261014: the flag wins (JC). With `--from-2x` or `from_v2`, a file whose Format line names this format is treated as 2.x, converted and backed up like any upgrade. The caller is saying what wrote the file, which shcl can't tell from the text. Without the flag nothing changes, so 2026100115403385 still holds for a file nobody vouches for. The backup name keeps the spec's rule, the number the Format line names, so `format-v3` here.
 	- Reason: of every 3.0 change the survey found, this is the one that puts a hand step in front of each user of two programs.
 
 - `upgrade --from-2x` and `upgrade_file` leave an older Format line above the new info block, so the file names two formats
