@@ -143,11 +143,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `85ea3f9b`
 	- Acceptance signoff: waits on JC for the two (me) calls above, the text input and leaving array elements out.
 
+- No public call gives an array, or one element of it, the way the writer writes it
+	- ID: 2026101412591471
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261014-125914
+	- Opened by: 2026101407100011
+	- Prereq IDs: 2026101407100011, since the element form follows whatever input `format_value` is signed off with
+	- Version and build: dev at `835ac487`
+	- Problem description: `format_value` gives one value after the colon. A program writing `[a, b]` itself has no call for an element, and a bare thousands number such as `1,200` is quoted inside brackets where `format_value` leaves it bare.
+	- Requirements:
+		- A call for one element, or for a whole array, in all four and C++, built through the same emitter.
+	- Reason: the consumer survey in code review 20261014 named array elements among what gets scraped from `to_canonical`.
+
 - spec.md leaves out what consumers had to find by probing
 	- ID: 2026101407100009
 	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: a build of the crate on Rust 1.88, and the Python conformance suite on Python 3.9. Neither toolchain is here.
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 9
@@ -167,21 +180,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: spec.md says each one. Raw blocks: a string read gives a block's body, and `GetRaw` of a plain value is `BadType`. `QuoteSegment`: its output is a selector body. `Remove`: which comments go with the node. Migrating: a clean unstamped file gets the Format line alone, and `FORMAT_LINE` is that line. A list of what each binding allows across threads, before The core call. The README's Rust and Python entries name Rust 1.88 and Python 3.9.
 	- Swept: C's and C++'s rules were already in their headers, and the spec's list points at them. `source/python/README.md` already says 3.9.
 	- Test case: none. These are sentences on behavior that didn't change, each probed above.
+	- Verified: 20261014 on dev at `b69b52b1`. `cargo build` and `cargo test` pass on Rust 1.88.0, and the Python suite passes on Python 3.9.25, 206 corpus cases.
 	- Branch: `docsync`
 	- Commit: `6314a79b`
-
-- No public call gives an array, or one element of it, the way the writer writes it
-	- ID: 2026101412591471
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261014-125914
-	- Opened by: 2026101407100011
-	- Version and build: dev at `835ac487`
-	- Problem description: `format_value` gives one value after the colon. A program writing `[a, b]` itself has no call for an element, and a bare thousands number such as `1,200` is quoted inside brackets where `format_value` leaves it bare.
-	- Requirements:
-		- A call for one element, or for a whole array, in all four and C++, built through the same emitter.
-	- Reason: the consumer survey in code review 20261014 named array elements among what gets scraped from `to_canonical`.
+	- Acceptance signoff: Self-closed: each sentence was probed on dev, and both version floors ran.
+	- Closed: 20261014-130532
 
 - `load_and_validate` takes schema text, so a cached schema is re-parsed on every load, and the two-step form differs
 	- ID: 2026101407100013
