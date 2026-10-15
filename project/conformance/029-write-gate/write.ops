@@ -4,3 +4,5 @@ float	f3	5.
 int	i1	-9223372036854775808
   	 
 int	i2	+42
+	# a tab before a comment
+  # spaces before one

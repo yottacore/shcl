@@ -598,6 +598,13 @@ static int blank_op(const char *line) {
 	return *line == '\0';
 }
 
+// Blanks before a `#` still make a comment line, as the CLI reads it
+// (2026101419280004).
+static int comment_op(const char *line) {
+	while (*line == ' ' || *line == '\t' || *line == '\r') line++;
+	return *line == '#';
+}
+
 // Good-path wrapper: the op must apply.
 static void apply_op_c(shcl_doc *d, char *line) {
 	if (try_apply_op_c(d, line)) { fprintf(stderr, "write op rejected: %s\n", line); nfail++; }
@@ -1602,7 +1609,7 @@ int main(int argc, char **argv) {
 			shcl_doc *kd = shcl_parse_keep_lines(input, ilen, SHCL_STANDARD);
 			char **olines; size_t nol = split_lines(ops, olen, &olines);
 			for (size_t li = 0; li < nol; li++) {
-				if (blank_op(olines[li]) || olines[li][0] == '#') continue;
+				if (blank_op(olines[li]) || comment_op(olines[li])) continue;
 				// The op is split in place, so each document gets its own copy.
 				size_t on = strlen(olines[li]);
 				char *op2 = (char *)xrealloc(NULL, on + 1);
@@ -1633,7 +1640,7 @@ int main(int argc, char **argv) {
 		if (bops) {
 			char **blines; size_t nbl = split_lines(bops, blen, &blines);
 			for (size_t li = 0; li < nbl; li++) {
-				if (blank_op(blines[li]) || blines[li][0] == '#') continue;
+				if (blank_op(blines[li]) || comment_op(blines[li])) continue;
 				shcl_doc *bd = shcl_parse(input, ilen);
 				shcl_str before = shcl_to_canonical(bd);
 				char *before_copy = (char *)xrealloc(NULL, before.n ? before.n : 1);

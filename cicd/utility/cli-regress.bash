@@ -986,6 +986,12 @@ rows=(
 	## convert it again.
 	'EsgoThd|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to upgrade'
 	'EsgoThe|migrate-beta-left|migrate --from-2x -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to migrate'
+	## 2026101419280005: a file upgrade leaves alone was still loaded, so its
+	## diagnostics are printed once, with or without --from-2x, and for a file
+	## naming a newer format.
+	'Esnb9iN|upgrade-left-diags|upgrade -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade: it loads clean or names its format\n'
+	'Esnb9kl|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade: it loads clean or names its format\n'
+	'Esnb9n8|upgrade-newer-diags|upgrade -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|=line 2: Hint: H006 the file names format 4, newer than this reader\x27s format 3, so some lines may read differently than written\n-: nothing to upgrade: it loads clean or names its format\n'
 	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
 	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual. A shcl made\n  for that format reads it as written.\n\n|-"
@@ -1365,6 +1371,11 @@ rows=(
 	## 2026101407100005: a line of blanks was an op with no name.
 	'Esgiz27|ops-tab-only-line|set %F%|\t\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
 	'Esgiz28|ops-blanks-only-line|set %F%|int\tx\t1\n  \t \r\r\n \n|0|a: 1\n\nx: 1\n|='
+	## 2026101419280004: blanks before a `#` still make a comment. An indented op
+	## is still unknown.
+	'Esnb9bC|ops-indented-comment|set %F%|  # set x\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
+	'Esnb9db|ops-tab-indented-comment|set %F%|\t# set x\nint\tx\t1\n\t \t# again\n|0|a: 1\n\nx: 1\n|='
+	'Esnb9g2|ops-indented-op-unknown|set %F%|  int\tx\t1\n|1||=op line 1: unknown op:   int (see --help)\n'
 	## 20260902 item 41: --default and --on-bad=error each overwrote the other's
 	## mode, so which one applied depended on which was typed last.
 	'EomzUyq|default-vs-onbad|get --int --default=7 --on-bad=error %F% nope|-|1|-|--default cannot be combined with --on-bad=error'
@@ -2473,6 +2484,7 @@ fSaveSetup() {
 		migrate-restamp) printf 'port: 80\n##    Format   2\n' > f.shcl ;;
 		upgrade-top-format) printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl ;;
 		upgrade-beta) printf 'tags: a, b\n##    Format   3\n' > f.shcl ;;
+		upgrade-beta-left) printf 'a: 1\nb 2\n##    Format   3\n' > f.shcl ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -2545,6 +2557,9 @@ saveCases=(
 	## the caller says so, backed up under the format it names, and a second
 	## run leaves the fresh file alone (2026101407100010).
 	'EsgoThf|upgrade-beta|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "tags: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v3.shcl <(printf "tags: a, b\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]] && cp f.shcl ../beta-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../beta-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	## A file it leaves alone still has its load's diagnostics said once, and
+	## nothing is written (2026101419280005).
+	'Esnb9pV|upgrade-beta-left|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && cmp -s "${tmpDir}/err" <(printf "line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\nf.shcl: nothing to upgrade: it loads clean or names its format\n")'
 	'EsFrOVW|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )

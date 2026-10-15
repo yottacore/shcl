@@ -383,6 +383,12 @@ def _blank_op(line):
 	return line.strip(" \t\r") == ""
 
 
+def _comment_op(line):
+	# Blanks before a `#` still make a comment line, as the CLI reads it
+	# (2026101419280004).
+	return line.lstrip(" \t\r").startswith("#")
+
+
 def try_apply_op(doc, line):
 	# Apply one write-ops line via the library Writer, with the same value gates
 	# the CLI applies. A returned string = the op must be rejected (bad value or
@@ -1159,7 +1165,7 @@ def main():
 		keep = shcl.Document.parse_keep_lines(case["input"], shcl.Strictness.Standard)
 		for n, line in enumerate(case["write_ops"].split("\n")):
 			line = line[:-1] if line.endswith("\r") else line
-			if _blank_op(line) or line.startswith("#"):
+			if _blank_op(line) or _comment_op(line):
 				continue
 			at = f"{case['name']}: write.ops line {n + 1}"
 			apply_op(doc, line, at)
@@ -1203,7 +1209,7 @@ def main():
 			continue
 		for n, line in enumerate(case["write_bad_ops"].split("\n")):
 			line = line[:-1] if line.endswith("\r") else line
-			if _blank_op(line) or line.startswith("#"):
+			if _blank_op(line) or _comment_op(line):
 				continue
 			doc = shcl.Document.parse(case["input"])
 			before = doc.to_canonical()

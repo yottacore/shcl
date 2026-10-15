@@ -139,7 +139,7 @@ parens, so a selector may hold one. Ops:
 String, comment and raw CONTENT values read escapes as a file does: NEWLINE or
 TAB between two U+25C9 marks. A raw op's INFO is taken as written, since a
 fence label has no escapes. A backslash is text, and a line starting with # is
-a script comment.
+a script comment, indented or not.
 
 Types (get only; default --string):
   --int --float --bool --datetime --string --raw --rawinfo --duration --size
@@ -1824,6 +1824,9 @@ def do_upgrade(o):
 			return EXIT_IO
 		up = shcl.upgrade(text, o.from_2x)
 	if up.current:
+		# diagnostics is empty when current, but the file is still loaded, and
+		# every loading subcommand says what its load found (2026101419280005).
+		say_diagnostics(shcl.Document.parse(up.text).diagnostics())
 		sys.stderr.write(f"{file}: nothing to upgrade: it loads clean or names its format\n")
 		if not o.write:
 			sys.stdout.write(up.text)
@@ -2287,9 +2290,11 @@ def do_set(o):
 		# One CR off each piece: the CR of a CRLF, or of a CRLF at EOF that lost
 		# its LF. A second one is the value's.
 		line = line[:-1] if line.endswith("\r") else line
-		# A line of blanks is skipped like an empty one, so an indented blank
-		# line in a here-doc isn't an op with no name (2026101407100005).
-		if line.strip(" \t\r") == "" or line.startswith("#"):
+		# A line of blanks is skipped like an empty one, and blanks before a
+		# `#` still make a comment, so an indented here-doc isn't read as ops
+		# with no name (2026101407100005, 2026101419280004).
+		lead = line.lstrip(" \t\r")
+		if lead == "" or lead.startswith("#"):
 			continue
 		try:
 			apply_op(doc, line)

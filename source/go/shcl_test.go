@@ -384,6 +384,12 @@ func isBlankOpTest(line string) bool {
 	return strings.Trim(line, " \t\r") == ""
 }
 
+// isCommentOpTest says a line is a comment, blanks before its `#` allowed, as
+// the CLI reads it (2026101419280004).
+func isCommentOpTest(line string) bool {
+	return strings.HasPrefix(strings.TrimLeft(line, " \t\r"), "#")
+}
+
 // tryApplyOpTest applies one write-ops line via the library Writer, with the
 // same value gates the CLI applies. A non-nil error = the op must be rejected
 // (bad value or unusable path).
@@ -886,7 +892,7 @@ func TestWriteOpsMatchExpected(t *testing.T) {
 		}
 		for n, line := range strings.Split(c.writeOps, "\n") {
 			line = strings.TrimSuffix(line, "\r")
-			if isBlankOpTest(line) || strings.HasPrefix(line, "#") {
+			if isBlankOpTest(line) || isCommentOpTest(line) {
 				continue
 			}
 			at := fmt.Sprintf("%s: write.ops line %d", c.name, n+1)
@@ -946,7 +952,7 @@ func TestWriteBadOpsAreRejected(t *testing.T) {
 		}
 		for n, line := range strings.Split(c.writeBadOps, "\n") {
 			line = strings.TrimSuffix(line, "\r")
-			if isBlankOpTest(line) || strings.HasPrefix(line, "#") {
+			if isBlankOpTest(line) || isCommentOpTest(line) {
 				continue
 			}
 			doc := Parse(c.input)
