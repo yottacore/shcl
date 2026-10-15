@@ -199,7 +199,7 @@ static void fa_check(const char *const *av, const size_t *al, size_t an) {
 /* The typed array setter's canonical text equals `k: ` plus
    shcl_format_array of its values' texts. */
 static void fa_typed(shcl_doc *d, const char *const *texts, size_t n, const char *what) {
-	size_t lens[4], vn = 0;
+	size_t lens[4] = {0}, vn = 0;
 	for (size_t i = 0; i < n; i++) lens[i] = strlen(texts[i]);
 	char *v = shcl_format_array(texts, lens, n, &vn);
 	shcl_str c = shcl_to_canonical(d);
