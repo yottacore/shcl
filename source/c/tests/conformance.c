@@ -4457,12 +4457,15 @@ int main(int argc, char **argv) {
 		shcl_free(every);
 	}
 	test_id("Er7vwLo", "format_version_caps_at_32_bits");
-	/* Digits past 32 bits are not a 2.x file either, so they read as the
-	   current major, in every binding (20260926 item 9). */
+	/* Digits past 32 bits read as the largest 32-bit number, a newer format,
+	   in every binding (20260926 item 9, 2026101514324705). */
 	{
 		const char *a = "##    Format   4294967295\na: 1\n", *b = "##    Format   4294967296\na: 1\n";
 		if (shcl_format_version(a, strlen(a)) != 4294967295LL) fail("format_version_caps_at_32_bits", "4294967295 did not read as itself");
-		if (shcl_format_version(b, strlen(b)) != SHCL_FORMAT_MAJOR) fail("format_version_caps_at_32_bits", "4294967296 did not read as the current major");
+		/* Read as this major until 2026101514324705, which made a file naming
+		   one too big a beta file to `upgrade --from-2x`.
+		if (shcl_format_version(b, strlen(b)) != SHCL_FORMAT_MAJOR) fail("format_version_caps_at_32_bits", "4294967296 did not read as the current major"); */
+		if (shcl_format_version(b, strlen(b)) != (int64_t)UINT32_MAX) fail("format_version_caps_at_32_bits", "4294967296 did not read as the 32-bit cap");
 	}
 	test_id("EsEtTdS", "stamp_reads_say_why");
 	/* The Format and Schema lines read with a status, so an unstamped file and
@@ -4482,7 +4485,9 @@ int main(int argc, char **argv) {
 			{"note: ~~~\n##    Format   4\n~~~\n", 0, SHCL_NOT_FOUND, 0, ""},
 			{"a: 1\n##    Format  3\n", 0, SHCL_NOT_FOUND, 0, ""},
 			{"\xEF\xBB\xBF##    Format   5\n", 5, SHCL_GOOD, 1, "H006"},
-			{"##    Format   4294967296\n", SHCL_FORMAT_MAJOR, SHCL_GOOD, 1, ""},
+			/* Was this major and no hint until 2026101514324705.
+			{"##    Format   4294967296\n", SHCL_FORMAT_MAJOR, SHCL_GOOD, 1, ""}, */
+			{"##    Format   4294967296\n", (int64_t)UINT32_MAX, SHCL_GOOD, 1, "H006"},
 			{"a:\n\t##    Format   1\n\tb: 1\n", 1, SHCL_GOOD, 2, "H007"},
 			/* A refused line led by a fence character takes its block, as it
 			   does in the parser (2026101514324701). */

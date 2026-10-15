@@ -3930,14 +3930,19 @@ func soupInputs() []string {
 	return out
 }
 
-// Digits past 32 bits are not a 2.x file either, so they read as the current
-// major, in every binding (20260926 item 9).
+// Digits past 32 bits read as the largest 32-bit number, a newer format, in
+// every binding (20260926 item 9, 2026101514324705).
 func TestFormatVersionCapsAt32Bits(t *testing.T) {
 	defer testID(t, "Er7vwJ6")
 	if v, ok := FormatVersion("##    Format   4294967295\na: 1\n"); !ok || v != 4294967295 {
 		t.Errorf("4294967295 read as %d", v)
 	}
-	if v, ok := FormatVersion("##    Format   4294967296\na: 1\n"); !ok || v != FormatMajor {
+	// Read as this major until 2026101514324705, which made a file naming one
+	// too big a beta file to `upgrade --from-2x`.
+	// if v, ok := FormatVersion("##    Format   4294967296\na: 1\n"); !ok || v != FormatMajor {
+	// 	t.Errorf("4294967296 read as %d", v)
+	// }
+	if v, ok := FormatVersion("##    Format   4294967296\na: 1\n"); !ok || v != math.MaxUint32 {
 		t.Errorf("4294967296 read as %d", v)
 	}
 }
@@ -3966,7 +3971,9 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"note: ~~~\n##    Format   4\n~~~\n", 0, NotFound, 0, ""},
 		{"a: 1\n##    Format  3\n", 0, NotFound, 0, ""},
 		{"\ufeff##    Format   5\n", 5, Good, 1, "H006"},
-		{"##    Format   4294967296\n", FormatMajor, Good, 1, ""},
+		// Was this major and no hint until 2026101514324705.
+		// {"##    Format   4294967296\n", FormatMajor, Good, 1, ""},
+		{"##    Format   4294967296\n", math.MaxUint32, Good, 1, "H006"},
 		{"a:\n\t##    Format   1\n\tb: 1\n", 1, Good, 2, "H007"},
 		// A refused line led by a fence character takes its block, as it does
 		// in the parser (2026101514324701).

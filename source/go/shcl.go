@@ -3024,8 +3024,9 @@ func opensRaw(rest string, tok *Tokens) openFence {
 }
 
 // formatLineRead is ReadFormatVersion on text with the BOM already off.
-// Digits that do not fit 32 bits are not a 2.x file either, so they read as
-// this major and there is nothing to migrate.
+// Digits that do not fit 32 bits read as the largest number that does: a
+// format newer than this one, so the file is left alone like any other newer
+// one.
 //
 // A Format line pasted into a raw body is that block's content, and taking it
 // as the file's would rewrite a current file, or leave an old one alone. Where
@@ -3078,9 +3079,11 @@ func formatLineRead(text string) Read[int] {
 			}
 			continue
 		}
+		// Read as this major, a number that doesn't fit would make a file
+		// `upgrade --from-2x` takes for a beta one.
 		v, err := strconv.Atoi(n)
 		if err != nil || v > math.MaxUint32 {
-			v = FormatMajor
+			v = math.MaxUint32
 		}
 		if v >= FormatMajor {
 			if inNow {

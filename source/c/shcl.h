@@ -776,7 +776,7 @@ shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2)
 // no number; shcl_read_format_version tells those apart. shcl_migrate hands a
 // file back untouched exactly when this is SHCL_FORMAT_MAJOR or more, so a
 // program can ask before it rewrites anything. Digits past 32 bits read as
-// SHCL_FORMAT_MAJOR, since whatever wrote them was not 2.x.
+// UINT32_MAX, a format newer than this one.
 int64_t shcl_format_version(const char *text, size_t len);
 // shcl_format_version with a status: SHCL_GOOD with the major, SHCL_NOT_FOUND
 // when no line names a format, SHCL_EMPTY for a Format line with nothing after
@@ -3478,8 +3478,8 @@ static int s_has(ShclStr text, ShclStr needle) {
 }
 
 /* shcl_read_format_version() on text with the BOM already off. Digits that do
-   not fit 32 bits are not a 2.x file either, so they read as this major and
-   there is nothing to migrate.
+   not fit 32 bits read as the largest number that does: a format newer than
+   this one, so the file is left alone like any other newer one.
    A Format line pasted into a raw body is that block's content, and taking it
    as the file's would rewrite a current file, or leave an old one alone. Where
    the blocks are turns on the rules the file was written under, which is what
@@ -3523,7 +3523,9 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 			if (!unread.line) { unread.status = n.n ? SHCL_BAD_TYPE : SHCL_EMPTY; unread.line = lineno; }
 			continue;
 		}
-		int64_t v = big ? SHCL_FORMAT_MAJOR : (int64_t)u;
+		/* Read as this major, a number that doesn't fit would make a file
+		   `upgrade --from-2x` takes for a beta one. */
+		int64_t v = big ? (int64_t)UINT32_MAX : (int64_t)u;
 		if (v >= SHCL_FORMAT_MAJOR) {
 			if (in_now) { ShclStamp r; r.value = v; r.status = SHCL_GOOD; r.line = lineno; return r; }
 		} else if (in_then && (!found.line || v > found.value)) {

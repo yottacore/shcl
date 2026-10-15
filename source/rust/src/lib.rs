@@ -2627,8 +2627,8 @@ pub fn read_format_version(text: &str) -> Read<u32> {
 const FORMAT_WORD: &str = "##    Format";
 
 /// read_format_version() on text with the BOM already off. Digits that do
-/// not fit 32 bits are not a 2.x file either, so they read as this major and
-/// there is nothing to migrate.
+/// not fit 32 bits read as the largest number that does: a format newer than
+/// this one, so the file is left alone like any other newer one.
 ///
 /// A Format line pasted into a raw body is that block's content, and taking
 /// it as the file's would rewrite a current file, or leave an old one alone.
@@ -2671,9 +2671,9 @@ fn format_line_read(text: &str) -> Read<u32> {
 			}
 			continue;
 		}
-		// More digits than fit is not a 2.x file either, so it reads as this
-		// major and there is nothing to migrate.
-		let v = n.parse().unwrap_or(FORMAT_MAJOR);
+		// Read as this major, a number that doesn't fit would make a file
+		// `upgrade --from-2x` takes for a beta one.
+		let v = n.parse().unwrap_or(u32::MAX);
 		if v >= FORMAT_MAJOR {
 			if current.is_some() {
 				return Read::new(v, Status::Good, Some(n.to_string())).at(i + 1, None);
