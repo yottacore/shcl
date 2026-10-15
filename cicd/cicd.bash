@@ -852,7 +852,7 @@ if ((${#GIT_PUBLISH[@]})); then
 		"${GIT_PUBLISH[@]}" "${publish_flag}"
 	fi
 	fEcho "OK: published"
-	## An installer fix reaches nobody until it is on main: the README's
+	## An installer fix reaches nobody until it is on main: the install doc's
 	## one-liners fetch the scripts from there as they run, so a fix that stays
 	## on dev is the one drift every user meets. Judged after the publish so a
 	## dev run that has one goes red until the docs-only merge to main.

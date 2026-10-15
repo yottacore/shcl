@@ -24,6 +24,12 @@ fBad(){ echo "check-docs: $1" >&2; nBad+=1 ;}
 testWhere="check-docs"; testCounter="nBad"
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+##	A loop's input is made first, as `hits="$(...)" || fFeedBad $?`, and read
+##	back from a here-string. `done < <(...)` drops the exit status, so a script
+##	that crashed partway read as a check with nothing to report. A grep in there
+##	goes through fGrepOrNone, since matching nothing is its exit 1.
+fFeedBad(){ fBad "${testName:-?}: the step feeding this check exited $1, so it read part of its input or none"; }
+fGrepOrNone(){ "$@" || [[ $? == 1 ]]; }
 ##	The README's install steps, examples and benchmarks live in their own docs.
 readme="${repoDir}/README.md"
 installDoc="${repoDir}/project/install.md"
@@ -83,10 +89,8 @@ fTest EoUst0C legal-disclaimer-not-reversed
 ##	the sentence is the disclaimer; two is "None of this is not legal advice".
 ##	The backlog quotes the broken wording as a finding, so it is not a document
 ##	making the claim and does not belong here.
-while IFS= read -r hit; do
-	fBad "reversed legal-advice disclaimer: ${hit}"
-done < <(grep -rn "legal advice" --include='*.md' "${repoDir}" \
-	| grep -v '/backlog\.md:' \
+hits="$(fGrepOrNone grep -rn "legal advice" --include='*.md' "${repoDir}" \
+	| fGrepOrNone grep -v '/backlog\.md:' \
 	| awk -F: 'BEGIN { neg = "(^|[^a-z])(no|none|not|never|nothing|nobody)([^a-z]|$)" }
 	{
 		loc = $1 ":" $2
@@ -99,7 +103,11 @@ done < <(grep -rn "legal advice" --include='*.md' "${repoDir}" \
 			while (match(low, neg)) { cnt++; low = substr(low, RSTART + RLENGTH - 1) }
 			if (cnt > 1) print loc ": " part[i]
 		}
-	}' || true)
+	}')" || fFeedBad $?
+while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
+	fBad "reversed legal-advice disclaimer: ${hit}"
+done <<<"${hits}"
 
 fTest EoUw6nI backlog-done-sections-in-order
 ##	The backlog states an order for its finished sections and then drifted out of
@@ -107,7 +115,7 @@ fTest EoUw6nI backlog-done-sections-in-order
 ##	each run newest first.
 backlog="${repoDir}/project/backlog.md"
 if [[ -f "${backlog}" ]]; then
-	while IFS= read -r problem; do fBad "${problem}"; done < <(awk '
+	hits="$(awk '
 		/^#+ / {
 			if (heading != "") check()
 			heading = ($0 ~ /Done|Canceled/) ? $0 : ""
@@ -126,7 +134,8 @@ if [[ -f "${backlog}" ]]; then
 		}
 		END { if (heading != "") check() }
 		function check() { if (problem != "") print problem }
-	' "${backlog}")
+	' "${backlog}")" || fFeedBad $?
+	while IFS= read -r problem; do [[ -z "${problem}" ]] || fBad "${problem}"; done <<<"${hits}"
 fi
 
 fTest EqjdNqC doc-comments-on-the-right-declaration
@@ -137,7 +146,7 @@ fTest EqjdNqC doc-comments-on-the-right-declaration
 ##	veneer declaration that starts a group has a comment, so the one left
 ##	bare when its comment moved shows. The attribute and a signature that wraps
 ##	still count as a declaration.
-while IFS= read -r problem; do fBad "${problem}"; done < <(
+hits="$(
 	for pkg in "${repoDir}/source/go" "${repoDir}/source/go/cmd/shcl"; do
 		LC_ALL=C awk -v root="${repoDir}/" '
 			{ line[FILENAME, FNR] = $0; if (FNR > last[FILENAME]) last[FILENAME] = FNR; files[FILENAME] = 1 }
@@ -153,7 +162,7 @@ while IFS= read -r problem; do fBad "${problem}"; done < <(
 					w = line[f, j]; sub(/^\/\/[ \t]*/, "", w); sub(/[^A-Za-z0-9_].*$/, "", w)
 					if (w != nm && (w in declared)) { g = f; sub(root, "", g); print g ":" j ": the comment for " w " sits on " nm }
 				}
-			}' "${pkg}"/*.go
+			}' "${pkg}"/*.go || exit
 	done
 	LC_ALL=C awk '
 		/^class Document/ { inDoc = 1 }
@@ -162,7 +171,8 @@ while IFS= read -r problem; do fBad "${problem}"; done < <(
 			if (prev ~ /^[ \t]*$/ || prev ~ /^\t(public|private):/) print "source/c/shcl.hpp:" FNR ": a declaration heads a group with no comment above it"
 		}
 		{ prev = $0 }' "${repoDir}/source/c/shcl.hpp"
-)
+)" || fFeedBad $?
+while IFS= read -r problem; do [[ -z "${problem}" ]] || fBad "${problem}"; done <<<"${hits}"
 
 fTest Er1z2hU public-items-documented
 ##	Two rounds filled in public declarations that had no comment at all: about
@@ -173,7 +183,7 @@ fTest Er1z2hU public-items-documented
 ##	left out, which is what keeps this from being rustc's missing_docs.
 mapfile -t goSrcs < <(find "${repoDir}/source/go" -name '*.go' ! -name '*_test.go' | LC_ALL=C sort)
 ((${#goSrcs[@]})) || fBad "found no Go sources for the doc comment check"
-while IFS= read -r problem; do fBad "${problem}"; done < <(
+hits="$(
 	LC_ALL=C awk -v root="${repoDir}/" '
 		FNR == 1 { prev = "" }
 		match($0, /^(func (\([^)]*\) )?|type )[A-Z][A-Za-z0-9_]*/) {
@@ -184,7 +194,7 @@ while IFS= read -r problem; do fBad "${problem}"; done < <(
 				print f ":" FNR ": exported " nm " has no doc comment"
 			}
 		}
-		{ prev = $0 }' "${goSrcs[@]}"
+		{ prev = $0 }' "${goSrcs[@]}" || exit
 	LC_ALL=C awk -v f="source/rust/src/lib.rs" '
 		{ line[NR] = $0 }
 		END {
@@ -195,7 +205,8 @@ while IFS= read -r problem; do fBad "${problem}"; done < <(
 				if (line[j] !~ /^[ \t]*\/\/\//) { nm = line[i]; sub(/^[ \t]*/, "", nm); sub(/[({<:=].*/, "", nm); print f ":" i ": " nm " has no doc comment" }
 			}
 		}' "${repoDir}/source/rust/src/lib.rs"
-)
+)" || fFeedBad $?
+while IFS= read -r problem; do [[ -z "${problem}" ]] || fBad "${problem}"; done <<<"${hits}"
 
 fTest EshYXXC python-surface-matches-reference
 ##	The style guide says its list of names that differ between bindings is the
@@ -205,7 +216,7 @@ fTest EshYXXC python-surface-matches-reference
 ##	__all__ is the reference's top-level pub items, and each enum has the
 ##	reference's members in order, a keyword with PEP 8's trailing `_`. A name
 ##	on only one side is allowed only if the guide names it.
-while IFS= read -r hit; do fBad "${hit}"; done < <(python3 - "${repoDir}" <<'PYEOF'
+hits="$(python3 - "${repoDir}" <<'PYEOF'
 import ast, keyword, re, sys
 root = sys.argv[1]
 tree = ast.parse(open(f"{root}/source/python/shcl.py", encoding="utf-8").read())
@@ -259,7 +270,8 @@ for st in tree.body:
 		elif members != variants[st.name]:
 			print(f"shcl.py: enum {st.name} has {members}, the reference has {variants[st.name]}")
 PYEOF
-)
+)" || fFeedBad $?
+while IFS= read -r hit; do [[ -z "${hit}" ]] || fBad "${hit}"; done <<<"${hits}"
 
 fTest Er1z2hV c-banned-string-calls-and-goto
 ##	The C rules: never sprintf, strcpy or strcat, nor their wide forms, and no
@@ -267,11 +279,12 @@ fTest Er1z2hV c-banned-string-calls-and-goto
 ##	construction, which is the reasoning the rule is there to stop. The tests
 ##	stay out, since they build fixtures and never ship.
 for src in shcl.h shcl.hpp cmd/shcl/main.c; do
-	while IFS= read -r hit; do fBad "source/c/${src}:${hit}"; done < <(
+	hits="$(
 		LC_ALL=C awk '
 			{ s = $0; sub(/\/\/.*/, "", s) }
 			s ~ /(^|[^A-Za-z0-9_])(v?sprintf|strcpy|strcat|wcscpy|wcscat|gets)[ \t]*\(/ { print FNR ": calls a string function the C rules forbid; use snprintf or the builder" }
-			s ~ /(^|[^A-Za-z0-9_])goto[ \t]/ && s !~ /goto[ \t]+cleanup/ { print FNR ": a goto that is not the cleanup unwind" }' "${repoDir}/source/c/${src}")
+			s ~ /(^|[^A-Za-z0-9_])goto[ \t]/ && s !~ /goto[ \t]+cleanup/ { print FNR ": a goto that is not the cleanup unwind" }' "${repoDir}/source/c/${src}")" || fFeedBad $?
+	while IFS= read -r hit; do [[ -z "${hit}" ]] || fBad "source/c/${src}:${hit}"; done <<<"${hits}"
 done
 
 fTest Er1z2hW explain-codes-match-spec
@@ -284,12 +297,14 @@ specCodes="$(grep -E '^\| `[EHV][0-9]{3}`' "${repoDir}/project/spec.md" | cut -d
 if [[ -z "${explainCodes}" || -z "${specCodes}" ]]; then
 	fBad "the explain-against-spec code check read an empty side"
 else
+	hits="$(LC_ALL=C comm -23 <(printf '%s\n' "${explainCodes}") <(printf '%s\n' "${specCodes}"))" || fFeedBad $?
 	while IFS= read -r code; do
 		if [[ -n "${code}" ]]; then fBad "explain lists ${code}, and no spec.md table row names it"; fi
-	done < <(LC_ALL=C comm -23 <(printf '%s\n' "${explainCodes}") <(printf '%s\n' "${specCodes}"))
+	done <<<"${hits}"
+	hits="$(LC_ALL=C comm -13 <(printf '%s\n' "${explainCodes}") <(printf '%s\n' "${specCodes}"))" || fFeedBad $?
 	while IFS= read -r code; do
 		if [[ -n "${code}" ]]; then fBad "spec.md has a row for ${code}, which explain does not list"; fi
-	done < <(LC_ALL=C comm -13 <(printf '%s\n' "${explainCodes}") <(printf '%s\n' "${specCodes}"))
+	done <<<"${hits}"
 fi
 ##	A retired code is one no load reports, so it has no live entry or spec row,
 ##	and the spec still says it was retired.
@@ -314,10 +329,12 @@ if grep -rqE 'crate-type[^=]*=[^]]*(cdylib|dylib|staticlib)' --include='Cargo.to
 	buildsSharedLib=1
 fi
 if ((! buildsSharedLib)); then
+	hits="$(fGrepOrNone grep -rniE '(prebuilt|pre-built|published|shipped)[^.]*\.(so|dll|dylib)|\b(prebuilt|pre-built)\b[^.]*shared librar' \
+		--include='*.md' "${repoDir}" | fGrepOrNone grep -v '/backlog\.md:')" || fFeedBad $?
 	while IFS= read -r hit; do
+		[[ -n "${hit}" ]] || continue
 		fBad "offers a shared library as already built, and nothing builds one: ${hit}"
-	done < <(grep -rniE '(prebuilt|pre-built|published|shipped)[^.]*\.(so|dll|dylib)|\b(prebuilt|pre-built)\b[^.]*shared librar' \
-		--include='*.md' "${repoDir}" | grep -v '/backlog\.md:' || true)
+	done <<<"${hits}"
 fi
 
 fTest EoXVY4O installer-tar-prerequisite
@@ -330,6 +347,36 @@ if [[ -f "${ps1}" ]] && grep -q "needs tar to unpack" "${ps1}"; then
 		|| fBad "install.ps1 requires tar and project/install.md never says so on the Windows side"
 fi
 
+fTest EsnhDn1 installer-doc-pointers
+##	The one-liners run the installers straight from main, with no checkout to
+##	open a doc in, and after the README split their messages still sent people
+##	to README.md for steps it no longer had. A doc is named by its URL on main,
+##	and each one has to reach a tracked file and a heading there. Under the hook
+##	for main the tree here is what main is about to become, so an installer
+##	can't get there ahead of the doc it names.
+urlRe="https://github\\.com/yottacore/shcl/blob/main/[^ )\"']+"
+for f in install.bash install.ps1; do
+	[[ -f "${repoDir}/${f}" ]] || { fBad "${f} is missing, so its doc pointers went unread"; continue ;}
+	hits="$(sed -E "s#${urlRe}##g" "${repoDir}/${f}" | fGrepOrNone grep -noE '[A-Za-z0-9_./-]+\.md\b')" || fFeedBad $?
+	while IFS= read -r hit; do
+		[[ -n "${hit}" ]] || continue
+		fBad "${f}:${hit%%:*}: names ${hit#*:} by file name, which someone running it from curl has no copy of; give its URL on main"
+	done <<<"${hits}"
+	hits="$(fGrepOrNone grep -oE "${urlRe}" "${repoDir}/${f}")" || fFeedBad $?
+	while IFS= read -r url; do
+		[[ -n "${url}" ]] || continue
+		rel="${url#https://github.com/yottacore/shcl/blob/main/}"; anchor=""
+		if [[ "${rel}" == *'#'* ]]; then anchor="${rel#*#}"; rel="${rel%%#*}"; fi
+		if ! git -C "${repoDir}" ls-files --error-unmatch -- "${rel}" >/dev/null 2>&1; then
+			fBad "${f}: links to ${url}, and this tree tracks no ${rel}"
+			continue
+		fi
+		[[ -n "${anchor}" ]] || continue
+		slugs="$(sed -nE 's/^#{1,6} +(.*[^[:space:]])[[:space:]]*$/\1/p' "${repoDir}/${rel}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9 _-]//g; s/ /-/g')"
+		grep -qxF -- "${anchor}" <<<"${slugs}" || fBad "${f}: links to ${url}, and no heading in ${rel} makes #${anchor}"
+	done <<<"${hits}"
+done
+
 fTest EqKhPQP install-ps1-ascii-no-bom
 ##	The install doc runs install.ps1 through `irm | iex`, and irm keeps a byte-order
 ##	mark as the first character, which puts `param` second and fails the parse.
@@ -340,13 +387,14 @@ fTest EqKhPQP install-ps1-ascii-no-bom
 ##	with no mark in the ANSI code page, so ASCII is the one text that needs
 ##	none anywhere.
 if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	hits="$(git -C "${repoDir}" ls-files '*.ps1' '*.psm1' '*.psd1')" || fFeedBad $?
 	while IFS= read -r f; do
 		[[ -f "${repoDir}/${f}" ]] || continue
 		[[ "$(head -c3 "${repoDir}/${f}" | od -An -tx1 | tr -d ' \n')" == efbbbf ]] \
 			&& fBad "${f} starts with a byte-order mark; PowerShell files stay ASCII with no mark"
 		LC_ALL=C grep -qP '[^\x00-\x7F]' "${repoDir}/${f}" \
 			&& fBad "${f} holds a non-ASCII byte; PowerShell files stay ASCII so they need no byte-order mark"
-	done < <(git -C "${repoDir}" ls-files '*.ps1' '*.psm1' '*.psd1' || true)
+	done <<<"${hits}"
 fi
 if [[ -f "${ps1}" ]]; then
 	if command -v pwsh >/dev/null; then
@@ -365,10 +413,12 @@ fTest EqKhPQQ go-test-count-1
 ##	The corpus sits outside the Go module, so go's test cache cannot see a
 ##	changed case and answers `ok (cached)` over a broken golden. Every go test
 ##	a gate runs passes -count=1.
+hits="$(fGrepOrNone grep -nE '(^|[^a-z])go (-C [^ ]+ )?test' "${repoDir}/cicd/config.bash" "${repoDir}/cicd/utility/win-runners.bash" \
+	| fGrepOrNone grep -v -e '-count=1' -e ':[0-9]*:[[:space:]]*#')" || fFeedBad $?
 while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
 	fBad "go test without -count=1, which a cached pass hides a corpus change behind: ${hit}"
-done < <(grep -nE '(^|[^a-z])go (-C [^ ]+ )?test' "${repoDir}/cicd/config.bash" "${repoDir}/cicd/utility/win-runners.bash" \
-	| grep -v -e '-count=1' -e ':[0-9]*:[[:space:]]*#' || true)
+done <<<"${hits}"
 
 fTest EqL4fPc withdrawn-lexical-wording-gone
 ##	Two lexical rules were withdrawn and their wording outlived them, one site
@@ -378,11 +428,13 @@ fTest EqL4fPc withdrawn-lexical-wording-gone
 ##	rules may not use the old phrasing. The changelog is history and is left
 ##	out.
 # shellcheck disable=SC2016  ## the backticks are markdown, not command substitution
-while IFS= read -r hit; do
-	fBad "states a withdrawn lexical rule: ${hit}"
-done < <(grep -nHiE 'behind a blank|a `#` anywhere else|swallowing the trailing comment|comma hides inside the open quote' \
+hits="$(fGrepOrNone grep -nHiE 'behind a blank|a `#` anywhere else|swallowing the trailing comment|comma hides inside the open quote' \
 	"${readme}" "${installDoc}" "${examplesDoc}" "${comparisonDoc}" "${repoDir}/project/style-guide_code.md" "${repoDir}/project/spec.md" "${repoDir}/project/design.md" \
-	"${repoDir}/project/conformance/README.md" "${repoDir}/source/man/shcl.1" 2>/dev/null | sed "s|^${repoDir}/||" || true)
+	"${repoDir}/project/conformance/README.md" "${repoDir}/source/man/shcl.1" | sed "s|^${repoDir}/||")" || fFeedBad $?
+while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
+	fBad "states a withdrawn lexical rule: ${hit}"
+done <<<"${hits}"
 
 fTest EqL4fPd corpus-readme-notes-every-case
 ##	contributing.md says the corpus README has a note per case, and 58
@@ -414,20 +466,26 @@ fTest EqL3TGq spdx-and-copyright-headers
 ##	awk's first line, so it is caught before.
 if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	hdrFiles=()
+	hits="$(git -C "${repoDir}" ls-files -- '*.rs' '*.go' '*.py' '*.c' '*.h' '*.hpp' '*.cpp' '*.bash' '*.ps1')" || fFeedBad $?
 	while IFS= read -r f; do
 		[[ -f "${repoDir}/${f}" ]] || continue
 		if [[ ! -s "${repoDir}/${f}" ]]; then fBad "${f} has no SPDX line in its header"; fBad "${f} has no copyright line in its header"; continue; fi
 		hdrFiles+=("${repoDir}/${f}")
-	done < <(git -C "${repoDir}" ls-files -- '*.rs' '*.go' '*.py' '*.c' '*.h' '*.hpp' '*.cpp' '*.bash' '*.ps1' || true)
+	done <<<"${hits}"
+	hits=""
+	if ((${#hdrFiles[@]})); then
+		hits="$(LC_ALL=C awk '
+			function report() { if (!spdx) print name "\tSPDX"; if (!copy) print name "\tcopyright" }
+			FNR == 1 { if (name != "") report(); name = FILENAME; spdx = 0; copy = 0 }
+			FNR > 80 { nextfile }
+			/SPDX-License-Identifier/ { spdx = 1 }
+			/Copyright/ { copy = 1 }
+			END { if (name != "") report() }' "${hdrFiles[@]}")" || fFeedBad $?
+	fi
 	while IFS=$'\t' read -r f what; do
+		[[ -n "${f}" ]] || continue
 		fBad "${f#"${repoDir}/"} has no ${what} line in its header"
-	done < <(((${#hdrFiles[@]})) && LC_ALL=C awk '
-		function report() { if (!spdx) print name "\tSPDX"; if (!copy) print name "\tcopyright" }
-		FNR == 1 { if (name != "") report(); name = FILENAME; spdx = 0; copy = 0 }
-		FNR > 80 { nextfile }
-		/SPDX-License-Identifier/ { spdx = 1 }
-		/Copyright/ { copy = 1 }
-		END { if (name != "") report() }' "${hdrFiles[@]}")
+	done <<<"${hits}"
 fi
 
 fTest EqSvlSq copyright-marker-bytes
@@ -440,18 +498,24 @@ fTest EqSvlSq copyright-marker-bytes
 if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	marker='[ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]'
 	mkFiles=()
+	hits="$(git -C "${repoDir}" ls-files)" || fFeedBad $?
 	while IFS= read -r f; do
 		[[ -f "${repoDir}/${f}" ]] || continue
 		[[ "${f}" == *.ps1 || "${f}" == "source/rust/build.rs" ]] && continue
 		mkFiles+=("${repoDir}/${f}")
-	done < <(git -C "${repoDir}" ls-files || true)
+	done <<<"${hits}"
 	##	The first marker line in each file's first 80, as a head and a grep -m1
 	##	per file found it.
+	hits=""
+	if ((${#mkFiles[@]})); then
+		hits="$(LC_ALL=C awk '
+			FNR > 80 { nextfile }
+			/Copyright.*ID:/ { print FILENAME "\t" $0; nextfile }' "${mkFiles[@]}")" || fFeedBad $?
+	fi
 	while IFS=$'\t' read -r f line; do
+		[[ -n "${f}" ]] || continue
 		[[ "${line}" == *"${marker}"* ]] || fBad "${f#"${repoDir}/"} has a copyright marker that is not the canonical bytes"
-	done < <(((${#mkFiles[@]})) && LC_ALL=C awk '
-		FNR > 80 { nextfile }
-		/Copyright.*ID:/ { print FILENAME "\t" $0; nextfile }' "${mkFiles[@]}")
+	done <<<"${hits}"
 fi
 
 fTest EqzuifI contact-address-spelling
@@ -460,9 +524,11 @@ fTest EqzuifI contact-address-spelling
 ##	code of conduct is the Contributor Covenant's own text, nfpm.yaml is read
 ##	by a packaging tool as an email, and the backlog quotes old findings.
 if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	hits="$(fGrepOrNone git -C "${repoDir}" grep -nIE -o 'shcl@[A-Za-z0-9-]+\.[A-Za-z]' -- . ':!*code_of_conduct.md' ':!cicd/packaging/nfpm.yaml' ':!project/backlog.md' | cut -d: -f1,2)" || fFeedBad $?
 	while IFS= read -r hit; do
+		[[ -n "${hit}" ]] || continue
 		fBad "${hit%%:*}: a plain shcl@ address where a reader wants the circled-A form (line ${hit#*:})"
-	done < <(git -C "${repoDir}" grep -nIE -o 'shcl@[A-Za-z0-9-]+\.[A-Za-z]' -- . ':!*code_of_conduct.md' ':!cicd/packaging/nfpm.yaml' ':!project/backlog.md' | cut -d: -f1,2 || true)
+	done <<<"${hits}"
 fi
 
 fTest EqzuifJ c-section-rules
@@ -473,9 +539,11 @@ cHeader="${repoDir}/source/c/shcl.h"
 if [[ -f "${cHeader}" ]]; then
 	nSplit="$(grep -cE '^// =+$' "${cHeader}" || true)"
 	[[ "${nSplit}" == 1 ]] || fBad "source/c/shcl.h has ${nSplit} '// ====' lines; the one header and implementation split is the only one"
+	hits="$(fGrepOrNone grep -nE '^// -{3}' "${cHeader}" | fGrepOrNone grep -vE '^[0-9]+:// --- .*[^ -].* -+$')" || fFeedBad $?
 	while IFS= read -r hit; do
+		[[ -n "${hit}" ]] || continue
 		fBad "source/c/shcl.h:${hit%%:*}: a section rule not in the C form '// --- <title> ---'"
-	done < <(grep -nE '^// -{3}' "${cHeader}" | { grep -vE '^[0-9]+:// --- .*[^ -].* -+$' || true ;})
+	done <<<"${hits}"
 fi
 
 fTest EqjsQiu no-old-org-path
@@ -484,9 +552,11 @@ fTest EqjsQiu no-old-org-path
 ##	breaks when one comes back; it just goes stale. Past changelog entries and
 ##	the backlog name it on purpose.
 if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	hits="$(fGrepOrNone git -C "${repoDir}" grep -nIE -o 'jim.{0,4}collier/shcl' -- . ':!changelog.md' ':!project/backlog.md' | cut -d: -f1,2)" || fFeedBad $?
 	while IFS= read -r hit; do
+		[[ -n "${hit}" ]] || continue
 		fBad "${hit%%:*}: names the old repo path, not yottacore/shcl (line ${hit#*:})"
-	done < <(git -C "${repoDir}" grep -nIE -o 'jim.{0,4}collier/shcl' -- . ':!changelog.md' ':!project/backlog.md' | cut -d: -f1,2 || true)
+	done <<<"${hits}"
 fi
 
 fTest EqvmQhs us-spelling
@@ -500,9 +570,11 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	british+='|\b[a-z]+(al|an|ar|en|er|gn|ic|il|im|it|ol|on|or)is(e|ed|es|er|ers|ing|ation|ations)\b'
 	british+='|\b(custom|random|econom)is(e|ed|es|er|ers|ing|ation|ations)\b|\b(ana|para|cata)lys(e|ed|es|er|ers|ing)\b'
 	british+='|\blicence\b|\b(cent|fib|lit|theat)re(s|d)?\b|\b(defen|offen|preten)ce\b|\bartefacts?\b'
+	hits="$(fGrepOrNone git -C "${repoDir}" grep -nIiEo "${british}" -- . ':!project/backlog.md' ':!*code_of_conduct.md')" || fFeedBad $?
 	while IFS= read -r hit; do
+		[[ -n "${hit}" ]] || continue
 		fBad "British spelling: ${hit}"
-	done < <(git -C "${repoDir}" grep -nIiEo "${british}" -- . ':!project/backlog.md' ':!*code_of_conduct.md' || true)
+	done <<<"${hits}"
 fi
 
 ##	The grammar is the oracle harnesses are written against. It has to read as
@@ -615,6 +687,7 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 		##	The gzip spread is the widest over the Rust tier's shapes, rounded up,
 		##	so "within N%" is both true and the tightest whole number.
 		gzSpread=""
+		hits="$("${cmpBin}" instances "${cmpResults}" "run(${newestStamp}).tier(rust).shape")" || fFeedBad $?
 		while IFS= read -r shape; do
 			[[ -n "${shape}" ]] || continue
 			gzSpread="$(awk -v m="$(fRead int "tier(rust).shape(${shape}).library(shcl).gzip-bytes")" -v w="${gzSpread:-0}" '
@@ -622,7 +695,7 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 				END { if (m == "" || lo <= 0) exit; s = (m / lo - 1) * 100; if (s < w) s = w; print s }' \
 				<<<"$(fRead int "tier(rust).shape(${shape}).library(*).gzip-bytes")")"
 			[[ -n "${gzSpread}" ]] || break
-		done < <("${cmpBin}" instances "${cmpResults}" "run(${newestStamp}).tier(rust).shape" 2>/dev/null || true)
+		done <<<"${hits}"
 		if [[ -z "${gzSpread}" ]]; then
 			fBad "could not read the newest comparison run's gzip sizes out of results.shcl"
 		else
@@ -666,10 +739,10 @@ fTest EoXWC8G blank-line-between-bullets
 ##	blocks are the exception - the tool strips blank lines out of them, so a
 ##	`<!-- TOC -->` region is skipped, as is any list of bare anchor links, which
 ##	is what a hand-maintained contents block looks like.
+mdFiles="$(find "${repoDir}" -name '*.md' -not -path '*/target/*' -not -path '*/.git/*' -not -path '*/node_modules/*' | sort)" || fFeedBad $?
 while IFS= read -r f; do
-	while IFS= read -r hit; do
-		fBad "adjacent top-level bullets: ${f#"${repoDir}/"}:${hit}"
-	done < <(awk '
+	[[ -n "${f}" ]] || continue
+	hits="$(awk '
 		/<!-- TOC -->/      { toc = 1 }
 		/<!-- \/TOC -->/    { toc = 0 }
 		{
@@ -678,16 +751,22 @@ while IFS= read -r f; do
 			if (!toc && !anchor && prevBullet && isBullet) print NR ": " substr($0, 1, 60)
 			prevBullet = isBullet && !anchor
 			prev = $0
-		}' "${f}" || true)
-done < <(find "${repoDir}" -name '*.md' -not -path '*/target/*' -not -path '*/.git/*' -not -path '*/node_modules/*' | sort)
+		}' "${f}")" || fFeedBad $?
+	while IFS= read -r hit; do
+		[[ -n "${hit}" ]] || continue
+		fBad "adjacent top-level bullets: ${f#"${repoDir}/"}:${hit}"
+	done <<<"${hits}"
+done <<<"${mdFiles}"
 
 fTest EoXWh5c prose-to-stderr-claim
 ##	The claim that the code goes to stdout and the prose to stderr. The stderr
 ##	line has the code too, and has since the round that changed the CLI's
 ##	voice - so a document saying otherwise describes a split that is not there.
+hits="$(fGrepOrNone grep -rn "prose to stderr" --include='*.md' "${repoDir}" | fGrepOrNone grep -v '/backlog\.md:')" || fFeedBad $?
 while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
 	fBad "says the prose alone goes to stderr, but the stderr line has the code: ${hit}"
-done < <(grep -rn "prose to stderr" --include='*.md' "${repoDir}" | grep -v '/backlog\.md:' || true)
+done <<<"${hits}"
 
 fTest EoXX3yy setter-examples-check-the-result
 ##	Each language example says a setter reports whether the write applied, then
@@ -711,9 +790,7 @@ fTest EoXYMt6 backlog-stamps-end-items
 ##	Legacy items only. The new issue template put Opened near the top, so the
 ##	Issues section and the template's own New format part are skipped. Each
 ##	runs to the next heading at its own level or above.
-while IFS= read -r hit; do
-	fBad "backlog.md: sub-bullet below the stamps: ${hit}"
-done < <(awk '
+hits="$(awk '
 	/^<!--/                { tmpl = 1 }
 	/-->/                  { tmpl = 0; next }
 	/^#+ / {
@@ -724,7 +801,11 @@ done < <(awk '
 	tmpl || newfmt         { next }
 	match($0, /^\t+- (Opened|Closed): /) { stamp = NR; indent = length($0) - length(substr($0, RSTART + RLENGTH)); next }
 	stamp == NR - 1 && /^\t+- / { print NR ": " substr($0, 1, 60) }
-	{ stamp = 0 }' "${backlog}" || true)
+	{ stamp = 0 }' "${backlog}")" || fFeedBad $?
+while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
+	fBad "backlog.md: sub-bullet below the stamps: ${hit}"
+done <<<"${hits}"
 
 fTest Er8RudX backlog-closed-items-name-a-test
 ##	Every closed item says which test pins it, or why none does: a legacy
@@ -732,9 +813,7 @@ fTest Er8RudX backlog-closed-items-name-a-test
 ##	under a checked item it sits in, and a new-format item that is Done or
 ##	waiting on signoff has a Test case row. 98 closed items had none before
 ##	anything checked (20260926 idea 1).
-while IFS= read -r hit; do
-	fBad "backlog.md: a closed item names no test: ${hit}"
-done < <(python3 - "${backlog}" <<'PYEOF'
+hits="$(python3 - "${backlog}" <<'PYEOF'
 import re, sys
 lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
 # The issue template's legend is no item, whether it sits in a comment or
@@ -798,23 +877,31 @@ for i, line in enumerate(lines):
 		print(f"{status + 1}: {lines[status].strip()[:60]}")
 		status = None
 PYEOF
-)
+)" || fFeedBad $?
+while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
+	fBad "backlog.md: a closed item names no test: ${hit}"
+done <<<"${hits}"
 
 fTest EoXYMt7 no-found-by-bullets
 ##	How a defect was found is not what changed. The gate that caught it belongs
 ##	in the cause line where it is the point, not in a bullet of its own.
+hits="$(fGrepOrNone grep -nE '^[[:space:]]*- Found (by|while) ' "${backlog}")" || fFeedBad $?
 while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
 	fBad "backlog.md: says how it was found rather than what changed: ${hit}"
-done < <(grep -nE '^[[:space:]]*- Found (by|while) ' "${backlog}" || true)
+done <<<"${hits}"
 
 fTest Eolyg4u v096-v097-generation-only
 ##	V096 and V097 come only from generation, so validating anything against the
 ##	schema cannot reproduce them - the veneer header used to send a reader that
 ##	way for the fault list, which returns the validated document's own V002 and
 ##	V007 instead. The C CLI made the same mistake and was fixed in 20260830b.
+hits="$(fGrepOrNone grep -nE 'for the fault list, validate\(\)' "${repoDir}/source/c/shcl.hpp")" || fFeedBad $?
 while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
 	fBad "shcl.hpp: sends a reader to validate() for generation faults: ${hit}"
-done < <(grep -nE 'for the fault list, validate\(\)' "${repoDir}/source/c/shcl.hpp" || true)
+done <<<"${hits}"
 
 fTest EolzoJk mon-dd-yyyy-needs-quotes
 ##	A bare `Mon DD, YYYY` is two array elements, not a date: the comma splits
@@ -924,10 +1011,7 @@ if [[ -n "${help}" ]]; then
 	##	and in the man page alike.
 	declare -A helpScope=()
 	carried=""
-	while IFS=$'\t' read -r spell par; do
-		if [[ -n "${par}" && "${par}" != "(same"* ]]; then carried="$(fNames "${par}")"; fi
-		helpScope["${spell%%=*}"]="${carried}"
-	done < <(printf '%s\n' "${help}" | awk '
+	hits="$(printf '%s\n' "${help}" | awk '
 		/^Options \(/ { on = 1; next }
 		on && /^[^ ]/ { on = 0 }
 		!on { next }
@@ -943,21 +1027,28 @@ if [[ -n "${help}" ]]; then
 			d = substr($0, 42)
 			if (index(d, ")")) { par = par substr(d, 1, index(d, ")")); inpar = 0 } else { par = par d }
 		}
-		END { if (spell != "") print spell "\t" par }')
+		END { if (spell != "") print spell "\t" par }')" || fFeedBad $?
+	while IFS=$'\t' read -r spell par; do
+		[[ -n "${spell}" ]] || continue
+		if [[ -n "${par}" && "${par}" != "(same"* ]]; then carried="$(fNames "${par}")"; fi
+		helpScope["${spell%%=*}"]="${carried}"
+	done <<<"${hits}"
 	manOpts=0
 	manCarried=""
+	hits="$(awk '
+		/^\.SH OPTIONS$/ { on = 1; next }
+		on && /^\.SH / { exit }
+		!on { next }
+		/^\.B[IR]? \\-\\-/ { spell = $2; sub(/=.*/, "", spell); gsub(/\\-/, "-", spell); next }
+		/^\.RB \(/ && spell != "" { print spell "\t" $0; spell = "" }' "${man}")" || fFeedBad $?
 	while IFS=$'\t' read -r opt par; do
+		[[ -n "${opt}" ]] || continue
 		[[ -v "helpScope[${opt}]" ]] || { fBad "shcl.1: ${opt} has no entry in the help's option list"; continue ;}
 		if [[ "${par}" != *"(same"* ]]; then manCarried="$(fNames "${par}")"; fi
 		manOpts=$((manOpts + 1))
 		[[ "${manCarried}" == "${helpScope[${opt}]}" ]] \
 			|| fBad "shcl.1: ${opt} belongs to (${manCarried}) here and (${helpScope[${opt}]}) in the help"
-	done < <(awk '
-		/^\.SH OPTIONS$/ { on = 1; next }
-		on && /^\.SH / { exit }
-		!on { next }
-		/^\.B[IR]? \\-\\-/ { spell = $2; sub(/=.*/, "", spell); gsub(/\\-/, "-", spell); next }
-		/^\.RB \(/ && spell != "" { print spell "\t" $0; spell = "" }' "${man}")
+	done <<<"${hits}"
 	((manOpts >= 10)) || fBad "shcl.1: only ${manOpts} option(s) could be matched with the help's list"
 
 	##	20260904 item 31: the fmt synopsis had lost `[options]` and `-w` in the
@@ -968,9 +1059,7 @@ if [[ -n "${help}" ]]; then
 	##	`[options]` may also be spelled out, as long as every option the
 	##	subcommand's own help lists is there.
 	declare -A manSy=()
-	while IFS=$'\t' read -r cmds words; do
-		for c in ${cmds}; do manSy["${c}"]="${words}"; done
-	done < <(awk '
+	hits="$(awk '
 		/^\.SH SYNOPSIS$/ { on = 1; next }
 		on && /^\.SH / { exit }
 		/^\.SY shcl$/ && on { sy = 1; n = 0; words = ""; next }
@@ -978,10 +1067,15 @@ if [[ -n "${help}" ]]; then
 		sy {
 			t = $0; sub(/^\.[A-Z]+ /, "", t); gsub(/\\-/, "-", t); gsub(/[][|=]/, " ", t)
 			if (++n == 1) cmds = t; else words = words " " t
-		}' "${man}")
+		}' "${man}")" || fFeedBad $?
+	while IFS=$'\t' read -r cmds words; do
+		for c in ${cmds}; do manSy["${c}"]="${words}"; done
+	done <<<"${hits}"
 	((${#manSy[@]} >= 10)) || fBad "shcl.1: only ${#manSy[@]} subcommand(s) found in SYNOPSIS"
 	declare -A helpSy=()
+	synLines="$(printf '%s\n' "${help}" | sed -n 's/^  shcl \([a-z-].*\)$/\1/p' | sed 's/  .*//')" || fFeedBad $?
 	while IFS= read -r syn; do
+		[[ -n "${syn}" ]] || continue
 		rest="${syn}"
 		while [[ -n "${rest}" ]]; do
 			seg="${rest%% | *}"
@@ -997,17 +1091,19 @@ if [[ -n "${help}" ]]; then
 				done
 				if ((! found)) && [[ "${word}" == options ]]; then
 					found=1; nOpt=0
+					subOpts="$("${repoDir}/source/rust/target/debug/shcl" help "${w[0]}" \
+						| awk '/^Options/ { on = 1; next } on && /^  --/ { o = $1; sub(/=.*/, "", o); print o }')" || fFeedBad $?
 					while IFS= read -r o; do
+						[[ -n "${o}" ]] || continue
 						nOpt=$((nOpt + 1))
 						[[ " ${mw[*]} " == *" ${o} "* ]] || found=0
-					done < <("${repoDir}/source/rust/target/debug/shcl" help "${w[0]}" 2>/dev/null \
-						| awk '/^Options/ { on = 1; next } on && /^  --/ { o = $1; sub(/=.*/, "", o); print o }')
+					done <<<"${subOpts}"
 					((nOpt)) || found=0
 				fi
 				((found)) || fBad "shcl.1: the SYNOPSIS for ${w[0]} does not say '${word}', which the help's does"
 			done
 		done
-	done < <(printf '%s\n' "${help}" | sed -n 's/^  shcl \([a-z-].*\)$/\1/p' | sed 's/  .*//')
+	done <<<"${synLines}"
 	for c in "${!manSy[@]}"; do
 		[[ -v "helpSy[${c}]" ]] || fBad "shcl.1: SYNOPSIS names ${c}, which the help's synopsis lines do not"
 	done
@@ -1166,8 +1262,8 @@ fTest EsiRFl2 doc-links-resolve
 ##	and goes nowhere. Every relative link in a tracked .md has to reach a file,
 ##	and its #anchor a heading there, by the same slug rule as the contents
 ##	blocks plus underscores, which the git host keeps.
-while IFS= read -r hit; do fBad "${hit}"; done < <(python3 - "${repoDir}" <(git -C "${repoDir}" ls-files -z -- '*.md' || true) <<'PYEOF'
-import re, sys
+hits="$(python3 - "${repoDir}" <<'PYEOF'
+import re, subprocess, sys
 from pathlib import Path
 root = Path(sys.argv[1])
 def lines_outside_fences(p):
@@ -1187,7 +1283,8 @@ def anchors_of(p):
 		anchors[p] = {re.sub(r"[^a-z0-9 _-]", "", h.lower()).replace(" ", "-")
 			for _, line in lines_outside_fences(p) for h in re.findall(r"^#{1,6} (.*?)\s*$", line)}
 	return anchors[p]
-docs = sorted(f for f in Path(sys.argv[2]).read_text(encoding="utf-8").split("\0") if f)
+listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "*.md"], stdout=subprocess.PIPE, encoding="utf-8", check=True)
+docs = sorted(f for f in listed.stdout.split("\0") if f)
 if not docs:
 	print("doc-links-resolve: git listed no .md files to check")
 for rel in docs:
@@ -1205,7 +1302,8 @@ for rel in docs:
 			elif anchor and dest.suffix == ".md" and anchor not in anchors_of(dest):
 				print(f"{rel}:{n}: links to {target}, and no heading there makes #{anchor}")
 PYEOF
-)
+)" || fFeedBad $?
+while IFS= read -r hit; do [[ -z "${hit}" ]] || fBad "${hit}"; done <<<"${hits}"
 
 fTest EqQW89K flame-report-keys-exist
 ##	The hot-spot report buckets a sample by the names in its ancestor frames, so
@@ -1334,3 +1432,5 @@ echo "check-docs: OK"
 ##		            comparison.md; their checks read those, and all three get
 ##		            the contents-block and withdrawn-wording checks. Every
 ##		            relative link in a tracked .md reaches its file and heading.
+##		2026-10-15  A loop's input is captured before the loop reads it, so a
+##		            script that crashes fails its check.

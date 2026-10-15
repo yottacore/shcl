@@ -258,7 +258,7 @@ if fHave pwsh; then
 	[[ "$(tail -c 2 "${tmpDir}/ps.out" | od -An -c | tr -d ' ')" == '\n\n' ]] || fBad "install.ps1 -Help does not end on a blank line"
 	rc=0; fPs1 -Target user -Yes || rc=$?
 	if ! { [[ "${rc}" == 1 ]] && cmp -s "${tmpDir}/ps.out" <(printf '\n') \
-		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux, macOS or FreeBSD use install.bash, elsewhere build from source (see README.md)\n\n'); }; then
+		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux, macOS or FreeBSD use install.bash, elsewhere build from source (see https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install)\n\n'); }; then
 		fBad "install.ps1 does not open and end a refusal on a blank line (exit ${rc}): $(od -c "${tmpDir}/ps.out" "${tmpDir}/ps.err" | head -n 5)"
 	fi
 
@@ -2833,6 +2833,45 @@ else
 		|| fBad "closed-items check on a fixture backlog said: ${out@Q}"
 fi
 
+fTest EsndgSX 20261014b-2-check-docs-feeds-keep-their-exit
+##	20261014b item 2: a check-docs loop fed by `done < <(...)` passed when the
+##	script feeding it crashed, since its exit status went nowhere. Each feed is
+##	captured first now, as `hits="$(...)" || fFeedBad $?`. A copy with every
+##	feed made to exit 3 after its output has to fail each test holding one, by
+##	name, and the old form may not come back.
+cdFeed="${tmpDir}/cdfeed"
+mkdir -p "${cdFeed}/include"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${cdFeed}/include/"
+: > "${cdFeed}/sites"
+awk -v sites="${cdFeed}/sites" '
+	$1 == "fTest" { name = $3 }
+	sub(/\)" \|\| fFeedBad \$\?$/, "\nexit 3)\" || fFeedBad $?") { print name > sites }
+	{ print }' "${docs}" > "${cdFeed}/check-docs.bash"
+nFeeds="$(wc -l < "${cdFeed}/sites")"
+((nFeeds >= 30)) || fBad "found ${nFeeds} fFeedBad feeds in check-docs.bash, too few to trust; has the form changed?"
+nOld="$(grep -v '^[[:space:]]*#' "${docs}" | grep -c 'done < <(' || true)"
+((nOld == 0)) || fBad "check-docs.bash has ${nOld} loop(s) fed by done < <(...), which drops the feed's exit status"
+out="$(env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=/dev/null bash "${cdFeed}/check-docs.bash" "${repoDir}" 2>&1 || true)"
+feedNames="$(sort -u "${cdFeed}/sites")"
+while IFS= read -r name; do
+	[[ -n "${name}" ]] || continue
+	grep -qE "^skip [^ ]+ check-docs ${name}$" <<<"${out}" && continue
+	grep -qF "check-docs: ${name}: the step feeding this check exited 3" <<<"${out}" \
+		|| fBad "check-docs' ${name} did not fail with its feed exiting 3"
+done <<<"${feedNames}"
+
+fTest EsndgVW 20261014b-2-check-docs-python-crash-fails
+##	The same the way it happened: python3 prints what it found and exits 1, as
+##	a traceback does. The three checks a script feeds have to fail.
+mkdir -p "${tmpDir}/pycrash"
+printf '#!/bin/sh\n"%s" "$@"\nexit 1\n' "$(command -v python3)" > "${tmpDir}/pycrash/python3"
+chmod +x "${tmpDir}/pycrash/python3"
+# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+out="$(PATH="${tmpDir}/pycrash:${PATH}" env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=/dev/null bash "${docs}" 2>&1 || true)"
+for id in EshYXXC Er8RudX EsiRFl2; do
+	grep -qE "^FAIL ${id} check-docs " <<<"${out}" || fBad "check-docs' ${id} passed with python3 exiting 1 after its output"
+done
+
 fTest ErD9eyc 20260928-item19-skipped-block-names-its-tests
 ##	20260928 item 19: a block skipped for a missing tool printed a skip line for
 ##	the test opened before it and nothing for the tests inside it. The helper
@@ -3120,11 +3159,13 @@ fScanTabEre(){
 ##	check that would have printed the reason never runs. Every way to write an
 ##	assignment counts - a keyword prefix, an array element, `+=`, backticks.
 ##	Line continuations are joined first, so a substitution that ends in
-##	`|| true` several lines down is read as guarded.
+##	`|| true` several lines down is read as guarded. check-docs' fGrepOrNone
+##	guards the one grep it runs, so only a grep outside one counts.
 fScanUnguardedGrep(){
 	sed -e :a -e '/\\$/N; s/\\\n//; ta' "$1" \
 		| grep -nE '^[[:space:]]*(local|declare|typeset|export|readonly)?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=.*(\$\(|`).*\bgrep\b' \
-		| grep -vE '\|\|[[:space:]]*(true|:)' || true
+		| grep -vE '\|\|[[:space:]]*(true|:)' \
+		| awk '{ s = $0; gsub(/fGrepOrNone (git -C "[^"]*" )?grep/, "", s); if (s ~ /(^|[^A-Za-z0-9_])grep([^A-Za-z0-9_]|$)/) print }' || true
 }
 
 fTest EqL3ERV fhave-strict-and-skip
@@ -3171,10 +3212,11 @@ bs=$'\\'
 		'local x="$(grep -c a f)"' 'declare y="$(grep -c a f)"' 'export Z="$(grep -c a f)"' \
 		'readonly W="$(grep -c a f)"' 'arr[0]="$(grep -c a f)"' 'acc+="$(grep -c a f)"' \
 		'bt="`grep -c a f`"' 'ok="$(grep -c a f || true)"' \
+		'g1="$(fGrepOrNone grep -c a f)"' 'g2="$(fGrepOrNone git -C "d" grep -c a)"' 'g3="$(fGrepOrNone grep a f | grep -c b)"' \
 		"grep --extended-regexp \"x${bs}ty\" f" "grep -E 'a${bs}tb' f" 'grep -E "[[:space:]]" f'
 } > "${tmpDir}/scanbait.bash"
 n="$(fScanUnguardedGrep "${tmpDir}/scanbait.bash" | wc -l)"
-((n == 7)) || fBad "the unguarded-grep scan found ${n} of 7 spellings"
+((n == 8)) || fBad "the unguarded-grep scan found ${n} of 8 spellings"
 n="$(fScanTabEre "${tmpDir}/scanbait.bash" | wc -l)"
 ((n == 2)) || fBad "the backslash-t scan found ${n} of 2 spellings"
 
@@ -3514,3 +3556,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		            install update over an older one drops its scripts/.
 ##		2026-10-13  check-pins over the cicd/container recipes.
 ##		2026-10-14  The install one-liners are looked for in project/install.md.
+##		2026-10-15  check-docs' loop feeds fail their test when they crash.

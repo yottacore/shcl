@@ -150,7 +150,7 @@ LINT_EXTRA=(
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/winpath-sandbox.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'cicd/utility/check-completions.bash'
 	'cicd/utility/check-wheel.bash'
-	## The README's C example is the first thing a C consumer copies, and it is
+	## The examples doc's C example is the first thing a C consumer copies, and it is
 	## the one example nothing else here builds.
 	'cicd/utility/check-readme.bash'
 	## Claims the documents make about themselves, that no linter checks.

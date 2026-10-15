@@ -147,7 +147,7 @@ for f in shcl-signing.pub install.bash install.ps1; do
 	[[ -r "${root}/${f}" ]] || fDie "cannot read ${f}, so the key cannot be checked against it" 2
 done
 
-## Published key file, the one README tells people to verify against.
+## Published key file, the one project/install.md tells people to verify against.
 [[ "$(fFp "${root}/shcl-signing.pub")" == "${want}" ]] || fDie "shcl-signing.pub is not this key"
 
 ## install.bash has the PEM inside a single-quoted bash string, so the
