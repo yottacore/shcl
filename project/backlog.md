@@ -82,7 +82,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade --from-2x` stamps a converted file that still has an error, and a second run reads it by 2.x rules again
 	- ID: 2026101515372401
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
 	- Severity: Avg
 	- Opened: 20261015-153724
 	- Opened by: Code review 20261015 item 22
@@ -99,6 +100,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- JC, 2026-10-15: refuse rather than teach `migrate` the E025 case, per the standing rule for 2.x work. A plain `upgrade` can still write a Format 3 file with an error, and `--from-2x` on that is `--from-2x` on a file that isn't old, the case 2026101419280001 closed as docs only.
 	- Against: 2026101407100010's narrowed rule, which needs a clean conversion for a beta file only. This widens it to every `--from-2x` conversion (JC, 2026-10-15).
 	- Sweep: `upgrade` and `upgrade_file` in all 4, the CLI's message and exit in all 4, and the help and man page lines on `--from-2x`.
+	- Actual cause: `upgrade` checked that the fresh text loads clean only for a file naming this format. A file with no Format line, or an older one, was written with its errors and stamped Format 3, so the next run with `--from-2x` took it for a beta file.
+	- Actual fix: with `from_v2`, `upgrade` makes nothing unless the fresh text loads clean, whatever the Format line says. `Upgrade.errors_left` lists the input's lines still in error, since migrate keeps every line where it was. `upgrade_file` returns a new `ErrorsLeft` error and writes nothing. The CLI prints `FILE: line(s) N would still have an error once converted from 2.x; nothing written` at exit 7, printed or with `--write`. A beta file whose conversion keeps an error was `current` at exit 0 before, and gets this refusal now. Nothing changed without `--from-2x`. Same in all 4 and the C++ veneer (`Upgrade::errors_left`, `UpgradeErrorKind::ErrorsLeft`, `UpgradeError::lines`).
+	- Note: the old checks that pinned a beta file left alone at exit 0 are commented out with the reason: the `stuck` asserts in the 4 `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` tests, and cli-regress `Esnb9kl` and save case `Esnb9pV` from 2026101419280005, replaced by `EsoQmUF` and `EsoQmUE`. check-migrate's format 3 case expects exit 7 for such a file now, with a floor of one.
+	- Note: `upgrade --write`'s refusal prints no load diagnostics yet, the same as its ambiguous refusal. 2026101514324706 covers both.
+	- Swept: `upgrade` and `upgrade_file` in Rust, Go, Python and C, and the C++ veneer. The printed and `--write` arms of the 4 CLIs. The `--from-2x` help in the 4 CLIs, and the man page's `--from-2x`, `upgrade` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry and the changelog line. The doc comments on `Upgrade`, `upgrade` and `upgrade_file` in all 4. The style guide's and check-docs' lists of Python-only error classes. check-migrate's format 3 case. `migrate` never takes a beta file as 2.x, so it's unchanged. Help wording past the refusal is left to 2026101514324708.
+	- Verified: the 4 new cli-regress rows fail on the reviewed tree's 4 CLIs, 16 checks and nothing else, and pass on the fix. The 4 library tests fail with the check put back to beta files only, and pass with the fix. check-migrate fails with the old rule (3 fuzz documents and its fixed file) and passes with the fix. Green on the branch: cargo test, go test for the library and cmd, the Python and C runners, veneer smoke, sanitize-c, the oom and mem_bounds tests, cli-regress, check-doc-examples, crosscheck, check-migrate, shell-regress, check-docs with `SHCL_GATE_REF=main`, check-abnf, check-veneer, check-completions, check-readme, markdownlint-cli2, shellcheck, clippy native and windows-gnu, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, test-ids check, and windows builds of the C CLI and the veneer.
+	- Test case: `from_v2_refuses_a_conversion_that_keeps_an_error` in Rust (`EsoQmU8`), Go (`EsoQmU9`), Python (`EsoQmUA`) and C (`EsoQmUB`), with `upgrade_file`; cli-regress `EsoQmUC` (`upgrade-from-2x-left`) and `EsoQmUF` (`upgrade-left-diags-from-2x`); save cases `EsoQmUD` (`upgrade-from-2x-left`, the item's file refused, then converted with `port` quoted and left alone by the next run) and `EsoQmUE` (`upgrade-beta-left`); the veneer smoke checks on `errors_left` and `ErrorsLeft`; check-migrate `Es34DZk`.
+	- Branch: `upfrom`
+	- Commit: `88daada9`
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the rule is JC's 2026-10-15 call on the item. The refusal line's wording is my call; the rest of the `upgrade` help wording is 2026101514324708's.
+	- Closed: 20261015-165000
 
 - Nothing tests the Loose thousands grouping rule itself
 	- ID: 2026101514324703
