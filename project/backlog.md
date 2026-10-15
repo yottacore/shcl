@@ -79,6 +79,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: this doesn't reopen the thousands rule JC settled on 2026-10-13. spec.md's thousands exception already names setters, and the fix makes them follow it.
 	- Sweep: every path that keeps an old quote kind on new text, in all 4.
 
+- `upgrade --from-2x` stamps a converted file that still has an error, and a second run reads it by 2.x rules again
+	- ID: 2026101515372401
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261015-153724
+	- Opened by: Code review 20261015 item 22
+	- Version and build: dev at `54096128`
+	- Related IDs: 2026101407100010, 2026101419280001, 2026101514324704
+	- Steps to reproduce:
+		- A 2.x file with `"k◉Q◉": 1` and `port: 8<U+3000>080`.
+		- `shcl upgrade --from-2x --write f.shcl` twice, with a different test clock each time.
+	- Incorrect behavior: the first run writes `"k◉ESCAPE_CHAR◉q◉ESCAPE_CHAR◉": 1` under a Format 3 block, with `port` still an E025 error, at exit 0. The second run takes that file for a beta file, reads it by 2.x rules, and renames the key to `k◉escape_char◉q◉escape_char◉` at exit 0, with a second backup. All 4.
+	- Expected behavior: `--from-2x` converts only when the fresh text loads clean, for a file with no Format line as for a beta file. Otherwise it writes nothing, exits 7 and names the lines still in error, so `upgrade` never stamps a file a later `--from-2x` would misread. Here the first run refuses on `port`; with it quoted, the first run converts and the second leaves the file alone.
+	- Reproduced: 20261015, the Rust CLI.
+	- Origin: the beta path from `ad9af077` (close10, 2026-10-14) requires a clean conversion, and the path for a file with no Format line doesn't. Neither 20261014 round saw it. Confirmed.
+	- Decisions:
+		- JC, 2026-10-15: refuse rather than teach `migrate` the E025 case, per the standing rule for 2.x work. A plain `upgrade` can still write a Format 3 file with an error, and `--from-2x` on that is `--from-2x` on a file that isn't old, the case 2026101419280001 closed as docs only.
+	- Against: 2026101407100010's narrowed rule, which needs a clean conversion for a beta file only. This widens it to every `--from-2x` conversion (JC, 2026-10-15).
+	- Sweep: `upgrade` and `upgrade_file` in all 4, the CLI's message and exit in all 4, and the help and man page lines on `--from-2x`.
+
 - Nothing tests the Loose thousands grouping rule itself
 	- ID: 2026101514324703
 	- Type: Enhancement
@@ -182,7 +203,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The help's `upgrade` line says a file that doesn't load clean is printed migrated and made over. A file naming this format with an error is left alone: `printf 'a: 1\nb 2\n##    Format   3\n' | shcl upgrade -` prints it as is, with `nothing to upgrade, left as is`.
 		- `project/examples.md` says a clean file is left alone "unless `--from-2x` says it was written for 2.x and it reads differently now, so a program can run it (or the library's `upgrade_file`) on every start". Since 2026101419280001, `from_v2` is for a file known to be old, never every start. It doesn't give the Format line rule either.
 		- The `upgrade` doc comment in all 5 interfaces says "any old info block swapped for the one `init` writes". A whole block above the first field stays, by 2026101407100001's call, so a beta file with its block at the top comes out with 2.
-	- Expected behavior: each says what spec.md and the man page say now.
+	- Expected behavior: each says what spec.md and the man page say now. The `--from-2x` text in the help, the man page and examples.md also says that on a file not written for 2.x it can change good lines, and the backup keeps the original (JC, 2026-10-15).
 	- Reproduced: 20261015, the help in all 4 CLIs and the top block case. examples.md by reading.
 	- Origin: the help from `60d0196c`. The examples.md paragraph moved as it was from the README in `b30d70a8`. 2026101419280001 (`6d5d8dd1`) updated the man page, spec.md, design.md and the library docs, and missed these. Confirmed.
 	- Sweep: every other text on `upgrade`: completions, README, changelog's Unreleased.
@@ -15810,8 +15831,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20260723-134323
 
 - Code review 20261015:
-	- Decided against: `upgrade --from-2x` damaging the good lines of a beta file with one error, such as a backtick-quoted `#fff` cut at the `#`. It's the class 2026101419280001 closed as docs only: `from_v2` is for a file known to be old. Raised with JC.
-	- Decided against: `upgrade --from-2x` run again on its own output when that still has an error. It takes the file for 2.x again, writes a second backup and can change a key at exit 0. Same rule as above, but the file it misreads is one upgrade itself stamped, so it's raised with JC.
+	- Decided against: `upgrade --from-2x` damaging the good lines of a beta file with one error, such as a backtick-quoted `#fff` cut at the `#`. It's the class 2026101419280001 closed as docs only: `from_v2` is for a file known to be old. JC kept that call on 2026-10-15; the docs say what it can do (2026101514324708).
 	- Decided against: `upgrade --from-2x` saying `nothing to upgrade, left as is` at exit 0 on a Format 3 file whose fresh text wouldn't load clean. `Esnb9pV` pins it, and the wording is JC's call on 2026101419280005.
 	- Decided against: a beta file with its info block at the top getting a second block from `upgrade`. 2026101407100001 keeps a whole block above the first field. Only the doc comments are filed (2026101514324708).
 	- Decided against: a build at the Rust 1.88 floor in the gate. There's no 1.88 toolchain here, and `EshaoyP` checks the floor against the docs.
