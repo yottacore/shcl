@@ -15413,6 +15413,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: not reproduced on 2026-09-17. The runner passed 24 runs in a row with a `--ci` run loading the box, and the churn loop alone passed 6. The kernel log and core dumps need the `adm` group, so no record of the 2026-09-16 crashes was read. cppcheck died of heap corruption on the same day, which points at the box more than the code.
 	- Note: the kernel log on 2026-09-17 shows four processes taking general protection faults between 19:56 and 20:02 on 2026-09-16. They were cargo inside libc, python3 twice, and cppcheck. An LLVM process segfaulted half an hour earlier. Faults across unrelated programs in a few minutes point at the box, not `shcl.py`.
 	- Note: deferred until it happens again. Core dumps are kept now, so the next one can be read with `coredumpctl`.
+	- Note: 20261015, memtest found bad RAM on this box on 2026-10-11, and the kernel has left that range unused since the 10-12 boot. That likely explains the 09-16 faults. The runner passed 12 runs in a row with the range reserved, at low load. If it crashes again on this boot, look at the code.
 	- Opened: 20260916-200202
 
 - ✋ Ports: Tier 3.
