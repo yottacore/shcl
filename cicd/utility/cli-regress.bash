@@ -992,6 +992,13 @@ rows=(
 	'Esnb9iN|upgrade-left-diags|upgrade -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
 	'Esnb9kl|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
 	'Esnb9n8|upgrade-newer-diags|upgrade -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|=line 2: Hint: H006 the file names format 4, newer than this reader\x27s format 3, so some lines may read differently than written\n-: nothing to upgrade, left as is\n'
+	## 2026101514324701: a refused line led by a tilde or backtick still takes
+	## its raw block, so the Format and Schema reads find the lines after the
+	## block, and none inside it. The block's closing fence opened one that ran
+	## to the end, and upgrade --write made a backup every run.
+	'EsoQOx2|upgrade-odd-name-block|upgrade -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|0|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|=line 1: Error: E014 field name needs quotes; a bare name is a letter, then letters, digits, \x27-\x27 and \x27_\x27\n-: nothing to upgrade, left as is\n'
+	'EsoQOx3|check-odd-name-newer|check -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   4\n|6|line 1: Error: E014\nline 4: Hint: H006\nfailed: 2 diagnostic(s), 1 error(s)\n|-'
+	'EsoQOx4|check-backtick-schema-body|check -|\x60y: \x60\x60\x60\n\t##    Schema   mark.shcl\n\t\x60\x60\x60\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
 	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual. A shcl made\n  for that format reads it as written.\n\n|-"
@@ -2485,6 +2492,7 @@ fSaveSetup() {
 		upgrade-top-format) printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl ;;
 		upgrade-beta) printf 'tags: a, b\n##    Format   3\n' > f.shcl ;;
 		upgrade-beta-left) printf 'a: 1\nb 2\n##    Format   3\n' > f.shcl ;;
+		upgrade-odd-name) printf '~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n' > f.shcl ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -2560,6 +2568,10 @@ saveCases=(
 	## A file it leaves alone still has its load's diagnostics said once, and
 	## nothing is written (2026101419280005).
 	'Esnb9pV|upgrade-beta-left|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && cmp -s "${tmpDir}/err" <(printf "line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\nf.shcl: nothing to upgrade, left as is\n")'
+	## The Format line upgrade adds after the block of a refused line led by a
+	## tilde is found, so the next runs leave the file alone rather than back
+	## it up again (2026101514324701).
+	'EsoQOx6|upgrade-odd-name|upgrade --write --from-2x f.shcl|0|[[ "$(ls -A | wc -l | tr -d " ")" == 2 ]] && grep -qx "##    Format   3" f.shcl && cp f.shcl ../odd-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && "${cli}" upgrade --write f.shcl 2>/dev/null && cmp -s f.shcl ../odd-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'EsFrOVW|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )

@@ -3006,17 +3006,17 @@ func (w *rawLines) step(line string) (rest string, ok bool) {
 // opensRaw is the raw block a line opens under the current rules: a fence
 // line under a field, or a field line whose value is a fence, read as the
 // parser reads them. A line refused for where it sits or for its text still
-// takes its body.
+// takes its body. A line led by a fence character that opens no fence is a
+// field line to the parser, as `~x: ~~~` is.
 func opensRaw(rest string, tok *Tokens) openFence {
 	rest = strings.TrimLeftFunc(rest, isWsp)
 	var ch byte
 	var length int
 	var ok bool
-	switch {
-	case rest[0] == '`' || rest[0] == '~':
+	if rest[0] == '`' || rest[0] == '~' {
 		ch, length, _, ok = childFence(rest, tok)
-	case !isFieldText(rest):
-	default:
+	}
+	if !ok && isFieldText(rest) {
 		Tokenize(rest, ':', false, RulesCurrent, tok)
 		ch, length, _, ok = lineFence(tok, rest)
 	}

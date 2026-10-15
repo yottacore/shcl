@@ -2591,13 +2591,13 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 	"""The raw block a line opens under the current rules: a fence line under a
 	field, or a field line whose value is a fence, read as the parser reads
 	them. A line refused for where it sits or for its text still takes its
-	body."""
+	body. A line led by a fence character that opens no fence is a field line
+	to the parser, as `~x: ~~~` is."""
 	rest = rest.lstrip(_WSP)
+	fence = None
 	if rest[0] == "`" or rest[0] == "~":
 		fence = _child_fence(rest, tok)
-	elif not _is_field_text(rest):
-		fence = None
-	else:
+	if fence is None and _is_field_text(rest):
 		tokenize(rest, ":", False, Rules.Current, tok)
 		fence = _line_fence(tok)
 	return None if fence is None else (fence[0], fence[1])

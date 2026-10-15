@@ -4484,6 +4484,10 @@ int main(int argc, char **argv) {
 			{"\xEF\xBB\xBF##    Format   5\n", 5, SHCL_GOOD, 1, "H006"},
 			{"##    Format   4294967296\n", SHCL_FORMAT_MAJOR, SHCL_GOOD, 1, ""},
 			{"a:\n\t##    Format   1\n\tb: 1\n", 1, SHCL_GOOD, 2, "H007"},
+			/* A refused line led by a fence character takes its block, as it
+			   does in the parser (2026101514324701). */
+			{"~x: ```\n\tb\n\t```\n##    Format   4\n", 4, SHCL_GOOD, 4, "H006"},
+			{"`y: ```\n##    Format   4\n```\n", 0, SHCL_NOT_FOUND, 0, ""},
 		};
 		for (size_t k = 0; k < sizeof ft / sizeof ft[0]; k++) {
 			size_t n = strlen(ft[k].text);
@@ -4507,6 +4511,8 @@ int main(int argc, char **argv) {
 			{"##    Schema\na: 1\n", "", SHCL_EMPTY},
 			{"##    Schema   \n##    Schema   b.shcl\n", "b.shcl", SHCL_GOOD},
 			{"x: ~~~\n##    Schema   a\n~~~\n", "", SHCL_NOT_FOUND},
+			{"`y: ```\n\t##    Schema   a\n\t```\n", "", SHCL_NOT_FOUND},
+			{"~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", SHCL_GOOD},
 		};
 		for (size_t k = 0; k < sizeof st / sizeof st[0]; k++) {
 			size_t n = strlen(st[k].text), rn = 99;

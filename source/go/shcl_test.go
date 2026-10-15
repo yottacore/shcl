@@ -3968,6 +3968,10 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"\ufeff##    Format   5\n", 5, Good, 1, "H006"},
 		{"##    Format   4294967296\n", FormatMajor, Good, 1, ""},
 		{"a:\n\t##    Format   1\n\tb: 1\n", 1, Good, 2, "H007"},
+		// A refused line led by a fence character takes its block, as it does
+		// in the parser (2026101514324701).
+		{"~x: ```\n\tb\n\t```\n##    Format   4\n", 4, Good, 4, "H006"},
+		{"`y: ```\n##    Format   4\n```\n", 0, NotFound, 0, ""},
 	}
 	for _, c := range formats {
 		r := ReadFormatVersion(c.text)
@@ -4002,6 +4006,8 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"##    Schema\na: 1\n", "", Empty, 1},
 		{"##    Schema   \n##    Schema   b.shcl\n", "b.shcl", Good, 2},
 		{"x: ~~~\n##    Schema   a\n~~~\n", "", NotFound, 0},
+		{"`y: ```\n\t##    Schema   a\n\t```\n", "", NotFound, 0},
+		{"~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", Good, 4},
 	}
 	for _, c := range schemas {
 		r := ReadSchemaRef(c.text)

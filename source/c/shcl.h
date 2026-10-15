@@ -3415,10 +3415,14 @@ static void raw_lines_init(ShclRawLines *w, ShclRules rules) {
 /* The raw block a line opens under the current rules: a fence line under a
    field, or a field line whose value is a fence, read as the parser reads
    them. A line refused for where it sits or for its text still takes its
-   body. */
+   body. A line led by a fence character that opens no fence is a field line
+   to the parser, as `~x: ~~~` is. */
 static ShclFence opens_raw(ShclArena *ta, ShclStr rest, ShclTokens *tok) {
 	rest = trim_wsp_start(rest);
-	if (rest.p[0] == '`' || rest.p[0] == '~') return child_fence(ta, rest, tok);
+	if (rest.p[0] == '`' || rest.p[0] == '~') {
+		ShclFence f = child_fence(ta, rest, tok);
+		if (f.ok) return f;
+	}
 	if (!is_field_text(rest)) return fence_open(s_empty());
 	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
 	return line_fence(ta, tok, rest);

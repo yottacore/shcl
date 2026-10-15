@@ -3876,6 +3876,16 @@ fn stamp_reads_say_why() {
 		("\u{feff}##    Format   5\n", 5, Good, 1, "H006"),
 		("##    Format   4294967296\n", FORMAT_MAJOR, Good, 1, ""),
 		("a:\n\t##    Format   1\n\tb: 1\n", 1, Good, 2, "H007"),
+		// A refused line led by a fence character takes its block, as it
+		// does in the parser (2026101514324701).
+		(
+			"~x: ```\n\tb\n\t```\n##    Format   4\n",
+			4,
+			Good,
+			4,
+			"H006",
+		),
+		("`y: ```\n##    Format   4\n```\n", 0, NotFound, 0, ""),
 	];
 	for (text, value, status, line, hint) in formats {
 		let r = read_format_version(text);
@@ -3915,6 +3925,8 @@ fn stamp_reads_say_why() {
 			2,
 		),
 		("x: ~~~\n##    Schema   a\n~~~\n", "", NotFound, 0),
+		("`y: ```\n\t##    Schema   a\n\t```\n", "", NotFound, 0),
+		("~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", Good, 4),
 	];
 	for (text, value, status, line) in schemas {
 		let r = read_schema_ref(text);

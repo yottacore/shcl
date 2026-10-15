@@ -3883,6 +3883,10 @@ def main():
 		("\ufeff##    Format   5\n", 5, G, 1, "H006"),
 		("##    Format   4294967296\n", shcl.FORMAT_MAJOR, G, 1, ""),
 		("a:\n\t##    Format   1\n\tb: 1\n", 1, G, 2, "H007"),
+		# A refused line led by a fence character takes its block, as it does
+		# in the parser (2026101514324701).
+		("~x: ```\n\tb\n\t```\n##    Format   4\n", 4, G, 4, "H006"),
+		("`y: ```\n##    Format   4\n```\n", 0, NF, 0, ""),
 	):
 		stamp = shcl.read_format_version(ftext)
 		if (stamp.value, stamp.status, stamp.line) != (fvalue, fstatus, fline):
@@ -3898,6 +3902,8 @@ def main():
 		("##    Schema\na: 1\n", "", E, 1),
 		("##    Schema   \n##    Schema   b.shcl\n", "b.shcl", G, 2),
 		("x: ~~~\n##    Schema   a\n~~~\n", "", NF, 0),
+		("`y: ```\n\t##    Schema   a\n\t```\n", "", NF, 0),
+		("~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", G, 4),
 	):
 		rs = shcl.read_schema_ref(stext)
 		if (rs.value, rs.status, rs.line) != (sref, sstatus, sline):

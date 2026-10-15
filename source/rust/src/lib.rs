@@ -2858,17 +2858,18 @@ impl RawLines {
 /// The raw block a line opens under the current rules: a fence line under a
 /// field, or a field line whose value is a fence, read as the parser reads
 /// them. A line refused for where it sits or for its text still takes its
-/// body.
+/// body. A line led by a fence character that opens no fence is a field line
+/// to the parser, as `~x: ~~~` is.
 fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 	let rest = rest.trim_start_matches(is_wsp);
-	let fence = if rest.starts_with(['`', '~']) {
-		child_fence(rest, tok)
-	} else if !is_field_text(rest) {
-		None
-	} else {
+	let mut fence = None;
+	if rest.starts_with(['`', '~']) {
+		fence = child_fence(rest, tok);
+	}
+	if fence.is_none() && is_field_text(rest) {
 		tokenize(rest, b':', false, Rules::Current, tok);
-		line_fence(tok, rest)
-	};
+		fence = line_fence(tok, rest);
+	}
 	fence.map(|(ch, len, _)| (ch, len))
 }
 
