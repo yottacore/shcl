@@ -4088,6 +4088,15 @@ def main():
 		raise SystemExit("s reads as quoted")
 	if lt_set.read_int_array("t").value != [1000]:
 		raise SystemExit(f"t: {lt_set.read_int_array('t')!r}")
+	# Over a quoted value too, whatever its quote kind (2026101514324702).
+	lt_over = shcl.Document.parse_with("a: \"x\"\nb: 'x'\nc: `x`\n", shcl.Strictness.Loose)
+	for lt_path, lt_v in (("a", "1,200"), ("b", "$1,200"), ("c", "1,200.50")):
+		if not lt_over.set_string(lt_path, lt_v):
+			raise SystemExit(f"set {lt_path}")
+		if lt_over.read_string(lt_path).quoted or lt_over.read_int(lt_path).status != shcl.Status.BadType:
+			raise SystemExit(f"{lt_path} reads as quoted")
+	if lt_over.to_canonical() != "a: 1,200\nb: $1,200\nc: 1,200.50\n":
+		raise SystemExit(f"over wrote {lt_over.to_canonical()!r}")
 	# A merge puts a stacked list in brackets, which quote its items.
 	lt_merged = shcl.Document.parse_with("l:\n\t- 1,200\n", shcl.Strictness.Loose)
 	if lt_merged.read_int_array("l").status != shcl.Status.BadType:
@@ -4095,7 +4104,7 @@ def main():
 	lt_merged.merge(shcl.Document.parse("z: 1\n"))
 	if not lt_merged.to_canonical().startswith('l: ["1,200"]\n') or lt_merged.read_int_array("l").value != [1200]:
 		raise SystemExit(f"merged {lt_merged.to_canonical()!r} {lt_merged.read_int_array('l')!r}")
-	for lt_doc in (lt_loose, lt_set, lt_merged):
+	for lt_doc in (lt_loose, lt_set, lt_over, lt_merged):
 		lt_back = shcl.Document.parse_with(lt_doc.to_canonical(), shcl.Strictness.Loose)
 		for lt_path in ("a", "b", "c", "d", "e", "g", "h", "l", "s", "t"):
 			lt_x, lt_y = lt_doc.read_int(lt_path), lt_back.read_int(lt_path)

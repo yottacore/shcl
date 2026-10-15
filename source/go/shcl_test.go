@@ -5142,6 +5142,19 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 	if r := set.ReadIntArray("t"); len(r.Value) != 1 || r.Value[0] != 1000 {
 		t.Fatalf("t: %v %v", r.Status, r.Value)
 	}
+	// Over a quoted value too, whatever its quote kind (2026101514324702).
+	over, _ := ParseWith("a: \"x\"\nb: 'x'\nc: `x`\n", Loose)
+	for _, c := range [][2]string{{"a", "1,200"}, {"b", "$1,200"}, {"c", "1,200.50"}} {
+		if st := over.SetString(c[0], c[1]); st != SetOk {
+			t.Fatalf("set %s: %v", c[0], st)
+		}
+		if over.ReadString(c[0]).Quoted || over.ReadInt(c[0]).Status != BadType {
+			t.Fatalf("%s reads as quoted", c[0])
+		}
+	}
+	if out := over.ToCanonical(); out != "a: 1,200\nb: $1,200\nc: 1,200.50\n" {
+		t.Fatalf("over wrote %q", out)
+	}
 	// A merge puts a stacked list in brackets, which quote its items.
 	merged, _ := ParseWith("l:\n\t- 1,200\n", Loose)
 	if r := merged.ReadIntArray("l"); r.Status != BadType {
@@ -5154,7 +5167,7 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 	if r := merged.ReadIntArray("l"); len(r.Value) != 1 || r.Value[0] != 1200 {
 		t.Fatalf("l merged: %v %v", r.Status, r.Value)
 	}
-	for _, doc := range []*Document{loose, set, merged} {
+	for _, doc := range []*Document{loose, set, over, merged} {
 		back, err := ParseWith(doc.ToCanonical(), Loose)
 		if err != nil {
 			t.Fatal(err)

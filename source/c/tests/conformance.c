@@ -4718,6 +4718,18 @@ int main(int argc, char **argv) {
 		if (shcl_quoted(ls, "s", 1) || shcl_read_int(ls, "s", 1).status != SHCL_BAD_TYPE) fail("loose_thousands", "s reads as quoted");
 		shcl_read_i64_arr ta = shcl_read_int_array(ls, "t", 1);
 		if (ta.n != 1 || ta.values[0] != 1000) fail("loose_thousands", "t");
+		/* Over a quoted value too, whatever its quote kind (2026101514324702). */
+		const char *osrc = "a: \"x\"\nb: 'x'\nc: `x`\n";
+		shcl_doc *lo = shcl_parse_with(osrc, strlen(osrc), SHCL_LOOSE);
+		const char *opaths[] = { "a", "b", "c" };
+		const char *ovals[] = { "1,200", "$1,200", "1,200.50" };
+		for (size_t i = 0; i < 3; i++) {
+			if (shcl_set_string(lo, opaths[i], 1, ovals[i], strlen(ovals[i])) != SHCL_SET_OK) fail("loose_thousands", opaths[i]);
+			if (shcl_quoted(lo, opaths[i], 1) || shcl_read_int(lo, opaths[i], 1).status != SHCL_BAD_TYPE) fail("loose_thousands", opaths[i]);
+		}
+		shcl_str oout = shcl_to_canonical(lo);
+		const char *owant = "a: 1,200\nb: $1,200\nc: 1,200.50\n";
+		if (oout.n != strlen(owant) || memcmp(oout.p, owant, oout.n) != 0) fail("loose_thousands", "the overwritten text");
 		/* A merge puts a stacked list in brackets, which quote its items. */
 		const char *msrc = "l:\n\t- 1,200\n";
 		shcl_doc *lm = shcl_parse_with(msrc, strlen(msrc), SHCL_LOOSE);
@@ -4729,9 +4741,9 @@ int main(int argc, char **argv) {
 		if (mout.n < 13 || memcmp(mout.p, "l: [\"1,200\"]\n", 13) != 0) fail("loose_thousands", "the merged text");
 		shcl_read_i64_arr la = shcl_read_int_array(lm, "l", 1);
 		if (la.n != 1 || la.values[0] != 1200) fail("loose_thousands", "l merged");
-		shcl_doc *ldocs[] = { ll, ls, lm };
+		shcl_doc *ldocs[] = { ll, ls, lo, lm };
 		const char *cpaths[] = { "a", "b", "c", "d", "e", "g", "h", "l", "s", "t" };
-		for (size_t k = 0; k < 3; k++) {
+		for (size_t k = 0; k < 4; k++) {
 			shcl_str out = shcl_to_canonical(ldocs[k]);
 			shcl_doc *back = shcl_parse_with(out.p, out.n, SHCL_LOOSE);
 			for (size_t i = 0; i < 10; i++) {
@@ -4744,6 +4756,7 @@ int main(int argc, char **argv) {
 			shcl_free(back);
 		}
 		shcl_free(lm);
+		shcl_free(lo);
 		shcl_free(ls);
 		shcl_free(ll);
 	}

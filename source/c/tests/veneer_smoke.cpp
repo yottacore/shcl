@@ -180,6 +180,10 @@ int main() {
 		CHECK(!shcl::format_value("a\xff" "b"));
 		auto fw = shcl::Document::parse("");
 		CHECK(fw.set_string("k", "x\ty") == shcl::SetStatus::Ok && fw.to_canonical() == "k: " + *shcl::format_value("x\ty") + "\n");
+		// Over a quoted value too, or Loose reads it as a number (2026101514324702).
+		auto fq = shcl::Document::parse_with("k: \"x\"\n", shcl::Strictness::Loose);
+		CHECK(fq.set_string("k", "1,200") == shcl::SetStatus::Ok && !fq.quoted("k") && fq.read_int("k").status == shcl::Status::BadType);
+		CHECK(fq.to_canonical() == "k: " + *shcl::format_value("1,200") + "\n");
 	}
 	// An array as set_string_array writes it, through the core.
 	{

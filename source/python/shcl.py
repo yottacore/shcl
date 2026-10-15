@@ -707,9 +707,13 @@ def _keep_mark(old, new):
 	# An overwrite keeps the quote kind the old value was written in, when the
 	# new text can be written that way (value-syntax.md, Canonical output). The
 	# kind is the one a save writes, so the answer is the same after a reload.
+	# A thousands number stays bare whatever it replaces, since in quotes Loose
+	# would read it as a number (spec.md).
 	if old.kind != "cell" or new.kind != "cell":
 		return
 	was, now = old.els[0], new.els[0]
+	if _thousands_number(now.text) is not None:
+		return
 	first = _emit_scalar(was)[:1]
 	if first == "'":
 		written = _Mark.SINGLE

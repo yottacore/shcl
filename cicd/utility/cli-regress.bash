@@ -689,6 +689,9 @@ rows=(
 	"EsbaIq7|fmt-keeps-bare-thousands|fmt -|p: 80,443\nq: \$1,200.50\n|0|p: 80,443\nq: \$1,200.50\n|-"
 	'EsbaIsU|set-keeps-bare-thousands|set --set=p=1,200 -|a: 1\n|0|a: 1\n\np: 1,200\n|-'
 	'EsbaIx6|loose-set-thousands-text|get --int --strictness=loose --set=a=1,000 %F% a|-|4|0\n|not a valid int'
+	## 2026101514324702: over a quoted value too, whatever its quote kind.
+	"EsoRGvI|set-thousands-over-quoted|set --set=p=1,200 --set=q=\$1,200 -|p: \"x\"\nq: \`x\`\n|0|p: 1,200\nq: \$1,200\n|-"
+	'EsoRGxW|loose-set-thousands-over-quoted|get --int --strictness=loose --set=p=1,200 - p|p: "x"\n|4|0\n|not a valid int'
 	## 2026101318521195: a trailing `.` is fine on one, a leading one is not.
 	'EsdUlxn|loose-quoted-thousands-dot-int|get --int --strictness=loose - p|p: "1,200."\n|0|1200\n|-'
 	"EsdUlxo|loose-quoted-money-dot-pct|get --float --strictness=loose - p|p: \"\$1,200.%\"\n|0|12\n|-"

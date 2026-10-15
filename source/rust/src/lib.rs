@@ -10691,10 +10691,15 @@ fn literal_value(text: &str) -> Option<Value> {
 /// An overwrite keeps the quote kind the old value was written in, when the
 /// new text can be written that way (value-syntax.md, Canonical output). The
 /// kind is the one a save writes, so the answer is the same after a reload.
+/// A thousands number stays bare whatever it replaces, since in quotes Loose
+/// would read it as a number (spec.md).
 fn keep_mark(old: &Value, new: &mut Value) {
 	let (Value::Cell(was), Value::Cell(now)) = (old, &mut *new) else {
 		return;
 	};
+	if thousands_number(&now.text).is_some() {
+		return;
+	}
 	let written = match emit_scalar(was).as_bytes().first() {
 		Some(b'\'') => Mark::Single,
 		Some(b'"') => Mark::Double,

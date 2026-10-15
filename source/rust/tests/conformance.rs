@@ -4329,13 +4329,21 @@ fn loose_reads_a_quoted_thousands_number() {
 	assert!(!set.read_string("s").quoted);
 	assert_eq!(set.read_int("s").status, Status::BadType);
 	assert_eq!(set.read_int_array("t").value, vec![1000]);
+	// Over a quoted value too, whatever its quote kind (2026101514324702).
+	let mut over = Document::parse_with("a: \"x\"\nb: 'x'\nc: `x`\n", Strictness::Loose).unwrap();
+	for (path, v) in [("a", "1,200"), ("b", "$1,200"), ("c", "1,200.50")] {
+		assert_eq!(over.set_string(path, v), shcl::SetStatus::Ok);
+		assert!(!over.read_string(path).quoted, "{path}");
+		assert_eq!(over.read_int(path).status, Status::BadType, "{path} int");
+	}
+	assert_eq!(over.to_canonical(), "a: 1,200\nb: $1,200\nc: 1,200.50\n");
 	// A merge puts a stacked list in brackets, which quote its items.
 	let mut merged = Document::parse_with("l:\n\t- 1,200\n", Strictness::Loose).unwrap();
 	assert_eq!(merged.read_int_array("l").status, Status::BadType);
 	merged.merge(&Document::parse("z: 1\n"));
 	assert!(merged.to_canonical().starts_with("l: [\"1,200\"]\n"));
 	assert_eq!(merged.read_int_array("l").value, vec![1200]);
-	for doc in [&loose, &set, &merged] {
+	for doc in [&loose, &set, &over, &merged] {
 		let back = Document::parse_with(&doc.to_canonical(), Strictness::Loose).unwrap();
 		for path in ["a", "b", "c", "d", "e", "g", "h", "l", "s", "t"] {
 			let (x, y) = (doc.read_int(path), back.read_int(path));

@@ -10211,12 +10211,16 @@ func literalValue(text string) (value, bool) {
 // keepMark: an overwrite keeps the quote kind the old value was written in,
 // when the new text can be written that way (value-syntax.md, Canonical
 // output). The kind is the one a save writes, so the answer is the same after
-// a reload.
+// a reload. A thousands number stays bare whatever it replaces, since in
+// quotes Loose would read it as a number (spec.md).
 func keepMark(old, now *value) {
 	if old.kind != vCell || now.kind != vCell {
 		return
 	}
 	was, el := &old.els[0], &now.els[0]
+	if _, _, ok := thousandsNumber(el.text); ok {
+		return
+	}
 	written := markBare
 	if t := emitScalar(was); t != "" {
 		switch {
