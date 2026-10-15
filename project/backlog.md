@@ -59,6 +59,34 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the item's own steps fail the gate now and passed it before, and the Sweep has its Swept line.
 	- Closed: 20261015-125237
 
+- The installers still send people to README.md for steps that moved to `project/install.md`
+	- ID: 2026101419280006
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 6
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101414312547
+	- Steps to reproduce:
+		- Run `install.bash` on a box with no `openssl`.
+	- Incorrect behavior: `need openssl to verify the release signature (see README.md for a manual install)`. Since the split, README.md has no openssl note and no manual steps, only a link on to `project/install.md`. Same for `install.bash:159` (`build from source or use a drop-in file (see README.md)`), its usage comment at line 46, and `install.ps1:390`.
+	- Expected behavior: each points at `project/install.md`, or its DIY install section.
+	- Reproduced: by reading. README.md has no `openssl`, and `project/install.md` has the DIY install section.
+	- Origin: `b30d70a8` (2026-10-14). The split's Swept line lists the installers' messages, which were left pointing at README.md.
+	- Sweep: comments that still say README for text that moved: `cicd/cicd.bash:855` (the one-liners) and `cicd/utility/sign-release.bash:150` (the key to verify against). No gate checks these pointers.
+	- Note: an installer change on dev needs the docs-only sync to main, and the installers on dev aren't on main yet (JC, 2026-10-13: not yet).
+	- Actual fix: install.bash's 3 sites (the usage comment, the no-prebuilt message and the openssl message) and install.ps1's refusal off Windows link `https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install`. It's a full URL like the installers' other links, since someone running one from curl has no checkout. The cicd.bash comment names the install doc's one-liners, and sign-release.bash's names project/install.md. Two more comments the split missed: config.bash and ci.yml called the C and Zig examples the README's, and they're in project/examples.md now.
+	- Swept: `git grep -n README -- ':!*.md'`. What's left is about the README's own checks, its small example and the demo gif, which are all still in the README.
+	- Note: main has no `project/install.md` yet, so the URL works once the docs reach main along with these installers. The new check fails a push to main whose installers link a doc the pushed tree doesn't have.
+	- Note: `EpHGoa0` is red on this branch with `SHCL_GATE_REF=main`, since its installers now differ from dev's. It clears on the merge to dev, and plain check-docs stays red on it there, as before.
+	- Verified: check-docs passes but for `EpHGoa0` as above. shell-regress passes, and its install.ps1 refusal row pins the new text. PSScriptAnalyzer passes on install.ps1, which is still ASCII with no BOM. shellcheck and check-pins pass. install.bash run with no openssl on PATH prints the new link.
+	- Test case: check-docs `EsnhDn1` installer-doc-pointers. install.bash and install.ps1 may name no doc by bare file name, and each `blob/main` URL in them has to reach a tracked file and a heading there. It failed on the old installers (4 bare `README.md`), on a broken anchor and on a wrong path, and passes now.
+	- Branch: `docgate`
+	- Commit: `b3199842`
+	- Acceptance signoff: closed on JC's criteria. The call was the message wording, with the URL in the same form as the installers' other links (me).
+	- Closed: 20261015-125237
+
 - check-migrate's Format 3 upgrade check judges a file by what upgrade did to it, so a file it should have converted and didn't passes
 	- ID: 2026101419280003
 	- Type: Bug
@@ -79,6 +107,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: `fUpgradeCheck` already decides from `fErrors` and `fMigrateChanged`. `fUpFormat3` was the only check that decided from upgrade's own output.
 	- Branch: `migcheck`
 	- Acceptance signoff: Self-closed. The check does what the item asked, no more, and was seen to fail.
+	- Closed: 20261015-125008
+
+- Assertions 2026101407100010 replaced are commented out rather than deleted
+	- ID: 2026101419280007
+	- Type: Task
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 7
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101407100010
+	- Problem description: the beta-file assertion in `upgrade_leaves_a_clean_or_stamped_file` is commented out in all 4 suites (`tests/upgrade.rs`, `upgrade_test.go`, and the Python and C conformance files), and so are 2 pairs of `fUpgradeRun` lines in `check-migrate.bash`, each with a note. The commented text says a beta file is always current, which isn't true anymore, and an edit could uncomment it.
+	- Requirements:
+		- Delete them, and keep a short note where the reason helps.
+	- Sweep: check-migrate's older commented blocks, `ErUuq8D` and the 2.x re-read half since `vsmig`, are the same kind. Say whether they go too.
+	- Decisions:
+		- JC, 2026-10-15: keep commented, fix the notes.
+	- Actual fix: nothing deleted. Each note says the old claim is wrong now, since a beta Format 3 file that loads with an error now converts, so it isn't always current, and says not to uncomment it. The older check-migrate blocks stay too, with a note on why: nothing defines `fPathBreak` now, and migrate's output isn't for 2.x.
+	- Swept: `upgrade_leaves_a_clean_or_stamped_file` in all 4 suites, both `fUpgradeRun` pairs in check-migrate, `ErUuq8D` with `ErkiUcu`, and the 2.x re-read half. `grep -rn 2026101407100010 source/` finds no other commented assertion.
+	- Verified: the 4 suites, check-migrate, shell-regress, shellcheck, rustfmt, gofmt and ruff pass.
+	- Test case: none. Comments only.
+	- Branch: `migcheck`
+	- Acceptance signoff: closed on JC's call, "JC, 2026-10-15: keep commented, fix the notes."
 	- Closed: 20261015-125008
 
 - An indented `#` comment line in the ops script is refused as an unknown op
@@ -138,57 +189,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `7ac89887`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule with JC's call on the library contract.
 	- Closed: 20261015-124104
-
-- The installers still send people to README.md for steps that moved to `project/install.md`
-	- ID: 2026101419280006
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261014-192800
-	- Opened by: Code review 20261014b item 6
-	- Version and build: dev at `4d59700f`
-	- Related IDs: 2026101414312547
-	- Steps to reproduce:
-		- Run `install.bash` on a box with no `openssl`.
-	- Incorrect behavior: `need openssl to verify the release signature (see README.md for a manual install)`. Since the split, README.md has no openssl note and no manual steps, only a link on to `project/install.md`. Same for `install.bash:159` (`build from source or use a drop-in file (see README.md)`), its usage comment at line 46, and `install.ps1:390`.
-	- Expected behavior: each points at `project/install.md`, or its DIY install section.
-	- Reproduced: by reading. README.md has no `openssl`, and `project/install.md` has the DIY install section.
-	- Origin: `b30d70a8` (2026-10-14). The split's Swept line lists the installers' messages, which were left pointing at README.md.
-	- Sweep: comments that still say README for text that moved: `cicd/cicd.bash:855` (the one-liners) and `cicd/utility/sign-release.bash:150` (the key to verify against). No gate checks these pointers.
-	- Note: an installer change on dev needs the docs-only sync to main, and the installers on dev aren't on main yet (JC, 2026-10-13: not yet).
-	- Actual fix: install.bash's 3 sites (the usage comment, the no-prebuilt message and the openssl message) and install.ps1's refusal off Windows link `https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install`. It's a full URL like the installers' other links, since someone running one from curl has no checkout. The cicd.bash comment names the install doc's one-liners, and sign-release.bash's names project/install.md. Two more comments the split missed: config.bash and ci.yml called the C and Zig examples the README's, and they're in project/examples.md now.
-	- Swept: `git grep -n README -- ':!*.md'`. What's left is about the README's own checks, its small example and the demo gif, which are all still in the README.
-	- Note: main has no `project/install.md` yet, so the URL works once the docs reach main along with these installers. The new check fails a push to main whose installers link a doc the pushed tree doesn't have.
-	- Note: `EpHGoa0` is red on this branch with `SHCL_GATE_REF=main`, since its installers now differ from dev's. It clears on the merge to dev, and plain check-docs stays red on it there, as before.
-	- Verified: check-docs passes but for `EpHGoa0` as above. shell-regress passes, and its install.ps1 refusal row pins the new text. PSScriptAnalyzer passes on install.ps1, which is still ASCII with no BOM. shellcheck and check-pins pass. install.bash run with no openssl on PATH prints the new link.
-	- Test case: check-docs `EsnhDn1` installer-doc-pointers. install.bash and install.ps1 may name no doc by bare file name, and each `blob/main` URL in them has to reach a tracked file and a heading there. It failed on the old installers (4 bare `README.md`), on a broken anchor and on a wrong path, and passes now.
-	- Branch: `docgate`
-	- Commit: `b3199842`
-	- Acceptance signoff: closed on JC's criteria. The call was the message wording, with the URL in the same form as the installers' other links (me).
-	- Closed: 20261015-125237
-
-- Assertions 2026101407100010 replaced are commented out rather than deleted
-	- ID: 2026101419280007
-	- Type: Task
-	- Status: Done
-	- Priority: Low
-	- Opened: 20261014-192800
-	- Opened by: Code review 20261014b item 7
-	- Version and build: dev at `4d59700f`
-	- Related IDs: 2026101407100010
-	- Problem description: the beta-file assertion in `upgrade_leaves_a_clean_or_stamped_file` is commented out in all 4 suites (`tests/upgrade.rs`, `upgrade_test.go`, and the Python and C conformance files), and so are 2 pairs of `fUpgradeRun` lines in `check-migrate.bash`, each with a note. The commented text says a beta file is always current, which isn't true anymore, and an edit could uncomment it.
-	- Requirements:
-		- Delete them, and keep a short note where the reason helps.
-	- Sweep: check-migrate's older commented blocks, `ErUuq8D` and the 2.x re-read half since `vsmig`, are the same kind. Say whether they go too.
-	- Decisions:
-		- JC, 2026-10-15: keep commented, fix the notes.
-	- Actual fix: nothing deleted. Each note says the old claim is wrong now, since a beta Format 3 file that loads with an error now converts, so it isn't always current, and says not to uncomment it. The older check-migrate blocks stay too, with a note on why: nothing defines `fPathBreak` now, and migrate's output isn't for 2.x.
-	- Swept: `upgrade_leaves_a_clean_or_stamped_file` in all 4 suites, both `fUpgradeRun` pairs in check-migrate, `ErUuq8D` with `ErkiUcu`, and the 2.x re-read half. `grep -rn 2026101407100010 source/` finds no other commented assertion.
-	- Verified: the 4 suites, check-migrate, shell-regress, shellcheck, rustfmt, gofmt and ruff pass.
-	- Test case: none. Comments only.
-	- Branch: `migcheck`
-	- Acceptance signoff: closed on JC's call, "JC, 2026-10-15: keep commented, fix the notes."
-	- Closed: 20261015-125008
 
 - `upgrade` with `from_v2` reads a 3.0 file with one error by 2.x rules, so its good lines change meaning at exit 0
 	- ID: 2026101419280001
