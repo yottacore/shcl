@@ -33,20 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- A call in every language that takes one string of text commands
-	- ID: 2026101513262841
-	- Type: Feature
-	- Status: Queued
-	- Opened: 20261015-132628
-	- Opened by: JC
-	- Problem description: if it's not a crazy amount of work, expose an API on all languages that lets a caller pass a single string with text-based commands in it.
-	- Reason: this would, in theory, let future wrappers be very simple, but still expose the full API power if callers find they need it.
-	- Requirements:
-		- The format might be text versions of actual language calls and arguments, or maybe CLI versions of the same. Not sure what would work best (JC).
-		- Probably not a newly invented text structure to fully design, create, and debug (JC).
-	- Note: before the next cut (JC).
-	- Note: v4's drivers (`project/design_docs/20261015-072055_v4.md` -> Drivers in place of CLIs) and `set`'s write-ops script already cover part of this (me).
-
 - check-docs gates fed by a Python script pass when the script crashes
 	- ID: 2026101419280002
 	- Type: Bug
@@ -6017,6 +6003,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Lookups by name and by value scale with the matches, not the siblings.
 	- Note: 20261008, 2026100717500019 folded in here (JC). Its timings from 20261007: `children_named` collects every same-named child before a `(k)` or `(value)` selector picks one. Reading `rep(i).v` for each of 20,000 instances took 4.8 s by index and 13 s by value in Rust; C and Go are close. 40,000 creating `set_int("rep(kI).v")` calls took 42 s. Wildcard reads and `instance_paths()` stay fast.
 	- Note: performance ideas wait until 3.0.0 is out. Reopen then, or when a user reports a file with thousands of instances.
+
+- A call in every language that takes one string of text commands
+	- ID: 2026101513262841
+	- Type: Feature
+	- Status: Deferred
+	- Opened: 20261015-132628
+	- Opened by: JC
+	- Problem description: if it's not a crazy amount of work, expose an API on all languages that lets a caller pass a single string with text-based commands in it.
+	- Reason: this would, in theory, let future wrappers be very simple, but still expose the full API power if callers find they need it.
+	- Requirements:
+		- The format might be text versions of actual language calls and arguments, or maybe CLI versions of the same. Not sure what would work best (JC).
+		- Probably not a newly invented text structure to fully design, create, and debug (JC).
+	- Note: after the next cut, with v4 (JC).
+	- Note: v4's drivers (`project/design_docs/20261015-072055_v4.md` -> Drivers in place of CLIs) and `set`'s write-ops script already cover part of this (me).
 
 - A merge that replaces a leaf drops a kept line the settle turned into a comment
 	- ID: 2026092718195400
