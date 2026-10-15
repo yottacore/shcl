@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A refused line whose name starts with `~` or a backtick hides its raw block from the Format and Schema line scan
 	- ID: 2026101514324701
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 1
@@ -57,6 +57,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `4fcfec0b` (2026-10-03), before this window. `upgrade_file` (`60d0196c`, 2026-10-07) turns it into a new backup on every start. Neither 20261014 round saw it. 2026100307163902 accepted the scan and the parser disagreeing on E014 lines, since such a file fails `check` anyway. Confirmed.
 	- Sweep: every reader of the line scan in all 4: the Format and Schema line reads, `restamp`, and the banner code.
 	- Note: fuzz `ErfuRfE` misses it, since its names all parse and it skips any file with an error. 2026101514324704 widens it.
+	- Actual cause: confirmed. When the child fence read opened nothing on a line led by a backtick or tilde, the scan stopped there, but the parser goes on to read it as a field line, whose fence takes the body (2026100307163902). The body's closing fence then opened a block in the scan that ran to the end of the file.
+	- Actual fix: the scan reads such a line as a field line too, as the parser does, in all 4 bindings.
+	- Swept: every reader of the line scan goes through the same `opens_raw`: the Format line read, with `restamp` and the H006 and H007 hints behind it, the Schema line read, and `migrate`'s check of where its output's blocks are. The banner code works on the parsed document, not the scan. The 4 CLIs have no scan of their own, and the C++ veneer wraps the C calls, so neither changed.
+	- Note: the repro's file has no Format line, so plain `upgrade --write` now exits 7 on it, as spec.md says for lines one rule set reads as a raw body and the other doesn't. `--from-2x` makes it over once, and later runs, with or without the flag, leave it alone.
+	- Test case: cli-regress `EsoQOx2` (`upgrade-odd-name-block`), `EsoQOx3` (`check-odd-name-newer`), `EsoQOx4` (`check-backtick-schema-body`) and save case `EsoQOx6` (`upgrade-odd-name`), plus new rows in `stamp_reads_say_why` in all 4 runners.
+	- Verified: the new rows and the save case fail on the review's 4 CLIs and pass on the fix. The runner rows fail in all 4 with the fix put back. The 4 conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, the 2,000,000 release fuzz, shell-regress, check-docs at `SHCL_GATE_REF=main`, check-abnf, check-veneer, the veneer smoke, test-ids, clippy, go vet, staticcheck, ruff, mypy, shellcheck, and cppcheck at the normal level.
+	- Branch: `scanfix`
+	- Commit: `9da3dd3c`
+	- Acceptance signoff: Self-closed: reproduced, the new tests failed before and pass after, and the scan now does what spec.md says.
+	- Closed: 20261015-162922
 
 - A setter writing a thousands number over a quoted value keeps the quotes, so Loose reads it as a number
 	- ID: 2026101514324702
@@ -136,7 +146,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade --from-2x` reads a Format number too big for 32 bits as format 3, and converts the file by 2.x rules
 	- ID: 2026101514324705
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 5
@@ -152,6 +162,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `ad9af077` (close10, 2026-10-14). In 20261014b's window, not seen. Confirmed.
 	- Note: an unlikely input, and `--write` backs the original up.
 	- Sweep: the other readers of a Format number in all 4, the H006 check and `restamp` among them.
+	- Actual cause: confirmed. Digits that don't fit 32 bits read as this format, and since 2026101407100010 a file naming this format that loads with an error is what `--from-2x` takes for a beta file.
+	- Actual fix: those digits read as the largest 32-bit number, a newer format, in all 4. The file is left alone with the H006 hint, as one naming format 4 is. spec.md says so.
+	- Against: 2026092620255209, which read them as this major in all 4 and pinned it in `format_version_caps_at_32_bits` and the `stamp_reads_say_why` row. Its 32-bit cap and one answer across bindings stay. Its reason, nothing to migrate, stopped holding once a file naming this format could be converted. The old assertions are commented out with that reason, and new ones pin the cap.
+	- Swept: one parse per binding, in the Format line read. The H006 and H007 hints, `restamp`, `migrate`, `upgrade` and the backup name all read through it. The C++ veneer passes the value through as `uint32_t`, which holds it.
+	- Note: the hint names the cap, 4294967295, not the digits as written. My call: fine for a number nobody writes.
+	- Test case: cli-regress `EsoQOx5` (`upgrade-format-overflow`), plus `format_version_caps_at_32_bits` and the `stamp_reads_say_why` row in all 4 runners.
+	- Verified: `EsoQOx5` fails on the review's 4 CLIs and passes on the fix. The runner checks fail in all 4 with the fix put back. Same gate list as 2026101514324701.
+	- Branch: `scanfix`
+	- Commit: `bca7322f`
 
 - `upgrade --write` prints none of the load's diagnostics when it refuses, or fails after the load
 	- ID: 2026101514324706
