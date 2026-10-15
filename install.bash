@@ -43,7 +43,8 @@
 ##		             install prints - the .deb/.rpm put these in place for you)
 ##
 ##	NetBSD and OpenBSD have no prebuilt binaries yet - build from source or use
-##	a drop-in file (see README.md).
+##	a drop-in file, as in
+##	https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -156,7 +157,7 @@ case "${os}" in
 	Linux)   osname="linux" ;;
 	Darwin)  osname="macos" ;;
 	FreeBSD) osname="freebsd" ;;
-	*) fDie "no prebuilt ${os} binaries yet - build from source or use a drop-in file (see README.md)" ;;
+	*) fDie "no prebuilt ${os} binaries yet - build from source or use a drop-in file (see https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install)" ;;
 esac
 case "$(uname -m)" in
 	x86_64|amd64)  arch="x86_64" ;;
@@ -190,7 +191,7 @@ fi
 ## openssl is a hard requirement, same class as curl/wget: without it the
 ## release signature cannot be checked, and installing unverified is not on
 ## offer. Verify by hand and use the DIY path if the box genuinely lacks it.
-command -v openssl >/dev/null || fDie "need openssl to verify the release signature (see README.md for a manual install)"
+command -v openssl >/dev/null || fDie "need openssl to verify the release signature (see https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install for a manual install)"
 ## openssl does the checksums too. FreeBSD before 14 has no sha256sum.
 fSha256(){ openssl dgst -sha256 -r "$1" | cut -d' ' -f1; }
 
