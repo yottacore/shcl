@@ -88,6 +88,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 3 new cli-regress rows: the 2 comment rows fail on dev's 4 CLIs and pass on the fix, and the indented-op row passes both. Dev's 4 runners fail on corpus 029's 2 new comment lines and pass on the fix. Also cargo test, the Go, Python and C conformance suites, `go test -count=1` for both modules, cli-regress (591 rows, 4 bindings), crosscheck (22053 comparisons), rustfmt, clippy for the host and windows, go vet, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level, and test-ids check.
 	- Test case: cli-regress `Esnb9bC` (`ops-indented-comment`), `Esnb9db` (`ops-tab-indented-comment`) and `Esnb9g2` (`ops-indented-op-unknown`); corpus `029-write-gate`, whose `write.ops` has a tab-indented and a space-indented comment, in all 4 runners and crosscheck.
 	- Branch: `opsup`
+	- Commit: `7ac89887`
 	- Acceptance signoff: Self-closed: reproduced, the new rows and corpus lines failed before and pass after, the Sweep has its Swept answer, and the one wording call is noted above.
 	- Closed: 20261015-124104
 
@@ -117,6 +118,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 3 new cli-regress rows and the new save case fail on dev's 4 CLIs and pass on the fix. The gate list on 2026101419280004 covers this branch.
 	- Test case: cli-regress `Esnb9iN` (`upgrade-left-diags`), `Esnb9kl` (`upgrade-left-diags-from-2x`), `Esnb9n8` (`upgrade-newer-diags`) and save case `Esnb9pV` (`upgrade-beta-left`), each pinning the exact stderr.
 	- Branch: `opsup`
+	- Commit: `7ac89887`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule with JC's call on the library contract.
 	- Closed: 20261015-124104
 
