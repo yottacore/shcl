@@ -33,6 +33,126 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- `upgrade` with `from_v2` reads a 3.0 file with one error by 2.x rules, so its good lines change meaning at exit 0
+	- ID: 2026101419280001
+	- Type: Bug
+	- Status: Waiting for answers
+	- Severity: Avg
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 1
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101407100010, 2026101419280005
+	- Steps to reproduce:
+		- Make a file with `shcl set --write`, so it has the info block and `Format 3`, with `sep: a,b` and `msg: "a◉TAB◉b"` in it.
+		- Add `title: Hello, world` at the top by hand, which is `E026`.
+		- `shcl upgrade --from-2x --write f.shcl`
+	- Incorrect behavior: exit 0 with a backup, and the file now reads `title: [Hello, world]`, `sep: [a, b]` and `msg: "a◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉b"`. `sep` was the text `a,b` and is an array now. `msg` had a tab and is now the literal text `a◉TAB◉b`. `lost` is 0. `upgrade_file(path, true)` does the same.
+	- Expected behavior: a file this format wrote keeps its reads. Only lines a beta wrote by 2.x rules get converted, or the file is left alone with its diagnostics.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: `ad9af077` (2026-10-14), 2026101407100010's narrowed rule. The doc comment on `upgrade` says a caller can pass `from_v2` on every start and never convert a file twice. That stops being true once the file picks up one error.
+	- Against: 2026101407100010's decisions, signed off by JC. With the flag, a file naming this format is taken as 2.x when it loads with an error and the fresh text loads clean.
+	- Question: what tells a beta file from a 3.0 file with a typo? Options so far: take only a file with a lone Format line and no info block, if that's what the betas wrote; convert only the lines with errors; or drop the advice to pass `from_v2` on every start, and say it's for a file the caller knows is old.
+	- Sweep: Go `Upgrade`, Python `upgrade` and C `shcl_upgrade` have the same rule. So do the docs on `Upgrade.current` and spec.md's upgrade text.
+
+- check-docs gates fed by a Python script pass when the script crashes
+	- ID: 2026101419280002
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 2
+	- Version and build: dev at `4d59700f`
+	- Steps to reproduce:
+		- Add a tracked `.md` that isn't valid UTF-8, and one sorting after it with a link to a missing file.
+		- Run `cicd/utility/check-docs.bash`.
+	- Incorrect behavior: `doc-links-resolve` (`EsiRFl2`) reports nothing past the bad file and passes. The traceback goes to stderr and the exit stays 0. An `__all__` change that makes `python-surface-matches-reference` (`EshYXXC`) raise turns that check off the same way.
+	- Expected behavior: a crash in the script fails its gate.
+	- Reproduced: 20261014, the gate's loop form under `set -Eeuo pipefail` with a script that prints 1 hit and then raises. The loop counted 1 and the script went on. Not run against the real gate.
+	- Origin: `3f870f9d` and `b30d70a8` (both 2026-10-14). `done < <(...)` drops the producer's exit status, and `set -e` never sees it.
+	- Sweep: `backlog-closed-items-name-a-test` (`Er8RudX`) is fed the same way. check-docs has 34 `done < <(...)` loops. Most read awk or grep, where a crash is less likely, but the hole is the same. Check the other gate scripts too.
+
+- check-migrate's Format 3 upgrade check judges a file by what upgrade did to it, so a file it should have converted and didn't passes
+	- ID: 2026101419280003
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 3
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101407100010
+	- Incorrect behavior: `fUpFormat3` treats a file as rewritten when it had an error and upgrade changed it, and as untouched otherwise. So a file upgrade should have converted, but left alone, passes as untouched. The first loop (`Eq5YPgP`) never checks `nUpFormat3`, and the second (`Es34DZk`) resets it, so only the second loop's 2 fixed files can catch a miss. A wrong rewrite is caught, since `fUpRewritten` wants a fresh file that loads clean.
+	- Expected behavior: the check works out from the file whether it should convert, the way `fUpgradeCheck` does for 2.x files with `fErrors` and `fMigrateChanged`, then checks upgrade did that. It's seen to fail with upgrade's Format 3 branch broken.
+	- Reproduced: no, from reading the code.
+	- Origin: `ad9af077` (2026-10-14).
+
+- An indented `#` comment line in the ops script is refused as an unknown op
+	- ID: 2026101419280004
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 4
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101407100005
+	- Steps to reproduce:
+		- `printf 'n: 1\n' > o.shcl`
+		- `printf '  # set the port\nint\tn\t5\n' | shcl set o.shcl`
+	- Incorrect behavior: `op line 1: unknown op:   # set the port (see --help)`, exit 1. Indented with a tab it's `op line 1: unknown op:  (see --help)`, naming nothing, which is the message 2026101407100005 set out to remove. An indented blank line in the same here-doc has been skipped since that item.
+	- Expected behavior: a line whose first non-blank is `#` is a comment, and the help says so where it says "a line starting with #".
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: the comment rule is from `e71b2c45` (2026-07-21). 2026101407100005 (`366f8e6a`) took indented blank lines and missed this one.
+	- Sweep: the 4 runners' `write.ops` loops, the help, the man page and spec.md's ops text.
+
+- `upgrade` on a file naming this format prints none of the load's diagnostics, and with `--from-2x` drops the ones it found
+	- ID: 2026101419280005
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 5
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101419280001
+	- Steps to reproduce:
+		- `printf 'a: 1\nb 2\n##    Format   3\n' > h.shcl`
+		- `shcl upgrade --from-2x h.shcl`, then again without the flag.
+	- Incorrect behavior: both print `nothing to upgrade: it loads clean or names its format` at exit 0, and nothing about the `E014` that `check` reports. With the flag, the library loaded the file and saw the error, and the fresh text would still have one, so it returns `current` with empty `diagnostics`. A 2.x file with an error gets its diagnostics printed.
+	- Expected behavior: design.md's rule that every subcommand that loads a document prints the load's diagnostics once.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: `ad9af077` (2026-10-14) for the flag's branch. Without the flag, `upgrade` returns before it loads, as it has since `60d0196c` (2026-10-07).
+	- Note: `Upgrade.diagnostics` says it's empty when `current`, so the library is as documented. Changing that is a contract call. The CLI side goes against design.md.
+
+- The installers still send people to README.md for steps that moved to `project/install.md`
+	- ID: 2026101419280006
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 6
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101414312547
+	- Steps to reproduce:
+		- Run `install.bash` on a box with no `openssl`.
+	- Incorrect behavior: `need openssl to verify the release signature (see README.md for a manual install)`. Since the split, README.md has no openssl note and no manual steps, only a link on to `project/install.md`. Same for `install.bash:159` (`build from source or use a drop-in file (see README.md)`), its usage comment at line 46, and `install.ps1:390`.
+	- Expected behavior: each points at `project/install.md`, or its DIY install section.
+	- Reproduced: by reading. README.md has no `openssl`, and `project/install.md` has the DIY install section.
+	- Origin: `b30d70a8` (2026-10-14). The split's Swept line lists the installers' messages, which were left pointing at README.md.
+	- Sweep: comments that still say README for text that moved: `cicd/cicd.bash:855` (the one-liners) and `cicd/utility/sign-release.bash:150` (the key to verify against). No gate checks these pointers.
+	- Note: an installer change on dev needs the docs-only sync to main, and the installers on dev aren't on main yet (JC, 2026-10-13: not yet).
+
+- Assertions 2026101407100010 replaced are commented out rather than deleted
+	- ID: 2026101419280007
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 7
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101407100010
+	- Problem description: the beta-file assertion in `upgrade_leaves_a_clean_or_stamped_file` is commented out in all 4 suites (`tests/upgrade.rs`, `upgrade_test.go`, and the Python and C conformance files), and so are 2 pairs of `fUpgradeRun` lines in `check-migrate.bash`, each with a note. The commented text says a beta file is always current, which isn't true anymore, and an edit could uncomment it.
+	- Requirements:
+		- Delete them, and keep a short note where the reason helps.
+	- Sweep: check-migrate's older commented blocks, `ErUuq8D` and the 2.x re-read half since `vsmig`, are the same kind. Say whether they go too.
+
 - shell-regress red on dev since the usage message fixes
 	- ID: 2026101415332594
 	- Type: Bug
