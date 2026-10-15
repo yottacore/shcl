@@ -33,27 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- `upgrade` with `from_v2` reads a 3.0 file with one error by 2.x rules, so its good lines change meaning at exit 0
-	- ID: 2026101419280001
-	- Type: Bug
-	- Status: Waiting for answers
-	- Severity: Avg
-	- Opened: 20261014-192800
-	- Opened by: Code review 20261014b item 1
-	- Version and build: dev at `4d59700f`
-	- Related IDs: 2026101407100010, 2026101419280005
-	- Steps to reproduce:
-		- Make a file with `shcl set --write`, so it has the info block and `Format 3`, with `sep: a,b` and `msg: "a◉TAB◉b"` in it.
-		- Add `title: Hello, world` at the top by hand, which is `E026`.
-		- `shcl upgrade --from-2x --write f.shcl`
-	- Incorrect behavior: exit 0 with a backup, and the file now reads `title: [Hello, world]`, `sep: [a, b]` and `msg: "a◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉b"`. `sep` was the text `a,b` and is an array now. `msg` had a tab and is now the literal text `a◉TAB◉b`. `lost` is 0. `upgrade_file(path, true)` does the same.
-	- Expected behavior: a file this format wrote keeps its reads. Only lines a beta wrote by 2.x rules get converted, or the file is left alone with its diagnostics.
-	- Reproduced: 20261014, all four CLIs.
-	- Origin: `ad9af077` (2026-10-14), 2026101407100010's narrowed rule. The doc comment on `upgrade` says a caller can pass `from_v2` on every start and never convert a file twice. That stops being true once the file picks up one error.
-	- Against: 2026101407100010's decisions, signed off by JC. With the flag, a file naming this format is taken as 2.x when it loads with an error and the fresh text loads clean.
-	- Question: what tells a beta file from a 3.0 file with a typo? Options so far: take only a file with a lone Format line and no info block, if that's what the betas wrote; convert only the lines with errors; or drop the advice to pass `from_v2` on every start, and say it's for a file the caller knows is old.
-	- Sweep: Go `Upgrade`, Python `upgrade` and C `shcl_upgrade` have the same rule. So do the docs on `Upgrade.current` and spec.md's upgrade text.
-
 - check-docs gates fed by a Python script pass when the script crashes
 	- ID: 2026101419280002
 	- Type: Bug
@@ -152,6 +131,41 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Delete them, and keep a short note where the reason helps.
 	- Sweep: check-migrate's older commented blocks, `ErUuq8D` and the 2.x re-read half since `vsmig`, are the same kind. Say whether they go too.
+
+- `upgrade` with `from_v2` reads a 3.0 file with one error by 2.x rules, so its good lines change meaning at exit 0
+	- ID: 2026101419280001
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261014-192800
+	- Opened by: Code review 20261014b item 1
+	- Version and build: dev at `4d59700f`
+	- Related IDs: 2026101407100010, 2026101419280005
+	- Steps to reproduce:
+		- Make a file with `shcl set --write`, so it has the info block and `Format 3`, with `sep: a,b` and `msg: "a◉TAB◉b"` in it.
+		- Add `title: Hello, world` at the top by hand, which is `E026`.
+		- `shcl upgrade --from-2x --write f.shcl`
+	- Incorrect behavior: exit 0 with a backup, and the file now reads `title: [Hello, world]`, `sep: [a, b]` and `msg: "a◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉b"`. `sep` was the text `a,b` and is an array now. `msg` had a tab and is now the literal text `a◉TAB◉b`. `lost` is 0. `upgrade_file(path, true)` does the same.
+	- Expected behavior: a file this format wrote keeps its reads. Only lines a beta wrote by 2.x rules get converted, or the file is left alone with its diagnostics.
+	- Reproduced: 20261014, all four CLIs.
+	- Origin: `ad9af077` (2026-10-14), 2026101407100010's narrowed rule. The doc comment on `upgrade` says a caller can pass `from_v2` on every start and never convert a file twice. That stops being true once the file picks up one error.
+	- Against: 2026101407100010's decisions, signed off by JC. With the flag, a file naming this format is taken as 2.x when it loads with an error and the fresh text loads clean.
+	- Question: what tells a beta file from a 3.0 file with a typo? Options so far: take only a file with a lone Format line and no info block, if that's what the betas wrote; convert only the lines with errors; or drop the advice to pass `from_v2` on every start, and say it's for a file the caller knows is old.
+	- Decisions:
+		- Take only a file with a lone Format line and no info block, if that's what the betas wrote.
+		- Drop the advice to pass `from_v2` on every start, and document that it's for a file the caller knows is old.
+		- Check to see if other projects using this (e.g. silkterm, nemo-anywhere, nano-git-db, tradeclanker, slodworld, slodworld2, convert-base-v2) would even run into any of these problems as they've progressed. They are the only ones using shcl now. If not, then it could be a lot of fuss over nothing. Also, those program are aware of the changing nature of this program, and can take their own steps to mitigate. I'm not saying we don't need conversion helpers and backward compatibility in general - I'm saying that these specific conversion issues could be a non-problem.
+	- Sweep: Go `Upgrade`, Python `upgrade` and C `shcl_upgrade` have the same rule. So do the docs on `Upgrade.current` and spec.md's upgrade text.
+	- Outcome, by decision:
+		- Lone Format line: doesn't apply (me). The betas wrote the whole info block, nemo through `SHCL_GEN_BANNER` and slodworld through `shcl_set_banner`, so that rule would skip the files 2026101407100010 converts.
+		- Every-start advice: dropped. `from_v2` is now documented as for a file the caller knows is old. Without it the call is still meant for every start.
+		- Consumers: none calls `upgrade` or `upgrade_file`. gitsby, nemo and slodworld gate their own `migrate` calls on `format_version` and never migrate a file naming Format 3. silkterm converts only an unstamped file, slodworld2 stamps and converts with its own code, convert-base-v2 only prints a `migrate --from-2x` hint, and tradeclanker and nano-git-db are on v1.2.0. The bug needs a person passing `--from-2x` for a file that isn't old.
+	- Actual fix: docs only, no behavior change, since `upgrade` stays simple and doesn't chase every 2.x edge case (JC, 20261015). The `upgrade` doc comment in all four bindings and the C++ interface, spec.md's `UpgradeFile` text, design.md's `upgrade_file` entry, and the man page. The man page had no word of the beta-file rule at all, and has it now.
+	- Verified: check-docs, markdownlint, and the four bindings' lint and format checks pass.
+	- Test case: none. Docs only, and 2026101407100010's tests pin the rule, which is unchanged.
+	- Branch: `upfix`
+	- Acceptance signoff: closed on JC's 20261014 criteria, with JC's decisions above. The lone-Format-line one doesn't apply, as found (me).
+	- Closed: 20261015-102649
 
 - shell-regress red on dev since the usage message fixes
 	- ID: 2026101415332594

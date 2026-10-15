@@ -2783,8 +2783,9 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	this format on that Format line, and nothing else. The one file naming
 	this format that is made over is one that loads with an error when from_v2
 	says a 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It
-	is taken as 2.x, and only when the fresh text loads clean, so the next
-	start leaves it alone."""
+	is taken as 2.x, and only when the fresh text loads clean. Pass from_v2
+	only for a file known to be old, never on every start: a file this format
+	wrote that picks up an error later would be read by 2.x rules too."""
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
@@ -2794,8 +2795,7 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	clean = before.error_count() == 0
 	# A beta of 3.0 wrote this format's line too, so only the caller can say
 	# a 2.x build wrote the file. One that loads clean is what an upgrade
-	# leaves, so a caller passing from_v2 on every start never converts it
-	# twice.
+	# leaves, so a second run over its output leaves it alone.
 	if clean and (not from_v2 or version == FORMAT_MAJOR):
 		return up
 	m = _migrate_text(text, from_v2, False, True)
