@@ -41,8 +41,9 @@ func TestUpgradeLeavesACleanOrStampedFile(t *testing.T) {
 	if up := Upgrade("p: a,b\n\n"+GenBanner, true); !up.Current {
 		t.Fatalf("stamped file: %+v", up)
 	}
-	// 2026101407100010: with fromV2 a beta file that loads with an error is
-	// taken as 2.x now, so this holds only without it. That test is
+	// Old claim below, wrong since 2026101407100010: a beta Format 3 file that
+	// loads with an error now converts with fromV2, so it isn't always
+	// current. Don't uncomment. The new rule's test is
 	// TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x.
 	// A beta build stamped the same Format line, so its errors are left too.
 	// beta := "tags: a, b\n\n" + GenBanner

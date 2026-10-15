@@ -513,15 +513,28 @@ fUpRewritten(){
 	done
 }
 
-##	A file naming format 3 is left alone without --from-2x. With it, one that
-##	loads with an error is taken as 2.x when the fresh file loads clean, and
-##	backed up under the format its line names (2026101407100010). Anything
-##	else is left alone. The fresh file loads clean, so a second run, with the
-##	flag or not, leaves it.
+##	Whether --from-2x should take a file naming format 3 as 2.x: it loads with
+##	an error, and its text as migrate rewrites a 2.x file, made canonical,
+##	loads clean. migrate passes over a format 3 file, so it's handed one that
+##	names format 2. Worked out from the file, not from what upgrade did.
+fUpConverts3(){
+	local src="$1"
+	[[ "$(fErrors "${src}")" != 0 ]] || return 1
+	grep -qE '^##[[:space:]]+Format[[:space:]]+3[[:space:]]*$' "${src}" || return 1
+	sed -E 's/^(##[[:space:]]+Format[[:space:]]+)3([[:space:]]*)$/\12\2/' "${src}" > "${tmpDir}/as2x.shcl"
+	{ "${newCli}" migrate --from-2x "${tmpDir}/as2x.shcl" 2>/dev/null || true; } \
+		| { "${newCli}" fmt - 2>/dev/null || true; } > "${tmpDir}/as2x.fresh"
+	[[ -s "${tmpDir}/as2x.fresh" && "$(fErrors "${tmpDir}/as2x.fresh")" == 0 ]]
+}
+
+##	A file naming format 3 is left alone without --from-2x. With it, one
+##	fUpConverts3 takes is rewritten and backed up under the format its line
+##	names (2026101407100010). Anything else is left alone. The fresh file
+##	loads clean, so a second run, with the flag or not, leaves it.
 fUpFormat3(){
 	local upBackup="cfg_backup_20261004-001500_format-v3.shcl"
 	fUpgradeRun "${upSrc}" --from-2x
-	if [[ "$(fErrors "${upSrc}")" != 0 ]] && ! cmp -s "${upSrc}" "${upDir}/cfg.shcl"; then
+	if fUpConverts3 "${upSrc}"; then
 		nUpFormat3+=1
 		fUpRewritten "format 3 with an error, with --from-2x"
 	else
@@ -583,7 +596,9 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 			echo "check-migrate: DIVERGE ${name}: it names format 3, and migrate exited ${rc} or changed it"
 		fi
 		upName="${name}"; upSrc="${f}"
-		## 2026101407100010: --from-2x takes one with an error as 2.x now.
+		## Wrong since 2026101407100010: a beta file that loads with an error now
+		## converts with --from-2x, so format 3 isn't always left alone. Kept as a
+		## record; don't uncomment.
 		# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
 		# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
 		fUpFormat3
@@ -649,6 +664,7 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	## 2026-10-06: the 2.x build no longer reads the migrated text. The output is
 	## written in the new syntax, brackets, `- ` items and `◉` escapes, which 2.x
 	## reads as something else, and the Format line is what stops a second run.
+	## Kept as a record. Don't uncomment, since migrate's output isn't for 2.x.
 	# old2="$(fReadTree "${oldCli}" "${tmpDir}/migrated.shcl")"
 	# if [[ "${old}" != "${old2}" ]]; then
 	# 	nBad+=1
@@ -669,24 +685,27 @@ if ((nUpRewritten == 0 || nUpCleanRewritten == 0 || nUpCurrent == 0 || nUpPlain 
 	echo "check-migrate: an upgrade case no document reached: ${nUpRewritten} rewritten with --from-2x, ${nUpCleanRewritten} of them clean, ${nUpCurrent} current, ${nUpPlain} rewritten without it, ${nUpAmbiguous} refused at 7" >&2
 fi
 
-##	A file naming format 3 is never touched, even one that loads with an
-##	error. 2026101407100010: but for one that loads with an error, which
-##	--from-2x takes as 2.x when the fresh file loads clean. The first file
-##	here would keep `b 2`, so it stays; the second is a beta's comma list.
+##	A file naming format 3 is left alone, but for one that loads with an
+##	error, which --from-2x takes as 2.x when the fresh file loads clean
+##	(2026101407100010). The first file here would keep `b 2`, so it stays;
+##	the other 2 are a beta's comma list, bare and under the info block the
+##	betas wrote.
 fTest Es34DZk a file naming format 3 is upgraded only when --from-2x vouches for it
 printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
 printf 'tags: a, b\n##    Format   3\n' > "${tmpDir}/format3-beta.shcl"
-declare -i nFormat3=0; nUpBad=0; nUpFormat3=0
-for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format3-beta.shcl"; do
+printf 'tags: a, b\n\n##\n## This config file format is SHCL.\n##    Format   3\n##\n' > "${tmpDir}/format3-beta-block.shcl"
+declare -i nFormat3=0 nUpFormat3Soup=nUpFormat3; nUpBad=0; nUpFormat3=0
+for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format3-beta.shcl" "${tmpDir}/format3-beta-block.shcl"; do
 	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "${f}" || continue
 	upName="${f%/input.shcl}"; upName="${upName##*/}"; upSrc="${f}"; nFormat3+=1
+	## Wrong since 2026101407100010, as in the loop above. Don't uncomment.
 	# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
 	# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
 	fUpFormat3
 done
 nBad+=nUpBad
 ((nFormat3 > 1)) || { echo "check-migrate: no corpus input names format 3" >&2; nBad+=1; }
-((nUpFormat3 == 1)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 upgraded with --from-2x, not the one beta file" >&2; nBad+=1; }
+((nUpFormat3 == 2)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 that --from-2x should convert, not the 2 beta files" >&2; nBad+=1; }
 
 ##	Each named case has to keep its shape, or the exception is stale.
 fTest EpUIoZd 068 still has a fence label holding a hash
@@ -695,6 +714,7 @@ fInfoHashLabel "${corpus}/068-info-hash-spellings/input.shcl" 2>/dev/null \
 ## 2026-10-05: migrate leaves a 2.x backslash as written, so a path that held
 ## a line break under 2.x reads as the path now and is no longer lost. The
 ## exception these two kept from rotting is gone, and fPathBreak with it.
+## Kept as a record. Don't uncomment: nothing defines fPathBreak now.
 # fTest ErUuq8D 170 still has a path that held a line break
 # [[ -n "$(fPathBreak "${corpus}/170-unknown-escape/input.shcl")" ]] \
 # 	|| { echo "check-migrate: 170-unknown-escape no longer has a path that held a line break" >&2; nBad+=1; }
@@ -743,7 +763,7 @@ if ((nBad)); then
 	echo "check-migrate: ${nBad} divergence(s) over ${nCompared} document(s) (${nSkipped} skipped)" >&2
 	exit 1
 fi
-echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from-2x (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7"
+echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from-2x (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7; ${nUpFormat3Soup} of the ${nNamed3} naming format 3 converted with --from-2x"
 
 ##	History:
 ##		2026-09-08  Created with the 3.0 lexical cut, pinned on the funnel merge.
@@ -774,3 +794,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            written, not compared with 2.x.
 ##		2026-10-14  upgrade --from-2x takes a file naming format 3 as 2.x when
 ##		            it loads with an error and the fresh file loads clean.
+##		2026-10-15  Whether a format 3 file should convert is worked out from
+##		            the file, not from what upgrade did to it.

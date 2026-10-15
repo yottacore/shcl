@@ -53,7 +53,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-migrate's Format 3 upgrade check judges a file by what upgrade did to it, so a file it should have converted and didn't passes
 	- ID: 2026101419280003
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 3
@@ -63,6 +63,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the check works out from the file whether it should convert, the way `fUpgradeCheck` does for 2.x files with `fErrors` and `fMigrateChanged`, then checks upgrade did that. It's seen to fail with upgrade's Format 3 branch broken.
 	- Reproduced: no, from reading the code.
 	- Origin: `ad9af077` (2026-10-14).
+	- Actual fix: `fUpConverts3` works out from the file whether `--from-2x` should convert it. It has to load with an error, and its text, run through `migrate --from-2x` as a format 2 file and then `fmt`, has to load clean. `fUpFormat3` wants a rewrite or an untouched file by that answer, so a miss fails in either loop. A third fixed file is a beta comma list under the info block, which is what the betas wrote, and the count of fixed files to convert is 2.
+	- Note: none of the 14 fuzz and corpus files naming format 3 in a run should convert, so a miss in the first loop shows only on a new document. The fixed files cover that case.
+	- Verified: check-migrate fails with upgrade's format 3 branch broken 3 ways: never converting (both beta files), skipping a file with the info block (that file alone), and converting one whose fresh file has errors (3 fuzz files and `format3-bad`). It passes on the fixed tree, after a clean rebuild. shell-regress and shellcheck pass.
+	- Test case: check-migrate `Es34DZk`, and the upgrade half of `Eq5YPgP`, counted under `Es34DZj`.
+	- Swept: `fUpgradeCheck` already decides from `fErrors` and `fMigrateChanged`. `fUpFormat3` was the only check that decided from upgrade's own output.
+	- Branch: `migcheck`
+	- Acceptance signoff: Self-closed. The check does what the item asked, no more, and was seen to fail.
+	- Closed: 20261015-125008
 
 - An indented `#` comment line in the ops script is refused as an unknown op
 	- ID: 2026101419280004
@@ -121,7 +129,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Assertions 2026101407100010 replaced are commented out rather than deleted
 	- ID: 2026101419280007
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 7
@@ -131,6 +139,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Delete them, and keep a short note where the reason helps.
 	- Sweep: check-migrate's older commented blocks, `ErUuq8D` and the 2.x re-read half since `vsmig`, are the same kind. Say whether they go too.
+	- Decisions:
+		- JC, 2026-10-15: keep commented, fix the notes.
+	- Actual fix: nothing deleted. Each note says the old claim is wrong now, since a beta Format 3 file that loads with an error now converts, so it isn't always current, and says not to uncomment it. The older check-migrate blocks stay too, with a note on why: nothing defines `fPathBreak` now, and migrate's output isn't for 2.x.
+	- Swept: `upgrade_leaves_a_clean_or_stamped_file` in all 4 suites, both `fUpgradeRun` pairs in check-migrate, `ErUuq8D` with `ErkiUcu`, and the 2.x re-read half. `grep -rn 2026101407100010 source/` finds no other commented assertion.
+	- Verified: the 4 suites, check-migrate, shell-regress, shellcheck, rustfmt, gofmt and ruff pass.
+	- Test case: none. Comments only.
+	- Branch: `migcheck`
+	- Acceptance signoff: closed on JC's call, "JC, 2026-10-15: keep commented, fix the notes."
+	- Closed: 20261015-125008
 
 - `upgrade` with `from_v2` reads a 3.0 file with one error by 2.x rules, so its good lines change meaning at exit 0
 	- ID: 2026101419280001
