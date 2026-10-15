@@ -2458,7 +2458,7 @@ func doUpgrade(o *opts) int {
 		// Diagnostics is empty when current, but the file is still loaded, and
 		// every loading subcommand says what its load found (2026101419280005).
 		sayDiagnostics(shcl.Parse(up.Text).Diagnostics())
-		fmt.Fprintf(os.Stderr, "%s: nothing to upgrade: it loads clean or names its format\n", file)
+		fmt.Fprintf(os.Stderr, "%s: nothing to upgrade, left as is\n", file)
 		if !o.write {
 			outs(up.Text)
 		}

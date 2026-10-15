@@ -2479,10 +2479,7 @@ fn do_upgrade(o: &Opts) -> u8 {
 		// and every loading subcommand says what its load found
 		// (2026101419280005).
 		say_diagnostics(Document::parse(&up.text).diagnostics());
-		errln!(
-			"{}: nothing to upgrade: it loads clean or names its format",
-			file
-		);
+		errln!("{}: nothing to upgrade, left as is", file);
 		if !o.write {
 			out!("{}", up.text);
 		}

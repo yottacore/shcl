@@ -180,6 +180,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: `Upgrade.diagnostics` says it's empty when `current`, so the library is as documented. Changing that is a contract call. The CLI side goes against design.md.
 	- Decisions:
 		- 20261015: the library keeps its contract, `diagnostics` empty when `current`, since v4 redoes upgrade (JC). The fix is on the CLI side.
+		- 20261015: the old "it loads clean or names its format" read wrong after printed errors, so the line is now `nothing to upgrade, left as is` (JC).
 	- Actual cause: the CLI printed only `Upgrade.diagnostics`, which is empty whenever the file is left alone. Without `--from-2x` the library returns before it loads a file naming this format. With it, the library loads the file, then clears the list when the fresh text wouldn't load clean.
 	- Actual fix: when upgrade leaves the file alone, the 4 CLIs load its text and print the diagnostics once, before the "nothing to upgrade" line, with or without `--write`. stdout and exit codes are unchanged. A file naming a newer format gets its `H006` hint the same way, and a clean file its warnings and hints.
 	- Swept: `upgrade` in the 4 CLIs, printed and with `--write`. Their `migrate` already prints the load's diagnostics when it finds the file current, checked on the same file. The upgrade text in the man page and spec.md says nothing either way, and the man page's rule for every loading subcommand now holds for upgrade too.
