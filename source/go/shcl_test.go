@@ -5062,7 +5062,7 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 // one bare, so a typed read is the same after a save (2026101309122757).
 func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 	defer testID(t, "EsbaIYt")
-	text := "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\nl:\n\t- 80,443\n"
+	text := "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\ni: \"1,2000\"\nj: \"1234,567\"\nk: \"$ 1,200\"\nm: \".1,200\"\nn: \"1,200%\"\nl:\n\t- 80,443\n"
 	loose, err := ParseWith(text, Loose)
 	if err != nil {
 		t.Fatal(err)
@@ -5080,6 +5080,11 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 		{"f", 0, false},
 		{"g", -12345678, true},
 		{"h", 9007199254740993, true},
+		{"i", 0, false},
+		{"j", 0, false},
+		{"k", 0, false},
+		{"m", 0, false},
+		{"n", 12, true},
 		{"l", 0, false},
 	} {
 		r := loose.ReadInt(c.path)
@@ -5089,6 +5094,12 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 		if !c.good && r.Status != BadType {
 			t.Fatalf("%s int: %v", c.path, r.Status)
 		}
+		if f := loose.ReadFloat(c.path); !c.good && f.Status != BadType {
+			t.Fatalf("%s float: %v", c.path, f.Status)
+		}
+	}
+	if r := loose.ReadFloat("n"); r.Value != 12 {
+		t.Fatalf("n float: %v", r.Value)
 	}
 	if r := loose.ReadFloat("c"); r.Value != 1200.5 {
 		t.Fatalf("c float: %v", r.Value)
@@ -5107,7 +5118,7 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, path := range []string{"a", "b", "c", "d", "g", "h"} {
+		for _, path := range []string{"a", "b", "c", "d", "g", "h", "n"} {
 			if r := doc.ReadInt(path); r.Status != BadType {
 				t.Fatalf("%s int %v: %v", path, level, r.Status)
 			}
@@ -5172,7 +5183,7 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, path := range []string{"a", "b", "c", "d", "e", "g", "h", "l", "s", "t"} {
+		for _, path := range []string{"a", "b", "c", "d", "e", "g", "h", "k", "n", "l", "s", "t"} {
 			x, y := doc.ReadInt(path), back.ReadInt(path)
 			if x.Status != y.Status || x.Value != y.Value {
 				t.Fatalf("%s int: %v %d vs %v %d", path, x.Status, x.Value, y.Status, y.Value)

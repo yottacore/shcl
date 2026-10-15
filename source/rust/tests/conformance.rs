@@ -4273,7 +4273,7 @@ fn the_writer_quotes_a_colon_or_comma() {
 #[test]
 fn loose_reads_a_quoted_thousands_number() {
 	let _id = test_id("EsbaIWJ");
-	let text = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\nl:\n\t- 80,443\n";
+	let text = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\ni: \"1,2000\"\nj: \"1234,567\"\nk: \"$ 1,200\"\nm: \".1,200\"\nn: \"1,200%\"\nl:\n\t- 80,443\n";
 	let loose = Document::parse_with(text, Strictness::Loose).unwrap();
 	for (path, want) in [
 		("a", Some(1200)),
@@ -4284,21 +4284,31 @@ fn loose_reads_a_quoted_thousands_number() {
 		("f", None),
 		("g", Some(-12_345_678)),
 		("h", Some(9_007_199_254_740_993)),
+		("i", None),
+		("j", None),
+		("k", None),
+		("m", None),
+		("n", Some(12)),
 		("l", None),
 	] {
 		let r = loose.read_int(path);
+		let f = loose.read_float(path);
 		match want {
 			Some(v) => assert_eq!((r.status, r.value), (Status::Good, v), "{path} int"),
-			None => assert_eq!(r.status, Status::BadType, "{path} int"),
+			None => {
+				assert_eq!(r.status, Status::BadType, "{path} int");
+				assert_eq!(f.status, Status::BadType, "{path} float");
+			}
 		}
 	}
+	assert_eq!(loose.read_float("n").value, 12.0);
 	assert_eq!(loose.read_float("c").value, 1200.5);
 	assert_eq!(loose.read_float("b").value, 1200.0);
 	assert_eq!(loose.read_float("d").status, Status::BadType);
 	assert_eq!(loose.get_string("b").as_deref(), Ok("$1,200"));
 	for level in [Strictness::Standard, Strictness::Strict] {
 		let doc = Document::parse_with(text, level).unwrap();
-		for path in ["a", "b", "c", "d", "g", "h"] {
+		for path in ["a", "b", "c", "d", "g", "h", "n"] {
 			assert_eq!(
 				doc.read_int(path).status,
 				Status::BadType,
@@ -4345,7 +4355,7 @@ fn loose_reads_a_quoted_thousands_number() {
 	assert_eq!(merged.read_int_array("l").value, vec![1200]);
 	for doc in [&loose, &set, &over, &merged] {
 		let back = Document::parse_with(&doc.to_canonical(), Strictness::Loose).unwrap();
-		for path in ["a", "b", "c", "d", "e", "g", "h", "l", "s", "t"] {
+		for path in ["a", "b", "c", "d", "e", "g", "h", "k", "n", "l", "s", "t"] {
 			let (x, y) = (doc.read_int(path), back.read_int(path));
 			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int");
 			let (x, y) = (doc.read_int_array(path), back.read_int_array(path));

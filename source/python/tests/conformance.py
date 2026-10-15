@@ -4053,22 +4053,25 @@ def main():
 	# text at every level, Standard and Strict refuse it, and the writer keeps
 	# a bare one bare, so a typed read is the same after a save
 	# (2026101309122757).
-	lt_text = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\nl:\n\t- 80,443\n"
+	lt_text = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\ni: \"1,2000\"\nj: \"1234,567\"\nk: \"$ 1,200\"\nm: \".1,200\"\nn: \"1,200%\"\nl:\n\t- 80,443\n"
 	lt_loose = shcl.Document.parse_with(lt_text, shcl.Strictness.Loose)
 	for lt_path, lt_want in (("a", 1200), ("b", 1200), ("c", 1201), ("d", None), ("e", None), ("f", None),
-			("g", -12345678), ("h", 9007199254740993), ("l", None)):
+			("g", -12345678), ("h", 9007199254740993), ("i", None), ("j", None), ("k", None), ("m", None),
+			("n", 12), ("l", None)):
 		lt_r = lt_loose.read_int(lt_path)
 		if lt_want is None and lt_r.status != shcl.Status.BadType:
 			raise SystemExit(f"{lt_path} int: {lt_r!r}")
+		if lt_want is None and lt_loose.read_float(lt_path).status != shcl.Status.BadType:
+			raise SystemExit(f"{lt_path} float: {lt_loose.read_float(lt_path)!r}")
 		if lt_want is not None and (lt_r.status != shcl.Status.Good or lt_r.value != lt_want):
 			raise SystemExit(f"{lt_path} int: {lt_r!r}")
-	if lt_loose.read_float("c").value != 1200.5 or lt_loose.read_float("b").value != 1200.0:
+	if lt_loose.read_float("c").value != 1200.5 or lt_loose.read_float("b").value != 1200.0 or lt_loose.read_float("n").value != 12.0:
 		raise SystemExit(f"float: {lt_loose.read_float('c')!r} {lt_loose.read_float('b')!r}")
 	if lt_loose.read_float("d").status != shcl.Status.BadType or lt_loose.get_string("b", None) != "$1,200":
 		raise SystemExit(f"d: {lt_loose.read_float('d')!r}")
 	for lt_level in (shcl.Strictness.Standard, shcl.Strictness.Strict):
 		lt_doc = shcl.Document.parse_with(lt_text, lt_level)
-		for lt_path in ("a", "b", "c", "d", "g", "h"):
+		for lt_path in ("a", "b", "c", "d", "g", "h", "n"):
 			if lt_doc.read_int(lt_path).status != shcl.Status.BadType or lt_doc.read_float(lt_path).status != shcl.Status.BadType:
 				raise SystemExit(f"{lt_path} at {lt_level}: {lt_doc.read_int(lt_path)!r}")
 		if lt_doc.get_string("c", None) != "1,200.50":
@@ -4106,7 +4109,7 @@ def main():
 		raise SystemExit(f"merged {lt_merged.to_canonical()!r} {lt_merged.read_int_array('l')!r}")
 	for lt_doc in (lt_loose, lt_set, lt_over, lt_merged):
 		lt_back = shcl.Document.parse_with(lt_doc.to_canonical(), shcl.Strictness.Loose)
-		for lt_path in ("a", "b", "c", "d", "e", "g", "h", "l", "s", "t"):
+		for lt_path in ("a", "b", "c", "d", "e", "g", "h", "k", "n", "l", "s", "t"):
 			lt_x, lt_y = lt_doc.read_int(lt_path), lt_back.read_int(lt_path)
 			if (lt_x.status, lt_x.value) != (lt_y.status, lt_y.value):
 				raise SystemExit(f"{lt_path} int: {lt_x!r} vs {lt_y!r}")

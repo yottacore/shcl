@@ -677,7 +677,7 @@ rows=(
 	'EsZikJn|set-quoted-thousands-text|get --int --set=a=1,000 %F% a|-|4|0\n|not a valid int'
 	"EsZikJo|set-selector-thousands-text|get --int --set=x(\"1,000\").y=1 %F% x|-|4|0\n|not a valid int"
 	'EsZikJp|selector-thousands-text|get --int %SQ% srv|-|4|0\n|not a valid int'
-	## The bare form, as fmt writes it: quoted, and still not a number.
+	## A quoted one is still not a number at Standard.
 	'EsZikJm|quoted-thousands-int|get --int - p|p: "80,443"\n|4|0\n|not a valid int'
 	## 2026101309122757: Loose reads a quoted thousands number again.
 	# "EsZikJq|quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|4|0\n|not a valid float"
