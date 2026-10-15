@@ -5310,8 +5310,9 @@ int main(int argc, char **argv) {
 		up = shcl_upgrade(stamped, strlen(stamped), 1);
 		if (!up.current) fail("upgrade_clean", "stamped");
 		shcl_upgraded_free(&up);
-		/* 2026101407100010: with from_v2 a beta file that loads with an error
-		   is taken as 2.x now, so this holds only without it. That test is
+		/* Old claim below, wrong since 2026101407100010: a beta Format 3 file
+		   that loads with an error now converts with from_v2, so it isn't
+		   always current. Don't uncomment. The new rule's test is
 		   with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x. */
 		/* A beta build stamped the same Format line, so its errors are left
 		   too. */
