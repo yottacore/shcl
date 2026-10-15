@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-docs gates fed by a Python script pass when the script crashes
 	- ID: 2026101419280002
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 2
@@ -47,8 +47,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `doc-links-resolve` (`EsiRFl2`) reports nothing past the bad file and passes. The traceback goes to stderr and the exit stays 0. An `__all__` change that makes `python-surface-matches-reference` (`EshYXXC`) raise turns that check off the same way.
 	- Expected behavior: a crash in the script fails its gate.
 	- Reproduced: 20261014, the gate's loop form under `set -Eeuo pipefail` with a script that prints 1 hit and then raises. The loop counted 1 and the script went on. Not run against the real gate.
+	- Reproduced again: 20261015 on the real gate, with the steps above in a clone and with a `python3` that exits 1 after its output. All three script-fed checks passed.
 	- Origin: `3f870f9d` and `b30d70a8` (both 2026-10-14). `done < <(...)` drops the producer's exit status, and `set -e` never sees it.
 	- Sweep: `backlog-closed-items-name-a-test` (`Er8RudX`) is fed the same way. check-docs has 34 `done < <(...)` loops. Most read awk or grep, where a crash is less likely, but the hole is the same. Check the other gate scripts too.
+	- Actual fix: each of check-docs' 34 loops reads its input from a variable filled first, as `hits="$(...)" || fFeedBad $?`, so a feed that exits non-zero fails its own check by name. A grep in a feed goes through `fGrepOrNone`, so its no-match exit 1 doesn't read as a crash. The old `|| true` on those hid a real grep or git error too. A feed of several steps exits on the first that fails. The doc-links check asks git for its file list itself, so a git failure stops it as well.
+	- Swept: all 34 `done < <(...)` loops in check-docs, and `grep -n 'done < <('` finds only the comment on the helper now. Left alone: check-docs' 2 `mapfile < <(...)` reads (a Go file list with a count floor after it, and the help text already in a variable), and `fTestSkipBlock`'s, which only prints skip lines. The other gates' `done < <(...)` loops, in check-completions, check-cpu-floor, check-veneer, check-pins, crosscheck, cli-regress and shell-regress, were read and not changed. Their feeds are sed, awk, grep or find over a file or a here-string, or a CLI's own listing, not a script. A crash there is less likely but not ruled out.
+	- Verified: check-docs with `SHCL_GATE_REF=main`, shell-regress, shellcheck over the 40 lint targets, check-push-gate (which runs check-docs on a clone), and `test-ids.py check` pass.
+	- Test case: shell-regress `EsndgSX` makes every check-docs feed exit 3 after its output and wants each test holding one to fail by name, with no `done < <(...)` left. `EsndgVW` runs check-docs with a `python3` that exits 1 after its output and wants `EshYXXC`, `Er8RudX` and `EsiRFl2` to fail. Both failed on the old check-docs and pass now, and `EsndgSX` fails with `fFeedBad` made a no-op. The unguarded-grep scan reads `fGrepOrNone` as a guard, with bait for it in `EomZie1`.
+	- Branch: `docgate`
+	- Commit: `b3199842`
+	- Acceptance signoff: Self-closed: the item's own steps fail the gate now and passed it before, and the Sweep has its Swept line.
+	- Closed: 20261015-125237
 
 - check-migrate's Format 3 upgrade check judges a file by what upgrade did to it, so a file it should have converted and didn't passes
 	- ID: 2026101419280003
@@ -103,7 +112,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The installers still send people to README.md for steps that moved to `project/install.md`
 	- ID: 2026101419280006
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 6
@@ -117,6 +126,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `b30d70a8` (2026-10-14). The split's Swept line lists the installers' messages, which were left pointing at README.md.
 	- Sweep: comments that still say README for text that moved: `cicd/cicd.bash:855` (the one-liners) and `cicd/utility/sign-release.bash:150` (the key to verify against). No gate checks these pointers.
 	- Note: an installer change on dev needs the docs-only sync to main, and the installers on dev aren't on main yet (JC, 2026-10-13: not yet).
+	- Actual fix: install.bash's 3 sites (the usage comment, the no-prebuilt message and the openssl message) and install.ps1's refusal off Windows link `https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install`. It's a full URL like the installers' other links, since someone running one from curl has no checkout. The cicd.bash comment names the install doc's one-liners, and sign-release.bash's names project/install.md. Two more comments the split missed: config.bash and ci.yml called the C and Zig examples the README's, and they're in project/examples.md now.
+	- Swept: `git grep -n README -- ':!*.md'`. What's left is about the README's own checks, its small example and the demo gif, which are all still in the README.
+	- Note: main has no `project/install.md` yet, so the URL works once the docs reach main along with these installers. The new check fails a push to main whose installers link a doc the pushed tree doesn't have.
+	- Note: `EpHGoa0` is red on this branch with `SHCL_GATE_REF=main`, since its installers now differ from dev's. It clears on the merge to dev, and plain check-docs stays red on it there, as before.
+	- Verified: check-docs passes but for `EpHGoa0` as above. shell-regress passes, and its install.ps1 refusal row pins the new text. PSScriptAnalyzer passes on install.ps1, which is still ASCII with no BOM. shellcheck and check-pins pass. install.bash run with no openssl on PATH prints the new link.
+	- Test case: check-docs `EsnhDn1` installer-doc-pointers. install.bash and install.ps1 may name no doc by bare file name, and each `blob/main` URL in them has to reach a tracked file and a heading there. It failed on the old installers (4 bare `README.md`), on a broken anchor and on a wrong path, and passes now.
+	- Branch: `docgate`
+	- Commit: `b3199842`
+	- Acceptance signoff: closed on JC's criteria. The call was the message wording, with the URL in the same form as the installers' other links (me).
+	- Closed: 20261015-125237
 
 - Assertions 2026101407100010 replaced are commented out rather than deleted
 	- ID: 2026101419280007
