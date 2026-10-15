@@ -178,7 +178,10 @@ static const char *HELP =
 	"                                         written for 2.x, so rewrite the\n"
 	"                                         spellings the two rule sets read\n"
 	"                                         differently; without it those are\n"
-	"                                         left alone and the command exits 7\n"
+	"                                         left alone and the command exits 7;\n"
+	"                                         upgrade with it writes nothing and\n"
+	"                                         exits 7 when the fresh file would\n"
+	"                                         still have an error, naming the lines\n"
 	"  --check                                (fmt/migrate) print nothing and exit 6\n"
 	"                                         when fmt would change the file or\n"
 	"                                         migrate would rewrite a line (named on\n"
@@ -1490,7 +1493,7 @@ static int do_upgrade(const Opts *o) {
 			else fprintf(stderr, "%s\n", why);
 			free(why);
 			shcl_upgraded_free(&up);
-			return e == SHCL_UPGRADE_AMBIGUOUS ? 7 : EXIT_IO;
+			return e == SHCL_UPGRADE_AMBIGUOUS || e == SHCL_UPGRADE_ERRORS_LEFT ? 7 : EXIT_IO;
 		}
 	} else {
 		size_t len; char *text = read_input(file, &len);
@@ -1512,6 +1515,13 @@ static int do_upgrade(const Opts *o) {
 	say_diagnostics_from("", up.diagnostics);
 	if (up.ambiguous != 0) {
 		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written (--from-2x rewrites them)\n", file, up.ambiguous);
+		shcl_upgraded_free(&up);
+		return 7;
+	}
+	if (up.errors_left_n) {
+		fprintf(stderr, "%s: line(s) ", file);
+		for (size_t i = 0; i < up.errors_left_n; i++) fprintf(stderr, i ? ", %zu" : "%zu", up.errors_left[i]);
+		fprintf(stderr, " would still have an error once converted from 2.x; nothing written\n");
 		shcl_upgraded_free(&up);
 		return 7;
 	}

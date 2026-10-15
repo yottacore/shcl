@@ -990,7 +990,15 @@ rows=(
 	## diagnostics are printed once, with or without --from-2x, and for a file
 	## naming a newer format.
 	'Esnb9iN|upgrade-left-diags|upgrade -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
-	'Esnb9kl|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
+	## Wrong since 2026101515372401: with --from-2x a fresh text that keeps an
+	## error is refused at 7, not left at 0. EsoQmUF has the new rule. Don't
+	## uncomment.
+	# 'Esnb9kl|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
+	'EsoQmUF|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
+	## 2026101515372401: --from-2x converts a file with no Format line only
+	## when the fresh text loads clean, as for a beta file, so a later run
+	## never reads its own output by 2.x rules.
+	'EsoQmUC|upgrade-from-2x-left|upgrade --from-2x -|a: 1\nb 2\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
 	'Esnb9n8|upgrade-newer-diags|upgrade -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|=line 2: Hint: H006 the file names format 4, newer than this reader\x27s format 3, so some lines may read differently than written\n-: nothing to upgrade, left as is\n'
 	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
@@ -2485,6 +2493,7 @@ fSaveSetup() {
 		upgrade-top-format) printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl ;;
 		upgrade-beta) printf 'tags: a, b\n##    Format   3\n' > f.shcl ;;
 		upgrade-beta-left) printf 'a: 1\nb 2\n##    Format   3\n' > f.shcl ;;
+		upgrade-from-2x-left) printf '"k\xe2\x97\x89Q\xe2\x97\x89": 1\n\x27C:\\\x27: ~~~\n\tx\n\t~~~\nport: 8\xe3\x80\x80080\n' > f.shcl; cp f.shcl ../left.shcl ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -2559,7 +2568,15 @@ saveCases=(
 	'EsgoThf|upgrade-beta|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "tags: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v3.shcl <(printf "tags: a, b\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]] && cp f.shcl ../beta-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../beta-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## A file it leaves alone still has its load's diagnostics said once, and
 	## nothing is written (2026101419280005).
-	'Esnb9pV|upgrade-beta-left|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && cmp -s "${tmpDir}/err" <(printf "line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\nf.shcl: nothing to upgrade, left as is\n")'
+	## Wrong since 2026101515372401: a fresh text that keeps an error is
+	## refused at 7, not left at 0. EsoQmUE has the new rule. Don't uncomment.
+	# 'Esnb9pV|upgrade-beta-left|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && cmp -s "${tmpDir}/err" <(printf "line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\nf.shcl: nothing to upgrade, left as is\n")'
+	## With --from-2x a fresh text that would keep an error is refused, for a
+	## file with no Format line as for a beta file, and nothing is written. The
+	## 2.x escape on line 1 grew on each run before (2026101515372401). With
+	## line 5 quoted it converts, and the next run leaves it alone.
+	'EsoQmUE|upgrade-beta-left|upgrade --write --from-2x f.shcl|7|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 2 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err"'
+	'EsoQmUD|upgrade-from-2x-left|upgrade --write --from-2x f.shcl|7|cmp -s f.shcl ../left.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 5 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err" && sed "s/^port: \(.*\)\$/port: \"\1\"/" ../left.shcl > f.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && "${cli}" check f.shcl >/dev/null 2>&1 && cp f.shcl ../left-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../left-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'EsFrOVW|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )

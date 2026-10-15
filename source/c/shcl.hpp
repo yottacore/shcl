@@ -269,16 +269,18 @@ std::optional<std::string> schema_ref(std::string_view text);
 Read<std::string> read_schema_ref(std::string_view text);
 
 // What upgrade() made of a document, and upgrade_file() of a file. text is
-// the fresh file's text, or the input when current or ambiguous. current: the
-// input loads with no error under these rules and, with from_v2, migrates to
-// the same text, or it names this format, so it is left as it is; a beta
-// build of 3.0 stamped the same Format line as a release, so a beta file is
-// current here too. format: the format the input was written for, which goes
-// in the backup's name. ambiguous as Migration's: nonzero means nothing is
+// the fresh file's text, or the input when current, ambiguous or errors_left.
+// current: the input loads with no error under these rules and, with
+// from_v2, migrates to the same text, or it names this format, so it is left
+// as it is; a beta build of 3.0 stamped the same Format line as a release, so
+// a beta file is current here too, unless from_v2 says it is 2.x and it loads
+// with an error. format: the format the input was written for, which goes in
+// the backup's name. ambiguous as Migration's: nonzero means nothing is
 // written. lost: lines and values the fresh text does not carry over, which
 // the backup still has. diagnostics: what loading the input found, empty when
 // current. backup: where upgrade_file() put the original, empty from
-// upgrade() and when nothing was written.
+// upgrade() and when nothing was written. errors_left: with from_v2, the
+// input's lines still in error once converted; any means nothing is written.
 struct Upgrade {
 	std::string text;
 	bool current = false;
@@ -287,14 +289,16 @@ struct Upgrade {
 	std::size_t lost = 0;
 	std::vector<Diagnostic> diagnostics;
 	std::string backup;
+	std::vector<std::size_t> errors_left;
 };
 // A config file written for an older format, made over for this one: migrated
 // without the stamp, written the way fmt writes it, with any old info block
 // swapped for the one init writes. A file that names this format, or loads
 // with no error under these rules, comes back current and untouched. With
 // from_v2, which says the file can only be 2.x, a clean file is still made
-// over when migrate would change it, as it would `p: a,b`. Pass from_v2 only
-// for a file known to be old, never on every start.
+// over when migrate would change it, as it would `p: a,b`, and any file only
+// when the fresh text loads clean (errors_left). Pass from_v2 only for a file
+// known to be old, never on every start.
 Upgrade upgrade(std::string_view text, bool from_v2);
 // The name a config file's backup gets:
 // NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format
@@ -358,13 +362,15 @@ struct NamedSchema {
 NamedSchema read_named_schema(std::string_view text, const std::string &file);
 // Why upgrade_file or write_backup wrote nothing, or not all of it. message
 // is worded as the other bindings word the error; count is
-// Upgrade::ambiguous, for Ambiguous; status says why, for Io.
-enum class UpgradeErrorKind { NotFound, Ambiguous, BackupTaken, Io };
+// Upgrade::ambiguous, for Ambiguous; status says why, for Io; lines is
+// Upgrade::errors_left, for ErrorsLeft.
+enum class UpgradeErrorKind { NotFound, Ambiguous, BackupTaken, Io, ErrorsLeft };
 struct UpgradeError {
 	UpgradeErrorKind kind{};
 	std::string message{};
 	std::size_t count{};
 	WriteStatus status{};
+	std::vector<std::size_t> lines{};
 };
 // Keep text, the bytes last read from file, under backup_file_name, before
 // something replaces them. The create is exclusive, so nothing at the name is
@@ -375,7 +381,8 @@ std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::stri
 // load. A file that needs it is backed up by write_backup, then the fresh
 // text replaces it through write_file_atomic, so the path always holds one or
 // the other. A current file is not written at all, and neither is one that
-// changed after it was read or that reads two ways.
+// changed after it was read, that reads two ways, or that errors_left says
+// would still have an error.
 std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2);
 #endif
 
@@ -772,7 +779,8 @@ static_assert(static_cast<int>(SchemaStatus::Good) == SHCL_SCHEMA_GOOD && static
 	"SchemaStatus drifted from shcl_schema_status");
 // The C enum puts OK first, so each kind sits one past its C value.
 static_assert(static_cast<int>(UpgradeErrorKind::NotFound) + 1 == SHCL_UPGRADE_NOT_FOUND && static_cast<int>(UpgradeErrorKind::Ambiguous) + 1 == SHCL_UPGRADE_AMBIGUOUS
-	&& static_cast<int>(UpgradeErrorKind::BackupTaken) + 1 == SHCL_UPGRADE_BACKUP_TAKEN && static_cast<int>(UpgradeErrorKind::Io) + 1 == SHCL_UPGRADE_IO, "UpgradeErrorKind drifted from shcl_upgrade_error");
+	&& static_cast<int>(UpgradeErrorKind::BackupTaken) + 1 == SHCL_UPGRADE_BACKUP_TAKEN && static_cast<int>(UpgradeErrorKind::Io) + 1 == SHCL_UPGRADE_IO
+	&& static_cast<int>(UpgradeErrorKind::ErrorsLeft) + 1 == SHCL_UPGRADE_ERRORS_LEFT, "UpgradeErrorKind drifted from shcl_upgrade_error");
 #endif
 static_assert(MAX_DEPTH == SHCL_MAX_DEPTH && FORMAT_MAJOR == SHCL_FORMAT_MAJOR, "a constant drifted from shcl.h");
 
@@ -957,6 +965,7 @@ static Upgrade upgraded(const shcl_upgraded &c) {
 	u.lost = c.lost;
 	if (c.diagnostics) u.diagnostics = diags(c.diagnostics);
 	if (c.backup) u.backup = c.backup;
+	if (c.errors_left) u.errors_left.assign(c.errors_left, c.errors_left + c.errors_left_n);
 	return u;
 }
 
@@ -1127,7 +1136,11 @@ std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &
 	shcl_write_status st = SHCL_WRITE_OK;
 	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, &own.c, &why, &st);
 	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
-	if (e != SHCL_UPGRADE_OK) return {Upgrade{}, UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), own.c.ambiguous, static_cast<WriteStatus>(st)}};
+	if (e != SHCL_UPGRADE_OK) {
+		std::vector<std::size_t> lines;
+		if (own.c.errors_left) lines.assign(own.c.errors_left, own.c.errors_left + own.c.errors_left_n);
+		return {Upgrade{}, UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), own.c.ambiguous, static_cast<WriteStatus>(st), std::move(lines)}};
+	}
 	return {detail::upgraded(own.c), std::nullopt};
 }
 #endif

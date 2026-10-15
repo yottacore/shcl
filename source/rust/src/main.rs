@@ -191,7 +191,10 @@ Options (the subcommands each belongs to are in parentheses):
                                          written for 2.x, so rewrite the
                                          spellings the two rule sets read
                                          differently; without it those are
-                                         left alone and the command exits 7
+                                         left alone and the command exits 7;
+                                         upgrade with it writes nothing and
+                                         exits 7 when the fresh file would
+                                         still have an error, naming the lines
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line (named on
@@ -2459,6 +2462,10 @@ fn do_upgrade(o: &Opts) -> u8 {
 				errln!("{} (--from-2x rewrites them)", e);
 				return 7;
 			}
+			Err(e @ UpgradeError::ErrorsLeft { .. }) => {
+				errln!("{}", e);
+				return 7;
+			}
 			Err(e) => {
 				errln!("{}", e);
 				return EXIT_IO;
@@ -2492,6 +2499,16 @@ fn do_upgrade(o: &Opts) -> u8 {
 			UpgradeError::Ambiguous {
 				path: file.clone(),
 				count: up.ambiguous
+			}
+		);
+		return 7;
+	}
+	if !up.errors_left.is_empty() {
+		errln!(
+			"{}",
+			UpgradeError::ErrorsLeft {
+				path: file.clone(),
+				lines: up.errors_left
 			}
 		);
 		return 7;

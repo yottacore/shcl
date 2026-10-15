@@ -368,6 +368,9 @@ int main() {
 	CHECK(up.diagnostics.size() == 1 && up.diagnostics[0].code == "E026");
 	CHECK(shcl::upgrade(up.text, false).current && shcl::upgrade(up.text, false).diagnostics.empty());
 	CHECK(shcl::upgrade("a: x,y\nb: \"q\n", false).ambiguous == 1);
+	// With from_v2, a fresh text that would keep an error is not made.
+	auto left = shcl::upgrade("a: 1\nb 2\n##    Format   3\n", true);
+	CHECK(!left.current && left.errors_left == std::vector<std::size_t>{2} && left.text == "a: 1\nb 2\n##    Format   3\n");
 	// Durations and sizes: the name's unit, the caller's, and base 10.
 	{
 		shcl::Document ds = shcl::Document::parse("timeout-ms: 1.5s\nwait: 90\ncache-mb: 2\nraw: 64\n");
@@ -681,6 +684,11 @@ int main() {
 		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n") == shcl::WriteStatus::Ok);
 		auto [amb2, amb2Err] = shcl::upgrade_file(f, false);
 		CHECK(amb2Err && amb2Err->kind == shcl::UpgradeErrorKind::Ambiguous && amb2Err->count == 1 && amb2.text.empty());
+		CHECK(shcl::write_file_atomic(f, "a: 1\nb 2\n##    Format   3\n") == shcl::WriteStatus::Ok);
+		auto [left2, left2Err] = shcl::upgrade_file(f, true);
+		CHECK(left2Err && left2Err->kind == shcl::UpgradeErrorKind::ErrorsLeft && left2Err->lines == std::vector<std::size_t>{2} && left2.text.empty());
+		CHECK(left2Err && left2Err->message == f + ": line(s) 2 would still have an error once converted from 2.x; nothing written");
+		CHECK(shcl::read_file(f).first == "a: 1\nb 2\n##    Format   3\n");
 #ifdef _WIN32
 		_putenv_s("SHCL_TEST_CLOCK", "");
 #else

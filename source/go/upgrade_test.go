@@ -80,12 +80,16 @@ func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
 	if !Upgrade("p: a,b\n\n"+GenBanner, true).Current {
 		t.Fatal("a clean stamped file is not current")
 	}
+	// Old claim below, wrong since 2026101515372401: a fresh text that would
+	// keep an error is refused, not current, and names its lines. Don't
+	// uncomment. The new rule's test is
+	// TestFromV2RefusesAConversionThatKeepsAnError.
 	// Nor when the fresh text would keep an error, which the next start would
 	// take as 2.x again.
-	stuck := "a: 1\nb 2\n##    Format   3\n"
-	if up := Upgrade(stuck, true); !up.Current || up.Text != stuck || len(up.Diagnostics) != 0 {
-		t.Fatalf("stuck: %+v", up)
-	}
+	// stuck := "a: 1\nb 2\n##    Format   3\n"
+	// if up := Upgrade(stuck, true); !up.Current || up.Text != stuck || len(up.Diagnostics) != 0 {
+	// 	t.Fatalf("stuck: %+v", up)
+	// }
 	// A lone stamp at the top goes too.
 	if got, want := Upgrade("##    Format   3\nname: x\nrange: 0, 100\n", true).Text, "name: x\nrange: [0, 100]\n\n"+GenBanner; got != want {
 		t.Fatalf("top stamp: got %q, want %q", got, want)
@@ -94,6 +98,64 @@ func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
 	// and a second run would take that as 2.x again.
 	if m := Migrate(beta, true); !m.Current || m.Text != beta {
 		t.Fatalf("migrate: %+v", m)
+	}
+}
+
+func TestFromV2RefusesAConversionThatKeepsAnError(t *testing.T) {
+	defer testID(t, "EsoQmU9")
+	t.Setenv("SHCL_TEST_CLOCK", upgradeClock)
+	// The next run with fromV2 would read the fresh text by 2.x rules again,
+	// and the 2.x escape on line 1 would grow each time (2026101515372401).
+	// So nothing is made, with a Format line or not.
+	v2 := "\"k\u25c9Q\u25c9\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: 8\u3000080\n"
+	up := Upgrade(v2, true)
+	if up.Current || up.Text != v2 || up.Lost != 0 || len(up.ErrorsLeft) != 1 || up.ErrorsLeft[0] != 5 {
+		t.Fatalf("2.x file: %+v", up)
+	}
+	e025 := false
+	for _, d := range up.Diagnostics {
+		e025 = e025 || (d.Code == "E025" && d.Line == 5)
+	}
+	if !e025 {
+		t.Fatalf("no E025 on line 5 in %+v", up.Diagnostics)
+	}
+	stuck := "a: 1\nb 2\n##    Format   3\n"
+	if up := Upgrade(stuck, true); up.Current || up.Text != stuck || len(up.ErrorsLeft) != 1 || up.ErrorsLeft[0] != 2 || len(up.Diagnostics) == 0 {
+		t.Fatalf("stuck: %+v", up)
+	}
+	// Without fromV2 a stamped file is current, and nothing would read the
+	// fresh text as 2.x again.
+	if !Upgrade(stuck, false).Current {
+		t.Fatal("stuck without fromV2 is not current")
+	}
+	// With the line fixed it converts, and the second run leaves it alone.
+	fixed := strings.Replace(v2, "8\u3000080", "\"8\u3000080\"", 1)
+	up = Upgrade(fixed, true)
+	if up.Current || len(up.ErrorsLeft) != 0 || Parse(up.Text).ErrorCount() != 0 {
+		t.Fatalf("fixed: %+v", up)
+	}
+	if !Upgrade(up.Text, true).Current {
+		t.Fatal("fixed: the fresh text is not current")
+	}
+	// UpgradeFile writes nothing, no backup either.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.shcl")
+	if err := os.WriteFile(path, []byte(v2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := UpgradeFile(path, true)
+	var ue *UpgradeError
+	if !errors.As(err, &ue) || ue.Kind != UpgradeErrorsLeft || ue.Path != path || len(ue.Lines) != 1 || ue.Lines[0] != 5 {
+		t.Fatalf("UpgradeFile: %v", err)
+	}
+	if want := ": line(s) 5 would still have an error once converted from 2.x; nothing written"; !strings.HasSuffix(err.Error(), want) {
+		t.Fatalf("message: %q", err.Error())
+	}
+	if b, _ := os.ReadFile(path); string(b) != v2 {
+		t.Fatalf("the file changed: %q", b)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 1 {
+		t.Fatalf("%d entries, not the file alone", len(ents))
 	}
 }
 

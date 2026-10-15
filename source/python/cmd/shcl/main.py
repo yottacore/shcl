@@ -192,7 +192,10 @@ Options (the subcommands each belongs to are in parentheses):
                                          written for 2.x, so rewrite the
                                          spellings the two rule sets read
                                          differently; without it those are
-                                         left alone and the command exits 7
+                                         left alone and the command exits 7;
+                                         upgrade with it writes nothing and
+                                         exits 7 when the fresh file would
+                                         still have an error, naming the lines
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line (named on
@@ -1813,6 +1816,9 @@ def do_upgrade(o):
 		except shcl.UpgradeAmbiguous as e:
 			sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
 			return 7
+		except shcl.UpgradeErrorsLeft as e:
+			sys.stderr.write(f"{e}\n")
+			return 7
 		except shcl.UpgradeError as e:
 			sys.stderr.write(f"{e}\n")
 			return EXIT_IO
@@ -1834,6 +1840,9 @@ def do_upgrade(o):
 	say_diagnostics_from("", up.diagnostics)
 	if up.ambiguous != 0:
 		sys.stderr.write(f"{shcl.UpgradeAmbiguous(file, up.ambiguous)} (--from-2x rewrites them)\n")
+		return 7
+	if up.errors_left:
+		sys.stderr.write(f"{shcl.UpgradeErrorsLeft(file, up.errors_left)}\n")
 		return 7
 	if up.lost != 0:
 		kept = "; the backup keeps them" if o.write else ""

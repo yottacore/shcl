@@ -67,11 +67,15 @@ fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
 	let up = upgrade(&beta, false);
 	assert!(up.current && up.text == beta);
 	assert!(upgrade(&stamped_comma_list(), true).current);
+	// Old claim below, wrong since 2026101515372401: a fresh text that would
+	// keep an error is refused, not current, and names its lines. Don't
+	// uncomment. The new rule's test is
+	// from_v2_refuses_a_conversion_that_keeps_an_error.
 	// Nor when the fresh text would keep an error, which the next start would
 	// take as 2.x again.
-	let stuck = "a: 1\nb 2\n##    Format   3\n";
-	let up = upgrade(stuck, true);
-	assert!(up.current && up.text == stuck && up.diagnostics.is_empty());
+	// let stuck = "a: 1\nb 2\n##    Format   3\n";
+	// let up = upgrade(stuck, true);
+	// assert!(up.current && up.text == stuck && up.diagnostics.is_empty());
 	// A lone stamp at the top goes too.
 	let up = upgrade("##    Format   3\nname: x\nrange: 0, 100\n", true);
 	assert_eq!(
@@ -82,6 +86,56 @@ fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
 	// and a second run would take that as 2.x again.
 	let m = migrate(&beta, true);
 	assert!(m.current && m.text == beta);
+}
+
+#[test]
+fn from_v2_refuses_a_conversion_that_keeps_an_error() {
+	let _id = test_id("EsoQmU8");
+	pin_clock();
+	// The next run with from_v2 would read the fresh text by 2.x rules again,
+	// and the 2.x escape on line 1 would grow each time (2026101515372401).
+	// So nothing is made, with a Format line or not.
+	let v2 = "\"k\u{25c9}Q\u{25c9}\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: 8\u{3000}080\n";
+	let up = upgrade(v2, true);
+	assert!(!up.current && up.text == v2 && up.lost == 0);
+	assert_eq!(up.errors_left, vec![5]);
+	assert!(
+		up.diagnostics
+			.iter()
+			.any(|d| d.code == "E025" && d.line == 5)
+	);
+	let stuck = "a: 1\nb 2\n##    Format   3\n";
+	let up = upgrade(stuck, true);
+	assert!(!up.current && up.text == stuck && up.errors_left == vec![2]);
+	assert!(up.diagnostics.iter().any(|d| d.code == "E014"));
+	// Without from_v2 a stamped file is current, and nothing would read the
+	// fresh text as 2.x again.
+	assert!(upgrade(stuck, false).current);
+	// With the line fixed it converts, and the second run leaves it alone.
+	let fixed = v2.replace("8\u{3000}080", "\"8\u{3000}080\"");
+	let up = upgrade(&fixed, true);
+	assert!(!up.current && up.errors_left.is_empty());
+	assert_eq!(Document::parse(&up.text).error_count(), 0);
+	assert!(upgrade(&up.text, true).current);
+	// upgrade_file writes nothing, no backup either.
+	let dir = scratch("left");
+	let file = dir.join("f.shcl");
+	let path = file.to_str().unwrap();
+	std::fs::write(&file, v2).unwrap();
+	let got = upgrade_file(path, true).unwrap_err();
+	assert_eq!(
+		got,
+		UpgradeError::ErrorsLeft {
+			path: path.to_string(),
+			lines: vec![5]
+		}
+	);
+	assert!(got.to_string().ends_with(
+		": line(s) 5 would still have an error once converted from 2.x; nothing written"
+	));
+	assert_eq!(std::fs::read_to_string(&file).unwrap(), v2);
+	assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+	let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn stamped_comma_list() -> String {

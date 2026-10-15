@@ -45,7 +45,9 @@
 ##		backup name, and a fresh file that loads clean, has the info block
 ##		once, reads as the migrated text, and is left alone by a second run.
 ##		A file left alone keeps its bytes. One naming format 3 is left alone
-##		too, unless --from-2x vouches for it and it loads with an error.
+##		too, unless --from-2x vouches for it and it loads with an error. Then
+##		it converts when the fresh file loads clean, and is refused at 7 when
+##		that would keep an error.
 ##
 ##		A document that names format 3 is not a 2.x file. It is checked for
 ##		being left as written by migrate, and by upgrade but for that one case,
@@ -484,7 +486,7 @@ fUpgradeAgain(){
 	SHCL_TEST_CLOCK="${upClock}" "${newCli}" upgrade --write "$@" "${upDir}/cfg.shcl" >/dev/null 2>"${tmpDir}/upgrade.err" || upRc=$?
 }
 fUpBad(){ nUpBad+=1; echo "check-migrate: UPGRADE ${upName}: $*"; }
-declare -i nUpFormat3=0
+declare -i nUpFormat3=0 nUpFormat3Left=0
 fUpEntries(){ find "${upDir}" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' '; }
 
 ##	Left alone: exit 0, the same bytes, and no backup.
@@ -529,14 +531,20 @@ fUpConverts3(){
 
 ##	A file naming format 3 is left alone without --from-2x. With it, one
 ##	fUpConverts3 takes is rewritten and backed up under the format its line
-##	names (2026101407100010). Anything else is left alone. The fresh file
-##	loads clean, so a second run, with the flag or not, leaves it.
+##	names (2026101407100010). One with an error whose fresh file would keep
+##	one is refused at 7 and left (2026101515372401). Anything else is left
+##	alone. The fresh file loads clean, so a second run, with the flag or not,
+##	leaves it.
 fUpFormat3(){
 	local upBackup="cfg_backup_20261004-001500_format-v3.shcl"
 	fUpgradeRun "${upSrc}" --from-2x
 	if fUpConverts3 "${upSrc}"; then
 		nUpFormat3+=1
 		fUpRewritten "format 3 with an error, with --from-2x"
+	elif [[ "$(fErrors "${upSrc}")" != 0 ]] && grep -qE '^##[[:space:]]+Format[[:space:]]+3[[:space:]]*$' "${upSrc}"; then
+		nUpFormat3Left+=1
+		((upRc == 7)) || fUpBad "format 3 whose fresh file keeps an error, with --from-2x: exit ${upRc}, not 7"
+		upRc=0; fUpUntouched "format 3 whose fresh file keeps an error, with --from-2x"
 	else
 		fUpUntouched "format 3, with --from-2x"
 	fi
@@ -687,14 +695,14 @@ fi
 
 ##	A file naming format 3 is left alone, but for one that loads with an
 ##	error, which --from-2x takes as 2.x when the fresh file loads clean
-##	(2026101407100010). The first file here would keep `b 2`, so it stays;
-##	the other 2 are a beta's comma list, bare and under the info block the
-##	betas wrote.
+##	(2026101407100010). The first file here would keep `b 2`, so it is
+##	refused at 7 and stays (2026101515372401); the other 2 are a beta's comma
+##	list, bare and under the info block the betas wrote.
 fTest Es34DZk a file naming format 3 is upgraded only when --from-2x vouches for it
 printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
 printf 'tags: a, b\n##    Format   3\n' > "${tmpDir}/format3-beta.shcl"
 printf 'tags: a, b\n\n##\n## This config file format is SHCL.\n##    Format   3\n##\n' > "${tmpDir}/format3-beta-block.shcl"
-declare -i nFormat3=0 nUpFormat3Soup=nUpFormat3; nUpBad=0; nUpFormat3=0
+declare -i nFormat3=0 nUpFormat3Soup=nUpFormat3; nUpBad=0; nUpFormat3=0; nUpFormat3Left=0
 for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format3-beta.shcl" "${tmpDir}/format3-beta-block.shcl"; do
 	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "${f}" || continue
 	upName="${f%/input.shcl}"; upName="${upName##*/}"; upSrc="${f}"; nFormat3+=1
@@ -706,6 +714,7 @@ done
 nBad+=nUpBad
 ((nFormat3 > 1)) || { echo "check-migrate: no corpus input names format 3" >&2; nBad+=1; }
 ((nUpFormat3 == 2)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 that --from-2x should convert, not the 2 beta files" >&2; nBad+=1; }
+((nUpFormat3Left > 0)) || { echo "check-migrate: no file naming format 3 that --from-2x should refuse at 7" >&2; nBad+=1; }
 
 ##	Each named case has to keep its shape, or the exception is stale.
 fTest EpUIoZd 068 still has a fence label holding a hash
@@ -796,3 +805,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            it loads with an error and the fresh file loads clean.
 ##		2026-10-15  Whether a format 3 file should convert is worked out from
 ##		            the file, not from what upgrade did to it.
+##		2026-10-15  upgrade --from-2x refuses at 7 a format 3 file whose fresh
+##		            file would keep an error.

@@ -206,7 +206,10 @@ Options (the subcommands each belongs to are in parentheses):
                                          written for 2.x, so rewrite the
                                          spellings the two rule sets read
                                          differently; without it those are
-                                         left alone and the command exits 7
+                                         left alone and the command exits 7;
+                                         upgrade with it writes nothing and
+                                         exits 7 when the fresh file would
+                                         still have an error, naming the lines
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line (named on
@@ -2443,6 +2446,10 @@ func doUpgrade(o *opts) int {
 				fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
 				return 7
 			}
+			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeErrorsLeft {
+				fmt.Fprintln(os.Stderr, err)
+				return 7
+			}
 			fmt.Fprintln(os.Stderr, err)
 			return exitIO
 		}
@@ -2468,6 +2475,10 @@ func doUpgrade(o *opts) int {
 	if up.Ambiguous != 0 {
 		err := &shcl.UpgradeError{Kind: shcl.UpgradeAmbiguous, Path: file, Count: up.Ambiguous}
 		fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
+		return 7
+	}
+	if len(up.ErrorsLeft) != 0 {
+		fmt.Fprintln(os.Stderr, &shcl.UpgradeError{Kind: shcl.UpgradeErrorsLeft, Path: file, Lines: up.ErrorsLeft})
 		return 7
 	}
 	if up.Lost != 0 {

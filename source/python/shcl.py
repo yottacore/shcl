@@ -80,6 +80,7 @@ __all__ = [
 	"UpgradeAmbiguous",
 	"UpgradeBackupTaken",
 	"UpgradeError",
+	"UpgradeErrorsLeft",
 	"UpgradeFailed",
 	"UpgradeNotFound",
 	"ValueKind",
@@ -2740,13 +2741,13 @@ def _migrate_text(text, from_v2, stamp, beta):
 class Upgrade:
 	"""What upgrade() made of a document, and upgrade_file() of a file.
 
-	text: the fresh file's text, or the input when current or ambiguous.
-	current: the input loads with no error under these rules and, with
-	from_v2, migrates to the same text and names no older format, or it names
-	this format, so it is left as it is. A beta build of 3.0 stamped the same
-	Format line as a release, so a beta file is current here too, unless
-	from_v2 says a 2.x build wrote it, it loads with an error, and the fresh
-	text would not. format: the format the input was written for, which goes
+	text: the fresh file's text, or the input when current, ambiguous or
+	errors_left. current: the input loads with no error under these rules
+	and, with from_v2, migrates to the same text and names no older format,
+	or it names this format, so it is left as it is. A beta build of 3.0
+	stamped the same Format line as a release, so a beta file is current here
+	too, unless from_v2 says a 2.x build wrote it and it loads with an error.
+	format: the format the input was written for, which goes
 	in the backup's name: what its Format line names,
 	else 2. ambiguous: as Migration.ambiguous; nonzero means the text reads
 	two ways and nothing is written. lost: lines and values of the input the
@@ -2755,9 +2756,12 @@ class Upgrade:
 	them. diagnostics: what loading the input found, which is why it needed
 	the upgrade unless it loaded clean and from_v2 said it reads as 2.x; empty
 	when current. backup: where upgrade_file() put the original; empty from
-	upgrade(), and when nothing was written."""
+	upgrade(), and when nothing was written. errors_left: with from_v2, the
+	input's lines still in error once converted; nonempty means nothing is
+	written and text is the input, since the next run with from_v2 would take
+	the fresh text for 2.x again."""
 
-	__slots__ = ("text", "current", "format", "ambiguous", "lost", "diagnostics", "backup")
+	__slots__ = ("text", "current", "format", "ambiguous", "lost", "diagnostics", "backup", "errors_left")
 
 	def __init__(self, text: str, current: bool, format: int) -> None:
 		self.text = text
@@ -2767,6 +2771,7 @@ class Upgrade:
 		self.lost = 0
 		self.diagnostics: list[Diagnostic] = []
 		self.backup = ""
+		self.errors_left: list[int] = []
 
 
 def upgrade(text: str, from_v2: bool) -> Upgrade:
@@ -2783,9 +2788,11 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	this format on that Format line, and nothing else. The one file naming
 	this format that is made over is one that loads with an error when from_v2
 	says a 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It
-	is taken as 2.x, and only when the fresh text loads clean. Pass from_v2
-	only for a file known to be old, never on every start: a file this format
-	wrote that picks up an error later would be read by 2.x rules too."""
+	is taken as 2.x. With from_v2, any file is made over only when the fresh
+	text loads clean; when it wouldn't, errors_left names the lines still in
+	error. Pass from_v2 only for a file known to be old, never on every
+	start: a file this format wrote that picks up an error later would be
+	read by 2.x rules too."""
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
@@ -2816,17 +2823,28 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 		return up
 	fresh = Document.parse(m.text)
 	lost = m.lost + fresh.lost_count()
+	# migrate keeps every line where it was, so these are the input's.
+	left = _error_lines(fresh.diagnostics())
 	fresh._swap_banner(True, True)
 	made = fresh.to_canonical()
-	# A file naming this format goes only when that leaves it loading clean,
-	# so the next start, from_v2 or not, leaves the result alone.
-	if version == FORMAT_MAJOR and Document.parse(made).error_count() != 0:
-		up.current = True
-		up.diagnostics = []
-		return up
+	# With from_v2 it goes only when that leaves it loading clean, or the next
+	# run with it would read the result by 2.x rules again
+	# (2026101515372401). Without, a Format 3 file with an error is current.
+	if from_v2:
+		check = Document.parse(made)
+		if check.error_count() != 0:
+			# Empty only if a clean text formats to one with an error, and then
+			# the fresh text's own lines are better than none.
+			up.errors_left = left or _error_lines(check.diagnostics())
+			return up
 	up.lost = lost
 	up.text = made
 	return up
+
+
+def _error_lines(diags: list[Diagnostic]) -> list[int]:
+	"""The lines with an error on them, in order, each once."""
+	return sorted({d.line for d in diags if d.severity is Severity.Error})
 
 
 def _splice(s, edits):
@@ -9754,6 +9772,18 @@ class UpgradeBackupTaken(UpgradeError):
 		super().__init__(f"{name}: already exists; the original would be kept there, so nothing was written")
 
 
+class UpgradeErrorsLeft(UpgradeError):
+	"""With from_v2, the fresh text would still have an error on these lines
+	of the input (Upgrade.errors_left)."""
+	path: str
+	lines: list[int]
+
+	def __init__(self, path: str, lines: list[int]):
+		self.path = path
+		self.lines = lines
+		super().__init__(f"{path}: line(s) {', '.join(str(n) for n in lines)} would still have an error once converted from 2.x; nothing written")
+
+
 class UpgradeFailed(UpgradeError):
 	"""A read or write failed; the message is what was reported, and status
 	says why."""
@@ -9854,9 +9884,10 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 	write_backup(), then the fresh text replaces it through
 	write_file_atomic(), so the path always holds one or the other. A file
 	upgrade() finds current is not written at all, and also neither is one
-	that changed after it was read or that reads two ways. Opt-in on purpose:
-	a program that keeps its own backups has no need of it. On success backup
-	names the copy when one was made, and text is what the path now holds.
+	that changed after it was read, that reads two ways, or that errors_left
+	says would still have an error. Opt-in on purpose: a program that keeps
+	its own backups has no need of it. On success backup names the copy when
+	one was made, and text is what the path now holds.
 	Raises an UpgradeError subclass for what it could not do."""
 	path = os.fspath(path)   # an int is a TypeError here, not a descriptor (see read_file)
 	# A FIFO or a device would block the read or be replaced by a file.
@@ -9879,6 +9910,8 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 		return up
 	if up.ambiguous != 0:
 		raise UpgradeAmbiguous(path, up.ambiguous)
+	if up.errors_left:
+		raise UpgradeErrorsLeft(path, up.errors_left)
 	raw = text.encode("utf-8")
 
 	def same():
