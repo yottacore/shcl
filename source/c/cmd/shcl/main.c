@@ -1504,7 +1504,7 @@ static int do_upgrade(const Opts *o) {
 		shcl_doc *loaded = xdoc(shcl_parse(up.text, up.len));
 		say_diagnostics_from("", loaded);
 		shcl_free(loaded);
-		fprintf(stderr, "%s: nothing to upgrade: it loads clean or names its format\n", file);
+		fprintf(stderr, "%s: nothing to upgrade, left as is\n", file);
 		if (!o->write) fwrite(up.text, 1, up.len, stdout);
 		shcl_upgraded_free(&up);
 		return 0;

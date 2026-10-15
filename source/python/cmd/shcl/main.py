@@ -1827,7 +1827,7 @@ def do_upgrade(o):
 		# diagnostics is empty when current, but the file is still loaded, and
 		# every loading subcommand says what its load found (2026101419280005).
 		say_diagnostics(shcl.Document.parse(up.text).diagnostics())
-		sys.stderr.write(f"{file}: nothing to upgrade: it loads clean or names its format\n")
+		sys.stderr.write(f"{file}: nothing to upgrade, left as is\n")
 		if not o.write:
 			sys.stdout.write(up.text)
 		return 0
