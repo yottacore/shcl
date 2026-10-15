@@ -33,6 +33,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A call in every language that takes one string of text commands
+	- ID: 2026101513262841
+	- Type: Feature
+	- Status: Queued
+	- Opened: 20261015-132628
+	- Opened by: JC
+	- Problem description: if it's not a crazy amount of work, expose an API on all languages that lets a caller pass a single string with text-based commands in it.
+	- Reason: this would, in theory, let future wrappers be very simple, but still expose the full API power if callers find they need it.
+	- Requirements:
+		- The format might be text versions of actual language calls and arguments, or maybe CLI versions of the same. Not sure what would work best (JC).
+		- Probably not a newly invented text structure to fully design, create, and debug (JC).
+	- Note: before the next cut (JC).
+	- Note: v4's drivers (`project/design_docs/20261015-072055_v4.md` -> Drivers in place of CLIs) and `set`'s write-ops script already cover part of this (me).
+
 - check-docs gates fed by a Python script pass when the script crashes
 	- ID: 2026101419280002
 	- Type: Bug
