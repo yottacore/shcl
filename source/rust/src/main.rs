@@ -138,7 +138,7 @@ parens, so a selector may hold one. Ops:
 String, comment and raw CONTENT values read escapes as a file does: NEWLINE or
 TAB between two U+25C9 marks. A raw op's INFO is taken as written, since a
 fence label has no escapes. A backslash is text, and a line starting with # is
-a script comment.
+a script comment, indented or not.
 
 Types (get only; default --string):
   --int --float --bool --datetime --string --raw --rawinfo --duration --size
@@ -2475,6 +2475,10 @@ fn do_upgrade(o: &Opts) -> u8 {
 		upgrade(&text, o.from_2x)
 	};
 	if up.current {
+		// `diagnostics` is empty when current, but the file is still loaded,
+		// and every loading subcommand says what its load found
+		// (2026101419280005).
+		say_diagnostics(Document::parse(&up.text).diagnostics());
 		errln!(
 			"{}: nothing to upgrade: it loads clean or names its format",
 			file
@@ -2979,9 +2983,11 @@ fn do_set(o: &Opts) -> u8 {
 	// and `lines()` plus a strip used to eat it.
 	for (n, line) in ops.split('\n').enumerate() {
 		let line = line.strip_suffix('\r').unwrap_or(line);
-		// A line of blanks is skipped like an empty one, so an indented blank
-		// line in a here-doc isn't an op with no name (2026101407100005).
-		if line.bytes().all(|b| matches!(b, b' ' | b'\t' | b'\r')) || line.starts_with('#') {
+		// A line of blanks is skipped like an empty one, and blanks before a
+		// `#` still make a comment, so an indented here-doc isn't read as ops
+		// with no name (2026101407100005, 2026101419280004).
+		let lead = line.trim_start_matches([' ', '\t', '\r']);
+		if lead.is_empty() || lead.starts_with('#') {
 			continue;
 		}
 		if let Err(e) = apply_op(&mut doc, line) {

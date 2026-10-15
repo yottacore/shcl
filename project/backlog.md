@@ -67,7 +67,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - An indented `#` comment line in the ops script is refused as an unknown op
 	- ID: 2026101419280004
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 4
@@ -81,11 +82,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261014, all four CLIs.
 	- Origin: the comment rule is from `e71b2c45` (2026-07-21). 2026101407100005 (`366f8e6a`) took indented blank lines and missed this one.
 	- Sweep: the 4 runners' `write.ops` loops, the help, the man page and spec.md's ops text.
+	- Actual cause: the ops loop took a line as a comment only when `#` was its first character. 2026101407100005's skip looks for a line of nothing but blanks, so blanks and then `#` went to the decoder as an op named by the blanks.
+	- Actual fix: the 4 CLIs skip a line whose first character past spaces, tabs and CRs is `#`, and the 4 runners do the same. An indented op is still an unknown op. The help says a `#` line is a script comment "indented or not", which is my wording call (me).
+	- Swept: the 4 CLIs' `set` ops loops, and both loops in each runner (`write.ops` and `write-bad.ops`; Rust `is_comment_op`, Go `isCommentOpTest`, Python `_comment_op`, C `comment_op`). The help in all 4, still byte-identical at 80 columns, the man page, `project/conformance/README.md`, and a changelog line. spec.md says nothing about comment or blank lines in the ops script, so nothing changed there. The runners' `merge.sets` loops take `#` only at column 0 too, but that's a test-only file and not the ops script, so it's left alone.
+	- Verified: the 3 new cli-regress rows: the 2 comment rows fail on dev's 4 CLIs and pass on the fix, and the indented-op row passes both. Dev's 4 runners fail on corpus 029's 2 new comment lines and pass on the fix. Also cargo test, the Go, Python and C conformance suites, `go test -count=1` for both modules, cli-regress (591 rows, 4 bindings), crosscheck (22053 comparisons), rustfmt, clippy for the host and windows, go vet, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level, and test-ids check.
+	- Test case: cli-regress `Esnb9bC` (`ops-indented-comment`), `Esnb9db` (`ops-tab-indented-comment`) and `Esnb9g2` (`ops-indented-op-unknown`); corpus `029-write-gate`, whose `write.ops` has a tab-indented and a space-indented comment, in all 4 runners and crosscheck.
+	- Branch: `opsup`
+	- Commit: `7ac89887`
+	- Acceptance signoff: Self-closed: reproduced, the new rows and corpus lines failed before and pass after, the Sweep has its Swept answer, and the one wording call is noted above.
+	- Closed: 20261015-124104
 
 - `upgrade` on a file naming this format prints none of the load's diagnostics, and with `--from-2x` drops the ones it found
 	- ID: 2026101419280005
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 5
@@ -99,6 +110,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261014, all four CLIs.
 	- Origin: `ad9af077` (2026-10-14) for the flag's branch. Without the flag, `upgrade` returns before it loads, as it has since `60d0196c` (2026-10-07).
 	- Note: `Upgrade.diagnostics` says it's empty when `current`, so the library is as documented. Changing that is a contract call. The CLI side goes against design.md.
+	- Decisions:
+		- 20261015: the library keeps its contract, `diagnostics` empty when `current`, since v4 redoes upgrade (JC). The fix is on the CLI side.
+	- Actual cause: the CLI printed only `Upgrade.diagnostics`, which is empty whenever the file is left alone. Without `--from-2x` the library returns before it loads a file naming this format. With it, the library loads the file, then clears the list when the fresh text wouldn't load clean.
+	- Actual fix: when upgrade leaves the file alone, the 4 CLIs load its text and print the diagnostics once, before the "nothing to upgrade" line, with or without `--write`. stdout and exit codes are unchanged. A file naming a newer format gets its `H006` hint the same way, and a clean file its warnings and hints.
+	- Swept: `upgrade` in the 4 CLIs, printed and with `--write`. Their `migrate` already prints the load's diagnostics when it finds the file current, checked on the same file. The upgrade text in the man page and spec.md says nothing either way, and the man page's rule for every loading subcommand now holds for upgrade too.
+	- Verified: the 3 new cli-regress rows and the new save case fail on dev's 4 CLIs and pass on the fix. The gate list on 2026101419280004 covers this branch.
+	- Test case: cli-regress `Esnb9iN` (`upgrade-left-diags`), `Esnb9kl` (`upgrade-left-diags-from-2x`), `Esnb9n8` (`upgrade-newer-diags`) and save case `Esnb9pV` (`upgrade-beta-left`), each pinning the exact stderr.
+	- Branch: `opsup`
+	- Commit: `7ac89887`
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule with JC's call on the library contract.
+	- Closed: 20261015-124104
 
 - The installers still send people to README.md for steps that moved to `project/install.md`
 	- ID: 2026101419280006

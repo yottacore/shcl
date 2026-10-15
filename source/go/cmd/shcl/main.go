@@ -153,7 +153,7 @@ parens, so a selector may hold one. Ops:
 String, comment and raw CONTENT values read escapes as a file does: NEWLINE or
 TAB between two U+25C9 marks. A raw op's INFO is taken as written, since a
 fence label has no escapes. A backslash is text, and a line starting with # is
-a script comment.
+a script comment, indented or not.
 
 Types (get only; default --string):
   --int --float --bool --datetime --string --raw --rawinfo --duration --size
@@ -2455,6 +2455,9 @@ func doUpgrade(o *opts) int {
 		up = shcl.Upgrade(text, o.from2x)
 	}
 	if up.Current {
+		// Diagnostics is empty when current, but the file is still loaded, and
+		// every loading subcommand says what its load found (2026101419280005).
+		sayDiagnostics(shcl.Parse(up.Text).Diagnostics())
 		fmt.Fprintf(os.Stderr, "%s: nothing to upgrade: it loads clean or names its format\n", file)
 		if !o.write {
 			outs(up.Text)
@@ -3191,9 +3194,11 @@ func doSet(o *opts) int {
 	// then read as unknown. No op starts with one.
 	for n, line := range strings.Split(strings.TrimLeft(string(ops), "\ufeff"), "\n") {
 		line = strings.TrimSuffix(line, "\r") // match Rust lines() CRLF handling
-		// A line of blanks is skipped like an empty one, so an indented blank
-		// line in a here-doc isn't an op with no name (2026101407100005).
-		if strings.Trim(line, " \t\r") == "" || strings.HasPrefix(line, "#") {
+		// A line of blanks is skipped like an empty one, and blanks before a
+		// `#` still make a comment, so an indented here-doc isn't read as ops
+		// with no name (2026101407100005, 2026101419280004).
+		lead := strings.TrimLeft(line, " \t\r")
+		if lead == "" || strings.HasPrefix(lead, "#") {
 			continue
 		}
 		if aerr := applyOp(doc, line); aerr != nil {

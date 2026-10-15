@@ -125,7 +125,7 @@ static const char *HELP =
 	"String, comment and raw CONTENT values read escapes as a file does: NEWLINE or\n"
 	"TAB between two U+25C9 marks. A raw op's INFO is taken as written, since a\n"
 	"fence label has no escapes. A backslash is text, and a line starting with # is\n"
-	"a script comment.\n"
+	"a script comment, indented or not.\n"
 	"\n"
 	"Types (get only; default --string):\n"
 	"  --int --float --bool --datetime --string --raw --rawinfo --duration --size\n"
@@ -1499,6 +1499,11 @@ static int do_upgrade(const Opts *o) {
 		free(text);
 	}
 	if (up.current) {
+		// diagnostics is NULL when current, but the file is still loaded, and
+		// every loading subcommand says what its load found (2026101419280005).
+		shcl_doc *loaded = xdoc(shcl_parse(up.text, up.len));
+		say_diagnostics_from("", loaded);
+		shcl_free(loaded);
 		fprintf(stderr, "%s: nothing to upgrade: it loads clean or names its format\n", file);
 		if (!o->write) fwrite(up.text, 1, up.len, stdout);
 		shcl_upgraded_free(&up);
@@ -1911,11 +1916,12 @@ static int do_set(Opts *o) {
 			if (end > start && ops[end - 1] == '\r') end--; // match Rust lines() CRLF
 			size_t n = end - start;
 			lineno++;
-			// A line of blanks is skipped like an empty one, so an indented blank
-			// line in a here-doc isn't an op with no name (2026101407100005).
+			// A line of blanks is skipped like an empty one, and blanks before a
+			// `#` still make a comment, so an indented here-doc isn't read as ops
+			// with no name (2026101407100005, 2026101419280004).
 			size_t nb = 0;
 			while (nb < n && (ops[start + nb] == ' ' || ops[start + nb] == '\t' || ops[start + nb] == '\r')) nb++;
-			if (nb < n && ops[start] != '#') { if (apply_op(d, ops + start, n, lineno)) { rc = 1; break; } }
+			if (nb < n && ops[start + nb] != '#') { if (apply_op(d, ops + start, n, lineno)) { rc = 1; break; } }
 			if (i == opslen) break;
 			start = i + 1;
 		}

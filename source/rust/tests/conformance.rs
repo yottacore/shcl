@@ -219,6 +219,12 @@ fn is_blank_op(line: &str) -> bool {
 	line.bytes().all(|b| matches!(b, b' ' | b'\t' | b'\r'))
 }
 
+/// Blanks before a `#` still make a comment line, as the CLI reads it
+/// (2026101419280004).
+fn is_comment_op(line: &str) -> bool {
+	line.trim_start_matches([' ', '\t', '\r']).starts_with('#')
+}
+
 /// Good-path wrapper: the op must apply.
 fn apply_op(doc: &mut Document, line: &str, at: &str) {
 	try_apply_op(doc, line).unwrap_or_else(|e| panic!("{}: {}", at, e));
@@ -770,7 +776,7 @@ fn write_ops_match_expected() {
 		let mut doc = Document::parse(&case.input);
 		let mut kept = Document::parse_keep_lines(&case.input, Strictness::Standard).unwrap();
 		for (n, line) in ops.lines().enumerate() {
-			if is_blank_op(line) || line.starts_with('#') {
+			if is_blank_op(line) || is_comment_op(line) {
 				continue;
 			}
 			let at = format!("{}: write.ops line {}", case.name, n + 1);
@@ -1450,7 +1456,7 @@ fn write_bad_ops_are_rejected() {
 			return;
 		};
 		for (n, line) in bad.lines().enumerate() {
-			if is_blank_op(line) || line.starts_with('#') {
+			if is_blank_op(line) || is_comment_op(line) {
 				continue;
 			}
 			let mut doc = Document::parse(&case.input);
