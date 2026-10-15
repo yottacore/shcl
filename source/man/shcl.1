@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-14 shcl "User Commands"
+.TH SHCL 1 2026-10-15 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -289,6 +289,11 @@ would change it, as it would
 an array under 2.x and one string now, and one it would not change whose
 .B Format
 line names an older format gets only that line rewritten to name this one.
+A file naming this format that loads with an error is taken as 2.x too, when
+the fresh file loads clean, so give
+.B \-\-from\-2x
+only for a file known to be old: a file this format wrote that picks up an
+error later would be read by 2.x rules too.
 Values that read two ways, as for
 .BR migrate ,
 are exit 7 unless

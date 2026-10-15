@@ -840,7 +840,9 @@ typedef struct {
 // one file naming this format that is made over is one that loads with an
 // error when from_v2 says a 2.x build wrote it, as with a beta of 3.0 that
 // wrote 2.x lines. It is taken as 2.x, and only when the fresh text loads
-// clean, so the next start leaves it alone.
+// clean. Pass from_v2 only for a file known to be old, never on every start:
+// a file this format wrote that picks up an error later would be read by 2.x
+// rules too.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
@@ -3811,8 +3813,7 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 		shcl_migration m; memset(&m, 0, sizeof m);
 		/* A beta of 3.0 wrote this format's line too, so only the caller can
 		   say a 2.x build wrote the file. One that loads clean is what an
-		   upgrade leaves, so a caller passing from_v2 on every start never
-		   converts it twice. */
+		   upgrade leaves, so a second run over its output leaves it alone. */
 		if (!clean || (from_v2 && version != SHCL_FORMAT_MAJOR)) {
 			m = migrate_text(text, len, from_v2, 0, 1, panic);
 			own->migrated = m.text;
