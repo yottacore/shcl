@@ -59,7 +59,7 @@ tmpDir="$(mktemp -d)"; trap fOnExit EXIT
 ##	matching its table, or a table that loses its rows, fails rather than
 ##	checking less.
 fTest EsJLUJx value-syntax-tables
-python3 "${repoDir}/cicd/utility/doc-tables.py" "${repoDir}/project/design_docs/value-syntax.md" 50 "${bindings[@]}" || nBad=$((nBad + 1))
+python3 "${repoDir}/cicd/utility/doc-tables.py" "${repoDir}/project/design_docs/20261002-132445_value-syntax.md" 50 "${bindings[@]}" || nBad=$((nBad + 1))
 fTest EsJLUJy spec-tables
 python3 "${repoDir}/cicd/utility/doc-tables.py" "${repoDir}/project/spec.md" 28 "${bindings[@]}" || nBad=$((nBad + 1))
 

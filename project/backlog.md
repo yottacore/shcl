@@ -2279,7 +2279,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build:
 	- Problem description:
 		- Most bug/fix/bug/fix churn is being caused by escapes. For example: "C:\shouldn't\be\tab\or\newline"
-		- The full problem description, ideas 1 to 3 and the settled rules are in the design doc, `project/design_docs/value-syntax.md`. The doc is the source of truth for this item.
+		- The full problem description, ideas 1 to 3 and the settled rules are in the design doc, `project/design_docs/20261002-132445_value-syntax.md`. The doc is the source of truth for this item.
 	- Requirements:
 		- A backslash is plain text everywhere.
 		- An escape is `◉NAME◉`, from a closed list. Anything else between two `◉` is an error.
@@ -3438,7 +3438,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: a LAZY stack level in all four parsers (`hold_open`, `open_lazy`), the same model in the emitter's reload stack, and `heads_block` in the canonical emit. Spec, design outcome table, explain text for `E019` and `E023` in all four CLIs, changelog.
 	- Swept: the field arm, the stacked element arm and the raw fence arm in all four bindings. A retained `*` element line still holds a dead level, since nothing under an element binds.
 	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ErUmRRa` to `ErUmRRc` fail on dev at `5956ff4a`.
-	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/value-syntax.md`.
+	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Branch: escblock
 	- Commit: c29f08fa
 	- Test case: corpus `187-value-fault-opens-block`; cli-regress `sugar-check-block`, `sugar-block-read`, `sugar-write-kept`, `path-escape-block`.
@@ -3458,7 +3458,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: `b: [2]` is written back under `a: [1]`, where it was.
 	- Reproduced: Yes, 20261002, Rust at `d2fbdacd`. Two nested lines with a bad escape do the same.
 	- Possible cause: the lazy level opens only on a line that binds. When nothing under it binds, the writer has no node to put the kept child under.
-	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/value-syntax.md`.
+	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Actual cause: a kept line always took the level of the place it was filed at, and four places filed it away from its parent. Under another kept line nothing opened, so it went to that place's level. Before a dotted line it went to the last name's node, one level too deep. Behind a comment at column 0 that stayed, it went to the next line's level instead of its own block. Before a child fence it went ahead of the field the fence binds again. A kept line among stacked elements also lost its nesting.
 	- Decisions:
 		- 20261002: a field line kept for its value or name nests one level under the kept line before it that it is written under, by the same chain rule comments use, kept apart from the comment chain. Comments keep their old depths.
@@ -3920,7 +3920,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: Low
-	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
+	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
 	- Note: 20261003, 2026100313461649 now brings beta-stamped files forward when they can be told apart. This item waits on it.
 	- Note: 20261007, they can't be told apart. A beta wrote the same Format line as a release, and from 20260924 on the same info block. So 2026100313461649 leaves a file naming Format 3 alone, and what is left here is saying so in the docs.
@@ -5674,7 +5674,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
 	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
 	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
-	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/value-syntax.md`.
+	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Superseded by ID: 2026100207032800
 	- Branch: escblock
 	- Commit: c29f08fa
@@ -6000,7 +6000,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Moot
 	- Priority: Avg
-	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Superseded by ID: 2026100207032800
 	- Test case: none. Nothing is built for it; the tests are under 2026100207032800.
 	- Opened: 20261001-153232
@@ -6042,7 +6042,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Moot
 	- Priority: Low
-	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Superseded by ID: 2026100207032800
 	- Test case: none. Nothing is built for it; the tests are under 2026100207032800.
 	- Opened: 20261001-153232
