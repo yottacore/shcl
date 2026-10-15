@@ -33,6 +33,360 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A refused line whose name starts with `~` or a backtick hides its raw block from the Format and Schema line scan
+	- ID: 2026101514324701
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 1
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026100307163902, 2026101514324704
+	- Steps to reproduce:
+
+		~~~bash
+		printf '~x: ```\n\tbody\n\t```\n' > app.shcl
+		shcl upgrade --write app.shcl
+		shcl upgrade --write app.shcl
+		~~~
+
+	- Incorrect behavior: each run says `upgraded`, writes the same text, and leaves one more backup. With `##    Format   4` under the block there's no H006 hint, and with `##    Format   3` there `migrate` exits 7 on "a raw block never closes". A `` `y: ``` `` line over a body with `##    Schema   mark.shcl` in it makes `check` exit 8 on the missing schema file, with no diagnostics.
+	- Expected behavior: the scan finds the blocks the parser finds, as spec.md says. With the name `x`, the second run says `nothing to upgrade`, H006 shows, `migrate` has nothing to do, and `check` ends `ok`.
+	- Reproduced: 20261015, all 4 CLIs, with a different test clock per run.
+	- Possible cause: `opens_raw` sends a line starting with a fence character only to `child_fence`, against its own comment that a line refused for its text still takes its body. The Format line upgrade appends then reads as inside an open block, so the file looks unstamped every time.
+	- Origin: `4fcfec0b` (2026-10-03), before this window. `upgrade_file` (`60d0196c`, 2026-10-07) turns it into a new backup on every start. Neither 20261014 round saw it. 2026100307163902 accepted the scan and the parser disagreeing on E014 lines, since such a file fails `check` anyway. Confirmed.
+	- Sweep: every reader of the line scan in all 4: the Format and Schema line reads, `restamp`, and the banner code.
+	- Note: fuzz `ErfuRfE` misses it, since its names all parse and it skips any file with an error. 2026101514324704 widens it.
+
+- A setter writing a thousands number over a quoted value keeps the quotes, so Loose reads it as a number
+	- ID: 2026101514324702
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 2
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101309122757
+	- Steps to reproduce:
+		- `printf 'k: "x"\nj: x\n' > f.shcl`
+		- `shcl set --set='k=1,200' --set='j=1,200' f.shcl`
+		- `shcl get --int --strictness=loose --set='k=1,200' f.shcl k`
+	- Incorrect behavior: `set` writes `k: "1,200"` and `j: 1,200`. The int read of `k` gives 1200 at exit 0, and of `j` BadType at exit 4. Same through the library setters. All 4.
+	- Expected behavior: spec.md's quoting rules say "A setter's value like that is written bare too", and Strictness levels says "`set` of `1,200` gives text". So `k` reads as text at every level, whatever its old quote kind.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Possible cause: `keep_mark` gives the new text the old value's quote kind, the general rule in spec.md. The writer's thousands exception only runs for a value with no kept mark.
+	- Origin: `4527cc4e` (loosethou, 2026-10-13). Its Swept line names `keep_mark`, and its calls cover a new field only. 20261014 had it in its tree. Confirmed.
+	- Note: this doesn't reopen the thousands rule JC settled on 2026-10-13. spec.md's thousands exception already names setters, and the fix makes them follow it.
+	- Sweep: every path that keeps an old quote kind on new text, in all 4.
+
+- Nothing tests the Loose thousands grouping rule itself
+	- ID: 2026101514324703
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 3
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101309122757, 2026101318521195, 2026101010054746
+	- Problem description: spec.md says `"1,2000"` and `"$ 1,200"` stay text, and a `%` goes where it goes on any Loose number. No runner, corpus case or cli-regress row has `"1,2000"`, `"1234,567"`, `"$ 1,200"`, or an int read of `"1,200%"`. 4 breaks of the rule in the reference passed every gate: a head of 4 digits, groups of 3 or more, a blank after the currency sign, and an int read that ignores `%`. Groups of 3 or more in the Python port passed too, while its CLI read `"1,2000"` as 12000. `typed_reads_survive_a_save` (`EsZikJr`) compares a read before and after a save, so it can't see the rule.
+	- Requirements:
+		- Rows in corpus `206-loose-thousands` and the shared `loose_reads_a_quoted_thousands_number` fixture for each spelling spec.md says stays text, plus `"1234,567"` and an int read of `"1,200%"`.
+		- A fuzz property: a quoted `thousands_soup` value reads Good at Loose, as int and float, exactly when it matches spec.md's pattern, with the number checked, and BadType at Standard and Strict.
+		- crosscheck's fuzz dump gets thousands documents with Loose reads, so the other 3 bindings see them.
+		- The cli-regress comment above `EsZikJm` says fmt writes the value quoted. It keeps it bare since 2026101309122757.
+	- Reason: the rule changed 4 times in 9 days. The next change to it should go red somewhere.
+	- Origin: `4527cc4e` and `10deaa99` (loosethou). Confirmed by putting each break in and running the gates.
+
+- No fuzz property covers `upgrade`
+	- ID: 2026101514324704
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 4
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101514324701
+	- Problem description: fuzz never runs `upgrade` or `upgrade_file`. A probe of the property below over 20,000 fuzzed files found 2026101514324701. `schema_and_format_lines_follow_the_parser` (`ErfuRfE`) uses only names that parse and skips every file with an error, which is how that one got past it.
+	- Requirements:
+		- A property over `mutate` and `structural` output with a `Format 3` line, a `Format 2` line or none, with and without `from_v2`. A clean input naming this format comes back current and unchanged. A converted input naming this format loads clean. Upgrading the result again without `from_v2` is current.
+		- `ErfuRfE` adds names starting with `~` or a backtick, keeps files whose only errors are E014, and finds raw bodies with the test's own `raw_spans`. Changed that way it fails on dev at iteration 15.
+	- Origin: `upgrade` came in `60d0196c` (2026-10-07) with no property.
+
+- `upgrade --from-2x` reads a Format number too big for 32 bits as format 3, and converts the file by 2.x rules
+	- ID: 2026101514324705
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 5
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100010
+	- Steps to reproduce:
+		- `printf '##    Format   99999999999\nname: x\nrange: 0, 100\n' > ov.shcl`
+		- `shcl upgrade --from-2x ov.shcl`
+	- Incorrect behavior: exit 0, with `range: [0, 100]` and a new info block naming format 3 in place of the old line. All 4.
+	- Expected behavior: left alone, like a file naming format 4, which gets H006 and `nothing to upgrade, left as is`. Dev before 2026101407100010 left this file alone.
+	- Reproduced: 20261015, all 4 CLIs, and the base build for the old answer.
+	- Possible cause: `format_line_read` reads digits that don't fit as `FORMAT_MAJOR`, and its comment says that's so there's nothing to migrate. The beta file path then takes it for a beta file with an error.
+	- Origin: `ad9af077` (close10, 2026-10-14). In 20261014b's window, not seen. Confirmed.
+	- Note: an unlikely input, and `--write` backs the original up.
+	- Sweep: the other readers of a Format number in all 4, the H006 check and `restamp` among them.
+
+- `upgrade --write` prints none of the load's diagnostics when it refuses, or fails after the load
+	- ID: 2026101514324706
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 6
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280005
+	- Steps to reproduce:
+		- `printf 'tags: a,b\nb 2\n' > f.shcl`
+		- `shcl upgrade f.shcl`, then `shcl upgrade --write f.shcl`
+	- Incorrect behavior: without `--write` the E014 line prints, then the refusal, at exit 7. With `--write` only the refusal prints. Same at exit 8 after the load, when the backup name is taken or the folder is read-only. `migrate --write` prints the E014 line in each case. All 4.
+	- Expected behavior: design.md, the help, the man page and the CLI style guide say every loading subcommand prints the load's diagnostics once.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Possible cause: the refusal and error arms of each CLI's upgrade return before the diagnostics print.
+	- Origin: `60d0196c` (2026-10-07). 2026101419280005 fixed the arm for a file left alone, and its Swept line names upgrade with `--write`. These 2 arms were missed. Confirmed.
+	- Sweep: every early return in each CLI's upgrade and migrate. A cli-regress row that walks each loading subcommand's error exits would cover the class, rather than one row per arm.
+
+- `upgrade --write` calls a file it has no permission to read "cannot be read as UTF-8 text"
+	- ID: 2026101514324707
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 7
+	- Version and build: dev at `79b9876c`
+	- Steps to reproduce:
+		- `printf 'a: 1\nb 2\n' > f.shcl; chmod 000 f.shcl`
+		- `shcl upgrade --write f.shcl`
+	- Incorrect behavior: `f.shcl: cannot be read as UTF-8 text`, exit 8. Without `--write` it's `f.shcl: Permission denied`. All 4.
+	- Expected behavior: the system's message, as every other read gives.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Possible cause: `upgrade_file` maps every read failure but a missing file to `WriteStatus::Unreadable` with the UTF-8 text.
+	- Origin: `60d0196c` (2026-10-07). Neither 20261014 round mentions it. Confirmed.
+	- Sweep: the other library calls that read a file and fold the error into one status.
+
+- The help, examples.md and the `upgrade` doc comments promise more than `upgrade` does
+	- ID: 2026101514324708
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 8
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280001, 2026101407100001
+	- Incorrect behavior:
+		- The help's `upgrade` line says a file that doesn't load clean is printed migrated and made over. A file naming this format with an error is left alone: `printf 'a: 1\nb 2\n##    Format   3\n' | shcl upgrade -` prints it as is, with `nothing to upgrade, left as is`.
+		- `project/examples.md` says a clean file is left alone "unless `--from-2x` says it was written for 2.x and it reads differently now, so a program can run it (or the library's `upgrade_file`) on every start". Since 2026101419280001, `from_v2` is for a file known to be old, never every start. It doesn't give the Format line rule either.
+		- The `upgrade` doc comment in all 5 interfaces says "any old info block swapped for the one `init` writes". A whole block above the first field stays, by 2026101407100001's call, so a beta file with its block at the top comes out with 2.
+	- Expected behavior: each says what spec.md and the man page say now.
+	- Reproduced: 20261015, the help in all 4 CLIs and the top block case. examples.md by reading.
+	- Origin: the help from `60d0196c`. The examples.md paragraph moved as it was from the README in `b30d70a8`. 2026101419280001 (`6d5d8dd1`) updated the man page, spec.md, design.md and the library docs, and missed these. Confirmed.
+	- Sweep: every other text on `upgrade`: completions, README, changelog's Unreleased.
+
+- An op indented with a tab is refused as `unknown op: `, naming nothing
+	- ID: 2026101514324709
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 9
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280004, 2026101407100005
+	- Steps to reproduce:
+		- `printf '\tint\tx\t1\n' | shcl set f.shcl`
+	- Incorrect behavior: `op line 1: unknown op:  (see --help)`. All 4.
+	- Expected behavior: the message names what it read, as it does for an op indented with spaces. An indented op stays an unknown op, by 2026101419280004's call. Only the text changes.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Origin: the sibling 2026101419280004 left. That item called this message the one 2026101407100005 set out to remove, for a comment line. cli-regress `Esnb9g2` pins the space-indented form only. Confirmed.
+
+- A few stderr messages differ between the 4 CLIs
+	- ID: 2026101514324710
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 10
+	- Version and build: dev at `79b9876c`
+	- Incorrect behavior:
+		- Invalid UTF-8 on stdin: Rust and C say `stdin: stream did not contain valid UTF-8` for an ops script and a document. Go and Python say `stdin: invalid UTF-8` for an ops script, and name a document `-`.
+		- `set --write` through a dangling symlink into a missing folder: Rust, Go and Python say `f.shcl: cannot create temporary file: ...`. C says only `f.shcl: No such file or directory`, since `dir_takes_a_temp` checks the link's folder, not the target's.
+		- The C comment over the ops script's UTF-8 check says exit 1. It exits 8, as all 4 do.
+	- Expected behavior: the CLI style guide's rule that the 4 CLIs match. The exit codes already do.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Origin: `279862ae` (2026-07-25), `722a2cd8` (2026-09-03) and `fbbe7ce2` (2026-09-07), before this window. crosscheck never compares stderr, and no cli-regress row has invalid UTF-8 on stdin. Confirmed.
+
+- spec.md says only `V090` to `V093` print `schema line N`, and nothing pins `V094` or `V095`
+	- ID: 2026101514324711
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 11
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100012
+	- Incorrect behavior: spec.md's paragraph under the validation codes says "A `V090`-`V093` line number is a schema-file line". The table above it marks V094 and V095 as schema file lines too, `FormatDiagnostic`'s text in the same doc says V090 to V095, and all 4 CLIs print `schema line 3: Error: V094` on corpus `040`. The library fixture skips V094, and cli-regress covers V090 to V093.
+	- Expected behavior: one range in spec.md, and a row for each code in it.
+	- Reproduced: 20261015, all 4 CLIs on corpus `040`.
+	- Origin: the V090-V093 sentence is older than V094 and V095. `02241ff5` (diagline) wrote the right range elsewhere. Confirmed.
+
+- check-pins' container checks pass recipes they say they refuse
+	- ID: 2026101514324712
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 12
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101303344553, 2026101309250977
+	- Incorrect behavior:
+		- `Esbpt85` passes a recipe with `curl https://example.com/x.tgz -o x.tgz` (the URL before the options), one with `curl -fsSLo go.tgz` of another URL to a file name hashed elsewhere, and one whose `sha256sum -c` line is commented out. Docker drops comment lines inside a `RUN` continuation, so that build checks nothing.
+		- `Esbpsph` reads an extra image's versions only from its `ARG *_VER=` lines. `staticcheck@2025.1` written in the `RUN` line, with the ARG left at 2026.1, passes.
+	- Expected behavior: check-pins' header says a recipe fails "when one fetches something it doesn't hash", and that "an extra image can't drift on its own". 2026101303344553 and 2026101309250977 name these checks as their tests.
+	- Reproduced: 20261015, on a copy of check-pins with each recipe edit. Each printed `ok`.
+	- Origin: `a1afc401` and `07914455` (ctrbuild, 2026-10-13). The commented-out hash is the hole closed for ci.yml on 2026-09-16, open again in the new check. Confirmed.
+	- Note: a bare `wget URL` passes too. The check's comment says a fetch has to have an option, since the package lists name both tools bare. Nothing checks that `FROM` is pinned by digest either. All 3 recipes are today.
+	- Sweep: shell-regress `Esbq6Ie` gets a case for each form.
+
+- An extra image's run writes into this box's builds
+	- ID: 2026101514324713
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 13
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101309250977
+	- Incorrect behavior:
+		- With no `source/rust/target`, `cicd.bash --container=alpine` leaves a root-owned one in the repo, and the next `cargo build` here fails on permissions. Docker makes the missing mount point as root.
+		- From a gate worktree, whose `source/rust/target` links to the main checkout's `target-gate`, the run builds into `target-gate` and leaves its private copy empty. The link's real path is mounted too, on top of the private one.
+		- The Alpine run builds `source/c/shcl` in the tree as a musl binary, which won't run here (`required file not found`, exit 127). A cli-regress or crosscheck run by hand then fails every C row until the next build here. Plausible: the build line was run in the image, not the whole run.
+	- Expected behavior: cicd.bash says an extra image "builds into its own copy of these, so it doesn't churn or replace this box's builds", and config.bash "Extra images build Rust into their own copy of this".
+	- Reproduced: 20261015, the first 2 on a copy of cicd.bash with its stages stubbed, against the existing alpine image.
+	- Origin: `a1afc401` and `07914455` (ctrbuild, 2026-10-13). Confirmed for the first 2.
+
+- `--no-tests` drops the profiler calibration on a local run too
+	- ID: 2026101514324714
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 14
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101011200000
+	- Incorrect behavior: `--no-tests` sets `PROFILE_CHECK=""` with or without `--ci`, so a local `--no-tests` run draws the flame graph unchecked.
+	- Expected behavior: the help says `--no-tests` skips "under --ci, the profiler calibration". The profile stage's own comment says an unchecked graph is worse than none.
+	- Reproduced: 20261015, on a copy of cicd.bash with its stages stubbed.
+	- Origin: `cbfced5c` (cisplit, 2026-10-13). Confirmed.
+
+- check-docs `EsnhDn1` takes a `#` line inside a code fence for a heading
+	- ID: 2026101514324715
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 15
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280006
+	- Incorrect behavior: `installer-doc-pointers` builds the target doc's anchors from every `#` line, fenced or not. An installer link to `#typo-anchor` passes when install.md has `# typo anchor` in a `~~~bash` fence. Nothing on dev trips it.
+	- Expected behavior: its comment says each link has to reach a heading. `EsiRFl2` skips fences for the same job.
+	- Reproduced: 20261015, on a fixture repo with the check's block.
+	- Origin: `b3199842` (docgate, 2026-10-15). Confirmed.
+	- Note: one anchor builder for both checks closes it.
+
+- crosscheck's bad-op dimension never checks that a bad op fails
+	- ID: 2026101514324716
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 16
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100003
+	- Incorrect behavior: its comment says each `write-bad.ops` line "must produce the same (empty) stdout and same nonzero exit in every binding". It only compares the bindings, so a valid line in `write-bad.ops` passes. 2026101407100003's test row leans on it: the corpus' 29 too-few lines reach the CLIs only here, and cli-regress covers 10 of the 29 ops. With `literal` taken out of the Python CLI's field count table, `literal<TAB>k` wrote `k:` at exit 0 again, and cli-regress stayed green.
+	- Expected behavior: a bad op that exits 0, or prints anything, fails.
+	- Reproduced: 20261015, a corpus copy with a valid line in `write-bad.ops`. 2 bindings agreed and crosscheck exited 0.
+	- Origin: `279862ae` (2026-07-25), before this window. Confirmed.
+
+- `test-ids.py` takes a commented-out Python or C test marker for a live test
+	- ID: 2026101514324717
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 17
+	- Version and build: dev at `79b9876c`
+	- Incorrect behavior: `test-ids.py find EsZikJk` gives `source/python/tests/conformance.py:4026`, which is a `#` comment. Its Rust twin `EsZikJi`, commented out the same way, is `not found`.
+	- Expected behavior: a commented-out marker counts as no test, as in Rust and Go.
+	- Reproduced: 20261015.
+	- Origin: before this window. Confirmed.
+
+- Two fuzz properties never reach a branch they cover
+	- ID: 2026101514324718
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 18
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100011, 2026101412591471, 2026100717500020
+	- Problem description:
+		- `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks `format_value` over a character soup that made no thousands-shaped text in 2,000,000 draws, and always builds 2 element arrays. With the keep-bare thousands branch taken out of `format_value`, or 1 element taking the scalar rule in `format_array`, fuzz stayed green. Only the fixtures went red.
+		- The default fill property (`EsJZkoB`) never reads the replaced-line note. Dropping the old value from the note, or adding a note to an empty field, kept fuzz green.
+	- Requirements:
+		- `Ekfzh7g` draws from `thousands_soup` now and then, builds 0 to 4 elements, and checks `format_array` of one text against `format_value`'s, quoted for a thousands number.
+		- `EsJZkoB` checks that a replaced value leaves exactly 1 note line with the old value, and an empty field none.
+	- Origin: fmtvalue, fmtelem and defaultfix. Confirmed by putting each break in.
+
+- 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
+	- ID: 2026101514324719
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 19
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280002, 2026101308163572, 2026101011200000, 2026101316013508
+	- Problem description:
+		- 2026101419280002: shell-regress `EsndgSX` wants 30 or more guarded feeds and no `done < <(`. A feed changed to `|| true`, the form the item says hid real git errors, passes it and `EsndgVW`.
+		- 2026101308163572: with `mem_caps.rs` put back as it was, the 2 tests passed 31 of 31 runs. The race waits on a clock, as the item says. A source order check that each test takes its turn before it builds its input would pin it.
+		- 2026101011200000: with the hosted matrix put back to 1 `--ci` job, the form that ran out of time, check-pins still prints `ok EsZzNCY`. It could refuse a job that runs both the lint and test halves.
+		- 2026101316013508: `ErTZaL2` runs only in the Alpine image, which hasn't run since the fix. A C CLI built here with zig's musl target turns it red on the old code, and the fix passes.
+	- Requirements: a check for each, seen red with the fix taken out.
+	- Origin: docgate, memcap, cisplit and muslfix. Confirmed.
+
+- 3 checkable doc sentences have no check
+	- ID: 2026101514324720
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 20
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100009, 2026101407100006
+	- Problem description:
+		- spec.md says `QuoteSegment` output works as a selector body, so `site("0")` picks the instance whose value is 0. It's true today in all 4 CLIs for `"0"`, `"2020"`, `"@null"` and `"a.b"`. Nothing pins it.
+		- spec.md says Go reads are safe from several goroutines. No Go test reads that way, and the gate never runs `go test -race`. With `indexMu`'s lock taken out, `go test` stayed green.
+		- check-docs `EqRTWFc` reads the man page SYNOPSIS against the help one way only, so an option the help has and the SYNOPSIS lacks passes. The missing `--lossy` got by that way until 2026101407100006.
+	- Requirements: a check for each, or the sentence reworded until it claims nothing.
+	- Origin: the first 2 from `6314a79b` (docsync). `EqRTWFc` is older.
+
+- Replacing a bad value with a default walks all its siblings each time
+	- ID: 2026101514324721
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 21
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026100717500020
+	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
+	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
+	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+
 - check-docs gates fed by a Python script pass when the script crashes
 	- ID: 2026101419280002
 	- Type: Bug
@@ -15454,6 +15808,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Dropped: strictness and on-bad are the consuming program's contract, not the user's. A user-level override would silently weaken guarantees an app makes about its own config handling, and would make the same `shcl` command mean different things on different machines. Nothing else the CLI exposes is presentation-only, so there is nothing left for a config file to hold. Rationale in `design.md`; runtime options and the library's per-document strictness argument stay as they are.
 	- Opened: 20260711-150807
 	- Closed: 20260723-134323
+
+- Code review 20261015:
+	- Decided against: `upgrade --from-2x` damaging the good lines of a beta file with one error, such as a backtick-quoted `#fff` cut at the `#`. It's the class 2026101419280001 closed as docs only: `from_v2` is for a file known to be old. Raised with JC.
+	- Decided against: `upgrade --from-2x` run again on its own output when that still has an error. It takes the file for 2.x again, writes a second backup and can change a key at exit 0. Same rule as above, but the file it misreads is one upgrade itself stamped, so it's raised with JC.
+	- Decided against: `upgrade --from-2x` saying `nothing to upgrade, left as is` at exit 0 on a Format 3 file whose fresh text wouldn't load clean. `Esnb9pV` pins it, and the wording is JC's call on 2026101419280005.
+	- Decided against: a beta file with its info block at the top getting a second block from `upgrade`. 2026101407100001 keeps a whole block above the first field. Only the doc comments are filed (2026101514324708).
+	- Decided against: a build at the Rust 1.88 floor in the gate. There's no 1.88 toolchain here, and `EshaoyP` checks the floor against the docs.
+	- Decided against: a fuzz property for control characters in diagnostic lines, and fuzz differentials for ops scripts and `--json`. Probes over 411,512 diagnostics, 600 scripts and 400 inputs found nothing, and crosscheck already feeds ops scripts and `paths --json` from the fuzz dump.
+	- Decided against: a check that walks the Go and C names against the reference. 2026101407100008 records it as the gap it left.
+	- Decided against: the cleanup trap turning exit 0 into 1 when it can't remove the container's scratch folder. Nothing found makes it fail.
+	- Decided against: check-cpu-floor not scanning the x86_64 half of the macOS universal build. macOS 13 needs a CPU past that floor anyway.
+	- Decided against: the dev installer's help naming contributing.md by bare file name. It clones the repo first.
+	- Opened: 20261015-143247
+	- Closed: 20261015-143247
 
 - Code review 20261014:
 	- Decided against: `--remove` on a wildcard deleting every match. The spec and design.md say `Remove` acts on every node a path reaches, so only the help wording is filed (2026101407100006).
