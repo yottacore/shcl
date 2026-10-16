@@ -3556,6 +3556,21 @@ fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "abrt|${xcDir}/abrt"
 	&& "${xcOut}" == *"| stub about refused"* ]] || fBad "crosscheck did not show a crashed binding's signal and stderr (exit ${xcRc}): ${xcOut@Q}"
 fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "two|${xcDir}/two"
 [[ "${xcRc}" == 1 && "${xcOut}" != *"stderr:"* && "${xcOut}" != *"killed by signal"* ]] || fBad "crosscheck showed stderr or a signal for a binding that had neither (exit ${xcRc}): ${xcOut@Q}"
+fTest EssNRBl 20261015-16-crosscheck-bad-op-must-fail
+##	Code review 20261015 item 16: the bad-op dimension only compared the
+##	bindings, so a write-bad.ops line every binding took passed. The CLI as
+##	two bindings has to fail on a good line there, and pass on a refused one.
+for d in badop badok; do
+	mkdir -p "${xcDir}/${d}/001-a"
+	cp "${xcDir}/corpus/001-a/input.shcl" "${xcDir}/corpus/001-a/reads.tsv" "${xcDir}/${d}/001-a/"
+done
+printf '# a good line\nint\tb\t2\n' > "${xcDir}/badop/001-a/write-bad.ops"
+printf 'int\tb\n' > "${xcDir}/badok/001-a/write-bad.ops"
+fCrosscheck --corpus "${xcDir}/badop" "rust|${cli}" "again|${cli}"
+[[ "${xcRc}" == 1 && "${xcOut}" == *"NOT REFUSED set-bad 001-a line 1: rust exited 0 with 11 byte(s) on stdout"* ]] \
+	|| fBad "crosscheck passed a write-bad.ops line the CLI took (exit ${xcRc}): ${xcOut@Q}"
+fCrosscheck --corpus "${xcDir}/badok" "rust|${cli}" "again|${cli}"
+[[ "${xcRc}" == 0 && "${xcOut}" != *"NOT REFUSED"* ]] || fBad "crosscheck failed a write-bad.ops line the CLI refused (exit ${xcRc}): ${xcOut@Q}"
 
 fTestEnd
 

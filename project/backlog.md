@@ -228,7 +228,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - crosscheck's bad-op dimension never checks that a bad op fails
 	- ID: 2026101514324716
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 16
@@ -238,6 +238,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a bad op that exits 0, or prints anything, fails.
 	- Reproduced: 20261015, a corpus copy with a valid line in `write-bad.ops`. 2 bindings agreed and crosscheck exited 0.
 	- Origin: `279862ae` (2026-07-25), before this window. Confirmed.
+	- Actual fix: each bad op's run on the reference has to exit nonzero with nothing on stdout, or crosscheck fails with `NOT REFUSED`. The compare holds the other bindings to the reference, as before.
+	- Swept: the other crosscheck dimensions whose comments say what a call must do. The corpus save gate (`fmt --write` per case) and the fixed `fFixLost` write rows also only compare bindings. The runners and cli-regress pin those answers, so they were left as is.
+	- Test case: shell-regress `EssNRBl` runs crosscheck with the CLI as 2 bindings over a case whose `write-bad.ops` has a good line, which has to fail, and one whose line is refused, which has to pass.
+	- Verified: `EssNRBl` fails on the old crosscheck and passes on the fix. crosscheck over the corpus with the 4 debug CLIs (22233 comparisons), shell-regress and shellcheck pass.
+	- Branch: `gatefix`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the check does what its comment says.
+	- Closed: 20261016-081026
 
 - `test-ids.py` takes a commented-out Python or C test marker for a live test
 	- ID: 2026101514324717
