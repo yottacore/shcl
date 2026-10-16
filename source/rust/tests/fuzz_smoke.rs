@@ -1538,6 +1538,124 @@ fn typed_reads_survive_a_save() {
 	);
 }
 
+/// spec.md's quoted thousands number, worked out apart from the library: a
+/// currency sign, a sign, 1 to 3 digits, then groups of exactly 3 behind
+/// commas, an optional `.` and digits, and a `%`. Gives the number a Loose
+/// float read should give, or None where the text is no such number.
+fn thousands_by_spec(t: &str) -> Option<f64> {
+	let t = t.strip_prefix(['$', '\u{20ac}', '\u{a3}']).unwrap_or(t);
+	let (t, pct) = match t.strip_suffix('%') {
+		Some(r) => (r, true),
+		None => (t, false),
+	};
+	let body = t.strip_prefix(['+', '-']).unwrap_or(t);
+	let (whole, frac) = body.split_once('.').unwrap_or((body, ""));
+	let digits = |g: &str| g.bytes().all(|b| b.is_ascii_digit());
+	let groups: Vec<&str> = whole.split(',').collect();
+	let grouped = groups.len() > 1
+		&& (1..=3).contains(&groups[0].len())
+		&& groups.iter().all(|g| digits(g))
+		&& groups[1..].iter().all(|g| g.len() == 3);
+	if !grouped || !digits(frac) {
+		return None;
+	}
+	let v: f64 = t.replace(',', "").parse().ok()?;
+	Some(if pct { v / 100.0 } else { v })
+}
+
+/// A quoted thousands number reads as a number at Loose exactly when spec.md's
+/// pattern says it does, with the number it says, and at Standard and Strict
+/// never. Four breaks of the rule passed every gate before this: a head of 4
+/// digits, groups of 3 or more, a blank after the currency sign and an int
+/// read that ignored the `%` (2026101514324703). A setter's thousands number
+/// is text at every level, also over a quoted value, whose quotes it once kept
+/// (2026101514324702).
+#[test]
+fn quoted_thousands_read_by_the_rule() {
+	let _id = test_id("EsoRGsu");
+	let iters = iter_count(200);
+	let mut rng = Rng(0x5EED_1015_1432_4703);
+	let (mut numbers, mut texts) = (0usize, 0usize);
+	for i in 0..iters {
+		let soup = thousands_soup(&mut rng);
+		// Without a comma it's a plain number, which other properties cover.
+		if !soup.contains(',') {
+			continue;
+		}
+		let q = ['"', '\'', '`'][rng.below(3)];
+		let text = format!("k: {q}{soup}{q}\n");
+		let want = thousands_by_spec(&soup);
+		match want {
+			Some(_) => numbers += 1,
+			None => texts += 1,
+		}
+		for level in [Strictness::Loose, Strictness::Standard, Strictness::Strict] {
+			let doc = Document::parse_with(&text, level)
+				.unwrap_or_else(|e| panic!("iteration {i} {level:?}: {text:?} refused: {e:?}"));
+			let (r, f) = (doc.read_int("k"), doc.read_float("k"));
+			match want.filter(|_| level == Strictness::Loose) {
+				Some(v) => {
+					assert_eq!(
+						(r.status, r.value),
+						(shcl::Status::Good, v.round() as i64),
+						"iteration {i} {level:?}: int of {text:?}"
+					);
+					assert_eq!(
+						(f.status, f.value.to_bits()),
+						(shcl::Status::Good, v.to_bits()),
+						"iteration {i} {level:?}: float of {text:?} gave {}",
+						f.value
+					);
+				}
+				None => assert_eq!(
+					(r.status, f.status),
+					(shcl::Status::BadType, shcl::Status::BadType),
+					"iteration {i} {level:?}: {text:?} reads as a number"
+				),
+			}
+			// The same text from a setter, over a value in the same quotes.
+			let mut set = Document::parse_with(&format!("k: {q}x{q}\n"), level).unwrap();
+			assert_eq!(set.set_string("k", &soup), shcl::SetStatus::Ok);
+			let saved = set.to_canonical();
+			let back = Document::parse_with(&saved, level).unwrap();
+			for (d, when) in [(&set, "before"), (&back, "after")] {
+				assert_eq!(
+					(d.read_int("k").status, d.read_float("k").status),
+					(shcl::Status::BadType, shcl::Status::BadType),
+					"iteration {i} {level:?}: set {soup:?} over {q}x{q} reads as a number {when} the save:\n{saved}"
+				);
+			}
+		}
+	}
+	// The soup must keep making both kinds.
+	assert!(
+		numbers * 10 >= iters && texts * 10 >= iters,
+		"{numbers} numbers and {texts} texts over {iters} iterations"
+	);
+	// SHCL_FUZZ_DUMP: thousands documents with Loose reads, so crosscheck holds
+	// the other bindings to the rule too. Their own Rng, so the property above
+	// runs the same with or without a dump.
+	let Ok(dir) = std::env::var("SHCL_FUZZ_DUMP") else {
+		return;
+	};
+	let mut rng = Rng(0x5EED_1015_1432_4704);
+	for i in 0..40 {
+		let _ = std::fs::write(format!("{dir}/thou_{i:05}.shcl"), thousands_doc(&mut rng));
+		let mut tsv = String::from("query\ttype\texpected\tstatus\tlevel\n");
+		for (p, ty, lvl) in [
+			("k", "int", "loose"),
+			("k", "float", "loose"),
+			("k", "int", ""),
+			("l", "int[]", "loose"),
+			("m", "int[]", "loose"),
+			("m", "float[]", "loose"),
+		] {
+			tsv.push_str(&format!("{p}\t{ty}\t-\t-\t{lvl}\n"));
+		}
+		let _ = std::fs::write(format!("{dir}/thou_{i:05}.reads.tsv"), tsv);
+	}
+}
+
 /// A merge or an edit leaves the document its own saved text reloads as,
 /// comments included, so the next step comes out the same whether or not the file
 /// was saved in between. Comments were filed one way by a load and another by

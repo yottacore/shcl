@@ -7417,11 +7417,14 @@ typedef struct { ShclSite site; size_t owner, k; } ShclKeptAt;
 static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first);
 /* An overwrite keeps the quote kind the old value was written in, when the
    new text can be written that way (value-syntax.md, Canonical output). The
-   kind is the one a save writes, so the answer is the same after a reload. */
+   kind is the one a save writes, so the answer is the same after a reload.
+   A thousands number stays bare whatever it replaces, since in quotes Loose
+   would read it as a number (spec.md). */
 static void keep_mark(ShclArena *a, const ShclValue *old, ShclValue *now) {
 	if (old->kind != V_CELL || now->kind != V_CELL) return;
 	const ShclElement *was = &old->els[0];
 	ShclElement *el = &now->els[0];
+	if (thousands_number(NULL, el->text, NULL, NULL)) return;
 	ShclStr written = emit_scalar(a, was);
 	ShclElMark mark; int fits;
 	if (written.n && written.p[0] == '\'') { mark = MARK_SINGLE; fits = !memchr(el->text.p, '\'', el->text.n); }

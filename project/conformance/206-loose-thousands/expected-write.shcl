@@ -1,18 +1,22 @@
 # Loose reads a quoted thousands number. Bare is text, and so is a
 # comma that breaks the grouping.
-a: "1,200"
+a: 5,600
 b: "$1,200"
 c: "1,200.50"
 d: 3,400
 e: "1, 200"
 f: "1,2,3"
-g: '-12,345,678'
+g: -7,800
 h: "1,200%"
 i: $1,200.50
 j: "1,200."
 k: "$1,200.%"
 m: 1,200.
 n: ".1,200"
+o: "1,2000"
+p: "1234,567"
+q: "$ 1,200"
+r: 9,100
 items:
 	- 80,443
 	- "2,500"

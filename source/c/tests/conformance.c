@@ -4679,25 +4679,26 @@ int main(int argc, char **argv) {
 	   a bare one bare, so a typed read is the same after a save
 	   (2026101309122757). */
 	{
-		const char *ltext = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\nl:\n\t- 80,443\n";
+		const char *ltext = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\ni: \"1,2000\"\nj: \"1234,567\"\nk: \"$ 1,200\"\nm: \".1,200\"\nn: \"1,200%\"\nl:\n\t- 80,443\n";
 		shcl_doc *ll = shcl_parse_with(ltext, strlen(ltext), SHCL_LOOSE);
-		const char *ipaths[] = { "a", "b", "c", "d", "e", "f", "g", "h", "l" };
-		const int igood[] = { 1, 1, 1, 0, 0, 0, 1, 1, 0 };
-		const int64_t iwant[] = { 1200, 1200, 1201, 0, 0, 0, -12345678, 9007199254740993LL, 0 };
-		for (size_t i = 0; i < 9; i++) {
+		const char *ipaths[] = { "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "m", "n", "l" };
+		const int igood[] = { 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0 };
+		const int64_t iwant[] = { 1200, 1200, 1201, 0, 0, 0, -12345678, 9007199254740993LL, 0, 0, 0, 0, 12, 0 };
+		for (size_t i = 0; i < 14; i++) {
 			shcl_read_i64 r = shcl_read_int(ll, ipaths[i], 1);
 			if (igood[i] && (r.status != SHCL_GOOD || r.value != iwant[i])) fail("loose_thousands", ipaths[i]);
 			if (!igood[i] && r.status != SHCL_BAD_TYPE) fail("loose_thousands", ipaths[i]);
+			if (!igood[i] && shcl_read_float(ll, ipaths[i], 1).status != SHCL_BAD_TYPE) fail("loose_thousands", ipaths[i]);
 		}
-		if (shcl_read_float(ll, "c", 1).value != 1200.5 || shcl_read_float(ll, "b", 1).value != 1200.0) fail("loose_thousands", "float");
+		if (shcl_read_float(ll, "c", 1).value != 1200.5 || shcl_read_float(ll, "b", 1).value != 1200.0 || shcl_read_float(ll, "n", 1).value != 12.0) fail("loose_thousands", "float");
 		if (shcl_read_float(ll, "d", 1).status != SHCL_BAD_TYPE) fail("loose_thousands", "d float");
 		shcl_read_str lb = shcl_read_string(ll, "b", 1);
 		if (lb.value.n != 6 || memcmp(lb.value.p, "$1,200", 6) != 0) fail("loose_thousands", "b string");
 		shcl_strictness levels[] = { SHCL_STANDARD, SHCL_STRICT };
 		for (size_t k = 0; k < 2; k++) {
 			shcl_doc *ld = shcl_parse_with(ltext, strlen(ltext), levels[k]);
-			const char *spaths[] = { "a", "b", "c", "d", "g", "h" };
-			for (size_t i = 0; i < 6; i++) {
+			const char *spaths[] = { "a", "b", "c", "d", "g", "h", "n" };
+			for (size_t i = 0; i < 7; i++) {
 				if (shcl_read_int(ld, spaths[i], 1).status != SHCL_BAD_TYPE) fail("loose_thousands", spaths[i]);
 				if (shcl_read_float(ld, spaths[i], 1).status != SHCL_BAD_TYPE) fail("loose_thousands", spaths[i]);
 			}
@@ -4718,6 +4719,18 @@ int main(int argc, char **argv) {
 		if (shcl_quoted(ls, "s", 1) || shcl_read_int(ls, "s", 1).status != SHCL_BAD_TYPE) fail("loose_thousands", "s reads as quoted");
 		shcl_read_i64_arr ta = shcl_read_int_array(ls, "t", 1);
 		if (ta.n != 1 || ta.values[0] != 1000) fail("loose_thousands", "t");
+		/* Over a quoted value too, whatever its quote kind (2026101514324702). */
+		const char *osrc = "a: \"x\"\nb: 'x'\nc: `x`\n";
+		shcl_doc *lo = shcl_parse_with(osrc, strlen(osrc), SHCL_LOOSE);
+		const char *opaths[] = { "a", "b", "c" };
+		const char *ovals[] = { "1,200", "$1,200", "1,200.50" };
+		for (size_t i = 0; i < 3; i++) {
+			if (shcl_set_string(lo, opaths[i], 1, ovals[i], strlen(ovals[i])) != SHCL_SET_OK) fail("loose_thousands", opaths[i]);
+			if (shcl_quoted(lo, opaths[i], 1) || shcl_read_int(lo, opaths[i], 1).status != SHCL_BAD_TYPE) fail("loose_thousands", opaths[i]);
+		}
+		shcl_str oout = shcl_to_canonical(lo);
+		const char *owant = "a: 1,200\nb: $1,200\nc: 1,200.50\n";
+		if (oout.n != strlen(owant) || memcmp(oout.p, owant, oout.n) != 0) fail("loose_thousands", "the overwritten text");
 		/* A merge puts a stacked list in brackets, which quote its items. */
 		const char *msrc = "l:\n\t- 1,200\n";
 		shcl_doc *lm = shcl_parse_with(msrc, strlen(msrc), SHCL_LOOSE);
@@ -4729,12 +4742,12 @@ int main(int argc, char **argv) {
 		if (mout.n < 13 || memcmp(mout.p, "l: [\"1,200\"]\n", 13) != 0) fail("loose_thousands", "the merged text");
 		shcl_read_i64_arr la = shcl_read_int_array(lm, "l", 1);
 		if (la.n != 1 || la.values[0] != 1200) fail("loose_thousands", "l merged");
-		shcl_doc *ldocs[] = { ll, ls, lm };
-		const char *cpaths[] = { "a", "b", "c", "d", "e", "g", "h", "l", "s", "t" };
-		for (size_t k = 0; k < 3; k++) {
+		shcl_doc *ldocs[] = { ll, ls, lo, lm };
+		const char *cpaths[] = { "a", "b", "c", "d", "e", "g", "h", "k", "n", "l", "s", "t" };
+		for (size_t k = 0; k < 4; k++) {
 			shcl_str out = shcl_to_canonical(ldocs[k]);
 			shcl_doc *back = shcl_parse_with(out.p, out.n, SHCL_LOOSE);
-			for (size_t i = 0; i < 10; i++) {
+			for (size_t i = 0; i < 12; i++) {
 				shcl_read_i64 x = shcl_read_int(ldocs[k], cpaths[i], 1), y = shcl_read_int(back, cpaths[i], 1);
 				if (x.status != y.status || x.value != y.value) fail("loose_thousands", cpaths[i]);
 				shcl_read_i64_arr xa = shcl_read_int_array(ldocs[k], cpaths[i], 1), ya = shcl_read_int_array(back, cpaths[i], 1);
@@ -4744,6 +4757,7 @@ int main(int argc, char **argv) {
 			shcl_free(back);
 		}
 		shcl_free(lm);
+		shcl_free(lo);
 		shcl_free(ls);
 		shcl_free(ll);
 	}

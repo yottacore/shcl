@@ -61,7 +61,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A setter writing a thousands number over a quoted value keeps the quotes, so Loose reads it as a number
 	- ID: 2026101514324702
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
 	- Severity: Avg
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 2
@@ -78,6 +79,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `4527cc4e` (loosethou, 2026-10-13). Its Swept line names `keep_mark`, and its calls cover a new field only. 20261014 had it in its tree. Confirmed.
 	- Note: this doesn't reopen the thousands rule JC settled on 2026-10-13. spec.md's thousands exception already names setters, and the fix makes them follow it.
 	- Sweep: every path that keeps an old quote kind on new text, in all 4.
+	- Actual cause: `keep_mark` put the old quote kind on any new text that fit it. The writer's thousands exception only ran for text with no mark.
+	- Actual fix: `keep_mark` leaves a thousands number bare in all 4. A setter over `"x"`, `'x'` or a backtick value writes `k: 1,200`, which reads as text before and after the save. spec.md's setter paragraph and value-syntax.md's setter bullet now say so too.
+	- Swept: `keep_mark` is the one place an old quote kind goes on new text. Each of the 4 libraries has one definition and one call, in the scalar setter path (`grep -n 'keep_mark\|keepMark'`). Array setters keep no marks, and a stacked list keeps its form, not its quotes. `--set-literal` takes its quotes from the text, as before. The C++ veneer wraps the C call.
+	- Verified: the 4 runners' fixture, corpus 206's write ops, the 2 new cli-regress rows and the veneer smoke fail without the fix and pass with it. Also cargo test, `go test -count=1` for both modules, the Python and C runners, cli-regress (593 rows, 4 bindings), crosscheck (53505 comparisons), check-doc-examples, check-abnf, shell-regress, rustfmt, clippy, go vet, staticcheck, ruff, mypy, shellcheck and cppcheck at the normal level.
+	- Test case: `loose_reads_a_quoted_thousands_number` in all 4 runners (`EsbaIWJ`, `EsbaIYt`, `EsbaIba`, `EsbaIe1`); corpus `206-loose-thousands`'s `write.ops`; cli-regress `EsoRGvI` (`set-thousands-over-quoted`) and `EsoRGxW` (`loose-set-thousands-over-quoted`); the veneer smoke `EjtkR0S`; and the setter half of fuzz `EsoRGsu`.
+	- Branch: `thoufix`
+	- Commit: `75ea0170`
+	- Acceptance signoff: Self-closed: reproduced, the new checks failed before the fix and pass after, and the Sweep has its Swept answer. It applies spec.md's own setter sentence and moves no recorded decision.
+	- Closed: 20261015-162300
 
 - `upgrade --from-2x` stamps a converted file that still has an error, and a second run reads it by 2.x rules again
 	- ID: 2026101515372401
@@ -103,7 +113,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Nothing tests the Loose thousands grouping rule itself
 	- ID: 2026101514324703
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 3
@@ -117,6 +127,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The cli-regress comment above `EsZikJm` says fmt writes the value quoted. It keeps it bare since 2026101309122757.
 	- Reason: the rule changed 4 times in 9 days. The next change to it should go red somewhere.
 	- Origin: `4527cc4e` and `10deaa99` (loosethou). Confirmed by putting each break in and running the gates.
+	- Done:
+		- Corpus 206 has `"1,2000"`, `"1234,567"`, `"$ 1,200"` and a backtick `1,200`, with Loose reads of each, float reads of `"1, 200"` and `"1,2,3"`, and an int read of `"1,200%"`. The shared fixture in the 4 runners has the same spellings plus `".1,200"`.
+		- Fuzz `quoted_thousands_read_by_the_rule` reads a quoted `thousands_soup` value, in each quote kind and at each level, against spec.md's pattern worked out apart from the library, int and float values included. A setter's soup over a quoted value has to read as text at every level, before and after a save, so 02's bug fails it.
+		- The fuzz dump writes 40 thousands documents with Loose int, float and array reads, which crosscheck replays through the other 3.
+		- The cli-regress comment above `EsZikJm` no longer says fmt quotes the value.
+	- Verified: each of the review's 4 breaks put back in the reference fails the fixture, corpus 206 and the fuzz property. Groups of 3 or more in the Python port fail its corpus run and crosscheck over the dump. 02's bug fails the property. Release fuzz at 2,000,000 passed, 29 properties in 475 s, since corpus 206's input changed. The gates listed on 02 ran on the same tree.
+	- Test case: fuzz `EsoRGsu` (`quoted_thousands_read_by_the_rule`); corpus `206-loose-thousands` (`EsbaIuk`) in all 4 runners and crosscheck; `loose_reads_a_quoted_thousands_number` in all 4 runners; crosscheck `EjsGuyA` over the thousands dump.
+	- Branch: `thoufix`
+	- Commit: `2af9be49`
+	- Acceptance signoff: Self-closed: each Requirement has its check, and each break the review named fails one.
+	- Closed: 20261015-162300
 
 - No fuzz property covers `upgrade`
 	- ID: 2026101514324704
