@@ -1356,6 +1356,10 @@ fPinsRun 's/args: --ci --no-tests$/args: --ci --no-lint/' && fBad "check-pins.ba
 fPinsRun 's/args: --ci --no-lint --no-cross$/args: --ci --no-largedoc/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
 fPinsRun 's/args: --ci --no-tests$/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --ci"
 fPinsRun 's#cicd/cicd\.bash#cicd/other.bash#' && fBad "check-pins.bash passed a workflow with no job running cicd.bash"
+##	2026101514324719: the single job the split replaced, and a third job that
+##	runs everything beside the 2 halves.
+fPinsRun '/^[[:space:]]*- part: tests$/,/args:/d; s/args: --ci --no-tests$/args: --ci/' && fBad "check-pins.bash passed one hosted job running lint and tests together"
+fPinsRun 's/^([[:space:]]*)(- part: tests)$/\1- part: all\n\1  args: --ci\n\1\2/' && fBad "check-pins.bash passed a hosted job running lint and tests beside the 2 halves"
 fTest Esbq6Ie 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to
@@ -2886,6 +2890,35 @@ out="$(PATH="${tmpDir}/pycrash:${PATH}" env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=
 for id in EshYXXC Er8RudX EsiRFl2 EsnhDn1; do
 	grep -qE "^FAIL ${id} check-docs " <<<"${out}" || fBad "check-docs' ${id} passed with python3 exiting 1 after its output"
 done
+
+fTest EstZ5TA 2026101514324719-check-docs-feeds-stay-guarded
+##	Code review 20261015 item 19: EsndgSX finds the feeds by their guard, so one
+##	whose `|| fFeedBad $?` turned into `|| true` dropped out of its count and
+##	passed, and that's the form that hid real git errors. So every loop check-docs
+##	feeds from a variable has to fill it through fFeedBad, and no capture may end
+##	in `)" || true`. The listed ones were `<<<` loops before that item, over sed,
+##	grep or git, and were left with the `|| true` inside.
+feedOld="defaultOps drifted editOpts exitRows flameKeys noted retiredCodes"
+out="$(FEED_OLD="${feedOld}" awk '
+	BEGIN { n = split(ENVIRON["FEED_OLD"], o, " "); for (i = 1; i <= n; i++) old[o[i]] = 1 }
+	/^[[:space:]]*#/ { next }
+	/^[[:space:]]*(local[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*="\$\(/ {
+		v = $0; sub(/^[[:space:]]*(local[[:space:]]+)?/, "", v); sub(/=.*/, "", v); open = v
+	}
+	open != "" && /\)"([[:space:]]*\|\|.*)?$/ {
+		if ($0 ~ /\)"[[:space:]]*\|\|[[:space:]]*true/) print FNR ": " open "=\"$(...)\" || true hides the feed exit"
+		guarded[open] = ($0 ~ /\)" \|\| fFeedBad \$\?$/); open = ""
+	}
+	match($0, /done <<<"\$\{[A-Za-z_][A-Za-z0-9_]*\}"/) {
+		v = substr($0, RSTART + 11, RLENGTH - 13); loops++
+		if (!(v in old) && !guarded[v]) print FNR ": the loop over " v " reads a capture that skips fFeedBad"
+	}
+	END { print "loops " loops + 0 }' "${docs}")"
+nLoops="$(sed -n 's/^loops //p' <<<"${out}")"
+((nLoops >= 30)) || fBad "found ${nLoops} loops fed from a variable in check-docs.bash, too few to trust; has the form changed?"
+while IFS= read -r hit; do
+	[[ -z "${hit}" || "${hit}" == "loops "* ]] || fBad "check-docs.bash:${hit}"
+done <<<"${out}"
 
 fTest EssNR9b 20261015-15-fenced-hash-is-no-heading
 ##	Code review 20261015 item 15: installer-doc-pointers took a `#` line in a

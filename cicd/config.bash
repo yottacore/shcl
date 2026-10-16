@@ -83,8 +83,9 @@ TOOL_PINS=(
 	## script and read what it names; it builds no release, so that version
 	## never reaches a published file, and check-pins leaves it out.
 	"makensis|3.11|makensis -VERSION"
-	## Only check-readme needs zig (the Zig example), and only shell-regress
-	## needs Pillow (the demo gif's output order). Both fail a skip under --ci.
+	## Only check-readme (the Zig example) and check-c-compilers (the musl
+	## build) need zig, and only shell-regress needs Pillow (the demo gif's
+	## output order). Both fail a skip under --ci.
 	"zig|0.16.0|zig version"
 	"pillow|11.1.0|python3 -c 'import PIL; print(PIL.__version__)'"
 )
