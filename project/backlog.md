@@ -33,42 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- `upgrade --from-2x` reads a Format number too big for 32 bits as format 3, and converts the file by 2.x rules
-	- ID: 2026101514324705
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 5
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101407100010
-	- Steps to reproduce:
-		- `printf '##    Format   99999999999\nname: x\nrange: 0, 100\n' > ov.shcl`
-		- `shcl upgrade --from-2x ov.shcl`
-	- Incorrect behavior: exit 0, with `range: [0, 100]` and a new info block naming format 3 in place of the old line. All 4.
-	- Expected behavior: left alone, like a file naming format 4, which gets H006 and `nothing to upgrade, left as is`. Dev before 2026101407100010 left this file alone.
-	- Reproduced: 20261015, all 4 CLIs, and the base build for the old answer.
-	- Possible cause: `format_line_read` reads digits that don't fit as `FORMAT_MAJOR`, and its comment says that's so there's nothing to migrate. The beta file path then takes it for a beta file with an error.
-	- Origin: `ad9af077` (close10, 2026-10-14). In 20261014b's window, not seen. Confirmed.
-	- Note: an unlikely input, and `--write` backs the original up.
-	- Sweep: the other readers of a Format number in all 4, the H006 check and `restamp` among them.
-	- Actual cause: confirmed. Digits that don't fit 32 bits read as this format, and since 2026101407100010 a file naming this format that loads with an error is what `--from-2x` takes for a beta file.
-	- Decisions:
-		- JC, 2026-10-16: signed off on the fix, with one change. The H006 hint quotes the Format number as written, not the 32-bit cap.
-		- H007 quotes it the same way, and leading zeros stay, so `Format 0004` shows as `0004` (me). A number past 200 digits is cut the way any value in a message is, as one `head...tail` text with its length after it.
-	- Actual fix: those digits read as the largest 32-bit number, a newer format, in all 4. The file is left alone with the H006 hint, as one naming format 4 is. spec.md says so. Since 2026-10-16 the H006 and H007 hints quote the digits as written, through each binding's `one_line`. The read keeps the cap. spec.md and design.md say so.
-	- Against: 2026092620255209, which read them as this major in all 4 and pinned it in `format_version_caps_at_32_bits` and the `stamp_reads_say_why` row. Its 32-bit cap and one answer across bindings stay. Its reason, nothing to migrate, stopped holding once a file naming this format could be converted. The old assertions are commented out with that reason, and new ones pin the cap.
-	- Swept: one parse per binding, in the Format line read. The H006 and H007 hints, `restamp`, `migrate`, `upgrade` and the backup name all read through it. The C++ veneer passes the value through as `uint32_t`, which holds it.
-	- Swept: only the H006 and H007 messages print a Format number. The backup name keeps the read value. `explain H006` and `H007`, the man page and the C++ veneer name no number, so none of them changed.
-	- Note: the hint named the cap, 4294967295, until 2026-10-16. It names the digits as written now.
-	- Test case: cli-regress `EssAxd7` (`upgrade-format-overflow`), `EssAxd8` (`stamp-hint-leading-zeros`) and `EssAxd9` (`stamp-hint-long-number`), `stamp_hints_quote_digits` in all 4 runners, plus `format_version_caps_at_32_bits` and the `stamp_reads_say_why` row in all 4. `EsoQOx5` is commented out, since it pinned the cap in the hint.
-	- Verified: `EsoQOx5` fails on the review's 4 CLIs and passes on the fix. The runner checks fail in all 4 with the fix put back. Same gate list as 2026101514324701.
-	- Verified: the 3 new rows and `stamp_hints_quote_digits` fail in all 4 with dev's library at `c9cf1f5a` and pass on the hint change. The 4 conformance suites, the veneer smoke and the C memory tests, cli-regress, check-doc-examples, crosscheck over the corpus, shell-regress, check-docs at `SHCL_GATE_REF=main`, check-abnf, check-veneer, test-ids, clippy, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, and cppcheck at the normal level. The exhaustive cppcheck waits on the next `--ci`.
-	- Branch: `scanfix`, `fmtdigits`
-	- Commit: `bca7322f`, `25b4e53d`
-	- Acceptance signoff: JC, 2026-10-16, on the fix with the hint change, which is in.
-	- Closed: 20261016-073233
-
 - No fuzz property covers `upgrade`
 	- ID: 2026101514324704
 	- Type: Enhancement
@@ -342,6 +306,42 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
 	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
 	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+
+- `upgrade --from-2x` reads a Format number too big for 32 bits as format 3, and converts the file by 2.x rules
+	- ID: 2026101514324705
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 5
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100010
+	- Steps to reproduce:
+		- `printf '##    Format   99999999999\nname: x\nrange: 0, 100\n' > ov.shcl`
+		- `shcl upgrade --from-2x ov.shcl`
+	- Incorrect behavior: exit 0, with `range: [0, 100]` and a new info block naming format 3 in place of the old line. All 4.
+	- Expected behavior: left alone, like a file naming format 4, which gets H006 and `nothing to upgrade, left as is`. Dev before 2026101407100010 left this file alone.
+	- Reproduced: 20261015, all 4 CLIs, and the base build for the old answer.
+	- Possible cause: `format_line_read` reads digits that don't fit as `FORMAT_MAJOR`, and its comment says that's so there's nothing to migrate. The beta file path then takes it for a beta file with an error.
+	- Origin: `ad9af077` (close10, 2026-10-14). In 20261014b's window, not seen. Confirmed.
+	- Note: an unlikely input, and `--write` backs the original up.
+	- Sweep: the other readers of a Format number in all 4, the H006 check and `restamp` among them.
+	- Actual cause: confirmed. Digits that don't fit 32 bits read as this format, and since 2026101407100010 a file naming this format that loads with an error is what `--from-2x` takes for a beta file.
+	- Decisions:
+		- JC, 2026-10-16: signed off on the fix, with one change. The H006 hint quotes the Format number as written, not the 32-bit cap.
+		- H007 quotes it the same way, and leading zeros stay, so `Format 0004` shows as `0004` (me). A number past 200 digits is cut the way any value in a message is, as one `head...tail` text with its length after it.
+	- Actual fix: those digits read as the largest 32-bit number, a newer format, in all 4. The file is left alone with the H006 hint, as one naming format 4 is. spec.md says so. Since 2026-10-16 the H006 and H007 hints quote the digits as written, through each binding's `one_line`. The read keeps the cap. spec.md and design.md say so.
+	- Against: 2026092620255209, which read them as this major in all 4 and pinned it in `format_version_caps_at_32_bits` and the `stamp_reads_say_why` row. Its 32-bit cap and one answer across bindings stay. Its reason, nothing to migrate, stopped holding once a file naming this format could be converted. The old assertions are commented out with that reason, and new ones pin the cap.
+	- Swept: one parse per binding, in the Format line read. The H006 and H007 hints, `restamp`, `migrate`, `upgrade` and the backup name all read through it. The C++ veneer passes the value through as `uint32_t`, which holds it.
+	- Swept: only the H006 and H007 messages print a Format number. The backup name keeps the read value. `explain H006` and `H007`, the man page and the C++ veneer name no number, so none of them changed.
+	- Note: the hint named the cap, 4294967295, until 2026-10-16. It names the digits as written now.
+	- Test case: cli-regress `EssAxd7` (`upgrade-format-overflow`), `EssAxd8` (`stamp-hint-leading-zeros`) and `EssAxd9` (`stamp-hint-long-number`), `stamp_hints_quote_digits` in all 4 runners, plus `format_version_caps_at_32_bits` and the `stamp_reads_say_why` row in all 4. `EsoQOx5` is commented out, since it pinned the cap in the hint.
+	- Verified: `EsoQOx5` fails on the review's 4 CLIs and passes on the fix. The runner checks fail in all 4 with the fix put back. Same gate list as 2026101514324701.
+	- Verified: the 3 new rows and `stamp_hints_quote_digits` fail in all 4 with dev's library at `c9cf1f5a` and pass on the hint change. The 4 conformance suites, the veneer smoke and the C memory tests, cli-regress, check-doc-examples, crosscheck over the corpus, shell-regress, check-docs at `SHCL_GATE_REF=main`, check-abnf, check-veneer, test-ids, clippy, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, and cppcheck at the normal level. The exhaustive cppcheck waits on the next `--ci`.
+	- Branch: `scanfix`, `fmtdigits`
+	- Commit: `bca7322f`, `25b4e53d`
+	- Acceptance signoff: JC, 2026-10-16, on the fix with the hint change, which is in.
+	- Closed: 20261016-073233
 
 - A refused line whose name starts with `~` or a backtick hides its raw block from the Format and Schema line scan
 	- ID: 2026101514324701
