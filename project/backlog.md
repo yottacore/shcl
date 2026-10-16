@@ -216,7 +216,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-docs `EsnhDn1` takes a `#` line inside a code fence for a heading
 	- ID: 2026101514324715
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 15
@@ -227,11 +227,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261015, on a fixture repo with the check's block.
 	- Origin: `b3199842` (docgate, 2026-10-15). Confirmed.
 	- Note: one anchor builder for both checks closes it.
+	- Actual cause: confirmed. The check built its anchors with its own `sed`, which read every `#` line in the file.
+	- Actual fix: one anchor builder at the top of check-docs, which `EsnhDn1` and `EsiRFl2` both call. It skips fenced lines, as `EsiRFl2` did.
+	- Swept: the other heading builder in check-docs is `fBuildToc` for `EqQW89J`, which builds what the editor's contents block would hold, a different rule. It already skips fences. check-readme and the other gates build no anchors.
+	- Test case: shell-regress `EssNR9b` runs both link checks on a fixture repo with a fenced `# typo anchor`. `EsndgVW` now wants `EsnhDn1` to fail too when python3 crashes.
+	- Verified: `EssNR9b` fails on the old check-docs, since `EsnhDn1` passes the typo link, and passes on the fix. shell-regress, check-docs as `SHCL_GATE_REF=main`, shellcheck and `test-ids.py check` pass.
+	- Branch: `gatefix`
+	- Commit: `9028769e`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the fix is the one the item named.
+	- Closed: 20261016-080415
 
 - crosscheck's bad-op dimension never checks that a bad op fails
 	- ID: 2026101514324716
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 16
@@ -241,11 +250,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a bad op that exits 0, or prints anything, fails.
 	- Reproduced: 20261015, a corpus copy with a valid line in `write-bad.ops`. 2 bindings agreed and crosscheck exited 0.
 	- Origin: `279862ae` (2026-07-25), before this window. Confirmed.
+	- Actual fix: each bad op's run on the reference has to exit nonzero with nothing on stdout, or crosscheck fails with `NOT REFUSED`. The compare holds the other bindings to the reference, as before.
+	- Swept: the other crosscheck dimensions whose comments say what a call must do. The corpus save gate (`fmt --write` per case) and the fixed `fFixLost` write rows also only compare bindings. The runners and cli-regress pin those answers, so they were left as is.
+	- Test case: shell-regress `EssNRBl` runs crosscheck with the CLI as 2 bindings over a case whose `write-bad.ops` has a good line, which has to fail, and one whose line is refused, which has to pass.
+	- Verified: `EssNRBl` fails on the old crosscheck and passes on the fix. crosscheck over the corpus with the 4 debug CLIs (22233 comparisons), shell-regress and shellcheck pass.
+	- Branch: `gatefix`
+	- Commit: `33fcb499`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the check does what its comment says.
+	- Closed: 20261016-081026
 
 - `test-ids.py` takes a commented-out Python or C test marker for a live test
 	- ID: 2026101514324717
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 17
@@ -254,6 +271,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a commented-out marker counts as no test, as in Rust and Go.
 	- Reproduced: 20261015.
 	- Origin: before this window. Confirmed.
+	- Actual cause: confirmed. The marker-only sites matched their pattern anywhere in a line, comments included. Rust and Go anchor theirs at the line start.
+	- Actual fix: those sites read each file with its comments blanked first: a `#` line in Python, Bash and PowerShell, and a `//` line or `/* */` span in C and C++.
+	- Swept: every marker-only site in the table. Bash had the same hole: `check-migrate.bash` has 2 commented-out `fTest` lines and `cli-regress.bash` 1, and all 3 counted as tests. The C twin `EsZikJl` did too. The cli-regress and perf-gate row arrays skip a line that doesn't start with a quote, so a commented row was already none.
+	- Test case: shell-regress `EssNRE0` runs `test-ids.py find` on a fake tree with live and commented-out markers in Python, C and Bash.
+	- Verified: `EssNRE0` fails on the old `test-ids.py` and passes on the fix. `find EsZikJk` now says `not found`. `test-ids.py check`, shell-regress, shellcheck, ruff and mypy pass.
+	- Branch: `gatefix`
+	- Commit: `8eba94bc`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the scan does what the item asked.
+	- Closed: 20261016-081446
 
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
 	- ID: 2026101514324719

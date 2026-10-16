@@ -129,10 +129,22 @@ fReadOut(){
 }
 
 ##	Compare every other binding against the reference for one stdin-fed call.
+##	With mustRefuse set the call has to fail with nothing on stdout, which
+##	holds the reference to it, and the compare holds the rest: bindings that
+##	all agree on a wrong answer pass a compare.
+mustRefuse=0
 fCompareStdin(){
 	local what="$1" stdinFile="$2"; shift 2
 	local want got b name cli
 	runErr=ref.err; fRunStdin "$refCli" "$stdinFile" "$@"; want="${runOut}"; runErr=run.err
+	if ((mustRefuse)); then
+		local rc="${want%%$'\n'*}" out="${want#*$'\n'}"
+		if [[ "$rc" == 0 || -n "$out" ]]; then
+			nBad+=1
+			echo "NOT REFUSED ${what}: ${refName} exited ${rc} with ${#out} byte(s) on stdout (shcl $* <${stdinFile})"
+			fShowOneErr "$refName" "$rc" ref.err
+		fi
+	fi
 	for b in "${bindings[@]:1}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		fRunStdin "$cli" "$stdinFile" "$@"; got="${runOut}"
@@ -386,7 +398,8 @@ fCase(){
 	[[ -f "$ops" ]] && fCompareStdin "set ${caseName}" "$ops" set "$input"
 	fKeepEdits "$input" "$caseName" 3
 	# Bad-op dimension: each write-bad.ops line, applied alone, must produce the
-	# same (empty) stdout and same nonzero exit in every binding.
+	# same (empty) stdout and same nonzero exit in every binding. The corpus'
+	# too-few-fields lines reach the CLIs only here.
 	badops="${caseDir}write-bad.ops"
 	if [[ -f "$badops" ]]; then
 		badN=0
@@ -394,7 +407,7 @@ fCase(){
 			[[ -z "$bline" || "$bline" == \#* ]] && continue
 			badN=$((badN+1))
 			printf '%s\n' "$bline" > "${tmpDir}/badop.line"
-			fCompareStdin "set-bad ${caseName} line ${badN}" "${tmpDir}/badop.line" set "$input"
+			mustRefuse=1; fCompareStdin "set-bad ${caseName} line ${badN}" "${tmpDir}/badop.line" set "$input"; mustRefuse=0
 		done < "$badops"
 	fi
 	# Layered-load dimension: replay `fmt` with the case's layer*.shcl merged under
@@ -779,3 +792,5 @@ echo "crosscheck: ${#bindings[@]} bindings agree on ${nCompared} comparison(s)"
 ##		               and is noted in SHCL_GATE_SKIPS otherwise.
 ##		- 20261004: A divergence shows the binding's stderr, and names a run
 ##		               killed by a signal.
+##		- 20261016: A bad op that exits 0 or prints anything fails, even when
+##		               every binding agrees on it.

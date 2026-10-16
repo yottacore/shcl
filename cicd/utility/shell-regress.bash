@@ -2862,15 +2862,37 @@ done <<<"${feedNames}"
 
 fTest EsndgVW 20261014b-2-check-docs-python-crash-fails
 ##	The same the way it happened: python3 prints what it found and exits 1, as
-##	a traceback does. The three checks a script feeds have to fail.
+##	a traceback does. The checks a script feeds have to fail.
 mkdir -p "${tmpDir}/pycrash"
 printf '#!/bin/sh\n"%s" "$@"\nexit 1\n' "$(command -v python3)" > "${tmpDir}/pycrash/python3"
 chmod +x "${tmpDir}/pycrash/python3"
 # shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
 out="$(PATH="${tmpDir}/pycrash:${PATH}" env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=/dev/null bash "${docs}" 2>&1 || true)"
-for id in EshYXXC Er8RudX EsiRFl2; do
+for id in EshYXXC Er8RudX EsiRFl2 EsnhDn1; do
 	grep -qE "^FAIL ${id} check-docs " <<<"${out}" || fBad "check-docs' ${id} passed with python3 exiting 1 after its output"
 done
+
+fTest EssNR9b 20261015-15-fenced-hash-is-no-heading
+##	Code review 20261015 item 15: installer-doc-pointers took a `#` line in a
+##	code fence for a heading, so an installer link to a typo passed. Both link
+##	checks are lifted out with check-docs' opening lines and run on a fixture
+##	repo, where a fenced `# typo anchor` has to make no anchor for either.
+cdAnc="${tmpDir}/cdanchor"
+mkdir -p "${cdAnc}/include" "${cdAnc}/repo/project"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${cdAnc}/include/"
+awk 'BEGIN {on = 1} $1 == "fTest" {on = ($2 == "EsnhDn1" || $2 == "EsiRFl2")} on' "${docs}" > "${cdAnc}/check-docs.bash"
+printf '\nfTestEnd\n((nBad == 0))\n' >> "${cdAnc}/check-docs.bash"
+ancUrl="https://github.com/yottacore/shcl/blob/main/project/install.md"
+printf '#!/usr/bin/env bash\n# see %s#typo-anchor\n# see %s#real-heading\n' "${ancUrl}" "${ancUrl}" > "${cdAnc}/repo/install.bash"
+printf '# see %s#real-heading\n' "${ancUrl}" > "${cdAnc}/repo/install.ps1"
+printf '# Install\n\n## Real heading\n\n~~~bash\n# typo anchor\n~~~\n' > "${cdAnc}/repo/project/install.md"
+printf -- '- [a](project/install.md#typo-anchor)\n- [b](project/install.md#real-heading)\n' > "${cdAnc}/repo/links.md"
+(unset GIT_DIR GIT_WORK_TREE; git init -q "${cdAnc}/repo" && git -C "${cdAnc}/repo" add install.bash install.ps1 project/install.md links.md)
+out="$(env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=/dev/null bash "${cdAnc}/check-docs.bash" "${cdAnc}/repo" 2>&1)" && ancRc=0 || ancRc=$?
+[[ "${ancRc}" == 1 && "${out}" == *"install.bash: links to ${ancUrl}#typo-anchor, and no heading in project/install.md makes #typo-anchor"* \
+	&& "${out}" == *"links.md:1: links to project/install.md#typo-anchor, and no heading there makes #typo-anchor"* \
+	&& "${out}" != *"#real-heading,"* && "${out}" != *"exited"* && "${out}" != *"Traceback"* ]] \
+	|| fBad "check-docs' link checks on a fenced # line said (exit ${ancRc}): ${out@Q}"
 
 fTest ErD9eyc 20260928-item19-skipped-block-names-its-tests
 ##	20260928 item 19: a block skipped for a missing tool printed a skip line for
@@ -2906,6 +2928,27 @@ if git -C "${ti}" init -q 2>/dev/null && git -C "${ti}" add -A 2>/dev/null; then
 else
 	fBad "could not make the fake tree for test-ids.py"
 fi
+fTest EssNRE0 20261015-17-test-ids-commented-marker
+##	Code review 20261015 item 17: a commented-out Python, C or Bash marker
+##	read as a live test, where a commented-out Rust or Go test is none. Each
+##	language's live marker has to be found and its commented ones not.
+mkdir -p "${ti}/source/python/tests" "${ti}/source/c/tests"
+printf '\ttest_id("TidPy01", "live")\n\t# test_id("TidPy02", "gone")\n#\ttest_id("TidPy01", "gone_twin")\n' > "${ti}/source/python/tests/t.py"
+printf '\ttest_id("TidC001", "live");\n\t// test_id("TidC002", "gone");\n/*\n\ttest_id("TidC003", "gone");\n*/ test_id("TidC004", "live_after");\n\tf(); /* x */ test_id("TidC005", "live_mid");\n' > "${ti}/source/c/tests/t.c"
+## The IDs go in through %s, or this line would read as 3 tests here.
+printf 'fTest %s live\n# fTest %s gone\n\t#fTest %s gone\n' TidSh01 TidSh02 TidSh03 > "${ti}/cicd/utility/t.bash"
+out="$(python3 "${ti}/cicd/utility/test-ids.py" find TidPy01 TidPy02 TidC001 TidC002 TidC003 TidC004 TidC005 TidSh01 TidSh02 TidSh03 2>&1 || true)"
+want="TidPy01  source/python/tests/t.py:1
+TidPy02  not found
+TidC001  source/c/tests/t.c:1
+TidC002  not found
+TidC003  not found
+TidC004  source/c/tests/t.c:5
+TidC005  source/c/tests/t.c:6
+TidSh01  cicd/utility/t.bash:1
+TidSh02  not found
+TidSh03  not found"
+[[ "$(sort <<<"${out}")" == "$(sort <<<"${want}")" ]] || fBad "test-ids.py find on commented-out markers said: ${out@Q}"
 
 fTest EoXPkY4 check-completions-option-less-subcommand
 ##	The completions check against a subcommand that takes no options. One side
@@ -3534,6 +3577,21 @@ fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "abrt|${xcDir}/abrt"
 	&& "${xcOut}" == *"| stub about refused"* ]] || fBad "crosscheck did not show a crashed binding's signal and stderr (exit ${xcRc}): ${xcOut@Q}"
 fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "two|${xcDir}/two"
 [[ "${xcRc}" == 1 && "${xcOut}" != *"stderr:"* && "${xcOut}" != *"killed by signal"* ]] || fBad "crosscheck showed stderr or a signal for a binding that had neither (exit ${xcRc}): ${xcOut@Q}"
+fTest EssNRBl 20261015-16-crosscheck-bad-op-must-fail
+##	Code review 20261015 item 16: the bad-op dimension only compared the
+##	bindings, so a write-bad.ops line every binding took passed. The CLI as
+##	two bindings has to fail on a good line there, and pass on a refused one.
+for d in badop badok; do
+	mkdir -p "${xcDir}/${d}/001-a"
+	cp "${xcDir}/corpus/001-a/input.shcl" "${xcDir}/corpus/001-a/reads.tsv" "${xcDir}/${d}/001-a/"
+done
+printf '# a good line\nint\tb\t2\n' > "${xcDir}/badop/001-a/write-bad.ops"
+printf 'int\tb\n' > "${xcDir}/badok/001-a/write-bad.ops"
+fCrosscheck --corpus "${xcDir}/badop" "rust|${cli}" "again|${cli}"
+[[ "${xcRc}" == 1 && "${xcOut}" == *"NOT REFUSED set-bad 001-a line 1: rust exited 0 with 11 byte(s) on stdout"* ]] \
+	|| fBad "crosscheck passed a write-bad.ops line the CLI took (exit ${xcRc}): ${xcOut@Q}"
+fCrosscheck --corpus "${xcDir}/badok" "rust|${cli}" "again|${cli}"
+[[ "${xcRc}" == 0 && "${xcOut}" != *"NOT REFUSED"* ]] || fBad "crosscheck failed a write-bad.ops line the CLI refused (exit ${xcRc}): ${xcOut@Q}"
 
 fTestEnd
 
@@ -3557,3 +3615,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-13  check-pins over the cicd/container recipes.
 ##		2026-10-14  The install one-liners are looked for in project/install.md.
 ##		2026-10-15  check-docs' loop feeds fail their test when they crash.
+##		2026-10-16  A fenced `#` line makes no anchor for check-docs' link checks.
