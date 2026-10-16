@@ -6124,7 +6124,11 @@ int main(int argc, char **argv) {
 		shcl_free(fdoc);
 		static const struct { size_t line; shcl_severity sev; const char *code, *msg, *want; } fcases[] = {
 			{4, SHCL_SEV_HINT, "H001", "", "line 4: Hint: H001"},
+			{1, SHCL_SEV_ERROR, "V090", "z", "schema line 1: Error: V090 z"},
 			{3, SHCL_SEV_ERROR, "V091", "x y", "schema line 3: Error: V091 x y"},
+			{2, SHCL_SEV_ERROR, "V092", "z", "schema line 2: Error: V092 z"},
+			{6, SHCL_SEV_ERROR, "V093", "z", "schema line 6: Error: V093 z"},
+			{8, SHCL_SEV_ERROR, "V094", "z", "schema line 8: Error: V094 z"},
 			{7, SHCL_SEV_ERROR, "V095", "z", "schema line 7: Error: V095 z"},
 			{0, SHCL_SEV_ERROR, "V096", "z", "line 0: Error: V096 z"},
 			{0, SHCL_SEV_ERROR, "V097", "z", "line 0: Error: V097 z"},

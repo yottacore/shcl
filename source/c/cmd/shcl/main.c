@@ -2095,7 +2095,7 @@ static int do_check(const Opts *o) {
 		if (shcl_validation_severity(val, i) == SHCL_SEV_ERROR) nerr++;
 		const char *code = shcl_validation_code(val, i);
 		printf("line %zu: %s: %s\n", shcl_validation_line(val, i), sev, code);
-		// A V090-V093 line number is a SCHEMA line (the code table says so);
+		// A V090-V095 line number is a SCHEMA line (the code table says so);
 		// the prose names the file so the number spaces cannot be confused.
 		say_diag(shcl_validation_line(val, i), shcl_validation_severity(val, i), code, shcl_validation_message(val, i));
 	}

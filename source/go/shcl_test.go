@@ -6255,7 +6255,11 @@ func TestFormatDiagnosticIsTheCLILine(t *testing.T) {
 		want string
 	}{
 		{Diagnostic{Line: 4, Severity: SeverityHint, Code: "H001"}, "line 4: Hint: H001"},
+		{Diagnostic{Line: 1, Severity: SeverityError, Code: "V090", Message: "z"}, "schema line 1: Error: V090 z"},
 		{Diagnostic{Line: 3, Severity: SeverityError, Code: "V091", Message: "x y"}, "schema line 3: Error: V091 x y"},
+		{Diagnostic{Line: 2, Severity: SeverityError, Code: "V092", Message: "z"}, "schema line 2: Error: V092 z"},
+		{Diagnostic{Line: 6, Severity: SeverityError, Code: "V093", Message: "z"}, "schema line 6: Error: V093 z"},
+		{Diagnostic{Line: 8, Severity: SeverityError, Code: "V094", Message: "z"}, "schema line 8: Error: V094 z"},
 		{Diagnostic{Line: 7, Severity: SeverityError, Code: "V095", Message: "z"}, "schema line 7: Error: V095 z"},
 		{Diagnostic{Line: 0, Severity: SeverityError, Code: "V096", Message: "z"}, "line 0: Error: V096 z"},
 		{Diagnostic{Line: 0, Severity: SeverityError, Code: "V097", Message: "z"}, "line 0: Error: V097 z"},

@@ -33,20 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- spec.md says only `V090` to `V093` print `schema line N`, and nothing pins `V094` or `V095`
-	- ID: 2026101514324711
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 11
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101407100012
-	- Incorrect behavior: spec.md's paragraph under the validation codes says "A `V090`-`V093` line number is a schema-file line". The table above it marks V094 and V095 as schema file lines too, `FormatDiagnostic`'s text in the same doc says V090 to V095, and all 4 CLIs print `schema line 3: Error: V094` on corpus `040`. The library fixture skips V094, and cli-regress covers V090 to V093.
-	- Expected behavior: one range in spec.md, and a row for each code in it.
-	- Reproduced: 20261015, all 4 CLIs on corpus `040`.
-	- Origin: the V090-V093 sentence is older than V094 and V095. `02241ff5` (diagline) wrote the right range elsewhere. Confirmed.
-
 - check-pins' container checks pass recipes they say they refuse
 	- ID: 2026101514324712
 	- Type: Bug
@@ -141,6 +127,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
 	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
 	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+
+- spec.md says only `V090` to `V093` print `schema line N`, and nothing pins `V094` or `V095`
+	- ID: 2026101514324711
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 11
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100012
+	- Incorrect behavior: spec.md's paragraph under the validation codes says "A `V090`-`V093` line number is a schema-file line". The table above it marks V094 and V095 as schema file lines too, `FormatDiagnostic`'s text in the same doc says V090 to V095, and all 4 CLIs print `schema line 3: Error: V094` on corpus `040`. The library fixture skips V094, and cli-regress covers V090 to V093.
+	- Expected behavior: one range in spec.md, and a row for each code in it.
+	- Reproduced: 20261015, all 4 CLIs on corpus `040`.
+	- Origin: the V090-V093 sentence is older than V094 and V095. `02241ff5` (diagline) wrote the right range elsewhere. Confirmed.
+	- Actual cause: the sentence and the 4 CLIs' comments over `check --schema`'s output were written before V094 and V095, and nothing read a range against the table.
+	- Actual fix: spec.md and the 4 comments say `V090`-`V095`. A check-docs check takes the codes the spec table marks `schema file`, and fails any tracked text that names another range of V09x codes as schema-line codes. The library fixture has every code in the range, and cli-regress has V094 and V095 rows.
+	- Swept: every V-code range in the tree. Besides the 5 fixed, the lib doc comments in all 4 and `shcl.hpp` already said V090 to V095, and corpus README's `V090`-`V093` names what case `023` produces, which is right.
+	- Verified: the check-docs check fails on the old spec.md sentence and on one old comment put back, and passes on the fix. With the Rust library's rule changed to leave V094 out, the Rust fixture fails on its new V094 row and cli-regress on `EssfCWy`. Both pass with it restored and rebuilt clean.
+	- Test case: check-docs `Essez3P` (`schema-line-range-matches-table`); cli-regress `EssfCWy` (`check-schema-line-v094`) and `EssfCWz` (`check-schema-line-v095`); the format-diagnostic fixture in all 4 runners (Rust `format_diagnostic_is_the_cli_line`), now V090 to V095.
+	- Branch: `climsg`
+	- Acceptance signoff: Self-closed: a doc range fix with a check that was seen to fail on the old text, and pins for each code.
+	- Closed: 20261016-091129
 
 - A few stderr messages differ between the 4 CLIs
 	- ID: 2026101514324710

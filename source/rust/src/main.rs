@@ -3180,7 +3180,7 @@ fn do_check(o: &Opts) -> u8 {
 	};
 	// stdout gets the stable codes - the cross-binding contract. The prose is
 	// per-binding voice and goes to stderr (which the differential check drops).
-	// A V090-V093 line number is a SCHEMA line (the code table says so); the
+	// A V090-V095 line number is a SCHEMA line (the code table says so); the
 	// prose names the file so the two number spaces cannot be confused.
 	for d in &diags {
 		outln!("line {}: {}: {}", d.line, d.severity, d.code);

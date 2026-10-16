@@ -1603,6 +1603,9 @@ rows=(
 	'EqzuLVv|check-schema-line-v091|check --schema=%S3% %F%|-|6|line 5: Error: V091\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 5: Error: V091 unknown schema type .nope.$'
 	'EqzuLVw|check-schema-line-v092|check --schema=%S8% %F%|-|6|-|^schema line 3: Error: V092 bad schema constraint .default.$'
 	'EqzuLVx|check-schema-line-v093|check --schema=%SM% %F%|-|6|-|^schema line 3: Error: V093 bad schema path'
+	## 2026101514324711: V094 and V095 count schema lines too.
+	'EssfCWy|check-schema-line-v094|check --schema=- %F%|field: a\nfragment:\n\tfield: y\n|6|line 2: Error: V094\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 2: Error: V094 bad schema fragment$'
+	'EssfCWz|check-schema-line-v095|check --schema=- %F%|field: a\nfield: x\n\tinherits: nosuch\n|6|line 3: Error: V095\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 3: Error: V095 unknown schema fragment .nosuch.$'
 	## 20260716 item 24: an argument that is not UTF-8 panicked the reference at
 	## 134 while the ports exited 3. POSIX-only: windows hands a program UTF-16.
 	'EqzuLVy|argv-not-utf8|get %F% %XF%|-|1||^invalid argument encoding \(expected UTF-8\)$'

@@ -2439,7 +2439,7 @@ def do_check(o):
 			shcl.suppress_declared_reopens(sdoc, diags)
 	# stdout gets the stable codes - the cross-binding contract. The prose is
 	# per-binding voice and goes to stderr (which the differential check drops).
-	# A V090-V093 line number is a SCHEMA line (the code table says so); the
+	# A V090-V095 line number is a SCHEMA line (the code table says so); the
 	# prose names the file so the two number spaces cannot be confused.
 	for d in diags:
 		print(f"line {d.line}: {d.severity.name}: {d.code}")

@@ -3371,7 +3371,7 @@ func doCheck(o *opts) int {
 	}
 	// stdout gets the stable codes - the cross-binding contract. The prose is
 	// per-binding voice and goes to stderr (which the differential check drops).
-	// A V090-V093 line number is a SCHEMA line (the code table says so); the
+	// A V090-V095 line number is a SCHEMA line (the code table says so); the
 	// prose names the file so the two number spaces cannot be confused.
 	errorCount := 0
 	for _, d := range diags {
