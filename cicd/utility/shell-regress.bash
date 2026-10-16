@@ -1356,6 +1356,10 @@ fPinsRun 's/args: --ci --no-tests$/args: --ci --no-lint/' && fBad "check-pins.ba
 fPinsRun 's/args: --ci --no-lint --no-cross$/args: --ci --no-largedoc/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
 fPinsRun 's/args: --ci --no-tests$/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --ci"
 fPinsRun 's#cicd/cicd\.bash#cicd/other.bash#' && fBad "check-pins.bash passed a workflow with no job running cicd.bash"
+##	2026101514324719: the single job the split replaced, and a third job that
+##	runs everything beside the 2 halves.
+fPinsRun '/^[[:space:]]*- part: tests$/,/args:/d; s/args: --ci --no-tests$/args: --ci/' && fBad "check-pins.bash passed one hosted job running lint and tests together"
+fPinsRun 's/^([[:space:]]*)(- part: tests)$/\1- part: all\n\1  args: --ci\n\1\2/' && fBad "check-pins.bash passed a hosted job running lint and tests beside the 2 halves"
 fTest Esbq6Ie 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to

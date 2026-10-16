@@ -15,8 +15,9 @@
 ##		TOOL_PINS checks, so ci.yml has to name the wheel token and, on a line
 ##		naming cppcheck, the binary version that wheel bundles - bump both.
 ##		Also fails when the jobs that run cicd.bash --ci between them leave a
-##		stage out, when a cicd/container recipe installs a pinned tool at
-##		another version, and when one fetches something it doesn't hash.
+##		stage out, when one of them runs both lint and tests, when a
+##		cicd/container recipe installs a pinned tool at another version, and
+##		when one fetches something it doesn't hash.
 ##	Syntax:
 ##		check-pins.bash
 ##	Exit: 0 = every pin matches, 1 = a mismatch (named), 2 = cannot read inputs.
@@ -194,6 +195,11 @@ for runArgs in "${gateRuns[@]}"; do
 		else echo "check-pins: ci.yml runs the gate with ${w}, which may leave out more than one stage:${runArgs}" >&2; nBad=$((nBad + 1)); fi
 	done
 	((hasCi)) || { echo "check-pins: ci.yml runs cicd.bash without --ci:${runArgs}" >&2; nBad=$((nBad + 1)); }
+	## Lint and tests together were the one job that ran past the 60-minute
+	## limit (2026101011200000), so each job leaves one of them out.
+	if [[ " ${runArgs} " != *" --no-lint "* && " ${runArgs} " != *" --no-tests "* ]]; then
+		echo "check-pins: a hosted job runs both lint and tests, which as one job ran out of time:${runArgs}" >&2; nBad=$((nBad + 1))
+	fi
 	for f in "${stageFlags[@]}"; do
 		if [[ " ${runArgs} " != *" ${f} "* ]]; then flagMissingSomewhere["${f}"]=1; fi
 	done
@@ -331,3 +337,4 @@ exit "${rc}"
 ##		  with the URL first or no option counts, a base image needs a digest, and a
 ##		  version in a RUN line is held to the pin. In ci.yml too, a file is fetched
 ##		  once and nothing follows its check.
+##		- 2026-10-16 JC: No hosted job runs both lint and tests.
