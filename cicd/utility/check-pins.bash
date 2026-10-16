@@ -95,15 +95,23 @@ while IFS= read -r fetchLine; do
 		echo "check-pins: ci.yml fetches in a form this check cannot follow to its sha256 (use curl -o /absolute/path): ${fetchLine#"${fetchLine%%[![:space:]]*}"}" >&2; nBad=$((nBad + 1))
 	fi
 done < <(grep -E -- '(^|[^A-Za-z0-9_-])(curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm|Start-BitsTransfer)([^A-Za-z0-9_-]|$)|gh (release|run) download' <<<"${liveLines}" || true)
+## A check counts only where nothing after it can turn it into a pass, and a
+## file is fetched once, or the check can be of the first fetch and not the one
+## that's used.
+fetchTargets="$(grep -oE -- '-o[[:space:]]+/[^[:space:]]+' <<<"${liveLines}" | sed 's/^-o[[:space:]]*//' | sort || true)"
 while IFS= read -r target; do
 	[[ -n "${target}" ]] || continue
-	checked="$(grep -F -- "${target}\" | sha256sum -c" <<<"${liveLines}" || true)"
+	checked="$(grep -F -- "${target}\" | sha256sum -c" <<<"${liveLines}" | grep -E -- 'sha256sum -c -?[[:space:]]*$' || true)"
 	if [[ -z "${checked}" ]]; then
 		echo "check-pins: ci.yml downloads ${target} and never checks it" >&2; nBad=$((nBad + 1))
 	elif ! grep -qE -- '[0-9a-f]{64}' <<<"${checked}"; then
 		echo "check-pins: the check on ${target} has no sha256" >&2; nBad=$((nBad + 1))
 	fi
-done < <(grep -oE -- '-o[[:space:]]+/[^[:space:]]+' <<<"${liveLines}" | sed 's/^-o[[:space:]]*//' | sort -u || true)
+done < <(uniq <<<"${fetchTargets}")
+while IFS= read -r target; do
+	[[ -n "${target}" ]] || continue
+	echo "check-pins: ci.yml downloads ${target} more than once" >&2; nBad=$((nBad + 1))
+done < <(uniq -d <<<"${fetchTargets}")
 
 ## The other direction. The checks above pass when a pin is DELETED from
 ## config.bash while ci.yml still installs the tool, which is how the one lint
@@ -321,4 +329,5 @@ exit "${rc}"
 ##		- 2026-10-13 JC: The container recipes are held to the pins, and their downloads to a sha256.
 ##		- 2026-10-16 JC: A recipe's check has to be on the line after its fetch, a fetch
 ##		  with the URL first or no option counts, a base image needs a digest, and a
-##		  version in a RUN line is held to the pin.
+##		  version in a RUN line is held to the pin. In ci.yml too, a file is fetched
+##		  once and nothing follows its check.

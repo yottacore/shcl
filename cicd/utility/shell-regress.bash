@@ -1328,6 +1328,10 @@ fPinsRun 's#^([[:space:]]*)(echo "8c3be12b)#\1\# \2#' && fBad "check-pins.bash p
 fPinsRun 's#^([[:space:]]*)(echo "8c3be12b.*)$#\1\2\n\1curl -fsSL https://example.com/x.tgz | tar xz#' && fBad "check-pins.bash passed curl piped to tar"
 fPinsRun 's#^([[:space:]]*)(echo "8c3be12b.*)$#\1\2\n\1wget -O x.tgz https://example.com/x.tgz#' && fBad "check-pins.bash passed wget -O"
 fPinsRun 's#^([[:space:]]*)(echo "8c3be12b.*)$#\1\2\n\1gh release download v1 -R a/b#' && fBad "check-pins.bash passed gh release download"
+##	2026101514324712's sweep: a check that can't fail, and a second fetch to a
+##	file after its check.
+fPinsRun 's#^([[:space:]]*echo "8c3be12b.*sha256sum -c -)$#\1 || true#' && fBad "check-pins.bash passed a sha256 check in ci.yml that can't fail"
+fPinsRun 's#^([[:space:]]*)(echo "8c3be12b.*)$#\1\2\n\1curl -fsSL -o /tmp/shellcheck.tar.xz https://example.com/x.tgz#' && fBad "check-pins.bash passed a second fetch in ci.yml to a file it had checked"
 fTest EqL4rtp 20260918b-45-check-pins-install-families
 ##	20260918b item 45: the reverse check read its three install families in one
 ##	group under errexit, so with no pip or npm line the go and PowerShell ones
