@@ -6214,6 +6214,70 @@ int main(int argc, char **argv) {
 		if (!dv || strcmp(dv, "\"2026-07-12T14:30\"")) fail("format_value", "datetime quoted");
 		free(dv);
 	}
+	test_id("EstLlpN", "quote_segment_selects_a_held_value");
+	/* spec.md: `name(` + shcl_quote_segment(value) + `)` picks the instance
+	   holding that value, numbers included, where site(0) is the first
+	   instance. Over the spec's examples and the setter soup, each value
+	   written with shcl_format_value under one name (2026101514324720). Same
+	   fixture in every runner. */
+	{
+		static const char *const soup[] = { "\"", "'", "\\", "#", ",", "[", "]", "\r", "\n", " ", "\t", "\xc2\xa0", "a" };
+		static const char *const spec[] = { "first", "0", "2020", "@null", "a.b", "1,200", "-x", "a b", "x)", "(y", "a=b", "*", "true", "1.5", "2026-07-12" };
+		const size_t nsoup = sizeof soup / sizeof soup[0], nspec = sizeof spec / sizeof spec[0];
+		char held[256][16];
+		size_t nheld = 0, tn = 0, tcap = 1;
+		char *text = malloc(tcap);
+		if (!text) fail("quote_segment selector", "out of memory");
+		for (size_t i = 0; text && i < nspec + 1 + nsoup + nsoup * nsoup; i++) {
+			char in[16] = { 0 };
+			if (i < nspec) {
+				memcpy(in, spec[i], strlen(spec[i]));
+			} else if (i > nspec) {
+				size_t k = i - nspec - 1;
+				if (k < nsoup) {
+					memcpy(in, soup[k], strlen(soup[k]));
+				} else {
+					size_t a = (k - nsoup) / nsoup, b = (k - nsoup) % nsoup, al = strlen(soup[a]);
+					memcpy(in, soup[a], al);
+					memcpy(in + al, soup[b], strlen(soup[b]));
+				}
+			}
+			int dup = 0;
+			for (size_t h = 0; h < nheld; h++) dup |= !strcmp(held[h], in);
+			size_t fn = 0;
+			char *f = dup ? NULL : shcl_format_value(in, strlen(in), &fn);
+			if (!f) continue;
+			while (tn + fn + 8 > tcap) {
+				char *grown = realloc(text, tcap * 2);
+				if (!grown) { fail("quote_segment selector", "out of memory"); free(f); free(text); text = NULL; break; }
+				text = grown; tcap *= 2;
+			}
+			if (!text) break;
+			memcpy(text + tn, "site: ", 6); memcpy(text + tn + 6, f, fn); text[tn + 6 + fn] = '\n';
+			tn += fn + 7;
+			free(f);
+			memcpy(held[nheld++], in, sizeof in);
+		}
+		if (text) {
+			shcl_doc *sd = shcl_parse(text, tn);
+			if (shcl_count(sd, "site", 4) != nheld) fail("quote_segment selector", "site count");
+			shcl_read_str first = shcl_read_string(sd, "site(0)", 7);
+			if (first.value.n != 5 || memcmp(first.value.p, "first", 5)) fail("quote_segment selector", "site(0) is not the first instance");
+			for (size_t h = 0; h < nheld; h++) {
+				size_t hn = strlen(held[h]);
+				shcl_str q = shcl_quote_segment(sd, held[h], hn);
+				char path[64];
+				if (q.n + 7 > sizeof path) { fail("quote_segment selector", held[h]); continue; }
+				memcpy(path, "site(", 5); memcpy(path + 5, q.p, q.n); path[5 + q.n] = ')';
+				size_t pn = q.n + 6;
+				shcl_read_str r = shcl_read_string(sd, path, pn);
+				if (shcl_count(sd, path, pn) != 1 || r.status != SHCL_GOOD || r.value.n != hn || memcmp(r.value.p, held[h], hn))
+					fail("quote_segment selector", held[h]);
+			}
+			shcl_free(sd);
+			free(text);
+		}
+	}
 	test_id("EsiL1NB", "format_array_is_the_setters_text");
 	/* shcl_format_array is the text shcl_set_string_array writes after `k: `
 	   in a fresh document, NULL exactly where shcl_set_string_array refuses,

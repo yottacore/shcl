@@ -502,7 +502,7 @@ A document and threads, binding by binding:
 
 - Rust: `Document` is `Send` and `Sync`, so threads can read one at once, and a setter takes `&mut self`, so a write has it to itself.
 
-- Go: reads can run from several goroutines at once, since the lookup index the first read builds is built under a lock. A write needs the caller to keep every other call off the document until it returns.
+- Go: reads can run from several goroutines at once, since the lookup index the first read builds is built whole, under a lock, before it's put in place. A write needs the caller to keep every other call off the document until it returns.
 
 - Python: no locks. A read changes nothing on the document but the lookup index, which is built whole before it's put in place, so threads can share a document for reads. A write needs the caller to keep every other call off it.
 

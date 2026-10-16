@@ -5259,6 +5259,71 @@ fn format_value_is_the_setters_text() {
 	assert_eq!(want(&dt.to_string()), "k: \"2026-07-12T14:30\"\n");
 }
 
+/// spec.md says a `Document` is `Send` and `Sync`, so threads can read one at
+/// once. A field that isn't stops this compiling (2026101514324720).
+#[test]
+fn document_is_send_and_sync() {
+	let _id = test_id("EstLlpO");
+	fn shared<T: Send + Sync>() {}
+	shared::<Document>();
+}
+
+/// spec.md: `name(` + `quote_segment(value)` + `)` picks the instance holding
+/// that value, numbers included, where `site(0)` is the first instance. Over
+/// the spec's examples and the setter soup, each value written with
+/// format_value under one name (2026101514324720). Same fixture in every
+/// runner.
+#[test]
+fn quote_segment_selects_a_held_value() {
+	let _id = test_id("EstLlpK");
+	use shcl::format_value;
+	let mut values: Vec<String> = [
+		"first",
+		"0",
+		"2020",
+		"@null",
+		"a.b",
+		"1,200",
+		"-x",
+		"a b",
+		"x)",
+		"(y",
+		"a=b",
+		"*",
+		"true",
+		"1.5",
+		"2026-07-12",
+	]
+	.iter()
+	.map(|s| s.to_string())
+	.collect();
+	values.extend(soup_inputs());
+	let mut text = String::new();
+	let mut held: Vec<String> = Vec::new();
+	for v in values {
+		if held.contains(&v) {
+			continue;
+		}
+		if let Some(f) = format_value(&v) {
+			text.push_str(&format!("site: {f}\n"));
+			held.push(v);
+		}
+	}
+	let doc = Document::parse(&text);
+	assert_eq!(doc.count("site"), held.len(), "{text}");
+	assert_eq!(doc.read_string("site(0)").value, "first");
+	for v in &held {
+		let path = format!("site({})", quote_segment(v));
+		assert_eq!(doc.count(&path), 1, "{v:?} as {path:?}");
+		let r = doc.read_string(&path);
+		assert_eq!(
+			(r.value.as_str(), r.status),
+			(v.as_str(), shcl::Status::Good),
+			"{v:?} as {path:?}"
+		);
+	}
+}
+
 /// Texts the format_value fixture adds to the setter soup: the review's
 /// examples, thousands numbers, and the typed setters' texts.
 const FORMAT_VALUE_EXTRA: &[&str] = &[

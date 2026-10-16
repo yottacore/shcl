@@ -1198,6 +1198,30 @@ if [[ -n "${help}" ]]; then
 	for c in "${!manSy[@]}"; do
 		[[ -v "helpSy[${c}]" ]] || fBad "shcl.1: SYNOPSIS names ${c}, which the help's synopsis lines do not"
 	done
+	##	2026101514324720: that reads the help into the man page only, and
+	##	[options] covers any option, so fmt's and set's SYNOPSIS left out
+	##	--lossy while migrate's had it. An option one SYNOPSIS spells out has to
+	##	be spelled out in the SYNOPSIS of every subcommand the help gives it to,
+	##	and in none the help doesn't.
+	declare -A spelled=()
+	for c in "${!manSy[@]}"; do
+		[[ "${c}" == -* ]] && continue
+		read -r -a mw <<<"${manSy[${c}]}"
+		for m in "${mw[@]}"; do
+			[[ "${m}" == --* ]] || continue
+			spelled["${m}"]=1
+			if [[ ! -v "helpScope[${m}]" ]]; then fBad "shcl.1: the SYNOPSIS for ${c} names ${m}, which the help's option list does not"; continue; fi
+			[[ " ${helpScope[${m}]} " == *" ${c} "* ]] || fBad "shcl.1: the SYNOPSIS for ${c} names ${m}, which the help gives to ${helpScope[${m}]} only"
+		done
+	done
+	((${#spelled[@]} >= 4)) || fBad "shcl.1: only ${#spelled[@]} option(s) spelled out across the SYNOPSIS"
+	for m in "${!spelled[@]}"; do
+		[[ -v "helpScope[${m}]" ]] || continue
+		for c in ${helpScope[${m}]}; do
+			[[ -v "manSy[${c}]" ]] || continue
+			[[ " ${manSy[${c}]} " == *" ${m} "* ]] || fBad "shcl.1: the SYNOPSIS for ${c} leaves out ${m}, which the help gives it and another SYNOPSIS spells out"
+		done
+	done
 
 	##	The same round: the spec said two options shared the ordered list where
 	##	the CLI has five, and never named `--slots`. The edit options are read
@@ -1487,3 +1511,4 @@ echo "check-docs: OK"
 ##		            script that crashes fails its check.
 ##		2026-10-16  Both link checks take their anchors from one builder, which
 ##		            skips code fences.
+##		2026-10-16  The man SYNOPSIS is read against the help both ways.

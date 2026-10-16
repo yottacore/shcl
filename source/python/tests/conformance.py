@@ -5204,6 +5204,89 @@ def main():
 	):
 		if fvgot != fvwant:
 			raise SystemExit(f"typed setter wrote {fvgot!r}, want {fvwant!r}")
+	test_id("EstLlpR", "reads_from_several_threads")
+	# spec.md says threads can share a document for reads, since the lookup
+	# index is built whole before it's put in place. Every read call over every
+	# corpus case, split across 8 threads on a document nothing has read yet,
+	# so they race to build the index, and each answer has to be the one a
+	# single thread got. The short switch interval makes the threads trade
+	# places mid-build, which is what sees an index put in place half built
+	# (2026101514324720).
+	import threading
+	rt_interval = sys.getswitchinterval()
+	sys.setswitchinterval(1e-6)
+	rt_bad: list[str] = []
+	for rt_case in cases:
+		rt_one = shcl.Document.parse(rt_case["input"])
+		rt_qs = [""] + rt_one.paths()
+		for rt_n, rt_line in enumerate(rt_case["reads"].split("\n")):
+			rt_q = rt_line.split("\t")[0]
+			if rt_n and "\t" in rt_line and rt_q != "-":
+				rt_qs.append(rt_q)
+		rt_calls = [
+			lambda d: d.to_canonical(),
+			lambda d: (d.paths(), d.instance_paths(), d.fields()),
+			lambda d: (d.diagnostics(), d.lost_count(), d.error_count()),
+			lambda d: d.to_text_keep_lines(),
+		]
+		if rt_case["schema"] is not None:
+			rt_schema = shcl.Document.parse(rt_case["schema"])
+			rt_calls.append(lambda d, s=rt_schema: d.validate(s))
+		for rt_q in rt_qs:
+			rt_calls += [
+				lambda d, q=rt_q: (d.read_string(q), d.read_raw(q), d.read_raw_info(q)),
+				lambda d, q=rt_q: (d.read_int(q), d.read_float(q), d.read_bool(q), d.read_datetime(q)),
+				lambda d, q=rt_q: (d.read_string_array(q), d.read_int_array(q), d.read_float_array(q), d.read_bool_array(q), d.read_datetime_array(q)),
+				lambda d, q=rt_q: (d.read_duration(q), d.read_size(q), d.get_int_or(q, 7), d.get_string_or(q, "x")),
+				lambda d, q=rt_q: (d.read_count(q), d.read_instances(q), d.read_children(q), d.read_child_fields(q)),
+				lambda d, q=rt_q: (d.read_line(q), d.read_lines(q), d.read_kind(q), d.read_exists(q), d.read_authored_name(q)),
+				lambda d, q=rt_q: (d.read_comments(q), d.check_set_path(q)),
+			]
+		rt_want = [repr(c(rt_one)) for c in rt_calls]
+		rt_shared = shcl.Document.parse(rt_case["input"])
+		rt_start = threading.Barrier(8)
+
+		def rt_run(g, calls=rt_calls, want=rt_want, doc=rt_shared, start=rt_start, name=rt_case["name"]):
+			start.wait()
+			for k in range(0, len(calls), 8):
+				i = (k + g * len(calls) // 8) % len(calls)
+				got = repr(calls[i](doc))
+				if got != want[i]:
+					rt_bad.append(f"{name}: thread {g}, call {i}: got {got!r} want {want[i]!r}")
+					return
+
+		rt_threads = [threading.Thread(target=rt_run, args=(g,)) for g in range(8)]
+		for rt_t in rt_threads:
+			rt_t.start()
+		for rt_t in rt_threads:
+			rt_t.join()
+	sys.setswitchinterval(rt_interval)
+	if rt_bad:
+		raise SystemExit("\n".join(rt_bad[:5]))
+	test_id("EstLlpM", "quote_segment_selects_a_held_value")
+	# spec.md: "name(" + quote_segment(value) + ")" picks the instance holding
+	# that value, numbers included, where site(0) is the first instance. Over
+	# the spec's examples and the setter soup, each value written with
+	# format_value under one name (2026101514324720). Same fixture in every
+	# runner.
+	qsheld: list[str] = []
+	qstext = ""
+	for qsv in ["first", "0", "2020", "@null", "a.b", "1,200", "-x", "a b", "x)", "(y", "a=b", "*", "true", "1.5", "2026-07-12"] + soup_inputs():
+		qsf = shcl.format_value(qsv)
+		if qsv in qsheld or qsf is None:
+			continue
+		qstext += f"site: {qsf}\n"
+		qsheld.append(qsv)
+	qsdoc = shcl.Document.parse(qstext)
+	if qsdoc.count("site") != len(qsheld):
+		raise SystemExit(f"site count {qsdoc.count('site')}, want {len(qsheld)}:\n{qstext}")
+	if qsdoc.read_string("site(0)").value != "first":
+		raise SystemExit("site(0) is not the first instance")
+	for qsv in qsheld:
+		qspath = f"site({shcl.quote_segment(qsv)})"
+		qsr = qsdoc.read_string(qspath)
+		if qsdoc.count(qspath) != 1 or qsr.value != qsv or qsr.status != shcl.Status.Good:
+			raise SystemExit(f"{qsv!r} as {qspath!r}: count {qsdoc.count(qspath)}, read {qsr.value!r} {qsr.status}")
 	test_id("EsiL1Kh", "format_array_is_the_setters_text")
 	# format_array is the text set_string_array writes after `k: ` in a fresh
 	# document, None exactly where set_string_array refuses, and it reads back

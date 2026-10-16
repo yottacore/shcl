@@ -130,7 +130,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - 3 checkable doc sentences have no check
 	- ID: 2026101514324720
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for the new `go test -race` step on the hosted ubuntu job, and exhaustive cppcheck over `conformance.c`.
 	- Priority: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 20
@@ -142,6 +143,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- check-docs `EqRTWFc` reads the man page SYNOPSIS against the help one way only, so an option the help has and the SYNOPSIS lacks passes. The missing `--lossy` got by that way until 2026101407100006.
 	- Requirements: a check for each, or the sentence reworded until it claims nothing.
 	- Origin: the first 2 from `6314a79b` (docsync). `EqRTWFc` is older.
+	- Actual fix:
+		- `QuoteSegment`: a fixture in all 4 runners writes the spec's examples and the setter soup under one name with `FormatValue`, then reads each back through `site(` + `QuoteSegment(v)` + `)`. `site(0)` has to stay the first instance.
+		- Go: a test reads every read call over every corpus case from 8 goroutines on a fresh document, against the one-goroutine answers. The test stage runs it again under `go test -race`, one test only, about 15 s. Taking `indexMu`'s lock out isn't a race, since the index is built whole and stored atomically, so the review's probe stayed green for a good reason. spec.md's Go line now says the index is built whole before it's put in place.
+		- `EqRTWFc`: an option one man SYNOPSIS spells out has to be spelled out in the SYNOPSIS of every subcommand the help gives it to, and in none the help doesn't. The man page gained `--schema=SCHEMA` on `check` and `--no-banner` on `set` to meet it.
+	- Decisions:
+		- 20261016: the SYNOPSIS rule is all or none per option, since `[options]` covers everything and so can't tell a missing option from a covered one (me).
+	- Swept: the other concurrency lines in spec.md. Rust's `Send` and `Sync` now have a compile-time test, and Python's threads line has an 8-thread fixture like Go's, with a short switch interval. C makes no claim. C++'s lock claim is filed as 2026101612343301.
+	- Test case: Rust `EstLlpK` (`quote_segment_selects_a_held_value`), Go `EstLlpL`, Python `EstLlpM`, C `EstLlpN`. Go `EstLlpJ` (`TestReadsFromSeveralGoroutines`), also under `-race` in the test stage. Rust `EstLlpO` (`document_is_send_and_sync`). Python `EstLlpR` (`reads_from_several_threads`). check-docs `EqRTWFc`.
+	- Verified: each new check went red with its claim broken. The 4 selector fixtures failed with `QuoteSegment` leaving `0` bare. `EstLlpJ` failed under `-race` and plain with Go's index stored before it's filled, and `EstLlpR` failed the same way in Python. `EstLlpO` failed to compile with the index in a `OnceCell`. `EqRTWFc` failed with `--lossy` taken off `fmt`'s SYNOPSIS, and with `--lossy` added to `upgrade`'s. All pass on the fix. The race step also passes in the alpine image. Also cargo test, clippy, rustfmt, the Go suites with `-count=1`, go vet, staticcheck, gofmt, the Python suite, ruff, mypy, the C runner under gcc, gcc-15, clang and ASan with UBSan, cppcheck at the normal level, cli-regress (610 rows, 4 bindings), check-doc-examples, check-docs, shellcheck and test-ids check.
+	- Branch: `docpin`
+	- Commit: `069b42fc`
+	- Acceptance signoff: closed on JC's criteria. Each claim has a check seen to fail with the claim broken. The SYNOPSIS rule and the 2 man page additions are my call.
+	- Closed: 20261016-123433
+
+- spec.md says several threads can read one C++ `Document`, and nothing checks it
+	- ID: 2026101612343301
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261016-123433
+	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
+	- Version and build: dev at `56a37a27`
+	- Related IDs: 2026101514324720
+	- Problem description: the veneer's const members each take their document's lock, so reads can share one `Document`. No test reads from 2 threads, and no gate runs the veneer under ThreadSanitizer, so a const member that skips the lock would pass.
+	- Requirements: a threaded read in `veneer_smoke.cpp` run under `-fsanitize=thread`, or the sentence reworded until it claims nothing.
 
 - Replacing a bad value with a default walks all its siblings each time
 	- ID: 2026101514324721
@@ -169,7 +195,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - crosscheck's save-gate and `fFixLost` write rows only compare bindings, never what the call has to do
 	- ID: 2026101609320201
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261016-093202
 	- Opened by: backlog round 2026-10-16, while fixing 2026101514324716
@@ -177,6 +203,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026101514324716
 	- Problem description: the corpus save-gate row (`fmt --write` on each case) and the 4 `fFixLost` rows say in comments what the call must do, but they only check the bindings agree. The runners and cli-regress pin those answers today, so nothing is known to slip through.
 	- Requirements: check the reference binding's answer for each, as 2026101514324716 did for `write-bad.ops`, or reword the comments to claim only agreement.
+	- Reproduced: since `set` keeps the lines it leaves alone, `set --write --set a=2` on the `fFixLost` file keeps the line the load dropped, at exit 0. The rows named "refuses to drop a line" and "--lossy drops it anyway" wrote the same file, so they had checked nothing since the keep save.
+	- Actual fix: each of these rows names the exit the reference has to give and the file it has to leave, and crosscheck fails with `WRONG ANSWER` otherwise. The corpus row takes its answer from the case's `lost` row at standard: lost lines mean exit 7 and the input untouched, and no row or 0 means exit 0 and `expected.shcl`. The 2 stale `set` rows are commented out with the reason. In their place, `--set a=2` keeps the dropped line, and `--remove a`, which leaves only that line and falls back to the canonical form, refuses at 7 and writes an empty file with `--lossy`.
+	- Decisions:
+		- 20261016: a corpus case with no `lost` row is held to losing nothing. Case 051 was the one that refuses with no row, so it gained `lost 1` (me).
+	- Swept: the fuzz dump's `fmt --write` row has no golden to check against, so it stays a compare. The other `fCompareWrite` rows weren't part of the item and stay compares.
+	- Test case: shell-regress `EstLlpQ` (`2026101609320201-crosscheck-save-gate-answers`): a stub reference that writes where it has to refuse, a case whose `lost` row says the write refuses, and a case whose `expected.shcl` differs from what the write left. Each has to fail.
+	- Verified: `EstLlpQ` fails on the old crosscheck, the only red in shell-regress, and passes on the fix. crosscheck over the corpus failed on 051 before its `lost` row, and passes with it, 4 debug CLIs, 22236 comparisons. Also shell-regress, the 4 runners over 051's new row, cli-regress and shellcheck.
+	- Branch: `docpin`
+	- Commit: `d74fa56b`
+	- Acceptance signoff: Self-closed: the checks do what the comments say, the new test failed before and passes after, and the 2 rewritten rows are named with their reason.
+	- Closed: 20261016-123433
 
 - nfpm is pinned at 2.43.0, and this box builds with 2.47.0
 	- ID: 2026101612281470

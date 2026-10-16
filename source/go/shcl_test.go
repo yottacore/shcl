@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -3924,6 +3925,122 @@ func TestPathsEnumerationShape(t *testing.T) {
 	}
 }
 
+// spec.md says reads can run from several goroutines at once. Every read call
+// over every corpus case, from 8 goroutines on a document nothing has read yet,
+// so they race to build the lookup index, and each has to get the answers one
+// goroutine got. The gate runs this one under -race too (2026101514324720),
+// which sees an index put in place before it's whole.
+func TestReadsFromSeveralGoroutines(t *testing.T) {
+	defer testID(t, "EstLlpJ")
+	type readCall func(d *Document) string
+	for _, c := range loadCases(t) {
+		one := Parse(c.input)
+		queries := append([]string{""}, one.Paths()...)
+		for n, line := range strings.Split(c.reads, "\n") {
+			if q, _, ok := strings.Cut(line, "\t"); ok && n > 0 && q != "-" {
+				queries = append(queries, q)
+			}
+		}
+		var schema *Document
+		if c.hasSchema {
+			schema = Parse(c.schema)
+		}
+		calls := []readCall{
+			func(d *Document) string { return show(d.ToCanonical()) },
+			func(d *Document) string { return show(d.Paths(), d.InstancePaths(), d.Fields()) },
+			func(d *Document) string { return show(d.Diagnostics(), d.LostCount(), d.ErrorCount()) },
+			func(d *Document) string { s, ok := d.ToTextKeepLines(); return show(s, ok) },
+		}
+		if schema != nil {
+			calls = append(calls, func(d *Document) string { return show(d.Validate(schema)) })
+		}
+		for _, q := range queries {
+			calls = append(calls,
+				func(d *Document) string { return show(d.ReadString(q), d.ReadRaw(q), d.ReadRawInfo(q)) },
+				func(d *Document) string { return show(d.ReadInt(q), d.ReadFloat(q), d.ReadBool(q), d.ReadDateTime(q)) },
+				func(d *Document) string {
+					return show(d.ReadStringArray(q), d.ReadIntArray(q), d.ReadFloatArray(q), d.ReadBoolArray(q), d.ReadDateTimeArray(q))
+				},
+				func(d *Document) string {
+					return show(d.ReadDuration(q, 0), d.ReadSize(q, 0, false), d.GetIntOr(q, 7), d.GetStringOr(q, "x"))
+				},
+				func(d *Document) string {
+					return show(d.ReadCount(q), d.ReadInstances(q), d.ReadChildren(q), d.ReadChildFields(q))
+				},
+				func(d *Document) string {
+					return show(d.ReadLine(q), d.ReadLines(q), d.ReadKind(q), d.ReadExists(q), d.ReadAuthoredName(q))
+				},
+				func(d *Document) string { return show(d.ReadComments(q), d.CheckSetPath(q)) },
+			)
+		}
+		want := make([]string, len(calls))
+		for i, call := range calls {
+			want[i] = call(one)
+		}
+		shared := Parse(c.input)
+		var wg sync.WaitGroup
+		bad := make(chan string, 8)
+		for g := 0; g < 8; g++ {
+			wg.Add(1)
+			go func(g int) {
+				defer wg.Done()
+				// Each starts at a different call, so the first reads differ.
+				for k := range calls {
+					i := (k + g*len(calls)/8) % len(calls)
+					if got := calls[i](shared); got != want[i] {
+						bad <- fmt.Sprintf("%s: goroutine %d, call %d: got %q want %q", c.name, g, i, got, want[i])
+						return
+					}
+				}
+			}(g)
+		}
+		wg.Wait()
+		close(bad)
+		for msg := range bad {
+			t.Error(msg)
+		}
+	}
+}
+
+// show prints what a read gave, through its pointers, since Read.Raw is one
+// and two reads never share an address.
+func show(vs ...any) string {
+	var b strings.Builder
+	for _, v := range vs {
+		showValue(&b, reflect.ValueOf(v))
+		b.WriteByte(' ')
+	}
+	return b.String()
+}
+
+func showValue(b *strings.Builder, v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			b.WriteString("nil")
+			return
+		}
+		b.WriteByte('&')
+		showValue(b, v.Elem())
+	case reflect.Struct:
+		b.WriteByte('{')
+		for i := 0; i < v.NumField(); i++ {
+			showValue(b, v.Field(i))
+			b.WriteByte(' ')
+		}
+		b.WriteByte('}')
+	case reflect.Slice, reflect.Array:
+		b.WriteByte('[')
+		for i := 0; i < v.Len(); i++ {
+			showValue(b, v.Index(i))
+			b.WriteByte(' ')
+		}
+		b.WriteByte(']')
+	default:
+		fmt.Fprint(b, v)
+	}
+}
+
 // setterSoup is the alphabet the setter round-trip fixture draws from: every
 // character that means something to the tokenizer, plus a blank the load trims
 // and a no-break space it does not. Same fixture in every runner, except the
@@ -6337,6 +6454,44 @@ func TestFormatValueIsTheSettersText(t *testing.T) {
 	} {
 		if c[0] != c[1] {
 			t.Errorf("typed setter wrote %q, want %q", c[0], c[1])
+		}
+	}
+}
+
+// spec.md: "name(" + QuoteSegment(value) + ")" picks the instance holding that
+// value, numbers included, where site(0) is the first instance. Over the
+// spec's examples and the setter soup, each value written with FormatValue
+// under one name (2026101514324720). Same fixture in every runner.
+func TestQuoteSegmentSelectsAHeldValue(t *testing.T) {
+	defer testID(t, "EstLlpL")
+	values := append([]string{"first", "0", "2020", "@null", "a.b", "1,200", "-x", "a b", "x)", "(y", "a=b", "*", "true", "1.5", "2026-07-12"}, soupInputs()...)
+	var text strings.Builder
+	var held []string
+	seen := map[string]bool{}
+	for _, v := range values {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		if f, ok := FormatValue(v); ok {
+			text.WriteString("site: " + f + "\n")
+			held = append(held, v)
+		}
+	}
+	doc := Parse(text.String())
+	if got := doc.Count("site"); got != len(held) {
+		t.Fatalf("site count %d, want %d:\n%s", got, len(held), text.String())
+	}
+	if r := doc.ReadString("site(0)"); r.Value != "first" {
+		t.Fatalf("site(0) read %q, want the first instance", r.Value)
+	}
+	for _, v := range held {
+		path := "site(" + QuoteSegment(v) + ")"
+		if got := doc.Count(path); got != 1 {
+			t.Errorf("%q as %q: count %d, want 1", v, path, got)
+		}
+		if r := doc.ReadString(path); r.Value != v || r.Status != Good {
+			t.Errorf("%q as %q: read %q %v", v, path, r.Value, r.Status)
 		}
 	}
 }

@@ -236,6 +236,11 @@ TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 RUST_T
 TEST_EXTRA=(
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1'
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd test -count=1 ./...'
+	## spec.md says Go reads can share a document across goroutines, and the
+	## race detector sees that break where a plain run can miss it. One test,
+	## since -race slows the whole suite several times over; it needs cgo and a
+	## C compiler (2026101514324720).
+	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -run "^TestReadsFromSeveralGoroutines$"'
 	'python3 source/python/tests/conformance.py'
 	'cbin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/conformance.c -o "${cbin}" -lm -lpthread && "${cbin}" project/conformance; crc=$?; rm -f "${cbin}"; ((crc==0))'
 	'vbin="$(mktemp)"; g++ -std=c++17 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/veneer_smoke.cpp -o "${vbin}" -lm && "${vbin}"; vrc=$?; rm -f "${vbin}"; ((vrc==0))'
