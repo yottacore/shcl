@@ -224,14 +224,31 @@ fRunWrite(){
 ##	or replace a symlink with a regular file - neither of which a stdout compare
 ##	can see. fixture builds a fresh tree under $1 and echoes the path to pass the
 ##	CLI; every binding gets its own identical copy.
+##	With wantRc set, the reference has to exit with it and leave the target
+##	byte for byte as wantFile, when that is set too. The compare holds the other
+##	bindings to the reference, so without this a save gate every binding
+##	dropped would pass.
+wantRc=""; wantFile=""
 fCompareWrite(){
 	local what="$1" fixture="$2"; shift 2
-	local want got b name cli i=0
+	local want got b name cli i=0 rc
 	fMakeRoots write
 	"$fixture" "${roots[0]}"
 	# The exit code rides along: a write that refuses leaves the tree alone, so
 	# the state compare alone cannot tell a refusal from a no-op success.
 	runErr=ref.err; fRunWrite "$refCli" "$@" "$fixTarget"; runErr=run.err
+	if [[ -n "$wantRc" ]]; then
+		rc="${runOut%%$'\n'*}"
+		if [[ "$rc" != "$wantRc" ]]; then
+			nBad+=1
+			echo "WRONG ANSWER ${what}: ${refName} exited ${rc}, and the call has to exit ${wantRc} (shcl $* <fixture>)"
+			fShowOneErr "$refName" "$rc" ref.err
+		elif [[ -n "$wantFile" ]] && ! cmp -s "$fixTarget" "$wantFile"; then
+			nBad+=1
+			echo "WRONG ANSWER ${what}: ${refName} left the file different from ${wantFile##*/} (shcl $* <fixture>)"
+			diff <(cat -A "$wantFile") <(cat -A "$fixTarget") | head -12 || true
+		fi
+	fi
 	fWriteState "${roots[0]}"; want="${runOut}${writeState}"
 	for b in "${bindings[@]:1}"; do
 		name="${b%%|*}"; cli="${b#*|}"; i=$((i + 1))
@@ -391,8 +408,19 @@ fCase(){
 	# The save gate over real inputs: a case whose load dropped something must
 	# refuse the in-place write and leave the file byte-identical, and one that
 	# dropped nothing must rewrite it. Nothing else replays a corpus input
-	# through --write, so a lost count that stops being kept goes unseen.
+	# through --write, so a lost count that stops being kept goes unseen. The
+	# case's own lost row at standard says which, and no row means it lost
+	# nothing; the rewrite is its expected.shcl.
+	local lost=0 lrow
+	while IFS= read -r lrow || [[ -n "$lrow" ]]; do
+		[[ "$lrow" == -$'\t'lost$'\t'* ]] || continue
+		fSplitTabs "$lrow"
+		[[ -z "${cols[4]:-}" || "${cols[4]}" == standard ]] && lost="${cols[2]}"
+	done < "${caseDir}reads.tsv"
+	if [[ "$lost" != 0 ]]; then wantRc=7; wantFile="$input"; else wantRc=0; wantFile="${caseDir}expected.shcl"; fi
+	[[ -f "$wantFile" ]] || wantFile=""
 	caseSrc="$input"; fCompareWrite "fmt --write ${caseName}" fFixCase fmt --write
+	wantRc=""; wantFile=""
 	# Write dimension: apply the case's ops script and compare canonical output.
 	ops="${caseDir}write.ops"
 	[[ -f "$ops" ]] && fCompareStdin "set ${caseName}" "$ops" set "$input"
@@ -546,11 +574,29 @@ fUsage(){
 	fComparePlant "write refuses a planted temp" fmt --write
 
 	# The save gate, from the CLI side. Refusing leaves the file byte-identical, so
-	# the tree compare is what sees it; --lossy is the only way past.
+	# the tree compare is what sees it; --lossy is the only way past. Each row
+	# names the answer the reference has to give (2026101609320201).
+	mkdir "${tmpDir}/lost"; fFixLost "${tmpDir}/lost"; local lostSrc="$fixTarget"
+	printf 'a: 1\n' >"${tmpDir}/lost/fmt-lossy.want"
+	printf 'a:  2\n\xef\xbb\xbfb: 2\n' >"${tmpDir}/lost/set-keep.want"
+	: >"${tmpDir}/lost/set-lossy.want"
+	wantRc=7; wantFile="$lostSrc"
 	fCompareWrite "write refuses to drop a line" fFixLost fmt --write
+	wantRc=0; wantFile="${tmpDir}/lost/fmt-lossy.want"
 	fCompareWrite "write --lossy drops it anyway" fFixLost fmt --write --lossy
-	fCompareWrite "set --write refuses to drop a line" fFixLost set --write --set a=2
-	fCompareWrite "set --write --lossy drops it anyway" fFixLost set --write --lossy --set a=2
+	# Since set keeps the lines it leaves alone, --set a=2 keeps the line the
+	# load dropped, and these two rows wrote the same file at exit 0. Removing
+	# the only field makes set fall back to the canonical form, which can't
+	# hold that line.
+	# fCompareWrite "set --write refuses to drop a line" fFixLost set --write --set a=2
+	# fCompareWrite "set --write --lossy drops it anyway" fFixLost set --write --lossy --set a=2
+	wantRc=0; wantFile="${tmpDir}/lost/set-keep.want"
+	fCompareWrite "set --write keeps a line the load dropped" fFixLost set --write --set a=2
+	wantRc=7; wantFile="$lostSrc"
+	fCompareWrite "set --write refuses to drop a line" fFixLost set --write --remove a
+	wantRc=0; wantFile="${tmpDir}/lost/set-lossy.want"
+	fCompareWrite "set --write --lossy drops it anyway" fFixLost set --write --lossy --remove a
+	wantRc=""; wantFile=""
 	fCompare "--lossy needs --write" fmt --lossy missing.shcl
 	fCompare "--lossy is not valid for get" get --lossy missing.shcl a
 
@@ -794,3 +840,5 @@ echo "crosscheck: ${#bindings[@]} bindings agree on ${nCompared} comparison(s)"
 ##		               killed by a signal.
 ##		- 20261016: A bad op that exits 0 or prints anything fails, even when
 ##		               every binding agrees on it.
+##		- 20261016: The save gate rows check the reference's exit and file, not
+##		               only that the bindings agree.

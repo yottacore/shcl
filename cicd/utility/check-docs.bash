@@ -1511,3 +1511,4 @@ echo "check-docs: OK"
 ##		            script that crashes fails its check.
 ##		2026-10-16  Both link checks take their anchors from one builder, which
 ##		            skips code fences.
+##		2026-10-16  The man SYNOPSIS is read against the help both ways.

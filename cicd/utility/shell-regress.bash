@@ -3492,11 +3492,18 @@ case "${0##*/}:${line}" in
 	tsv:count\ *zz\ ) echo "other" ;;
 	crlf:set\ --write\ c.shcl\ ) sed 's/$/\r/' >>"${@: -1}" ;;
 	*:set\ --write\ c.shcl\ ) cat >>"${@: -1}" ;;
+	nogate:fmt\ --write\ c.shcl\ ) printf '%s\n' "${line}" ;;
+	*:fmt\ --write\ c.shcl\ |*:set\ --write\ --remove\ a\ c.shcl\ )
+		[[ "$(cat "${@: -1}" 2>/dev/null)" != *$'\xef\xbb\xbf'* ]] || exit 7
+		printf '%s\n' "${line}" ;;
+	*:fmt\ --write\ --lossy\ c.shcl\ ) printf 'a: 1\n' >"${@: -1}" ;;
+	*:set\ --write\ --set\ a=2\ c.shcl\ ) sed -i 's/^a:  1$/a:  2/' "${@: -1}" ;;
+	*:set\ --write\ --lossy\ --remove\ a\ c.shcl\ ) : >"${@: -1}" ;;
 	*) printf '%s\n' "${line}" ;;
 esac
 EOF
 chmod +x "${xcDir}/ref"
-for m in two nonl tsv crlf abrt; do cp "${xcDir}/ref" "${xcDir}/${m}"; done
+for m in two nonl tsv crlf abrt nogate; do cp "${xcDir}/ref" "${xcDir}/${m}"; done
 printf 'a: 1\n' > "${xcDir}/corpus/001-a/input.shcl"
 printf 'query\ttype\texpected\tstatus\na\tint\t1\tok\nzz\tcount\t0\tok' > "${xcDir}/corpus/001-a/reads.tsv"
 ## The run's strict flag and skip list stay out, since these dumps leave out
@@ -3592,6 +3599,22 @@ fCrosscheck --corpus "${xcDir}/badop" "rust|${cli}" "again|${cli}"
 	|| fBad "crosscheck passed a write-bad.ops line the CLI took (exit ${xcRc}): ${xcOut@Q}"
 fCrosscheck --corpus "${xcDir}/badok" "rust|${cli}" "again|${cli}"
 [[ "${xcRc}" == 0 && "${xcOut}" != *"NOT REFUSED"* ]] || fBad "crosscheck failed a write-bad.ops line the CLI refused (exit ${xcRc}): ${xcOut@Q}"
+fTest EstLlpQ 2026101609320201-crosscheck-save-gate-answers
+##	2026101609320201: the save gate's write rows, the corpus one and the 4 on
+##	a file whose load dropped a line, only compared the bindings. Now the
+##	reference has to give each row's answer. A stub that writes where it has
+##	to refuse, a case whose lost row says it can't be written, and a case
+##	whose expected.shcl isn't what the write left each have to fail.
+mkdir -p "${xcDir}/gate/001-a" "${xcDir}/gate/002-b"
+cp "${xcDir}/corpus/001-a/input.shcl" "${xcDir}/gate/001-a/"
+printf 'query\ttype\texpected\tstatus\n-\tlost\t1\t-\n' > "${xcDir}/gate/001-a/reads.tsv"
+cp "${xcDir}/corpus/001-a/input.shcl" "${xcDir}/corpus/001-a/reads.tsv" "${xcDir}/gate/002-b/"
+printf 'b: 2\n' > "${xcDir}/gate/002-b/expected.shcl"
+fCrosscheck --corpus "${xcDir}/gate" "nogate|${xcDir}/nogate" "ref|${xcDir}/ref"
+[[ "${xcRc}" == 1 && "${xcOut}" == *"WRONG ANSWER write refuses to drop a line: nogate exited 0, and the call has to exit 7"* \
+	&& "${xcOut}" == *"WRONG ANSWER fmt --write 001-a: nogate exited 0, and the call has to exit 7"* \
+	&& "${xcOut}" == *"WRONG ANSWER fmt --write 002-b: nogate left the file different from expected.shcl"* ]] \
+	|| fBad "crosscheck passed a save gate answer the reference got wrong (exit ${xcRc}): ${xcOut@Q}"
 
 fTestEnd
 
@@ -3616,3 +3639,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-14  The install one-liners are looked for in project/install.md.
 ##		2026-10-15  check-docs' loop feeds fail their test when they crash.
 ##		2026-10-16  A fenced `#` line makes no anchor for check-docs' link checks.
+##		2026-10-16  crosscheck's save gate rows have to give the right answer.
