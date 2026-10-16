@@ -306,8 +306,8 @@ const (
 	WriteNotFound
 	// WriteUnreadable: UpgradeFile could not read the file as UTF-8 text.
 	WriteUnreadable
-	// WritePermissionDenied: no permission to write there. On windows, also a
-	// file another process holds open.
+	// WritePermissionDenied: no permission to write there, or for UpgradeFile
+	// to read the file. On windows, also a file another process holds open.
 	WritePermissionDenied
 	// WriteDiskFull: the disk is full, or the user's quota is.
 	WriteDiskFull
@@ -3368,21 +3368,23 @@ type Upgraded struct {
 
 // Upgrade is a config file written for an older format, made over for this
 // one: the input run through MigrateUnstamped, then written the way `fmt`
-// writes it, with any old info block swapped for the one `init` writes. This
-// is the one library call that writes the block. A file that names this
-// format comes back Current and untouched, and so does one that loads with no
-// error under these rules, since a program calling this on every start must
-// never rewrite a good file. fromV2 is Migrate's: the file can only have been
-// written for 2.x. Then a file that loads clean is still made over when
-// Migrate would change it, as it would `p: a,b`, an array under 2.x and one
-// string now. One it would not change that names an older format gets this
-// format on that Format line, and nothing else. The one file naming this
-// format that is made over is one that loads with an error when fromV2 says a
-// 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is taken
-// as 2.x. With fromV2, any file is made over only when the fresh text loads
-// clean; when it wouldn't, ErrorsLeft names the lines still in error. Pass
-// fromV2 only for a file known to be old, never on every start: a file this
-// format wrote that picks up an error later would be read by 2.x rules too.
+// writes it, with the info block `init` writes at the end in place of an old
+// one there. A whole block above the first field stays, so a file with its
+// block at the top comes out with 2. This is the one library call that writes
+// the block. A file that names this format comes back Current and untouched,
+// and so does one that loads with no error under these rules, since a program
+// calling this on every start must never rewrite a good file. fromV2 is
+// Migrate's: the file can only have been written for 2.x. Then a file that
+// loads clean is still made over when Migrate would change it, as it would
+// `p: a,b`, an array under 2.x and one string now. One it would not change
+// that names an older format gets this format on that Format line, and
+// nothing else. The one file naming this format that is made over is one that
+// loads with an error when fromV2 says a 2.x build wrote it, as with a beta
+// of 3.0 that wrote 2.x lines. It is taken as 2.x. With fromV2, any file is
+// made over only when the fresh text loads clean; when it wouldn't,
+// ErrorsLeft names the lines still in error. Pass fromV2 only for a file
+// known to be old, never on every start: a file this format wrote that picks
+// up an error later would be read by 2.x rules too.
 func Upgrade(text string, fromV2 bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
@@ -8861,14 +8863,18 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 	case errors.Is(err, os.ErrNotExist):
 		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
 	}
-	text, status := ReadFile(path, 0)
-	switch status {
-	case FileClean:
-	case FileNotFound:
+	// Not ReadFile, whose one status for every failure would hide the
+	// system's reason (2026101514324707).
+	data, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
 		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
-	default:
+	case err != nil:
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: writeFailed(err, "%s: %w", path, osReason(err))}
+	case !utf8.Valid(data):
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: cannot be read as UTF-8 text", path)}}
 	}
+	text := string(data)
 	up := Upgrade(text, fromV2)
 	if up.Current {
 		return up, nil

@@ -81,7 +81,8 @@ static const char *HELP =
 	"                                         --write or -w, keeping a backup of\n"
 	"                                         the original beside it, or name the\n"
 	"                                         lines it would change with --check)\n"
-	"  shcl upgrade [options] FILE            when FILE does not load clean, or\n"
+	"  shcl upgrade [options] FILE            when FILE does not load clean and\n"
+	"                                         names no format or an older one, or\n"
 	"                                         with --from-2x reads differently once\n"
 	"                                         migrated, print it migrated and made\n"
 	"                                         over the way fmt writes it, with the\n"
@@ -181,7 +182,11 @@ static const char *HELP =
 	"                                         left alone and the command exits 7;\n"
 	"                                         upgrade with it writes nothing and\n"
 	"                                         exits 7 when the fresh file would\n"
-	"                                         still have an error, naming the lines\n"
+	"                                         still have an error, naming the\n"
+	"                                         lines. On a file not written for\n"
+	"                                         2.x it can change good lines; with\n"
+	"                                         --write the backup keeps the\n"
+	"                                         original\n"
 	"  --check                                (fmt/migrate) print nothing and exit 6\n"
 	"                                         when fmt would change the file or\n"
 	"                                         migrate would rewrite a line (named on\n"
@@ -275,8 +280,9 @@ static const char *HELP =
 	"Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,\n"
 	"5 multiple instances, 6 check failed, strict load failed, init's schema has\n"
 	"faults, or --check found a rewrite to make, 7 a result refused for deleting\n"
-	"lines or values (--lossy overrides), or migrate or upgrade left something\n"
-	"behind, 8 a file or stream could not be read or written.\n";
+	"lines or values (--lossy overrides), migrate left something behind, or\n"
+	"upgrade refused a file that reads two ways or would keep an error, 8 a file\n"
+	"or stream could not be read or written.\n";
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
@@ -1484,23 +1490,30 @@ static int do_upgrade(const Opts *o) {
 		return 1;
 	}
 	if (o->write && !write_target_ok(file)) return EXIT_IO;
+	// Read here with --write too, so a file that can't be read says why the
+	// same way either way, and a refusal or a failed save still has the
+	// load's diagnostics to print (2026101514324706).
+	size_t len; char *text = read_input(file, &len);
+	if (!text) return EXIT_IO;
 	shcl_upgraded up;
 	if (o->write) {
 		char *why = NULL;
 		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, &up, &why, NULL);
 		if (e != SHCL_UPGRADE_OK) {
+			shcl_upgraded found = shcl_upgrade(text, len, o->from_2x);
+			say_diagnostics_from("", found.diagnostics);
+			shcl_upgraded_free(&found);
 			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from-2x rewrites them)\n", why);
 			else fprintf(stderr, "%s\n", why);
 			free(why);
+			free(text);
 			shcl_upgraded_free(&up);
 			return e == SHCL_UPGRADE_AMBIGUOUS || e == SHCL_UPGRADE_ERRORS_LEFT ? 7 : EXIT_IO;
 		}
 	} else {
-		size_t len; char *text = read_input(file, &len);
-		if (!text) return EXIT_IO;
 		up = shcl_upgrade(text, len, o->from_2x);
-		free(text);
 	}
+	free(text);
 	if (up.current) {
 		// diagnostics is NULL when current, but the file is still loaded, and
 		// every loading subcommand says what its load found (2026101419280005).

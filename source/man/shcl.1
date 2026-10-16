@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-15 shcl "User Commands"
+.TH SHCL 1 2026-10-16 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -270,12 +270,14 @@ write the result the way
 .B fmt
 does, with the info block
 .B init
-writes in place of any older one, and print it (or with
+writes at the end in place of an older one there, and print it (or with
 .BR \-\-write ,
 keep the original under the backup name
 .B migrate \-\-write
 uses and rewrite
 .IR FILE ).
+A whole info block above the first field stays, so a file with its block at
+the top comes out with 2.
 A file whose
 .B Format
 line names this format is left alone at exit 0, and so is one that loads with
@@ -516,6 +518,10 @@ With it,
 .B upgrade
 writes nothing and exits 7 when the fresh file would still have an error, and
 names those lines.
+On a file not written for 2.x it can change good lines, since it reads them by
+2.x rules; with
+.B \-\-write
+the backup keeps the original.
 .TP
 .B \-\-check
 .RB ( fmt ", " migrate )

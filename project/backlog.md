@@ -51,7 +51,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade --write` prints none of the load's diagnostics when it refuses, or fails after the load
 	- ID: 2026101514324706
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 6
@@ -68,11 +68,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every early return in each CLI's upgrade and migrate. A cli-regress row that walks each loading subcommand's error exits would cover the class, rather than one row per arm.
 	- Progress log:
 		- 20261015: since 2026101515372401 the `--write` path has a third refusal arm, a `--from-2x` conversion that keeps an error, and it prints no load diagnostics either, the same as the ambiguous refusal. Fix all 3 arms together.
+	- Actual cause: with `--write` the 4 CLIs handed the file to `upgrade_file` and printed only its error when it failed. The library returns no diagnostics with an error, so the 2 refusals and every failure after the load said nothing about what the load found.
+	- Actual fix: CLI only, the library contract kept, as on 2026101419280005. `upgrade --write` reads the file itself first, as the printing form does. When `upgrade_file` fails, it prints the diagnostics of `upgrade` on that text, then the error, with the same exit codes as before. So a file that can't be read now gives the same message with or without `--write`.
+	- Swept: every early return in `upgrade` and `migrate` in the 4 CLIs. `migrate` prints the load's diagnostics right after its load, before any refusal or write, so only `upgrade --write` had the gap. The new rows walk the error exits of every loading subcommand: get's 2 to 6, `--strictness=strict` on count, instances, children and paths, check, `fmt --check` and `--write`, set, migrate and upgrade, printed and with `--write`, refused and failing at the backup.
+	- Verified: the new rows fail on dev's 4 CLIs in exactly the 4 `upgrade --write` rows, 16 checks, and pass on the fix. cli-regress is green on the branch.
+	- Test case: cli-regress `diagExits`, `EssOUuB` to `EssOUub` (`diag-exit-*`), each checking the exit code and that the file's one E014 line prints exactly once.
+	- Branch: `upfix`
+	- Commit: `538e3359`
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule that every loading subcommand prints the load's diagnostics once.
+	- Closed: 20261016-080915
 
 - `upgrade --write` calls a file it has no permission to read "cannot be read as UTF-8 text"
 	- ID: 2026101514324707
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 7
@@ -86,11 +95,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: `upgrade_file` maps every read failure but a missing file to `WriteStatus::Unreadable` with the UTF-8 text.
 	- Origin: `60d0196c` (2026-10-07). Neither 20261014 round mentions it. Confirmed.
 	- Sweep: the other library calls that read a file and fold the error into one status.
+	- Actual cause: `upgrade_file` read through `read_file`, which answers with one status for every failure, so the system's reason was gone before the message was made.
+	- Actual fix: `upgrade_file` in all 4 reads the file itself. A failed open or read gives the system's message and status, as `write_backup` does, so no permission is `PermissionDenied` with `f.shcl: Permission denied`. `Unreadable` and the UTF-8 message are left for text that isn't UTF-8, which is what `Unreadable`'s doc says it is. C gets a private `s_read_file` that also hands back the errno, and `shcl_read_file` calls it. The `PermissionDenied` docs in the 4 bindings and spec.md say it covers that read too. The CLI side was already gone with 2026101514324706, since `upgrade --write` reads the file first now.
+	- Swept: every library read of a file in the 4. `read_file` and `load_file` with its `_with` and `_keep_lines` forms give a status and no message, and their docs list permissions, a directory, bad encoding and the cap under `Unreadable`, so the contract stays. `read_named_schema` already gives a status per case and the system's message. `upgrade_file`'s check that the file hasn't changed takes a failed second read as "changed since it was read", left alone, since a file that read a moment before failing now is a race. The C++ veneer passes the C message and status through, unchanged.
+	- Verified: the new asserts fail on the old libraries in all 4 (`Unreadable` with the UTF-8 text) and pass on the fix.
+	- Test case: `write_status_names_each_failure` in Rust (`EsEhCFy`), Go (`EsEhCG1`), Python (`EsEhCG4`) and C (`EsEhCGA`): `upgrade_file` on a mode 000 file is `PermissionDenied` with no UTF-8 in the message, and a file that isn't UTF-8 still says so. POSIX only, and skipped as root, like the shut folder rows beside it.
+	- Branch: `upfix`
+	- Commit: `e498787b`
+	- Acceptance signoff: Self-closed: reproduced, the new asserts failed before and pass after, and `Unreadable` now means what its doc says.
+	- Closed: 20261016-081639
 
 - The help, examples.md and the `upgrade` doc comments promise more than `upgrade` does
 	- ID: 2026101514324708
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 8
@@ -106,6 +124,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every other text on `upgrade`: completions, README, changelog's Unreleased.
 	- Progress log:
 		- 20261015: 2026101515372401 changed only the help and man lines on the `--from-2x` refusal. The help's exit codes paragraph still sums up 7 as "left something behind".
+	- Actual fix: docs only. The help's `upgrade` line says a file is made over when it doesn't load clean and names no format or an older one. Its exit codes paragraph gives upgrade's 7 as a file that reads two ways or would keep an error. The `--from-2x` text in the help, the man page and examples.md says that on a file not written for 2.x it can change good lines, and with `--write` the backup keeps the original. examples.md gives the Format line rule and says `--from-2x` is only for a file known to be old. The `upgrade` doc comment in Rust, Go, Python, C and C++, spec.md and the man page say the new block goes at the end in place of an old one there, and that a whole block above the first field stays, so such a file comes out with 2. The changelog's `upgrade_file` line names the Format line rule too, and zsh's one-line summary says an older file.
+	- Swept: the help in all 4 CLIs, still byte-identical and inside 80 columns. The man page's `upgrade`, `--from-2x` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry, which was already right, examples.md, README (no upgrade text), install.md, both completion files, and the changelog's Unreleased lines on upgrade. Nothing synced to main.
+	- Verified: `--help` from the 4 debug CLIs has one checksum and no line over 80; `shcl help upgrade` and the man page at 80 columns read as above.
+	- Test case: none, docs only. Help parity across the 4 is crosscheck's, and its width is cli-regress `help-width` (`Eq9yPCQ`) and `man-width` (`EpHH7ZQ`).
+	- Branch: `upfix`
+	- Commit: `c525d086`
+	- Acceptance signoff: Self-closed on JC's criteria: the `--from-2x` sentence is JC's 2026-10-15 requirement, and the rest makes the help, examples.md and the doc comments say what spec.md and the man page say. The wording is my call.
+	- Closed: 20261016-082019
 
 - An op indented with a tab is refused as `unknown op: `, naming nothing
 	- ID: 2026101514324709

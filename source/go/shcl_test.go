@@ -2335,6 +2335,9 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	}
 	_, err = UpgradeFile(at("bin.shcl"), false)
 	check("upgrade of a file that is not UTF-8", err, WriteUnreadable)
+	if err == nil || !strings.Contains(err.Error(), "UTF-8") {
+		t.Errorf("upgrade of a file that is not UTF-8: %v", err)
+	}
 	if runtime.GOOS == "windows" {
 		return
 	}
@@ -2366,6 +2369,17 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	check("backup into a shut folder", err, WritePermissionDenied)
 	_, err = UpgradeFile(v2, true)
 	check("upgrade in a shut folder", err, WritePermissionDenied)
+	// A file it may not read says so, not that it isn't UTF-8
+	// (2026101514324707).
+	locked := at("locked.shcl")
+	if err := os.WriteFile(locked, []byte("a: 1\nb 2\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	_, err = UpgradeFile(locked, false)
+	check("upgrade of a file it may not read", err, WritePermissionDenied)
+	if err == nil || strings.Contains(err.Error(), "UTF-8") || !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("upgrade of a file it may not read: %v", err)
+	}
 }
 
 // The table from an OS error to a write's reason. Most rows can't be made to

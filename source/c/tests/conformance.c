@@ -4237,7 +4237,9 @@ int main(int argc, char **argv) {
 		snprintf(wp, sizeof wp, "%s/bin.shcl", wdir);
 		if (!shcl_write_file_atomic(wp, "a: \xff\n", 5, NULL)) fail("write_status", "seed write failed");
 		why = SHCL_WRITE_OK;
-		if (shcl_upgrade_file(wp, 0, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_UNREADABLE) fail("write_status", "upgrade of a file that is not UTF-8");
+		char *bmsg = NULL;
+		if (shcl_upgrade_file(wp, 0, &wup, &bmsg, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_UNREADABLE || !bmsg || !strstr(bmsg, "UTF-8")) fail("write_status", "upgrade of a file that is not UTF-8");
+		free(bmsg);
 		shcl_upgraded_free(&wup);
 		remove(wp);
 		snprintf(wp, sizeof wp, "%s/ok.shcl", wdir);
@@ -4274,6 +4276,18 @@ int main(int argc, char **argv) {
 			why = SHCL_WRITE_OK;
 			if (shcl_upgrade_file(v2, 1, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED) fail("write_status", "upgrade in a shut folder");
 			shcl_upgraded_free(&wup);
+			/* A file it may not read says so, not that it isn't UTF-8
+			   (2026101514324707). */
+			char locked[300];
+			snprintf(locked, sizeof locked, "%s/locked.shcl", wdir);
+			if (!shcl_write_file_atomic(locked, "a: 1\nb 2\n", 9, NULL) || chmod(locked, 0) != 0) fail("write_status", "seed write failed");
+			char *lmsg = NULL;
+			why = SHCL_WRITE_OK;
+			if (shcl_upgrade_file(locked, 0, &wup, &lmsg, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED || !lmsg || strstr(lmsg, "UTF-8"))
+				fail("write_status", "upgrade of a file it may not read");
+			free(lmsg);
+			shcl_upgraded_free(&wup);
+			remove(locked);
 		}
 		if (chmod(shut, 0700) != 0) fail("write_status", "chmod back failed");
 		remove(v2);

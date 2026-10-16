@@ -3411,6 +3411,11 @@ def main():
 		with open(wat("bin.shcl"), "wb") as bfh:
 			bfh.write(b"a: \xff\n")
 		wrows.append(("upgrade of a file that is not UTF-8", lambda: shcl.upgrade_file(wat("bin.shcl"), False), shcl.WriteStatus.Unreadable))
+		try:
+			shcl.upgrade_file(wat("bin.shcl"), False)
+		except shcl.UpgradeFailed as bfail:
+			if "UTF-8" not in str(bfail):
+				raise SystemExit(f"upgrade of a file that is not UTF-8: {bfail}") from None
 		if os.name != "nt":
 			os.mkfifo(wat("p.shcl"))
 			wrows.append(("over a FIFO", lambda: shcl.write_file_atomic(wat("p.shcl"), "a: 1\n"), shcl.WriteStatus.NotRegular))
@@ -3443,6 +3448,18 @@ def main():
 						got = wstatus(call)
 						if got is not shcl.WriteStatus.PermissionDenied:
 							raise SystemExit(f"{what}: {got}")
+					# A file it may not read says so, not that it isn't UTF-8
+					# (2026101514324707).
+					locked = wat("locked.shcl")
+					with open(locked, "w", encoding="utf-8") as fh:
+						fh.write("a: 1\nb 2\n")
+					os.chmod(locked, 0o000)
+					try:
+						shcl.upgrade_file(locked, False)
+						raise SystemExit("upgrade of a file it may not read: no error")
+					except shcl.UpgradeFailed as lfail:
+						if lfail.status is not shcl.WriteStatus.PermissionDenied or "UTF-8" in str(lfail):
+							raise SystemExit(f"upgrade of a file it may not read: {lfail.status} {lfail}") from None
 			finally:
 				os.chmod(shut, 0o700)
 		test_id("EsEhCG5", "write_status_of_os_errors")

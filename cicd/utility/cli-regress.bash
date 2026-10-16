@@ -2649,6 +2649,78 @@ for sc in "${saveCases[@]}"; do
 	done
 done
 
+## 2026101514324706: every loading subcommand prints the load's diagnostics
+## once, on its error exits too. upgrade --write printed none when it refused,
+## or when the backup or the save failed after the load. Each row's file has
+## one E014 line, and it has to show up exactly once.
+diagExits=(
+	'EssOUuB|get-not-found|read|-|get f.shcl nope|3'
+	'EssOUuC|get-bad-type|read|-|get --int f.shcl a|4'
+	'EssOUuD|get-empty|read|-|get f.shcl e|2'
+	'EssOUuE|get-multiple|read|-|get f.shcl m|5'
+	'EssOUuF|get-strict|read|-|get --strictness=strict f.shcl a|6'
+	'EssOUuG|count-strict|read|-|count --strictness=strict f.shcl m|6'
+	'EssOUuH|instances-strict|read|-|instances --strictness=strict f.shcl m|6'
+	'EssOUuI|children-strict|read|-|children --strictness=strict f.shcl|6'
+	'EssOUuJ|paths-strict|read|-|paths --strictness=strict f.shcl|6'
+	'EssOUuK|check|read|-|check f.shcl|6'
+	'EssOUuL|fmt-check|read|-|fmt --check f.shcl|6'
+	'EssOUuM|fmt-write-lost|lost|-|fmt --write f.shcl|7'
+	'EssOUuN|fmt-write-rodir|read|ro|fmt --write ro/f.shcl|8'
+	'EssOUuO|set-lost|lost|-|set --set=val=9 f.shcl|7'
+	'EssOUuP|set-write-lost|lost|-|set --write --set=val=9 f.shcl|7'
+	'EssOUuQ|set-write-rodir|read|ro|set --write --set=d=1 ro/f.shcl|8'
+	'EssOUuR|migrate-two-way|twoway|-|migrate f.shcl|7'
+	'EssOUuS|migrate-write-two-way|twoway|-|migrate --write f.shcl|7'
+	'EssOUuT|migrate-check-lost|lost|-|migrate --check f.shcl|7'
+	'EssOUuU|migrate-write-taken|old|taken|migrate --write --from-2x f.shcl|8'
+	'EssOUuV|migrate-write-rodir|old|ro|migrate --write --from-2x ro/f.shcl|8'
+	'EssOUuW|upgrade-two-way|twoway|-|upgrade f.shcl|7'
+	'EssOUuX|upgrade-write-two-way|twoway|-|upgrade --write f.shcl|7'
+	'EssOUuY|upgrade-errors-left|left|-|upgrade --from-2x f.shcl|7'
+	'EssOUuZ|upgrade-write-errors-left|left|-|upgrade --write --from-2x f.shcl|7'
+	'EssOUua|upgrade-write-taken|old|taken|upgrade --write f.shcl|8'
+	'EssOUub|upgrade-write-rodir|old|ro|upgrade --write ro/f.shcl|8'
+)
+fDiagFixture(){   ## fDiagFixture NAME: sets diagText and the E014 line's number
+	case "$1" in
+		read)   diagText='a:  x\nc 3\nm: 1\nm: 2\ne:\n'; diagLine=2 ;;
+		lost)   diagText='val: 1\n\t- e\nc 3\n'; diagLine=3 ;;
+		twoway) diagText='tags: a,b\nc 3\n'; diagLine=2 ;;
+		old)    diagText='base:[Boston]\n\tlat: 42\nc 3\n'; diagLine=3 ;;
+		left)   diagText='a: 1\nc 3\n'; diagLine=2 ;;
+	esac
+}
+diagDir="${tmpDir}/diagexit"
+for de in "${diagExits[@]}"; do
+	IFS='|' read -r tid id fixture setup argv wantRc <<<"${de}"
+	fTest "${tid}" "diag-exit-${id}"
+	## A POSIX fixture, and root writes through a read-only directory.
+	if [[ "${setup}" == ro && ( "${onWindows}" == 1 || "$(id -u)" == 0 ) ]]; then
+		fTestSkip; continue
+	fi
+	fDiagFixture "${fixture}"
+	want="line ${diagLine}: Error: E014 malformed line skipped: unexpected character after the path, at column 3"
+	read -r -a args <<<"${argv}"
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
+		if [[ -d "${diagDir}" ]]; then chmod -R u+w "${diagDir}"; fi
+		rm -rf "${diagDir}"; mkdir -p "${diagDir}/ro"
+		case "${setup}" in
+			ro)    printf '%b' "${diagText}" > "${diagDir}/ro/f.shcl"; chmod 0555 "${diagDir}/ro" ;;
+			taken) printf '%b' "${diagText}" > "${diagDir}/f.shcl"; printf 'x\n' > "${diagDir}/f_backup_20261004-001500_format-v2.shcl" ;;
+			*)     printf '%b' "${diagText}" > "${diagDir}/f.shcl" ;;
+		esac
+		rc=0
+		(cd "${diagDir}" && timeout 20 "${cli}" "${args[@]}" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		nRun+=1
+		seen="$(tr -d '\r' < "${tmpDir}/err" | grep -cxF -- "${want}" || true)"
+		if ((rc != wantRc)) || [[ "${seen}" != 1 ]]; then
+			echo "cli-regress: diag-exit-${id} [${name}]: exit ${rc}, expected ${wantRc}; the E014 line ${seen} time(s), expected once: $(head -c 300 "${tmpDir}/err")" >&2; nBad+=1
+		fi
+	done
+done
+
 ## 2026100307163904: migrate stamps a file right under its last comment, and a
 ## later banner on took the comment with the stamp. Run as a user would, one
 ## command after the other on the file, once with the migrated note and once
