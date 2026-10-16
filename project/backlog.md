@@ -80,7 +80,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for sanitize-c's new TSan build.
+	- Needs external testing: the hosted windows job, which builds the smoke with mingw's g++, so its threads run there for the first time.
 	- Priority: Low
 	- Opened: 20261016-123433
 	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
@@ -88,6 +90,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026101514324720
 	- Problem description: the veneer's const members each take their document's lock, so reads can share one `Document`. No test reads from 2 threads, and no gate runs the veneer under ThreadSanitizer, so a const member that skips the lock would pass.
 	- Requirements: a threaded read in `veneer_smoke.cpp` run under `-fsanitize=thread`, or the sentence reworded until it claims nothing.
+	- Note: check-veneer `Er8oiHp` has run a small TSan check since `7b8f1a8e`: 8 of the reads from 2 threads. This item missed it. It stays as it is.
+	- Actual fix: `veneer_smoke.cpp` reads one shared `Document` and schema from 8 threads, 3 rounds, each round on a fresh pair, and checks each answer against one thread's. The calls cover every const member, the 3 saves to a file per thread, and the free calls that read a schema (`load_and_validate_with`, `generate`, `suppress_declared_*`). sanitize-c builds the smoke a second time under `-fsanitize=thread` and runs it. The plain build runs the threads too.
+	- Swept: every lock site in `shcl.hpp`'s const members and schema-reading calls. Each was taken out alone and the TSan build run 3 times. 56 of 58 went red 3 of 3. The other 2, `strictness()` and `lost_count()`, read fields nothing writes after the parse, so they don't race. Taking the schema's lock out of `validate`'s pair doesn't race either, since the core only reads the schema there.
+	- Test case: C++ `EstYOue` (`reads_from_several_threads`), and sanitize-c `EstYPCw` for its TSan run.
+	- Verified: sanitize-c went red on `EstYPCw` with `instance_paths()` taking no lock, and on the ASan build too, and green restored. The plain smoke crashed or failed with `count()` taking no lock. The smoke passes plain, under TSan with gcc 14 here and gcc 13 in the ubuntu image, plain in the alpine image, and built for windows with zig under wine. Also the C conformance suite, check-veneer, check-c-compilers, check-docs, check-pins, shell-regress, shellcheck and test-ids check.
+	- Branch: `cxxtsan`
+	- Commit: `98e92883`
+	- Acceptance signoff: closed on JC's criteria. The new check went red with a lock taken out, at every site where that races.
+	- Closed: 20261016-132053
 
 - 3 checkable doc sentences have no check
 	- ID: 2026101514324720
