@@ -4527,6 +4527,42 @@ int main(int argc, char **argv) {
 			if ((plain != NULL) != (st[k].status == SHCL_GOOD) || rn != (plain ? strlen(st[k].ref) : 0)) fail("stamp_reads_say_why", st[k].text);
 		}
 	}
+	test_id("EssAxdD", "stamp_hints_quote_digits");
+	/* The H006 and H007 hints quote the Format number as written, leading
+	   zeros and all, while the read keeps its 32-bit cap. A long one is cut
+	   the way any value in a message is (2026101514324705). Rust's
+	   stamp_hints_quote_digits has the same rows. */
+	{
+		char longText[256], longShown[256];
+		snprintf(longText, sizeof longText, "##    Format   1%0200d\n", 0);
+		snprintf(longShown, sizeof longShown, "1%099d...%0100d (201 chars)", 0, 0);
+		const struct { const char *text; int64_t value; const char *code; size_t line; const char *shown; } ht[] = {
+			{"##    Format   4\n", 4, "H006", 1, "4"},
+			{"##    Format   4294967296\n", (int64_t)UINT32_MAX, "H006", 1, "4294967296"},
+			{"##    Format   99999999999\n", (int64_t)UINT32_MAX, "H006", 1, "99999999999"},
+			{"##    Format   0004\n", 4, "H006", 1, "0004"},
+			{"a: 1\n##    Format   02\n", 2, "H007", 2, "02"},
+			{longText, (int64_t)UINT32_MAX, "H006", 1, longShown},
+		};
+		for (size_t k = 0; k < sizeof ht / sizeof ht[0]; k++) {
+			size_t n = strlen(ht[k].text);
+			if (shcl_read_format_version(ht[k].text, n).value != ht[k].value) fail("stamp_hints_quote_digits", ht[k].text);
+			char want[512];
+			snprintf(want, sizeof want, "the file names format %s, %s than this reader's format %d,", ht[k].shown, strcmp(ht[k].code, "H006") ? "older" : "newer", SHCL_FORMAT_MAJOR);
+			shcl_doc *hd = shcl_parse(ht[k].text, n);
+			size_t hints = 0;
+			for (size_t i = 0; i < shcl_diag_count(hd); i++) {
+				const char *code = shcl_diag_code(hd, i);
+				if (strcmp(code, "H006") && strcmp(code, "H007")) continue;
+				hints++;
+				shcl_str hm = shcl_diag_message(hd, i);
+				size_t wn = strlen(want);
+				if (strcmp(code, ht[k].code) || shcl_diag_line(hd, i) != ht[k].line || hm.n < wn || memcmp(hm.p, want, wn)) fail("stamp_hints_quote_digits", ht[k].text);
+			}
+			if (hints != 1) fail("stamp_hints_quote_digits", ht[k].text);
+			shcl_free(hd);
+		}
+	}
 	test_id("EryvVWx", "a_comma_splits_a_bare_value_only_before_a_blank");
 	/* A comma splits a value outside brackets only with a blank, a comment or
 	   the end after it; inside brackets every one does (value-syntax.md,

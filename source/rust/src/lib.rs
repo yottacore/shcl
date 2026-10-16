@@ -2616,7 +2616,7 @@ pub fn format_version(text: &str) -> Option<u32> {
 /// word, or `BadType` for one whose number does not read, such as
 /// `##    Format   3x`, so an unstamped file and a damaged stamp read apart.
 /// `raw` is the text after the head, and `line` the line it is on. The load's
-/// `H006` and `H007` hints come from this same reading.
+/// `H006` and `H007` hints come from this same reading, and quote `raw`.
 #[must_use]
 pub fn read_format_version(text: &str) -> Read<u32> {
 	format_line_read(text.strip_prefix('\u{feff}').unwrap_or(text))
@@ -2722,17 +2722,20 @@ fn restamp(text: &str, line: usize) -> Option<String> {
 
 /// The load's hint for a file whose Format line names another major than
 /// this one: `H006` for a newer one, `H007` for an older one. It reads the
-/// line the way read_format_version() does, so the two never disagree.
+/// line the way read_format_version() does, so the two never disagree. The
+/// number is quoted as written, leading zeros and all, since the read caps
+/// one too big for 32 bits.
 fn stamp_hint(stamp: &Read<u32>) -> Option<Diagnostic> {
 	if stamp.status != Status::Good || stamp.value == FORMAT_MAJOR {
 		return None;
 	}
+	let written = one_line(stamp.raw.as_deref().unwrap_or_default());
 	let (code, message) = if stamp.value > FORMAT_MAJOR {
 		(
 			"H006",
 			format!(
 				"the file names format {}, newer than this reader's format {}, so some lines may read differently than written",
-				stamp.value, FORMAT_MAJOR
+				written, FORMAT_MAJOR
 			),
 		)
 	} else {
@@ -2740,7 +2743,7 @@ fn stamp_hint(stamp: &Read<u32>) -> Option<Diagnostic> {
 			"H007",
 			format!(
 				"the file names format {}, older than this reader's format {}, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
-				stamp.value, FORMAT_MAJOR
+				written, FORMAT_MAJOR
 			),
 		)
 	};

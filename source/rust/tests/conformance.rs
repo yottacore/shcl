@@ -3953,6 +3953,81 @@ fn stamp_reads_say_why() {
 	}
 }
 
+/// The H006 and H007 hints quote the Format number as written, leading zeros
+/// and all, while the read keeps its 32-bit cap. A long one is cut the way
+/// any value in a message is (2026101514324705). Same rows in every runner.
+#[test]
+fn stamp_hints_quote_digits() {
+	let _id = test_id("EssAxdA");
+	let zeros = |n: usize| "0".repeat(n);
+	let rows = [
+		(
+			"##    Format   4\n".to_string(),
+			4,
+			"H006",
+			1,
+			"4".to_string(),
+		),
+		(
+			"##    Format   4294967296\n".to_string(),
+			u32::MAX,
+			"H006",
+			1,
+			"4294967296".to_string(),
+		),
+		(
+			"##    Format   99999999999\n".to_string(),
+			u32::MAX,
+			"H006",
+			1,
+			"99999999999".to_string(),
+		),
+		(
+			"##    Format   0004\n".to_string(),
+			4,
+			"H006",
+			1,
+			"0004".to_string(),
+		),
+		(
+			"a: 1\n##    Format   02\n".to_string(),
+			2,
+			"H007",
+			2,
+			"02".to_string(),
+		),
+		(
+			format!("##    Format   1{}\n", zeros(200)),
+			u32::MAX,
+			"H006",
+			1,
+			format!("1{}...{} (201 chars)", zeros(99), zeros(100)),
+		),
+	];
+	for (text, value, code, line, shown) in rows {
+		assert_eq!(read_format_version(&text).value, value, "{:?}", text);
+		let word = if code == "H006" { "newer" } else { "older" };
+		let want = format!(
+			"the file names format {}, {} than this reader's format {},",
+			shown, word, FORMAT_MAJOR
+		);
+		let doc = Document::parse(&text);
+		let hints: Vec<_> = doc
+			.diagnostics()
+			.iter()
+			.filter(|d| d.code == "H006" || d.code == "H007")
+			.collect();
+		assert_eq!(hints.len(), 1, "{:?}", text);
+		assert_eq!((hints[0].code, hints[0].line), (code, line), "{:?}", text);
+		assert!(
+			hints[0].message.starts_with(&want),
+			"{:?}: {:?}",
+			text,
+			hints[0].message
+		);
+	}
+}
+
 /// A setter writes only what reads back. Each one builds its text through the
 /// emitter and hands it to the tokenizer before the document is touched, so
 /// for every input either the call refuses and the document is byte-identical,

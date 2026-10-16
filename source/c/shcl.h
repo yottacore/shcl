@@ -783,7 +783,7 @@ int64_t shcl_format_version(const char *text, size_t len);
 // the word, or SHCL_BAD_TYPE for one whose number does not read, such as
 // `##    Format   3x`, so an unstamped file and a damaged stamp read apart.
 // value is 0 unless SHCL_GOOD. The load's H006 and H007 hints come from this
-// same reading.
+// same reading, and quote the number as written.
 shcl_read_i64 shcl_read_format_version(const char *text, size_t len);
 // The schema a document's `##    Schema   REF` line names: a path, or a URL
 // for an editor to fetch, as a pointer into text with its length in *ref_len.
@@ -3465,8 +3465,9 @@ static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr
 }
 
 /* What a document's Format line says, as shcl_read_format_version gives it,
-   with the line it is on. */
-typedef struct { int64_t value; shcl_status status; size_t line; } ShclStamp;
+   with the line it is on and, when SHCL_GOOD, the digits as written there,
+   which the hints quote. */
+typedef struct { int64_t value; shcl_status status; size_t line; ShclStr digits; } ShclStamp;
 
 /* The Format line's head without the blanks before the number. A line that is
    only this names no number. */
@@ -3499,7 +3500,7 @@ static int s_has(ShclStr text, ShclStr needle) {
    block, and only when no line names one. */
 static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	size_t headn = sizeof(SHCL_FORMAT_LINE_HEAD) - 1, start = 0;
-	ShclStamp none; none.value = 0; none.status = SHCL_NOT_FOUND; none.line = 0;
+	ShclStamp none; none.value = 0; none.status = SHCL_NOT_FOUND; none.line = 0; none.digits = s_empty();
 	/* Most documents have no Format line, and every load asks. */
 	if (!s_has(text, s_lit(SHCL_FORMAT_WORD))) return none;
 	ShclStamp found = none, unread = none;
@@ -3534,9 +3535,9 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 		   `upgrade --from-2x` takes for a beta one. */
 		int64_t v = big ? (int64_t)UINT32_MAX : (int64_t)u;
 		if (v >= SHCL_FORMAT_MAJOR) {
-			if (in_now) { ShclStamp r; r.value = v; r.status = SHCL_GOOD; r.line = lineno; return r; }
+			if (in_now) { ShclStamp r; r.value = v; r.status = SHCL_GOOD; r.line = lineno; r.digits = n; return r; }
 		} else if (in_then && (!found.line || v > found.value)) {
-			found.value = v; found.status = SHCL_GOOD; found.line = lineno;
+			found.value = v; found.status = SHCL_GOOD; found.line = lineno; found.digits = n;
 		}
 	}
 	if (found.line) return found;
@@ -5995,14 +5996,16 @@ static void diags_by_line(ShclArena *tmp, ShclVecDiag *v) {
 
 /* The load's hint for a file whose Format line names another major than this
    one: H006 for a newer one, H007 for an older one. It reads the line the way
-   shcl_read_format_version does, so the two never disagree. The walk builds in
-   the per-line arena and the hints one, both free before the first line. */
+   shcl_read_format_version does, so the two never disagree. The number is
+   quoted as written, leading zeros and all, since the read caps one too big
+   for 32 bits. The walk builds in the per-line arena and the hints one, both
+   free before the first line. */
 static void stamp_hint(ShclParser *P, ShclStr text) {
 	ShclStamp st = format_line_read(P->line, P->hints, text);
 	if (st.status == SHCL_GOOD && st.value != SHCL_FORMAT_MAJOR) {
 		int newer = st.value > SHCL_FORMAT_MAJOR;
 		ShclSB m = {0};
-		sb_puts(P->line, &m, "the file names format "); sb_put_u64(P->line, &m, (uint64_t)st.value);
+		sb_puts(P->line, &m, "the file names format "); sb_putS(P->line, &m, v_one_line_in(P->line, st.digits, "", ""));
 		sb_puts(P->line, &m, newer ? ", newer than this reader's format " : ", older than this reader's format ");
 		sb_put_u64(P->line, &m, SHCL_FORMAT_MAJOR);
 		sb_puts(P->line, &m, ", so some lines may read differently than written");
