@@ -837,19 +837,19 @@ typedef struct {
 // it, with the info block `init` writes at the end in place of an old one
 // there. A whole block above the first field stays, so a file with its block
 // at the top comes out with 2. This is the one library call that writes the
-// block. A file that names this format comes
-// back current and untouched, and so does one that loads with no error under
-// these rules, since a program calling this on every start must never rewrite
-// a good file. from_v2 is shcl_migrate's: the file can only have been written
-// for 2.x. Then a file that loads clean is still made over when migrate would
-// change it, as it would `p: a,b`, an array under 2.x and one string now. The
-// one file naming this format that is made over is one that loads with an
-// error when from_v2 says a 2.x build wrote it, as with a beta of 3.0 that
-// wrote 2.x lines. It is taken as 2.x. With from_v2, any file is made over
-// only when the fresh text loads clean; when it wouldn't, errors_left names
-// the lines still in error. Pass from_v2 only for a file known to be old,
-// never on every start: a file this format wrote that picks up an error later
-// would be read by 2.x rules too.
+// block. A file that names this format comes back current and untouched, and
+// so does one that loads with no error under these rules, since a program
+// calling this on every start must never rewrite a good file. from_v2 is
+// shcl_migrate's: the file can only have been written for 2.x. Then a file
+// that loads clean is still made over when migrate would change it, as it
+// would `p: a,b`, an array under 2.x and one string now. The one file naming
+// this format that is made over is one that loads with an error when from_v2
+// says a 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It
+// is taken as 2.x. With from_v2, any file is made over only when the fresh
+// text loads clean; when it wouldn't, errors_left names the lines still in
+// error. Pass from_v2 only for a file known to be old, never on every start:
+// a file this format wrote that picks up an error later would be read by 2.x
+// rules too.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.

@@ -295,12 +295,12 @@ struct Upgrade {
 // without the stamp, written the way fmt writes it, with the info block init
 // writes at the end in place of an old one there. A whole block above the
 // first field stays, so a file with its block at the top comes out with 2. A
-// file that names this format, or loads
-// with no error under these rules, comes back current and untouched. With
-// from_v2, which says the file can only be 2.x, a clean file is still made
-// over when migrate would change it, as it would `p: a,b`, and any file only
-// when the fresh text loads clean (errors_left). Pass from_v2 only for a file
-// known to be old, never on every start.
+// file that names this format, or loads with no error under these rules,
+// comes back current and untouched. With from_v2, which says the file can
+// only be 2.x, a clean file is still made over when migrate would change it,
+// as it would `p: a,b`, and any file only when the fresh text loads clean
+// (errors_left). Pass from_v2 only for a file known to be old, never on every
+// start.
 Upgrade upgrade(std::string_view text, bool from_v2);
 // The name a config file's backup gets:
 // NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format

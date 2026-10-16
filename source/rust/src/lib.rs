@@ -189,8 +189,7 @@ pub enum WriteStatus {
 	/// `upgrade_file` could not read the file as UTF-8 text.
 	Unreadable,
 	/// No permission to write there, or for `upgrade_file` to read the
-	/// file. On windows, also a file another
-	/// process holds open.
+	/// file. On windows, also a file another process holds open.
 	PermissionDenied,
 	/// The disk is full, or the user's quota is.
 	DiskFull,
@@ -3090,21 +3089,21 @@ pub struct Upgrade {
 /// it, with the info block `init` writes at the end in place of an old one
 /// there. A whole block above the first field stays, so a file with its
 /// block at the top comes out with 2. This is the one library call that
-/// writes the block. A file that names this
-/// format comes back `current` and untouched, and so does one that loads
-/// with no error under these rules, since a program calling this on every
-/// start must never rewrite a good file. `from_v2` is migrate's: the file
-/// can only have been written for 2.x. Then a file that loads clean is
-/// still made over when `migrate` would change it, as it would `p: a,b`,
-/// an array under 2.x and one string now. One it would not change that names
-/// an older format gets this format on that Format line, and nothing else.
-/// The one file naming this format that is made over is one that loads with
-/// an error when `from_v2` says a 2.x build wrote it, as with a beta of 3.0
-/// that wrote 2.x lines. It is taken as 2.x. With `from_v2`, any file is
-/// made over only when the fresh text loads clean; when it wouldn't,
-/// `errors_left` names the lines still in error. Pass `from_v2` only for a
-/// file known to be old, never on every start: a file this format wrote
-/// that picks up an error later would be read by 2.x rules too.
+/// writes the block. A file that names this format comes back `current` and
+/// untouched, and so does one that loads with no error under these rules,
+/// since a program calling this on every start must never rewrite a good
+/// file. `from_v2` is migrate's: the file can only have been written for
+/// 2.x. Then a file that loads clean is still made over when `migrate` would
+/// change it, as it would `p: a,b`, an array under 2.x and one string now.
+/// One it would not change that names an older format gets this format on
+/// that Format line, and nothing else. The one file naming this format that
+/// is made over is one that loads with an error when `from_v2` says a 2.x
+/// build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is taken
+/// as 2.x. With `from_v2`, any file is made over only when the fresh text
+/// loads clean; when it wouldn't, `errors_left` names the lines still in
+/// error. Pass `from_v2` only for a file known to be old, never on every
+/// start: a file this format wrote that picks up an error later would be
+/// read by 2.x rules too.
 pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
