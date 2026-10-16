@@ -1192,16 +1192,21 @@ static int do_get(Opts *o) {
 // directory writable on windows, so an ACL-protected one got the bare errno
 // where the other three name the phase. Only ever called on the failure path,
 // and the probe is removed immediately.
+// The temp file goes beside what a link points at, so that's the directory
+// to ask, not the link's (2026101514324710).
 static int dir_takes_a_temp(const char *file) {
-	const char *slash = strrchr(file, '/');
+	char *target = shcl_resolve_target(file);
+	const char *at = target ? target : file;
+	const char *slash = strrchr(at, '/');
 #ifdef _WIN32
-	const char *bs = strrchr(file, '\\');
+	const char *bs = strrchr(at, '\\');
 	if (bs && (!slash || bs > slash)) slash = bs;
 #endif
 	char probe[4096];
 	if (!slash) snprintf(probe, sizeof probe, ".shcl-probe%ld", (long)getpid());
-	else if (slash == file) snprintf(probe, sizeof probe, "/.shcl-probe%ld", (long)getpid());
-	else snprintf(probe, sizeof probe, "%.*s/.shcl-probe%ld", (int)(slash - file), file, (long)getpid());
+	else if (slash == at) snprintf(probe, sizeof probe, "/.shcl-probe%ld", (long)getpid());
+	else snprintf(probe, sizeof probe, "%.*s/.shcl-probe%ld", (int)(slash - at), at, (long)getpid());
+	free(target);
 #ifdef _WIN32
 	wchar_t *w = shcl_widen(probe);
 	int fd = w ? _wopen(w, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE) : -1;
@@ -1627,16 +1632,6 @@ static int do_tokens(const Opts *o) {
 }
 
 // Reads an open stream fully into a malloc'd buffer (ops script; no UTF-8 gate).
-static char *read_all_fp(FILE *f, size_t *len) {
-	char *buf = NULL; size_t cap = 0, n = 0, r; char chunk[65536];
-	while ((r = fread(chunk, 1, sizeof chunk, f)) > 0) {
-		if (n + r > cap) { cap = (n + r) * 2; buf = (char *)xrealloc(buf, cap ? cap : 1); }
-		memcpy(buf + n, chunk, r); n += r;
-	}
-	if (!buf) buf = (char *)xrealloc(NULL, 1);
-	*len = n; return buf;
-}
-
 /* An ops-script value with its escapes resolved, ◉TAB◉ and ◉NEWLINE◉ and the
    rest of the file's names, so a tab or a line break can sit on one op line. A
    backslash is text, as in a file (2026100717500002). The file's own reader
@@ -1929,12 +1924,10 @@ static int do_set(Opts *o) {
 		// read as a hang. A pipe gets no note, since a script piping ops in
 		// knows (2026100717500018).
 		if (stdin_is_terminal()) fprintf(stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n");
-		ops = read_all_fp(stdin, &opslen);
-		// The ops script gets the same UTF-8 gate as any file input (exit 1).
-		if (!utf8_valid(ops, opslen)) {
-			fprintf(stderr, "stdin: stream did not contain valid UTF-8\n");
-			free(ops); layered_free(&L); return EXIT_IO;
-		}
+		// The same read as a document on stdin: nothing attached is empty, and
+		// a failed read or bad UTF-8 is exit 8 (2026101514324710).
+		ops = read_stream(stdin, "stdin", &opslen);
+		if (!ops) { layered_free(&L); return EXIT_IO; }
 	}
 	/* Byte order marks off the front: Windows PowerShell 5.1 puts one or more
 	   before text it pipes to a program (20260924 item 7), and the first op

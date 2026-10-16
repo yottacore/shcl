@@ -33,22 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- A few stderr messages differ between the 4 CLIs
-	- ID: 2026101514324710
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 10
-	- Version and build: dev at `79b9876c`
-	- Incorrect behavior:
-		- Invalid UTF-8 on stdin: Rust and C say `stdin: stream did not contain valid UTF-8` for an ops script and a document. Go and Python say `stdin: invalid UTF-8` for an ops script, and name a document `-`.
-		- `set --write` through a dangling symlink into a missing folder: Rust, Go and Python say `f.shcl: cannot create temporary file: ...`. C says only `f.shcl: No such file or directory`, since `dir_takes_a_temp` checks the link's folder, not the target's.
-		- The C comment over the ops script's UTF-8 check says exit 1. It exits 8, as all 4 do.
-	- Expected behavior: the CLI style guide's rule that the 4 CLIs match. The exit codes already do.
-	- Reproduced: 20261015, all 4 CLIs.
-	- Origin: `279862ae` (2026-07-25), `722a2cd8` (2026-09-03) and `fbbe7ce2` (2026-09-07), before this window. crosscheck never compares stderr, and no cli-regress row has invalid UTF-8 on stdin. Confirmed.
-
 - spec.md says only `V090` to `V093` print `schema line N`, and nothing pins `V094` or `V095`
 	- ID: 2026101514324711
 	- Type: Bug
@@ -157,6 +141,33 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
 	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
 	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+
+- A few stderr messages differ between the 4 CLIs
+	- ID: 2026101514324710
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs external testing: the hosted windows job's cli-regress, for `Essd9Mg` on a closed stdin, which now goes through `stdin_unattached` in Rust's ops read.
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 10
+	- Version and build: dev at `79b9876c`
+	- Incorrect behavior:
+		- Invalid UTF-8 on stdin: Rust and C say `stdin: stream did not contain valid UTF-8` for an ops script and a document. Go and Python say `stdin: invalid UTF-8` for an ops script, and name a document `-`.
+		- `set --write` through a dangling symlink into a missing folder: Rust, Go and Python say `f.shcl: cannot create temporary file: ...`. C says only `f.shcl: No such file or directory`, since `dir_takes_a_temp` checks the link's folder, not the target's.
+		- The C comment over the ops script's UTF-8 check says exit 1. It exits 8, as all 4 do.
+	- Expected behavior: the CLI style guide's rule that the 4 CLIs match. The exit codes already do.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Origin: `279862ae` (2026-07-25), `722a2cd8` (2026-09-03) and `fbbe7ce2` (2026-09-07), before this window. crosscheck never compares stderr, and no cli-regress row has invalid UTF-8 on stdin. Confirmed.
+	- Note: a sibling in the same ops read, reproduced 20261016: on a stdin open for writing only, Go and Python exit 8 where Rust and C read an empty script at 0, and Python names it `stdout: Bad file descriptor`. C ignored a failed ops read and went on at 0.
+	- Actual cause: Go and Python wrote their own text for the ops read and named a document on stdin by its argument. The ops read in each CLI was its own code, apart from the document read, and only that one had the rule that a stdin with nothing attached reads as empty. C's probe for the temp-create wording asked the folder in the path as given.
+	- Actual fix: Rust's wording in all 4. Go and Python name stdin `stdin` and say `stream did not contain valid UTF-8`. The ops read in all 4 takes the document read's rule for an unattached stdin, and a real read error is `stdin: ` and the reason, at 8. C reads the ops through the same `read_stream` as a document, so the separate UTF-8 check and its wrong comment are gone. C's `dir_takes_a_temp` probes the folder of `shcl_resolve_target`'s answer. Go drops the `read /dev/stdin:` part of a stdin read error, as it already did for a file.
+	- Swept: every stdin read in the 4 CLIs (the document read, which covers FILE, `--layer` and `--schema`, and the ops read), every UTF-8 message, and both `dir_takes_a_temp` callers in C (the save and the migrate and upgrade write). The OS's own text after `FILE: ` still differs by binding, by design (cli-regress header). Not pinned: a stdin read that fails outright, since a directory on stdin stops Python before `main` and no other failure is portable to set up; Python's document read now prefixes that one with `stdin: ` too.
+	- Verified: the new rows fail on dev's CLIs: `Essd9Mh` on Go and Python, `Essd9Mi` to `Essd9Ml` on Go and Python, `Essd9Mm` on C. All pass on the fix, with `Essd9Mg` passing both ways.
+	- Test case: cli-regress `Essd9Mg` (`ops-closed-stdin`), `Essd9Mh` (`ops-write-only-stdin`, new `@wronlyin` stdin, POSIX only), `Essd9Mi` to `Essd9Ml` (bad UTF-8 on stdin as ops, document, layer and schema) and save case `Essd9Mm` (`dangling-nodir`).
+	- Branch: `climsg`
+	- Acceptance signoff: Self-closed: reproduced, each new row failed before on the bindings it covers and passes after, and the Swept line names the sites. Rust's wording won everywhere, so no wording call was made.
+	- Closed: 20261016-090735
 
 - An op indented with a tab is refused as `unknown op: `, naming nothing
 	- ID: 2026101514324709

@@ -450,11 +450,11 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%DD% a file named -dash.shcl holding the name -h (the row runs from the
 ##	temp dir), %NA% a value outside ASCII, %XF% a byte that is not UTF-8.
 ##	stdin: printf %b text, '-' none, '@closedin' / '@closedout' close that
-##	stream, '@fullout' / '@fullerr' point it at a device that is always full,
-##	'@appear' / '@change' make %C% or change it while the command waits on
-##	stdin for its ops, '@asciilocale' none, with an ASCII-only locale and
-##	PYTHONIOENCODING, '@memcap' none, under a 2 GB address-space cap so a read
-##	that never ends fails fast.
+##	stream, '@wronlyin' opens stdin for writing only, '@fullout' / '@fullerr'
+##	point it at a device that is always full, '@appear' / '@change' make %C%
+##	or change it while the command waits on stdin for its ops, '@asciilocale'
+##	none, with an ASCII-only locale and PYTHONIOENCODING, '@memcap' none,
+##	under a 2 GB address-space cap so a read that never ends fails fast.
 ##	stdout and stderr: '-' means unchecked; an empty stdout field means exactly empty.
 ##	A stderr regex starting with '!' must match NO line. A stderr field
 ##	starting with '=' is the whole of stderr, printf %b text, matched exactly.
@@ -478,6 +478,17 @@ rows=(
 	## the row closes fd 0, and windows has no equivalent a shell can set up.
 	'EoTHA7Y|closed-stdin|fmt -|@closedin|0||^$'
 	'EoTHA7Z|closed-stdout|fmt %F%|@closedout|0|-|^$'
+	## 2026101514324710: an ops script on a stdin that isn't attached is empty,
+	## as a document there is. Go and Python exited 8 on a write-only one, and
+	## Python named it stdout.
+	'Essd9Mg|ops-closed-stdin|set %F%|@closedin|0|a: 1\n|='
+	'Essd9Mh|ops-write-only-stdin|set %F%|@wronlyin|0|a: 1\n|='
+	## 2026101514324710: bad UTF-8 on stdin is the same message in all 4. Go and
+	## Python said `invalid UTF-8` for an ops script and named a document `-`.
+	'Essd9Mi|ops-stdin-not-utf8|set %F%|int\tx\t\xff\n|8||=stdin: stream did not contain valid UTF-8\n'
+	'Essd9Mj|doc-stdin-not-utf8|get - a|a: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
+	'Essd9Mk|layer-stdin-not-utf8|get --layer=- %F% a|a: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
+	'Essd9Ml|schema-stdin-not-utf8|check --schema=- %F%|field: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
 	## 20260830 item 16: C dropped the line number and the offending op.
 	'EoTHA7a|bad-op-unknown|set %F%|bogus\ta\t1\n|1|-|op line 1: unknown op: bogus'
 	## 20260925: the banner op takes on or off where other ops take a path.
@@ -1883,7 +1894,7 @@ for row in "${rows[@]}"; do
 		echo "cli-regress ${id}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 		fTestSkip; continue
 	fi
-	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
+	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @wronlyin || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
 		echo "cli-regress: skipping ${id} (POSIX fixture; not judged on windows)"
 		fTestSkip; continue
 	fi
@@ -1943,6 +1954,7 @@ for row in "${rows[@]}"; do
 		rc=0
 		case "${stdinSpec}" in
 			@closedin)  timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" 0<&- || rc=$? ;;
+			@wronlyin)  timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" 0>>"${tmpDir}/wronly" || rc=$? ;;
 			@closedout) timeout "${rowSecs}" "${cli}" "${args[@]}" 2>"${tmpDir}/err" >&- || rc=$?; : >"${tmpDir}/out" ;;
 			@fullout)   timeout "${rowSecs}" "${cli}" "${args[@]}" 2>"${tmpDir}/err" >/dev/full || rc=$?; : >"${tmpDir}/out" ;;
 			@fullerr)   timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>/dev/full || rc=$?; : >"${tmpDir}/err" ;;
@@ -2484,6 +2496,7 @@ fSaveSetup() {
 		nothing|missdir) : ;;
 		link)     printf 'a: 1\n' > real.shcl; ln -s real.shcl f.shcl ;;
 		dangling) mkdir sub; ln -s sub/x.shcl f.shcl ;;
+		dangling-nodir) ln -s sub/x.shcl f.shcl ;;
 		dotdot)   mkdir -p real/sub top; ln -s ../real/sub top/lnkdir; ln -s ../x.shcl real/sub/f.shcl ;;
 		linkdir)  ln -s d/ f.shcl ;;
 		cycle)    ln -s g.shcl f.shcl; ln -s f.shcl g.shcl ;;
@@ -2530,6 +2543,9 @@ saveCases=(
 	'EqLbKeB|nothing|set --write --set b=2 f.shcl|0|[[ -f f.shcl && ! -L f.shcl ]] && grep -qx "b: 2" f.shcl'
 	'EqLbKeC|link|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" real.shcl'
 	'EqLbKeD|dangling|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" sub/x.shcl'
+	## 2026101514324710: into a folder that isn't there, the temp create is what
+	## failed. C asked the link's folder, which takes one, and left the phase out.
+	'Essd9Mm|dangling-nodir|set --write --set b=2 f.shcl|8|[[ -L f.shcl && ! -e sub ]] && grep -qE "^f\.shcl: cannot create temporary file: [^/]+$" "${tmpDir}/err"'
 	'EqLbKeE|dotdot|set --write --set b=2 top/lnkdir/f.shcl|0|[[ -L real/sub/f.shcl && ! -e top/x.shcl ]] && grep -qx "b: 2" real/x.shcl'
 	## 20260830 item 32: Python cleaned the `..` against a directory that is not
 	## there and created f.shcl here at exit 0. The kernel refuses the path.

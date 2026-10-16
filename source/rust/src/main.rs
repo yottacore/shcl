@@ -3002,9 +3002,14 @@ fn do_set(o: &Opts) -> u8 {
 				"shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)"
 			);
 		}
+		// Nothing attached is an empty script, as it's an empty document
+		// (2026101514324710).
 		if let Err(e) = std::io::stdin().read_to_string(&mut ops) {
-			errln!("stdin: {}", e);
-			return EXIT_IO;
+			if !stdin_unattached(&e) {
+				errln!("stdin: {}", e);
+				return EXIT_IO;
+			}
+			ops.clear();
 		}
 	}
 	// Byte order marks off the front: Windows PowerShell 5.1 puts one or more

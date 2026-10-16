@@ -1696,6 +1696,17 @@ func stdinUnattached(err error) bool {
 	return runtime.GOOS == "windows" && (errno == 1 || errno == 6 || errno == syscall.EINVAL)
 }
 
+// FILE: and the system's own message, as the UI guide has it. The path error
+// would name the call and the path a second time, and stdin's names
+// /dev/stdin.
+func pathErrReason(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err
+	}
+	return err
+}
+
 func readInput(file string) (string, error) {
 	var b []byte
 	var err error
@@ -1705,7 +1716,7 @@ func readInput(file string) (string, error) {
 			// A stdin that is not attached at all reads as an empty document.
 			// POSIX gives EOF for that; windows answers "invalid handle".
 			if !stdinUnattached(err) {
-				return "", fmt.Errorf("stdin: %w", err)
+				return "", fmt.Errorf("stdin: %w", pathErrReason(err))
 			}
 			b = nil
 		}
@@ -1718,18 +1729,17 @@ func readInput(file string) (string, error) {
 		}
 		b, err = os.ReadFile(file)
 		if err != nil {
-			// FILE: and the system's own message, as the UI guide has it. The
-			// path error would name the call and the path a second time.
-			var pe *fs.PathError
-			if errors.As(err, &pe) {
-				err = pe.Err
-			}
-			return "", fmt.Errorf("%s: %w", file, err)
+			return "", fmt.Errorf("%s: %w", file, pathErrReason(err))
 		}
 	}
 	// The reference reads as UTF-8 and fails on bad bytes; match its exit path.
+	// It names stdin as stdin, as the read error above does.
 	if !utf8.Valid(b) {
-		return "", fmt.Errorf("%s: stream did not contain valid UTF-8", file)
+		who := file
+		if file == "-" {
+			who = "stdin"
+		}
+		return "", fmt.Errorf("%s: stream did not contain valid UTF-8", who)
 	}
 	return string(b), nil
 }
@@ -3203,14 +3213,16 @@ func doSet(o *opts) int {
 			fmt.Fprintln(os.Stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)")
 		}
 		ops, err = io.ReadAll(os.Stdin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "stdin: %s\n", err)
+		// Nothing attached is an empty script, as it's an empty document
+		// (2026101514324710).
+		if err != nil && !stdinUnattached(err) {
+			fmt.Fprintf(os.Stderr, "stdin: %s\n", pathErrReason(err))
 			return exitIO
 		}
 		// The reference reads ops via read_to_string; mirror its UTF-8 failure,
 		// which is a stream that could not be read, not a usage error.
 		if !utf8.Valid(ops) {
-			fmt.Fprintln(os.Stderr, "stdin: invalid UTF-8")
+			fmt.Fprintln(os.Stderr, "stdin: stream did not contain valid UTF-8")
 			return exitIO
 		}
 	}
