@@ -74,6 +74,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the new rows fail on dev's 4 CLIs in exactly the 4 `upgrade --write` rows, 16 checks, and pass on the fix. cli-regress is green on the branch.
 	- Test case: cli-regress `diagExits`, `EssOUuB` to `EssOUub` (`diag-exit-*`), each checking the exit code and that the file's one E014 line prints exactly once.
 	- Branch: `upfix`
+	- Commit: `538e3359`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule that every loading subcommand prints the load's diagnostics once.
 	- Closed: 20261016-080915
 
@@ -100,6 +101,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the new asserts fail on the old libraries in all 4 (`Unreadable` with the UTF-8 text) and pass on the fix.
 	- Test case: `write_status_names_each_failure` in Rust (`EsEhCFy`), Go (`EsEhCG1`), Python (`EsEhCG4`) and C (`EsEhCGA`): `upgrade_file` on a mode 000 file is `PermissionDenied` with no UTF-8 in the message, and a file that isn't UTF-8 still says so. POSIX only, and skipped as root, like the shut folder rows beside it.
 	- Branch: `upfix`
+	- Commit: `e498787b`
 	- Acceptance signoff: Self-closed: reproduced, the new asserts failed before and pass after, and `Unreadable` now means what its doc says.
 	- Closed: 20261016-081639
 
@@ -127,6 +129,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `--help` from the 4 debug CLIs has one checksum and no line over 80; `shcl help upgrade` and the man page at 80 columns read as above.
 	- Test case: none, docs only. Help parity across the 4 is crosscheck's, and its width is cli-regress `help-width` (`Eq9yPCQ`) and `man-width` (`EpHH7ZQ`).
 	- Branch: `upfix`
+	- Commit: `c525d086`
 	- Acceptance signoff: Self-closed on JC's criteria: the `--from-2x` sentence is JC's 2026-10-15 requirement, and the rest makes the help, examples.md and the doc comments say what spec.md and the man page say. The wording is my call.
 	- Closed: 20261016-082019
 
