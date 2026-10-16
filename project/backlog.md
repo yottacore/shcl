@@ -222,6 +222,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `EssNR9b` runs both link checks on a fixture repo with a fenced `# typo anchor`. `EsndgVW` now wants `EsnhDn1` to fail too when python3 crashes.
 	- Verified: `EssNR9b` fails on the old check-docs, since `EsnhDn1` passes the typo link, and passes on the fix. shell-regress, check-docs as `SHCL_GATE_REF=main`, shellcheck and `test-ids.py check` pass.
 	- Branch: `gatefix`
+	- Commit: `9028769e`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the fix is the one the item named.
 	- Closed: 20261016-080415
 
@@ -243,6 +244,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `EssNRBl` runs crosscheck with the CLI as 2 bindings over a case whose `write-bad.ops` has a good line, which has to fail, and one whose line is refused, which has to pass.
 	- Verified: `EssNRBl` fails on the old crosscheck and passes on the fix. crosscheck over the corpus with the 4 debug CLIs (22233 comparisons), shell-regress and shellcheck pass.
 	- Branch: `gatefix`
+	- Commit: `33fcb499`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the check does what its comment says.
 	- Closed: 20261016-081026
 
@@ -264,6 +266,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `EssNRE0` runs `test-ids.py find` on a fake tree with live and commented-out markers in Python, C and Bash.
 	- Verified: `EssNRE0` fails on the old `test-ids.py` and passes on the fix. `find EsZikJk` now says `not found`. `test-ids.py check`, shell-regress, shellcheck, ruff and mypy pass.
 	- Branch: `gatefix`
+	- Commit: `8eba94bc`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the scan does what the item asked.
 	- Closed: 20261016-081446
 
