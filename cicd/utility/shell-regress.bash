@@ -2862,15 +2862,37 @@ done <<<"${feedNames}"
 
 fTest EsndgVW 20261014b-2-check-docs-python-crash-fails
 ##	The same the way it happened: python3 prints what it found and exits 1, as
-##	a traceback does. The three checks a script feeds have to fail.
+##	a traceback does. The checks a script feeds have to fail.
 mkdir -p "${tmpDir}/pycrash"
 printf '#!/bin/sh\n"%s" "$@"\nexit 1\n' "$(command -v python3)" > "${tmpDir}/pycrash/python3"
 chmod +x "${tmpDir}/pycrash/python3"
 # shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
 out="$(PATH="${tmpDir}/pycrash:${PATH}" env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=/dev/null bash "${docs}" 2>&1 || true)"
-for id in EshYXXC Er8RudX EsiRFl2; do
+for id in EshYXXC Er8RudX EsiRFl2 EsnhDn1; do
 	grep -qE "^FAIL ${id} check-docs " <<<"${out}" || fBad "check-docs' ${id} passed with python3 exiting 1 after its output"
 done
+
+fTest EssNR9b 20261015-15-fenced-hash-is-no-heading
+##	Code review 20261015 item 15: installer-doc-pointers took a `#` line in a
+##	code fence for a heading, so an installer link to a typo passed. Both link
+##	checks are lifted out with check-docs' opening lines and run on a fixture
+##	repo, where a fenced `# typo anchor` has to make no anchor for either.
+cdAnc="${tmpDir}/cdanchor"
+mkdir -p "${cdAnc}/include" "${cdAnc}/repo/project"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${cdAnc}/include/"
+awk 'BEGIN {on = 1} $1 == "fTest" {on = ($2 == "EsnhDn1" || $2 == "EsiRFl2")} on' "${docs}" > "${cdAnc}/check-docs.bash"
+printf '\nfTestEnd\n((nBad == 0))\n' >> "${cdAnc}/check-docs.bash"
+ancUrl="https://github.com/yottacore/shcl/blob/main/project/install.md"
+printf '#!/usr/bin/env bash\n# see %s#typo-anchor\n# see %s#real-heading\n' "${ancUrl}" "${ancUrl}" > "${cdAnc}/repo/install.bash"
+printf '# see %s#real-heading\n' "${ancUrl}" > "${cdAnc}/repo/install.ps1"
+printf '# Install\n\n## Real heading\n\n~~~bash\n# typo anchor\n~~~\n' > "${cdAnc}/repo/project/install.md"
+printf -- '- [a](project/install.md#typo-anchor)\n- [b](project/install.md#real-heading)\n' > "${cdAnc}/repo/links.md"
+(unset GIT_DIR GIT_WORK_TREE; git init -q "${cdAnc}/repo" && git -C "${cdAnc}/repo" add install.bash install.ps1 project/install.md links.md)
+out="$(env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=/dev/null bash "${cdAnc}/check-docs.bash" "${cdAnc}/repo" 2>&1)" && ancRc=0 || ancRc=$?
+[[ "${ancRc}" == 1 && "${out}" == *"install.bash: links to ${ancUrl}#typo-anchor, and no heading in project/install.md makes #typo-anchor"* \
+	&& "${out}" == *"links.md:1: links to project/install.md#typo-anchor, and no heading there makes #typo-anchor"* \
+	&& "${out}" != *"#real-heading,"* && "${out}" != *"exited"* && "${out}" != *"Traceback"* ]] \
+	|| fBad "check-docs' link checks on a fenced # line said (exit ${ancRc}): ${out@Q}"
 
 fTest ErD9eyc 20260928-item19-skipped-block-names-its-tests
 ##	20260928 item 19: a block skipped for a missing tool printed a skip line for
@@ -3557,3 +3579,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-13  check-pins over the cicd/container recipes.
 ##		2026-10-14  The install one-liners are looked for in project/install.md.
 ##		2026-10-15  check-docs' loop feeds fail their test when they crash.
+##		2026-10-16  A fenced `#` line makes no anchor for check-docs' link checks.

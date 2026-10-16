@@ -205,7 +205,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-docs `EsnhDn1` takes a `#` line inside a code fence for a heading
 	- ID: 2026101514324715
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 15
@@ -216,6 +216,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261015, on a fixture repo with the check's block.
 	- Origin: `b3199842` (docgate, 2026-10-15). Confirmed.
 	- Note: one anchor builder for both checks closes it.
+	- Actual cause: confirmed. The check built its anchors with its own `sed`, which read every `#` line in the file.
+	- Actual fix: one anchor builder at the top of check-docs, which `EsnhDn1` and `EsiRFl2` both call. It skips fenced lines, as `EsiRFl2` did.
+	- Swept: the other heading builder in check-docs is `fBuildToc` for `EqQW89J`, which builds what the editor's contents block would hold, a different rule. It already skips fences. check-readme and the other gates build no anchors.
+	- Test case: shell-regress `EssNR9b` runs both link checks on a fixture repo with a fenced `# typo anchor`. `EsndgVW` now wants `EsnhDn1` to fail too when python3 crashes.
+	- Verified: `EssNR9b` fails on the old check-docs, since `EsnhDn1` passes the typo link, and passes on the fix. shell-regress, check-docs as `SHCL_GATE_REF=main`, shellcheck and `test-ids.py check` pass.
+	- Branch: `gatefix`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the fix is the one the item named.
+	- Closed: 20261016-080415
 
 - crosscheck's bad-op dimension never checks that a bad op fails
 	- ID: 2026101514324716

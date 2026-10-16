@@ -30,6 +30,57 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 ##	goes through fGrepOrNone, since matching nothing is its exit 1.
 fFeedBad(){ fBad "${testName:-?}: the step feeding this check exited $1, so it read part of its input or none"; }
 fGrepOrNone(){ "$@" || [[ $? == 1 ]]; }
+##	The heading anchors a link into a .md can name, for every check that
+##	follows one: the heading in lower case, with all but letters, digits,
+##	spaces, hyphens and underscores dropped and spaces made hyphens, as the
+##	git host does. A `#` line in a code fence is no heading. `anchors FILE`
+##	prints a file's, and `links ROOT` checks every relative link in a tracked
+##	.md under ROOT.
+docLinksPy="$(cat <<'PYEOF'
+import re, subprocess, sys
+from pathlib import Path
+def lines_outside_fences(p):
+	fence = ""
+	for n, line in enumerate(p.read_text(encoding="utf-8").split("\n"), 1):
+		m = re.match(r"^\s*(`{3,}|~{3,})", line)
+		if fence:
+			if m and line.strip() == fence:
+				fence = ""
+		elif m:
+			fence = m.group(1)
+		else:
+			yield n, line
+anchors = {}
+def anchors_of(p):
+	if p not in anchors:
+		anchors[p] = {re.sub(r"[^a-z0-9 _-]", "", h.lower()).replace(" ", "-")
+			for _, line in lines_outside_fences(p) for h in re.findall(r"^#{1,6} (.*?)\s*$", line)}
+	return anchors[p]
+def check_links(root):
+	listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "*.md"], stdout=subprocess.PIPE, encoding="utf-8", check=True)
+	docs = sorted(f for f in listed.stdout.split("\0") if f)
+	if not docs:
+		print("doc-links-resolve: git listed no .md files to check")
+	for rel in docs:
+		doc = root / rel
+		if not doc.is_file():
+			continue
+		for n, line in lines_outside_fences(doc):
+			for target in re.findall(r"\]\(([^)\s]+)\)", re.sub(r"`[^`]*`", "", line)):
+				if re.match(r"^[a-z]+:", target):
+					continue
+				path, _, anchor = target.partition("#")
+				dest = (doc.parent / path).resolve() if path else doc
+				if not dest.exists():
+					print(f"{rel}:{n}: links to {target}, which is not there")
+				elif anchor and dest.suffix == ".md" and anchor not in anchors_of(dest):
+					print(f"{rel}:{n}: links to {target}, and no heading there makes #{anchor}")
+if sys.argv[1] == "anchors":
+	print("\n".join(sorted(anchors_of(Path(sys.argv[2])))))
+else:
+	check_links(Path(sys.argv[2]))
+PYEOF
+)"
 ##	The README's install steps, examples and benchmarks live in their own docs.
 readme="${repoDir}/README.md"
 installDoc="${repoDir}/project/install.md"
@@ -372,7 +423,7 @@ for f in install.bash install.ps1; do
 			continue
 		fi
 		[[ -n "${anchor}" ]] || continue
-		slugs="$(sed -nE 's/^#{1,6} +(.*[^[:space:]])[[:space:]]*$/\1/p' "${repoDir}/${rel}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9 _-]//g; s/ /-/g')"
+		slugs="$(python3 -c "${docLinksPy}" anchors "${repoDir}/${rel}")" || fFeedBad $?
 		grep -qxF -- "${anchor}" <<<"${slugs}" || fBad "${f}: links to ${url}, and no heading in ${rel} makes #${anchor}"
 	done <<<"${hits}"
 done
@@ -1262,47 +1313,7 @@ fTest EsiRFl2 doc-links-resolve
 ##	and goes nowhere. Every relative link in a tracked .md has to reach a file,
 ##	and its #anchor a heading there, by the same slug rule as the contents
 ##	blocks plus underscores, which the git host keeps.
-hits="$(python3 - "${repoDir}" <<'PYEOF'
-import re, subprocess, sys
-from pathlib import Path
-root = Path(sys.argv[1])
-def lines_outside_fences(p):
-	fence = ""
-	for n, line in enumerate(p.read_text(encoding="utf-8").split("\n"), 1):
-		m = re.match(r"^\s*(`{3,}|~{3,})", line)
-		if fence:
-			if m and line.strip() == fence:
-				fence = ""
-		elif m:
-			fence = m.group(1)
-		else:
-			yield n, line
-anchors = {}
-def anchors_of(p):
-	if p not in anchors:
-		anchors[p] = {re.sub(r"[^a-z0-9 _-]", "", h.lower()).replace(" ", "-")
-			for _, line in lines_outside_fences(p) for h in re.findall(r"^#{1,6} (.*?)\s*$", line)}
-	return anchors[p]
-listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "*.md"], stdout=subprocess.PIPE, encoding="utf-8", check=True)
-docs = sorted(f for f in listed.stdout.split("\0") if f)
-if not docs:
-	print("doc-links-resolve: git listed no .md files to check")
-for rel in docs:
-	doc = root / rel
-	if not doc.is_file():
-		continue
-	for n, line in lines_outside_fences(doc):
-		for target in re.findall(r"\]\(([^)\s]+)\)", re.sub(r"`[^`]*`", "", line)):
-			if re.match(r"^[a-z]+:", target):
-				continue
-			path, _, anchor = target.partition("#")
-			dest = (doc.parent / path).resolve() if path else doc
-			if not dest.exists():
-				print(f"{rel}:{n}: links to {target}, which is not there")
-			elif anchor and dest.suffix == ".md" and anchor not in anchors_of(dest):
-				print(f"{rel}:{n}: links to {target}, and no heading there makes #{anchor}")
-PYEOF
-)" || fFeedBad $?
+hits="$(python3 -c "${docLinksPy}" links "${repoDir}")" || fFeedBad $?
 while IFS= read -r hit; do [[ -z "${hit}" ]] || fBad "${hit}"; done <<<"${hits}"
 
 fTest EqQW89K flame-report-keys-exist
@@ -1434,3 +1445,5 @@ echo "check-docs: OK"
 ##		            relative link in a tracked .md reaches its file and heading.
 ##		2026-10-15  A loop's input is captured before the loop reads it, so a
 ##		            script that crashes fails its check.
+##		2026-10-16  Both link checks take their anchors from one builder, which
+##		            skips code fences.
