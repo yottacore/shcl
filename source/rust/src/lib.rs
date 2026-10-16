@@ -2627,8 +2627,8 @@ pub fn read_format_version(text: &str) -> Read<u32> {
 const FORMAT_WORD: &str = "##    Format";
 
 /// read_format_version() on text with the BOM already off. Digits that do
-/// not fit 32 bits are not a 2.x file either, so they read as this major and
-/// there is nothing to migrate.
+/// not fit 32 bits read as the largest number that does: a format newer than
+/// this one, so the file is left alone like any other newer one.
 ///
 /// A Format line pasted into a raw body is that block's content, and taking
 /// it as the file's would rewrite a current file, or leave an old one alone.
@@ -2671,9 +2671,9 @@ fn format_line_read(text: &str) -> Read<u32> {
 			}
 			continue;
 		}
-		// More digits than fit is not a 2.x file either, so it reads as this
-		// major and there is nothing to migrate.
-		let v = n.parse().unwrap_or(FORMAT_MAJOR);
+		// Read as this major, a number that doesn't fit would make a file
+		// `upgrade --from-2x` takes for a beta one.
+		let v = n.parse().unwrap_or(u32::MAX);
 		if v >= FORMAT_MAJOR {
 			if current.is_some() {
 				return Read::new(v, Status::Good, Some(n.to_string())).at(i + 1, None);
@@ -2858,17 +2858,18 @@ impl RawLines {
 /// The raw block a line opens under the current rules: a fence line under a
 /// field, or a field line whose value is a fence, read as the parser reads
 /// them. A line refused for where it sits or for its text still takes its
-/// body.
+/// body. A line led by a fence character that opens no fence is a field line
+/// to the parser, as `~x: ~~~` is.
 fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 	let rest = rest.trim_start_matches(is_wsp);
-	let fence = if rest.starts_with(['`', '~']) {
-		child_fence(rest, tok)
-	} else if !is_field_text(rest) {
-		None
-	} else {
+	let mut fence = None;
+	if rest.starts_with(['`', '~']) {
+		fence = child_fence(rest, tok);
+	}
+	if fence.is_none() && is_field_text(rest) {
 		tokenize(rest, b':', false, Rules::Current, tok);
-		line_fence(tok, rest)
-	};
+		fence = line_fence(tok, rest);
+	}
 	fence.map(|(ch, len, _)| (ch, len))
 }
 

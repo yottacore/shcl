@@ -2428,8 +2428,8 @@ _FORMAT_WORD = "##    Format"
 
 def _format_line_read(text: str) -> Read[int]:
 	"""read_format_version() on text with the BOM already off. Digits that do
-	not fit 32 bits are not a 2.x file either, so they read as this major and
-	there is nothing to migrate.
+	not fit 32 bits read as the largest number that does: a format newer than
+	this one, so the file is left alone like any other newer one.
 
 	A Format line pasted into a raw body is that block's content, and taking
 	it as the file's would rewrite a current file, or leave an old one alone.
@@ -2465,11 +2465,11 @@ def _format_line_read(text: str) -> Read[int]:
 				unread = Read(0, Status.BadType if n else Status.Empty, n)._at(i + 1, None)
 			continue
 		# A number too long for int() - CPython refuses past 4300 digits - is
-		# one no format will ever have. The reference's parse fails on it too
-		# and reads the line as this major, so the file needs nothing
-		# (20260918b item 30).
+		# one no format will ever have (20260918b item 30). Read as this
+		# major, a number that doesn't fit would make a file
+		# `upgrade --from-2x` takes for a beta one.
 		digits = n.lstrip("0") or "0"
-		v = FORMAT_MAJOR if len(digits) > 10 or int(digits) > 0xFFFFFFFF else int(digits)
+		v = 0xFFFFFFFF if len(digits) > 10 or int(digits) > 0xFFFFFFFF else int(digits)
 		if v >= FORMAT_MAJOR:
 			if current is not None:
 				return Read(v, Status.Good, n)._at(i + 1, None)
@@ -2595,13 +2595,13 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 	"""The raw block a line opens under the current rules: a fence line under a
 	field, or a field line whose value is a fence, read as the parser reads
 	them. A line refused for where it sits or for its text still takes its
-	body."""
+	body. A line led by a fence character that opens no fence is a field line
+	to the parser, as `~x: ~~~` is."""
 	rest = rest.lstrip(_WSP)
+	fence = None
 	if rest[0] == "`" or rest[0] == "~":
 		fence = _child_fence(rest, tok)
-	elif not _is_field_text(rest):
-		fence = None
-	else:
+	if fence is None and _is_field_text(rest):
 		tokenize(rest, ":", False, Rules.Current, tok)
 		fence = _line_fence(tok)
 	return None if fence is None else (fence[0], fence[1])
