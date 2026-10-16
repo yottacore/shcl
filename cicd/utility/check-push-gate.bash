@@ -8,7 +8,9 @@
 ##		with nothing recorded still has to run it. A skip that fires when it
 ##		should not is a push that reaches main untested, and nothing downstream
 ##		would say so. Only main is gated, so every other ref is checked for the
-##		gate not running at all.
+##		gate not running at all. cicd.bash itself runs on a stubbed repository
+##		too: what keeps a run from recording, the profiler calibration, and the
+##		mounts an extra --container image asks for.
 ##	Syntax:
 ##		check-push-gate.bash
 ##	Exit: 0 = all checks pass, 1 = a check failed (named), 2 = cannot set up.
@@ -430,6 +432,13 @@ CROSS_CHECKS=('stub|[[ -z "${STUB_CROSS_FAIL:-}" ]]')
 BINDING_CLIS=(); LARGEDOC_MIB=0; CROSS_TARGETS=(); PROFILE_ENABLE=0; PACKAGE_ENABLE=0; GIF_ENABLE=0
 DOGFOOD_FIXED_DESTS=(); GIT_PUBLISH=(); RELEASE_NATIVE_CMD=()
 PROFILE_CHECK_BUILD_CMD=()
+## The profiler, with a calibration that leaves a file behind when it runs.
+if [[ -n "${STUB_PROFILE:-}" ]]; then
+	PROFILE_ENABLE=1; PROFILE_BUILD_CMD=(true); PROFILE_BIN=cicd/cicd.bash; PROFILE_TIMED=()
+	PROFILE_WORKLOAD_GEN='echo "a: 1" > "${PROFILE_WORKLOAD}"'; PROFILE_RUN='echo svg > "${PROFILE_OUT}"'
+	PROFILE_CHECK='echo ran > "${STUB_PROFILE}"'
+	PROFILE_CHECK_PROBE_CMD=(true); PROFILE_CHECK_BUILD_CMD=(true); PROFILE_CHECK_BIN=cicd/cicd.bash
+fi
 CFG
 { git -C "${eng}" add --all && git -C "${eng}" commit -q -m base; } || { echo "check-push-gate: engine repo commit failed" >&2; exit 2; }
 engTree="$(git -C "${eng}" rev-parse 'HEAD^{tree}')"
@@ -468,6 +477,110 @@ fTest EqL1d4D cicd.bash clears GIT_DIR before its gates
 fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --ci
 [[ "$(cat "${work}/eng.gitdir" 2>/dev/null || true)" == unset ]] \
 	|| fail "cicd.bash passed GIT_DIR on to its gates: $(cat "${work}/eng.gitdir" 2>/dev/null || true)"
+fTest EstM5WQ a local --no-tests run still checks the profiler
+## 2026101514324714: --no-tests dropped the calibration on a local run too, so
+## the flame graph after it was drawn unchecked. Under --ci the calibration
+## goes with the tests, which the other hosted job runs.
+fCalibrated(){  ## fCalibrated ARGS... -> engRc, calibrated (1 if the calibration ran)
+	rm -f "${work}/eng.prof"
+	fEngine STUB_PROFILE="${work}/eng.prof" -- "$@"
+	calibrated=0; if [[ -e "${work}/eng.prof" ]]; then calibrated=1; fi
+}
+fCalibrated -y --no-sync --no-tests
+((engRc == 0 && calibrated == 1)) || fail "a local --no-tests run drew the flame graph unchecked: exit ${engRc}, calibrated ${calibrated}: $(tail -3 "${work}/eng.log")"
+fCalibrated -y --no-sync
+((engRc == 0 && calibrated == 1)) || fail "a local run drew the flame graph unchecked: exit ${engRc}, calibrated ${calibrated}"
+fCalibrated --ci
+((engRc == 0 && calibrated == 1)) || fail "a --ci run skipped the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
+fCalibrated --ci --no-tests
+((engRc == 0 && calibrated == 0)) || fail "the hosted lint half ran the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
+fTest EstM5os an extra image builds into its own copies and leaves this tree as it was
+## 2026101514324713: an alpine run left a root-owned target dir where there had
+## been none, built into a gate worktree's target-gate, and swapped this box's C
+## CLI for a musl one that won't run here. Docker makes a missing mount point as
+## root and follows a link to mount where it leads, so the engine here is a stub
+## that writes down the mounts it's asked for, and those are held to that.
+if [[ "$(uname -m)" == x86_64 ]]; then
+	cat > "${work}/fake-docker" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+	image) exit 0 ;;
+	run)   ;;
+	*)     exit 1 ;;
+esac
+## cat /etc/passwd or /etc/group
+if [[ " $* " != *" bash "* ]]; then echo "root:x:0:0::/root:/bin/sh"; exit 0; fi
+: > "${STUB_MOUNTS}"
+while (($#)); do
+	if [[ "$1" == -v ]]; then
+		dst="${2#*:}"; dst="${dst%%:*}"; there=no
+		if [[ -e "${dst}" || -L "${dst}" ]]; then there=yes; fi
+		printf '%s\t%s\t%s\n' "${2%%:*}" "${dst}" "${there}" >> "${STUB_MOUNTS}"
+		shift
+	fi
+	shift
+done
+EOF
+	chmod +x "${work}/fake-docker"
+	cp -r "${root}/cicd/container" "${eng}/cicd/"
+	mapfile -t ctrExtra < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
+	for f in "${ctrExtra[@]}"; do cp "${root}/${f}" "${eng}/${f}"; done
+	mkdir -p "${eng}/source/c" "${eng}/source/go"
+	mapfile -t ctrPrivate < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_PRIVATE[@]}")
+	mapfile -t ctrClis < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${BINDING_CLIS[@]}")
+	fCtrMounts(){  ## fCtrMounts LABEL: an alpine run on eng, its mounts held to the rules
+		local label="$1" p host dst there seen="" before=() ctrRc=0
+		for p in "${ctrPrivate[@]}"; do before+=("$(if [[ -e "${eng}/${p%/}" || -L "${eng}/${p%/}" ]]; then echo yes; else echo no; fi)"); done
+		( cd "${eng}" && env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS SHCL_DOCKER="${work}/fake-docker" SHCL_CTR_CACHE="${work}/ctrcache" \
+			STUB_MOUNTS="${work}/mounts.tsv" bash "${eng}/cicd/cicd.bash" -y --no-sync --container=alpine ) > "${work}/ctr.log" 2>&1 || ctrRc=$?
+		((ctrRc == 0)) || { fail "${label}: the stubbed alpine run failed: $(tail -3 "${work}/ctr.log")"; return 0; }
+		while IFS=$'\t' read -r _ dst there; do
+			if [[ "${dst}" == "${eng}/"* && "${there}" == no ]]; then fail "${label}: docker would make ${dst#"${eng}/"} as root"; fi
+			if [[ "${seen}" == *$'\n'"${dst}"$'\n'* ]]; then fail "${label}: 2 mounts at ${dst}"; fi
+			seen+=$'\n'"${dst}"$'\n'
+		done < "${work}/mounts.tsv"
+		for p in "${ctrPrivate[@]}"; do
+			host="$(readlink -f -- "${eng}/${p%/}")"
+			if ! awk -F'\t' -v d="${host}" -v c="${work}/ctrcache/" '$2 == d && index($1, c) == 1 { f = 1 } END { exit !f }' "${work}/mounts.tsv"; then
+				fail "${label}: ${p} isn't the image's own copy where it leads (${host})"
+			fi
+			if awk -F'\t' -v s="${host}" '$1 == s { f = 1 } END { exit !f }' "${work}/mounts.tsv"; then
+				fail "${label}: this box's ${host} is mounted into the run"
+			fi
+		done
+		for p in "${!ctrPrivate[@]}"; do
+			if [[ "${before[p]}" == no && ( -e "${eng}/${ctrPrivate[p]%/}" || -L "${eng}/${ctrPrivate[p]%/}" ) ]]; then
+				fail "${label}: the run left ${ctrPrivate[p]} behind"
+			fi
+		done
+		return 0
+	}
+	fCtrMounts "nothing built here"
+	## A gate worktree's target dir is a link to the checkout's target-gate. A
+	## target the run above left behind has already failed.
+	if [[ ! -e "${eng}/source/rust/target" ]]; then
+		mkdir -p "${work}/target-gate"; ln -s "${work}/target-gate" "${eng}/source/rust/target"
+		fCtrMounts "a gate worktree"
+		## The main image still builds into it, as the pre-push hook's run does.
+		( cd "${eng}" && env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS SHCL_DOCKER="${work}/fake-docker" SHCL_CTR_CACHE="${work}/ctrcache" \
+			STUB_MOUNTS="${work}/mounts.tsv" bash "${eng}/cicd/cicd.bash" -y --no-sync --container ) > "${work}/ctr.log" 2>&1 \
+			|| fail "the stubbed run in the main image failed: $(tail -3 "${work}/ctr.log")"
+		awk -F'\t' -v d="${work}/target-gate" '$1 == d && $2 == d { f = 1 } END { exit !f }' "${work}/mounts.tsv" \
+			|| fail "the main image doesn't build into a gate worktree's target-gate"
+		rm -f "${eng}/source/rust/target"
+	fi
+	## Every CLI the build stage compiles into the tree has its own copy.
+	for c in "${ctrClis[@]}"; do
+		c="${c#*|}"; [[ "${c}" != *.py ]] || continue
+		covered=0
+		for p in "${ctrPrivate[@]}"; do
+			if [[ "${c}" == "${p%/}" || "${c}" == "${p%/}/"* ]]; then covered=1; fi
+		done
+		((covered)) || fail "${c} is built into the tree, and CTR_PRIVATE has no copy of it for an extra image"
+	done
+else
+	fTestSkipBlock
+fi
 
 fTestEnd
 (( rc == 0 )) && echo "check-push-gate: OK: the tree matches a commit of the working copy, a recorded tree skips the gate, only a push to main runs it with the full gate, a red gate refuses, the gate builds into target-gate and runs once on main's commit in a multi-ref push, no gate sees a linked worktree's GIT_DIR, the drift check judges the pushed tree as main, a cut needs the banner tag on the remote or in the push, and a partial run records nothing"
@@ -489,3 +602,5 @@ exit "${rc}"
 ##		- 2026-10-01 JC: A cut pushed to main needs the banner's tag.
 ##		- 2026-10-04 JC: A banner the check cannot read, this checkout's own
 ##		  banner, and a tag on a commit at another version.
+##		- 2026-10-16 JC: A local --no-tests run keeps the profiler calibration, and an
+##		  extra --container image's mounts leave this tree's builds alone.

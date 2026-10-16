@@ -95,15 +95,23 @@ while IFS= read -r fetchLine; do
 		echo "check-pins: ci.yml fetches in a form this check cannot follow to its sha256 (use curl -o /absolute/path): ${fetchLine#"${fetchLine%%[![:space:]]*}"}" >&2; nBad=$((nBad + 1))
 	fi
 done < <(grep -E -- '(^|[^A-Za-z0-9_-])(curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm|Start-BitsTransfer)([^A-Za-z0-9_-]|$)|gh (release|run) download' <<<"${liveLines}" || true)
+## A check counts only where nothing after it can turn it into a pass, and a
+## file is fetched once, or the check can be of the first fetch and not the one
+## that's used.
+fetchTargets="$(grep -oE -- '-o[[:space:]]+/[^[:space:]]+' <<<"${liveLines}" | sed 's/^-o[[:space:]]*//' | sort || true)"
 while IFS= read -r target; do
 	[[ -n "${target}" ]] || continue
-	checked="$(grep -F -- "${target}\" | sha256sum -c" <<<"${liveLines}" || true)"
+	checked="$(grep -F -- "${target}\" | sha256sum -c" <<<"${liveLines}" | grep -E -- 'sha256sum -c -?[[:space:]]*$' || true)"
 	if [[ -z "${checked}" ]]; then
 		echo "check-pins: ci.yml downloads ${target} and never checks it" >&2; nBad=$((nBad + 1))
 	elif ! grep -qE -- '[0-9a-f]{64}' <<<"${checked}"; then
 		echo "check-pins: the check on ${target} has no sha256" >&2; nBad=$((nBad + 1))
 	fi
-done < <(grep -oE -- '-o[[:space:]]+/[^[:space:]]+' <<<"${liveLines}" | sed 's/^-o[[:space:]]*//' | sort -u || true)
+done < <(uniq <<<"${fetchTargets}")
+while IFS= read -r target; do
+	[[ -n "${target}" ]] || continue
+	echo "check-pins: ci.yml downloads ${target} more than once" >&2; nBad=$((nBad + 1))
+done < <(uniq -d <<<"${fetchTargets}")
 
 ## The other direction. The checks above pass when a pin is DELETED from
 ## config.bash while ci.yml still installs the tool, which is how the one lint
@@ -198,7 +206,8 @@ done
 ## pinned tool, so one of its files has to name each at its pin: the joiners
 ## above, a package.json `"name": "X"`, or `ARG NAME_VER=X`, with NAME upper
 ## case and - as _. Any recipe's ARG for a pinned tool has to match it too, so
-## an extra image can't drift on its own.
+## an extra image can't drift on its own, and so does a version written straight
+## into a RUN line.
 fTest Esbpsph container-pins-match
 ctrDir="${cicdDir}/container"
 mainFiles=("${ctrDir}/Dockerfile" "${ctrDir}/requirements.txt" "${ctrDir}/package.json")
@@ -236,29 +245,62 @@ else
 				fi
 			done
 		done < <(grep -oE -- '^ARG [A-Z0-9_]+_VER=[^[:space:]]+' "${f}" || true)
+		## A version written into the RUN line goes around the ARG.
+		while IFS= read -r token; do
+			[[ "${token}" =~ ^(.*/)?([A-Za-z][A-Za-z0-9_.-]*)(==|@|\ -RequiredVersion\ )v?([0-9][A-Za-z0-9._+-]*)$ ]] || continue
+			tokName="${BASH_REMATCH[2]}"; tokVer="${BASH_REMATCH[4]}"
+			for pin in "${TOOL_PINS[@]}"; do
+				name="${pin%%|*}"; rest="${pin#*|}"; ver="${rest%%|*}"
+				if [[ "${name}" == "${tokName}" && "${ver#v}" != "${tokVer}" ]]; then
+					echo "check-pins: ${f#"${cicdDir}/"} installs ${token##*/}, and config.bash pins ${name} at ${ver}" >&2; nBad=$((nBad + 1))
+				fi
+			done
+		done < <(grep -vE -- '^[[:space:]]*#' "${f}" | grep -oE -- '[A-Za-z0-9_./-]*[A-Za-z][A-Za-z0-9_.-]*(==|@| -RequiredVersion )v?[0-9][A-Za-z0-9._+-]*' || true)
 	done
 fi
 
 ## Each recipe fetches in the one spelling this can follow, `curl -fsSLo FILE`,
-## checked by `echo "${X_SHA256}  FILE" | sha256sum -c -` with X_SHA256 a
-## sha256. A fetch is curl or wget with an option, since the package lists name
-## both bare. pip installs only by hash, and npm only from the lock file.
+## one to a line, with `&& echo "${X_SHA256}  FILE" | sha256sum -c -` on the
+## next line and X_SHA256 a sha256. The next line, since a check anywhere else
+## can be of an earlier fetch to the same name, and Docker drops a comment line
+## inside a RUN. A fetch is curl or wget with an option or a URL, or run as a
+## command; the package lists name both bare. A base image is pinned by digest.
+## pip installs only by hash, and npm only from the lock file.
 fTest Esbpt85 container-downloads-are-hashed
+fetchRe='(^|[^A-Za-z0-9_-])(curl|wget)[[:space:]]+-|(^|[^A-Za-z0-9_-])(curl|wget)[[:space:]].*://|(^RUN|&&|\||;|\$\()[[:space:]]*(curl|wget|git[[:space:]]+clone)([[:space:]]|$)|^ADD[[:space:]]'
+fetchWordRe='(^|[^A-Za-z0-9_-])(curl|wget)([^A-Za-z0-9_-]|$)'
+checkRe='^&&[[:space:]]+echo "\$\{([A-Z0-9_]+)\}  ([^"]+)" \| sha256sum -c -( \\)?$'
 for f in "${recipes[@]}"; do
 	rel="${f#"${cicdDir}/"}"
-	while IFS= read -r fetchLine; do
-		if [[ ! "${fetchLine}" =~ curl[[:space:]]+-fsSLo[[:space:]]+([^[:space:]]+)[[:space:]] ]]; then
-			echo "check-pins: ${rel} fetches in a form this check cannot follow to its sha256 (use curl -fsSLo FILE): ${fetchLine#"${fetchLine%%[![:space:]]*}"}" >&2
+	mapfile -t recipeLines < "${f}"
+	declare -A fetched=()
+	for ((i = 0; i < ${#recipeLines[@]}; i++)); do
+		fetchLine="${recipeLines[i]}"
+		[[ ! "${fetchLine}" =~ ^[[:space:]]*# ]] || continue
+		if [[ "${fetchLine}" =~ ^FROM[[:space:]] && ! "${fetchLine}" =~ @sha256:[0-9a-f]{64}([[:space:]]|$) ]]; then
+			echo "check-pins: ${rel} takes a base image that isn't pinned by digest: ${fetchLine}" >&2; nBad=$((nBad + 1))
+		fi
+		[[ "${fetchLine}" =~ ${fetchRe} ]] || continue
+		shown="${fetchLine#"${fetchLine%%[![:space:]]*}"}"
+		afterFirst="${fetchLine#*curl}"; [[ "${afterFirst}" != "${fetchLine}" ]] || afterFirst="${fetchLine#*wget}"
+		target=""
+		if [[ "${fetchLine}" =~ curl[[:space:]]+-fsSLo[[:space:]]+([^[:space:]]+)[[:space:]] ]]; then target="${BASH_REMATCH[1]}"; fi
+		if [[ -z "${target}" || "${afterFirst}" =~ ${fetchWordRe} ]]; then
+			echo "check-pins: ${rel} fetches in a form this check cannot follow to its sha256 (use curl -fsSLo FILE, one to a line): ${shown}" >&2
 			nBad=$((nBad + 1)); continue
 		fi
-		target="${BASH_REMATCH[1]}"
-		shaArg="$(grep -oE -- "echo \"\\\$\\{[A-Z0-9_]+\\}  ${target//./\\.}\" \\| sha256sum -c" "${f}" | sed -E 's/^echo "\$\{([A-Z0-9_]+)\}.*/\1/' | head -n 1 || true)"
-		if [[ -z "${shaArg}" ]]; then
-			echo "check-pins: ${rel} downloads ${target} and never checks it" >&2; nBad=$((nBad + 1))
-		elif ! grep -qE -- "^ARG ${shaArg}=[0-9a-f]{64}$" "${f}"; then
-			echo "check-pins: ${rel} checks ${target} against ${shaArg}, which is not a sha256" >&2; nBad=$((nBad + 1))
+		if [[ -n "${fetched[${target}]:-}" ]]; then
+			echo "check-pins: ${rel} downloads ${target} twice" >&2; nBad=$((nBad + 1))
 		fi
-	done < <(grep -E -- '(^|[^A-Za-z0-9_-])(curl|wget)[[:space:]]+-|^ADD ' "${f}" | grep -vE -- '^[[:space:]]*#' || true)
+		fetched["${target}"]=1
+		checkLine="${recipeLines[i + 1]:-}"; checkLine="${checkLine#"${checkLine%%[![:space:]]*}"}"
+		if [[ ! "${checkLine}" =~ ${checkRe} || "${BASH_REMATCH[2]}" != "${target}" ]]; then
+			echo "check-pins: ${rel} downloads ${target} and the next line doesn't check it: ${shown}" >&2; nBad=$((nBad + 1))
+		elif ! grep -qE -- "^ARG ${BASH_REMATCH[1]}=[0-9a-f]{64}$" "${f}"; then
+			echo "check-pins: ${rel} checks ${target} against ${BASH_REMATCH[1]}, which is not a sha256" >&2; nBad=$((nBad + 1))
+		fi
+	done
+	unset fetched
 	while IFS= read -r pipLine; do
 		[[ "${pipLine}" == *--require-hashes* ]] || { echo "check-pins: ${rel} installs with pip without --require-hashes" >&2; nBad=$((nBad + 1)); }
 	done < <(grep -E -- 'pip install' "${f}" || true)
@@ -285,3 +327,7 @@ exit "${rc}"
 ##		  and a family whose line reads no name fails.
 ##		- 2026-10-13 JC: The jobs that run cicd.bash have to cover every stage between them.
 ##		- 2026-10-13 JC: The container recipes are held to the pins, and their downloads to a sha256.
+##		- 2026-10-16 JC: A recipe's check has to be on the line after its fetch, a fetch
+##		  with the URL first or no option counts, a base image needs a digest, and a
+##		  version in a RUN line is held to the pin. In ci.yml too, a file is fetched
+##		  once and nothing follows its check.

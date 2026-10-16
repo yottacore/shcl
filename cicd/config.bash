@@ -76,7 +76,7 @@ TOOL_PINS=(
 	## Builds the stub .deb and .rpm the packaging rows in shell-regress read
 	## back, and the release packages. A go-installed nfpm says "dev" to
 	## --version, so the version comes off the module it was built from.
-	"nfpm|2.43.0|go version -m \"\$(command -v nfpm)\""
+	"nfpm|2.47.0|go version -m \"\$(command -v nfpm)\""
 	## Builds the Windows setup .exe at release. Another version on another box
 	## changes its bytes with no warning, as nfpm would. The hosted gate takes
 	## the image's apt nsis for the shell-regress rows that compile the setup
@@ -487,8 +487,10 @@ CTR_CACHE="${SHCL_CTR_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/${APP_NAME}-cicd}
 ## A gate worktree's target dir is a link into the main checkout, which the the
 ## container has to see too.
 CTR_LINKS=(source/rust/target)
-## Extra images build Rust into their own copy of this.
-CTR_PRIVATE=(source/rust/target)
+## Extra images build into their own copy of these, so nothing they build
+## replaces this box's builds. A trailing / marks a dir. The C CLI built on
+## musl won't run here.
+CTR_PRIVATE=(source/rust/target/ source/rust/target-migrate/ source/c/shcl source/go/shcl)
 ## The --ci profiler check builds offline from the cache, and a new cache dir is
 ## empty. Fetched before the gate, the way a full run here fetches them.
 CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 || cargo fetch --quiet --manifest-path "${MANIFEST}"'

@@ -129,7 +129,7 @@ jobs:
       - run: |
           go install honnef.co/go/tools/cmd/staticcheck@2026.1
           go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.43.0
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/cargo-deny.tar.gz \
             "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-x86_64-unknown-linux-musl.tar.gz"

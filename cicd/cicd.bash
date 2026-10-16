@@ -126,7 +126,7 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; ci_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0
+assume_yes=0; quiet=0; ci_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=()
 while (($#)); do case "$1" in
@@ -137,7 +137,7 @@ while (($#)); do case "$1" in
 	--no-sync)                sync_enable=0; shift ;;
 	--no-fmt)                 FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
-	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); BINDING_CLIS=(); LARGEDOC_MIB=0; PROFILE_CHECK=""; gate_partial=1; ctr_pass+=("$1"); shift ;;
+	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); BINDING_CLIS=(); LARGEDOC_MIB=0; no_tests=1; gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-package)             PACKAGE_ENABLE=0; ctr_pass+=("$1"); shift ;;
 	--no-largedoc)            LARGEDOC_MIB=0; ctr_pass+=("$1"); shift ;;
@@ -168,6 +168,9 @@ if ((ci_mode)); then
 	RELEASE_NATIVE_CMD=()
 	PACKAGE_ENABLE=0
 	PROFILE_ENABLE=0
+	## The other hosted job runs the tests and the calibration. A local
+	## --no-tests run keeps it, since it still draws a graph.
+	if ((no_tests)); then PROFILE_CHECK=""; fi
 	DOGFOOD_FIXED_DESTS=()   ## no local install from the read-only gate (and no stale-binary risk)
 	GIF_ENABLE=0
 	GIT_PUBLISH=()
@@ -319,20 +322,37 @@ fRunContainer(){
 	mounts=(-v "${root}:${root}" -v "${cache}:/cache" -v "${scratch}:/tmp")
 	local gitCommon; gitCommon="$(git -C "${root}" rev-parse --path-format=absolute --git-common-dir)"
 	if [[ "${gitCommon}" != "${root}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
+	## An extra image builds into its own copy of these, so it doesn't churn
+	## or replace this box's builds. Each copy goes where its path leads, so a
+	## gate worktree's target link reaches the copy and not target-gate. Docker
+	## makes a missing mount point as root, so a stand-in is made here first and
+	## taken away after.
+	local -A private=()
+	local -a standIns=()
+	local priv="" dest="" ctrRc=0
+	if [[ "${ctr_image}" != main ]]; then
+		for link in "${CTR_PRIVATE[@]}"; do
+			private["${link%/}"]=1
+			priv="${cache}/private/${link%/}"
+			dest="$(readlink -f -- "${root}/${link%/}")" || fDie "can't resolve ${link} for the ${ctr_image} image's own copy"
+			if [[ "${link}" == */ ]]; then
+				mkdir -p "${priv}" || fDie "could not make ${priv}"
+				if [[ ! -e "${dest}" ]]; then mkdir -p "${dest}" || fDie "could not make ${dest}"; standIns+=("${dest}"); fi
+			else
+				## Executable, since go build -o into a file that's there keeps its mode.
+				if ! { mkdir -p "${priv%/*}" && { [[ -e "${priv}" ]] || : > "${priv}"; } && chmod +x "${priv}"; }; then fDie "could not make ${priv}"; fi
+				if [[ ! -e "${dest}" ]]; then : > "${dest}" || fDie "could not make ${dest}"; standIns+=("${dest}"); fi
+			fi
+			mounts+=(-v "${priv}:${dest}")
+		done
+	fi
 	for link in "${CTR_LINKS[@]}"; do
+		if [[ -n "${private[${link%/}]:-}" ]]; then continue; fi
 		if [[ -L "${root}/${link}" ]]; then
 			real="$(readlink -f -- "${root}/${link}")"
 			if [[ "${real}" != "${root}/"* ]]; then mkdir -p "${real}"; mounts+=(-v "${real}:${real}"); fi
 		fi
 	done
-	## An extra image builds into its own copy of these, so it doesn't churn
-	## or replace this box's builds.
-	if [[ "${ctr_image}" != main ]]; then
-		for link in "${CTR_PRIVATE[@]}"; do
-			mkdir -p "${cache}/private/${link}"
-			mounts+=(-v "${cache}/private/${link}:${root}/${link}")
-		done
-	fi
 
 	## The caller's uid and groups have no names in the image, and some rows
 	## need the second group a runner's user has. So the image's passwd and
@@ -363,7 +383,13 @@ fRunContainer(){
 	fEcho_Clean "runs cicd.bash ${inner[*]}"
 	"${engine}" run --rm --init --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${root}" \
 		"${tag}" bash "${root}/cicd/cicd.bash" "${inner[@]}" \
-		|| fDie "the run in the ${ctr_image} image failed; its output is above"
+		|| ctrRc=$?
+	## Only a stand-in still empty: anything else was built here meanwhile.
+	for dest in "${standIns[@]}"; do
+		if [[ -d "${dest}" ]]; then rmdir -- "${dest}" 2>/dev/null || true
+		elif [[ -f "${dest}" && ! -s "${dest}" ]]; then rm -f -- "${dest}"; fi
+	done
+	((ctrRc == 0)) || fDie "the run in the ${ctr_image} image failed; its output is above"
 	fEcho "OK: stages 1-6 in the ${ctr_image} image"
 }
 
@@ -886,3 +912,5 @@ fEcho_Clean
 ##		- 2026-10-08 JC: The shell wrappers are retired: out of the drop-ins tarball and the dogfood stage.
 ##		- 2026-10-13 JC: --no-tests, so the hosted gate can run lint and tests as parallel jobs.
 ##		- 2026-10-13 JC: --container runs stages 1-6 in a pinned image, and --container=NAME in an extra one. --no-release.
+##		- 2026-10-16 JC: An extra image's own copies go where their paths lead, files included, with
+##		  a stand-in for a missing one. --no-tests drops the calibration only under --ci.

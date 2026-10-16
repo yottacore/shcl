@@ -111,7 +111,7 @@ RUN curl -fsSLo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${
 # Built by the toolchain above, from the module proxy and its checksum db.
 ARG STATICCHECK_VER=2026.1
 ARG GOVULNCHECK_VER=v1.5.0
-ARG NFPM_VER=v2.43.0
+ARG NFPM_VER=v2.47.0
 RUN export GOTOOLCHAIN=local GOBIN=/usr/local/bin GOPATH=/tmp/gopath GOCACHE=/tmp/gocache \
 	&& /opt/go/bin/go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VER}" \
 	&& /opt/go/bin/go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VER}" \

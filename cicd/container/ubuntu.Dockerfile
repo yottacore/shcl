@@ -66,7 +66,7 @@ RUN cd /opt/rustup-pin && export CARGO_HOME=/opt/cargo \
 
 # staticcheck for the Go cross check, nfpm for the stub package rows.
 ARG STATICCHECK_VER=2026.1
-ARG NFPM_VER=v2.43.0
+ARG NFPM_VER=v2.47.0
 RUN export GOTOOLCHAIN=local GOBIN=/usr/local/bin GOPATH=/tmp/gopath GOCACHE=/tmp/gocache \
 	&& /opt/go/bin/go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VER}" \
 	&& /opt/go/bin/go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${NFPM_VER}" \
