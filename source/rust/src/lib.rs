@@ -188,7 +188,8 @@ pub enum WriteStatus {
 	NotFound,
 	/// `upgrade_file` could not read the file as UTF-8 text.
 	Unreadable,
-	/// No permission to write there. On windows, also a file another
+	/// No permission to write there, or for `upgrade_file` to read the
+	/// file. On windows, also a file another
 	/// process holds open.
 	PermissionDenied,
 	/// The disk is full, or the user's quota is.
@@ -8986,15 +8987,20 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 		}
 		_ => {}
 	}
-	let text = match read_file(path, 0) {
-		Ok(t) => t,
-		Err(FileStatus::NotFound) => return Err(UpgradeError::NotFound(path.to_string())),
-		Err(_) => {
-			return Err(UpgradeError::Io(WriteError::new(
-				WriteStatus::Unreadable,
-				format!("{}: cannot be read as UTF-8 text", path),
-			)));
+	// Not read_file, whose one status for every failure would hide the
+	// system's reason (2026101514324707).
+	let bytes = match std::fs::read(path) {
+		Ok(b) => b,
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+			return Err(UpgradeError::NotFound(path.to_string()));
 		}
+		Err(e) => return Err(UpgradeError::Io(WriteError::io(path, &e))),
+	};
+	let Ok(text) = String::from_utf8(bytes) else {
+		return Err(UpgradeError::Io(WriteError::new(
+			WriteStatus::Unreadable,
+			format!("{}: cannot be read as UTF-8 text", path),
+		)));
 	};
 	let mut up = upgrade(&text, from_v2);
 	if up.current {

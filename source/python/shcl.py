@@ -9059,7 +9059,7 @@ class WriteStatus(Enum):
 	Ok = 0                 # the write went through
 	NotFound = 1           # the folder it goes in is not there, or part of the path is a file
 	Unreadable = 2         # upgrade_file could not read the file as UTF-8 text
-	PermissionDenied = 3   # no permission to write there; on windows, also a file another process holds open
+	PermissionDenied = 3   # no permission to write there, or for upgrade_file to read the file; on windows, also a file another process holds open
 	DiskFull = 4           # the disk is full, or the user's quota is
 	ReadOnly = 5           # a read-only filesystem, or write-protected media
 	IsDirectory = 6        # the path names a directory
@@ -9907,11 +9907,19 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 	if st is not None and not stat.S_ISREG(st.st_mode):
 		raise UpgradeFailed(f"{path}: not a regular file",
 			WriteStatus.IsDirectory if stat.S_ISDIR(st.st_mode) else WriteStatus.NotRegular)
-	text, status = read_file(path, 0)
-	if status == FileStatus.NotFound:
-		raise UpgradeNotFound(path)
-	if text is None:
-		raise UpgradeFailed(f"{path}: cannot be read as UTF-8 text", WriteStatus.Unreadable)
+	# Not read_file, whose one status for every failure would hide the
+	# system's reason (2026101514324707).
+	try:
+		with open(path, "rb") as f:
+			data = f.read()
+	except FileNotFoundError:
+		raise UpgradeNotFound(path) from None
+	except (OSError, ValueError) as e:
+		raise UpgradeFailed(f"{path}: {getattr(e, 'strerror', None) or e}", _write_status_of(e)) from None
+	try:
+		text = data.decode("utf-8")
+	except UnicodeDecodeError:
+		raise UpgradeFailed(f"{path}: cannot be read as UTF-8 text", WriteStatus.Unreadable) from None
 	up = upgrade(text, from_v2)
 	if up.current:
 		return up

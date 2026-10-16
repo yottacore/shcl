@@ -306,8 +306,8 @@ const (
 	WriteNotFound
 	// WriteUnreadable: UpgradeFile could not read the file as UTF-8 text.
 	WriteUnreadable
-	// WritePermissionDenied: no permission to write there. On windows, also a
-	// file another process holds open.
+	// WritePermissionDenied: no permission to write there, or for UpgradeFile
+	// to read the file. On windows, also a file another process holds open.
 	WritePermissionDenied
 	// WriteDiskFull: the disk is full, or the user's quota is.
 	WriteDiskFull
@@ -8861,14 +8861,18 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 	case errors.Is(err, os.ErrNotExist):
 		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
 	}
-	text, status := ReadFile(path, 0)
-	switch status {
-	case FileClean:
-	case FileNotFound:
+	// Not ReadFile, whose one status for every failure would hide the
+	// system's reason (2026101514324707).
+	data, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
 		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
-	default:
+	case err != nil:
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: writeFailed(err, "%s: %w", path, osReason(err))}
+	case !utf8.Valid(data):
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: cannot be read as UTF-8 text", path)}}
 	}
+	text := string(data)
 	up := Upgrade(text, fromV2)
 	if up.Current {
 		return up, nil

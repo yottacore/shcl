@@ -2839,7 +2839,10 @@ fn write_status_names_each_failure() {
 	}
 	std::fs::write(at("bin.shcl"), b"a: \xff\n").unwrap();
 	match upgrade_file(&at("bin.shcl"), false) {
-		Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::Unreadable),
+		Err(UpgradeError::Io(e)) => {
+			assert_eq!(e.status, WriteStatus::Unreadable);
+			assert!(e.message.contains("UTF-8"), "{}", e.message);
+		}
 		other => panic!("upgrade of a file that is not UTF-8: {other:?}"),
 	}
 	#[cfg(unix)]
@@ -2884,6 +2887,18 @@ fn write_status_names_each_failure() {
 					assert_eq!(e.status, WriteStatus::PermissionDenied)
 				}
 				other => panic!("upgrade in a shut folder: {other:?}"),
+			}
+			// A file it may not read says so, not that it isn't UTF-8
+			// (2026101514324707).
+			let locked = dir.join("locked.shcl");
+			std::fs::write(&locked, "a: 1\nb 2\n").unwrap();
+			std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+			match upgrade_file(locked.to_str().unwrap(), false) {
+				Err(UpgradeError::Io(e)) => {
+					assert_eq!(e.status, WriteStatus::PermissionDenied);
+					assert!(!e.message.contains("UTF-8"), "{}", e.message);
+				}
+				other => panic!("upgrade of a file it may not read: {other:?}"),
 			}
 		}
 		std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o700)).unwrap();

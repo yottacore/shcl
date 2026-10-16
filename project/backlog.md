@@ -80,7 +80,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade --write` calls a file it has no permission to read "cannot be read as UTF-8 text"
 	- ID: 2026101514324707
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 7
@@ -94,6 +94,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: `upgrade_file` maps every read failure but a missing file to `WriteStatus::Unreadable` with the UTF-8 text.
 	- Origin: `60d0196c` (2026-10-07). Neither 20261014 round mentions it. Confirmed.
 	- Sweep: the other library calls that read a file and fold the error into one status.
+	- Actual cause: `upgrade_file` read through `read_file`, which answers with one status for every failure, so the system's reason was gone before the message was made.
+	- Actual fix: `upgrade_file` in all 4 reads the file itself. A failed open or read gives the system's message and status, as `write_backup` does, so no permission is `PermissionDenied` with `f.shcl: Permission denied`. `Unreadable` and the UTF-8 message are left for text that isn't UTF-8, which is what `Unreadable`'s doc says it is. C gets a private `s_read_file` that also hands back the errno, and `shcl_read_file` calls it. The `PermissionDenied` docs in the 4 bindings and spec.md say it covers that read too. The CLI side was already gone with 2026101514324706, since `upgrade --write` reads the file first now.
+	- Swept: every library read of a file in the 4. `read_file` and `load_file` with its `_with` and `_keep_lines` forms give a status and no message, and their docs list permissions, a directory, bad encoding and the cap under `Unreadable`, so the contract stays. `read_named_schema` already gives a status per case and the system's message. `upgrade_file`'s check that the file hasn't changed takes a failed second read as "changed since it was read", left alone, since a file that read a moment before failing now is a race. The C++ veneer passes the C message and status through, unchanged.
+	- Verified: the new asserts fail on the old libraries in all 4 (`Unreadable` with the UTF-8 text) and pass on the fix.
+	- Test case: `write_status_names_each_failure` in Rust (`EsEhCFy`), Go (`EsEhCG1`), Python (`EsEhCG4`) and C (`EsEhCGA`): `upgrade_file` on a mode 000 file is `PermissionDenied` with no UTF-8 in the message, and a file that isn't UTF-8 still says so. POSIX only, and skipped as root, like the shut folder rows beside it.
+	- Branch: `upfix`
+	- Acceptance signoff: Self-closed: reproduced, the new asserts failed before and pass after, and `Unreadable` now means what its doc says.
+	- Closed: 20261016-081639
 
 - The help, examples.md and the `upgrade` doc comments promise more than `upgrade` does
 	- ID: 2026101514324708

@@ -336,7 +336,7 @@ typedef enum {
 	SHCL_WRITE_OK,                /* the write went through */
 	SHCL_WRITE_NOT_FOUND,         /* the folder it goes in is not there, or part of the path is a file */
 	SHCL_WRITE_UNREADABLE,        /* shcl_upgrade_file could not read the file as UTF-8 text */
-	SHCL_WRITE_PERMISSION_DENIED, /* no permission to write there; on windows, also a file another process holds open */
+	SHCL_WRITE_PERMISSION_DENIED, /* no permission to write there, or for shcl_upgrade_file to read the file; on windows, also a file another process holds open */
 	SHCL_WRITE_DISK_FULL,         /* the disk is full, or the user's quota is */
 	SHCL_WRITE_READ_ONLY,         /* a read-only filesystem, or write-protected media */
 	SHCL_WRITE_IS_DIRECTORY,      /* the path names a directory */
@@ -13477,10 +13477,14 @@ const char *shcl_write_status_name(shcl_write_status s) {
 // that needs the exact bytes it last saw - to tell its own save coming back as
 // a change notification from somebody else's edit - or a bound on how much it
 // will read before a parse, calls this and parses the text itself.
-char *shcl_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status) {
+// shcl_read_file, with *err the errno when the open or a read failed, and 0
+// for a file over the cap or not UTF-8.
+static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status, int *err) {
+	*err = 0;
 	FILE *f = shcl_fopen_rb(path);
 	if (!f) {
-		if (status) *status = (errno == ENOENT) ? SHCL_FILE_NOT_FOUND : SHCL_FILE_UNREADABLE;
+		*err = errno;
+		if (status) *status = (*err == ENOENT) ? SHCL_FILE_NOT_FOUND : SHCL_FILE_UNREADABLE;
 		return NULL;
 	}
 	// One byte past the cap is read, so a file exactly at it passes and one
@@ -13490,18 +13494,19 @@ char *shcl_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_
 	if (cap > limit) cap = limit;
 	char *buf = (char *)malloc(cap + 1);
 	int rerr = buf == NULL;
+	if (rerr) *err = ENOMEM;
 	while (!rerr) {
 		if (n == cap) {
 			if (cap >= limit) break;
 			size_t ncap = cap > limit / 2 ? limit : cap * 2;
 			char *nb = (char *)realloc(buf, ncap + 1);
-			if (!nb) { rerr = 1; break; }
+			if (!nb) { rerr = 1; *err = ENOMEM; break; }
 			buf = nb; cap = ncap;
 		}
 		size_t got = fread(buf + n, 1, cap - n, f);
 		n += got;
 		if (got < cap - n + got) {
-			if (ferror(f)) rerr = 1; // a directory reads this way on POSIX
+			if (ferror(f)) { rerr = 1; *err = errno ? errno : EIO; } // a directory reads this way on POSIX
 			break;
 		}
 	}
@@ -13522,6 +13527,11 @@ char *shcl_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_
 	if (len) *len = n;
 	if (status) *status = SHCL_FILE_CLEAN;
 	return buf;
+}
+
+char *shcl_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status) {
+	int err;
+	return s_read_file(path, max_bytes, len, status, &err);
 }
 
 const char *shcl_schema_status_name(shcl_schema_status s) {
@@ -13948,9 +13958,13 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 #endif
 	size_t len = 0;
 	shcl_file_status fst = SHCL_FILE_UNREADABLE;
-	char *text = shcl_read_file(path, 0, &len, &fst);
+	int rerr = 0;
+	/* The errno too, since the status alone would hide the system's reason
+	   (2026101514324707). */
+	char *text = s_read_file(path, 0, &len, &fst, &rerr);
 	if (!text) {
 		if (fst == SHCL_FILE_NOT_FOUND) return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
+		if (rerr) return upgrade_why(why, s_write_status_of(rerr), upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(rerr)));
 		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: cannot be read as UTF-8 text", path));
 	}
 	shcl_upgraded up = shcl_upgrade(text, len, from_v2);
