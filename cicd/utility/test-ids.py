@@ -92,6 +92,34 @@ ROWS: list[tuple[str, str]] = [
 ]
 
 
+##	A marker in a comment is a test taken out, so it counts as none, as a
+##	commented-out Rust or Go test does. Each line comes back with what a
+##	comment hides blanked: a `#` line in Python, Bash and PowerShell, and a
+##	`//` line or a `/* */` span in C and C++.
+def fLiveLines(path: Path) -> list[str]:
+	lines = path.read_text(encoding="utf-8").splitlines()
+	if path.suffix not in (".c", ".cpp"):
+		return ["" if line.lstrip().startswith("#") else line for line in lines]
+	live: list[str] = []
+	block = False
+	for line in lines:
+		text = ""
+		while line:
+			if block:
+				end = line.find("*/")
+				if end < 0:
+					break
+				line, block = line[end + 2 :], False
+			else:
+				start = line.find("/*")
+				if start < 0:
+					text += line
+					break
+				text, line, block = text + line[:start], line[start + 2 :], True
+		live.append("" if text.lstrip().startswith("//") else text)
+	return live
+
+
 def fScan() -> tuple[list[tuple[str, str, int]], list[str]]:
 	found: list[tuple[str, str, int]] = []
 	bad: list[str] = []
@@ -147,7 +175,7 @@ def fScan() -> tuple[list[tuple[str, str, int]], list[str]]:
 			if path.name == Path(__file__).name:
 				continue
 			rel = str(path.relative_to(repo))
-			for n, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+			for n, line in enumerate(fLiveLines(path)):
 				for hit in re.finditer(pattern, line):
 					found.append((hit.group(1), rel, n + 1))
 
@@ -245,3 +273,4 @@ if __name__ == "__main__":
 
 ##	History:
 ##		2026-09-27  Created.
+##		2026-10-16  A commented-out marker is no test.

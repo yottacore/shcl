@@ -2928,6 +2928,27 @@ if git -C "${ti}" init -q 2>/dev/null && git -C "${ti}" add -A 2>/dev/null; then
 else
 	fBad "could not make the fake tree for test-ids.py"
 fi
+fTest EssNRE0 20261015-17-test-ids-commented-marker
+##	Code review 20261015 item 17: a commented-out Python, C or Bash marker
+##	read as a live test, where a commented-out Rust or Go test is none. Each
+##	language's live marker has to be found and its commented ones not.
+mkdir -p "${ti}/source/python/tests" "${ti}/source/c/tests"
+printf '\ttest_id("TidPy01", "live")\n\t# test_id("TidPy02", "gone")\n#\ttest_id("TidPy01", "gone_twin")\n' > "${ti}/source/python/tests/t.py"
+printf '\ttest_id("TidC001", "live");\n\t// test_id("TidC002", "gone");\n/*\n\ttest_id("TidC003", "gone");\n*/ test_id("TidC004", "live_after");\n\tf(); /* x */ test_id("TidC005", "live_mid");\n' > "${ti}/source/c/tests/t.c"
+## The IDs go in through %s, or this line would read as 3 tests here.
+printf 'fTest %s live\n# fTest %s gone\n\t#fTest %s gone\n' TidSh01 TidSh02 TidSh03 > "${ti}/cicd/utility/t.bash"
+out="$(python3 "${ti}/cicd/utility/test-ids.py" find TidPy01 TidPy02 TidC001 TidC002 TidC003 TidC004 TidC005 TidSh01 TidSh02 TidSh03 2>&1 || true)"
+want="TidPy01  source/python/tests/t.py:1
+TidPy02  not found
+TidC001  source/c/tests/t.c:1
+TidC002  not found
+TidC003  not found
+TidC004  source/c/tests/t.c:5
+TidC005  source/c/tests/t.c:6
+TidSh01  cicd/utility/t.bash:1
+TidSh02  not found
+TidSh03  not found"
+[[ "$(sort <<<"${out}")" == "$(sort <<<"${want}")" ]] || fBad "test-ids.py find on commented-out markers said: ${out@Q}"
 
 fTest EoXPkY4 check-completions-option-less-subcommand
 ##	The completions check against a subcommand that takes no options. One side

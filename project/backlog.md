@@ -249,7 +249,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `test-ids.py` takes a commented-out Python or C test marker for a live test
 	- ID: 2026101514324717
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 17
@@ -258,6 +258,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a commented-out marker counts as no test, as in Rust and Go.
 	- Reproduced: 20261015.
 	- Origin: before this window. Confirmed.
+	- Actual cause: confirmed. The marker-only sites matched their pattern anywhere in a line, comments included. Rust and Go anchor theirs at the line start.
+	- Actual fix: those sites read each file with its comments blanked first: a `#` line in Python, Bash and PowerShell, and a `//` line or `/* */` span in C and C++.
+	- Swept: every marker-only site in the table. Bash had the same hole: `check-migrate.bash` has 2 commented-out `fTest` lines and `cli-regress.bash` 1, and all 3 counted as tests. The C twin `EsZikJl` did too. The cli-regress and perf-gate row arrays skip a line that doesn't start with a quote, so a commented row was already none.
+	- Test case: shell-regress `EssNRE0` runs `test-ids.py find` on a fake tree with live and commented-out markers in Python, C and Bash.
+	- Verified: `EssNRE0` fails on the old `test-ids.py` and passes on the fix. `find EsZikJk` now says `not found`. `test-ids.py check`, shell-regress, shellcheck, ruff and mypy pass.
+	- Branch: `gatefix`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the scan does what the item asked.
+	- Closed: 20261016-081446
 
 - Two fuzz properties never reach a branch they cover
 	- ID: 2026101514324718
