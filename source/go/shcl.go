@@ -11606,11 +11606,13 @@ func (d *Document) replaceDefault(path, what string, set func(*Document, string)
 		return st
 	}
 	// A value equal to another instance's folds the two, and the earlier one
-	// stays.
+	// stays. Asked of the name's instances, not every sibling, or N defaults
+	// under one parent cost N squared.
 	at := idx
-	if !containsIndex(d.arena[parent].children, idx) {
+	named := d.childrenNamed(parent, name)
+	if !containsIndex(named, idx) {
 		v := &d.arena[idx].value
-		for _, c := range d.childrenNamed(parent, name) {
+		for _, c := range named {
 			if mergeEq(d.arena[c].name, &d.arena[c].value, name, v) {
 				at = c
 				break

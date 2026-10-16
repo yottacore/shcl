@@ -12010,12 +12010,14 @@ impl Document {
 			return st;
 		}
 		// A value equal to another instance's folds the two, and the earlier
-		// one stays.
-		let at = if self.arena[parent].children.contains(&node) {
+		// one stays. Asked of the name's instances, not every sibling, or N
+		// defaults under one parent cost N squared.
+		let named = self.children_named(parent, &name);
+		let at = if named.contains(&node) {
 			node
 		} else {
 			let v = &self.arena[node].value;
-			self.children_named(parent, &name)
+			named
 				.into_iter()
 				.find(|&c| merge_eq(&self.arena[c].name, &self.arena[c].value, &name, v))
 				.unwrap_or(node)

@@ -1622,6 +1622,10 @@ rows=(
 	'EsJZkoE|set-default-fills-empty|set --set-default=e=3 -|e:\n|0|e: 3\n|-'
 	'EsJZkoF|set-default-keeps-any-value|set --set-default=p=9 -|p: abc\n|0|p: abc\n|-'
 	'EsaLLI5|set-literal-default-keeps-any-value|set --set-literal-default=p=9 -|p: abc\n|0|p: abc\n|-'
+	## 2026101514324721: a default equal to another instance folds the two,
+	## and the note goes on whichever one stays, earlier or later.
+	'EstMftv|default-op-folds-into-earlier|set -|int\tsite("9").host\t1\nint\tsite("abc").port\t2\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\thost: 1\n\tport: 2\n|-'
+	'EstMfw7|default-op-folds-later-in|set -|int\tsite("abc").port\t2\nint\tsite("9").host\t1\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\tport: 2\n\thost: 1\n|-'
 )
 
 declare -i nRun=0 nBad=0 n2x=0 nUsage=0
