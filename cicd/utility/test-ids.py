@@ -88,6 +88,7 @@ STRAY_EXEMPT = ("cicd/utility/comparison/",)
 ROWS: list[tuple[str, str]] = [
 	("cicd/utility/cli-regress.bash", "rows"),
 	("cicd/utility/cli-regress.bash", "saveCases"),
+	("cicd/utility/cli-regress.bash", "diagExits"),
 	("cicd/utility/perf-gate.bash", "workloads"),
 ]
 

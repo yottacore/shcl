@@ -2437,10 +2437,18 @@ func doUpgrade(o *opts) int {
 	if o.write && !writeTargetOK(file) {
 		return exitIO
 	}
+	// Read here with --write too, so a file that can't be read says why the
+	// same way either way, and a refusal or a failed save still has the
+	// load's diagnostics to print (2026101514324706).
+	text, err := readInput(file)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return exitIO
+	}
 	var up shcl.Upgraded
 	if o.write {
-		var err error
 		if up, err = shcl.UpgradeFile(file, o.from2x); err != nil {
+			sayDiagnosticsFrom("", shcl.Upgrade(text, o.from2x).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
 				fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
@@ -2454,11 +2462,6 @@ func doUpgrade(o *opts) int {
 			return exitIO
 		}
 	} else {
-		text, err := readInput(file)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return exitIO
-		}
 		up = shcl.Upgrade(text, o.from2x)
 	}
 	if up.Current {

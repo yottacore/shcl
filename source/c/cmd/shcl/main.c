@@ -1484,23 +1484,30 @@ static int do_upgrade(const Opts *o) {
 		return 1;
 	}
 	if (o->write && !write_target_ok(file)) return EXIT_IO;
+	// Read here with --write too, so a file that can't be read says why the
+	// same way either way, and a refusal or a failed save still has the
+	// load's diagnostics to print (2026101514324706).
+	size_t len; char *text = read_input(file, &len);
+	if (!text) return EXIT_IO;
 	shcl_upgraded up;
 	if (o->write) {
 		char *why = NULL;
 		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, &up, &why, NULL);
 		if (e != SHCL_UPGRADE_OK) {
+			shcl_upgraded found = shcl_upgrade(text, len, o->from_2x);
+			say_diagnostics_from("", found.diagnostics);
+			shcl_upgraded_free(&found);
 			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from-2x rewrites them)\n", why);
 			else fprintf(stderr, "%s\n", why);
 			free(why);
+			free(text);
 			shcl_upgraded_free(&up);
 			return e == SHCL_UPGRADE_AMBIGUOUS || e == SHCL_UPGRADE_ERRORS_LEFT ? 7 : EXIT_IO;
 		}
 	} else {
-		size_t len; char *text = read_input(file, &len);
-		if (!text) return EXIT_IO;
 		up = shcl_upgrade(text, len, o->from_2x);
-		free(text);
 	}
+	free(text);
 	if (up.current) {
 		// diagnostics is NULL when current, but the file is still loaded, and
 		// every loading subcommand says what its load found (2026101419280005).

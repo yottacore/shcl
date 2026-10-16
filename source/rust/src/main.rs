@@ -2455,30 +2455,38 @@ fn do_upgrade(o: &Opts) -> u8 {
 	if o.write && !write_target_ok(file) {
 		return EXIT_IO;
 	}
+	// Read here with --write too, so a file that can't be read says why the
+	// same way either way, and a refusal or a failed save still has the
+	// load's diagnostics to print (2026101514324706).
+	let text = match read_input(file) {
+		Ok(t) => t,
+		Err(e) => {
+			errln!("{}", e);
+			return EXIT_IO;
+		}
+	};
 	let up = if o.write {
 		match upgrade_file(file, o.from_2x) {
 			Ok(up) => up,
-			Err(e @ UpgradeError::Ambiguous { .. }) => {
-				errln!("{} (--from-2x rewrites them)", e);
-				return 7;
-			}
-			Err(e @ UpgradeError::ErrorsLeft { .. }) => {
-				errln!("{}", e);
-				return 7;
-			}
 			Err(e) => {
-				errln!("{}", e);
-				return EXIT_IO;
+				say_diagnostics_from("", &upgrade(&text, o.from_2x).diagnostics);
+				return match e {
+					UpgradeError::Ambiguous { .. } => {
+						errln!("{} (--from-2x rewrites them)", e);
+						7
+					}
+					UpgradeError::ErrorsLeft { .. } => {
+						errln!("{}", e);
+						7
+					}
+					_ => {
+						errln!("{}", e);
+						EXIT_IO
+					}
+				};
 			}
 		}
 	} else {
-		let text = match read_input(file) {
-			Ok(t) => t,
-			Err(e) => {
-				errln!("{}", e);
-				return EXIT_IO;
-			}
-		};
 		upgrade(&text, o.from_2x)
 	};
 	if up.current {

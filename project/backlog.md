@@ -51,7 +51,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade --write` prints none of the load's diagnostics when it refuses, or fails after the load
 	- ID: 2026101514324706
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 6
@@ -68,6 +68,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every early return in each CLI's upgrade and migrate. A cli-regress row that walks each loading subcommand's error exits would cover the class, rather than one row per arm.
 	- Progress log:
 		- 20261015: since 2026101515372401 the `--write` path has a third refusal arm, a `--from-2x` conversion that keeps an error, and it prints no load diagnostics either, the same as the ambiguous refusal. Fix all 3 arms together.
+	- Actual cause: with `--write` the 4 CLIs handed the file to `upgrade_file` and printed only its error when it failed. The library returns no diagnostics with an error, so the 2 refusals and every failure after the load said nothing about what the load found.
+	- Actual fix: CLI only, the library contract kept, as on 2026101419280005. `upgrade --write` reads the file itself first, as the printing form does. When `upgrade_file` fails, it prints the diagnostics of `upgrade` on that text, then the error, with the same exit codes as before. So a file that can't be read now gives the same message with or without `--write`.
+	- Swept: every early return in `upgrade` and `migrate` in the 4 CLIs. `migrate` prints the load's diagnostics right after its load, before any refusal or write, so only `upgrade --write` had the gap. The new rows walk the error exits of every loading subcommand: get's 2 to 6, `--strictness=strict` on count, instances, children and paths, check, `fmt --check` and `--write`, set, migrate and upgrade, printed and with `--write`, refused and failing at the backup.
+	- Verified: the new rows fail on dev's 4 CLIs in exactly the 4 `upgrade --write` rows, 16 checks, and pass on the fix. cli-regress is green on the branch.
+	- Test case: cli-regress `diagExits`, `EssOUuB` to `EssOUub` (`diag-exit-*`), each checking the exit code and that the file's one E014 line prints exactly once.
+	- Branch: `upfix`
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule that every loading subcommand prints the load's diagnostics once.
+	- Closed: 20261016-080915
 
 - `upgrade --write` calls a file it has no permission to read "cannot be read as UTF-8 text"
 	- ID: 2026101514324707

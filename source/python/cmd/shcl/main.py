@@ -1810,24 +1810,25 @@ def do_upgrade(o):
 		return 1
 	if o.write and not write_target_ok(file):
 		return EXIT_IO
+	# Read here with --write too, so a file that can't be read says why the
+	# same way either way, and a refusal or a failed save still has the
+	# load's diagnostics to print (2026101514324706).
+	try:
+		text = read_input(file)
+	except (OSError, ValueError) as e:
+		sys.stderr.write(str(e) + "\n")
+		return EXIT_IO
 	if o.write:
 		try:
 			up = shcl.upgrade_file(file, o.from_2x)
-		except shcl.UpgradeAmbiguous as e:
-			sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
-			return 7
-		except shcl.UpgradeErrorsLeft as e:
-			sys.stderr.write(f"{e}\n")
-			return 7
 		except shcl.UpgradeError as e:
+			say_diagnostics_from("", shcl.upgrade(text, o.from_2x).diagnostics)
+			if isinstance(e, shcl.UpgradeAmbiguous):
+				sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
+				return 7
 			sys.stderr.write(f"{e}\n")
-			return EXIT_IO
+			return 7 if isinstance(e, shcl.UpgradeErrorsLeft) else EXIT_IO
 	else:
-		try:
-			text = read_input(file)
-		except (OSError, ValueError) as e:
-			sys.stderr.write(str(e) + "\n")
-			return EXIT_IO
 		up = shcl.upgrade(text, o.from_2x)
 	if up.current:
 		# diagnostics is empty when current, but the file is still loaded, and
