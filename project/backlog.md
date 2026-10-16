@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-pins' container checks pass recipes they say they refuse
 	- ID: 2026101514324712
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 12
@@ -50,11 +50,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `a1afc401` and `07914455` (ctrbuild, 2026-10-13). The commented-out hash is the hole closed for ci.yml on 2026-09-16, open again in the new check. Confirmed.
 	- Note: a bare `wget URL` passes too. The check's comment says a fetch has to have an option, since the package lists name both tools bare. Nothing checks that `FROM` is pinned by digest either. All 3 recipes are today.
 	- Sweep: shell-regress `Esbq6Ie` gets a case for each form.
+	- Actual cause: `Esbpt85` counted a fetch only when an option came right after `curl` or `wget`, and took a check from anywhere in the recipe, comment lines included. `Esbpsph` read versions only from `ARG *_VER=` lines.
+	- Actual fix: a recipe's check has to be on the line right after its fetch, with nothing after `sha256sum -c -`, and a file is fetched once. A fetch is curl or wget with an option or a URL, or run as a command, and only `curl -fsSLo FILE`, one to a line, is followed. Every `FROM` needs a digest. A version typed into a RUN line as `name@X`, `name==X` or `name -RequiredVersion X` has to be the pin.
+	- Swept: `Esbq6Ie` has a case for each form in Incorrect behavior, plus the bare `wget`, a `FROM` with no digest, and a check ending in `|| true`. ci.yml's own check `Eq5jgxE` had 2 of the same holes, a second fetch to a file it had checked and a check ending in `|| true`. Both are closed, with cases in `Eq5jgxF`. Not checked: `COPY --from` an outside image, which no recipe does.
+	- Verified: the 9 new shell-regress cases fail against dev's check-pins and pass with the fix. check-pins passes on the real recipes and ci.yml. Also the full shell-regress, shellcheck over the gate's list, check-docs, and test-ids check.
+	- Test case: shell-regress `Esbq6Ie` (7 new cases) and `Eq5jgxF` (2 new), over check-pins `Esbpt85`, `Esbpsph` and `Eq5jgxE`.
+	- Branch: `ctrfix`
+	- Commit: `7967ebac`, `c820e581`
+	- Acceptance signoff: Self-closed: the review item was reproduced, each case failed before the fix and passes after, and the Sweep line is answered.
+	- Closed: 20261016-122859
 
 - An extra image's run writes into this box's builds
 	- ID: 2026101514324713
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y. A whole `cicd/cicd.bash --container=alpine` from the main checkout. It should be as green as before, less the 2 musl rows from 2026101309250977, with cli-regress and crosscheck still finding the C CLI. After it, `source/rust/target` here isn't root-owned, `source/c/shcl` and `source/go/shcl` are unchanged, and the copies under `~/.cache/shcl-cicd/alpine/private` are new.
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 13
@@ -67,11 +77,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: cicd.bash says an extra image "builds into its own copy of these, so it doesn't churn or replace this box's builds", and config.bash "Extra images build Rust into their own copy of this".
 	- Reproduced: 20261015, the first 2 on a copy of cicd.bash with its stages stubbed, against the existing alpine image.
 	- Origin: `a1afc401` and `07914455` (ctrbuild, 2026-10-13). Confirmed for the first 2.
+	- Reproduced: 20261016, all 3, with the real alpine image and only the build stage real. The third too: the run left a musl `source/c/shcl` here that exits 127, and replaced this box's Go CLI.
+	- Actual cause: the private copy was mounted at the link's own path. Docker makes a missing mount point as root, and puts a mount on a link where the link leads, the same spot as the target-gate mount, so which one won came down to mount order. Here the private copy came out on top; the review saw the other. And only the Rust target had a private copy, while the build stage also writes the C and Go CLIs into the tree.
+	- Actual fix: `CTR_PRIVATE` names the C and Go CLIs and `target-migrate` too, with a trailing `/` marking a dir. Each private copy is mounted where its path leads, and an extra image doesn't mount target-gate. A missing mount point gets a stand-in, made by the caller before the run and removed after if it's still empty. A file copy is kept executable, since `go build -o` into a file that's there keeps its mode.
+	- Swept: what the alpine and ubuntu runs write into the tree. The Rust target, `target-migrate` (check-migrate, ubuntu only), and the 2 CLIs have copies now. `cicd/artifacts/` has run logs, not builds, and `__pycache__` names its files by Python version, so both are left alone.
+	- Verified: an alpine run with only the build stage real, in 3 layouts (nothing built here, this box's C and Go CLIs in place, a gate worktree with a target link), against dev's cicd.bash and the fix. Before: a root-owned `source/rust/target`, a musl `source/c/shcl` that exits 127 here, and the Go CLI replaced. After: the tree as it was, target-gate empty, and the CLIs built and run inside the image from their own copies. check-push-gate `EstM5os` fails 5 ways against dev's cicd.bash and config.bash, and passes with the fix. Taking out the stand-ins, their cleanup, or the main image's target-gate mount each turns it red. Also shellcheck over the gate's list, check-docs, and test-ids check.
+	- Test case: check-push-gate `EstM5os`. It reads an extra image's mounts off a stubbed engine, in a plain tree and a gate worktree. No mount point in the tree is missing when docker runs, no 2 mounts share one, each `CTR_PRIVATE` entry is the image's own copy where its path leads, this box's copy isn't mounted, no stand-in is left after, and every compiled CLI in `BINDING_CLIS` has a copy. The main image still mounts target-gate.
+	- Note: for extra images only, this drops 2026101303344553's mount of a gate worktree's target-gate at its own path, since 2026101309250977 already has them build into their own copy. The main image is unchanged.
+	- Branch: `ctrfix`
+	- Commit: `31e91ff4`
 
 - `--no-tests` drops the profiler calibration on a local run too
 	- ID: 2026101514324714
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 14
@@ -81,6 +100,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the help says `--no-tests` skips "under --ci, the profiler calibration". The profile stage's own comment says an unchecked graph is worse than none.
 	- Reproduced: 20261015, on a copy of cicd.bash with its stages stubbed.
 	- Origin: `cbfced5c` (cisplit, 2026-10-13). Confirmed.
+	- Actual cause: `--no-tests` cleared `PROFILE_CHECK` while the options were read, whether or not `--ci` was among them.
+	- Actual fix: `--no-tests` clears it only under `--ci`, where the other hosted job runs the calibration. A local `--no-tests` run calibrates before it draws the graph.
+	- Swept: the other stage flags clear only their own stage. `--no-tests` was the one that reached into the profiler's.
+	- Verified: check-push-gate `EstM5WQ` fails against dev's cicd.bash, where a local `--no-tests` run drew the graph with no calibration, and passes with the fix. With the `--ci` half taken out, its `--ci --no-tests` row fails. Also shellcheck over the gate's list.
+	- Test case: check-push-gate `EstM5WQ`: a local run with and without `--no-tests` calibrates, and so does `--ci`, while `--ci --no-tests` doesn't.
+	- Branch: `ctrfix`
+	- Commit: `31e91ff4`
+	- Acceptance signoff: Self-closed: the review item was reproduced, and its test failed before the fix and passes after.
+	- Closed: 20261016-122859
 
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
 	- ID: 2026101514324719
@@ -139,6 +167,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026101514324716
 	- Problem description: the corpus save-gate row (`fmt --write` on each case) and the 4 `fFixLost` rows say in comments what the call must do, but they only check the bindings agree. The runners and cli-regress pin those answers today, so nothing is known to slip through.
 	- Requirements: check the reference binding's answer for each, as 2026101514324716 did for `write-bad.ops`, or reword the comments to claim only agreement.
+
+- nfpm is pinned at 2.43.0, and this box builds with 2.47.0
+	- ID: 2026101612281470
+	- Type: Task
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261016-122814
+	- Opened by: me, from the lint gate's drift warning
+	- Problem description: the lint gate warns that nfpm drifted from its 2.43.0 pin. This box has 2.47.0, installed 2026-10-13, and the full run on 2026-10-16 built its packages with it.
+	- Requirements: pin 2.47.0 in TOOL_PINS, in ci.yml's `go install`, and in the 2 container recipes that build nfpm, which check-pins holds to the pin. 2.47.0 needs Go 1.26.4. ci.yml's `go-version: "1.26"` takes the newest 1.26.x, and the images have 1.26.9.
+	- Verified: check-pins passes, and fails with ci.yml or the ubuntu recipe left at 2.43.0. The drift check reads `v2.47.0` off this box's nfpm. shell-regress's package rows pass on 2.47.0.
+	- Note: the main and ubuntu images build again on their next `--container` run, since their recipes changed. The alpine image doesn't build nfpm and keeps its tag.
+	- Test case: check-pins `EoSE8Nk` (TOOL_PINS against ci.yml) and `Esbpsph` (against the recipes). A version bump needs no test of its own.
+	- Branch: `ctrfix`
+	- Commit: `398a88e6`
+	- Acceptance signoff: Self-closed: mechanical version bump.
+	- Closed: 20261016-122859
 
 - spec.md says only `V090` to `V093` print `schema line N`, and nothing pins `V094` or `V095`
 	- ID: 2026101514324711
