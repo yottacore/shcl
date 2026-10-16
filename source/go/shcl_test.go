@@ -4027,6 +4027,48 @@ func TestStampReadsSayWhy(t *testing.T) {
 	}
 }
 
+// TestStampHintsQuoteDigits: the H006 and H007 hints quote the Format number
+// as written, leading zeros and all, while the read keeps its 32-bit cap. A
+// long one is cut the way any value in a message is (2026101514324705). Rust's
+// stamp_hints_quote_digits has the same rows.
+func TestStampHintsQuoteDigits(t *testing.T) {
+	defer testID(t, "EssAxdB")
+	zeros := func(n int) string { return strings.Repeat("0", n) }
+	rows := []struct {
+		text  string
+		value int
+		code  string
+		line  int
+		shown string
+	}{
+		{"##    Format   4\n", 4, "H006", 1, "4"},
+		{"##    Format   4294967296\n", math.MaxUint32, "H006", 1, "4294967296"},
+		{"##    Format   99999999999\n", math.MaxUint32, "H006", 1, "99999999999"},
+		{"##    Format   0004\n", 4, "H006", 1, "0004"},
+		{"a: 1\n##    Format   02\n", 2, "H007", 2, "02"},
+		{"##    Format   1" + zeros(200) + "\n", math.MaxUint32, "H006", 1, "1" + zeros(99) + "..." + zeros(100) + " (201 chars)"},
+	}
+	for _, c := range rows {
+		if v := ReadFormatVersion(c.text).Value; v != c.value {
+			t.Errorf("%q: read %d", c.text, v)
+		}
+		word := "newer"
+		if c.code == "H007" {
+			word = "older"
+		}
+		want := fmt.Sprintf("the file names format %s, %s than this reader's format %d,", c.shown, word, FormatMajor)
+		var hints []Diagnostic
+		for _, d := range Parse(c.text).Diagnostics() {
+			if d.Code == "H006" || d.Code == "H007" {
+				hints = append(hints, d)
+			}
+		}
+		if len(hints) != 1 || hints[0].Code != c.code || hints[0].Line != c.line || !strings.HasPrefix(hints[0].Message, want) {
+			t.Errorf("%q: hints %+v, want %s on line %d starting %q", c.text, hints, c.code, c.line, want)
+		}
+	}
+}
+
 // TestSettersWriteOnlyWhatReadsBack: a setter writes only what reads back. Each
 // one builds its text through the emitter and hands it to the tokenizer before
 // the document is touched, so for every input either the call refuses and the

@@ -3917,6 +3917,28 @@ def main():
 		if shcl.schema_ref(stext) != (sref if sstatus is G else None):
 			raise SystemExit(f"schema_ref {stext!r}: {shcl.schema_ref(stext)}")
 
+	test_id("EssAxdC", "stamp_hints_quote_digits")
+	# The H006 and H007 hints quote the Format number as written, leading
+	# zeros and all, while the read keeps its 32-bit cap. A long one is cut the
+	# way any value in a message is (2026101514324705). Rust's
+	# stamp_hints_quote_digits has the same rows.
+	for htext, hvalue, hcode, hline, hshown in (
+		("##    Format   4\n", 4, "H006", 1, "4"),
+		("##    Format   4294967296\n", 0xFFFFFFFF, "H006", 1, "4294967296"),
+		("##    Format   99999999999\n", 0xFFFFFFFF, "H006", 1, "99999999999"),
+		("##    Format   0004\n", 4, "H006", 1, "0004"),
+		("a: 1\n##    Format   02\n", 2, "H007", 2, "02"),
+		("##    Format   1" + "0" * 200 + "\n", 0xFFFFFFFF, "H006", 1, "1" + "0" * 99 + "..." + "0" * 100 + " (201 chars)"),
+	):
+		if shcl.read_format_version(htext).value != hvalue:
+			raise SystemExit(f"read_format_version {htext!r}: {shcl.read_format_version(htext)}")
+		word = "newer" if hcode == "H006" else "older"
+		hwant = f"the file names format {hshown}, {word} than this reader's format {shcl.FORMAT_MAJOR},"
+		quoted_hints = [d for d in shcl.Document.parse(htext).diagnostics() if d.code in ("H006", "H007")]
+		if len(quoted_hints) != 1 or (quoted_hints[0].code, quoted_hints[0].line) != (hcode, hline) \
+				or not quoted_hints[0].message.startswith(hwant):
+			raise SystemExit(f"hints {htext!r}: {quoted_hints}")
+
 	test_id("EpFxQH3", "tokenizer_helpers_are_module_level")
 	# The tokenizer's helpers are module level. Defined inside it they would
 	# be rebuilt, with a fresh cell each, once per document line.

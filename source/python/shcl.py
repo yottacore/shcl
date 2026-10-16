@@ -2418,7 +2418,7 @@ def read_format_version(text: str) -> Read[int]:
 	or BadType for one whose number does not read, such as
 	`##    Format   3x`, so an unstamped file and a damaged stamp read apart.
 	.raw is the text after the head, and .line the line it is on. The load's
-	H006 and H007 hints come from this same reading."""
+	H006 and H007 hints come from this same reading, and quote .raw."""
 	return _format_line_read(text[1:] if text.startswith("\ufeff") else text)
 
 
@@ -2505,15 +2505,18 @@ def _restamp(text: str, line: int) -> str | None:
 def _stamp_hint(stamp: Read[int]) -> Diagnostic | None:
 	"""The load's hint for a file whose Format line names another major than
 	this one: H006 for a newer one, H007 for an older one. It reads the line
-	the way read_format_version() does, so the two never disagree."""
+	the way read_format_version() does, so the two never disagree. The number
+	is quoted as written, leading zeros and all, since the read caps one too
+	big for 32 bits."""
 	if stamp.status is not Status.Good or stamp.value == FORMAT_MAJOR:
 		return None
+	written = _one_line(stamp.raw or "")
 	if stamp.value > FORMAT_MAJOR:
 		return Diagnostic(stamp.line, Severity.Hint,
-			f"the file names format {stamp.value}, newer than this reader's format {FORMAT_MAJOR}, "
+			f"the file names format {written}, newer than this reader's format {FORMAT_MAJOR}, "
 			"so some lines may read differently than written", "H006")
 	return Diagnostic(stamp.line, Severity.Hint,
-		f"the file names format {stamp.value}, older than this reader's format {FORMAT_MAJOR}, "
+		f"the file names format {written}, older than this reader's format {FORMAT_MAJOR}, "
 		"so some lines may read differently than written; shcl upgrade --from-2x rewrites it", "H007")
 
 

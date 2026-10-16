@@ -1012,7 +1012,15 @@ rows=(
 	'EsoQOx4|check-backtick-schema-body|check -|\x60y: \x60\x60\x60\n\t##    Schema   mark.shcl\n\t\x60\x60\x60\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## 2026101514324705: a Format number too big for 32 bits names a newer
 	## format, not this one, so --from-2x doesn't take it for a beta file.
-	'EsoQOx5|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 4294967295, newer'
+	## Wrong since JC's signoff on 2026-10-16: the hint quotes the digits as
+	## written, not the 32-bit cap the read gives. EssAxd7 has the new text.
+	## Don't uncomment.
+	# 'EsoQOx5|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 4294967295, newer'
+	'EssAxd7|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 99999999999, newer'
+	## H006 and H007 quote the number as written, leading zeros too, and cut a
+	## long one the way any value in a message is cut.
+	'EssAxd8|stamp-hint-leading-zeros|check -|a: 1\n##    Format   0002\n|0|line 2: Hint: H007\nok (1 diagnostic(s))\n|^line 2: Hint: H007 the file names format 0002, older'
+	"EssAxd9|stamp-hint-long-number|check -|##    Format   1$(printf '%0200d' 0)\n|0|line 1: Hint: H006\nok (1 diagnostic(s))\n|^line 1: Hint: H006 the file names format 10{99}[.]{3}0{100} [(]201 chars[)], newer"
 	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
 	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual. A shcl made\n  for that format reads it as written.\n\n|-"

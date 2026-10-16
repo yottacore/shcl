@@ -2906,7 +2906,7 @@ func FormatVersion(text string) (int, bool) {
 // after the word, or BadType for one whose number does not read, such as
 // `##    Format   3x`, so an unstamped file and a damaged stamp read apart.
 // Raw is the text after the head, and Line the line it is on. The load's
-// H006 and H007 hints come from this same reading.
+// H006 and H007 hints come from this same reading, and quote Raw.
 func ReadFormatVersion(text string) Read[int] {
 	return formatLineRead(strings.TrimPrefix(text, "\ufeff"))
 }
@@ -3138,19 +3138,25 @@ func restamp(text string, line int) (string, bool) {
 
 // stampHint is the load's hint for a file whose Format line names another
 // major than this one: H006 for a newer one, H007 for an older one. It reads
-// the line the way ReadFormatVersion does, so the two never disagree.
+// the line the way ReadFormatVersion does, so the two never disagree. The
+// number is quoted as written, leading zeros and all, since the read caps one
+// too big for 32 bits.
 func stampHint(stamp Read[int]) (Diagnostic, bool) {
 	if stamp.Status != Good || stamp.Value == FormatMajor {
 		return Diagnostic{}, false
 	}
+	written := ""
+	if stamp.Raw != nil {
+		written = oneLine(*stamp.Raw)
+	}
 	d := Diagnostic{Line: stamp.Line, Severity: SeverityHint, Code: "H006", Message: fmt.Sprintf(
-		"the file names format %d, newer than this reader's format %d, so some lines may read differently than written",
-		stamp.Value, FormatMajor)}
+		"the file names format %s, newer than this reader's format %d, so some lines may read differently than written",
+		written, FormatMajor)}
 	if stamp.Value < FormatMajor {
 		d.Code = "H007"
 		d.Message = fmt.Sprintf(
-			"the file names format %d, older than this reader's format %d, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
-			stamp.Value, FormatMajor)
+			"the file names format %s, older than this reader's format %d, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+			written, FormatMajor)
 	}
 	return d, true
 }
