@@ -76,7 +76,7 @@ TOOL_PINS=(
 	## Builds the stub .deb and .rpm the packaging rows in shell-regress read
 	## back, and the release packages. A go-installed nfpm says "dev" to
 	## --version, so the version comes off the module it was built from.
-	"nfpm|2.43.0|go version -m \"\$(command -v nfpm)\""
+	"nfpm|2.47.0|go version -m \"\$(command -v nfpm)\""
 	## Builds the Windows setup .exe at release. Another version on another box
 	## changes its bytes with no warning, as nfpm would. The hosted gate takes
 	## the image's apt nsis for the shell-regress rows that compile the setup
