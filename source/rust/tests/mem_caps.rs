@@ -75,6 +75,40 @@ fn allocs_during(_turn: &Turn, mut f: impl FnMut()) -> usize {
 	best
 }
 
+// The race only shows when the harness happens to run 2 of these side by side,
+// so no run of the tests proves the order. Read it from the source instead:
+// every test here opens on its ID and then its turn, before anything else.
+#[test]
+fn every_test_takes_its_turn_first() {
+	let _id = test_id("EstZ5TB");
+	let _turn = my_turn();
+	let src = include_str!("mem_caps.rs");
+	let mut tests = 0;
+	let mut late = Vec::new();
+	for chunk in src.split("#[test]\n").skip(1) {
+		let mut body = chunk
+			.lines()
+			.map(str::trim)
+			.filter(|l| !l.is_empty() && !l.starts_with("//"));
+		let name = body.next().unwrap_or("");
+		tests += 1;
+		let id = body.next().unwrap_or("");
+		let turn = body.next().unwrap_or("");
+		let took_turn = turn.starts_with("let ") && turn.ends_with("= my_turn();");
+		if !id.starts_with("let _id = test_id(") || !took_turn {
+			late.push(name);
+		}
+	}
+	assert!(
+		tests >= 4,
+		"found {tests} tests in mem_caps.rs; has the #[test] line changed?"
+	);
+	assert!(
+		late.is_empty(),
+		"these take their turn after doing something else first: {late:?}"
+	);
+}
+
 #[test]
 fn a_plain_name_costs_the_scan_nothing() {
 	let _id = test_id("EoneEzg");
