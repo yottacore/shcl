@@ -367,8 +367,8 @@ for row in "${workloads[@]}"; do
 		elif [[ "${w}" == fills ]]; then
 			## Each default leaves a note line above its field, and the
 			## spread-out one a parent line too. The budget is the
-			## spread-out run: the fix runs at about three quarters of it, the
-			## scan at 1.4 to 4 times in every binding.
+			## spread-out run. Linear code runs at about three quarters of
+			## it, and the old scan at 1.4 to 4 times, in every binding.
 			budget="$(fTimeMs "${cli}" "${apartDoc}" apart "$((keys * 3))")"
 			if ((budget < 0)); then nBad+=1; continue; fi
 			against="the same defaults one per parent"
