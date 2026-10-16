@@ -63,7 +63,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
 	- ID: 2026101514324719
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: N. check-c-compilers ran here with the new job.
+	- Needs external testing: the hosted `ci (tests)` job. check-c-compilers `EstZ5TC` ok, with zig's first musl build on a cold cache, and the job still well inside its 60 minutes.
 	- Priority: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 19
@@ -76,6 +78,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 2026101316013508: `ErTZaL2` runs only in the Alpine image, which hasn't run since the fix. A C CLI built here with zig's musl target turns it red on the old code, and the fix passes.
 	- Requirements: a check for each, seen red with the fix taken out.
 	- Origin: docgate, memcap, cisplit and muslfix. Confirmed.
+	- Actual fix:
+		- 2026101419280002: shell-regress `EstZ5TA` reads check-docs. Every loop fed from a variable has to fill it through `fFeedBad`, and no capture may end in `)" || true`. The 7 older loops that guard their grep inside are listed by name.
+		- 2026101308163572: `every_test_takes_its_turn_first` in `mem_caps.rs` reads the file's own source. Each test has to open on its ID and then its turn.
+		- 2026101011200000: check-pins `EsZzNCY` refuses a hosted job that runs both lint and tests.
+		- 2026101316013508: check-c-compilers builds the C CLI against musl with zig and runs the whole of cli-regress over it, on Linux. A missing zig fails under the gate. ci.yml and the main image already install zig 0.16.0.
+	- Verified:
+		- `EstZ5TA` fails with one check-docs feed turned to `|| true`, while `EsndgSX` and `EsndgVW` still pass. It also fails with the `|| true` moved inside a feed, and on the `mdFiles` feed.
+		- `EstZ5TB` fails with the turn taken after the input build in `EoezJiC`, and after the `use` line in `EofAXrU`.
+		- Dev's check-pins passes both new ci.yml forms in `EsZzNEZ`, a single job and a third job running everything. Both fail now.
+		- `EstZ5TC` fails with the musl fix taken out of `shcl.h` (`ErTZaL2`, `Invalid argument`), and passes with it, 612 rows. Without zig it fails under `SHCL_GATE_STRICT` and skips otherwise.
+		- Also shell-regress, check-pins, cli-regress (4 bindings), check-c-compilers, `cargo test`, `cargo clippy --test mem_caps`, check-docs, `test-ids.py check`, and shellcheck over the 40 lint targets.
+	- Test case: shell-regress `EstZ5TA` and `EsZzNEZ`, check-pins `EsZzNCY`, Rust `EstZ5TB`, check-c-compilers `EstZ5TC`.
+	- Branch: `gapchk`
+	- Commit: `9b9ab508`, `604f7771`, `431e5386`, `f2d558e5`
 
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
