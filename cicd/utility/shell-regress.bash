@@ -1371,6 +1371,17 @@ fCtrPinsRun Dockerfile 's/^ARG ZIG_SHA256=.*/ARG ZIG_SHA256=fill-me-in/' && fBad
 fCtrPinsRun alpine.Dockerfile 's#curl -fsSLo go\.tgz#curl -fsSL -o go.tgz#' && fBad "check-pins.bash passed a fetch it cannot follow"
 fCtrPinsRun Dockerfile 's/ --require-hashes//' && fBad "check-pins.bash passed pip without --require-hashes"
 fCtrPinsRun Dockerfile 's/npm ci /npm install /' && fBad "check-pins.bash passed npm install in place of npm ci"
+##	2026101514324712: forms the first version passed. The URL ahead of the
+##	options, a second fetch to a name that's checked once, a check commented out
+##	(Docker drops that line from the RUN), a version typed into the RUN line,
+##	a bare wget, a check that can't fail, and a base image with no digest.
+fCtrPinsRun alpine.Dockerfile 's#curl -fsSLo go\.tgz ("[^"]*")#curl \1 -o go.tgz#' && fBad "check-pins.bash passed a fetch with its URL ahead of the options"
+fCtrPinsRun alpine.Dockerfile 's#(GO_SHA256\}  go\.tgz" \| sha256sum -c -)#\1 \&\& curl -fsSLo go.tgz "https://example.com/other.tgz"#' && fBad "check-pins.bash passed a second fetch to a name it had checked once"
+fCtrPinsRun Dockerfile 's/^([[:space:]]*\&\& echo "\$\{ZIG_SHA256\})/#\1/' && fBad "check-pins.bash passed a sha256 check commented out inside a RUN"
+fCtrPinsRun ubuntu.Dockerfile 's/staticcheck@\$\{STATICCHECK_VER\}/staticcheck@2025.1/' && fBad "check-pins.bash passed a version written into the RUN line around the ARG"
+fCtrPinsRun alpine.Dockerfile 's#(GO_SHA256\}  go\.tgz" \| sha256sum -c -)#\1 \&\& wget https://example.com/x.tgz#' && fBad "check-pins.bash passed a bare wget"
+fCtrPinsRun alpine.Dockerfile 's/sha256sum -c - \\$/sha256sum -c - || true \\/' && fBad "check-pins.bash passed a sha256 check that can't fail"
+fCtrPinsRun alpine.Dockerfile 's/^FROM ([^@]*)@sha256:[0-9a-f]+/FROM \1/' && fBad "check-pins.bash passed a base image with no digest"
 fTest Epu2f56 20260909-24-flame-report-marker
 ##	20260909 item 24: rotation retagged a graph and left its sidecar under the
 ##	old role, so the caveat vanished. And --check --file wrote the named graph's
