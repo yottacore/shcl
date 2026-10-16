@@ -2893,7 +2893,7 @@ done
 
 fTest EstZ5TA 2026101514324719-check-docs-feeds-stay-guarded
 ##	Code review 20261015 item 19: EsndgSX finds the feeds by their guard, so one
-##	whose `|| fFeedBad $?` turned into `|| true` just dropped out of its count and
+##	whose `|| fFeedBad $?` turned into `|| true` dropped out of its count and
 ##	passed, and that's the form that hid real git errors. So every loop check-docs
 ##	feeds from a variable has to fill it through fFeedBad, and no capture may end
 ##	in `)" || true`. The listed ones were `<<<` loops before that item, over sed,
