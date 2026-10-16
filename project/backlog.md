@@ -33,21 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- No fuzz property covers `upgrade`
-	- ID: 2026101514324704
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 4
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101514324701
-	- Problem description: fuzz never runs `upgrade` or `upgrade_file`. A probe of the property below over 20,000 fuzzed files found 2026101514324701. `schema_and_format_lines_follow_the_parser` (`ErfuRfE`) uses only names that parse and skips every file with an error, which is how that one got past it.
-	- Requirements:
-		- A property over `mutate` and `structural` output with a `Format 3` line, a `Format 2` line or none, with and without `from_v2`. A clean input naming this format comes back current and unchanged. A converted input naming this format loads clean. Upgrading the result again without `from_v2` is current.
-		- `ErfuRfE` adds names starting with `~` or a backtick, keeps files whose only errors are E014, and finds raw bodies with the test's own `raw_spans`. Changed that way it fails on dev at iteration 15.
-	- Origin: `upgrade` came in `60d0196c` (2026-10-07) with no property.
-
 - `upgrade --write` prints none of the load's diagnostics when it refuses, or fails after the load
 	- ID: 2026101514324706
 	- Type: Bug
@@ -244,23 +229,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261015.
 	- Origin: before this window. Confirmed.
 
-- Two fuzz properties never reach a branch they cover
-	- ID: 2026101514324718
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 18
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101407100011, 2026101412591471, 2026100717500020
-	- Problem description:
-		- `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks `format_value` over a character soup that made no thousands-shaped text in 2,000,000 draws, and always builds 2 element arrays. With the keep-bare thousands branch taken out of `format_value`, or 1 element taking the scalar rule in `format_array`, fuzz stayed green. Only the fixtures went red.
-		- The default fill property (`EsJZkoB`) never reads the replaced-line note. Dropping the old value from the note, or adding a note to an empty field, kept fuzz green.
-	- Requirements:
-		- `Ekfzh7g` draws from `thousands_soup` now and then, builds 0 to 4 elements, and checks `format_array` of one text against `format_value`'s, quoted for a thousands number.
-		- `EsJZkoB` checks that a replaced value leaves exactly 1 note line with the old value, and an empty field none.
-	- Origin: fmtvalue, fmtelem and defaultfix. Confirmed by putting each break in.
-
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
 	- ID: 2026101514324719
 	- Type: Enhancement
@@ -306,6 +274,55 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
 	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
 	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+
+- No fuzz property covers `upgrade`
+	- ID: 2026101514324704
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 4
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101514324701
+	- Problem description: fuzz never runs `upgrade` or `upgrade_file`. A probe of the property below over 20,000 fuzzed files found 2026101514324701. `schema_and_format_lines_follow_the_parser` (`ErfuRfE`) uses only names that parse and skips every file with an error, which is how that one got past it.
+	- Requirements:
+		- A property over `mutate` and `structural` output with a `Format 3` line, a `Format 2` line or none, with and without `from_v2`. A clean input naming this format comes back current and unchanged. A converted input naming this format loads clean. Upgrading the result again without `from_v2` is current.
+		- `ErfuRfE` adds names starting with `~` or a backtick, keeps files whose only errors are E014, and finds raw bodies with the test's own `raw_spans`. Changed that way it fails on dev at iteration 15.
+	- Origin: `upgrade` came in `60d0196c` (2026-10-07) with no property.
+	- Actual fix: a new property, `upgrade_leaves_its_own_output_alone`, runs `upgrade` over `mutate` and `structural` output stamped `Format 3`, `2`, `4`, a number past 32 bits, or nothing, with and without `from_v2`. 1 input in 3 gets a name led by `~` or a backtick. `ErfuRfE` has `~x` and `` `y `` names and finds the bodies with `raw_spans`.
+	- Note: `ErfuRfE` keeps every file now, not only the E014 ones, since its oracle no longer reads the parser's values. With every file kept it passed at 200,000 (me).
+	- Note: `raw_spans` read a line with a carriage return in its indent as opening no block, where the load opens one. The new property found it at 200,000 on a corpus mutant. Fixed in the test. The library was right.
+	- Test case: fuzz `EssNzSi` (`upgrade_leaves_its_own_output_alone`), `ErfuRfE`, and `EssPQ7b` for the `raw_spans` fix.
+	- Verified: with the old `opens_raw` put back, `ErfuRfE` fails at iteration 4 and `EssNzSi` at 38, at the default 300. Both pass with it restored and rebuilt clean. `EssNzSi` also fails with a clean `Format 3` file converted under `from_v2`, and with the fresh-text-loads-clean check taken out. `EssPQ7b` fails on the old `raw_spans`. Fuzz at 300 and 200,000, 2,000,000 in release (31 properties, 410 s), the Rust suite, clippy, test-ids.
+	- Note: `EssNzSi` takes about 15 s alone at the `--ci` count of 200,000. The fuzz target's wall time there went from 56.7 s to 57.1 s.
+	- Branch: `fuzzup`
+	- Commit: `4bdfe352`
+	- Acceptance signoff: Self-closed: the property and the `ErfuRfE` change are in, and each was seen to fail on the defects it covers.
+	- Closed: 20261016-082453
+
+- Two fuzz properties never reach a branch they cover
+	- ID: 2026101514324718
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 18
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100011, 2026101412591471, 2026100717500020
+	- Problem description:
+		- `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks `format_value` over a character soup that made no thousands-shaped text in 2,000,000 draws, and always builds 2 element arrays. With the keep-bare thousands branch taken out of `format_value`, or 1 element taking the scalar rule in `format_array`, fuzz stayed green. Only the fixtures went red.
+		- The default fill property (`EsJZkoB`) never reads the replaced-line note. Dropping the old value from the note, or adding a note to an empty field, kept fuzz green.
+	- Requirements:
+		- `Ekfzh7g` draws from `thousands_soup` now and then, builds 0 to 4 elements, and checks `format_array` of one text against `format_value`'s, quoted for a thousands number.
+		- `EsJZkoB` checks that a replaced value leaves exactly 1 note line with the old value, and an empty field none.
+	- Origin: fmtvalue, fmtelem and defaultfix. Confirmed by putting each break in.
+	- Actual fix: `Ekfzh7g` draws from `thousands_soup` 1 time in 6 and builds arrays of 0 to 4 elements. It checks that `format_value` keeps a thousands number bare, and that `format_array` of one text is `format_value`'s in brackets, quoted for a thousands number by spec.md's rule. `EsJZkoB` checks that a replaced value leaves exactly 1 new note line, whose old line reads back as the old value, and that anything else leaves none.
+	- Test case: fuzz `Ekfzh7g` and `EsJZkoB`.
+	- Verified: all 4 breaks go red at the default 300: `format_value` building a plain element, `format_array` taking the scalar rule for 1 element, a note on an empty field, and a note with the old value dropped. Each restored and rebuilt clean after. Same fuzz and gate runs as 2026101514324704.
+	- Branch: `fuzzup`
+	- Commit: `4bdfe352`
+	- Acceptance signoff: Self-closed: each break the item names was seen red.
+	- Closed: 20261016-082453
 
 - `upgrade --from-2x` reads a Format number too big for 32 bits as format 3, and converts the file by 2.x rules
 	- ID: 2026101514324705
