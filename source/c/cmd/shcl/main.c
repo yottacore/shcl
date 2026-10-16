@@ -1631,7 +1631,6 @@ static int do_tokens(const Opts *o) {
 	return 0;
 }
 
-// Reads an open stream fully into a malloc'd buffer (ops script; no UTF-8 gate).
 /* An ops-script value with its escapes resolved, ◉TAB◉ and ◉NEWLINE◉ and the
    rest of the file's names, so a tab or a line break can sit on one op line. A
    backslash is text, as in a file (2026100717500002). The file's own reader

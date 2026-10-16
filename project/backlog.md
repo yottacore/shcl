@@ -144,9 +144,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: the sentence and the 4 CLIs' comments over `check --schema`'s output were written before V094 and V095, and nothing read a range against the table.
 	- Actual fix: spec.md and the 4 comments say `V090`-`V095`. A check-docs check takes the codes the spec table marks `schema file`, and fails any tracked text that names another range of V09x codes as schema-line codes. The library fixture has every code in the range, and cli-regress has V094 and V095 rows.
 	- Swept: every V-code range in the tree. Besides the 5 fixed, the lib doc comments in all 4 and `shcl.hpp` already said V090 to V095, and corpus README's `V090`-`V093` names what case `023` produces, which is right.
-	- Verified: the check-docs check fails on the old spec.md sentence and on one old comment put back, and passes on the fix. With the Rust library's rule changed to leave V094 out, the Rust fixture fails on its new V094 row and cli-regress on `EssfCWy`. Both pass with it restored and rebuilt clean.
+	- Verified: the check-docs check fails on the old spec.md sentence and on one old comment put back, and passes on the fix. With the Rust library's rule changed to leave V094 out, the Rust fixture fails on its new V094 row and cli-regress on `EssfCWy`. Both pass with it restored and rebuilt clean. Also the Rust, Go, Python and C conformance suites, the C++ veneer smoke, `go test -count=1` for both modules, cli-regress (610 rows, 4 bindings), crosscheck (22233 comparisons), check-docs as `SHCL_GATE_REF=main`, check-abnf, shell-regress, shellcheck, markdownlint-cli2, rustfmt, clippy for the host and windows, go vet, staticcheck, gofmt, ruff, mypy, cppcheck at the normal level, and test-ids check.
 	- Test case: check-docs `Essez3P` (`schema-line-range-matches-table`); cli-regress `EssfCWy` (`check-schema-line-v094`) and `EssfCWz` (`check-schema-line-v095`); the format-diagnostic fixture in all 4 runners (Rust `format_diagnostic_is_the_cli_line`), now V090 to V095.
 	- Branch: `climsg`
+	- Commit: `2f961afe`
 	- Acceptance signoff: Self-closed: a doc range fix with a check that was seen to fail on the old text, and pins for each code.
 	- Closed: 20261016-091129
 
@@ -171,9 +172,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: Go and Python wrote their own text for the ops read and named a document on stdin by its argument. The ops read in each CLI was its own code, apart from the document read, and only that one had the rule that a stdin with nothing attached reads as empty. C's probe for the temp-create wording asked the folder in the path as given.
 	- Actual fix: Rust's wording in all 4. Go and Python name stdin `stdin` and say `stream did not contain valid UTF-8`. The ops read in all 4 takes the document read's rule for an unattached stdin, and a real read error is `stdin: ` and the reason, at 8. C reads the ops through the same `read_stream` as a document, so the separate UTF-8 check and its wrong comment are gone. C's `dir_takes_a_temp` probes the folder of `shcl_resolve_target`'s answer. Go drops the `read /dev/stdin:` part of a stdin read error, as it already did for a file.
 	- Swept: every stdin read in the 4 CLIs (the document read, which covers FILE, `--layer` and `--schema`, and the ops read), every UTF-8 message, and both `dir_takes_a_temp` callers in C (the save and the migrate and upgrade write). The OS's own text after `FILE: ` still differs by binding, by design (cli-regress header). Not pinned: a stdin read that fails outright, since a directory on stdin stops Python before `main` and no other failure is portable to set up; Python's document read now prefixes that one with `stdin: ` too.
-	- Verified: the new rows fail on dev's CLIs: `Essd9Mh` on Go and Python, `Essd9Mi` to `Essd9Ml` on Go and Python, `Essd9Mm` on C. All pass on the fix, with `Essd9Mg` passing both ways.
+	- Verified: the new rows fail on dev's CLIs: `Essd9Mh` on Go and Python, `Essd9Mi` to `Essd9Ml` on Go and Python, `Essd9Mm` on C. All pass on the fix, with `Essd9Mg` passing both ways. The gate list on 2026101514324711 covers this branch.
 	- Test case: cli-regress `Essd9Mg` (`ops-closed-stdin`), `Essd9Mh` (`ops-write-only-stdin`, new `@wronlyin` stdin, POSIX only), `Essd9Mi` to `Essd9Ml` (bad UTF-8 on stdin as ops, document, layer and schema) and save case `Essd9Mm` (`dangling-nodir`).
 	- Branch: `climsg`
+	- Commit: `a3b730db`
 	- Acceptance signoff: Self-closed: reproduced, each new row failed before on the bindings it covers and passes after, and the Swept line names the sites. Rust's wording won everywhere, so no wording call was made.
 	- Closed: 20261016-090735
 
@@ -196,9 +198,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: the op is the text before the first tab, so a tab indent leaves it empty. Spaces then a tab leave only blanks, which the message printed raw, a CR included.
 	- Actual fix: an op that is empty or only spaces and CRs is refused as `unknown op: none before the first tab`, in all 4 CLIs. It's still an unknown op at exit 1, and the space-indented form still names `  int`. The wording is my call (me).
 	- Swept: the 4 CLIs' unknown-op arms (Rust `apply_op`, Go `applyOp`, Python `apply_op`, C `apply_op`). The 4 runners' unknown-op text is test-only and matched by prefix, so it's left alone. No doc quotes the message. A changelog line.
-	- Verified: the 2 new cli-regress rows fail on dev's 4 CLIs and pass on the fix.
+	- Verified: the 2 new cli-regress rows fail on dev's 4 CLIs and pass on the fix. The gate list on 2026101514324711 covers this branch.
 	- Test case: cli-regress `EssaXoE` (`ops-tab-indented-op-unknown`) and `EssaXqa` (`ops-blank-tab-indented-op-unknown`), beside `Esnb9g2`.
 	- Branch: `climsg`
+	- Commit: `9a52f21b`
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new rows failed before and pass after, and the wording call is noted above.
 	- Closed: 20261016-085702
 
