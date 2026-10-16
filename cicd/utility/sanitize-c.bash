@@ -14,6 +14,8 @@
 ##		scripts, the layered load, init --schema, every reads.tsv row as the CLI
 ##		call it names, and the in-place writes - fmt --write, migrate --write,
 ##		set --write, and a set --write that creates the file - on copies.
+##		The veneer smoke runs once more under the thread sanitizer, since its
+##		threads share one Document for reads.
 ##	Syntax:
 ##		sanitize-c.bash [CORPUS_DIR]
 ##		  CORPUS_DIR  conformance corpus root (default project/conformance)
@@ -49,6 +51,12 @@ export ASAN_OPTIONS="exitcode=77:${ASAN_OPTIONS:-}" UBSAN_OPTIONS="exitcode=77:p
 work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
 ## compiler, language standard, source, output.
 fBuild(){ "$1" "-std=$2" "${flags[@]}" "$3" -o "$4" -lm -lpthread || { echo "sanitize-c: build failed: $3"; return 1; }; }
+## TSan can't share a build with ASan. spec.md says threads can read one C++
+## Document at once, since each const member holds its lock; a member that
+## skips it races in the smoke's threaded test (2026101612343301).
+tflags=(-O1 -g -fsanitize=thread -Wall -Wextra -Werror -Isource/c)
+export TSAN_OPTIONS="exitcode=77:halt_on_error=1:${TSAN_OPTIONS:-}"
+fBuildTsan(){ g++ -std=c++17 "${tflags[@]}" "$1" -o "$2" -lm -lpthread || { echo "sanitize-c: build failed: $1 under TSan"; return 1; }; }
 
 ## Everything below runs as background jobs, CPU_CAP at a time: six sanitized
 ## compiles were half the gate, and the corpus pass was most of the rest, one
@@ -95,6 +103,7 @@ fJob "build oom_hook.c" fBuild cc c11 source/c/tests/oom_hook.c "${work}/oom_hoo
 fJob "build oom_recover.c" fBuild cc c11 source/c/tests/oom_recover.c "${work}/oom_recover"
 fJob "build mem_bounds.c" fBuild cc c11 source/c/tests/mem_bounds.c "${work}/mem_bounds"
 fJob "build veneer_smoke.cpp" fBuild g++ c++17 source/c/tests/veneer_smoke.cpp "${work}/veneer_smoke"
+fJob "build veneer_smoke.cpp under TSan" fBuildTsan source/c/tests/veneer_smoke.cpp "${work}/veneer_tsan"
 fJob "build the CLI" fBuild cc c11 source/c/cmd/shcl/main.c "${work}/shcl"
 fJob "build the bait" cc -O0 -o "${work}/bait" "${work}/bait.c"
 fJobsWait 1
@@ -283,6 +292,7 @@ fJob mem_bounds "${work}/mem_bounds"
 ## C++ owns the C handle, converts every value both ways, and frees a scratch
 ## document per tokenize, which is the kind of code a leak or double free hides in.
 fJob veneer_smoke "${work}/veneer_smoke"
+fJob veneer_tsan "${work}/veneer_tsan"
 for ((k = 0; k < cap; k++)); do fJob "CLI pass ${k}" fCliWorker "${k}"; done
 fJobsWait "${firstRun}"
 if ((${#failed[@]})); then printf 'sanitize-c: %s\n' "${failed[@]}" >&2; rc=1; fi
@@ -307,13 +317,15 @@ fTest EoezJiF mem_bounds under ASan and UBSan
 if [[ -n "${jobFailed[mem_bounds]:-}" ]]; then nJobBad+=1; fi
 fTest EoSE8Nl veneer_smoke under ASan and UBSan
 if [[ -n "${jobFailed[veneer_smoke]:-}" ]]; then nJobBad+=1; fi
+fTest EstYPCw veneer_smoke under TSan
+if [[ -n "${jobFailed[veneer_tsan]:-}" ]]; then nJobBad+=1; fi
 fTest EoSE8Nm every corpus CLI run under ASan and UBSan
 nJobBad=$((nJobBad + cliBad + nBad))
 fTestEnd
 if ((nBad)); then
 	echo "sanitize-c: ${nBad}/${nRuns} CLI run(s) stopped by a sanitizer" >&2; rc=1
 elif ((rc == 0)); then
-	echo "sanitize-c: OK: runner, oom_hook, oom_recover, mem_bounds, veneer_smoke and ${nRuns} CLI run(s) clean under ASan+UBSan"
+	echo "sanitize-c: OK: runner, oom_hook, oom_recover, mem_bounds, veneer_smoke and ${nRuns} CLI run(s) clean under ASan+UBSan, veneer_smoke under TSan"
 fi
 exit "${rc}"
 
@@ -329,3 +341,5 @@ exit "${rc}"
 ##		  stop at 77, and a bait that aborts proves the counting still works.
 ##		- 2026-09-22 JC: The builds, the test programs and the corpus pass run as
 ##		  jobs, CPU_CAP at a time. 91 s to 23 s at 16.
+##		- 2026-10-16 JC: The veneer smoke under TSan as well, for its threaded
+##		  reads of one Document.

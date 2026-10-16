@@ -8,10 +8,16 @@
 #define SHCL_IMPLEMENTATION
 #include "shcl.hpp"
 
+#include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <limits>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 #ifndef SHCL_NO_FILE_IO
 #include <sys/stat.h>
 #include <unistd.h>
@@ -30,6 +36,186 @@ static int test_id_end(int failed) {
 	return failed ? 1 : 0;
 }
 #define CHECK(cond) do { if (!(cond)) { std::fprintf(stderr, "veneer FAIL: %s (line %d)\n", #cond, __LINE__); fails++; } } while (0)
+
+// A read's whole answer as text, so 2 threads' answers compare in one go.
+static void put(std::string &o, const std::string &s) { o += '"'; o += s; o += "\" "; }
+static void put(std::string &o, const char *s) { put(o, std::string(s)); }
+static void put(std::string &o, bool b) { o += b ? "T " : "F "; }
+static void put(std::string &o, std::size_t n) { o += std::to_string(n) + ' '; }
+static void put(std::string &o, std::int64_t n) { o += std::to_string(n) + ' '; }
+static void put(std::string &o, double v) { o += shcl::format_float(v) + ' '; }
+static void put(std::string &o, std::chrono::milliseconds ms) { put(o, static_cast<std::int64_t>(ms.count())); }
+static void put(std::string &o, shcl::Status s) { put(o, shcl::to_string(s)); }
+static void put(std::string &o, shcl::SetStatus s) { put(o, shcl::to_string(s)); }
+static void put(std::string &o, shcl::ValueKind k) { put(o, shcl::to_string(k)); }
+static void put(std::string &o, shcl::Strictness s) { put(o, static_cast<std::int64_t>(s)); }
+#ifndef SHCL_NO_FILE_IO
+static void put(std::string &o, shcl::SaveResult r) { put(o, static_cast<std::int64_t>(r)); }
+static void put(std::string &o, shcl::WriteStatus w) { put(o, shcl::to_string(w)); }
+static void put(std::string &o, shcl::FileStatus f) { put(o, shcl::to_string(f)); }
+#endif
+static void put(std::string &o, const shcl::DateTime &dt) { put(o, dt.str()); }
+static void put(std::string &o, const shcl::Diagnostic &d) { put(o, shcl::format_diagnostic(d)); }
+static void put(std::string &o, const shcl::Field &f) { put(o, f.path); put(o, f.name); put(o, f.value); put(o, f.line); }
+template <class T> static void put(std::string &o, const std::vector<T> &v);
+template <class T> static void put(std::string &o, const shcl::Read<T> &r);
+template <class A, class B> static void put(std::string &o, const std::pair<A, B> &p);
+template <class T> static void put(std::string &o, const std::vector<T> &v) {
+	o += "[ ";
+	for (const auto &x : v) put(o, x);
+	o += "] ";
+}
+template <class T> static void put(std::string &o, const shcl::Read<T> &r) { put(o, r.value); put(o, r.status); put(o, r.slots); }
+template <class A, class B> static void put(std::string &o, const std::pair<A, B> &p) { put(o, p.first); put(o, p.second); }
+template <class... Ts> static std::string show(const Ts &...vs) {
+	std::string o;
+	(put(o, vs), ...);
+	return o;
+}
+
+#ifndef SHCL_NO_FILE_IO
+// Each thread saves to a file of its own.
+static thread_local std::string savePath;
+static std::string save_base() {
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	if (!tmp || !*tmp) tmp = "/tmp";
+	return std::string(tmp) + "/shcl-veneer-threads-" + std::to_string(static_cast<long>(getpid())) + "-";
+}
+#endif
+
+// spec.md says threads can share one Document for reads, since each const
+// member holds the document's lock. A member that skips it races, which
+// sanitize-c.bash's -fsanitize=thread build of this file reports.
+static int reads_from_several_threads() {
+	test_id("EstYOue", "reads_from_several_threads");
+	using D = shcl::Document;
+#ifndef SHCL_NO_FILE_IO
+	const std::string base = save_base();
+	savePath = base + "main.shcl";
+#endif
+	const std::string src =
+		"# the app\n"
+		"name: demo\n"
+		"port: 8080\n"
+		"ratio: 3.5\n"
+		"on: yes\n"
+		"when: 2026-10-16T12:34:56Z\n"
+		"tags: [red, green, blue]\n"
+		"ports: [80, 443]\n"
+		"ratios: [1.5, 2]\n"
+		"flags: [yes, no]\n"
+		"days: [2026-01-01, 2026-02-02]\n"
+		"timeout: 30s\n"
+		"cache: 64MiB\n"
+		"notes: ~~~text\n"
+		"\thello\n"
+		"\t~~~\n"
+		"site: a\n"
+		"\t# the first\n"
+		"\tport: 1\n"
+		"site: b\n"
+		"\tport: 2\n"
+		"\"q n\": `raw`\n"
+		"no colon here\n";
+	// The bad type gives generate a fault to put on the schema.
+	const std::string schemaSrc = "field: port\n\ttype: int\n\tmin: 1\nfield: site\nfield: site.port\n\ttype: int\nfield: name\nfield: ratio\n\ttype: bogus\n";
+	auto parse = [&] { return D::parse_keep_lines(src, shcl::Strictness::Standard); };
+	auto one = parse();
+	// Strict, so strict_failed reads the diagnostics too.
+	auto oneSchema = D::parse_with(schemaSrc, shcl::Strictness::Strict);
+
+	std::vector<std::string> queries = {"", "nope", "site(*).port", "site(b).port", "site..port", "city[Boston]", "tags(*)"};
+	for (const auto &p : one.paths()) queries.push_back(p);
+	for (const auto &p : one.instance_paths()) queries.push_back(p);
+
+	using Call = std::function<std::string(const D &, const D &)>;
+	std::vector<Call> calls = {
+		[](const D &d, const D &) { return show(d.to_canonical(), d.to_text_keep_lines(), d.strict_failed(), d.strictness()); },
+		[](const D &d, const D &) { return show(d.paths(), d.instance_paths(), d.fields()); },
+		[](const D &d, const D &) { return show(d.diagnostics(), d.error_count(), d.lost_count()); },
+#ifndef SHCL_NO_FILE_IO
+		[](const D &d, const D &) {
+			std::string o;
+			shcl::WriteStatus why{};
+			put(o, d.save_file(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			put(o, d.save_file_lossy(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			put(o, d.save_file_keep_lines(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			std::remove(savePath.c_str());
+			return o;
+		},
+#endif
+	};
+	// The calls that read the schema. Fewer of them would seldom overlap, so
+	// 2 go in with each query's.
+	const std::vector<Call> schemaCalls = {
+		// Both ways round, so the pair lock is taken in both orders at once.
+		[](const D &d, const D &s) { return show(d.validate(s), s.validate(d)); },
+		[&src](const D &, const D &s) { return show(D::load_and_validate_with(src, s, shcl::Strictness::Standard).diagnostics()); },
+		// generate writes its faults onto the schema's diagnostics and takes
+		// them off again, so these read the list. One each, as the next call
+		// on the schema that locks hides an unlocked read before it.
+		[](const D &, const D &s) { return show(shcl::generate(s)); },
+		[](const D &, const D &s) { return show(s.diagnostics()); },
+		[](const D &, const D &s) { return show(s.error_count()); },
+		[](const D &, const D &s) { return show(s.strict_failed()); },
+		[](const D &, const D &s) { return show(s.lost_count(), s.strictness()); },
+		[&src](const D &, const D &s) {
+			auto mine = D::parse(src);
+			shcl::suppress_declared_repeats(s, mine);
+			shcl::suppress_declared_reopens(s, mine);
+			return show(mine.diagnostics());
+		},
+	};
+	std::size_t nSchema = 0;
+	for (const std::string &q : queries) {
+		calls.push_back(schemaCalls[nSchema++ % schemaCalls.size()]);
+		calls.push_back(schemaCalls[nSchema++ % schemaCalls.size()]);
+		calls.push_back([q](const D &d, const D &) { return show(d.read_string(q), d.read_raw(q), d.read_raw_info(q), d.read_datetime_str(q), d.get_raw_or(q, "x"), d.get_raw_info_or(q, "x")); });
+		calls.push_back([q](const D &d, const D &) { return show(d.read_int(q), d.read_float(q), d.read_bool(q), d.read_datetime(q), d.get_or<std::int64_t>(q, 7), d.get_or<std::string>(q, "x")); });
+		calls.push_back([q](const D &d, const D &) { return show(d.read_string_array(q), d.read_int_array(q), d.read_float_array(q), d.read_bool_array(q), d.read_datetime_array(q), d.read_datetime_array_str(q)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.read_duration(q), d.read_size(q), d.get_duration_or(q, std::nullopt, std::chrono::milliseconds(7)), d.get_size_or(q, std::nullopt, false, 7)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.count(q), d.read_count(q), d.read_instances(q), d.read_children(q), d.instances(q), d.children(q), d.read_fields(q), d.read_child_fields(q)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.line(q), d.read_line(q), d.lines(q), d.read_lines(q), d.kind(q), d.read_kind(q), d.exists(q), d.read_exists(q), d.authored_name(q), d.read_authored_name(q)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.comments(q), d.read_comments(q), d.quoted(q), d.backtick(q), d.check_set_path(q)); });
+	}
+	std::vector<std::string> want;
+	want.reserve(calls.size());
+	for (const auto &call : calls) want.push_back(call(one, oneSchema));
+
+	// A fresh pair each round, so the first reads that build the lookup index
+	// race each other too.
+	constexpr std::size_t nThreads = 8;
+	for (int round = 0; round < 3; round++) {
+		auto shared = parse();
+		auto sharedSchema = D::parse_with(schemaSrc, shcl::Strictness::Strict);
+		std::vector<std::string> bad(nThreads);
+		std::vector<std::thread> threads;
+		for (std::size_t t = 0; t < nThreads; t++) {
+			threads.emplace_back([&, t] {
+#ifndef SHCL_NO_FILE_IO
+				savePath = base + std::to_string(t) + ".shcl";
+#endif
+				// Each starts at a different call, so the first reads differ.
+				for (std::size_t k = 0; k < calls.size(); k++) {
+					const std::size_t i = (k + t * calls.size() / nThreads) % calls.size();
+					if (calls[i](shared, sharedSchema) != want[i]) {
+						bad[t] = "thread " + std::to_string(t) + ", call " + std::to_string(i) + ": got " + calls[i](shared, sharedSchema) + " want " + want[i];
+						return;
+					}
+				}
+			});
+		}
+		for (auto &th : threads) th.join();
+		for (const auto &msg : bad) {
+			if (msg.empty()) continue;
+			std::fprintf(stderr, "veneer FAIL: round %d, %s\n", round, msg.c_str());
+			fails++;
+		}
+	}
+	return test_id_end(fails);
+}
 
 int main() {
 	test_id("EjtkR0S", "veneer_smoke");
@@ -767,7 +953,9 @@ int main() {
 		CHECK(std::string(shcl::to_string(K::Empty)) == "Empty" && std::string(shcl::to_string(K::Raw)) == "Raw");
 	}
 
-	if (fails) { std::fprintf(stderr, "veneer: %d failure(s)\n", fails); return test_id_end(fails); }
-	std::printf("veneer: ok\n");
-	return test_id_end(fails);
+	if (fails) std::fprintf(stderr, "veneer: %d failure(s)\n", fails);
+	else std::printf("veneer: ok\n");
+	const int smoke = test_id_end(fails);
+	fails = 0;
+	return reads_from_several_threads() | smoke;
 }
