@@ -804,11 +804,11 @@ shcl_read_str shcl_read_schema_ref(const char *text, size_t len);
 // What shcl_upgrade made of a document, and shcl_upgrade_file of a file.
 // shcl_upgraded_free gives back all of it. text is malloc'd and
 // NUL-terminated, len its length: the fresh file's text, or the input when
-// current or ambiguous. current: the input loads with no error under these
-// rules and, with from_v2, migrates to the same text, or it names this
-// format, so it is left as it is. A beta build of 3.0 stamped the same Format
-// line as a release, so a beta file is current here too, unless from_v2 says a
-// 2.x build wrote it, it loads with an error, and the fresh text would not.
+// current, ambiguous or errors_left. current: the input loads with no error
+// under these rules and, with from_v2, migrates to the same text, or it names
+// this format, so it is left as it is. A beta build of 3.0 stamped the same
+// Format line as a release, so a beta file is current here too, unless
+// from_v2 says a 2.x build wrote it and it loads with an error.
 // format: the format the input was written for, which goes in the backup's
 // name: what its Format line names, else 2. ambiguous: as shcl_migration's;
 // nonzero means the text reads two ways and nothing is written. lost: lines
@@ -818,7 +818,10 @@ shcl_read_str shcl_read_schema_ref(const char *text, size_t len);
 // shcl_diag_* calls give what it found, which is why it needed the upgrade
 // unless it loaded clean and from_v2 said it reads as 2.x; NULL when current.
 // backup: where shcl_upgrade_file put the original, malloc'd; NULL from
-// shcl_upgrade, and when nothing was written.
+// shcl_upgrade, and when nothing was written. errors_left, errors_left_n:
+// with from_v2, the input's lines still in error once converted, malloc'd
+// (NULL when none); any means nothing is written and text is the input, since
+// the next run with from_v2 would take the fresh text for 2.x again.
 typedef struct {
 	char *text; size_t len;
 	int current;
@@ -827,6 +830,7 @@ typedef struct {
 	size_t lost;
 	shcl_doc *diagnostics;
 	char *backup;
+	size_t *errors_left; size_t errors_left_n;
 } shcl_upgraded;
 // A config file written for an older format, made over for this one: the
 // input run through shcl_migrate_unstamped, then written the way `fmt` writes
@@ -839,10 +843,11 @@ typedef struct {
 // change it, as it would `p: a,b`, an array under 2.x and one string now. The
 // one file naming this format that is made over is one that loads with an
 // error when from_v2 says a 2.x build wrote it, as with a beta of 3.0 that
-// wrote 2.x lines. It is taken as 2.x, and only when the fresh text loads
-// clean. Pass from_v2 only for a file known to be old, never on every start:
-// a file this format wrote that picks up an error later would be read by 2.x
-// rules too.
+// wrote 2.x lines. It is taken as 2.x. With from_v2, any file is made over
+// only when the fresh text loads clean; when it wouldn't, errors_left names
+// the lines still in error. Pass from_v2 only for a file known to be old,
+// never on every start: a file this format wrote that picks up an error later
+// would be read by 2.x rules too.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
@@ -863,7 +868,8 @@ typedef enum {
 	SHCL_UPGRADE_NOT_FOUND,    // nothing at the path
 	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from_v2 settles it
 	SHCL_UPGRADE_BACKUP_TAKEN, // something is already at the backup's name; it is never written over
-	SHCL_UPGRADE_IO            // a read or write failed; the message names the file, and *why says why
+	SHCL_UPGRADE_IO,           // a read or write failed; the message names the file, and *why says why
+	SHCL_UPGRADE_ERRORS_LEFT   // with from_v2, the fresh text would still have an error on the lines errors_left names
 } shcl_upgrade_error;
 // Keep text, the bytes last read from file, under shcl_backup_file_name,
 // before something replaces them. The create is exclusive, so an earlier
@@ -878,13 +884,14 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 // shcl_write_backup, then the fresh text replaces it through
 // shcl_write_file_atomic, so the path always holds one or the other. A file
 // shcl_upgrade finds current is not written at all, and also neither is one
-// that changed after it was read or that reads two ways. Opt-in on purpose: a
-// program that keeps its own backups has no need of it. On success *out is
-// filled, its backup naming the copy when one was made, and its text is what
-// the path now holds. On a failure *out is left empty but for ambiguous,
-// which has the count for SHCL_UPGRADE_AMBIGUOUS, and *message (when not
-// NULL) gets why. Either way shcl_upgraded_free(out) is safe, and the caller
-// frees the message.
+// that changed after it was read, that reads two ways, or that errors_left
+// says would still have an error. Opt-in on purpose: a program that keeps its
+// own backups has no need of it. On success *out is filled, its backup naming
+// the copy when one was made, and its text is what the path now holds. On a
+// failure *out is left empty but for ambiguous, which has the count for
+// SHCL_UPGRADE_AMBIGUOUS, and errors_left for SHCL_UPGRADE_ERRORS_LEFT, and
+// *message (when not NULL) gets why. Either way shcl_upgraded_free(out) is
+// safe, and the caller frees the message.
 shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message, shcl_write_status *why);
 #endif
 
@@ -3801,10 +3808,27 @@ shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2)
 }
 
 static size_t swap_banner(shcl_doc *d, int on, int v2);
+static int size_cmp(const void *pa, const void *pb);
 
 /* What shcl_upgrade holds while it works, off the frame for the same reason
    as ShclMigrateOwn. */
-typedef struct { shcl_doc *before, *fresh; char *migrated, *text; } ShclUpgradeOwn;
+typedef struct { shcl_doc *before, *fresh, *made; char *migrated, *text; size_t *left; } ShclUpgradeOwn;
+
+/* The lines with an error on them, in order, each once, into *out (malloc'd).
+   Returns how many. */
+static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
+	size_t nd = shcl_diag_count(d), n = 0;
+	size_t *lines = (size_t *)malloc((nd ? nd : 1) * sizeof *lines);
+	if (!lines) longjmp(*panic, 1);
+	*out = lines;
+	for (size_t i = 0; i < nd; i++)
+		if (shcl_diag_severity(d, i) == SHCL_SEV_ERROR) lines[n++] = shcl_diag_line(d, i);
+	if (n) qsort(lines, n, sizeof *lines, size_cmp);
+	size_t u = 0;
+	for (size_t i = 0; i < n; i++)
+		if (!u || lines[i] != lines[u - 1]) lines[u++] = lines[i];
+	return u;
+}
 
 static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int64_t version, shcl_upgraded *up) {
 	if (!text) { text = ""; len = 0; }
@@ -3848,19 +3872,24 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			if (!own->fresh) longjmp(*panic, 1);
 			doc_guard(own->fresh, panic);
 			up->lost = m.lost + shcl_lost_count(own->fresh);
+			/* migrate keeps every line where it was, so these are the input's. */
+			size_t nleft = error_lines(own->fresh, &own->left, panic);
 			swap_banner(own->fresh, 1, 1);
 			keep = shcl_to_canonical(own->fresh);
-			/* A file naming this format goes only when that leaves it loading
-			   clean, so the next start, from_v2 or not, leaves the result
-			   alone. */
-			if (version == SHCL_FORMAT_MAJOR) {
-				shcl_doc *made = shcl_parse(keep.p, keep.n);
-				if (!made) longjmp(*panic, 1);
-				size_t errs = shcl_error_count(made);
-				shcl_free(made);
-				if (errs) {
-					up->current = 1; up->lost = 0;
+			/* With from_v2 it goes only when that leaves it loading clean, or
+			   the next run with it would read the result by 2.x rules again
+			   (2026101515372401). Without, a Format 3 file with an error is
+			   current. */
+			if (from_v2) {
+				own->made = shcl_parse(keep.p, keep.n);
+				if (!own->made) longjmp(*panic, 1);
+				if (shcl_error_count(own->made)) {
+					/* Empty only if a clean text formats to one with an error,
+					   and then the fresh text's own lines are better than none. */
+					if (!nleft) { free(own->left); own->left = NULL; nleft = error_lines(own->made, &own->left, panic); }
+					up->lost = 0;
 					keep.p = text; keep.n = len;
+					up->errors_left = own->left; up->errors_left_n = nleft; own->left = NULL;
 				}
 			}
 		}
@@ -3882,19 +3911,19 @@ shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclUpgradeOwn *bad = own;
-		shcl_free(bad->before); shcl_free(bad->fresh); free(bad->migrated); free(bad->text); free(bad);
+		shcl_free(bad->before); shcl_free(bad->fresh); shcl_free(bad->made); free(bad->migrated); free(bad->text); free(bad->left); free(bad);
 		SHCL_OOM();
 		abort();
 	}
 	upgrade_into(own, &panic, text, len, from_v2, version, &up);
 	ShclUpgradeOwn *done = own;
-	shcl_free(done->before); shcl_free(done->fresh); free(done->migrated); free(done);
+	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->left); free(done);
 	return up;
 }
 
 void shcl_upgraded_free(shcl_upgraded *up) {
 	if (!up) return;
-	free(up->text); shcl_free(up->diagnostics); free(up->backup);
+	free(up->text); shcl_free(up->diagnostics); free(up->backup); free(up->errors_left);
 	memset(up, 0, sizeof *up);
 }
 
@@ -13793,6 +13822,21 @@ static shcl_upgrade_error upgrade_fail(char **out, shcl_upgrade_error e, const c
 	return e;
 }
 
+/* "5, 9, 12", malloc'd. */
+static char *upgrade_lines(const size_t *lines, size_t n) {
+	size_t cap = n * 22 + 1;
+	char *s = (char *)malloc(cap);
+	if (!s) { SHCL_OOM(); abort(); }
+	size_t at = 0;
+	s[0] = 0;
+	for (size_t i = 0; i < n; i++) {
+		int k = snprintf(s + at, cap - at, i ? ", %zu" : "%zu", lines[i]);
+		if (k < 0 || (size_t)k >= cap - at) break;
+		at += (size_t)k;
+	}
+	return s;
+}
+
 /* The file still holds the bytes last read from it. */
 static int upgrade_holds(const char *path, const char *text, size_t len) {
 	size_t n = 0;
@@ -13913,6 +13957,13 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 	} else if (up.ambiguous != 0) {
 		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written", path, up.ambiguous);
 		out->ambiguous = up.ambiguous;
+		shcl_upgraded_free(&up);
+	} else if (up.errors_left_n) {
+		char *lines = upgrade_lines(up.errors_left, up.errors_left_n);
+		r = upgrade_fail(message, SHCL_UPGRADE_ERRORS_LEFT, "%s: line(s) %s would still have an error once converted from 2.x; nothing written", path, lines);
+		free(lines);
+		out->errors_left = up.errors_left; out->errors_left_n = up.errors_left_n;
+		up.errors_left = NULL;
 		shcl_upgraded_free(&up);
 	} else if (!upgrade_holds(path, text, len)) {
 		r = upgrade_why(why, SHCL_WRITE_OTHER, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: changed since it was read; nothing written", path));

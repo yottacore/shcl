@@ -5370,12 +5370,16 @@ int main(int argc, char **argv) {
 		up = shcl_upgrade(stamped, strlen(stamped), 1);
 		if (!up.current) fail("upgrade_beta", "a clean stamped file");
 		shcl_upgraded_free(&up);
+		/* Old claim below, wrong since 2026101515372401: a fresh text that
+		   would keep an error is refused, not current, and names its lines.
+		   Don't uncomment. The new rule's test is
+		   from_v2_refuses_a_conversion_that_keeps_an_error. */
 		/* Nor when the fresh text would keep an error, which the next start
 		   would take as 2.x again. */
-		const char *stuck = "a: 1\nb 2\n##    Format   3\n";
+		/* const char *stuck = "a: 1\nb 2\n##    Format   3\n";
 		up = shcl_upgrade(stuck, strlen(stuck), 1);
 		if (!up.current || !up_is(&up, stuck) || up.diagnostics) fail("upgrade_beta", "stuck");
-		shcl_upgraded_free(&up);
+		shcl_upgraded_free(&up); */
 		/* A lone stamp at the top goes too. */
 		const char *top = "##    Format   3\nname: x\nrange: 0, 100\n";
 		up = shcl_upgrade(top, strlen(top), 1);
@@ -5551,6 +5555,54 @@ int main(int argc, char **argv) {
 		if (shcl_upgrade_file(amb, 0, &up, NULL, NULL) != SHCL_UPGRADE_AMBIGUOUS || up.ambiguous != 1) fail("upgrade_taken", "amb");
 		shcl_upgraded_free(&up);
 		if (dir_entries(udir) != 3) fail("upgrade_taken", "entries");
+		dir_clear(udir);
+	}
+	test_id("EsoQmUB", "from_v2_refuses_a_conversion_that_keeps_an_error");
+	{
+		/* The next run with from_v2 would read the fresh text by 2.x rules
+		   again, and the 2.x escape on line 1 would grow each time
+		   (2026101515372401). So nothing is made, with a Format line or not. */
+		const char *v2 = "\"k\xe2\x97\x89Q\xe2\x97\x89\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: 8\xe3\x80\x80" "080\n";
+		shcl_upgraded up = shcl_upgrade(v2, strlen(v2), 1);
+		if (up.current || !up_is(&up, v2) || up.lost != 0 || up.errors_left_n != 1 || up.errors_left[0] != 5) fail("upgrade_left", "2.x file");
+		int e025 = 0;
+		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++)
+			e025 |= !strcmp(shcl_diag_code(up.diagnostics, i), "E025") && shcl_diag_line(up.diagnostics, i) == 5;
+		if (!e025) fail("upgrade_left", "no E025 on line 5");
+		shcl_upgraded_free(&up);
+		const char *stuck = "a: 1\nb 2\n##    Format   3\n";
+		up = shcl_upgrade(stuck, strlen(stuck), 1);
+		if (up.current || !up_is(&up, stuck) || up.errors_left_n != 1 || up.errors_left[0] != 2 || !up.diagnostics) fail("upgrade_left", "stuck");
+		shcl_upgraded_free(&up);
+		/* Without from_v2 a stamped file is current, and nothing would read
+		   the fresh text as 2.x again. */
+		up = shcl_upgrade(stuck, strlen(stuck), 0);
+		if (!up.current || up.errors_left) fail("upgrade_left", "stuck without from_v2");
+		shcl_upgraded_free(&up);
+		/* With the line fixed it converts, and the second run leaves it alone. */
+		const char *fixed = "\"k\xe2\x97\x89Q\xe2\x97\x89\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: \"8\xe3\x80\x80" "080\"\n";
+		up = shcl_upgrade(fixed, strlen(fixed), 1);
+		shcl_doc *fresh = shcl_parse(up.text, up.len);
+		if (up.current || up.errors_left || !fresh || shcl_error_count(fresh) != 0) fail("upgrade_left", "fixed");
+		shcl_free(fresh);
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, 1);
+		if (!again.current) fail("upgrade_left", "fixed: the fresh text is not current");
+		shcl_upgraded_free(&again);
+		shcl_upgraded_free(&up);
+		/* shcl_upgrade_file writes nothing, no backup either. */
+		char udir[256], file[320];
+		up_dir(udir, sizeof udir, "left");
+		snprintf(file, sizeof file, "%s/f.shcl", udir);
+		put_file(file, v2);
+		char *why = NULL;
+		const char *want = ": line(s) 5 would still have an error once converted from 2.x; nothing written";
+		if (shcl_upgrade_file(file, 1, &up, &why, NULL) != SHCL_UPGRADE_ERRORS_LEFT || up.errors_left_n != 1 || up.errors_left[0] != 5
+			|| !why || strlen(why) < strlen(want) || strcmp(why + strlen(why) - strlen(want), want) != 0 || strncmp(why, file, strlen(file)) != 0)
+			fail("upgrade_left", why ? why : "not refused");
+		free(why);
+		shcl_upgraded_free(&up);
+		if (!file_is(file, v2)) fail("upgrade_left", "the file changed");
+		if (dir_entries(udir) != 1) fail("upgrade_left", "entries");
 		dir_clear(udir);
 	}
 #undef UP_V2

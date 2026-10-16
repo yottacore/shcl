@@ -3049,14 +3049,14 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool) -> Migration
 /// What `upgrade` made of a document, and `upgrade_file` of a file.
 #[derive(Debug, Clone)]
 pub struct Upgrade {
-	/// The fresh file's text, or the input when `current` or `ambiguous`.
+	/// The fresh file's text, or the input when `current`, `ambiguous` or
+	/// `errors_left`.
 	pub text: String,
 	/// The input loads with no error under these rules and, with `from_v2`,
 	/// migrates to the same text and names no older format, or it names this
 	/// format, so it is left as it is. A beta build of 3.0 stamped the same
 	/// Format line as a release, so a beta file is current here too, unless
-	/// `from_v2` says a 2.x build wrote it, it loads with an error, and the
-	/// fresh text would not.
+	/// `from_v2` says a 2.x build wrote it and it loads with an error.
 	pub current: bool,
 	/// The format the input was written for, which goes in the backup's
 	/// name: what its Format line names, else 2.
@@ -3075,6 +3075,10 @@ pub struct Upgrade {
 	/// Where `upgrade_file` put the original. Empty from `upgrade`, and when
 	/// nothing was written.
 	pub backup: String,
+	/// With `from_v2`, the input's lines still in error once converted.
+	/// Nonempty means nothing is written and `text` is the input, since the
+	/// next run with `from_v2` would take the fresh text for 2.x again.
+	pub errors_left: Vec<usize>,
 }
 
 /// A config file written for an older format, made over for this one: the
@@ -3090,10 +3094,11 @@ pub struct Upgrade {
 /// an older format gets this format on that Format line, and nothing else.
 /// The one file naming this format that is made over is one that loads with
 /// an error when `from_v2` says a 2.x build wrote it, as with a beta of 3.0
-/// that wrote 2.x lines. It is taken as 2.x, and only when the fresh text
-/// loads clean. Pass `from_v2` only for a file known to be old, never on
-/// every start: a file this format wrote that picks up an error later would
-/// be read by 2.x rules too.
+/// that wrote 2.x lines. It is taken as 2.x. With `from_v2`, any file is
+/// made over only when the fresh text loads clean; when it wouldn't,
+/// `errors_left` names the lines still in error. Pass `from_v2` only for a
+/// file known to be old, never on every start: a file this format wrote
+/// that picks up an error later would be read by 2.x rules too.
 pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
@@ -3105,6 +3110,7 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 		lost: 0,
 		diagnostics: Vec::new(),
 		backup: String::new(),
+		errors_left: Vec::new(),
 	};
 	if version.is_some_and(|v| v > FORMAT_MAJOR || (v == FORMAT_MAJOR && !from_v2)) {
 		return up;
@@ -3137,18 +3143,41 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	}
 	let mut fresh = Document::parse(&m.text);
 	let lost = m.lost + fresh.lost_count();
+	// migrate keeps every line where it was, so these are the input's.
+	let left = error_lines(&fresh.diags);
 	fresh.swap_banner(true, true);
 	let made = fresh.to_canonical();
-	// A file naming this format goes only when that leaves it loading clean,
-	// so the next start, from_v2 or not, leaves the result alone.
-	if version == Some(FORMAT_MAJOR) && Document::parse(&made).error_count() != 0 {
-		up.current = true;
-		up.diagnostics.clear();
-		return up;
+	// With from_v2 it goes only when that leaves it loading clean, or the
+	// next run with it would read the result by 2.x rules again
+	// (2026101515372401). Without, a Format 3 file with an error is current.
+	if from_v2 {
+		let check = Document::parse(&made);
+		if check.error_count() != 0 {
+			// Empty only if a clean text formats to one with an error, and
+			// then the fresh text's own lines are better than none.
+			up.errors_left = if left.is_empty() {
+				error_lines(&check.diags)
+			} else {
+				left
+			};
+			return up;
+		}
 	}
 	up.lost = lost;
 	up.text = made;
 	up
+}
+
+/// The lines with an error on them, in order, each once.
+fn error_lines(diags: &[Diagnostic]) -> Vec<usize> {
+	let mut lines: Vec<usize> = diags
+		.iter()
+		.filter(|d| d.severity == Severity::Error)
+		.map(|d| d.line)
+		.collect();
+	lines.sort_unstable();
+	lines.dedup();
+	lines
 }
 
 /// One edit to a line: replace `start..end` with the text.
@@ -8787,6 +8816,9 @@ pub enum UpgradeError {
 	BackupTaken(String),
 	/// A read or write failed: why, and the message.
 	Io(WriteError),
+	/// With `from_v2`, the fresh text would still have an error on these
+	/// lines of the input (`Upgrade::errors_left`).
+	ErrorsLeft { path: String, lines: Vec<usize> },
 }
 
 impl std::fmt::Display for UpgradeError {
@@ -8804,6 +8836,16 @@ impl std::fmt::Display for UpgradeError {
 				name
 			),
 			UpgradeError::Io(e) => std::fmt::Display::fmt(e, f),
+			UpgradeError::ErrorsLeft { path, lines } => write!(
+				f,
+				"{}: line(s) {} would still have an error once converted from 2.x; nothing written",
+				path,
+				lines
+					.iter()
+					.map(ToString::to_string)
+					.collect::<Vec<_>>()
+					.join(", ")
+			),
 		}
 	}
 }
@@ -8918,9 +8960,10 @@ fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
 /// then the fresh text replaces it through `write_file_atomic`, so the path
 /// always holds one or the other. A file `upgrade` finds `current` is not
 /// written at all, and also neither is one that changed after it
-/// was read or that reads two ways. Opt-in on purpose: a program that keeps
-/// its own backups has no need of it. On success `backup` names the copy
-/// when one was made, and `text` is what the path now holds.
+/// was read, that reads two ways, or that `errors_left` says would still
+/// have an error. Opt-in on purpose: a program that keeps its own backups
+/// has no need of it. On success `backup` names the copy when one was made,
+/// and `text` is what the path now holds.
 pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> {
 	// A FIFO or a device would block the read or be replaced by a file.
 	match std::fs::metadata(path) {
@@ -8958,6 +9001,12 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 		return Err(UpgradeError::Ambiguous {
 			path: path.to_string(),
 			count: up.ambiguous,
+		});
+	}
+	if !up.errors_left.is_empty() {
+		return Err(UpgradeError::ErrorsLeft {
+			path: path.to_string(),
+			lines: up.errors_left,
 		});
 	}
 	let same = |now: Vec<u8>| now == text.as_bytes();

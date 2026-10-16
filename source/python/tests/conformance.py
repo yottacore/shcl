@@ -4622,12 +4622,16 @@ def main():
 		raise SystemExit(f"beta without from_v2: {up.current} {up.text!r}")
 	if not shcl.upgrade(f"p: a,b\n\n{shcl.GEN_BANNER}", True).current:
 		raise SystemExit("beta: a clean stamped file is not current")
+	# Old claim below, wrong since 2026101515372401: a fresh text that would
+	# keep an error is refused, not current, and names its lines. Don't
+	# uncomment. The new rule's test is
+	# from_v2_refuses_a_conversion_that_keeps_an_error.
 	# Nor when the fresh text would keep an error, which the next start would
 	# take as 2.x again.
-	up_stuck = "a: 1\nb 2\n##    Format   3\n"
-	up = shcl.upgrade(up_stuck, True)
-	if not up.current or up.text != up_stuck or up.diagnostics:
-		raise SystemExit(f"beta stuck: {up.current} {up.text!r} {up.diagnostics}")
+	# up_stuck = "a: 1\nb 2\n##    Format   3\n"
+	# up = shcl.upgrade(up_stuck, True)
+	# if not up.current or up.text != up_stuck or up.diagnostics:
+	# 	raise SystemExit(f"beta stuck: {up.current} {up.text!r} {up.diagnostics}")
 	# A lone stamp at the top goes too.
 	up = shcl.upgrade("##    Format   3\nname: x\nrange: 0, 100\n", True)
 	if up.text != f"name: x\nrange: [0, 100]\n\n{shcl.GEN_BANNER}":
@@ -4637,6 +4641,47 @@ def main():
 	up_m = shcl.migrate(up_beta, True)
 	if not up_m.current or up_m.text != up_beta:
 		raise SystemExit(f"beta migrate: {up_m.current} {up_m.text!r}")
+
+	test_id("EsoQmUA", "from_v2_refuses_a_conversion_that_keeps_an_error")
+	# The next run with from_v2 would read the fresh text by 2.x rules again,
+	# and the 2.x escape on line 1 would grow each time (2026101515372401).
+	# So nothing is made, with a Format line or not.
+	up_left = "\"k\u25c9Q\u25c9\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: 8\u3000080\n"
+	up = shcl.upgrade(up_left, True)
+	if up.current or up.text != up_left or up.lost != 0 or up.errors_left != [5]:
+		raise SystemExit(f"left: {up.current} {up.lost} {up.errors_left} {up.text!r}")
+	if not any(d.code == "E025" and d.line == 5 for d in up.diagnostics):
+		raise SystemExit(f"left: no E025 on line 5 in {up.diagnostics}")
+	up_stuck = "a: 1\nb 2\n##    Format   3\n"
+	up = shcl.upgrade(up_stuck, True)
+	if up.current or up.text != up_stuck or up.errors_left != [2] or not up.diagnostics:
+		raise SystemExit(f"left stuck: {up.current} {up.errors_left} {up.text!r}")
+	# Without from_v2 a stamped file is current, and nothing would read the
+	# fresh text as 2.x again.
+	if not shcl.upgrade(up_stuck, False).current:
+		raise SystemExit("left stuck without from_v2: not current")
+	# With the line fixed it converts, and the second run leaves it alone.
+	up = shcl.upgrade(up_left.replace("8\u3000080", "\"8\u3000080\""), True)
+	if up.current or up.errors_left or shcl.Document.parse(up.text).error_count() != 0:
+		raise SystemExit(f"left fixed: {up.current} {up.errors_left} {up.text!r}")
+	if not shcl.upgrade(up.text, True).current:
+		raise SystemExit("left fixed: the fresh text is not current")
+	# upgrade_file writes nothing, no backup either.
+	with tempfile.TemporaryDirectory() as ud:
+		up_path = os.path.join(ud, "f.shcl")
+		with open(up_path, "wb") as uf:
+			uf.write(up_left.encode("utf-8"))
+		try:
+			shcl.upgrade_file(up_path, True)
+			raise SystemExit("left: wrote")
+		except shcl.UpgradeErrorsLeft as e:
+			if e.path != up_path or e.lines != [5] or not str(e).endswith(": line(s) 5 would still have an error once converted from 2.x; nothing written"):
+				raise SystemExit(f"left: {e.path!r} {e.lines} {e}") from None
+		with open(up_path, "rb") as uf:
+			if uf.read() != up_left.encode("utf-8"):
+				raise SystemExit("left: the file changed")
+		if len(os.listdir(ud)) != 1:
+			raise SystemExit(f"left: {os.listdir(ud)}")
 
 	test_id("Es2k1DD", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently")
 	# The caller says it is 2.x, where a,b was an array.

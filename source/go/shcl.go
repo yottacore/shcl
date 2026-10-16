@@ -3328,14 +3328,14 @@ func migrateText(text string, fromV2, stamp, beta bool) Migration {
 
 // Upgraded is what Upgrade made of a document, and UpgradeFile of a file.
 type Upgraded struct {
-	// Text is the fresh file's text, or the input when Current or Ambiguous.
+	// Text is the fresh file's text, or the input when Current, Ambiguous or
+	// ErrorsLeft.
 	Text string
 	// Current: the input loads with no error under these rules and, with
 	// fromV2, migrates to the same text and names no older format, or it
 	// names this format, so it is left as it is. A beta build of 3.0 stamped
 	// the same Format line as a release, so a beta file is current here too,
-	// unless fromV2 says a 2.x build wrote it, it loads with an error, and the
-	// fresh text would not.
+	// unless fromV2 says a 2.x build wrote it and it loads with an error.
 	Current bool
 	// Format is the format the input was written for, which goes in the
 	// backup's name: what its Format line names, else 2.
@@ -3354,6 +3354,10 @@ type Upgraded struct {
 	// Backup is where UpgradeFile put the original. Empty from Upgrade, and
 	// when nothing was written.
 	Backup string
+	// ErrorsLeft is, with fromV2, the input's lines still in error once
+	// converted. Nonempty means nothing is written and Text is the input,
+	// since the next run with fromV2 would take the fresh text for 2.x again.
+	ErrorsLeft []int
 }
 
 // Upgrade is a config file written for an older format, made over for this
@@ -3369,9 +3373,10 @@ type Upgraded struct {
 // format on that Format line, and nothing else. The one file naming this
 // format that is made over is one that loads with an error when fromV2 says a
 // 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is taken
-// as 2.x, and only when the fresh text loads clean. Pass fromV2 only for a
-// file known to be old, never on every start: a file this format wrote that
-// picks up an error later would be read by 2.x rules too.
+// as 2.x. With fromV2, any file is made over only when the fresh text loads
+// clean; when it wouldn't, ErrorsLeft names the lines still in error. Pass
+// fromV2 only for a file known to be old, never on every start: a file this
+// format wrote that picks up an error later would be read by 2.x rules too.
 func Upgrade(text string, fromV2 bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
@@ -3413,18 +3418,46 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 	}
 	fresh := Parse(m.Text)
 	lost := m.Lost + fresh.LostCount()
+	// migrate keeps every line where it was, so these are the input's.
+	left := errorLines(fresh.diags)
 	fresh.swapBanner(true, true)
 	made := fresh.ToCanonical()
-	// A file naming this format goes only when that leaves it loading clean,
-	// so the next start, fromV2 or not, leaves the result alone.
-	if hasVersion && version == FormatMajor && Parse(made).ErrorCount() != 0 {
-		up.Current = true
-		up.Diagnostics = nil
-		return up
+	// With fromV2 it goes only when that leaves it loading clean, or the next
+	// run with it would read the result by 2.x rules again
+	// (2026101515372401). Without, a Format 3 file with an error is current.
+	if fromV2 {
+		if check := Parse(made); check.ErrorCount() != 0 {
+			// Empty only if a clean text formats to one with an error, and then
+			// the fresh text's own lines are better than none.
+			if len(left) == 0 {
+				left = errorLines(check.diags)
+			}
+			up.ErrorsLeft = left
+			return up
+		}
 	}
 	up.Lost = lost
 	up.Text = made
 	return up
+}
+
+// errorLines is the lines with an error on them, in order, each once.
+func errorLines(diags []Diagnostic) []int {
+	var lines []int
+	for _, d := range diags {
+		if d.Severity == SeverityError {
+			lines = append(lines, d.Line)
+		}
+	}
+	sort.Ints(lines)
+	n := 0
+	for i, line := range lines {
+		if i == 0 || line != lines[n-1] {
+			lines[n] = line
+			n++
+		}
+	}
+	return lines[:n]
 }
 
 // sortedHas is true when the ascending list holds n.
@@ -8664,17 +8697,22 @@ const (
 	UpgradeBackupTaken
 	// UpgradeIO: a read or write failed; Err is a *WriteError saying why.
 	UpgradeIO
+	// UpgradeErrorsLeft: with fromV2, the fresh text would still have an
+	// error on the input's Lines (Upgraded.ErrorsLeft).
+	UpgradeErrorsLeft
 )
 
 // UpgradeError is the error UpgradeFile and WriteBackup return, so a caller
 // can tell the cases apart with errors.As rather than by the message.
 type UpgradeError struct {
 	Kind UpgradeErrorKind
-	// Path is the file for UpgradeNotFound and UpgradeAmbiguous, and the
-	// backup's name for UpgradeBackupTaken.
+	// Path is the file for UpgradeNotFound, UpgradeAmbiguous and
+	// UpgradeErrorsLeft, and the backup's name for UpgradeBackupTaken.
 	Path string
 	// Count is Upgraded.Ambiguous, for UpgradeAmbiguous.
 	Count int
+	// Lines is Upgraded.ErrorsLeft, for UpgradeErrorsLeft.
+	Lines []int
 	// Err is the failure for UpgradeIO, a *WriteError with the path in its
 	// message.
 	Err error
@@ -8690,6 +8728,13 @@ func (e *UpgradeError) Error() string {
 			"the file does not say which it was written for; nothing written", e.Path, e.Count)
 	case UpgradeBackupTaken:
 		return e.Path + ": already exists; the original would be kept there, so nothing was written"
+	case UpgradeErrorsLeft:
+		lines := make([]string, len(e.Lines))
+		for i, n := range e.Lines {
+			lines[i] = strconv.Itoa(n)
+		}
+		return fmt.Sprintf("%s: line(s) %s would still have an error once converted from 2.x; nothing written",
+			e.Path, strings.Join(lines, ", "))
 	}
 	return e.Err.Error()
 }
@@ -8792,10 +8837,11 @@ func WriteBackup(file, text string, format int) (string, error) {
 // before its load. A file that needs it is kept under BackupFileName by
 // WriteBackup, then the fresh text replaces it through WriteFileAtomic, so the
 // path always holds one or the other. A file Upgrade finds Current is not
-// written at all, and also neither is one that changed after it was read or
-// that reads two ways. Opt-in on purpose: a program that keeps its own backups
-// has no need of it. On success Backup names the copy when one was made, and
-// Text is what the path now holds. A failure is an *UpgradeError.
+// written at all, and also neither is one that changed after it was read,
+// that reads two ways, or that ErrorsLeft says would still have an error.
+// Opt-in on purpose: a program that keeps its own backups has no need of it.
+// On success Backup names the copy when one was made, and Text is what the
+// path now holds. A failure is an *UpgradeError.
 func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 	// A FIFO or a device would block the read or be replaced by a file.
 	fi, err := os.Stat(path)
@@ -8823,6 +8869,9 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 	}
 	if up.Ambiguous != 0 {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeAmbiguous, Path: path, Count: up.Ambiguous}
+	}
+	if len(up.ErrorsLeft) != 0 {
+		return Upgraded{}, &UpgradeError{Kind: UpgradeErrorsLeft, Path: path, Lines: up.ErrorsLeft}
 	}
 	same := func() bool {
 		now, rerr := os.ReadFile(path)
