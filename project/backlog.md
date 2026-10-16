@@ -33,91 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- `upgrade --write` prints none of the load's diagnostics when it refuses, or fails after the load
-	- ID: 2026101514324706
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 6
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101419280005
-	- Steps to reproduce:
-		- `printf 'tags: a,b\nb 2\n' > f.shcl`
-		- `shcl upgrade f.shcl`, then `shcl upgrade --write f.shcl`
-	- Incorrect behavior: without `--write` the E014 line prints, then the refusal, at exit 7. With `--write` only the refusal prints. Same at exit 8 after the load, when the backup name is taken or the folder is read-only. `migrate --write` prints the E014 line in each case. All 4.
-	- Expected behavior: design.md, the help, the man page and the CLI style guide say every loading subcommand prints the load's diagnostics once.
-	- Reproduced: 20261015, all 4 CLIs.
-	- Possible cause: the refusal and error arms of each CLI's upgrade return before the diagnostics print.
-	- Origin: `60d0196c` (2026-10-07). 2026101419280005 fixed the arm for a file left alone, and its Swept line names upgrade with `--write`. These 2 arms were missed. Confirmed.
-	- Sweep: every early return in each CLI's upgrade and migrate. A cli-regress row that walks each loading subcommand's error exits would cover the class, rather than one row per arm.
-	- Progress log:
-		- 20261015: since 2026101515372401 the `--write` path has a third refusal arm, a `--from-2x` conversion that keeps an error, and it prints no load diagnostics either, the same as the ambiguous refusal. Fix all 3 arms together.
-	- Actual cause: with `--write` the 4 CLIs handed the file to `upgrade_file` and printed only its error when it failed. The library returns no diagnostics with an error, so the 2 refusals and every failure after the load said nothing about what the load found.
-	- Actual fix: CLI only, the library contract kept, as on 2026101419280005. `upgrade --write` reads the file itself first, as the printing form does. When `upgrade_file` fails, it prints the diagnostics of `upgrade` on that text, then the error, with the same exit codes as before. So a file that can't be read now gives the same message with or without `--write`.
-	- Swept: every early return in `upgrade` and `migrate` in the 4 CLIs. `migrate` prints the load's diagnostics right after its load, before any refusal or write, so only `upgrade --write` had the gap. The new rows walk the error exits of every loading subcommand: get's 2 to 6, `--strictness=strict` on count, instances, children and paths, check, `fmt --check` and `--write`, set, migrate and upgrade, printed and with `--write`, refused and failing at the backup.
-	- Verified: the new rows fail on dev's 4 CLIs in exactly the 4 `upgrade --write` rows, 16 checks, and pass on the fix. cli-regress is green on the branch.
-	- Test case: cli-regress `diagExits`, `EssOUuB` to `EssOUub` (`diag-exit-*`), each checking the exit code and that the file's one E014 line prints exactly once.
-	- Branch: `upfix`
-	- Commit: `538e3359`
-	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule that every loading subcommand prints the load's diagnostics once.
-	- Closed: 20261016-080915
-
-- `upgrade --write` calls a file it has no permission to read "cannot be read as UTF-8 text"
-	- ID: 2026101514324707
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 7
-	- Version and build: dev at `79b9876c`
-	- Steps to reproduce:
-		- `printf 'a: 1\nb 2\n' > f.shcl; chmod 000 f.shcl`
-		- `shcl upgrade --write f.shcl`
-	- Incorrect behavior: `f.shcl: cannot be read as UTF-8 text`, exit 8. Without `--write` it's `f.shcl: Permission denied`. All 4.
-	- Expected behavior: the system's message, as every other read gives.
-	- Reproduced: 20261015, all 4 CLIs.
-	- Possible cause: `upgrade_file` maps every read failure but a missing file to `WriteStatus::Unreadable` with the UTF-8 text.
-	- Origin: `60d0196c` (2026-10-07). Neither 20261014 round mentions it. Confirmed.
-	- Sweep: the other library calls that read a file and fold the error into one status.
-	- Actual cause: `upgrade_file` read through `read_file`, which answers with one status for every failure, so the system's reason was gone before the message was made.
-	- Actual fix: `upgrade_file` in all 4 reads the file itself. A failed open or read gives the system's message and status, as `write_backup` does, so no permission is `PermissionDenied` with `f.shcl: Permission denied`. `Unreadable` and the UTF-8 message are left for text that isn't UTF-8, which is what `Unreadable`'s doc says it is. C gets a private `s_read_file` that also hands back the errno, and `shcl_read_file` calls it. The `PermissionDenied` docs in the 4 bindings and spec.md say it covers that read too. The CLI side was already gone with 2026101514324706, since `upgrade --write` reads the file first now.
-	- Swept: every library read of a file in the 4. `read_file` and `load_file` with its `_with` and `_keep_lines` forms give a status and no message, and their docs list permissions, a directory, bad encoding and the cap under `Unreadable`, so the contract stays. `read_named_schema` already gives a status per case and the system's message. `upgrade_file`'s check that the file hasn't changed takes a failed second read as "changed since it was read", left alone, since a file that read a moment before failing now is a race. The C++ veneer passes the C message and status through, unchanged.
-	- Verified: the new asserts fail on the old libraries in all 4 (`Unreadable` with the UTF-8 text) and pass on the fix.
-	- Test case: `write_status_names_each_failure` in Rust (`EsEhCFy`), Go (`EsEhCG1`), Python (`EsEhCG4`) and C (`EsEhCGA`): `upgrade_file` on a mode 000 file is `PermissionDenied` with no UTF-8 in the message, and a file that isn't UTF-8 still says so. POSIX only, and skipped as root, like the shut folder rows beside it.
-	- Branch: `upfix`
-	- Commit: `e498787b`
-	- Acceptance signoff: Self-closed: reproduced, the new asserts failed before and pass after, and `Unreadable` now means what its doc says.
-	- Closed: 20261016-081639
-
-- The help, examples.md and the `upgrade` doc comments promise more than `upgrade` does
-	- ID: 2026101514324708
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 8
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101419280001, 2026101407100001
-	- Incorrect behavior:
-		- The help's `upgrade` line says a file that doesn't load clean is printed migrated and made over. A file naming this format with an error is left alone: `printf 'a: 1\nb 2\n##    Format   3\n' | shcl upgrade -` prints it as is, with `nothing to upgrade, left as is`.
-		- `project/examples.md` says a clean file is left alone "unless `--from-2x` says it was written for 2.x and it reads differently now, so a program can run it (or the library's `upgrade_file`) on every start". Since 2026101419280001, `from_v2` is for a file known to be old, never every start. It doesn't give the Format line rule either.
-		- The `upgrade` doc comment in all 5 interfaces says "any old info block swapped for the one `init` writes". A whole block above the first field stays, by 2026101407100001's call, so a beta file with its block at the top comes out with 2.
-	- Expected behavior: each says what spec.md and the man page say now. The `--from-2x` text in the help, the man page and examples.md also says that on a file not written for 2.x it can change good lines, and the backup keeps the original (JC, 2026-10-15).
-	- Reproduced: 20261015, the help in all 4 CLIs and the top block case. examples.md by reading.
-	- Origin: the help from `60d0196c`. The examples.md paragraph moved as it was from the README in `b30d70a8`. 2026101419280001 (`6d5d8dd1`) updated the man page, spec.md, design.md and the library docs, and missed these. Confirmed.
-	- Sweep: every other text on `upgrade`: completions, README, changelog's Unreleased.
-	- Progress log:
-		- 20261015: 2026101515372401 changed only the help and man lines on the `--from-2x` refusal. The help's exit codes paragraph still sums up 7 as "left something behind".
-	- Actual fix: docs only. The help's `upgrade` line says a file is made over when it doesn't load clean and names no format or an older one. Its exit codes paragraph gives upgrade's 7 as a file that reads two ways or would keep an error. The `--from-2x` text in the help, the man page and examples.md says that on a file not written for 2.x it can change good lines, and with `--write` the backup keeps the original. examples.md gives the Format line rule and says `--from-2x` is only for a file known to be old. The `upgrade` doc comment in Rust, Go, Python, C and C++, spec.md and the man page say the new block goes at the end in place of an old one there, and that a whole block above the first field stays, so such a file comes out with 2. The changelog's `upgrade_file` line names the Format line rule too, and zsh's one-line summary says an older file.
-	- Swept: the help in all 4 CLIs, still byte-identical and inside 80 columns. The man page's `upgrade`, `--from-2x` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry, which was already right, examples.md, README (no upgrade text), install.md, both completion files, and the changelog's Unreleased lines on upgrade. Nothing synced to main.
-	- Verified: `--help` from the 4 debug CLIs has one checksum and no line over 80; `shcl help upgrade` and the man page at 80 columns read as above.
-	- Test case: none, docs only. Help parity across the 4 is crosscheck's, and its width is cli-regress `help-width` (`Eq9yPCQ`) and `man-width` (`EpHH7ZQ`).
-	- Branch: `upfix`
-	- Commit: `c525d086`
-	- Acceptance signoff: Self-closed on JC's criteria: the `--from-2x` sentence is JC's 2026-10-15 requirement, and the rest makes the help, examples.md and the doc comments say what spec.md and the man page say. The wording is my call.
-	- Closed: 20261016-082019
-
 - An op indented with a tab is refused as `unknown op: `, naming nothing
 	- ID: 2026101514324709
 	- Type: Bug
@@ -213,74 +128,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261015, on a copy of cicd.bash with its stages stubbed.
 	- Origin: `cbfced5c` (cisplit, 2026-10-13). Confirmed.
 
-- check-docs `EsnhDn1` takes a `#` line inside a code fence for a heading
-	- ID: 2026101514324715
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 15
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101419280006
-	- Incorrect behavior: `installer-doc-pointers` builds the target doc's anchors from every `#` line, fenced or not. An installer link to `#typo-anchor` passes when install.md has `# typo anchor` in a `~~~bash` fence. Nothing on dev trips it.
-	- Expected behavior: its comment says each link has to reach a heading. `EsiRFl2` skips fences for the same job.
-	- Reproduced: 20261015, on a fixture repo with the check's block.
-	- Origin: `b3199842` (docgate, 2026-10-15). Confirmed.
-	- Note: one anchor builder for both checks closes it.
-	- Actual cause: confirmed. The check built its anchors with its own `sed`, which read every `#` line in the file.
-	- Actual fix: one anchor builder at the top of check-docs, which `EsnhDn1` and `EsiRFl2` both call. It skips fenced lines, as `EsiRFl2` did.
-	- Swept: the other heading builder in check-docs is `fBuildToc` for `EqQW89J`, which builds what the editor's contents block would hold, a different rule. It already skips fences. check-readme and the other gates build no anchors.
-	- Test case: shell-regress `EssNR9b` runs both link checks on a fixture repo with a fenced `# typo anchor`. `EsndgVW` now wants `EsnhDn1` to fail too when python3 crashes.
-	- Verified: `EssNR9b` fails on the old check-docs, since `EsnhDn1` passes the typo link, and passes on the fix. shell-regress, check-docs as `SHCL_GATE_REF=main`, shellcheck and `test-ids.py check` pass.
-	- Branch: `gatefix`
-	- Commit: `9028769e`
-	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the fix is the one the item named.
-	- Closed: 20261016-080415
-
-- crosscheck's bad-op dimension never checks that a bad op fails
-	- ID: 2026101514324716
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 16
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101407100003
-	- Incorrect behavior: its comment says each `write-bad.ops` line "must produce the same (empty) stdout and same nonzero exit in every binding". It only compares the bindings, so a valid line in `write-bad.ops` passes. 2026101407100003's test row leans on it: the corpus' 29 too-few lines reach the CLIs only here, and cli-regress covers 10 of the 29 ops. With `literal` taken out of the Python CLI's field count table, `literal<TAB>k` wrote `k:` at exit 0 again, and cli-regress stayed green.
-	- Expected behavior: a bad op that exits 0, or prints anything, fails.
-	- Reproduced: 20261015, a corpus copy with a valid line in `write-bad.ops`. 2 bindings agreed and crosscheck exited 0.
-	- Origin: `279862ae` (2026-07-25), before this window. Confirmed.
-	- Actual fix: each bad op's run on the reference has to exit nonzero with nothing on stdout, or crosscheck fails with `NOT REFUSED`. The compare holds the other bindings to the reference, as before.
-	- Swept: the other crosscheck dimensions whose comments say what a call must do. The corpus save gate (`fmt --write` per case) and the fixed `fFixLost` write rows also only compare bindings. The runners and cli-regress pin those answers, so they were left as is.
-	- Test case: shell-regress `EssNRBl` runs crosscheck with the CLI as 2 bindings over a case whose `write-bad.ops` has a good line, which has to fail, and one whose line is refused, which has to pass.
-	- Verified: `EssNRBl` fails on the old crosscheck and passes on the fix. crosscheck over the corpus with the 4 debug CLIs (22233 comparisons), shell-regress and shellcheck pass.
-	- Branch: `gatefix`
-	- Commit: `33fcb499`
-	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the check does what its comment says.
-	- Closed: 20261016-081026
-
-- `test-ids.py` takes a commented-out Python or C test marker for a live test
-	- ID: 2026101514324717
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 17
-	- Version and build: dev at `79b9876c`
-	- Incorrect behavior: `test-ids.py find EsZikJk` gives `source/python/tests/conformance.py:4026`, which is a `#` comment. Its Rust twin `EsZikJi`, commented out the same way, is `not found`.
-	- Expected behavior: a commented-out marker counts as no test, as in Rust and Go.
-	- Reproduced: 20261015.
-	- Origin: before this window. Confirmed.
-	- Actual cause: confirmed. The marker-only sites matched their pattern anywhere in a line, comments included. Rust and Go anchor theirs at the line start.
-	- Actual fix: those sites read each file with its comments blanked first: a `#` line in Python, Bash and PowerShell, and a `//` line or `/* */` span in C and C++.
-	- Swept: every marker-only site in the table. Bash had the same hole: `check-migrate.bash` has 2 commented-out `fTest` lines and `cli-regress.bash` 1, and all 3 counted as tests. The C twin `EsZikJl` did too. The cli-regress and perf-gate row arrays skip a line that doesn't start with a quote, so a commented row was already none.
-	- Test case: shell-regress `EssNRE0` runs `test-ids.py find` on a fake tree with live and commented-out markers in Python, C and Bash.
-	- Verified: `EssNRE0` fails on the old `test-ids.py` and passes on the fix. `find EsZikJk` now says `not found`. `test-ids.py check`, shell-regress, shellcheck, ruff and mypy pass.
-	- Branch: `gatefix`
-	- Commit: `8eba94bc`
-	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the scan does what the item asked.
-	- Closed: 20261016-081446
-
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
 	- ID: 2026101514324719
 	- Type: Enhancement
@@ -375,6 +222,159 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `4bdfe352`
 	- Acceptance signoff: Self-closed: each break the item names was seen red.
 	- Closed: 20261016-082453
+
+- The help, examples.md and the `upgrade` doc comments promise more than `upgrade` does
+	- ID: 2026101514324708
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 8
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280001, 2026101407100001
+	- Incorrect behavior:
+		- The help's `upgrade` line says a file that doesn't load clean is printed migrated and made over. A file naming this format with an error is left alone: `printf 'a: 1\nb 2\n##    Format   3\n' | shcl upgrade -` prints it as is, with `nothing to upgrade, left as is`.
+		- `project/examples.md` says a clean file is left alone "unless `--from-2x` says it was written for 2.x and it reads differently now, so a program can run it (or the library's `upgrade_file`) on every start". Since 2026101419280001, `from_v2` is for a file known to be old, never every start. It doesn't give the Format line rule either.
+		- The `upgrade` doc comment in all 5 interfaces says "any old info block swapped for the one `init` writes". A whole block above the first field stays, by 2026101407100001's call, so a beta file with its block at the top comes out with 2.
+	- Expected behavior: each says what spec.md and the man page say now. The `--from-2x` text in the help, the man page and examples.md also says that on a file not written for 2.x it can change good lines, and the backup keeps the original (JC, 2026-10-15).
+	- Reproduced: 20261015, the help in all 4 CLIs and the top block case. examples.md by reading.
+	- Origin: the help from `60d0196c`. The examples.md paragraph moved as it was from the README in `b30d70a8`. 2026101419280001 (`6d5d8dd1`) updated the man page, spec.md, design.md and the library docs, and missed these. Confirmed.
+	- Sweep: every other text on `upgrade`: completions, README, changelog's Unreleased.
+	- Progress log:
+		- 20261015: 2026101515372401 changed only the help and man lines on the `--from-2x` refusal. The help's exit codes paragraph still sums up 7 as "left something behind".
+	- Actual fix: docs only. The help's `upgrade` line says a file is made over when it doesn't load clean and names no format or an older one. Its exit codes paragraph gives upgrade's 7 as a file that reads two ways or would keep an error. The `--from-2x` text in the help, the man page and examples.md says that on a file not written for 2.x it can change good lines, and with `--write` the backup keeps the original. examples.md gives the Format line rule and says `--from-2x` is only for a file known to be old. The `upgrade` doc comment in Rust, Go, Python, C and C++, spec.md and the man page say the new block goes at the end in place of an old one there, and that a whole block above the first field stays, so such a file comes out with 2. The changelog's `upgrade_file` line names the Format line rule too, and zsh's one-line summary says an older file.
+	- Swept: the help in all 4 CLIs, still byte-identical and inside 80 columns. The man page's `upgrade`, `--from-2x` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry, which was already right, examples.md, README (no upgrade text), install.md, both completion files, and the changelog's Unreleased lines on upgrade. Nothing synced to main.
+	- Verified: `--help` from the 4 debug CLIs has one checksum and no line over 80; `shcl help upgrade` and the man page at 80 columns read as above.
+	- Test case: none, docs only. Help parity across the 4 is crosscheck's, and its width is cli-regress `help-width` (`Eq9yPCQ`) and `man-width` (`EpHH7ZQ`).
+	- Branch: `upfix`
+	- Commit: `c525d086`
+	- Acceptance signoff: Self-closed on JC's criteria: the `--from-2x` sentence is JC's 2026-10-15 requirement, and the rest makes the help, examples.md and the doc comments say what spec.md and the man page say. The wording is my call.
+	- Closed: 20261016-082019
+
+- `upgrade --write` calls a file it has no permission to read "cannot be read as UTF-8 text"
+	- ID: 2026101514324707
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 7
+	- Version and build: dev at `79b9876c`
+	- Steps to reproduce:
+		- `printf 'a: 1\nb 2\n' > f.shcl; chmod 000 f.shcl`
+		- `shcl upgrade --write f.shcl`
+	- Incorrect behavior: `f.shcl: cannot be read as UTF-8 text`, exit 8. Without `--write` it's `f.shcl: Permission denied`. All 4.
+	- Expected behavior: the system's message, as every other read gives.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Possible cause: `upgrade_file` maps every read failure but a missing file to `WriteStatus::Unreadable` with the UTF-8 text.
+	- Origin: `60d0196c` (2026-10-07). Neither 20261014 round mentions it. Confirmed.
+	- Sweep: the other library calls that read a file and fold the error into one status.
+	- Actual cause: `upgrade_file` read through `read_file`, which answers with one status for every failure, so the system's reason was gone before the message was made.
+	- Actual fix: `upgrade_file` in all 4 reads the file itself. A failed open or read gives the system's message and status, as `write_backup` does, so no permission is `PermissionDenied` with `f.shcl: Permission denied`. `Unreadable` and the UTF-8 message are left for text that isn't UTF-8, which is what `Unreadable`'s doc says it is. C gets a private `s_read_file` that also hands back the errno, and `shcl_read_file` calls it. The `PermissionDenied` docs in the 4 bindings and spec.md say it covers that read too. The CLI side was already gone with 2026101514324706, since `upgrade --write` reads the file first now.
+	- Swept: every library read of a file in the 4. `read_file` and `load_file` with its `_with` and `_keep_lines` forms give a status and no message, and their docs list permissions, a directory, bad encoding and the cap under `Unreadable`, so the contract stays. `read_named_schema` already gives a status per case and the system's message. `upgrade_file`'s check that the file hasn't changed takes a failed second read as "changed since it was read", left alone, since a file that read a moment before failing now is a race. The C++ veneer passes the C message and status through, unchanged.
+	- Verified: the new asserts fail on the old libraries in all 4 (`Unreadable` with the UTF-8 text) and pass on the fix.
+	- Test case: `write_status_names_each_failure` in Rust (`EsEhCFy`), Go (`EsEhCG1`), Python (`EsEhCG4`) and C (`EsEhCGA`): `upgrade_file` on a mode 000 file is `PermissionDenied` with no UTF-8 in the message, and a file that isn't UTF-8 still says so. POSIX only, and skipped as root, like the shut folder rows beside it.
+	- Branch: `upfix`
+	- Commit: `e498787b`
+	- Acceptance signoff: Self-closed: reproduced, the new asserts failed before and pass after, and `Unreadable` now means what its doc says.
+	- Closed: 20261016-081639
+
+- `test-ids.py` takes a commented-out Python or C test marker for a live test
+	- ID: 2026101514324717
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 17
+	- Version and build: dev at `79b9876c`
+	- Incorrect behavior: `test-ids.py find EsZikJk` gives `source/python/tests/conformance.py:4026`, which is a `#` comment. Its Rust twin `EsZikJi`, commented out the same way, is `not found`.
+	- Expected behavior: a commented-out marker counts as no test, as in Rust and Go.
+	- Reproduced: 20261015.
+	- Origin: before this window. Confirmed.
+	- Actual cause: confirmed. The marker-only sites matched their pattern anywhere in a line, comments included. Rust and Go anchor theirs at the line start.
+	- Actual fix: those sites read each file with its comments blanked first: a `#` line in Python, Bash and PowerShell, and a `//` line or `/* */` span in C and C++.
+	- Swept: every marker-only site in the table. Bash had the same hole: `check-migrate.bash` has 2 commented-out `fTest` lines and `cli-regress.bash` 1, and all 3 counted as tests. The C twin `EsZikJl` did too. The cli-regress and perf-gate row arrays skip a line that doesn't start with a quote, so a commented row was already none.
+	- Test case: shell-regress `EssNRE0` runs `test-ids.py find` on a fake tree with live and commented-out markers in Python, C and Bash.
+	- Verified: `EssNRE0` fails on the old `test-ids.py` and passes on the fix. `find EsZikJk` now says `not found`. `test-ids.py check`, shell-regress, shellcheck, ruff and mypy pass.
+	- Branch: `gatefix`
+	- Commit: `8eba94bc`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the scan does what the item asked.
+	- Closed: 20261016-081446
+
+- crosscheck's bad-op dimension never checks that a bad op fails
+	- ID: 2026101514324716
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 16
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101407100003
+	- Incorrect behavior: its comment says each `write-bad.ops` line "must produce the same (empty) stdout and same nonzero exit in every binding". It only compares the bindings, so a valid line in `write-bad.ops` passes. 2026101407100003's test row leans on it: the corpus' 29 too-few lines reach the CLIs only here, and cli-regress covers 10 of the 29 ops. With `literal` taken out of the Python CLI's field count table, `literal<TAB>k` wrote `k:` at exit 0 again, and cli-regress stayed green.
+	- Expected behavior: a bad op that exits 0, or prints anything, fails.
+	- Reproduced: 20261015, a corpus copy with a valid line in `write-bad.ops`. 2 bindings agreed and crosscheck exited 0.
+	- Origin: `279862ae` (2026-07-25), before this window. Confirmed.
+	- Actual fix: each bad op's run on the reference has to exit nonzero with nothing on stdout, or crosscheck fails with `NOT REFUSED`. The compare holds the other bindings to the reference, as before.
+	- Swept: the other crosscheck dimensions whose comments say what a call must do. The corpus save gate (`fmt --write` per case) and the fixed `fFixLost` write rows also only compare bindings. The runners and cli-regress pin those answers, so they were left as is.
+	- Test case: shell-regress `EssNRBl` runs crosscheck with the CLI as 2 bindings over a case whose `write-bad.ops` has a good line, which has to fail, and one whose line is refused, which has to pass.
+	- Verified: `EssNRBl` fails on the old crosscheck and passes on the fix. crosscheck over the corpus with the 4 debug CLIs (22233 comparisons), shell-regress and shellcheck pass.
+	- Branch: `gatefix`
+	- Commit: `33fcb499`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the check does what its comment says.
+	- Closed: 20261016-081026
+
+- `upgrade --write` prints none of the load's diagnostics when it refuses, or fails after the load
+	- ID: 2026101514324706
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 6
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280005
+	- Steps to reproduce:
+		- `printf 'tags: a,b\nb 2\n' > f.shcl`
+		- `shcl upgrade f.shcl`, then `shcl upgrade --write f.shcl`
+	- Incorrect behavior: without `--write` the E014 line prints, then the refusal, at exit 7. With `--write` only the refusal prints. Same at exit 8 after the load, when the backup name is taken or the folder is read-only. `migrate --write` prints the E014 line in each case. All 4.
+	- Expected behavior: design.md, the help, the man page and the CLI style guide say every loading subcommand prints the load's diagnostics once.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Possible cause: the refusal and error arms of each CLI's upgrade return before the diagnostics print.
+	- Origin: `60d0196c` (2026-10-07). 2026101419280005 fixed the arm for a file left alone, and its Swept line names upgrade with `--write`. These 2 arms were missed. Confirmed.
+	- Sweep: every early return in each CLI's upgrade and migrate. A cli-regress row that walks each loading subcommand's error exits would cover the class, rather than one row per arm.
+	- Progress log:
+		- 20261015: since 2026101515372401 the `--write` path has a third refusal arm, a `--from-2x` conversion that keeps an error, and it prints no load diagnostics either, the same as the ambiguous refusal. Fix all 3 arms together.
+	- Actual cause: with `--write` the 4 CLIs handed the file to `upgrade_file` and printed only its error when it failed. The library returns no diagnostics with an error, so the 2 refusals and every failure after the load said nothing about what the load found.
+	- Actual fix: CLI only, the library contract kept, as on 2026101419280005. `upgrade --write` reads the file itself first, as the printing form does. When `upgrade_file` fails, it prints the diagnostics of `upgrade` on that text, then the error, with the same exit codes as before. So a file that can't be read now gives the same message with or without `--write`.
+	- Swept: every early return in `upgrade` and `migrate` in the 4 CLIs. `migrate` prints the load's diagnostics right after its load, before any refusal or write, so only `upgrade --write` had the gap. The new rows walk the error exits of every loading subcommand: get's 2 to 6, `--strictness=strict` on count, instances, children and paths, check, `fmt --check` and `--write`, set, migrate and upgrade, printed and with `--write`, refused and failing at the backup.
+	- Verified: the new rows fail on dev's 4 CLIs in exactly the 4 `upgrade --write` rows, 16 checks, and pass on the fix. cli-regress is green on the branch.
+	- Test case: cli-regress `diagExits`, `EssOUuB` to `EssOUub` (`diag-exit-*`), each checking the exit code and that the file's one E014 line prints exactly once.
+	- Branch: `upfix`
+	- Commit: `538e3359`
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule that every loading subcommand prints the load's diagnostics once.
+	- Closed: 20261016-080915
+
+- check-docs `EsnhDn1` takes a `#` line inside a code fence for a heading
+	- ID: 2026101514324715
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 15
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280006
+	- Incorrect behavior: `installer-doc-pointers` builds the target doc's anchors from every `#` line, fenced or not. An installer link to `#typo-anchor` passes when install.md has `# typo anchor` in a `~~~bash` fence. Nothing on dev trips it.
+	- Expected behavior: its comment says each link has to reach a heading. `EsiRFl2` skips fences for the same job.
+	- Reproduced: 20261015, on a fixture repo with the check's block.
+	- Origin: `b3199842` (docgate, 2026-10-15). Confirmed.
+	- Note: one anchor builder for both checks closes it.
+	- Actual cause: confirmed. The check built its anchors with its own `sed`, which read every `#` line in the file.
+	- Actual fix: one anchor builder at the top of check-docs, which `EsnhDn1` and `EsiRFl2` both call. It skips fenced lines, as `EsiRFl2` did.
+	- Swept: the other heading builder in check-docs is `fBuildToc` for `EqQW89J`, which builds what the editor's contents block would hold, a different rule. It already skips fences. check-readme and the other gates build no anchors.
+	- Test case: shell-regress `EssNR9b` runs both link checks on a fixture repo with a fenced `# typo anchor`. `EsndgVW` now wants `EsnhDn1` to fail too when python3 crashes.
+	- Verified: `EssNR9b` fails on the old check-docs, since `EsnhDn1` passes the typo link, and passes on the fix. shell-regress, check-docs as `SHCL_GATE_REF=main`, shellcheck and `test-ids.py check` pass.
+	- Branch: `gatefix`
+	- Commit: `9028769e`
+	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the fix is the one the item named.
+	- Closed: 20261016-080415
 
 - `upgrade --from-2x` reads a Format number too big for 32 bits as format 3, and converts the file by 2.x rules
 	- ID: 2026101514324705
