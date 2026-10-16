@@ -90,8 +90,9 @@ jobs:
           ## the setup script, and the completion rows run the shipped
           ## completion, so the version a user's own shell would be is the
           ## right one to answer.
-          ## zig builds the examples doc's Zig example and Pillow loads the demo gif
-          ## script for its output-order row. Both skips fail the gate too.
+          ## zig builds the examples doc's Zig example and the C CLI against musl,
+          ## and Pillow loads the demo gif script for its output-order row. Both
+          ## skips fail the gate too.
           ## The cross checks run under --ci since 20260920, and the first of
           ## them builds the C library and CLI for windows with mingw's gcc,
           ## which this image does not have.

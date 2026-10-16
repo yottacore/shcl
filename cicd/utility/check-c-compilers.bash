@@ -6,6 +6,8 @@
 ##		disagree about what -Wall -Wextra -Werror rejects: a round once went out
 ##		green here and red there, because gcc 13 saw a maybe-uninitialized the
 ##		local gcc 14 and 15 both missed. Cheap enough to run every time.
+##		On Linux it also builds the C CLI against musl with zig, and runs
+##		cli-regress over that build.
 ##	Syntax:
 ##		check-c-compilers.bash [ROOT]
 ##	Exit: 0 = every compiler present is happy, 1 = one refused, 2 = usage.
@@ -101,6 +103,28 @@ fRefuse(){  ## fRefuse CC SRC WANT - a build that must fail, and fail saying WAN
 	fi
 }
 
+## musl's stdio splits a read where glibc's doesn't, and the page map refuses
+## the split, so the C CLI failed a cli-regress row only the Alpine image ran
+## (2026101316013508). zig builds the CLI against musl here, and the whole of
+## cli-regress runs over it, so the next libc difference shows on this path too.
+fMusl(){  ## fMusl - build the C CLI against musl and run cli-regress over it
+	local bin="${tmpDir}/shcl-musl" out
+	if ! out="$(zig cc -target "$(uname -m)-linux-musl" -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror \
+		-I"${repoDir}/source/c" "${repoDir}/source/c/cmd/shcl/main.c" -o "${bin}" -lm -lpthread 2>&1)"; then
+		echo "check-c-compilers: zig's musl target refuses source/c/cmd/shcl/main.c:" >&2
+		head -n 8 <<< "${out}" >&2
+		return 1
+	fi
+	if ! out="$(bash "${repoDir}/cicd/utility/cli-regress.bash" "c|${bin}" 2>&1)"; then
+		## Its own lines only. The ok and FAIL lines are for its own run, and
+		## would read as this script's on the console.
+		out="$(grep -E '^cli-regress: ' <<< "${out}" || true)"
+		echo "check-c-compilers: cli-regress fails the C CLI built against musl:" >&2
+		head -n 20 <<< "${out}" >&2
+		return 1
+	fi
+}
+
 ## A job counts as passed only if it wrote its ok file, so one that dies
 ## without a word is a failure rather than a silent pass.
 cap="${CPU_CAP:-}"
@@ -133,6 +157,20 @@ cat > "${tmpDir}/order-bad.c" <<'EOF'
 #include "shcl.h"
 int main(void){ return 0; }
 EOF
+
+## Linux only: musl is a Linux libc, and the row it broke reads /proc. First,
+## since cli-regress is the longest job here.
+muslRun=0
+if [[ "$(uname -s)" == Linux ]]; then
+	if command -v zig >/dev/null 2>&1; then
+		muslRun=1; kind=musl; fJob fMusl
+	elif [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
+		echo "check-c-compilers: zig is missing, and the gate needs it for the musl build" >&2
+		muslRun=2
+	else
+		echo zig >> "${SHCL_GATE_SKIPS:-/dev/null}"
+	fi
+fi
 
 ## Same flags the build and test stages use, so a disagreement here is a
 ## disagreement there.
@@ -170,6 +208,7 @@ done
 
 wait
 declare -A kindBad=()
+if ((muslRun == 2)); then kindBad[musl]=1; nBad+=1; fi
 for ((i = 1; i <= nRun; i++)); do
 	if [[ ! -e "${tmpDir}/${i}.ok" ]]; then
 		kindBad[${jobKind[i]}]=$(( ${kindBad[${jobKind[i]}]:-0} + 1 ))
@@ -198,6 +237,8 @@ fTest EoaFuVM oom_hook.c builds at every optimization level
 nKindBad+=${kindBad[oom_hook.c]:-0}
 fTest EoaFuVN oom_recover.c builds at every optimization level
 nKindBad+=${kindBad[oom_recover.c]:-0}
+fTest EstZ5TC the C CLI built against musl passes cli-regress
+if ((muslRun)); then nKindBad+=${kindBad[musl]:-0}; else fTestSkip; fi
 fTestEnd
 
 if ((nBad)); then
@@ -220,3 +261,4 @@ echo "check-c-compilers: OK: ${nRun} build(s) across ${#compilers[@]} compiler(s
 ##		2026-09-21  Builds run in parallel, up to CPU_CAP at a time, and a name
 ##		            that resolves to a compiler already listed is built once.
 ##		2026-10-05  main.c builds at every level, not just -O2.
+##		2026-10-16  The C CLI built against musl with zig, through cli-regress.
