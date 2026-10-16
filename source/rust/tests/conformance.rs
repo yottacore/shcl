@@ -5158,8 +5158,24 @@ fn format_diagnostic_is_the_cli_line() {
 	for (d, want) in [
 		(made(4, Severity::Hint, "H001", ""), "line 4: Hint: H001"),
 		(
+			made(1, Severity::Error, "V090", "z"),
+			"schema line 1: Error: V090 z",
+		),
+		(
 			made(3, Severity::Error, "V091", "x y"),
 			"schema line 3: Error: V091 x y",
+		),
+		(
+			made(2, Severity::Error, "V092", "z"),
+			"schema line 2: Error: V092 z",
+		),
+		(
+			made(6, Severity::Error, "V093", "z"),
+			"schema line 6: Error: V093 z",
+		),
+		(
+			made(8, Severity::Error, "V094", "z"),
+			"schema line 8: Error: V094 z",
 		),
 		(
 			made(7, Severity::Error, "V095", "z"),

@@ -1696,6 +1696,17 @@ func stdinUnattached(err error) bool {
 	return runtime.GOOS == "windows" && (errno == 1 || errno == 6 || errno == syscall.EINVAL)
 }
 
+// FILE: and the system's own message, as the UI guide has it. The path error
+// would name the call and the path a second time, and stdin's names
+// /dev/stdin.
+func pathErrReason(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err
+	}
+	return err
+}
+
 func readInput(file string) (string, error) {
 	var b []byte
 	var err error
@@ -1705,7 +1716,7 @@ func readInput(file string) (string, error) {
 			// A stdin that is not attached at all reads as an empty document.
 			// POSIX gives EOF for that; windows answers "invalid handle".
 			if !stdinUnattached(err) {
-				return "", fmt.Errorf("stdin: %w", err)
+				return "", fmt.Errorf("stdin: %w", pathErrReason(err))
 			}
 			b = nil
 		}
@@ -1718,18 +1729,17 @@ func readInput(file string) (string, error) {
 		}
 		b, err = os.ReadFile(file)
 		if err != nil {
-			// FILE: and the system's own message, as the UI guide has it. The
-			// path error would name the call and the path a second time.
-			var pe *fs.PathError
-			if errors.As(err, &pe) {
-				err = pe.Err
-			}
-			return "", fmt.Errorf("%s: %w", file, err)
+			return "", fmt.Errorf("%s: %w", file, pathErrReason(err))
 		}
 	}
 	// The reference reads as UTF-8 and fails on bad bytes; match its exit path.
+	// It names stdin as stdin, as the read error above does.
 	if !utf8.Valid(b) {
-		return "", fmt.Errorf("%s: stream did not contain valid UTF-8", file)
+		who := file
+		if file == "-" {
+			who = "stdin"
+		}
+		return "", fmt.Errorf("%s: stream did not contain valid UTF-8", who)
 	}
 	return string(b), nil
 }
@@ -3126,6 +3136,11 @@ func applyOp(doc *shcl.Document, line string) error {
 		doc.SetBanner(path == "on")
 		wrote = shcl.SetOk
 	default:
+		// An op indented with a tab has nothing before its first tab, and the
+		// message used to name nothing (2026101514324709).
+		if strings.Trim(f[0], " \r") == "" {
+			return errors.New("unknown op: none before the first tab")
+		}
 		return fmt.Errorf("unknown op: %s", f[0])
 	}
 	if wrote != shcl.SetOk {
@@ -3198,14 +3213,16 @@ func doSet(o *opts) int {
 			fmt.Fprintln(os.Stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)")
 		}
 		ops, err = io.ReadAll(os.Stdin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "stdin: %s\n", err)
+		// Nothing attached is an empty script, as it's an empty document
+		// (2026101514324710).
+		if err != nil && !stdinUnattached(err) {
+			fmt.Fprintf(os.Stderr, "stdin: %s\n", pathErrReason(err))
 			return exitIO
 		}
 		// The reference reads ops via read_to_string; mirror its UTF-8 failure,
 		// which is a stream that could not be read, not a usage error.
 		if !utf8.Valid(ops) {
-			fmt.Fprintln(os.Stderr, "stdin: invalid UTF-8")
+			fmt.Fprintln(os.Stderr, "stdin: stream did not contain valid UTF-8")
 			return exitIO
 		}
 	}
@@ -3354,7 +3371,7 @@ func doCheck(o *opts) int {
 	}
 	// stdout gets the stable codes - the cross-binding contract. The prose is
 	// per-binding voice and goes to stderr (which the differential check drops).
-	// A V090-V093 line number is a SCHEMA line (the code table says so); the
+	// A V090-V095 line number is a SCHEMA line (the code table says so); the
 	// prose names the file so the two number spaces cannot be confused.
 	errorCount := 0
 	for _, d := range diags {

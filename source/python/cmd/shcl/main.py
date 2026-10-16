@@ -995,16 +995,20 @@ def write_target_ok(file):
 	return True
 
 
+def _stdin_unattached(e):
+	# POSIX says EBADF; windows answers invalid handle or invalid function
+	# depending on how the shell closed it.
+	return e.errno in (errno.EBADF, errno.EINVAL) or getattr(e, "winerror", None) in (1, 6)
+
+
 def read_input(file):
 	if file == "-":
 		try:
 			data = sys.stdin.buffer.read()
 		except OSError as e:
 			# A stdin that is not attached at all reads as an empty document.
-			# POSIX says EBADF; windows answers invalid handle or invalid
-			# function depending on how the shell closed it.
-			if e.errno not in (errno.EBADF, errno.EINVAL) and getattr(e, "winerror", None) not in (1, 6):
-				raise
+			if not _stdin_unattached(e):
+				raise OSError(f"stdin: {e.strerror or e}") from e
 			data = b""
 	else:
 		# The message for reading a directory is the platform's, and windows
@@ -1020,10 +1024,12 @@ def read_input(file):
 		except OSError as e:
 			raise OSError(f"{file}: {e.strerror or e}") from e
 	# The reference reads as UTF-8 and fails on bad bytes; match its exit path.
+	# It names stdin as stdin, as a read error there does.
 	try:
 		return data.decode("utf-8")
 	except UnicodeDecodeError as e:
-		raise ValueError(f"{file}: stream did not contain valid UTF-8") from e
+		who = "stdin" if file == "-" else file
+		raise ValueError(f"{who}: stream did not contain valid UTF-8") from e
 
 
 def load_doc_from(file, text, strictness, keep=False):
@@ -2232,6 +2238,10 @@ def apply_op(doc, line):
 			raise ValueError(f"bad banner: {path} (on or off)")
 		doc.set_banner(path == "on")
 		wrote = shcl.SetStatus.Ok
+	elif op.strip(" \r") == "":
+		# An op indented with a tab has nothing before its first tab, and the
+		# message used to name nothing (2026101514324709).
+		raise ValueError("unknown op: none before the first tab")
 	else:
 		raise ValueError(f"unknown op: {op}")
 	if wrote is not shcl.SetStatus.Ok:
@@ -2292,10 +2302,19 @@ def do_set(o):
 			sys.stderr.write(
 				"shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n"
 			)
+		# Nothing attached is an empty script, as it's an empty document, and a
+		# failed read is stdin's, not stdout's (2026101514324710).
 		try:
-			ops = sys.stdin.buffer.read().decode("utf-8")
+			raw = sys.stdin.buffer.read()
+		except OSError as e:
+			if not _stdin_unattached(e):
+				sys.stderr.write(f"stdin: {e.strerror or e}\n")
+				return EXIT_IO
+			raw = b""
+		try:
+			ops = raw.decode("utf-8")
 		except UnicodeDecodeError:
-			sys.stderr.write("stdin: invalid UTF-8\n")
+			sys.stderr.write("stdin: stream did not contain valid UTF-8\n")
 			return EXIT_IO
 	# Byte order marks off the front: Windows PowerShell 5.1 puts one or more
 	# before text it pipes to a program (20260924 item 7), and the first op
@@ -2420,7 +2439,7 @@ def do_check(o):
 			shcl.suppress_declared_reopens(sdoc, diags)
 	# stdout gets the stable codes - the cross-binding contract. The prose is
 	# per-binding voice and goes to stderr (which the differential check drops).
-	# A V090-V093 line number is a SCHEMA line (the code table says so); the
+	# A V090-V095 line number is a SCHEMA line (the code table says so); the
 	# prose names the file so the two number spaces cannot be confused.
 	for d in diags:
 		print(f"line {d.line}: {d.severity.name}: {d.code}")

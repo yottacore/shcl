@@ -400,6 +400,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `set` skips a blank line or a `#` comment in its ops when it's indented too, as in an indented here-doc.
 
+- An op indented with a tab is refused as `unknown op: none before the first tab`, where the message named nothing.
+
 - `set` says it is reading ops from stdin only when stdin is a terminal.
 
 - `set --write` says when it had to save the canonical form instead of keeping the lines.

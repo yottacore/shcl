@@ -5131,7 +5131,11 @@ def main():
 	fdE, fdH = shcl.Severity.Error, shcl.Severity.Hint
 	for fdd, fdwant in (
 		(shcl.Diagnostic(4, fdH, "", "H001"), "line 4: Hint: H001"),
+		(shcl.Diagnostic(1, fdE, "z", "V090"), "schema line 1: Error: V090 z"),
 		(shcl.Diagnostic(3, fdE, "x y", "V091"), "schema line 3: Error: V091 x y"),
+		(shcl.Diagnostic(2, fdE, "z", "V092"), "schema line 2: Error: V092 z"),
+		(shcl.Diagnostic(6, fdE, "z", "V093"), "schema line 6: Error: V093 z"),
+		(shcl.Diagnostic(8, fdE, "z", "V094"), "schema line 8: Error: V094 z"),
 		(shcl.Diagnostic(7, fdE, "z", "V095"), "schema line 7: Error: V095 z"),
 		(shcl.Diagnostic(0, fdE, "z", "V096"), "line 0: Error: V096 z"),
 		(shcl.Diagnostic(0, fdE, "z", "V097"), "line 0: Error: V097 z"),

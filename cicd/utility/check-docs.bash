@@ -368,6 +368,46 @@ while IFS= read -r code; do
 	if ! grep -qF "\`${code}\` is retired" "${repoDir}/project/spec.md"; then fBad "spec.md does not say ${code} is retired"; fi
 done <<<"${retiredCodes}"
 
+fTest Essez3P schema-line-range-matches-table
+##	The codes whose line counts schema lines are the spec table's `schema file`
+##	rows. A sentence naming them as a range went stale when V094 and V095 came
+##	in (2026101514324711), so every such range in the tree has to be that one.
+schemaLinePy="$(cat <<'PYEOF'
+import re, subprocess, sys
+root = sys.argv[1]
+spec = open(f"{root}/project/spec.md", encoding="utf-8").read()
+codes = sorted(int(m) for m in re.findall(r"^\| `V(\d{3})` \|[^\n]*\| schema file\s*$", spec, re.M))
+if not codes:
+	print("no `schema file` rows in the spec.md code table")
+	sys.exit()
+if codes != list(range(codes[0], codes[-1] + 1)):
+	print(f"the `schema file` codes are not one range: {codes}")
+want = (codes[0], codes[-1])
+listed = subprocess.run(["git", "-C", root, "ls-files", "-z"], stdout=subprocess.PIPE, check=True).stdout.decode().split("\0")
+span = re.compile(r"V(\d{3})`?(?: to |-|`-`| through )`?V(\d{3})")
+for rel in listed:
+	if not rel or rel in ("project/backlog.md", "changelog.md") or rel.startswith("project/legacy/"):
+		continue
+	try:
+		text = open(f"{root}/{rel}", encoding="utf-8").read()
+	except (OSError, UnicodeDecodeError):
+		continue
+	for n, line in enumerate(text.split("\n"), 1):
+		for sentence in re.split(r"(?<=[.;])\s", line):
+			if not re.search(r"\bline", sentence, re.I):
+				continue
+			for a, b in span.findall(sentence):
+				got = (int(a), int(b))
+				if 90 <= got[0] <= 99 and got != want:
+					print(f"{rel}:{n}: names V{a} to V{b} as schema-line codes; the table says V{want[0]:03d} to V{want[1]:03d}")
+PYEOF
+)"
+hits="$(python3 -c "${schemaLinePy}" "${repoDir}")" || fFeedBad $?
+while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
+	fBad "${hit}"
+done <<<"${hits}"
+
 fTest EoXE67k no-shared-library-claim
 ##	The documents list five integration modes, two of which are a shared library.
 ##	Nothing in the tree builds one - no crate-type, no export macro in the C

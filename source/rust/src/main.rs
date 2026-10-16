@@ -2930,6 +2930,11 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 			}
 			_ => return Err(format!("bad banner: {} (on or off)", path)),
 		},
+		// An op indented with a tab has nothing before its first tab, and the
+		// message used to name nothing (2026101514324709).
+		other if other.trim_matches([' ', '\r']).is_empty() => {
+			return Err("unknown op: none before the first tab".to_string());
+		}
 		other => return Err(format!("unknown op: {}", other)),
 	};
 	if wrote != shcl::SetStatus::Ok {
@@ -2997,9 +3002,14 @@ fn do_set(o: &Opts) -> u8 {
 				"shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)"
 			);
 		}
+		// Nothing attached is an empty script, as it's an empty document
+		// (2026101514324710).
 		if let Err(e) = std::io::stdin().read_to_string(&mut ops) {
-			errln!("stdin: {}", e);
-			return EXIT_IO;
+			if !stdin_unattached(&e) {
+				errln!("stdin: {}", e);
+				return EXIT_IO;
+			}
+			ops.clear();
 		}
 	}
 	// Byte order marks off the front: Windows PowerShell 5.1 puts one or more
@@ -3170,7 +3180,7 @@ fn do_check(o: &Opts) -> u8 {
 	};
 	// stdout gets the stable codes - the cross-binding contract. The prose is
 	// per-binding voice and goes to stderr (which the differential check drops).
-	// A V090-V093 line number is a SCHEMA line (the code table says so); the
+	// A V090-V095 line number is a SCHEMA line (the code table says so); the
 	// prose names the file so the two number spaces cannot be confused.
 	for d in &diags {
 		outln!("line {}: {}: {}", d.line, d.severity, d.code);
