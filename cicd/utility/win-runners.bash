@@ -104,7 +104,7 @@ fRunC() {
 }
 fRunCxx() {
 	"${cxx}" -std=c++17 -O2 -Wall -Wextra -Werror -Isource/c \
-		source/c/tests/veneer_smoke.cpp -o "${work}/veneer${exe}" -lm \
+		source/c/tests/veneer_smoke.cpp -o "${work}/veneer${exe}" -lm -pthread \
 		&& "${work}/veneer${exe}"
 }
 ## Both oom tests end up at a setjmp recovery point, which unwinds through SEH on
