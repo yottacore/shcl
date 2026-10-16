@@ -128,6 +128,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
 	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
 
+- crosscheck's save-gate and `fFixLost` write rows only compare bindings, never what the call has to do
+	- ID: 2026101609320201
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261016-093202
+	- Opened by: backlog round 2026-10-16, while fixing 2026101514324716
+	- Version and build: dev at `dc54f75a`
+	- Related IDs: 2026101514324716
+	- Problem description: the corpus save-gate row (`fmt --write` on each case) and the 4 `fFixLost` rows say in comments what the call must do, but they only check the bindings agree. The runners and cli-regress pin those answers today, so nothing is known to slip through.
+	- Requirements: check the reference binding's answer for each, as 2026101514324716 did for `write-bad.ops`, or reword the comments to claim only agreement.
+
 - spec.md says only `V090` to `V093` print `schema line N`, and nothing pins `V094` or `V095`
 	- ID: 2026101514324711
 	- Type: Bug
