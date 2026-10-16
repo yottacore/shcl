@@ -33,11 +33,34 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- spec.md says several threads can read one C++ `Document`, and nothing checks it
+	- ID: 2026101612343301
+	- Type: Enhancement
+	- Status: Queued
+	- Needs local test suite run?: N. sanitize-c `EstYPCw` passed in hosted run 38962944867.
+	- Needs external testing: the hosted windows job, once fixed.
+	- Priority: Low
+	- Opened: 20261016-123433
+	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
+	- Version and build: dev at `56a37a27`
+	- Related IDs: 2026101514324720
+	- Problem description: the veneer's const members each take their document's lock, so reads can share one `Document`. No test reads from 2 threads, and no gate runs the veneer under ThreadSanitizer, so a const member that skips the lock would pass.
+	- Requirements: a threaded read in `veneer_smoke.cpp` run under `-fsanitize=thread`, or the sentence reworded until it claims nothing.
+	- Note: check-veneer `Er8oiHp` has run a small TSan check since `7b8f1a8e`: 8 of the reads from 2 threads. This item missed it. It stays as it is.
+	- Actual fix: `veneer_smoke.cpp` reads one shared `Document` and schema from 8 threads, 3 rounds, each round on a fresh pair, and checks each answer against one thread's. The calls cover every const member, the 3 saves to a file per thread, and the free calls that read a schema (`load_and_validate_with`, `generate`, `suppress_declared_*`). sanitize-c builds the smoke a second time under `-fsanitize=thread` and runs it. The plain build runs the threads too.
+	- Swept: every lock site in `shcl.hpp`'s const members and schema-reading calls. Each was taken out alone and the TSan build run 3 times. 56 of 58 went red 3 of 3. The other 2, `strictness()` and `lost_count()`, read fields nothing writes after the parse, so they don't race. Taking the schema's lock out of `validate`'s pair doesn't race either, since the core only reads the schema there.
+	- Test case: C++ `EstYOue` (`reads_from_several_threads`), and sanitize-c `EstYPCw` for its TSan run.
+	- Verified: sanitize-c went red on `EstYPCw` with `instance_paths()` taking no lock, and on the ASan build too, and green restored. The plain smoke crashed or failed with `count()` taking no lock. The smoke passes plain, under TSan with gcc 14 here and gcc 13 in the ubuntu image, plain in the alpine image, and built for windows with zig under wine. Also the C conformance suite, check-veneer, check-c-compilers, check-docs, check-pins, shell-regress, shellcheck and test-ids check.
+	- Branch: `cxxtsan`
+	- Commit: `98e92883`
+	- Progress log: 20261016, reopened. Hosted run 38962944867's windows job failed `c++ veneer`. The smoke printed `ok` and then `EstYOue` died within a second, with no output. The build there is mingw g++ with libstdc++. The zig and wine build here uses libc++ and passed.
+		- Probable cause: `savePath` is a `thread_local std::string`. MinGW-w64 runs `thread_local` destructors after memory they use is freed, and a `thread_local std::string` is reported to crash at thread exit about half the time (GCC bug 80816). A plain `char` array or a path passed in would avoid it. Unverified, since this box has no mingw g++.
+
 - An extra image's run writes into this box's builds
 	- ID: 2026101514324713
 	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: Y. A whole `cicd/cicd.bash --container=alpine` from the main checkout. It should be as green as before, less the 2 musl rows from 2026101309250977, with cli-regress and crosscheck still finding the C CLI. After it, `source/rust/target` here isn't root-owned, `source/c/shcl` and `source/go/shcl` are unchanged, and the copies under `~/.cache/shcl-cicd/alpine/private` are new.
+	- Status: Done
+	- Needs local test suite run?: N. Ran 2026-10-16, see the last Verified line.
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 13
@@ -59,13 +82,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: for extra images only, this drops 2026101303344553's mount of a gate worktree's target-gate at its own path, since 2026101309250977 already has them build into their own copy. The main image is unchanged.
 	- Branch: `ctrfix`
 	- Commit: `31e91ff4`
+	- Verified: a whole `cicd/cicd.bash --container=alpine -y --no-publish` from the main checkout on dev at `34bb71fb`, 2026-10-16. Tests passed with no FAIL rows. After it, `source/rust/target` here isn't root-owned, `source/c/shcl` and `source/go/shcl` match their checksums from before the run, and the copies under `~/.cache/shcl-cicd/alpine/private` are new.
+	- Acceptance signoff: closed on JC's criteria. The fix does what the cicd.bash and config.bash comments said, and `EstM5os` went red on the old code.
+	- Closed: 20261016-140831
 
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
 	- ID: 2026101514324719
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: N. check-c-compilers ran here with the new job.
-	- Needs external testing: the hosted `ci (tests)` job. check-c-compilers `EstZ5TC` ok, with zig's first musl build on a cold cache, and the job still well inside its 60 minutes.
+	- Needs external testing: N. Hosted run 38962944867 on dev at `34bb71fb`: `EstZ5TC` ok, and `ci (tests)` took 28m39s.
 	- Priority: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 19
@@ -92,35 +118,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `EstZ5TA` and `EsZzNEZ`, check-pins `EsZzNCY`, Rust `EstZ5TB`, check-c-compilers `EstZ5TC`.
 	- Branch: `gapchk`
 	- Commit: `9b9ab508`, `604f7771`, `431e5386`, `f2d558e5`
-
-- spec.md says several threads can read one C++ `Document`, and nothing checks it
-	- ID: 2026101612343301
-	- Type: Enhancement
-	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for sanitize-c's new TSan build.
-	- Needs external testing: the hosted windows job, which builds the smoke with mingw's g++, so its threads run there for the first time.
-	- Priority: Low
-	- Opened: 20261016-123433
-	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
-	- Version and build: dev at `56a37a27`
-	- Related IDs: 2026101514324720
-	- Problem description: the veneer's const members each take their document's lock, so reads can share one `Document`. No test reads from 2 threads, and no gate runs the veneer under ThreadSanitizer, so a const member that skips the lock would pass.
-	- Requirements: a threaded read in `veneer_smoke.cpp` run under `-fsanitize=thread`, or the sentence reworded until it claims nothing.
-	- Note: check-veneer `Er8oiHp` has run a small TSan check since `7b8f1a8e`: 8 of the reads from 2 threads. This item missed it. It stays as it is.
-	- Actual fix: `veneer_smoke.cpp` reads one shared `Document` and schema from 8 threads, 3 rounds, each round on a fresh pair, and checks each answer against one thread's. The calls cover every const member, the 3 saves to a file per thread, and the free calls that read a schema (`load_and_validate_with`, `generate`, `suppress_declared_*`). sanitize-c builds the smoke a second time under `-fsanitize=thread` and runs it. The plain build runs the threads too.
-	- Swept: every lock site in `shcl.hpp`'s const members and schema-reading calls. Each was taken out alone and the TSan build run 3 times. 56 of 58 went red 3 of 3. The other 2, `strictness()` and `lost_count()`, read fields nothing writes after the parse, so they don't race. Taking the schema's lock out of `validate`'s pair doesn't race either, since the core only reads the schema there.
-	- Test case: C++ `EstYOue` (`reads_from_several_threads`), and sanitize-c `EstYPCw` for its TSan run.
-	- Verified: sanitize-c went red on `EstYPCw` with `instance_paths()` taking no lock, and on the ASan build too, and green restored. The plain smoke crashed or failed with `count()` taking no lock. The smoke passes plain, under TSan with gcc 14 here and gcc 13 in the ubuntu image, plain in the alpine image, and built for windows with zig under wine. Also the C conformance suite, check-veneer, check-c-compilers, check-docs, check-pins, shell-regress, shellcheck and test-ids check.
-	- Branch: `cxxtsan`
-	- Commit: `98e92883`
-	- Acceptance signoff: closed on JC's criteria. The new check went red with a lock taken out, at every site where that races.
-	- Closed: 20261016-132053
+	- Acceptance signoff: closed on JC's criteria. Each new check went red with its fix taken out, and passes on the hosted job.
+	- Closed: 20261016-140831
 
 - 3 checkable doc sentences have no check
 	- ID: 2026101514324720
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for the new `go test -race` step on the hosted ubuntu job, and exhaustive cppcheck over `conformance.c`.
+	- Needs local test suite run?: N. Hosted run 38962944867 on dev at `34bb71fb` passed the `go test -race` step and exhaustive cppcheck.
 	- Priority: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 20
@@ -240,7 +245,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101514324721
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 21
@@ -286,8 +291,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101514324710
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
-	- Needs external testing: the hosted windows job's cli-regress, for `Essd9Mg` on a closed stdin, which now goes through `stdin_unattached` in Rust's ops read.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
+	- Needs external testing: N. Hosted run 38950612020 on dev at `56a37a27` passed the windows job, `Essd9Mg` included.
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 10
@@ -314,7 +319,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101514324709
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 9
@@ -614,7 +619,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101514324702
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Avg
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 2
@@ -805,7 +810,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101419280004
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 4
@@ -833,7 +838,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101419280005
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 5
@@ -919,7 +924,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101412591471
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261014-125914
 	- Opened by: 2026101407100011
@@ -1012,7 +1017,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101407100011
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 11, from the consumer survey
@@ -1038,7 +1043,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101407100012
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 12, from the consumer survey
@@ -1156,7 +1161,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101407100013
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: exhaustive cppcheck over the C changes, in the next `--ci`.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 13, from the consumer survey
@@ -1277,7 +1282,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101407100010
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Avg
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 10, from the consumer survey
@@ -1306,7 +1311,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101407100003
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck exhaustive over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Avg
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 3
@@ -1359,7 +1364,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101407100001
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Avg
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 1
@@ -1387,7 +1392,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101309122757
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck exhaustive over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Priority: Avg
 	- Opened: 20261013-091227
@@ -1875,7 +1880,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `migrate_writes_a_lone_2x_element_plain` in all four runners (Rust `EsIx4WI`, Go `EsIx4YP`, Python `EsIx4ac`, C `EsIx4cm`), cli-regress `EsIx4ev`, and check-migrate `EsIx4hA` (corpus 149 takes the Format 3 path) and `EsIx4jK` (a 2.x document with `Format 3` in a comment does not).
 	- Branch: `migfix`
 	- Commit: `03068cf9`
-	- Needs local test suite run?: Y, the full `--ci`, which runs check-migrate in the pre-push gate and exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Note: High, since check-migrate is in the pre-push gate, so the next main push fails until this is fixed.
 	- Acceptance signoff: me 20261010, check-migrate `Eq5YPgP` green in the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and in the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
@@ -1885,7 +1890,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100717500017
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run.
 	- Priority: Avg
 	- Opened: 20261007-175000
@@ -1921,7 +1926,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100912271700
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: the hosted run, whose windows job runs the new test in all four runners.
 	- Priority: Avg
 	- Opened: 20261009-122717
@@ -1959,7 +1964,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100818251400
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: the hosted run, for cli-regress on windows and macos.
 	- Severity: Low
 	- Opened: 20261008-182514
@@ -1990,7 +1995,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100916475300
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run.
 	- Severity: Low
 	- Opened: 20261009-164753
@@ -2015,7 +2020,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100812323841
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: the hosted run, for cli-regress on windows and macos. The windows job runs the row whose argument holds a line break.
 	- Severity: Low
 	- Opened: 20261008-123238
@@ -2094,7 +2099,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100912352401
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run.
 	- Priority: Low
 	- Opened: 20261009-123524
@@ -2387,7 +2392,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100717500013
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
 	- Opened: 20261007-175000
@@ -2417,7 +2422,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100717500011
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
 	- Opened: 20261007-175000
@@ -2444,7 +2449,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100717500012
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
 	- Opened: 20261007-175000
@@ -2850,7 +2855,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100316012486
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Critical
 	- Opened: 20261003-160124
 	- Opened by: found while working 2026100307163904
@@ -2960,7 +2965,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100307163903
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Critical
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 3
@@ -3393,7 +3398,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100307163904
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: the full `--ci`, for the exhaustive cppcheck. At the normal level cppcheck crashes on `main.c` with dev's header too.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: High
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 4
@@ -4144,7 +4149,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100115403384
 	- Type: Bug
 	- Status: Done
-	- Needs local test suite run?: full `--ci` at the next main push. Exhaustive cppcheck did not finish here in 10 minutes; normal-level cppcheck reported no warnings, and gcc 14 and 15 and clang build it with `-Werror`.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Avg
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
@@ -5000,7 +5005,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: design.md's notes under "Kept lines under edits" could say this. Left for the docs pass, which is on another branch.
 	- Swept: both places the save writes lines no group stands for, the gap between two kept groups and the flush after a kept group, in all four. The first-group and end-of-file paths write the source's own leading and trailing lines whole and needed nothing.
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f97003c8`'s libraries in all four and pass with the fix.
-	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Branch: keepcosm
 	- Test case: cli-regress `Erls2uy` (`remove-emptied-repeat-header`), `Erls2uz` (`set-keeps-blank-above-repeat`).
 	- Acceptance signoff: 20261004, OK'd.
@@ -5027,7 +5032,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: all four bindings. The step is counted per block, from each block's first line one level in. Lines that already sit at a level still set the indent of new lines next to them, as before.
 	- Swept: the one place the step is chosen, in the save that keeps lines, in all four. Canonical output does not use it.
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f8c0685e`'s libraries in all four and pass with the fix.
-	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Branch: keepcosm
 	- Test case: cli-regress `Erls2v0` (`set-new-block-majority-step`), `Erls2v1` (`set-new-block-space-step`).
 	- Acceptance signoff: 20261004, OK'd.
@@ -5053,7 +5058,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: corpus 065's write goldens had the new `q` above the kept `ports` line. Both now have it after.
 	- Swept: the one place a write creates a field, `new_child` in all four, which every setter and `SetComment` go through. A merge puts a layer's fields in the layer's order, so it is not this case.
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. The new rows and corpus 065 fail on `c3eb6db7`'s libraries in all four and pass with the fix.
-	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Branch: keepcosm
 	- Test case: cli-regress `Erls2uw` (`set-new-key-after-kept-end`), `Erls2ux` (`set-new-key-after-kept-in-block`); corpus `065-bracket-array`.
 	- Acceptance signoff: 20261004, OK'd.
@@ -5083,7 +5088,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: design.md's comment-run bullets say "the comment before it". They should say "the comment or kept field line before it". Left for the docs pass, which is on another branch.
 	- Swept: every `comment_depth` caller goes through the one function in each binding. The places that set a comment's level after the load: `restep`, `drop_banners`' own copy of it (now a call to `restep`), the merge footer, `push_leads`, and the settle's move out of a list, in all four.
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f26c2802`'s libraries in all four and pass with the fix.
-	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Branch: keepcosm
 	- Test case: cli-regress `Erls2v2` (`comment-under-kept-fmt`), `Erls2v3` (`comment-under-kept-in-block-fmt`); the fuzz fixpoint and `edits_and_merges_match_a_reload` properties.
 	- Acceptance signoff: 20261004, OK'd.
@@ -6159,7 +6164,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100307163917
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: Ran. The full `--ci` on dev at `68f40e78` passed, exhaustive cppcheck included.
+	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 idea 1
