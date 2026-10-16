@@ -33,22 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- An op indented with a tab is refused as `unknown op: `, naming nothing
-	- ID: 2026101514324709
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 9
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101419280004, 2026101407100005
-	- Steps to reproduce:
-		- `printf '\tint\tx\t1\n' | shcl set f.shcl`
-	- Incorrect behavior: `op line 1: unknown op:  (see --help)`. All 4.
-	- Expected behavior: the message names what it read, as it does for an op indented with spaces. An indented op stays an unknown op, by 2026101419280004's call. Only the text changes.
-	- Reproduced: 20261015, all 4 CLIs.
-	- Origin: the sibling 2026101419280004 left. That item called this message the one 2026101407100005 set out to remove, for a comment line. cli-regress `Esnb9g2` pins the space-indented form only. Confirmed.
-
 - A few stderr messages differ between the 4 CLIs
 	- ID: 2026101514324710
 	- Type: Bug
@@ -173,6 +157,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
 	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
 	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+
+- An op indented with a tab is refused as `unknown op: `, naming nothing
+	- ID: 2026101514324709
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 9
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101419280004, 2026101407100005
+	- Steps to reproduce:
+		- `printf '\tint\tx\t1\n' | shcl set f.shcl`
+	- Incorrect behavior: `op line 1: unknown op:  (see --help)`. All 4.
+	- Expected behavior: the message names what it read, as it does for an op indented with spaces. An indented op stays an unknown op, by 2026101419280004's call. Only the text changes.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Origin: the sibling 2026101419280004 left. That item called this message the one 2026101407100005 set out to remove, for a comment line. cli-regress `Esnb9g2` pins the space-indented form only. Confirmed.
+	- Actual cause: the op is the text before the first tab, so a tab indent leaves it empty. Spaces then a tab leave only blanks, which the message printed raw, a CR included.
+	- Actual fix: an op that is empty or only spaces and CRs is refused as `unknown op: none before the first tab`, in all 4 CLIs. It's still an unknown op at exit 1, and the space-indented form still names `  int`. The wording is my call (me).
+	- Swept: the 4 CLIs' unknown-op arms (Rust `apply_op`, Go `applyOp`, Python `apply_op`, C `apply_op`). The 4 runners' unknown-op text is test-only and matched by prefix, so it's left alone. No doc quotes the message. A changelog line.
+	- Verified: the 2 new cli-regress rows fail on dev's 4 CLIs and pass on the fix.
+	- Test case: cli-regress `EssaXoE` (`ops-tab-indented-op-unknown`) and `EssaXqa` (`ops-blank-tab-indented-op-unknown`), beside `Esnb9g2`.
+	- Branch: `climsg`
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new rows failed before and pass after, and the wording call is noted above.
+	- Closed: 20261016-085702
 
 - No fuzz property covers `upgrade`
 	- ID: 2026101514324704

@@ -2232,6 +2232,10 @@ def apply_op(doc, line):
 			raise ValueError(f"bad banner: {path} (on or off)")
 		doc.set_banner(path == "on")
 		wrote = shcl.SetStatus.Ok
+	elif op.strip(" \r") == "":
+		# An op indented with a tab has nothing before its first tab, and the
+		# message used to name nothing (2026101514324709).
+		raise ValueError("unknown op: none before the first tab")
 	else:
 		raise ValueError(f"unknown op: {op}")
 	if wrote is not shcl.SetStatus.Ok:

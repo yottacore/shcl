@@ -1863,7 +1863,15 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 		else if (plen == 3 && memcmp(path, "off", 3) == 0) shcl_set_banner(d, 0);
 		else { op_err(lineno, "bad banner: %.*s (on or off)", (int)plen, path); rc = 1; }
 	}
-	else { op_err(lineno, "unknown op: %.*s", (int)opn_full, fp[0]); rc = 1; }
+	else {
+		// An op indented with a tab has nothing before its first tab, and the
+		// message used to name nothing (2026101514324709).
+		size_t k = 0;
+		while (k < opn_full && (fp[0][k] == ' ' || fp[0][k] == '\r')) k++;
+		if (k == opn_full) op_err(lineno, "unknown op: none before the first tab");
+		else op_err(lineno, "unknown op: %.*s", (int)opn_full, fp[0]);
+		rc = 1;
+	}
 	if (rc == 0 && wrote != SHCL_SET_OK) {
 		op_err(lineno, "cannot write %.*s: %s", (int)plen, path, refusal(wrote, path, plen));
 		rc = 1;

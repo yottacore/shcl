@@ -1405,6 +1405,10 @@ rows=(
 	'Esnb9bC|ops-indented-comment|set %F%|  # set x\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
 	'Esnb9db|ops-tab-indented-comment|set %F%|\t# set x\nint\tx\t1\n\t \t# again\n|0|a: 1\n\nx: 1\n|='
 	'Esnb9g2|ops-indented-op-unknown|set %F%|  int\tx\t1\n|1||=op line 1: unknown op:   int (see --help)\n'
+	## 2026101514324709: indented with a tab, the op before it is empty, and the
+	## message named nothing.
+	'EssaXoE|ops-tab-indented-op-unknown|set %F%|\tint\tx\t1\n|1||=op line 1: unknown op: none before the first tab (see --help)\n'
+	'EssaXqa|ops-blank-tab-indented-op-unknown|set %F%|int\tx\t1\n  \r\tint\ty\t2\n|1||=op line 2: unknown op: none before the first tab (see --help)\n'
 	## 20260902 item 41: --default and --on-bad=error each overwrote the other's
 	## mode, so which one applied depended on which was typed last.
 	'EomzUyq|default-vs-onbad|get --int --default=7 --on-bad=error %F% nope|-|1|-|--default cannot be combined with --on-bad=error'

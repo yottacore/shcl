@@ -3126,6 +3126,11 @@ func applyOp(doc *shcl.Document, line string) error {
 		doc.SetBanner(path == "on")
 		wrote = shcl.SetOk
 	default:
+		// An op indented with a tab has nothing before its first tab, and the
+		// message used to name nothing (2026101514324709).
+		if strings.Trim(f[0], " \r") == "" {
+			return errors.New("unknown op: none before the first tab")
+		}
 		return fmt.Errorf("unknown op: %s", f[0])
 	}
 	if wrote != shcl.SetOk {

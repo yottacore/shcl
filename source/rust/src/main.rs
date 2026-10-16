@@ -2930,6 +2930,11 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 			}
 			_ => return Err(format!("bad banner: {} (on or off)", path)),
 		},
+		// An op indented with a tab has nothing before its first tab, and the
+		// message used to name nothing (2026101514324709).
+		other if other.trim_matches([' ', '\r']).is_empty() => {
+			return Err("unknown op: none before the first tab".to_string());
+		}
 		other => return Err(format!("unknown op: {}", other)),
 	};
 	if wrote != shcl::SetStatus::Ok {
