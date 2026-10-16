@@ -72,7 +72,7 @@ _shcl() {
 		'children:child field names under a path'
 		'paths:every field path in the document'
 		'migrate:rewrite a 2.x file for the current rules'
-		'upgrade:back up and rewrite a file that does not load clean'
+		'upgrade:back up and rewrite an older file that does not load clean'
 		'tokens:the lexical spans of each line'
 		'explain:what a diagnostic code means'
 		'help:the help text'

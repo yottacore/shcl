@@ -834,8 +834,10 @@ typedef struct {
 } shcl_upgraded;
 // A config file written for an older format, made over for this one: the
 // input run through shcl_migrate_unstamped, then written the way `fmt` writes
-// it, with any old info block swapped for the one `init` writes. This is the
-// one library call that writes the block. A file that names this format comes
+// it, with the info block `init` writes at the end in place of an old one
+// there. A whole block above the first field stays, so a file with its block
+// at the top comes out with 2. This is the one library call that writes the
+// block. A file that names this format comes
 // back current and untouched, and so does one that loads with no error under
 // these rules, since a program calling this on every start must never rewrite
 // a good file. from_v2 is shcl_migrate's: the file can only have been written

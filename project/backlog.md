@@ -106,7 +106,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The help, examples.md and the `upgrade` doc comments promise more than `upgrade` does
 	- ID: 2026101514324708
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 8
@@ -122,6 +122,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every other text on `upgrade`: completions, README, changelog's Unreleased.
 	- Progress log:
 		- 20261015: 2026101515372401 changed only the help and man lines on the `--from-2x` refusal. The help's exit codes paragraph still sums up 7 as "left something behind".
+	- Actual fix: docs only. The help's `upgrade` line says a file is made over when it doesn't load clean and names no format or an older one. Its exit codes paragraph gives upgrade's 7 as a file that reads two ways or would keep an error. The `--from-2x` text in the help, the man page and examples.md says that on a file not written for 2.x it can change good lines, and with `--write` the backup keeps the original. examples.md gives the Format line rule and says `--from-2x` is only for a file known to be old. The `upgrade` doc comment in Rust, Go, Python, C and C++, spec.md and the man page say the new block goes at the end in place of an old one there, and that a whole block above the first field stays, so such a file comes out with 2. The changelog's `upgrade_file` line names the Format line rule too, and zsh's one-line summary says an older file.
+	- Swept: the help in all 4 CLIs, still byte-identical and inside 80 columns. The man page's `upgrade`, `--from-2x` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry, which was already right, examples.md, README (no upgrade text), install.md, both completion files, and the changelog's Unreleased lines on upgrade. Nothing synced to main.
+	- Verified: `--help` from the 4 debug CLIs has one checksum and no line over 80; `shcl help upgrade` and the man page at 80 columns read as above.
+	- Test case: none, docs only. Help parity across the 4 is crosscheck's, and its width is cli-regress `help-width` (`Eq9yPCQ`) and `man-width` (`EpHH7ZQ`).
+	- Branch: `upfix`
+	- Acceptance signoff: Self-closed on JC's criteria: the `--from-2x` sentence is JC's 2026-10-15 requirement, and the rest makes the help, examples.md and the doc comments say what spec.md and the man page say. The wording is my call.
+	- Closed: 20261016-082019
 
 - An op indented with a tab is refused as `unknown op: `, naming nothing
 	- ID: 2026101514324709

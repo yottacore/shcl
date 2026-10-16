@@ -94,7 +94,8 @@ Usage:
                                          --write or -w, keeping a backup of
                                          the original beside it, or name the
                                          lines it would change with --check)
-  shcl upgrade [options] FILE            when FILE does not load clean, or
+  shcl upgrade [options] FILE            when FILE does not load clean and
+                                         names no format or an older one, or
                                          with --from-2x reads differently once
                                          migrated, print it migrated and made
                                          over the way fmt writes it, with the
@@ -194,7 +195,11 @@ Options (the subcommands each belongs to are in parentheses):
                                          left alone and the command exits 7;
                                          upgrade with it writes nothing and
                                          exits 7 when the fresh file would
-                                         still have an error, naming the lines
+                                         still have an error, naming the
+                                         lines. On a file not written for
+                                         2.x it can change good lines; with
+                                         --write the backup keeps the
+                                         original
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line (named on
@@ -288,8 +293,9 @@ layers prints the merged canonical document.
 Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,
 5 multiple instances, 6 check failed, strict load failed, init's schema has
 faults, or --check found a rewrite to make, 7 a result refused for deleting
-lines or values (--lossy overrides), or migrate or upgrade left something
-behind, 8 a file or stream could not be read or written.
+lines or values (--lossy overrides), migrate left something behind, or
+upgrade refused a file that reads two ways or would keep an error, 8 a file
+or stream could not be read or written.
 ";
 
 // About and donate are stdout, so they are byte-for-byte contracts across the

@@ -81,7 +81,8 @@ static const char *HELP =
 	"                                         --write or -w, keeping a backup of\n"
 	"                                         the original beside it, or name the\n"
 	"                                         lines it would change with --check)\n"
-	"  shcl upgrade [options] FILE            when FILE does not load clean, or\n"
+	"  shcl upgrade [options] FILE            when FILE does not load clean and\n"
+	"                                         names no format or an older one, or\n"
 	"                                         with --from-2x reads differently once\n"
 	"                                         migrated, print it migrated and made\n"
 	"                                         over the way fmt writes it, with the\n"
@@ -181,7 +182,11 @@ static const char *HELP =
 	"                                         left alone and the command exits 7;\n"
 	"                                         upgrade with it writes nothing and\n"
 	"                                         exits 7 when the fresh file would\n"
-	"                                         still have an error, naming the lines\n"
+	"                                         still have an error, naming the\n"
+	"                                         lines. On a file not written for\n"
+	"                                         2.x it can change good lines; with\n"
+	"                                         --write the backup keeps the\n"
+	"                                         original\n"
 	"  --check                                (fmt/migrate) print nothing and exit 6\n"
 	"                                         when fmt would change the file or\n"
 	"                                         migrate would rewrite a line (named on\n"
@@ -275,8 +280,9 @@ static const char *HELP =
 	"Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,\n"
 	"5 multiple instances, 6 check failed, strict load failed, init's schema has\n"
 	"faults, or --check found a rewrite to make, 7 a result refused for deleting\n"
-	"lines or values (--lossy overrides), or migrate or upgrade left something\n"
-	"behind, 8 a file or stream could not be read or written.\n";
+	"lines or values (--lossy overrides), migrate left something behind, or\n"
+	"upgrade refused a file that reads two ways or would keep an error, 8 a file\n"
+	"or stream could not be read or written.\n";
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
