@@ -95,6 +95,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the refusal and error arms of each CLI's upgrade return before the diagnostics print.
 	- Origin: `60d0196c` (2026-10-07). 2026101419280005 fixed the arm for a file left alone, and its Swept line names upgrade with `--write`. These 2 arms were missed. Confirmed.
 	- Sweep: every early return in each CLI's upgrade and migrate. A cli-regress row that walks each loading subcommand's error exits would cover the class, rather than one row per arm.
+	- Progress log:
+		- 20261015: since 2026101515372401 the `--write` path has a third refusal arm, a `--from-2x` conversion that keeps an error, and it prints no load diagnostics either, the same as the ambiguous refusal. Fix all 3 arms together.
 
 - `upgrade --write` calls a file it has no permission to read "cannot be read as UTF-8 text"
 	- ID: 2026101514324707
@@ -131,6 +133,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261015, the help in all 4 CLIs and the top block case. examples.md by reading.
 	- Origin: the help from `60d0196c`. The examples.md paragraph moved as it was from the README in `b30d70a8`. 2026101419280001 (`6d5d8dd1`) updated the man page, spec.md, design.md and the library docs, and missed these. Confirmed.
 	- Sweep: every other text on `upgrade`: completions, README, changelog's Unreleased.
+	- Progress log:
+		- 20261015: 2026101515372401 changed only the help and man lines on the `--from-2x` refusal. The help's exit codes paragraph still sums up 7 as "left something behind".
 
 - An op indented with a tab is refused as `unknown op: `, naming nothing
 	- ID: 2026101514324709

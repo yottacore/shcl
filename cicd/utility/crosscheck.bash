@@ -9,8 +9,9 @@
 ##		other binding's CLI is run over the conformance corpus (canonical `fmt` of
 ##		every input.shcl, plus every reads.tsv row replayed as a `get`/`count`/
 ##		`instances` call) and, when given, over an extra directory of fuzz-dumped
-##		inputs (`fmt` only). stdout and exit code must both match the reference.
-##		The dump's eol/ folder holds inputs with mixed line endings, each with a
+##		inputs (`fmt`, and the reads.tsv the reference dumped beside each).
+##		stdout and exit code must both match the reference. The dump's eol/
+##		folder holds inputs with mixed line endings, each with a
 ##		write-ops script; each goes through `set --write`, the save that keeps
 ##		lines, and the file it leaves must match byte for byte. Its kept/ folder
 ##		is the same, over lines kept as written and edits near them, so a
