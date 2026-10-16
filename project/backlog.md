@@ -33,33 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- check-pins' container checks pass recipes they say they refuse
-	- ID: 2026101514324712
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 12
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101303344553, 2026101309250977
-	- Incorrect behavior:
-		- `Esbpt85` passes a recipe with `curl https://example.com/x.tgz -o x.tgz` (the URL before the options), one with `curl -fsSLo go.tgz` of another URL to a file name hashed elsewhere, and one whose `sha256sum -c` line is commented out. Docker drops comment lines inside a `RUN` continuation, so that build checks nothing.
-		- `Esbpsph` reads an extra image's versions only from its `ARG *_VER=` lines. `staticcheck@2025.1` written in the `RUN` line, with the ARG left at 2026.1, passes.
-	- Expected behavior: check-pins' header says a recipe fails "when one fetches something it doesn't hash", and that "an extra image can't drift on its own". 2026101303344553 and 2026101309250977 name these checks as their tests.
-	- Reproduced: 20261015, on a copy of check-pins with each recipe edit. Each printed `ok`.
-	- Origin: `a1afc401` and `07914455` (ctrbuild, 2026-10-13). The commented-out hash is the hole closed for ci.yml on 2026-09-16, open again in the new check. Confirmed.
-	- Note: a bare `wget URL` passes too. The check's comment says a fetch has to have an option, since the package lists name both tools bare. Nothing checks that `FROM` is pinned by digest either. All 3 recipes are today.
-	- Sweep: shell-regress `Esbq6Ie` gets a case for each form.
-	- Actual cause: `Esbpt85` counted a fetch only when an option came right after `curl` or `wget`, and took a check from anywhere in the recipe, comment lines included. `Esbpsph` read versions only from `ARG *_VER=` lines.
-	- Actual fix: a recipe's check has to be on the line right after its fetch, with nothing after `sha256sum -c -`, and a file is fetched once. A fetch is curl or wget with an option or a URL, or run as a command, and only `curl -fsSLo FILE`, one to a line, is followed. Every `FROM` needs a digest. A version typed into a RUN line as `name@X`, `name==X` or `name -RequiredVersion X` has to be the pin.
-	- Swept: `Esbq6Ie` has a case for each form in Incorrect behavior, plus the bare `wget`, a `FROM` with no digest, and a check ending in `|| true`. ci.yml's own check `Eq5jgxE` had 2 of the same holes, a second fetch to a file it had checked and a check ending in `|| true`. Both are closed, with cases in `Eq5jgxF`. Not checked: `COPY --from` an outside image, which no recipe does.
-	- Verified: the 9 new shell-regress cases fail against dev's check-pins and pass with the fix. check-pins passes on the real recipes and ci.yml. Also the full shell-regress, shellcheck over the gate's list, check-docs, and test-ids check.
-	- Test case: shell-regress `Esbq6Ie` (7 new cases) and `Eq5jgxF` (2 new), over check-pins `Esbpt85`, `Esbpsph` and `Eq5jgxE`.
-	- Branch: `ctrfix`
-	- Commit: `7967ebac`, `c820e581`
-	- Acceptance signoff: Self-closed: the review item was reproduced, each case failed before the fix and passes after, and the Sweep line is answered.
-	- Closed: 20261016-122859
-
 - An extra image's run writes into this box's builds
 	- ID: 2026101514324713
 	- Type: Bug
@@ -87,29 +60,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `ctrfix`
 	- Commit: `31e91ff4`
 
-- `--no-tests` drops the profiler calibration on a local run too
-	- ID: 2026101514324714
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 14
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101011200000
-	- Incorrect behavior: `--no-tests` sets `PROFILE_CHECK=""` with or without `--ci`, so a local `--no-tests` run draws the flame graph unchecked.
-	- Expected behavior: the help says `--no-tests` skips "under --ci, the profiler calibration". The profile stage's own comment says an unchecked graph is worse than none.
-	- Reproduced: 20261015, on a copy of cicd.bash with its stages stubbed.
-	- Origin: `cbfced5c` (cisplit, 2026-10-13). Confirmed.
-	- Actual cause: `--no-tests` cleared `PROFILE_CHECK` while the options were read, whether or not `--ci` was among them.
-	- Actual fix: `--no-tests` clears it only under `--ci`, where the other hosted job runs the calibration. A local `--no-tests` run calibrates before it draws the graph.
-	- Swept: the other stage flags clear only their own stage. `--no-tests` was the one that reached into the profiler's.
-	- Verified: check-push-gate `EstM5WQ` fails against dev's cicd.bash, where a local `--no-tests` run drew the graph with no calibration, and passes with the fix. With the `--ci` half taken out, its `--ci --no-tests` row fails. Also shellcheck over the gate's list.
-	- Test case: check-push-gate `EstM5WQ`: a local run with and without `--no-tests` calibrates, and so does `--ci`, while `--ci --no-tests` doesn't.
-	- Branch: `ctrfix`
-	- Commit: `31e91ff4`
-	- Acceptance signoff: Self-closed: the review item was reproduced, and its test failed before the fix and passes after.
-	- Closed: 20261016-122859
-
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
 	- ID: 2026101514324719
 	- Type: Enhancement
@@ -126,6 +76,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 2026101316013508: `ErTZaL2` runs only in the Alpine image, which hasn't run since the fix. A C CLI built here with zig's musl target turns it red on the old code, and the fix passes.
 	- Requirements: a check for each, seen red with the fix taken out.
 	- Origin: docgate, memcap, cisplit and muslfix. Confirmed.
+
+- spec.md says several threads can read one C++ `Document`, and nothing checks it
+	- ID: 2026101612343301
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261016-123433
+	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
+	- Version and build: dev at `56a37a27`
+	- Related IDs: 2026101514324720
+	- Problem description: the veneer's const members each take their document's lock, so reads can share one `Document`. No test reads from 2 threads, and no gate runs the veneer under ThreadSanitizer, so a const member that skips the lock would pass.
+	- Requirements: a threaded read in `veneer_smoke.cpp` run under `-fsanitize=thread`, or the sentence reworded until it claims nothing.
 
 - 3 checkable doc sentences have no check
 	- ID: 2026101514324720
@@ -157,41 +119,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: closed on JC's criteria. Each claim has a check seen to fail with the claim broken. The SYNOPSIS rule and the 2 man page additions are my call.
 	- Closed: 20261016-123433
 
-- spec.md says several threads can read one C++ `Document`, and nothing checks it
-	- ID: 2026101612343301
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261016-123433
-	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
-	- Version and build: dev at `56a37a27`
-	- Related IDs: 2026101514324720
-	- Problem description: the veneer's const members each take their document's lock, so reads can share one `Document`. No test reads from 2 threads, and no gate runs the veneer under ThreadSanitizer, so a const member that skips the lock would pass.
-	- Requirements: a threaded read in `veneer_smoke.cpp` run under `-fsanitize=thread`, or the sentence reworded until it claims nothing.
-
-- Replacing a bad value with a default walks all its siblings each time
-	- ID: 2026101514324721
-	- Type: Enhancement
-	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
-	- Priority: Low
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 21
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026100717500020
-	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
-	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
-	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
-	- Reproduced: 20261016, all 4 CLIs. A default over 40,000 bad fields of one parent took 1.4 to 4.4 times as long as the same defaults spread one per parent, and grew faster than the field count.
-	- Actual fix: the check asks the name index for the field's instances under its parent, as the set's own fold does, rather than walking the parent's whole child list. The fold case keeps its answer: the note goes on whichever instance stays.
-	- Swept: the same check in all 4. The other child-list membership walk, `live` in the remove path, runs once per field a removal empties, and the `removes` perf-gate row already covers it. Left alone.
-	- Verified: perf-gate's new `fills` row fails on dev's 4 CLIs (Rust 7043 ms against 1617, Go 616 against 321, C 431 against 292, Python 11725 against 5876) and passes on the fix at 72 to 81 percent of its budget. With the fold branch taken out of Rust, cli-regress `EstMftv` fails. Also the Rust suite with 200,000 fuzz, `go test -count=1` for both modules, the Python and C conformance suites, the C++ veneer smoke, cli-regress (612 rows, 4 bindings), crosscheck over the corpus (22233 comparisons), the whole perf-gate, rustfmt, clippy, go vet for linux and windows, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level, and test-ids check.
-	- Test case: perf-gate `EstMfyF` (`fills`), judged against the same defaults one per parent rather than the parse, since a default costs several parsed lines. cli-regress `EstMftv` and `EstMfw7` pin the note's place when the default folds into an earlier or a later instance, which nothing tested before.
-	- Branch: `deffast`
-	- Commit: `3c0a544a`
-	- Acceptance signoff: Self-closed: a review item reproduced by timing, with a perf row that fails on the old code in all 4 and passes on the fix.
-	- Closed: 20261016-122000
-
 - crosscheck's save-gate and `fFixLost` write rows only compare bindings, never what the call has to do
 	- ID: 2026101609320201
 	- Type: Enhancement
@@ -215,6 +142,56 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the checks do what the comments say, the new test failed before and passes after, and the 2 rewritten rows are named with their reason.
 	- Closed: 20261016-123433
 
+- check-pins' container checks pass recipes they say they refuse
+	- ID: 2026101514324712
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 12
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101303344553, 2026101309250977
+	- Incorrect behavior:
+		- `Esbpt85` passes a recipe with `curl https://example.com/x.tgz -o x.tgz` (the URL before the options), one with `curl -fsSLo go.tgz` of another URL to a file name hashed elsewhere, and one whose `sha256sum -c` line is commented out. Docker drops comment lines inside a `RUN` continuation, so that build checks nothing.
+		- `Esbpsph` reads an extra image's versions only from its `ARG *_VER=` lines. `staticcheck@2025.1` written in the `RUN` line, with the ARG left at 2026.1, passes.
+	- Expected behavior: check-pins' header says a recipe fails "when one fetches something it doesn't hash", and that "an extra image can't drift on its own". 2026101303344553 and 2026101309250977 name these checks as their tests.
+	- Reproduced: 20261015, on a copy of check-pins with each recipe edit. Each printed `ok`.
+	- Origin: `a1afc401` and `07914455` (ctrbuild, 2026-10-13). The commented-out hash is the hole closed for ci.yml on 2026-09-16, open again in the new check. Confirmed.
+	- Note: a bare `wget URL` passes too. The check's comment says a fetch has to have an option, since the package lists name both tools bare. Nothing checks that `FROM` is pinned by digest either. All 3 recipes are today.
+	- Sweep: shell-regress `Esbq6Ie` gets a case for each form.
+	- Actual cause: `Esbpt85` counted a fetch only when an option came right after `curl` or `wget`, and took a check from anywhere in the recipe, comment lines included. `Esbpsph` read versions only from `ARG *_VER=` lines.
+	- Actual fix: a recipe's check has to be on the line right after its fetch, with nothing after `sha256sum -c -`, and a file is fetched once. A fetch is curl or wget with an option or a URL, or run as a command, and only `curl -fsSLo FILE`, one to a line, is followed. Every `FROM` needs a digest. A version typed into a RUN line as `name@X`, `name==X` or `name -RequiredVersion X` has to be the pin.
+	- Swept: `Esbq6Ie` has a case for each form in Incorrect behavior, plus the bare `wget`, a `FROM` with no digest, and a check ending in `|| true`. ci.yml's own check `Eq5jgxE` had 2 of the same holes, a second fetch to a file it had checked and a check ending in `|| true`. Both are closed, with cases in `Eq5jgxF`. Not checked: `COPY --from` an outside image, which no recipe does.
+	- Verified: the 9 new shell-regress cases fail against dev's check-pins and pass with the fix. check-pins passes on the real recipes and ci.yml. Also the full shell-regress, shellcheck over the gate's list, check-docs, and test-ids check.
+	- Test case: shell-regress `Esbq6Ie` (7 new cases) and `Eq5jgxF` (2 new), over check-pins `Esbpt85`, `Esbpsph` and `Eq5jgxE`.
+	- Branch: `ctrfix`
+	- Commit: `7967ebac`, `c820e581`
+	- Acceptance signoff: Self-closed: the review item was reproduced, each case failed before the fix and passes after, and the Sweep line is answered.
+	- Closed: 20261016-122859
+
+- `--no-tests` drops the profiler calibration on a local run too
+	- ID: 2026101514324714
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 14
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101011200000
+	- Incorrect behavior: `--no-tests` sets `PROFILE_CHECK=""` with or without `--ci`, so a local `--no-tests` run draws the flame graph unchecked.
+	- Expected behavior: the help says `--no-tests` skips "under --ci, the profiler calibration". The profile stage's own comment says an unchecked graph is worse than none.
+	- Reproduced: 20261015, on a copy of cicd.bash with its stages stubbed.
+	- Origin: `cbfced5c` (cisplit, 2026-10-13). Confirmed.
+	- Actual cause: `--no-tests` cleared `PROFILE_CHECK` while the options were read, whether or not `--ci` was among them.
+	- Actual fix: `--no-tests` clears it only under `--ci`, where the other hosted job runs the calibration. A local `--no-tests` run calibrates before it draws the graph.
+	- Swept: the other stage flags clear only their own stage. `--no-tests` was the one that reached into the profiler's.
+	- Verified: check-push-gate `EstM5WQ` fails against dev's cicd.bash, where a local `--no-tests` run drew the graph with no calibration, and passes with the fix. With the `--ci` half taken out, its `--ci --no-tests` row fails. Also shellcheck over the gate's list.
+	- Test case: check-push-gate `EstM5WQ`: a local run with and without `--no-tests` calibrates, and so does `--ci`, while `--ci --no-tests` doesn't.
+	- Branch: `ctrfix`
+	- Commit: `31e91ff4`
+	- Acceptance signoff: Self-closed: the review item was reproduced, and its test failed before the fix and passes after.
+	- Closed: 20261016-122859
+
 - nfpm is pinned at 2.43.0, and this box builds with 2.47.0
 	- ID: 2026101612281470
 	- Type: Task
@@ -231,6 +208,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `398a88e6`
 	- Acceptance signoff: Self-closed: mechanical version bump.
 	- Closed: 20261016-122859
+
+- Replacing a bad value with a default walks all its siblings each time
+	- ID: 2026101514324721
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Priority: Low
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 21
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026100717500020
+	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
+	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
+	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+	- Reproduced: 20261016, all 4 CLIs. A default over 40,000 bad fields of one parent took 1.4 to 4.4 times as long as the same defaults spread one per parent, and grew faster than the field count.
+	- Actual fix: the check asks the name index for the field's instances under its parent, as the set's own fold does, rather than walking the parent's whole child list. The fold case keeps its answer: the note goes on whichever instance stays.
+	- Swept: the same check in all 4. The other child-list membership walk, `live` in the remove path, runs once per field a removal empties, and the `removes` perf-gate row already covers it. Left alone.
+	- Verified: perf-gate's new `fills` row fails on dev's 4 CLIs (Rust 7043 ms against 1617, Go 616 against 321, C 431 against 292, Python 11725 against 5876) and passes on the fix at 72 to 81 percent of its budget. With the fold branch taken out of Rust, cli-regress `EstMftv` fails. Also the Rust suite with 200,000 fuzz, `go test -count=1` for both modules, the Python and C conformance suites, the C++ veneer smoke, cli-regress (612 rows, 4 bindings), crosscheck over the corpus (22233 comparisons), the whole perf-gate, rustfmt, clippy, go vet for linux and windows, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level, and test-ids check.
+	- Test case: perf-gate `EstMfyF` (`fills`), judged against the same defaults one per parent rather than the parse, since a default costs several parsed lines. cli-regress `EstMftv` and `EstMfw7` pin the note's place when the default folds into an earlier or a later instance, which nothing tested before.
+	- Branch: `deffast`
+	- Commit: `3c0a544a`
+	- Acceptance signoff: Self-closed: a review item reproduced by timing, with a perf row that fails on the old code in all 4 and passes on the fix.
+	- Closed: 20261016-122000
 
 - spec.md says only `V090` to `V093` print `schema line N`, and nothing pins `V094` or `V095`
 	- ID: 2026101514324711
