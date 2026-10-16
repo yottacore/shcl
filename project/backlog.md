@@ -33,148 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- A refused line whose name starts with `~` or a backtick hides its raw block from the Format and Schema line scan
-	- ID: 2026101514324701
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 1
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026100307163902, 2026101514324704
-	- Steps to reproduce:
-
-		~~~bash
-		printf '~x: ```\n\tbody\n\t```\n' > app.shcl
-		shcl upgrade --write app.shcl
-		shcl upgrade --write app.shcl
-		~~~
-
-	- Incorrect behavior: each run says `upgraded`, writes the same text, and leaves one more backup. With `##    Format   4` under the block there's no H006 hint, and with `##    Format   3` there `migrate` exits 7 on "a raw block never closes". A `` `y: ``` `` line over a body with `##    Schema   mark.shcl` in it makes `check` exit 8 on the missing schema file, with no diagnostics.
-	- Expected behavior: the scan finds the blocks the parser finds, as spec.md says. With the name `x`, the second run says `nothing to upgrade`, H006 shows, `migrate` has nothing to do, and `check` ends `ok`.
-	- Reproduced: 20261015, all 4 CLIs, with a different test clock per run.
-	- Possible cause: `opens_raw` sends a line starting with a fence character only to `child_fence`, against its own comment that a line refused for its text still takes its body. The Format line upgrade appends then reads as inside an open block, so the file looks unstamped every time.
-	- Origin: `4fcfec0b` (2026-10-03), before this window. `upgrade_file` (`60d0196c`, 2026-10-07) turns it into a new backup on every start. Neither 20261014 round saw it. 2026100307163902 accepted the scan and the parser disagreeing on E014 lines, since such a file fails `check` anyway. Confirmed.
-	- Sweep: every reader of the line scan in all 4: the Format and Schema line reads, `restamp`, and the banner code.
-	- Note: fuzz `ErfuRfE` misses it, since its names all parse and it skips any file with an error. 2026101514324704 widens it.
-	- Actual cause: confirmed. When the child fence read opened nothing on a line led by a backtick or tilde, the scan stopped there, but the parser goes on to read it as a field line, whose fence takes the body (2026100307163902). The body's closing fence then opened a block in the scan that ran to the end of the file.
-	- Actual fix: the scan reads such a line as a field line too, as the parser does, in all 4 bindings.
-	- Swept: every reader of the line scan goes through the same `opens_raw`: the Format line read, with `restamp` and the H006 and H007 hints behind it, the Schema line read, and `migrate`'s check of where its output's blocks are. The banner code works on the parsed document, not the scan. The 4 CLIs have no scan of their own, and the C++ veneer wraps the C calls, so neither changed.
-	- Note: the repro's file has no Format line, so plain `upgrade --write` now exits 7 on it, as spec.md says for lines one rule set reads as a raw body and the other doesn't. `--from-2x` makes it over once, and later runs, with or without the flag, leave it alone.
-	- Test case: cli-regress `EsoQOx2` (`upgrade-odd-name-block`), `EsoQOx3` (`check-odd-name-newer`), `EsoQOx4` (`check-backtick-schema-body`) and save case `EsoQOx6` (`upgrade-odd-name`), plus new rows in `stamp_reads_say_why` in all 4 runners.
-	- Verified: the new rows and the save case fail on the review's 4 CLIs and pass on the fix. The runner rows fail in all 4 with the fix put back. The 4 conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, the 2,000,000 release fuzz, shell-regress, check-docs at `SHCL_GATE_REF=main`, check-abnf, check-veneer, the veneer smoke, test-ids, clippy, go vet, staticcheck, ruff, mypy, shellcheck, and cppcheck at the normal level.
-	- Branch: `scanfix`
-	- Commit: `9da3dd3c`
-	- Acceptance signoff: Self-closed: reproduced, the new tests failed before and pass after, and the scan now does what spec.md says.
-	- Closed: 20261015-162922
-
-- A setter writing a thousands number over a quoted value keeps the quotes, so Loose reads it as a number
-	- ID: 2026101514324702
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
-	- Severity: Avg
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 2
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101309122757
-	- Steps to reproduce:
-		- `printf 'k: "x"\nj: x\n' > f.shcl`
-		- `shcl set --set='k=1,200' --set='j=1,200' f.shcl`
-		- `shcl get --int --strictness=loose --set='k=1,200' f.shcl k`
-	- Incorrect behavior: `set` writes `k: "1,200"` and `j: 1,200`. The int read of `k` gives 1200 at exit 0, and of `j` BadType at exit 4. Same through the library setters. All 4.
-	- Expected behavior: spec.md's quoting rules say "A setter's value like that is written bare too", and Strictness levels says "`set` of `1,200` gives text". So `k` reads as text at every level, whatever its old quote kind.
-	- Reproduced: 20261015, all 4 CLIs.
-	- Possible cause: `keep_mark` gives the new text the old value's quote kind, the general rule in spec.md. The writer's thousands exception only runs for a value with no kept mark.
-	- Origin: `4527cc4e` (loosethou, 2026-10-13). Its Swept line names `keep_mark`, and its calls cover a new field only. 20261014 had it in its tree. Confirmed.
-	- Note: this doesn't reopen the thousands rule JC settled on 2026-10-13. spec.md's thousands exception already names setters, and the fix makes them follow it.
-	- Sweep: every path that keeps an old quote kind on new text, in all 4.
-	- Actual cause: `keep_mark` put the old quote kind on any new text that fit it. The writer's thousands exception only ran for text with no mark.
-	- Actual fix: `keep_mark` leaves a thousands number bare in all 4. A setter over `"x"`, `'x'` or a backtick value writes `k: 1,200`, which reads as text before and after the save. spec.md's setter paragraph and value-syntax.md's setter bullet now say so too.
-	- Swept: `keep_mark` is the one place an old quote kind goes on new text. Each of the 4 libraries has one definition and one call, in the scalar setter path (`grep -n 'keep_mark\|keepMark'`). Array setters keep no marks, and a stacked list keeps its form, not its quotes. `--set-literal` takes its quotes from the text, as before. The C++ veneer wraps the C call.
-	- Verified: the 4 runners' fixture, corpus 206's write ops, the 2 new cli-regress rows and the veneer smoke fail without the fix and pass with it. Also cargo test, `go test -count=1` for both modules, the Python and C runners, cli-regress (593 rows, 4 bindings), crosscheck (53505 comparisons), check-doc-examples, check-abnf, shell-regress, rustfmt, clippy, go vet, staticcheck, ruff, mypy, shellcheck and cppcheck at the normal level.
-	- Test case: `loose_reads_a_quoted_thousands_number` in all 4 runners (`EsbaIWJ`, `EsbaIYt`, `EsbaIba`, `EsbaIe1`); corpus `206-loose-thousands`'s `write.ops`; cli-regress `EsoRGvI` (`set-thousands-over-quoted`) and `EsoRGxW` (`loose-set-thousands-over-quoted`); the veneer smoke `EjtkR0S`; and the setter half of fuzz `EsoRGsu`.
-	- Branch: `thoufix`
-	- Commit: `75ea0170`
-	- Acceptance signoff: Self-closed: reproduced, the new checks failed before the fix and pass after, and the Sweep has its Swept answer. It applies spec.md's own setter sentence and moves no recorded decision.
-	- Closed: 20261015-162300
-
-- `upgrade --from-2x` stamps a converted file that still has an error, and a second run reads it by 2.x rules again
-	- ID: 2026101515372401
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261015-153724
-	- Opened by: Code review 20261015 item 22
-	- Version and build: dev at `54096128`
-	- Related IDs: 2026101407100010, 2026101419280001, 2026101514324704
-	- Steps to reproduce:
-		- A 2.x file with `"k◉Q◉": 1` and `port: 8<U+3000>080`.
-		- `shcl upgrade --from-2x --write f.shcl` twice, with a different test clock each time.
-	- Incorrect behavior: the first run writes `"k◉ESCAPE_CHAR◉q◉ESCAPE_CHAR◉": 1` under a Format 3 block, with `port` still an E025 error, at exit 0. The second run takes that file for a beta file, reads it by 2.x rules, and renames the key to `k◉escape_char◉q◉escape_char◉` at exit 0, with a second backup. All 4.
-	- Expected behavior: `--from-2x` converts only when the fresh text loads clean, for a file with no Format line as for a beta file. Otherwise it writes nothing, exits 7 and names the lines still in error, so `upgrade` never stamps a file a later `--from-2x` would misread. Here the first run refuses on `port`; with it quoted, the first run converts and the second leaves the file alone.
-	- Reproduced: 20261015, the Rust CLI.
-	- Origin: the beta path from `ad9af077` (close10, 2026-10-14) requires a clean conversion, and the path for a file with no Format line doesn't. Neither 20261014 round saw it. Confirmed.
-	- Decisions:
-		- JC, 2026-10-15: refuse rather than teach `migrate` the E025 case, per the standing rule for 2.x work. A plain `upgrade` can still write a Format 3 file with an error, and `--from-2x` on that is `--from-2x` on a file that isn't old, the case 2026101419280001 closed as docs only.
-	- Against: 2026101407100010's narrowed rule, which needs a clean conversion for a beta file only. This widens it to every `--from-2x` conversion (JC, 2026-10-15).
-	- Sweep: `upgrade` and `upgrade_file` in all 4, the CLI's message and exit in all 4, and the help and man page lines on `--from-2x`.
-	- Actual cause: `upgrade` checked that the fresh text loads clean only for a file naming this format. A file with no Format line, or an older one, was written with its errors and stamped Format 3, so the next run with `--from-2x` took it for a beta file.
-	- Actual fix: with `from_v2`, `upgrade` makes nothing unless the fresh text loads clean, whatever the Format line says. `Upgrade.errors_left` lists the input's lines still in error, since migrate keeps every line where it was. `upgrade_file` returns a new `ErrorsLeft` error and writes nothing. The CLI prints `FILE: line(s) N would still have an error once converted from 2.x; nothing written` at exit 7, printed or with `--write`. A beta file whose conversion keeps an error was `current` at exit 0 before, and gets this refusal now. Nothing changed without `--from-2x`. Same in all 4 and the C++ veneer (`Upgrade::errors_left`, `UpgradeErrorKind::ErrorsLeft`, `UpgradeError::lines`).
-	- Note: the old checks that pinned a beta file left alone at exit 0 are commented out with the reason: the `stuck` asserts in the 4 `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` tests, and cli-regress `Esnb9kl` and save case `Esnb9pV` from 2026101419280005, replaced by `EsoQmUF` and `EsoQmUE`. check-migrate's format 3 case expects exit 7 for such a file now, with a floor of one.
-	- Note: `upgrade --write`'s refusal prints no load diagnostics yet, the same as its ambiguous refusal. 2026101514324706 covers both.
-	- Swept: `upgrade` and `upgrade_file` in Rust, Go, Python and C, and the C++ veneer. The printed and `--write` arms of the 4 CLIs. The `--from-2x` help in the 4 CLIs, and the man page's `--from-2x`, `upgrade` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry and the changelog line. The doc comments on `Upgrade`, `upgrade` and `upgrade_file` in all 4. The style guide's and check-docs' lists of Python-only error classes. check-migrate's format 3 case. `migrate` never takes a beta file as 2.x, so it's unchanged. Help wording past the refusal is left to 2026101514324708.
-	- Verified: the 4 new cli-regress rows fail on the reviewed tree's 4 CLIs, 16 checks and nothing else, and pass on the fix. The 4 library tests fail with the check put back to beta files only, and pass with the fix. check-migrate fails with the old rule (3 fuzz documents and its fixed file) and passes with the fix. Green on the branch: cargo test, go test for the library and cmd, the Python and C runners, veneer smoke, sanitize-c, the oom and mem_bounds tests, cli-regress, check-doc-examples, crosscheck, check-migrate, shell-regress, check-docs with `SHCL_GATE_REF=main`, check-abnf, check-veneer, check-completions, check-readme, markdownlint-cli2, shellcheck, clippy native and windows-gnu, go vet, staticcheck, ruff, mypy, cppcheck at the normal and exhaustive levels, test-ids check, and windows builds of the C CLI and the veneer.
-	- Test case: `from_v2_refuses_a_conversion_that_keeps_an_error` in Rust (`EsoQmU8`), Go (`EsoQmU9`), Python (`EsoQmUA`) and C (`EsoQmUB`), with `upgrade_file`; cli-regress `EsoQmUC` (`upgrade-from-2x-left`) and `EsoQmUF` (`upgrade-left-diags-from-2x`); save cases `EsoQmUD` (`upgrade-from-2x-left`, the item's file refused, then converted with `port` quoted and left alone by the next run) and `EsoQmUE` (`upgrade-beta-left`); the veneer smoke checks on `errors_left` and `ErrorsLeft`; check-migrate `Es34DZk`.
-	- Branch: `upfrom`
-	- Commit: `88daada9`
-	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the rule is JC's 2026-10-15 call on the item. The refusal line's wording is my call; the rest of the `upgrade` help wording is 2026101514324708's.
-	- Closed: 20261015-165000
-
-- Nothing tests the Loose thousands grouping rule itself
-	- ID: 2026101514324703
-	- Type: Enhancement
-	- Status: Done
-	- Priority: Avg
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 3
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101309122757, 2026101318521195, 2026101010054746
-	- Problem description: spec.md says `"1,2000"` and `"$ 1,200"` stay text, and a `%` goes where it goes on any Loose number. No runner, corpus case or cli-regress row has `"1,2000"`, `"1234,567"`, `"$ 1,200"`, or an int read of `"1,200%"`. 4 breaks of the rule in the reference passed every gate: a head of 4 digits, groups of 3 or more, a blank after the currency sign, and an int read that ignores `%`. Groups of 3 or more in the Python port passed too, while its CLI read `"1,2000"` as 12000. `typed_reads_survive_a_save` (`EsZikJr`) compares a read before and after a save, so it can't see the rule.
-	- Requirements:
-		- Rows in corpus `206-loose-thousands` and the shared `loose_reads_a_quoted_thousands_number` fixture for each spelling spec.md says stays text, plus `"1234,567"` and an int read of `"1,200%"`.
-		- A fuzz property: a quoted `thousands_soup` value reads Good at Loose, as int and float, exactly when it matches spec.md's pattern, with the number checked, and BadType at Standard and Strict.
-		- crosscheck's fuzz dump gets thousands documents with Loose reads, so the other 3 bindings see them.
-		- The cli-regress comment above `EsZikJm` says fmt writes the value quoted. It keeps it bare since 2026101309122757.
-	- Reason: the rule changed 4 times in 9 days. The next change to it should go red somewhere.
-	- Origin: `4527cc4e` and `10deaa99` (loosethou). Confirmed by putting each break in and running the gates.
-	- Done:
-		- Corpus 206 has `"1,2000"`, `"1234,567"`, `"$ 1,200"` and a backtick `1,200`, with Loose reads of each, float reads of `"1, 200"` and `"1,2,3"`, and an int read of `"1,200%"`. The shared fixture in the 4 runners has the same spellings plus `".1,200"`.
-		- Fuzz `quoted_thousands_read_by_the_rule` reads a quoted `thousands_soup` value, in each quote kind and at each level, against spec.md's pattern worked out apart from the library, int and float values included. A setter's soup over a quoted value has to read as text at every level, before and after a save, so 02's bug fails it.
-		- The fuzz dump writes 40 thousands documents with Loose int, float and array reads, which crosscheck replays through the other 3.
-		- The cli-regress comment above `EsZikJm` no longer says fmt quotes the value.
-	- Verified: each of the review's 4 breaks put back in the reference fails the fixture, corpus 206 and the fuzz property. Groups of 3 or more in the Python port fail its corpus run and crosscheck over the dump. 02's bug fails the property. Release fuzz at 2,000,000 passed, 29 properties in 475 s, since corpus 206's input changed. The gates listed on 02 ran on the same tree.
-	- Test case: fuzz `EsoRGsu` (`quoted_thousands_read_by_the_rule`); corpus `206-loose-thousands` (`EsbaIuk`) in all 4 runners and crosscheck; `loose_reads_a_quoted_thousands_number` in all 4 runners; crosscheck `EjsGuyA` over the thousands dump.
-	- Branch: `thoufix`
-	- Commit: `2af9be49`
-	- Acceptance signoff: Self-closed: each Requirement has its check, and each break the review named fails one.
-	- Closed: 20261015-162300
-
-- No fuzz property covers `upgrade`
-	- ID: 2026101514324704
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261015-143247
-	- Opened by: Code review 20261015 item 4
-	- Version and build: dev at `79b9876c`
-	- Related IDs: 2026101514324701
-	- Problem description: fuzz never runs `upgrade` or `upgrade_file`. A probe of the property below over 20,000 fuzzed files found 2026101514324701. `schema_and_format_lines_follow_the_parser` (`ErfuRfE`) uses only names that parse and skips every file with an error, which is how that one got past it.
-	- Requirements:
-		- A property over `mutate` and `structural` output with a `Format 3` line, a `Format 2` line or none, with and without `from_v2`. A clean input naming this format comes back current and unchanged. A converted input naming this format loads clean. Upgrading the result again without `from_v2` is current.
-		- `ErfuRfE` adds names starting with `~` or a backtick, keeps files whose only errors are E014, and finds raw bodies with the test's own `raw_spans`. Changed that way it fails on dev at iteration 15.
-	- Origin: `upgrade` came in `60d0196c` (2026-10-07) with no property.
-
 - `upgrade --from-2x` reads a Format number too big for 32 bits as format 3, and converts the file by 2.x rules
 	- ID: 2026101514324705
 	- Type: Bug
@@ -203,6 +61,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `EsoQOx5` fails on the review's 4 CLIs and passes on the fix. The runner checks fail in all 4 with the fix put back. Same gate list as 2026101514324701.
 	- Branch: `scanfix`
 	- Commit: `bca7322f`
+
+- No fuzz property covers `upgrade`
+	- ID: 2026101514324704
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 4
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101514324701
+	- Problem description: fuzz never runs `upgrade` or `upgrade_file`. A probe of the property below over 20,000 fuzzed files found 2026101514324701. `schema_and_format_lines_follow_the_parser` (`ErfuRfE`) uses only names that parse and skips every file with an error, which is how that one got past it.
+	- Requirements:
+		- A property over `mutate` and `structural` output with a `Format 3` line, a `Format 2` line or none, with and without `from_v2`. A clean input naming this format comes back current and unchanged. A converted input naming this format loads clean. Upgrading the result again without `from_v2` is current.
+		- `ErfuRfE` adds names starting with `~` or a backtick, keeps files whose only errors are E014, and finds raw bodies with the test's own `raw_spans`. Changed that way it fails on dev at iteration 15.
+	- Origin: `upgrade` came in `60d0196c` (2026-10-07) with no property.
 
 - `upgrade --write` prints none of the load's diagnostics when it refuses, or fails after the load
 	- ID: 2026101514324706
@@ -458,6 +331,134 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
 	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
 	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+
+- A refused line whose name starts with `~` or a backtick hides its raw block from the Format and Schema line scan
+	- ID: 2026101514324701
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 1
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026100307163902, 2026101514324704
+	- Steps to reproduce:
+
+		~~~bash
+		printf '~x: ```\n\tbody\n\t```\n' > app.shcl
+		shcl upgrade --write app.shcl
+		shcl upgrade --write app.shcl
+		~~~
+
+	- Incorrect behavior: each run says `upgraded`, writes the same text, and leaves one more backup. With `##    Format   4` under the block there's no H006 hint, and with `##    Format   3` there `migrate` exits 7 on "a raw block never closes". A `` `y: ``` `` line over a body with `##    Schema   mark.shcl` in it makes `check` exit 8 on the missing schema file, with no diagnostics.
+	- Expected behavior: the scan finds the blocks the parser finds, as spec.md says. With the name `x`, the second run says `nothing to upgrade`, H006 shows, `migrate` has nothing to do, and `check` ends `ok`.
+	- Reproduced: 20261015, all 4 CLIs, with a different test clock per run.
+	- Possible cause: `opens_raw` sends a line starting with a fence character only to `child_fence`, against its own comment that a line refused for its text still takes its body. The Format line upgrade appends then reads as inside an open block, so the file looks unstamped every time.
+	- Origin: `4fcfec0b` (2026-10-03), before this window. `upgrade_file` (`60d0196c`, 2026-10-07) turns it into a new backup on every start. Neither 20261014 round saw it. 2026100307163902 accepted the scan and the parser disagreeing on E014 lines, since such a file fails `check` anyway. Confirmed.
+	- Sweep: every reader of the line scan in all 4: the Format and Schema line reads, `restamp`, and the banner code.
+	- Note: fuzz `ErfuRfE` misses it, since its names all parse and it skips any file with an error. 2026101514324704 widens it.
+	- Actual cause: confirmed. When the child fence read opened nothing on a line led by a backtick or tilde, the scan stopped there, but the parser goes on to read it as a field line, whose fence takes the body (2026100307163902). The body's closing fence then opened a block in the scan that ran to the end of the file.
+	- Actual fix: the scan reads such a line as a field line too, as the parser does, in all 4 bindings.
+	- Swept: every reader of the line scan goes through the same `opens_raw`: the Format line read, with `restamp` and the H006 and H007 hints behind it, the Schema line read, and `migrate`'s check of where its output's blocks are. The banner code works on the parsed document, not the scan. The 4 CLIs have no scan of their own, and the C++ veneer wraps the C calls, so neither changed.
+	- Note: the repro's file has no Format line, so plain `upgrade --write` now exits 7 on it, as spec.md says for lines one rule set reads as a raw body and the other doesn't. Since 2026101515372401 `--from-2x` refuses it at 7 too, since line 1 stays an E014 error. With the Format line under the block, every run leaves it alone.
+	- Test case: cli-regress `EsoQOx2` (`upgrade-odd-name-block`), `EsoQOx3` (`check-odd-name-newer`), `EsoQOx4` (`check-backtick-schema-body`) and save case `EsoQOx6` (`upgrade-odd-name`), plus new rows in `stamp_reads_say_why` in all 4 runners.
+	- Verified: the new rows and the save case fail on the review's 4 CLIs and pass on the fix. The runner rows fail in all 4 with the fix put back. The 4 conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, the 2,000,000 release fuzz, shell-regress, check-docs at `SHCL_GATE_REF=main`, check-abnf, check-veneer, the veneer smoke, test-ids, clippy, go vet, staticcheck, ruff, mypy, shellcheck, and cppcheck at the normal level.
+	- Note: at the merge with `upfrom`, `EsoQOx6` was changed to start from the file with its Format line and run plain `upgrade --write` twice, since `--from-2x` now refuses the file. It fails on the review's Rust CLI and passes on the merge.
+	- Branch: `scanfix`
+	- Commit: `9da3dd3c`
+	- Acceptance signoff: Self-closed: reproduced, the new tests failed before and pass after, and the scan now does what spec.md says.
+	- Closed: 20261015-162922
+
+- A setter writing a thousands number over a quoted value keeps the quotes, so Loose reads it as a number
+	- ID: 2026101514324702
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Severity: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 2
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101309122757
+	- Steps to reproduce:
+		- `printf 'k: "x"\nj: x\n' > f.shcl`
+		- `shcl set --set='k=1,200' --set='j=1,200' f.shcl`
+		- `shcl get --int --strictness=loose --set='k=1,200' f.shcl k`
+	- Incorrect behavior: `set` writes `k: "1,200"` and `j: 1,200`. The int read of `k` gives 1200 at exit 0, and of `j` BadType at exit 4. Same through the library setters. All 4.
+	- Expected behavior: spec.md's quoting rules say "A setter's value like that is written bare too", and Strictness levels says "`set` of `1,200` gives text". So `k` reads as text at every level, whatever its old quote kind.
+	- Reproduced: 20261015, all 4 CLIs.
+	- Possible cause: `keep_mark` gives the new text the old value's quote kind, the general rule in spec.md. The writer's thousands exception only runs for a value with no kept mark.
+	- Origin: `4527cc4e` (loosethou, 2026-10-13). Its Swept line names `keep_mark`, and its calls cover a new field only. 20261014 had it in its tree. Confirmed.
+	- Note: this doesn't reopen the thousands rule JC settled on 2026-10-13. spec.md's thousands exception already names setters, and the fix makes them follow it.
+	- Sweep: every path that keeps an old quote kind on new text, in all 4.
+	- Actual cause: `keep_mark` put the old quote kind on any new text that fit it. The writer's thousands exception only ran for text with no mark.
+	- Actual fix: `keep_mark` leaves a thousands number bare in all 4. A setter over `"x"`, `'x'` or a backtick value writes `k: 1,200`, which reads as text before and after the save. spec.md's setter paragraph and value-syntax.md's setter bullet now say so too.
+	- Swept: `keep_mark` is the one place an old quote kind goes on new text. Each of the 4 libraries has one definition and one call, in the scalar setter path (`grep -n 'keep_mark\|keepMark'`). Array setters keep no marks, and a stacked list keeps its form, not its quotes. `--set-literal` takes its quotes from the text, as before. The C++ veneer wraps the C call.
+	- Verified: the 4 runners' fixture, corpus 206's write ops, the 2 new cli-regress rows and the veneer smoke fail without the fix and pass with it. Also cargo test, `go test -count=1` for both modules, the Python and C runners, cli-regress (593 rows, 4 bindings), crosscheck (53505 comparisons), check-doc-examples, check-abnf, shell-regress, rustfmt, clippy, go vet, staticcheck, ruff, mypy, shellcheck and cppcheck at the normal level.
+	- Test case: `loose_reads_a_quoted_thousands_number` in all 4 runners (`EsbaIWJ`, `EsbaIYt`, `EsbaIba`, `EsbaIe1`); corpus `206-loose-thousands`'s `write.ops`; cli-regress `EsoRGvI` (`set-thousands-over-quoted`) and `EsoRGxW` (`loose-set-thousands-over-quoted`); the veneer smoke `EjtkR0S`; and the setter half of fuzz `EsoRGsu`.
+	- Branch: `thoufix`
+	- Commit: `75ea0170`
+	- Acceptance signoff: Self-closed: reproduced, the new checks failed before the fix and pass after, and the Sweep has its Swept answer. It applies spec.md's own setter sentence and moves no recorded decision.
+	- Closed: 20261015-162300
+
+- `upgrade --from-2x` stamps a converted file that still has an error, and a second run reads it by 2.x rules again
+	- ID: 2026101515372401
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261015-153724
+	- Opened by: Code review 20261015 item 22
+	- Version and build: dev at `54096128`
+	- Related IDs: 2026101407100010, 2026101419280001, 2026101514324704
+	- Steps to reproduce:
+		- A 2.x file with `"k◉Q◉": 1` and `port: 8<U+3000>080`.
+		- `shcl upgrade --from-2x --write f.shcl` twice, with a different test clock each time.
+	- Incorrect behavior: the first run writes `"k◉ESCAPE_CHAR◉q◉ESCAPE_CHAR◉": 1` under a Format 3 block, with `port` still an E025 error, at exit 0. The second run takes that file for a beta file, reads it by 2.x rules, and renames the key to `k◉escape_char◉q◉escape_char◉` at exit 0, with a second backup. All 4.
+	- Expected behavior: `--from-2x` converts only when the fresh text loads clean, for a file with no Format line as for a beta file. Otherwise it writes nothing, exits 7 and names the lines still in error, so `upgrade` never stamps a file a later `--from-2x` would misread. Here the first run refuses on `port`; with it quoted, the first run converts and the second leaves the file alone.
+	- Reproduced: 20261015, the Rust CLI.
+	- Origin: the beta path from `ad9af077` (close10, 2026-10-14) requires a clean conversion, and the path for a file with no Format line doesn't. Neither 20261014 round saw it. Confirmed.
+	- Decisions:
+		- JC, 2026-10-15: refuse rather than teach `migrate` the E025 case, per the standing rule for 2.x work. A plain `upgrade` can still write a Format 3 file with an error, and `--from-2x` on that is `--from-2x` on a file that isn't old, the case 2026101419280001 closed as docs only.
+	- Against: 2026101407100010's narrowed rule, which needs a clean conversion for a beta file only. This widens it to every `--from-2x` conversion (JC, 2026-10-15).
+	- Sweep: `upgrade` and `upgrade_file` in all 4, the CLI's message and exit in all 4, and the help and man page lines on `--from-2x`.
+	- Actual cause: `upgrade` checked that the fresh text loads clean only for a file naming this format. A file with no Format line, or an older one, was written with its errors and stamped Format 3, so the next run with `--from-2x` took it for a beta file.
+	- Actual fix: with `from_v2`, `upgrade` makes nothing unless the fresh text loads clean, whatever the Format line says. `Upgrade.errors_left` lists the input's lines still in error, since migrate keeps every line where it was. `upgrade_file` returns a new `ErrorsLeft` error and writes nothing. The CLI prints `FILE: line(s) N would still have an error once converted from 2.x; nothing written` at exit 7, printed or with `--write`. A beta file whose conversion keeps an error was `current` at exit 0 before, and gets this refusal now. Nothing changed without `--from-2x`. Same in all 4 and the C++ veneer (`Upgrade::errors_left`, `UpgradeErrorKind::ErrorsLeft`, `UpgradeError::lines`).
+	- Note: the old checks that pinned a beta file left alone at exit 0 are commented out with the reason: the `stuck` asserts in the 4 `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` tests, and cli-regress `Esnb9kl` and save case `Esnb9pV` from 2026101419280005, replaced by `EsoQmUF` and `EsoQmUE`. check-migrate's format 3 case expects exit 7 for such a file now, with a floor of one.
+	- Note: `upgrade --write`'s refusal prints no load diagnostics yet, the same as its ambiguous refusal. 2026101514324706 covers both.
+	- Swept: `upgrade` and `upgrade_file` in Rust, Go, Python and C, and the C++ veneer. The printed and `--write` arms of the 4 CLIs. The `--from-2x` help in the 4 CLIs, and the man page's `--from-2x`, `upgrade` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry and the changelog line. The doc comments on `Upgrade`, `upgrade` and `upgrade_file` in all 4. The style guide's and check-docs' lists of Python-only error classes. check-migrate's format 3 case. `migrate` never takes a beta file as 2.x, so it's unchanged. Help wording past the refusal is left to 2026101514324708.
+	- Verified: the 4 new cli-regress rows fail on the reviewed tree's 4 CLIs, 16 checks and nothing else, and pass on the fix. The 4 library tests fail with the check put back to beta files only, and pass with the fix. check-migrate fails with the old rule (3 fuzz documents and its fixed file) and passes with the fix. Green on the branch: cargo test, go test for the library and cmd, the Python and C runners, veneer smoke, sanitize-c, the oom and mem_bounds tests, cli-regress, check-doc-examples, crosscheck, check-migrate, shell-regress, check-docs with `SHCL_GATE_REF=main`, check-abnf, check-veneer, check-completions, check-readme, markdownlint-cli2, shellcheck, clippy native and windows-gnu, go vet, staticcheck, ruff, mypy, cppcheck at the normal and exhaustive levels, test-ids check, and windows builds of the C CLI and the veneer.
+	- Test case: `from_v2_refuses_a_conversion_that_keeps_an_error` in Rust (`EsoQmU8`), Go (`EsoQmU9`), Python (`EsoQmUA`) and C (`EsoQmUB`), with `upgrade_file`; cli-regress `EsoQmUC` (`upgrade-from-2x-left`) and `EsoQmUF` (`upgrade-left-diags-from-2x`); save cases `EsoQmUD` (`upgrade-from-2x-left`, the item's file refused, then converted with `port` quoted and left alone by the next run) and `EsoQmUE` (`upgrade-beta-left`); the veneer smoke checks on `errors_left` and `ErrorsLeft`; check-migrate `Es34DZk`.
+	- Branch: `upfrom`
+	- Commit: `88daada9`
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the rule is JC's 2026-10-15 call on the item. The refusal line's wording is my call; the rest of the `upgrade` help wording is 2026101514324708's.
+	- Closed: 20261015-165000
+
+- Nothing tests the Loose thousands grouping rule itself
+	- ID: 2026101514324703
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261015-143247
+	- Opened by: Code review 20261015 item 3
+	- Version and build: dev at `79b9876c`
+	- Related IDs: 2026101309122757, 2026101318521195, 2026101010054746
+	- Problem description: spec.md says `"1,2000"` and `"$ 1,200"` stay text, and a `%` goes where it goes on any Loose number. No runner, corpus case or cli-regress row has `"1,2000"`, `"1234,567"`, `"$ 1,200"`, or an int read of `"1,200%"`. 4 breaks of the rule in the reference passed every gate: a head of 4 digits, groups of 3 or more, a blank after the currency sign, and an int read that ignores `%`. Groups of 3 or more in the Python port passed too, while its CLI read `"1,2000"` as 12000. `typed_reads_survive_a_save` (`EsZikJr`) compares a read before and after a save, so it can't see the rule.
+	- Requirements:
+		- Rows in corpus `206-loose-thousands` and the shared `loose_reads_a_quoted_thousands_number` fixture for each spelling spec.md says stays text, plus `"1234,567"` and an int read of `"1,200%"`.
+		- A fuzz property: a quoted `thousands_soup` value reads Good at Loose, as int and float, exactly when it matches spec.md's pattern, with the number checked, and BadType at Standard and Strict.
+		- crosscheck's fuzz dump gets thousands documents with Loose reads, so the other 3 bindings see them.
+		- The cli-regress comment above `EsZikJm` says fmt writes the value quoted. It keeps it bare since 2026101309122757.
+	- Reason: the rule changed 4 times in 9 days. The next change to it should go red somewhere.
+	- Origin: `4527cc4e` and `10deaa99` (loosethou). Confirmed by putting each break in and running the gates.
+	- Done:
+		- Corpus 206 has `"1,2000"`, `"1234,567"`, `"$ 1,200"` and a backtick `1,200`, with Loose reads of each, float reads of `"1, 200"` and `"1,2,3"`, and an int read of `"1,200%"`. The shared fixture in the 4 runners has the same spellings plus `".1,200"`.
+		- Fuzz `quoted_thousands_read_by_the_rule` reads a quoted `thousands_soup` value, in each quote kind and at each level, against spec.md's pattern worked out apart from the library, int and float values included. A setter's soup over a quoted value has to read as text at every level, before and after a save, so 02's bug fails it.
+		- The fuzz dump writes 40 thousands documents with Loose int, float and array reads, which crosscheck replays through the other 3.
+		- The cli-regress comment above `EsZikJm` no longer says fmt quotes the value.
+	- Verified: each of the review's 4 breaks put back in the reference fails the fixture, corpus 206 and the fuzz property. Groups of 3 or more in the Python port fail its corpus run and crosscheck over the dump. 02's bug fails the property. Release fuzz at 2,000,000 passed, 29 properties in 475 s, since corpus 206's input changed. The gates listed on 02 ran on the same tree.
+	- Test case: fuzz `EsoRGsu` (`quoted_thousands_read_by_the_rule`); corpus `206-loose-thousands` (`EsbaIuk`) in all 4 runners and crosscheck; `loose_reads_a_quoted_thousands_number` in all 4 runners; crosscheck `EjsGuyA` over the thousands dump.
+	- Branch: `thoufix`
+	- Commit: `2af9be49`
+	- Acceptance signoff: Self-closed: each Requirement has its check, and each break the review named fails one.
+	- Closed: 20261015-162300
 
 - check-docs gates fed by a Python script pass when the script crashes
 	- ID: 2026101419280002
