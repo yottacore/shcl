@@ -8184,12 +8184,13 @@ static shcl_set_status w_replace_default(shcl_doc *d, const char *path, size_t p
 	shcl_set_status st = set(d, path, plen, w);
 	if (st != SHCL_SET_OK) { arena_release(a, m); return st; }
 	/* A value equal to another instance's folds the two, and the earlier one
-	   stays. */
+	   stays. Asked of the name's instances, not every sibling, or N defaults
+	   under one parent cost N squared. */
 	size_t at = idx, k;
-	for (k = 0; k < NODE(d, parent).children.len && NODE(d, parent).children.data[k] != idx; k++) {}
-	if (k == NODE(d, parent).children.len) {
-		ShclVecSize kids = {0};
-		children_named(d, &d->scratch, parent, name, &kids);
+	ShclVecSize kids = {0};
+	children_named(d, &d->scratch, parent, name, &kids);
+	for (k = 0; k < kids.len && kids.data[k] != idx; k++) {}
+	if (k == kids.len) {
 		for (size_t i = 0; i < kids.len; i++) {
 			const ShclNode *c = &NODE(d, kids.data[i]);
 			if (merge_eq(c->name, &c->value, name, &NODE(d, idx).value)) { at = kids.data[i]; break; }

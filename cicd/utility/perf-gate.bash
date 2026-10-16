@@ -13,7 +13,9 @@
 ##		unknown field, must stay small beside reading a well-formed document
 ##		of the same size. A per-op index rebuild, a scan of every sibling, a
 ##		rewalk of the retained lines, or a full edit-distance table per name
-##		pair breaks that ratio by more than an order of magnitude.
+##		pair breaks that ratio by more than an order of magnitude. One
+##		workload, fills, is timed against a spread-out twin of itself
+##		instead, since its per-op cost is too far from a parsed line's.
 ##	Syntax:
 ##		perf-gate.bash [--keys N] [--factor F] NAME|CLI [NAME|CLI ...]
 ##		  --keys N    flat keys in the generated document (default 40000)
@@ -166,6 +168,19 @@ mergeBase="${tmpDir}/merge-base.shcl"; mergeOver="${tmpDir}/merge-over.shcl"
 awk -v n="$((keys / 2))" 'BEGIN{ for (i = 0; i < n; i++) printf "k%d: %d\n", i, i }' > "${mergeBase}"
 awk -v n="$((keys / 2))" 'BEGIN{ for (i = 0; i < n; i++) printf "k%d: %d\n", i, i + 1 }' > "${mergeOver}"
 
+## A default over every field of one parent, none of which reads as an int.
+## Each replaced field was looked for in its parent's whole child list after
+## the write, so the cost was the field count times the sibling count
+## (2026101514324721). The per-default cost is several times a parsed line's,
+## and more so in some bindings than others, so this one is judged against the
+## same defaults one field per parent, where that list is one long, rather
+## than the parse.
+fillDoc="${tmpDir}/fill.shcl"; apartDoc="${tmpDir}/apart.shcl"
+awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "k%d: x\n", i }' > "${fillDoc}"
+awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "int-default\tk%d\t0\n", i }' > "${tmpDir}/fills.ops"
+awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "g%d:\n\tk: x\n", i }' > "${apartDoc}"
+awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "int-default\tg%d.k\t0\n", i }' > "${tmpDir}/apart.ops"
+
 ##	A run that never comes back is a failure, not a wait. Without this a binding
 ##	that stopped terminating hung the gate until whatever was running it gave up,
 ##	and on hosted CI that is the job's own timeout with no workload named. The cap
@@ -212,6 +227,8 @@ fTimeMs(){
 			fRun "${cli}" set "${input}" < "${tmpDir}/removes.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
 		elif [[ "${mode}" == keeps ]]; then
 			fRun "${cli}" set "${input}" < "${tmpDir}/keeps.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
+		elif [[ "${mode}" == fills || "${mode}" == apart ]]; then
+			fRun "${cli}" set "${input}" < "${tmpDir}/${mode}.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
 		else
 			fRun "${cli}" set "${doc}" < "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
 		fi
@@ -305,6 +322,7 @@ workloads=(
 	'EqMO8fB|merge'
 	'EqR8jEH|removes'
 	'Er207Yg|raws'
+	'EstMfyF|fills'
 )
 for row in "${workloads[@]}"; do
 	IFS='|' read -r tid w <<<"${row}"
@@ -315,6 +333,7 @@ for row in "${workloads[@]}"; do
 		[[ -n "${budgetOf[${name}]:-}" ]] || continue
 		ran=$((ran + 1))
 		budget="${budgetOf[${name}]}"; baseMs="${baseOf[${name}]}"
+		against="parse-only baseline ${baseMs} ms"
 		if [[ "${w}" == keeps ]]; then
 			## Three parses by design, the source, the edited text and the
 			## reload check, against a one-parse baseline, so the row ran at up
@@ -345,13 +364,22 @@ for row in "${workloads[@]}"; do
 			ms="$(fTimeMs "${cli}" "${rmDoc}" removes 6)"
 		elif [[ "${w}" == raws ]]; then
 			ms="$(fTimeMs "${cli}" "${rawDoc}" raws "$((keys * 2))")"
+		elif [[ "${w}" == fills ]]; then
+			## Each default leaves a note line above its field, and the
+			## spread-out one a parent line too. The budget is the
+			## spread-out run. Linear code runs at about three quarters of
+			## it, and the old scan at 1.4 to 4 times, in every binding.
+			budget="$(fTimeMs "${cli}" "${apartDoc}" apart "$((keys * 3))")"
+			if ((budget < 0)); then nBad+=1; continue; fi
+			against="the same defaults one per parent"
+			ms="$(fTimeMs "${cli}" "${fillDoc}" fills "$((keys * 2))")"
 		else
 			ms="$(fTimeMs "${cli}" "${tmpDir}/${w}.ops" set "${keys}")"
 		fi
 		if ((ms < 0)); then
 			nBad+=1
 		elif ((ms > budget)); then
-			echo "perf-gate: ${name}: ${w} took ${ms} ms against a ${budget} ms budget (parse-only baseline ${baseMs} ms)" >&2
+			echo "perf-gate: ${name}: ${w} took ${ms} ms against a ${budget} ms budget (${against})" >&2
 			nBad+=1
 		else
 			times+="${times:+, }${name} ${ms}/${budget} ms"
@@ -433,3 +461,5 @@ echo "perf-gate: OK: ${keys} keys, ${#bindings[@]} binding(s) within ${factor}x 
 ##		            stderr made the clock flaky on the hosted runner.
 ##		2026-09-26  raws workload: raw blocks side by side, each of which
 ##		            rescanned its whole sibling run in the emitter.
+##		2026-10-16  fills workload: a default over every bad field of one
+##		            parent, each of which rescanned the parent's child list.

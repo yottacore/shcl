@@ -7903,11 +7903,13 @@ class Document:
 		if st is not SetStatus.Ok:
 			return st
 		# A value equal to another instance's folds the two, and the earlier
-		# one stays.
+		# one stays. Asked of the name's instances, not every sibling, or N
+		# defaults under one parent cost N squared.
 		at = idx
-		if idx not in self.arena[parent].children:
+		named = self._children_named(parent, name)
+		if idx not in named:
 			key = _merge_key(name, self.arena[idx].value)
-			for c in self._children_named(parent, name):
+			for c in named:
 				if _merge_key(self.arena[c].name, self.arena[c].value) == key:
 					at = c
 					break

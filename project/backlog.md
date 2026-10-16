@@ -146,7 +146,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Replacing a bad value with a default walks all its siblings each time
 	- ID: 2026101514324721
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
 	- Priority: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 21
@@ -155,6 +156,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `replace_default` checks that the node is still among its parent's children after the set with a linear scan, in all 4. Filling N bad values under one parent costs N squared. Rust takes 0.16 s at 20,000 fields, 1.14 s at 80,000 and 3.58 s at 160,000, where 160,000 plain int ops take 0.29 s. Python takes 35 s at 80,000.
 	- Requirements: a check that doesn't scan, and a perf-gate workload with a threshold.
 	- Origin: `5bb89ac4` (defaultfix). Confirmed by timing.
+	- Reproduced: 20261016, all 4 CLIs. A default over 40,000 bad fields of one parent took 1.4 to 4.4 times as long as the same defaults spread one per parent, and grew faster than the field count.
+	- Actual fix: the check asks the name index for the field's instances under its parent, as the set's own fold does, rather than walking the parent's whole child list. The fold case keeps its answer: the note goes on whichever instance stays.
+	- Swept: the same check in all 4. The other child-list membership walk, `live` in the remove path, runs once per field a removal empties, and the `removes` perf-gate row already covers it. Left alone.
+	- Verified: perf-gate's new `fills` row fails on dev's 4 CLIs (Rust 7043 ms against 1617, Go 616 against 321, C 431 against 292, Python 11725 against 5876) and passes on the fix at 72 to 81 percent of its budget. With the fold branch taken out of Rust, cli-regress `EstMftv` fails. Also the Rust suite with 200,000 fuzz, `go test -count=1` for both modules, the Python and C conformance suites, the C++ veneer smoke, cli-regress (612 rows, 4 bindings), crosscheck over the corpus (22233 comparisons), the whole perf-gate, rustfmt, clippy, go vet for linux and windows, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level, and test-ids check.
+	- Test case: perf-gate `EstMfyF` (`fills`), judged against the same defaults one per parent rather than the parse, since a default costs several parsed lines. cli-regress `EstMftv` and `EstMfw7` pin the note's place when the default folds into an earlier or a later instance, which nothing tested before.
+	- Branch: `deffast`
+	- Commit: `3c0a544a`
+	- Acceptance signoff: Self-closed: a review item reproduced by timing, with a perf row that fails on the old code in all 4 and passes on the fix.
+	- Closed: 20261016-122000
 
 - crosscheck's save-gate and `fFixLost` write rows only compare bindings, never what the call has to do
 	- ID: 2026101609320201
