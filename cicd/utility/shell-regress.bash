@@ -2891,6 +2891,35 @@ for id in EshYXXC Er8RudX EsiRFl2 EsnhDn1; do
 	grep -qE "^FAIL ${id} check-docs " <<<"${out}" || fBad "check-docs' ${id} passed with python3 exiting 1 after its output"
 done
 
+fTest EstZ5TA 2026101514324719-check-docs-feeds-stay-guarded
+##	Code review 20261015 item 19: EsndgSX finds the feeds by their guard, so one
+##	whose `|| fFeedBad $?` turned into `|| true` just dropped out of its count and
+##	passed, and that's the form that hid real git errors. So every loop check-docs
+##	feeds from a variable has to fill it through fFeedBad, and no capture may end
+##	in `)" || true`. The listed ones were `<<<` loops before that item, over sed,
+##	grep or git, and were left with the `|| true` inside.
+feedOld="defaultOps drifted editOpts exitRows flameKeys noted retiredCodes"
+out="$(FEED_OLD="${feedOld}" awk '
+	BEGIN { n = split(ENVIRON["FEED_OLD"], o, " "); for (i = 1; i <= n; i++) old[o[i]] = 1 }
+	/^[[:space:]]*#/ { next }
+	/^[[:space:]]*(local[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*="\$\(/ {
+		v = $0; sub(/^[[:space:]]*(local[[:space:]]+)?/, "", v); sub(/=.*/, "", v); open = v
+	}
+	open != "" && /\)"([[:space:]]*\|\|.*)?$/ {
+		if ($0 ~ /\)"[[:space:]]*\|\|[[:space:]]*true/) print FNR ": " open "=\"$(...)\" || true hides the feed exit"
+		guarded[open] = ($0 ~ /\)" \|\| fFeedBad \$\?$/); open = ""
+	}
+	match($0, /done <<<"\$\{[A-Za-z_][A-Za-z0-9_]*\}"/) {
+		v = substr($0, RSTART + 11, RLENGTH - 13); loops++
+		if (!(v in old) && !guarded[v]) print FNR ": the loop over " v " reads a capture that skips fFeedBad"
+	}
+	END { print "loops " loops + 0 }' "${docs}")"
+nLoops="$(sed -n 's/^loops //p' <<<"${out}")"
+((nLoops >= 30)) || fBad "found ${nLoops} loops fed from a variable in check-docs.bash, too few to trust; has the form changed?"
+while IFS= read -r hit; do
+	[[ -z "${hit}" || "${hit}" == "loops "* ]] || fBad "check-docs.bash:${hit}"
+done <<<"${out}"
+
 fTest EssNR9b 20261015-15-fenced-hash-is-no-heading
 ##	Code review 20261015 item 15: installer-doc-pointers took a `#` line in a
 ##	code fence for a heading, so an installer link to a typo passed. Both link
