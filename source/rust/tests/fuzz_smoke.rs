@@ -12,7 +12,7 @@ use common::test_id;
 use shcl::{
 	Document, FORMAT_MAJOR, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens,
 	format_array, format_value, format_version, migrate, quote_segment, schema_ref, tokenize,
-	tokenize_value,
+	tokenize_value, upgrade,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -885,7 +885,9 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 	let mut open: Option<(char, usize, usize)> = None;
 	let mut tok = Tokens::default();
 	for (k, line) in lines.iter().enumerate() {
-		let bare = line.trim_start_matches([' ', '\t']);
+		// A carriage return in the indent is a blank to the load, before a
+		// fence, a `*` or a `- ` alike.
+		let bare = line.trim_start_matches([' ', '\t', '\r']);
 		if let Some((c, n, at)) = open {
 			// Only the blanks the load trims: a no-break space before a fence
 			// leaves it body text. A body keeps its carriage returns but the
@@ -943,6 +945,17 @@ fn a_cr_after_the_indent_closes_no_raw_span() {
 	assert_eq!(raw_spans(base), [(1, 4)]);
 	assert!(Document::parse(base).diagnostics().is_empty());
 	assert_eq!(raw_spans("a: ~~~\n\t~~~\r\r\nb: 1\n"), [(1, 2)]);
+}
+
+// Outside a body a carriage return in the indent is a blank, so the line
+// after it still opens a block, as the load reads it.
+#[test]
+fn a_cr_in_the_indent_still_opens_a_raw_span() {
+	let _id = test_id("EssPQ7b");
+	let base = "a:\n\t\r~~~\n\tb: 1\n\t~~~\nc: 2\n";
+	assert_eq!(raw_spans(base), [(2, 4)]);
+	assert!(Document::parse(base).diagnostics().is_empty());
+	assert_eq!(raw_spans("a: 1\n\r*b: ```\nc: 2\n"), []);
 }
 
 /// A raw body is content, whatever becomes of the line that opened it. A
@@ -1035,15 +1048,26 @@ fn raw_bodies_stay_content() {
 /// comment, and not inside a raw body. The line walk that finds them used the
 /// 2.x tokenizer, where a backslash escapes in single quotes too, so after
 /// `'C:\': ~~~` it missed the block and took the line in its body as the
-/// file's. Judged on files that load without an error, since a line the
-/// parser refuses for its text may still read its body as lines.
+/// file's. A name led by `~` or a backtick (E014) still takes its body, and
+/// the walk once stopped at such a line (2026101514324701). Files with an
+/// error stay in, since where the bodies are comes from `raw_spans` and not
+/// from what the parser kept.
 #[test]
 fn schema_and_format_lines_follow_the_parser() {
 	let _id = test_id("ErfuRfE");
-	const NAMES: &[&str] = &["a", "b", "'C:\\'", "'a\\'", "\"c\\\\\"", "'q\\'.r'"];
+	const NAMES: &[&str] = &[
+		"a",
+		"b",
+		"'C:\\'",
+		"'a\\'",
+		"\"c\\\\\"",
+		"'q\\'.r'",
+		"~x",
+		"`y",
+	];
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_5C4E_3A00_0011);
-	let (mut inside, mut outside) = (0usize, 0usize);
+	let (mut inside, mut outside, mut odd) = (0usize, 0usize, 0usize);
 	for i in 0..iters {
 		let mut lines: Vec<String> = Vec::new();
 		for _ in 0..(1 + rng.below(6)) {
@@ -1061,18 +1085,12 @@ fn schema_and_format_lines_follow_the_parser() {
 		lines.insert(at, format!("{indent}##    {mark}"));
 		let text = lines.join("\n") + "\n";
 		let doc = Document::parse(&text);
-		if doc
-			.diagnostics()
-			.iter()
-			.any(|d| d.severity == Severity::Error)
-		{
-			continue;
+		if doc.diagnostics().iter().any(|d| d.code == "E014") {
+			odd += 1;
 		}
-		let in_body = doc
-			.paths()
+		let in_body = raw_spans(&text)
 			.iter()
-			.flat_map(|p| doc.instances(p))
-			.any(|v| v.contains(mark));
+			.any(|&(open, last)| open <= at && at < last);
 		if in_body {
 			inside += 1;
 		} else {
@@ -1104,6 +1122,123 @@ fn schema_and_format_lines_follow_the_parser() {
 		"only {} lines landed outside one",
 		outside
 	);
+	assert!(odd > iters / 20, "only {} files had an E014 name", odd);
+}
+
+/// `upgrade` over the soup, stamped with this format, the one before, a newer
+/// one, a number past 32 bits or nothing, and run with and without
+/// `from_v2`. A file naming this format that loads clean, or naming a newer
+/// one, comes back current and as it was. A made-over file names this
+/// format, loads clean wherever the input named it or `from_v2` was passed,
+/// and a second run leaves it alone. The scan once missed the block under a
+/// `~x:` line, so the stamp an upgrade added read as inside it and every run
+/// made the file over again (2026101514324701); some inputs get a name led
+/// by `~` or a backtick for that.
+#[test]
+fn upgrade_leaves_its_own_output_alone() {
+	let _id = test_id("EssNzSi");
+	let iters = iter_count(1);
+	let seeds = seed_texts();
+	let mut rng = Rng(0x5EED_06AD_0000_0004);
+	let (mut kept, mut made, mut beta, mut newer, mut odd) =
+		(0usize, 0usize, 0usize, 0usize, 0usize);
+	for i in 0..iters {
+		let base = if rng.below(2) == 0 {
+			let seed = rng.below(seeds.len());
+			mutate(&mut rng, &seeds[seed])
+		} else {
+			structural(&mut rng)
+		};
+		let mut lines: Vec<String> = base.lines().map(str::to_string).collect();
+		if rng.below(3) == 0 && !lines.is_empty() {
+			let k = rng.below(lines.len());
+			let line = &mut lines[k];
+			let at = line.len() - line.trim_start_matches([' ', '\t']).len();
+			line.insert(at, ['~', '`'][rng.below(2)]);
+			odd += 1;
+		}
+		// 99999999999 reads as 4294967295, a newer format (2026101514324705).
+		let stamp = ["3", "3", "2", "4", "99999999999", ""][rng.below(6)];
+		let mut at = None;
+		if !stamp.is_empty() {
+			let k = if rng.below(2) == 0 {
+				lines.len()
+			} else {
+				rng.below(lines.len() + 1)
+			};
+			lines.insert(k, format!("##    Format   {stamp}"));
+			at = Some(k);
+		}
+		let text = lines.join("\n") + "\n";
+		let named = format_version(&text);
+		// Read apart from the scan: the one Format line, outside every body.
+		let says_newer = matches!(stamp, "4" | "99999999999")
+			&& text.matches("##    Format").count() == 1
+			&& at.is_some_and(|k| !raw_spans(&text).iter().any(|&(o, l)| o <= k && k < l));
+		let clean = Document::parse(&text).error_count() == 0;
+		for from_v2 in [false, true] {
+			let up = upgrade(&text, from_v2);
+			let ctx = || format!("iteration {i}, from_v2 {from_v2}:\n{text}\n->\n{}", up.text);
+			if says_newer || named.is_some_and(|v| v > FORMAT_MAJOR) {
+				newer += 1;
+				assert!(up.current, "a newer format was made over, {}", ctx());
+			}
+			if named == Some(FORMAT_MAJOR) && clean {
+				assert!(up.current, "a clean current file was made over, {}", ctx());
+			}
+			if up.current {
+				kept += 1;
+				assert_eq!(up.text, text, "current but changed, {}", ctx());
+				assert!(
+					up.diagnostics.is_empty(),
+					"current with diagnostics, {}",
+					ctx()
+				);
+				continue;
+			}
+			if up.ambiguous != 0 || !up.errors_left.is_empty() {
+				assert_eq!(up.text, text, "refused but changed, {}", ctx());
+				continue;
+			}
+			made += 1;
+			assert_eq!(
+				format_version(&up.text),
+				Some(FORMAT_MAJOR),
+				"the fresh text names no current format, {}",
+				ctx()
+			);
+			let loads = Document::parse(&up.text).error_count() == 0;
+			if named == Some(FORMAT_MAJOR) {
+				beta += 1;
+			}
+			if from_v2 || named == Some(FORMAT_MAJOR) {
+				assert!(loads, "the fresh text has an error, {}", ctx());
+			}
+			let again = upgrade(&up.text, false);
+			assert!(
+				again.current && again.text == up.text,
+				"a second run made it over again, {}\n->\n{}",
+				ctx(),
+				again.text
+			);
+			if loads {
+				assert!(
+					upgrade(&up.text, true).current,
+					"a second run with from_v2 made it over again, {}",
+					ctx()
+				);
+			}
+		}
+	}
+	// Guard: the soup reaches each arm.
+	assert!(made > iters / 4, "only {made} files were made over");
+	assert!(kept > iters / 4, "only {kept} files were left as they were");
+	assert!(
+		beta > iters / 100,
+		"only {beta} files naming this format were made over"
+	);
+	assert!(newer > iters / 10, "only {newer} runs over a newer format");
+	assert!(odd > iters / 10, "only {odd} files had an odd name");
 }
 
 /// A list with a field under it (E001) after an empty binding of its name
@@ -1270,13 +1405,46 @@ fn merge_never_panics_and_stays_fixpoint() {
 /// Writer round-trip: a set_string value must read back verbatim (encode is the
 /// exact inverse of the string read), survive emit + reparse, and leave the
 /// document a formatter fixpoint - even for the reserved/escape/fence hazards.
+/// Now and then the text is a thousands number, which the scalar writer keeps
+/// bare and an array element can't be, and arrays run 0 to 4 long, since a
+/// lone element once took the scalar rule with no fuzz noticing.
 #[test]
 fn writer_roundtrips_and_stays_fixpoint() {
 	let _id = test_id("Ekfzh7g");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_0000_1234_ABCD);
+	let mut thousands = 0usize;
+	let soup = |rng: &mut Rng| {
+		if rng.below(6) == 0 {
+			thousands_soup(rng)
+		} else {
+			soup_text(rng, 12)
+		}
+	};
 	for i in 0..iters {
-		let s = soup_text(&mut rng, 12);
+		let s = soup(&mut rng);
+		if thousands_by_spec(&s).is_some() {
+			thousands += 1;
+			assert_eq!(
+				format_value(&s).as_deref(),
+				Some(s.as_str()),
+				"a thousands number written quoted #{i}"
+			);
+		}
+		// One element is the scalar's text in brackets, but a thousands
+		// number is quoted there, or its comma would split it.
+		let lone = format_value(&s).map(|v| {
+			if thousands_by_spec(&s).is_some() {
+				format!("[\"{v}\"]")
+			} else {
+				format!("[{v}]")
+			}
+		});
+		assert_eq!(
+			format_array(&[s.as_str()]),
+			lone,
+			"format_array of one #{i} for {s:?}"
+		);
 		let mut d = Document::new();
 		assert_eq!(d.set_string("k", &s), shcl::SetStatus::Ok);
 		// In-memory: encode is the exact inverse of the scalar string read.
@@ -1312,27 +1480,26 @@ fn writer_roundtrips_and_stays_fixpoint() {
 			s
 		);
 		// Array form: each element unquotes/unescapes back to itself.
-		let b = soup_text(&mut rng, 12);
+		let mut owned = vec![s.clone()];
+		owned.extend((0..rng.below(5)).map(|_| soup(&mut rng)));
+		owned.truncate(rng.below(5));
+		let els: Vec<&str> = owned.iter().map(String::as_str).collect();
 		let mut da = Document::new();
+		assert_eq!(da.set_string_array("k", &els), shcl::SetStatus::Ok);
 		assert_eq!(
-			da.set_string_array("k", &[s.as_str(), b.as_str()]),
-			shcl::SetStatus::Ok
-		);
-		assert_eq!(
-			format_array(&[s.as_str(), b.as_str()]).map(|v| format!("k: {v}\n")),
+			format_array(&els).map(|v| format!("k: {v}\n")),
 			Some(da.to_canonical()),
 			"format_array #{} for {:?}",
 			i,
-			(&s, &b)
+			els
 		);
 		let ra = Document::parse(&da.to_canonical()).read_string_array("k");
-		assert_eq!(
-			ra.value,
-			vec![s.clone(), b.clone()],
-			"array round-trip #{}",
-			i
-		);
+		assert_eq!(ra.value, owned, "array round-trip #{}", i);
 	}
+	assert!(
+		thousands > iters / 50,
+		"only {thousands} thousands numbers in {iters}"
+	);
 }
 
 /// Text that sits near the number readers: digits, signs, radix letters,
@@ -4124,6 +4291,25 @@ fn generated_starters_load_and_validate_clean() {
 	assert_eq!(generated, 1029, "grid schemas that generate");
 }
 
+/// What the default forms put behind the old value in a note.
+const NOTE_MARK: &str = "  ## replaced by shcl when setting a default for ";
+
+/// The note lines `after` has more of than `before`, in order.
+fn new_notes<'t>(before: &str, after: &'t str) -> Vec<&'t str> {
+	let mut had: Vec<&str> = before.lines().filter(|l| l.contains(NOTE_MARK)).collect();
+	after
+		.lines()
+		.filter(|l| l.contains(NOTE_MARK))
+		.filter(|l| match had.iter().position(|h| h == l) {
+			Some(k) => {
+				had.swap_remove(k);
+				false
+			}
+			None => true,
+		})
+		.collect()
+}
+
 /// A default form leaves a field that reads as its type, at the document's
 /// strictness: missing, empty and a value that does not read all get the
 /// default, and a raw block of another type is the one refusal past the
@@ -4158,8 +4344,18 @@ fn a_default_leaves_a_value_of_its_type() {
 			continue;
 		}
 		let before = doc.to_canonical();
-		let was = doc.read_string(&path).status;
+		let was = doc.read_string(&path);
 		let op = rng.below(8);
+		// The typed read the op judges by, before it writes.
+		let typed = match op {
+			0 => doc.read_int(&path).status,
+			1 => doc.read_float(&path).status,
+			2 => doc.read_bool(&path).status,
+			3 => doc.read_datetime(&path).status,
+			4 => doc.read_int_array(&path).status,
+			5 => doc.read_raw(&path).status,
+			_ => was.status,
+		};
 		let (got, reads) = match op {
 			0 => (doc.set_int_default(&path, 7), doc.read_int(&path).status),
 			1 => (
@@ -4218,12 +4414,39 @@ fn a_default_leaves_a_value_of_its_type() {
 			Some(after.as_str()),
 			"iteration {i}: op {op} at {path:?} is not a fixpoint:\n{text}"
 		);
-		if after.contains("  ## replaced by shcl when setting a default for ")
-			&& !before.contains("  ## replaced by shcl")
-		{
+		// A replaced value leaves one note, naming the old value; nothing
+		// else leaves one.
+		let notes = new_notes(&before, &after);
+		if typed == shcl::Status::BadType {
+			assert_eq!(
+				notes.len(),
+				1,
+				"iteration {i}: op {op} at {path:?} replaced a value:\n{text}\n->\n{after}"
+			);
+			let old = notes[0]
+				.trim_start()
+				.strip_prefix("# ")
+				.and_then(|n| n.split_once(NOTE_MARK))
+				.map(|(line, _)| line)
+				.unwrap_or_default();
+			let back = Document::parse(&format!("{old}\n"));
+			let named = back.paths();
+			assert!(
+				named.len() == 1
+					&& (was.status != shcl::Status::Good
+						|| back.read_string(&named[0]).value == was.value),
+				"iteration {i}: op {op} at {path:?}: the note {:?} is not the old value {:?}:\n{text}\n->\n{after}",
+				notes[0],
+				was.value
+			);
 			noted += 1;
+		} else {
+			assert!(
+				notes.is_empty(),
+				"iteration {i}: op {op} at {path:?} ({typed:?}) left a note:\n{text}\n->\n{after}"
+			);
 		}
-		if was == shcl::Status::Empty {
+		if was.status == shcl::Status::Empty {
 			filled += 1;
 		}
 		let again = match op {
