@@ -74,8 +74,12 @@ template <class... Ts> static std::string show(const Ts &...vs) {
 }
 
 #ifndef SHCL_NO_FILE_IO
-// Each thread saves to a file of its own.
-static thread_local std::string savePath;
+// Each thread saves to a file of its own. Only the slot is thread_local:
+// mingw frees a thread_local's storage before its destructor runs (GCC bug
+// 80816), so a thread_local std::string crashes the thread's exit.
+static std::string saveBase;
+static thread_local int saveSlot = -1;
+static std::string save_path() { return saveBase + (saveSlot < 0 ? std::string("main") : std::to_string(saveSlot)) + ".shcl"; }
 static std::string save_base() {
 	const char *tmp = std::getenv("TMPDIR");
 	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
@@ -92,8 +96,7 @@ static int reads_from_several_threads() {
 	test_id("EstYOue", "reads_from_several_threads");
 	using D = shcl::Document;
 #ifndef SHCL_NO_FILE_IO
-	const std::string base = save_base();
-	savePath = base + "main.shcl";
+	saveBase = save_base();
 #endif
 	const std::string src =
 		"# the app\n"
@@ -138,6 +141,7 @@ static int reads_from_several_threads() {
 #ifndef SHCL_NO_FILE_IO
 		[](const D &d, const D &) {
 			std::string o;
+			const std::string savePath = save_path();
 			shcl::WriteStatus why{};
 			put(o, d.save_file(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
 			put(o, d.save_file_lossy(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
@@ -195,7 +199,7 @@ static int reads_from_several_threads() {
 		for (std::size_t t = 0; t < nThreads; t++) {
 			threads.emplace_back([&, t] {
 #ifndef SHCL_NO_FILE_IO
-				savePath = base + std::to_string(t) + ".shcl";
+				saveSlot = static_cast<int>(t);
 #endif
 				// Each starts at a different call, so the first reads differ.
 				for (std::size_t k = 0; k < calls.size(); k++) {
