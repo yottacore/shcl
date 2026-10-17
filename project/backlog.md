@@ -33,13 +33,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Implement leak and static checks of the C code run as part of CI/CD
+- Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
 	- Opened: 20261017-075828
 	- Opened by: JC
+	- Related IDs: 2026101711273980
 	- Version and build: dev at `c6e1ac23`
 	- Requirements:
 		- For C:
@@ -97,10 +98,94 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 					- UBSan's `vptr` check needs RTTI. A `-fno-rtti` build loses it.
 					- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
 		- Include vendored code in the analyses
-	- Note: some of this runs already. sanitize-c builds the C tests, the C++ veneer smoke, and the C CLI under ASan and UBSan, and the smoke again under TSan. check-veneer has its own small TSan check, and cppcheck runs at the exhaustive level. No LeakSanitizer suppressions file, `-fanalyzer`, clang analyzer, clang-tidy, CodeQL, or heaptrack yet.
-	- Note: `source/c` has no vendored code today. The only C++ is `shcl.hpp` and `veneer_smoke.cpp`, and the veneer is header-only, so the template trap applies.
+	- Already in place:
+		- sanitize-c builds the C tests, the C++ veneer smoke, and the C CLI under ASan and UBSan, and runs them over the corpus. LeakSanitizer comes on with ASan on Linux, so leaks already fail there.
+		- sanitize-c builds the veneer smoke again under TSan, and check-veneer has its own small TSan check. That covers the "if the code starts threads" line.
+		- cppcheck runs at the exhaustive level.
+		- `source/c` has no vendored code and links no third-party library, so nothing needs vendoring or suppressing yet.
+	- To do:
+		- Sanitizers, every full run:
+			- An LSan suppressions file, empty for now, passed through `LSAN_OPTIONS=suppressions=`. It names third-party libraries only.
+			- `oom_hook` runs with `detect_leaks=0`. Give it a one-line reason, or a backlog item ID if the leak is ours.
+			- C's bump arenas hide overruns inside a block from ASan. Add a switch for the sanitizer build that has `arena_alloc` malloc each request on its own and `arena_free` free them all.
+			- The veneer smoke's ASan build adds `-D_GLIBCXX_ASSERTIONS`.
+		- Static analysis, every full run:
+			- `gcc -fanalyzer -c -o /dev/null` over `main.c` and the test .c files. `shcl.h` is header-only, so each of those covers it.
+			- The clang static analyzer over the same files, with `scan-build --status-bugs` or the `clang --analyze` equivalent.
+			- clang-tidy with at least `clang-analyzer-*` and `bugprone-*` over `veneer_smoke.cpp`, with `-header-filter` naming `shcl.hpp` and `shcl.h`, and `-warnings-as-errors='*'`.
+			- There's no build system, so a script writes `compile_commands.json` from the flags sanitize-c uses.
+			- Before these go live, every existing finding is fixed, or suppressed at the line with a one-line reason.
+		- `--leakcheck`, a new cicd.bash flag shared with 2026101711273980:
+			- CodeQL over C and C++.
+			- The clang analyzer in CTU mode.
+			- A heaptrack soak: a small C program, plain build, that loops load, read, set, save to a temp file, merge, and validate over corpus files. It fails when the heap at round 2N is past round N by more than the margin. The report goes in `cicd/artifacts/`.
+			- A `_GLIBCXX_DEBUG` build of the veneer smoke, in its own build dir.
+		- Plant each fault and see its gate go red: a leak, a null dereference, a heap-growing loop, a use after a vector grows in the smoke, and a data race in the smoke.
+		- Every new tool goes in `TOOL_PINS`, the build images, and `ci.yml` in the same commit. Each new test gets an ID from `test-ids.py new`.
 	- Decisions:
 		- Vendored code is included in the analyses (JC, 2026-10-17).
+	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
+	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
+	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch covers what it calls (me).
+
+- Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
+	- ID: 2026101711273980
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261017-112739
+	- Opened by: JC
+	- Related IDs: 2026101707582803
+	- Version and build: dev at `09a0ede2`
+	- Problem description: the C and C++ checks in 2026101707582803 have no match in the other 3 bindings. Rust gets clippy, Go gets vet, staticcheck, and one `-race` test, and Python gets ruff and mypy. Nothing checks heap growth or leaked resources in any of them.
+	- Requirements:
+		- For all 3:
+			- The checks cover first-party and third-party code, vendored code included. On third-party code, only the leak, memory, and correctness checks run, not style lints.
+			- Any report fails the test that made it.
+			- Suppressions name third-party code only, by crate, module, or package name. A leak in our code is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns the check off with that item's ID beside it.
+			- Each binding gets a soak test, in-process. It loops load, read, set, save to a temp file, merge, and validate over corpus files, and fails when the heap at round 2N is past round N by more than a set margin. The heap report goes in `cicd/artifacts/`.
+			- Every tool is pinned and runs in the build container or lint image. It goes in `TOOL_PINS`, the images, and `ci.yml` in the same commit.
+			- Each new gate is watched to fail before it's trusted, by planting the leak it's meant to catch.
+			- Each new test gets an ID from `test-ids.py new`.
+		- `--leakcheck`, the flag shared with 2026101707582803, adds:
+			- CodeQL over Rust, Go, and Python, from the same pinned CLI as C and C++. No hosted service.
+			- Any check below that a full run measures as too slow.
+		- For Rust:
+			- Every full run builds the whole test suite with AddressSanitizer and LeakSanitizer, in its own target dir: `RUSTFLAGS=-Zsanitizer=address cargo +NIGHTLY test -Zbuild-std --target x86_64-unknown-linux-gnu`. That needs a dated nightly, pinned beside the 1.96 stable in `rust-toolchain.toml`.
+			- Every full run runs `cargo +NIGHTLY miri test`. Tests that call FFI or spawn processes, such as the `fcntl` calls and `cli_pipe.rs`, get `#[cfg_attr(miri, ignore)]` with a one-line reason.
+			- The soak test uses `dhat` in testing mode as a dev-dependency, so it never reaches a release build.
+			- clippy adds `clippy::mem_forget` and `clippy::undocumented_unsafe_blocks` under `-D warnings`. The `unsafe` blocks in `lib.rs` and `main.rs`, about 15, each get a `// SAFETY:` comment.
+			- Plant: an `Rc` cycle in the soak loop, a `Box::leak` in a test, and an out-of-bounds read in an `unsafe` block.
+		- For Go:
+			- Each package's `TestMain` checks that `runtime.NumGoroutine()` after the tests matches the count before, after a short settle.
+			- Every full run runs the whole suite with `-race`, in place of the one-test line in `TEST_EXTRA`.
+			- The soak test reads `runtime.MemStats.HeapInuse` and `runtime.NumGoroutine()` at round N and 2N, after 2 calls to `runtime.GC()`. Its `pprof` heap profile is the artifact.
+			- Plant: a goroutine blocked on a channel, a slice that grows in the soak loop, and a data race.
+		- For Python:
+			- The tests and the conformance runner run with `-X dev` and `-W error::ResourceWarning`, so an unclosed file fails.
+			- After the tests, `gc.collect()` runs and `gc.garbage` has to be empty.
+			- The soak test takes `tracemalloc` snapshots at round N and 2N. It starts tracing before `shcl` is imported. The top lines of `snapshot.compare_to()` are the artifact.
+			- Plant: an unclosed file, a list in a module global that grows in the soak loop, and an uncollectable cycle.
+		- Traps:
+			- Rust: without `-Zbuild-std`, std isn't instrumented. Without an explicit `--target`, the sanitizer flags reach build scripts and proc macros.
+			- Rust: LSan reports at process exit, so a leak fails the whole test binary. Rerun with `--test-threads=1` and a filter to find the test.
+			- Rust: Miri doesn't count memory reachable from a `static` as a leak. The soak test catches a static cache that grows.
+			- Go: `go test` caches a pass, so always `-count=1`. `-race` needs `CGO_ENABLED=1`. It's 2 to 20 times slower, so size the timeout for it.
+			- Python: the first rounds fill caches, such as the regex cache and interned strings. That's why the test compares round N with 2N, never 0 with N.
+	- Already in place:
+		- `cargo-deny` and `govulncheck` run in the lint stage, pinned, which covers known advisories in third-party code.
+		- `go vet` and `staticcheck` run on both Go modules. `go vet` includes `lostcancel` and `copylocks`.
+		- ruff selects `B` and `SIM`, so `B019`, `B006`, and `SIM115` already run.
+		- Go's `TestReadsFromSeveralGoroutines` runs under `-race`.
+		- No binding has a runtime dependency. Rust's only one, `pprof`, is behind the `profiling` feature. So nothing needs vendoring for CodeQL yet.
+	- Decided against: `goleak`. The Go library starts no goroutines, and `goleak` would be the library module's first dependency. The `NumGoroutine` check in `TestMain` does the same job here (me).
+	- Decided against: Go's `-asan` and `-msan`. They only check cgo code, and the Go binding has none (me).
+	- Decided against: Rust ThreadSanitizer. The library starts no threads. The only `thread::spawn` calls are in Windows tests, and safe Rust's `Send` and `Sync` rules cover sharing (me).
+	- Decided against: `pytest-memray`. The Python tests don't use pytest, and there's no C extension for its native tracking to find. `tracemalloc` covers pure Python (me).
+	- Decided against: an ASan-built CPython. There's no C extension. The only native calls are Windows-only `ctypes` ones (me).
+	- Decided against: `pip-audit`. The Python binding has no third-party dependencies. Add it when one arrives (me).
+	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
+	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
