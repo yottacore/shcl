@@ -36,9 +36,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
 	- Needs local test suite run?: N. sanitize-c `EstYPCw` passed in hosted run 38962944867.
-	- Needs external testing: the hosted windows job, once fixed.
+	- Needs external testing: the hosted windows job, its `c++ veneer` step (`EstYOue`).
 	- Priority: Low
 	- Opened: 20261016-123433
 	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
@@ -51,10 +51,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every lock site in `shcl.hpp`'s const members and schema-reading calls. Each was taken out alone and the TSan build run 3 times. 56 of 58 went red 3 of 3. The other 2, `strictness()` and `lost_count()`, read fields nothing writes after the parse, so they don't race. Taking the schema's lock out of `validate`'s pair doesn't race either, since the core only reads the schema there.
 	- Test case: C++ `EstYOue` (`reads_from_several_threads`), and sanitize-c `EstYPCw` for its TSan run.
 	- Verified: sanitize-c went red on `EstYPCw` with `instance_paths()` taking no lock, and on the ASan build too, and green restored. The plain smoke crashed or failed with `count()` taking no lock. The smoke passes plain, under TSan with gcc 14 here and gcc 13 in the ubuntu image, plain in the alpine image, and built for windows with zig under wine. Also the C conformance suite, check-veneer, check-c-compilers, check-docs, check-pins, shell-regress, shellcheck and test-ids check.
-	- Branch: `cxxtsan`
-	- Commit: `98e92883`
+	- Branch: `cxxtsan`, then `tlsfix`
+	- Commit: `98e92883`, then `e7f34869`
 	- Progress log: 20261016, reopened. Hosted run 38962944867's windows job failed `c++ veneer`. The smoke printed `ok` and then `EstYOue` died within a second, with no output. The build there is mingw g++ with libstdc++. The zig and wine build here uses libc++ and passed.
 		- Probable cause: `savePath` is a `thread_local std::string`. MinGW-w64 runs `thread_local` destructors after memory they use is freed, and a `thread_local std::string` is reported to crash at thread exit about half the time (GCC bug 80816). A plain `char` array or a path passed in would avoid it. Unverified, since this box has no mingw g++.
+		- Cause, confirmed: built with mingw g++ 14 and run under wine with its heap checks on, the smoke frees a pointer read from freed memory (`0xFEEEFEEE...`) once per worker thread exit, 24 a run. Wine lets it go. Windows' heap ends a process on a bad free, which would fit the silent death right after `ok`; that part is unverified. GCC bug 80816 is still open and reported on GCC 15. emutls frees the variable before its destructor runs.
+		- Fix: only an `int` slot is `thread_local` now, and the save call builds its path from it. The same build then frees nothing bad, 3 runs of 3 with the posix thread model and 1 with win32. No other `thread_local` in the tree.
+		- Verified: sanitize-c still goes red on `EstYPCw` with `instance_paths()` taking no lock, and green restored. Also the C conformance suite, the plain smoke, check-veneer, sanitize-c, check-docs and test-ids check. Only the hosted windows job is left.
 
 - C has no call for a value's text as written
 	- ID: 2026101612221649
