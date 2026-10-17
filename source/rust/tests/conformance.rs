@@ -359,6 +359,10 @@ fn doc_for(case: &Case, level: Strictness) -> Document {
 	})
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn canonical_format_matches_expected() {
 	let _id = test_id("Ejri0IT");
@@ -400,6 +404,10 @@ fn diag_text(text: &str) -> String {
 	got
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn diagnostics_match_expected() {
 	let _id = test_id("EkoN15s");
@@ -415,6 +423,10 @@ fn diagnostics_match_expected() {
 	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn validation_matches_expected() {
 	let _id = test_id("EkstvaW");
@@ -517,6 +529,10 @@ fn convenience_tier_falls_back_only_on_good() {
 	assert!(!doc.read_int("missing").ok());
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn reads_match_expected() {
 	let _id = test_id("Ejri0IU");
@@ -759,6 +775,10 @@ fn reads_match_expected() {
 	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn write_ops_match_expected() {
 	let _id = test_id("EkfphiV");
@@ -818,6 +838,10 @@ fn write_ops_match_expected() {
 
 /// Loaded to keep its lines and saved with no edits, every input is its own
 /// text again, byte for byte.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn keeping_lines_without_edits_writes_the_input() {
 	let _id = test_id("EqutO7H");
@@ -832,6 +856,10 @@ fn keeping_lines_without_edits_writes_the_input() {
 	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn layered_merge_matches_expected() {
 	let _id = test_id("EkyV757");
@@ -921,6 +949,10 @@ fn layered_merge_matches_expected() {
 	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn migrate_matches_expected() {
 	let _id = test_id("Ept4WPh");
@@ -953,6 +985,10 @@ fn migrate_matches_expected() {
 	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn migrate_is_a_fixpoint() {
 	let _id = test_id("EpyXoJW");
@@ -991,6 +1027,10 @@ fn stamped_in_place(text: &str, line: usize) -> Option<String> {
 	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn migrate_unstamped_is_migrate_without_the_stamp() {
 	let _id = test_id("Eqps7zO");
@@ -1056,6 +1096,10 @@ fn migrate_unstamped_is_migrate_without_the_stamp() {
 	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn init_generation_matches_expected() {
 	let _id = test_id("EkyZiCX");
@@ -1115,6 +1159,10 @@ fn init_generation_matches_expected() {
 	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn depth_cap_boundary_and_writer() {
 	let _id = test_id("El5Aber");
@@ -1430,6 +1478,10 @@ fn no_colon_repair_stays_narrow() {
 	}
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn write_bad_ops_are_rejected() {
 	let _id = test_id("El5Gcy6");
@@ -1603,6 +1655,10 @@ fn strict_fails_the_same_from_every_entry_point() {
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn load_and_validate_with_matches_the_text_form() {
 	let _id = test_id("Eshi8hz");
@@ -1868,6 +1924,10 @@ fn setter_status_values_in_order() {
 // the plain setter would. Same fixture in every runner. NotUtf8, OutOfRange
 // and NoReadBack have no case: a Rust string is always UTF-8, an i64 is in
 // range, and no other value is known that fails to read back.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn setter_status_names_each_refusal() {
 	let _id = test_id("EsDRhFU");
@@ -2028,6 +2088,10 @@ fn setter_status_names_each_refusal() {
 // nothing and the path checks Multiple, so a write never says true where the
 // read after it would say Multiple. An index or value selector picks one.
 // Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn repeated_path_refuses_a_setter() {
 	let _id = test_id("Es9aZSF");
@@ -2382,6 +2446,10 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(d3.to_canonical(), "\"ab◉TAB◉cd\": 2\n");
 }
 
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn file_tier_load_save() {
 	let _id = test_id("EnEYHTs");
@@ -2474,6 +2542,7 @@ fn file_tier_load_save() {
 		unsafe extern "C" {
 			fn getegid() -> u32;
 		}
+		// SAFETY: getegid takes nothing and can't fail.
 		let _ = std::os::unix::fs::chown(&born, None, Some(unsafe { getegid() }));
 		let set = std::fs::set_permissions(&born, std::fs::Permissions::from_mode(0o6750));
 		if set.is_ok() && id_of(&born) == 0o6750 {
@@ -2559,6 +2628,10 @@ fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
 }
 
 #[cfg(unix)]
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn save_creates_the_file_behind_a_dangling_symlink() {
 	let _id = test_id("EoLwIlj");
@@ -2616,6 +2689,7 @@ fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
 }
 
 #[cfg(unix)]
+#[cfg_attr(miri, ignore = "starts a process")]
 #[test]
 fn save_replaces_only_a_regular_file() {
 	let _id = test_id("EqLbKe8");
@@ -2716,6 +2790,7 @@ fn set_attrs(path: &std::path::Path, attrs: u32) {
 		.encode_wide()
 		.chain(std::iter::once(0))
 		.collect();
+	// SAFETY: wide is a NUL-terminated path that outlives the call.
 	unsafe {
 		SetFileAttributesW(wide.as_ptr(), attrs);
 	}
@@ -2725,6 +2800,10 @@ fn set_attrs(path: &std::path::Path, attrs: u32) {
 /// component is `.` or `..` - is not a document. A canonicalize drops the
 /// trailing separator first, so `save_file("f/")` used to rewrite `f`. Same
 /// fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn save_refuses_a_directory_shaped_path() {
 	let _id = test_id("EomvfCq");
@@ -2789,6 +2868,10 @@ fn write_status_values_in_order() {
 /// `write_file_atomic`, a save, `write_backup` and `upgrade_file`. A full disk
 /// and a read-only filesystem can't be made here without root; the library's
 /// own test maps those. Same fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn write_status_names_each_failure() {
 	let _id = test_id("EsEhCFy");
@@ -2925,6 +3008,10 @@ fn written_spelling_matches_its_reload() {
 /// merge grew with the number of edits, not with the document. Timed against
 /// the same document with no dead nodes; the ratio is what matters, since an
 /// absolute figure would be a machine constant. Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn index_rebuild_ignores_removed_nodes() {
 	let _id = test_id("EomjcaW");
@@ -2978,6 +3065,10 @@ fn index_rebuild_ignores_removed_nodes() {
 /// tree: a whole-tree pass made each small merge cost the document, and a
 /// caller folding many layers onto a big one paid it every time. Timed against
 /// the same merges with the big block left out. Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn merge_settles_only_what_it_touched() {
 	let _id = test_id("EqoaM6C");
@@ -3019,6 +3110,10 @@ fn merge_settles_only_what_it_touched() {
 /// whole document to settle it, even one far from the line. Timed against
 /// the same steps on the same document without the line. Same fixture in
 /// every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn a_far_kept_line_costs_an_edit_nothing() {
 	let _id = test_id("EqqmFxQ");
@@ -3091,6 +3186,10 @@ fn standard_trait_surface() {
 /// header to that binding and drops its items (E008). The load is left as
 /// it is; a save that would write it refuses (2026100511210900). An edit and
 /// a merge can each leave one. Same fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn a_list_no_text_loads_back_refuses_to_save() {
 	let _id = test_id("Ers2oF1");
@@ -3240,6 +3339,10 @@ fn a_remove_settles_a_list_after_an_empty_field() {
 /// canonical text writes the line as a comment and cannot load the list
 /// back, so that save refuses. The source text does, so with no edits the
 /// save that keeps lines writes it as it was.
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn a_list_the_source_loads_back_keeps_its_lines() {
 	let _id = test_id("ErsWiow");
@@ -3261,6 +3364,10 @@ fn a_list_the_source_loads_back_keeps_its_lines() {
 	std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn lost_and_save_gate() {
 	let _id = test_id("EnEclpx");
@@ -3376,6 +3483,10 @@ fn paths_enumeration_shape() {
 	assert_eq!((r.value, r.status), (3, shcl::Status::Good));
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn generation_bounds_a_multiplying_schema() {
 	let _id = test_id("ElupzhR");
@@ -4052,6 +4163,10 @@ fn stamp_hints_quote_digits() {
 /// document that is saved and loaded back at the end, since the file tier
 /// checks what an in-memory reload does not: a setter once took bytes the
 /// save wrote and the next load refused. Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn setters_write_only_what_reads_back() {
 	let _id = test_id("EpGRxM0");
@@ -4380,6 +4495,10 @@ fn the_writer_quotes_a_colon_or_comma() {
 // Loose reads a quoted thousands number, exact grouping only. Bare stays text
 // at every level, Standard and Strict refuse it, and the writer keeps a bare
 // one bare, so a typed read is the same after a save (2026101309122757).
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn loose_reads_a_quoted_thousands_number() {
 	let _id = test_id("EsbaIWJ");
@@ -4481,6 +4600,10 @@ fn loose_reads_a_quoted_thousands_number() {
 
 // A trailing `.` is fine on a quoted thousands number, as on a plain one. A
 // leading one is not, and a bare one stays bare (2026101318521195).
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn loose_reads_a_quoted_thousands_number_with_a_trailing_dot() {
 	let _id = test_id("EsdUlxj");
@@ -4959,6 +5082,7 @@ fn default_replace_round_trips() {
 // fetched; only a regular file is read, and none over 16 MiB. The CLI's check
 // is this call, so its rows in cli-regress pin the same rules. Same fixture
 // in every runner.
+#[cfg_attr(miri, ignore = "opens with O_NONBLOCK, which Miri can't")]
 #[test]
 fn read_named_schema_follows_check_rules() {
 	let _id = test_id("EsJZ105");
@@ -5208,6 +5332,10 @@ fn format_diagnostic_is_the_cli_line() {
 /// None exactly where set_string refuses, and it reads back as the text it was
 /// handed. Over the setter soup, the review's examples and the typed setters'
 /// texts. Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn format_value_is_the_setters_text() {
 	let _id = test_id("EshnBvV");
@@ -5273,6 +5401,10 @@ fn document_is_send_and_sync() {
 /// the spec's examples and the setter soup, each value written with
 /// format_value under one name (2026101514324720). Same fixture in every
 /// runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn quote_segment_selects_a_held_value() {
 	let _id = test_id("EstLlpK");
@@ -5354,6 +5486,10 @@ const FORMAT_VALUE_EXTRA: &[&str] = &[
 /// after another element, all of them at once, and none; an element is
 /// format_value's text but for a thousands number, which brackets quote; and
 /// the typed array setters' texts. Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn format_array_is_the_setters_text() {
 	let _id = test_id("EsiL1FW");

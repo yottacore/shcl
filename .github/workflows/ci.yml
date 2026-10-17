@@ -139,6 +139,14 @@ jobs:
           echo "f1f8eedc2a3ac297c540873f93785d4104b102c0079506b2a6b3221b7ec956af  /tmp/cargo-deny.tar.gz" | sha256sum -c -
           tar -xzf /tmp/cargo-deny.tar.gz -C /tmp
           sudo install -m 0755 /tmp/cargo-deny-0.19.9-x86_64-unknown-linux-musl/cargo-deny /usr/local/bin/cargo-deny
+      ## The dated nightly under [nightly] in rust-toolchain.toml, for
+      ## sanitize-rust.bash's ASan and Miri runs. Read from the file, as the
+      ## stable one is, so the pin is in one place.
+      - run: |
+          nightly="$(sed -n '/^\[nightly\]/,/^\[/s/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          comps="$(sed -n '/^\[nightly\]/,/^\[/s/^components = \[\(.*\)\]/\1/p' rust-toolchain.toml | tr -d '" ')"
+          rustup toolchain install "${nightly}" --profile minimal --component "${comps}"
+          cargo "+${nightly}" miri setup
       ## One per half, since each builds different targets. A first run of a
       ## half starts from whatever Linux target dir there is.
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

@@ -8552,7 +8552,10 @@ fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
 		.custom_flags(O_NONBLOCK)
 		.open(path)?;
 	let fd = f.as_raw_fd();
+	// SAFETY: fd is open for as long as f lives, and these two commands take
+	// an int or nothing, so the variadic call passes what fcntl reads.
 	let flags = unsafe { fcntl(fd, F_GETFL) };
+	// SAFETY: as above.
 	if flags == -1 || unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } == -1 {
 		return Err(std::io::Error::last_os_error());
 	}
@@ -9137,6 +9140,9 @@ fn not_a_disk_file(path: &std::path::Path) -> bool {
 		.encode_wide()
 		.chain(std::iter::once(0))
 		.collect();
+	// SAFETY: wide is NUL-terminated and outlives every call, the handle is
+	// closed once and not used after, and GetFullPathNameW is told the real
+	// length of full.
 	unsafe {
 		// The handle first, since it is the OS's own answer and it keeps an
 		// exotic but real path (a volume-prefixed `\\.\C:\dir\file`) out of the
@@ -9215,6 +9221,7 @@ fn set_attributes(path: &std::path::Path, bits: u32) {
 		.encode_wide()
 		.chain(std::iter::once(0))
 		.collect();
+	// SAFETY: wide is a NUL-terminated path that outlives the call.
 	unsafe {
 		SetFileAttributesW(wide.as_ptr(), m.file_attributes() | bits);
 	}
@@ -9278,6 +9285,9 @@ fn create_like(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
 	// u64 words, since a security descriptor wants more than byte alignment.
 	let mut sd: Vec<u64> = Vec::new();
 	let mut need = 0u32;
+	// SAFETY: the paths are NUL-terminated, the descriptor buffer is told its
+	// real length, and sa and sd live past the CreateFileW that reads them.
+	// The handle is new and owned by nobody else when File takes it.
 	unsafe {
 		GetFileSecurityW(
 			src.as_ptr(),
@@ -9593,6 +9603,9 @@ mod windows_publish {
 			.chain(std::iter::once(0))
 			.collect();
 		let mut need = 0u32;
+		// SAFETY: wide is NUL-terminated, sd is told its real length, and out
+		// is the OS's NUL-terminated string, read up to the NUL and then freed
+		// once.
 		unsafe {
 			GetFileSecurityW(
 				wide.as_ptr(),
@@ -9639,6 +9652,8 @@ mod windows_publish {
 			.encode_utf16()
 			.chain(std::iter::once(0))
 			.collect();
+		// SAFETY: both names are NUL-terminated, and the module handle is only
+		// looked at, never freed.
 		unsafe {
 			let m = GetModuleHandleW(ntdll.as_ptr());
 			m != 0 && GetProcAddress(m, c"wine_get_version".as_ptr().cast()) != 0
@@ -9779,6 +9794,7 @@ fn publish_new_file(tmp: &std::path::Path, target: &std::path::Path) -> std::io:
 			.collect()
 	};
 	let (from, to) = (wide(tmp), wide(target));
+	// SAFETY: both paths are NUL-terminated and outlive the call.
 	if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) } != 0 {
 		Ok(())
 	} else {
@@ -9814,6 +9830,8 @@ fn windows_replace_file(
 			.collect()
 	}
 	let (replaced, replacement, kept) = (wide(target), wide(tmp), wide(backup));
+	// SAFETY: the 3 paths are NUL-terminated and outlive the call, and the
+	// two pointers it reserves are null as documented.
 	unsafe {
 		ReplaceFileW(
 			replaced.as_ptr(),
@@ -16579,6 +16597,7 @@ mod kept_gate {
 	}
 
 	// The zone's short name, else its offset; and the test clock's form.
+	#[cfg_attr(miri, ignore = "calls tzset and localtime_r, which Miri can't")]
 	#[test]
 	fn a_note_names_the_zone_or_its_offset() {
 		let _id = test_id("ErleV68");

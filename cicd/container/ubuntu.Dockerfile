@@ -64,6 +64,16 @@ RUN cd /opt/rustup-pin && export CARGO_HOME=/opt/cargo \
 	&& /opt/cargo/bin/rustup toolchain install \
 	&& /opt/cargo/bin/rustup default "$(/opt/cargo/bin/rustup show active-toolchain | cut -d' ' -f1)"
 
+# The dated nightly under [nightly] in the same file, for sanitize-rust.bash, as
+# the main image has it.
+ENV MIRI_SYSROOT=/opt/miri-sysroot
+RUN cd /opt/rustup-pin && export CARGO_HOME=/opt/cargo \
+	&& nightly="$(sed -n '/^\[nightly\]/,/^\[/s/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" \
+	&& comps="$(sed -n '/^\[nightly\]/,/^\[/s/^components = \[\(.*\)\]/\1/p' rust-toolchain.toml | tr -d '" ')" \
+	&& /opt/cargo/bin/rustup toolchain install "${nightly}" --profile minimal --component "${comps}" \
+	&& /opt/cargo/bin/cargo "+${nightly}" miri setup \
+	&& rm -rf /opt/cargo/registry
+
 # staticcheck for the Go cross check, nfpm for the stub package rows.
 ARG STATICCHECK_VER=2026.1
 ARG NFPM_VER=v2.47.0

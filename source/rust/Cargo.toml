@@ -20,7 +20,8 @@ path = "src/main.rs"
 
 # Zero dependencies on purpose: the library is meant to be a single drop-in file.
 # The one entry below is dev-only tooling: optional + feature-gated, never part
-# of a normal or release build, and lib.rs itself stays dependency-free.
+# of a normal or release build, and lib.rs itself stays dependency-free. The
+# dev-dependency further down is test-only.
 # LICENSE: pprof pulls inferno (CDDL-1.0, GPL-incompatible) - fine for local dev
 # tooling, but binaries built with --features profiling must never ship.
 # In-process sampling (SIGPROF) -> flamegraph SVG; sidesteps perf_event_paranoid.
@@ -29,6 +30,21 @@ pprof = { version = "0.14", features = ["flamegraph"], optional = true }
 
 [features]
 profiling = ["dep:pprof"]
+
+# The heap soak test's allocator (tests/soak.rs). A dev-dependency, so no
+# library or CLI build links it.
+[dev-dependencies]
+dhat = "0.3.3"
+
+[lints.rust]
+# Set by sanitize-rust.bash --miri-all, which runs the tests too slow for Miri's
+# share of a full run.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(shcl_miri_all)"] }
+
+[lints.clippy]
+# A forgotten value is a leak by hand, and unsafe without a reason is a guess.
+mem_forget = "warn"
+undocumented_unsafe_blocks = "warn"
 
 # Size and speed both matter for the shipped binary; these cost nothing at runtime.
 # NOTE: do NOT pack with UPX/etc - packers routinely trip antivirus heuristics.

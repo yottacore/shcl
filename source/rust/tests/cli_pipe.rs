@@ -18,6 +18,7 @@ use common::test_id;
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 
+#[cfg_attr(miri, ignore = "starts a process")]
 #[test]
 fn early_closed_stdout_is_quiet() {
 	let _id = test_id("EojoRUu");
