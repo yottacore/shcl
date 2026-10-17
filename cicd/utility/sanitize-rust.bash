@@ -126,29 +126,43 @@ if ((doMiri)); then
 		echo "sanitize-rust: the tests didn't build for Miri" >&2
 		nBad=$((nBad + 1))
 	else
-		## Miri runs a binary's threads on one core, so it's the binaries that
-		## go side by side, cap at a time.
+		## Miri runs a binary's threads on one core, so each test is a job of
+		## its own, cap at a time, named from its binary's list.
 		selectors=(--lib)
 		for f in source/rust/tests/*.rs; do
 			selectors+=("--test $(basename -- "${f}" .rs)")
 		done
+		jobSel=(); jobTest=()
+		for sel in "${selectors[@]}"; do
+			# shellcheck disable=2086  ## the selector is 2 words
+			env "${miriEnv[@]}" "${miriCargo[@]}" ${sel} -- --list >"${work}/list" 2>&1 || true
+			nListed=0
+			while IFS= read -r t; do
+				jobSel+=("${sel}"); jobTest+=("${t}"); nListed=$((nListed + 1))
+			done < <(sed -n 's/: test$//p' "${work}/list")
+			if ((nListed == 0)); then
+				cat "${work}/list"
+				echo "sanitize-rust: ${sel} listed no tests under Miri" >&2
+				nBad=$((nBad + 1))
+			fi
+		done
 		nLive=0
-		for i in "${!selectors[@]}"; do
+		for i in "${!jobTest[@]}"; do
 			if ((nLive >= cap)); then
 				wait -n || true
 				nLive=$((nLive - 1))
 			fi
 			# shellcheck disable=2086  ## the selector is 2 words
-			{ jrc=0; env "${miriEnv[@]}" "${miriCargo[@]}" ${selectors[i]} >"${work}/miri-${i}.log" 2>&1 || jrc=$?; echo "${jrc}" >"${work}/miri-${i}.rc"; } &
+			{ jrc=0; env "${miriEnv[@]}" "${miriCargo[@]}" ${jobSel[i]} -- --exact "${jobTest[i]}" >"${work}/miri-${i}.log" 2>&1 || jrc=$?; echo "${jrc}" >"${work}/miri-${i}.rc"; } &
 			nLive=$((nLive + 1))
 		done
 		wait
-		for i in "${!selectors[@]}"; do
+		for i in "${!jobTest[@]}"; do
 			jrc=""
 			if [[ -f "${work}/miri-${i}.rc" ]]; then read -r jrc <"${work}/miri-${i}.rc"; fi
 			[[ "${jrc}" == 0 ]] && continue
 			fShow "${work}/miri-${i}.log"
-			echo "sanitize-rust: ${selectors[i]} under Miri exited ${jrc:-without a result}" >&2
+			echo "sanitize-rust: ${jobTest[i]} (${jobSel[i]}) under Miri exited ${jrc:-without a result}" >&2
 			nBad=$((nBad + 1))
 		done
 	fi
