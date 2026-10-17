@@ -48,7 +48,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 				- The suppressions file lists third-party libraries only, matched by library name. A leak in our code is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns leak detection off with that item's ID beside it.
 				- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
 				- On a GLib project, set `G_SLICE=always-malloc` and `G_DEBUG=gc-friendly`, or GLib hides blocks from the leak check.
-			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every first-party .c file. Vendored code is left out.
+			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every first-party .c file. Vendored code is included.
 				- Before the gate goes live, every existing finding is fixed, or suppressed at the line with a one-line reason. There's no baseline file.
 				- They move behind a flag only if a full run measures too slow.
 			- A `--leakcheck` flag adds the slow checks:
@@ -73,7 +73,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 					- If the code has its own pool or arena allocator, the sanitizer build gets a switch that sends it straight to `new` and `delete`. ASan can't see inside a pool.
 					- On a GLib or GTK project, set `G_SLICE=always-malloc` and `G_DEBUG=gc-friendly`, or GLib hides blocks from the leak check.
 				- If the code starts threads, every full run also builds the tests with ThreadSanitizer, in another build dir. Its reports fail the test the same way.
-				- Every full run also runs the clang static analyzer and clang-tidy over every first-party .cpp file, from the build's `compile_commands.json`. Vendored code is left out.
+				- Every full run also runs the clang static analyzer and clang-tidy over every first-party .cpp file, from the build's `compile_commands.json`. Vendored code is included.
 					- clang-tidy runs at least the `clang-analyzer-*` and `bugprone-*` checks, with `-header-filter` matching our own headers.
 					- gcc's `-fanalyzer` isn't used on C++. gcc's own docs still say it's meant for C. Any .c files in the project still get it.
 					- Before the gate goes live, every existing finding is fixed, or suppressed at the line with `NOLINT(check-name)` and a one-line reason. There's no baseline file.
@@ -99,7 +99,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Include vendored code in the analyses
 	- Note: some of this runs already. sanitize-c builds the C tests, the C++ veneer smoke, and the C CLI under ASan and UBSan, and the smoke again under TSan. check-veneer has its own small TSan check, and cppcheck runs at the exhaustive level. No LeakSanitizer suppressions file, `-fanalyzer`, clang analyzer, clang-tidy, CodeQL, or heaptrack yet.
 	- Note: `source/c` has no vendored code today. The only C++ is `shcl.hpp` and `veneer_smoke.cpp`, and the veneer is header-only, so the template trap applies.
-	- Question: the last requirement says to include vendored code, and the C and C++ analyzer lines say it's left out. Which wins?
+	- Decisions:
+		- Vendored code is included in the analyses (JC, 2026-10-17).
 
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
