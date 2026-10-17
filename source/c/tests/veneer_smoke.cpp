@@ -182,7 +182,7 @@ static int reads_from_several_threads() {
 		calls.push_back([q](const D &d, const D &) { return show(d.read_duration(q), d.read_size(q), d.get_duration_or(q, std::nullopt, std::chrono::milliseconds(7)), d.get_size_or(q, std::nullopt, false, 7)); });
 		calls.push_back([q](const D &d, const D &) { return show(d.count(q), d.read_count(q), d.read_instances(q), d.read_children(q), d.instances(q), d.children(q), d.read_fields(q), d.read_child_fields(q)); });
 		calls.push_back([q](const D &d, const D &) { return show(d.line(q), d.read_line(q), d.lines(q), d.read_lines(q), d.kind(q), d.read_kind(q), d.exists(q), d.read_exists(q), d.authored_name(q), d.read_authored_name(q)); });
-		calls.push_back([q](const D &d, const D &) { return show(d.comments(q), d.read_comments(q), d.quoted(q), d.backtick(q), d.check_set_path(q)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.comments(q), d.read_comments(q), d.quoted(q), d.backtick(q), d.raw(q), d.read_raw_text(q), d.check_set_path(q)); });
 	}
 	std::vector<std::string> want;
 	want.reserve(calls.size());
