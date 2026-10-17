@@ -48,7 +48,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 				- The suppressions file lists third-party libraries only, matched by library name. A leak in our code is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns leak detection off with that item's ID beside it.
 				- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
 				- On a GLib project, set `G_SLICE=always-malloc` and `G_DEBUG=gc-friendly`, or GLib hides blocks from the leak check.
-			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every first-party .c file. Vendored code is included.
+			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every .c file, first-party and third-party. Vendored code is included.
 				- Before the gate goes live, every existing finding is fixed, or suppressed at the line with a one-line reason. There's no baseline file.
 				- They move behind a flag only if a full run measures too slow.
 			- A `--leakcheck` flag adds the slow checks:
@@ -73,8 +73,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 					- If the code has its own pool or arena allocator, the sanitizer build gets a switch that sends it straight to `new` and `delete`. ASan can't see inside a pool.
 					- On a GLib or GTK project, set `G_SLICE=always-malloc` and `G_DEBUG=gc-friendly`, or GLib hides blocks from the leak check.
 				- If the code starts threads, every full run also builds the tests with ThreadSanitizer, in another build dir. Its reports fail the test the same way.
-				- Every full run also runs the clang static analyzer and clang-tidy over every first-party .cpp file, from the build's `compile_commands.json`. Vendored code is included.
-					- clang-tidy runs at least the `clang-analyzer-*` and `bugprone-*` checks, with `-header-filter` matching our own headers.
+				- Every full run also runs the clang static analyzer and clang-tidy over every .cpp file, first-party and third-party, from the build's `compile_commands.json`. Vendored code is included.
+					- clang-tidy runs at least the `clang-analyzer-*` and `bugprone-*` checks, with `-header-filter` matching our own headers and the vendored ones.
 					- gcc's `-fanalyzer` isn't used on C++. gcc's own docs still say it's meant for C. Any .c files in the project still get it.
 					- Before the gate goes live, every existing finding is fixed, or suppressed at the line with `NOLINT(check-name)` and a one-line reason. There's no baseline file.
 					- They move behind a flag only if a full run measures too slow.
@@ -88,9 +88,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 				- Each new gate is watched to fail before it's trusted: plant a leak, a null dereference, a use after a vector grows, a data race if TSan runs, and a loop that grows the heap, and see each one go red.
 				- Traps:
 					- clang-tidy exits 0 on warnings unless it's run with `-warnings-as-errors='*'`. `scan-build` exits 0 on findings unless it's run with `--status-bugs`.
-					- clang-tidy reports nothing in headers by default. In C++ a lot of the code lives in headers, so `-header-filter` has to name ours.
+					- clang-tidy reports nothing in headers by default. In C++ a lot of the code lives in headers, so `-header-filter` has to name ours and the vendored ones.
 					- Without `compile_commands.json` clang-tidy guesses the flags, misses defines and include paths, and checks the wrong code without failing.
-					- A template no first-party .cpp file instantiates is never analyzed. Header-only code needs a test that instantiates it.
+					- A template no .cpp file instantiates is never analyzed. Header-only code needs a test that instantiates it.
 					- `_GLIBCXX_DEBUG` changes the ABI. Every C++ file and every linked C++ library has to be built with it, so it gets its own build dir.
 					- `-D_GLIBCXX_SANITIZE_VECTOR` lets ASan catch reads past a vector's size but inside its capacity. It gives false reports when any linked C++ code was built without it, so leave it off when prebuilt C++ libraries are in the mix.
 					- ASan and TSan can't share a build, and heaptrack can't share one with either. The soak test uses a plain build.
