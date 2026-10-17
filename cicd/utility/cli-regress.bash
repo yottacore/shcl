@@ -3017,7 +3017,7 @@ for b in "${bindings[@]}"; do
 	## entry at all was invisible to it - `--write` had none for three rounds
 	## (20260918b item 34). The completion table is the list check-completions
 	## holds against the CLI's own.
-	mapfile -t offered < <(grep -oE "echo '[^']*'" "${repoDir}/source/completions/shcl.bash" | grep -oE '\-\-[a-z0-9-]+' | sort -u)
+	mapfile -t offered < <(grep -oE "echo '[^']*'" "${repoDir}/source/completions/shcl.bash" | grep -oE -e '--[a-z0-9-]+' | sort -u)
 	((${#offered[@]} >= 10)) || { echo "cli-regress: option-entries [${name}]: only ${#offered[@]} option(s) found in the completions" >&2; nBad+=1; }
 	for o in "${offered[@]}"; do
 		nRun+=1
