@@ -33,6 +33,74 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Implement leak and static checks of the C code run as part of CI/CD
+	- ID: 2026101707582803
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261017-075828
+	- Opened by: JC
+	- Version and build: dev at `c6e1ac23`
+	- Requirements:
+		- For C:
+			- Every full run builds the whole test suite with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer, in a build dir of its own.
+				- Any report fails the test that made it.
+				- The suppressions file lists third-party libraries only, matched by library name. A leak in our code is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns leak detection off with that item's ID beside it.
+				- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
+				- On a GLib project, set `G_SLICE=always-malloc` and `G_DEBUG=gc-friendly`, or GLib hides blocks from the leak check.
+			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every first-party .c file. Vendored code is left out.
+				- Before the gate goes live, every existing finding is fixed, or suppressed at the line with a one-line reason. There's no baseline file.
+				- They move behind a flag only if a full run measures too slow.
+			- A `--leakcheck` flag adds the slow checks:
+				- CodeQL, from a pinned CLI run locally. No hosted service.
+				- The clang analyzer in cross-file (CTU) mode, so it follows calls across .c files.
+				- A heaptrack soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heaptrack report is kept as a pipeline artifact.
+			- Coverity Scan and Infer aren't used. Coverity uploads the build to a third party.
+			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
+			- Each new gate is watched to fail before it's trusted: plant a leak, a null dereference, and a loop that grows the heap, and see each one go red.
+			- Traps:
+				- `-fanalyzer` does nothing under `-fsyntax-only`. Compile with `-c -o /dev/null`.
+				- With `-Werror`, analyzer findings print as `error: ... [-Werror=analyzer-*]`, not `warning:`. A parser that only looks for warnings counts 0.
+				- heaptrack and ASan can't share a build. The soak test uses a plain build.
+				- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
+		- For our C++ code:
+			- Implement leak and static checks of the C++ code run as part of CI/CD.
+				- Every full run builds the whole test suite with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer, in a build dir of its own.
+					- Any report fails the test that made it.
+					- The suppressions file lists third-party libraries only, matched by library name. A leak in our code is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns leak detection off with that item's ID beside it.
+					- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
+					- The same build turns on the standard library's checked mode. That's `-D_GLIBCXX_ASSERTIONS` on libstdc++, or `_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE` on libc++. Both keep the ABI.
+					- If the code has its own pool or arena allocator, the sanitizer build gets a switch that sends it straight to `new` and `delete`. ASan can't see inside a pool.
+					- On a GLib or GTK project, set `G_SLICE=always-malloc` and `G_DEBUG=gc-friendly`, or GLib hides blocks from the leak check.
+				- If the code starts threads, every full run also builds the tests with ThreadSanitizer, in another build dir. Its reports fail the test the same way.
+				- Every full run also runs the clang static analyzer and clang-tidy over every first-party .cpp file, from the build's `compile_commands.json`. Vendored code is left out.
+					- clang-tidy runs at least the `clang-analyzer-*` and `bugprone-*` checks, with `-header-filter` matching our own headers.
+					- gcc's `-fanalyzer` isn't used on C++. gcc's own docs still say it's meant for C. Any .c files in the project still get it.
+					- Before the gate goes live, every existing finding is fixed, or suppressed at the line with `NOLINT(check-name)` and a one-line reason. There's no baseline file.
+					- They move behind a flag only if a full run measures too slow.
+				- A `--leakcheck` flag adds the slow checks:
+					- CodeQL, from a pinned CLI run locally. No hosted service.
+					- The clang analyzer in cross-file (CTU) mode, so it follows calls across .cpp files.
+					- A heaptrack soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heaptrack report is kept as a pipeline artifact.
+					- A libstdc++ debug build with `-D_GLIBCXX_DEBUG`, which catches bad iterators and out-of-range access that the assertions mode lets by.
+				- Coverity Scan and Infer aren't used. Coverity uploads the build to a third party.
+				- Every tool is pinned and runs in the build container or lint image, never installed on the host.
+				- Each new gate is watched to fail before it's trusted: plant a leak, a null dereference, a use after a vector grows, a data race if TSan runs, and a loop that grows the heap, and see each one go red.
+				- Traps:
+					- clang-tidy exits 0 on warnings unless it's run with `-warnings-as-errors='*'`. `scan-build` exits 0 on findings unless it's run with `--status-bugs`.
+					- clang-tidy reports nothing in headers by default. In C++ a lot of the code lives in headers, so `-header-filter` has to name ours.
+					- Without `compile_commands.json` clang-tidy guesses the flags, misses defines and include paths, and checks the wrong code without failing.
+					- A template no first-party .cpp file instantiates is never analyzed. Header-only code needs a test that instantiates it.
+					- `_GLIBCXX_DEBUG` changes the ABI. Every C++ file and every linked C++ library has to be built with it, so it gets its own build dir.
+					- `-D_GLIBCXX_SANITIZE_VECTOR` lets ASan catch reads past a vector's size but inside its capacity. It gives false reports when any linked C++ code was built without it, so leave it off when prebuilt C++ libraries are in the mix.
+					- ASan and TSan can't share a build, and heaptrack can't share one with either. The soak test uses a plain build.
+					- UBSan's `vptr` check needs RTTI. A `-fno-rtti` build loses it.
+					- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
+		- Include vendored code in the analyses
+	- Note: some of this runs already. sanitize-c builds the C tests, the C++ veneer smoke, and the C CLI under ASan and UBSan, and the smoke again under TSan. check-veneer has its own small TSan check, and cppcheck runs at the exhaustive level. No LeakSanitizer suppressions file, `-fanalyzer`, clang analyzer, clang-tidy, CodeQL, or heaptrack yet.
+	- Note: `source/c` has no vendored code today. The only C++ is `shcl.hpp` and `veneer_smoke.cpp`, and the veneer is header-only, so the template trap applies.
+	- Question: the last requirement says to include vendored code, and the C and C++ analyzer lines say it's left out. Which wins?
+
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
 	- Type: Enhancement
