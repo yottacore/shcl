@@ -559,6 +559,14 @@ public:
 	// Whether that value was a backtick value: raw text the program decodes
 	// itself, handed back as written. A backtick value counts as quoted too.
 	bool backtick(std::string_view path) const;
+	// The value at a path as written on its line: quotes and backticks kept,
+	// a trailing comment off, so `0x10` where read_int() gives 16. A raw block,
+	// a stacked list or a value a setter wrote reads as its display form.
+	// Empty when the path does not resolve to exactly one node.
+	std::string raw(std::string_view path) const;
+	// raw() with a status, the way read_line() has them. read_raw() is the
+	// other thing, a raw block's content.
+	Read<std::string> read_raw_text(std::string_view path) const;
 	// Whether a path resolves to at least one node.
 	bool exists(std::string_view path) const;
 	Read<bool> read_exists(std::string_view path) const;
@@ -1262,6 +1270,8 @@ std::vector<std::size_t> Document::lines(std::string_view path) const {
 }
 bool Document::quoted(std::string_view path) const { return shcl_quoted(detail::held(*this), path.data(), path.size()) != 0; }
 bool Document::backtick(std::string_view path) const { return shcl_backtick(detail::held(*this), path.data(), path.size()) != 0; }
+std::string Document::raw(std::string_view path) const { auto h = detail::fresh(*this); return detail::str(shcl_raw_text(h, path.data(), path.size())); }
+Read<std::string> Document::read_raw_text(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_raw_text(h, path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
 bool Document::exists(std::string_view path) const { return shcl_exists(detail::held(*this), path.data(), path.size()) != 0; }
 Read<bool> Document::read_exists(std::string_view path) const { auto r = shcl_read_exists(detail::held(*this), path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
 std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }

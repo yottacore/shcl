@@ -192,6 +192,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `format_array()` in every binding (Go `FormatArray`, C `shcl_format_array`) gives a whole array the way `set_string_array` writes it, such as `[80, "a b", "1,200"]`. Inside brackets a thousands number is quoted, where `format_value` leaves it bare.
 
+- C has `shcl_raw_text` and `shcl_read_raw_text`, and C++ `raw()` and `read_raw_text()`: a value's text as written, the `raw` the other bindings' reads give, so `size: 0x10` gives `0x10` and `port: "8080"` keeps its quotes.
+
 ### Parsing
 
 - A line indented under a skipped line is skipped with it (`E018`) instead of moving up a level. That now holds under `E006`, `E012`, `E013` and a dropped `- ` item as well.

@@ -499,8 +499,8 @@ shcl_read_usize shcl_read_line(shcl_doc *d, const char *path, size_t plen);
 // is not one scalar element (empty, a raw block, an array of other than one
 // element, an unresolved or ambiguous path). A written value counts as quoted
 // when a save would quote it. Sits beside shcl_line rather than in the read
-// structs for the same reason the raw text does: C keeps those two fields
-// wide.
+// structs for the same reason shcl_raw_text does: C keeps those structs two
+// fields wide.
 int shcl_quoted(shcl_doc *d, const char *path, size_t plen);
 // 1 when that single scalar value was a backtick value: raw text the program
 // decodes itself, which SHCL hands back as written. A backtick value counts as
@@ -522,6 +522,20 @@ shcl_str shcl_authored_name(shcl_doc *d, const char *path, size_t plen);
 // SHCL_MULTIPLE for a repeated field, SHCL_NOT_FOUND or SHCL_BAD_PATH otherwise.
 // value is borrowed the same way.
 shcl_read_str shcl_read_authored_name(shcl_doc *d, const char *path, size_t plen);
+// The value at a path as written on its line: quotes and backticks kept,
+// escapes as typed, a trailing comment off - `0x10` where shcl_read_int gives
+// 16, `"8080"` where shcl_read_string gives 8080. A value with no one source
+// line behind it reads as its display form: a raw block's content, a stacked
+// list in brackets, a value a setter wrote. This is the other bindings' read
+// `raw`, kept out of the read structs for the reason shcl_quoted is.
+// Resolution mirrors shcl_line: empty when the path does not resolve to
+// exactly one node. Lives in the document's read arena; valid until shcl_free,
+// shcl_compact or shcl_reads_release.
+shcl_str shcl_raw_text(shcl_doc *d, const char *path, size_t plen);
+// shcl_raw_text with a status, the way shcl_read_line has them: SHCL_GOOD,
+// SHCL_NOT_FOUND, SHCL_MULTIPLE for a repeated field, or SHCL_BAD_PATH. An empty
+// value is SHCL_GOOD with "". Not shcl_read_raw, which reads a raw block.
+shcl_read_str shcl_read_raw_text(shcl_doc *d, const char *path, size_t plen);
 // What the value at a path is: scalar, array, raw block or empty, so a generic
 // tool can pick its read without trying each. It answers from the stored form,
 // so `x: [80]` is an array though a scalar read takes it. SHCL_KIND_EMPTY when
@@ -1560,6 +1574,15 @@ typedef struct {
 	/* Blank-line grouping is the other half of hand-authored layout: set when
 	   a blank line preceded this node's binding line (runs collapse to one). */
 	int blank_before;
+	/* This node has decided its src - set by the first source line whose
+	   value the node holds, whether or not a string was worth keeping. */
+	int src_set;
+	/* Verbatim value text from the source line (after the colon, comment
+	   stripped, trimmed) - what shcl_raw_text hands back, a slice of the kept
+	   input. Empty when the value was synthesized (writer, stacked list, fence)
+	   or the spelling is exactly the display form; raw_of falls back to the
+	   display form either way. */
+	ShclStr src;
 } ShclNode;
 typedef struct { ShclNode *data; size_t len, cap; } ShclVecNode;
 
@@ -1787,6 +1810,17 @@ static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 	if (v->kind == V_RAW) return v->raw->content;
 	if (v->kind == V_CELL) return v->els[0].text;
 	return emit_array(a, v->els, v->nels);
+}
+/* True when a source value spelling is exactly the display form - the case
+   where src need not be stored, since raw_of's fallback reproduces it. */
+static int src_matches_display(ShclArena *a, const ShclValue *v, ShclStr s) {
+	switch (v->kind) {
+	case V_EMPTY: return s.n == 0;
+	case V_RAW: return s_eq(s, v->raw->content);
+	case V_CELL: return s_eq(s, v->els[0].text);
+	case V_ARRAY: return s_eq(s, value_display(a, v));
+	}
+	return 0;
 }
 
 // --- Tokenizer - the one place the lexical rules live ------------------------
@@ -2988,6 +3022,7 @@ static uint64_t merge_hash(ShclStr name, const ShclValue *v) {
 	h = fnv_str(h, v->raw->info);
 	return fnv_str(h, v->raw->content);
 }
+static uint64_t value_hash(const ShclValue *v) { return merge_hash(s_empty(), v); }
 
 /* The exact (name, merge-key) equality a hashed hit is verified with -
    compares what the two key strings would have held, element by element. The
@@ -5520,6 +5555,8 @@ static size_t array_under(ShclParser *P, size_t node) {
 	uint64_t old_key = merge_hash(nd->name, &nd->value);
 	uint64_t old_disp = disp_hash(nd->name, &nd->value);
 	nd->value = v_empty();
+	nd->src = s_empty();
+	nd->src_set = 0;
 	int blank_before = nd->blank_before;
 	nd->blank_before = 0;
 	ShclTrivia *t = triv_mut(a, nd);
@@ -6340,6 +6377,9 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		}
 		ShclValue value;
 		int celled = 0;
+		/* The verbatim value span, kept for shcl_raw_text (only the plain
+		   scalar/inline-array case has a one-line source spelling). */
+		ShclStr src_text = s_empty();
 		if (!scan.has_value) {
 			/* A clean path with no colon is the one defined repair: the obvious
 			   intent is that path with an empty value. */
@@ -6351,10 +6391,15 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			ShclFence vf = fence_open(scan.value_text);
 			if (vf.ok) value = consume_raw(&P, lines.data, lines.len, i + 1, lineno, indent, vf, &next);
 			else {
+				src_text = scan.value_text;
 				value = cell_of_tokens(a, &own->line, &tok, rest);
 				celled = 1;
 			}
 		}
+		/* Record only when the bound node holds exactly this line's value (a
+		   merge into an equal-valued node keeps the first line's span; a value
+		   dropped after a last-segment selector records nothing). */
+		uint64_t vkey = celled ? value_hash(&value) : 0;
 		size_t node = 0; /* attach_path fills it; the init quiets gcc's inlining-dependent maybe-uninitialized */
 		parent = open_lazy(&P, parent);
 		size_t nsegs = scan.segs.len;
@@ -6363,6 +6408,10 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			for (size_t k = 0; celled && unit_named(NODE(d, node).name) && k < tok.nelem; k++) {
 				ShclStr clash;
 				if (unit_clash(P.tmp, NODE(d, node).name, piece_text(P.tmp, &tok.elements[k], rest), &clash)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H005", clash); break; }
+			}
+			if (celled && !NODE(d, node).src_set && value_hash(&NODE(d, node).value) == vkey) {
+				NODE(d, node).src_set = 1;
+				if (!src_matches_display(P.line, &NODE(d, node).value, src_text)) NODE(d, node).src = s_keep(a, P.src, src_text);
 			}
 			/* What the node had before this line, for an array line that
 			   turns out to have a field under it. */
@@ -7023,6 +7072,24 @@ shcl_read_str shcl_read_authored_name(shcl_doc *d, const char *path, size_t plen
 	return R;
 }
 
+/* A read's raw: the verbatim source value text when the value came from one
+   source line, else the display form (writer-built, stacked list, raw block -
+   shapes with no one-line source spelling). */
+static ShclStr raw_of(shcl_doc *d, size_t n) {
+	if (NODE(d, n).src.n) return NODE(d, n).src;
+	return value_display(&d->reads, &NODE(d, n).value);
+}
+shcl_str shcl_raw_text(shcl_doc *d, const char *path, size_t plen) {
+	return shcl_read_raw_text(d, path, plen).value;
+}
+shcl_read_str shcl_read_raw_text(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_str R; R.value = s_empty();
+	ShclStr p; p.p = path; p.n = plen; size_t n = 0;
+	R.status = node_at(d, p, &n);
+	if (R.status == SHCL_GOOD) R.value = raw_of(d, n);
+	return R;
+}
+
 shcl_value_kind shcl_kind(shcl_doc *d, const char *path, size_t plen) {
 	return shcl_read_kind(d, path, plen).value;
 }
@@ -7518,6 +7585,7 @@ static shcl_set_status w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, S
 	   unless there is nothing left to stack. */
 	int stacked = stacks(&NODE(d, idx)) && v.kind == V_ARRAY && v.nels;
 	NODE(d, idx).value = v;
+	NODE(d, idx).src = s_empty(); /* written value has no source spelling */
 	/* No longer the list the lines among its elements sat in. */
 	unstack(d, &NODE(d, idx));
 	NODE(d, idx).star_list = stacked;
@@ -8304,6 +8372,8 @@ static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size
 	n.star_list = src->star_list;
 	n.star_mixed = src->star_mixed;
 	n.blank_before = src->blank_before;
+	n.src_set = src->src_set;
+	n.src = s_dup(a, src->src);
 	if (src->trivia) n.trivia = w_clone_trivia(a, src->trivia);
 	size_t idx = d->nodes.len;
 	nodes_push(d, n);

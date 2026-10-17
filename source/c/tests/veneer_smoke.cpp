@@ -347,6 +347,8 @@ int main() {
 	auto qd = shcl::Document::parse("a: @null\nb: \"@null\"\nnums: [1, x, 3]\nwhen: [2026-08-02, nope]\nc: `#FF8800`\n");
 	CHECK(!qd.quoted("a") && qd.quoted("b") && !qd.quoted("nope"));
 	CHECK(qd.quoted("c") && qd.backtick("c") && !qd.backtick("b") && qd.read_string("c").value == "#FF8800");
+	CHECK(qd.raw("b") == "\"@null\"" && qd.raw("c") == "`#FF8800`" && qd.raw("nums") == "[1, x, 3]" && qd.raw("nope").empty());
+	CHECK(qd.read_raw_text("b").value == "\"@null\"" && qd.read_raw_text("nope").status == shcl::Status::NotFound);
 	CHECK(qd.exists("a") && !qd.exists("nope"));
 	auto nums = qd.read_int_array("nums");
 	CHECK(nums.slots.size() == 3 && nums.slots[0] == shcl::Status::Good && nums.slots[1] == shcl::Status::BadType);

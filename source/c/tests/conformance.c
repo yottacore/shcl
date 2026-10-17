@@ -2145,6 +2145,58 @@ int main(int argc, char **argv) {
 		}
 		shcl_free(ed);
 	}
+	// raw_text: a value as written on its line, quotes and backticks kept, a
+	// comment off. A value with no one line behind it - a raw block, a stacked
+	// list, a setter's - reads as its display form. Answers are the other 3
+	// bindings' `raw` on the same fixture.
+	test_id("EsurKR1", "raw_text");
+	{
+		const char *rt =
+			"port: \"8080\"\nsize: 0x10   # hex\nname: hello\nsingle: 'it'\nlist: [1, \"two\", 3]\nre: `a\\d+`\n"
+			"code:\n\t```sh\n\techo hi\n\t```\ndup: 1\ndup: \"1\"\nstack:\n\t- a\n\t- \"b\"\narr: [ 1, 2 ]\n\tkid: 3\n"
+			"empty:\nsp: [ 1 ,2 ]\nsite: a\nsite: b\nesc: \"a\\tb\"  # c\nSIZE2: [80]\nsel(a): b\n";
+		shcl_doc *rd = shcl_parse(rt, strlen(rt));
+		static const struct { const char *path, *load, *set; shcl_status st; } want[] = {
+			{"port", "\"8080\"", "9090", SHCL_GOOD},
+			{"size", "0x10", "16", SHCL_GOOD},
+			{"name", "hello", "hello", SHCL_GOOD},
+			{"single", "'it'", "'it'", SHCL_GOOD},
+			{"list", "[1, \"two\", 3]", "[x, y]", SHCL_GOOD},
+			{"re", "`a\\d+`", "`a\\d+`", SHCL_GOOD},
+			{"code", "echo hi", "echo hi", SHCL_GOOD},
+			{"dup", "1", "1", SHCL_GOOD},
+			{"stack", "[a, \"b\"]", "[a, \"b\"]", SHCL_GOOD},
+			{"arr", "", "", SHCL_GOOD}, // reopened empty by the field under it
+			{"arr.kid", "3", "3", SHCL_GOOD},
+			{"empty", "", "", SHCL_GOOD},
+			{"sp", "[ 1 ,2 ]", "[ 1 ,2 ]", SHCL_GOOD},
+			{"missing", "", "", SHCL_NOT_FOUND},
+			{"site", "", "", SHCL_MULTIPLE},
+			{"esc", "\"a\\tb\"", "\"a\\tb\"", SHCL_GOOD},
+			{"size2", "[80]", "[80]", SHCL_GOOD},
+			{"sel", "a", "a", SHCL_GOOD}, // the line's own value was dropped
+		};
+		for (int pass = 0; pass < 2; pass++) {
+			if (pass == 1) {
+				const char *xy[] = {"x", "y"}; size_t xyn[] = {1, 1};
+				if (shcl_set_int(rd, "size", 4, 16) != SHCL_SET_OK || shcl_set_string(rd, "port", 4, "9090", 4) != SHCL_SET_OK
+					|| shcl_set_string_array(rd, "list", 4, xy, xyn, 2) != SHCL_SET_OK) fail("raw_text", "setters failed");
+			}
+			for (size_t k = 0; k < sizeof want / sizeof want[0]; k++) {
+				const char *w = pass ? want[k].set : want[k].load;
+				size_t pl = strlen(want[k].path);
+				shcl_str s = shcl_raw_text(rd, want[k].path, pl);
+				shcl_read_str r = shcl_read_raw_text(rd, want[k].path, pl);
+				if (s.n != strlen(w) || memcmp(s.p, w, s.n) != 0) { fprintf(stderr, "  %s: got '%.*s'\n", want[k].path, (int)s.n, s.p); fail("raw_text", pass ? "after a set" : "as loaded"); }
+				if (r.status != want[k].st || r.value.n != s.n || (s.n && memcmp(r.value.p, s.p, s.n) != 0)) fail("raw_text", "status twin");
+			}
+		}
+		if (shcl_read_raw_text(rd, "a..b", 4).status != SHCL_BAD_PATH) fail("raw_text", "a..b not BadPath");
+		shcl_compact(rd);
+		shcl_str rc = shcl_raw_text(rd, "re", 2);
+		if (rc.n != 6 || memcmp(rc.p, "`a\\d+`", 6) != 0) fail("raw_text", "lost by shcl_compact");
+		shcl_free(rd);
+	}
 	// The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	// back to the call-site default, so a real zero can't be faked. `_or` is the
 	// cross-binding spelling for it, so a routine ported between two bindings
