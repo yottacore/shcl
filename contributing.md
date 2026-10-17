@@ -186,7 +186,7 @@ Two more images are there for now and then:
 
 - Each binding also tests natively:
 	- Go: `go -C source/go test -count=1 ./...`. The corpus sits outside the module, so without `-count=1` a cached pass hides a changed case.
-	- Python: `python3 source/python/tests/conformance.py`
+	- Python: `python3 -X dev -W error::ResourceWarning source/python/tests/conformance.py`, so a file left open fails. `tests/soak.py` runs the same way.
 	- C: compile and run `source/c/tests/conformance.c` with `-Isource/c`, passing `project/conformance` as the corpus dir.
 
 - Everything at once: `cicd/cicd.bash --ci` - format check, build, lint, tests, and the cross-binding crosscheck. Every binding must match the reference byte for byte on stdout and exit codes; stderr text is not part of the contract.

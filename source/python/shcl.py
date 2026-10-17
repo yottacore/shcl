@@ -9299,7 +9299,9 @@ def _windows_publish_file(tmp, target):
 				_remove_quietly(backup)
 			return
 		except OSError as e:
-			err = e
+			# Without its traceback, which holds this frame: kept whole, the
+			# two are a cycle until the next collection.
+			err = e.with_traceback(None)
 		tries += 1
 		if tries == _PUBLISH_TRIES:
 			break
@@ -9680,7 +9682,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 			f = os.fdopen(fd, "w", encoding="utf-8", newline="")
 			break
 		except (OSError, ValueError) as e:
-			last = e
+			last = e.with_traceback(None)  # as err in _windows_publish_file
 	if f is None:
 		raise WriteError(f"{file}: cannot create temporary file: {(getattr(last, 'strerror', None) or last) if last is not None else ''}",
 			_write_status_of(last) if last is not None else WriteStatus.Other)

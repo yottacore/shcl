@@ -67,6 +67,7 @@ NEED: list[tuple[str, str, str, int]] = [
 ]
 COLLECT: list[tuple[str, str]] = [
 	("source/python/tests/*.py", rf'\btest_id\("({ID})", "[^"]+"\)'),
+	("source/go/*_test.go", rf'\bstatusLine\(\w+, "({ID})", "[^"]+"\)'),
 	("source/c/tests/*.c", rf'\btest_id\("({ID})", "[^"]+"\)'),
 	("source/c/tests/*.cpp", rf'\btest_id\("({ID})", "[^"]+"\)'),
 	("cicd/utility/*.bash", rf"\bfTest ({ID}) \S"),

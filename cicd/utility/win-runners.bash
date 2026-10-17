@@ -432,7 +432,8 @@ fDevicesPython() {
 fRun "rust"        "cargo"          cargo test --manifest-path source/rust/Cargo.toml
 fRun "go library"  "go"             go -C source/go test -count=1
 fRun "go cli"      "go"             go -C source/go/cmd test -count=1 ./...
-fRun "python"      "${py}"          "${py}" source/python/tests/conformance.py
+fRun "python"      "${py}"          "${py}" -X dev -W error::ResourceWarning source/python/tests/conformance.py
+fRun "python soak" "${py}"          "${py}" -X dev -W error::ResourceWarning source/python/tests/soak.py
 fRun "c"           "${cc}"          fRunC
 fRun "c++ veneer"  "${cxx}"         fRunCxx
 fRun "c oom hook"  "${cc}"          fRunOomSweep oom_hook

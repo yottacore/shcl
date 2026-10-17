@@ -103,7 +103,7 @@ CPPCHECK_WHEEL="1.5.1"
 BUILD_CMD=(cargo build -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 BUILD_EXTRA=(
 	'GOAMD64=v1 GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd build -o ../shcl ./shcl'
-	'python3 -m py_compile source/python/shcl.py source/python/cmd/shcl/main.py source/python/tests/conformance.py'
+	'python3 -m py_compile source/python/shcl.py source/python/cmd/shcl/main.py source/python/tests/conformance.py source/python/tests/soak.py'
 	'cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/cmd/shcl/main.c -o source/c/shcl -lm -s'
 )
 
@@ -238,11 +238,16 @@ TEST_EXTRA=(
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1'
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd test -count=1 ./...'
 	## spec.md says Go reads can share a document across goroutines, and the
-	## race detector sees that break where a plain run can miss it. One test,
-	## since -race slows the whole suite several times over; it needs cgo and a
-	## C compiler (2026101514324720).
-	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -run "^TestReadsFromSeveralGoroutines$"'
-	'python3 source/python/tests/conformance.py'
+	## race detector sees that break where a plain run can miss it. The whole
+	## suite, about 20 s to the plain run's 5 here, so the timeout has room for a
+	## slow runner. It needs cgo and a C compiler (2026101514324720,
+	## 2026101711273980).
+	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -timeout 10m'
+	## -X dev and the ResourceWarning filter make a file nobody closed an
+	## error, which the runner's unraisable hook turns into a failure. The soak
+	## takes about 15 s here, half of it tracemalloc's (2026101711273980).
+	'python3 -X dev -W error::ResourceWarning source/python/tests/conformance.py'
+	'python3 -X dev -W error::ResourceWarning source/python/tests/soak.py'
 	'cbin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/conformance.c -o "${cbin}" -lm -lpthread && "${cbin}" project/conformance; crc=$?; rm -f "${cbin}"; ((crc==0))'
 	'vbin="$(mktemp)"; g++ -std=c++17 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/veneer_smoke.cpp -o "${vbin}" -lm -pthread && "${vbin}"; vrc=$?; rm -f "${vbin}"; ((vrc==0))'
 	'obin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/oom_hook.c -o "${obin}" -lm && "${obin}"; orc=$?; rm -f "${obin}"; ((orc==0))'
