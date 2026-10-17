@@ -168,7 +168,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - Rust's generic `name_unit` is `name_duration_unit` and `name_size_unit` in C, over a shared `name_ends`. C has no generics, so one lookup per unit table is the closest it gets.
 
-- The read structs stay value+status, where the other three have `raw`, `line` and `quoted` on the read result. Those two of the three that a C consumer can still ask for are separate accessors - `shcl_line`, `shcl_quoted` - because widening a by-value struct to include a borrowed span costs every read that never looks at it. C++'s `Read<T>` follows C here rather than the other three. Filling `line` and `quoted` would resolve the path twice more on every read, so they stay `line()` and `quoted()` on the `Document`.
+- The read structs stay value+status, where the other three have `raw`, `line` and `quoted` on the read result. A C consumer asks for all three through separate accessors - `shcl_raw_text`, `shcl_line`, `shcl_quoted` - because widening a by-value struct to include a borrowed span costs every read that never looks at it. `shcl_raw_text` has the longer name since `shcl_read_raw` already reads a raw block. C++'s `Read<T>` follows C here rather than the other three. Filling `raw`, `line` and `quoted` would resolve the path 3 more times on every read, so they stay `raw()`, `line()` and `quoted()` on the `Document`.
 
 ### Bash and PowerShell
 

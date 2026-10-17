@@ -62,7 +62,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - C has no call for a value's text as written
 	- ID: 2026101612221649
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261016-122216
 	- Opened by: shclwrap
@@ -73,6 +73,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The read structs stay value and status, as `style-guide_code.md` says. Its sentence on the two of three that C can ask for changes to all three.
 	- Note: C nodes keep no value source text today. Rust sets `src` once per node at parse, only when the node holds that line's value, and clears it on a set or a reopen. C needs the same, as a slice of the kept input.
 	- Note: a missing capability, not a wrong answer. shclwrap's C reads leave out the "as typed" text its Go and Rust reads give, and nothing there waits on this.
+	- Actual fix: C nodes keep `src` and `src_set` the way Rust's do: set once at parse, only when the node holds that line's value, as a slice of the kept input. A setter and a reopen clear it, and a clone copies it, so `shcl_compact` and a merge keep it. The new calls are `shcl_raw_text` and `shcl_read_raw_text`, and C++ has `raw()` and `read_raw_text()` beside `line()` and `quoted()`.
+	- Note: the name is my call. `shcl_read_raw` already reads a raw block, so `shcl_raw` would have no status twin by the usual pattern. C++ keeps `raw()` and takes `read_raw_text()` for the twin, since `read_raw()` is taken there too.
+	- Note: style-guide_code.md's sentence covers all 3 now, and spec.md's C deviation names `shcl_raw_text`.
+	- Swept: every C site that builds a node (`select_or_create`, `w_new_child`, `w_new_child_under`, `w_clone_subtree`) and every site that changes a node's value (the setter, `array_under`'s reopen, `bind_block`, `fold_list_into_empty`, the stacked list items, a merge's raw block into an empty binding), against Rust's. Rust clears `src` only at the setter and the reopen, so C does the same.
+	- Test case: C `EsurKR1` (`raw_text`), 18 paths as loaded and after 3 setters, plus `shcl_compact`. The veneer smoke checks `raw()` and `read_raw_text()`.
+	- Verified: Rust, Go and Python give the same `raw` on that fixture, as loaded and after the setters, and `EsurKR1` expects those answers. It went red with each of these taken out alone: the setter's clear, the reopen's clear, the `src_set` check, the value-hash check, the clone's copy, and `raw_of` reading `src`. The veneer smoke went red with `raw()` giving the read string. Also the C conformance suite, crosscheck over the corpus and a fuzz dump, cli-regress, sanitize-c, check-veneer, check-c-compilers, check-docs, test-ids check, and cppcheck at the normal level and the gate's exhaustive level.
+	- Note: the threaded read test in `veneer_smoke.cpp` doesn't call `raw()` or `read_raw_text()` yet. 2026101612343301 is changing that test, so they go in there.
+	- Branch: `craw`
+	- Commit: `97779a33`
+	- Acceptance signoff: closed on JC's criteria. It does what the item asked, its test went red with each part taken out, and the name is my call, noted above.
+	- Closed: 20261016-185648
 
 - An extra image's run writes into this box's builds
 	- ID: 2026101514324713
