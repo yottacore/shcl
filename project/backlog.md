@@ -56,6 +56,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log: 20261016, reopened. Hosted run 38962944867's windows job failed `c++ veneer`. The smoke printed `ok` and then `EstYOue` died within a second, with no output. The build there is mingw g++ with libstdc++. The zig and wine build here uses libc++ and passed.
 		- Probable cause: `savePath` is a `thread_local std::string`. MinGW-w64 runs `thread_local` destructors after memory they use is freed, and a `thread_local std::string` is reported to crash at thread exit about half the time (GCC bug 80816). A plain `char` array or a path passed in would avoid it. Unverified, since this box has no mingw g++.
 
+- C has no call for a value's text as written
+	- ID: 2026101612221649
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261016-122216
+	- Opened by: shclwrap
+	- Version and build: dev at `56a37a27`
+	- Problem description: with `size: 0x10`, Go's `ReadInt("size")` gives 16 with `Raw` set to `0x10`, and Rust's and Python's reads have `raw` too. C's `shcl_read_int` gives 16, and no C call gives `0x10`. `shcl_read_string` comes close but drops the quotes, so `port: "8080"` gives `8080` where Go's `Raw` is `"8080"`.
+	- Requirements:
+		- A call beside `shcl_line`, `shcl_quoted` and `shcl_authored_name` that gives a value's text as written, the way Rust's `raw_of` does. Its status twin goes with it, and C++ gets `raw()` on the `Document` beside `line()` and `quoted()`.
+		- The read structs stay value and status, as `style-guide_code.md` says. Its sentence on the two of three that C can ask for changes to all three.
+	- Note: C nodes keep no value source text today. Rust sets `src` once per node at parse, only when the node holds that line's value, and clears it on a set or a reopen. C needs the same, as a slice of the kept input.
+	- Note: a missing capability, not a wrong answer. shclwrap's C reads leave out the "as typed" text its Go and Rust reads give, and nothing there waits on this.
+
 - An extra image's run writes into this box's builds
 	- ID: 2026101514324713
 	- Type: Bug
