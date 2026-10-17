@@ -36,9 +36,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: N. sanitize-c `EstYPCw` passed in hosted run 38962944867.
-	- Needs external testing: the hosted windows job, its `c++ veneer` step (`EstYOue`).
+	- Needs external testing: N. Hosted run 38993541382 on dev at `a8b7836d`: all 5 jobs green, `ok EstYOue` on windows.
 	- Priority: Low
 	- Opened: 20261016-123433
 	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
@@ -58,6 +58,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause, confirmed: built with mingw g++ 14 and run under wine with its heap checks on, the smoke frees a pointer read from freed memory (`0xFEEEFEEE...`) once per worker thread exit, 24 a run. Wine lets it go. Windows' heap ends a process on a bad free, which would fit the silent death right after `ok`; that part is unverified. GCC bug 80816 is still open and reported on GCC 15. emutls frees the variable before its destructor runs.
 		- Fix: only an `int` slot is `thread_local` now, and the save call builds its path from it. The same build then frees nothing bad, 3 runs of 3 with the posix thread model and 1 with win32. No other `thread_local` in the tree.
 		- Verified: sanitize-c still goes red on `EstYPCw` with `instance_paths()` taking no lock, and green restored. Also the C conformance suite, the plain smoke, check-veneer, sanitize-c, check-docs and test-ids check. Only the hosted windows job is left.
+	- Acceptance signoff: closed on JC's criteria. `EstYOue` passes on the hosted windows job, and `EstYPCw` still goes red with a lock taken out.
+	- Closed: 20261017-021500
 
 - C has no call for a value's text as written
 	- ID: 2026101612221649
