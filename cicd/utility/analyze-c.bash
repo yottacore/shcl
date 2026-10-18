@@ -16,10 +16,10 @@
 ##		  shcl.hpp and shcl.h in the header filter.
 ##		Any finding fails. A false one is suppressed at its line with the reason
 ##		beside it: SHCL_VOLATILE_OWNER_BEGIN/END or SHCL_ANALYZER_SKIP in C, and
-##		NOLINT(check) in C++. Each tool first has to report a planted leak and
-##		null dereference, so one gone blind can't pass as clean: -fsyntax-only
-##		turns -fanalyzer off, -O1 folds a leak away before it looks, and gcc
-##		prints a finding as error: under -Werror.
+##		NOLINT(check) for clang-tidy. Each tool first has to report a planted
+##		leak and null dereference, so one gone blind can't pass as clean:
+##		-fsyntax-only turns -fanalyzer off, -O1 folds a leak away before it
+##		looks, and gcc prints a finding as error: under -Werror.
 ##		The tools are the majors TOOL_PINS names, and they run in the build
 ##		image. On a box without them this starts that image and runs in it,
 ##		building it first if it isn't here. The hosted gate installs them.
@@ -114,16 +114,7 @@ cAnaFlags=(-std=c11 -O0 -g -Wall -Wextra -Werror -Isource/c)
 ## memory at -O0. At 1 it missed a two-path leak, and 2 is the least that
 ## reports the bait.
 gccDepth=(--param=analyzer-bb-explosion-factor=2)
-## Three bugprone checks stay off, since what they flag here is how the C
-## header is written rather than a bug, and suppressing them line by line
-## would bury it:
-## - easily-swappable-parameters, 70 calls whose order mirrors the reference
-##   binding's, which the C calls can't leave.
-## - assignment-in-if-condition, the C idiom with doubled parentheses. gcc's
-##   -Wparentheses already fails the build on the accidental single ones.
-## - multi-level-implicit-pointer-conversion, a T** handed to free, memset,
-##   realloc and qsort, which take void * in C.
-tidyChecks='-*,clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters,-bugprone-assignment-in-if-condition,-bugprone-multi-level-implicit-pointer-conversion'
+tidyChecks='-*,clang-analyzer-*,bugprone-*'
 ## A header finding is reported only when its path matches this. It is
 ## anchored at the end, so the bait's copy under the scratch dir matches too.
 tidyHeaders='source/c/shcl\.(h|hpp)$'
@@ -272,3 +263,5 @@ exit 0
 
 ##	History:
 ##		- 2026-10-17 JC: Created.
+##		- 2026-10-18 JC: The 3 bugprone checks that were off gate again, with each
+##		  site suppressed at its line or filed.

@@ -127,7 +127,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261017, `cleak`, the every-run half. Sanitizers: `cicd/utility/lsan.supp` is empty and loaded through `LSAN_OPTIONS`. A leak bait has to be reported with it loaded (`Et09atr`). oom_hook runs with leak detection on, since it no longer leaks. `SHCL_ARENA_MALLOC` gives each arena request its own malloc in the sanitizer builds of the runner, the smoke and the CLI. mem_bounds and the 2 OOM tests keep the bump arena, since they count its blocks and allocations. The smoke's ASan build adds `-D_GLIBCXX_ASSERTIONS`. The flags and programs are in `include/c-flags.bash`, which `gen-compdb.bash` reads too.
 		- Static analysis: `analyze-c.bash`, in the lint stage, runs gcc 14's `-fanalyzer` and clang 19's analyzer over main.c and the 4 test .c files, and clang-tidy 19 over the veneer smoke from `gen-compdb.bash`'s database. Each tool first has to report a planted leak and null dereference (`Et09ats`, `Et09att`, `Et09atu`). The real runs are `Et09atv`, `Et09atw` and `Et09atx`. A box without the pinned tools runs it in the build image. gcc-14, clang-19 and clang-tidy-19 are in TOOL_PINS, the main Dockerfile and ci.yml.
 		- Fixed: `arena_panic` is marked noreturn, the `fread` loops stop at a short read, the CLI's `read_stream` takes `is_stdin`, the CLI's suggestion buffers get `= {0}`, an `assert` on the layer count, `kept_taken` checks for trivia first, explicit `strcmp` compares, 2 widened multiplications, `'\0'` in 2 ternaries, and a NULL check in mem_bounds.
-		- Suppressed at the line, each with its reason: 14 volatile recovery-point owners for gcc, which loses a pointer stored in a volatile local; 9 hash map hits and 5 conformance.c checks for clang; 11 clang-tidy sites. 3 bugprone checks are off in analyze-c.bash with their reasons: easily-swappable-parameters (70 C calls that mirror the reference), assignment-in-if-condition (the doubled-parentheses idiom, which gcc's `-Wparentheses` already checks), and multi-level-implicit-pointer-conversion (a `T**` passed as `void *` in C) (me).
+		- Suppressed at the line, each with its reason: 14 volatile recovery-point owners for gcc, which loses a pointer stored in a volatile local; 9 hash map hits and 5 conformance.c checks for clang; 11 clang-tidy sites. 3 bugprone checks were off in analyze-c.bash until 20261018, below.
 		- Swept: all 14 volatile owners in shcl.h, all 5 `fread` loops, and both callers' hint buffers.
 		- gcc's analyzer reaches little of shcl.h. A leak and a null dereference planted in library calls, and both in main.c's own `is_command`, went unseen by gcc 14 and 15 at depths 2 and 3. clang's analyzer and clang-tidy saw them. At gcc's default depth main.c ran out of 14 GB and conformance.c passed 24 GB, so there's no slower gcc mode for `--leakcheck`. It runs at depth 2, 40 to 100 s and 3 to 8 GB a file, in 2 lanes.
 		- Question: keep gcc's `-fanalyzer` in the every-run gate, when the bait is the only thing it went red on?
@@ -135,6 +135,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: analyze-c green from the host through the image, and in the ubuntu image as ci.yml sets it up. Each plant was seen red, then restored by copy: a library leak (sanitize-c's runner, smoke, CLI and OOM tests, the clang analyzer, clang-tidy), a null dereference (the clang analyzer), a use after a vector grows in the smoke (ASan), a data race in the smoke (TSan), a use after move in shcl.hpp (clang-tidy, so the header filter reaches it), a one-byte arena overrun (red with `SHCL_ARENA_MALLOC`, green without it), a vector read inside its capacity (red with `_GLIBCXX_ASSERTIONS`, green with ASan alone), and `leak:main` in lsan.supp (`Et09atr`). check-pins went red with each new pin dropped from ci.yml or changed in the Dockerfile.
 		- Verified: sanitize-c (6329 CLI runs), check-c-compilers (141 builds, 5 compilers), the C tests at `-O2` with the strict warnings, mingw and zig Windows compiles, check-veneer, cli-regress over Rust and C, shell-regress, check-push-gate, check-pins, check-docs, `test-ids.py check`, shellcheck.
 		- Needs local test suite run?: exhaustive cppcheck over the C change, where `SHCL_ARENA_MALLOC` adds a configuration, and a full `--ci` with analyze-c in the lint stage.
+		- 20261018, `tidysup`: the 3 bugprone checks gate again. JC, 20261018: judge each site, file a real one as a bug, and suppress the rest at the line with a reason.
+			- easily-swappable-parameters, 71 sites on 67 lines, 1 of them in the veneer smoke. Every caller of each was read. All 67 lines are suppressed: mostly a length after its pointer, the Rust twin's order, or a result arena before scratch. `shcl_validate(d, schema)` swapped reports `V090` or `V001` on all 28 corpus schema cases, with the real input or an empty one, so a swap can't pass unseen.
+			- Filed: 2026101807501110. `shcl_write_backup`'s file and text are both strings, and swapped it writes a junk backup and returns OK. Its line is suppressed with the ID, and so is `s_write_file_atomic`'s.
+			- assignment-in-if-condition, 7 sites. Each assigns and then tests on purpose, and none is a mistaken `==`. All 7 suppressed.
+			- multi-level-implicit-pointer-conversion, 9 sites on 7 lines: a pointer array handed whole to `realloc`, `memset`, `free`, and `qsort`, and a string array kept as `void *` in `WDefault` and cast back. None is a `T**` where a `T*` was meant. All 7 lines suppressed.
+			- Verified: with one `NOLINT` of each check taken out, analyze-c's `Et09atx` went red naming all 3, and passed again with the file restored. analyze-c, sanitize-c, check-c-compilers, check-veneer, the C conformance runner (206 cases), the veneer smoke, oom_hook, oom_recover, mem_bounds, the mingw compile, cli-regress over C (612 rows), `test-ids.py check`, check-docs, and shellcheck pass.
+			- Needs local test suite run: the exhaustive cppcheck over shcl.h, though the change is comments only.
 	- Decisions:
 		- Vendored code is included in the analyses (JC, 2026-10-17).
 	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
@@ -220,6 +227,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: `pip-audit`. The Python binding has no third-party dependencies. Add it when one arrives (me).
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
+
+- `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
+	- ID: 2026101807501110
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261018-075011
+	- Opened by: 2026101707582803, from clang-tidy's bugprone-easily-swappable-parameters
+	- Related IDs: 2026101707582803
+	- Version and build: dev at `8c33a436`
+	- Steps to reproduce:
+		- `conf.shcl` holds `port: 80` and `host: x`, and `text` is that text.
+		- In C: `shcl_write_backup(text, "conf.shcl", strlen(text), 3, &name, &msg, &why)`.
+	- Incorrect behavior: it returns `SHCL_UPGRADE_OK` and writes a file in the working folder whose name is the config text plus `_backup_YYYYmmDD-HHMMSS_format-v3`. C also reads `len` bytes from the path string, past its end, which ASan reports. Rust, Go, and Python take the file and the text as 2 strings too. A caller that goes on to replace the file has no real backup of it.
+	- Expected behavior: a swapped call is refused and writes nothing.
+	- Reproduced: 20261018, C, at `-O2` and under ASan. The other 3 bindings weren't run.
+	- Possible cause: the file and the text have one type in all 4, and nothing checks that the file is there.
+	- Possible fix: refuse a file that isn't an existing regular file, as `NotFound`, in all 4. The CLI and `upgrade_file` back up a file they have just read. A path type of its own would be the v4 form.
+	- Sweep: `write_file_atomic(path, data)` has the same 2 strings. Swapped, it saves the path to a file named after the text and returns OK, seen in C on 20261018. It creates files on purpose, so the same check doesn't fit there.
+	- Test case: planned. In each binding, `write_backup` with its file and text swapped, in a scratch folder, is refused and leaves the folder empty. C's runs under sanitize-c too.
 
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
