@@ -228,6 +228,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 
+- Updates to CICD script flags
+	- ID: 2026101816034794
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261018-160347
+	- Opened by: JC
+	- Version and build: dev at `f49d5949`
+	- Requirements:
+		- Pre-next-cut. Do next.
+		- `--ci`: Rename `--gate`.
+		- `--quick`:
+			- Should run whatever linting, validation, and testing steps are very quick.
+			- Cross-compile whatever is fast; e.g. maybe skip slow arm64.
+			- Skip anything requiring an external host.
+		- No flags by default should do everything.
+		- The other existing flags can stay.
+
 - `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
 	- ID: 2026101807501110
 	- Type: Bug
