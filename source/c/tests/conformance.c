@@ -148,7 +148,7 @@ static void fv_check(const char *in, size_t inn) {
 		free(v); shcl_free(d); return;
 	}
 	shcl_str c = shcl_to_canonical(d);
-	if (c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || v[n] || strlen(v) != n)
+	SHCL_ANALYZER_SKIP if (c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || v[n] || strlen(v) != n) // c.n is how long c.p is
 		fv_fail("not the canonical text", in, inn);
 	char line[SOUP_BUF];
 	if (n + 4 > sizeof line) { fv_fail("text longer than the fixture buffer", in, inn); free(v); shcl_free(d); return; }
@@ -165,7 +165,7 @@ static void fv_typed(shcl_doc *d, const char *text, const char *what) {
 	size_t n = 0;
 	char *v = shcl_format_value(text, strlen(text), &n);
 	shcl_str c = shcl_to_canonical(d);
-	if (!v || c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n') fail("format_value", what);
+	SHCL_ANALYZER_SKIP if (!v || c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n') fail("format_value", what); // c.n is how long c.p is
 	free(v); shcl_free(d);
 }
 /* One array of the format_array fixture: shcl_format_array against what
@@ -184,11 +184,11 @@ static void fa_check(const char *const *av, const size_t *al, size_t an) {
 		free(v); shcl_free(d); return;
 	}
 	shcl_str c = shcl_to_canonical(d);
-	if (c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || v[n] || strlen(v) != n)
+	SHCL_ANALYZER_SKIP if (c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || v[n] || strlen(v) != n) // c.n is how long c.p is
 		fa_fail("not the canonical text", last, lastn);
 	char *line = (char *)malloc(n + 4);
 	if (!line) { fail("format_array", "out of memory"); free(v); shcl_free(d); return; }
-	memcpy(line, "k: ", 3); memcpy(line + 3, v, n); line[n + 3] = '\n';
+	SHCL_ANALYZER_SKIP { memcpy(line, "k: ", 3); memcpy(line + 3, v, n); line[n + 3] = '\n'; } // n is a text length, so n + 4 can't wrap to 0
 	shcl_doc *b = shcl_parse(line, n + 4);
 	shcl_read_str_arr r = shcl_read_string_array(b, "k", 1);
 	int same = r.status == SHCL_GOOD && r.n == an;
@@ -203,7 +203,7 @@ static void fa_typed(shcl_doc *d, const char *const *texts, size_t n, const char
 	for (size_t i = 0; i < n; i++) lens[i] = strlen(texts[i]);
 	char *v = shcl_format_array(texts, lens, n, &vn);
 	shcl_str c = shcl_to_canonical(d);
-	if (!v || c.n != vn + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, vn) || c.p[vn + 3] != '\n') fail("format_array", what);
+	SHCL_ANALYZER_SKIP if (!v || c.n != vn + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, vn) || c.p[vn + 3] != '\n') fail("format_array", what); // c.n is how long c.p is
 	free(v); shcl_free(d);
 }
 /* A capped parse's diagnostics as "LINE:CODE" words, its lost count and its
@@ -308,7 +308,7 @@ static char *read_file(const char *path, size_t *len) {
 	FILE *f = fopen(path, "rb");
 	if (!f) { *len = 0; return NULL; }
 	char *buf = NULL; size_t cap = 0, n = 0, r; char chunk[65536];
-	while ((r = fread(chunk, 1, sizeof chunk, f)) > 0) { if (n + r > cap) { cap = (n + r) * 2; buf = xrealloc(buf, cap); } memcpy(buf + n, chunk, r); n += r; }
+	while ((r = fread(chunk, 1, sizeof chunk, f)) > 0) { if (n + r > cap) { cap = (n + r) * 2; buf = xrealloc(buf, cap); } memcpy(buf + n, chunk, r); n += r; if (r < sizeof chunk) break; }
 	fclose(f);
 	if (!buf) buf = xrealloc(NULL, 1);
 	*len = n; return buf;

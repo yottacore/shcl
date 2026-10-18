@@ -418,7 +418,7 @@ git init -q -b dev "${eng}" || { echo "check-push-gate: git init failed" >&2; ex
 mkdir -p "${eng}/cicd/utility/include" "${eng}/source/rust"
 cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${eng}/cicd/"
 cp "${root}/cicd/utility/green-tree.bash" "${eng}/cicd/utility/"
-cp "${root}/cicd/utility/include/gfs-rotate.bash" "${eng}/cicd/utility/include/"
+cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
 printf '[package]\nname = "stub"\nversion = "1.0.0"\n' > "${eng}/source/rust/Cargo.toml"
 cat >> "${eng}/cicd/config.bash" <<'CFG'

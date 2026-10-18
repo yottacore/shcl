@@ -142,6 +142,15 @@ COPY package.json package-lock.json /opt/mdl/
 RUN cd /opt/mdl && PATH="/opt/node/bin:${PATH}" npm ci --no-fund --no-audit --ignore-scripts \
 	&& ln -s /opt/mdl/node_modules/.bin/markdownlint-cli2 /usr/local/bin/markdownlint-cli2
 
+# The C static analyzers for analyze-c.bash, at the majors TOOL_PINS names.
+# The snapshot above fixes the point releases.
+ARG GCC_VER=14
+ARG CLANG_VER=19
+ARG CLANG_TIDY_VER=19
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends "gcc-${GCC_VER}" "clang-${CLANG_VER}" "clang-tidy-${CLANG_TIDY_VER}" \
+	&& rm -rf /var/lib/apt/lists/*
+
 # Runs as the caller's uid, which has no passwd entry here. /cache is the cache
 # dir cicd.bash mounts from the host.
 RUN mkdir -m 1777 /cache

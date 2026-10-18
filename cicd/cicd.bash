@@ -284,22 +284,17 @@ fInstallAtomic(){
 ## worktree's .git file still mean something.
 fRunContainer(){
 	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" old="" link="" real=""
-	local -a mounts=() groups=() env=() inner=() ctxFiles=()
+	local -a mounts=() groups=() env=() inner=()
 	fSection "Container: ${ctr_image}"
 	command -v "${engine}" >/dev/null 2>&1 || fDie "no ${engine} to run --container with (SHCL_DOCKER names another)"
 	[[ "$(uname -m)" == x86_64 ]] || fDie "--container is x86_64 only"
 
 	## The image is built from a copy of its recipe dir plus the files the
 	## config adds, and tagged by their hash, so an edit can't run on an old one.
-	## The other recipes stay out of the hash.
+	source "${here}/utility/include/ctr-image.bash"
 	ctx="$(mktemp -d)"; ctr_tmps+=("${ctx}")
-	cp -p "${root}/${ctr_recipe}" "${ctx}/Dockerfile"
-	while IFS= read -r -d '' f; do
-		if [[ "${f}" != *Dockerfile ]]; then cp -p "${f}" "${ctx}/"; fi
-	done < <(find "${root}/${CTR_DIR:-cicd/container}" -maxdepth 1 -type f -print0)
-	for f in "${CTR_CONTEXT_EXTRA[@]}"; do cp -p "${root}/${f}" "${ctx}/"; done
-	mapfile -t ctxFiles < <(cd "${ctx}" && find . -type f | LC_ALL=C sort)
-	tag="${CTR_IMAGE:-${APP_NAME}-cicd}$([[ "${ctr_image}" == main ]] || echo "-${ctr_image}"):$( cd "${ctx}" && for f in "${ctxFiles[@]}"; do echo "${f}"; cat "${f}"; done | git hash-object --stdin | cut -c1-12 )"
+	fCtrContext "${ctr_recipe}" "${ctx}" || fDie "could not copy the ${ctr_image} image's build context"
+	tag="$(fCtrTag "${ctx}" "${ctr_image}")"
 	if "${engine}" image inspect "${tag}" >/dev/null 2>&1; then
 		fEcho_Clean "image ${tag}"
 	else
