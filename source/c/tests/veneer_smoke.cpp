@@ -29,7 +29,7 @@
 static int fails = 0;
 /* The pipeline's status line for this file's one test, with its test ID. */
 static const char *open_id, *open_name;
-static void test_id(const char *id, const char *name) { open_id = id; open_name = name; }
+static void test_id(const char *id, const char *name) { open_id = id; open_name = name; } // NOLINT(bugprone-easily-swappable-parameters): the ID first, as in every runner's test_id
 static int test_id_end(int failed) {
 	std::printf("%-4s %s c++ %s\n", failed ? "FAIL" : "ok", open_id, open_name);
 	std::fflush(stdout);

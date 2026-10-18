@@ -1252,7 +1252,7 @@ static void arena_free(ShclArena *a) {
 }
 /* Hand an arena the recovery point its owner armed. */
 static void arena_guard(ShclArena *a, jmp_buf *panic) { a->panic = panic; }
-static void *arena_grow(ShclArena *a, void *old, size_t oldcap, size_t newcap, size_t sz) {
+static void *arena_grow(ShclArena *a, void *old, size_t oldcap, size_t newcap, size_t sz) { // NOLINT(bugprone-easily-swappable-parameters): old size, then new, in every grow
 	/* Extend in place when nothing has been allocated since `old`. */
 	if (!SHCL_ARENA_EACH && old && a->head && old == a->last) {
 		size_t want = (newcap * sz + 15u) & ~(size_t)15u;
@@ -1558,7 +1558,7 @@ DEFINE_VEC(ShclVecS, ShclStr)
    comment, so shcl_clear_comments and shcl_comments leave it alone. */
 typedef struct { ShclStr text; int blank_before; size_t depth; size_t line; int kept; } ShclLead;
 DEFINE_VEC(ShclVecLead, ShclLead)
-static ShclLead lead_at(ShclStr text, int blank_before, size_t depth, size_t line) { ShclLead l; l.text = text; l.blank_before = blank_before; l.depth = depth; l.line = line; l.kept = 0; return l; }
+static ShclLead lead_at(ShclStr text, int blank_before, size_t depth, size_t line) { ShclLead l; l.text = text; l.blank_before = blank_before; l.depth = depth; l.line = line; l.kept = 0; return l; } // NOLINT(bugprone-easily-swappable-parameters): the fields in ShclLead's order
 static ShclLead lead_make(ShclStr text, int blank_before, size_t depth) { return lead_at(text, blank_before, depth, 0); }
 static ShclLead lead_plain(ShclStr text) { return lead_make(text, 0, 0); }
 /* A copy into another arena, source line and all. */
@@ -1817,7 +1817,7 @@ static void notes_sort(ShclVecNote *v) {
    children and trivia move over, first trailing wins (a second demotes to a
    leading line), first spelling stays. The caller drops the loser from the
    parent's child list; it keeps its arena slot, unreferenced. */
-static void fold_node_into(shcl_doc *d, size_t survivor, size_t loser) {
+static void fold_node_into(shcl_doc *d, size_t survivor, size_t loser) { // NOLINT(bugprone-easily-swappable-parameters): survivor first, as in the Rust twin
 	ShclArena *a = &d->arena;
 	ShclVecSize kids = NODE(d, loser).children;
 	for (size_t k = 0; k < kids.len; k++) {
@@ -2119,7 +2119,7 @@ static void scan_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules,
    noted and the scan goes on, so the comment is still found. Past the element
    cap the scan stops, as a bare value's does: the line is refused for that
    whatever else is wrong with it. */
-static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, ShclTokens *out) {
+static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, ShclTokens *out) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	out->has_array = 1; out->array = open_at;
 	size_t pos = open_at + 1, count = 0, stop_at;
 	int closed = 0; size_t close = 0;
@@ -2178,7 +2178,7 @@ static void tokenize_value(ShclArena *a, ShclStr text, size_t from, ShclRules ru
    CLI's --set passes '='. out is cleared and reused, so a parse allocates
    once per document rather than once per line. text is the line after its
    indent, or the path. */
-static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules rules, ShclTokens *out) {
+static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules rules, ShclTokens *out) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; sep is a char literal
 	tok_clear(out);
 	ShclStr s = text;
 	size_t pos = 0;
@@ -2266,12 +2266,12 @@ static void tok_adopt(ShclArena *a, shcl_tokens *t) {
 	t->elements = NULL; t->elem_cap = 0; t->nelem = 0;
 	t->arena = a;
 }
-void shcl_tokenize(shcl_doc *d, const char *text, size_t len, char sep, int path, shcl_rules rules, shcl_tokens *out) {
+void shcl_tokenize(shcl_doc *d, const char *text, size_t len, char sep, int path, shcl_rules rules, shcl_tokens *out) { // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer; sep is a char
 	ShclStr s; s.p = text ? text : ""; s.n = len;
 	tok_adopt(&d->reads, out);
 	tokenize(&d->reads, s, sep, path, rules, out);
 }
-void shcl_tokenize_value(shcl_doc *d, const char *text, size_t len, size_t from, shcl_rules rules, shcl_tokens *out) {
+void shcl_tokenize_value(shcl_doc *d, const char *text, size_t len, size_t from, shcl_rules rules, shcl_tokens *out) { // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
 	ShclStr s; s.p = text ? text : ""; s.n = len;
 	tok_adopt(&d->reads, out);
 	tokenize_value(&d->reads, s, from, rules, out);
@@ -2318,7 +2318,7 @@ static int element_of(ShclArena *a, const ShclPiece *p, ShclStr text, ShclElemen
 // when built - see piece_text); the growing element vector is a per-call
 // temporary and goes to `tmp`, so only the exact-size final array reaches the
 // document arena.
-static ShclValue cell_of_tokens(ShclArena *a, ShclArena *tmp, const ShclTokens *tok, ShclStr text) {
+static ShclValue cell_of_tokens(ShclArena *a, ShclArena *tmp, const ShclTokens *tok, ShclStr text) { // NOLINT(bugprone-easily-swappable-parameters): result arena first, then scratch
 	if (!tok->has_array) {
 		for (size_t i = 0; i < tok->nelem; i++) {
 			ShclElement e;
@@ -2530,7 +2530,7 @@ static int escape_text(ShclArena *a, ShclStr name, ShclSB *out, ShclStr *why) {
    point. 0 and the message for the first one that is not (E023). Text with
    no mark comes back as the slice it came in as - nearly every piece, and a
    copy per piece would be most of a parse's memory. */
-static int resolve_marks(ShclArena *a, ShclStr raw, ShclStr *out, ShclStr *why) {
+static int resolve_marks(ShclArena *a, ShclStr raw, ShclStr *out, ShclStr *why) { // NOLINT(bugprone-easily-swappable-parameters): out-params for the Rust twin's Ok and Err
 	const char *at = find_mark(raw, 0);
 	if (!at) { *out = raw; return 1; }
 	ShclSB o = {0};
@@ -2775,7 +2775,7 @@ static int parse_size_text(ShclStr t, shcl_size_unit bare, int decimal, int64_t 
 	if (!decimal_at(t, &ip, &fp, &end)) return 0;
 	ShclStr rest = trim_wsp_start(s_slice(t, end, t.n));
 	*unit = SHCL_SIZE_NONE;
-	if (rest.n && (*unit = shcl_size_unit_from_spelling(rest.p, rest.n)) == SHCL_SIZE_NONE) return 0;
+	if (rest.n && (*unit = shcl_size_unit_from_spelling(rest.p, rest.n)) == SHCL_SIZE_NONE) return 0; // NOLINT(bugprone-assignment-in-if-condition): assign, then test
 	shcl_size_unit use = *unit != SHCL_SIZE_NONE ? *unit : bare;
 	uint64_t v;
 	if (use == SHCL_SIZE_NONE || !scaled(ip, fp, size_bytes(use, decimal), &v) || v > (uint64_t)INT64_MAX) return 0;
@@ -2789,7 +2789,7 @@ static int unit_named(ShclStr name) {
 }
 /* A value in another unit than the one its field name ends in (H005), as
    `timeout-ms: 5s`. The value's unit is the one read, so this is a hint. */
-static int unit_clash(ShclArena *a, ShclStr name, ShclStr text, ShclStr *msg) {
+static int unit_clash(ShclArena *a, ShclStr name, ShclStr text, ShclStr *msg) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	const char *v = NULL, *nm = NULL;
 	shcl_duration_unit nu = name_duration_unit(name);
 	int64_t x; unsigned units; shcl_duration_unit first;
@@ -3023,14 +3023,14 @@ static uint64_t fnv_str(uint64_t h, ShclStr s) {
 	return h;
 }
 /* A length prefix in decimal, written without allocating. */
-static uint64_t fnv_dec(uint64_t h, size_t n) {
+static uint64_t fnv_dec(uint64_t h, size_t n) { // NOLINT(bugprone-easily-swappable-parameters): hash first, as in every fnv_ helper
 	char buf[20];
 	size_t i = sizeof buf;
 	do { buf[--i] = (char)('0' + n % 10); n /= 10; } while (n);
 	while (i < sizeof buf) h = fnv_byte(h, (unsigned char)buf[i++]);
 	return h;
 }
-static uint64_t cmap_hash(ShclStr name, ShclStr key) {
+static uint64_t cmap_hash(ShclStr name, ShclStr key) { // NOLINT(bugprone-easily-swappable-parameters): name, then key, as disp_hash hashes them
 	uint64_t h = 1469598103934665603ull;
 	h = fnv_str(h, name);
 	h = fnv_byte(h, 0xFFu); /* separator; equality still verifies both parts */
@@ -3160,7 +3160,7 @@ static ShclFence child_fence(ShclArena *a, ShclStr rest, ShclTokens *tok) {
 /* min_len is the opening fence's length, which the grammar puts at three or
    more, so the length test already rules out the empty line the loop below
    would otherwise accept. */
-static int is_fence_close(ShclStr line, unsigned char ch, size_t min_len) {
+static int is_fence_close(ShclStr line, unsigned char ch, size_t min_len) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclStr t = s_trim_sp_tab(line);
 	if (t.n < min_len) return 0;
 	for (size_t i = 0; i < t.n; i++) if ((unsigned char)t.p[i] != ch) return 0;
@@ -3699,7 +3699,7 @@ static void migrate_unload(ShclMigrateOwn *own) { shcl_free(own->doc); own->doc 
    line becomes that line where it is; a file with none gets it at the end.
    beta takes a file naming this format as 2.x too, which only shcl_upgrade
    asks for, once the caller has said so. */
-static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int *current, int stamp, int beta) {
+static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int *current, int stamp, int beta) { // NOLINT(bugprone-easily-swappable-parameters): migrate_text's flags, passed straight on
 	ShclArena *a = &own->a, *sc = &own->sc;
 	ShclStr whole = text, bom = s_empty();
 	if (text.n >= 3 && (unsigned char)text.p[0] == 0xEF && (unsigned char)text.p[1] == 0xBB && (unsigned char)text.p[2] == 0xBF) {
@@ -3823,7 +3823,7 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    every line's scratch on top. An allocation failure goes to outer when it is
    not NULL, the recovery point of a call that holds memory of its own around
    this one, else to SHCL_OOM. */
-static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, jmp_buf *outer) {
+static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, jmp_buf *outer) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; each caller is a named wrapper
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(outer);
@@ -4516,7 +4516,7 @@ static uint32_t month_from_name(ShclArena *a, ShclStr s) {
 		if (l.n == strlen(names[i]) && memcmp(l.p, names[i], l.n) == 0) return vals[i];
 	return 0;
 }
-static uint32_t days_in_month(int32_t y, uint32_t m) {
+static uint32_t days_in_month(int32_t y, uint32_t m) { // NOLINT(bugprone-easily-swappable-parameters): year, then month, as in the Rust twin
 	switch (m) {
 	case 1: case 3: case 5: case 7: case 8: case 10: case 12: return 31;
 	case 4: case 6: case 9: case 11: return 30;
@@ -4559,7 +4559,7 @@ static ShclDatePart parse_date_part(ShclArena *a, ShclStr s) {
 	ShclVecS toks = {0}; split_ws(a, s, &toks);
 	if (toks.len == 3) {
 		uint32_t mm;
-		if ((mm = month_from_name(a, toks.data[0]))) {
+		if ((mm = month_from_name(a, toks.data[0]))) { // NOLINT(bugprone-assignment-in-if-condition): assign, then test
 			ShclStr day_tok = toks.data[1];
 			if (day_tok.n > 0 && day_tok.p[day_tok.n - 1] == ',') day_tok = s_slice(day_tok, 0, day_tok.n - 1);
 			uint32_t d; int32_t y;
@@ -4569,7 +4569,7 @@ static ShclDatePart parse_date_part(ShclArena *a, ShclStr s) {
 			if (parse_num2(day_tok, &d) && parse_year4(toks.data[2], &y) && valid_date(y, mm, d)) { r.ok = 1; r.y = y; r.m = mm; r.d = d; }
 			return r;
 		}
-		if ((mm = month_from_name(a, toks.data[1]))) {
+		if ((mm = month_from_name(a, toks.data[1]))) { // NOLINT(bugprone-assignment-in-if-condition): assign, then test
 			uint32_t d; int32_t y;
 			if (parse_num2(toks.data[0], &d) && parse_year4(toks.data[2], &y) && valid_date(y, mm, d)) { r.ok = 1; r.y = y; r.m = mm; r.d = d; }
 			return r;
@@ -4591,12 +4591,12 @@ static ShclDatePart parse_date_part(ShclArena *a, ShclStr s) {
 		return r;
 	}
 	uint32_t mm;
-	if ((mm = month_from_name(a, parts.data[0]))) {
+	if ((mm = month_from_name(a, parts.data[0]))) { // NOLINT(bugprone-assignment-in-if-condition): assign, then test
 		uint32_t d; int32_t y;
 		if (parse_num2(parts.data[1], &d) && parse_year4(parts.data[2], &y) && valid_date(y, mm, d)) { r.ok = 1; r.y = y; r.m = mm; r.d = d; }
 		return r;
 	}
-	if ((mm = month_from_name(a, parts.data[1]))) {
+	if ((mm = month_from_name(a, parts.data[1]))) { // NOLINT(bugprone-assignment-in-if-condition): assign, then test
 		uint32_t d; int32_t y;
 		if (parse_num2(parts.data[0], &d) && parse_year4(parts.data[2], &y) && valid_date(y, mm, d)) { r.ok = 1; r.y = y; r.m = mm; r.d = d; }
 		return r;
@@ -4717,7 +4717,7 @@ typedef struct { ShclCMap **data; size_t len, cap; } ShclVecMapPtr;
 static void maps_push(jmp_buf *panic, ShclVecMapPtr *v, ShclCMap *x) {
 	if (v->len == v->cap) {
 		size_t nc = v->cap ? v->cap * 2 : 8;
-		ShclCMap **nd = (ShclCMap **)realloc(v->data, nc * sizeof(ShclCMap *));
+		ShclCMap **nd = (ShclCMap **)realloc(v->data, nc * sizeof(ShclCMap *)); // NOLINT(bugprone-multi-level-implicit-pointer-conversion): grows the pointer array itself
 		if (!nd) arena_panic(panic);
 		v->data = nd; v->cap = nc;
 	}
@@ -4741,11 +4741,11 @@ static ShclCMapEnt *cmap_next(ShclCMapEnt *e, uint64_t h) {
 		if (e->hash == h) return e;
 	return NULL;
 }
-static void cmap_put(ShclArena *a, ShclCMap *m, uint64_t h, size_t val) {
+static void cmap_put(ShclArena *a, ShclCMap *m, uint64_t h, size_t val) { // NOLINT(bugprone-easily-swappable-parameters): hash, then the value it maps to
 	if (m->len + 1 > m->cap - m->cap / 4) { /* grow at 75%; also covers cap 0 */
 		size_t nc = m->cap ? m->cap * 2 : 8;
 		ShclCMapEnt **nb = (ShclCMapEnt **)arena_alloc(a, nc * sizeof(ShclCMapEnt *));
-		memset(nb, 0, nc * sizeof(ShclCMapEnt *));
+		memset(nb, 0, nc * sizeof(ShclCMapEnt *)); // NOLINT(bugprone-multi-level-implicit-pointer-conversion): zeroes the bucket array itself
 		for (size_t b = 0; b < m->cap; b++)
 			for (ShclCMapEnt *e = m->buckets[b], *nx; e; e = nx) {
 				nx = e->next;
@@ -4770,7 +4770,7 @@ static void cmap_reserve(ShclArena *a, ShclCMap *m, size_t n) {
 	size_t nc = 8;
 	while (nc - nc / 4 < n) nc *= 2;
 	m->buckets = (ShclCMapEnt **)arena_alloc(a, nc * sizeof(ShclCMapEnt *));
-	memset(m->buckets, 0, nc * sizeof(ShclCMapEnt *));
+	memset(m->buckets, 0, nc * sizeof(ShclCMapEnt *)); // NOLINT(bugprone-multi-level-implicit-pointer-conversion): zeroes the bucket array itself
 	m->cap = nc;
 }
 /* Unlink the (hash, val) entry - a node holds at most one entry per map, so
@@ -5085,7 +5085,7 @@ static int settle_block(shcl_doc *d, size_t n, size_t from) {
 
 /* A child's comments at its own level go above the next sibling, from child
    `from` on. */
-static void settle_pairs(shcl_doc *d, size_t n, size_t from) {
+static void settle_pairs(shcl_doc *d, size_t n, size_t from) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclArena *a = &d->arena;
 	ShclVecSize *kids = &NODE(d, n).children;
 	for (size_t i = from ? from : 1; i < kids->len; i++) {
@@ -5210,7 +5210,7 @@ static void fold_dups_from(ShclParser *P, size_t start) {
    misplaced line, which has its own indent, sits at the place's level and
    leaves both alone. */
 static size_t chain_depth(ShclParser *P, ShclVecDepth *chain, ShclStr base, ShclStr indent);
-static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr indent) {
+static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr indent) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	if (text.n && (text.p[0] == ' ' || text.p[0] == '\t')) return 0;
 	if (text.n && text.p[0] == '#') return chain_depth(P, &P->depth_chain, base, indent);
 	size_t depth = chain_depth(P, &P->held_chain, base, indent);
@@ -5256,7 +5256,7 @@ static int is_field(ShclStr text) {
    First trailing wins; a later one demotes to leading so nothing is lost.
    Comment text is stored verbatim, so pending and trailing alike are slices
    of the retained input copy - nothing to duplicate. */
-static void attach_trivia(ShclParser *P, size_t node, ShclStr indent, ShclStr trailing) {
+static void attach_trivia(ShclParser *P, size_t node, ShclStr indent, ShclStr trailing) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclArena *a = &P->d->arena;
 	if (P->pending.len) {
 		ShclTrivia *t = triv_mut(a, &NODE(P->d, node));
@@ -5492,7 +5492,7 @@ static void p_refuse(ShclParser *P, size_t line, const char *code, ShclStr msg, 
    opening a raw block would take its body along, so those are dropped. An
    E018 line is kept only under a kept E012 one. rest is the trimmed line
    after its indent and any blanks. */
-static void misplaced(ShclParser *P, size_t line, const char *code, ShclStr indent, ShclStr rest, int had_blank, int raw) {
+static void misplaced(ShclParser *P, size_t line, const char *code, ShclStr indent, ShclStr rest, int had_blank, int raw) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	int e012 = strcmp(code, "E012") == 0;
 	int keep = 0;
 	if (!raw) {
@@ -5539,7 +5539,7 @@ static void reent_set(ShclParser *P, size_t node, size_t line) {
 		if (P->reent_node.data[i] == node) { P->reent_line.data[i] = line; return; }
 	ShclVecSize_push(P->tmp, &P->reent_node, node); ShclVecSize_push(P->tmp, &P->reent_line, line);
 }
-static void hint_fold(ShclParser *P, size_t parent, size_t kept, size_t gone, int apart) {
+static void hint_fold(ShclParser *P, size_t parent, size_t kept, size_t gone, int apart) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order, kept before gone as in fold_node_into
 	size_t at = NODE(P->d, kept).line, line = NODE(P->d, gone).line;
 	size_t rl = reent_get(P, parent);
 	int cross_region = (rl != 0 && at < rl);
@@ -5729,7 +5729,7 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 
 /* The child of `cur` named `name` whose one plain value is the selector text
    (escapes applied), or (size_t)-1. */
-static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr text) {
+static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr text) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclStr want = text;
 	uint64_t hd = disp_hash_text(name, want);
 	size_t found = (size_t)-1;
@@ -5765,7 +5765,7 @@ static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr tex
    gets the next line index. The closing fence's indent is stripped from each
    content line (the opening line's when the block never closes); the rest is
    content. */
-static ShclValue consume_raw(ShclParser *P, const ShclStr *lines, size_t nlines, size_t i, size_t open_line, ShclStr open_indent, ShclFence fence, size_t *next) {
+static ShclValue consume_raw(ShclParser *P, const ShclStr *lines, size_t nlines, size_t i, size_t open_line, ShclStr open_indent, ShclFence fence, size_t *next) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclArena *a = &P->d->arena;
 	unsigned char ch = fence.ch; size_t len = fence.len; ShclStr info = fence.info;
 	ShclVecS content = {0}; int closed = 0; /* line list: parse-lifetime temporary */
@@ -5834,7 +5834,7 @@ static int opens_later(ShclArena *a, ShclStr text) {
    written under it. Called right after the refusal pushed the line's level.
    A path that could not open, or would open past the nesting cap, leaves the
    level dead. */
-static void hold_open(ShclParser *P, size_t parent, const ShclSegment *segs, size_t nsegs, size_t line, ShclStr indent) {
+static void hold_open(ShclParser *P, size_t parent, const ShclSegment *segs, size_t nsegs, size_t line, ShclStr indent) { // NOLINT(bugprone-easily-swappable-parameters): a count follows its array
 	size_t at = P->stack.len - 1;
 	if (!(P->stack.data[at].node == DEAD && s_eq(P->stack.data[at].indent, indent))) return;
 	for (size_t k = 0; k < nsegs; k++)
@@ -5861,14 +5861,14 @@ static void hold_open(ShclParser *P, size_t parent, const ShclSegment *segs, siz
 }
 
 /* The node a path's first segment bound, from the one its last did. */
-static size_t head_of(ShclParser *P, size_t node, size_t nsegs) {
+static size_t head_of(ShclParser *P, size_t node, size_t nsegs) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	for (size_t k = 1; k < nsegs; k++) node = NODE(P->d, node).parent;
 	return node;
 }
 
 /* The first count pending lines become the node's leading lines, or the lines
    inside its block, after its children. */
-static void give_pending(ShclParser *P, size_t node, ShclStr indent, size_t count, int inside) {
+static void give_pending(ShclParser *P, size_t node, ShclStr indent, size_t count, int inside) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	if (!count) return;
 	ShclArena *a = &P->d->arena;
 	ShclTrivia *t = triv_mut(a, &NODE(P->d, node));
@@ -6176,7 +6176,7 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
    a setjmp is written after it: which of those a compiler thinks an unwind
    could clobber varies by version and optimization level, and -Wclobbered is
    an error here. */
-static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t len, size_t max_nodes, size_t max_elements, size_t max_diags) {
+static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t len, size_t max_nodes, size_t max_elements, size_t max_diags) { // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer, then the caps in shcl_parse_limited's order
 	ShclArena *a = &d->arena;
 	ShclNode root; memset(&root, 0, sizeof root); root.value = v_empty(); root.parent = 0; root.line = 0;
 	nodes_push(d, root);
@@ -6539,7 +6539,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wclobbered"
 #endif
-static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, size_t max_nodes, size_t max_elements, size_t max_diags, int track_dropped) {
+static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, size_t max_nodes, size_t max_elements, size_t max_diags, int track_dropped) { // NOLINT(bugprone-easily-swappable-parameters): the caps in shcl_parse_limited's order, then a flag
 	/* The two the unwind path has to reach. volatile because that path arrives
 	   by longjmp, which leaves an ordinary local indeterminate. */
 	SHCL_VOLATILE_OWNER_BEGIN
@@ -6557,7 +6557,7 @@ static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, 
 		shcl_doc *bad = doc; ShclParseOwn *badOwn = owned;
 		bad->panic = NULL;
 		arena_free(&badOwn->line); arena_free(&badOwn->hints);
-		free(badOwn->cmaps.data); free(badOwn->dmaps.data); free(badOwn);
+		free(badOwn->cmaps.data); free(badOwn->dmaps.data); free(badOwn); // NOLINT(bugprone-multi-level-implicit-pointer-conversion): frees the pointer arrays themselves
 		shcl_free(bad);
 		return NULL;
 	}
@@ -6575,7 +6575,7 @@ static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, 
 	arena_guard(&d->arena, NULL); arena_guard(&d->scratch, NULL);
 	arena_guard(&d->reads, NULL); arena_guard(&d->index_arena, NULL);
 	arena_free(&own->line); arena_free(&own->hints);
-	free(own->cmaps.data); free(own->dmaps.data); free(own);
+	free(own->cmaps.data); free(own->dmaps.data); free(own); // NOLINT(bugprone-multi-level-implicit-pointer-conversion): frees the pointer arrays themselves
 	/* The parser borrows scratch for its lines vector, per-parent maps, stack
 	   and pending lists - about ten times the input, dead the moment the parse
 	   ends. Every resolve resets it anyway, so a document nobody reads would
@@ -6684,7 +6684,7 @@ static void children_named(shcl_doc *d, ShclArena *a, size_t parent, ShclStr nam
 // `group`: a sub-path reaching several nodes joins the slot list instead of
 // becoming one SHCL_MULTIPLE slot. Reads want the slot per instance, so they
 // leave it off; remove and exists want every node behind the wildcard.
-static ShclResolved resolve_from(shcl_doc *d, const size_t *start, size_t nstart, ShclSegment *segs, size_t nsegs, int group) {
+static ShclResolved resolve_from(shcl_doc *d, const size_t *start, size_t nstart, ShclSegment *segs, size_t nsegs, int group) { // NOLINT(bugprone-easily-swappable-parameters): a count follows its array
 	ShclArena *a = &d->scratch; // candidates, slots, compare strings: dead after the call
 	ShclVecSize cur = {0};
 	// cppcheck-suppress objectIndex  ## single-element callers pass nstart == 1, so start[i] stays at 0
@@ -6923,7 +6923,7 @@ typedef struct { size_t node; ShclStr path; } ShclWalked;
 // Every node under the root with its shcl_instance_paths path, in file order.
 // The paths go to pa; the list and the walk's temporaries to t, which the
 // caller resets.
-static size_t instance_walk(shcl_doc *d, ShclArena *pa, ShclArena *t, ShclWalked **out) {
+static size_t instance_walk(shcl_doc *d, ShclArena *pa, ShclArena *t, ShclWalked **out) { // NOLINT(bugprone-easily-swappable-parameters): result arena first, then scratch
 	typedef struct { size_t node; size_t total; size_t at; } NCount; // node names the count's name
 	ShclWalked *stack = NULL; size_t sn = 0, sc = 0;
 	ShclWalked *arr = NULL; size_t n = 0, cap = 0;
@@ -8099,7 +8099,7 @@ size_t shcl_set_banner(shcl_doc *d, int on) { return swap_banner(d, on, 0); }
 /* shcl_set_banner, and with v2 the block 2.x's `init` wrote, in `#`
    comments, comes off too. Only shcl_upgrade asks for that: under these rules
    the old block is a comment of the file's own. */
-static size_t swap_banner(shcl_doc *d, int on, int v2) {
+static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	static const char *const marks[] = { "##", "#" };
 	size_t nmarks = v2 ? 2 : 1;
 	ShclArena *t = &d->scratch;
@@ -8149,14 +8149,14 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) {
 }
 
 shcl_set_status shcl_set_empty(shcl_doc *d, const char *path, size_t plen) { ShclStr p; p.p = path; p.n = plen; ShclMark m = arena_mark(&d->arena); return w_set_marked(d, p, v_empty(), m); }
-shcl_set_status shcl_set_int(shcl_doc *d, const char *path, size_t plen, int64_t v) { ShclArena *a = &d->arena; ShclStr p; p.p = path; p.n = plen; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, w_int_text(a, v)), m); }
+shcl_set_status shcl_set_int(shcl_doc *d, const char *path, size_t plen, int64_t v) { ShclArena *a = &d->arena; ShclStr p; p.p = path; p.n = plen; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, w_int_text(a, v)), m); } // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
 /* An infinity or a NaN has no spelling the reader accepts
    (SHCL_SET_NOT_FINITE), and neither does a datetime the reader would refuse
    (SHCL_SET_BAD_DATETIME: month 13, a fraction with no seconds, an empty
    struct): each fails the write rather than binding text that cannot read
    back. */
-shcl_set_status shcl_set_float(shcl_doc *d, const char *path, size_t plen, double v) { ShclStr p; p.p = path; p.n = plen; if (!isfinite(v)) return w_refuse(d, p, SHCL_SET_NOT_FINITE); ShclArena *a = &d->arena; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, w_float_text(a, v)), m); }
-shcl_set_status shcl_set_bool(shcl_doc *d, const char *path, size_t plen, int v) { ShclArena *a = &d->arena; ShclStr p; p.p = path; p.n = plen; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, w_bool_text(v)), m); }
+shcl_set_status shcl_set_float(shcl_doc *d, const char *path, size_t plen, double v) { ShclStr p; p.p = path; p.n = plen; if (!isfinite(v)) return w_refuse(d, p, SHCL_SET_NOT_FINITE); ShclArena *a = &d->arena; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, w_float_text(a, v)), m); } // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
+shcl_set_status shcl_set_bool(shcl_doc *d, const char *path, size_t plen, int v) { ShclArena *a = &d->arena; ShclStr p; p.p = path; p.n = plen; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, w_bool_text(v)), m); } // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
 shcl_set_status shcl_set_string(shcl_doc *d, const char *path, size_t plen, const char *s, size_t slen) { ShclArena *a = &d->arena; ShclStr p; p.p = path; p.n = plen; ShclStr in; in.p = s; in.n = slen; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, s_dup(a, in)), m); }
 
 /* Read text as the value half of a line, for the setters that take value
@@ -8370,9 +8370,9 @@ static shcl_set_status w_sets_bool_array(shcl_doc *d, const char *p, size_t n, c
 static shcl_set_status w_sets_string_array(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_string_array(d, p, n, (const char *const *)w->v, w->lens, w->n); }
 static shcl_set_status w_sets_datetime_array(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_datetime_array(d, p, n, (const shcl_datetime *)w->v, w->n); }
 
-shcl_set_status shcl_set_int_default(shcl_doc *d, const char *path, size_t plen, int64_t v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "an int", w_reads_int, w_sets_int, &w); }
-shcl_set_status shcl_set_float_default(shcl_doc *d, const char *path, size_t plen, double v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "a float", w_reads_float, w_sets_float, &w); }
-shcl_set_status shcl_set_bool_default(shcl_doc *d, const char *path, size_t plen, int v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "a bool", w_reads_bool, w_sets_bool, &w); }
+shcl_set_status shcl_set_int_default(shcl_doc *d, const char *path, size_t plen, int64_t v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "an int", w_reads_int, w_sets_int, &w); } // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
+shcl_set_status shcl_set_float_default(shcl_doc *d, const char *path, size_t plen, double v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "a float", w_reads_float, w_sets_float, &w); } // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
+shcl_set_status shcl_set_bool_default(shcl_doc *d, const char *path, size_t plen, int v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "a bool", w_reads_bool, w_sets_bool, &w); } // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
 shcl_set_status shcl_set_string_default(shcl_doc *d, const char *path, size_t plen, const char *s, size_t slen) { WDefault w = {s, slen, NULL, NULL, 0}; return w_set_default(d, path, plen, "a string", w_reads_string, w_sets_string, &w); }
 shcl_set_status shcl_set_literal_default(shcl_doc *d, const char *path, size_t plen, const char *text, size_t tlen) { WDefault w = {text, tlen, NULL, NULL, 0}; return w_set_default(d, path, plen, "a string", w_reads_string, w_sets_literal, &w); }
 shcl_set_status shcl_set_datetime_default(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *dt) { WDefault w = {dt, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "a datetime", w_reads_datetime, w_sets_datetime, &w); }
@@ -8380,7 +8380,7 @@ shcl_set_status shcl_set_raw_default(shcl_doc *d, const char *path, size_t plen,
 shcl_set_status shcl_set_int_array_default(shcl_doc *d, const char *path, size_t plen, const int64_t *v, size_t n) { WDefault w = {v, n, NULL, NULL, 0}; return w_set_default(d, path, plen, "an int array", w_reads_int_array, w_sets_int_array, &w); }
 shcl_set_status shcl_set_float_array_default(shcl_doc *d, const char *path, size_t plen, const double *v, size_t n) { WDefault w = {v, n, NULL, NULL, 0}; return w_set_default(d, path, plen, "a float array", w_reads_float_array, w_sets_float_array, &w); }
 shcl_set_status shcl_set_bool_array_default(shcl_doc *d, const char *path, size_t plen, const int *v, size_t n) { WDefault w = {v, n, NULL, NULL, 0}; return w_set_default(d, path, plen, "a bool array", w_reads_bool_array, w_sets_bool_array, &w); }
-shcl_set_status shcl_set_string_array_default(shcl_doc *d, const char *path, size_t plen, const char *const *v, const size_t *lens, size_t n) { WDefault w = {v, n, lens, NULL, 0}; return w_set_default(d, path, plen, "a string array", w_reads_string_array, w_sets_string_array, &w); }
+shcl_set_status shcl_set_string_array_default(shcl_doc *d, const char *path, size_t plen, const char *const *v, const size_t *lens, size_t n) { WDefault w = {v, n, lens, NULL, 0}; return w_set_default(d, path, plen, "a string array", w_reads_string_array, w_sets_string_array, &w); } // NOLINT(bugprone-multi-level-implicit-pointer-conversion): WDefault keeps an array as void *, and w_sets_string_array casts it back
 shcl_set_status shcl_set_datetime_array_default(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *v, size_t n) { WDefault w = {v, n, NULL, NULL, 0}; return w_set_default(d, path, plen, "a datetime array", w_reads_datetime_array, w_sets_datetime_array, &w); }
 
 // --- Layered loading: overlay a higher-priority document onto a lower one ----
@@ -8422,7 +8422,7 @@ static ShclTrivia *w_clone_trivia(ShclArena *a, const ShclTrivia *st) {
 	return nt;
 }
 /* merged: the copy is a merge's, which writes every list in brackets. */
-static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent, int merged) {
+static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent, int merged) { // NOLINT(bugprone-easily-swappable-parameters): source node, then the parent it goes under
 	ShclArena *a = &d->arena;
 	const ShclNode *src = &over->nodes.data[oi];
 	ShclNode n; memset(&n, 0, sizeof n);
@@ -8781,13 +8781,13 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	else resettle_kept(d);
 }
 
-int64_t shcl_get_int_or(shcl_doc *d, const char *path, size_t plen, int64_t def) {
+int64_t shcl_get_int_or(shcl_doc *d, const char *path, size_t plen, int64_t def) { // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
 	shcl_read_i64 r = shcl_read_int(d, path, plen); return r.status == SHCL_GOOD ? r.value : def;
 }
-double shcl_get_float_or(shcl_doc *d, const char *path, size_t plen, double def) {
+double shcl_get_float_or(shcl_doc *d, const char *path, size_t plen, double def) { // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
 	shcl_read_f64 r = shcl_read_float(d, path, plen); return r.status == SHCL_GOOD ? r.value : def;
 }
-int shcl_get_bool_or(shcl_doc *d, const char *path, size_t plen, int def) {
+int shcl_get_bool_or(shcl_doc *d, const char *path, size_t plen, int def) { // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
 	shcl_read_bool r = shcl_read_bool_(d, path, plen); return r.status == SHCL_GOOD ? r.value : def;
 }
 
@@ -8859,7 +8859,7 @@ shcl_read_i64 shcl_read_size(shcl_doc *d, const char *path, size_t plen, shcl_si
 int64_t shcl_get_duration_or(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit, int64_t def) {
 	shcl_read_i64 r = shcl_read_duration(d, path, plen, unit); return r.status == SHCL_GOOD ? r.value : def;
 }
-int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def) {
+int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def) { // NOLINT(bugprone-easily-swappable-parameters): the reference's order; the C++ veneer takes the flag as a bool
 	shcl_read_i64 r = shcl_read_size(d, path, plen, unit, decimal); return r.status == SHCL_GOOD ? r.value : def;
 }
 /* Any value reads as a string: a raw block yields its content, an array its
@@ -9199,7 +9199,7 @@ static ShclStr emit_fence_line(ShclArena *a, const ShclRawVal *r) {
 }
 
 /* True when a piece reads as this exact text, without building it. */
-static int piece_is(ShclArena *a, const ShclPiece *p, ShclStr text, ShclStr want) {
+static int piece_is(ShclArena *a, const ShclPiece *p, ShclStr text, ShclStr want) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclStr raw = s_slice(text, p->start, p->end);
 	if (decodes(p->quote) && has_mark(raw)) { ShclStr out, why; return resolve_marks(a, raw, &out, &why) && s_eq(out, want); }
 	return s_eq(raw, want);
@@ -9208,7 +9208,7 @@ static int piece_is(ShclArena *a, const ShclPiece *p, ShclStr text, ShclStr want
 /* Scan text as a line's value half, behind the colon a field line puts there.
    `a` holds the line the token spans index into, `tmp` the token
    bookkeeping. */
-static ShclStr value_half(ShclArena *a, ShclArena *tmp, ShclStr text, ShclTokens *out) {
+static ShclStr value_half(ShclArena *a, ShclArena *tmp, ShclStr text, ShclTokens *out) { // NOLINT(bugprone-easily-swappable-parameters): result arena first, then scratch
 	char *m = (char *)arena_alloc(a, text.n + 1);
 	m[0] = ':';
 	if (text.n) memcpy(m + 1, text.p, text.n);
@@ -9353,7 +9353,7 @@ typedef struct {
 	int lines; ShclVecSize marks, bodies, spans;
 } ShclEmit;
 
-static void emit_init(ShclEmit *e, ShclArena *a, size_t cap, int record) {
+static void emit_init(ShclEmit *e, ShclArena *a, size_t cap, int record) { // NOLINT(bugprone-easily-swappable-parameters): a capacity, then the record flag
 	memset(e, 0, sizeof *e);
 	e->a = a; e->open = -1; e->record = record;
 	e->out.cap = cap ? cap : 16;
@@ -9675,7 +9675,7 @@ static void kept_named(shcl_doc *d, size_t parent, ShclStr name, ShclVecKeptName
    in *first, and the kept lines under it go under that field. Any other with
    a kept line under it stays, since as a comment it would leave that line
    under the field above. */
-static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first) {
+static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	int found = 0;
 	if (d->kept_owed == 0) return 0;
 	ShclVecKeptName names; memset(&names, 0, sizeof names);
@@ -9801,7 +9801,7 @@ static void push_kept(ShclEmit *e, ShclStr text, size_t pad) {
    would bind, and there it is written as a comment, which reads the same.
    node, site and first name the list and the index of its first line, for
    settle_kept. */
-static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base, size_t node, ShclSite site, size_t first) {
+static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base, size_t node, ShclSite site, size_t first) { // NOLINT(bugprone-easily-swappable-parameters): a count follows its array
 	ShclArena *a = e->a;
 	size_t last_comment = 0;
 	for (size_t i = 0; i < n; i++) {
@@ -9888,7 +9888,7 @@ static void emit_node(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 /* Kept out of emit_node, which recurses once per level: its locals would
    otherwise sit in every frame, and a document at the nesting cap ran past a
    1 MB stack in the reference's debug build. */
-static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e) {
+static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	/* The whole emit - the output buffer and the quoted/escaped spellings both -
 	   is built in scratch; shcl_to_canonical copies the finished bytes into the
 	   document arena once. Building it there instead retained several times the
@@ -10392,7 +10392,7 @@ static ShclSrcLine src_line(ShclStr line) {
 
 /* A binding line the edits rewrote, with the name written the way the source
    line wrote it. 0 unless both lines bind one plain name. */
-static int authored_head(ShclArena *a, ShclStr src, ShclStr canon, ShclStr *out) {
+static int authored_head(ShclArena *a, ShclStr src, ShclStr canon, ShclStr *out) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclSrcLine sl = src_line(src);
 	ShclStr c = s_slice(canon, tabs_of(canon), canon.n);
 	ShclStr texts[2]; texts[0] = sl.rest; texts[1] = c;
@@ -10489,7 +10489,7 @@ static int code_cmp(const void *x, const void *y) {
 }
 
 /* Each error code d loads with, of loaded with at least as often. */
-static int errors_within(ShclArena *a, const shcl_doc *d, const shcl_doc *of) {
+static int errors_within(ShclArena *a, const shcl_doc *d, const shcl_doc *of) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	const shcl_doc *docs[2]; docs[0] = d; docs[1] = of;
 	const char **codes[2]; size_t count[2];
 	for (size_t k = 0; k < 2; k++) {
@@ -10497,7 +10497,7 @@ static int errors_within(ShclArena *a, const shcl_doc *d, const shcl_doc *of) {
 		count[k] = 0;
 		for (size_t i = 0; i < docs[k]->diags.len; i++)
 			if (docs[k]->diags.data[i].sev == SHCL_SEV_ERROR) codes[k][count[k]++] = docs[k]->diags.data[i].code;
-		qsort(codes[k], count[k], sizeof(char *), code_cmp);
+		qsort(codes[k], count[k], sizeof(char *), code_cmp); // NOLINT(bugprone-multi-level-implicit-pointer-conversion): sorts the pointer array; code_cmp reads each one back
 	}
 	size_t j = 0;
 	for (size_t i = 0; i < count[0]; i++) {
@@ -10518,7 +10518,7 @@ static int errors_within(ShclArena *a, const shcl_doc *d, const shcl_doc *of) {
    next source group, a new line not indented past them, or the end. A new line
    indented past them goes first, since one written under a dropped line would
    be dropped with it. A line the load dropped comes back this way. */
-static void kl_flush(ShclArena *a, ShclSB *ob, const ShclVecS *lines, unsigned char *left, unsigned char *wrote, size_t from, size_t to) {
+static void kl_flush(ShclArena *a, ShclSB *ob, const ShclVecS *lines, unsigned char *left, unsigned char *wrote, size_t from, size_t to) { // NOLINT(bugprone-easily-swappable-parameters): the 2 flag arrays, then a from-to range
 	/* The blank lines among them stay, up to the last one written. */
 	size_t last = 0;
 	for (size_t k = (to < lines->len + 1 ? to : lines->len + 1); k > from; k--)
@@ -10954,7 +10954,7 @@ static int big_cmp(const ShclBig *a, const ShclBig *b) {
 typedef struct { ShclBig lo, hi; int S, T, even; } ShclF64Interval;
 // exp10 is the decimal exponent of v's 17-digit spelling: the smallest k any
 // shorter spelling can have is exp10 - 16, which fixes T for all of them.
-static void f64_interval(double v, int exp10, ShclF64Interval *iv) {
+static void f64_interval(double v, int exp10, ShclF64Interval *iv) { // NOLINT(bugprone-easily-swappable-parameters): a value, then its exponent
 	uint64_t bits; memcpy(&bits, &v, sizeof bits);
 	int E = (int)((bits >> 52) & 0x7FF); uint64_t F = bits & 0xFFFFFFFFFFFFFull;
 	uint64_t m = E ? (F | (1ull << 52)) : F; int e = E ? E - 1075 : -1074;
@@ -11884,7 +11884,7 @@ static void suggest_find(void *ctx, uint64_t h) {
 
 // Closest legal sibling name (same parent chain, schema order, edit distance
 // <= 2) appended as "; did you mean 'x'?" - or nothing. Prose only.
-static void v_suggest(ShclArena *a, ShclArena *tmp, ShclSuggestNames *sn, ShclStr name, ShclSB *msg) {
+static void v_suggest(ShclArena *a, ShclArena *tmp, ShclSuggestNames *sn, ShclStr name, ShclSB *msg) { // NOLINT(bugprone-easily-swappable-parameters): result arena first, then scratch
 	/* tmp holds the DP rows and codepoint decodes - dead after this call.
 	   Resetting per unknown field keeps a wholesale unmatched document (the
 	   case this feature exists for) at one sweep's peak. The sibling lists
@@ -11928,7 +11928,7 @@ static void v_suggest(ShclArena *a, ShclArena *tmp, ShclSuggestNames *sn, ShclSt
 typedef struct { size_t anchor; ShclVecSize found; } ShclVCtx;
 DEFINE_VEC(ShclVecVCtx, ShclVCtx)
 
-static void v_contexts(ShclArena *a, shcl_doc *d, const size_t *start, size_t nstart, ShclSegment *segs, size_t nsegs, size_t anchor, ShclVecVCtx *out) {
+static void v_contexts(ShclArena *a, shcl_doc *d, const size_t *start, size_t nstart, ShclSegment *segs, size_t nsegs, size_t anchor, ShclVecVCtx *out) { // NOLINT(bugprone-easily-swappable-parameters): a count follows its array
 	ShclVecSize cur = {0};
 	// cppcheck-suppress objectIndex  ## single-element callers pass nstart == 1, so start[i] stays at 0
 	for (size_t i = 0; i < nstart; i++) ShclVecSize_push(a, &cur, start[i]);
@@ -12001,7 +12001,7 @@ static size_t v_char_count(ShclStr s) {
 }
 /* The first and last SHCL_DIAG_TEXT_MAX / 2 characters of s, which has total
    of them. Cut on characters, never inside one. */
-static void v_cut_ends(ShclStr s, size_t total, ShclStr *head, ShclStr *tail) {
+static void v_cut_ends(ShclStr s, size_t total, ShclStr *head, ShclStr *tail) { // NOLINT(bugprone-easily-swappable-parameters): out-params, head before tail
 	size_t half = SHCL_DIAG_TEXT_MAX / 2, n = 0, h = s.n, t = s.n;
 	for (size_t i = 0; i < s.n; i += utf8_len(s, i)) {
 		if (n == half) h = i;
@@ -12073,7 +12073,7 @@ static void v_not_allowed(ShclArena *a, ShclVecDiag *out, size_t line, const Shc
 
 // V005/V006. rel is "below min " or "above max "; bound is the schema's own
 // spelling of it, so the float half reads the same as the annotation line.
-static void v_out_of_range(ShclArena *a, ShclVecDiag *out, size_t line, const ShclVCons *c, const char *code, const char *rel, ShclStr bound, ShclStr text) {
+static void v_out_of_range(ShclArena *a, ShclVecDiag *out, size_t line, const ShclVCons *c, const char *code, const char *rel, ShclStr bound, ShclStr text) { // NOLINT(bugprone-easily-swappable-parameters): the code and its words, then the bound and the value, in message order
 	ShclSB s = {0, 0, 0};
 	sb_puts(a, &s, "value "); sb_puts(a, &s, rel); sb_putS(a, &s, bound);
 	sb_puts(a, &s, " at '"); sb_putS(a, &s, schema_text(a, c->path));
@@ -12083,7 +12083,7 @@ static void v_out_of_range(ShclArena *a, ShclVecDiag *out, size_t line, const Sh
 
 // Diagnostic messages go to a (they outlive the walk); coercion temporaries
 // and compare strings go to lv, the walk level's scratch.
-static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c, size_t n, ShclVecDiag *out) {
+static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c, size_t n, ShclVecDiag *out) { // NOLINT(bugprone-easily-swappable-parameters): result arena first, then the level's
 	ShclNode *node = &NODE(d, n);
 	size_t line = node->line;
 	const char *ty = c->ty;
@@ -12388,7 +12388,7 @@ static int star_legal(const ShclVecSeg *pats, size_t npats, const ShclFirstIdx *
 // set_idx is one ShclFirstIdx per constraint list, laid out the way `dead` is -
 // row 0 the top-level constraints, row k+1 fragment k - rather than keyed by
 // fragment name as the reference does, because that numbering is already here.
-static int chain_parts_legal(const ShclVecVCons *cons, size_t set, const ShclVSchemaDef *def, const ShclFirstIdx *set_idx, ShclStr chain, size_t from, size_t at, size_t nparts, unsigned char *dead) {
+static int chain_parts_legal(const ShclVecVCons *cons, size_t set, const ShclVSchemaDef *def, const ShclFirstIdx *set_idx, ShclStr chain, size_t from, size_t at, size_t nparts, unsigned char *dead) { // NOLINT(bugprone-easily-swappable-parameters): a from-to range in the chain
 	if (dead[set * (nparts + 1) + at]) return 0;
 	// The recursion only descends with parts left over, and the sweep never
 	// asks about an empty chain, so there is always a first part to look up.
@@ -12570,7 +12570,7 @@ static int schema_load_fault(const shcl_doc *schema, ShclDiag *fault) {
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wclobbered"
 #endif
-shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) {
+shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) { // NOLINT(bugprone-easily-swappable-parameters): the document, then its schema; a swap reports errors on any real config
 	/* Same shape as do_parse: the two the unwind path has to reach are
 	   volatile, the working copies below are not. */
 	SHCL_VOLATILE_OWNER_BEGIN
@@ -12679,7 +12679,7 @@ static ShclVecS v_disavowed_names(shcl_doc *schema, ShclArena *tmp, int (*pick)(
    collected names (which must survive the per-read scratch resets) - goes into
    an arena the caller owns: the function owns neither doc, so it must not leave
    allocations behind in either. */
-static void suppress_repeats_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc) {
+static void suppress_repeats_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc) { // NOLINT(bugprone-easily-swappable-parameters): one caller, shcl_load_and_validate_with
 	ShclVecS names = v_disavowed_names(schema, tmp, v_pick_repeat);
 	if (!names.len) return;
 	ShclVecS heads = {0};
@@ -12700,7 +12700,7 @@ static void suppress_repeats_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc)
 	doc->diags.len = w;
 }
 
-static void suppress_reopens_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc) {
+static void suppress_reopens_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc) { // NOLINT(bugprone-easily-swappable-parameters): one caller, shcl_load_and_validate_with
 	ShclVecS names = v_disavowed_names(schema, tmp, v_pick_reopen);
 	if (!names.len) return;
 	ShclVecS heads = {0};
@@ -13327,7 +13327,7 @@ static char *shcl_resolve_target(const char *file) {
 	char *p = realpath(file, NULL);
 	if (p) return p;
 	size_t pn = strlen(file);
-	if (!(p = (char *)malloc(pn + 1))) return NULL;
+	if (!(p = (char *)malloc(pn + 1))) return NULL; // NOLINT(bugprone-assignment-in-if-condition): assign, then test
 	memcpy(p, file, pn + 1);
 	for (int hop = 0; hop < 40; hop++) {
 		size_t cap = 256; char *link = NULL; ssize_t got;
@@ -13447,7 +13447,7 @@ static int shcl_names_a_directory(const char *path) {
 // hard links to the old inode keep the old content (inherent to rename).
 // Returns 1 on success, 0 on failure with errno left describing it, and
 // *not_regular set when that is why, since EINVAL could be anything.
-static int s_write_file_atomic(const char *path, const char *data, size_t n, int *not_regular) {
+static int s_write_file_atomic(const char *path, const char *data, size_t n, int *not_regular) { // NOLINT(bugprone-easily-swappable-parameters): path, then data, as in shcl_write_file_atomic; see 2026101807501110
 	if (shcl_names_a_directory(path)) { errno = EISDIR; return 0; }
 #ifndef _WIN32
 	char *real = shcl_resolve_target(path);
@@ -14005,7 +14005,7 @@ static char *upgrade_lines(const size_t *lines, size_t n) {
 }
 
 /* The file still holds the bytes last read from it. */
-static int upgrade_holds(const char *path, const char *text, size_t len) {
+static int upgrade_holds(const char *path, const char *text, size_t len) { // NOLINT(bugprone-easily-swappable-parameters): path, then the text read from it; a swap refuses
 	size_t n = 0;
 	char *now = shcl_read_file(path, 0, &n, NULL);
 	int same = now && n == len && (len == 0 || memcmp(now, text, len) == 0);
@@ -14023,7 +14023,7 @@ static void upgrade_remove(const char *name) {
 #endif
 }
 
-shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message, shcl_write_status *why) {
+shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message, shcl_write_status *why) { // NOLINT(bugprone-easily-swappable-parameters): the reference's order; a swapped file and text is 2026101807501110
 	if (name) *name = NULL;
 	if (message) *message = NULL;
 	if (why) *why = SHCL_WRITE_OK;
@@ -14139,7 +14139,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 	} else if (!upgrade_holds(path, text, len)) {
 		r = upgrade_why(why, SHCL_WRITE_OTHER, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: changed since it was read; nothing written", path));
 		shcl_upgraded_free(&up);
-	} else if ((r = shcl_write_backup(path, text, len, up.format, &up.backup, message, why)) != SHCL_UPGRADE_OK) {
+	} else if ((r = shcl_write_backup(path, text, len, up.format, &up.backup, message, why)) != SHCL_UPGRADE_OK) { // NOLINT(bugprone-assignment-in-if-condition): assign, then test
 		shcl_upgraded_free(&up);
 	} else if (!shcl_write_file_atomic(path, up.text, up.len, why)) {
 		int e = errno;
@@ -14349,7 +14349,7 @@ static const ShclStr *parent_value_for(const ShclParentValues *pv, const ShclVec
 
 /* Whether BODY between parens on a file line reads back as a value selector
    for TEXT, quoted or bare as asked. */
-static int selector_reads_back(ShclArena *a, ShclStr body, ShclStr text, int quoted) {
+static int selector_reads_back(ShclArena *a, ShclStr body, ShclStr text, int quoted) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclSB l = {0, 0, 0};
 	sb_puts(a, &l, "x("); sb_putS(a, &l, body); sb_puts(a, &l, "):");
 	ShclStr line = sb_S(&l);
