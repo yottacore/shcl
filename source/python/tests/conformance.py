@@ -9,6 +9,7 @@
 import ast
 import collections
 import errno
+import gc
 import math
 import os
 import re
@@ -59,6 +60,13 @@ def test_id(tid: str, name: str) -> None:
 def test_skip() -> None:
 	if _open:
 		_open["status"] = "skip"
+
+
+## A ResourceWarning goes off in a destructor, where no exception can get out,
+## so -W error alone only prints it. This fails the test that was open.
+def _unraisable(u: Any) -> None:
+	FAILS.append(f"unraisable in {u.object!r}: {u.exc_type.__name__}: {u.exc_value}")
+	sys.__unraisablehook__(u)
 
 
 def corpus_lines(abort: str = "") -> None:
@@ -5347,6 +5355,16 @@ def main():
 		if fagot != fawant:
 			raise SystemExit(f"typed array setter wrote {fagot!r}, want {fawant!r}")
 
+	test_id("Et01jhN", "nothing_unraisable_or_uncollectable")
+	# Since 3.4 a cycle with __del__ is collected, so only what the collector
+	# can't free at all lands in gc.garbage, such as a C type with tp_del.
+	gc.collect()
+	if gc.garbage:
+		raise SystemExit(f"{len(gc.garbage)} uncollectable object(s) after the tests, such as {gc.garbage[:3]!r}")
+	# The checks above exit on their own failures, so anything here came from
+	# the hook.
+	if FAILS:
+		raise SystemExit("\n".join(f"FAIL {f}" for f in FAILS))
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")
 	return 0
@@ -5355,6 +5373,7 @@ def main():
 if __name__ == "__main__":
 	## An exit or an exception fails the test that was open, and any corpus
 	## case it names.
+	sys.unraisablehook = _unraisable
 	try:
 		rc = main()
 	except SystemExit as e:

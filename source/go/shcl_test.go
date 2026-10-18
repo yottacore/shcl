@@ -247,6 +247,7 @@ func eachCase(t *testing.T, check func(t *testing.T, c corpusCase)) {
 }
 
 func TestMain(m *testing.M) {
+	before := runtime.NumGoroutine()
 	code := m.Run()
 	for _, c := range corpusRan {
 		status := "ok"
@@ -255,7 +256,30 @@ func TestMain(m *testing.M) {
 		}
 		statusLine(status, c.id, "corpus/"+c.name)
 	}
+	status := "ok"
+	if !goroutinesSettle(before) {
+		status = "FAIL"
+		code = 1
+	}
+	statusLine(status, "Et01j1m", "goroutines_settle")
 	os.Exit(code)
+}
+
+// goroutinesSettle gives the goroutines the tests started a second to end.
+// The library starts none, so one still running is stuck: blocked on a
+// channel or a lock nothing will ever release.
+func goroutinesSettle(before int) bool {
+	for i := 0; i < 50 && runtime.NumGoroutine() > before; i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	after := runtime.NumGoroutine()
+	if after <= before {
+		return true
+	}
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	fmt.Fprintf(os.Stderr, "goroutines: %d before the tests, %d after\n%s\n", before, after, buf)
+	return false
 }
 
 // unitType splits a `duration[@UNIT]` or `size[@UNIT][+decimal]` row type:
@@ -2899,6 +2923,9 @@ func TestIndexRebuildIgnoresRemovedNodes(t *testing.T) {
 	// absolute figure on whatever machine is running, so it gets room: the
 	// healthy churned side has measured half a second there, and the defect is
 	// tens of seconds.
+	if raceOn {
+		t.Skip("not timed under -race")
+	}
 	bound := ms[0]*25 + 1000
 	if ms[0] <= 0 {
 		bound = 3000
@@ -2937,6 +2964,9 @@ func TestMergeSettlesOnlyWhatItTouched(t *testing.T) {
 	}
 	// The same bound as the index fixture above: the defect is a walk over a
 	// hundred thousand nodes per merge, seconds past the constant term.
+	if raceOn {
+		t.Skip("not timed under -race")
+	}
 	bound := ms[0]*25 + 1000
 	if ms[0] <= 0 {
 		bound = 3000
@@ -2981,6 +3011,9 @@ func TestAFarKeptLineCostsAnEditNothing(t *testing.T) {
 		if strings.HasSuffix(d.ToCanonical(), "\n x: y\n") != (kept == 1) {
 			t.Fatalf("the kept line is not where the fixture put it")
 		}
+	}
+	if raceOn {
+		t.Skip("not timed under -race")
 	}
 	bound := ms[0]*25 + 1000
 	if ms[0] <= 0 {
