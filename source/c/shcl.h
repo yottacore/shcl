@@ -895,7 +895,9 @@ typedef enum {
 // synced before this returns. It is born private, then given the original's
 // group and mode (on windows its DACL), so a private config never has a
 // readable copy. *name gets the backup's name, malloc'd, on success; on a
-// failure *message (when not NULL) gets why. The caller frees both.
+// failure *message (when not NULL) gets why. The caller frees both. A file
+// that isn't there is SHCL_UPGRADE_NOT_FOUND, and a directory or a FIFO is
+// SHCL_UPGRADE_IO, as from shcl_upgrade_file.
 shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message, shcl_write_status *why);
 // shcl_upgrade on a file, for a program to call when it starts, before its
 // load. A file that needs it is kept under shcl_backup_file_name by
@@ -14023,11 +14025,52 @@ static void upgrade_remove(const char *name) {
 #endif
 }
 
-shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message, shcl_write_status *why) { // NOLINT(bugprone-easily-swappable-parameters): the reference's order; a swapped file and text is 2026101807501110
+// The reason that goes with an upgrade's failure, into *why when the caller
+// asked for one.
+static shcl_upgrade_error upgrade_why(shcl_write_status *why, shcl_write_status st, shcl_upgrade_error e) {
+	if (why) *why = st;
+	return e;
+}
+
+/* The file shcl_write_backup or shcl_upgrade_file keeps is there and is a
+   regular file. A FIFO or a device would block the read or be replaced by a
+   file, and text passed where the file goes got a backup named after it
+   (2026101807501110). Any other failure is left to the read or the create,
+   whose path shares every folder with this one. */
+static shcl_upgrade_error s_check_kept_file(const char *path, char **message, shcl_write_status *why) {
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(path);
+	DWORD attrs = w ? GetFileAttributesW(w) : INVALID_FILE_ATTRIBUTES;
+	DWORD err = w && attrs == INVALID_FILE_ATTRIBUTES ? GetLastError() : 0;
+	free(w);
+	if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
+	int is_dir = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+	if (is_dir || shcl_not_a_disk_file(path))
+		return upgrade_why(why, is_dir ? SHCL_WRITE_IS_DIRECTORY : SHCL_WRITE_NOT_REGULAR,
+			upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path));
+#else
+	struct stat st;
+	if (stat(path, &st) == 0) {
+		if (!S_ISREG(st.st_mode))
+			return upgrade_why(why, S_ISDIR(st.st_mode) ? SHCL_WRITE_IS_DIRECTORY : SHCL_WRITE_NOT_REGULAR,
+				upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path));
+	} else if (errno == ENOENT) {
+		return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
+	}
+#endif
+	return SHCL_UPGRADE_OK;
+}
+
+shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message, shcl_write_status *why) { // NOLINT(bugprone-easily-swappable-parameters): the reference's order; a swap is refused when the text names no regular file (2026101807501110)
 	if (name) *name = NULL;
 	if (message) *message = NULL;
 	if (why) *why = SHCL_WRITE_OK;
 	char *bk = shcl_backup_file_name(file, format);
+	shcl_upgrade_error kept = s_check_kept_file(file, message, why);
+	if (kept != SHCL_UPGRADE_OK) {
+		free(bk);
+		return kept;
+	}
 #ifdef _WIN32
 	/* A new file takes the directory's ACL, so the backup is born with the
 	   original's DACL instead (shcl_create_like). */
@@ -14080,36 +14123,12 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 	return SHCL_UPGRADE_OK;
 }
 
-// The reason that goes with an upgrade's failure, into *why when the caller
-// asked for one.
-static shcl_upgrade_error upgrade_why(shcl_write_status *why, shcl_write_status st, shcl_upgrade_error e) {
-	if (why) *why = st;
-	return e;
-}
-
 shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message, shcl_write_status *why) {
 	if (message) *message = NULL;
 	if (why) *why = SHCL_WRITE_OK;
 	memset(out, 0, sizeof *out);
-	/* A FIFO or a device would block the read or be replaced by a file. */
-#ifdef _WIN32
-	wchar_t *w = shcl_widen(path);
-	DWORD attrs = w ? GetFileAttributesW(w) : INVALID_FILE_ATTRIBUTES;
-	free(w);
-	int is_dir = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
-	if (is_dir || shcl_not_a_disk_file(path))
-		return upgrade_why(why, is_dir ? SHCL_WRITE_IS_DIRECTORY : SHCL_WRITE_NOT_REGULAR,
-			upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path));
-#else
-	struct stat st;
-	if (stat(path, &st) == 0) {
-		if (!S_ISREG(st.st_mode))
-			return upgrade_why(why, S_ISDIR(st.st_mode) ? SHCL_WRITE_IS_DIRECTORY : SHCL_WRITE_NOT_REGULAR,
-				upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path));
-	} else if (errno == ENOENT) {
-		return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
-	}
-#endif
+	shcl_upgrade_error kept = s_check_kept_file(path, message, why);
+	if (kept != SHCL_UPGRADE_OK) return kept;
 	size_t len = 0;
 	shcl_file_status fst = SHCL_FILE_UNREADABLE;
 	int rerr = 0;

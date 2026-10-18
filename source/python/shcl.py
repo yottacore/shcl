@@ -9842,8 +9842,10 @@ def write_backup(file: str, text: str, format: int) -> str:
 	synced before this returns. It is born private, then given the original's
 	group and mode (on windows its DACL), so a private config never has a
 	readable copy. Returns the backup's name; raises UpgradeBackupTaken or
-	UpgradeFailed."""
+	UpgradeFailed. A file that isn't there raises UpgradeNotFound, and a
+	directory or a FIFO UpgradeFailed, as from upgrade_file()."""
 	name = backup_file_name(file, format)
+	_check_kept_file(file)
 	try:
 		fd = _create_backup(file, name)
 	except FileExistsError:
@@ -9878,6 +9880,23 @@ def write_backup(file: str, text: str, format: int) -> str:
 	return name
 
 
+def _check_kept_file(path):
+	"""The file write_backup() or upgrade_file() keeps is there and is a
+	regular file. A FIFO or a device would block the read or be replaced by a
+	file, and text passed where the file goes got a backup named after it
+	(2026101807501110). Any other failure is left to the read or the create,
+	whose path shares every folder with this one."""
+	try:
+		st = os.stat(path)
+	except FileNotFoundError:
+		raise UpgradeNotFound(path) from None
+	except (OSError, ValueError):
+		return
+	if not stat.S_ISREG(st.st_mode):
+		raise UpgradeFailed(f"{path}: not a regular file",
+			WriteStatus.IsDirectory if stat.S_ISDIR(st.st_mode) else WriteStatus.NotRegular)
+
+
 def _create_backup(file, name):
 	# The exclusive create, born private. On windows a new file takes the
 	# directory's ACL, so the backup is born with the original's DACL instead
@@ -9902,16 +9921,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 	one was made, and text is what the path now holds.
 	Raises an UpgradeError subclass for what it could not do."""
 	path = os.fspath(path)   # an int is a TypeError here, not a descriptor (see read_file)
-	# A FIFO or a device would block the read or be replaced by a file.
-	try:
-		st = os.stat(path)
-	except FileNotFoundError:
-		raise UpgradeNotFound(path) from None
-	except (OSError, ValueError):
-		st = None
-	if st is not None and not stat.S_ISREG(st.st_mode):
-		raise UpgradeFailed(f"{path}: not a regular file",
-			WriteStatus.IsDirectory if stat.S_ISDIR(st.st_mode) else WriteStatus.NotRegular)
+	_check_kept_file(path)
 	# Not read_file, whose one status for every failure would hide the
 	# system's reason (2026101514324707).
 	try:

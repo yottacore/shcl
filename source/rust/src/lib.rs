@@ -8906,10 +8906,12 @@ fn file_name_start(file: &str) -> usize {
 /// anything else at the name is never written over, and the copy is synced
 /// before this returns. It is born private, then given the original's group
 /// and mode (on windows its DACL), so a private config never has a readable
-/// copy. Returns the backup's name.
+/// copy. Returns the backup's name. A file that isn't there is `NotFound`, and
+/// a directory or a FIFO is `Io`, as from `upgrade_file`.
 pub fn write_backup(file: &str, text: &str, format: u32) -> Result<String, UpgradeError> {
 	use std::io::Write;
 	let name = backup_file_name(file, format);
+	check_kept_file(file)?;
 	let mut f = create_backup(file, &name).map_err(|e| {
 		if e.kind() == std::io::ErrorKind::AlreadyExists {
 			UpgradeError::BackupTaken(name.clone())
@@ -8935,6 +8937,31 @@ pub fn write_backup(file: &str, text: &str, format: u32) -> Result<String, Upgra
 		return Err(UpgradeError::Io(WriteError::io(&name, &e)));
 	}
 	Ok(name)
+}
+
+/// The file `write_backup` or `upgrade_file` keeps is there and is a regular
+/// file. A FIFO or a device would block the read or be replaced by a file, and
+/// text passed where the file goes got a backup named after it
+/// (2026101807501110). Any other failure is left to the read or the create,
+/// whose path shares every folder with this one.
+fn check_kept_file(path: &str) -> Result<(), UpgradeError> {
+	match std::fs::metadata(path) {
+		Ok(m) if !m.is_file() => {
+			let status = if m.is_dir() {
+				WriteStatus::IsDirectory
+			} else {
+				WriteStatus::NotRegular
+			};
+			Err(UpgradeError::Io(WriteError::new(
+				status,
+				format!("{}: not a regular file", path),
+			)))
+		}
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+			Err(UpgradeError::NotFound(path.to_string()))
+		}
+		_ => Ok(()),
+	}
 }
 
 #[cfg(not(windows))]
@@ -8973,24 +9000,7 @@ fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
 /// has no need of it. On success `backup` names the copy when one was made,
 /// and `text` is what the path now holds.
 pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> {
-	// A FIFO or a device would block the read or be replaced by a file.
-	match std::fs::metadata(path) {
-		Ok(m) if !m.is_file() => {
-			let status = if m.is_dir() {
-				WriteStatus::IsDirectory
-			} else {
-				WriteStatus::NotRegular
-			};
-			return Err(UpgradeError::Io(WriteError::new(
-				status,
-				format!("{}: not a regular file", path),
-			)));
-		}
-		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-			return Err(UpgradeError::NotFound(path.to_string()));
-		}
-		_ => {}
-	}
+	check_kept_file(path)?;
 	// Not read_file, whose one status for every failure would hide the
 	// system's reason (2026101514324707).
 	let bytes = match std::fs::read(path) {

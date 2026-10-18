@@ -5659,6 +5659,44 @@ int main(int argc, char **argv) {
 		if (dir_entries(udir) != 3) fail("upgrade_taken", "entries");
 		dir_clear(udir);
 	}
+	test_id("Et6AmCW", "write_backup_refuses_a_swapped_file_and_text");
+	{
+		/* The file and its text are both strings, and swapped they wrote a
+		   backup named after the text, read the text's length from the path,
+		   and returned OK (2026101807501110). */
+		char udir[256], file[320], text[320], sub[320];
+		up_dir(udir, sizeof udir, "swap");
+		snprintf(file, sizeof file, "%s/f.shcl", udir);
+		/* Read as a path the text names a spot in udir, so a backup made of
+		   it would show there. */
+		snprintf(text, sizeof text, "%s/port: 80\nhost: x\n", udir);
+		/* On the heap at its own length, so a read past it shows under ASan. */
+		size_t flen = strlen(file);
+		char *fheap = (char *)malloc(flen + 1);
+		if (!fheap) abort();
+		memcpy(fheap, file, flen + 1);
+		char *name = NULL, *why = NULL;
+		shcl_upgrade_error r = shcl_write_backup(text, fheap, strlen(text), 3, &name, &why, NULL);
+		free(fheap);
+		if (r == SHCL_UPGRADE_OK) fail("backup_swapped", name ? name : "not refused");
+#ifndef _WIN32
+		/* A newline is no part of a windows name, so the create refuses it there. */
+		if (r != SHCL_UPGRADE_NOT_FOUND || !why || strncmp(why, text, strlen(text)) != 0) fail("backup_swapped", why ? why : "not NotFound");
+#endif
+		free(name); free(why); name = NULL; why = NULL;
+		if (dir_entries(udir) != 0) fail("backup_swapped", "entries");
+		snprintf(sub, sizeof sub, "%s/d", udir);
+#ifdef _WIN32
+		if (_mkdir(sub) != 0) fail("backup_swapped", "mkdir failed");
+#else
+		if (mkdir(sub, 0700) != 0) fail("backup_swapped", "mkdir failed");
+#endif
+		shcl_write_status wst = SHCL_WRITE_OK;
+		if (shcl_write_backup(sub, "x: 1\n", 5, 3, &name, &why, &wst) != SHCL_UPGRADE_IO || wst != SHCL_WRITE_IS_DIRECTORY) fail("backup_swapped", why ? why : "directory");
+		free(name); free(why);
+		if (dir_entries(udir) != 1) fail("backup_swapped", "entries after the directory");
+		dir_clear(udir);
+	}
 	test_id("EsoQmUB", "from_v2_refuses_a_conversion_that_keeps_an_error");
 	{
 		/* The next run with from_v2 would read the fresh text by 2.x rules

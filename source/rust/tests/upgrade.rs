@@ -9,7 +9,10 @@
 mod common;
 
 use common::test_id;
-use shcl::{Document, GEN_BANNER, UpgradeError, backup_file_name, migrate, upgrade, upgrade_file};
+use shcl::{
+	Document, GEN_BANNER, UpgradeError, WriteStatus, backup_file_name, migrate, upgrade,
+	upgrade_file, write_backup,
+};
 
 const CLOCK: &str = "2026-10-04 00:15:00 -420 PDT";
 
@@ -316,5 +319,40 @@ fn upgrade_file_never_writes_over_a_backup() {
 		Err(UpgradeError::Ambiguous { count: 1, .. })
 	));
 	assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3);
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The file and its text are both strings, and swapped they wrote a backup
+/// named after the text and returned its name (2026101807501110).
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn write_backup_refuses_a_swapped_file_and_text() {
+	let _id = test_id("Et6Am2s");
+	pin_clock();
+	let dir = scratch("swap");
+	let file = dir.join("f.shcl").to_str().unwrap().to_string();
+	// Read as a path the text names a spot in dir, so a backup made of it
+	// would show there.
+	let text = format!("{}/port: 80\nhost: x\n", dir.to_str().unwrap());
+	let got = write_backup(&text, &file, 3);
+	assert!(got.is_err(), "{got:?}");
+	// A newline is no part of a windows name, so the create refuses it there.
+	#[cfg(not(windows))]
+	assert_eq!(got, Err(UpgradeError::NotFound(text.clone())));
+	assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+	let sub = dir.join("d");
+	std::fs::create_dir(&sub).unwrap();
+	match write_backup(sub.to_str().unwrap(), "x: 1\n", 3) {
+		Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory),
+		other => panic!("backup of a directory: {other:?}"),
+	}
+	let left: Vec<_> = std::fs::read_dir(&dir)
+		.unwrap()
+		.map(|e| e.unwrap().file_name())
+		.collect();
+	assert_eq!(left, vec![std::ffi::OsString::from("d")]);
 	let _ = std::fs::remove_dir_all(&dir);
 }
