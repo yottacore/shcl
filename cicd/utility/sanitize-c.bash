@@ -16,6 +16,11 @@
 ##		set --write, and a set --write that creates the file - on copies.
 ##		The veneer smoke runs once more under the thread sanitizer, since its
 ##		threads share one Document for reads.
+##		LeakSanitizer reads lsan.supp beside this script, which may name
+##		prebuilt libraries only, by library name. A leak in shcl's own code is
+##		fixed, or the test that shows it turns detect_leaks off with a backlog
+##		ID beside it. For a full leak stack, rerun the program with
+##		ASAN_OPTIONS=fast_unwind_on_malloc=0.
 ##	Syntax:
 ##		sanitize-c.bash [CORPUS_DIR]
 ##		  CORPUS_DIR  conformance corpus root (default project/conformance)
@@ -35,28 +40,42 @@ set -Eeuo pipefail
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 testWhere=sanitize-c; testCounter=nJobBad
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/c-flags.bash"
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${root}"
 corpus="${1:-project/conformance}"
 [[ -d "${corpus}" ]] || { echo "sanitize-c: no corpus dir: ${corpus}" >&2; exit 2; }
 
-## -O1 keeps line numbers honest in a report; -fno-sanitize-recover makes every
-## UBSan finding fatal instead of a note that scrolls past. 77 is no exit code
+## The flags and the programs are in include/c-flags.bash. 77 is no exit code
 ## any of these programs uses, so a sanitizer stop cannot be mistaken for the
-## program's own verdict.
-flags=(-O1 -g "-fsanitize=address,undefined" -fno-sanitize-recover=all -fno-omit-frame-pointer -Wall -Wextra -Werror -Isource/c)
+## program's own verdict. A leak exits 77 too.
 export ASAN_OPTIONS="exitcode=77:${ASAN_OPTIONS:-}" UBSAN_OPTIONS="exitcode=77:print_stacktrace=1:${UBSAN_OPTIONS:-}"
+export LSAN_OPTIONS="suppressions=${root}/cicd/utility/lsan.supp:${LSAN_OPTIONS:-}"
 
 work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
-## compiler, language standard, source, output.
-fBuild(){ "$1" "-std=$2" "${flags[@]}" "$3" -o "$4" -lm -lpthread || { echo "sanitize-c: build failed: $3"; return 1; }; }
-## TSan can't share a build with ASan. spec.md says threads can read one C++
-## Document at once, since each const member holds its lock; a member that
-## skips it races in the smoke's threaded test (2026101612343301).
-tflags=(-O1 -g -fsanitize=thread -Wall -Wextra -Werror -Isource/c)
+## compiler, language standard, source, output, then any extra flags.
+fBuild(){
+	local cc="$1" std="$2" src="$3" out="$4"; shift 4
+	"${cc}" "-std=${std}" "${cSanFlags[@]}" "$@" "${src}" -o "${out}" -lm -lpthread || { echo "sanitize-c: build failed: ${src}"; return 1; }
+}
+## spec.md says threads can read one C++ Document at once, since each const
+## member holds its lock; a member that skips it races in the smoke's threaded
+## test (2026101612343301).
 export TSAN_OPTIONS="exitcode=77:halt_on_error=1:${TSAN_OPTIONS:-}"
-fBuildTsan(){ g++ -std=c++17 "${tflags[@]}" "$1" -o "$2" -lm -lpthread || { echo "sanitize-c: build failed: $1 under TSan"; return 1; }; }
+fBuildTsan(){ g++ -std=c++17 "${cTsanFlags[@]}" "$1" -o "$2" -lm -lpthread || { echo "sanitize-c: build failed: $1 under TSan"; return 1; }; }
+## A suppression matches any frame in a leak's stack, so a wide one hides our
+## own leaks. The bait leaks one block through a frame of its own, and has to
+## be reported with the suppressions loaded. The pointer goes through a
+## volatile global: a plain local is dropped by the optimizer, and one still
+## in main's frame at exit is reachable, and either way LSan says nothing.
+fLeakBait(){
+	local rc=0
+	"${work}/leakbait" >"${work}/leakbait.out" 2>&1 || rc=$?
+	if [[ "${rc}" == 77 ]] && grep -q 'LeakSanitizer: detected memory leaks' "${work}/leakbait.out"; then return 0; fi
+	echo "sanitize-c: LSan missed the bait's leak (exit ${rc})"; sed 's/^/    /' "${work}/leakbait.out"; return 1
+}
 
 ## Everything below runs as background jobs, CPU_CAP at a time: six sanitized
 ## compiles were half the gate, and the corpus pass was most of the rest, one
@@ -98,14 +117,17 @@ fJobsWait(){
 }
 
 printf '%s\n' '#include <signal.h>' 'int main(void){ raise(SIGKILL); return 0; }' > "${work}/bait.c"
-fJob "build conformance.c" fBuild cc c11 source/c/tests/conformance.c "${work}/conformance"
-fJob "build oom_hook.c" fBuild cc c11 source/c/tests/oom_hook.c "${work}/oom_hook"
-fJob "build oom_recover.c" fBuild cc c11 source/c/tests/oom_recover.c "${work}/oom_recover"
-fJob "build mem_bounds.c" fBuild cc c11 source/c/tests/mem_bounds.c "${work}/mem_bounds"
-fJob "build veneer_smoke.cpp" fBuild g++ c++17 source/c/tests/veneer_smoke.cpp "${work}/veneer_smoke"
+printf '%s\n' '#include <stdlib.h>' 'static void *volatile sink;' \
+	'__attribute__((noinline)) static void drop(void) { sink = malloc(64); sink = NULL; }' \
+	'int main(void) { drop(); return 0; }' > "${work}/leakbait.c"
+for build in "${cSanBuilds[@]}"; do
+	IFS='|' read -r bName bCc bStd bSrc bExtra <<<"${build}"
+	read -r -a bExtraArgs <<<"${bExtra}"
+	fJob "build ${bSrc##*/}" fBuild "${bCc}" "${bStd}" "${bSrc}" "${work}/${bName}" "${bExtraArgs[@]}"
+done
 fJob "build veneer_smoke.cpp under TSan" fBuildTsan source/c/tests/veneer_smoke.cpp "${work}/veneer_tsan"
-fJob "build the CLI" fBuild cc c11 source/c/cmd/shcl/main.c "${work}/shcl"
 fJob "build the bait" cc -O0 -o "${work}/bait" "${work}/bait.c"
+fJob "build the leak bait" fBuild cc c11 "${work}/leakbait.c" "${work}/leakbait"
 fJobsWait 1
 if ((${#failed[@]})); then printf 'sanitize-c: %s\n' "${failed[@]}" >&2; exit 2; fi
 
@@ -280,9 +302,10 @@ fCliWorker(){
 rc=0
 firstRun=$((nJobs + 1))
 fJob "conformance runner" "${work}/conformance" "${corpus}"
-## The OOM hook there longjmps out of a write, so every budget that trips it
-## abandons a partly applied edit on purpose; that is the test, not a leak.
-fJob oom_hook env "ASAN_OPTIONS=${ASAN_OPTIONS}:detect_leaks=0" "${work}/oom_hook"
+## The OOM hook there longjmps out of a write. Leak detection stays on, since
+## what a cut-short call holds is given back, which the test's own block count
+## checks as well.
+fJob oom_hook "${work}/oom_hook"
 ## Its opposite: a parse or a validate that cannot allocate unwinds on its own
 ## and returns NULL, and leak detection stays ON, because giving back
 ## everything the half-built document held is half of what that is worth.
@@ -293,6 +316,7 @@ fJob mem_bounds "${work}/mem_bounds"
 ## document per tokenize, which is the kind of code a leak or double free hides in.
 fJob veneer_smoke "${work}/veneer_smoke"
 fJob veneer_tsan "${work}/veneer_tsan"
+fJob "leak bait" fLeakBait
 for ((k = 0; k < cap; k++)); do fJob "CLI pass ${k}" fCliWorker "${k}"; done
 fJobsWait "${firstRun}"
 if ((${#failed[@]})); then printf 'sanitize-c: %s\n' "${failed[@]}" >&2; rc=1; fi
@@ -319,13 +343,15 @@ fTest EoSE8Nl veneer_smoke under ASan and UBSan
 if [[ -n "${jobFailed[veneer_smoke]:-}" ]]; then nJobBad+=1; fi
 fTest EstYPCw veneer_smoke under TSan
 if [[ -n "${jobFailed[veneer_tsan]:-}" ]]; then nJobBad+=1; fi
+fTest Et09atr LSan reports a planted leak with the suppressions loaded
+if [[ -n "${jobFailed[leak bait]:-}" ]]; then nJobBad+=1; fi
 fTest EoSE8Nm every corpus CLI run under ASan and UBSan
 nJobBad=$((nJobBad + cliBad + nBad))
 fTestEnd
 if ((nBad)); then
 	echo "sanitize-c: ${nBad}/${nRuns} CLI run(s) stopped by a sanitizer" >&2; rc=1
 elif ((rc == 0)); then
-	echo "sanitize-c: OK: runner, oom_hook, oom_recover, mem_bounds, veneer_smoke and ${nRuns} CLI run(s) clean under ASan+UBSan, veneer_smoke under TSan"
+	echo "sanitize-c: OK: runner, oom_hook, oom_recover, mem_bounds, veneer_smoke and ${nRuns} CLI run(s) clean under ASan+UBSan+LSan, veneer_smoke under TSan, the leak bait caught"
 fi
 exit "${rc}"
 
@@ -343,3 +369,6 @@ exit "${rc}"
 ##		  jobs, CPU_CAP at a time. 91 s to 23 s at 16.
 ##		- 2026-10-16 JC: The veneer smoke under TSan as well, for its threaded
 ##		  reads of one Document.
+##		- 2026-10-17 JC: Flags and programs from include/c-flags.bash, LSan
+##		  suppressions file and a leak it has to catch, the arena's malloc
+##		  mode and libstdc++ assertions, and oom_hook with leak detection on.

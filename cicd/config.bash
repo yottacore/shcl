@@ -88,6 +88,13 @@ TOOL_PINS=(
 	## output order). Both fail a skip under --ci.
 	"zig|0.16.0|zig version"
 	"pillow|11.1.0|python3 -c 'import PIL; print(PIL.__version__)'"
+	## The C static analyzers (analyze-c.bash), called by these majors, as
+	## gcc-14 and so on. The image's apt snapshot and the hosted runner's apt
+	## each fix the point release. clang-tidy keeps clang's major, since another
+	## one can reject the build's flags.
+	"gcc|14|gcc-14 --version"
+	"clang|19|clang-19 --version"
+	"clang-tidy|19|clang-tidy-19 --version"
 )
 ## The PyPI wheel that bundles the pinned cppcheck binary has its own version,
 ## and that is the one pip installs (ci.yml, install-dev.bash). Bump it with
@@ -143,6 +150,10 @@ LINT_EXTRA=(
 	## code, its comments and these options, so an unchanged file replays in well
 	## under a second. It sits in the git dir so a pre-push worktree finds it too.
 	'cbd="$(git rev-parse --git-common-dir 2>/dev/null || echo cicd/artifacts)/cppcheck-build"; mkdir -p "${cbd}"; cppcheck -j 2 --cppcheck-build-dir="${cbd}" --error-exitcode=1 --enable=warning,portability --inline-suppr --check-level=exhaustive --quiet -Isource/c source/c/cmd/shcl/main.c source/c/tests/conformance.c'
+	## gcc's analyzer and clang's over the C files, clang-tidy over the C++
+	## veneer smoke. In the build image, which it starts itself on a box
+	## without the pinned tools.
+	'cicd/utility/analyze-c.bash'
 	'markdownlint-cli2'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path install.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path utility/dogfood_shcl.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
@@ -172,6 +183,7 @@ LINT_EXTRA=(
 SHELLCHECK_TARGETS=(
 	cicd/cicd.bash
 	cicd/config.bash
+	cicd/utility/analyze-c.bash
 	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-cpu-floor.bash
@@ -189,6 +201,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/cli-regress.bash
 	cicd/utility/comparison/compare.bash
 	cicd/utility/crosscheck.bash
+	cicd/utility/gen-compdb.bash
 	cicd/utility/largedoc.bash
 	cicd/utility/libtest-quiet.bash
 	cicd/utility/lint-report.bash
@@ -203,6 +216,8 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/green-tree.bash
 	cicd/utility/win-runners.bash
 	cicd/hooks/pre-push
+	cicd/utility/include/c-flags.bash
+	cicd/utility/include/ctr-image.bash
 	cicd/utility/include/gfs-rotate.bash
 	cicd/utility/include/largedoc-gen.bash
 	cicd/utility/include/test-id.bash

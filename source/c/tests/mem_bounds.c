@@ -101,6 +101,7 @@ int main(void) {
 	// refused line used to be built in full first, so the cap saved nothing.
 	size_t reps = 200000, tlen = 6 + reps * 3 + 9;
 	char *text = (char *)malloc(tlen + 1);
+	if (!text) { fail("out of memory"); return test_id_end(1); }
 	memcpy(text, "arr: [", 6);
 	for (size_t i = 0; i < reps; i++) memcpy(text + 6 + i * 3, "1, ", 3);
 	memcpy(text + 6 + reps * 3, "1]\nok: 5\n", 10);

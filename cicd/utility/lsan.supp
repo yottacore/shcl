@@ -1,0 +1,5 @@
+# LeakSanitizer suppressions for sanitize-c.bash. Prebuilt libraries only,
+# matched by library name, as leak:libname.so. An entry matches any frame in a
+# leak's stack, so one for a library our code calls into hides our own leaks
+# too. A leak in shcl's code is fixed, or its test turns detect_leaks off with
+# a backlog ID beside it. Empty, since shcl links nothing but libc and libm.

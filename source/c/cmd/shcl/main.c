@@ -23,6 +23,7 @@
 #include <math.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <assert.h>
 #ifdef _WIN32
 	#include <windows.h>
 	#include <shellapi.h>
@@ -710,25 +711,26 @@ static int write_target_ok(const char *file) {
 	return 1;
 }
 
-static char *read_stream(FILE *f, const char *who, size_t *len);
+static char *read_stream(FILE *f, int is_stdin, const char *who, size_t *len);
 static char *read_input(const char *file, size_t *len) {
 	int is_stdin = strcmp(file, "-") == 0;
 	const char *who = is_stdin ? "stdin" : file;
 	if (!is_stdin && is_a_directory(file)) { fprintf(stderr, "%s: Is a directory\n", who); return NULL; }
 	FILE *f = is_stdin ? stdin : open_rb(file);
 	if (!f) { fprintf(stderr, "%s: %s\n", who, strerror(errno)); return NULL; }
-	return read_stream(f, who, len);
+	return read_stream(f, is_stdin, who, len);
 }
 
 // The rest of read_input, once FILE is open. It closes f unless it is stdin.
-static char *read_stream(FILE *f, const char *who, size_t *len) {
+static char *read_stream(FILE *f, int is_stdin, const char *who, size_t *len) {
 	char *buf = NULL; size_t cap = 0, n = 0;
-	int is_stdin = f == stdin;
 	char chunk[65536]; size_t r;
 	errno = 0;
 	while ((r = fread(chunk, 1, sizeof chunk, f)) > 0) {
 		if (n + r > cap) { cap = (n + r) * 2; buf = (char *)xrealloc(buf, cap ? cap : 1); }
 		memcpy(buf + n, chunk, r); n += r;
+		// Short only at the end or on an error.
+		if (r < sizeof chunk) break;
 	}
 	int ferr = ferror(f);
 	// A stdin that is not attached at all reads as an empty document, the way
@@ -736,7 +738,7 @@ static char *read_stream(FILE *f, const char *who, size_t *len) {
 	// shell closed as an invalid handle or an invalid function, which the C
 	// runtime hands back as EINVAL.
 	if (ferr && is_stdin && (errno == EBADF || errno == EINVAL)) ferr = 0;
-	if (f != stdin) fclose(f);
+	if (!is_stdin) fclose(f);
 	if (ferr) { fprintf(stderr, "%s: %s\n", who, strerror(errno)); free(buf); return NULL; }
 	if (!buf) { buf = (char *)xrealloc(NULL, 1); }
 	if (!utf8_valid(buf, n)) { fprintf(stderr, "%s: stream did not contain valid UTF-8\n", who); free(buf); return NULL; }
@@ -938,6 +940,8 @@ static int load_layered(Opts *o, const char *file, LayeredDoc *out) {
 // document. FILE's text is the last of out->texts, base_len bytes. `set` kept
 // its own copy of the fold, and twice a fix to this one missed it.
 static int load_layered_from(Opts *o, const char *file, char *given, size_t given_len, int keep, LayeredDoc *out) {
+	// FILE is a layer too, so both loops below run and out->doc is set.
+	assert(o->nlayers >= 0);
 	out->doc = NULL; out->overs = NULL; out->novers = 0; out->texts = NULL; out->ntexts = 0;
 	out->names = (const char **)xrealloc(NULL, (size_t)(o->nlayers + 1) * sizeof *out->names);
 	out->nnames = 0; out->base_len = 0;
@@ -1231,6 +1235,7 @@ static int holds_bytes(const char *file, const char *before, size_t n) {
 		while (same && (got = fread(buf, 1, sizeof buf, f)) > 0) {
 			same = at + got <= n && !memcmp(buf, before + at, got);
 			at += got;
+			if (got < sizeof buf) break;
 		}
 		same = same && !ferror(f) && at == n;
 		fclose(f);
@@ -1925,7 +1930,7 @@ static int do_set(Opts *o) {
 		if (stdin_is_terminal()) fprintf(stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n");
 		// The same read as a document on stdin: nothing attached is empty, and
 		// a failed read or bad UTF-8 is exit 8 (2026101514324710).
-		ops = read_stream(stdin, "stdin", &opslen);
+		ops = read_stream(stdin, 1, "stdin", &opslen);
 		if (!ops) { layered_free(&L); return EXIT_IO; }
 	}
 	/* Byte order marks off the front: Windows PowerShell 5.1 puts one or more
@@ -2328,7 +2333,7 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 			// The suggestion is against the name half: `--stricness=1` is a typo
 			// in the option, not in a spelling that includes a value.
 			const char *cands[64];
-			char hint[96], name[64];
+			char hint[96] = {0}, name[64] = {0};
 			const char *eq = strchr(a, '=');
 			size_t len = eq ? (size_t)(eq - a) : strlen(a);
 			if (len >= sizeof name) len = sizeof name - 1;
@@ -2604,7 +2609,7 @@ static int is_command(const char *cmd) {
 static size_t edit_distance(const char *a, const char *b, size_t cap) {
 	size_t la = strlen(a), lb = strlen(b), inf = cap + 1;
 	if ((la > lb ? la - lb : lb - la) > cap) return inf;
-	size_t prev[64], cur[64];
+	size_t prev[64] = {0}, cur[64] = {0};
 	if (lb + 1 > sizeof prev / sizeof prev[0]) return inf;
 	for (size_t j = 0; j <= lb; j++) prev[j] = j;
 	for (size_t i = 1; i <= la; i++) {
@@ -2632,7 +2637,7 @@ static void suggest(char *out, size_t outsz, const char **cands, size_t ncands, 
 	// Every candidate is ASCII, and this counts distance in bytes where the
 	// other three count characters, so a word that is not ASCII gets no
 	// suggestion rather than one the four bindings could disagree on.
-	char w[64];
+	char w[64] = {0};
 	size_t wl = strlen(word);
 	if (wl >= sizeof w) return;
 	for (size_t i = 0; i < wl; i++) {
@@ -2643,7 +2648,7 @@ static void suggest(char *out, size_t outsz, const char **cands, size_t ncands, 
 	const char *best = NULL;
 	size_t bestd = 3;
 	for (size_t i = 0; i < ncands; i++) {
-		char c[64];
+		char c[64] = {0};
 		size_t cl = strlen(cands[i]);
 		if (cl >= sizeof c) continue;
 		for (size_t j = 0; j <= cl; j++) c[j] = lower_byte(cands[i][j]);
@@ -3007,7 +3012,7 @@ static int cli_main(int argc, char **argv) {
 		// Before the options are judged, so a typo in the command is reported
 		// as that and not as an option the wrong command cannot take.
 		const char *cands[64];
-		char hint[96], name[64];
+		char hint[96] = {0}, name[64] = {0};
 		if (cmd[0] == '-' && strcmp(cmd, "--") != 0) {
 			// The suggestion is against the name half: `--stricness=1` is a typo
 			// in the option, not in a spelling that includes a value.

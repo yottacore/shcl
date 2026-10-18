@@ -43,8 +43,10 @@
 	#ifdef _FEATURES_H
 		#error "shcl.h has to be included before any system header, because the file tier needs POSIX prototypes and a feature-test request only counts before the first one. Move the include up, or define _POSIX_C_SOURCE 200809L (or _GNU_SOURCE) ahead of everything, or build with SHCL_NO_FILE_IO."
 	#endif
+	// NOLINTBEGIN(bugprone-reserved-identifier): POSIX names these
 	#define _POSIX_C_SOURCE 200809L
 	#define _XOPEN_SOURCE 700
+	// NOLINTEND(bugprone-reserved-identifier)
 #endif
 
 #ifndef SHCL_H
@@ -718,7 +720,7 @@ typedef struct { shcl_piece name; shcl_piece selector; int has_selector; int sta
 // it last used; the arrays die with that arena. cap is the caller's element cap (0 = none):
 // the scan stops as soon as the value holds more elements than this, and
 // capped says it did, with elements then incomplete. cap is kept across calls.
-typedef struct {
+typedef struct { // NOLINT(clang-analyzer-optin.performance.Padding): each flag sits beside the field it guards
 	shcl_seg_tok *segments; size_t nseg;
 	int has_sep; size_t sep;          // the separator (`:` on a line, `=` in --set); none when the path ran to the end or into a comment
 	size_t value_start, value_end;    // everything after the separator up to the comment, trimmed
@@ -1145,6 +1147,24 @@ static const char *dec_point(void) {
 	return (p && *p) ? p : ".";
 }
 
+/* Line suppressions for the static analyzers. gcc's analyzer loses a pointer
+   once it's stored in a volatile local, and reports it leaked at the next line
+   (gcc 12 to 15), so the recovery points' owners sit between the BEGIN and END
+   pair. SHCL_ANALYZER_SKIP is clang's suppress attribute, with each site's
+   reason beside it, and expands to nothing outside the analyzer. */
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 10
+	#define SHCL_VOLATILE_OWNER_BEGIN _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wanalyzer-malloc-leak\"")
+	#define SHCL_VOLATILE_OWNER_END _Pragma("GCC diagnostic pop")
+#else
+	#define SHCL_VOLATILE_OWNER_BEGIN
+	#define SHCL_VOLATILE_OWNER_END
+#endif
+#ifdef __clang_analyzer__
+	#define SHCL_ANALYZER_SKIP [[clang::suppress]]
+#else
+	#define SHCL_ANALYZER_SKIP
+#endif
+
 // --- arena (bump allocator; growable vectors grow by copy, bulk-freed) -------
 
 // Where an allocation failure goes when there is no call to fail. A parse and a
@@ -1164,8 +1184,16 @@ static const char *dec_point(void) {
 /* Unwind to the recovery point `panic` names, or fall back to the macro when
    nothing armed one. Keeping on with a failed allocation is not an option: a
    bump arena holds its vectors' bookkeeping, so a request served out of
-   nowhere hands back node indices that are no longer node indices. */
-static void arena_panic(jmp_buf *panic) {
+   nowhere hands back node indices that are no longer node indices. Marked as
+   not returning, or an analyzer walks on past it into the NULL block. */
+#if defined(__GNUC__)
+	#define SHCL_NORETURN __attribute__((noreturn))
+#elif defined(_MSC_VER)
+	#define SHCL_NORETURN __declspec(noreturn)
+#else
+	#define SHCL_NORETURN
+#endif
+static SHCL_NORETURN void arena_panic(jmp_buf *panic) {
 	if (panic) longjmp(*panic, 1);
 	SHCL_OOM();
 	/* A hook that returns leaves nothing to carry on with - the allocation
@@ -1182,7 +1210,24 @@ typedef struct ShclBlock { struct ShclBlock *next; size_t used, cap; } ShclBlock
    panic: where an allocation failure unwinds to; NULL means SHCL_OOM. */
 typedef struct { ShclBlock *head; void *last; size_t last_n; int growing; jmp_buf *panic; } ShclArena;
 
+/* SHCL_ARENA_MALLOC is for the sanitizer build. Every request is a malloc of
+   its own, the size asked and no more, and a reset or a release frees what it
+   gives back, so ASan sees an overrun or a stale read that one shared block
+   hides. */
+#ifdef SHCL_ARENA_MALLOC
+	#define SHCL_ARENA_EACH 1
+#else
+	#define SHCL_ARENA_EACH 0
+#endif
+
 static void *arena_alloc(ShclArena *a, size_t n) {
+	if (SHCL_ARENA_EACH) {
+		ShclBlock *b = (ShclBlock *)malloc(sizeof(ShclBlock) + (n ? n : 1));
+		if (!b) arena_panic(a->panic);
+		b->next = a->head; b->used = n; b->cap = n; a->head = b;
+		a->last = b + 1; a->last_n = n;
+		return b + 1;
+	}
 	n = (n + 15u) & ~(size_t)15u;
 	if (n == 0) n = 16;
 	if (!a->head || a->head->used + n > a->head->cap) {
@@ -1209,7 +1254,7 @@ static void arena_free(ShclArena *a) {
 static void arena_guard(ShclArena *a, jmp_buf *panic) { a->panic = panic; }
 static void *arena_grow(ShclArena *a, void *old, size_t oldcap, size_t newcap, size_t sz) {
 	/* Extend in place when nothing has been allocated since `old`. */
-	if (old && a->head && old == a->last) {
+	if (!SHCL_ARENA_EACH && old && a->head && old == a->last) {
 		size_t want = (newcap * sz + 15u) & ~(size_t)15u;
 		if (want <= a->last_n) return old;
 		size_t extra = want - a->last_n;
@@ -1245,7 +1290,7 @@ static void arena_release(ShclArena *a, ShclMark m) {
 	ShclBlock *keep = NULL;
 	while (a->head && a->head != m.head) {
 		ShclBlock *n = a->head->next;
-		if (n == m.head && a->head->cap == (size_t)65536) keep = a->head;
+		if (!SHCL_ARENA_EACH && n == m.head && a->head->cap == (size_t)65536) keep = a->head;
 		else free(a->head);
 		a->head = n;
 	}
@@ -1263,6 +1308,7 @@ static void arena_release(ShclArena *a, ShclMark m) {
 // every resolver temporary would live until shcl_free - a long-running process
 // doing reads would grow without bound.
 static void arena_reset(ShclArena *a) {
+	if (SHCL_ARENA_EACH) { arena_free(a); return; }
 	if (!a->head) return;
 	ShclBlock *b = a->head->next;
 	while (b) { ShclBlock *n = b->next; free(b); b = n; }
@@ -1275,6 +1321,7 @@ static void arena_reset(ShclArena *a) {
    the block back to the system and faults it in again on the next build, a
    quarter of a millisecond per merge there. Kept, the rebuild reuses it. */
 static void arena_reset_largest(ShclArena *a) {
+	if (SHCL_ARENA_EACH) { arena_free(a); return; }
 	ShclBlock *best = NULL, *b;
 	for (b = a->head; b; b = b->next) if (!best || b->cap > best->cap) best = b;
 	for (b = a->head; b;) { ShclBlock *n = b->next; if (b != best) free(b); b = n; }
@@ -1287,6 +1334,7 @@ static void arena_reset_largest(ShclArena *a) {
    the one that grew for the last value, so arena_reset would hold three times
    the largest value ever defaulted until the document is freed. */
 static void arena_reset_smallest(ShclArena *a) {
+	if (SHCL_ARENA_EACH) { arena_free(a); return; }
 	ShclBlock *best = NULL, *b;
 	for (b = a->head; b; b = b->next) if (!best || b->cap < best->cap) best = b;
 	for (b = a->head; b;) { ShclBlock *n = b->next; if (b != best) free(b); b = n; }
@@ -1295,12 +1343,14 @@ static void arena_reset_smallest(ShclArena *a) {
 	a->last = NULL; a->last_n = 0; a->growing = 0;
 }
 
+// NOLINTBEGIN(bugprone-macro-parentheses): a name and a type, which can't take parentheses
 #define DEFINE_VEC(Name, T) \
 	typedef struct { T *data; size_t len, cap; } Name; \
 	static void Name##_push(ShclArena *a, Name *v, T x) { \
 		if (v->len == v->cap) { size_t nc = v->cap ? v->cap * 2 : 8; \
 			v->data = (T *)arena_grow(a, v->data, v->cap, nc, sizeof(T)); v->cap = nc; } \
 		v->data[v->len++] = x; }
+// NOLINTEND(bugprone-macro-parentheses)
 
 // --- byte-string helpers -----------------------------------------------------
 
@@ -3774,8 +3824,10 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    not NULL, the recovery point of a call that holds memory of its own around
    this one, else to SHCL_OOM. */
 static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, jmp_buf *outer) {
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(outer);
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		/* An allocation failed below. Drop what the two arenas hold - about two
@@ -3810,8 +3862,10 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
    older format or the new line would not read as the stamp. An allocation
    failure goes to outer. */
 static char *restamp_text(const char *text, size_t len, size_t *out_len, jmp_buf *outer) {
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(outer);
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclMigrateOwn *bad = own;
@@ -3944,8 +3998,10 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
 	int64_t version = shcl_format_version(text, len);
 	shcl_upgraded up; memset(&up, 0, sizeof up);
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclUpgradeOwn *volatile own = (ShclUpgradeOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclUpgradeOwn *bad = own;
@@ -3971,8 +4027,10 @@ int64_t shcl_format_version(const char *text, size_t len) {
 }
 
 shcl_read_i64 shcl_read_format_version(const char *text, size_t len) {
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclMigrateOwn *bad = own;
@@ -4033,8 +4091,10 @@ const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
 
 /* shcl_read_schema_ref, with the line it is on in *line_no. */
 static shcl_read_str s_read_schema_ref_at(const char *text, size_t len, size_t *line_no) {
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclMigrateOwn *bad = own;
@@ -6080,8 +6140,8 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
 			size_t c = ch.data[k]; ShclStr nm = NODE(P->d, c).name;
 			uint64_t h = cmap_hash(nm, s_empty());
 			size_t g = (size_t)-1;
-			for (ShclCMapEnt *e = cmap_first(&group_of, h); e; e = cmap_next(e, h))
-				if (s_eq(names.data[e->val], nm)) { g = e->val; break; }
+			for (ShclCMapEnt *e = cmap_first(&group_of, h); e; e = cmap_next(e, h)) // a hit names an entry pushed beside it
+				SHCL_ANALYZER_SKIP if (s_eq(names.data[e->val], nm)) { g = e->val; break; }
 			if (g == (size_t)-1) {
 				ShclVecS_push(tmp, &names, nm);
 				if (ngroups == cgroups) { size_t nc = cgroups ? cgroups * 2 : 8; groups = (Group *)arena_grow(tmp, groups, cgroups, nc, sizeof(Group)); cgroups = nc; }
@@ -6482,10 +6542,12 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, size_t max_nodes, size_t max_elements, size_t max_diags, int track_dropped) {
 	/* The two the unwind path has to reach. volatile because that path arrives
 	   by longjmp, which leaves an ordinary local indeterminate. */
+	SHCL_VOLATILE_OWNER_BEGIN
 	shcl_doc *volatile doc = (shcl_doc *)calloc(1, sizeof *doc);
 	if (!doc) return NULL;
 	ShclParseOwn *volatile owned = (ShclParseOwn *)calloc(1, sizeof *owned);
 	if (!owned) { free(doc); return NULL; }
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		/* An allocation failed somewhere below. Nothing built so far can be
@@ -6839,7 +6901,7 @@ size_t shcl_paths(shcl_doc *d, shcl_str **out) {
 		else { ShclSB b = {0}; sb_putS(a, &b, e.prefix); sb_putc(a, &b, '.'); sb_putS(a, &b, seg); path = sb_S(&b); }
 		uint64_t h = cmap_hash(path, s_empty());
 		int dup = 0;
-		for (ShclCMapEnt *en = cmap_first(&seen, h); en; en = cmap_next(en, h)) {
+		SHCL_ANALYZER_SKIP for (ShclCMapEnt *en = cmap_first(&seen, h); en; en = cmap_next(en, h)) { // a hit names an entry pushed beside it
 			ShclStr sp; sp.p = arr[en->val].p; sp.n = arr[en->val].n;
 			if (s_eq(sp, path)) { dup = 1; break; }
 		}
@@ -8438,8 +8500,8 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 		size_t k = okids.data[i]; ShclStr nm = over->nodes.data[k].name;
 		uint64_t h = cmap_hash(nm, s_empty());
 		size_t g = (size_t)-1;
-		for (ShclCMapEnt *e = cmap_first(&group_of, h); e; e = cmap_next(e, h))
-			if (s_eq(order.data[e->val], nm)) { g = e->val; break; }
+		for (ShclCMapEnt *e = cmap_first(&group_of, h); e; e = cmap_next(e, h)) // a hit names an entry pushed beside it
+			SHCL_ANALYZER_SKIP if (s_eq(order.data[e->val], nm)) { g = e->val; break; }
 		if (g == (size_t)-1) {
 			if (nb == cb) { size_t nc = cb ? cb * 2 : 8; buckets = (ShclVecSize *)arena_grow(t, buckets, cb, nc, sizeof(ShclVecSize)); cb = nc; }
 			memset(&buckets[nb], 0, sizeof buckets[nb]);
@@ -8463,8 +8525,8 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 		size_t b = base.data[i]; ShclStr nm = NODE(d, b).name;
 		uint64_t hn = cmap_hash(nm, s_empty());
 		size_t ni = (size_t)-1;
-		for (ShclCMapEnt *e = cmap_first(&by_name, hn); e; e = cmap_next(e, hn))
-			if (s_eq(NODE(d, named[e->val].data[0]).name, nm)) { ni = e->val; break; }
+		for (ShclCMapEnt *e = cmap_first(&by_name, hn); e; e = cmap_next(e, hn)) // a hit names an entry pushed beside it
+			SHCL_ANALYZER_SKIP if (s_eq(NODE(d, named[e->val].data[0]).name, nm)) { ni = e->val; break; }
 		if (ni == (size_t)-1) {
 			if (nn == cn) { size_t nc = cn ? cn * 2 : 8; named = (ShclVecSize *)arena_grow(t, named, cn, nc, sizeof(ShclVecSize)); cn = nc; }
 			memset(&named[nn], 0, sizeof named[nn]);
@@ -8508,8 +8570,8 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 		for (size_t i = 0; i < grp.len; i++) if (over->nodes.data[okids.data[grp.data[i]]].children.len > 0) { over_leafy = 0; break; }
 		uint64_t hn = cmap_hash(name, s_empty());
 		int inb = 0, bc = 0; size_t bni = (size_t)-1;
-		for (ShclCMapEnt *e = cmap_first(&by_name, hn); e; e = cmap_next(e, hn))
-			if (s_eq(NODE(d, named[e->val].data[0]).name, name)) { inb = 1; bni = e->val; break; }
+		for (ShclCMapEnt *e = cmap_first(&by_name, hn); e; e = cmap_next(e, hn)) // a hit names an entry pushed beside it
+			SHCL_ANALYZER_SKIP if (s_eq(NODE(d, named[e->val].data[0]).name, name)) { inb = 1; bni = e->val; break; }
 		for (ShclCMapEnt *e = cmap_first(&has_cont, hn); e; e = cmap_next(e, hn))
 			if (s_eq(NODE(d, e->val).name, name)) { bc = 1; break; }
 		if (over_leafy && !bc) {
@@ -9530,7 +9592,7 @@ char *shcl_backup_file_name(const char *file, uint32_t format) {
    another `name` once fixed by hand. A line with a raw body could not be
    commented out as one line. */
 static const char *kept_naming(ShclArena *a, const ShclLead *l, ShclStr name, ShclStr *msg) {
-	char c = l->text.n ? l->text.p[0] : 0;
+	char c = l->text.n ? l->text.p[0] : '\0';
 	if (l->depth != 0 || !is_field_text(l->text) || c == ' ' || c == '\t' || (l->text.n && memchr(l->text.p, '\n', l->text.n))) return NULL;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, l->text, ':', 0, SHCL_RULES_CURRENT, &tok);
@@ -9567,7 +9629,7 @@ static void note_lead(shcl_doc *d, ShclLead *l, ShclStr path, const char *code, 
 static size_t run_under(const ShclVecLead *v, size_t k) {
 	size_t depth = v->data[k].depth, last = k;
 	for (size_t i = k + 1; i < v->len; i++) {
-		char c = v->data[i].text.n ? v->data[i].text.p[0] : 0;
+		char c = v->data[i].text.n ? v->data[i].text.p[0] : '\0';
 		/* A misplaced line is at depth 0, whatever its own indent. */
 		if (v->data[i].depth > depth) last = i;
 		else if (c != '#' && c != ' ' && c != '\t') break;
@@ -9980,7 +10042,7 @@ static int settle_kept_once(shcl_doc *d) {
 		memmove(&t->among.data[f->i], &t->among.data[f->i + 1], (t->among.len - f->i - 1) * sizeof(ShclAmong));
 		t->among.len--;
 		size_t j = k;
-		while (j-- > 0 && e.fell.data[j].site != SITE_AMONG) {}
+		while (j-- > 0 && e.fell.data[j].site != SITE_AMONG) {} // NOLINT(bugprone-inc-dec-in-conditions): j ends at (size_t)-1 when none is found
 		if (j != (size_t)-1 && e.fell.data[j].node == f->node) continue;
 		size_t depth = 0;
 		for (size_t q = t->leading.len; q-- > 0;) if (!s_starts(t->leading.data[q].text, " ") && !s_starts(t->leading.data[q].text, "\t")) { depth = t->leading.data[q].depth; break; }
@@ -10781,8 +10843,10 @@ static int keep_text(shcl_doc *d, ShclStr *out) {
 	   too. Any other source is held to the check, and one that loads such a
 	   list back is kept. */
 	if (!d->has_source || kept_shortfall(d) > 0 || (d->source.n == 0 && unloadable_items(d) > 0)) { *out = emit_canonical(d); return 0; }
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclKeepOwn *volatile own = (ShclKeepOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclKeepOwn *bad = own;
@@ -10824,8 +10888,10 @@ static void keep_source_in(shcl_doc *k, ShclStr t) {
 	#pragma GCC diagnostic ignored "-Wclobbered"
 #endif
 static shcl_doc *keep_source(shcl_doc *parsed, const char *text, size_t len) {
+	SHCL_VOLATILE_OWNER_BEGIN
 	shcl_doc *volatile d = parsed;
 	if (!d) return NULL;
+	SHCL_VOLATILE_OWNER_END
 	ShclStr t; t.p = text ? text : ""; t.n = len;
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
@@ -10939,9 +11005,11 @@ static int f64_neighbor(const char *tmp, const ShclF64Interval *iv, int delta, c
 }
 
 size_t shcl_format_float(double v, char *out) {
+	// NOLINTBEGIN(bugprone-not-null-terminated-result): the length is returned, and no NUL is wanted
 	if (isnan(v)) { memcpy(out, "NaN", 3); return 3; }
 	if (isinf(v)) { if (v < 0) { memcpy(out, "-inf", 4); return 4; } memcpy(out, "inf", 3); return 3; }
 	if (v == 0.0) { if (signbit(v)) { memcpy(out, "-0", 2); return 2; } out[0] = '0'; return 1; }
+	// NOLINTEND(bugprone-not-null-terminated-result)
 	char tmp[64], alt[64]; int prec;
 	// A locale's decimal point is whatever it is; the digit walks skip it.
 	ShclF64Interval iv;
@@ -11016,8 +11084,8 @@ const char *shcl_severity_name(shcl_severity s) { return s == SHCL_SEV_HINT ? "H
 char *shcl_format_diagnostic(size_t line, shcl_severity sev, const char *code, shcl_str message, size_t *len) {
 	/* V096 and V097 are about generation as a whole and V099 a schema that
 	   did not load, all line 0, which is no schema line. */
-	const char *space = (!strncmp(code, "V09", 3) && strcmp(code, "V096") && strcmp(code, "V097")
-		&& strcmp(code, "V099")) ? "schema line" : "line";
+	const char *space = (strncmp(code, "V09", 3) == 0 && strcmp(code, "V096") != 0 && strcmp(code, "V097") != 0
+		&& strcmp(code, "V099") != 0) ? "schema line" : "line";
 	char head[64];
 	int hn = snprintf(head, sizeof head, "%s %zu: %s: ", space, line, shcl_severity_name(sev));
 	if (hn < 0 || (size_t)hn >= sizeof head) hn = 0;
@@ -11080,8 +11148,10 @@ int shcl_parse_datetime(const char *text, size_t tlen, shcl_datetime *out) {
    before the hook on an allocation failure, as restamp_text's are. */
 static char *w_format(int array, const char *const *texts, const size_t *lens, size_t n, size_t *out_len) {
 	if (out_len) *out_len = 0;
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(NULL);
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclMigrateOwn *bad = own;
@@ -11142,8 +11212,10 @@ void shcl_compact(shcl_doc *d) {
 	/* The copy is off the frame, so the recovery point can give it back: a
 	   longjmping SHCL_OOM skips this frame, and every cut-short compaction
 	   used to keep the half-built copy for good (20260918b item 22). */
+	SHCL_VOLATILE_OWNER_BEGIN
 	shcl_doc *volatile fresh = shcl_new();
 	if (!fresh) return;
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		shcl_doc *bad = fresh;
@@ -11976,7 +12048,7 @@ static void v_put_shown(ShclArena *a, ShclSB *o, ShclStr t, const char *mark) {
 static ShclStr v_one_line_in(ShclArena *a, ShclStr t, const char *open, const char *close) {
 	size_t total = v_char_count(t);
 	ShclSB o = {0, 0, 0};
-	sb_reserve(a, &o, t.n < SHCL_DIAG_TEXT_MAX * 4 ? t.n + 16 : SHCL_DIAG_TEXT_MAX * 4 + 16);
+	sb_reserve(a, &o, t.n < (size_t)SHCL_DIAG_TEXT_MAX * 4 ? t.n + 16 : (size_t)SHCL_DIAG_TEXT_MAX * 4 + 16);
 	sb_puts(a, &o, open);
 	if (total <= SHCL_DIAG_TEXT_MAX) v_put_shown(a, &o, t, SHCL_SHOWN_MARK);
 	else {
@@ -12394,8 +12466,8 @@ static void v_unknown(ShclArena *a, ShclArena *tmp, shcl_doc *d, const ShclVSche
 			ShclStr pc = s_dup(a, sb_S(&chain));
 			uint64_t hp = cmap_hash(pc, s_empty());
 			size_t g = (size_t)-1;
-			for (ShclCMapEnt *e = cmap_first(&sib_of, hp); e; e = cmap_next(e, hp))
-				if (s_eq(sib_chain.data[e->val], pc)) { g = e->val; break; }
+			for (ShclCMapEnt *e = cmap_first(&sib_of, hp); e; e = cmap_next(e, hp)) // a hit names an entry pushed beside it
+				SHCL_ANALYZER_SKIP if (s_eq(sib_chain.data[e->val], pc)) { g = e->val; break; }
 			if (g == (size_t)-1) {
 				if (nsib == csib) { size_t nc = csib ? csib * 2 : 8; sibs = (ShclSuggestNames *)arena_grow(a, sibs, csib, nc, sizeof(ShclSuggestNames)); csib = nc; }
 				memset(&sibs[nsib], 0, sizeof sibs[nsib]);
@@ -12408,8 +12480,8 @@ static void v_unknown(ShclArena *a, ShclArena *tmp, shcl_doc *d, const ShclVSche
 			ShclStr full = s_dup(a, sb_S(&chain));
 			uint64_t hf = cmap_hash(full, s_empty());
 			int have = 0;
-			for (ShclCMapEnt *e = cmap_first(&legal, hf); e; e = cmap_next(e, hf))
-				if (s_eq(legal_chains.data[e->val], full)) { have = 1; break; }
+			for (ShclCMapEnt *e = cmap_first(&legal, hf); e; e = cmap_next(e, hf)) // a hit names an entry pushed beside it
+				SHCL_ANALYZER_SKIP if (s_eq(legal_chains.data[e->val], full)) { have = 1; break; }
 			if (!have) { cmap_put(a, &legal, hf, legal_chains.len); ShclVecS_push(a, &legal_chains, full); }
 		}
 	}
@@ -12452,16 +12524,16 @@ static void v_unknown(ShclArena *a, ShclArena *tmp, shcl_doc *d, const ShclVSche
 		int found = 0;
 		{
 			uint64_t hc = cmap_hash(chain, s_empty());
-			for (ShclCMapEnt *e = cmap_first(&legal, hc); e; e = cmap_next(e, hc))
-				if (s_eq(legal_chains.data[e->val], chain)) { found = 1; break; }
+			for (ShclCMapEnt *e = cmap_first(&legal, hc); e; e = cmap_next(e, hc)) // a hit names an entry pushed beside it
+				SHCL_ANALYZER_SKIP if (s_eq(legal_chains.data[e->val], chain)) { found = 1; break; }
 		}
 		if (!found && !star_legal(star_pats, nstar, &star_idx, chain) && !(has_mounts && chain_legal(tmp, def, set_idx, chain))) {
 			ShclSB msg = {0, 0, 0};
 			sb_puts(a, &msg, "unknown field '"); sb_putS(a, &msg, shown); sb_puts(a, &msg, "'");
 			size_t sg = (size_t)-1;
 			uint64_t hpc = cmap_hash(pchain, s_empty());
-			for (ShclCMapEnt *e = cmap_first(&sib_of, hpc); e; e = cmap_next(e, hpc))
-				if (s_eq(sib_chain.data[e->val], pchain)) { sg = e->val; break; }
+			for (ShclCMapEnt *e = cmap_first(&sib_of, hpc); e; e = cmap_next(e, hpc)) // a hit names an entry pushed beside it
+				SHCL_ANALYZER_SKIP if (s_eq(sib_chain.data[e->val], pchain)) { sg = e->val; break; }
 			v_suggest(a, tmp, sg == (size_t)-1 ? NULL : &sibs[sg], node->name, &msg);
 			v_diag(a, out, node->line, "V001", sb_S(&msg));
 			continue;
@@ -12501,8 +12573,10 @@ static int schema_load_fault(const shcl_doc *schema, ShclDiag *fault) {
 shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) {
 	/* Same shape as do_parse: the two the unwind path has to reach are
 	   volatile, the working copies below are not. */
+	SHCL_VOLATILE_OWNER_BEGIN
 	shcl_validation *volatile val = (shcl_validation *)malloc(sizeof *val);
 	if (!val) return NULL;
+	SHCL_VOLATILE_OWNER_END
 	memset(val, 0, sizeof *val);
 	ShclArena *volatile levels = NULL;
 	jmp_buf panic;
@@ -12650,8 +12724,10 @@ static void suppress_reopens_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc)
 /* The public suppressors own their arena off the frame, so a longjmping
    SHCL_OOM cannot strand it; the failure is handed on once it is freed. */
 static void suppress_owned(shcl_doc *schema, shcl_doc *doc, void (*run)(ShclArena *, shcl_doc *, shcl_doc *)) {
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclArena *volatile tmp = (ShclArena *)calloc(1, sizeof *tmp);
 	if (!tmp) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclArena *bad = tmp;
@@ -12741,7 +12817,7 @@ static size_t kept_taken(shcl_doc *d, size_t node) {
 	const ShclNode *nd = &NODE(d, node);
 	size_t n = 0;
 	if (nd->trivia) n = kept_in(&nd->trivia->inside) + kept_among(&nd->trivia->among);
-	if (heads_block(&d->scratch, nd) && lead_is_kept_line(&nd->trivia->leading.data[nd->trivia->leading.len - 1])) n++;
+	if (nd->trivia && heads_block(&d->scratch, nd) && lead_is_kept_line(&nd->trivia->leading.data[nd->trivia->leading.len - 1])) n++;
 	size_t *stack = kept_stack(d);
 	for (size_t k = 0; k < nd->children.len; k++) stack[k] = nd->children.data[k];
 	n += kept_walk(d, stack, nd->children.len);
@@ -12818,8 +12894,10 @@ shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schem
 }
 
 shcl_doc *shcl_load_and_validate_with(const char *text, size_t len, shcl_doc *schema, shcl_strictness s) {
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclLoadOwn *volatile own = (ShclLoadOwn *)calloc(1, sizeof *own);
 	if (!own) return NULL;
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		load_release(own, 0);
@@ -13270,9 +13348,9 @@ static char *shcl_resolve_target(const char *file) {
 		// Relative to the link's own directory; a bare name sits in ".".
 		const char *slash = strrchr(p, '/');
 		size_t dn = slash ? (size_t)(slash - p) : 0;
-		char *joined = (char *)malloc(dn + (size_t)got + 3);
+		char *joined = (char *)malloc(dn + (size_t)got + 3); // NOLINT(clang-analyzer-optin.taint.TaintedAlloc): got is under cap, the buffer readlink filled
 		if (!joined) { free(link); free(p); return NULL; }
-		if (!slash) { memcpy(joined, "./", 2); memcpy(joined + 2, link, (size_t)got + 1); }
+		if (!slash) { memcpy(joined, "./", 2); memcpy(joined + 2, link, (size_t)got + 1); } // NOLINT(bugprone-not-null-terminated-result): the second copy brings the NUL
 		else if (dn == 0) { joined[0] = '/'; memcpy(joined + 1, link, (size_t)got + 1); }
 		else { memcpy(joined, p, dn); joined[dn] = '/'; memcpy(joined + dn + 1, link, (size_t)got + 1); }
 		free(link); free(p); p = joined;
@@ -13293,7 +13371,7 @@ static char *shcl_resolve_target(const char *file) {
 	size_t rn = strlen(rd), nn = strlen(slash + 1);
 	if (rn == 1 && rd[0] == '/') rn = 0; // the root already ends in the separator
 	char *out = (char *)malloc(rn + nn + 2);
-	if (out) { memcpy(out, rd, rn); out[rn] = '/'; memcpy(out + rn + 1, slash + 1, nn + 1); free(p); p = out; }
+	if (out) { memcpy(out, rd, rn); out[rn] = '/'; memcpy(out + rn + 1, slash + 1, nn + 1); free(p); p = out; } // NOLINT(bugprone-not-null-terminated-result): the last copy brings the NUL
 	free(rd);
 	return p;
 }
@@ -13510,7 +13588,7 @@ static shcl_write_status s_write_status_of(int e) {
 	switch (e) {
 	case ENOENT: case ENOTDIR: return SHCL_WRITE_NOT_FOUND;
 	case EACCES: case EPERM: return SHCL_WRITE_PERMISSION_DENIED;
-	case ENOSPC: return SHCL_WRITE_DISK_FULL;
+	case ENOSPC: return SHCL_WRITE_DISK_FULL; // NOLINT(bugprone-branch-clone): EDQUOT isn't everywhere, so it can't share this label
 #ifdef EDQUOT
 	case EDQUOT: return SHCL_WRITE_DISK_FULL;
 #endif
@@ -13576,9 +13654,10 @@ static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_f
 			if (!nb) { rerr = 1; *err = ENOMEM; break; }
 			buf = nb; cap = ncap;
 		}
-		size_t got = fread(buf + n, 1, cap - n, f);
+		size_t want = cap - n;
+		size_t got = fread(buf + n, 1, want, f);
 		n += got;
-		if (got < cap - n + got) {
+		if (got < want) {
 			if (ferror(f)) { rerr = 1; *err = errno ? errno : EIO; } // a directory reads this way on POSIX
 			break;
 		}
@@ -13733,7 +13812,9 @@ static void s_read_schema_file(shcl_named_schema *ns) {
 			s_schema_refuse(ns, SHCL_SCHEMA_TOO_LARGE, "too large for a schema (over 16 MiB)");
 			return;
 		}
-		if (got == 0) break;
+		/* Short only at the end or on an error, and reading on from either is
+		   no use. */
+		if (got < ((size_t)1 << 16)) break;
 	}
 	if (ferror(f)) {
 		int e = errno ? errno : EIO;
@@ -14042,7 +14123,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 	}
 	shcl_upgraded up = shcl_upgrade(text, len, from_v2);
 	shcl_upgrade_error r = SHCL_UPGRADE_OK;
-	if (up.current) {
+	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;
 	} else if (up.ambiguous != 0) {
 		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written", path, up.ambiguous);
@@ -14870,8 +14951,10 @@ shcl_str shcl_generate(shcl_doc *schema, int no_banner, int *ok) {
 	// and die here - the caller may generate from one schema repeatedly. The
 	// arena and the self-check's documents sit off the frame, where the
 	// recovery point can still reach them (20260918b item 22).
+	SHCL_VOLATILE_OWNER_BEGIN
 	ShclGenOwn *volatile own = (ShclGenOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		/* An allocation failed below, or a nested parse or validate came back

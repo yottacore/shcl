@@ -574,7 +574,7 @@ int main() {
 		CHECK(ds.read_duration("wait").status == shcl::Status::BadType);
 		CHECK(ds.read_duration("wait", shcl::DurationUnit::Seconds).value == std::chrono::milliseconds(90000));
 		CHECK(ds.get_duration_or("nope", std::nullopt, std::chrono::milliseconds(7)) == std::chrono::milliseconds(7));
-		CHECK(ds.read_size("cache-mb").value == 2 * 1024 * 1024);
+		CHECK(ds.read_size("cache-mb").value == int64_t{2} * 1024 * 1024);
 		CHECK(ds.read_size("cache-mb", std::nullopt, true).value == 2000000);
 		CHECK(ds.get_size_or("raw", shcl::SizeUnit::Kibi, false, 0) == 65536);
 		CHECK(shcl::duration_unit_from_spelling("h") == shcl::DurationUnit::Hours && !shcl::duration_unit_from_spelling("H"));
@@ -783,7 +783,7 @@ int main() {
 	{
 		auto given = shcl::Document::parse("port: 1\n");
 		auto taken = std::move(given);
-		CHECK(!given && taken && taken.get_or<int64_t>("port", 0) == 1);
+		CHECK(!given && taken && taken.get_or<int64_t>("port", 0) == 1); // NOLINT(bugprone-use-after-move): the moved-from state is the test
 	}
 
 #ifndef SHCL_NO_FILE_IO
