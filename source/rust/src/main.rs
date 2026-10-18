@@ -1794,6 +1794,8 @@ fn not_a_disk_file(file: &str) -> bool {
 		.encode_wide()
 		.chain(std::iter::once(0))
 		.collect();
+	// SAFETY: as the library's copy. wide is NUL-terminated and outlives each
+	// call, the handle is closed once, and full's real length is passed.
 	unsafe {
 		let handle = CreateFileW(
 			wide.as_ptr(),
@@ -3616,6 +3618,8 @@ fn calibrate_one(n: u64) -> u64 {
 fn reset_sigpipe() {
 	const SIGPIPE: i32 = 13;
 	const SIG_DFL: usize = 0;
+	// SAFETY: called first thing in main, before any thread starts, and
+	// SIG_DFL needs no handler to stay alive.
 	unsafe {
 		unsafe extern "C" {
 			fn signal(signum: i32, handler: usize) -> usize;

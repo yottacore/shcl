@@ -2,8 +2,9 @@
 ##
 ## The library itself has no dependencies at all. Everything this walks comes in
 ## through `pprof`, which is optional, feature-gated, and only ever built by the
-## cicd profiler stage - a shipped binary contains none of it. The gate still
-## covers it, because a dev-tooling advisory is worth knowing about.
+## cicd profiler stage - a shipped binary contains none of it - or through
+## `dhat`, a dev-dependency only the soak test links. The gate still covers
+## both, because a dev-tooling advisory is worth knowing about.
 
 [advisories]
 ## A known vulnerability fails the run. Nothing else does: this graph is dev-only

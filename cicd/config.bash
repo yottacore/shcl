@@ -40,7 +40,9 @@ FMT_CHECK_EXTRA=('gofmt_diff="$(gofmt -l source/go)"; [[ -z "${gofmt_diff}" ]] |
 ## Pinned versions of the external helper tools the pipeline uses; the engine
 ## warns (non-gating) when an installed tool has drifted from its pin, so a box
 ## update can't silently change results. Format: "name|version|command...".
-## The rustc/clippy toolchain itself is pinned by rust-toolchain.toml at repo root.
+## The rustc/clippy toolchain itself is pinned by rust-toolchain.toml at repo root,
+## and so is the dated nightly for sanitize-rust.bash, under [nightly]. The images
+## and ci.yml read both from there.
 TOOL_PINS=(
 	"cargo-zigbuild|0.23.0|cargo-zigbuild --version"
 	"ruff|0.15.22|ruff --version"
@@ -198,6 +200,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/n8git_backup-and-publish
 	cicd/utility/package.bash
 	cicd/utility/sanitize-c.bash
+	cicd/utility/sanitize-rust.bash
 	cicd/utility/sign-release.bash
 	cicd/utility/git-auto-msg.bash
 	cicd/utility/green-tree.bash
@@ -287,6 +290,10 @@ TEST_EXTRA=(
 	## sanitizers, plus the CLI over the corpus. A read past a buffer that does
 	## not change stdout passes every gate above; this one sees it.
 	'cicd/utility/sanitize-c.bash'
+	## The Rust suite under ASan and LSan, then under Miri without the tests
+	## that take minutes each there, on the dated nightly in rust-toolchain.toml.
+	## Its --miri-all, every test under Miri, is hours and not for here.
+	'cicd/utility/sanitize-rust.bash'
 )
 
 ## Stage 4b: cross-binding differential check (crosscheck.bash). Every entry is
@@ -519,7 +526,7 @@ CTR_ARGS_alpine=(--no-fmt --no-lint --no-cross --no-profile --no-release)
 if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then
 	## One gcc, no localedef and no sanitizers on Alpine, and the installer,
 	## hook and 2.x migration gates test nothing the libc changes.
-	ctrSkip='check-c-compilers|check-locale|sanitize-c|shell-regress|check-migrate|check-install-dev|check-push-gate'
+	ctrSkip='check-c-compilers|check-locale|sanitize-c|sanitize-rust|shell-regress|check-migrate|check-install-dev|check-push-gate'
 	ctrKeep=()
 	for x in "${TEST_EXTRA[@]}"; do
 		if [[ ! "${x}" =~ ${ctrSkip} ]]; then ctrKeep+=("${x}"); fi

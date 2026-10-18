@@ -25,18 +25,22 @@ fn note(delta: isize) {
 	PEAK.fetch_max(now, Ordering::Relaxed);
 }
 
+// SAFETY: every call goes straight to System, with only a counter on the side.
 unsafe impl GlobalAlloc for Counting {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
 		note(layout.size() as isize);
 		ALLOCS.fetch_add(1, Ordering::Relaxed);
+		// SAFETY: the caller keeps GlobalAlloc's contract, passed on as is.
 		unsafe { System.alloc(layout) }
 	}
 	unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
 		note(-(layout.size() as isize));
+		// SAFETY: the caller keeps GlobalAlloc's contract, passed on as is.
 		unsafe { System.dealloc(ptr, layout) }
 	}
 	unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
 		note(new_size as isize - layout.size() as isize);
+		// SAFETY: the caller keeps GlobalAlloc's contract, passed on as is.
 		unsafe { System.realloc(ptr, layout, new_size) }
 	}
 }
@@ -109,6 +113,10 @@ fn every_test_takes_its_turn_first() {
 	);
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn a_plain_name_costs_the_scan_nothing() {
 	let _id = test_id("EoneEzg");
@@ -148,6 +156,10 @@ fn peak_during(_turn: &Turn, f: impl FnOnce()) -> usize {
 	PEAK.load(Ordering::Relaxed) - start
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn element_cap_bounds_the_parse() {
 	let _id = test_id("EoezJiC");
@@ -168,6 +180,10 @@ fn element_cap_bounds_the_parse() {
 	);
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn diagnostic_cap_bounds_the_parse() {
 	let _id = test_id("EofAXrU");

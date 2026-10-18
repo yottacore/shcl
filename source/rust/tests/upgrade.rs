@@ -251,6 +251,10 @@ fn backup_name_puts_the_tag_before_the_extension() {
 	);
 }
 
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn upgrade_file_backs_up_then_rewrites() {
 	let _id = test_id("Es2R4aS");

@@ -12,3 +12,11 @@ targets = [
 	"x86_64-apple-darwin",
 	"aarch64-apple-darwin",
 ]
+
+# The dated nightly for the sanitizer and Miri runs (sanitize-rust.bash), which
+# need -Z flags. rustup reads only the table above; the image, ci.yml and the
+# script read this one. Bump it like the channel: change it, run the full
+# pipeline, commit.
+[nightly]
+channel = "nightly-2026-10-16"
+components = ["rust-src", "miri"]

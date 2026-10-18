@@ -266,6 +266,10 @@ fn seed_texts() -> Vec<String> {
 	seeds
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 	let _id = test_id("Ejri0IV");
@@ -478,6 +482,10 @@ fn setter_status_agrees_with_the_path_check() {
 /// pins this for a handful of documents, and the one fold defect that broke it
 /// (duplicates folded one level and no deeper) was invisible to every
 /// value-level check because reads did not change.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn writes_on_structural_soup_stay_fixpoint() {
 	let _id = test_id("Eof6zmK");
@@ -665,6 +673,10 @@ fn kept_misplaced(
 	kept
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn lost_count_follows_the_outcome_table() {
 	let _id = test_id("EpFAzfk");
@@ -760,6 +772,10 @@ fn lost_count_follows_the_outcome_table() {
 /// broken value, where it used to lose to one. `E012` and `E018` are left out
 /// on both sides: they judge where a line sits, and a capped line above holds
 /// its level, so the lines under it move.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn a_cap_refuses_only_a_line_that_would_bind() {
 	let _id = test_id("EqKhPQO");
@@ -965,6 +981,10 @@ fn a_cr_in_the_indent_still_opens_a_raw_span() {
 /// closing fence, unless the opening line has no value to read: a `*` name,
 /// which is no field at all, or a fence with no field above it to bind to
 /// (E006). A path that did not parse (E014) takes its body too.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn raw_bodies_stay_content() {
 	let _id = test_id("EqGWdij");
@@ -1134,6 +1154,10 @@ fn schema_and_format_lines_follow_the_parser() {
 /// `~x:` line, so the stamp an upgrade added read as inside it and every run
 /// made the file over again (2026101514324701); some inputs get a name led
 /// by `~` or a backtick for that.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn upgrade_leaves_its_own_output_alone() {
 	let _id = test_id("EssNzSi");
@@ -1281,6 +1305,10 @@ fn a_kept_array_line_can_build_the_list_no_text_loads_back() {
 /// Layered merge over mutated soup: overlaying one document on another must
 /// never panic and the merged result must be a formatter fixpoint - the same
 /// guarantee `fmt` gives, now for the composed document.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn merge_never_panics_and_stays_fixpoint() {
 	let _id = test_id("EkyV758");
@@ -1408,6 +1436,10 @@ fn merge_never_panics_and_stays_fixpoint() {
 /// Now and then the text is a thousands number, which the scalar writer keeps
 /// bare and an array element can't be, and arrays run 0 to 4 long, since a
 /// lone element once took the scalar rule with no fuzz noticing.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn writer_roundtrips_and_stays_fixpoint() {
 	let _id = test_id("Ekfzh7g");
@@ -1635,6 +1667,10 @@ fn read_drift(a: &Document, b: &Document, p: &str) -> Option<String> {
 /// counts the ones it quotes as quoted (2026101309122757). A trailing `.`
 /// reads too, so the writer keeps `1,200.` bare the same way
 /// (2026101318521195).
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn typed_reads_survive_a_save() {
 	let _id = test_id("EsZikJr");
@@ -1737,6 +1773,10 @@ fn thousands_by_spec(t: &str) -> Option<f64> {
 /// read that ignored the `%` (2026101514324703). A setter's thousands number
 /// is text at every level, also over a quoted value, whose quotes it once kept
 /// (2026101514324702).
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn quoted_thousands_read_by_the_rule() {
 	let _id = test_id("EsoRGsu");
@@ -1828,6 +1868,10 @@ fn quoted_thousands_read_by_the_rule() {
 /// was saved in between. Comments were filed one way by a load and another by
 /// a merge, a new child or the writer's fold three times in three days; the
 /// text fixpoint cannot see it, since both placements are fixpoints.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn edits_and_merges_match_a_reload() {
 	let _id = test_id("Eqk24nZ");
@@ -2006,6 +2050,10 @@ fn tidy(rng: &mut Rng) -> String {
 /// to the canonical form every time fails here too. A new field at the top
 /// keeps every line of the base that is not blank, in order, whenever the
 /// save keeps lines at all.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn keeping_lines_reloads_as_the_document() {
 	let _id = test_id("EqutO7I");
@@ -2258,6 +2306,10 @@ fn kept_soup(rng: &mut Rng) -> String {
 /// a canonical save and after one that keeps lines. As written it binds
 /// nothing, so each is compared by where it would bind once its value is
 /// fixed (2026100213205957).
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn kept_lines_keep_their_path() {
 	let _id = test_id("ErZx5Et");
@@ -3318,6 +3370,10 @@ fn a_misplaced_copy_moves_down() {
 /// edit raises the lost count only where the table says, and a remove adds
 /// no line. What a merge, a remove or a setter takes is held by where it sat,
 /// since a count by text passes one that took the wrong copy.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn kept_lines_survive_edits() {
 	let _id = test_id("EreT6dh");
@@ -3691,6 +3747,10 @@ fn one<'a>(hits: &[&(&str, &'a str)], majority: &'a str) -> Option<&'a str> {
 /// the source's when its text, or failing that its name through the colon,
 /// is one source line's. Only the save that kept the lines is held to it;
 /// the fallback is canonical and LF.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn keeping_lines_ends_each_line_by_the_rule() {
 	let _id = test_id("ErTmDwQ");
@@ -3844,6 +3904,10 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 /// quoted names, bare and quoted selector bodies, bare, quoted, backtick,
 /// empty and open elements, blanks wherever the grammar allows them (a carriage
 /// return among them), a comment glued or spaced, non-ASCII text.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn tokens_follow_the_grammar() {
 	let _id = test_id("EpFkZy4");
@@ -4157,6 +4221,10 @@ fn generate_checked(schema_text: &str) -> Option<String> {
 /// text, so this checks every `Ok` again without trusting that. The grid is
 /// every path shape and default a selector can meet; floors keep the gate from
 /// passing by refusing.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn generated_starters_load_and_validate_clean() {
 	let _id = test_id("EptVfIO");
@@ -4315,6 +4383,10 @@ fn new_notes<'t>(before: &str, after: &'t str) -> Vec<&'t str> {
 /// default, and a raw block of another type is the one refusal past the
 /// path and the value. A refusal writes nothing, the result is a formatter
 /// fixpoint, and a second call writes nothing.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn a_default_leaves_a_value_of_its_type() {
 	let _id = test_id("EsJZkoB");

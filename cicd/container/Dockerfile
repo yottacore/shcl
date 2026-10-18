@@ -108,6 +108,20 @@ RUN curl -fsSLo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${
 	&& /opt/cargo/bin/rustup default "$(/opt/cargo/bin/rustup show active-toolchain | cut -d' ' -f1)" \
 	&& rm -f /tmp/rustup-init
 
+# The dated nightly from the same file's [nightly] table, for sanitize-rust.bash.
+# Miri's own std is built here once, rather than by the first run of each cache.
+ENV MIRI_SYSROOT=/opt/miri-sysroot
+RUN cd /opt/rustup-pin && export CARGO_HOME=/opt/cargo \
+	&& nightly="$(sed -n '/^\[nightly\]/,/^\[/s/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" \
+	&& comps="$(sed -n '/^\[nightly\]/,/^\[/s/^components = \[\(.*\)\]/\1/p' rust-toolchain.toml | tr -d '" ')" \
+	&& /opt/cargo/bin/rustup toolchain install "${nightly}" --profile minimal --component "${comps}" \
+	&& /opt/cargo/bin/cargo "+${nightly}" miri setup \
+	&& rm -rf /opt/cargo/registry
+# Rust's ASan runtime is LLVM's, which names no frame in a report without this.
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends llvm-19 \
+	&& rm -rf /var/lib/apt/lists/*
+
 # Built by the toolchain above, from the module proxy and its checksum db.
 ARG STATICCHECK_VER=2026.1
 ARG GOVULNCHECK_VER=v1.5.0
