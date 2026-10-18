@@ -36,8 +36,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: Avg
+	- Needs local test suite run?: a full `--ci` with analyze-c in the lint stage, and the exhaustive cppcheck over the C changes. Then a hosted run. The `--leakcheck` half is still to do.
 	- Opened: 20261017-075828
 	- Opened by: JC
 	- Related IDs: 2026101711273980
@@ -143,8 +144,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
 	- ID: 2026101711273980
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: Avg
+	- Needs local test suite run?: a full `--ci`, the ubuntu image rebuilt with the nightly, and a hosted run, its windows job included for the Go and Python soaks. CodeQL and `--leakcheck`, with `sanitize-rust.bash --miri-all` under it, are still to do.
 	- Opened: 20261017-112739
 	- Opened by: JC
 	- Related IDs: 2026101707582803
@@ -201,6 +203,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: each plant went red, then was restored by copy and rebuilt clean. An Rc cycle in the soak loop failed `EszDssm`. A `Box::leak` in an upgrade test failed LSan (exit 77) and Miri ("memory leaked"). An out-of-bounds read in an unsafe block in `Document::parse` failed ASan (heap-buffer-overflow, symbolized) and Miri (UB in 4 binaries). A dropped SAFETY comment and a `mem::forget` failed clippy.
 			- Verified: `sanitize-rust.bash` green in the main image with `SHCL_GATE_STRICT=1`. A missing nightly skips locally, fails strict, and installs nothing. cargo test, clippy for both targets, cargo fmt, cargo deny, check-pins, test-ids check, shellcheck, and shell-regress pass.
 			- Needs local test suite run: a full `--ci`, the ubuntu image, which has the nightly now and wasn't rebuilt, and the hosted nightly step in ci.yml.
+		- 20261017, Go and Python, branch `gopyleak`:
+			- Go: `TestMain` fails the run when goroutines are still running a second after the tests, and prints their stacks (`Et01j1m`). The CLI module has no tests, so it has no `TestMain`. The whole library suite runs under `-race` in place of the one test, with `-timeout 10m`. The 3 timed ratio tests and the soak skip under `-race`, since the detector's cost swamps what they time. Soak `Et01j4C` compares `HeapInuse` and the goroutine count at rounds 4 and 8 with a 128 KB margin, and writes `cicd/artifacts/soak/go-heap.pprof`.
+			- Python: the runner and the soak run with `-X dev -W error::ResourceWarning`. A ResourceWarning goes off in a destructor, where `-W error` only prints it, so an unraisable hook fails the test that was open. `Et01jhN` checks `gc.garbage` after a `gc.collect()` at the end of the run. Soak `Et01jhM` starts tracing before the import, compares rounds 6 and 12 with a 64 KB margin, and writes the top `compare_to()` lines to `cicd/artifacts/soak/python-tracemalloc.txt`. N is 6 because the interned-name table grows once, about 400 KB, near round 5.
+			- Since 3.4 Python collects a cycle even with `__del__`, so only an object with a C `tp_del` lands in `gc.garbage`. The soak collects with `gc.DEBUG_SAVEALL`, so any cycle the library makes fails it.
+			- Added time, measured here at 5 cores under load: the Go `-race` run about 20 s in place of about 8, the Go soak about 3 s, `-X dev` about 8 s on the Python runner's 43, the Python soak about 16 s. All of it stays on the full run. Nothing for `--leakcheck`.
+			- Verified: each plant went red, and passed once restored. A goroutine blocked on a channel failed `Et01j1m`. Each document's path list kept in the soak loop failed `Et01j4C`, 350 KB over. A data race in `ReadString` failed the `-race` run and passed the plain one. A race in another test failed the whole-suite run and passed the old one-test line. An unclosed file in `load_file` failed the runner and the soak, and passed the old plain run. A module-global list in `paths()` failed `Et01jhM`, with the `shcl.py` lines on top of the artifact. A reference cycle in `merge` failed the soak. A `tp_del` cycle from `_testcapi` failed `Et01jhN`.
+			- Verified: the Go plain and `-race` suites, vet and staticcheck on the library for linux and windows, `TestReadsFromSeveralGoroutines` under `-race` in the alpine image, so musl has the race detector, the Python runner and soak, cli-regress over the Rust and Python CLIs, ruff, mypy, test-ids check, check-docs, shell-regress, shellcheck.
+			- Needs local test suite run: a full run, with the new test lines in place. Needs external testing: the hosted windows job, for the Go soak and for the Python runner and soak in win-runners.
+			- Fixed: a failed try in Python's `write_file_atomic` and `_windows_publish_file` kept the caught `OSError`, whose traceback holds the frame, so the two were a cycle until the next collection. On windows, a save that waits out a brief hold could fail the soak's cycle check. Both keep the error without its traceback now, so that way no frame from `shcl.py` is left in a cycle after the runner.
 	- Decided against: `goleak`. The Go library starts no goroutines, and `goleak` would be the library module's first dependency. The `NumGoroutine` check in `TestMain` does the same job here (me).
 	- Decided against: Go's `-asan` and `-msan`. They only check cgo code, and the Go binding has none (me).
 	- Decided against: Rust ThreadSanitizer. The library starts no threads. The only `thread::spawn` calls are in Windows tests, and safe Rust's `Send` and `Sync` rules cover sharing (me).
@@ -209,15 +220,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: `pip-audit`. The Python binding has no third-party dependencies. Add it when one arrives (me).
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
-	- Progress log: 20261017, the Go and Python part, on `gopyleak`.
-		- Go: `TestMain` fails the run when goroutines are still running a second after the tests, and prints their stacks (`Et01j1m`). The CLI module has no tests, so it has no `TestMain`. The whole library suite runs under `-race` in place of the one test, with `-timeout 10m`. The 3 timed ratio tests and the soak skip under `-race`, since the detector's cost swamps what they time. Soak `Et01j4C` compares `HeapInuse` and the goroutine count at rounds 4 and 8 with a 128 KB margin, and writes `cicd/artifacts/soak/go-heap.pprof`.
-		- Python: the runner and the soak run with `-X dev -W error::ResourceWarning`. A ResourceWarning goes off in a destructor, where `-W error` only prints it, so an unraisable hook fails the test that was open. `Et01jhN` checks `gc.garbage` after a `gc.collect()` at the end of the run. Soak `Et01jhM` starts tracing before the import, compares rounds 6 and 12 with a 64 KB margin, and writes the top `compare_to()` lines to `cicd/artifacts/soak/python-tracemalloc.txt`. N is 6 because the interned-name table grows once, about 400 KB, near round 5.
-		- Since 3.4 Python collects a cycle even with `__del__`, so only an object with a C `tp_del` lands in `gc.garbage`. The soak collects with `gc.DEBUG_SAVEALL`, so any cycle the library makes fails it.
-		- Added time, measured here at 5 cores under load: the Go `-race` run about 20 s in place of about 8, the Go soak about 3 s, `-X dev` about 8 s on the Python runner's 43, the Python soak about 16 s. All of it stays on the full run. Nothing for `--leakcheck`.
-		- Verified: each plant went red, and passed once restored. A goroutine blocked on a channel failed `Et01j1m`. Each document's path list kept in the soak loop failed `Et01j4C`, 350 KB over. A data race in `ReadString` failed the `-race` run and passed the plain one. A race in another test failed the whole-suite run and passed the old one-test line. An unclosed file in `load_file` failed the runner and the soak, and passed the old plain run. A module-global list in `paths()` failed `Et01jhM`, with the `shcl.py` lines on top of the artifact. A reference cycle in `merge` failed the soak. A `tp_del` cycle from `_testcapi` failed `Et01jhN`.
-		- Verified: the Go plain and `-race` suites, vet and staticcheck on the library for linux and windows, `TestReadsFromSeveralGoroutines` under `-race` in the alpine image, so musl has the race detector, the Python runner and soak, cli-regress over the Rust and Python CLIs, ruff, mypy, test-ids check, check-docs, shell-regress, shellcheck.
-		- Needs local test suite run: a full run, with the new test lines in place. Needs external testing: the hosted windows job, for the Go soak and for the Python runner and soak in win-runners.
-		- Fixed: a failed try in Python's `write_file_atomic` and `_windows_publish_file` kept the caught `OSError`, whose traceback holds the frame, so the two were a cycle until the next collection. On windows, a save that waits out a brief hold could fail the soak's cycle check. Both keep the error without its traceback now, so that way no frame from `shcl.py` is left in a cycle after the runner.
 
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
