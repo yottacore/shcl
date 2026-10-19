@@ -1928,10 +1928,7 @@ fn edits_and_merges_match_a_reload() {
 				0 | 1 => format!("merge:\n{layer}"),
 				_ => format!("op {op} at {path:?}\n"),
 			});
-			let (a, b) = (
-				unstamped(&live.to_canonical()),
-				unstamped(&back.to_canonical()),
-			);
+			let (a, b) = (live.to_canonical(), back.to_canonical());
 			if list_after_empty(&live) {
 				assert!(
 					live.lost_count() > 0,
@@ -1996,10 +1993,7 @@ fn a_remove_keeps_a_settled_line_below_it() {
 	let mut back = Document::parse(&live.to_canonical());
 	assert_eq!(live.remove("a.c"), 1);
 	assert_eq!(back.remove("a.c"), 1);
-	let (a, b) = (
-		unstamped(&live.to_canonical()),
-		unstamped(&back.to_canonical()),
-	);
+	let (a, b) = (live.to_canonical(), back.to_canonical());
 	assert!(a.contains("\n\t\":\n\t# d-: 2\n\nb:\n"), "{a}");
 	assert!(b.contains("\n\t\":\n\nb:\n"), "{b}");
 	assert!(reload_took_only_comments(&a, &b));
@@ -2510,42 +2504,6 @@ fn missing_kept(text: &str, want: &[String]) -> Vec<String> {
 		}
 	}
 	missing
-}
-
-/// The text with the time in each setter's note left out. A step runs on
-/// the document and on its reload one after the other, and each reads the
-/// clock, which can tick between the two.
-fn unstamped(text: &str) -> String {
-	let mut out = String::with_capacity(text.len());
-	for line in text.split_inclusive('\n') {
-		let Some(k) = line
-			.find("  ## commented out by shcl when setting ")
-			.or_else(|| line.find("  ## replaced by shcl when setting a default for "))
-		else {
-			out.push_str(line);
-			continue;
-		};
-		// The stamp is the date and time, then the zone up to the colon.
-		let stamp = line[k..].char_indices().map(|(i, _)| k + i).find(|&i| {
-			let b = &line.as_bytes()[i..];
-			b.len() > 20
-				&& b[..19].iter().enumerate().all(|(j, &c)| match j {
-					4 | 7 => c == b'-',
-					10 => c == b' ',
-					13 | 16 => c == b':',
-					_ => c.is_ascii_digit(),
-				}) && b[19] == b' '
-		});
-		match stamp.and_then(|i| line[i + 20..].find(": ").map(|e| (i, i + 20 + e))) {
-			Some((from, to)) => {
-				out.push_str(&line[..from]);
-				out.push_str("STAMP");
-				out.push_str(&line[to..]);
-			}
-			None => out.push_str(line),
-		}
-	}
-	out
 }
 
 /// The kept lines a setter on `path` wrote as comments, one entry for each
@@ -3321,9 +3279,9 @@ fn remove_and_setter_exceptions_go_by_position() {
 	assert_eq!(setter_reach(&before, "x.a"), [1, 2].into_iter().collect());
 	assert_eq!(doc.set_int("x.a", 7), shcl::SetStatus::Ok);
 	let after = doc.to_canonical();
-	let note = "  ## commented out by shcl when setting x.a, STAMP: E019 malformed array, no closing ']' on the line";
+	let note = "  ## commented out by shcl when setting x.a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line";
 	assert_eq!(
-		unstamped(&after),
+		after,
 		format!("x:\n\t# a: [1{note}\n\ta: 7\n\tq: 0\ny:\n\ta: [1\n\tq: 0\n")
 	);
 	let listed = setter_comments(&before, &after, "x.a");

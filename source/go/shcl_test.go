@@ -200,6 +200,17 @@ func loadCases(t *testing.T) []corpusCase {
 	return cases
 }
 
+// A fixture compared two notes made on the real clock, and failed when the
+// second came a second later (2026101912125490). Same check in every runner.
+func TestTheClockIsPinnedForEveryTest(t *testing.T) {
+	defer testID(t, "EtAxcPr")
+	doc := Parse("a: x\n")
+	took := doc.SetIntDefault("a", 1)
+	if got := os.Getenv("SHCL_TEST_CLOCK"); got != pinnedClock || took != SetOk || !strings.Contains(doc.ToCanonical(), ", 2026-10-04 00:15:00 PDT: not an int\n") {
+		t.Fatalf("SHCL_TEST_CLOCK is %q and a note reads %q", got, doc.ToCanonical())
+	}
+}
+
 // testID prints the test's status line with its test ID. Every test defers it
 // first thing, so it runs last and sees a failure, a skip or a panic.
 func testID(t *testing.T, id string) {
@@ -246,7 +257,15 @@ func eachCase(t *testing.T, check func(t *testing.T, c corpusCase)) {
 	}
 }
 
+// pinnedClock is the clock every test runs on, set once before the first. A
+// setter's note and a backup's name read it, and two of them made a second
+// apart differ. A test that needs the real clock calls localClock.
+const pinnedClock = "2026-10-04 00:15:00 -420 PDT"
+
 func TestMain(m *testing.M) {
+	if err := os.Setenv("SHCL_TEST_CLOCK", pinnedClock); err != nil {
+		panic(err)
+	}
 	before := runtime.NumGoroutine()
 	code := m.Run()
 	for _, c := range corpusRan {
@@ -4855,7 +4874,6 @@ func TestAFieldOpenedByAKeptLineGoesWithItsLastLine(t *testing.T) {
 // a note, so the file has one line for the field (2026100307163907).
 func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 	defer testID(t, "Erlf124")
-	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
 	for _, c := range []struct{ text, path, want string }{
 		{"a: [1\n\tb: 2\ny: 3\n", "a",
 			"# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 5\n\tb: 2\ny: 3\n"},
@@ -4905,7 +4923,6 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 // so a later hand fix never gives Multiple (2026100307163907).
 func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 	defer testID(t, "ErmXhpm")
-	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
 	note := func(path string) string {
 		return "  ## commented out by shcl when setting " + path + ", 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line"
 	}
@@ -6071,7 +6088,6 @@ const defaultText = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\
 // is a fixpoint. Same table in every runner.
 func TestDefaultFillsWhatDoesNotRead(t *testing.T) {
 	defer testID(t, "EsJZko4")
-	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
 	note := func(line, path, what string) string {
 		return "# " + line + "  ## replaced by shcl when setting a default for " + path + ", 2026-10-04 00:15:00 PDT: not " + what
 	}
@@ -6153,7 +6169,6 @@ func TestDefaultFillsWhatDoesNotRead(t *testing.T) {
 // text writes nothing. Same fixture in every runner.
 func TestDefaultReplaceRoundTrips(t *testing.T) {
 	defer testID(t, "EsJZko8")
-	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
 	text := "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n"
 	ops := []string{"int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"}
 	want := "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n"

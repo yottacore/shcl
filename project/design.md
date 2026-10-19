@@ -707,7 +707,7 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 
 - The note on each comment says why and when: `# a: O'Brien  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E025 a quote in a bare value`. It names the path the setter was given, the local time with the zone's short name, and the code and reason the load gave, without the advice after the reason. A zone with no short name, such as one named `+03`, is written as its offset, `UTC+03:00`. Windows names a zone only in full, so there it is always the offset. The line is a plain comment from then on, as a reload reads it. It is no longer owed to the save gate, and `ClearComments` and a remove of the field take it like any comment on the field. A default form that writes gets here like any setter.
 
-- `SHCL_TEST_CLOCK`, in the form `YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]`, stands in for the clock and zone in that note, so tests can pin it. `cli-regress.bash` and `crosscheck.bash` set it.
+- `SHCL_TEST_CLOCK`, in the form `YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]`, stands in for the clock and zone in that note, so tests can pin it. Every test runs on a pinned clock, set once before the first: in `tests/common` for Rust, `TestMain` for Go, and at the top of each Python and C runner. `cli-regress.bash`, `crosscheck.bash`, and `check-doc-examples.bash` set it too. Two notes made on the real clock can land a second apart, so a test comparing them would fail now and then.
 
 - A kept line's raw body is part of the line. Every edit keeps or takes the two together.
 

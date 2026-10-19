@@ -3,8 +3,7 @@
 
 //! `upgrade` and `upgrade_file`: a file this version cannot load clean is
 //! backed up under a timestamped name and written fresh, and a good one is
-//! never touched. Its own binary, since the backup's name reads the clock
-//! and every test here pins it the same way before anything else runs.
+//! never touched. The backup's name reads the clock test_id pins.
 
 mod common;
 
@@ -13,15 +12,6 @@ use shcl::{
 	Document, GEN_BANNER, UpgradeError, WriteStatus, backup_file_name, migrate, upgrade,
 	upgrade_file, write_backup,
 };
-
-const CLOCK: &str = "2026-10-04 00:15:00 -420 PDT";
-
-fn pin_clock() {
-	static ONCE: std::sync::Once = std::sync::Once::new();
-	// SAFETY: every test here calls this first, and the Once holds the others
-	// back until it is set, so nothing reads the environment meanwhile.
-	ONCE.call_once(|| unsafe { std::env::set_var("SHCL_TEST_CLOCK", CLOCK) });
-}
 
 fn scratch(tag: &str) -> std::path::PathBuf {
 	let dir = std::env::temp_dir().join(format!("shcl-upgrade-{}-{}", tag, std::process::id()));
@@ -35,7 +25,6 @@ const V2_FILE: &str = "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config 
 #[test]
 fn upgrade_leaves_a_clean_or_stamped_file() {
 	let _id = test_id("Es2R4RP");
-	pin_clock();
 	// a,b is one string now and an array under 2.x, but it loads clean, and
 	// nothing says the file is 2.x.
 	let clean = "a: 1\nb: x,y\n";
@@ -56,7 +45,6 @@ fn upgrade_leaves_a_clean_or_stamped_file() {
 #[test]
 fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
 	let _id = test_id("EsgoThZ");
-	pin_clock();
 	// The caller says a 2.x build wrote it, as a beta of 3.0 could have
 	// (2026101407100010). The backup name keeps the format the line names.
 	let beta = format!("tags: a, b\n\n{}", GEN_BANNER);
@@ -94,7 +82,6 @@ fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
 #[test]
 fn from_v2_refuses_a_conversion_that_keeps_an_error() {
 	let _id = test_id("EsoQmU8");
-	pin_clock();
 	// The next run with from_v2 would read the fresh text by 2.x rules again,
 	// and the 2.x escape on line 1 would grow each time (2026101515372401).
 	// So nothing is made, with a Format line or not.
@@ -148,7 +135,6 @@ fn stamped_comma_list() -> String {
 #[test]
 fn upgrade_from_v2_rewrites_a_clean_file_that_reads_differently() {
 	let _id = test_id("Es2a1Jt");
-	pin_clock();
 	// The caller says it is 2.x, where a,b was an array.
 	let up = upgrade("p: a,b\n", true);
 	assert!(!up.current && up.lost == 0 && up.diagnostics.is_empty());
@@ -162,7 +148,6 @@ fn upgrade_from_v2_rewrites_a_clean_file_that_reads_differently() {
 #[test]
 fn an_older_format_line_becomes_this_one_in_place() {
 	let _id = test_id("EsFrOVO");
-	pin_clock();
 	// Nothing else changes, so only the stamp does, and only with from_v2
 	// (2026100717500017).
 	let old = "port: 80\n##    Format   2\n";
@@ -192,7 +177,6 @@ fn an_older_format_line_becomes_this_one_in_place() {
 #[test]
 fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
 	let _id = test_id("Esgj35O");
-	pin_clock();
 	// The block names the format, so the file names one (2026101407100001).
 	let up = upgrade("##    Format   2\nname: x\nq: a,b\n", true);
 	assert_eq!(up.text, format!("name: x\nq: [a, b]\n\n{}", GEN_BANNER));
@@ -213,7 +197,6 @@ fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
 #[test]
 fn upgrade_writes_a_fresh_file_with_the_info_block() {
 	let _id = test_id("Es2R4TW");
-	pin_clock();
 	let up = upgrade(V2_FILE, false);
 	assert!(!up.current && up.ambiguous == 0 && up.lost == 0);
 	assert_eq!(up.format, 2);
@@ -228,7 +211,6 @@ fn upgrade_writes_a_fresh_file_with_the_info_block() {
 #[test]
 fn upgrade_refuses_text_that_reads_two_ways() {
 	let _id = test_id("Es2R4Vy");
-	pin_clock();
 	let text = "a: x,y\nb: \"q\n";
 	let up = upgrade(text, false);
 	assert!(!up.current && up.ambiguous == 1 && up.text == text);
@@ -239,7 +221,6 @@ fn upgrade_refuses_text_that_reads_two_ways() {
 #[test]
 fn backup_name_puts_the_tag_before_the_extension() {
 	let _id = test_id("Es2R4YD");
-	pin_clock();
 	let tag = "_backup_20261004-001500_format-v2";
 	assert_eq!(backup_file_name("f.shcl", 2), format!("f{tag}.shcl"));
 	assert_eq!(
@@ -261,7 +242,6 @@ fn backup_name_puts_the_tag_before_the_extension() {
 #[test]
 fn upgrade_file_backs_up_then_rewrites() {
 	let _id = test_id("Es2R4aS");
-	pin_clock();
 	let dir = scratch("write");
 	let file = dir.join("f.shcl");
 	let path = file.to_str().unwrap();
@@ -292,7 +272,6 @@ fn upgrade_file_backs_up_then_rewrites() {
 #[test]
 fn upgrade_file_never_writes_over_a_backup() {
 	let _id = test_id("Es2R4ch");
-	pin_clock();
 	let dir = scratch("taken");
 	let file = dir.join("f.shcl");
 	let path = file.to_str().unwrap();
@@ -331,7 +310,6 @@ fn upgrade_file_never_writes_over_a_backup() {
 #[test]
 fn write_backup_refuses_a_swapped_file_and_text() {
 	let _id = test_id("Et6Am2s");
-	pin_clock();
 	let dir = scratch("swap");
 	let file = dir.join("f.shcl").to_str().unwrap().to_string();
 	// Read as a path the text names a spot in dir, so a backup made of it

@@ -147,6 +147,12 @@ static void test_id_end(const char *status) {
 
 int main(int argc, char **argv) {
 	test_id("Et9t3AU", "soak_heap_settles");
+	// The clock every runner pins, as conformance.c does.
+#ifdef _WIN32
+	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+	setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
 #ifdef SOAK_NO_MALLINFO
 	(void)argc; (void)argv;
 	fprintf(stderr, "soak: needs glibc's heap stats, which an ASan build or another libc hides\n");

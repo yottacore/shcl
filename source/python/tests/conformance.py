@@ -29,6 +29,10 @@ import shcl  # noqa: E402
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))   # github/
 CORPUS = os.path.join(_REPO, "project", "conformance")
+## Every test runs on this clock, set once before the first. A setter's note
+## and a backup's name read it, and two of them made a second apart differ. A
+## test that needs the real clock calls shcl._local_clock.
+TEST_CLOCK = "2026-10-04 00:15:00 -420 PDT"
 
 ## One status line per test, with its test ID, for the pipeline's console. A
 ## marker opens a test and closes the one before it. A test fails on an exit
@@ -1110,7 +1114,16 @@ def edits_and_merges_match_a_reload():
 
 def main():
 	fails = FAILS
+	os.environ["SHCL_TEST_CLOCK"] = TEST_CLOCK
 	cases = load_cases()
+
+	test_id("EtAxcPs", "the_clock_is_pinned_for_every_test")
+	# A fixture compared two notes made on the real clock, and failed when the
+	# second came a second later (2026101912125490). Same check in every runner.
+	pdoc = shcl.Document.parse("a: x\n")
+	ptook = pdoc.set_int_default("a", 1)
+	if os.environ.get("SHCL_TEST_CLOCK") != TEST_CLOCK or not ptook or ", 2026-10-04 00:15:00 PDT: not an int\n" not in pdoc.to_canonical():
+		fails.append(f"pinned clock: SHCL_TEST_CLOCK is {os.environ.get('SHCL_TEST_CLOCK')!r} and a note reads {pdoc.to_canonical()!r}")
 
 	test_id("EqLrWHw", "surrogate_parses_and_fails_the_save")
 	# A lone surrogate, which os.listdir, sys.argv and os.environ hand out, is
@@ -2609,8 +2622,6 @@ def main():
 	test_id("Erlf17j", "a_setter_comments_out_the_kept_line_heading_its_target")
 	# A setter on a field a kept line opened writes that line as a comment
 	# with a note, so the file has one line for the field (2026100307163907).
-	held_clock = os.environ.get("SHCL_TEST_CLOCK")
-	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
 	for text, set_path, set_want in [
 		("a: [1\n\tb: 2\ny: 3\n", "a",
 			"# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 5\n\tb: 2\ny: 3\n"),
@@ -2634,10 +2645,6 @@ def main():
 			fails.append(f"kept gate: the reload of {out!r} differs")
 		if kdoc.to_text_keep_lines() != (out, True):
 			fails.append(f"kept gate: the keep save of {text!r} gave {kdoc.to_text_keep_lines()!r}")
-	if held_clock is None:
-		del os.environ["SHCL_TEST_CLOCK"]
-	else:
-		os.environ["SHCL_TEST_CLOCK"] = held_clock
 	# Only the field the kept line opened: a child of it, or a field beside a
 	# kept line, leaves the line as it was.
 	for set_path, set_want in [("a.c", "a: [1\n\tb: 2\n\tc: 5\n"), ("z", "a: [1\n\tb: 2\n\nz: 5\n")]:
@@ -2649,8 +2656,6 @@ def main():
 	# A setter writing `a` writes every kept line named `a` in that block as
 	# the noted comment, and a field it creates goes right under the first of
 	# them, so a later hand fix never gives Multiple (2026100307163907).
-	held_clock = os.environ.get("SHCL_TEST_CLOCK")
-	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
 	na, noa, nac = (f"  ## commented out by shcl when setting {p}, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line" for p in ("a", "o.a", "a.c"))
 	for text, set_path, set_want, set_count in [
 		# No loaded `a`: the new line goes under the first comment.
@@ -2683,10 +2688,6 @@ def main():
 			fails.append(f"kept gate: the reload of {out!r} differs")
 		if kdoc.to_text_keep_lines() != (out, True):
 			fails.append(f"kept gate: the keep save of {text!r} gave {kdoc.to_text_keep_lines()!r}")
-	if held_clock is None:
-		del os.environ["SHCL_TEST_CLOCK"]
-	else:
-		os.environ["SHCL_TEST_CLOCK"] = held_clock
 	# Two valid lines stay as they are: the setter refuses the path.
 	kdoc = shcl.Document.parse_keep_lines("a: 1\na: 2\n", shcl.Strictness.Standard)
 	if kdoc.set_int("a", 5) or kdoc.to_text_keep_lines() != ("a: 1\na: 2\n", True):
@@ -4639,10 +4640,8 @@ def main():
 
 	# upgrade and upgrade_file (2026100313461649): a file this version cannot
 	# load clean is backed up under a timestamped name and written fresh, and
-	# a good one is never touched. The backup's name reads the clock, so it is
-	# pinned for all of them.
-	held_clock = os.environ.get("SHCL_TEST_CLOCK")
-	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
+	# a good one is never touched. The backup's name reads the clock that main
+	# pins.
 	up_v2 = "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config file format is SHCL.\n# \"Simple Hierarchical Config Language\"\n#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.\n#\n"
 	up_tag = "_backup_20261004-001500_format-v2"
 
@@ -4931,10 +4930,6 @@ def main():
 				raise SystemExit(f"directory: {e.status}") from None
 		if os.listdir(ud) != ["d"]:
 			raise SystemExit(f"directory: left {os.listdir(ud)}")
-	if held_clock is None:
-		del os.environ["SHCL_TEST_CLOCK"]
-	else:
-		os.environ["SHCL_TEST_CLOCK"] = held_clock
 
 	test_id("EsJZko5", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
@@ -4944,8 +4939,6 @@ def main():
 	# first. The typed read decides, at the document's strictness, so `$5` is
 	# an int only when loose. A second call writes nothing, and the canonical
 	# text is a fixpoint. Same table in every runner.
-	held_clock = os.environ.get("SHCL_TEST_CLOCK")
-	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
 	dtext = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n"
 
 	def dnote(line, path, what):
@@ -5029,10 +5022,6 @@ def main():
 		raise SystemExit(f"comments {rnotes}")
 	if rback.get_int_or("srv.port", 0) != 9 or rback.get_int_array_or("list", []) != [1, 2]:
 		raise SystemExit("reads after the round trip")
-	if held_clock is None:
-		del os.environ["SHCL_TEST_CLOCK"]
-	else:
-		os.environ["SHCL_TEST_CLOCK"] = held_clock
 
 	# read_named_schema reads a Schema line by check's rules: from the
 	# config's directory, or the working directory when the path has none; a

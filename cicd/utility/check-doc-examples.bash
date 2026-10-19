@@ -30,6 +30,9 @@ repoDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 testWhere="check-doc-examples"; testCounter="nBad"; nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "${repoDir}/cicd/utility/include/test-id.bash"
+## A setter's note and a backup's name have the local time in them, and the
+## four runs are not in the same second.
+export SHCL_TEST_CLOCK="2026-10-04 00:15:00 -420 PDT"
 bindings=()
 while (($#)); do case "$1" in
 	-h|--help) grep -E '^##' "$0" | sed 's/^##\t\?//'; exit 0 ;;
@@ -164,3 +167,4 @@ echo "check-doc-examples: OK"
 ##		            the man page's example blocks (2026100719122102).
 ##		2026-10-14  The schema block moved to project/examples.md; both files
 ##		            are read for it and for server.shcl.
+##		2026-10-19  The clock is pinned, as in crosscheck (2026101912125490).
