@@ -3443,6 +3443,25 @@ while IFS=$'\t' read -r n pat; do
 	if [[ -n "${pat}" && "${n}" != 1 ]]; then fBad "QUICK_SKIP entry ${pat@Q} matches ${n} steps, not 1"; fi
 done <<<"${quickOut}"
 
+fTest Et9T1FN 2026101816034794-quick-keeps-floor-scan
+##	--quick still dogfoods its cross builds, so it keeps the floor scan and drops
+##	only the emulated boot. A stub stands in for the script and prints its args.
+mkdir -p "${tmpDir}/floor/cicd/utility"
+printf '#!/usr/bin/env bash\necho "$*"\n' > "${tmpDir}/floor/cicd/utility/check-cpu-floor.bash"
+chmod +x "${tmpDir}/floor/cicd/utility/check-cpu-floor.bash"
+for q in 0 1; do
+	# shellcheck disable=SC2016  ## the inner shell's own variables
+	floorArgs="$(cd "${tmpDir}/floor" && CPU_CAP=1 bash -c 'set +u; source "$1"; quick=$2
+		built_arts=("linux-x86_64|lin" "windows-x86_64|win.exe" "linux-arm64|arm"); RELEASE_NATIVE_BIN=lin
+		for c in "${RELEASE_CHECKS[@]}"; do
+			[[ "${c}" == *check-cpu-floor.bash* ]] || continue
+			if ((quick)); then for pat in "${QUICK_SKIP[@]}"; do if [[ "${c}" == *"${pat}"* ]]; then continue 2; fi; done; fi
+			eval "${c#*|}"
+		done' _ "${repoDir}/cicd/config.bash" "${q}")"
+	want="--run lin lin win.exe"; ((q)) && want="lin win.exe"
+	[[ "${floorArgs}" == "${want}" ]] || fBad "quick=${q}: floor check got ${floorArgs@Q}, wanted ${want@Q}"
+done
+
 fTest EqL3sFE 20260918b-44-shellcheck-list-complete
 ##	20260918b item 44: green-tree.bash went in with no line in the shellcheck
 ##	list, and nothing noticed. The list is compared with the shell files the

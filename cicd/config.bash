@@ -450,11 +450,12 @@ CROSS_CHECKS=(
 ## "label|command" shape as CROSS_CHECKS; built_arts ("os-arch|path") is in
 ## scope. Every x86_64 build has to run on plain x86-64 (v1), the floor the
 ## last Core 2 Duo and the Phenom II share; the Linux one is also booted on
-## both, emulated. About 2 minutes.
+## both, emulated. About 2 minutes. --quick skips the boot but keeps the scan,
+## a few seconds, since dogfood still copies quick builds out.
 # shellcheck disable=SC2154  ## built_arts is the engine's, set in stage 6
 fX86Arts(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == *-x86_64 ]]; then printf '%s\n' "${a#*|}"; fi; done; }
 RELEASE_CHECKS=(
-	"x86_64 builds run on x86-64-v1, Penryn and Phenom|mapfile -t x86Arts < <(fX86Arts); cicd/utility/check-cpu-floor.bash --run \"\${RELEASE_NATIVE_BIN}\" \"\${x86Arts[@]}\""
+	"x86_64 builds run on x86-64-v1, Penryn and Phenom|mapfile -t x86Arts < <(fX86Arts); floorBoot=(--run \"\${RELEASE_NATIVE_BIN}\"); if ((quick)); then floorBoot=(); fi; cicd/utility/check-cpu-floor.bash \"\${floorBoot[@]}\" \"\${x86Arts[@]}\""
 )
 
 ## What --quick leaves out, each matched as plain text against one step of
@@ -477,7 +478,6 @@ QUICK_SKIP=(
 	'sanitize-c.bash'
 	'sanitize-rust.bash'
 	'crosscheck.bash'
-	'check-cpu-floor.bash'
 )
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored
@@ -610,3 +610,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-08 JC: The shell wrappers are retired: out of the lint lists and the dogfood stage.
 ##		- 2026-10-13 JC: CTR_* for --container: the recipe dir, the cache dir, and what each extra image runs.
 ##		- 2026-10-19 JC: QUICK_SKIP, the slow steps and the ones that need another host.
+##		- 2026-10-19 JC: --quick keeps the CPU floor scan and drops only the emulated boot.
