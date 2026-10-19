@@ -159,6 +159,22 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends "heaptrack=${HEAPTRACK_VER}*" \
 	&& rm -rf /var/lib/apt/lists/*
 
+# CodeQL for --leakcheck (codeql.bash). The bundle, since the bare CLI comes
+# without the query packs and would fetch them at run time. The languages
+# shcl has no code in come out, about 1 GB.
+ARG CODEQL_VER=2.27.2
+ARG CODEQL_SHA256=f002864be6dd8d5d7bdb123aaf7291ec8e291012bd9f70b6d2362f730db52aeb
+WORKDIR /tmp/dl
+RUN curl -fsSLo codeql.tgz "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CODEQL_VER}/codeql-bundle-linux64.tar.gz" \
+	&& echo "${CODEQL_SHA256}  codeql.tgz" | sha256sum -c - \
+	&& tar -C /opt -xzf codeql.tgz \
+	&& for l in actions csharp java javascript ruby swift; do rm -rf "/opt/codeql/${l}" /opt/codeql/qlpacks/codeql/"${l}"-*; done \
+	&& ln -s /opt/codeql/codeql /usr/local/bin/codeql \
+	&& langs="$(codeql resolve languages --format=text | cut -d' ' -f1 | tr '\n' ' ')" \
+	&& for l in cpp go python rust; do case " ${langs}" in *" ${l} "*) ;; *) echo "codeql has no ${l}: ${langs}"; exit 1 ;; esac; done \
+	&& cd / && rm -rf /tmp/dl
+WORKDIR /
+
 # Runs as the caller's uid, which has no passwd entry here. /cache is the cache
 # dir cicd.bash mounts from the host.
 RUN mkdir -m 1777 /cache

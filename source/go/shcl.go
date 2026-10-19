@@ -12210,7 +12210,7 @@ func parseIntText(e *element, level Strictness) (int64, bool) {
 	}
 	// Hex, octal and binary.
 	neg := false
-	prefixed := t
+	var prefixed string
 	if strings.HasPrefix(t, "-") {
 		neg = true
 		prefixed = t[1:]

@@ -28,6 +28,9 @@
 //                    those unwind and return NULL.
 // A hook that longjmps out arms its recovery point with SHCL_SETJMP, below.
 
+#ifndef SHCL_H
+#define SHCL_H
+
 // The file tier calls POSIX (fdopen, fileno, fchmod, open, fsync, getpid). Those
 // prototypes are feature-gated, and a feature request only counts before the
 // first system header - so it goes here rather than beside the code needing it,
@@ -49,8 +52,6 @@
 	// NOLINTEND(bugprone-reserved-identifier)
 #endif
 
-#ifndef SHCL_H
-#define SHCL_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -1253,6 +1254,7 @@ static void arena_free(ShclArena *a) {
 	a->head = NULL; a->last = NULL; a->last_n = 0; a->growing = 0;
 }
 /* Hand an arena the recovery point its owner armed. */
+// codeql[cpp/stack-address-escape] the owner disarms it before its frame returns
 static void arena_guard(ShclArena *a, jmp_buf *panic) { a->panic = panic; }
 static void *arena_grow(ShclArena *a, void *old, size_t oldcap, size_t newcap, size_t sz) { // NOLINT(bugprone-easily-swappable-parameters): old size, then new, in every grow
 	/* Extend in place when nothing has been allocated since `old`. */
@@ -1738,6 +1740,7 @@ struct shcl_doc {
    allocations arms this, so a longjmping hook cannot strand them. */
 static void doc_guard(shcl_doc *d, jmp_buf *panic) {
 	if (!d) return;
+	// codeql[cpp/stack-address-escape] the owner disarms it before its frame returns
 	d->panic = panic;
 	arena_guard(&d->arena, panic); arena_guard(&d->scratch, panic);
 	arena_guard(&d->reads, panic); arena_guard(&d->index_arena, panic);
@@ -1764,6 +1767,7 @@ static void doc_guard(shcl_doc *d, jmp_buf *panic) {
    extra full array at peak. realloc extends in place or frees the old block.
    Every doc comes from do_parse (calloc zeroes the vector); shcl_free is the
    one teardown and frees it. */
+// codeql[cpp/large-parameter] a push takes its element by value, as the DEFINE_VEC pushes do
 static void nodes_push(shcl_doc *d, ShclNode x) {
 	ShclVecNode *v = &d->nodes;
 	if (v->len == v->cap) {
@@ -3568,6 +3572,7 @@ static int s_has(ShclStr text, ShclStr needle) {
 	for (size_t i = 0; i + needle.n <= text.n; i++) {
 		const char *hit = (const char *)memchr(text.p + i, needle.p[0], text.n - needle.n + 1 - i);
 		if (!hit) return 0;
+		// codeql[cpp/loop-variable-changed] skips ahead to the memchr hit
 		i = (size_t)(hit - text.p);
 		if (memcmp(hit, needle.p, needle.n) == 0) return 1;
 	}
@@ -4132,6 +4137,7 @@ typedef enum { SEL_NONE, SEL_VALUE, SEL_INDEX, SEL_WILDCARD } ShclSelTag;
    list a, b, the same way quoting escapes elsewhere. */
 typedef struct { ShclSelTag tag; ShclStr value; uint64_t index; int quoted; } ShclSelector; // u64: width must not vary with target pointer size
 typedef struct { ShclStr name; ShclStr name_src; ShclSelector sel; int star; } ShclSegment; // name_src: as authored (unfolded, escapes as written); star: bare `*` name wildcard; quoted "*" stays a literal name
+// codeql[cpp/large-parameter] DEFINE_VEC's push takes its element by value, for every type
 DEFINE_VEC(ShclVecSeg, ShclSegment)
 typedef struct { int ok; ShclVecSeg segs; int has_value; ShclStr value_text; ShclStr err; } ShclPathScan; // value_text: after the separator colon, before any comment, trimmed
 
@@ -6563,6 +6569,7 @@ static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, 
 		shcl_free(bad);
 		return NULL;
 	}
+	// codeql[cpp/stack-address-escape] disarmed below, before do_parse returns
 	doc->panic = &panic;
 	arena_guard(&doc->arena, &panic); arena_guard(&doc->scratch, &panic);
 	arena_guard(&doc->reads, &panic); arena_guard(&doc->index_arena, &panic);
@@ -8488,6 +8495,7 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 // shape re-filtered the over side per distinct name and re-scanned (and
 // re-keyed) the base side per over node - three O(K^2) terms at one parent,
 // plus a fresh children vector per replaced name.
+// codeql[cpp/complex-block] laid out as the Rust reference's w_overlay is, for parity
 static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, ShclVecSize *touched) {
 	ShclVecSize_push(&d->scratch, touched, bp);
 	ShclArena *a = &d->arena;
@@ -10767,6 +10775,7 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 			/* A spliced line's value replaces the lines it took, as a stacked
 			   list's elements. */
 			for (size_t k = l; k <= end[l]; k++) {
+				// codeql[cpp/loop-variable-changed] a splice skips past the lines it took
 				if (has_splice && k == splice_at) { sb_putS(a, &ob, spliced); k = owns[k]; }
 				else { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; }
 			}
@@ -10936,7 +10945,7 @@ static void big_mul_small(ShclBig *b, uint32_t m) {
 static void big_mul_pow10(ShclBig *b, int t) {
 	static const uint32_t p10[9] = { 1u, 10u, 100u, 1000u, 10000u, 100000u, 1000000u, 10000000u, 100000000u };
 	for (; t >= 9; t -= 9) big_mul_small(b, 1000000000u);
-	if (t > 0 && t < 9) big_mul_small(b, p10[t]);
+	if (t > 0) big_mul_small(b, p10[t]);
 }
 static void big_shl(ShclBig *b, int bits) {
 	int limbs = bits / 32, cap = (int)(sizeof b->w / sizeof b->w[0]);
@@ -11324,6 +11333,7 @@ typedef struct {
 	int has_desc; ShclStr desc;
 	int has_default; ShclStr default_text;
 } ShclVCons;
+// codeql[cpp/large-parameter] DEFINE_VEC's push takes its element by value, for every type
 DEFINE_VEC(ShclVecVCons, ShclVCons)
 
 // An interpreted schema: the top-level constraints plus the named fragments
@@ -12152,6 +12162,7 @@ static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c,
 		if (c->has_allowed && c->akind == ALLOW_FLOATS) {
 			for (size_t x = 0; x < nels; x++) {
 				int found = 0;
+				// codeql[cpp/equality-on-floats] an allowed float matches exactly, as in the reference
 				for (size_t y = 0; y < c->a_n; y++) if (c->a_floats[y] == vals[x]) { found = 1; break; }
 				if (!found) { v_not_allowed(a, out, line, c, els[x].text); break; }
 			}
@@ -13392,6 +13403,7 @@ static void shcl_sync_dir(const char *target) {
 	else if (n == 0) { dir[0] = '/'; n = 1; }
 	else memcpy(dir, target, n);
 	dir[n] = '\0';
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	int dfd = open(dir, O_RDONLY);
 	if (dfd >= 0) { (void)fsync(dfd); close(dfd); }
 	free(dir);
@@ -13408,6 +13420,7 @@ static int shcl_publish_new_file(const char *tmp, const char *target) {
 	if (errno == EEXIST) return 0;
 	struct stat st;
 	if (lstat(target, &st) == 0) { errno = EEXIST; return 0; }
+	// codeql[cpp/toctou-race-condition] the fallback with no hard links, whose short gap the comment above names
 	return rename(tmp, target) == 0;
 }
 
@@ -13524,6 +13537,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 		fd = attrs != INVALID_FILE_ATTRIBUTES ? shcl_create_like(wtarget, wtmp)
 			: _wopen(wtmp, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
 #else
+		// codeql[cpp/path-injection] opens the path its caller named, which is the job
 		fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, have_st ? 0600 : 0666);
 #endif
 		if (fd >= 0) break;
@@ -13768,6 +13782,7 @@ static void s_read_schema_file(shcl_named_schema *ns) {
 #ifdef O_CLOEXEC
 	oflags |= O_CLOEXEC;
 #endif
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	int fd = open(path, oflags);
 	if (fd < 0) { s_schema_refuse(ns, errno == ENOENT ? SHCL_SCHEMA_FILE_NOT_FOUND : SHCL_SCHEMA_UNREADABLE, strerror(errno)); return; }
 	int fl = fcntl(fd, F_GETFL);
@@ -14080,6 +14095,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 	free(wfile); free(wbk);
 	errno = e;
 #else
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	int fd = open(bk, O_WRONLY | O_CREAT | O_EXCL, 0600);
 #endif
 	if (fd < 0) {

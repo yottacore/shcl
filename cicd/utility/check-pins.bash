@@ -17,7 +17,8 @@
 ##		Also fails when the jobs that run cicd.bash --gate between them leave a
 ##		stage out, when one of them runs both lint and tests, when a
 ##		cicd/container recipe installs a pinned tool at another version, and
-##		when one fetches something it doesn't hash.
+##		when one fetches something it doesn't hash. A tool only --leakcheck
+##		runs is left out of ci.yml, and fails here if a gate step names it.
 ##	Syntax:
 ##		check-pins.bash
 ##	Exit: 0 = every pin matches, 1 = a mismatch (named), 2 = cannot read inputs.
@@ -52,6 +53,11 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 ## output is read and thrown away. cargo-zigbuild is pinned there, for the
 ## macOS job's universal build.
 notInCi=(makensis)
+## Run only by a --leakcheck step, which the hosted gate leaves out, so it
+## would download for nothing. CodeQL's bundle is about 700 MB. The check
+## below holds each to that: no step the gate runs may name it.
+leakOnly=(codeql)
+notInCi+=("${leakOnly[@]}")
 
 ## Does ci.yml name tool $1 at version $2 as one token? The name is bounded on
 ## the left, then the joiner ci.yml uses (==, apt's =, @, -, /, setup-go's
@@ -79,6 +85,16 @@ for pin in "${TOOL_PINS[@]}"; do
 	fi
 	echo "check-pins: ${name} is pinned at ${ver} in config.bash, and no line of ci.yml names ${name} with that version" >&2
 	nBad=$((nBad + 1))
+done
+
+fTest EtAC9of leakcheck-only-tools-stay-out-of-the-gate
+for tool in "${leakOnly[@]}"; do
+	for step in "${FMT_CHECK_CMD[*]:-}" "${FMT_CHECK_EXTRA[@]}" "${BUILD_CMD[*]:-}" "${BUILD_EXTRA[@]}" "${LINT_CMD[*]:-}" "${LINT_EXTRA[@]}" \
+		"${TEST_CMD[*]:-}" "${TEST_EXTRA[@]}" "${CROSS_CHECKS[@]}" "${RELEASE_CHECKS[@]}"; do
+		if [[ "${step}" =~ (^|[^A-Za-z0-9_-])${tool}([^A-Za-z0-9_]|$) ]]; then
+			echo "check-pins: ${tool} is left out of ci.yml as a --leakcheck tool, and a step the gate runs names it: ${step}" >&2; nBad=$((nBad + 1))
+		fi
+	done
 done
 
 ## A version pin is only half of it. The workflow also fetches two tools as
@@ -339,3 +355,4 @@ exit "${rc}"
 ##		  once and nothing follows its check.
 ##		- 2026-10-16 JC: No hosted job runs both lint and tests.
 ##		- 2026-10-19 JC: The hosted jobs run --gate. apt's name=version is a joiner.
+##		- 2026-10-19 JC: A --leakcheck-only tool stays out of ci.yml, and out of every gate step.

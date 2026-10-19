@@ -30,6 +30,7 @@ class _BestEffort:
 		try:
 			self._stream.write(text)
 		except OSError:
+			# A closed stream drops the text, and the exit code still says how it went.
 			pass
 		return len(text)
 
@@ -37,6 +38,7 @@ class _BestEffort:
 		try:
 			self._stream.flush()
 		except OSError:
+			# A closed stream drops the text, and the exit code still says how it went.
 			pass
 
 	def __getattr__(self, name):
@@ -1056,6 +1058,7 @@ def unchanged_since_read(file, before):
 			if fh.read() == before.encode("utf-8"):
 				return True
 	except (OSError, ValueError):
+		# A file that can't be read now counts as changed.
 		pass
 	sys.stderr.write(f"{file}: changed since it was read; nothing written\n")
 	return False
@@ -1160,6 +1163,7 @@ def load_layered_from(o, file, given, keep):
 	return doc, texts[-1], None
 
 
+# codeql[py/mixed-tuple-returns] each subcommand's list is as long as its options
 def allowed_opts(cmd):
 	# The options each subcommand takes. check_opts judges against it, the
 	# per-subcommand help is cut from the full help with it, and the shell
@@ -1777,6 +1781,7 @@ def do_migrate(o):
 					try:
 						os.remove(old)
 					except OSError:
+						# The old backup stays when it can't come off.
 						pass
 				else:
 					sys.stderr.write(f"{file}: the original is {old}\n")
@@ -2752,6 +2757,7 @@ def main():
 			try:
 				reconfigure(encoding="utf-8", newline="\n")
 			except (ValueError, OSError):
+				# A stream that can't be reconfigured keeps its own settings.
 				pass
 	sys.stderr = _BestEffort(sys.stderr)
 	try:

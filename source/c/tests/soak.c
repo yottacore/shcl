@@ -176,6 +176,7 @@ int main(int argc, char **argv) {
 		at[r] = mi.uordblks + mi.hblkhd;
 	}
 	size_t grew = at[2 * SOAK_ROUNDS - 1] > at[SOAK_ROUNDS - 1] ? at[2 * SOAK_ROUNDS - 1] - at[SOAK_ROUNDS - 1] : 0;
+	// codeql[cpp/world-writable-file-creation] the soak's report, made the way fopen makes any file
 	FILE *out = report ? fopen(report, "w") : NULL;
 	if (report && !out) fprintf(stderr, "soak: can't write %s\n", report);
 	FILE *sinks[2] = { stdout, out };

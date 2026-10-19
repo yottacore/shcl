@@ -502,7 +502,9 @@ static shcl_set_status op_wrote;
 // default form; values gate first, like the reference. Returns 0 ok, 1 rejected.
 static int try_apply_op_c(shcl_doc *d, char *line) {
 	size_t cap = 8, nf = 0; char **f = (char **)xrealloc(NULL, cap * sizeof *f);
+	// codeql[cpp/stack-address-escape] f is this call's own list of pointers into line, freed before it returns
 	f[nf++] = line;
+	// codeql[cpp/stack-address-escape] f is this call's own list of pointers into line, freed before it returns
 	for (char *p = line; *p; p++) if (*p == '\t') { *p = '\0'; if (nf == cap) { cap *= 2; f = (char **)xrealloc(f, cap * sizeof *f); } f[nf++] = p + 1; }
 	char *op = f[0];
 	const char *path = nf > 1 ? f[1] : ""; size_t plen = nf > 1 ? strlen(f[1]) : 0;
@@ -1276,6 +1278,7 @@ static int same_paths(shcl_doc *x, shcl_doc *y) {
 
 /* A file holding exactly text, and whether it still does. */
 static void put_file(const char *path, const char *text) {
+	// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 	FILE *f = fopen(path, "wb");
 	if (!f) { fail("put_file", path); return; }
 	fwrite(text, 1, strlen(text), f);
@@ -1466,6 +1469,7 @@ int main(int argc, char **argv) {
 				shcl_str m = shcl_diag_message(d, i);
 				int w = snprintf(NULL, 0, "%zu|%d|%s|", shcl_diag_line(d, i), (int)shcl_diag_severity(d, i), shcl_diag_code(d, i));
 				if (jl + (size_t)w + m.n + 2 > jc) { jc = (jl + (size_t)w + m.n + 2) * 2; dj = xrealloc(dj, jc); }
+				// codeql[cpp/overflowing-snprintf] dj grows to fit the whole line just above
 				jl += (size_t)snprintf(dj + jl, jc - jl, "%zu|%d|%s|", shcl_diag_line(d, i), (int)shcl_diag_severity(d, i), shcl_diag_code(d, i));
 				memcpy(dj + jl, m.p, m.n); jl += m.n; dj[jl++] = '\n';
 			}
@@ -2494,6 +2498,7 @@ int main(int argc, char **argv) {
 		// binary file loading clean would read back mangled and a later save would
 		// write the mangled version over the original.
 		{
+			// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 			FILE *bf = fopen(tfile, "wb");
 			if (!bf || fputs("a: 1\nb: \xff\xfe bad\n", bf) == EOF || fclose(bf) != 0) fail("file_tier", "seed write failed");
 			fd = shcl_load_file(tfile, &fst);
@@ -2501,12 +2506,14 @@ int main(int argc, char **argv) {
 			if (shcl_to_canonical(fd).n != 0) fail("file_tier", "bad encoding document");
 			shcl_free(fd);
 		}
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		FILE *tf = fopen(tfile, "wb");
 		if (!tf || fputs("a: 1\n: broken\n", tf) == EOF || fclose(tf) != 0) fail("file_tier", "seed write failed");
 		fd = shcl_load_file(tfile, &fst);
 		if (fst != SHCL_FILE_HAD_ERRORS) fail("file_tier", "broken file status");
 		if (shcl_get_int_or(fd, "a", 1, 0) != 1) fail("file_tier", "broken file read");
 		shcl_free(fd);
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		tf = fopen(tfile, "wb");
 		if (!tf || fputs("a: 1\nb: x\n", tf) == EOF || fclose(tf) != 0) fail("file_tier", "seed rewrite failed");
 		fd = shcl_load_file(tfile, &fst);
@@ -2569,6 +2576,7 @@ int main(int argc, char **argv) {
 				char probe[320], born[320];
 				snprintf(probe, sizeof probe, "%s/probe", tdir);
 				snprintf(born, sizeof born, "%s/born.shcl", tdir);
+				// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 				FILE *pf = fopen(probe, "wb");
 				if (!pf || fclose(pf) != 0) fail("file_tier", "probe create failed");
 				struct stat ps, ns;
@@ -2584,6 +2592,7 @@ int main(int argc, char **argv) {
 				// the data lets the kernel clear them on the write.
 				// BSD gives a new file the directory's group, and refuses
 				// setgid on a file whose group the caller is not in.
+				// codeql[cpp/empty-if] a failed chown shows in the chmod check below, and (void) can't quiet warn_unused_result
 				if (chown(born, (uid_t)-1, getegid()) != 0) { /* the chmod below says */ }
 				if (chmod(born, 06750) == 0 && stat(born, &ns) == 0 && (ns.st_mode & 07777) == 06750) {
 					if (shcl_save_file(nd, born, NULL) != SHCL_SAVE_OK) fail("file_tier", "set-id save failed");
@@ -2709,6 +2718,7 @@ int main(int argc, char **argv) {
 	{
 		const char *kbase = "x: 1\nr: [1, 2\ny: 3\n";
 		shcl_doc *kd = shcl_parse_keep_lines(kbase, strlen(kbase), SHCL_STANDARD);
+		if (!kd) abort();
 		if (shcl_lost_count(kd) != 0) fail("kept_gate", "lost before the edit");
 		ShclVecSize *kids = &kd->nodes.data[0].children; // the root
 		ShclTrivia *yt = kd->nodes.data[kids->data[kids->len - 1]].trivia;
@@ -2726,6 +2736,7 @@ int main(int argc, char **argv) {
 #else
 		if (mkdir(kdir, 0700) != 0) fail("kept_gate", "mkdir failed");
 #endif
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		FILE *kf = fopen(kfile, "wb");
 		if (kf) { fputs(kbase, kf); fclose(kf); }
 		if (shcl_save_file(kd, kfile, NULL) != SHCL_SAVE_REFUSED) fail("kept_gate", "save_file did not refuse");
@@ -3259,6 +3270,7 @@ int main(int argc, char **argv) {
 #endif
 		// About 30 KB: 2000 keys, so an unfixed save shows up at once.
 		size_t gcap = 2000 * 16 + 1, gn = 0; char *gt = xrealloc(NULL, gcap);
+		// codeql[cpp/overflowing-snprintf] gcap fits all 2000 lines, 13 bytes each
 		for (int i = 0; i < 2000; i++) gn += (size_t)snprintf(gt + gn, gcap - gn, "k%04d: v%04d\n", i, i);
 		shcl_doc *gd = shcl_parse(gt, gn);
 		size_t before = arena_bytes(&gd->arena);
@@ -3595,6 +3607,7 @@ int main(int argc, char **argv) {
 			case 10: took = shcl_set_literal(rd, "l", 1, "a\nb", 3); break;
 			case 11: took = shcl_set_int_array(rd, "sec", 3, two, 2); break;
 			case 12: took = shcl_set_literal(rd, "sec", 3, "[1, 2]", 6); break;
+			/* codeql[cpp/commented-out-code] a case commented out in 4aea318a, kept since old tests aren't deleted */
 			// default: took = shcl_set_int(rd, "ports.x", 7, 1); break;
 			default: break;
 			}
@@ -3650,6 +3663,7 @@ int main(int argc, char **argv) {
 			case 12: took = shcl_set_literal(ud, p, pn, "\"a\xff" "b\"", 5); break;
 			case 13: took = shcl_set_literal(ud, p, pn, "[ok, a\xff" "b]", 9); break;
 			case 14: took = shcl_set_literal_default(ud, p, pn, bad, sizeof bad - 1); break;
+			/* codeql[cpp/commented-out-code] cases commented out in 4aea318a, kept since old tests aren't deleted */
 			// case 19: took = shcl_set_comment(ud, p, pn, "c", 1); break;
 			// default: took = shcl_set_int(ud, p, pn, 1); break;
 			default: break;
@@ -4003,6 +4017,7 @@ int main(int argc, char **argv) {
 		snprintf(snone, sizeof snone, "%s/none.shcl", sdir);
 		const char *st = ": nope\nport: 1\n";
 		const char *ss = "field: port\n\ttype: int\n";
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		FILE *sf = fopen(sfile, "wb");
 		if (!sf || fputs(st, sf) == EOF || fclose(sf) != 0) fail("strict_same", "seed write failed");
 		const char *entries[] = {"parse_with", "parse_limited", "parse_keep_lines", "load_and_validate", "load_file_with", "load_file_keep_lines", "load_and_validate_with"};
@@ -4202,6 +4217,7 @@ int main(int argc, char **argv) {
 #else
 		if (mkdir(ddir, 0700) != 0) fail("dirpath", "mkdir failed");
 #endif
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		FILE *df = fopen(dfile, "wb");
 		if (!df || fputs("a: 1\n", df) == EOF || fclose(df) != 0) fail("dirpath", "seed write failed");
 		shcl_doc *dd = shcl_parse("a: 2\n", 5);
@@ -4315,6 +4331,7 @@ int main(int argc, char **argv) {
 		if (!shcl_write_file_atomic(v2, "x: a,b\n", 7, NULL)) fail("write_status", "seed write failed");
 		if (chmod(shut, 0500) != 0) fail("write_status", "chmod failed");
 		snprintf(wp, sizeof wp, "%s/probe", shut);
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		FILE *probe = fopen(wp, "wb");
 		if (probe) {
 			fclose(probe);
@@ -4750,6 +4767,7 @@ int main(int argc, char **argv) {
 	}
 	/* 2026101309122757: Loose reads a quoted thousands number again, and the
 	   writer keeps a bare one bare, so this pins what no longer holds. */
+	/* codeql[cpp/commented-out-code] a test commented out with its reason above, since old tests aren't deleted */
 	// test_id("EsZikJl", "a_thousands_comma_reads_the_same_after_a_save");
 	// /* A thousands comma is text quoted or bare, so a typed read gives the same
 	//    answer before and after the writer quotes it (2026101010054746). */
@@ -5443,6 +5461,7 @@ int main(int argc, char **argv) {
 		   with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x. */
 		/* A beta build stamped the same Format line, so its errors are left
 		   too. */
+		// codeql[cpp/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 		/* const char *beta = "tags: a, b\n\n" SHCL_GEN_BANNER;
 		up = shcl_upgrade(beta, strlen(beta), 1);
 		if (!up.current || !up_is(&up, beta) || up.format != 3) fail("upgrade_clean", "beta");
@@ -5478,6 +5497,7 @@ int main(int argc, char **argv) {
 		   from_v2_refuses_a_conversion_that_keeps_an_error. */
 		/* Nor when the fresh text would keep an error, which the next start
 		   would take as 2.x again. */
+		// codeql[cpp/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 		/* const char *stuck = "a: 1\nb 2\n##    Format   3\n";
 		up = shcl_upgrade(stuck, strlen(stuck), 1);
 		if (!up.current || !up_is(&up, stuck) || up.diagnostics) fail("upgrade_beta", "stuck");
@@ -6053,6 +6073,7 @@ int main(int argc, char **argv) {
 		{
 			size_t bn = ((size_t)16 << 20) + 1;
 			char *big = (char *)malloc(bn);
+			// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 			FILE *bf = fopen(np, "wb");
 			if (big && bf) { memset(big, 'a', bn); fwrite(big, 1, bn, bf); }
 			else fail("named_schema", "big file");
