@@ -65,6 +65,11 @@ static void rmdir_long(const char *p) {
 }
 #endif
 
+// Every test runs on this clock, set once before the first. A setter's note
+// and a backup's name read it, and two of them made a second apart differ. A
+// test that needs the real clock calls local_clock.
+#define TEST_CLOCK "2026-10-04 00:15:00 -420 PDT"
+
 static int nfail = 0;
 static void fail(const char *at, const char *msg) { fprintf(stderr, "FAIL %s: %s\n", at, msg); nfail++; }
 
@@ -1353,6 +1358,11 @@ int main(int argc, char **argv) {
 	   builds a comma-decimal one and runs the whole corpus under it; only the
 	   numeric category moves, so everything else here stays deterministic. */
 	if (getenv("SHCL_TEST_LC_NUMERIC")) setlocale(LC_NUMERIC, "");
+#ifdef _WIN32
+	_putenv_s("SHCL_TEST_CLOCK", TEST_CLOCK);
+#else
+	setenv("SHCL_TEST_CLOCK", TEST_CLOCK, 1);
+#endif
 	const char *corpus = argc > 1 ? argv[1] : "project/conformance";
 
 	DIR *dir = opendir(corpus);
@@ -1371,6 +1381,19 @@ int main(int argc, char **argv) {
 	closedir(dir);
 	if (nn == 0) { fprintf(stderr, "no corpus cases under %s\n", corpus); return 2; }
 	qsort(names, nn, sizeof *names, cmp_str);
+
+	// A fixture compared two notes made on the real clock, and failed when the
+	// second came a second later (2026101912125490). Same check in every runner.
+	test_id("EtAxcPt", "the_clock_is_pinned_for_every_test");
+	{
+		const char *pin = getenv("SHCL_TEST_CLOCK");
+		shcl_doc *pd = shcl_parse("a: x\n", 5);
+		int took = shcl_set_int_default(pd, "a", 1, 1) == SHCL_SET_OK;
+		shcl_str out = shcl_to_canonical(pd);
+		if (!pin || strcmp(pin, TEST_CLOCK) != 0 || !took || !contains(out.p, out.n, ", 2026-10-04 00:15:00 PDT: not an int\n"))
+			fail("pinned_clock", "a note made in a test does not read the pinned clock");
+		shcl_free(pd);
+	}
 
 	// The bad-ops loop's names-no-op check is only worth something while a
 	// misspelled op still comes back told apart from an ordinary refusal.
@@ -2811,11 +2834,6 @@ int main(int argc, char **argv) {
 	{
 		// A setter on a field a kept line opened writes that line as a comment
 		// with a note, so the file has one line for the field (2026100307163907).
-#ifdef _WIN32
-		_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
-#else
-		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
-#endif
 		static const struct { const char *text, *path, *want; } sc[] = {
 			{"a: [1\n\tb: 2\ny: 3\n", "a",
 				"# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 5\n\tb: 2\ny: 3\n"},
@@ -2846,11 +2864,6 @@ int main(int argc, char **argv) {
 			}
 			shcl_free(sd);
 		}
-#ifdef _WIN32
-		_putenv_s("SHCL_TEST_CLOCK", "");
-#else
-		unsetenv("SHCL_TEST_CLOCK");
-#endif
 		// Only the field the kept line opened: a child of it, or a field beside
 		// a kept line, leaves the line as it was.
 		static const struct { const char *path, *want; } bc[] = {
@@ -2871,11 +2884,6 @@ int main(int argc, char **argv) {
 		// as the noted comment, and a field it creates goes right under the
 		// first of them, so a later hand fix never gives Multiple
 		// (2026100307163907).
-#ifdef _WIN32
-		_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
-#else
-		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
-#endif
 #define SETTER_NOTE(p) "  ## commented out by shcl when setting " p ", 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line"
 		static const struct { const char *text, *path, *want; size_t count; } ec[] = {
 			// No loaded `a`: the new line goes under the first comment.
@@ -2916,11 +2924,6 @@ int main(int argc, char **argv) {
 			}
 			shcl_free(ed);
 		}
-#ifdef _WIN32
-		_putenv_s("SHCL_TEST_CLOCK", "");
-#else
-		unsetenv("SHCL_TEST_CLOCK");
-#endif
 		// Two valid lines stay as they are: the setter refuses the path.
 		{
 			static const char tv[] = "a: 1\na: 2\n";
@@ -5435,12 +5438,7 @@ int main(int argc, char **argv) {
 	/* shcl_upgrade and shcl_upgrade_file (2026100313461649): a file this
 	   version cannot load clean is backed up under a timestamped name and
 	   written fresh, and a good one is never touched. The backup's name reads
-	   the clock, so it is pinned for all of them. */
-#ifdef _WIN32
-	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
-#else
-	setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
-#endif
+	   the clock that main pins. */
 #define UP_V2 "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config file format is SHCL.\n# \"Simple Hierarchical Config Language\"\n#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.\n#\n"
 #define UP_TAG "_backup_20261004-001500_format-v2"
 	test_id("Es2qPd0", "upgrade_leaves_a_clean_or_stamped_file");
@@ -5767,11 +5765,6 @@ int main(int argc, char **argv) {
 	}
 #undef UP_V2
 #undef UP_TAG
-#ifdef _WIN32
-	_putenv_s("SHCL_TEST_CLOCK", "");
-#else
-	unsetenv("SHCL_TEST_CLOCK");
-#endif
 
 #ifdef _WIN32
 	/* Windows-only, and wine cannot show either one: it maps onto a filesystem
@@ -5946,11 +5939,6 @@ int main(int argc, char **argv) {
 	// canonical text is a fixpoint. Same table in every runner.
 	test_id("EsJZko6", "default_fills_what_does_not_read");
 	{
-#ifdef _WIN32
-		_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
-#else
-		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
-#endif
 		static const char dtext[] = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
 #define DNOTE(line, path, what) "# " line "  ## replaced by shcl when setting a default for " path ", 2026-10-04 00:15:00 PDT: not " what
 		static const struct { const char *op, *path; shcl_set_status want; const char *note; int writes; } dr[] = {
@@ -6041,11 +6029,6 @@ int main(int argc, char **argv) {
 		shcl_read_i64_arr ra = shcl_read_int_array(rb, "list", 4);
 		if (shcl_get_int_or(rb, "srv.port", 8, 0) != 9 || ra.status != SHCL_GOOD || ra.n != 2 || ra.values[0] != 1 || ra.values[1] != 2) fail("default_round_trip", "reads after the round trip");
 		shcl_free(rb); shcl_free(r1); shcl_free(r2); shcl_free(rd);
-#ifdef _WIN32
-		_putenv_s("SHCL_TEST_CLOCK", "");
-#else
-		unsetenv("SHCL_TEST_CLOCK");
-#endif
 	}
 
 	/* shcl_read_named_schema reads a Schema line by check's rules: from the

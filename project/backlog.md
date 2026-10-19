@@ -325,6 +325,36 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 
+- `edits_and_merges_match_a_reload` fails when its 2 setter notes land a second apart on the real clock
+	- ID: 2026101912125490
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: N. The exhaustive cppcheck runs with the next full `--gate`.
+	- Needs external testing: N. The windows side of the C pin is the `_putenv_s` call the C runner already made.
+	- Severity: Low
+	- Opened: 20261019-121254
+	- Opened by: backlog round 2026-10-19, from a full `--gate` on dev at `59c6ecfb`
+	- Version and build: dev at `59c6ecfb`
+	- Steps to reproduce: run a full `cicd.bash --gate` with the box loaded. This one ran at load 30.
+	- Incorrect behavior: `FAIL Eqk24nb python edits_and_merges_match_a_reload`, "a step on the document and on its reload differ at iteration 67". The live and reload text differ only in the setter note's time: `# b: v1  ## replaced by shcl when setting a default for a.b, 2026-10-19 12:08:45 PDT: not an int` on the live side, `12:08:46` on the reload.
+	- Expected behavior: it passes whatever second the clock is on.
+	- Reproduced: 20261019. With the library clock made to move a second on every read, Python's, Go's, and C's fixture failed at iteration 8. Rust's passed 200,000 iterations, since it takes the time out of the notes before comparing.
+	- Actual cause: each step runs on the document and then on its reload, and a default setter's note on each reads the real clock. Python, Go, and C pinned `SHCL_TEST_CLOCK` only around the tests that check a note's text, and this fixture wasn't one. Rust pinned it only in `upgrade.rs`, and stripped the time out of notes elsewhere, since a per-test `set_var` is unsafe on libtest's shared threads.
+	- Actual fix: every test program pins the clock once, before its first test.
+		- Rust: `tests/common`'s `test_id`, which every test calls first, sets it through a `Once`. lib.rs's 3 unit-test `test_id` copies call one shared pin the same way.
+		- Go: `TestMain`. Python and C: the top of each runner's `main`, and of the soaks, `mem_bounds`, `oom_hook`, and the C++ veneer smoke.
+		- The per-test pins are gone, and so are Rust's `unstamped` and `default_unstamped`. Their tests compare the pinned time now, as the other 3 bindings do.
+		- A test that needs the real clock calls `local_clock` directly, as each binding's zone-label test already does.
+		- `check-doc-examples.bash` compares the 4 CLIs' output, so it pins the clock as cli-regress and crosscheck do.
+	- Branch: `testclock`
+	- Commit: `eb298b0d`
+	- Test case: `the_clock_is_pinned_for_every_test`, Rust `EtAxcPq`, Go `EtAxcPr`, Python `EtAxcPs`, and C `EtAxcPt`: the clock is set, and a default setter's note in a test has the pinned time. The fixture is `Eqk24nZ`, `Eqk24na`, `Eqk24nb`, and `EonWXt2`.
+	- Swept: the clock readers in all 4 libraries, which are the 2 setter notes and the backup name. Every test file in the 4 bindings: Rust's `tests/*.rs` and lib.rs's 3 test modules, Go's `*_test.go`, Python's runner and soak (`typing_probe.py` is only type-checked), and C's runner, `mem_bounds`, `oom_hook`, `soak`, and the veneer smoke. `oom_recover.c` reads no clock. The gate scripts: crosscheck and cli-regress were pinned, check-migrate pins its `upgrade --write` and compares reads elsewhere, and sanitize-rust pins for Miri. check-readme compares a save with the doc's text, sanitize-c checks exit codes and clears its backups, and perf-gate compares timings. win-runners and check-locale run the runners, which pin themselves.
+	- Verified: on the moving clock, after the fix, the whole Rust, Go, Python, and C suites passed, with the Rust fuzz at 200,000 iterations, and so did the veneer smoke, `mem_bounds`, and `oom_hook`. With Rust's pin turned off, its fixture failed at iteration 21 and `EtAxcPq` failed. With the pin taken out of the Go, Python, and C runners, `EtAxcPr`, `EtAxcPs`, and `EtAxcPt` failed, and so did Go's fixture and its note tests.
+	- Verified: on the real clock, `cargo test`, clippy for linux and windows, `cargo fmt --check`, the Go suite plain and with `-race`, `go vet` and staticcheck on both modules, the Python runner and soak, ruff and mypy, the C runner, veneer smoke, `oom_hook`, `oom_recover`, `mem_bounds`, and soak with the gate's flags, `test-ids.py check`, `check-docs.bash`, `check-doc-examples.bash` over the 4 CLIs, `shell-regress.bash`, and shellcheck. cppcheck at the normal level found nothing in `conformance.c` or `soak.c`.
+	- Acceptance signoff: Self-closed: reproduced, failed before the fix and passes after, and swept.
+	- Closed: 20261019-124500
+
 - cli-regress `json-reads-back` fails all 4 CLIs under a pwsh with no `-DateKind`
 	- ID: 2026101905321200
 	- Type: Bug

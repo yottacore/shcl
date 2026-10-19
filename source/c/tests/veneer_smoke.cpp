@@ -224,6 +224,12 @@ static int reads_from_several_threads() {
 
 int main() {
 	test_id("EjtkR0S", "veneer_smoke");
+	// The clock every runner pins, as conformance.c does.
+#ifdef _WIN32
+	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+	setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
 	using S = shcl::SetStatus;
 	const std::string src =
 		"name: demo\n"
@@ -865,11 +871,6 @@ int main() {
 		CHECK(dirUp && dirUp->kind == shcl::UpgradeErrorKind::Io && dirUp->status == shcl::WriteStatus::IsDirectory);
 		// upgrade_file keeps the original under the timestamped name and
 		// writes the fresh text; the name is never written over.
-#ifdef _WIN32
-		_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
-#else
-		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
-#endif
 		CHECK(shcl::write_file_atomic(f, "tags: a, b\n") == shcl::WriteStatus::Ok);
 		std::string bk = dir + "/t_backup_20261004-001500_format-v2.shcl";
 		CHECK(shcl::backup_file_name(f, 2) == bk);
@@ -897,11 +898,6 @@ int main() {
 		CHECK(left2Err && left2Err->kind == shcl::UpgradeErrorKind::ErrorsLeft && left2Err->lines == std::vector<std::size_t>{2} && left2.text.empty());
 		CHECK(left2Err && left2Err->message == f + ": line(s) 2 would still have an error once converted from 2.x; nothing written");
 		CHECK(shcl::read_file(f).first == "a: 1\nb 2\n##    Format   3\n");
-#ifdef _WIN32
-		_putenv_s("SHCL_TEST_CLOCK", "");
-#else
-		unsetenv("SHCL_TEST_CLOCK");
-#endif
 		std::remove(bk.c_str());
 		std::remove(f.c_str());
 		rmdir(dir.c_str());

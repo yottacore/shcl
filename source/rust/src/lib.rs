@@ -7098,6 +7098,18 @@ fn clock_now() -> (String, i32, String) {
 		.unwrap_or_else(local_clock)
 }
 
+/// The clock every unit test runs on, as tests/common pins it for the rest.
+/// Each test_id here calls it first, and the Once holds the other threads back.
+#[cfg(test)]
+fn pin_test_clock() {
+	static ONCE: std::sync::Once = std::sync::Once::new();
+	// SAFETY: nothing reads the environment while the Once holds the other
+	// tests back, and nothing changes it after.
+	ONCE.call_once(|| unsafe {
+		std::env::set_var("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
+	});
+}
+
 fn test_clock(spec: &str) -> Option<(String, i32, String)> {
 	let f: Vec<&str> = spec.split_whitespace().collect();
 	if f.len() != 3 && f.len() != 4 {
@@ -9474,6 +9486,7 @@ mod windows_publish {
 	struct TestId(&'static str);
 
 	fn test_id(id: &'static str) -> TestId {
+		crate::pin_test_clock();
 		TestId(id)
 	}
 
@@ -16264,6 +16277,7 @@ mod kept_gate {
 	struct TestId(&'static str);
 
 	fn test_id(id: &'static str) -> TestId {
+		crate::pin_test_clock();
 		TestId(id)
 	}
 
@@ -16709,6 +16723,7 @@ mod write_status_map {
 	struct TestId(&'static str);
 
 	fn test_id(id: &'static str) -> TestId {
+		crate::pin_test_clock();
 		TestId(id)
 	}
 

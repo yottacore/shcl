@@ -98,6 +98,8 @@ def soak_snapshot() -> tracemalloc.Snapshot:
 
 def main() -> int:
 	sys.unraisablehook = _unraisable
+	# The clock every runner pins, as conformance.py does.
+	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
 	test_id("Et01jhM", "soak_heap_settles")
 	cases = soak_cases()
 	counts = {"saved": 0, "validated": 0}

@@ -359,6 +359,25 @@ fn doc_for(case: &Case, level: Strictness) -> Document {
 	})
 }
 
+// A fixture compared two notes made on the real clock, and failed when the
+// second came a second later (2026101912125490). Same check in every runner.
+#[test]
+fn the_clock_is_pinned_for_every_test() {
+	let _id = test_id("EtAxcPq");
+	let mut doc = Document::parse("a: x\n");
+	assert_eq!(doc.set_int_default("a", 1), shcl::SetStatus::Ok);
+	assert_eq!(
+		std::env::var("SHCL_TEST_CLOCK").as_deref(),
+		Ok("2026-10-04 00:15:00 -420 PDT")
+	);
+	assert!(
+		doc.to_canonical()
+			.contains(", 2026-10-04 00:15:00 PDT: not an int\n"),
+		"{}",
+		doc.to_canonical()
+	);
+}
+
 #[cfg_attr(
 	all(miri, not(shcl_miri_all)),
 	ignore = "slow under Miri; --miri-all runs it"
@@ -4877,28 +4896,6 @@ fn migrate_leaves_what_reads_clean_now() {
 	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
 }
 
-/// The note's time as STAMP, so a test can pin the rest without pinning the
-/// clock, which other tests here read at the same time.
-fn default_unstamped(text: &str) -> String {
-	let mut out = String::new();
-	for line in text.split_inclusive('\n') {
-		let head = "  ## replaced by shcl when setting a default for ";
-		let (Some(k), Some(e)) = (line.find(head), line.rfind(": not ")) else {
-			out.push_str(line);
-			continue;
-		};
-		// The path ends at the last ", " before the stamp's date.
-		let Some(c) = line[k..e].rfind(", 2") else {
-			out.push_str(line);
-			continue;
-		};
-		out.push_str(&line[..k + c + 2]);
-		out.push_str("STAMP");
-		out.push_str(&line[e..]);
-	}
-	out
-}
-
 const DEFAULT_TEXT: &str = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
 
 // A default form writes where the field is missing, empty or does not read
@@ -4913,7 +4910,7 @@ fn default_fills_what_does_not_read() {
 	let _id = test_id("EsJZko3");
 	let note = |line: &str, path: &str, what: &str| {
 		format!(
-			"# {line}  ## replaced by shcl when setting a default for {path}, STAMP: not {what}"
+			"# {line}  ## replaced by shcl when setting a default for {path}, 2026-10-04 00:15:00 PDT: not {what}"
 		)
 	};
 	// op line, status, the note above the field or "", whether it writes.
@@ -5004,7 +5001,7 @@ fn default_fills_what_does_not_read() {
 			assert_eq!(notes.len(), had, "{op:?}: {notes:?}");
 		} else {
 			assert_eq!(notes.len(), had + 1, "{op:?}: {notes:?}");
-			assert_eq!(&default_unstamped(&notes[had]), want_note, "{op:?}");
+			assert_eq!(&notes[had], want_note, "{op:?}");
 			assert!(
 				after.contains(&format!("{}\n", notes[had])),
 				"{op:?}:\n{after}"
@@ -5050,14 +5047,14 @@ fn default_replace_round_trips() {
 		"int-array-default\tlist\t1\t2",
 		"int-default\tn\t7",
 	];
-	let want = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, STAMP: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, STAMP: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n";
+	let want = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n";
 	let mut doc = Document::parse_keep_lines(text, Strictness::Standard).unwrap();
 	for op in ops {
 		apply_op(&mut doc, op, op);
 	}
 	let (saved, kept) = doc.to_text_keep_lines();
 	assert!(kept, "fell back to canonical:\n{saved}");
-	assert_eq!(default_unstamped(&saved), want);
+	assert_eq!(saved, want);
 	let canon = doc.to_canonical();
 	assert_eq!(Document::parse(&saved).to_canonical(), canon);
 	assert_eq!(

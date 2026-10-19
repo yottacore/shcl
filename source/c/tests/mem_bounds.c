@@ -97,6 +97,12 @@ static void test_id(const char *id, const char *name) {
 
 int main(void) {
 	test_id("EoezJiG", "mem_bounds");
+	// The clock every runner pins, as conformance.c does.
+#ifdef _WIN32
+	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+	setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
 	// Element cap: 200k elements on one line, refused at a cap of 8. The
 	// refused line used to be built in full first, so the cap saved nothing.
 	size_t reps = 200000, tlen = 6 + reps * 3 + 9;

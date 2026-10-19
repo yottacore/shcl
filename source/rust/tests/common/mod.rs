@@ -9,8 +9,24 @@ use std::io::Write;
 /// failure when that is by a panic.
 pub struct TestId(&'static str);
 
+/// Every test calls this first, so it also pins the clock.
 pub fn test_id(id: &'static str) -> TestId {
+	pin_clock();
 	TestId(id)
+}
+
+/// The clock every test runs on, set by the first test to start. A setter's
+/// note and a backup's name read it, and two of them made a second apart
+/// differ. Tests share one environment across libtest's threads, so it is set
+/// once and never changed; a test that needs the real clock runs the CLI with
+/// the variable removed.
+fn pin_clock() {
+	static ONCE: std::sync::Once = std::sync::Once::new();
+	// SAFETY: every test calls test_id first, and the Once holds the others
+	// back until it is set, so nothing reads the environment meanwhile.
+	ONCE.call_once(|| unsafe {
+		std::env::set_var("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
+	});
 }
 
 impl Drop for TestId {

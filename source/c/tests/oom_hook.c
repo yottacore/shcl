@@ -169,6 +169,12 @@ static int test_id_end(int failed) {
 
 int main(void) {
 	test_id("EoH8aeO", "oom_hook");
+	// The clock every runner pins, as conformance.c does.
+#ifdef _WIN32
+	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+	setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
 	const char *text = "group:\n\tkey: value\n\tother: 12\n";
 	int wrote = 0, failures = 0;
 	for (long b = 0; b < 512 && !wrote; b++) {
