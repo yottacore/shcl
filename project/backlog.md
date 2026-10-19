@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Started
 	- Priority: Avg
-	- Needs local test suite run?: a full `--ci` with analyze-c in the lint stage, and the exhaustive cppcheck over the C changes. Then a hosted run. The `--leakcheck` half is still to do.
+	- Needs local test suite run?: a full `--gate` with analyze-c in the lint stage, and the exhaustive cppcheck over the C changes. Then a hosted run. The `--leakcheck` half is still to do.
 	- Opened: 20261017-075828
 	- Opened by: JC
 	- Related IDs: 2026101711273980
@@ -154,7 +154,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Started
 	- Priority: Avg
-	- Needs local test suite run?: a full `--ci`, the ubuntu image rebuilt with the nightly, and a hosted run, its windows job included for the Go and Python soaks. CodeQL and `--leakcheck`, with `sanitize-rust.bash --miri-all` under it, are still to do.
+	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, and a hosted run, its windows job included for the Go and Python soaks. CodeQL and `--leakcheck`, with `sanitize-rust.bash --miri-all` under it, are still to do.
 	- Opened: 20261017-112739
 	- Opened by: JC
 	- Related IDs: 2026101707582803
