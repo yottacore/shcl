@@ -27,8 +27,10 @@
 ##		The databases, the SARIF, and findings.txt go in cicd/artifacts/codeql/.
 ##		CodeQL is the version TOOL_PINS names and runs in the build image, with
 ##		no network. On a box without it this fetches the crates Cargo.lock
-##		names into cicd/artifacts/codeql/cargo for the Rust extractor, then
-##		starts that image and runs in it, building it first if it isn't here.
+##		names for the Rust extractor into the cargo home --container runs use,
+##		under CTR_CACHE, then starts that image and runs in it, building it
+##		first if it isn't here. Under the repo, the crates' own Cargo.toml and
+##		README files would turn up in check-docs' greps of the tree.
 ##		The hosted gate doesn't run --leakcheck, so it doesn't install CodeQL.
 ##	Syntax:
 ##		codeql-scan.bash
@@ -72,9 +74,14 @@ nightly="$(sed -n '/^\[nightly\]/,/^\[/s/^channel = "\(.*\)"/\1/p' rust-toolchai
 [[ -n "${nightly}" ]] || { echo "codeql-scan: rust-toolchain.toml names no [nightly] channel" >&2; exit 2; }
 
 art="${root}/cicd/artifacts/codeql"
-mkdir -p "${art}"
-## Never under /tmp: a run is a GB or so of databases.
-work="$(mktemp -d "${art}/work.XXXXXX")"; trap 'rm -rf "${work}"' EXIT
+## The scratch dir has a copy of source/, which under the repo would turn up
+## in check-docs' greps of the tree, so it goes beside the container caches.
+## In the image that's TMPDIR, which is in the scratch dir outside. Never
+## /tmp: a run writes a GB or so.
+scratch="${CTR_CACHE}"
+if [[ -n "${SHCL_IN_IMAGE:-}" ]]; then scratch="${TMPDIR:?}"; fi
+mkdir -p "${art}" "${scratch}"
+work="$(mktemp -d "${scratch}/codeql.XXXXXX")"; trap 'rm -rf "${work}"' EXIT
 
 skipping=0
 missing=()
@@ -88,18 +95,22 @@ if ((${#missing[@]})); then
 	if command -v "${SHCL_DOCKER:-docker}" >/dev/null 2>&1; then
 		## The image has no network, and the Rust extractor reads every crate
 		## the lock file names, the optional ones included.
-		CARGO_HOME="${art}/cargo" cargo fetch --locked --quiet --manifest-path source/rust/Cargo.toml \
+		export SHCL_CTR_CARGO="${CTR_CACHE}/main/cargo"
+		CARGO_HOME="${SHCL_CTR_CARGO}" cargo fetch --locked --quiet --manifest-path source/rust/Cargo.toml \
 			|| { echo "codeql-scan: could not fetch the crates source/rust/Cargo.lock names" >&2; exit 2; }
 		# shellcheck source-path=SCRIPTDIR
 		source "${here}/include/ctr-image.bash"
-		rc=0; fCtrRunSelf "${work}" "${art}" "${root}/cicd/utility/codeql-scan.bash" || rc=$?
+		rc=0; fCtrRunSelf "${work}" "${art}:${SHCL_CTR_CARGO}" "${root}/cicd/utility/codeql-scan.bash" || rc=$?
 		exit "${rc}"
 	fi
 	if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then echo "codeql-scan: no ${missing[*]} and no docker to run the build image; the gate requires them" >&2; nBad=1
 	else echo "codeql-scan: skipping, no ${missing[*]} and no docker to run the build image" >&2; echo codeql-scan >> "${SHCL_GATE_SKIPS:-/dev/null}"; fi
 	skipping=1
 fi
-if [[ -n "${SHCL_IN_IMAGE:-}" ]]; then export CARGO_HOME="${art}/cargo" CARGO_NET_OFFLINE=true; fi
+if [[ -n "${SHCL_IN_IMAGE:-}" ]]; then
+	[[ -n "${SHCL_CTR_CARGO:-}" ]] || { echo "codeql-scan: no SHCL_CTR_CARGO, so no crates for the Rust extractor" >&2; exit 2; }
+	export CARGO_HOME="${SHCL_CTR_CARGO}" CARGO_NET_OFFLINE=true
+fi
 
 ## language|extractor's name|query pack|source extensions|bait file. The bait
 ## files are from source/, and planted in the copy only.

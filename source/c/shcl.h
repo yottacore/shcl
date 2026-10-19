@@ -1254,7 +1254,7 @@ static void arena_free(ShclArena *a) {
 	a->head = NULL; a->last = NULL; a->last_n = 0; a->growing = 0;
 }
 /* Hand an arena the recovery point its owner armed. */
-// codeql[cpp/stack-address-escape] the owner disarms it before its frame returns
+// codeql[cpp/stack-address-escape] the caller that armed it disarms it before returning
 static void arena_guard(ShclArena *a, jmp_buf *panic) { a->panic = panic; }
 static void *arena_grow(ShclArena *a, void *old, size_t oldcap, size_t newcap, size_t sz) { // NOLINT(bugprone-easily-swappable-parameters): old size, then new, in every grow
 	/* Extend in place when nothing has been allocated since `old`. */
@@ -1740,7 +1740,7 @@ struct shcl_doc {
    allocations arms this, so a longjmping hook cannot strand them. */
 static void doc_guard(shcl_doc *d, jmp_buf *panic) {
 	if (!d) return;
-	// codeql[cpp/stack-address-escape] the owner disarms it before its frame returns
+	// codeql[cpp/stack-address-escape] the caller that armed it disarms it before returning
 	d->panic = panic;
 	arena_guard(&d->arena, panic); arena_guard(&d->scratch, panic);
 	arena_guard(&d->reads, panic); arena_guard(&d->index_arena, panic);
@@ -10945,7 +10945,8 @@ static void big_mul_small(ShclBig *b, uint32_t m) {
 static void big_mul_pow10(ShclBig *b, int t) {
 	static const uint32_t p10[9] = { 1u, 10u, 100u, 1000u, 10000u, 100000u, 1000000u, 10000000u, 100000000u };
 	for (; t >= 9; t -= 9) big_mul_small(b, 1000000000u);
-	if (t > 0) big_mul_small(b, p10[t]);
+	// codeql[cpp/constant-comparison] cppcheck can't see that the loop leaves t under 9
+	if (t > 0 && t < 9) big_mul_small(b, p10[t]);
 }
 static void big_shl(ShclBig *b, int bits) {
 	int limbs = bits / 32, cap = (int)(sizeof b->w / sizeof b->w[0]);
