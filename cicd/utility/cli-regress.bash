@@ -2872,7 +2872,8 @@ done
 ##	character in a value cannot hide. Every corpus input and a file holding
 ##	every control character, through paths, children and instances. PowerShell
 ##	before 7.5 has no -DateKind and turns a value that looks like a date into
-##	a DateTime, so there only the path and line are compared.
+##	a DateTime, so there only the path and line are compared. A newer pwsh runs
+##	that way too, so the 7.4 path gets checked on any host (2026101905321200).
 fTest EsEvmLE json-reads-back
 if command -v jq >/dev/null 2>&1; then
 	jsonCtl=""
@@ -2884,7 +2885,7 @@ if command -v jq >/dev/null 2>&1; then
 	} > "${tmpDir}/jsonctl.shcl"
 	cat > "${tmpDir}/json-back.ps1" <<'PSEOF'
 $enc = [Text.UTF8Encoding]::new($false)
-$dateKind = (Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')
+$dateKind = (Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind') -and $args[1] -ne 'nodate'
 foreach ($line in [IO.File]::ReadAllLines($args[0], $enc)) {
 	if ($dateKind) { $o = ConvertFrom-Json -InputObject $line -DateKind String } else { $o = ConvertFrom-Json -InputObject $line }
 	$value = '-'
@@ -2918,21 +2919,25 @@ PSEOF
 			diff "${tmpDir}/json.lines" "${tmpDir}/json.back" | head -n 4 >&2 || true
 			nBad+=1; continue
 		fi
-		if ((havePwsh)); then
-			jq -r '"\(.path | @base64) \(.value | @base64) \(.line)"' < "${tmpDir}/json.lines" | tr -d '\r' > "${tmpDir}/json.jq"
-			if ! env -u DISPLAY pwsh -NoProfile -NonInteractive -File "${tmpDir}/json-back.ps1" "${tmpDir}/json.lines" > "${tmpDir}/json.ps" 2>"${tmpDir}/json.err" </dev/null; then
-				echo "cli-regress: json-reads-back [${name}]: ConvertFrom-Json refused a line: $(head -c 300 "${tmpDir}/json.err")" >&2; nBad+=1; continue
+		((havePwsh)) || continue
+		for psMode in full nodate; do
+			if ! env -u DISPLAY pwsh -NoProfile -NonInteractive -File "${tmpDir}/json-back.ps1" "${tmpDir}/json.lines" "${psMode}" > "${tmpDir}/json.ps" 2>"${tmpDir}/json.err" </dev/null; then
+				echo "cli-regress: json-reads-back [${name}]: ConvertFrom-Json refused a line: $(head -c 300 "${tmpDir}/json.err")" >&2; nBad+=1; break
 			fi
-			## Without -DateKind the value column is '-' on that side.
-			if [[ "$(awk 'NR == 1 { print $2 }' "${tmpDir}/json.ps")" == - ]]; then
-				awk '{ $2 = "-"; print }' "${tmpDir}/json.jq" > "${tmpDir}/json.jq2"; mv "${tmpDir}/json.jq2" "${tmpDir}/json.jq"
-			fi
+			## Without -DateKind the value column is '-' on that side, so jq
+			## writes the '-' too. An empty value leaves 2 spaces, and blanking
+			## it after with a field split took the line number instead.
+			blankValue=0
+			[[ "$(head -n 1 "${tmpDir}/json.ps" | cut -d ' ' -f 2)" == - ]] && blankValue=1
+			jq -r --argjson blank "${blankValue}" '"\(.path | @base64) \(if $blank == 1 then "-" else (.value | @base64) end) \(.line)"' < "${tmpDir}/json.lines" | tr -d '\r' > "${tmpDir}/json.jq"
 			if ! diff <(tr -d '\r' < "${tmpDir}/json.ps") "${tmpDir}/json.jq" > "${tmpDir}/json.diff"; then
-				echo "cli-regress: json-reads-back [${name}]: ConvertFrom-Json and jq decode a line differently:" >&2
+				echo "cli-regress: json-reads-back [${name}]: ConvertFrom-Json (${psMode}) and jq decode a line differently:" >&2
 				head -n 4 "${tmpDir}/json.diff" >&2
-				nBad+=1
+				nBad+=1; break
 			fi
-		fi
+			## A pwsh with no -DateKind already ran the nodate path.
+			if ((blankValue)); then break; fi
+		done
 	done
 	if ((havePwsh == 0)); then
 		if [[ -n "${SHCL_GATE_STRICT:-}" && "$(uname -s)" == Linux ]]; then
