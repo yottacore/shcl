@@ -21,6 +21,9 @@
 ##		source file of its languages, and Rust's workspace has to load, so an
 ##		extractor that quietly dropped code fails rather than passing as clean.
 ##		Go's tests are extracted too, which CodeQL leaves out by default.
+##		Go gets a second pass with GOOS=windows, for the files behind the
+##		windows build tag. C and Rust are analyzed as the Linux build sees
+##		them.
 ##		The Rust extractor swaps a stable toolchain for the newer one its
 ##		rust-analyzer wants, and would install it, so this runs on the dated
 ##		nightly from rust-toolchain.toml, which it keeps.
@@ -112,14 +115,19 @@ if [[ -n "${SHCL_IN_IMAGE:-}" ]]; then
 	export CARGO_HOME="${SHCL_CTR_CARGO}" CARGO_NET_OFFLINE=true
 fi
 
-## language|extractor's name|query pack|source extensions|bait file. The bait
-## files are from source/, and planted in the copy only.
+## pass|extractor's name|query pack|source extensions|bait file. The bait
+## files are from source/, and planted in the copy only. A pass's language is
+## its name up to a dash, and gowin is Go with GOOS=windows.
 langs=(
 	"cpp|c-cpp|codeql/cpp-queries|c h cpp hpp|c/tests/codeql_bait.c c/tests/codeql_bait.cpp"
 	"go|go|codeql/go-queries|go|go/codeql_bait.go"
+	"go-win|go|codeql/go-queries|go|go/codeql_bait_windows.go"
 	"python|python|codeql/python-queries|py|python/codeql_bait.py"
 	"rust|rust|codeql/rust-queries|rs|rust/tests/codeql_bait.rs"
 )
+## A bait is never a finding, in its own pass or another one that sees it.
+allBaits=""
+for spec in "${langs[@]}"; do IFS='|' read -r _ _ _ _ b <<<"${spec}"; allBaits+=" ${b}"; done
 src="${work}/src"
 declare -A baitSeen=() dbFull=() langClean=()
 suppressOk=1
@@ -133,6 +141,8 @@ fBaits(){
 		'int main() { int *p = new int(1); std::free(p); return 0; }' > "${src}/c/tests/codeql_bait.cpp"
 	## A value stored and never read.
 	printf '%s\n' 'package shcl' '' 'func codeqlBait(n int) int {' '	n = n * 2' '	return 0' '}' > "${src}/go/codeql_bait.go"
+	## The same, in a file only the windows build takes.
+	printf '%s\n' 'package shcl' '' 'func codeqlBaitWin(n int) int {' '	n = n * 3' '	return 0' '}' > "${src}/go/codeql_bait_windows.go"
 	## A file opened and never closed.
 	printf '%s\n' 'def codeql_bait(path):' '    f = open(path)' '    return f.read()' > "${src}/python/codeql_bait.py"
 	## A read through a null pointer.
@@ -161,13 +171,15 @@ if ((! skipping)); then
 		IFS='|' read -r lang ext pack exts baits <<<"${spec}"
 		db="${art}/db/${lang}"; log="${art}/${lang}-create.log"
 		opts=()
+		goos="$(go env GOOS 2>/dev/null || echo linux)"
 		case "${lang}" in
 			cpp)  opts=(--command="bash ${work}/build-c.bash") ;;
-			go)   opts=(-O go.extract_tests=true -O go.extract_vendor_dirs=true) ;;
+			go*)  opts=(-O go.extract_tests=true -O go.extract_vendor_dirs=true) ;;
 			rust) opts=(-O "rust.cargo_target_dir=${work}/rtarget") ;;
 		esac
+		if [[ "${lang}" == go-win ]]; then goos=windows; fi
 		echo "codeql-scan: ${lang}: building the database"
-		if ! RUSTUP_TOOLCHAIN="${nightly}" codeql database create "${db}" --language="${ext}" --source-root="${src}" \
+		if ! GOOS="${goos}" RUSTUP_TOOLCHAIN="${nightly}" codeql database create "${db}" --language="${ext}" --source-root="${src}" \
 			--threads="${cap}" --overwrite "${opts[@]}" >"${log}" 2>&1; then
 			tail -n 20 "${log}"; echo "codeql-scan: ${lang}: the database didn't build, see ${log#"${root}/"}" >&2; exit 2
 		fi
@@ -178,12 +190,12 @@ if ((! skipping)); then
 		## the extractor sees what the build sees. The rest are named, not
 		## failed.
 		otherOs=""
-		if [[ "${lang}" == go ]]; then
+		if [[ "${lang}" == go* ]]; then
 			while IFS= read -r -d '' mod; do
-				otherOs+="$(go -C "${mod%/go.mod}" list -e -f '{{range .IgnoredGoFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}' ./...)"$'\n'
+				otherOs+="$(GOOS="${goos}" go -C "${mod%/go.mod}" list -e -f '{{range .IgnoredGoFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}' ./...)"$'\n'
 			done < <(find "${src}/go" -name go.mod -print0)
 			names="${otherOs//"${src}/"/}"
-			echo "codeql-scan: go: left to other platforms by their build tags: ${names//$'\n'/ }"
+			echo "codeql-scan: ${lang}: left to other platforms by their build tags: ${names//$'\n'/ }"
 		fi
 		full=1
 		for e in ${exts}; do
@@ -199,7 +211,7 @@ if ((! skipping)); then
 		dbFull["${lang}"]="${full}"
 
 		echo "codeql-scan: ${lang}: running ${pack##*/}'s security-and-quality suite"
-		if ! codeql database analyze "${db}" "${pack}:codeql-suites/${lang}-security-and-quality.qls" \
+		if ! codeql database analyze "${db}" "${pack}:codeql-suites/${lang%%-*}-security-and-quality.qls" \
 			--format=sarif-latest --output="${art}/${lang}.sarif" --threads="${cap}" --ram=8192 >"${art}/${lang}-analyze.log" 2>&1; then
 			tail -n 20 "${art}/${lang}-analyze.log"; echo "codeql-scan: ${lang}: the analysis didn't finish" >&2; exit 2
 		fi
@@ -223,6 +235,17 @@ if ((! skipping)); then
 		jq -r '.runs[].results[] | [(.locations[0].physicalLocation.artifactLocation.uri // "?"),
 			(.locations[0].physicalLocation.region.startLine // 0 | tostring), .ruleId, (.message.text | split("\n")[0])] | @tsv' \
 			"${art}/${lang}.sarif" > "${work}/${lang}.tsv"
+		## The windows pass judges only the files the Linux one left out. The
+		## rest it shares, and a suppression there would be stale in one pass.
+		if [[ "${lang}" == go-win ]]; then
+			winOnly="$(grep -vxF -f <(printf '%s\n' "${otherOs}" | grep .) <<<"${goLinuxOther}" | sed "s|^${src}/||" || true)"
+			echo "codeql-scan: go-win: judging ${winOnly//$'\n'/ }"
+			for t in "${work}/${lang}-sup.tsv" "${work}/${lang}.tsv"; do
+				awk -F'\t' 'NR == FNR { if ($0 != "") keep[$0] = 1; next } ($1 in keep)' <(printf '%s\n' "${winOnly}") "${t}" > "${work}/winonly.tsv"
+				mv "${work}/winonly.tsv" "${t}"
+			done
+		fi
+		if [[ "${lang}" == go ]]; then goLinuxOther="${otherOs}"; fi
 		## A finding is open unless a codeql[...] line covers it by its query
 		## ID, and a suppression that covers nothing is stale.
 		awk -F'\t' -v OFS='\t' '
@@ -243,7 +266,7 @@ if ((! skipping)); then
 		while IFS=$'\t' read -r state uri line rule msg; do
 			case "${state}" in
 				open)
-					case " ${baits} " in *" ${uri} "*) continue ;; esac
+					case " ${allBaits} " in *" ${uri} "*) continue ;; esac
 					echo "codeql: source/${uri}:${line}: ${rule}: ${msg}" | tee -a "${art}/findings.txt"; clean=0 ;;
 				noreason) echo "codeql-scan: source/${uri}: a suppression with no reason"; suppressOk=0 ;;
 				stale) echo "codeql-scan: source/${uri}: suppresses ${line}, and the line under it has no such finding"; suppressOk=0 ;;
@@ -263,6 +286,8 @@ fTest EtAC9Cx reports the planted C++ finding
 fJudge "${baitSeen[c/tests/codeql_bait.cpp]:-0}"
 fTest EtAC9FX reports the planted Go finding
 fJudge "${baitSeen[go/codeql_bait.go]:-0}"
+fTest EtBmwWo reports the planted Go finding in a windows-only file
+fJudge "${baitSeen[go/codeql_bait_windows.go]:-0}"
 fTest EtAC9IG reports the planted Python finding
 fJudge "${baitSeen[python/codeql_bait.py]:-0}"
 fTest EtAC9L2 reports the planted Rust finding
@@ -271,6 +296,8 @@ fTest EtAC9O4 the C and C++ database has every C and C++ file
 fJudge "${dbFull[cpp]:-0}"
 fTest EtAC9Qz the Go database has every Go file, tests included
 fJudge "${dbFull[go]:-0}"
+fTest EtBmwbF the windows Go database has every Go file the windows build takes
+fJudge "${dbFull[go-win]:-0}"
 fTest EtAC9UO the Python database has every Python file
 fJudge "${dbFull[python]:-0}"
 fTest EtAC9XH the Rust database has every Rust file, with its workspace loaded
@@ -279,6 +306,8 @@ fTest EtAC9Zo nothing found in the C and C++ code
 fJudge "${langClean[cpp]:-0}"
 fTest EtAC9cY nothing found in the Go code
 fJudge "${langClean[go]:-0}"
+fTest EtBmwfq nothing found in the windows-only Go files
+fJudge "${langClean[go-win]:-0}"
 fTest EtAC9fG nothing found in the Python code
 fJudge "${langClean[python]:-0}"
 fTest EtAC9ie nothing found in the Rust code
@@ -295,3 +324,4 @@ exit 0
 
 ##	History:
 ##		- 2026-10-19 JC: Created.
+##		- 2026-10-19 JC: Go windows pass.
