@@ -287,7 +287,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- It runs Miri again over the tests the plain Miri run in TEST_EXTRA already took, about 100 s more on hours. Not worth a second list to save.
 			- `--only=REGEX` runs Miri over just the tests whose names match, to rerun one or try the mode out.
 			- Question: a run with no flags now takes hours longer, since `--miri-all` alone was likely several hours when it was stopped at 72 of 155 tests. Keep it in the bare run, or move it behind `--leakcheck` alone?
-			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for over 25 minutes. Stopped there, short of its result.
+			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for 29 minutes. Stopped there, short of its result.
 			- Needs local test suite run: a whole `--miri-all`, and a full run with no flags.
 	- Decisions:
 		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
