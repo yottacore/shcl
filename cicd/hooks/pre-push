@@ -138,7 +138,11 @@ for i in "${!gatedShas[@]}"; do
 	## The gate is told which ref it stands in for: the installer drift check
 	## has to judge this tree as main, since git moves origin/main only after
 	## the hook returns.
-	if ! SHCL_GATE_REF="${gatedRefs[i]}" "${gateRoot}/cicd/cicd.bash" --ci --no-largedoc; then
+	## main's engine knows only --ci until the next cut takes --gate there, and
+	## a docs-only merge to main gates main's tree. Drop this then.
+	gateFlag=--gate
+	if ! grep -qF -- '--gate)' "${gateRoot}/cicd/cicd.bash" 2>/dev/null; then gateFlag=--ci; fi
+	if ! SHCL_GATE_REF="${gatedRefs[i]}" "${gateRoot}/cicd/cicd.bash" "${gateFlag}" --no-largedoc; then
 		echo
 		echo "[ pre-push: the gate failed on ${sha:0:12} - push refused (--no-verify overrides) ]" >&2
 		echo

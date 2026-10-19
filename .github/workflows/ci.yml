@@ -1,6 +1,6 @@
 ## Correctness gate only. Everything else (cross-compile, publish, artifacts)
 ## stays in the local pipeline: cicd/cicd.bash. One definition of "passing" -
-## this just runs the engine's --ci mode.
+## this just runs the engine's --gate mode.
 ##
 ## Not on dev pushes. A branch is built and tested before it merges there, so a
 ## hosted run per dev push was the same gate again at half an hour each. main
@@ -27,7 +27,7 @@ jobs:
   ## exhaustive pass, 16 to 26 more whenever shcl.h changed, and the tests
   ## stage with crosscheck and the large document was 20 to 29. Each half runs
   ## the engine with stage flags, so what passing means stays in cicd.bash,
-  ## and check-pins.bash fails when the halves stop covering everything --ci
+  ## and check-pins.bash fails when the halves stop covering everything --gate
   ## runs. Both install every tool, so a strict skip can't
   ## come from a tool one half forgot.
   ci:
@@ -41,9 +41,9 @@ jobs:
           ## The cross checks take half a minute. Lint is the shorter half
           ## unless the C header changed.
           - part: lint
-            args: --ci --no-tests
+            args: --gate --no-tests
           - part: tests
-            args: --ci --no-lint --no-cross
+            args: --gate --no-lint --no-cross
     steps:
       ## Actions by commit SHA (tag in the comment), so a moved tag cannot
       ## silently change what runs.
@@ -93,7 +93,7 @@ jobs:
           ## zig builds the examples doc's Zig example and the C CLI against musl,
           ## and Pillow loads the demo gif script for its output-order row. Both
           ## skips fail the gate too.
-          ## The cross checks run under --ci since 20260920, and the first of
+          ## The cross checks run in the gate since 20260920, and the first of
           ## them builds the C library and CLI for windows with mingw's gcc,
           ## which this image does not have.
           ## perf-gate counts write calls with strace, and cli-regress holds a
@@ -245,7 +245,7 @@ jobs:
   ## cli-regress, and crosscheck over the corpus against a plain debug build.
   ## The Rust tests run the corpus against the library here as well.
   ##
-  ## Not under --ci, so a row this host has no device or tool for (/dev/full,
+  ## Not under --gate, so a row this host has no device or tool for (/dev/full,
   ## strace, the page map) is skipped out loud rather than failed. GNU
   ## coreutils go first on PATH, since the gate scripts use timeout and
   ## stat -c. cargo-zigbuild is installed without its ziglang dependency, which

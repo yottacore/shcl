@@ -22,7 +22,7 @@ RUN sed -i -e "s|^URIs: http://deb.debian.org/debian-security|URIs: http://snaps
 
 # gcc-12 and gcc-13 next to the default 14, and clang, for check-c-compilers;
 # 13 is the hosted runner's. zsh, bash-completion, nsis, rpm, man-db, strace,
-# locales and jq are for rows in the test stage that fail a skip under --ci.
+# locales and jq are for rows in the test stage that fail a skip under --gate.
 # qemu, busybox and cpio boot the CPU floor check. libicu and libgssapi are for pwsh.
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \

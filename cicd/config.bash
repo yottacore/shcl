@@ -30,7 +30,7 @@ MANIFEST="source/rust/Cargo.toml"
 VERSION_MANIFEST="${MANIFEST}"   ## the single canonical version source (tags + artifact names read it)
 
 ## Stage 1: format. FMT_CMD rewrites in place (local runs); FMT_CHECK_CMD fails on
-## any diff without touching files (what --ci runs). rustfmt.toml at repo root
+## any diff without touching files (what --gate runs). rustfmt.toml at repo root
 ## (tabs) is the style source.
 FMT_CMD=(cargo fmt --manifest-path "${MANIFEST}")
 FMT_CHECK_CMD=(cargo fmt --check --manifest-path "${MANIFEST}")
@@ -87,7 +87,7 @@ TOOL_PINS=(
 	"makensis|3.11|makensis -VERSION"
 	## Only check-readme (the Zig example) and check-c-compilers (the musl
 	## build) need zig, and only shell-regress needs Pillow (the demo gif's
-	## output order). Both fail a skip under --ci.
+	## output order). Both fail a skip under --gate.
 	"zig|0.16.0|zig version"
 	"pillow|11.1.0|python3 -c 'import PIL; print(PIL.__version__)'"
 	## The C static analyzers (analyze-c.bash), called by these majors, as
@@ -352,9 +352,9 @@ LARGEDOC_MIB=100
 ## in-process sampler. PROFILE_WORKLOAD_GEN / PROFILE_RUN are eval'd by the engine
 ## with PROFILE_WORKLOAD / PROFILE_OUT / PROFILE_SECS exported.
 ## This build is the only thing that compiles the feature-gated sampler block,
-## and it is deliberately not in the `--ci` gate: the pprof chain comes from
+## and it is deliberately not in the `--gate` run: the pprof chain comes from
 ## crates.io, which the gate must not need - the same reason the comparison
-## tool's rust half is out. `--ci` runs only the calibration, below. A full
+## tool's rust half is out. `--gate` runs only the calibration, below. A full
 ## local run hard-fails on it, which is where it is caught. The rule that the
 ## chain never reaches an artifact is enforced separately, on the files
 ## themselves, by package.bash.
@@ -368,8 +368,8 @@ PROFILE_WORKLOAD_GEN='source cicd/utility/include/largedoc-gen.bash; largedoc_ge
 ## the graph would split them wrong. It prints a status line like every test.
 PROFILE_CHECK_ID=EqeDCi1
 PROFILE_CHECK='s=ok; SHCL_PROFILE_CHECK=1 "${PROFILE_BIN}" || s=FAIL; printf "%-4s %s profiler attribution-calibration\n" "${s}" "${PROFILE_CHECK_ID}"; [[ "${s}" == ok ]]'
-## The calibration is the one pin on the sampler's attribution fix, and --ci
-## turns the profiler off, so --ci builds for it alone. No LTO: the loops are
+## The calibration is the one pin on the sampler's attribution fix, and --gate
+## turns the profiler off, so --gate builds for it alone. No LTO: the loops are
 ## inlined into one function without it, and the check still fails with the
 ## fix taken out. Its own target dir, so the full profiling build is left as it
 ## is. Offline, since the gate must not need crates.io: the probe says whether
@@ -433,7 +433,7 @@ CROSS_TARGETS=(
 ## platform branches are compiled somewhere. The C header's Windows path had
 ## never been built here, which is how a regression in it reached dev. Same
 ## "label|command" shape as CROSS_TARGETS, minus the artifact. These run under
-## --ci as well, since they are checks rather than artifacts; ci.yml has to
+## --gate as well, since they are checks rather than artifacts; ci.yml has to
 ## install whatever they need, which today means mingw's gcc.
 ## No -Wconversion for mingw: its isfinite and isnan macros convert to float in
 ## the branch they do not take.
@@ -457,19 +457,42 @@ RELEASE_CHECKS=(
 	"x86_64 builds run on x86-64-v1, Penryn and Phenom|mapfile -t x86Arts < <(fX86Arts); cicd/utility/check-cpu-floor.bash --run \"\${RELEASE_NATIVE_BIN}\" \"\${x86Arts[@]}\""
 )
 
+## What --quick leaves out, each matched as plain text against one step of
+## LINT_EXTRA, TEST_EXTRA, the cross lists and RELEASE_CHECKS, or the engine's
+## crosscheck. The slow ones take over a minute each here, cppcheck far more
+## after a C change. govulncheck and cargo-deny fetch their advisory lists.
+## Every cross target is about as quick as a lint step, so all of them build.
+## A bare run and --gate leave nothing out.
+QUICK_SKIP=(
+	'cppcheck'
+	'analyze-c.bash'
+	'govulncheck -C source/go ./'
+	'govulncheck -C source/go/cmd'
+	'cargo deny'
+	'cli-regress.bash'
+	'perf-gate.bash'
+	'shell-regress.bash'
+	'check-migrate.bash'
+	'check-c-compilers.bash'
+	'sanitize-c.bash'
+	'sanitize-rust.bash'
+	'crosscheck.bash'
+	'check-cpu-floor.bash'
+)
+
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored
 
 ## Stage 6b: installer packages over the artifact dir (utility/package.bash):
 ## .deb + .rpm via nfpm per Linux binary, an NSIS setup per Windows binary, all
 ## named into the shcl-<version>-* family so the sha256sums rewrite covers them.
 ## Config template: cicd/packaging/nfpm.yaml; installer script: packaging/shcl.nsi.
-## Off under --ci (no release builds there) and --quick (partial artifact set).
+## Off under --gate (no release builds there) and --quick (installers, not checks).
 PACKAGE_ENABLE=1
 
 ## Stage 7: dogfood. Drop the freshly built native release binary into the first
 ## existing+writable dir below, under EXE_NAME, so the copy you launch by hand is
 ## always current (same fixed path the sister project uses). Only runs when a
-## release binary got built - --ci builds none, so it no-ops there. Empty the list
+## release binary got built - --gate builds none, so it no-ops there. Empty the list
 ## to skip. No sudo: a non-writable dest is passed over, not force-installed.
 ## Not ~/.local/bin: shcl there is the dogfood runner's link and the installer's,
 ## and a plain copy over it would stop both (20260924d idea 1).
@@ -524,7 +547,7 @@ CTR_LINKS=(source/rust/target)
 ## replaces this box's builds. A trailing / marks a dir. The C CLI built on
 ## musl won't run here.
 CTR_PRIVATE=(source/rust/target/ source/rust/target-migrate/ source/c/shcl source/go/shcl)
-## The --ci profiler check builds offline from the cache, and a new cache dir is
+## The --gate profiler check builds offline from the cache, and a new cache dir is
 ## empty. Fetched before the gate, the way a full run here fetches them.
 CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 || cargo fetch --quiet --manifest-path "${MANIFEST}"'
 ## What each extra image runs, on top of the flags passed to cicd.bash. They
@@ -536,7 +559,7 @@ CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 ||
 ##           lacks or test nothing the libc changes. Not strict, so a row that
 ##           wants a tool the image doesn't have, such as pwsh, skips out loud.
 ##           No release builds, since no musl build is released.
-CTR_ARGS_ubuntu=(--ci --no-lint)
+CTR_ARGS_ubuntu=(--gate --no-lint)
 CTR_ARGS_alpine=(--no-fmt --no-lint --no-cross --no-profile --no-release)
 if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then
 	## One gcc, no localedef and no sanitizers on Alpine, and the installer,
@@ -586,3 +609,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-09-26 JC: PROFILE_CHECK_*: --ci runs the calibration on a build without LTO.
 ##		- 2026-10-08 JC: The shell wrappers are retired: out of the lint lists and the dogfood stage.
 ##		- 2026-10-13 JC: CTR_* for --container: the recipe dir, the cache dir, and what each extra image runs.
+##		- 2026-10-19 JC: QUICK_SKIP, the slow steps and the ones that need another host.

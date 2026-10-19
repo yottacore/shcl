@@ -12,7 +12,7 @@
 ##	- Purpose: Local CI/CD pipeline. Generic engine, per-project settings live in config.bash.
 ##	- Stages (fail-fast, any error aborts before the next stage):
 ##	   0. remote sync (fast-forward from upstream before anything is built)
-##	   1. format (in place locally; check-only under --ci)
+##	   1. format (in place locally; check-only under --gate)
 ##	   2. build (debug - what the tests run against)
 ##	   3. lint (project lint + shellcheck of the cicd scripts themselves)
 ##	   4. tests (conformance corpus + fuzz smoke + cross-binding differential check)
@@ -25,13 +25,16 @@
 ##	- Syntax:
 ##	  cicd/cicd.bash [options]
 ##	  Options:
-##	   --ci                correctness gate only: format check (no rewrite), build,
-##	                       lint, tests, cross checks; non-interactive, no
+##	   With no options a run does every stage and every check this box can run.
+##	   --gate              correctness gate only: format check (no rewrite), build,
+##	                       lint, tests, cross checks; strict, non-interactive, no
 ##	                       cross-compiled release artifacts and no publish. This is
 ##	                       what the GitHub workflow runs - one definition of "passing".
-##	   --quick             skip the slow stages: large-document gate, cross-compile,
-##	                       profiler, demo gif; tests run at the shorter fuzz depth
-##	                       when the config has TEST_QUICK_CMD
+##	   --quick             the fast loop: leaves out the slow steps, and the ones
+##	                       that need another host, that config.bash lists in
+##	                       QUICK_SKIP, plus the large-document gate, packages,
+##	                       profiler and demo gif. Tests run at the shorter fuzz
+##	                       depth when the config has TEST_QUICK_CMD
 ##	   -q, --quiet         unattended (no prompt) and quiet: no preflight block,
 ##	                       and cargo, ruff and the gif renderer get their own
 ##	                       quiet flags. Stage headers, results and warnings
@@ -42,7 +45,7 @@
 ##	   --no-fmt            skip the formatter stage
 ##	   --no-lint           skip the lint stage
 ##	   --no-tests          skip the tests stage (crosscheck and large document
-##	                       included) and, under --ci, the profiler calibration
+##	                       included) and, under --gate, the profiler calibration
 ##	   --no-cross          skip the cross-compile targets and the cross checks
 ##	                       (native release still builds)
 ##	   --no-package        skip building installer packages (.deb/.rpm/NSIS setup)
@@ -108,6 +111,7 @@ export CPU_CAP
 ## without touching engine code. All default empty.
 FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); TEST_QUICK_CMD=()
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
+QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
 ## cargo reads CARGO_TERM_QUIET from the environment instead. Empty otherwise.
@@ -126,11 +130,11 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; ci_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0
+assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=()
 while (($#)); do case "$1" in
-	--ci)                     ci_mode=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
+	--gate)                   gate_mode=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
 	-q|--quiet)               quiet=1; assume_yes=1; QUIET_FLAG="-q"; export CARGO_TERM_QUIET=true; shift ;;
 	-y|--yes)                 assume_yes=1; shift ;;
@@ -155,8 +159,8 @@ while (($#)); do case "$1" in
 	*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
 esac; done
 
-## --ci: correctness only, deterministic, side-effect free.
-if ((ci_mode)); then
+## --gate: correctness only, deterministic, side-effect free.
+if ((gate_mode)); then
 	## A gate that quietly skips what it cannot run is a gate that stops
 	## checking when a runner loses a tool. The gates read this and fail on a
 	## skip instead; locally a missing tool is still a skip, since a working
@@ -177,19 +181,40 @@ if ((ci_mode)); then
 else
 	FMT_CHECK_CMD=()    ## locally the formatter rewrites in place instead
 fi
+## --quick: each QUICK_SKIP name is plain text matched against a whole step,
+## so it can name a script, a command or a cross target's label. The
+## crosscheck is the engine's own step, named by its script.
+fQuickSkips(){  ## fQuickSkips STEP -> 0 when a QUICK_SKIP name is in it
+	local pat
+	for pat in "${QUICK_SKIP[@]}"; do
+		if [[ "$1" == *"${pat}"* ]]; then return 0; fi
+	done
+	return 1
+}
+fQuickDrop(){   ## fQuickDrop ARRAY_NAME
+	local -n steps_q7w="$1"
+	local -a kept=()
+	local step
+	for step in "${steps_q7w[@]}"; do
+		if ! fQuickSkips "${step}"; then kept+=("${step}"); fi
+	done
+	steps_q7w=("${kept[@]}")
+}
+xcheck_enable=1
 if ((quick)); then
 	LARGEDOC_MIB=0     ## minutes of parsing; the fast loop is for the small cases
-	CROSS_TARGETS=()
-	PACKAGE_ENABLE=0   ## artifact set is partial without cross targets
+	PACKAGE_ENABLE=0   ## installers, not checks
 	PROFILE_ENABLE=0
 	GIF_ENABLE=0
 	((${#TEST_QUICK_CMD[@]})) && TEST_CMD=("${TEST_QUICK_CMD[@]}")
+	for list in LINT_EXTRA TEST_EXTRA CROSS_CHECKS CROSS_TARGETS RELEASE_CHECKS; do fQuickDrop "${list}"; done
+	if fQuickSkips crosscheck.bash; then xcheck_enable=0; fi
 fi
 
 ## A run at least as thorough as the pre-push hook's records the tree it tested
 ## once the tests and the cross checks pass, and the hook lets a commit with
 ## that tree through. A gate that skips a missing tool locally notes it in
-## SHCL_GATE_SKIPS. Under --ci the same skip is a failure, so a run with
+## SHCL_GATE_SKIPS. Under --gate the same skip is a failure, so a run with
 ## anything noted there records nothing.
 record_green=1
 if ((quick || gate_partial)); then record_green=0; fi
@@ -403,7 +428,7 @@ fi
 ## Preflight: show the plan, then capture the commit message so the rest runs unattended.
 if ((! quiet)); then
 	fEcho_Clean
-	fEcho_Clean "${APP_NAME} $( ((ci_mode)) && echo 'CI gate' || echo 'local CI/CD')"
+	fEcho_Clean "${APP_NAME} $( ((gate_mode)) && echo 'gate' || echo 'local CI/CD')$( ((quick)) && echo ', quick' )"
 	fEcho_Clean
 	fEcho_Clean "Repo root ......: ${root}"
 	fEcho_Clean "Remote sync ....: $( ((sync_enable)) && echo 'fast-forward when behind; abort when diverged' || echo '(skipped)')"
@@ -411,10 +436,10 @@ if ((! quiet)); then
 	if [[ -n "${ctr_image}" ]]; then
 		fEcho_Clean "Container ......: stages 1-6 in the ${ctr_image} image, from ${ctr_recipe}"
 	else
-		fEcho_Clean "Format .........: $( ((ci_mode)) && echo "${FMT_CHECK_CMD[*]:-(none configured)}" || echo "${FMT_CMD[*]:-(skipped)}")$( ((${#FMT_EXTRA[@]} + ${#FMT_CHECK_EXTRA[@]})) && echo "  (+ extras)" )"
+		fEcho_Clean "Format .........: $( ((gate_mode)) && echo "${FMT_CHECK_CMD[*]:-(none configured)}" || echo "${FMT_CMD[*]:-(skipped)}")$( ((${#FMT_EXTRA[@]} + ${#FMT_CHECK_EXTRA[@]})) && echo "  (+ extras)" )"
 		fEcho_Clean "Build (debug) ..: ${BUILD_CMD[*]:-(none configured)}$( ((${#BUILD_EXTRA[@]})) && echo "  (+ ${#BUILD_EXTRA[@]} extra)" )"
 		fEcho_Clean "Lint ...........: ${LINT_CMD[*]:-(none configured)}$( ((${#LINT_EXTRA[@]})) && echo "  (+ ${#LINT_EXTRA[@]} extra)" )  + shellcheck: ${#SHELLCHECK_TARGETS[@]} file(s)"
-		fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: ${#BINDING_CLIS[@]} binding(s)$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
+		fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: $( ((xcheck_enable)) && echo "${#BINDING_CLIS[@]} binding(s)" || echo "(skipped)" )$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
 		fEcho_Clean "Profiler .......: $( ((PROFILE_ENABLE)) && echo "${PROFILE_SECS}s run -> flamegraph SVG -> ${PROFILE_OUT_DIR}/" || echo '(skipped)')"
 		if ((${#RELEASE_NATIVE_CMD[@]})); then
 			fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/$( ((${#RELEASE_CHECKS[@]})) && echo "  + ${#RELEASE_CHECKS[@]} check(s)" )"
@@ -423,6 +448,10 @@ if ((! quiet)); then
 		fi
 		fEcho_Clean "Cross checks ...: $( ((${#CROSS_CHECKS[@]})) && echo "${#CROSS_CHECKS[@]} (no artifact; run whether or not a release is built)" || echo '(skipped)')"
 		fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + NSIS setup (per built binary)' || echo '(skipped)')"
+		if ((quick)) && ((${#QUICK_SKIP[@]})); then
+			_qs="$(printf '%s, ' "${QUICK_SKIP[@]}")"
+			fEcho_Clean "Quick skips ....: ${_qs%, }"
+		fi
 	fi
 	fEcho_Clean "Dogfood ........: $( if ((${#DOGFOOD_FIXED_DESTS[@]})); then _dfd="$(fFirstWritableDir "${DOGFOOD_FIXED_DESTS[@]}")"; [[ -n "$_dfd" ]] && echo "${_dfd}/${EXE_NAME}" || echo '(no writable dest; will skip)'; else echo '(skipped)'; fi )"
 	fEcho_Clean "Demo gif .......: $( ((GIF_ENABLE)) && echo "${GIF_OUT}" || echo '(skipped)')"
@@ -442,9 +471,9 @@ if ((! assume_yes)) && ((${#GIT_PUBLISH[@]})) && [[ -z "$publish_msg" ]]; then
 fi
 
 ## Tee the whole run to a rotated log so warnings can be reviewed later
-## (lint-report.bash reads the newest one). Skipped under --ci (read-only gate),
+## (lint-report.bash reads the newest one). Skipped under --gate (read-only gate),
 ## and in the container, where the run outside already logs all of it.
-if ((! ci_mode)) && ((! in_container)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
+if ((! gate_mode)) && ((! in_container)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
 	gfs_rotate "${root}/${LINT_LOG_DIR}" run log >/dev/null 2>&1 || true
 	exec > >(tee "${root}/${LINT_LOG_DIR}/run_${stamp}.log") 2>&1
 fi
@@ -525,13 +554,13 @@ if [[ -n "${ctr_image}" ]]; then
 		done
 	fi
 else
-	## Whatever the container needs before a run, such as crates the --ci
+	## Whatever the container needs before a run, such as crates the --gate
 	## profiler check reads offline.
 	if ((in_container)) && [[ -n "${CTR_PREP:-}" ]]; then eval "${CTR_PREP}"; fi
 
-	## Stage 1: format. In place locally; check-only (fail on diff) under --ci.
+	## Stage 1: format. In place locally; check-only (fail on diff) under --gate.
 	fSection "1/9  Format"
-	if ((ci_mode)); then
+	if ((gate_mode)); then
 		if ((${#FMT_CHECK_CMD[@]})); then
 			"${FMT_CHECK_CMD[@]}"
 			fRunExtras "${FMT_CHECK_EXTRA[@]}"
@@ -573,8 +602,8 @@ else
 		if command -v shellcheck >/dev/null 2>&1; then
 			shellcheck "${SHELLCHECK_TARGETS[@]}"
 			fEcho "OK: shellcheck clean (${#SHELLCHECK_TARGETS[@]} file(s))"
-		elif ((ci_mode)); then
-			fDie "shellcheck required under --ci but not found"
+		elif ((gate_mode)); then
+			fDie "shellcheck required under --gate but not found"
 		else
 			fEcho "WARNING: shellcheck not installed; skipped"
 			echo shellcheck >> "${SHCL_GATE_SKIPS}"
@@ -595,7 +624,9 @@ else
 	else
 		fEcho_Clean "no tests configured yet"
 	fi
-	if ((${#BINDING_CLIS[@]})); then
+	if ((${#BINDING_CLIS[@]})) && ((! xcheck_enable)); then
+		fEcho_Clean "crosscheck skipped (--quick)"
+	elif ((${#BINDING_CLIS[@]})); then
 		xcheck_extra=()
 		if ((${#BINDING_CLIS[@]} >= 2)) && [[ -n "${XCHECK_GEN:-}" ]]; then
 			export XCHECK_DUMP_DIR="${root}/cicd/artifacts/crosscheck"
@@ -667,9 +698,9 @@ else
 	else
 		fEcho_Clean "profiler skipped"
 		## The calibration alone, on the config's cheaper build, since the graph's
-		## attribution is otherwise unchecked under --ci. It runs offline, and a
+		## attribution is otherwise unchecked under --gate. It runs offline, and a
 		## cache without the sampler's crates is a noted skip rather than a fetch.
-		if ((ci_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); then
+		if ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); then
 			if "${PROFILE_CHECK_PROBE_CMD[@]}" >/dev/null 2>&1; then
 				fEcho_Clean "building: ${PROFILE_CHECK_BUILD_CMD[*]}"
 				"${PROFILE_CHECK_BUILD_CMD[@]}" || fDie "profiler check build failed (app problem)"
@@ -692,7 +723,7 @@ else
 	## compiled here at all, which is exactly how a build-breaking regression in it
 	## reached dev unnoticed. They are checks, not builds, so they run whenever
 	## correctness is gated - they sat inside the release branch below for a month,
-	## which meant --ci, the one run that decides whether a commit reaches main,
+	## which meant the gate, the one run that decides whether a commit reaches main,
 	## compiled none of them.
 	for c in "${CROSS_CHECKS[@]}"; do
 		c_label="${c%%|*}"; c_cmd="${c#*|}"
@@ -700,8 +731,8 @@ else
 		eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
 		fEcho "OK: ${c_label}"
 	done
-	## The record waits for the cross checks, the last gate a --ci run has. It sat at
-	## the end of stage 4 once they moved under --ci, so a run that then failed one
+	## The record waits for the cross checks, the last gate a --gate run has. It sat at
+	## the end of stage 4 once they moved under the gate, so a run that then failed one
 	## had already let its tree through the hook.
 	if [[ -n "${green_tree}" ]]; then
 		if [[ -s "${SHCL_GATE_SKIPS}" ]]; then
@@ -781,7 +812,7 @@ fi
 ## existing+writable fixed dest, under EXE_NAME, so the copy launched by hand stays
 ## current. Each cross-built binary goes to its own per-os-arch dest where one is
 ## configured.
-## Skipped when no release binary was built (e.g. --ci) or the dest list is empty.
+## Skipped when no release binary was built (e.g. --gate) or the dest list is empty.
 ## No sudo: a non-writable dest is passed over with a warning, never force-installed.
 fSection "7/9  Dogfood"
 if ((${#DOGFOOD_FIXED_DESTS[@]})) && [[ -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]]; then
@@ -909,3 +940,4 @@ fEcho_Clean
 ##		- 2026-10-13 JC: --container runs stages 1-6 in a pinned image, and --container=NAME in an extra one. --no-release.
 ##		- 2026-10-16 JC: An extra image's own copies go where their paths lead, files included, with
 ##		  a stand-in for a missing one. --no-tests drops the calibration only under --ci.
+##		- 2026-10-19 JC: --ci is --gate now. --quick runs every step but the ones config's QUICK_SKIP names, cross targets included.

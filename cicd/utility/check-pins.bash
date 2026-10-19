@@ -14,7 +14,7 @@
 ##		its PyPI wheel, whose version (CPPCHECK_WHEEL) is not the binary version
 ##		TOOL_PINS checks, so ci.yml has to name the wheel token and, on a line
 ##		naming cppcheck, the binary version that wheel bundles - bump both.
-##		Also fails when the jobs that run cicd.bash --ci between them leave a
+##		Also fails when the jobs that run cicd.bash --gate between them leave a
 ##		stage out, when one of them runs both lint and tests, when a
 ##		cicd/container recipe installs a pinned tool at another version, and
 ##		when one fetches something it doesn't hash.
@@ -157,7 +157,7 @@ while IFS= read -r named; do
 	((found)) || { echo "check-pins: ci.yml installs ${named} at a pinned version and config.bash has no TOOL_PINS entry for it" >&2; nBad=$((nBad + 1)); }
 done < <(printf '%s\n%s\n%s\n%s\n' "${pipNames}" "${npmNames}" "${goNames}" "${psNames}" | sed '/^$/d' | sort -u)
 
-## The hosted gate is split into parallel jobs, each running cicd.bash --ci
+## The hosted gate is split into parallel jobs, each running cicd.bash --gate
 ## with a flag that leaves one stage out. Between them they have to run every
 ## stage. Only flags that each drop a stage no other flag touches are allowed,
 ## so "some job runs without each flag" is the whole test. --no-largedoc and
@@ -184,9 +184,9 @@ done < <(grep -E -- 'cicd/cicd\.bash' <<<"${liveLines}" || true)
 declare -A flagMissingSomewhere=() flagUsed=()
 for runArgs in "${gateRuns[@]}"; do
 	read -r -a runWords <<<"${runArgs}"
-	hasCi=0
+	hasGate=0
 	for w in "${runWords[@]}"; do
-		if [[ "${w}" == --ci ]]; then hasCi=1; continue; fi
+		if [[ "${w}" == --gate ]]; then hasGate=1; continue; fi
 		known=0
 		for f in "${stageFlags[@]}"; do
 			if [[ "${w}" == "${f}" ]]; then known=1; fi
@@ -194,7 +194,7 @@ for runArgs in "${gateRuns[@]}"; do
 		if ((known)); then flagUsed["${w}"]=1
 		else echo "check-pins: ci.yml runs the gate with ${w}, which may leave out more than one stage:${runArgs}" >&2; nBad=$((nBad + 1)); fi
 	done
-	((hasCi)) || { echo "check-pins: ci.yml runs cicd.bash without --ci:${runArgs}" >&2; nBad=$((nBad + 1)); }
+	((hasGate)) || { echo "check-pins: ci.yml runs cicd.bash without --gate:${runArgs}" >&2; nBad=$((nBad + 1)); }
 	## Lint and tests together were the one job that ran past the 60-minute
 	## limit (2026101011200000), so each job leaves one of them out.
 	if [[ " ${runArgs} " != *" --no-lint "* && " ${runArgs} " != *" --no-tests "* ]]; then
@@ -338,3 +338,4 @@ exit "${rc}"
 ##		  version in a RUN line is held to the pin. In ci.yml too, a file is fetched
 ##		  once and nothing follows its check.
 ##		- 2026-10-16 JC: No hosted job runs both lint and tests.
+##		- 2026-10-19 JC: The hosted jobs run --gate.

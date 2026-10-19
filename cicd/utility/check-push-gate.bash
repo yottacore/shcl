@@ -59,6 +59,7 @@ cp "${root}/cicd/utility/check-banner-tag.bash" "${repo}/cicd/utility/check-bann
 cp "${root}/.gitignore" "${repo}/.gitignore"
 cat > "${repo}/cicd/cicd.bash" <<'EOF'
 #!/usr/bin/env bash
+## --gate) is what the hook looks for in an engine that knows the flag.
 echo "ran ${SHCL_GATE_REF:-}" >> "${STUB_LOG}"
 echo "$*" > "${STUB_LOG}.args"
 echo "${GIT_DIR:-unset}" > "${STUB_LOG}.gitdir"
@@ -147,7 +148,16 @@ grep -qx 'ran main' "${STUB_LOG}" || fail "the hook did not tell the gate it sta
 fTest EqGl8me the hook calls the full gate
 ## 20260918 item 24: the stub ran whatever it was asked to, so the hook could
 ## have called a quick or partial gate and passed here all the same.
-[[ "$(cat "${STUB_LOG}.args")" == "--ci --no-largedoc" ]] || fail "the hook called the gate as: $(cat "${STUB_LOG}.args")"
+[[ "$(cat "${STUB_LOG}.args")" == "--gate --no-largedoc" ]] || fail "the hook called the gate as: $(cat "${STUB_LOG}.args")"
+fTest Et6Ak52 an engine from before --gate is called with --ci
+## 2026101816034794: main's tree keeps an engine that knows only --ci until
+## the next cut, and a docs-only merge to main gates that tree.
+sed -i '/^## --gate) /d' "${repo}/cicd/cicd.bash"
+git -C "${repo}" commit -q -am oldengine
+fPush main "$(git -C "${repo}" rev-parse HEAD)"
+((hookRc == 0 && ran == 1)) && [[ "$(cat "${STUB_LOG}.args")" == "--ci --no-largedoc" ]] \
+	|| fail "the hook called an engine from before --gate as: $(cat "${STUB_LOG}.args"), exit ${hookRc}"
+git -C "${repo}" reset -q --hard "${sha}"
 fTest EqzwPFC the gate builds into target-gate
 ## 20260830 item 5: the gate's worktree got the checkout's own target dir, so
 ## its build baked the worktree's path into the checkout's test binaries.
@@ -407,10 +417,10 @@ else
 	fail "cannot clone ${root} for the installer drift check"
 fi
 
-fTest EqGl8mf only a full --ci run records its tree
+fTest EqGl8mf only a full --gate run records its tree
 ## 20260918 item 24: the runs that must not record, through cicd.bash itself.
 ## A throwaway repository gets the real engine and config with every stage
-## stubbed at the end of the config. A --ci run records its tree; a --quick
+## stubbed at the end of the config. A --gate run records its tree; a --quick
 ## run, a run with a stage left out, and a run whose gate noted a skip do not.
 ## Before this, taking out either hold-back failed nothing.
 eng="${work}/eng"
@@ -420,6 +430,11 @@ cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${eng}/cicd/"
 cp "${root}/cicd/utility/green-tree.bash" "${eng}/cicd/utility/"
 cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
+cat > "${eng}/cicd/utility/crosscheck.bash" <<'EOF'
+#!/usr/bin/env bash
+echo ran > "${STUB_XCHECK}"
+EOF
+chmod +x "${eng}/cicd/utility/crosscheck.bash"
 printf '[package]\nname = "stub"\nversion = "1.0.0"\n' > "${eng}/source/rust/Cargo.toml"
 cat >> "${eng}/cicd/config.bash" <<'CFG'
 ## check-push-gate: every stage stubbed.
@@ -427,9 +442,11 @@ FMT_CMD=(true); FMT_CHECK_CMD=(true); FMT_EXTRA=(); FMT_CHECK_EXTRA=()
 BUILD_CMD=(true); BUILD_EXTRA=()
 LINT_CMD=(true); LINT_EXTRA=(); SHELLCHECK_TARGETS=()
 TEST_CMD=(true); TEST_QUICK_CMD=(true)
-TEST_EXTRA=('if [[ -n "${STUB_SKIP:-}" ]]; then echo stub >> "${SHCL_GATE_SKIPS}"; fi' 'echo "${GIT_DIR:-unset}" > "${STUB_GITDIR:-/dev/null}"')
+TEST_EXTRA=('if [[ -n "${STUB_SKIP:-}" ]]; then echo stub >> "${SHCL_GATE_SKIPS}"; fi' 'echo "${GIT_DIR:-unset}" > "${STUB_GITDIR:-/dev/null}"' 'echo slow > "${STUB_SLOW:-/dev/null}"')
+QUICK_SKIP=(STUB_SLOW crosscheck.bash)
 CROSS_CHECKS=('stub|[[ -z "${STUB_CROSS_FAIL:-}" ]]')
-BINDING_CLIS=(); LARGEDOC_MIB=0; CROSS_TARGETS=(); PROFILE_ENABLE=0; PACKAGE_ENABLE=0; GIF_ENABLE=0
+BINDING_CLIS=(); if [[ -n "${STUB_XCHECK:-}" ]]; then BINDING_CLIS=("stub|true"); fi
+LARGEDOC_MIB=0; CROSS_TARGETS=(); PROFILE_ENABLE=0; PACKAGE_ENABLE=0; GIF_ENABLE=0
 DOGFOOD_FIXED_DESTS=(); GIT_PUBLISH=(); RELEASE_NATIVE_CMD=()
 PROFILE_CHECK_BUILD_CMD=()
 ## The profiler, with a calibration that leaves a file behind when it runs.
@@ -450,36 +467,59 @@ fEngine(){  ## fEngine [VAR=VALUE ...] -- ARGS... -> engRc, engRecorded
 	engRc=0; env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS "${envs[@]}" bash "${eng}/cicd/cicd.bash" "$@" > "${work}/eng.log" 2>&1 || engRc=$?
 	engRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${engTree}"; then engRecorded=1; fi
 }
-fEngine -- --ci
-((engRc == 0 && engRecorded == 1)) || fail "a stubbed --ci run: exit ${engRc}, recorded ${engRecorded}: $(tail -5 "${work}/eng.log")"
-fEngine -- --ci --quick
+fEngine -- --gate
+((engRc == 0 && engRecorded == 1)) || fail "a stubbed --gate run: exit ${engRc}, recorded ${engRecorded}: $(tail -5 "${work}/eng.log")"
+fEngine -- --gate --quick
 ((engRc == 0 && engRecorded == 0)) || fail "a --quick run: exit ${engRc}, recorded ${engRecorded}"
-fEngine -- --ci --no-lint
+fEngine -- --gate --no-lint
 ((engRc == 0 && engRecorded == 0)) || fail "a run with lint left out: exit ${engRc}, recorded ${engRecorded}"
-fEngine -- --ci --no-fmt
+fEngine -- --gate --no-fmt
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the format check left out: exit ${engRc}, recorded ${engRecorded}"
 ## The hosted lint half. Its tests run in the other job, never here.
 rm -f "${work}/eng.notests"
-fEngine STUB_GITDIR="${work}/eng.notests" -- --ci --no-tests
+fEngine STUB_GITDIR="${work}/eng.notests" -- --gate --no-tests
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the tests left out: exit ${engRc}, recorded ${engRecorded}"
 [[ ! -e "${work}/eng.notests" ]] || fail "a --no-tests run still ran the tests stage"
-fEngine STUB_SKIP=1 -- --ci
+fEngine STUB_SKIP=1 -- --gate
 ((engRecorded == 0)) || fail "a run whose gate noted a skip recorded its tree"
 fTest EqjfWm8 a run failing or leaving out the cross checks records nothing
 ## 20260923 item 1: the cross checks are the last gate, so a run failing one
 ## records nothing, and a run leaving them out is partial.
-fEngine STUB_CROSS_FAIL=1 -- --ci
+fEngine STUB_CROSS_FAIL=1 -- --gate
 ((engRc != 0 && engRecorded == 0)) || fail "a run failing a cross check: exit ${engRc}, recorded ${engRecorded}"
-fEngine -- --ci --no-cross
+fEngine -- --gate --no-cross
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the cross checks left out: exit ${engRc}, recorded ${engRecorded}"
+fTest Et6Aueh --quick leaves out what QUICK_SKIP names and nothing else
+## 2026101816034794: the fast loop drops the steps config names as slow. A
+## bare run and the gate keep them.
+fQuick(){  ## fQuick ARGS... -> engRc, slowRan, xcheckRan, otherRan
+	rm -f "${work}/eng.slow" "${work}/eng.xcheck" "${work}/eng.other"
+	fEngine STUB_SLOW="${work}/eng.slow" STUB_XCHECK="${work}/eng.xcheck" STUB_GITDIR="${work}/eng.other" -- "$@"
+	slowRan=0; xcheckRan=0; otherRan=0
+	if [[ -e "${work}/eng.slow" ]]; then slowRan=1; fi
+	if [[ -e "${work}/eng.xcheck" ]]; then xcheckRan=1; fi
+	if [[ -e "${work}/eng.other" ]]; then otherRan=1; fi
+}
+fQuick --gate --quick
+((engRc == 0 && slowRan == 0 && xcheckRan == 0 && otherRan == 1)) || fail "a --quick run: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}, another step ${otherRan}"
+fQuick -y --no-sync --quick
+((engRc == 0 && slowRan == 0 && xcheckRan == 0 && otherRan == 1)) || fail "a local --quick run: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}, another step ${otherRan}"
+fQuick --gate
+((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a --gate run left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
+fQuick -y --no-sync
+((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a run with no flags left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
+fTest Et6Aum5 --ci is an unknown option
+## 2026101816034794: renamed --gate, with no alias.
+fEngine -- --ci
+if ((engRc != 2)) || ! grep -qF 'unknown option: --ci' "${work}/eng.log"; then fail "cicd.bash took --ci: exit ${engRc}: $(tail -2 "${work}/eng.log")"; fi
 fTest EqL1d4D cicd.bash clears GIT_DIR before its gates
 ## 20260918b item 2: a direct run with GIT_DIR exported clears it too.
-fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --ci
+fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --gate
 [[ "$(cat "${work}/eng.gitdir" 2>/dev/null || true)" == unset ]] \
 	|| fail "cicd.bash passed GIT_DIR on to its gates: $(cat "${work}/eng.gitdir" 2>/dev/null || true)"
 fTest EstM5WQ a local --no-tests run still checks the profiler
 ## 2026101514324714: --no-tests dropped the calibration on a local run too, so
-## the flame graph after it was drawn unchecked. Under --ci the calibration
+## the flame graph after it was drawn unchecked. Under --gate the calibration
 ## goes with the tests, which the other hosted job runs.
 fCalibrated(){  ## fCalibrated ARGS... -> engRc, calibrated (1 if the calibration ran)
 	rm -f "${work}/eng.prof"
@@ -490,9 +530,9 @@ fCalibrated -y --no-sync --no-tests
 ((engRc == 0 && calibrated == 1)) || fail "a local --no-tests run drew the flame graph unchecked: exit ${engRc}, calibrated ${calibrated}: $(tail -3 "${work}/eng.log")"
 fCalibrated -y --no-sync
 ((engRc == 0 && calibrated == 1)) || fail "a local run drew the flame graph unchecked: exit ${engRc}, calibrated ${calibrated}"
-fCalibrated --ci
-((engRc == 0 && calibrated == 1)) || fail "a --ci run skipped the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
-fCalibrated --ci --no-tests
+fCalibrated --gate
+((engRc == 0 && calibrated == 1)) || fail "a --gate run skipped the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
+fCalibrated --gate --no-tests
 ((engRc == 0 && calibrated == 0)) || fail "the hosted lint half ran the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
 fTest EstM5os an extra image builds into its own copies and leaves this tree as it was
 ## 2026101514324713: an alpine run left a root-owned target dir where there had
@@ -604,3 +644,4 @@ exit "${rc}"
 ##		  banner, and a tag on a commit at another version.
 ##		- 2026-10-16 JC: A local --no-tests run keeps the profiler calibration, and an
 ##		  extra --container image's mounts leave this tree's builds alone.
+##		- 2026-10-19 JC: --gate in place of --ci, and an engine from before it. --quick leaves out what QUICK_SKIP names.
