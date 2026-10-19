@@ -63,9 +63,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- The code decodes the 2.x escapes in a piece and hands the text to the one emitter. No new machinery.
 			- `check-migrate.bash` drops its allowance for a backslash pair, so the gate compares reads exactly.
 		- A file with no Format line, and no `--from-2x`, could be 3.0, where the backslash is text. Such a piece is kept and counted `Ambiguous`, like `a,b` already is (me).
-		- A quoted name with a backslash pair read as typed under 1.2 and resolved under 2.0, so the file can't say which. It's counted, not guessed (me).
+		- A quoted name with a backslash pair read as typed under 1.2 and resolved under 2.0, so the file can't say which. It's kept as written and counted `Lost`, so the call exits 7 unless `--lossy`, even with `--from-2x` (me).
+		- A selector body gets whatever 2.x did with a backslash there, checked against the pinned 2.x build `7be348d`: converted like a value if 2.x resolved it, left alone if not (me).
 		- Rejected: (a), which keeps a silent wrong answer. (b), which leaves every caller to fix each line by hand, and adds a count to all 4 bindings.
-	- To do: all 4 bindings, value-syntax.md's table and line 592, spec.md's "One change is quiet", and corpus or cli-regress rows for both lines in the report.
+	- To do:
+		- All 4 bindings. In Rust it's `value_edits`, `v2_element_text` and the quoted-name branch of `migrate_line` in lib.rs, then the 3 ports.
+		- `check-migrate.bash`: drop the backslash allowance, and see it go red on the old code.
+		- Docs: value-syntax.md's migrate table and the bullet under it, and spec.md's "One change is quiet" paragraph and the "but for a backslash pair" line in its migrate section.
+		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
 
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
