@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Waiting for testing
 	- Needs local test suite run?: Y. A full `cicd.bash --gate`.
-	- Needs external testing: Y. A hosted run, since both ubuntu jobs in ci.yml call `--gate` now.
+	- Needs external testing: N. Hosted run 39307128325 on dev at `59c6ecfb`: `ci (lint)` and `ci (tests)` green, at 44m45s and 43m33s of their 60-minute limit, up from about 26 and 31.
 	- Priority: High
 	- Opened: 20261018-160347
 	- Opened by: JC
@@ -230,10 +230,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
 	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch covers what it calls (me).
 
+- `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
+	- ID: 2026101911300000
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261019-113000
+	- Opened by: shclwrap
+	- Version and build: Go module at `ea0998fa`, same code on dev at `aa2e3b33`
+	- Steps to reproduce:
+		- Go, `shcl.Upgrade(text, false)` with this text, which 2.0 wrote or a person typed under 2.x:
+			~~~shcl
+			p: "C:\\new"
+			t: C:\temp
+			q: a, b
+			~~~
+	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
+	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
+	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
+	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
+
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
 	- ID: 2026101711273980
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Queued
 	- Priority: Avg
 	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, a whole `--leakcheck` run, a whole `sanitize-rust.bash --miri-all` (hours), and a full run with no flags. Then a hosted run, its windows job included for the Go and Python soaks.
 	- Opened: 20261017-112739
@@ -323,27 +343,53 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: an ASan-built CPython. There's no C extension. The only native calls are Windows-only `ctypes` ones (me).
 	- Decided against: `pip-audit`. The Python binding has no third-party dependencies. Add it when one arrives (me).
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
+	- 20261019, hosted run 39307128325 on dev at `59c6ecfb`: the windows job failed the Python soak `Et01jhM`. Traced memory grew from 28,929,219 bytes at round 6 to 55,877,467 at round 12, and 235,615 objects were in reference cycles, such as `ctypes.c_longdouble` and its bases. Linux is green. The cycles are ctypes classes, so the suspect is `shcl.py`'s windows-only ctypes code building types on each call. Not diagnosed yet. The Go soak passed there.
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 
-- `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
-	- ID: 2026101911300000
+- `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
+	- ID: 2026101807501110
 	- Type: Bug
 	- Status: Queued
-	- Severity: High
-	- Opened: 20261019-113000
-	- Opened by: shclwrap
-	- Version and build: Go module at `ea0998fa`, same code on dev at `aa2e3b33`
+	- Needs local test suite run?: N
+	- Needs external testing: Y. The hosted windows job, for the veneer smoke and Python's test.
+	- Severity: Low
+	- Opened: 20261018-075011
+	- Opened by: 2026101707582803, from clang-tidy's bugprone-easily-swappable-parameters
+	- Related IDs: 2026101707582803
+	- Version and build: dev at `8c33a436`
 	- Steps to reproduce:
-		- Go, `shcl.Upgrade(text, false)` with this text, which 2.0 wrote or a person typed under 2.x:
-			~~~shcl
-			p: "C:\\new"
-			t: C:\temp
-			q: a, b
-			~~~
-	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
-	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
-	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
-	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
+		- `conf.shcl` holds `port: 80` and `host: x`, and `text` is that text.
+		- In C: `shcl_write_backup(text, "conf.shcl", strlen(text), 3, &name, &msg, &why)`.
+	- Incorrect behavior: it returns `SHCL_UPGRADE_OK` and writes a file in the working folder whose name is the config text plus `_backup_YYYYmmDD-HHMMSS_format-v3`. C also reads `len` bytes from the path string, past its end, which ASan reports. Rust, Go, and Python take the file and the text as 2 strings too. A caller that goes on to replace the file has no real backup of it.
+	- Expected behavior: a swapped call is refused and writes nothing.
+	- Reproduced: 20261018, C, at `-O2` and under ASan. The other 3 bindings weren't run.
+	- Possible cause: the file and the text have one type in all 4, and nothing checks that the file is there.
+	- Actual cause: the file and the text are both strings in all 4, and nothing looked at the file before the backup's exclusive create, so a path that named nothing got a backup of its own.
+	- Possible fix: refuse a file that isn't an existing regular file, as `NotFound`, in all 4. The CLI and `upgrade_file` back up a file they have just read. A path type of its own would be the v4 form.
+	- Sweep: `write_file_atomic(path, data)` has the same 2 strings. Swapped, it saves the path to a file named after the text and returns OK, seen in C on 20261018. It creates files on purpose, so the same check doesn't fit there.
+	- Actual fix: `write_backup` in all 4 first checks that the file is there and is a regular file, through the check `upgrade_file` already made, now one helper both call (`check_kept_file`, in each binding's spelling). Nothing there is `NotFound`. A directory or a FIFO is `Io`, with `IsDirectory` or `NotRegular`. Any other failure, such as no search permission, is left to the create, which fails the same way, since the backup goes in the same folder. The C++ veneer wraps the C call, so it refuses too. On windows the C helper now gives `NotFound` for a missing file itself, as the other 3 do. Its `upgrade_file` gave the same through the read. The doc comments in all 4 and the veneer, and spec.md, say so in one line. The C line keeps its suppression, and its reason now says a swap is refused. A path type of its own stays the v4 form.
+	- Branch: `wbswap`
+	- Commit: `e469f1aa`
+	- Test case: `write_backup_refuses_a_swapped_file_and_text`, Rust `Et6Am2s`, Go `Et6Am5j`, Python `Et6Am8z`, and C `Et6AmCW`, which sanitize-c `EoLqLse` runs under ASan. In each, a swapped call in a scratch folder is refused, `NotFound` off windows, and the folder stays empty. A directory is refused as `IsDirectory`. The veneer smoke `EjtkR0S` has the swapped call too.
+	- Swept: `write_file_atomic` stays as it is, since it creates files on purpose and a path naming nothing is its normal case. Every caller of `write_backup`: the 4 CLIs' `migrate --write`, which read the file and check it's unchanged first, `upgrade_file` in all 4, the veneer, and the 4 runners' write-status rows, whose backup into a shut folder still gives `PermissionDenied`. No CLI path reaches the refusal, since each reads the file first, so there is no cli-regress row, and crosscheck has no `write_backup` dimension. design.md and examples.md don't describe `write_backup`.
+	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
+	- Acceptance signoff: Self-closed: a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
+	- Closed: 20261018-170500
+	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `EjtkR0S` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text holds characters windows refuses in a file name, so the read likely fails with another status. Python's `Et6Am8z` passed there.
+
+- perf-gate fails a workload when a load spike lands on it and not on the baseline
+	- ID: 2026101914014130
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261019-140141
+	- Opened by: backlog round 2026-10-19, from a full `--gate` on dev at `aa2e3b33`
+	- Version and build: dev at `aa2e3b33`
+	- Steps to reproduce: run a full `cicd.bash --gate` with the box loaded. This one ran at load 14 to 23.
+	- Incorrect behavior: `FAIL EqAMPEI perf-gate mounts`: Rust took 410 ms against a 345 ms budget, from a 95 ms parse-only baseline. Go, Python, and C ran 2 to 3 times their usual times on the same row and passed. 2 runs of perf-gate alone right after passed, Rust `mounts` at 100 and 102 ms. Earlier gate logs have it at 80 to 110 ms.
+	- Expected behavior: a gate that's linear passes whatever the load. A real slowdown still fails.
+	- Possible cause: the baseline is taken once per binding before the workloads, and each workload is best of 2. A spike that covers both runs of a workload and not the baseline breaks the 3x ratio.
+	- Possible fix: time the baseline next to each workload, or run a failing workload and its baseline again before calling it. Memory.md's perf-gate note prefers a count to a clock where one fits.
 
 - `edits_and_merges_match_a_reload` fails when its 2 setter notes land a second apart on the real clock
 	- ID: 2026101912125490
@@ -400,36 +446,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: before the fix, `cli-regress.bash` over the 4 CLIs failed `EsEvmLE` on all 4 under pwsh 7.4.6 with the line number dropped. After it, the whole suite passed under 7.4.6 and under 7.6.6 (3699 checks). With the old awk blanking put back into the new pass, it failed all 4 under 7.6.6. `shell-regress.bash`, `shellcheck` over the cicd list, and `test-ids.py check` passed.
 	- Acceptance signoff: Self-closed: reproduced, failed before the fix and passes after under both pwsh versions, and swept.
 	- Closed: 20261019-073800
-
-- `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
-	- ID: 2026101807501110
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: N
-	- Needs external testing: N. Rust, Go, and C ran for windows under wine. The hosted windows job runs Python's on its next run.
-	- Severity: Low
-	- Opened: 20261018-075011
-	- Opened by: 2026101707582803, from clang-tidy's bugprone-easily-swappable-parameters
-	- Related IDs: 2026101707582803
-	- Version and build: dev at `8c33a436`
-	- Steps to reproduce:
-		- `conf.shcl` holds `port: 80` and `host: x`, and `text` is that text.
-		- In C: `shcl_write_backup(text, "conf.shcl", strlen(text), 3, &name, &msg, &why)`.
-	- Incorrect behavior: it returns `SHCL_UPGRADE_OK` and writes a file in the working folder whose name is the config text plus `_backup_YYYYmmDD-HHMMSS_format-v3`. C also reads `len` bytes from the path string, past its end, which ASan reports. Rust, Go, and Python take the file and the text as 2 strings too. A caller that goes on to replace the file has no real backup of it.
-	- Expected behavior: a swapped call is refused and writes nothing.
-	- Reproduced: 20261018, C, at `-O2` and under ASan. The other 3 bindings weren't run.
-	- Possible cause: the file and the text have one type in all 4, and nothing checks that the file is there.
-	- Actual cause: the file and the text are both strings in all 4, and nothing looked at the file before the backup's exclusive create, so a path that named nothing got a backup of its own.
-	- Possible fix: refuse a file that isn't an existing regular file, as `NotFound`, in all 4. The CLI and `upgrade_file` back up a file they have just read. A path type of its own would be the v4 form.
-	- Sweep: `write_file_atomic(path, data)` has the same 2 strings. Swapped, it saves the path to a file named after the text and returns OK, seen in C on 20261018. It creates files on purpose, so the same check doesn't fit there.
-	- Actual fix: `write_backup` in all 4 first checks that the file is there and is a regular file, through the check `upgrade_file` already made, now one helper both call (`check_kept_file`, in each binding's spelling). Nothing there is `NotFound`. A directory or a FIFO is `Io`, with `IsDirectory` or `NotRegular`. Any other failure, such as no search permission, is left to the create, which fails the same way, since the backup goes in the same folder. The C++ veneer wraps the C call, so it refuses too. On windows the C helper now gives `NotFound` for a missing file itself, as the other 3 do. Its `upgrade_file` gave the same through the read. The doc comments in all 4 and the veneer, and spec.md, say so in one line. The C line keeps its suppression, and its reason now says a swap is refused. A path type of its own stays the v4 form.
-	- Branch: `wbswap`
-	- Commit: `e469f1aa`
-	- Test case: `write_backup_refuses_a_swapped_file_and_text`, Rust `Et6Am2s`, Go `Et6Am5j`, Python `Et6Am8z`, and C `Et6AmCW`, which sanitize-c `EoLqLse` runs under ASan. In each, a swapped call in a scratch folder is refused, `NotFound` off windows, and the folder stays empty. A directory is refused as `IsDirectory`. The veneer smoke `EjtkR0S` has the swapped call too.
-	- Swept: `write_file_atomic` stays as it is, since it creates files on purpose and a path naming nothing is its normal case. Every caller of `write_backup`: the 4 CLIs' `migrate --write`, which read the file and check it's unchanged first, `upgrade_file` in all 4, the veneer, and the 4 runners' write-status rows, whose backup into a shut folder still gives `PermissionDenied`. No CLI path reaches the refusal, since each reads the file first, so there is no cli-regress row, and crosscheck has no `write_backup` dimension. design.md and examples.md don't describe `write_backup`.
-	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
-	- Acceptance signoff: Self-closed: a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
-	- Closed: 20261018-170500
 
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
