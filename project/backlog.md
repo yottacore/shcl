@@ -36,30 +36,43 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
 	- ID: 2026101911300000
 	- Type: Bug
-	- Status: Waiting for answers
+	- Status: Queued
 	- Severity: High
 	- Opened: 20261019-113000
 	- Opened by: shclwrap
 	- Version and build: Go module at `ea0998fa`, same code on dev at `aa2e3b33`
 	- Steps to reproduce:
 		- Go, `shcl.Upgrade(text, false)` with this text, which 2.0 wrote or a person typed under 2.x:
+
 			~~~shcl
 			p: "C:\\new"
 			t: C:\temp
 			q: a, b
 			~~~
+
 	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
 	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
 	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
 	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
 	- Question: the quiet change is JC's 2026-10-05 answer, in value-syntax.md ("A 2.x backslash is left as written, and reads literally") and spec.md ("One change is quiet"). Which way? (a) Keep it, and say in the `Upgrade` doc comments that the counts don't cover it. (b) Keep the text as written, and report each such line, such as a hint on the CLI and a count or list on the result in all 4 bindings. (c) Write the value 2.x read in the current syntax, such as `"C:\new"` and `"C:◉TAB◉emp"`, which reverses the 2026-10-05 answer and fits "never damage a correct file at exit 0" (JC, 2026-10-15).
+		- JC, 20261019: whichever fits the Objectives best, in order.
+	- Decisions:
+		- (c). `upgrade` and `migrate` write the value 2.x read, in the current syntax. So `"C:\\new"` becomes `"C:\new"` and `t: C:\temp` becomes `t: "C:◉TAB◉emp"` (me, on JC's criteria).
+			- An upgrade that keeps what a file means is what a user expects, and it's what other format migrators do.
+			- The 2026-10-05 answer came before JC's 2026-10-15 rule. With it, a program calling `Upgrade` sees a clean result while values changed, and has no way to catch it.
+			- The code decodes the 2.x escapes in a piece and hands the text to the one emitter. No new machinery.
+			- `check-migrate.bash` drops its allowance for a backslash pair, so the gate compares reads exactly.
+		- A file with no Format line, and no `--from-2x`, could be 3.0, where the backslash is text. Such a piece is kept and counted `Ambiguous`, like `a,b` already is (me).
+		- A quoted name with a backslash pair read as typed under 1.2 and resolved under 2.0, so the file can't say which. It's counted, not guessed (me).
+		- Rejected: (a), which keeps a silent wrong answer. (b), which leaves every caller to fix each line by hand, and adds a count to all 4 bindings.
+	- To do: all 4 bindings, value-syntax.md's table and line 592, spec.md's "One change is quiet", and corpus or cli-regress rows for both lines in the report.
 
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
 	- Status: Waiting for testing
 	- Priority: Avg
-	- Needs local test suite run?: a full run with no flags, which waits on the `--miri-all` question in 2026101711273980.
+	- Needs local test suite run?: a full run with no flags.
 	- Opened: 20261017-075828
 	- Opened by: JC
 	- Related IDs: 2026101711273980
@@ -170,6 +183,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Only oom_hook.c, oom_recover.c and soak.c can be split. main.c, conformance.c, mem_bounds.c and the veneer smoke use the library's own types and static functions, so they're listed and left whole. That leaves no C++ for the cross-file pass.
 			- The cross-file pass found 2 real things in soak.c while it was new: a NULL handed to qsort for an empty corpus, and a leak on the early return. Both fixed. The per-file pass reports the same 2. With the whole library in each program's one file, the per-file pass already follows every call the cross-file one does.
 			- Question: keep `--ctu`, when the per-file pass already sees what it sees on this tree? It costs 17 s. It would matter once a program is split across files or the library stops being header-only.
+				- JC, 20261019: keep it.
 			- `soak-c.bash` with `source/c/tests/soak.c`: the C soak, a plain build under heaptrack. Each round is the Rust soak's: load, read, set, save, keep-lines save, merge, and validate over the 206 corpus cases. It judges glibc's bytes in use (`mallinfo2`) at round 3 against round 6, with a 4 KiB margin (`Et9t3AU`). The heap is flat from round 2 on, plain or under heaptrack. A bait build that grows one document every round has to fail (`Et9t3ED`). heaptrack's data and its printed report go in `cicd/artifacts/soak/` with the round table (`Et9t3I4`). An ASan build or another libc skips, since glibc's counts can't see the heap there. About 22 s in the build image.
 			- soak.c is a test .c file, so analyze-c's every-run gcc and clang passes take it too. analyze-c took 197 s with it, at load 25 to 30, against 150 to 182 s before.
 			- `sanitize-c.bash --glibcxx-debug`: the veneer smoke with `-D_GLIBCXX_DEBUG` on top of ASan, UBSan, and `SHCL_ARENA_MALLOC`, in a build dir of its own (`Et9t3ab`). A bait that steps an iterator past a vector's end has to be stopped (`Et9t3Wv`). That bait passes under ASan with `_GLIBCXX_ASSERTIONS`. 56 s.
@@ -203,6 +217,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Each language's standard `security-and-quality` suite, with nothing added or taken out (me).
 		- The scan covers `source/`: the 4 bindings, the CLIs, and their tests. The pipeline's own Python scripts stay out, as tooling (me).
 		- Platform code is analyzed as the Linux build sees it. Go files behind other platforms' build tags are named and skipped, and the Windows branches in C and Rust aren't compiled. There's no Windows pass (me).
+			- JC, 20261019: add a windows pass for Go. It extracts with `GOOS=windows` and judges only the files the Linux pass leaves out (`EtBmwWo`, `EtBmwbF`, `EtBmwfq`). C and Rust stay Linux only.
 	- 20261019, tests on dev at `aa2e3b33`: a full `--gate` passed, analyze-c and the exhaustive cppcheck included. `analyze-c --ctu`, `soak-c`, `sanitize-c --glibcxx-debug`, and `codeql-scan` passed one after another, the 4 `--leakcheck` steps before `--miri-all`. Hosted run 39307128325: both ubuntu jobs green. Its windows job failed the veneer smoke on 2026101807501110's new check, which isn't this item's.
 	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
 	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
@@ -284,6 +299,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- It runs Miri again over the tests the plain Miri run in TEST_EXTRA already took, about 100 s more on hours. Not worth a second list to save.
 			- `--only=REGEX` runs Miri over just the tests whose names match, to rerun one or try the mode out.
 			- Question: a run with no flags now takes hours longer, since `--miri-all` alone was likely several hours when it was stopped at 72 of 155 tests. Keep it in the bare run, or move it behind `--leakcheck` alone?
+				- JC, 20261019: it stays in the bare run.
 			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for 29 minutes. Stopped there, short of its result.
 			- Needs local test suite run: a whole `--miri-all`, and a full run with no flags.
 		- 20261019, branch `codeql`, CodeQL: `cicd/utility/codeql-scan.bash` covers all 5 languages. The step, its tests and the decisions are on 2026101707582803.
