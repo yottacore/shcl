@@ -325,6 +325,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 
+- `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
+	- ID: 2026101911300000
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261019-113000
+	- Opened by: shclwrap
+	- Version and build: Go module at `ea0998fa`, same code on dev at `aa2e3b33`
+	- Steps to reproduce:
+		- Go, `shcl.Upgrade(text, false)` with this text, which 2.0 wrote or a person typed under 2.x:
+			~~~shcl
+			p: "C:\\new"
+			t: C:\temp
+			q: a, b
+			~~~
+	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
+	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
+	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
+	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
+
 - `edits_and_merges_match_a_reload` fails when its 2 setter notes land a second apart on the real clock
 	- ID: 2026101912125490
 	- Type: Bug
