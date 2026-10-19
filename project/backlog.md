@@ -243,6 +243,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261019, on this box.
 	- Actual cause: without `-DateKind` the check blanks jq's value column with awk's `$2 = "-"`. An empty value leaves 2 spaces in jq's line, so awk reads the line number as `$2`, overwrites it, and drops it from the line.
 	- Possible fix: blank the column by its position in jq's output, not by awk's field split, or drop the 7.4 path and require `-DateKind`.
+	- 20261019: the 7.4.1 install on this box is removed, so `pwsh` is 7.6 here. The bug stays, since another host may still have 7.4.
 	- Test case: planned. Run the row under a pwsh with no `-DateKind`, and under 7.6.
 
 - Updates to CICD script flags
