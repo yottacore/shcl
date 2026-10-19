@@ -82,7 +82,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Started
 	- Priority: Avg
-	- Needs local test suite run?: a full `--gate` with analyze-c in the lint stage, and the exhaustive cppcheck over the C changes. Then a hosted run. The `--leakcheck` half is still to do.
+	- Needs local test suite run?: a full `--gate` with analyze-c in the lint stage, and the exhaustive cppcheck over the C changes. Then a hosted run. CodeQL is still to do, and then a whole `--leakcheck` run.
 	- Opened: 20261017-075828
 	- Opened by: JC
 	- Related IDs: 2026101711273980
@@ -187,8 +187,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- multi-level-implicit-pointer-conversion, 9 sites on 7 lines: a pointer array handed whole to `realloc`, `memset`, `free`, and `qsort`, and a string array kept as `void *` in `WDefault` and cast back. None is a `T**` where a `T*` was meant. All 7 lines suppressed.
 			- Verified: with one `NOLINT` of each check taken out, analyze-c's `Et09atx` went red naming all 3, and passed again with the file restored. analyze-c, sanitize-c, check-c-compilers, check-veneer, the C conformance runner (206 cases), the veneer smoke, oom_hook, oom_recover, mem_bounds, the mingw compile, cli-regress over C (612 rows), `test-ids.py check`, check-docs, and shellcheck pass.
 			- Needs local test suite run: the exhaustive cppcheck over shcl.h, though the change is comments only.
+		- 20261019, branch `leakflag`, the `--leakcheck` half but CodeQL:
+			- `--leakcheck` in cicd.bash, shared with 2026101711273980. It runs config.bash's `LEAKCHECK_STEPS` at the end of the tests stage. A run with no flags runs them, `--gate` and `--quick` leave them out, `--leakcheck` adds them back, and `--no-tests` drops them. CodeQL joins that list. `Et9t3dc` in check-push-gate checks all 6 cases on a stubbed engine.
+			- `analyze-c.bash --ctu`: the clang analyzer in its cross-file mode. Each program is split in 2, its own code and the library compiled with what the program defines before the include, so its calls into the library cross a file. A leak and a null dereference the per-file pass misses have to be reported first (`Et9t3Ll`). The real run is `Et9t3PQ`, 17 s here.
+			- Only oom_hook.c, oom_recover.c and soak.c can be split. main.c, conformance.c, mem_bounds.c and the veneer smoke use the library's own types and static functions, so they're listed and left whole. That leaves no C++ for the cross-file pass.
+			- The cross-file pass found 2 real things in soak.c while it was new: a NULL handed to qsort for an empty corpus, and a leak on the early return. Both fixed. The per-file pass reports the same 2. With the whole library in each program's one file, the per-file pass already follows every call the cross-file one does.
+			- Question: keep `--ctu`, when the per-file pass already sees what it sees on this tree? It costs 17 s. It would matter once a program is split across files or the library stops being header-only.
+			- `soak-c.bash` with `source/c/tests/soak.c`: the C soak, a plain build under heaptrack. Each round is the Rust soak's: load, read, set, save, keep-lines save, merge, and validate over the 206 corpus cases. It judges glibc's bytes in use (`mallinfo2`) at round 3 against round 6, with a 4 KiB margin (`Et9t3AU`). The heap is flat from round 2 on, plain or under heaptrack. A bait build that grows one document every round has to fail (`Et9t3ED`). heaptrack's data and its printed report go in `cicd/artifacts/soak/` with the round table (`Et9t3I4`). An ASan build or another libc skips, since glibc's counts can't see the heap there. About 22 s in the build image.
+			- soak.c is a test .c file, so analyze-c's every-run gcc and clang passes take it too. analyze-c took 197 s with it, at load 25 to 30, against 150 to 182 s before.
+			- `sanitize-c.bash --glibcxx-debug`: the veneer smoke with `-D_GLIBCXX_DEBUG` on top of ASan, UBSan, and `SHCL_ARENA_MALLOC`, in a build dir of its own (`Et9t3ab`). A bait that steps an iterator past a vector's end has to be stopped (`Et9t3Wv`). That bait passes under ASan with `_GLIBCXX_ASSERTIONS`. 56 s.
+			- heaptrack 1.5.0, and clang-tools 19 for `clang-extdef-mapping`, are in TOOL_PINS, the main Dockerfile, and ci.yml. ci.yml installs heaptrack as `heaptrack=1.5.0*`, so check-pins takes apt's `=` as a joiner. Both scripts start the build image through `fCtrRunSelf` in `include/ctr-image.bash` now, moved out of analyze-c.
+			- Verified: `analyze-c.bash --ctu` green here with clang 19.1.7. analyze-c green through the rebuilt image with soak.c in it, and soak-c green through it. `sanitize-c.bash --glibcxx-debug` green. The first 3 `LEAKCHECK_STEPS` strings, run the way the engine runs them, passed in 97 s. check-push-gate, check-pins, shell-regress, shellcheck over all 46 files, `test-ids.py check`, and markdownlint-cli2 pass. check-docs passes but for its installer row, which fails on dev too until install-dev.bash goes to main.
+			- check-docs reads 100 lines for the SPDX and copyright headers now, up from 80, since cicd.bash's help grew past 80. It went red at 80.
+			- Verified: each plant went red, then was restored by copy. The cross-file mode turned off failed `Et9t3Ll` and `Et9t3PQ`, with nothing loaded from the library's file. soak.c's 2 findings failed `Et9t3PQ` before the fix. A static list in `shcl_parse` that grows by a block a call failed the soak, 9216 bytes over 3 rounds, while the corpus runner and every CLI run passed under LSan with it. The bait's growth turned off failed `Et9t3ED`. An iterator stepped past the end in the veneer smoke failed `Et9t3ab` and passed under ASan with `_GLIBCXX_ASSERTIONS`. An engine that keeps the steps under `--gate` and `--quick`, one where `--leakcheck` does nothing, and one that never runs the list each failed `Et9t3dc`. check-pins went red with heaptrack or clang-tools dropped from ci.yml, and with another heaptrack version in the Dockerfile.
+			- Needs local test suite run: a whole `--leakcheck` run, once CodeQL joins it, and a full run with no flags, which now takes hours (2026101711273980).
 	- Decisions:
 		- Vendored code is included in the analyses (JC, 2026-10-17).
+		- JC, 20261018: a run with no flags does everything, the `--leakcheck` steps included, and `--gate` and `--quick` leave them out.
+		- The leak checks run last in the tests stage, so every quicker check reports first (me).
+		- The C soak judges glibc's own count of the bytes in use, read by the program between rounds. heaptrack's report is for reading, since it has no per-round figure (me).
+		- `--ctu` splits only the programs that keep to the public calls, and lists the rest with the reason (me).
 	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
 	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
 	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch covers what it calls (me).
@@ -198,7 +216,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Started
 	- Priority: Avg
-	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, and a hosted run, its windows job included for the Go and Python soaks. CodeQL and `--leakcheck`, with `sanitize-rust.bash --miri-all` under it, are still to do.
+	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, and a hosted run, its windows job included for the Go and Python soaks. A whole `sanitize-rust.bash --miri-all`, hours. CodeQL is still to do.
 	- Opened: 20261017-112739
 	- Opened by: JC
 	- Related IDs: 2026101707582803
@@ -264,6 +282,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: the Go plain and `-race` suites, vet and staticcheck on the library for linux and windows, `TestReadsFromSeveralGoroutines` under `-race` in the alpine image, so musl has the race detector, the Python runner and soak, cli-regress over the Rust and Python CLIs, ruff, mypy, test-ids check, check-docs, shell-regress, shellcheck.
 			- Needs local test suite run: a full run, with the new test lines in place. Needs external testing: the hosted windows job, for the Go soak and for the Python runner and soak in win-runners.
 			- Fixed: a failed try in Python's `write_file_atomic` and `_windows_publish_file` kept the caught `OSError`, whose traceback holds the frame, so the two were a cycle until the next collection. On windows, a save that waits out a brief hold could fail the soak's cycle check. Both keep the error without its traceback now, so that way no frame from `shcl.py` is left in a cycle after the runner.
+		- 20261019, branch `leakflag`, `--leakcheck` but CodeQL:
+			- `--leakcheck` is in cicd.bash, shared with 2026101707582803, and runs config.bash's `LEAKCHECK_STEPS` at the end of the tests stage. `sanitize-rust.bash --miri-all` is the last of them. A run with no flags runs it, and `--gate` and `--quick` leave it out unless `--leakcheck` is given (JC, 20261018).
+			- It runs Miri again over the tests the plain Miri run in TEST_EXTRA already took, about 100 s more on hours. Not worth a second list to save.
+			- `--only=REGEX` runs Miri over just the tests whose names match, to rerun one or try the mode out.
+			- Question: a run with no flags now takes hours longer, since `--miri-all` alone was likely several hours when it was stopped at 72 of 155 tests. Keep it in the bare run, or move it behind `--leakcheck` alone?
+			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for 29 minutes. Stopped there, short of its result.
+			- Needs local test suite run: a whole `--miri-all`, and a full run with no flags.
+	- Decisions:
+		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
 	- Decided against: `goleak`. The Go library starts no goroutines, and `goleak` would be the library module's first dependency. The `NumGoroutine` check in `TestMain` does the same job here (me).
 	- Decided against: Go's `-asan` and `-msan`. They only check cgo code, and the Go binding has none (me).
 	- Decided against: Rust ThreadSanitizer. The library starts no threads. The only `thread::spawn` calls are in Windows tests, and safe Rust's `Send` and `Sync` rules cover sharing (me).

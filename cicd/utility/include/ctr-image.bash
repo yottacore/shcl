@@ -12,6 +12,14 @@
 ##			fCtrTag DIR NAME        the tag for that context: a hash of its files,
 ##			                        so an edit to any of them means a new image.
 ##			                        NAME is main or an extra image's name.
+##			fCtrRunSelf WORK RW SCRIPT [ARG...]
+##			                        run SCRIPT in the main image, built first if
+##			                        it isn't here, with no network, as the
+##			                        caller's uid. The repo goes in read only at its
+##			                        own path; WORK, a scratch dir, and RW, a dir
+##			                        under the repo or empty, are all it writes.
+##			                        SHCL_IN_IMAGE=1 tells the script where it is.
+##			                        Returns the script's exit, or 2.
 ##	History: At bottom of script.
 
 ##	Copyright (c) 2026 Bubbles
@@ -38,6 +46,31 @@ fCtrTag(){
 		"$(cd "${ctx}" && for f in "${ctxFiles[@]}"; do echo "${f}"; cat "${f}"; done | git hash-object --stdin | cut -c1-12)"
 }
 
+fCtrRunSelf(){
+	local engine="${SHCL_DOCKER:-docker}" work="$1" rw="$2" ctx tag rc=0
+	local -a rwMount=()
+	shift 2
+	ctx="${work}/ctx"; mkdir -p "${ctx}" "${work}/in"
+	fCtrContext "${CTR_DIR:-cicd/container}/Dockerfile" "${ctx}" || { echo "${1##*/}: could not copy the build image's context" >&2; return 2; }
+	tag="$(fCtrTag "${ctx}" main)"
+	if ! "${engine}" image inspect "${tag}" >/dev/null 2>&1; then
+		echo "${1##*/}: building ${tag}, which takes several minutes the first time"
+		"${engine}" build -q -t "${tag}" "${ctx}" >/dev/null || { echo "${1##*/}: could not build ${tag}" >&2; return 2; }
+	fi
+	## Docker would make a missing mount point as root, inside a read-only mount.
+	if [[ -n "${rw}" ]]; then
+		mkdir -p "${rw}" || return 2
+		rwMount=(-v "${rw}:${rw}")
+	fi
+	"${engine}" run --rm --init --network none --user "$(id -u):$(id -g)" \
+		-v "${root}:${root}:ro" -v "${work}/in:${work}/in" "${rwMount[@]}" -w "${root}" \
+		-e SHCL_IN_IMAGE=1 -e "CPU_CAP=${CPU_CAP:-}" -e "TMPDIR=${work}/in" -e "HOME=${work}/in" \
+		-e "SHCL_GATE_STRICT=${SHCL_GATE_STRICT:-}" \
+		"${tag}" bash "$@" || rc=$?
+	return "${rc}"
+}
+
 
 ##	History:
 ##		- 2026-10-17 JC: Created, out of cicd.bash, so a gate can find the image.
+##		- 2026-10-19 JC: fCtrRunSelf, out of analyze-c.bash, for the soak too.

@@ -15,11 +15,13 @@
 ##		  why. Tests that walk the whole corpus or fuzz take minutes each there,
 ##		  so they're marked too and only run under --miri-all.
 ##	Syntax:
-##		sanitize-rust.bash [--asan] [--miri] [--miri-all]
-##		  --asan      the whole suite under ASan and LSan
-##		  --miri      Miri over every test but the slow ones
-##		  --miri-all  Miri over every test it can run. Hours, so it's for
-##		              --leakcheck, not the full run.
+##		sanitize-rust.bash [--asan] [--miri] [--miri-all] [--only=REGEX]
+##		  --asan        the whole suite under ASan and LSan
+##		  --miri        Miri over every test but the slow ones
+##		  --miri-all    Miri over every test it can run. Hours, so it's in
+##		                --leakcheck, and a run with no flags.
+##		  --only=REGEX  Miri over only the tests whose names match, to rerun
+##		                one or try the mode out
 ##		  No option means --asan --miri, which is the full run's share.
 ##		CPU_CAP in the environment sets the jobs and test threads (default half
 ##		the cores).
@@ -42,12 +44,13 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${root}"
 manifest=source/rust/Cargo.toml
 
-doAsan=0; doMiri=0; miriAll=0
+doAsan=0; doMiri=0; miriAll=0; only=""
 for arg in "$@"; do
 	case "${arg}" in
 		--asan)     doAsan=1 ;;
 		--miri)     doMiri=1 ;;
 		--miri-all) doMiri=1; miriAll=1 ;;
+		--only=?*)  only="${arg#--only=}" ;;
 		*) echo "sanitize-rust: unknown option: ${arg}" >&2; exit 2 ;;
 	esac
 done
@@ -138,7 +141,9 @@ if ((doMiri)); then
 			env "${miriEnv[@]}" "${miriCargo[@]}" ${sel} -- --list >"${work}/list" 2>&1 || true
 			nListed=0
 			while IFS= read -r t; do
-				jobSel+=("${sel}"); jobTest+=("${t}"); nListed=$((nListed + 1))
+				nListed=$((nListed + 1))
+				if [[ -n "${only}" && ! "${t}" =~ ${only} ]]; then continue; fi
+				jobSel+=("${sel}"); jobTest+=("${t}")
 			done < <(sed -n 's/: test$//p' "${work}/list")
 			if ((nListed == 0)); then
 				cat "${work}/list"
@@ -146,6 +151,10 @@ if ((doMiri)); then
 				nBad=$((nBad + 1))
 			fi
 		done
+		if [[ -n "${only}" ]] && ((${#jobTest[@]} == 0)); then
+			echo "sanitize-rust: no test matches ${only}" >&2
+			nBad=$((nBad + 1))
+		fi
 		nLive=0
 		for i in "${!jobTest[@]}"; do
 			if ((nLive >= cap)); then
@@ -175,3 +184,4 @@ echo "sanitize-rust: OK: nothing reported"
 
 ##	History:
 ##		- 2026-10-17 JC: Created.
+##		- 2026-10-19 JC: --only, and --miri-all is a --leakcheck step.

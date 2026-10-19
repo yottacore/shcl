@@ -103,11 +103,13 @@ jobs:
           ## with the Go tools below.
           ## check-doc-examples runs the man page's jq example. The image has
           ## jq today; named here so a skip can't start failing the gate.
-          ## The last four are for analyze-c: gcc, clang and clang-tidy by the
-          ## majors in TOOL_PINS, with Ubuntu's apt fixing the point release,
-          ## and g++ at gcc's major, since clang takes the C++ headers of the
-          ## newest gcc it finds and fails without them.
-          sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19
+          ## gcc, g++, clang and clang-tidy are for analyze-c: by the majors in
+          ## TOOL_PINS, with Ubuntu's apt fixing the point release, and g++ at
+          ## gcc's major, since clang takes the C++ headers of the newest gcc
+          ## it finds and fails without them. clang-tools and heaptrack are for
+          ## the --leakcheck steps, which the gate doesn't run; they're here so
+          ## the image and this job keep the same tools.
+          sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19 clang-tools-19 'heaptrack=1.5.0*'
           pip install ruff==0.15.22 mypy==2.3.0 cppcheck==1.5.1 build==1.5.0 pillow==11.1.0
           npm install -g markdownlint-cli2@0.23.1
           pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser'

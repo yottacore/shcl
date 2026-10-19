@@ -20,6 +20,10 @@
 cSanFlags=(-O1 -g "-fsanitize=address,undefined" -fno-sanitize-recover=all -fno-omit-frame-pointer -Wall -Wextra -Werror -Isource/c)
 ## TSan can't share a build with ASan.
 cTsanFlags=(-O1 -g -fsanitize=thread -Wall -Wextra -Werror -Isource/c)
+## libstdc++'s debug mode, on top of cSanFlags, for sanitize-c.bash
+## --glibcxx-debug. It checks each iterator against its container, which
+## _GLIBCXX_ASSERTIONS doesn't, and it changes the ABI, so it builds alone.
+cDebugStlFlags=(-D_GLIBCXX_DEBUG -DSHCL_ARENA_MALLOC)
 
 ## NAME|COMPILER|STD|SOURCE|EXTRA FLAGS. SHCL_ARENA_MALLOC gives each arena
 ## request a malloc of its own, so ASan sees inside what is one block in a
@@ -39,3 +43,4 @@ cSanBuilds=(
 
 ##	History:
 ##		- 2026-10-17 JC: Created, out of sanitize-c.bash, for the compile database.
+##		- 2026-10-19 JC: cDebugStlFlags.

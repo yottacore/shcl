@@ -32,9 +32,14 @@
 ##	                       what the GitHub workflow runs - one definition of "passing".
 ##	   --quick             the fast loop: leaves out the slow steps, and the ones
 ##	                       that need another host, that config.bash lists in
-##	                       QUICK_SKIP, plus the large-document gate, packages,
-##	                       profiler and demo gif. Tests run at the shorter fuzz
-##	                       depth when the config has TEST_QUICK_CMD
+##	                       QUICK_SKIP, plus the large-document gate, the leak
+##	                       checks, packages, profiler and demo gif. Tests run at
+##	                       the shorter fuzz depth when the config has
+##	                       TEST_QUICK_CMD
+##	   --leakcheck         the slow leak and memory checks config.bash lists in
+##	                       LEAKCHECK_STEPS, at the end of the tests stage, for
+##	                       a --gate or --quick run, which leaves them out. A run
+##	                       with no flags has them already. Some take hours
 ##	   -q, --quiet         unattended (no prompt) and quiet: no preflight block,
 ##	                       and cargo, ruff and the gif renderer get their own
 ##	                       quiet flags. Stage headers, results and warnings
@@ -110,6 +115,7 @@ export CPU_CAP
 ## second binding (Go, C, ...) adds its fmt/build/lint/test commands in config
 ## without touching engine code. All default empty.
 FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); TEST_QUICK_CMD=()
+LEAKCHECK_STEPS=()  ## the slow checks; see --leakcheck
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
@@ -130,18 +136,19 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0
+assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=()
 while (($#)); do case "$1" in
 	--gate)                   gate_mode=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
+	--leakcheck)              leakcheck_flag=1; ctr_pass+=("$1"); shift ;;
 	-q|--quiet)               quiet=1; assume_yes=1; QUIET_FLAG="-q"; export CARGO_TERM_QUIET=true; shift ;;
 	-y|--yes)                 assume_yes=1; shift ;;
 	--no-sync)                sync_enable=0; shift ;;
 	--no-fmt)                 FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
-	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); BINDING_CLIS=(); LARGEDOC_MIB=0; no_tests=1; gate_partial=1; ctr_pass+=("$1"); shift ;;
+	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); LEAKCHECK_STEPS=(); BINDING_CLIS=(); LARGEDOC_MIB=0; no_tests=1; gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-package)             PACKAGE_ENABLE=0; ctr_pass+=("$1"); shift ;;
 	--no-largedoc)            LARGEDOC_MIB=0; ctr_pass+=("$1"); shift ;;
@@ -210,6 +217,8 @@ if ((quick)); then
 	for list in LINT_EXTRA TEST_EXTRA CROSS_CHECKS CROSS_TARGETS RELEASE_CHECKS; do fQuickDrop "${list}"; done
 	if fQuickSkips crosscheck.bash; then xcheck_enable=0; fi
 fi
+## A run with no flags does everything, these included (JC, 2026-10-18).
+if ((gate_mode || quick)) && ((! leakcheck_flag)); then LEAKCHECK_STEPS=(); fi
 
 ## A run at least as thorough as the pre-push hook's records the tree it tested
 ## once the tests and the cross checks pass, and the hook lets a commit with
@@ -440,6 +449,7 @@ if ((! quiet)); then
 		fEcho_Clean "Build (debug) ..: ${BUILD_CMD[*]:-(none configured)}$( ((${#BUILD_EXTRA[@]})) && echo "  (+ ${#BUILD_EXTRA[@]} extra)" )"
 		fEcho_Clean "Lint ...........: ${LINT_CMD[*]:-(none configured)}$( ((${#LINT_EXTRA[@]})) && echo "  (+ ${#LINT_EXTRA[@]} extra)" )  + shellcheck: ${#SHELLCHECK_TARGETS[@]} file(s)"
 		fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: $( ((xcheck_enable)) && echo "${#BINDING_CLIS[@]} binding(s)" || echo "(skipped)" )$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
+		fEcho_Clean "Leak checks ....: $( ((${#LEAKCHECK_STEPS[@]})) && echo "${#LEAKCHECK_STEPS[@]}, at the end of the tests (some take hours)" || echo '(skipped)')"
 		fEcho_Clean "Profiler .......: $( ((PROFILE_ENABLE)) && echo "${PROFILE_SECS}s run -> flamegraph SVG -> ${PROFILE_OUT_DIR}/" || echo '(skipped)')"
 		if ((${#RELEASE_NATIVE_CMD[@]})); then
 			fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/$( ((${#RELEASE_CHECKS[@]})) && echo "  + ${#RELEASE_CHECKS[@]} check(s)" )"
@@ -638,6 +648,11 @@ else
 		if ((LARGEDOC_MIB)); then
 			"${here}/utility/largedoc.bash" --mib "${LARGEDOC_MIB}" "${BINDING_CLIS[@]}"
 		fi
+	fi
+	## Last, since the slowest of them takes hours and the rest should report first.
+	if ((${#LEAKCHECK_STEPS[@]})); then
+		fRunExtras "${LEAKCHECK_STEPS[@]}"
+		fEcho "OK: leak checks passed"
 	fi
 	## Stage 5: profiler. Non-gating artifact, not a pass/fail test: an optimized
 	## build with symbols runs a heavy workload under an in-process sampler (kernel
@@ -941,3 +956,4 @@ fEcho_Clean
 ##		- 2026-10-16 JC: An extra image's own copies go where their paths lead, files included, with
 ##		  a stand-in for a missing one. --no-tests drops the calibration only under --ci.
 ##		- 2026-10-19 JC: --ci is --gate now. --quick runs every step but the ones config's QUICK_SKIP names, cross targets included.
+##		- 2026-10-19 JC: --leakcheck, and config's LEAKCHECK_STEPS at the end of the tests stage of a run with no flags.
