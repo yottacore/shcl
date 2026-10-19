@@ -97,6 +97,10 @@ TOOL_PINS=(
 	"gcc|14|gcc-14 --version"
 	"clang|19|clang-19 --version"
 	"clang-tidy|19|clang-tidy-19 --version"
+	## The index analyze-c.bash --ctu builds, from clang's major.
+	"clang-tools|19|clang-extdef-mapping-19 --version"
+	## The C soak's heap report, under --leakcheck (soak-c.bash).
+	"heaptrack|1.5.0|heaptrack --version"
 )
 ## The PyPI wheel that bundles the pinned cppcheck binary has its own version,
 ## and that is the one pip installs (ci.yml, install-dev.bash). Bump it with
@@ -210,6 +214,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/perf-gate.bash
 	cicd/utility/release-table.bash
 	cicd/utility/shell-regress.bash
+	cicd/utility/soak-c.bash
 	cicd/utility/n8git_backup-and-publish
 	cicd/utility/package.bash
 	cicd/utility/sanitize-c.bash
@@ -307,8 +312,28 @@ TEST_EXTRA=(
 	'cicd/utility/sanitize-c.bash'
 	## The Rust suite under ASan and LSan, then under Miri without the tests
 	## that take minutes each there, on the dated nightly in rust-toolchain.toml.
-	## Its --miri-all, every test under Miri, is hours and not for here.
+	## Its --miri-all, every test under Miri, is hours, so it's in
+	## LEAKCHECK_STEPS below.
 	'cicd/utility/sanitize-rust.bash'
+)
+
+## Stage 4, last: the slow leak and memory checks. A run with no flags runs
+## them, and --gate and --quick leave them out unless --leakcheck is given
+## too (JC, 2026-10-18). CodeQL, for all 5 languages, joins this list.
+LEAKCHECK_STEPS=(
+	## The clang analyzer in its cross-file mode, over each C program split
+	## into its own code and the library's, as a program using the header is
+	## built.
+	'cicd/utility/analyze-c.bash --ctu'
+	## The C soak, a plain build under heaptrack. The report goes in
+	## cicd/artifacts/soak/.
+	'cicd/utility/soak-c.bash'
+	## The veneer smoke in libstdc++'s debug mode, which changes the ABI and
+	## so has a build of its own.
+	'cicd/utility/sanitize-c.bash --glibcxx-debug'
+	## Every Rust test under Miri, the ones that take minutes each there
+	## included. Hours.
+	'cicd/utility/sanitize-rust.bash --miri-all'
 )
 
 ## Stage 4b: cross-binding differential check (crosscheck.bash). Every entry is
@@ -570,6 +595,8 @@ if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then
 		if [[ ! "${x}" =~ ${ctrSkip} ]]; then ctrKeep+=("${x}"); fi
 	done
 	TEST_EXTRA=("${ctrKeep[@]}")
+	## Every one needs glibc, a sanitizer, or a tool the image doesn't have.
+	LEAKCHECK_STEPS=()
 	unset ctrSkip ctrKeep x
 fi
 
@@ -611,3 +638,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-13 JC: CTR_* for --container: the recipe dir, the cache dir, and what each extra image runs.
 ##		- 2026-10-19 JC: QUICK_SKIP, the slow steps and the ones that need another host.
 ##		- 2026-10-19 JC: --quick keeps the CPU floor scan and drops only the emulated boot.
+##		- 2026-10-19 JC: LEAKCHECK_STEPS, for --leakcheck and a run with no flags.

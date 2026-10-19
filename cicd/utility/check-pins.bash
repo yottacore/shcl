@@ -54,10 +54,10 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 notInCi=(makensis)
 
 ## Does ci.yml name tool $1 at version $2 as one token? The name is bounded on
-## the left, then the joiner ci.yml uses (==, @, -, /, setup-go's `-version: "`,
-## or Install-Module's ` -RequiredVersion `), an optional v, the version, and
-## nothing digit-like after.
-fNamesAt(){ grep -qE -- "(^|[^A-Za-z0-9_-])${1}(==|@|-|/|-version: \"| -RequiredVersion )v?${2//./\\.}([^0-9]|$)" "${ciFile}"; }
+## the left, then the joiner ci.yml uses (==, apt's =, @, -, /, setup-go's
+## `-version: "`, or Install-Module's ` -RequiredVersion `), an optional v, the
+## version, and nothing digit-like after.
+fNamesAt(){ grep -qE -- "(^|[^A-Za-z0-9_-])${1}(==|=|@|-|/|-version: \"| -RequiredVersion )v?${2//./\\.}([^0-9]|$)" "${ciFile}"; }
 
 fTest EoSE8Nk tool-pins-match-ci
 for pin in "${TOOL_PINS[@]}"; do
@@ -338,4 +338,4 @@ exit "${rc}"
 ##		  version in a RUN line is held to the pin. In ci.yml too, a file is fetched
 ##		  once and nothing follows its check.
 ##		- 2026-10-16 JC: No hosted job runs both lint and tests.
-##		- 2026-10-19 JC: The hosted jobs run --gate.
+##		- 2026-10-19 JC: The hosted jobs run --gate. apt's name=version is a joiner.

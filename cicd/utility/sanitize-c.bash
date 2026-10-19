@@ -21,8 +21,14 @@
 ##		fixed, or the test that shows it turns detect_leaks off with a backlog
 ##		ID beside it. For a full leak stack, rerun the program with
 ##		ASAN_OPTIONS=fast_unwind_on_malloc=0.
+##		--glibcxx-debug builds the veneer smoke alone, once more, with
+##		libstdc++'s debug mode too, in a build dir of its own, since the mode
+##		changes the ABI. It catches an iterator past its container's end, or
+##		one a container's change made stale, which ASan and the assertions
+##		mode let by. A bait that walks an iterator past the end has to stop
+##		it. That one is for --leakcheck.
 ##	Syntax:
-##		sanitize-c.bash [CORPUS_DIR]
+##		sanitize-c.bash [--glibcxx-debug] [CORPUS_DIR]
 ##		  CORPUS_DIR  conformance corpus root (default project/conformance)
 ##		CPU_CAP in the environment sets how many jobs run at once (default half
 ##		the cores).
@@ -45,6 +51,8 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/include/c-flags.bash"
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${root}"
+debugStl=0
+if [[ "${1:-}" == --glibcxx-debug ]]; then debugStl=1; shift; fi
 corpus="${1:-project/conformance}"
 [[ -d "${corpus}" ]] || { echo "sanitize-c: no corpus dir: ${corpus}" >&2; exit 2; }
 
@@ -115,6 +123,37 @@ fJobsWait(){
 		elif [[ "${jrc}" != 0 ]]; then failed+=("${jobNames[i]}: exit ${jrc}"); jobFailed[${jobNames[i]}]=1; fi
 	done
 }
+
+## --glibcxx-debug: the smoke and the bait, and nothing else.
+if ((debugStl)); then
+	dsDir="${work}/glibcxx-debug"; mkdir "${dsDir}"
+	printf '%s\n' '#include <vector>' \
+		'int main(int argc, char **) { std::vector<int> v(4, argc); auto it = v.begin() + 5; return it == v.end(); }' > "${dsDir}/bait.cpp"
+	fDsBait(){
+		local rc=0
+		## The group's redirect takes the shell's own "Aborted" notice.
+		{ "${dsDir}/bait" >"${dsDir}/bait.out" 2>&1 || rc=$?; } 2>/dev/null
+		if ((rc > 128)) && grep -q 'Error: attempt to advance' "${dsDir}/bait.out"; then return 0; fi
+		echo "sanitize-c: libstdc++'s debug mode let the bait's iterator past the end (exit ${rc})"; sed 's/^/    /' "${dsDir}/bait.out"; return 1
+	}
+	fJob "build veneer_smoke.cpp in debug mode" fBuild g++ c++17 source/c/tests/veneer_smoke.cpp "${dsDir}/veneer_smoke" "${cDebugStlFlags[@]}"
+	fJob "build the debug-mode bait" fBuild g++ c++17 "${dsDir}/bait.cpp" "${dsDir}/bait" "${cDebugStlFlags[@]}"
+	fJobsWait 1
+	if ((${#failed[@]})); then printf 'sanitize-c: %s\n' "${failed[@]}" >&2; exit 2; fi
+	firstRun=$((nJobs + 1))
+	fJob "debug-mode bait" fDsBait
+	fJob "veneer_smoke in debug mode" "${dsDir}/veneer_smoke"
+	fJobsWait "${firstRun}"
+	declare -i nJobBad=0
+	fTest Et9t3Wv libstdc++ debug mode stops a planted iterator past the end
+	if [[ -n "${jobFailed[debug-mode bait]:-}" ]]; then nJobBad+=1; fi
+	fTest Et9t3ab veneer_smoke under libstdc++ debug mode, ASan and UBSan
+	if [[ -n "${jobFailed[veneer_smoke in debug mode]:-}" ]]; then nJobBad+=1; fi
+	fTestEnd
+	if ((${#failed[@]})); then printf 'sanitize-c: %s\n' "${failed[@]}" >&2; exit 1; fi
+	echo "sanitize-c: OK: veneer_smoke clean under libstdc++ debug mode, ASan and UBSan, the bait stopped"
+	exit 0
+fi
 
 printf '%s\n' '#include <signal.h>' 'int main(void){ raise(SIGKILL); return 0; }' > "${work}/bait.c"
 printf '%s\n' '#include <stdlib.h>' 'static void *volatile sink;' \
@@ -372,3 +411,4 @@ exit "${rc}"
 ##		- 2026-10-17 JC: Flags and programs from include/c-flags.bash, LSan
 ##		  suppressions file and a leak it has to catch, the arena's malloc
 ##		  mode and libstdc++ assertions, and oom_hook with leak detection on.
+##		- 2026-10-19 JC: --glibcxx-debug, the veneer smoke in libstdc++'s debug mode.

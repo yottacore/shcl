@@ -444,6 +444,7 @@ LINT_CMD=(true); LINT_EXTRA=(); SHELLCHECK_TARGETS=()
 TEST_CMD=(true); TEST_QUICK_CMD=(true)
 TEST_EXTRA=('if [[ -n "${STUB_SKIP:-}" ]]; then echo stub >> "${SHCL_GATE_SKIPS}"; fi' 'echo "${GIT_DIR:-unset}" > "${STUB_GITDIR:-/dev/null}"' 'echo slow > "${STUB_SLOW:-/dev/null}"')
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
+LEAKCHECK_STEPS=('echo leak > "${STUB_LEAK:-/dev/null}"')
 CROSS_CHECKS=('stub|[[ -z "${STUB_CROSS_FAIL:-}" ]]')
 BINDING_CLIS=(); if [[ -n "${STUB_XCHECK:-}" ]]; then BINDING_CLIS=("stub|true"); fi
 LARGEDOC_MIB=0; CROSS_TARGETS=(); PROFILE_ENABLE=0; PACKAGE_ENABLE=0; GIF_ENABLE=0
@@ -508,6 +509,27 @@ fQuick --gate
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a --gate run left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
 fQuick -y --no-sync
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a run with no flags left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
+fTest Et9t3dc --leakcheck adds the leak checks a run with no flags already has
+## 2026101707582803: JC, 2026-10-18, a run with no flags does everything.
+## --gate and --quick leave the slow leak checks out, --leakcheck adds them
+## back, and --no-tests takes them with the rest of the tests.
+fLeak(){  ## fLeak ARGS... -> engRc, leakRan
+	rm -f "${work}/eng.leak"
+	fEngine STUB_LEAK="${work}/eng.leak" -- "$@"
+	leakRan=0; if [[ -e "${work}/eng.leak" ]]; then leakRan=1; fi
+}
+fLeak -y --no-sync
+((engRc == 0 && leakRan == 1)) || fail "a run with no flags left the leak checks out: exit ${engRc}, ran ${leakRan}: $(tail -3 "${work}/eng.log")"
+fLeak --gate
+((engRc == 0 && leakRan == 0)) || fail "a --gate run ran the leak checks: exit ${engRc}, ran ${leakRan}"
+fLeak -y --no-sync --quick
+((engRc == 0 && leakRan == 0)) || fail "a --quick run ran the leak checks: exit ${engRc}, ran ${leakRan}"
+fLeak --gate --leakcheck
+((engRc == 0 && leakRan == 1)) || fail "--gate --leakcheck left the leak checks out: exit ${engRc}, ran ${leakRan}"
+fLeak -y --no-sync --quick --leakcheck
+((engRc == 0 && leakRan == 1)) || fail "--quick --leakcheck left the leak checks out: exit ${engRc}, ran ${leakRan}"
+fLeak -y --no-sync --leakcheck --no-tests
+((engRc == 0 && leakRan == 0)) || fail "--leakcheck --no-tests ran the leak checks: exit ${engRc}, ran ${leakRan}"
 fTest Et6Aum5 --ci is an unknown option
 ## 2026101816034794: renamed --gate, with no alias.
 fEngine -- --ci
@@ -645,3 +667,4 @@ exit "${rc}"
 ##		- 2026-10-16 JC: A local --no-tests run keeps the profiler calibration, and an
 ##		  extra --container image's mounts leave this tree's builds alone.
 ##		- 2026-10-19 JC: --gate in place of --ci, and an engine from before it. --quick leaves out what QUICK_SKIP names.
+##		- 2026-10-19 JC: --leakcheck, and the leak checks in a run with no flags.

@@ -193,6 +193,8 @@ Two more images are there for now and then:
 
 - In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. A quick run never counts as a pass for the hook.
 
+- The slow leak and memory checks: a run with no flags ends its tests with them, and `--gate` and `--quick` leave them out. `--leakcheck` adds them back, so `cicd/cicd.bash --gate --leakcheck` is the gate plus all of them. `LEAKCHECK_STEPS` in `cicd/config.bash` lists them. Every Rust test under Miri is one of them, and that alone takes hours. It needs the dated nightly in `rust-toolchain.toml`, and skips without it. The C analyzer and the C soak run in the build image when their tools aren't on your box.
+
 ### Adding a conformance case
 
 Behavior changes come with a corpus case, or they are not pinned.
