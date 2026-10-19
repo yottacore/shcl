@@ -228,6 +228,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 
+- cli-regress `json-reads-back` fails all 4 CLIs under a pwsh with no `-DateKind`
+	- ID: 2026101905321200
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261019-053212
+	- Opened by: me, merging `wbswap`
+	- Version and build: dev at `c54cbbc0`
+	- Steps to reproduce: put pwsh 7.4 first on PATH and run `cli-regress.bash` over the 4 CLIs. On this box `/usr/local/bin/pwsh` is 7.4.1 and comes before `/usr/bin/pwsh`, which is 7.6.6.
+	- Incorrect behavior: `EsEvmLE` fails all 4 with "ConvertFrom-Json and jq decode a line differently", on the `base(0).metrics` line. The 4 CLIs agree, and with 7.6 first it passes.
+	- Expected behavior: it passes with either pwsh.
+	- Reproduced: 20261019, on this box.
+	- Actual cause: without `-DateKind` the check blanks jq's value column with awk's `$2 = "-"`. An empty value leaves 2 spaces in jq's line, so awk reads the line number as `$2`, overwrites it, and drops it from the line.
+	- Possible fix: blank the column by its position in jq's output, not by awk's field split, or drop the 7.4 path and require `-DateKind`.
+	- Test case: planned. Run the row under a pwsh with no `-DateKind`, and under 7.6.
+
 - Updates to CICD script flags
 	- ID: 2026101816034794
 	- Type: Enhancement
