@@ -232,7 +232,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - cli-regress `json-reads-back` fails all 4 CLIs under a pwsh with no `-DateKind`
 	- ID: 2026101905321200
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261019-053212
 	- Opened by: me, merging `wbswap`
@@ -244,7 +244,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: without `-DateKind` the check blanks jq's value column with awk's `$2 = "-"`. An empty value leaves 2 spaces in jq's line, so awk reads the line number as `$2`, overwrites it, and drops it from the line.
 	- Possible fix: blank the column by its position in jq's output, not by awk's field split, or drop the 7.4 path and require `-DateKind`.
 	- 20261019: the 7.4.1 install on this box is removed, so `pwsh` is 7.6 here. The bug stays, since another host may still have 7.4.
-	- Test case: planned. Run the row under a pwsh with no `-DateKind`, and under 7.6.
+	- Decisions:
+		- 7.4 support stays, with the fix in the check, since another host may still have 7.4. Requiring `-DateKind` would turn a host with 7.4 red for no gain (me).
+	- Actual fix: jq writes the `-` in the value column itself, so no field split runs over a line with an empty value. A pwsh that has `-DateKind` runs the comparison a second time without it, so the 7.4 path is checked on every host.
+	- Branch: `pwshdate`
+	- Commit: `fbd97a43`
+	- Test case: `EsEvmLE` json-reads-back, which now runs the no-`-DateKind` pass under any pwsh. No separate shell-regress row, since the row itself covers the 7.4 path on every host now.
+	- Swept: every tracked `.bash` and `.sh` for an awk field assignment (`$N = ...`). There are none left; the `check-migrate.bash` one rewrites `$0`. No other script compares jq and ConvertFrom-Json.
+	- Verified: before the fix, `cli-regress.bash` over the 4 CLIs failed `EsEvmLE` on all 4 under pwsh 7.4.6 with the line number dropped. After it, the whole suite passed under 7.4.6 and under 7.6.6 (3699 checks). With the old awk blanking put back into the new pass, it failed all 4 under 7.6.6. `shell-regress.bash`, `shellcheck` over the cicd list, and `test-ids.py check` passed.
+	- Acceptance signoff: Self-closed: reproduced, failed before the fix and passes after under both pwsh versions, and swept.
+	- Closed: 20261019-073800
 
 - Updates to CICD script flags
 	- ID: 2026101816034794
