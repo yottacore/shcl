@@ -4886,6 +4886,37 @@ def main():
 				raise SystemExit(f"amb: count {e.count}") from None
 		if len(os.listdir(ud)) != 3:
 			raise SystemExit(f"left {os.listdir(ud)}")
+
+	test_id("Et6Am8z", "write_backup_refuses_a_swapped_file_and_text")
+	# The file and its text are both strings, and swapped they wrote a backup
+	# named after the text and returned its name (2026101807501110).
+	with tempfile.TemporaryDirectory() as ud:
+		up_path = os.path.join(ud, "f.shcl")
+		# Read as a path the text names a spot in ud, so a backup made of it
+		# would show there.
+		up_text = ud + "/port: 80\nhost: x\n"
+		try:
+			got = shcl.write_backup(up_text, up_path, 3)
+			raise SystemExit(f"swapped: wrote {got!r}")
+		except shcl.UpgradeNotFound as e:
+			if e.path != up_text:
+				raise SystemExit(f"swapped: {e.path!r}") from None
+		except shcl.UpgradeError:
+			# A newline is no part of a windows name, so the create refuses it there.
+			if os.name != "nt":
+				raise
+		if os.listdir(ud):
+			raise SystemExit(f"swapped: left {os.listdir(ud)}")
+		up_sub = os.path.join(ud, "d")
+		os.mkdir(up_sub)
+		try:
+			shcl.write_backup(up_sub, "x: 1\n", 3)
+			raise SystemExit("directory: wrote")
+		except shcl.UpgradeFailed as e:
+			if e.status != shcl.WriteStatus.IsDirectory:
+				raise SystemExit(f"directory: {e.status}") from None
+		if os.listdir(ud) != ["d"]:
+			raise SystemExit(f"directory: left {os.listdir(ud)}")
 	if held_clock is None:
 		del os.environ["SHCL_TEST_CLOCK"]
 	else:

@@ -249,7 +249,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
 	- ID: 2026101807501110
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: N
+	- Needs external testing: N. Rust, Go, and C ran for windows under wine. The hosted windows job runs Python's on its next run.
 	- Severity: Low
 	- Opened: 20261018-075011
 	- Opened by: 2026101707582803, from clang-tidy's bugprone-easily-swappable-parameters
@@ -262,9 +264,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a swapped call is refused and writes nothing.
 	- Reproduced: 20261018, C, at `-O2` and under ASan. The other 3 bindings weren't run.
 	- Possible cause: the file and the text have one type in all 4, and nothing checks that the file is there.
+	- Actual cause: the file and the text are both strings in all 4, and nothing looked at the file before the backup's exclusive create, so a path that named nothing got a backup of its own.
 	- Possible fix: refuse a file that isn't an existing regular file, as `NotFound`, in all 4. The CLI and `upgrade_file` back up a file they have just read. A path type of its own would be the v4 form.
 	- Sweep: `write_file_atomic(path, data)` has the same 2 strings. Swapped, it saves the path to a file named after the text and returns OK, seen in C on 20261018. It creates files on purpose, so the same check doesn't fit there.
-	- Test case: planned. In each binding, `write_backup` with its file and text swapped, in a scratch folder, is refused and leaves the folder empty. C's runs under sanitize-c too.
+	- Actual fix: `write_backup` in all 4 first checks that the file is there and is a regular file, through the check `upgrade_file` already made, now one helper both call (`check_kept_file`, in each binding's spelling). Nothing there is `NotFound`. A directory or a FIFO is `Io`, with `IsDirectory` or `NotRegular`. Any other failure, such as no search permission, is left to the create, which fails the same way, since the backup goes in the same folder. The C++ veneer wraps the C call, so it refuses too. On windows the C helper now gives `NotFound` for a missing file itself, as the other 3 do. Its `upgrade_file` gave the same through the read. The doc comments in all 4 and the veneer, and spec.md, say so in one line. The C line keeps its suppression, and its reason now says a swap is refused. A path type of its own stays the v4 form.
+	- Branch: `wbswap`
+	- Commit: `e469f1aa`
+	- Test case: `write_backup_refuses_a_swapped_file_and_text`, Rust `Et6Am2s`, Go `Et6Am5j`, Python `Et6Am8z`, and C `Et6AmCW`, which sanitize-c `EoLqLse` runs under ASan. In each, a swapped call in a scratch folder is refused, `NotFound` off windows, and the folder stays empty. A directory is refused as `IsDirectory`. The veneer smoke `EjtkR0S` has the swapped call too.
+	- Swept: `write_file_atomic` stays as it is, since it creates files on purpose and a path naming nothing is its normal case. Every caller of `write_backup`: the 4 CLIs' `migrate --write`, which read the file and check it's unchanged first, `upgrade_file` in all 4, the veneer, and the 4 runners' write-status rows, whose backup into a shut folder still gives `PermissionDenied`. No CLI path reaches the refusal, since each reads the file first, so there is no cli-regress row, and crosscheck has no `write_backup` dimension. design.md and examples.md don't describe `write_backup`.
+	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
+	- Acceptance signoff: Self-closed: a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
+	- Closed: 20261018-170500
 
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301

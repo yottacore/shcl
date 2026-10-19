@@ -377,7 +377,9 @@ struct UpgradeError {
 // Keep text, the bytes last read from file, under backup_file_name, before
 // something replaces them. The create is exclusive, so nothing at the name is
 // ever written over. The copy is born private, then given the original's
-// group and mode (on windows its DACL). The backup's name, or the error.
+// group and mode (on windows its DACL). The backup's name, or the error. A
+// file that isn't there is NotFound, and a directory or a FIFO is Io, as from
+// upgrade_file.
 std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format);
 // upgrade() on a file, for a program to call when it starts, before its
 // load. A file that needs it is backed up by write_backup, then the fresh
