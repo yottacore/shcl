@@ -1112,6 +1112,7 @@ std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_
 	// Initialized: the status should never depend on the callee having written it.
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
 	std::size_t n = 0;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	std::unique_ptr<char, void (*)(void *)> p(shcl_read_file(path.c_str(), max_bytes, &n, &cs), &std::free);
 	if (!p) return {std::string(), static_cast<FileStatus>(cs)};
 	return {std::string(p.get(), n), static_cast<FileStatus>(cs)};

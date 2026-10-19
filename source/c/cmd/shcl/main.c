@@ -2315,6 +2315,7 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 		else if (!strcmp(a, "--decimal")) { o->decimal = 1; opt_seen(o, "--decimal"); }
 		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) {
 			if (i + 1 >= argc) { fprintf(stderr, "missing value for %s (try %s=VALUE)\n", a, a); return 1; }
+			// codeql[cpp/loop-variable-changed] an option's value is the next argument
 			if (set_value_opt(o, a, argv[++i])) return 1;
 			if (i + 1 == argc) { o->swallowed_opt = a; o->swallowed_value = argv[i]; }
 		}
@@ -2572,6 +2573,7 @@ static size_t asked_for(int argc, char **argv, const char **asked) {
 		else if (!strcmp(a, "--about")) want = "about";
 		else if (!strcmp(a, "--donate")) want = "donate";
 		else if (!strcmp(a, "--")) break;
+		// codeql[cpp/loop-variable-changed] an option's value is the next argument
 		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) i++;
 		int seen = 0;
 		for (size_t k = 0; k < n; k++) seen = seen || !strcmp(asked[k], want ? want : "");

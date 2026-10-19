@@ -80,9 +80,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
-	- Status: Started
+	- Status: Waiting for testing
 	- Priority: Avg
-	- Needs local test suite run?: a full `--gate` with analyze-c in the lint stage, and the exhaustive cppcheck over the C changes. Then a hosted run. CodeQL is still to do, and then a whole `--leakcheck` run.
+	- Needs local test suite run?: a whole `--leakcheck` run, a full `--gate` with analyze-c in the lint stage, the exhaustive cppcheck over the C changes, and a full run with no flags, which takes hours with `--miri-all` in it (2026101711273980). Then a hosted run.
 	- Opened: 20261017-075828
 	- Opened by: JC
 	- Related IDs: 2026101711273980
@@ -201,12 +201,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- check-docs reads 100 lines for the SPDX and copyright headers now, up from 80, since cicd.bash's help grew past 80. It went red at 80.
 			- Verified: each plant went red, then was restored by copy. The cross-file mode turned off failed `Et9t3Ll` and `Et9t3PQ`, with nothing loaded from the library's file. soak.c's 2 findings failed `Et9t3PQ` before the fix. A static list in `shcl_parse` that grows by a block a call failed the soak, 9216 bytes over 3 rounds, while the corpus runner and every CLI run passed under LSan with it. The bait's growth turned off failed `Et9t3ED`. An iterator stepped past the end in the veneer smoke failed `Et9t3ab` and passed under ASan with `_GLIBCXX_ASSERTIONS`. An engine that keeps the steps under `--gate` and `--quick`, one where `--leakcheck` does nothing, and one that never runs the list each failed `Et9t3dc`. check-pins went red with heaptrack or clang-tools dropped from ci.yml, and with another heaptrack version in the Dockerfile.
 			- Needs local test suite run: a whole `--leakcheck` run, once CodeQL joins it, and a full run with no flags, which now takes hours (2026101711273980).
+		- 20261019, branch `codeql`, CodeQL over all 5 languages, shared with 2026101711273980:
+			- `cicd/utility/codeql-scan.bash`, in `LEAKCHECK_STEPS` before `--miri-all`. CodeQL 2.27.2 is in TOOL_PINS and the main image, as the bundle with its query packs, its sha256 in the Dockerfile. The image keeps only the 4 languages shcl has code in, which saves about 1 GB. It runs there with no network.
+			- C and C++ are one database, from a traced build of main.c and every test program. Go, Python and Rust get one each. Each runs its language's `security-and-quality` suite, and any finding fails.
+			- It scans a copy of `source/` with one planted finding per language, and each has to be reported (`EtAC9AA`, `EtAC9Cx`, `EtAC9FX`, `EtAC9IG`, `EtAC9L2`). Each database has to hold every source file of its languages, Go's tests included (`EtAC9O4`, `EtAC9Qz`, `EtAC9UO`, `EtAC9XH`). The findings are `EtAC9Zo`, `EtAC9cY`, `EtAC9fG` and `EtAC9ie`.
+			- A suppression is a `codeql[QUERY-ID] reason` comment alone on the line above, or `/* */` above commented-out C, which a `//` line would join. It needs its reason and has to still cover a finding (`EtAC9lw`). There's no baseline file, and lgtm and noqa comments don't count.
+			- The CLI's own suppression matching goes wrong after a literal U+2028 or U+2029, which shcl.py's whitespace table has. So the script matches the suppression query's output to the findings itself. A one-function file with such a string above it showed the same.
+			- 88 findings the first time: 54 in C and C++, 1 in Go, 33 in Python, none in Rust. Every site was read, and none is a real bug in our code, so nothing was filed.
+			- Fixed in C: shcl.h's include guard now covers the POSIX feature block above it too, and the corpus runner checks one parse for NULL.
+			- Suppressed in C and C++, 52 sites: 16 test scratch files opened with `fopen`, 8 `snprintf` loops in tests whose buffer fits every line, 5 opens of the path the caller named, 5 recovery points disarmed before their frame returns, 5 tests commented out, 4 loop counters that skip ahead on purpose, 3 structs pushed by value, and one each of: the gap shcl.h documents for filesystems with no hard links, an exact float match, a lambda capture, an empty `if` that quiets `warn_unused_result`, the busy block in `w_overlay`, and `t < 9` in `big_mul_pow10`. With that bound gone, cppcheck reports an out-of-bounds read.
+			- Verified: codeql-scan green in the build image, 307 to 377 s at 8 threads, at load 15 to 24. Its scratch copy of `source/` and the crates it fetches stay outside the repo, beside the container caches.
+			- Verified: each plant went red, then was restored by copy. A stack address kept in shcl.h and a `new` with `free` in shcl.hpp failed `EtAC9Zo`, a dead store failed `EtAC9cY`, an unclosed file failed `EtAC9fG`, and a null read in lib.rs failed `EtAC9ie`. A stale suppression and one with no reason failed `EtAC9lw`. A Go bait that reports nothing failed `EtAC9FX`. A `.c` file no program builds failed `EtAC9O4`. A stable Rust toolchain failed `EtAC9XH` and `EtAC9L2`. Before the build-tag rule, the 5 Go files for other platforms failed `EtAC9Qz`.
+			- The first C baits, a tainted path and a use after free, went unreported, so the C bait keeps a stack address past its frame instead.
+			- Verified: check-pins went red with CodeQL taken off the `--leakcheck`-only list (`EoSE8Nk`), with codeql-scan in `LINT_EXTRA` (`EtAC9of`), and with another version in the Dockerfile (`Esbpsph`).
+			- Verified: `LEAKCHECK_STEPS` but `--miri-all`, one after another: codeql-scan, `analyze-c.bash --ctu`, soak-c and `sanitize-c.bash --glibcxx-debug`. Also analyze-c, check-c-compilers (141 builds), sanitize-c, the C runner (206 cases), the veneer smoke, cppcheck at the normal level over main.c and conformance.c, check-pins, shell-regress, check-push-gate, `test-ids.py check`, markdownlint-cli2, and shellcheck over all 47 files. check-docs passes but for its installer row, as on dev.
 	- Decisions:
 		- Vendored code is included in the analyses (JC, 2026-10-17).
 		- JC, 20261018: a run with no flags does everything, the `--leakcheck` steps included, and `--gate` and `--quick` leave them out.
 		- The leak checks run last in the tests stage, so every quicker check reports first (me).
 		- The C soak judges glibc's own count of the bytes in use, read by the program between rounds. heaptrack's report is for reading, since it has no per-round figure (me).
 		- `--ctu` splits only the programs that keep to the public calls, and lists the rest with the reason (me).
+		- CodeQL comes as the bundle, not the bare CLI, which has no query packs and would fetch them at run time (me).
+		- Hosted CI doesn't install CodeQL. Its bundle is about 700 MB, for a step the gate never runs. check-pins leaves a `--leakcheck`-only tool out of its ci.yml match, and fails if a gate step names one (`EtAC9of`). heaptrack and clang-tools stay in ci.yml as before (me).
+		- Each language's standard `security-and-quality` suite, with nothing added or taken out (me).
+		- The scan covers `source/`: the 4 bindings, the CLIs, and their tests. The pipeline's own Python scripts stay out, as tooling (me).
+		- Platform code is analyzed as the Linux build sees it. Go files behind other platforms' build tags are named and skipped, and the Windows branches in C and Rust aren't compiled. There's no Windows pass (me).
 	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
 	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
 	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch covers what it calls (me).
@@ -214,9 +233,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
 	- ID: 2026101711273980
 	- Type: Enhancement
-	- Status: Started
+	- Status: Waiting for testing
 	- Priority: Avg
-	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, and a hosted run, its windows job included for the Go and Python soaks. A whole `sanitize-rust.bash --miri-all`, hours. CodeQL is still to do.
+	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, a whole `--leakcheck` run, a whole `sanitize-rust.bash --miri-all` (hours), and a full run with no flags. Then a hosted run, its windows job included for the Go and Python soaks.
 	- Opened: 20261017-112739
 	- Opened by: JC
 	- Related IDs: 2026101707582803
@@ -289,8 +308,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Question: a run with no flags now takes hours longer, since `--miri-all` alone was likely several hours when it was stopped at 72 of 155 tests. Keep it in the bare run, or move it behind `--leakcheck` alone?
 			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for 29 minutes. Stopped there, short of its result.
 			- Needs local test suite run: a whole `--miri-all`, and a full run with no flags.
+		- 20261019, branch `codeql`, CodeQL: `cicd/utility/codeql-scan.bash` covers all 5 languages. The step, its tests and the decisions are on 2026101707582803.
+			- Rust: the pinned CodeQL has no Rust suppression query, so `cicd/codeql/rust-suppression` is the same query the other languages have, over Rust's comments. Rust had no findings.
+			- Go: 1 finding, a dead store in `parseIntText`, fixed. The other 3 bindings' twins have none.
+			- Python: 33 findings. Fixed: `math.isnan` for `v != v`, as the C and Go twins test it, and a comment in each of 15 empty `except` blocks. 2 tests kept commented out got a note, which ended their findings. Suppressed, 15 sites: 6 tests commented out, 4 tagged tuples that stand for the Rust twin's enums or keys, 4 file modes (a new file's 0o666 less the umask, and 3 fixtures), and a descriptor a `with` closes.
+			- Verified: the Python runner and soak, ruff and mypy, the Go suite, `go vet` and staticcheck. A plant per language went red, as on 2026101707582803.
 	- Decisions:
 		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
+		- The Rust extractor swaps a stable toolchain for 1.98.1 and would install it, so CodeQL runs on the dated nightly from rust-toolchain.toml, which it keeps. The crates Cargo.lock names are fetched before the image starts, since it has no network, into the cargo home `--container` runs use. Under the repo, the crates' own Cargo.toml and README files threw off check-docs' greps of the tree, and shell-regress's `EsndgSX` went red on it (me).
 	- Decided against: `goleak`. The Go library starts no goroutines, and `goleak` would be the library module's first dependency. The `NumGoroutine` check in `TestMain` does the same job here (me).
 	- Decided against: Go's `-asan` and `-msan`. They only check cgo code, and the Go binding has none (me).
 	- Decided against: Rust ThreadSanitizer. The library starts no threads. The only `thread::spawn` calls are in Windows tests, and safe Rust's `Send` and `Sync` rules cover sharing (me).

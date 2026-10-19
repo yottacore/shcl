@@ -430,7 +430,7 @@ DateTime = ShclDateTime
 def format_float(v: float) -> str:
 	"""Float -> string, matching the reference: positional, shortest round-trip,
 	never scientific. inf/NaN written as the reference writes them."""
-	if v != v:
+	if math.isnan(v):
 		return "NaN"
 	if v == math.inf:
 		return "inf"
@@ -2247,6 +2247,7 @@ def _disp_key(v):
 	return v.display()
 
 
+# codeql[py/mixed-tuple-returns] the tuple's length is part of the key
 def _merge_key(name, v):
 	"""The (name, merge-key) accelerator key: nodes with equal keys collapse
 	into one. An exact tuple reusing the value's own strings, so it is
@@ -3202,6 +3203,7 @@ def _parse_uint(s):
 	return n
 
 
+# codeql[py/mixed-tuple-returns] a tagged tuple, for the Rust twin's enum
 def _selector_of(p, s):
 	"""What a selector body means: `*` the wildcard, an index shape an index,
 	a quoted body a value match, anything else a bare value match."""
@@ -6564,6 +6566,7 @@ class Document:
 			c = idx.next_same[c]
 		return out
 
+	# codeql[py/mixed-tuple-returns] a tagged tuple, for the Rust twin's enum, as listed below
 	def _resolve_from(self, start, segs, group=False):
 		# Returns ("none",) | ("one", idx) | ("many", [idx]) | ("slots", [entry]).
 		# A slots entry is a node idx, or the Status saying why the sub-path did
@@ -9336,6 +9339,7 @@ def _remove_quietly(path):
 	try:
 		os.remove(path)
 	except OSError:
+		# Already gone, or not ours to remove.
 		pass
 
 
@@ -9375,6 +9379,7 @@ def _sync_dir(d):
 	try:
 		os.fsync(fd)
 	except OSError:
+		# A filesystem that refuses the fsync doesn't fail the save.
 		pass
 	finally:
 		os.close(fd)
@@ -9531,6 +9536,7 @@ def _read_schema_file(path: str) -> tuple[SchemaStatus, str, str]:
 		# POSIX the open does not wait, and the flag comes straight back off:
 		# only the open waits, and the fstat refuses a FIFO before any read.
 		no_wait = getattr(os, "O_NONBLOCK", 0)
+		# codeql[py/file-not-closed] the with just below owns the descriptor and closes it
 		fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
 		# Unbuffered fixed reads, since the page map refuses one that is not a
 		# multiple of 8. One read past the cap is what tells a file at it from
@@ -9677,6 +9683,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 			if os.name == "nt" and existing is not None:
 				fd = _create_like(target, tmp)
 			else:
+				# codeql[py/overly-permissive-file] a new file gets 0o666 less the umask, as open() would give it
 				fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), born)
 			# fdopen puts a windows fd in binary mode as well, so no LF becomes CRLF.
 			f = os.fdopen(fd, "w", encoding="utf-8", newline="")
@@ -9711,9 +9718,11 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 						try:
 							os.fchown(f.fileno(), -1, existing.st_gid)
 						except OSError:
+							# Best effort, as above.
 							pass
 					os.fchmod(f.fileno(), stat.S_IMODE(existing.st_mode))
 				except OSError:
+					# Best effort, as above.
 					pass
 		finally:
 			f.close()
@@ -9868,9 +9877,11 @@ def write_backup(file: str, text: str, format: int) -> str:
 						try:
 							os.fchown(fh.fileno(), -1, st.st_gid)
 						except OSError:
+							# Best effort, as above.
 							pass
 					os.fchmod(fh.fileno(), stat.S_IMODE(st.st_mode))
 				except (OSError, ValueError):
+					# Best effort, as above.
 					pass
 			os.fsync(fh.fileno())
 	# ValueError alongside: a lone surrogate in the text fails the encode.
@@ -10013,6 +10024,7 @@ def _set_read_only(path, on):
 		mode = os.stat(path).st_mode
 		os.chmod(path, (mode & ~stat.S_IWRITE) if on else (mode | stat.S_IWRITE))
 	except OSError:
+		# A mode that won't change leaves the file as it was.
 		pass
 
 

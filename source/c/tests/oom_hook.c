@@ -141,6 +141,7 @@ static char *v2_doc(size_t n, size_t *len) {
 	size_t cap = n * 48 + 32;
 	char *text = (char *)malloc(cap);
 	size_t at = 0;
+	// codeql[cpp/overflowing-snprintf] 48 bytes a line fits any two size_t numbers
 	for (size_t i = 0; i < n; i++) at += (size_t)snprintf(text + at, cap - at, "k%zu: a\\,b, c#%zu\n", i, i);
 	*len = at;
 	return text;
@@ -150,6 +151,7 @@ static shcl_doc *wide_doc(size_t n) {
 	size_t cap = n * 16 + 16;
 	char *text = (char *)malloc(cap);
 	size_t at = (size_t)snprintf(text, cap, "group:\n");
+	// codeql[cpp/overflowing-snprintf] 16 bytes a line fits the 20000 lines its one caller asks for
 	for (size_t i = 0; i < n; i++) at += (size_t)snprintf(text + at, cap - at, "\tk%zu: %zu\n", i, i);
 	shcl_doc *d = shcl_parse(text, at);
 	free(text);

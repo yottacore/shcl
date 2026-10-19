@@ -362,6 +362,7 @@ int main(void) {
 			len = (size_t)snprintf(mtext, cap, "g:\n\tk: 1\n");
 			if (withbig) {
 				len += (size_t)snprintf(mtext + len, cap - len, "big:\n");
+				// codeql[cpp/overflowing-snprintf] cap is 3 MB, twice what these 100000 lines take
 				for (int i = 0; i < 100000; i++) len += (size_t)snprintf(mtext + len, cap - len, "\tc%d: %d\n", i, i);
 			}
 			shcl_doc *md = shcl_parse(mtext, len);
@@ -399,6 +400,7 @@ int main(void) {
 		if (!ktext) { fail("kept-line fixture: no memory"); return test_id_end(failures); }
 		for (int kept = 0; kept < 2; kept++) {
 			len = (size_t)snprintf(ktext, cap, "g:\n\tk: 1\nbig:\n");
+			// codeql[cpp/overflowing-snprintf] cap is 3 MB, twice what these 100000 lines take
 			for (int i = 0; i < 100000; i++) len += (size_t)snprintf(ktext + len, cap - len, "\tc%d: %d\n", i, i);
 			if (kept) len += (size_t)snprintf(ktext + len, cap - len, " x: y\n");
 			shcl_doc *kd = shcl_parse(ktext, len);

@@ -562,6 +562,7 @@ def _failed_publish_loses_neither_file(td):
 			print("conformance: skipping the failed-publish fixture (a move into a denied folder went through)")
 			return
 		except OSError:
+			# Refused, which is what the fixture needs.
 			pass
 		try:
 			shcl._publish_file(tmp, target)
@@ -1124,6 +1125,7 @@ def main():
 		fails.append("surrogate: a read did not find what the parse kept")
 	# Was NotFound until reads got BadPath (2026100717500001): a bare name
 	# outside ASCII is refused, so the quoted spelling is the miss now.
+	# Kept commented out, since old tests aren't deleted.
 	# if sdoc.read_string("z\udc80").status != shcl.Status.NotFound or sdoc.exists("q\udc80.r"):
 	# 	fails.append("surrogate: a path holding one is not NotFound")
 	if sdoc.read_string("z\udc80").status != shcl.Status.BadPath or sdoc.exists("q\udc80.r"):
@@ -1135,6 +1137,7 @@ def main():
 			sdoc.save_file(os.path.join(sd, "s.shcl"))
 			fails.append("surrogate: a document with no UTF-8 spelling saved")
 		except shcl.SaveFailed:
+			# Refused, as it should be.
 			pass
 
 	test_id("EqLxvWz", "tokenize_value_takes_a_negative_offset_as_zero")
@@ -3161,6 +3164,7 @@ def main():
 			mode = os.stat(born).st_mode & 0o777
 			if mode != mode_want:
 				raise SystemExit(f"new file mode {mode:o}, want {mode_want:o}")
+			# codeql[py/overly-permissive-file] a fixture mode the test reads back
 			os.chmod(born, 0o640)
 			ndoc.save_file(born)
 			mode = os.stat(born).st_mode & 0o777
@@ -3173,8 +3177,10 @@ def main():
 			# a file whose group the caller is not in. Its own group fixes both.
 			try:
 				os.chown(born, -1, os.getegid())
+				# codeql[py/overly-permissive-file] a fixture mode the test reads back
 				os.chmod(born, 0o6750)
 			except PermissionError:
+				# Not allowed here, and the check below skips it.
 				pass
 			if os.stat(born).st_mode & 0o7777 == 0o6750:
 				ndoc.save_file(born)
@@ -3887,6 +3893,7 @@ def main():
 		raise SystemExit("format_version: 4294967295 did not read as itself")
 	# Read as this major until 2026101514324705, which made a file naming one
 	# too big a beta file to `upgrade --from-2x`.
+	# Kept commented out, since old tests aren't deleted.
 	# if shcl.format_version("##    Format   4294967296\na: 1\n") != shcl.FORMAT_MAJOR:
 	# 	raise SystemExit("format_version: 4294967296 did not read as the current major")
 	if shcl.format_version("##    Format   4294967296\na: 1\n") != 0xFFFFFFFF:
@@ -4065,6 +4072,7 @@ def main():
 	if qcdoc.to_canonical() != 'n: "1,000"\n':
 		raise SystemExit(f"wrote {qcdoc.to_canonical()!r}")
 	# 2026101010054746: a quoted thousands number is text, like a bare one.
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if qcdoc.get_int("n", None) != 1000:
 	# 	raise SystemExit(f"n: {qcdoc.read_int('n')!r}")
 	if qcdoc.read_int("n").status != shcl.Status.BadType:
@@ -4086,12 +4094,15 @@ def main():
 	# # A thousands comma is text quoted or bare, so a typed read gives the same
 	# # answer before and after the writer quotes it (2026101010054746).
 	# tcdoc = shcl.Document.parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if not tcdoc.set_string("s", "1,000"):
 	# 	raise SystemExit("set s")
 	# tcout = tcdoc.to_canonical()
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if not tcout.startswith("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") or not tcout.endswith('s: "1,000"\n'):
 	# 	raise SystemExit(f"wrote {tcout!r}")
 	# tcback = shcl.Document.parse(tcout)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# for tcpath, tctext in (("p", "80,443"), ("q", "1,000"), ("r", "-1,234,567"), ("s", "1,000")):
 	# 	for tcd in (tcdoc, tcback):
 	# 		if tcd.read_int(tcpath).status != shcl.Status.BadType:
@@ -4104,6 +4115,7 @@ def main():
 	# if not tcdoc.read_string("s").quoted or not tcback.read_string("s").quoted:
 	# 	raise SystemExit("s not quoted")
 	# tcloose = shcl.Document.parse_with("q: \"1,000\"\nc: \"$1,200\"\n", shcl.Strictness.Loose)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if tcloose.read_int("q").status != shcl.Status.BadType or tcloose.read_int("c").status != shcl.Status.BadType:
 	# 	raise SystemExit(f"loose: {tcloose.read_int('q')!r} {tcloose.read_int('c')!r}")
 
@@ -4432,6 +4444,7 @@ def main():
 	if odoc.count("srv") != 1:
 		raise SystemExit(f"srv count {odoc.count('srv')}")
 	# Was NotFound until reads got BadPath (2026100717500001).
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if odoc.read_string("srv[web].host").status != shcl.Status.NotFound:
 	# 	raise SystemExit(f"srv[web].host {odoc.read_string('srv[web].host')!r}")
 	if odoc.read_string("srv[web].host").status != shcl.Status.BadPath:
@@ -4831,6 +4844,7 @@ def main():
 		with open(up_path, "wb") as uf:
 			uf.write(up_v2.encode("utf-8"))
 		if os.name == "posix":
+			# codeql[py/overly-permissive-file] a fixture mode the test reads back
 			os.chmod(up_path, 0o640)
 		up = shcl.upgrade_file(up_path, False)
 		up_backup = os.path.join(ud, f"f{up_tag}.shcl")

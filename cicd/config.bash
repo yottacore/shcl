@@ -101,6 +101,10 @@ TOOL_PINS=(
 	"clang-tools|19|clang-extdef-mapping-19 --version"
 	## The C soak's heap report, under --leakcheck (soak-c.bash).
 	"heaptrack|1.5.0|heaptrack --version"
+	## CodeQL over all 5 languages, under --leakcheck (codeql-scan.bash). The
+	## bundle of this CLI version, with its query packs, whose sha256 is in
+	## the Dockerfile. Its findings move between releases, as cppcheck's do.
+	"codeql|2.27.2|codeql version --format=terse"
 )
 ## The PyPI wheel that bundles the pinned cppcheck binary has its own version,
 ## and that is the one pip installs (ci.yml, install-dev.bash). Bump it with
@@ -205,6 +209,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-veneer.bash
 	cicd/utility/check-wheel.bash
 	cicd/utility/cli-regress.bash
+	cicd/utility/codeql-scan.bash
 	cicd/utility/comparison/compare.bash
 	cicd/utility/crosscheck.bash
 	cicd/utility/gen-compdb.bash
@@ -319,7 +324,7 @@ TEST_EXTRA=(
 
 ## Stage 4, last: the slow leak and memory checks. A run with no flags runs
 ## them, and --gate and --quick leave them out unless --leakcheck is given
-## too (JC, 2026-10-18). CodeQL, for all 5 languages, joins this list.
+## too (JC, 2026-10-18).
 LEAKCHECK_STEPS=(
 	## The clang analyzer in its cross-file mode, over each C program split
 	## into its own code and the library's, as a program using the header is
@@ -331,6 +336,10 @@ LEAKCHECK_STEPS=(
 	## The veneer smoke in libstdc++'s debug mode, which changes the ABI and
 	## so has a build of its own.
 	'cicd/utility/sanitize-c.bash --glibcxx-debug'
+	## CodeQL's security-and-quality suites over all 5 languages, in the
+	## build image. About 5 minutes; the databases and SARIF go in
+	## cicd/artifacts/codeql/.
+	'cicd/utility/codeql-scan.bash'
 	## Every Rust test under Miri, the ones that take minutes each there
 	## included. Hours.
 	'cicd/utility/sanitize-rust.bash --miri-all'
@@ -608,14 +617,15 @@ LINT_LOG_DIR="cicd/artifacts/lint"
 ## the whole project dir, then stash/pull/pop, add, commit, push).
 GIT_PUBLISH=(cicd/utility/n8git_backup-and-publish)
 ## Backup excludes only this project has, on top of the publisher's own: the C
-## and Go CLI builds, the Python build dir, and the comparison tool's build (none
-## ship). The publisher already drops review scratch (crMMDD), gate worktrees,
+## and Go CLI builds, the Python build dir, the comparison tool's build (none
+## ship), and CodeQL's databases, a GB or so a run. The publisher already drops review scratch (crMMDD), gate worktrees,
 ## extra target-* dirs, and the runbuilds, crosscheck and profiling artifacts.
 ## One rar pattern per line, no '-x' and no quoting.
 export GIT_BACKUP_AND_PUBLISH_RAR_EXCLUDES="*/source/c/shcl
 */source/go/shcl
 */source/python/build
-*/comparison/target"
+*/comparison/target
+*/cicd/artifacts/codeql"
 PUBLISH_AUTO_MESSAGE=""
 
 
@@ -639,3 +649,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-19 JC: QUICK_SKIP, the slow steps and the ones that need another host.
 ##		- 2026-10-19 JC: --quick keeps the CPU floor scan and drops only the emulated boot.
 ##		- 2026-10-19 JC: LEAKCHECK_STEPS, for --leakcheck and a run with no flags.
+##		- 2026-10-19 JC: CodeQL in TOOL_PINS and LEAKCHECK_STEPS.

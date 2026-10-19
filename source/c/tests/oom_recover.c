@@ -40,6 +40,7 @@ static char *sample(size_t *len) {
 	char *t = (char *)malloc(cap);
 	size_t n = 0;
 	n += (size_t)snprintf(t + n, cap - n, "group:\n");
+	// codeql[cpp/overflowing-snprintf] 400 lines of about 30 bytes, in 64 KB
 	for (int i = 0; i < 400; i++) n += (size_t)snprintf(t + n, cap - n, "\tkey%d: value number %d\n", i, i);
 	*len = n;
 	return t;
@@ -74,6 +75,7 @@ static char *schema(size_t *len) {
 	char *t = (char *)malloc(cap);
 	size_t n = 0;
 	for (int i = 0; i < 200; i++)
+		// codeql[cpp/overflowing-snprintf] 200 lines of about 70 bytes, in 64 KB
 		n += (size_t)snprintf(t + n, cap - n, "field: group.key%d\n\ttype: string\n\trequired: yes\n\tmin: 1\n\tmax: 100\n", i);
 	*len = n;
 	return t;
@@ -123,6 +125,7 @@ int main(void) {
 		if (!dir) dir = "/tmp";
 		char path[512];
 		snprintf(path, sizeof path, "%s/shcl-oom-recover.shcl", dir);
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		FILE *f = fopen(path, "wb");
 		if (!f) fail("could not write the fixture");
 		else {
@@ -163,6 +166,7 @@ int main(void) {
 		if (!dir) dir = "/tmp";
 		char path[512];
 		snprintf(path, sizeof path, "%s/shcl-oom-recover-keep.shcl", dir);
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		FILE *f = fopen(path, "wb");
 		if (!f) fail("could not write the keep-lines fixture");
 		else {

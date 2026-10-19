@@ -173,6 +173,7 @@ static int reads_from_several_threads() {
 		},
 	};
 	std::size_t nSchema = 0;
+	// codeql[cpp/unused-local-variable] the lambdas below capture q
 	for (const std::string &q : queries) {
 		calls.push_back(schemaCalls[nSchema++ % schemaCalls.size()]);
 		calls.push_back(schemaCalls[nSchema++ % schemaCalls.size()]);
@@ -805,6 +806,7 @@ int main() {
 		auto [absent, absentSt] = shcl::Document::load_file(f);
 		CHECK(absent && absentSt == shcl::FileStatus::NotFound && absent.to_canonical().empty());
 		CHECK(std::string(shcl::to_string(absentSt)) == "NotFound");
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		{ FILE *fh = std::fopen(f.c_str(), "wb"); CHECK(fh && std::fputs("pct: 50%\n", fh) != EOF && std::fclose(fh) == 0); }
 		auto [strict, strictSt] = shcl::Document::load_file_with(f, shcl::Strictness::Loose);
 		CHECK(strictSt == shcl::FileStatus::Clean && strict.read_float("pct").value == 0.5);
@@ -812,6 +814,7 @@ int main() {
 		CHECK(shcl::read_file(f, 8) == std::make_pair(std::string(), shcl::FileStatus::Unreadable));
 		CHECK(strict.lost_count() == 0);
 		CHECK(strict.save_file(f) == shcl::SaveResult::Ok);
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		{ FILE *fh = std::fopen(f.c_str(), "wb"); CHECK(fh && std::fputs("a:   1\n", fh) != EOF && std::fclose(fh) == 0); }
 		auto [keeping, keepingSt] = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard);
 		CHECK(keepingSt == shcl::FileStatus::Clean && keeping.set_int("b", 2) == S::Ok);
@@ -939,6 +942,7 @@ int main() {
 		if (!tmp || !*tmp) tmp = std::getenv("TMP");
 		if (!tmp || !*tmp) tmp = "/tmp";
 		const std::string sp = std::string(tmp) + "/shcl-veneer-named-" + std::to_string(static_cast<long>(getpid())) + ".shcl";
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		if (std::FILE *sf = std::fopen(sp.c_str(), "wb")) {
 			std::fputs("field: port\n", sf);
 			std::fclose(sf);
