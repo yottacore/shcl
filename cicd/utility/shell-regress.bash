@@ -1352,14 +1352,14 @@ fTest EsZzNEZ 2026101011200000-hosted-jobs-cover-the-gate
 ##	2026101011200000: the ubuntu gate split into parallel jobs, each leaving a
 ##	stage out. A job list that drops a stage everywhere, or a flag that drops
 ##	more than one, must fail the check, or a stage stops running hosted.
-fPinsRun 's/args: --ci --no-tests$/args: --ci --no-lint/' && fBad "check-pins.bash passed hosted jobs that all leave lint out"
-fPinsRun 's/args: --ci --no-lint --no-cross$/args: --ci --no-largedoc/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
-fPinsRun 's/args: --ci --no-tests$/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --ci"
+fPinsRun 's/args: --gate --no-tests$/args: --gate --no-lint/' && fBad "check-pins.bash passed hosted jobs that all leave lint out"
+fPinsRun 's/args: --gate --no-lint --no-cross$/args: --gate --no-largedoc/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
+fPinsRun 's/args: --gate --no-tests$/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --gate"
 fPinsRun 's#cicd/cicd\.bash#cicd/other.bash#' && fBad "check-pins.bash passed a workflow with no job running cicd.bash"
 ##	2026101514324719: the single job the split replaced, and a third job that
 ##	runs everything beside the 2 halves.
-fPinsRun '/^[[:space:]]*- part: tests$/,/args:/d; s/args: --ci --no-tests$/args: --ci/' && fBad "check-pins.bash passed one hosted job running lint and tests together"
-fPinsRun 's/^([[:space:]]*)(- part: tests)$/\1- part: all\n\1  args: --ci\n\1\2/' && fBad "check-pins.bash passed a hosted job running lint and tests beside the 2 halves"
+fPinsRun '/^[[:space:]]*- part: tests$/,/args:/d; s/args: --gate --no-tests$/args: --gate/' && fBad "check-pins.bash passed one hosted job running lint and tests together"
+fPinsRun 's/^([[:space:]]*)(- part: tests)$/\1- part: all\n\1  args: --gate\n\1\2/' && fBad "check-pins.bash passed a hosted job running lint and tests beside the 2 halves"
 fTest Esbq6Ie 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to
@@ -2185,9 +2185,9 @@ out="$(bash "${repoDir}/cicd/utility/perf-gate.bash" --keys 500 "quiet|${tmpDir}
 out="$(bash "${repoDir}/cicd/utility/perf-gate.bash" --keys 500 "wrong|${tmpDir}/stubs/wrong" 2>&1 || true)"
 [[ "${out}" == *"did not do the work"* ]] || fBad "perf-gate accepted a CLI that exited wrong: $(tail -n 2 <<<"${out}")"
 
-fTest EqQUj04 20260920-2-ci-runs-the-cross-checks
+fTest EqQUj04 20260920-2-gate-runs-the-cross-checks
 ##	20260920 item 2: the cross checks sat inside the release-build branch, and
-##	--ci empties the release command, so the one run that decides whether a
+##	the gate empties the release command, so the one run that decides whether a
 ##	commit reaches main compiled none of them for a month. Driven rather than
 ##	grepped: a throwaway repo holding the real engine, a config with every stage
 ##	empty, and a cross check that touches a marker file.
@@ -2215,23 +2215,23 @@ EOF
 export SHCL_STUB_MARKER="${stubDir}/marker"
 ##	The gate run has to compile them.
 rm -f "${SHCL_STUB_MARKER}"
-if ( cd "${stubDir}" && bash cicd/cicd.bash --ci ) > "${tmpDir}/stub-ci.log" 2>&1; then
-	[[ -f "${SHCL_STUB_MARKER}" ]] || fBad "cicd.bash --ci ran no cross check"
+if ( cd "${stubDir}" && bash cicd/cicd.bash --gate ) > "${tmpDir}/stub-ci.log" 2>&1; then
+	[[ -f "${SHCL_STUB_MARKER}" ]] || fBad "cicd.bash --gate ran no cross check"
 else
-	fBad "cicd.bash --ci failed on the stub repo: $(tail -n 3 "${tmpDir}/stub-ci.log")"
+	fBad "cicd.bash --gate failed on the stub repo: $(tail -n 3 "${tmpDir}/stub-ci.log")"
 fi
 ##	And a failing one has to stop the run, or running them buys nothing.
 rm -f "${SHCL_STUB_MARKER}"
-if ( export SHCL_STUB_FAIL=1; cd "${stubDir}" && bash cicd/cicd.bash --ci ) > "${tmpDir}/stub-fail.log" 2>&1; then
-	fBad "cicd.bash --ci passed with a failing cross check"
+if ( export SHCL_STUB_FAIL=1; cd "${stubDir}" && bash cicd/cicd.bash --gate ) > "${tmpDir}/stub-fail.log" 2>&1; then
+	fBad "cicd.bash --gate passed with a failing cross check"
 fi
 grep -q 'cross check failed: marker' "${tmpDir}/stub-fail.log" \
 	|| fBad "cicd.bash did not name the cross check that failed"
 ##	--no-cross drops the checks with the targets: it is what a box without the
 ##	cross toolchains passes, and mingw is one of them.
 rm -f "${SHCL_STUB_MARKER}"
-( cd "${stubDir}" && bash cicd/cicd.bash --ci --no-cross ) > "${tmpDir}/stub-nocross.log" 2>&1 \
-	|| fBad "cicd.bash --ci --no-cross failed on the stub repo"
+( cd "${stubDir}" && bash cicd/cicd.bash --gate --no-cross ) > "${tmpDir}/stub-nocross.log" 2>&1 \
+	|| fBad "cicd.bash --gate --no-cross failed on the stub repo"
 if [[ -f "${SHCL_STUB_MARKER}" ]]; then fBad "--no-cross ran a cross check anyway"; fi
 unset SHCL_STUB_MARKER
 
@@ -2297,7 +2297,7 @@ fi
 fTest Ep1EGVh 20260904-28-gates-read-the-strict-flag
 ##	20260904 item 28: SHCL_GATE_STRICT is armed by one line in cicd.bash and read
 ##	by the gates; deleting the line disarmed every skip-as-failure silently.
-grep -qE '^\s*export SHCL_GATE_STRICT=1' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer exports SHCL_GATE_STRICT under --ci"
+grep -qE '^\s*export SHCL_GATE_STRICT=1' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer exports SHCL_GATE_STRICT under --gate"
 ##	The grep is for the expansion, not the name: a history line or a comment
 ##	mentioning the flag satisfied the old pattern, so a gate could lose its
 ##	guard and stay on the list. -F because the pattern has braces.
@@ -3424,6 +3424,44 @@ while IFS= read -r f; do
 	fi
 done < <(printf '%s\n' "${shellFileList[@]}")
 
+fTest Et6AutN 2026101816034794-quick-skips-name-one-step-each
+##	2026101816034794: --quick drops a step by plain text. A name that matches
+##	nothing goes stale after a rename with no failure, and one that matches 2
+##	steps drops more than it says. The engine's crosscheck counts as a step.
+grep -qF 'fQuickSkips crosscheck.bash' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer asks QUICK_SKIP about the crosscheck"
+# shellcheck disable=SC2016  ## the inner shell's own variables
+quickOut="$(CPU_CAP=1 bash -c 'set +u; source "$1"
+	for pat in "${QUICK_SKIP[@]}"; do
+		n=0
+		for step in "${LINT_EXTRA[@]}" "${TEST_EXTRA[@]}" "${CROSS_CHECKS[@]}" "${CROSS_TARGETS[@]}" "${RELEASE_CHECKS[@]}" crosscheck.bash; do
+			if [[ "${step}" == *"${pat}"* ]]; then n=$((n + 1)); fi
+		done
+		printf "%s\t%s\n" "${n}" "${pat}"
+	done' _ "${repoDir}/cicd/config.bash")"
+[[ -n "${quickOut}" ]] || fBad "config.bash names no step for --quick to leave out"
+while IFS=$'\t' read -r n pat; do
+	if [[ -n "${pat}" && "${n}" != 1 ]]; then fBad "QUICK_SKIP entry ${pat@Q} matches ${n} steps, not 1"; fi
+done <<<"${quickOut}"
+
+fTest Et9T1FN 2026101816034794-quick-keeps-floor-scan
+##	--quick still dogfoods its cross builds, so it keeps the floor scan and drops
+##	only the emulated boot. A stub stands in for the script and prints its args.
+mkdir -p "${tmpDir}/floor/cicd/utility"
+printf '#!/usr/bin/env bash\necho "$*"\n' > "${tmpDir}/floor/cicd/utility/check-cpu-floor.bash"
+chmod +x "${tmpDir}/floor/cicd/utility/check-cpu-floor.bash"
+for q in 0 1; do
+	# shellcheck disable=SC2016  ## the inner shell's own variables
+	floorArgs="$(cd "${tmpDir}/floor" && CPU_CAP=1 bash -c 'set +u; source "$1"; quick=$2
+		built_arts=("linux-x86_64|lin" "windows-x86_64|win.exe" "linux-arm64|arm"); RELEASE_NATIVE_BIN=lin
+		for c in "${RELEASE_CHECKS[@]}"; do
+			[[ "${c}" == *check-cpu-floor.bash* ]] || continue
+			if ((quick)); then for pat in "${QUICK_SKIP[@]}"; do if [[ "${c}" == *"${pat}"* ]]; then continue 2; fi; done; fi
+			eval "${c#*|}"
+		done' _ "${repoDir}/cicd/config.bash" "${q}")"
+	want="--run lin lin win.exe"; ((q)) && want="lin win.exe"
+	[[ "${floorArgs}" == "${want}" ]] || fBad "quick=${q}: floor check got ${floorArgs@Q}, wanted ${want@Q}"
+done
+
 fTest EqL3sFE 20260918b-44-shellcheck-list-complete
 ##	20260918b item 44: green-tree.bash went in with no line in the shellcheck
 ##	list, and nothing noticed. The list is compared with the shell files the
@@ -3688,3 +3726,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-15  check-docs' loop feeds fail their test when they crash.
 ##		2026-10-16  A fenced `#` line makes no anchor for check-docs' link checks.
 ##		2026-10-16  crosscheck's save gate rows have to give the right answer.
+##		2026-10-19  Each QUICK_SKIP name matches one step.

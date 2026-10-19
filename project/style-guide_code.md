@@ -204,7 +204,7 @@ Then there are the habits, which cost nothing to write and are not premature:
 
 - In shell, no forks inside a loop. One pass of one tool beats a thousand subshells, and the pipeline's own scripts are held to that.
 
-Optimizing early is fine when there is named evidence for it. The profiler stage runs on every full local pipeline run, not under `--quick` or `--ci`, checks its own attribution against two loops of known cost, and writes a flamegraph plus a hot-spot summary, so "this path is already slow" can be a fact rather than a hunch. Without something like that, leave it alone.
+Optimizing early is fine when there is named evidence for it. The profiler stage runs on every full local pipeline run, not under `--quick` or `--gate`, checks its own attribution against two loops of known cost, and writes a flamegraph plus a hot-spot summary, so "this path is already slow" can be a fact rather than a hunch. Without something like that, leave it alone.
 
 Everything else waits for the end, and is driven by measurement only. Micro-optimization belongs here and nowhere else: profile an optimized build on a realistic workload, attack the top of the list, measure again, revert anything that did not move the number. The 20260725 performance tranche is the worked example - a 32k-node merge went from 16 seconds to 0.07, all of it accelerators rather than rewrites.
 

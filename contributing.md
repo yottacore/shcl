@@ -135,7 +135,7 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/yottac
 
 ## How to develop
 
-Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/cicd.bash --ci` run locally is the same gate GitHub CI runs on Linux. GitHub also runs a Windows job that `--ci` does not.
+Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/cicd.bash --gate` run locally is the same gate GitHub CI runs on Linux. GitHub also runs a Windows job that `--gate` does not.
 
 The pipeline fast-forwards from the remote before it builds anything, so what it tests is what you would push. It stops and says so if your branch and its upstream have both moved. `--no-sync` skips that.
 
@@ -147,7 +147,7 @@ git config core.hooksPath cicd/hooks
 
 It skips the gate for a commit whose files a run already passed. Every `cicd.bash` run that gets through the tests and the cross checks without `--quick`, `--no-fmt`, `--no-lint`, `--no-tests`, `--no-cross` or a skipped tool records the tree it tested. So the push at the end of a full run goes straight out, and so does a `--no-ff` merge of a branch that passed onto a `main` that has not moved since. `SHCL_GATE_RERUN=1` runs the gate anyway, and `git push --no-verify` or `SHCL_SKIP_HOOK=1` gets past it when you need to.
 
-GitHub CI runs on pushes to `main`, on pull requests, and by hand from the Actions tab. Pushes to `dev` do not start it, and nothing gates `dev`, so run `cicd/cicd.bash --ci` on your own box before you merge there.
+GitHub CI runs on pushes to `main`, on pull requests, and by hand from the Actions tab. Pushes to `dev` do not start it, and nothing gates `dev`, so run `cicd/cicd.bash --gate` on your own box before you merge there.
 
 ### Toolchains
 
@@ -160,23 +160,23 @@ GitHub CI runs on pushes to `main`, on pull requests, and by hand from the Actio
 
 - C - gcc and g++; the build gate is a `-std=c11 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror` compile.
 
-- PowerShell 7+ - required: the lint stage runs PSScriptAnalyzer through `pwsh` on every run, including `--ci`.
+- PowerShell 7+ - required: the lint stage runs PSScriptAnalyzer through `pwsh` on every run, including `--gate`.
 
 `install-dev.bash` at the repo root sets up as much of this as it can without sudo, and prints package-manager hints for the rest.
 
-A full (non-`--quick`) pipeline run also wants the cross and packaging tools:
+A run without `--gate` also wants the cross and packaging tools. `--quick` builds the cross targets too, but no packages:
 
 - `cargo-zigbuild` and a mingw toolchain, for the Windows and ARM64 builds. Missing tools fail that stage, so pass `--no-cross` if you do not have them.
 
 - `nfpm` for `.deb`/`.rpm`, and `makensis` for the Windows setup. Either one missing just warns and skips its own packages.
 
-None of this is needed for `--ci`, which is the gate that matters for a pull request.
+None of this is needed for `--gate`, which is the gate that matters for a pull request.
 
-If you'd rather not install any of it, `cicd/cicd.bash --container` runs stages 1 to 6 in a Debian image with every tool at its pinned version. It needs docker, and builds the image from `cicd/container/` the first time. The sync, dogfood, demo gif and publish stages still run on your box. The stage flags pass through, so `cicd/cicd.bash --ci --container` is the gate in the image. Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points.
+If you'd rather not install any of it, `cicd/cicd.bash --container` runs stages 1 to 6 in a Debian image with every tool at its pinned version. It needs docker, and builds the image from `cicd/container/` the first time. The sync, dogfood, demo gif and publish stages still run on your box. The stage flags pass through, so `cicd/cicd.bash --gate --container` is the gate in the image. Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points.
 
 Two more images are there for now and then:
 
-- `--container=ubuntu` is Ubuntu 24.04 and its gcc 13, like the hosted runner, for a red that only shows up there. It runs the format check, build, tests and cross checks, strict like `--ci`.
+- `--container=ubuntu` is Ubuntu 24.04 and its gcc 13, like the hosted runner, for a red that only shows up there. It runs the format check, build, tests and cross checks, strict like `--gate`.
 
 - `--container=alpine` builds on musl and runs the binding suites and the CLI checks.
 
@@ -189,7 +189,9 @@ Two more images are there for now and then:
 	- Python: `python3 -X dev -W error::ResourceWarning source/python/tests/conformance.py`, so a file left open fails. `tests/soak.py` runs the same way.
 	- C: compile and run `source/c/tests/conformance.c` with `-Isource/c`, passing `project/conformance` as the corpus dir.
 
-- Everything at once: `cicd/cicd.bash --ci` - format check, build, lint, tests, and the cross-binding crosscheck. Every binding must match the reference byte for byte on stdout and exit codes; stderr text is not part of the contract.
+- Everything at once: `cicd/cicd.bash --gate` - format check, build, lint, tests, and the cross-binding crosscheck. Every binding must match the reference byte for byte on stdout and exit codes; stderr text is not part of the contract.
+
+- In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. A quick run never counts as a pass for the hook.
 
 ### Adding a conformance case
 
@@ -214,7 +216,7 @@ Behavior changes come with a corpus case, or they are not pinned.
 
 - Generate the golden files from the Rust reference and eyeball them. Never hand-edit a golden to make a test pass.
 
-- All four runners pick up a new case automatically. Run `cicd/cicd.bash --ci`; every binding must agree on it before it is released.
+- All four runners pick up a new case automatically. Run `cicd/cicd.bash --gate`; every binding must agree on it before it is released.
 
 Behavior the corpus cannot see, because it is not stdout, belongs in `cicd/utility/crosscheck.bash` instead. In-place writes are the current example: the check there compares the file tree a write leaves behind, so all four bindings are held to the same mode, symlink and content outcome.
 

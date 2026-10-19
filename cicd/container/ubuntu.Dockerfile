@@ -14,7 +14,7 @@ FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884
 #
 # gcc 13 is the default here, as on the runner; 12, 14 and clang are for
 # check-c-compilers, which the runner has too. The rest are rows in the test
-# stage that fail a skip under --ci, and tzdata is for rows that pin a zone.
+# stage that fail a skip under --gate, and tzdata is for rows that pin a zone.
 # libicu and libgssapi are for pwsh. The image's man is a stub that says it was
 # minimized, so the real one is put back, as the runner has it. Ubuntu's mawk
 # reads #{2,5} wrong, and the runner's awk is gawk.

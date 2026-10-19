@@ -170,9 +170,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install-
 The pipeline runs on Linux. macOS is untested for it, and some checks need Linux. On Windows, use WSL, since the pipeline is bash. Then, from the clone:
 
 ~~~sh
-cicd/cicd.bash --ci
+cicd/cicd.bash --gate
 ~~~
 
-`--ci` is the whole gate: format check, build, lint, tests, and the cross-binding differential. It is the same thing GitHub runs on Linux. GitHub also runs a Windows job that `--ci` does not.
+`--gate` is the whole gate: format check, build, lint, tests, and the cross-binding differential. It is the same thing GitHub runs on Linux. GitHub also runs a Windows job that `--gate` does not.
 
 [`contributing.md`](../contributing.md) has the full list - every toolchain and linter with its install command, the per-binding test commands, the extra tools a full cross-and-package run wants, and how to add a conformance case.

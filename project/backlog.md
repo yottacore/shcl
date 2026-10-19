@@ -131,6 +131,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Swept: all 14 volatile owners in shcl.h, all 5 `fread` loops, and both callers' hint buffers.
 		- gcc's analyzer reaches little of shcl.h. A leak and a null dereference planted in library calls, and both in main.c's own `is_command`, went unseen by gcc 14 and 15 at depths 2 and 3. clang's analyzer and clang-tidy saw them. At gcc's default depth main.c ran out of 14 GB and conformance.c passed 24 GB, so there's no slower gcc mode for `--leakcheck`. It runs at depth 2, 40 to 100 s and 3 to 8 GB a file, in 2 lanes.
 		- Question: keep gcc's `-fanalyzer` in the every-run gate, when the bait is the only thing it went red on?
+			- JC, 20261018: it stays in the every-run gate.
 		- Time added on this box, at load 11 to 46: analyze-c 150 to 182 s in the lint stage, and sanitize-c about 5 s (100 s to 105 s). In the ubuntu image with ci.yml's packages, analyze-c took 166 s at `CPU_CAP=4`. It went red there until g++-14 was installed, since clang found no C++ headers. A hosted run hasn't been tried.
 		- Verified: analyze-c green from the host through the image, and in the ubuntu image as ci.yml sets it up. Each plant was seen red, then restored by copy: a library leak (sanitize-c's runner, smoke, CLI and OOM tests, the clang analyzer, clang-tidy), a null dereference (the clang analyzer), a use after a vector grows in the smoke (ASan), a data race in the smoke (TSan), a use after move in shcl.hpp (clang-tidy, so the header filter reaches it), a one-byte arena overrun (red with `SHCL_ARENA_MALLOC`, green without it), a vector read inside its capacity (red with `_GLIBCXX_ASSERTIONS`, green with ASan alone), and `leak:main` in lsan.supp (`Et09atr`). check-pins went red with each new pin dropped from ci.yml or changed in the Dockerfile.
 		- Verified: sanitize-c (6329 CLI runs), check-c-compilers (141 builds, 5 compilers), the C tests at `-O2` with the strict warnings, mingw and zig Windows compiles, check-veneer, cli-regress over Rust and C, shell-regress, check-push-gate, check-pins, check-docs, `test-ids.py check`, shellcheck.
@@ -247,20 +248,46 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Updates to CICD script flags
 	- ID: 2026101816034794
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y. A full `cicd.bash --gate`.
+	- Needs external testing: Y. A hosted run, since both ubuntu jobs in ci.yml call `--gate` now.
 	- Priority: High
 	- Opened: 20261018-160347
 	- Opened by: JC
 	- Version and build: dev at `f49d5949`
 	- Requirements:
 		- Pre-next-cut. Do next.
-		- `--ci`: Rename `--gate`.
+		- `--ci`: Rename to `--gate`.
 		- `--quick`:
 			- Should run whatever linting, validation, and testing steps are very quick.
 			- Cross-compile whatever is fast; e.g. maybe skip slow arm64.
 			- Skip anything requiring an external host.
 		- No flags by default should do everything.
 		- The other existing flags can stay.
+	- Progress log:
+		- 20261019, branch `cflags`:
+			- `--ci` is `--gate` in cicd.bash, ci.yml, the pre-push hook, config.bash, the gate scripts and their rows, both Dockerfiles, install-dev.bash, fuzz_smoke.rs, contributing.md, design.md, install.md and style-guide_code.md. `--ci` is an unknown option now, exit 2. History lines keep it.
+			- The pre-push hook calls `--ci` when the engine in the pushed tree has no `--gate`. main's tree has the old engine until the cut, and a docs-only merge to main gates that tree. Drop it after the cut.
+			- `--quick` leaves out each step named in config.bash's `QUICK_SKIP`, matched by text, plus the large document, packages, profiler and gif as before. It builds all 5 cross targets now, where it built none before, and it still records no tree.
+			- Step times from 20261018, at load 3 to 31. Left out of `--quick`: cppcheck exhaustive, 36 min with a cold cache; analyze-c 154 s; check-migrate 147 to 158 s; shell-regress and crosscheck 100 to 107 s each; sanitize-c 96 s; cli-regress 92 to 124 s; perf-gate 72 to 79 s; check-c-compilers 67 to 99 s; and sanitize-rust, about 160 s with its nightly. govulncheck and cargo-deny fetch their advisory lists, so they're out too. The longest step kept is the Python runner, 46 to 51 s. Each cross target took 16 to 18 s, arm64 included.
+			- A `--quick` run took 8 min 16 s at load 3 to 4, with `--no-sync --no-dogfood --no-publish`.
+			- The CPU floor check took 131 s, nearly all of it the emulated boot. The scan alone takes about 4 s, so `--quick` keeps it.
+			- Verified: `Et9T1FN` went red with the floor check back on `QUICK_SKIP`, and with the boot kept under `--quick`.
+			- A bare run leaves nothing out today. The extra container images and the hosted windows job were never part of a local run.
+			- Verified: a `--quick` run, green end to end. `--ci` exits 2 as an unknown option. A `--gate` run with every stage flag off went through the gate path, and `--gate --quick` shows the crosscheck skipped. check-push-gate, shell-regress, check-pins, check-docs, markdownlint-cli2, `test-ids.py check`, and shellcheck over all 45 files pass.
+			- Verified: each new row went red with its fault and passed once restored by copy. An engine that drops nothing failed `Et6Aueh`, and so did one that keeps the crosscheck, and one that runs quick every time. A `--ci` alias failed `Et6Aum5`. A hook without its fallback failed `Et6Ak52`. A `QUICK_SKIP` name that matches no step, one that matches 2, and an engine that stops asking about the crosscheck each failed `Et6AutN`.
+	- Decisions:
+		- JC, 20261018: `--ci` is renamed `--gate` everywhere, with no alias. Closed items and past changelog entries keep the old text.
+		- JC, 20261018: a run with no flags does everything, the slow `--leakcheck` checks of 2026101707582803 and 2026101711273980 included once they exist.
+		- JC, 20261018: gcc's `-fanalyzer` stays in the every-run gate.
+		- `--quick` leaves out a step that takes over a minute here, or that reaches a host other than this one (me).
+		- `--quick` keeps the remote sync and the publish stage. They are the run's own git work, not checks, and `--no-sync` and `--no-publish` drop them (me, kept by JC 20261019).
+		- JC, 20261019: `--quick` keeps the dogfood stage. So it keeps the CPU floor scan over the x86_64 builds it copies out, about 4 s, and drops only the emulated Penryn and Phenom boot.
+		- `ci_mode` is `gate_mode` inside cicd.bash too (me).
+	- Branch: `cflags`
+	- Commit: `5d5fff3a`
+	- Test case: check-push-gate `Et6Aum5` (`--ci` is unknown), `Et6Aueh` (`--quick` leaves out what `QUICK_SKIP` names, and a bare run and `--gate` keep it), `Et6Ak52` (the hook and an engine from before `--gate`) and `EqGl8me` (the hook calls `--gate --no-largedoc`); shell-regress `Et6AutN` (each `QUICK_SKIP` name matches one step) and `Et9T1FN` (`--quick` runs the CPU floor scan without the boot, and a full run boots).
+	- Swept: a grep of every tracked file for `--ci` and `ci_mode`. What's left is the history lines in cicd.bash and config.bash, the hook's fallback and its row, the changelog and the backlog.
 
 - `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
 	- ID: 2026101807501110

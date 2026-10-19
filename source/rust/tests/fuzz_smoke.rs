@@ -57,7 +57,7 @@ const INTERESTING: &[char] = &[
 /// How many iterations to run, never below `floor`. Split from the environment
 /// so the refusals below can be tested without one.
 ///
-/// A misspelled value used to fall back to 300 without a word, so `--ci`'s
+/// A misspelled value used to fall back to 300 without a word, so `--gate`'s
 /// 200000 became a quick run whenever the pipeline's spelling drifted, and a 0
 /// ran nothing at all and reported a pass. Both are a mistake, not a setting.
 fn iter_count_from(value: Option<&str>, floor: usize) -> usize {
