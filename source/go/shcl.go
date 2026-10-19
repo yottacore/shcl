@@ -8798,9 +8798,13 @@ func fileNameStart(file string) int {
 // the copy is synced before this returns. It is born private, then given the
 // original's group and mode (on windows its DACL), so a private config never
 // has a readable copy. Returns the backup's name; a failure is an
-// *UpgradeError.
+// *UpgradeError. A file that isn't there is UpgradeNotFound, and a directory or
+// a FIFO is UpgradeIO, as from UpgradeFile.
 func WriteBackup(file, text string, format int) (string, error) {
 	name := BackupFileName(file, format)
+	if err := checkKeptFile(file); err != nil {
+		return "", err
+	}
 	// NAME: and the system's own message, as the CLI says it. The path error
 	// would name the call and the path a second time.
 	failed := func(err error) error {
@@ -8841,6 +8845,26 @@ func WriteBackup(file, text string, format int) (string, error) {
 	return name, nil
 }
 
+// checkKeptFile says the file WriteBackup or UpgradeFile keeps is there and
+// is a regular file. A FIFO or a device would block the read or be replaced by
+// a file, and text passed where the file goes got a backup named after it
+// (2026101807501110). Any other failure is left to the read or the create,
+// whose path shares every folder with this one.
+func checkKeptFile(path string) error {
+	fi, err := os.Stat(path)
+	switch {
+	case err == nil && !fi.Mode().IsRegular():
+		st := WriteNotRegular
+		if fi.IsDir() {
+			st = WriteIsDirectory
+		}
+		return &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: st, Err: fmt.Errorf("%s: not a regular file", path)}}
+	case errors.Is(err, os.ErrNotExist):
+		return &UpgradeError{Kind: UpgradeNotFound, Path: path}
+	}
+	return nil
+}
+
 // UpgradeFile is Upgrade on a file, for a program to call when it starts,
 // before its load. A file that needs it is kept under BackupFileName by
 // WriteBackup, then the fresh text replaces it through WriteFileAtomic, so the
@@ -8851,17 +8875,8 @@ func WriteBackup(file, text string, format int) (string, error) {
 // On success Backup names the copy when one was made, and Text is what the
 // path now holds. A failure is an *UpgradeError.
 func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
-	// A FIFO or a device would block the read or be replaced by a file.
-	fi, err := os.Stat(path)
-	switch {
-	case err == nil && !fi.Mode().IsRegular():
-		st := WriteNotRegular
-		if fi.IsDir() {
-			st = WriteIsDirectory
-		}
-		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: st, Err: fmt.Errorf("%s: not a regular file", path)}}
-	case errors.Is(err, os.ErrNotExist):
-		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
+	if err := checkKeptFile(path); err != nil {
+		return Upgraded{}, err
 	}
 	// Not ReadFile, whose one status for every failure would hide the
 	// system's reason (2026101514324707).

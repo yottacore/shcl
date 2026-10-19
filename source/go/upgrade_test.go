@@ -384,3 +384,39 @@ func TestUpgradeFileNeverWritesOverABackup(t *testing.T) {
 		t.Fatalf("%d entries, want 3", len(ents))
 	}
 }
+
+// The file and its text are both strings, and swapped they wrote a backup
+// named after the text and returned its name (2026101807501110).
+func TestWriteBackupRefusesASwappedFileAndText(t *testing.T) {
+	defer testID(t, "Et6Am5j")
+	t.Setenv("SHCL_TEST_CLOCK", upgradeClock)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f.shcl")
+	// Read as a path the text names a spot in dir, so a backup made of it
+	// would show there.
+	text := dir + "/port: 80\nhost: x\n"
+	got, err := WriteBackup(text, file, 3)
+	var ue *UpgradeError
+	if !errors.As(err, &ue) {
+		t.Fatalf("swapped: %q, %v", got, err)
+	}
+	// A newline is no part of a windows name, so the create refuses it there.
+	if runtime.GOOS != "windows" && (ue.Kind != UpgradeNotFound || ue.Path != text) {
+		t.Fatalf("swapped: %v", err)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+		t.Fatalf("%d entries, want 0", len(ents))
+	}
+	sub := filepath.Join(dir, "d")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err = WriteBackup(sub, "x: 1\n", 3)
+	var we *WriteError
+	if !errors.As(err, &ue) || ue.Kind != UpgradeIO || !errors.As(err, &we) || we.Status != WriteIsDirectory {
+		t.Fatalf("backup of a directory: %v", err)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 1 || ents[0].Name() != "d" {
+		t.Fatalf("left %v", ents)
+	}
+}
