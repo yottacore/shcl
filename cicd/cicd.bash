@@ -76,6 +76,9 @@
 ##	  that tree through without running the gate again. --quick, --no-fmt,
 ##	  --no-lint, --no-tests, --no-cross and a skipped tool each keep a run from
 ##	  recording.
+##	- Each run works in a temp dir of its own, removed at the end even when it
+##	  fails or is stopped. A whole run also removes the pipeline's own stale
+##	  leftovers, and says what went in one line.
 ##	- When docker (or SHCL_DOCKER) answers on x86_64, stages 1-6 run in the main
 ##	  image as if --container were given, the pre-push hook's gate included.
 ##	  Otherwise they run here, with a one-line note saying why. Sync, dogfood,
@@ -244,10 +247,43 @@ if ((no_leakcheck)) || { ((gate_mode || quick)) && ((! leakcheck_flag)); }; then
 ## anything noted there records nothing.
 record_green=1
 if ((quick || gate_partial)); then record_green=0; fi
+
+## Every run gets a temp dir of its own, and TMPDIR points into it, so what a
+## gate or a test leaves when it fails or is killed goes with it at the end. A
+## stopped run's too, through the trap.
+run_tmp_root="${TMPDIR:-/tmp}"
+if [[ "${run_tmp_root}" != /* ]]; then run_tmp_root=/tmp; fi
+run_tmp_root="${run_tmp_root%/}"
+run_tmp="$(mktemp -d "${run_tmp_root}/${APP_NAME}-run.XXXXXX")" || { echo "could not make a temp dir under ${run_tmp_root}" >&2; exit 2; }
+echo "$$" > "${run_tmp}/.cicd-run"
+export TMPDIR="${run_tmp}"
+## Only the dir this run made: still at its path, a real dir that's ours, with
+## this run's mark in it.
+fRmRunTmp(){
+	local d="${run_tmp}" mark=""
+	run_tmp=""
+	[[ -n "${d}" && "${d}" == "${run_tmp_root}/${APP_NAME}-run."* && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
+	mark="$(cat -- "${d}/.cicd-run" 2>/dev/null || true)"
+	[[ "${mark}" == "$$" ]] || return 0
+	## A test that failed can leave a dir it made read-only. chmod -R passes
+	## over links, as rm -rf does.
+	if ! rm -rf -- "${d}" 2>/dev/null; then
+		chmod -R u+rwX -- "${d}" 2>/dev/null || true
+		rm -rf -- "${d}" 2>/dev/null || echo "cleanup: could not remove all of ${d}" >&2
+	fi
+}
+## KB to a size a person reads.
+fSize(){ if (($1 >= 1048576)); then printf '%d.%d GB' $(($1 / 1048576)) $(($1 % 1048576 * 10 / 1048576)); else printf '%d MB' $((($1 + 512) / 1024)); fi; }
+## A run that stops early. fCleanup has already done it on a whole run.
+fRunTmpGone(){
+	local kb=0
+	[[ -n "${run_tmp}" ]] || return 0
+	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
+	fRmRunTmp
+	if ((! in_container)); then printf '[ cleanup: removed this run'\''s temp files, about %s ]\n' "$(fSize "${kb:-0}")" >&2; fi
+}
+trap 'fRunTmpGone || true' EXIT
 export SHCL_GATE_SKIPS="$(mktemp)"
-## Dirs fRunContainer made with mktemp -d, and only those.
-ctr_tmps=()
-trap 'rm -f "${SHCL_GATE_SKIPS}"; for d in "${ctr_tmps[@]}"; do rm -rf "${d}"; done' EXIT
 
 ## Publish commit message: -m wins, then config, then a default when unattended.
 publish_msg=""
@@ -334,13 +370,13 @@ fInstallAtomic(){
 ## and its git dir are mounted at their own paths, so the tree it records and a
 ## worktree's .git file still mean something.
 fRunContainer(){
-	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" old="" link="" real=""
+	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" link="" real="" ctr_label="${CTR_IMAGE:-${APP_NAME}-cicd}"
 	local -a mounts=() groups=() env=() inner=()
 	fSection "Container: ${ctr_image}"
 
 	## The image is built from a copy of its recipe dir plus the files the
 	## config adds, and tagged by their hash, so an edit can't run on an old one.
-	ctx="$(mktemp -d)"; ctr_tmps+=("${ctx}")
+	ctx="$(mktemp -d)"
 	fCtrContext "${ctr_recipe}" "${ctx}" || fDie "could not copy the ${ctr_image} image's build context"
 	tag="$(fCtrTag "${ctx}" "${ctr_image}")"
 	if "${engine}" image inspect "${tag}" >/dev/null 2>&1; then
@@ -349,19 +385,14 @@ fRunContainer(){
 		## Quiet, since a first build is minutes of download lines. A failure
 		## still prints the step that failed.
 		fEcho_Clean "building ${tag}, which takes several minutes the first time"
-		"${engine}" build -q -t "${tag}" "${ctx}" >/dev/null || fDie "could not build ${tag}"
-		## What it replaces is a few GB nobody runs again.
-		while IFS= read -r old; do
-			if [[ -z "${old}" || "${old}" == "${tag}" ]]; then continue; fi
-			if "${engine}" rmi "${old}" >/dev/null 2>&1; then fEcho_Clean "removed ${old}"; else fEcho_Clean "kept ${old} (in use)"; fi
-		done < <("${engine}" image ls "${tag%%:*}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+		fCtrBuild "${tag}" "${ctx}" || fDie "could not build ${tag}"
 	fi
 
 	local cache="${CTR_CACHE:-${HOME}/.cache/${APP_NAME}-cicd}/${ctr_image}"
 	mkdir -p "${cache}" || fDie "could not make the cache dir ${cache}"
 	## /tmp too, so big scratch goes where TMPDIR says rather than into the
 	## container's layer on the root disk.
-	local scratch; scratch="$(mktemp -d)"; ctr_tmps+=("${scratch}")
+	local scratch; scratch="$(mktemp -d)"
 	mounts=(-v "${root}:${root}" -v "${cache}:/cache" -v "${scratch}:/tmp")
 	local gitCommon; gitCommon="$(git -C "${root}" rev-parse --path-format=absolute --git-common-dir)"
 	if [[ "${gitCommon}" != "${root}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
@@ -400,9 +431,9 @@ fRunContainer(){
 	## The caller's uid and groups have no names in the image, and some rows
 	## need the second group a runner's user has. So the image's passwd and
 	## group files plus the caller's entries, and the caller's groups.
-	local etc gid gname; etc="$(mktemp -d)"; ctr_tmps+=("${etc}")
-	"${engine}" run --rm "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
-	"${engine}" run --rm "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
+	local etc gid gname; etc="$(mktemp -d)"
+	"${engine}" run --rm --label "${ctr_label}" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
+	"${engine}" run --rm --label "${ctr_label}" "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
 	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
 	for gid in $(id -G); do
 		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
@@ -424,7 +455,7 @@ fRunContainer(){
 		inner+=("${ctrArgs_k3v[@]}")
 	fi
 	fEcho_Clean "runs cicd.bash ${inner[*]}"
-	"${engine}" run --rm --init --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${root}" \
+	"${engine}" run --rm --init --label "${ctr_label}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${root}" \
 		"${tag}" bash "${root}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
 	## Only a stand-in still empty: anything else was built here meanwhile.
@@ -960,6 +991,45 @@ else
 	fEcho_Clean "publish skipped"
 fi
 
+## What's gone stale that the pipeline made, then this run's temp dir, in one
+## line. The run inside the image leaves it to the run outside, which also
+## removes its scratch.
+fCleanup(){
+	local -a gone=()
+	local -i kb=0 sidecars=0 kbTmp=0
+	local f stamp size profDir bytes what
+	if ((in_container)); then fRmRunTmp; return 0; fi
+	## A graph the rotation pruned leaves its sample count behind, under the
+	## role it was born with.
+	profDir="${root}/${PROFILE_OUT_DIR:-}"
+	if [[ -n "${PROFILE_OUT_DIR:-}" && -d "${profDir}" ]]; then
+		for f in "${profDir}"/flame_*.svg.samples; do
+			[[ -f "${f}" && ! -L "${f}" ]] || continue
+			stamp="${f##*/flame_}"; stamp="${stamp%%_*}"
+			[[ "${stamp}" =~ ^[0-9]{8}-[0-9]{6}$ ]] || continue
+			if compgen -G "${profDir}/flame_${stamp}_*.svg" >/dev/null; then continue; fi
+			size="$(stat -c %s -- "${f}" 2>/dev/null || true)"
+			rm -f -- "${f}" || continue
+			sidecars+=1
+			if [[ "${size}" =~ ^[0-9]{1,15}$ ]]; then kb+=$(((size + 1023) / 1024)); fi
+		done
+		if ((sidecars)); then gone+=("${sidecars} profiler sample file(s) whose graph is gone"); fi
+	fi
+	if [[ -n "${ctr_image}" ]]; then
+		mkdir -p "${run_tmp}/sweep"
+		while IFS=$'\t' read -r bytes what; do
+			gone+=("${what}")
+			if [[ "${bytes}" =~ ^[0-9]{1,15}$ ]]; then kb+=$((bytes / 1024)); fi
+		done < <(fCtrSweep "${run_tmp}/sweep" || true)
+	fi
+	kbTmp="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kbTmp=0
+	kb+=kbTmp
+	fRmRunTmp
+	gone+=("this run's temp files")
+	fEcho_Clean "cleanup: removed $(printf '%s, ' "${gone[@]}" | sed 's/, $//'), about $(fSize "${kb}")"
+}
+fCleanup
+
 fSection "${APP_NAME} CI/CD: done."
 fEcho_Clean
 
@@ -988,3 +1058,4 @@ fEcho_Clean
 ##		- 2026-10-19 JC: --leakcheck, and config's LEAKCHECK_STEPS at the end of the tests stage of a run with no flags.
 ##		- 2026-10-19 JC: --no-leakcheck, refused beside --leakcheck.
 ##		- 2026-10-19 JC: Stages 1-6 run in the main image whenever docker answers. --no-container.
+##		- 2026-10-19 JC: A temp dir per run, and a cleanup of stale images, containers and profiler sample files at the end.

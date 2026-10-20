@@ -444,6 +444,10 @@ BUILD_CMD=(true); BUILD_EXTRA=()
 LINT_CMD=(true); LINT_EXTRA=(); SHELLCHECK_TARGETS=()
 TEST_CMD=(true); TEST_QUICK_CMD=(true)
 TEST_EXTRA=('if [[ -n "${STUB_SKIP:-}" ]]; then echo stub >> "${SHCL_GATE_SKIPS}"; fi' 'echo "${GIT_DIR:-unset}" > "${STUB_GITDIR:-/dev/null}"' 'echo slow > "${STUB_SLOW:-/dev/null}"')
+## A test that leaves scratch in TMPDIR, a read-only dir in it too, and one
+## that stops the run. TERM, as INT is ignored in a run started in the
+## background.
+TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TMPDIR}"; mkdir -p "${TMPDIR}/left/deep" "${TMPDIR}/left/ro"; : > "${TMPDIR}/left/deep/f"; : > "${TMPDIR}/left/ro/f"; chmod 555 "${TMPDIR}/left/ro"; fi' 'if [[ -n "${STUB_STOP:-}" ]]; then kill -TERM $$; fi')
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
 LEAKCHECK_STEPS=('echo leak > "${STUB_LEAK:-/dev/null}"')
 CROSS_CHECKS=('stub|[[ -z "${STUB_CROSS_FAIL:-}" ]]')
@@ -579,12 +583,34 @@ fCalibrated --gate --no-tests
 ## A docker that answers unless STUB_DOCKER_DOWN is set, and writes down each
 ## call to STUB_DOCKER_LOG. A run writes down its mounts, or with
 ## STUB_DOCKER_EXEC runs its command here, once, with its -e settings.
+## STUB_DOCKER_IMAGES is a file of the images it has, as REPO:TAG lines,
+## STUB_DOCKER_DANGLING and STUB_DOCKER_STOPPED are an image and a container
+## it has under the shcl-cicd label, and what it's asked to remove goes in
+## STUB_DOCKER_GONE. With STUB_DOCKER_NOIMAGE it has no image to run, and a
+## build makes one.
 cat > "${work}/fake-docker" <<'EOF'
 #!/usr/bin/env bash
 if [[ -n "${STUB_DOCKER_LOG:-}" ]]; then echo "${1:-}" >> "${STUB_DOCKER_LOG}"; fi
 case "${1:-}" in
 	info)  exit "${STUB_DOCKER_DOWN:-0}" ;;
-	image) exit 0 ;;
+	image)
+		case "${2:-}" in
+			ls)
+				if [[ " $* " == *" dangling=true "* ]]; then
+					if [[ " $* " == *" label=shcl-cicd "* && -n "${STUB_DOCKER_DANGLING:-}" ]]; then echo "${STUB_DOCKER_DANGLING}"; fi
+				elif [[ -n "${STUB_DOCKER_IMAGES:-}" ]]; then
+					if [[ "${3:-}" != -* ]]; then grep "^${3}:" "${STUB_DOCKER_IMAGES}" || true; else cat "${STUB_DOCKER_IMAGES}"; fi
+				fi ;;
+			inspect)
+				if [[ "${3:-}" == --format ]]; then echo 1048576
+				elif [[ -n "${STUB_DOCKER_NOIMAGE:-}" ]]; then exit 1; fi ;;
+		esac
+		exit 0 ;;
+	build) exit 0 ;;
+	rmi|rm) echo "$1 ${2:-}" >> "${STUB_DOCKER_GONE:-/dev/null}"; exit 0 ;;
+	ps)
+		if [[ " $* " == *" label=shcl-cicd "* && -n "${STUB_DOCKER_STOPPED:-}" ]]; then echo "${STUB_DOCKER_STOPPED}"; fi
+		exit 0 ;;
 	run)   ;;
 	*)     exit 1 ;;
 esac
@@ -599,7 +625,7 @@ if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 			--rm|--init)           shift ;;
 			-e)                    envs+=("$2"); shift 2 ;;
 			-w)                    dir="$2"; shift 2 ;;
-			-v|--user|--group-add) shift 2 ;;
+			-v|--user|--group-add|--label|--network) shift 2 ;;
 			*)                     break ;;
 		esac
 	done
@@ -750,6 +776,78 @@ fCtr STUB_DOCKER_DOWN=1 -- -y --no-sync --container
 if ((engRc != 1 || ran != 0)) || ! grep -qF "can't run: ${work}/fake-docker doesn't answer" "${work}/eng.log"; then
 	fail "--container with docker down: exit ${engRc}, ran ${ran}: $(tail -3 "${work}/eng.log")"
 fi
+fTest EtDQOIx a run removes its temp dir, failed or stopped too
+## 2026101920461153: a gate or test that fails or is killed leaves its scratch
+## in TMPDIR. A run points TMPDIR at a dir of its own and removes it on any
+## exit. The rest of TMPDIR, which here is work, stays.
+: > "${work}/keep.me"
+for tmpCase in "whole run|0|" "failed run|1|STUB_CROSS_FAIL=1" "stopped run|143|STUB_STOP=1"; do
+	IFS='|' read -r tmpLabel tmpWant tmpEnv <<<"${tmpCase}"
+	rm -f "${work}/eng.tmpdir"
+	tmpEnvs=(STUB_TMPDIR="${work}/eng.tmpdir"); if [[ -n "${tmpEnv}" ]]; then tmpEnvs+=("${tmpEnv}"); fi
+	## Quiet, or this shell says the stopped one was Terminated.
+	fEngine "${tmpEnvs[@]}" -- --gate 2>/dev/null
+	runTmp="$(cat "${work}/eng.tmpdir" 2>/dev/null || true)"
+	if ((engRc != tmpWant)) || [[ "${runTmp}" != "${work}/"?* || -e "${runTmp}" ]] || ! grep -qF "cleanup: removed" "${work}/eng.log"; then
+		fail "${tmpLabel}: exit ${engRc}, its TMPDIR '${runTmp}' $([[ -n "${runTmp}" && -e "${runTmp}" ]] && echo 'is still there' || echo 'is gone'): $(tail -3 "${work}/eng.log")"
+	fi
+done
+[[ -e "${work}/keep.me" ]] || fail "a run removed a file in TMPDIR that isn't its own"
+fTest EtDQOMF a whole run removes a profiler sample file whose graph is gone
+## 2026101920461153: the rotation prunes a graph and leaves the sample count
+## beside it. One whose graph is still there stays, whatever its role now.
+profDir="${eng}/cicd/artifacts/profiling"
+mkdir -p "${profDir}"
+printf '9 10\n' > "${profDir}/flame_20200101-000000_frequent.svg.samples"
+printf '9 10\n' > "${profDir}/flame_20200102-000000_frequent.svg.samples"
+echo svg > "${profDir}/flame_20200102-000000_first.svg"
+fEngine STUB_PROFILE="${work}/eng.prof" -- -y --no-sync
+if ((engRc != 0)) || [[ -e "${profDir}/flame_20200101-000000_frequent.svg.samples" || ! -e "${profDir}/flame_20200102-000000_frequent.svg.samples" ]]; then
+	fail "the profiler's sample files after a run: exit ${engRc}, $(cd "${profDir}" && ls -m): $(tail -3 "${work}/eng.log")"
+fi
+grep -qF "1 profiler sample file(s) whose graph is gone" "${work}/eng.log" || fail "the cleanup line doesn't count the sample file: $(grep -F cleanup: "${work}/eng.log" || true)"
+fTest EtDQOPc a run in the image removes our stale images and containers, and nothing else
+## 2026101920461153: a tag of ours the tree's recipe no longer hashes to, every
+## tag of a name with no recipe, and a dangling image or stopped container
+## with our label. Another project's image, even one named like ours, stays.
+## ctr-image.bash on eng, in a shell of its own: "tags" prints the tag each
+## recipe hashes to, and "self" runs fCtrRunSelf.
+cat > "${work}/ctr-image-on.bash" <<'EOF'
+set -euo pipefail
+root="$1"; cd "${root}"
+CPU_CAP=1
+source cicd/config.bash
+source cicd/utility/include/ctr-image.bash
+## As the gates do: ask first.
+if [[ "$2" == self ]]; then
+	whyNot="$(fCtrWhyNot)"; [[ -z "${whyNot}" ]] || { echo "no image: ${whyNot}" >&2; exit 2; }
+	mkdir -p "$3"; fCtrRunSelf "$3" "" "${root}/cicd/cicd.bash"; exit
+fi
+for r in cicd/container/*Dockerfile; do
+	n="${r##*/}"; n="${n%.Dockerfile}"; if [[ "${n}" == Dockerfile ]]; then n=main; fi
+	c="$(mktemp -d)"; fCtrContext "${r}" "${c}"; fCtrTag "${c}" "${n}"
+done
+EOF
+mapfile -t ctrNow < <(bash "${work}/ctr-image-on.bash" "${eng}" tags || true)
+((${#ctrNow[@]} >= 2)) || fail "could not work out the images' current tags: ${ctrNow[*]}"
+printf '%s\n' "${ctrNow[@]}" shcl-cicd:000000000000 shcl-cicd-alpine:000000000000 shcl-cicd-gone:000000000000 \
+	shclwrap-c-tools:1 other-cicd:1 shcl-cicd-x:y:1 '<none>:<none>' > "${work}/images.txt"
+rm -f "${work}/gone.txt"
+fCtr STUB_DOCKER_IMAGES="${work}/images.txt" STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_DANGLING=d0d0 STUB_DOCKER_STOPPED=c0c0 -- --gate
+sweptGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
+sweptWant="rm c0c0 rmi d0d0 rmi shcl-cicd-alpine:000000000000 rmi shcl-cicd-gone:000000000000 rmi shcl-cicd:000000000000"
+if ((engRc != 0)) || [[ "${sweptGot}" != "${sweptWant}" ]]; then
+	fail "the sweep after a run in the image: exit ${engRc}, removed '${sweptGot}', want '${sweptWant}': $(tail -3 "${work}/eng.log")"
+fi
+grep -qF "shcl-cicd:000000000000" <(grep -F 'cleanup: removed' "${work}/eng.log") || fail "the cleanup line doesn't name the image it removed"
+fTest EtDQOSv a gate that builds the image removes the tags it replaces
+## 2026101920461153: the leak checks build the image when it's missing, and
+## that build left the old tag behind. Only the name it built is touched.
+rm -f "${work}/gone.txt"
+selfOut="$(SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_IMAGES="${work}/images.txt" STUB_DOCKER_GONE="${work}/gone.txt" \
+	STUB_MOUNTS="${work}/self.tsv" PATH="${work}/x86_64:${PATH}" bash "${work}/ctr-image-on.bash" "${eng}" self "${work}/self" 2>&1)" || true
+selfGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
+[[ "${selfGot}" == "rmi shcl-cicd:000000000000" ]] || fail "a gate's build of the image removed '${selfGot}', want the old main tag only: ${selfOut}"
 
 fTestEnd
 (( rc == 0 )) && echo "check-push-gate: OK: the tree matches a commit of the working copy, a recorded tree skips the gate, only a push to main runs it with the full gate, a red gate refuses, the gate builds into target-gate and runs once on main's commit in a multi-ref push, no gate sees a linked worktree's GIT_DIR, the drift check judges the pushed tree as main, a cut needs the banner tag on the remote or in the push, and a partial run records nothing"
@@ -777,3 +875,4 @@ exit "${rc}"
 ##		- 2026-10-19 JC: --leakcheck, and the leak checks in a run with no flags.
 ##		- 2026-10-19 JC: --no-leakcheck, and the pair refused.
 ##		- 2026-10-19 JC: A run goes to the main image when docker answers, and --no-container.
+##		- 2026-10-19 JC: A run's own temp dir, and the cleanup of stale images, containers and sample files.
