@@ -51,6 +51,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 				- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
 				- On a GLib project, set `G_SLICE=always-malloc` and `G_DEBUG=gc-friendly`, or GLib hides blocks from the leak check.
 			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every .c file, first-party and third-party. Vendored code is included.
+				- Third-party and vendored code count only where end users run it (JC, 2026101920461160).
 				- Before the gate goes live, every existing finding is fixed, or suppressed at the line with a one-line reason. There's no baseline file.
 				- They move behind a flag only if a full run measures too slow.
 			- A `--leakcheck` flag adds the slow checks:
@@ -76,6 +77,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 					- On a GLib or GTK project, set `G_SLICE=always-malloc` and `G_DEBUG=gc-friendly`, or GLib hides blocks from the leak check.
 				- If the code starts threads, every full run also builds the tests with ThreadSanitizer, in another build dir. Its reports fail the test the same way.
 				- Every full run also runs the clang static analyzer and clang-tidy over every .cpp file, first-party and third-party, from the build's `compile_commands.json`. Vendored code is included.
+					- Third-party and vendored code count only where end users run it (JC, 2026101920461160).
 					- clang-tidy runs at least the `clang-analyzer-*` and `bugprone-*` checks, with `-header-filter` matching our own headers and the vendored ones.
 					- gcc's `-fanalyzer` isn't used on C++. gcc's own docs still say it's meant for C. Any .c files in the project still get it.
 					- Before the gate goes live, every existing finding is fixed, or suppressed at the line with `NOLINT(check-name)` and a one-line reason. There's no baseline file.
@@ -99,11 +101,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 					- UBSan's `vptr` check needs RTTI. A `-fno-rtti` build loses it.
 					- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
 		- Include vendored code in the analyses
+			- Only vendored code that end users run (JC, 2026101920461160).
 	- Already in place:
 		- sanitize-c builds the C tests, the C++ veneer smoke, and the C CLI under ASan and UBSan, and runs them over the corpus. LeakSanitizer comes on with ASan on Linux, so leaks already fail there.
 		- sanitize-c builds the veneer smoke again under TSan, and check-veneer has its own small TSan check. That covers the "if the code starts threads" line.
 		- cppcheck runs at the exhaustive level.
 		- `source/c` has no vendored code and links no third-party library, so nothing needs vendoring or suppressing yet.
+			- Rechecked 20261019 for 2026101920461160: the header, the veneer and the C CLI use the system's C and C++ standard libraries only.
 	- To do:
 		- Sanitizers, every full run:
 			- An LSan suppressions file, empty for now, passed through `LSAN_OPTIONS=suppressions=`. It names third-party libraries only.
@@ -173,7 +177,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: check-pins went red with CodeQL taken off the `--leakcheck`-only list (`EoSE8Nk`), with codeql-scan in `LINT_EXTRA` (`EtAC9of`), and with another version in the Dockerfile (`Esbpsph`).
 			- Verified: `LEAKCHECK_STEPS` but `--miri-all`, one after another: codeql-scan, `analyze-c.bash --ctu`, soak-c and `sanitize-c.bash --glibcxx-debug`. Also analyze-c, check-c-compilers (141 builds), sanitize-c, the C runner (206 cases), the veneer smoke, cppcheck at the normal level over main.c and conformance.c, check-pins, shell-regress, check-push-gate, `test-ids.py check`, markdownlint-cli2, and shellcheck over all 47 files. check-docs passes but for its installer row, as on dev.
 	- Decisions:
-		- Vendored code is included in the analyses (JC, 2026-10-17).
+		- Vendored code is included in the analyses (JC, 2026-10-17). Only code end users run (JC, 2026101920461160).
 		- JC, 20261018: a run with no flags does everything, the `--leakcheck` steps included, and `--gate` and `--quick` leave them out.
 		- The leak checks run last in the tests stage, so every quicker check reports first (me).
 		- The C soak judges glibc's own count of the bytes in use, read by the program between rounds. heaptrack's report is for reading, since it has no per-round figure (me).
@@ -203,6 +207,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- For all 3:
 			- The checks cover first-party and third-party code, vendored code included. On third-party code, only the leak, memory, and correctness checks run, not style lints.
+				- Third-party and vendored code count only where end users run it. Dev-dependencies such as `dhat`, the `profiling` feature's `pprof`, build tools, and test-only code are out (JC, 2026101920461160).
 			- Any report fails the test that made it.
 			- Suppressions name third-party code only, by crate, module, or package name. A leak in our code is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns the check off with that item's ID beside it.
 			- Each binding gets a soak test, in-process. It loops load, read, set, save to a temp file, merge, and validate over corpus files, and fails when the heap at round 2N is past round N by more than a set margin. The heap report goes in `cicd/artifacts/`.
@@ -239,7 +244,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `go vet` and `staticcheck` run on both Go modules. `go vet` includes `lostcancel` and `copylocks`.
 		- ruff selects `B` and `SIM`, so `B019`, `B006`, and `SIM115` already run.
 		- Go's `TestReadsFromSeveralGoroutines` runs under `-race`.
-		- No binding has a runtime dependency. Rust's only one, `pprof`, is behind the `profiling` feature. So nothing needs vendoring for CodeQL yet.
+		- No binding or CLI has a runtime dependency on any release target, and nothing is vendored. Rust's `pprof` is behind the `profiling` feature and `dhat` is a dev-dependency, so neither is in scope. So nothing needs vendoring for CodeQL yet. Rechecked 20261019 for 2026101920461160.
 	- Progress log:
 		- 20261017, Rust, branch `rsleak`:
 			- `cicd/utility/sanitize-rust.bash`, in TEST_EXTRA and skipped on alpine, runs the whole suite under ASan and LSan (`EszIPWj`), then under Miri (`EszIPWk`). It uses `nightly-2026-10-16`, pinned in a `[nightly]` table in rust-toolchain.toml. The images and ci.yml read it from there, as they do the stable channel, so it has no TOOL_PINS row. The main image also gets llvm-19, since Rust's ASan names no frame without its symbolizer.
@@ -407,17 +412,79 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD leak tests, and all tests, include third-party and vendored code
 	- ID: 2026101920461160
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261019-204611
 	- Opened by: JC
-	- Related IDs: 2026101707582803, 2026101711273980
+	- Related IDs: 2026101707582803, 2026101711273980, 2026101921290717, 2026101921290754, 2026101921290791
 	- Version and build: dev at `6f48dd7d`
 	- Requirements:
 		- Pre-next-cut.
 		- Make sure CICD leak tests, and all tests, include third-party and vendored code. But only code that gets run by end users.
 		- Anything wrong goes on the backlog for a fix.
 		- This may only affect what's already written in the backlog.
+	- Progress log:
+		- 20261019, branch `thirdp`, what reaches end users:
+			- Rust: the library and CLI have no dependency on any release target. `pprof` is behind the `profiling` feature and `dhat` is a dev-dependency, so both are out. The release step already fails on any trace of the profiler in what it publishes.
+			- Go: both modules use the standard library only, for linux, windows, darwin and freebsd.
+			- Python: the library and CLI import the standard library only. setuptools only builds the wheel.
+			- C and C++: the system's C and C++ standard libraries only.
+			- Nothing is vendored. Every source file in the repo is ours, under MIT.
+			- Third-party code users do run: the toolchain code linked into the release binaries, such as Rust's std on every target and mingw-w64's runtime in the windows-x86_64 build, and NSIS's installer code in the windows setup.
+		- What covers it:
+			- Rust's std is in the ASan build and under Miri, on linux. CodeQL's Rust database has std and every locked crate in it, but reports only on `source/`. Go's has no standard library.
+			- Nothing runs the windows, linux-arm64 or freebsd release builds, so the toolchain code only they link is untested (2026101921290754). The setup is compiled but never run (2026101921290791).
+			- Nothing fails when a dependency or vendored file arrives, so this scope can go stale unseen (2026101921290717).
+		- The 2 related items' requirements and Already-in-place rows now say the narrower rule.
+		- Verified: `cargo tree -e normal,build` for every release target, `go list -deps` and `go list -m all` for both modules on 4 OSes, the import list of both Python files, `ldd` on the C and Rust CLIs, and the import table of the windows release build. The windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux one on all 206 corpus cases.
+	- Branch: `thirdp`
+	- Test case: None, an audit. The check it needs is filed as 2026101921290717.
+	- Acceptance signoff: Self-closed: an audit whose gaps are filed, and the 2 related items' wording follows JC's rule.
+	- Closed: 20261019-213000
+
+- Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
+	- ID: 2026101921290717
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Related IDs: 2026101707582803, 2026101711273980
+	- Version and build: dev at `baca8c01`
+	- Problem description: the leak and static checks cover third-party code only where end users run it, and today none of it does. Nothing checks that. A new crate, Go module, Python import or vendored C file would reach users with no check judging it. CodeQL reports only on `source/`, so a crate's findings would go unseen.
+	- Requirements:
+		- A lint-stage check fails when code end users run picks up anything third-party: a normal or build dependency for any Rust release target, a module past the standard library in either Go module, an import past the standard library in `shcl.py` or the Python CLI, or a header or library past the system's in the C header, the veneer or the C CLI.
+		- Its message says what has to follow the new code: the leak and static checks over it, CodeQL reporting on it, and the 2 related items' Already-in-place rows.
+		- Watched to fail with a planted dependency in each language.
+
+- The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
+	- ID: 2026101921290754
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Related IDs: 2026100413052100
+	- Version and build: dev at `baca8c01`
+	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64 or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
+	- Verified: 20261019, the windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux release on all 206 corpus cases, in about 30 s.
+	- Requirements:
+		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
+		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
+
+- The windows setup is never run by a test, so NSIS's installer code goes untested
+	- ID: 2026101921290791
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Needs external testing: Y. A windows host, hosted or a test box.
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Version and build: dev at `baca8c01`
+	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
+	- Requirements:
+		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
+		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
