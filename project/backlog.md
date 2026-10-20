@@ -231,7 +231,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
 	- ID: 2026101711273980
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
 	- Priority: Avg
 	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, a whole `--leakcheck` run, a whole `sanitize-rust.bash --miri-all` (hours), and a full run with no flags. Then a hosted run, its windows job included for the Go and Python soaks.
 	- Opened: 20261017-112739
@@ -312,6 +312,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Go: 1 finding, a dead store in `parseIntText`, fixed. The other 3 bindings' twins have none.
 			- Python: 33 findings. Fixed: `math.isnan` for `v != v`, as the C and Go twins test it, and a comment in each of 15 empty `except` blocks. 2 tests kept commented out got a note, which ended their findings. Suppressed, 15 sites: 6 tests commented out, 4 tagged tuples that stand for the Rust twin's enums or keys, 4 file modes (a new file's 0o666 less the umask, and 3 fixtures), and a descriptor a `with` closes.
 			- Verified: the Python runner and soak, ruff and mypy, the Go suite, `go vet` and staticcheck. A plant per language went red, as on 2026101707582803.
+		- 20261019, branch `winfix`, the windows Python soak failure below:
+			- Cause: `shcl.py` set up its Windows API calls on every save. Each `WinDLL` makes a class, `_create_like` declared its `SecurityAttributes` Structure inside the call, and its DACL buffer was a ctypes array, whose type ctypes makes again once the last one is freed. A class is a reference cycle, and the soak's `DEBUG_SAVEALL` keeps every cycle it finds, so traced memory doubled.
+			- The `c_longdouble` class in the message is ctypes' own. On windows a `long double` is the size of a `double`, so ctypes swaps that class for `c_double` as it loads and leaves the first one in a cycle. Read in ctypes' source, not seen on windows.
+			- Fixed: `_win32()` builds both DLLs, their signatures and the Structure once, behind `functools.cache`, and the 3 windows calls share it. The DACL buffer is a bytearray, aligned by hand. The soak keeps cycles from round 2 on, since round 1 is where the library imports ctypes.
+			- Test case: `EtD4W76` `windows_calls_build_their_ctypes_once` in the Python runner. It swaps in a fake `ctypes.WinDLL` and `msvcrt`, so it runs on Linux too. It runs the 3 windows calls once, then 3 more rounds under `DEBUG_SAVEALL`, and fails on a DLL loaded again or any cycle left.
+			- Verified: `EtD4W76` failed on the old `shcl.py`, which loaded kernel32 3 times in one round. It failed with the Structure put back in the call (39 objects in cycles) and with the ctypes array put back (6), and passes with the fix. The Python runner, the soak, ruff, mypy, test-ids check, and check-docs pass. A list cycle planted per load still failed the soak.
+			- Swept: Go's DLLs and procs are package-level `NewLazyDLL` vars, and Rust and C declare their imports, so none of them builds anything per call. The Python CLI's console check loads kernel32 once a run. The runner's windows fixtures load it once per test, in test code.
+			- Commit: `2251a602`.
+			- Needs external testing: the hosted windows job, for `Et01jhM` and `EtD4W76`.
 	- Decisions:
 		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
 		- The Rust extractor swaps a stable toolchain for 1.98.1 and would install it, so CodeQL runs on the dated nightly from rust-toolchain.toml, which it keeps. The crates Cargo.lock names are fetched before the image starts, since it has no network, into the cargo home `--container` runs use. Under the repo, the crates' own Cargo.toml and README files threw off check-docs' greps of the tree, and shell-regress's `EsndgSX` went red on it (me).
@@ -328,9 +337,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
 	- ID: 2026101807501110
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
 	- Needs local test suite run?: N
-	- Needs external testing: Y. The hosted windows job, for the veneer smoke and Python's test.
+	- Needs external testing: Y. The hosted windows job, for the veneer smoke `EjtkR0S`.
 	- Severity: Low
 	- Opened: 20261018-075011
 	- Opened by: 2026101707582803, from clang-tidy's bugprone-easily-swappable-parameters
@@ -347,14 +356,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible fix: refuse a file that isn't an existing regular file, as `NotFound`, in all 4. The CLI and `upgrade_file` back up a file they have just read. A path type of its own would be the v4 form.
 	- Sweep: `write_file_atomic(path, data)` has the same 2 strings. Swapped, it saves the path to a file named after the text and returns OK, seen in C on 20261018. It creates files on purpose, so the same check doesn't fit there.
 	- Actual fix: `write_backup` in all 4 first checks that the file is there and is a regular file, through the check `upgrade_file` already made, now one helper both call (`check_kept_file`, in each binding's spelling). Nothing there is `NotFound`. A directory or a FIFO is `Io`, with `IsDirectory` or `NotRegular`. Any other failure, such as no search permission, is left to the create, which fails the same way, since the backup goes in the same folder. The C++ veneer wraps the C call, so it refuses too. On windows the C helper now gives `NotFound` for a missing file itself, as the other 3 do. Its `upgrade_file` gave the same through the read. The doc comments in all 4 and the veneer, and spec.md, say so in one line. The C line keeps its suppression, and its reason now says a swap is refused. A path type of its own stays the v4 form.
-	- Branch: `wbswap`
-	- Commit: `e469f1aa`
+	- Branch: `wbswap`, then `winfix`
+	- Commit: `e469f1aa`, then `2251a602`
 	- Test case: `write_backup_refuses_a_swapped_file_and_text`, Rust `Et6Am2s`, Go `Et6Am5j`, Python `Et6Am8z`, and C `Et6AmCW`, which sanitize-c `EoLqLse` runs under ASan. In each, a swapped call in a scratch folder is refused, `NotFound` off windows, and the folder stays empty. A directory is refused as `IsDirectory`. The veneer smoke `EjtkR0S` has the swapped call too.
 	- Swept: `write_file_atomic` stays as it is, since it creates files on purpose and a path naming nothing is its normal case. Every caller of `write_backup`: the 4 CLIs' `migrate --write`, which read the file and check it's unchanged first, `upgrade_file` in all 4, the veneer, and the 4 runners' write-status rows, whose backup into a shut folder still gives `PermissionDenied`. No CLI path reaches the refusal, since each reads the file first, so there is no cli-regress row, and crosscheck has no `write_backup` dimension. design.md and examples.md don't describe `write_backup`.
 	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
 	- Acceptance signoff: Self-closed: a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
 	- Closed: 20261018-170500
 	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `EjtkR0S` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text holds characters windows refuses in a file name, so the read likely fails with another status. Python's `Et6Am8z` passed there.
+	- 20261019, branch `winfix`:
+		- Cause: the veneer smoke read the backup name made from the swapped text and wanted `NotFound`. That name has a newline and colons, which windows refuses in a name, so the read fails another way there. The swapped call was refused and wrote nothing.
+		- Fixed: the swapped call names a folder of its own, and the check is that the folder is still empty, so `rmdir` takes it. That means the same on every OS, and it also catches a colon turned into a stream on a file named `port`. The kind is still checked as `NotFound` off windows only.
+		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
+		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
 
 - perf-gate fails a workload when a load spike lands on it and not on the baseline
 	- ID: 2026101914014130
