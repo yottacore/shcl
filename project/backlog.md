@@ -370,6 +370,60 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the baseline is taken once per binding before the workloads, and each workload is best of 2. A spike that covers both runs of a workload and not the baseline breaks the 3x ratio.
 	- Possible fix: time the baseline next to each workload, or run a failing workload and its baseline again before calling it. Memory.md's perf-gate note prefers a count to a clock where one fits.
 
+- Builds clean up stale artifacts and side-effects when they're done
+	- ID: 2026101920461153
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- Verify or ensure that builds clean up *stale* artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
+
+- CICD leak tests, and all tests, include third-party and vendored code
+	- ID: 2026101920461160
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Related IDs: 2026101707582803, 2026101711273980
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- Make sure CICD leak tests, and all tests, include third-party and vendored code. But only code that gets run by end users.
+		- Anything wrong goes on the backlog for a fix.
+		- This may only affect what's already written in the backlog.
+
+- CICD has both `--leakcheck` and `--no-leakcheck`
+	- ID: 2026101920461167
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Related IDs: 2026101707582803, 2026101711273980, 2026101816034794
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- `--leakcheck`, e.g. useful to add back in for `--quick`.
+		- `--no-leakcheck`, e.g. to exclude from the default run, or with `--quiet`.
+
+- CICD builds and tests in a container if one is available
+	- ID: 2026101920461174
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- Make sure a container is used for build and test if available.
+		- Fall back to local if not.
+
 - Updates to CICD script flags
 	- ID: 2026101816034794
 	- Type: Enhancement
