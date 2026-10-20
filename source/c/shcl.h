@@ -3263,11 +3263,12 @@ static ShclStr migrate_spelling(ShclArena *a, ShclStr logical, int bare) {
 static ShclStr v2_text(ShclArena *a, ShclStr raw) {
 	if (raw.n == 0 || !memchr(raw.p, '\\', raw.n)) return raw;
 	ShclSB out = {0};
-	for (size_t i = 0; i < raw.n; i++) {
-		char c = raw.p[i];
+	size_t i = 0;
+	while (i < raw.n) {
+		char c = raw.p[i++];
 		if (c != '\\') { sb_putc(a, &out, c); continue; }
-		if (i + 1 == raw.n) { sb_putc(a, &out, '\\'); continue; }
-		c = raw.p[++i];
+		if (i == raw.n) { sb_putc(a, &out, '\\'); break; }
+		c = raw.p[i++];
 		switch (c) {
 		case 't': sb_putc(a, &out, '\t'); break;
 		case 'n': sb_putc(a, &out, '\n'); break;
