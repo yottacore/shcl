@@ -400,7 +400,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: a run with neither flag through the real main image on b23, `cicd.bash --gate` and then a pre-push gate on a main push. Each should start the image once and end with `tree ... recorded`.
 	- Priority: Avg
 	- Opened: 20261019-204611
 	- Opened by: JC
@@ -412,6 +413,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
 		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
+	- Progress log:
+		- 20261019, branch `ctrdef`:
+			- With neither flag, cicd.bash asks docker first. When it answers on x86_64, stages 1-6 go to the main image as under `--container`. Otherwise they run here, after one `note:` line that gives the reason. The run inside the image never asks, so it can't start another.
+			- An installed docker whose daemon doesn't answer counts as none. One helper in ctr-image.bash, `fCtrWhyNot`, decides it for cicd.bash and for the 3 leak checks that fall back to the image (analyze-c, soak-c, codeql-scan).
+			- `--container` fails up front when docker doesn't answer, rather than at the image build. `--container` with `--no-container`, 2 different images, or `--container=` with no name exit 2 before anything runs (me, per design.md's last-wins rule).
+			- ci.yml passes `--no-container`, and check-pins fails a hosted gate run without it. The pre-push hook isn't changed; it follows the default.
+			- The stubbed engines in check-push-gate and shell-regress no longer reach this box's docker.
+			- The help text, contributing.md, the hook's header and the history lines say so.
+			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
+			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
+			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
+	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
+	- Branch: `ctrdef`
+	- Commit: `bd0415a7`
+	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
 
 - CICD has both `--leakcheck` and `--no-leakcheck`
 	- ID: 2026101920461167
