@@ -417,7 +417,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261019, branch `cileak`:
 			- `--no-leakcheck` in cicd.bash drops config.bash's `LEAKCHECK_STEPS` from any run, and goes on to a `--container` run like `--leakcheck` does. `--gate` and `--quick` still leave them out, and `--leakcheck` still adds them back.
-			- `--leakcheck --no-leakcheck`, in either order, is a usage error before anything runs: exit 1. The help text, contributing.md and the history lines say so.
+			- `--leakcheck --no-leakcheck`, in either order, is a usage error before anything runs: exit 2, as for an unknown option (me). The help text, contributing.md and the history lines say so.
 			- Note: an unknown option still exits 2.
 			- Verified: check-push-gate passes. `Et9t3dc` went red with an engine that ignores `--no-leakcheck`, and `EtD3jdR` with one that takes the pair with the last one winning. Both passed once restored by copy.
 			- Verified: shell-regress, shellcheck over the 47 lint targets, check-docs, and `test-ids.py check`.
@@ -426,7 +426,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- JC, 20261019: the pair is refused as a usage error, exit 1, per design.md's "Nothing on the command line resolves last-wins".
 	- Branch: `cileak`
 	- Commit: `353da441`
-	- Test case: check-push-gate `Et9t3dc` (`--no-leakcheck` drops the checks from a bare, `--gate` and `--quick` run) and `EtD3jdR` (the pair exits 1 in either order and runs nothing).
+	- Test case: check-push-gate `Et9t3dc` (`--no-leakcheck` drops the checks from a bare, `--gate` and `--quick` run) and `EtD3jdR` (the pair exits 2 in either order and runs nothing).
 	- Acceptance signoff: Self-closed on JC's criteria. The flag is the item's own, and the pair's refusal follows design.md.
 	- Closed: 20261019-211430
 

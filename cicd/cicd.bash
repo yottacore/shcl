@@ -169,7 +169,7 @@ while (($#)); do case "$1" in
 	*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
 esac; done
 ## Nothing on the command line resolves last-wins (design.md).
-if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck can't go together (try --help)" >&2; exit 1; fi
+if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck can't go together (try --help)" >&2; exit 2; fi
 
 ## --gate: correctness only, deterministic, side-effect free.
 if ((gate_mode)); then

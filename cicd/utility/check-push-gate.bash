@@ -543,7 +543,7 @@ fTest EtD3jdR --leakcheck and --no-leakcheck together are a usage error
 for leakFirst in --leakcheck --no-leakcheck; do
 	leakSecond=--no-leakcheck; if [[ "${leakFirst}" == --no-leakcheck ]]; then leakSecond=--leakcheck; fi
 	fLeak -y --no-sync "${leakFirst}" "${leakSecond}"
-	if ((engRc != 1 || leakRan != 0)) || ! grep -qF "can't go together" "${work}/eng.log"; then
+	if ((engRc != 2 || leakRan != 0)) || ! grep -qF "can't go together" "${work}/eng.log"; then
 		fail "cicd.bash took ${leakFirst} ${leakSecond}: exit ${engRc}, ran ${leakRan}: $(tail -2 "${work}/eng.log")"
 	fi
 done
