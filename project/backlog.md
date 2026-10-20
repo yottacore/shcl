@@ -401,6 +401,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: target dirs and the container caches stay whole. A toolchain change makes a target dir stale, but `target-gate` is shared with gate worktrees on other commits.
 		- me: a `--no-container` run makes no images, so it still asks docker nothing.
 	- Branch: `tidyup`
+	- Commit: `a1ca716f`
 	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc` and `EtDQOSv`.
 
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
