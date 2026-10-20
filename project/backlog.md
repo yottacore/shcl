@@ -85,7 +85,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
 	- Actual fix: in Rust, migrate reads each piece and selector body as the text 2.x read, and counts a quoted name with a backslash pair lost.
 	- Branch: `bslash`
-	- Commit:
+	- Commit: `ddc4f8e4` (Rust half)
 	- Test case: Rust EtD5PtP, EtD5PtQ, EtD5PtR, Es2R4TW; corpus 118, 119, 122, 124, 170; cli-regress EtD6lsl to EtD6lsq and the revived rows above; check-migrate Eq5YPgP with no backslash allowance.
 	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. The ports' code and comments come with the ports.
 
