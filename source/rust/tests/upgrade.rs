@@ -203,7 +203,10 @@ fn upgrade_writes_a_fresh_file_with_the_info_block() {
 	assert!(up.diagnostics.iter().any(|d| d.code == "E026"));
 	// 2.x's block goes, links or none, and the one init writes takes its
 	// place.
-	let want = format!("name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n{}", GEN_BANNER);
+	// Old claim below, wrong since 2026101911300000: the value is the text
+	// 2.x read, with the backslash pairs resolved. Don't uncomment.
+	// let want = format!("name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n{}", GEN_BANNER);
+	let want = format!("name: 'say \"hi\"'\ntags: [a, b]\n\n{}", GEN_BANNER);
 	assert_eq!(up.text, want);
 	assert!(upgrade(&up.text, false).current);
 }

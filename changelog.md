@@ -50,7 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - At Loose, an int or float read of a quoted thousands number gives the number: `"1,200"`, `"$1,200"` and `"1,200."` are 1200, `"1,200.50"` is 1200.5. The groups must be exactly 3 digits. Bare `1,200` is text at every level, and `fmt` and the setters leave it bare, so a save can't make it a number.
 
-- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`, in local time.
+- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and writes a backslash pair as the text 2.x read. With `--write` the original is kept beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`, in local time.
 
 - A file a pre-release build of 3.0 stamped `Format 3` is read as current, and `migrate` and `upgrade` leave it alone. Nothing tells it apart from a file this release wrote. A line the current rules refuse says so when it loads. With `upgrade --from-2x` or `upgrade_file(path, true)`, one that loads with an error is taken as 2.x and backed up as `format-v3`, when the fresh file loads clean. With the flag, `upgrade` writes nothing for any file whose fresh text would still have an error, exits 7, and names those lines.
 

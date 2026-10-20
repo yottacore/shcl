@@ -2366,18 +2366,19 @@ def _strip_common(line, common):
 
 
 class Migration:
-	"""What migrate produced, and what it could not keep.
+	r"""What migrate produced, and what it could not keep.
 
 	current: the file already names its format, so there was nothing to migrate
 	and text is the input. ambiguous: pieces both rule sets read cleanly and
 	differently, such as `a,b` or an escape, and runs of lines one rule set
 	reads as a raw body and the other as fields, which nothing can decide
 	between, left as written; always 0 when the caller said the file is 2.x.
-	A backslash is not one of them: it stays as written either way. lost:
+	A backslash pair 2.x resolved is one of them, as in `"C:\\new"`. lost:
 	lines 2.x bound a value on that nothing binds now, since there is no 3.0
 	spelling to move to: bracket text after the colon, a selector holding a
 	comma, which matched an array value, and a comma list with lines under it
-	(E028 in brackets)."""
+	(E028 in brackets). Also a quoted name with a backslash pair, which 1.2
+	read as typed and 2.0 resolved, so it is kept as written."""
 
 	__slots__ = ("text", "current", "ambiguous", "lost")
 
@@ -2615,22 +2616,24 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 
 
 def migrate(text: str, from_v2: bool) -> Migration:
-	"""Rewrite a document written under the 2.x rules so this parser reads the
+	r"""Rewrite a document written under the 2.x rules so this parser reads the
 	same tree. Each line is read with the 2.x tokenizer and rewritten only
-	where the two rule sets disagree (value-syntax.md, Migration). A
-	backslash stays as written and reads as text, so a piece is written
-	another way only where these rules would read its text as something
-	else: a quote it shielded, a real `◉`, a quote, tab or bracket in bare
-	text, an open quote, which is quoted whole. A comma list goes in
-	brackets, a `*` item becomes `- `, a bare name not led by a letter is
-	quoted, and a selector goes from brackets to parens, its body quoted
-	where these rules would refuse it bare. The `name:[disc]` selector sugar
-	loses its colon, and on a last segment becomes `name: disc`, with `disc`
-	written the way the formatter writes a value.
+	where the two rule sets disagree (value-syntax.md, Migration). A piece
+	is written another way only where these rules would read it as other
+	text than 2.x did: a backslash pair 2.x resolved, such as `\\` or `\t`,
+	a real `◉`, a quote, tab or bracket in bare text, an open quote, which
+	is quoted whole. A comma list goes in brackets, a `*` item becomes `- `,
+	a bare name not led by a letter is quoted, and a selector goes from
+	brackets to parens, its body quoted where these rules would refuse it
+	bare. The `name:[disc]` selector sugar loses its colon, and on a last
+	segment becomes `name: disc`, with `disc` written the way the formatter
+	writes a value.
 	Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 	could not read - comes through as written. One shape has no spelling
 	here at all: a fence label holding a `#`, which 2.x ran to the end of the
-	line and which now ends at the `#`.
+	line and which now ends at the `#`. A quoted name with a backslash pair
+	stays as written and counts in lost, since 1.2 read it as typed and 2.0
+	resolved it.
 
 	Which file this is cannot always be read off the text: `p: a,b` is an
 	array under 2.x and one string under these rules, and a raw block can open
@@ -2888,11 +2891,34 @@ def _reads_same(spelling, quoted, logical):
 
 def _migrate_spelling(logical, bare):
 	"""How a changed piece is written: the way the writer writes its text, so
-	it reads back as that text. A backslash pair 2.x resolved is not resolved
-	here: it stays as written and reads as text now, with no escape added."""
+	it reads back as that text. The text is the one 2.x read (_v2_text)."""
 	if bare and not _needs_quotes(logical):
 		return logical
 	return _quote_text(logical)
+
+
+def _v2_text(raw):
+	r"""The text 2.x read for a piece as written: `\t`, `\n`, `\\`, `\"` and
+	`\'` resolved, in a value, an element and a selector body, bare or quoted.
+	Any other backslash stays, and so does one at the end."""
+	out = []
+	it = iter(raw)
+	for c in it:
+		if c != "\\":
+			out.append(c)
+			continue
+		nxt = next(it, None)
+		if nxt == "t":
+			out.append("\t")
+		elif nxt == "n":
+			out.append("\n")
+		elif nxt in ("\\", '"', "'"):
+			out.append(nxt)
+		elif nxt is not None:
+			out.append("\\" + nxt)
+		else:
+			out.append("\\")
+	return "".join(out)
 
 
 def _v2_bracket_array(body):
@@ -2905,11 +2931,12 @@ def _v2_bracket_array(body):
 
 
 def _value_edits(s, tok, edits):
-	"""The re-spellings a value's pieces need. Each piece is cut the 2.x way
+	r"""The re-spellings a value's pieces need. Each piece is cut the 2.x way
 	(a backslash shields the next character, an open quote is kept whole, a
 	quote at both ends makes it quoted) and rewritten only where the current
-	rules would read its text as something else. Its text is as 2.x wrote it,
-	a backslash pair included, so the same bytes mean the same either way."""
+	rules would read it as other text than 2.x did. 2.x resolved a backslash
+	pair, so `"C:\\new"` is written `"C:\new"` and `C:\temp` gets the tab
+	escape."""
 	for p in tok.elements:
 		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
 		quoted = p.quote is Quote.Single or p.quote is Quote.Double
@@ -2925,9 +2952,10 @@ def _value_edits(s, tok, edits):
 			and _bare_trouble(raw, _BARE_VALUE) is None
 		):
 			continue
-		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, raw):
+		logical = _v2_text(raw)
+		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, logical):
 			continue
-		spelling = _migrate_spelling(raw, not (quoted or p.quote is Quote.Open))
+		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.Open))
 		edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
 
 
@@ -2948,15 +2976,15 @@ def _v2_array_text(s, tok):
 
 
 def _v2_element_text(s, p):
-	"""One 2.x element as the writer writes it, unless its quoted spelling
-	already reads the same."""
-	raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
+	"""One 2.x element, as the text 2.x read, the way the writer writes it,
+	unless its quoted spelling already reads the same."""
+	logical = _v2_text(s[p.start:p.end].decode("utf-8", "surrogatepass"))
 	quoted = p.quote is Quote.Single or p.quote is Quote.Double
-	if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, raw):
+	if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, logical):
 		return s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass")
-	if p.quote is Quote.None_ and not _needs_quotes(raw):
-		return raw
-	return _quote_text(raw)
+	if p.quote is Quote.None_ and not _needs_quotes(logical):
+		return logical
+	return _quote_text(logical)
 
 
 def _reads_clean_now(text, from_):
@@ -3013,15 +3041,20 @@ def _migrate_line(rest, tok, fence, st):
 			st.refused_now = True
 		for i, seg in enumerate(tok.segments):
 			name = s[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass")
-			# A backslash in a quoted name is text now, and stays. Only a
-			# quote it shielded, or a real escape mark, needs another
+			# A quoted name with a backslash pair read as typed under 1.2 and
+			# resolved under 2.0, so the file can't say which name it meant.
+			# It stays as written and counts as lost. Any other backslash is
+			# text either way. Only a real escape mark needs another
 			# spelling. A bare name not led by a letter goes in quotes, since
 			# `-` then a blank would start a list item now.
 			# A file that does not say it is 2.x could be a 3.0 one. Where it
 			# reads clean under these rules as well, it is left and counted.
 			respell = clean_now = False
 			if seg.name.quote is Quote.Single or seg.name.quote is Quote.Double:
-				if "\\" in name or _ESCAPE_MARK in name:
+				pair = _v2_text(name) != name
+				if pair:
+					st.lost += 1
+				if not pair and ("\\" in name or _ESCAPE_MARK in name):
 					now = _quoted_name_now(s[seg.name.start - 1:seg.name.end + 1].decode("utf-8", "surrogatepass"))
 					respell = now != name
 					clean_now = now is not None
@@ -3058,6 +3091,9 @@ def _migrate_line(rest, tok, fence, st):
 				colon = k - 1
 			body = s[sel.start:sel.end].decode("utf-8", "surrogatepass")
 			spelled = s[sel.start - 1:sel.end + 1].decode("utf-8", "surrogatepass") if quoted else body
+			# 2.x matched a selector by its text with the backslash pairs
+			# resolved, as it read a value.
+			logical = _v2_text(body)
 			if i == last and tok.sep is None:
 				if colon is not None:
 					# `name:[disc]` with nothing after it: 2.x read it as
@@ -3084,11 +3120,11 @@ def _migrate_line(rest, tok, fence, st):
 							st.ambiguous += 1
 							return rest, fence
 					if not quoted:
-						spelling = _migrate_spelling(body, True)
-					elif _reads_same(spelled, True, body):
+						spelling = _migrate_spelling(logical, True)
+					elif _reads_same(spelled, True, logical):
 						spelling = spelled
 					else:
-						spelling = _migrate_spelling(body, False)
+						spelling = _migrate_spelling(logical, False)
 					edits.append((colon, close + 1, (": " + spelling).encode("utf-8", "surrogatepass")))
 					continue
 			elif colon is not None:
@@ -3104,14 +3140,13 @@ def _migrate_line(rest, tok, fence, st):
 				return rest, fence
 			edits.append((open_at, open_at + 1, b"("))
 			edits.append((close, close + 1, b")"))
-			# A backslash is text now, and stays. Only a quote or a blank it
-			# shielded, or one the body has bare, a paren, or a real escape
-			# mark, needs another spelling.
-			if not index and not _selector_reads_back(spelled, body, quoted):
-				spelling = _migrate_spelling(body, False)
+			# A backslash pair 2.x resolved, a quote or a blank the body has
+			# bare, a paren, or a real escape mark needs another spelling.
+			if not index and not _selector_reads_back(spelled, logical, quoted):
+				spelling = _migrate_spelling(logical, False)
 				# Nothing reads back as that body, so there is no way to
 				# write it in parens.
-				if not _selector_reads_back(spelling, body, True):
+				if not _selector_reads_back(spelling, logical, True):
 					st.lost += 1
 					return rest, fence
 				if quoted:

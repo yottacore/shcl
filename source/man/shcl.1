@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-16 shcl "User Commands"
+.TH SHCL 1 2026-10-19 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -946,7 +946,9 @@ becomes
 .PP
 One change is quiet: a backslash pair was an escape in 2.x and is text now.
 .B migrate
-leaves every backslash as written.
+writes the text 2.x read, a tab or a line break as its escape. A quoted
+name with a backslash pair is left as written, since 1.2 read it as typed
+and 2.0 resolved it.
 .PP
 The comment rule did not change: a
 .B #
@@ -971,8 +973,9 @@ one did not. A raw block that never closes leaves the line nowhere to go, so
 .B migrate
 exits 7 and writes nothing until the block is closed.
 .PP
-Bracket text after the colon, a selector holding a comma and a comma list on
-a field with lines under it are what 2.x bound that nothing binds now.
+Bracket text after the colon, a selector holding a comma, a comma list on a
+field with lines under it and a quoted name with a backslash pair are what
+2.x bound that nothing binds now.
 .B migrate
 exits 7 on any of them rather than reporting success;
 .B \-\-lossy

@@ -4896,6 +4896,96 @@ fn migrate_leaves_what_reads_clean_now() {
 	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
 }
 
+// 2.x resolved a backslash pair in a value, an element, a `*` item, a
+// selector body and the sugar, bare or quoted, so migrate writes the text
+// 2.x read (2026101911300000). Any other backslash was text in 2.x too.
+#[test]
+fn migrate_writes_the_text_2x_read() {
+	let _id = test_id("EtD5PtP");
+	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n";
+	let m = migrate(text, true);
+	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
+	assert!(
+		m.text.starts_with(
+			"p: \"C:\\new\"\nt: \"C:\u{25C9}TAB\u{25C9}emp\"\nq: [a, b]\ns: \"it's\"\nl: [\"C:\\a\", \"x\u{25C9}TAB\u{25C9}y\"]\nw: C:\\work\nsrv(\"a\u{25C9}TAB\u{25C9}b\").port: 1\nn: \"C:\\x\"\nlist:\n\t- \"C:\u{25C9}NEWLINE\u{25C9}ew\"\n"
+		),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_string("p").unwrap(), "C:\\new");
+	assert_eq!(back.get_string("t").unwrap(), "C:\temp");
+	assert_eq!(back.get_string("s").unwrap(), "it's");
+	assert_eq!(back.get_string_array("l").unwrap(), ["C:\\a", "x\ty"]);
+	assert_eq!(back.get_string("w").unwrap(), "C:\\work");
+	assert_eq!(back.get_string("srv").unwrap(), "a\tb");
+	assert_eq!(back.get_string("n").unwrap(), "C:\\x");
+	assert_eq!(back.get_string_array("list").unwrap(), ["C:\new"]);
+	// The call from the report. Without from_v2 the file could be a 3.0 one,
+	// so the two values are left and counted.
+	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
+	let up = shcl::upgrade(text, false);
+	assert!(
+		!up.current && up.ambiguous == 2 && up.text == text,
+		"{up:?}"
+	);
+	let up = shcl::upgrade(text, true);
+	assert!(!up.current && up.ambiguous == 0 && up.lost == 0, "{up:?}");
+	let back = Document::parse(&up.text);
+	assert_eq!(back.get_string("p").unwrap(), "C:\\new");
+	assert_eq!(back.get_string("t").unwrap(), "C:\temp");
+}
+
+// A file that does not say it is 2.x could be a 3.0 one, where a backslash
+// is text. A piece that reads clean under these rules too is left and
+// counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+// either way, and converts, and a file that names format 2 converts whole.
+#[test]
+fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {
+	let _id = test_id("EtD5PtQ");
+	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n";
+	let m = migrate(text, false);
+	assert_eq!((m.ambiguous, m.lost), (2, 0), "{}", m.text);
+	assert_eq!(
+		m.text,
+		"p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u{25C9}TAB\u{25C9}b\", c]\n"
+	);
+	let m = migrate(&format!("{text}##    Format   2\n"), false);
+	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
+	assert!(
+		m.text
+			.starts_with("p: \"C:\\new\"\nt: \"C:\u{25C9}TAB\u{25C9}emp\"\n"),
+		"{:?}",
+		m.text
+	);
+}
+
+// 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
+// a name with one reads two ways across 2.x. It stays as written and counts
+// as lost, with from_v2 or without, and the rest of its line still
+// converts. Any other backslash in a name was text under both.
+#[test]
+fn migrate_counts_a_quoted_name_with_a_backslash_pair_lost() {
+	let _id = test_id("EtD5PtR");
+	let text = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n";
+	for from_v2 in [true, false] {
+		let m = migrate(text, from_v2);
+		assert_eq!(m.lost, 2, "from_v2 {from_v2}: {}", m.text);
+		assert_eq!(m.ambiguous, usize::from(!from_v2), "{}", m.text);
+	}
+	let m = migrate(text, true);
+	assert!(
+		m.text.starts_with(
+			"'k\\\\x': \"C:\u{25C9}TAB\u{25C9}emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
+		),
+		"{:?}",
+		m.text
+	);
+	let up = shcl::upgrade(text, true);
+	assert_eq!(up.lost, 2, "{up:?}");
+}
+
 const DEFAULT_TEXT: &str = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
 
 // A default form writes where the field is missing, empty or does not read

@@ -437,8 +437,9 @@ for setOpt in --set --set-literal; do
 done
 fTestEnd
 
-##	The paragraph on 2.x files names the value that needs --from-2x and the one
-##	that comes through as it was. It went stale once already, on backslashes.
+##	The paragraph on 2.x files names a comma value and a backslash value that
+##	each need --from-2x, and what the second becomes with it. It went stale
+##	twice already, on backslashes.
 fTest Es9KiYw migrate-claims
 migPara="$(awk '/^If you have files written for 2.x/' "${docs[@]}")"
 # shellcheck disable=SC2016  ## the backticks are markdown, not expansions
@@ -455,8 +456,17 @@ if [[ "${migRc}" != 7 || "${migOut}" != "${migComma}" ]]; then
 fi
 printf '%s\n' "${migSlash}" > "${tmpDir}/mig.shcl"
 migRc=0; migOut="$("${cli}" migrate "${tmpDir}/mig.shcl" 2>/dev/null)" || migRc=$?
-if [[ "${migRc}" != 0 || "${migOut%%$'\n'*}" != "${migSlash}" ]]; then
-	echo "check-readme: migrate on '${migSlash}' exits ${migRc} and prints '${migOut%%$'\n'*}'; the examples doc says it comes through as it was" >&2
+if [[ "${migRc}" != 7 || "${migOut}" != "${migSlash}" ]]; then
+	echo "check-readme: migrate on '${migSlash}' exits ${migRc} and prints '${migOut}'; the examples doc says it is left alone at exit 7" >&2
+	exit 1
+fi
+##	The second spelling of the same field is what --from-2x writes.
+migSlashKey="${migSlash%%:*}"
+# shellcheck disable=SC2016  ## the backticks are markdown, not expansions
+migSlash2x="$(grep -oE '`'"${migSlashKey}"': [^`\\]*`' <<< "${migPara}" | head -n1 | tr -d '`' || true)"
+migRc=0; migOut="$("${cli}" migrate --from-2x "${tmpDir}/mig.shcl" 2>/dev/null)" || migRc=$?
+if [[ -z "${migSlash2x}" || "${migRc}" != 0 || "${migOut%%$'\n'*}" != "${migSlash2x}" ]]; then
+	echo "check-readme: migrate --from-2x on '${migSlash}' exits ${migRc} and prints '${migOut%%$'\n'*}'; the examples doc says '${migSlash2x}'" >&2
 	exit 1
 fi
 fTestEnd
