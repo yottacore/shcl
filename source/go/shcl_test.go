@@ -5743,6 +5743,103 @@ func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 	}
 }
 
+// 2.x resolved a backslash pair in a value, an element, a `*` item, a
+// selector body and the sugar, bare or quoted, so migrate writes the text
+// 2.x read (2026101911300000). Any other backslash was text in 2.x too.
+func TestMigrateWritesTheText2xRead(t *testing.T) {
+	defer testID(t, "EtDC3Ca")
+	text := "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n"
+	m := Migrate(text, true)
+	if m.Ambiguous != 0 || m.Lost != 0 {
+		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
+	}
+	want := "p: \"C:\\new\"\nt: \"C:\u25C9TAB\u25C9emp\"\nq: [a, b]\ns: \"it's\"\nl: [\"C:\\a\", \"x\u25C9TAB\u25C9y\"]\nw: C:\\work\nsrv(\"a\u25C9TAB\u25C9b\").port: 1\nn: \"C:\\x\"\nlist:\n\t- \"C:\u25C9NEWLINE\u25C9ew\"\n"
+	if !strings.HasPrefix(m.Text, want) {
+		t.Fatalf("got %q\nwant %q", m.Text, want)
+	}
+	back := Parse(m.Text)
+	if d := back.Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v", d)
+	}
+	for _, c := range [][2]string{{"p", "C:\\new"}, {"t", "C:\temp"}, {"s", "it's"}, {"w", "C:\\work"}, {"srv", "a\tb"}, {"n", "C:\\x"}} {
+		if got, _ := back.GetString(c[0]); got != c[1] {
+			t.Fatalf("%s: %q", c[0], got)
+		}
+	}
+	if got, _ := back.GetStringArray("l"); !reflect.DeepEqual(got, []string{"C:\\a", "x\ty"}) {
+		t.Fatalf("l: %q", got)
+	}
+	if got, _ := back.GetStringArray("list"); !reflect.DeepEqual(got, []string{"C:\new"}) {
+		t.Fatalf("list: %q", got)
+	}
+	// The call from the report. Without fromV2 the file could be a 3.0 one,
+	// so the two values are left and counted.
+	text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n"
+	up := Upgrade(text, false)
+	if up.Current || up.Ambiguous != 2 || up.Text != text {
+		t.Fatalf("%+v", up)
+	}
+	up = Upgrade(text, true)
+	if up.Current || up.Ambiguous != 0 || up.Lost != 0 {
+		t.Fatalf("%+v", up)
+	}
+	back = Parse(up.Text)
+	if got, _ := back.GetString("p"); got != "C:\\new" {
+		t.Fatalf("p: %q", got)
+	}
+	if got, _ := back.GetString("t"); got != "C:\temp" {
+		t.Fatalf("t: %q", got)
+	}
+}
+
+// A file that does not say it is 2.x could be a 3.0 one, where a backslash
+// is text. A piece that reads clean under these rules too is left and
+// counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+// either way, and converts, and a file that names format 2 converts whole.
+func TestMigrateCountsABackslashPairInAnUnstampedFile(t *testing.T) {
+	defer testID(t, "EtDC3FC")
+	text := "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
+	m := Migrate(text, false)
+	if m.Ambiguous != 2 || m.Lost != 0 {
+		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
+	}
+	if want := "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u25C9TAB\u25C9b\", c]\n"; m.Text != want {
+		t.Fatalf("got %q\nwant %q", m.Text, want)
+	}
+	m = Migrate(text+"##    Format   2\n", false)
+	if m.Ambiguous != 0 || m.Lost != 0 {
+		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
+	}
+	if !strings.HasPrefix(m.Text, "p: \"C:\\new\"\nt: \"C:\u25C9TAB\u25C9emp\"\n") {
+		t.Fatalf("%q", m.Text)
+	}
+}
+
+// 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
+// a name with one reads two ways across 2.x. It stays as written and counts
+// as lost, with fromV2 or without, and the rest of its line still
+// converts. Any other backslash in a name was text under both.
+func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
+	defer testID(t, "EtDC3Hr")
+	text := "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
+	for _, fromV2 := range []bool{true, false} {
+		m := Migrate(text, fromV2)
+		if m.Lost != 2 {
+			t.Fatalf("fromV2 %v: lost %d\n%s", fromV2, m.Lost, m.Text)
+		}
+		if want := map[bool]int{true: 0, false: 1}[fromV2]; m.Ambiguous != want {
+			t.Fatalf("fromV2 %v: ambiguous %d\n%s", fromV2, m.Ambiguous, m.Text)
+		}
+	}
+	m := Migrate(text, true)
+	if want := "'k\\\\x': \"C:\u25C9TAB\u25C9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"; !strings.HasPrefix(m.Text, want) {
+		t.Fatalf("got %q\nwant %q", m.Text, want)
+	}
+	if up := Upgrade(text, true); up.Lost != 2 {
+		t.Fatalf("%+v", up)
+	}
+}
+
 // A list with a field under it (E001) after an empty binding of its name
 // that has fields: no text loads it back, since a reload joins the list's
 // header to that binding and drops its items (E008). The load is left as it

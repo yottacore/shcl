@@ -4722,6 +4722,74 @@ def main():
 	if "ESCAPE_CHAR" not in shcl.migrate(mtext, True).text:
 		raise SystemExit("no ESCAPE_CHAR with from_v2")
 
+	test_id("EtDC3KV", "migrate_writes_the_text_2x_read")
+	# 2.x resolved a backslash pair in a value, an element, a `*` item, a
+	# selector body and the sugar, bare or quoted, so migrate writes the text
+	# 2.x read (2026101911300000). Any other backslash was text in 2.x too.
+	mtext = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n"
+	mm = shcl.migrate(mtext, True)
+	if (mm.ambiguous, mm.lost) != (0, 0):
+		raise SystemExit(f"ambiguous {mm.ambiguous} lost {mm.lost}\n{mm.text}")
+	mwant_text = "p: \"C:\\new\"\nt: \"C:\u25c9TAB\u25c9emp\"\nq: [a, b]\ns: \"it's\"\nl: [\"C:\\a\", \"x\u25c9TAB\u25c9y\"]\nw: C:\\work\nsrv(\"a\u25c9TAB\u25c9b\").port: 1\nn: \"C:\\x\"\nlist:\n\t- \"C:\u25c9NEWLINE\u25c9ew\"\n"
+	if not mm.text.startswith(mwant_text):
+		raise SystemExit(f"got {mm.text!r}\nwant {mwant_text!r}")
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	for mpath, mwant in (("p", "C:\\new"), ("t", "C:\temp"), ("s", "it's"), ("w", "C:\\work"), ("srv", "a\tb"), ("n", "C:\\x")):
+		if mback.get_string(mpath) != mwant:
+			raise SystemExit(f"{mpath}: {mback.get_string(mpath)!r}")
+	if mback.get_string_array("l") != ["C:\\a", "x\ty"]:
+		raise SystemExit(f"l: {mback.get_string_array('l')!r}")
+	if mback.get_string_array("list") != ["C:\new"]:
+		raise SystemExit(f"list: {mback.get_string_array('list')!r}")
+	# The call from the report. Without from_v2 the file could be a 3.0 one,
+	# so the two values are left and counted.
+	mtext = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n"
+	mup = shcl.upgrade(mtext, False)
+	if mup.current or mup.ambiguous != 2 or mup.text != mtext:
+		raise SystemExit(f"{mup.current} {mup.ambiguous} {mup.text!r}")
+	mup = shcl.upgrade(mtext, True)
+	if mup.current or mup.ambiguous != 0 or mup.lost != 0:
+		raise SystemExit(f"{mup.current} {mup.ambiguous} {mup.lost}")
+	mback = shcl.Document.parse(mup.text)
+	if mback.get_string("p") != "C:\\new" or mback.get_string("t") != "C:\temp":
+		raise SystemExit(repr(mup.text))
+
+	test_id("EtDC3N7", "migrate_counts_a_backslash_pair_in_an_unstamped_file")
+	# A file that does not say it is 2.x could be a 3.0 one, where a backslash
+	# is text. A piece that reads clean under these rules too is left and
+	# counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+	# either way, and converts, and a file that names format 2 converts whole.
+	mtext = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
+	mm = shcl.migrate(mtext, False)
+	if (mm.ambiguous, mm.lost) != (2, 0):
+		raise SystemExit(f"ambiguous {mm.ambiguous} lost {mm.lost}\n{mm.text}")
+	mwant_text = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u25c9TAB\u25c9b\", c]\n"
+	if mm.text != mwant_text:
+		raise SystemExit(f"got {mm.text!r}\nwant {mwant_text!r}")
+	mm = shcl.migrate(f"{mtext}##    Format   2\n", False)
+	if (mm.ambiguous, mm.lost) != (0, 0):
+		raise SystemExit(f"ambiguous {mm.ambiguous} lost {mm.lost}\n{mm.text}")
+	if not mm.text.startswith("p: \"C:\\new\"\nt: \"C:\u25c9TAB\u25c9emp\"\n"):
+		raise SystemExit(repr(mm.text))
+
+	test_id("EtDC3Po", "migrate_counts_a_quoted_name_with_a_backslash_pair_lost")
+	# 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
+	# a name with one reads two ways across 2.x. It stays as written and counts
+	# as lost, with from_v2 or without, and the rest of its line still
+	# converts. Any other backslash in a name was text under both.
+	mtext = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
+	for mfrom_v2 in (True, False):
+		mm = shcl.migrate(mtext, mfrom_v2)
+		if mm.lost != 2 or mm.ambiguous != int(not mfrom_v2):
+			raise SystemExit(f"from_v2 {mfrom_v2}: lost {mm.lost} ambiguous {mm.ambiguous}\n{mm.text}")
+	mm = shcl.migrate(mtext, True)
+	if not mm.text.startswith("'k\\\\x': \"C:\u25c9TAB\u25c9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"):
+		raise SystemExit(repr(mm.text))
+	if shcl.upgrade(mtext, True).lost != 2:
+		raise SystemExit("upgrade: lost not 2")
+
 	# upgrade and upgrade_file (2026100313461649): a file this version cannot
 	# load clean is backed up under a timestamped name and written fresh, and
 	# a good one is never touched. The backup's name reads the clock that main
@@ -4895,7 +4963,10 @@ def main():
 		raise SystemExit(f"{up.diagnostics}")
 	# 2.x's block goes, links or none, and the one init writes takes its
 	# place.
-	up_want = f"name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n{shcl.GEN_BANNER}"
+	# Old claim below, wrong since 2026101911300000: the value is the text
+	# 2.x read, with the backslash pairs resolved. Don't uncomment.
+	# up_want = f"name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n{shcl.GEN_BANNER}"
+	up_want = f"name: 'say \"hi\"'\ntags: [a, b]\n\n{shcl.GEN_BANNER}"
 	if up.text != up_want:
 		raise SystemExit(f"got {up.text!r}\nwant {up_want!r}")
 	if not shcl.upgrade(up.text, False).current:

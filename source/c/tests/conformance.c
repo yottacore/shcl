@@ -5434,6 +5434,85 @@ int main(int argc, char **argv) {
 		free(mm.text);
 		#undef MK
 	}
+	#define MK "\xe2\x97\x89"
+	test_id("EtDC3SS", "migrate_writes_the_text_2x_read");
+	/* 2.x resolved a backslash pair in a value, an element, a `*` item, a
+	   selector body and the sugar, bare or quoted, so migrate writes the text
+	   2.x read (2026101911300000). Any other backslash was text in 2.x too. */
+	{
+		const char *t = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		if (mm.ambiguous != 0 || mm.lost != 0) fail("migrate_2x_read", mm.text);
+		if (!mig_starts(&mm, "p: \"C:\\new\"\nt: \"C:" MK "TAB" MK "emp\"\nq: [a, b]\ns: \"it's\"\nl: [\"C:\\a\", \"x" MK "TAB" MK "y\"]\nw: C:\\work\nsrv(\"a" MK "TAB" MK "b\").port: 1\nn: \"C:\\x\"\nlist:\n\t- \"C:" MK "NEWLINE" MK "ew\"\n")) fail("migrate_2x_read", mm.text);
+		shcl_doc *d = mig_load(&mm, "migrate_2x_read");
+		static const char *const want[][2] = {{"p", "C:\\new"}, {"t", "C:\temp"}, {"s", "it's"}, {"w", "C:\\work"}, {"srv", "a\tb"}, {"n", "C:\\x"}};
+		for (size_t i = 0; i < sizeof want / sizeof want[0]; i++) {
+			shcl_read_str r = shcl_read_string(d, want[i][0], strlen(want[i][0]));
+			if (r.status != SHCL_GOOD || !str_is(r.value, want[i][1])) fail("migrate_2x_read", want[i][0]);
+		}
+		shcl_read_str_arr l = shcl_read_string_array(d, "l", 1);
+		if (l.status != SHCL_GOOD || l.n != 2 || !str_is(l.values[0], "C:\\a") || !str_is(l.values[1], "x\ty")) fail("migrate_2x_read", "l");
+		l = shcl_read_string_array(d, "list", 4);
+		if (l.status != SHCL_GOOD || l.n != 1 || !str_is(l.values[0], "C:\new")) fail("migrate_2x_read", "list");
+		shcl_free(d);
+		free(mm.text);
+		/* The call from the report. Without from_v2 the file could be a 3.0
+		   one, so the two values are left and counted. */
+		t = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
+		shcl_upgraded up = shcl_upgrade(t, strlen(t), 0);
+		if (up.current || up.ambiguous != 2 || !up_is(&up, t)) fail("migrate_2x_read", "upgrade without from_v2");
+		shcl_upgraded_free(&up);
+		up = shcl_upgrade(t, strlen(t), 1);
+		if (up.current || up.ambiguous != 0 || up.lost != 0) fail("migrate_2x_read", "upgrade with from_v2");
+		d = shcl_parse(up.text, up.len);
+		shcl_read_str r = shcl_read_string(d, "p", 1);
+		if (!str_is(r.value, "C:\\new")) fail("migrate_2x_read", up.text);
+		r = shcl_read_string(d, "t", 1);
+		if (!str_is(r.value, "C:\temp")) fail("migrate_2x_read", up.text);
+		shcl_free(d);
+		shcl_upgraded_free(&up);
+	}
+	test_id("EtDC3V8", "migrate_counts_a_backslash_pair_in_an_unstamped_file");
+	/* A file that does not say it is 2.x could be a 3.0 one, where a
+	   backslash is text. A piece that reads clean under these rules too is
+	   left and counted, so the CLI asks for --from-2x. A line these rules
+	   refuse is 2.x either way, and converts, and a file that names format 2
+	   converts whole. */
+	{
+		#define BS_UNSTAMPED "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
+		const char *t = BS_UNSTAMPED;
+		const char *want = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a" MK "TAB" MK "b\", c]\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 0);
+		if (mm.ambiguous != 2 || mm.lost != 0) fail("migrate_unstamped_pair", "counts");
+		if (mm.len != strlen(want) || memcmp(mm.text, want, mm.len) != 0) fail("migrate_unstamped_pair", mm.text);
+		free(mm.text);
+		t = BS_UNSTAMPED "##    Format   2\n";
+		#undef BS_UNSTAMPED
+		mm = shcl_migrate(t, strlen(t), 0);
+		if (mm.ambiguous != 0 || mm.lost != 0) fail("migrate_unstamped_pair", "format 2 counts");
+		if (!mig_starts(&mm, "p: \"C:\\new\"\nt: \"C:" MK "TAB" MK "emp\"\n")) fail("migrate_unstamped_pair", mm.text);
+		free(mm.text);
+	}
+	test_id("EtDC3Xn", "migrate_counts_a_quoted_name_with_a_backslash_pair_lost");
+	/* 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs,
+	   so a name with one reads two ways across 2.x. It stays as written and
+	   counts as lost, with from_v2 or without, and the rest of its line still
+	   converts. Any other backslash in a name was text under both. */
+	{
+		const char *t = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n";
+		for (int from_v2 = 0; from_v2 < 2; from_v2++) {
+			shcl_migration mm = shcl_migrate(t, strlen(t), from_v2);
+			if (mm.lost != 2 || mm.ambiguous != (size_t)!from_v2) fail("migrate_lost_name", mm.text);
+			free(mm.text);
+		}
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		if (!mig_starts(&mm, "'k\\\\x': \"C:" MK "TAB" MK "emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n")) fail("migrate_lost_name", mm.text);
+		free(mm.text);
+		shcl_upgraded up = shcl_upgrade(t, strlen(t), 1);
+		if (up.lost != 2) fail("migrate_lost_name", "upgrade lost not 2");
+		shcl_upgraded_free(&up);
+	}
+	#undef MK
 
 	/* shcl_upgrade and shcl_upgrade_file (2026100313461649): a file this
 	   version cannot load clean is backed up under a timestamped name and
@@ -5589,8 +5668,11 @@ int main(int argc, char **argv) {
 		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) e026 |= !strcmp(shcl_diag_code(up.diagnostics, i), "E026");
 		if (!e026) fail("upgrade_fresh", "no E026");
 		/* 2.x's block goes, links or none, and the one init writes takes its
-		   place. */
-		if (!up_is(&up, "name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_fresh", up.text);
+		   place. Old claim below, wrong since 2026101911300000: the value is
+		   the text 2.x read, with the backslash pairs resolved. Don't
+		   uncomment.
+		   if (!up_is(&up, "name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_fresh", up.text); */
+		if (!up_is(&up, "name: 'say \"hi\"'\ntags: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_fresh", up.text);
 		shcl_upgraded again = shcl_upgrade(up.text, up.len, 0);
 		if (!again.current) fail("upgrade_fresh", "the fresh text is not current");
 		shcl_upgraded_free(&again);

@@ -769,17 +769,20 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 // both rule sets read cleanly and differently, such as `a,b` or an escape, and
 // runs of lines one rule set reads as a raw body and the other as fields,
 // which nothing can decide between, left as written; always 0 when from_v2
-// said the file is 2.x. A backslash is not one of them: it stays as written
-// either way. lost: lines 2.x bound a value on that nothing binds now, since
+// said the file is 2.x. A backslash pair 2.x resolved is one of them, as in
+// `"C:\\new"`. lost: lines 2.x bound a value on that nothing binds now, since
 // there is no 3.0 spelling to move to: bracket text after the colon, a
 // selector holding a comma, which matched an array value, and a comma list
-// with lines under it (E028 in brackets).
+// with lines under it (E028 in brackets). Also a quoted name with a backslash
+// pair, which 1.2 read as typed and 2.0 resolved, so it is kept as written.
 typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; } shcl_migration;
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
 // the same tree; everything the two rule sets agree on comes through as
 // written. from_v2 says the file really is 2.x, which is the only thing that
-// can settle the spellings the two rule sets read differently.
+// can settle the spellings the two rule sets read differently. A backslash
+// pair 2.x resolved is written as the text 2.x read, and a quoted name with
+// one stays as written and counts in lost.
 // An allocation failure inside it frees its own working memory before SHCL_OOM
 // runs, so a hook that longjmps out is not left holding the two arenas.
 shcl_migration shcl_migrate(const char *text, size_t len, int from_v2);
@@ -3248,11 +3251,31 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
 }
 
 /* How a changed piece is written: the way the writer writes its text, so it
-   reads back as that text. A backslash pair 2.x resolved is not resolved
-   here: it stays as written and reads as text now, with no escape added. */
+   reads back as that text. The text is the one 2.x read (v2_text). */
 static ShclStr migrate_spelling(ShclArena *a, ShclStr logical, int bare) {
 	if (bare && !needs_quotes(logical)) return logical;
 	return quote_text(a, logical);
+}
+
+/* The text 2.x read for a piece as written: `\t`, `\n`, `\\`, `\"` and `\'`
+   resolved, in a value, an element and a selector body, bare or quoted. Any
+   other backslash stays, and so does one at the end. */
+static ShclStr v2_text(ShclArena *a, ShclStr raw) {
+	if (raw.n == 0 || !memchr(raw.p, '\\', raw.n)) return raw;
+	ShclSB out = {0};
+	for (size_t i = 0; i < raw.n; i++) {
+		char c = raw.p[i];
+		if (c != '\\') { sb_putc(a, &out, c); continue; }
+		if (i + 1 == raw.n) { sb_putc(a, &out, '\\'); continue; }
+		c = raw.p[++i];
+		switch (c) {
+		case 't': sb_putc(a, &out, '\t'); break;
+		case 'n': sb_putc(a, &out, '\n'); break;
+		case '\\': case '"': case '\'': sb_putc(a, &out, c); break;
+		default: sb_putc(a, &out, '\\'); sb_putc(a, &out, c); break;
+		}
+	}
+	return sb_S(&out);
 }
 
 /* True when 2.x read this bare `[...]` body as the JSON-habit array rather
@@ -3273,8 +3296,8 @@ typedef struct { int from_v2; size_t ambiguous; size_t lost; int bracketed; int 
 /* The re-spellings a value's pieces need. Each piece is cut the 2.x way (a
    backslash shields the next character, an open quote is kept whole, a quote
    at both ends makes it quoted) and rewritten only where the current rules
-   would read its text as something else. Its text is as 2.x wrote it, a
-   backslash pair included, so the same bytes mean the same either way. */
+   would read it as other text than 2.x did. 2.x resolved a backslash pair,
+   so `"C:\\new"` is written `"C:\new"` and `C:\temp` gets the tab escape. */
 static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclVecEdit *edits) {
 	for (size_t i = 0; i < tok->nelem; i++) {
 		const ShclPiece *p = &tok->elements[i];
@@ -3282,19 +3305,20 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		int quoted = piece_quoted(p->quote);
 		size_t ea = quoted ? p->start - 1 : p->start, eb = quoted ? p->end + 1 : p->end;
 		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && !has_mark(raw) && raw.n && !bare_trouble(a, raw, BARE_VALUE, &why)) continue;
-		if (reads_same(a, s_slice(text, ea, eb), quoted, raw)) continue;
-		edit_push(a, edits, ea, eb, migrate_spelling(a, raw, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
+		ShclStr logical = v2_text(a, raw);
+		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
+		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
 	}
 }
 
-/* One 2.x element as the writer writes it, unless its quoted spelling
-   already reads the same. */
+/* One 2.x element, as the text 2.x read, the way the writer writes it,
+   unless its quoted spelling already reads the same. */
 static ShclStr v2_element_text(ShclArena *a, ShclStr text, const ShclPiece *p) {
-	ShclStr raw = s_slice(text, p->start, p->end);
+	ShclStr logical = v2_text(a, s_slice(text, p->start, p->end));
 	int quoted = piece_quoted(p->quote);
-	if (quoted && reads_same(a, s_slice(text, p->start - 1, p->end + 1), 1, raw)) return s_slice(text, p->start - 1, p->end + 1);
-	if (p->quote == SHCL_QUOTE_NONE && !needs_quotes(raw)) return raw;
-	return quote_text(a, raw);
+	if (quoted && reads_same(a, s_slice(text, p->start - 1, p->end + 1), 1, logical)) return s_slice(text, p->start - 1, p->end + 1);
+	if (p->quote == SHCL_QUOTE_NONE && !needs_quotes(logical)) return logical;
+	return quote_text(a, logical);
 }
 
 /* A 2.x value with a comma in brackets, since 2.x read every comma as an
@@ -3365,15 +3389,19 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 		for (size_t i = 0; i < tok->nseg; i++) {
 			const ShclSegTok *seg = &tok->segments[i];
 			ShclStr name = s_slice(rest, seg->name.start, seg->name.end);
-			/* A backslash in a quoted name is text now, and stays. Only a
-			   quote it shielded, or a real escape mark, needs another
+			/* A quoted name with a backslash pair read as typed under 1.2 and
+			   resolved under 2.0, so the file can't say which name it meant.
+			   It stays as written and counts as lost. Any other backslash is
+			   text either way. Only a real escape mark needs another
 			   spelling. A bare name not led by a letter goes in quotes, since
 			   `-` then a blank would start a list item now.
 			   A file that does not say it is 2.x could be a 3.0 one. Where it
 			   reads clean under these rules as well, it is left and counted. */
 			int respell = 0, clean_now = 0;
 			if (piece_quoted(seg->name.quote)) {
-				if (memchr(name.p, '\\', name.n) || has_mark(name)) {
+				int pair = !s_eq(v2_text(a, name), name);
+				if (pair) st->lost++;
+				if (!pair && ((name.n && memchr(name.p, '\\', name.n)) || has_mark(name))) {
 					ShclStr now;
 					clean_now = quoted_name_now(a, s_slice(rest, seg->name.start - 1, seg->name.end + 1), &now);
 					respell = !clean_now || !s_eq(now, name);
@@ -3403,6 +3431,9 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			if (k > 0 && rest.p[k - 1] == ':') { has_colon = 1; colon = k - 1; }
 			ShclStr body = s_slice(rest, sel->start, sel->end);
 			ShclStr spelled = quoted ? s_slice(rest, sel->start - 1, sel->end + 1) : body;
+			/* 2.x matched a selector by its text with the backslash pairs
+			   resolved, as it read a value. */
+			ShclStr logical = v2_text(a, body);
 			if (i == last && !tok->has_sep) {
 				if (has_colon) {
 					/* name:[disc] with nothing after it: 2.x read it as
@@ -3426,9 +3457,9 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 						if (now.has_array && !now.has_array_fault && !value_fault(a, &now, rest, &vf)) { st->ambiguous++; return rest; }
 					}
 					ShclStr spelling;
-					if (!quoted) spelling = migrate_spelling(a, body, 1);
-					else if (reads_same(a, spelled, 1, body)) spelling = spelled;
-					else spelling = migrate_spelling(a, body, 0);
+					if (!quoted) spelling = migrate_spelling(a, logical, 1);
+					else if (reads_same(a, spelled, 1, logical)) spelling = spelled;
+					else spelling = migrate_spelling(a, logical, 0);
 					ShclSB sb = {0}; sb_puts(a, &sb, ": "); sb_putS(a, &sb, spelling);
 					edit_push(a, &edits, colon, close + 1, sb_S(&sb));
 					continue;
@@ -3445,14 +3476,13 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			if (!index && !quoted && v2_bracket_array(a, body)) { st->lost++; return rest; }
 			edit_push(a, &edits, open, open + 1, s_lit("("));
 			edit_push(a, &edits, close, close + 1, s_lit(")"));
-			/* A backslash is text now, and stays. Only a quote or a blank it
-			   shielded, or one the body has bare, a paren, or a real escape
-			   mark, needs another spelling. */
-			if (!index && !selector_reads_back(a, spelled, body, quoted)) {
-				ShclStr spelling = migrate_spelling(a, body, 0);
+			/* A backslash pair 2.x resolved, a quote or a blank the body has
+			   bare, a paren, or a real escape mark needs another spelling. */
+			if (!index && !selector_reads_back(a, spelled, logical, quoted)) {
+				ShclStr spelling = migrate_spelling(a, logical, 0);
 				/* Nothing reads back as that body, so there is no way to
 				   write it in parens. */
-				if (!selector_reads_back(a, spelling, body, 1)) { st->lost++; return rest; }
+				if (!selector_reads_back(a, spelling, logical, 1)) { st->lost++; return rest; }
 				edit_push(a, &edits, quoted ? sel->start - 1 : sel->start, quoted ? sel->end + 1 : sel->end, spelling);
 			}
 		}
@@ -3811,11 +3841,11 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 
 /* Rewrite a document written under the 2.x rules so this parser reads the
    same tree. Each line is read with the 2.x tokenizer and rewritten only
-   where the two rule sets disagree (value-syntax.md, Migration). A backslash
-   stays as written and reads as text, so a piece is written another way only
-   where these rules would read its text as something else: a quote it
-   shielded, a real `◉`, a quote, tab or bracket in bare text, an open quote,
-   which is quoted whole. A comma list goes in brackets, a `*` item becomes
+   where the two rule sets disagree (value-syntax.md, Migration). A piece is
+   written another way only where these rules would read it as other text
+   than 2.x did: a backslash pair 2.x resolved, such as `\\` or `\t`, a real
+   `◉`, a quote, tab or bracket in bare text, an open quote, which is quoted
+   whole. A comma list goes in brackets, a `*` item becomes
    `- `, a bare name not led by a letter is quoted, and a selector goes from
    brackets to parens, its body quoted where these rules would refuse it bare.
    The name:[disc] selector sugar loses its colon, and on a last segment
@@ -3824,7 +3854,8 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    Everything else - comments, blank lines, raw bodies, layout, a line 2.x
    could not read - comes through as written. One shape has no spelling here
    at all: a fence label holding a `#`, which 2.x ran to the end of the line
-   and which now ends at the `#`.
+   and which now ends at the `#`. A quoted name with a backslash pair stays as
+   written and counts in lost, since 1.2 read it as typed and 2.0 resolved it.
    The output and the reused tokens live in `a`; the per-line temporaries go
    to `sc`, reset per line, so a large document costs its own size and not
    every line's scratch on top. An allocation failure goes to outer when it is

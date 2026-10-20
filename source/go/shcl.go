@@ -2867,13 +2867,14 @@ type Migration struct {
 	// Ambiguous: pieces both rule sets read cleanly and differently, such as
 	// `a,b` or an escape, and runs of lines one rule set reads as a raw body
 	// and the other as fields, which nothing can decide between, left as
-	// written. Always 0 when the caller said the file is 2.x. A backslash is
-	// not one of them: it stays as written either way.
+	// written. Always 0 when the caller said the file is 2.x. A backslash pair
+	// 2.x resolved is one of them, as in `"C:\\new"`.
 	Ambiguous int
 	// Lost: lines 2.x bound a value on that nothing binds now, since there is
 	// no 3.0 spelling to move to: bracket text after the colon, a selector
 	// holding a comma, which matched an array value, and a comma list with
-	// lines under it (E028 in brackets).
+	// lines under it (E028 in brackets). Also a quoted name with a backslash
+	// pair, which 1.2 read as typed and 2.0 resolved, so it is kept as written.
 	Lost int
 }
 
@@ -3164,19 +3165,20 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // Migrate rewrites a document written under the 2.x rules so this parser
 // reads the same tree. Each line is read with the 2.x tokenizer and
 // rewritten only where the two rule sets disagree (value-syntax.md,
-// Migration). A backslash stays as written and reads as text, so a piece is
-// written another way only where these rules would read its text as
-// something else: a quote it shielded, a real `◉`, a quote, tab or bracket
-// in bare text, an open quote, which is quoted whole. A comma list goes in
-// brackets, a `*` item becomes `- `, a bare name not led by a letter is
-// quoted, and a selector goes from brackets to parens, its body quoted where
-// these rules would refuse it bare. The `name:[disc]` selector sugar loses
-// its colon, and on a last segment becomes `name: disc`, with `disc` written
-// the way the formatter writes a value.
+// Migration). A piece is written another way only where these rules would
+// read it as other text than 2.x did: a backslash pair 2.x resolved, such as
+// `\\` or `\t`, a real `◉`, a quote, tab or bracket in bare text, an open
+// quote, which is quoted whole. A comma list goes in brackets, a `*` item
+// becomes `- `, a bare name not led by a letter is quoted, and a selector
+// goes from brackets to parens, its body quoted where these rules would
+// refuse it bare. The `name:[disc]` selector sugar loses its colon, and on a
+// last segment becomes `name: disc`, with `disc` written the way the
+// formatter writes a value.
 // Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 // could not read - comes through as written. One shape has no spelling here
 // at all: a fence label holding a `#`, which 2.x ran to the end of the line
-// and which now ends at the `#`.
+// and which now ends at the `#`. A quoted name with a backslash pair stays as
+// written and counts in Lost, since 1.2 read it as typed and 2.0 resolved it.
 // Which file this is cannot always be read off the text: `p: a,b` is an array
 // under 2.x and one string under these rules, and a raw block can open where
 // only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -3510,14 +3512,45 @@ func readsSame(spelling string, quoted bool, logical string) bool {
 }
 
 // migrateSpelling is how a changed piece is written: the way the writer
-// writes its text, so it reads back as that text. A backslash pair 2.x
-// resolved is not resolved here: it stays as written and reads as text now,
-// with no escape added.
+// writes its text, so it reads back as that text. The text is the one 2.x
+// read (v2Text).
 func migrateSpelling(logical string, bare bool) string {
 	if bare && !needsQuotes(logical) {
 		return logical
 	}
 	return quoteText(logical)
+}
+
+// v2Text is the text 2.x read for a piece as written: `\t`, `\n`, `\\`, `\"`
+// and `\'` resolved, in a value, an element and a selector body, bare or
+// quoted. Any other backslash stays, and so does one at the end.
+func v2Text(raw string) string {
+	var out strings.Builder
+	out.Grow(len(raw))
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if c != '\\' {
+			out.WriteByte(c)
+			continue
+		}
+		if i+1 == len(raw) {
+			out.WriteByte('\\')
+			continue
+		}
+		i++
+		switch raw[i] {
+		case 't':
+			out.WriteByte('\t')
+		case 'n':
+			out.WriteByte('\n')
+		case '\\', '"', '\'':
+			out.WriteByte(raw[i])
+		default:
+			out.WriteByte('\\')
+			out.WriteByte(raw[i])
+		}
+	}
+	return out.String()
 }
 
 // v2BracketArray is true when 2.x read this bare `[...]` body as the JSON-habit
@@ -3532,9 +3565,9 @@ func v2BracketArray(body string) bool {
 // valueEdits collects the re-spellings a value's pieces need. Each piece is
 // cut the 2.x way (a backslash shields the next character, an open quote is
 // kept whole, a quote at both ends makes it quoted) and rewritten only where
-// the current rules would read its text as something else. Its text is as
-// 2.x wrote it, a backslash pair included, so the same bytes mean the same
-// either way.
+// the current rules would read it as other text than 2.x did. 2.x resolved a
+// backslash pair, so `"C:\\new"` is written `"C:\new"` and `C:\temp` gets the
+// tab escape.
 func valueEdits(text string, tok *Tokens, edits *[]edit) {
 	for i := range tok.Elements {
 		p := &tok.Elements[i]
@@ -3549,10 +3582,11 @@ func valueEdits(text string, tok *Tokens, edits *[]edit) {
 				continue
 			}
 		}
-		if readsSame(text[a:b], quoted, raw) {
+		logical := v2Text(raw)
+		if readsSame(text[a:b], quoted, logical) {
 			continue
 		}
-		spelling := migrateSpelling(raw, !(quoted || p.Quote == QuoteOpen))
+		spelling := migrateSpelling(logical, !(quoted || p.Quote == QuoteOpen))
 		*edits = append(*edits, edit{start: a, end: b, with: spelling})
 	}
 }
@@ -3578,18 +3612,18 @@ func v2ArrayText(text string, tok *Tokens) string {
 	return out.String()
 }
 
-// v2ElementText is one 2.x element as the writer writes it, unless its quoted
-// spelling already reads the same.
+// v2ElementText is one 2.x element, as the text 2.x read, the way the writer
+// writes it, unless its quoted spelling already reads the same.
 func v2ElementText(text string, p *Piece) string {
-	raw := text[p.Start:p.End]
+	logical := v2Text(text[p.Start:p.End])
 	quoted := p.Quote == QuoteSingle || p.Quote == QuoteDouble
 	switch {
-	case quoted && readsSame(text[p.Start-1:p.End+1], true, raw):
+	case quoted && readsSame(text[p.Start-1:p.End+1], true, logical):
 		return text[p.Start-1 : p.End+1]
-	case p.Quote == QuoteNone && !needsQuotes(raw):
-		return raw
+	case p.Quote == QuoteNone && !needsQuotes(logical):
+		return logical
 	default:
-		return quoteText(raw)
+		return quoteText(logical)
 	}
 }
 
@@ -3659,15 +3693,21 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 		for i := range tok.Segments {
 			seg := &tok.Segments[i]
 			name := rest[seg.Name.Start:seg.Name.End]
-			// A backslash in a quoted name is text now, and stays. Only a quote
-			// it shielded, or a real escape mark, needs another spelling. A bare
+			// A quoted name with a backslash pair read as typed under 1.2 and
+			// resolved under 2.0, so the file can't say which name it meant. It
+			// stays as written and counts as lost. Any other backslash is text
+			// either way. Only a real escape mark needs another spelling. A bare
 			// name not led by a letter goes in quotes, since `-` then a blank
 			// would start a list item now.
 			// A file that does not say it is 2.x could be a 3.0 one. Where it
 			// reads clean under these rules as well, it is left and counted.
 			var respell, cleanNow bool
 			if seg.Name.Quote == QuoteSingle || seg.Name.Quote == QuoteDouble {
-				if strings.Contains(name, "\\") || strings.ContainsRune(name, escapeMark) {
+				pair := v2Text(name) != name
+				if pair {
+					st.lost++
+				}
+				if !pair && (strings.Contains(name, "\\") || strings.ContainsRune(name, escapeMark)) {
 					now, ok := quotedNameNow(rest[seg.Name.Start-1 : seg.Name.End+1])
 					respell = !ok || now != name
 					cleanNow = ok
@@ -3720,6 +3760,9 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			if quoted {
 				spelled = rest[sel.Start-1 : sel.End+1]
 			}
+			// 2.x matched a selector by its text with the backslash pairs
+			// resolved, as it read a value.
+			logical := v2Text(body)
 			if i == last && tok.Sep < 0 {
 				if colon >= 0 {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -3752,11 +3795,11 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 					var spelling string
 					switch {
 					case !quoted:
-						spelling = migrateSpelling(body, true)
-					case readsSame(spelled, true, body):
+						spelling = migrateSpelling(logical, true)
+					case readsSame(spelled, true, logical):
 						spelling = spelled
 					default:
-						spelling = migrateSpelling(body, false)
+						spelling = migrateSpelling(logical, false)
 					}
 					edits = append(edits, edit{start: colon, end: close + 1, with: ": " + spelling})
 					continue
@@ -3778,14 +3821,13 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 				return rest
 			}
 			edits = append(edits, edit{start: open, end: open + 1, with: "("}, edit{start: close, end: close + 1, with: ")"})
-			// A backslash is text now, and stays. Only a quote or a blank it
-			// shielded, or one the body has bare, a paren, or a real escape
-			// mark, needs another spelling.
-			if !index && !selectorReadsBack(spelled, body, quoted) {
-				spelling := migrateSpelling(body, false)
+			// A backslash pair 2.x resolved, a quote or a blank the body has
+			// bare, a paren, or a real escape mark needs another spelling.
+			if !index && !selectorReadsBack(spelled, logical, quoted) {
+				spelling := migrateSpelling(logical, false)
 				// Nothing reads back as that body, so there is no way to
 				// write it in parens.
-				if !selectorReadsBack(spelling, body, true) {
+				if !selectorReadsBack(spelling, logical, true) {
 					st.lost++
 					return rest
 				}
