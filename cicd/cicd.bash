@@ -64,7 +64,10 @@
 ##	   --no-gif            skip the demo gif refresh
 ##	   --no-publish        skip the git backup + publish stage
 ##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
-##	                       or NAME.Dockerfile there for an extra one. See below
+##	                       or NAME.Dockerfile there for an extra one, and fail
+##	                       when docker can't. See below
+##	   --no-container      run stages 1-6 on this box even when docker answers.
+##	                       Not with --container
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
@@ -73,8 +76,10 @@
 ##	  that tree through without running the gate again. --quick, --no-fmt,
 ##	  --no-lint, --no-tests, --no-cross and a skipped tool each keep a run from
 ##	  recording.
-##	- --container needs docker (or SHCL_DOCKER) on x86_64. Sync, dogfood, gif and
-##	  publish stay on this box. An extra image runs what CTR_ARGS_NAME in
+##	- When docker (or SHCL_DOCKER) answers on x86_64, stages 1-6 run in the main
+##	  image as if --container were given, the pre-push hook's gate included.
+##	  Otherwise they run here, with a one-line note saying why. Sync, dogfood,
+##	  gif and publish stay on this box. An extra image runs what CTR_ARGS_NAME in
 ##	  config.bash picks, and nothing runs here after it. The repo is mounted at
 ##	  its own path, so a run records its tree like any other.
 ##	- Reuse: copy the cicd/ directory into another project and edit config.bash.
@@ -140,7 +145,12 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 ## Parse options.
 assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0
 ## --container: which image, and the options the run inside it takes over.
-ctr_image=""; ctr_pass=()
+ctr_image=""; ctr_pass=(); no_container=0
+fCtrPick(){
+	if [[ -z "$1" ]]; then echo "--container= names no image (try --help)" >&2; exit 2; fi
+	if [[ -n "${ctr_image}" && "${ctr_image}" != "$1" ]]; then echo "--container names 2 images, ${ctr_image} and $1 (try --help)" >&2; exit 2; fi
+	ctr_image="$1"
+}
 while (($#)); do case "$1" in
 	--gate)                   gate_mode=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
@@ -161,8 +171,9 @@ while (($#)); do case "$1" in
 	--no-dogfood)             DOGFOOD_FIXED_DESTS=(); shift ;;
 	--no-gif)                 GIF_ENABLE=0; shift ;;
 	--no-publish)             GIT_PUBLISH=(); shift ;;
-	--container)              ctr_image=main; shift ;;
-	--container=*)            ctr_image="${1#*=}"; shift ;;
+	--container)              fCtrPick main; shift ;;
+	--container=*)            fCtrPick "${1#*=}"; shift ;;
+	--no-container)           no_container=1; shift ;;
 	--message=*|--msg=*|-m=*) cli_message="${1#*=}"; shift ;;
 	-m|--message|--msg)       cli_message="${2-}"; shift; (($#)) && shift ;;
 	-h|--help)                sed -n '/^##	- Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; exit 0 ;;
@@ -170,6 +181,7 @@ while (($#)); do case "$1" in
 esac; done
 ## Nothing on the command line resolves last-wins (design.md).
 if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck can't go together (try --help)" >&2; exit 2; fi
+if [[ -n "${ctr_image}" ]] && ((no_container)); then echo "--container and --no-container can't go together (try --help)" >&2; exit 2; fi
 
 ## --gate: correctness only, deterministic, side-effect free.
 if ((gate_mode)); then
@@ -325,12 +337,9 @@ fRunContainer(){
 	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" old="" link="" real=""
 	local -a mounts=() groups=() env=() inner=()
 	fSection "Container: ${ctr_image}"
-	command -v "${engine}" >/dev/null 2>&1 || fDie "no ${engine} to run --container with (SHCL_DOCKER names another)"
-	[[ "$(uname -m)" == x86_64 ]] || fDie "--container is x86_64 only"
 
 	## The image is built from a copy of its recipe dir plus the files the
 	## config adds, and tagged by their hash, so an edit can't run on an old one.
-	source "${here}/utility/include/ctr-image.bash"
 	ctx="$(mktemp -d)"; ctr_tmps+=("${ctx}")
 	fCtrContext "${ctr_recipe}" "${ctx}" || fDie "could not copy the ${ctr_image} image's build context"
 	tag="$(fCtrTag "${ctx}" "${ctr_image}")"
@@ -429,15 +438,29 @@ fRunContainer(){
 
 ## --container: stages 1-6 go to the image. An extra image builds nothing this
 ## box should install or publish, so nothing runs here after it.
-ctr_recipe=""
-if [[ -n "${ctr_image}" ]]; then
-	((! in_container)) || fDie "already in the container; --container would start another"
-	[[ "${ctr_image}" =~ ^[a-z0-9]+$ ]] || fDie "--container=${ctr_image}: an image name is lower-case letters and digits"
+ctr_recipe=""; ctr_note=""
+fCtrRecipe(){
 	ctr_recipe="${CTR_DIR:-cicd/container}/${ctr_image}.Dockerfile"
 	[[ "${ctr_image}" == main ]] && ctr_recipe="${CTR_DIR:-cicd/container}/Dockerfile"
 	[[ -f "${root}/${ctr_recipe}" ]] || fDie "--container=${ctr_image}: no recipe at ${ctr_recipe}"
-	if [[ "${ctr_image}" != main ]]; then DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; GIT_PUBLISH=(); fi
+}
+if [[ -n "${ctr_image}" ]]; then
+	((! in_container)) || fDie "already in the container; --container would start another"
+	[[ "${ctr_image}" =~ ^[a-z0-9]+$ ]] || fDie "--container=${ctr_image}: an image name is lower-case letters and digits"
+	fCtrRecipe
 fi
+## With neither flag the main image is used when docker answers, and this box
+## when it doesn't (JC, 2026-10-19). The run inside never asks.
+if ((! no_container && ! in_container)); then
+	source "${here}/utility/include/ctr-image.bash"
+	ctr_why="$(fCtrWhyNot)"
+	if [[ -n "${ctr_image}" && -n "${ctr_why}" ]]; then fDie "--container can't run: ${ctr_why}"; fi
+	if [[ -z "${ctr_image}" ]]; then
+		if [[ -n "${ctr_why}" ]]; then ctr_note="stages 1-6 run on this box, since ${ctr_why}"
+		else ctr_image=main; fCtrRecipe; fi
+	fi
+fi
+if [[ -n "${ctr_image}" && "${ctr_image}" != main ]]; then DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; GIT_PUBLISH=(); fi
 
 ## Preflight: show the plan, then capture the commit message so the rest runs unattended.
 if ((! quiet)); then
@@ -572,6 +595,7 @@ else
 	## Whatever the container needs before a run, such as crates the --gate
 	## profiler check reads offline.
 	if ((in_container)) && [[ -n "${CTR_PREP:-}" ]]; then eval "${CTR_PREP}"; fi
+	if [[ -n "${ctr_note}" ]]; then fEcho_Clean "note: ${ctr_note}"; fi
 
 	## Stage 1: format. In place locally; check-only (fail on diff) under --gate.
 	fSection "1/9  Format"
@@ -963,3 +987,4 @@ fEcho_Clean
 ##		- 2026-10-19 JC: --ci is --gate now. --quick runs every step but the ones config's QUICK_SKIP names, cross targets included.
 ##		- 2026-10-19 JC: --leakcheck, and config's LEAKCHECK_STEPS at the end of the tests stage of a run with no flags.
 ##		- 2026-10-19 JC: --no-leakcheck, refused beside --leakcheck.
+##		- 2026-10-19 JC: Stages 1-6 run in the main image whenever docker answers. --no-container.

@@ -1390,6 +1390,23 @@ fCtrPinsRun ubuntu.Dockerfile 's/staticcheck@\$\{STATICCHECK_VER\}/staticcheck@2
 fCtrPinsRun alpine.Dockerfile 's#(GO_SHA256\}  go\.tgz" \| sha256sum -c -)#\1 \&\& wget https://example.com/x.tgz#' && fBad "check-pins.bash passed a bare wget"
 fCtrPinsRun alpine.Dockerfile 's/sha256sum -c - \\$/sha256sum -c - || true \\/' && fBad "check-pins.bash passed a sha256 check that can't fail"
 fCtrPinsRun alpine.Dockerfile 's/^FROM ([^@]*)@sha256:[0-9a-f]+/FROM \1/' && fBad "check-pins.bash passed a base image with no digest"
+fTest EtDCDEA 2026101920461174-hosted-gate-skips-the-image
+##	2026101920461174: a run goes to the build image when docker answers, and the
+##	hosted runner has docker. Its gate has to pass --no-container.
+fPinsRun 's#cicd/cicd\.bash --no-container #cicd/cicd.bash #' && fBad "check-pins.bash passed a hosted gate run without --no-container"
+fTest EtDCDEB 2026101920461174-docker-asked-one-way
+##	2026101920461174: an installed docker whose daemon doesn't answer is no
+##	docker, and the images are x86_64 only. fCtrWhyNot is the one place that
+##	asks, so a script that runs the image without it, or looks for the docker
+##	command itself, fails here.
+mapfile -t ctrRunners < <(git -C "${repoDir}" ls-files -z -- cicd | (cd "${repoDir}" && xargs -0 grep -lE 'fCtrRunSelf "|^[[:space:]]*fRunContainer$' --) | grep -vF -e include/ctr-image.bash -e shell-regress.bash || true)
+[[ " ${ctrRunners[*]} " == *" cicd/cicd.bash "* ]] || fBad "the docker scan doesn't find cicd.bash running the image, so it finds nothing: ${ctrRunners[*]}"
+for f in "${ctrRunners[@]}"; do
+	grep -qF fCtrWhyNot "${repoDir}/${f}" || fBad "${f} runs the build image without asking fCtrWhyNot whether it can"
+done
+# shellcheck disable=SC2016  ## the scripts' own text, matched literally
+dockerAsks="$(git -C "${repoDir}" ls-files -z -- cicd | (cd "${repoDir}" && xargs -0 grep -nF -e 'command -v "${SHCL_DOCKER' -e 'command -v docker' --) | grep -vF shell-regress.bash || true)"
+[[ -z "${dockerAsks}" ]] || fBad "these look for docker themselves, not through fCtrWhyNot: ${dockerAsks}"
 fTest Epu2f56 20260909-24-flame-report-marker
 ##	20260909 item 24: rotation retagged a graph and left its sidecar under the
 ##	old role, so the caveat vanished. And --check --file wrote the named graph's
@@ -2215,14 +2232,14 @@ EOF
 export SHCL_STUB_MARKER="${stubDir}/marker"
 ##	The gate run has to compile them.
 rm -f "${SHCL_STUB_MARKER}"
-if ( cd "${stubDir}" && bash cicd/cicd.bash --gate ) > "${tmpDir}/stub-ci.log" 2>&1; then
+if ( cd "${stubDir}" && bash cicd/cicd.bash --gate --no-container ) > "${tmpDir}/stub-ci.log" 2>&1; then
 	[[ -f "${SHCL_STUB_MARKER}" ]] || fBad "cicd.bash --gate ran no cross check"
 else
 	fBad "cicd.bash --gate failed on the stub repo: $(tail -n 3 "${tmpDir}/stub-ci.log")"
 fi
 ##	And a failing one has to stop the run, or running them buys nothing.
 rm -f "${SHCL_STUB_MARKER}"
-if ( export SHCL_STUB_FAIL=1; cd "${stubDir}" && bash cicd/cicd.bash --gate ) > "${tmpDir}/stub-fail.log" 2>&1; then
+if ( export SHCL_STUB_FAIL=1; cd "${stubDir}" && bash cicd/cicd.bash --gate --no-container ) > "${tmpDir}/stub-fail.log" 2>&1; then
 	fBad "cicd.bash --gate passed with a failing cross check"
 fi
 grep -q 'cross check failed: marker' "${tmpDir}/stub-fail.log" \
@@ -2230,7 +2247,7 @@ grep -q 'cross check failed: marker' "${tmpDir}/stub-fail.log" \
 ##	--no-cross drops the checks with the targets: it is what a box without the
 ##	cross toolchains passes, and mingw is one of them.
 rm -f "${SHCL_STUB_MARKER}"
-( cd "${stubDir}" && bash cicd/cicd.bash --gate --no-cross ) > "${tmpDir}/stub-nocross.log" 2>&1 \
+( cd "${stubDir}" && bash cicd/cicd.bash --gate --no-cross --no-container ) > "${tmpDir}/stub-nocross.log" 2>&1 \
 	|| fBad "cicd.bash --gate --no-cross failed on the stub repo"
 if [[ -f "${SHCL_STUB_MARKER}" ]]; then fBad "--no-cross ran a cross check anyway"; fi
 unset SHCL_STUB_MARKER
@@ -3727,3 +3744,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-16  A fenced `#` line makes no anchor for check-docs' link checks.
 ##		2026-10-16  crosscheck's save gate rows have to give the right answer.
 ##		2026-10-19  Each QUICK_SKIP name matches one step.
+##		2026-10-19  Hosted gate runs pass --no-container, and only fCtrWhyNot asks for docker.

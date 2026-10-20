@@ -20,6 +20,9 @@
 ##	  longer existed, and the checkout's debug binary was overwritten by the
 ##	  pushed commit's build.
 ##	- If git cannot create a worktree, the gate runs in place with a warning.
+##	- The gate goes to the build image when docker answers, as any cicd.bash
+##	  run does. The worktree and its target link are mounted at their own
+##	  paths, so the run in there records the tree the same way.
 ##	- A commit whose tree a gate already passed goes out without running it
 ##	  again. cicd.bash records each tree it passes (utility/green-tree.bash),
 ##	  the run this hook starts included, so a full run's own publish push, a

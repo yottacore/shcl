@@ -15,7 +15,8 @@
 ##		TOOL_PINS checks, so ci.yml has to name the wheel token and, on a line
 ##		naming cppcheck, the binary version that wheel bundles - bump both.
 ##		Also fails when the jobs that run cicd.bash --gate between them leave a
-##		stage out, when one of them runs both lint and tests, when a
+##		stage out, when one of them runs both lint and tests or without
+##		--no-container, when a
 ##		cicd/container recipe installs a pinned tool at another version, and
 ##		when one fetches something it doesn't hash. A tool only --leakcheck
 ##		runs is left out of ci.yml, and fails here if a gate step names it.
@@ -198,11 +199,13 @@ while IFS= read -r runLine; do
 done < <(grep -E -- 'cicd/cicd\.bash' <<<"${liveLines}" || true)
 ((${#gateRuns[@]})) || { echo "check-pins: no job in ci.yml runs cicd/cicd.bash" >&2; nBad=$((nBad + 1)); }
 declare -A flagMissingSomewhere=() flagUsed=()
+inImage=()
 for runArgs in "${gateRuns[@]}"; do
 	read -r -a runWords <<<"${runArgs}"
-	hasGate=0
+	hasGate=0; hasNoCtr=0
 	for w in "${runWords[@]}"; do
 		if [[ "${w}" == --gate ]]; then hasGate=1; continue; fi
+		if [[ "${w}" == --no-container ]]; then hasNoCtr=1; continue; fi
 		known=0
 		for f in "${stageFlags[@]}"; do
 			if [[ "${w}" == "${f}" ]]; then known=1; fi
@@ -211,6 +214,7 @@ for runArgs in "${gateRuns[@]}"; do
 		else echo "check-pins: ci.yml runs the gate with ${w}, which may leave out more than one stage:${runArgs}" >&2; nBad=$((nBad + 1)); fi
 	done
 	((hasGate)) || { echo "check-pins: ci.yml runs cicd.bash without --gate:${runArgs}" >&2; nBad=$((nBad + 1)); }
+	((hasNoCtr)) || inImage+=("${runArgs}")
 	## Lint and tests together were the one job that ran past the 60-minute
 	## limit (2026101011200000), so each job leaves one of them out.
 	if [[ " ${runArgs} " != *" --no-lint "* && " ${runArgs} " != *" --no-tests "* ]]; then
@@ -222,6 +226,13 @@ for runArgs in "${gateRuns[@]}"; do
 done
 for f in "${!flagUsed[@]}"; do
 	[[ -n "${flagMissingSomewhere[${f}]:-}" ]] || { echo "check-pins: every hosted job runs the gate with ${f}, so that stage runs nowhere" >&2; nBad=$((nBad + 1)); }
+done
+
+## A runner has docker, so a run there without --no-container builds the whole
+## build image before anything else, and the job runs out of time (2026101920461174).
+fTest EtDCDE9 hosted-jobs-skip-the-image
+for runArgs in "${inImage[@]}"; do
+	echo "check-pins: ci.yml runs the gate without --no-container, so it would build the image first:${runArgs}" >&2; nBad=$((nBad + 1))
 done
 
 ## The --container images are the other copy. The main one installs every
@@ -356,3 +367,4 @@ exit "${rc}"
 ##		- 2026-10-16 JC: No hosted job runs both lint and tests.
 ##		- 2026-10-19 JC: The hosted jobs run --gate. apt's name=version is a joiner.
 ##		- 2026-10-19 JC: A --leakcheck-only tool stays out of ci.yml, and out of every gate step.
+##		- 2026-10-19 JC: Every hosted gate run passes --no-container.
