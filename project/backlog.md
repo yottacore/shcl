@@ -424,6 +424,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Pre-next-cut.
 		- Make sure a container is used for build and test if available.
 		- Fall back to local if not.
+	- Decisions:
+		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
+		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
 
 - Updates to CICD script flags
 	- ID: 2026101816034794
