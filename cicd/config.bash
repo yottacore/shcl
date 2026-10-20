@@ -180,6 +180,9 @@ LINT_EXTRA=(
 	## TOOL_PINS above is copied by hand into ci.yml; this fails the stage when
 	## the two disagree, instead of hosted CI going red days later.
 	'cicd/utility/check-pins.bash'
+	## The leak and static checks cover third-party code only where users run
+	## it, and none of it does. This fails when some arrives.
+	'cicd/utility/check-deps.bash'
 	## The C++ veneer has to keep up with the C calls it wraps, or list why not.
 	## It fell a whole writer behind before anything checked.
 	'cicd/utility/check-veneer.bash'
@@ -198,6 +201,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-cpu-floor.bash
 	cicd/utility/check-completions.bash
+	cicd/utility/check-deps.bash
 	cicd/utility/check-doc-examples.bash
 	cicd/utility/check-docs.bash
 	cicd/utility/check-install-dev.bash
