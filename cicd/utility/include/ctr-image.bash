@@ -22,6 +22,12 @@
 ##			                        SHCL_IN_IMAGE=1 tells the script where it is,
 ##			                        and SHCL_CTR_CARGO, when set, goes in as is.
 ##			                        Returns the script's exit, or 2.
+##			fCtrBuild TAG DIR       build TAG from the context in DIR, labeled
+##			                        as ours, then remove the other tags of its
+##			                        name, which nothing runs again
+##			fCtrSweep WORK          remove our images and containers a run
+##			                        won't use again; see the function. WORK is
+##			                        a scratch dir the caller removes
 ##			fCtrWhyNot              nothing when the images can run here, else
 ##			                        why not: they're x86_64 only, and docker (or
 ##			                        SHCL_DOCKER) counts once its daemon answers.
@@ -72,7 +78,7 @@ fCtrRunSelf(){
 	tag="$(fCtrTag "${ctx}" main)"
 	if ! "${engine}" image inspect "${tag}" >/dev/null 2>&1; then
 		echo "${1##*/}: building ${tag}, which takes several minutes the first time"
-		"${engine}" build -q -t "${tag}" "${ctx}" >/dev/null || { echo "${1##*/}: could not build ${tag}" >&2; return 2; }
+		fCtrBuild "${tag}" "${ctx}" || { echo "${1##*/}: could not build ${tag}" >&2; return 2; }
 	fi
 	## Docker would make a missing mount point as root, inside a read-only mount.
 	IFS=: read -r -a rwDirs <<<"${rw}"
@@ -80,12 +86,63 @@ fCtrRunSelf(){
 		mkdir -p "${d}" || return 2
 		rwMount+=(-v "${d}:${d}")
 	done
-	"${engine}" run --rm --init --network none --user "$(id -u):$(id -g)" \
+	"${engine}" run --rm --init --label "${CTR_IMAGE:-${APP_NAME}-cicd}" --network none --user "$(id -u):$(id -g)" \
 		-v "${root}:${root}:ro" -v "${work}/in:${work}/in" "${rwMount[@]}" -w "${root}" \
 		-e SHCL_IN_IMAGE=1 -e "CPU_CAP=${CPU_CAP:-}" -e "TMPDIR=${work}/in" -e "HOME=${work}/in" \
 		-e "SHCL_GATE_STRICT=${SHCL_GATE_STRICT:-}" -e "SHCL_CTR_CARGO=${SHCL_CTR_CARGO:-}" \
 		"${tag}" bash "$@" || rc=$?
 	return "${rc}"
+}
+
+## The label is what lets fCtrSweep find a dangling image or a stopped
+## container of ours, and only ours.
+fCtrBuild(){
+	local engine="${SHCL_DOCKER:-docker}" tag="$1" ctx="$2" old
+	"${engine}" build -q --label "${CTR_IMAGE:-${APP_NAME}-cicd}" -t "${tag}" "${ctx}" >/dev/null || return 1
+	while IFS= read -r old; do
+		if [[ -z "${old}" || "${old}" == "${tag}" ]]; then continue; fi
+		## Not -f, so an image a container still has stays.
+		if "${engine}" rmi "${old}" >/dev/null 2>&1; then echo "removed ${old}"; else echo "kept ${old} (in use)"; fi
+	done < <("${engine}" image ls "${tag%:*}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+	return 0
+}
+
+## At the end of a run that used the images: a tag of one of our names that
+## isn't the one this tree's recipe hashes to, every tag of a name whose recipe
+## is gone, and a dangling image or a stopped container with our label. A name
+## is matched whole, so another project's image is never a candidate. The
+## build cache stays, since every project on the box shares it and no filter
+## picks out our part. Prints "BYTES<TAB>WHAT" for each one removed.
+fCtrSweep(){
+	local engine="${SHCL_DOCKER:-docker}" work="$1" ours="${CTR_IMAGE:-${APP_NAME}-cicd}" recipe name ctx ref repo bytes id
+	local -A current=()
+	local -i n=0
+	for recipe in "${root}/${CTR_DIR:-cicd/container}"/*Dockerfile; do
+		[[ -f "${recipe}" ]] || continue
+		name="${recipe##*/}"; name="${name%.Dockerfile}"
+		if [[ "${name}" == Dockerfile ]]; then name=main; fi
+		n+=1; ctx="${work}/ctx${n}"
+		## A recipe that can't be hashed would make its current tag look stale.
+		{ mkdir -p "${ctx}" && fCtrContext "${recipe#"${root}/"}" "${ctx}"; } || return 1
+		current["$(fCtrTag "${ctx}" "${name}")"]=1
+	done
+	((n)) || return 0
+	while IFS= read -r ref; do
+		repo="${ref%:*}"
+		if [[ "${repo}" != "${ours}" ]] && ! [[ "${repo}" == "${ours}-"* && "${repo#"${ours}-"}" =~ ^[a-z0-9]+$ ]]; then continue; fi
+		if [[ -n "${current[${ref}]:-}" ]]; then continue; fi
+		bytes="$("${engine}" image inspect --format '{{.Size}}' "${ref}" 2>/dev/null || true)"
+		if "${engine}" rmi "${ref}" >/dev/null 2>&1; then printf '%s\t%s\n' "${bytes:-0}" "${ref}"; fi
+	done < <("${engine}" image ls --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+	while IFS= read -r id; do
+		if [[ -n "${id}" ]] && "${engine}" rm "${id}" >/dev/null 2>&1; then printf '0\tcontainer %s\n' "${id}"; fi
+	done < <("${engine}" ps -aq --filter "label=${ours}" --filter status=exited --filter status=dead 2>/dev/null || true)
+	while IFS= read -r id; do
+		[[ -n "${id}" ]] || continue
+		bytes="$("${engine}" image inspect --format '{{.Size}}' "${id}" 2>/dev/null || true)"
+		if "${engine}" rmi "${id}" >/dev/null 2>&1; then printf '%s\tdangling image %s\n' "${bytes:-0}" "${id}"; fi
+	done < <("${engine}" image ls -q --filter dangling=true --filter "label=${ours}" 2>/dev/null || true)
+	return 0
 }
 
 
@@ -94,3 +151,4 @@ fCtrRunSelf(){
 ##		- 2026-10-19 JC: fCtrRunSelf, out of analyze-c.bash, for the soak too.
 ##		- 2026-10-19 JC: fCtrRunSelf takes several writable dirs, and SHCL_CTR_CARGO.
 ##		- 2026-10-19 JC: fCtrWhyNot, so docker counts only when it answers.
+##		- 2026-10-19 JC: fCtrBuild, so a gate's build drops the old tags too, and fCtrSweep.

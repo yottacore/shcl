@@ -371,14 +371,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
 	- Priority: Avg
+	- Needs local test suite run?: 2 bare runs in the image, the second stopped partway. Nothing new piles up in the temp root, docker or `~/.cache/shcl-cicd`, and the first run's cleanup line names the 2 superseded images.
 	- Opened: 20261019-204611
 	- Opened by: JC
 	- Version and build: dev at `6f48dd7d`
 	- Requirements:
 		- Pre-next-cut.
 		- Verify or ensure that builds clean up *stale* artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
+	- Progress log:
+		- 20261019, what a run leaves, measured:
+			- Docker: `shcl-cicd-alpine:c8cd323342bd` (3.2 GB) and `shcl-cicd-ubuntu:9aabbd056009` (5.2 GB) are superseded, since the recipes hash to other tags now. An old tag went only when cicd.bash rebuilt that same image, and a gate's own build of the image removed none. No dangling shcl image and no stopped container, since every run uses `--rm`.
+			- The build cache is 120 GB shared by every project on the box, none of it reclaimable, and no filter tells shcl's part apart.
+			- `~/.cache/shcl-cicd` is 1.35 GB of warm caches for the 3 images. Cargo ages out crates unused for 3 months on its own, and Go trims its build cache. Nothing in it is orphaned.
+			- `cicd/artifacts`: logs and flame graphs rotate already. A profiler sample file outlives its graph when the rotation prunes the graph. codeql (547 MB), release and crosscheck are replaced each run. 3 `run_ci_*.log` files (93 KB) and `source/python/dist` (130 KB) are from older layouts, and nothing makes them now.
+			- Target dirs: `target-gate` 1.3 GB, the main one 212 MB, `target-migrate` 58 MB. All reused by the next run.
+			- `.git/shcl-green-trees` is capped at 200 lines, 1.8 KB now.
+			- Temp: the gates remove their scratch through an EXIT trap, which runs on Ctrl+C and kill too. check-docs' 2 scratch files and green-tree's scratch index had none, and a failing Rust or C test leaves its dir in TMPDIR. 3 of those are in the temp roots now, 56 KB. About 7.3 GB of `tmp.*` dirs from 10-13 sit there too, which no current script makes. Left alone.
+		- Fixed, on `tidyup`:
+			- Each run makes its own temp dir and points TMPDIR at it, so what a gate or test leaves goes at the end, a failed or stopped run's too. It's removed only while it's still the dir the run made, with the run's mark in it.
+			- A whole run then removes profiler sample files whose graph is gone. After a run in the image it also removes our image tags the recipes no longer hash to, every tag of a name with no recipe, and dangling images and stopped containers with our label. Runs and builds carry that label now. Names are matched whole, so other projects' images are never touched.
+			- A gate's build of the image removes the old tags too.
+			- One line at the end says what went and about how much.
+		- Swept: every `mktemp` under `cicd/` and in the pre-push hook. All but check-docs and green-tree had an EXIT trap already. config.bash's inline test builds remove their binary after, and now sit in the run's dir. Every docker run and build goes through cicd.bash or ctr-image.bash, and both add the label.
+		- Verified: each new check-push-gate row went red with its part taken out, then passed: no trap, no read-only fallback, no sample-file sweep, no image sweep, and the gate's build without the tag drop. check-push-gate, shell-regress, check-docs, shellcheck over every cicd script, `test-ids.py check` and markdownlint pass. A killed check-docs leaves none of its own scratch.
+	- Decisions:
+		- me: the build cache isn't pruned, since `docker builder prune` is box-wide.
+		- me: target dirs and the container caches stay whole. A toolchain change makes a target dir stale, but `target-gate` is shared with gate worktrees on other commits.
+		- me: a `--no-container` run makes no images, so it still asks docker nothing.
+	- Branch: `tidyup`
+	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc` and `EtDQOSv`.
 
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
 	- ID: 2026101921290754

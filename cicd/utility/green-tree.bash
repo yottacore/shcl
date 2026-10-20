@@ -44,14 +44,17 @@ fList(){
 ## and skip-worktree bits, and a file with one would be tested as it sits on
 ## disk and committed as the index has it.
 fTree(){
-	local idx tree
-	idx="$(mktemp -u)"
-	if { ! git -C "${dir}" rev-parse -q --verify HEAD >/dev/null || GIT_INDEX_FILE="${idx}" git -C "${dir}" read-tree HEAD; } \
-		&& GIT_INDEX_FILE="${idx}" git -C "${dir}" add --all \
-		&& tree="$(GIT_INDEX_FILE="${idx}" git -C "${dir}" write-tree)"; then
-		rm -f "${idx}"; echo "${tree}"
+	local tree
+	scratchIdx="$(mktemp -u)"
+	## Global, since the trap runs after the function returns. A stopped run left
+	## the index, and its lock, behind.
+	trap 'rm -f -- "${scratchIdx}" "${scratchIdx}.lock"' EXIT
+	if { ! git -C "${dir}" rev-parse -q --verify HEAD >/dev/null || GIT_INDEX_FILE="${scratchIdx}" git -C "${dir}" read-tree HEAD; } \
+		&& GIT_INDEX_FILE="${scratchIdx}" git -C "${dir}" add --all \
+		&& tree="$(GIT_INDEX_FILE="${scratchIdx}" git -C "${dir}" write-tree)"; then
+		rm -f "${scratchIdx}"; echo "${tree}"
 	else
-		rm -f "${idx}"; exit 2
+		rm -f "${scratchIdx}"; exit 2
 	fi
 }
 
@@ -80,3 +83,4 @@ esac
 
 ##	History:
 ##		- 2026-09-14 JC: Created.
+##		- 2026-10-19 JC: The scratch index goes on any exit.

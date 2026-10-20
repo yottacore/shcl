@@ -24,6 +24,7 @@ fBad(){ echo "check-docs: $1" >&2; nBad+=1 ;}
 testWhere="check-docs"; testCounter="nBad"
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+scratch="$(mktemp -d)"; trap 'rm -rf -- "${scratch}"' EXIT
 ##	A loop's input is made first, as `hits="$(...)" || fFeedBad $?`, and read
 ##	back from a here-string. `done < <(...)` drops the exit status, so a script
 ##	that crashed partway read as a check with nothing to report. A grep in there
@@ -1042,14 +1043,13 @@ if [[ -n "${help}" ]]; then
 	#  shellcheck disable=2016  ## the backticks are the document's own markdown.
 	layerLine="$(grep -n 'takes repeated `--layer=FILE`' "${repoDir}/project/spec.md" | head -1 || true)"
 	[[ -n "${layerLine}" ]] || fBad "spec.md: no sentence listing the subcommands that take --layer"
-	tmpErr="$(mktemp)"
+	tmpErr="${scratch}/layer-err"
 	for cmd in get fmt count instances children paths set check; do
 		"${repoDir}/source/rust/target/debug/shcl" "${cmd}" --layer=/dev/null /dev/null a < /dev/null > /dev/null 2>"${tmpErr}" || true
 		grep -qE 'unknown option|not valid for' "${tmpErr}" && continue
 		grep -qF -- "\`${cmd}\`" <<<"${layerLine}" \
 			|| fBad "spec.md: ${cmd} takes --layer and is not in the list of subcommands that do"
 	done
-	rm -f "${tmpErr}"
 else
 	fTestSkip
 fi
@@ -1262,14 +1262,13 @@ grep -q 'E014' <<<"${readmeGet}" \
 ##	And the diagnostic it shows is the one the CLI prints. The file is the
 ##	README's own example with the colon knocked off line 3, as the prose says.
 if [[ -n "${help}" ]]; then
-	tmpDoc="$(mktemp -d)"
+	tmpDoc="${scratch}/readme-e014"; mkdir -p "${tmpDoc}"
 	awk '/^## What a \.shcl file looks like/ { hdr = 1 } hdr && /^~~~+text$/ { body = 1; next } body && /^~~~+$/ { exit } body' "${readme}" \
 		| sed '3s/: / /' > "${tmpDoc}/server.shcl"
 	shown="$(grep -m1 'E014 malformed' <<<"${readmeGet}" || true)"
 	actual="$(cd "${tmpDoc}" && "${repoDir}/source/rust/target/debug/shcl" get server.shcl log-level 2>&1 >/dev/null || true)"
 	[[ -n "${shown}" && "${shown}" == "${actual}" ]] \
 		|| fBad "project/examples.md: the E014 transcript line is not what the CLI prints (${actual})"
-	rm -rf "${tmpDoc}"
 fi
 
 fTest EometfE merge-facts-in-spec
@@ -1514,3 +1513,4 @@ echo "check-docs: OK"
 ##		            skips code fences.
 ##		2026-10-16  The man SYNOPSIS is read against the help both ways.
 ##		2026-10-19  The header checks read 100 lines, since cicd.bash's help grew past 80.
+##		2026-10-19  Its scratch files go in one dir, removed on any exit.
