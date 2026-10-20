@@ -383,7 +383,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
 	- ID: 2026101921290717
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261019-212908
 	- Opened by: 2026101920461160
@@ -394,6 +394,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A lint-stage check fails when code end users run picks up anything third-party: a normal or build dependency for any Rust release target, a module past the standard library in either Go module, an import past the standard library in `shcl.py` or the Python CLI, or a header or library past the system's in the C header, the veneer or the C CLI.
 		- Its message says what has to follow the new code: the leak and static checks over it, CodeQL reporting on it, and the 2 related items' Already-in-place rows.
 		- Watched to fail with a planted dependency in each language.
+	- Actual fix: `check-deps.bash` in the lint stage. Offline, about 1 s. It fails on:
+		- A normal or build crate for any target, optional ones included when a default feature or a release command's `--features` turns them on.
+		- A module past our 2 in either Go module's build list, or a package past the standard library, or cgo, on linux, windows, darwin and freebsd.
+		- An import past the standard library in `shcl.py` or the Python CLI, function-level ones included, or an import by name at run time.
+		- A C or C++ include that isn't a C, C++, POSIX or Windows header, or a quoted one that isn't ours.
+		- A library named in code that doesn't come with the OS: Rust link attributes, Go and Python DLL loads, C pragmas and `dlopen`, and link flags in the cargo config. The built CLIs' ELF `NEEDED` lists too.
+		- A vendor-like path or a submodule anywhere in the tree, or a cargo config that swaps the crate source.
+		- A shipped code file without our MIT header and copyright.
+		- Its message names the leak and static checks, CodeQL and the 2 related items' Already-in-place rows. Each language's allowed list is in the script, empty past our own code.
+	- Decisions:
+		- Test code, dev-dependencies, the `profiling` feature and build tools stay allowed, per JC's rule on 2026101920461160 (me).
+		- `cargo metadata --no-deps` over `cargo tree`, since `cargo tree --offline` needs the crate index and fails on a fresh box. Our own direct dependencies are what matter, and with none there's no tree (me).
+	- Verified: 25 planted faults, each restored by copy, each failed its own test and printed the footer: Rust normal, build, `cfg(windows)`, default-feature and release `--features` crates; a Go `require`, a Go import, cgo; Python top-level, function-level and `import_module` imports; C `<zlib.h>`, `"miniz.h"`, `#pragma comment(lib, "zlib")`, `dlopen("libz.so.1")`; Rust `#[link(name = "ssl")]`, Go `NewLazyDLL("sqlite3.dll")`, Python `WinDLL(name)` and `CDLL("libyaml.so")`; `-lz` and `[source.crates-io]` in the cargo config; `source/rust/src/vendor/`, `third_party/` at the root; a foreign C header and Go file. The C CLI built with `-lz` failed the `NEEDED` test. Clean tree green. shellcheck over SHELLCHECK_TARGETS, shell-regress, check-docs, check-pins, `test-ids.py check` and markdownlint-cli2 green.
+	- Branch: `depguard`
+	- Commit: `5981735e`
+	- Test case: check-deps EtDJq3P (crates), EtDJq3Q (Go), EtDJq3R (Python), EtDJq3S (C includes), EtDJq3T (libraries in code), EtDJq3U (built CLIs), EtDJq3V (vendored trees), EtDJq3W (shipped files are ours).
+	- Acceptance signoff: Self-closed: the intent was clear, the check does what the item asked, and it was seen to fail for each language.
+	- Closed: 20261019-220911
 
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
 	- ID: 2026101921290754
