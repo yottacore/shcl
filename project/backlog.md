@@ -300,6 +300,38 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261019, hosted run 39307128325 on dev at `59c6ecfb`: the windows job failed the Python soak `Et01jhM`. Traced memory grew from 28,929,219 bytes at round 6 to 55,877,467 at round 12, and 235,615 objects were in reference cycles, such as `ctypes.c_longdouble` and its bases. Linux is green. The cycles are ctypes classes, so the suspect is `shcl.py`'s windows-only ctypes code building types on each call. Not diagnosed yet. The Go soak passed there.
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 
+- CICD builds and tests in a container if one is available
+	- ID: 2026101920461174
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Needs local test suite run?: a run with neither flag through the real main image on b23, `cicd.bash --gate` and then a pre-push gate on a main push. Each should start the image once and end with `tree ... recorded`.
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- Make sure a container is used for build and test if available.
+		- Fall back to local if not.
+	- Decisions:
+		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
+		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
+	- Progress log:
+		- 20261019, branch `ctrdef`:
+			- With neither flag, cicd.bash asks docker first. When it answers on x86_64, stages 1-6 go to the main image as under `--container`. Otherwise they run here, after one `note:` line that gives the reason. The run inside the image never asks, so it can't start another.
+			- An installed docker whose daemon doesn't answer counts as none. One helper in ctr-image.bash, `fCtrWhyNot`, decides it for cicd.bash and for the 3 leak checks that fall back to the image (analyze-c, soak-c, codeql-scan).
+			- `--container` fails up front when docker doesn't answer, rather than at the image build. `--container` with `--no-container`, 2 different images, or `--container=` with no name exit 2 before anything runs (me, per design.md's last-wins rule).
+			- ci.yml passes `--no-container`, and check-pins fails a hosted gate run without it. The pre-push hook isn't changed; it follows the default.
+			- The stubbed engines in check-push-gate and shell-regress no longer reach this box's docker.
+			- The help text, contributing.md, the hook's header and the history lines say so.
+			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
+			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
+			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
+	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
+	- Branch: `ctrdef`
+	- Commit: `bd0415a7`
+	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
+
 - `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
 	- ID: 2026101807501110
 	- Type: Bug
@@ -335,6 +367,62 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the swapped call names a folder of its own, and the check is that the folder is still empty, so `rmdir` takes it. That means the same on every OS, and it also catches a colon turned into a stream on a file named `port`. The kind is still checked as `NotFound` off windows only.
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
+
+- Builds clean up stale artifacts and side-effects when they're done
+	- ID: 2026101920461153
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- Verify or ensure that builds clean up *stale* artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
+
+- Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
+	- ID: 2026101921290717
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Related IDs: 2026101707582803, 2026101711273980
+	- Version and build: dev at `baca8c01`
+	- Problem description: the leak and static checks cover third-party code only where end users run it, and today none of it does. Nothing checks that. A new crate, Go module, Python import or vendored C file would reach users with no check judging it. CodeQL reports only on `source/`, so a crate's findings would go unseen.
+	- Requirements:
+		- A lint-stage check fails when code end users run picks up anything third-party: a normal or build dependency for any Rust release target, a module past the standard library in either Go module, an import past the standard library in `shcl.py` or the Python CLI, or a header or library past the system's in the C header, the veneer or the C CLI.
+		- Its message says what has to follow the new code: the leak and static checks over it, CodeQL reporting on it, and the 2 related items' Already-in-place rows.
+		- Watched to fail with a planted dependency in each language.
+
+- The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
+	- ID: 2026101921290754
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Related IDs: 2026100413052100
+	- Version and build: dev at `baca8c01`
+	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64 or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
+	- Verified: 20261019, the windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux release on all 206 corpus cases, in about 30 s.
+	- Requirements:
+		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
+		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
+
+- The windows setup is never run by a test, so NSIS's installer code goes untested
+	- ID: 2026101921290791
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Needs external testing: Y. A windows host, hosted or a test box.
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Version and build: dev at `baca8c01`
+	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
+	- Requirements:
+		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
+		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
 
 - `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
 	- ID: 2026101911300000
@@ -397,18 +485,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Closed on JC's criteria. JC, 20261019, left the call to the Objectives, and (c) was offered as the reversal of the 2026-10-05 answer, so it moves no decision JC kept. Each new test failed on the old code in all 4 bindings, and the gates above passed.
 	- Closed: 20261019-214731
 
-- Builds clean up stale artifacts and side-effects when they're done
-	- ID: 2026101920461153
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261019-204611
-	- Opened by: JC
-	- Version and build: dev at `6f48dd7d`
-	- Requirements:
-		- Pre-next-cut.
-		- Verify or ensure that builds clean up *stale* artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
-
 - CICD leak tests, and all tests, include third-party and vendored code
 	- ID: 2026101920461160
 	- Type: Enhancement
@@ -441,82 +517,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: None, an audit. The check it needs is filed as 2026101921290717.
 	- Acceptance signoff: Self-closed: an audit whose gaps are filed, and the 2 related items' wording follows JC's rule.
 	- Closed: 20261019-213000
-
-- Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
-	- ID: 2026101921290717
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261019-212908
-	- Opened by: 2026101920461160
-	- Related IDs: 2026101707582803, 2026101711273980
-	- Version and build: dev at `baca8c01`
-	- Problem description: the leak and static checks cover third-party code only where end users run it, and today none of it does. Nothing checks that. A new crate, Go module, Python import or vendored C file would reach users with no check judging it. CodeQL reports only on `source/`, so a crate's findings would go unseen.
-	- Requirements:
-		- A lint-stage check fails when code end users run picks up anything third-party: a normal or build dependency for any Rust release target, a module past the standard library in either Go module, an import past the standard library in `shcl.py` or the Python CLI, or a header or library past the system's in the C header, the veneer or the C CLI.
-		- Its message says what has to follow the new code: the leak and static checks over it, CodeQL reporting on it, and the 2 related items' Already-in-place rows.
-		- Watched to fail with a planted dependency in each language.
-
-- The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
-	- ID: 2026101921290754
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261019-212908
-	- Opened by: 2026101920461160
-	- Related IDs: 2026100413052100
-	- Version and build: dev at `baca8c01`
-	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64 or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
-	- Verified: 20261019, the windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux release on all 206 corpus cases, in about 30 s.
-	- Requirements:
-		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
-		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
-
-- The windows setup is never run by a test, so NSIS's installer code goes untested
-	- ID: 2026101921290791
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Needs external testing: Y. A windows host, hosted or a test box.
-	- Opened: 20261019-212908
-	- Opened by: 2026101920461160
-	- Version and build: dev at `baca8c01`
-	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
-	- Requirements:
-		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
-		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
-
-- CICD builds and tests in a container if one is available
-	- ID: 2026101920461174
-	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs local test suite run?: a run with neither flag through the real main image on b23, `cicd.bash --gate` and then a pre-push gate on a main push. Each should start the image once and end with `tree ... recorded`.
-	- Priority: Avg
-	- Opened: 20261019-204611
-	- Opened by: JC
-	- Version and build: dev at `6f48dd7d`
-	- Requirements:
-		- Pre-next-cut.
-		- Make sure a container is used for build and test if available.
-		- Fall back to local if not.
-	- Decisions:
-		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
-		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
-	- Progress log:
-		- 20261019, branch `ctrdef`:
-			- With neither flag, cicd.bash asks docker first. When it answers on x86_64, stages 1-6 go to the main image as under `--container`. Otherwise they run here, after one `note:` line that gives the reason. The run inside the image never asks, so it can't start another.
-			- An installed docker whose daemon doesn't answer counts as none. One helper in ctr-image.bash, `fCtrWhyNot`, decides it for cicd.bash and for the 3 leak checks that fall back to the image (analyze-c, soak-c, codeql-scan).
-			- `--container` fails up front when docker doesn't answer, rather than at the image build. `--container` with `--no-container`, 2 different images, or `--container=` with no name exit 2 before anything runs (me, per design.md's last-wins rule).
-			- ci.yml passes `--no-container`, and check-pins fails a hosted gate run without it. The pre-push hook isn't changed; it follows the default.
-			- The stubbed engines in check-push-gate and shell-regress no longer reach this box's docker.
-			- The help text, contributing.md, the hook's header and the history lines say so.
-			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
-			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
-			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
-	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
-	- Branch: `ctrdef`
-	- Commit: `bd0415a7`
-	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
 
 - CICD has both `--leakcheck` and `--no-leakcheck`
 	- ID: 2026101920461167
