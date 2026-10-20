@@ -410,6 +410,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Pre-next-cut.
 		- `--leakcheck`, e.g. useful to add back in for `--quick`.
 		- `--no-leakcheck`, e.g. to exclude from the default run, or with `--quiet`.
+		- By default, `--leakcheck` is assumed. At minimum, `--quick` and `--no-leakcheck` prevent it.
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
