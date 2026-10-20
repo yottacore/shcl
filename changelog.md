@@ -456,6 +456,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A save to a device name such as `CON` or `NUL` is refused.
 
+- A Python save sets up its Windows API calls once, where each save made a fresh set that only the garbage collector freed.
+
 - C saves follow symlinks and junctions, take backslash paths and paths past 260 characters, and use the wide file API. The C CLI reads a wide command line.
 
 - A C read through a dangling symlink no longer creates a file.
