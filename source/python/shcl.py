@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import bisect
 import errno
+import functools
 import itertools
 import math
 import os
@@ -32,6 +33,7 @@ import re
 import stat
 import sys
 import time
+import types
 from collections.abc import Callable
 from datetime import timedelta
 from decimal import Decimal
@@ -9146,16 +9148,49 @@ def _carried_attrs(st):
 	return getattr(st, "st_file_attributes", 0) & _CARRIED_ATTRS if os.name == "nt" else 0
 
 
-def _restore_attrs(target, bits):
+@functools.cache
+def _win32():
+	# Built once. Each WinDLL and Structure makes a class, which is a reference
+	# cycle, and a set per save piled up for the collector (2026101711273980).
 	import ctypes
+
+	class SecurityAttributes(ctypes.Structure):
+		_fields_ = [("length", ctypes.c_ulong), ("descriptor", ctypes.c_void_p), ("inherit", ctypes.c_int)]
 
 	# WinDLL exists only on windows, and mypy checks this file against the
 	# POSIX stubs, where the name is simply absent.
+	adv = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
 	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+	adv.GetFileSecurityW.restype = ctypes.c_int
+	adv.GetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
+	adv.SetFileSecurityW.restype = ctypes.c_int
+	adv.SetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p]
+	adv.GetSecurityDescriptorControl.restype = ctypes.c_int
+	adv.GetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ushort), ctypes.POINTER(ctypes.c_ulong)]
+	adv.SetSecurityDescriptorControl.restype = ctypes.c_int
+	adv.SetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.c_ushort, ctypes.c_ushort]
 	k32.GetFileAttributesW.restype = ctypes.c_ulong
 	k32.GetFileAttributesW.argtypes = [ctypes.c_wchar_p]
 	k32.SetFileAttributesW.restype = ctypes.c_int
 	k32.SetFileAttributesW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong]
+	k32.CreateFileW.restype = ctypes.c_void_p
+	k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+	k32.CloseHandle.argtypes = [ctypes.c_void_p]
+	k32.DeleteFileW.argtypes = [ctypes.c_wchar_p]
+	k32.ReplaceFileW.restype = ctypes.c_int
+	k32.ReplaceFileW.argtypes = [
+		ctypes.c_wchar_p,
+		ctypes.c_wchar_p,
+		ctypes.c_wchar_p,
+		ctypes.c_ulong,
+		ctypes.c_void_p,
+		ctypes.c_void_p,
+	]
+	return types.SimpleNamespace(adv=adv, k32=k32, SecurityAttributes=SecurityAttributes)
+
+
+def _restore_attrs(target, bits):
+	k32 = _win32().k32
 	now = k32.GetFileAttributesW(str(target))
 	if now != 0xFFFFFFFF:
 		k32.SetFileAttributesW(str(target), now | bits)
@@ -9179,34 +9214,20 @@ def _create_like(src, tmp):
 	CREATE_NEW = 1
 	FILE_ATTRIBUTE_NORMAL = 0x80
 
-	class SecurityAttributes(ctypes.Structure):
-		_fields_ = [("length", ctypes.c_ulong), ("descriptor", ctypes.c_void_p), ("inherit", ctypes.c_int)]
-
-	# WinDLL exists only on windows, and mypy checks this file against the
-	# POSIX stubs, where the name is simply absent.
-	adv = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
-	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
-	adv.GetFileSecurityW.restype = ctypes.c_int
-	adv.GetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
-	adv.SetFileSecurityW.restype = ctypes.c_int
-	adv.SetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p]
-	adv.GetSecurityDescriptorControl.restype = ctypes.c_int
-	adv.GetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ushort), ctypes.POINTER(ctypes.c_ulong)]
-	adv.SetSecurityDescriptorControl.restype = ctypes.c_int
-	adv.SetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.c_ushort, ctypes.c_ushort]
-	k32.CreateFileW.restype = ctypes.c_void_p
-	k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
-	k32.CloseHandle.argtypes = [ctypes.c_void_p]
-	k32.DeleteFileW.argtypes = [ctypes.c_wchar_p]
-	# 64-bit words, since a security descriptor wants more than byte alignment.
+	api = _win32()
+	adv, k32 = api.adv, api.k32
 	sd = None
 	need = ctypes.c_ulong(0)
 	adv.GetFileSecurityW(src, DACL_SECURITY_INFORMATION, None, 0, ctypes.byref(need))
 	if need.value:
-		sd = (ctypes.c_uint64 * ((need.value + 7) // 8))()
-		if not adv.GetFileSecurityW(src, DACL_SECURITY_INFORMATION, sd, ctypes.sizeof(sd), ctypes.byref(need)):
+		# Rounded up to 8 bytes, since a security descriptor wants more than
+		# byte alignment. A bytearray rather than a ctypes array, whose type
+		# would be made again on each call.
+		raw = bytearray(need.value + 7)
+		sd = (ctypes.addressof(ctypes.c_char.from_buffer(raw)) + 7) & ~7
+		if not adv.GetFileSecurityW(src, DACL_SECURITY_INFORMATION, sd, need.value, ctypes.byref(need)):
 			sd = None
-	sa = SecurityAttributes(ctypes.sizeof(SecurityAttributes), ctypes.addressof(sd) if sd is not None else None, 0)
+	sa = api.SecurityAttributes(ctypes.sizeof(api.SecurityAttributes), sd, 0)
 	h = k32.CreateFileW(tmp, GENERIC_WRITE, FILE_SHARE_ALL, ctypes.byref(sa) if sd is not None else None, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, None)
 	if h is None or h == ctypes.c_void_p(-1).value:
 		# In errno's words, the way os.open said it.
@@ -9269,22 +9290,10 @@ def _windows_publish_file(tmp, target):
 	# is told (1177). With one, 1177 leaves it at the backup and nothing at the
 	# target, so the old file is put back. If even that fails, neither file is
 	# removed and the error says where they are.
-	import ctypes
 	import time
 
 	REPLACEFILE_WRITE_THROUGH = 0x1
-	# WinDLL exists only on windows, and mypy checks this file against the
-	# POSIX stubs, where the name is simply absent.
-	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
-	k32.ReplaceFileW.restype = ctypes.c_int
-	k32.ReplaceFileW.argtypes = [
-		ctypes.c_wchar_p,
-		ctypes.c_wchar_p,
-		ctypes.c_wchar_p,
-		ctypes.c_ulong,
-		ctypes.c_void_p,
-		ctypes.c_void_p,
-	]
+	k32 = _win32().k32
 	backup = _backup_name(tmp)
 	moved_away = False
 	tries = 0

@@ -32,63 +32,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 Outside reports use GitHub Issues (see `contributing.md`), but the work itself is tracked here.
 
 ## Issues
-
-- `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
-	- ID: 2026101911300000
-	- Type: Bug
-	- Status: Started
-	- Severity: High
-	- Opened: 20261019-113000
-	- Opened by: shclwrap
-	- Version and build: Go module at `ea0998fa`, same code on dev at `aa2e3b33`
-	- Steps to reproduce:
-		- Go, `shcl.Upgrade(text, false)` with this text, which 2.0 wrote or a person typed under 2.x:
-
-			~~~shcl
-			p: "C:\\new"
-			t: C:\temp
-			q: a, b
-			~~~
-
-	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
-	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
-	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
-	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
-	- Question: the quiet change is JC's 2026-10-05 answer, in value-syntax.md ("A 2.x backslash is left as written, and reads literally") and spec.md ("One change is quiet"). Which way? (a) Keep it, and say in the `Upgrade` doc comments that the counts don't cover it. (b) Keep the text as written, and report each such line, such as a hint on the CLI and a count or list on the result in all 4 bindings. (c) Write the value 2.x read in the current syntax, such as `"C:\new"` and `"C:◉TAB◉emp"`, which reverses the 2026-10-05 answer and fits "never damage a correct file at exit 0" (JC, 2026-10-15).
-		- JC, 20261019: whichever fits the Objectives best, in order.
-	- Progress log:
-		- 20261019: Rust, check-migrate, the docs and the tests are done on `bslash`. The Go, Python and C ports are next, on the same branch, and their runners fail the shared tests until then.
-		- Verified on the Rust side: `cargo test` with the fuzz at 20,000, cli-regress on the Rust CLI, check-migrate (630 compared, no divergence), check-readme, check-docs, shell-regress, test-ids check. With the old lib.rs, the 3 new Rust tests, the 5 corpus goldens, Es2R4TW, the new and revived cli-regress rows, and check-migrate (48 divergences over 630 documents) were each seen red.
-		- For the ports, mirror lib.rs:
-			- New `v2_text(raw)`: resolves `\t`, `\n`, `\\`, `\"` and `\'`, and leaves any other backslash, a trailing one included. It's 2.x's `apply_escapes`.
-			- `value_edits` and `v2_element_text` test and write `v2_text(raw)` where they used `raw`.
-			- `migrate_line`, quoted name: when `v2_text(name) != name`, add 1 to `lost`, make no edit, and go on with the line. No early return, or a same-line fence after it is missed.
-			- `migrate_line`, selector: `logical = v2_text(body)`, used by the sugar arm's spelling and `reads_same`, and by both `selector_reads_back` calls and the spelling in the paren arm.
-			- The CLI's lost message names "a quoted name with a backslash escape" (main.rs). The words up to the colon stay, since cli-regress and check-migrate match them.
-			- Doc comments: `migrate`, `Migration.ambiguous` and `.lost`, `migrate_spelling`, `value_edits`.
-		- Tests the ports have to pass: corpus migrate goldens 118, 119, 122, 124 and 170; cli-regress EtD6lsl to EtD6lsq, plus the revived Eq4Rkv2, Eq4Rkv3, Eq4Rkv4, ErUn2Bt, EqGUXeD, Eq4wD3b and Eq4wD3c; crosscheck; and each runner's twin of Rust's 3 new tests (EtD5PtP, EtD5PtQ, EtD5PtR), with fresh IDs. The upgrade test's `name: 'say \"hi\"'` becomes `name: 'say "hi"'` in Go `upgrade_test.go`, Python `conformance.py` and C `conformance.c`, as in Rust's Es2R4TW.
-		- Traps: `"C:\work"` with one backslash is no pair, so ErpZsUi stays. check-migrate's `fOneLine2x` now writes a 2.x element holding a line break through the Rust CLI's `--set`, since only the current writer gives the `◉NEWLINE◉` form.
-	- Decisions:
-		- (c). `upgrade` and `migrate` write the value 2.x read, in the current syntax. So `"C:\\new"` becomes `"C:\new"` and `t: C:\temp` becomes `t: "C:◉TAB◉emp"` (me, on JC's criteria).
-			- An upgrade that keeps what a file means is what a user expects, and it's what other format migrators do.
-			- The 2026-10-05 answer came before JC's 2026-10-15 rule. With it, a program calling `Upgrade` sees a clean result while values changed, and has no way to catch it.
-			- The code decodes the 2.x escapes in a piece and hands the text to the one emitter. No new machinery.
-			- `check-migrate.bash` drops its allowance for a backslash pair, so the gate compares reads exactly.
-		- A file with no Format line, and no `--from-2x`, could be 3.0, where the backslash is text. Such a piece is kept and counted `Ambiguous`, like `a,b` already is (me).
-		- A quoted name with a backslash pair read as typed under 1.2 and resolved under 2.0, so the file can't say which. It's kept as written and counted `Lost`, so the call exits 7 unless `--lossy`, even with `--from-2x` (me).
-		- A selector body gets whatever 2.x did with a backslash there, checked against the pinned 2.x build `7be348d`: converted like a value if 2.x resolved it, left alone if not (me).
-		- Rejected: (a), which keeps a silent wrong answer. (b), which leaves every caller to fix each line by hand, and adds a count to all 4 bindings.
-	- To do:
-		- All 4 bindings. In Rust it's `value_edits`, `v2_element_text` and the quoted-name branch of `migrate_line` in lib.rs, then the 3 ports.
-		- `check-migrate.bash`: drop the backslash allowance, and see it go red on the old code.
-		- Docs: value-syntax.md's migrate table and the bullet under it, and spec.md's "One change is quiet" paragraph and the "but for a backslash pair" line in its migrate section.
-		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
-	- Actual fix: in Rust, migrate reads each piece and selector body as the text 2.x read, and counts a quoted name with a backslash pair lost.
-	- Branch: `bslash`
-	- Commit: `ddc4f8e4` (Rust half)
-	- Test case: Rust EtD5PtP, EtD5PtQ, EtD5PtR, Es2R4TW; corpus 118, 119, 122, 124, 170; cli-regress EtD6lsl to EtD6lsq and the revived rows above; check-migrate Eq5YPgP with no backslash allowance.
-	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. The ports' code and comments come with the ports.
-
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
@@ -248,7 +191,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
 	- ID: 2026101711273980
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
 	- Priority: Avg
 	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, a whole `--leakcheck` run, a whole `sanitize-rust.bash --miri-all` (hours), and a full run with no flags. Then a hosted run, its windows job included for the Go and Python soaks.
 	- Opened: 20261017-112739
@@ -329,6 +272,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Go: 1 finding, a dead store in `parseIntText`, fixed. The other 3 bindings' twins have none.
 			- Python: 33 findings. Fixed: `math.isnan` for `v != v`, as the C and Go twins test it, and a comment in each of 15 empty `except` blocks. 2 tests kept commented out got a note, which ended their findings. Suppressed, 15 sites: 6 tests commented out, 4 tagged tuples that stand for the Rust twin's enums or keys, 4 file modes (a new file's 0o666 less the umask, and 3 fixtures), and a descriptor a `with` closes.
 			- Verified: the Python runner and soak, ruff and mypy, the Go suite, `go vet` and staticcheck. A plant per language went red, as on 2026101707582803.
+		- 20261019, branch `winfix`, the windows Python soak failure below:
+			- Cause: `shcl.py` set up its Windows API calls on every save. Each `WinDLL` makes a class, `_create_like` declared its `SecurityAttributes` Structure inside the call, and its DACL buffer was a ctypes array, whose type ctypes makes again once the last one is freed. A class is a reference cycle, and the soak's `DEBUG_SAVEALL` keeps every cycle it finds, so traced memory doubled.
+			- The `c_longdouble` class in the message is ctypes' own. On windows a `long double` is the size of a `double`, so ctypes swaps that class for `c_double` as it loads and leaves the first one in a cycle. Read in ctypes' source, not seen on windows.
+			- Fixed: `_win32()` builds both DLLs, their signatures and the Structure once, behind `functools.cache`, and the 3 windows calls share it. The DACL buffer is a bytearray, aligned by hand. The soak keeps cycles from round 2 on, since round 1 is where the library imports ctypes.
+			- Test case: `EtD4W76` `windows_calls_build_their_ctypes_once` in the Python runner. It swaps in a fake `ctypes.WinDLL` and `msvcrt`, so it runs on Linux too. It runs the 3 windows calls once, then 3 more rounds under `DEBUG_SAVEALL`, and fails on a DLL loaded again or any cycle left.
+			- Verified: `EtD4W76` failed on the old `shcl.py`, which loaded kernel32 3 times in one round. It failed with the Structure put back in the call (39 objects in cycles) and with the ctypes array put back (6), and passes with the fix. The Python runner, the soak, ruff, mypy, test-ids check, and check-docs pass. A list cycle planted per load still failed the soak.
+			- Swept: Go's DLLs and procs are package-level `NewLazyDLL` vars, and Rust and C declare their imports, so none of them builds anything per call. The Python CLI's console check loads kernel32 once a run. The runner's windows fixtures load it once per test, in test code.
+			- Commit: `2251a602`.
+			- Needs external testing: the hosted windows job, for `Et01jhM` and `EtD4W76`.
 	- Decisions:
 		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
 		- The Rust extractor swaps a stable toolchain for 1.98.1 and would install it, so CodeQL runs on the dated nightly from rust-toolchain.toml, which it keeps. The crates Cargo.lock names are fetched before the image starts, since it has no network, into the cargo home `--container` runs use. Under the repo, the crates' own Cargo.toml and README files threw off check-docs' greps of the tree, and shell-regress's `EsndgSX` went red on it (me).
@@ -345,9 +297,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
 	- ID: 2026101807501110
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
 	- Needs local test suite run?: N
-	- Needs external testing: Y. The hosted windows job, for the veneer smoke and Python's test.
+	- Needs external testing: Y. The hosted windows job, for the veneer smoke `EjtkR0S`.
 	- Severity: Low
 	- Opened: 20261018-075011
 	- Opened by: 2026101707582803, from clang-tidy's bugprone-easily-swappable-parameters
@@ -364,28 +316,75 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible fix: refuse a file that isn't an existing regular file, as `NotFound`, in all 4. The CLI and `upgrade_file` back up a file they have just read. A path type of its own would be the v4 form.
 	- Sweep: `write_file_atomic(path, data)` has the same 2 strings. Swapped, it saves the path to a file named after the text and returns OK, seen in C on 20261018. It creates files on purpose, so the same check doesn't fit there.
 	- Actual fix: `write_backup` in all 4 first checks that the file is there and is a regular file, through the check `upgrade_file` already made, now one helper both call (`check_kept_file`, in each binding's spelling). Nothing there is `NotFound`. A directory or a FIFO is `Io`, with `IsDirectory` or `NotRegular`. Any other failure, such as no search permission, is left to the create, which fails the same way, since the backup goes in the same folder. The C++ veneer wraps the C call, so it refuses too. On windows the C helper now gives `NotFound` for a missing file itself, as the other 3 do. Its `upgrade_file` gave the same through the read. The doc comments in all 4 and the veneer, and spec.md, say so in one line. The C line keeps its suppression, and its reason now says a swap is refused. A path type of its own stays the v4 form.
-	- Branch: `wbswap`
-	- Commit: `e469f1aa`
+	- Branch: `wbswap`, then `winfix`
+	- Commit: `e469f1aa`, then `2251a602`
 	- Test case: `write_backup_refuses_a_swapped_file_and_text`, Rust `Et6Am2s`, Go `Et6Am5j`, Python `Et6Am8z`, and C `Et6AmCW`, which sanitize-c `EoLqLse` runs under ASan. In each, a swapped call in a scratch folder is refused, `NotFound` off windows, and the folder stays empty. A directory is refused as `IsDirectory`. The veneer smoke `EjtkR0S` has the swapped call too.
 	- Swept: `write_file_atomic` stays as it is, since it creates files on purpose and a path naming nothing is its normal case. Every caller of `write_backup`: the 4 CLIs' `migrate --write`, which read the file and check it's unchanged first, `upgrade_file` in all 4, the veneer, and the 4 runners' write-status rows, whose backup into a shut folder still gives `PermissionDenied`. No CLI path reaches the refusal, since each reads the file first, so there is no cli-regress row, and crosscheck has no `write_backup` dimension. design.md and examples.md don't describe `write_backup`.
 	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
 	- Acceptance signoff: Self-closed: a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
 	- Closed: 20261018-170500
 	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `EjtkR0S` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text holds characters windows refuses in a file name, so the read likely fails with another status. Python's `Et6Am8z` passed there.
+	- 20261019, branch `winfix`:
+		- Cause: the veneer smoke read the backup name made from the swapped text and wanted `NotFound`. That name has a newline and colons, which windows refuses in a name, so the read fails another way there. The swapped call was refused and wrote nothing.
+		- Fixed: the swapped call names a folder of its own, and the check is that the folder is still empty, so `rmdir` takes it. That means the same on every OS, and it also catches a colon turned into a stream on a file named `port`. The kind is still checked as `NotFound` off windows only.
+		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
+		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
 
-- perf-gate fails a workload when a load spike lands on it and not on the baseline
-	- ID: 2026101914014130
+- `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
+	- ID: 2026101911300000
 	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261019-140141
-	- Opened by: backlog round 2026-10-19, from a full `--gate` on dev at `aa2e3b33`
-	- Version and build: dev at `aa2e3b33`
-	- Steps to reproduce: run a full `cicd.bash --gate` with the box loaded. This one ran at load 14 to 23.
-	- Incorrect behavior: `FAIL EqAMPEI perf-gate mounts`: Rust took 410 ms against a 345 ms budget, from a 95 ms parse-only baseline. Go, Python, and C ran 2 to 3 times their usual times on the same row and passed. 2 runs of perf-gate alone right after passed, Rust `mounts` at 100 and 102 ms. Earlier gate logs have it at 80 to 110 ms.
-	- Expected behavior: a gate that's linear passes whatever the load. A real slowdown still fails.
-	- Possible cause: the baseline is taken once per binding before the workloads, and each workload is best of 2. A spike that covers both runs of a workload and not the baseline breaks the 3x ratio.
-	- Possible fix: time the baseline next to each workload, or run a failing workload and its baseline again before calling it. Memory.md's perf-gate note prefers a count to a clock where one fits.
+	- Status: Started
+	- Severity: High
+	- Opened: 20261019-113000
+	- Opened by: shclwrap
+	- Version and build: Go module at `ea0998fa`, same code on dev at `aa2e3b33`
+	- Steps to reproduce:
+		- Go, `shcl.Upgrade(text, false)` with this text, which 2.0 wrote or a person typed under 2.x:
+
+			~~~shcl
+			p: "C:\\new"
+			t: C:\temp
+			q: a, b
+			~~~
+
+	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
+	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
+	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
+	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
+	- Question: the quiet change is JC's 2026-10-05 answer, in value-syntax.md ("A 2.x backslash is left as written, and reads literally") and spec.md ("One change is quiet"). Which way? (a) Keep it, and say in the `Upgrade` doc comments that the counts don't cover it. (b) Keep the text as written, and report each such line, such as a hint on the CLI and a count or list on the result in all 4 bindings. (c) Write the value 2.x read in the current syntax, such as `"C:\new"` and `"C:◉TAB◉emp"`, which reverses the 2026-10-05 answer and fits "never damage a correct file at exit 0" (JC, 2026-10-15).
+		- JC, 20261019: whichever fits the Objectives best, in order.
+	- Progress log:
+		- 20261019: Rust, check-migrate, the docs and the tests are done on `bslash`. The Go, Python and C ports are next, on the same branch, and their runners fail the shared tests until then.
+		- Verified on the Rust side: `cargo test` with the fuzz at 20,000, cli-regress on the Rust CLI, check-migrate (630 compared, no divergence), check-readme, check-docs, shell-regress, test-ids check. With the old lib.rs, the 3 new Rust tests, the 5 corpus goldens, Es2R4TW, the new and revived cli-regress rows, and check-migrate (48 divergences over 630 documents) were each seen red.
+		- For the ports, mirror lib.rs:
+			- New `v2_text(raw)`: resolves `\t`, `\n`, `\\`, `\"` and `\'`, and leaves any other backslash, a trailing one included. It's 2.x's `apply_escapes`.
+			- `value_edits` and `v2_element_text` test and write `v2_text(raw)` where they used `raw`.
+			- `migrate_line`, quoted name: when `v2_text(name) != name`, add 1 to `lost`, make no edit, and go on with the line. No early return, or a same-line fence after it is missed.
+			- `migrate_line`, selector: `logical = v2_text(body)`, used by the sugar arm's spelling and `reads_same`, and by both `selector_reads_back` calls and the spelling in the paren arm.
+			- The CLI's lost message names "a quoted name with a backslash escape" (main.rs). The words up to the colon stay, since cli-regress and check-migrate match them.
+			- Doc comments: `migrate`, `Migration.ambiguous` and `.lost`, `migrate_spelling`, `value_edits`.
+		- Tests the ports have to pass: corpus migrate goldens 118, 119, 122, 124 and 170; cli-regress EtD6lsl to EtD6lsq, plus the revived Eq4Rkv2, Eq4Rkv3, Eq4Rkv4, ErUn2Bt, EqGUXeD, Eq4wD3b and Eq4wD3c; crosscheck; and each runner's twin of Rust's 3 new tests (EtD5PtP, EtD5PtQ, EtD5PtR), with fresh IDs. The upgrade test's `name: 'say \"hi\"'` becomes `name: 'say "hi"'` in Go `upgrade_test.go`, Python `conformance.py` and C `conformance.c`, as in Rust's Es2R4TW.
+		- Traps: `"C:\work"` with one backslash is no pair, so ErpZsUi stays. check-migrate's `fOneLine2x` now writes a 2.x element holding a line break through the Rust CLI's `--set`, since only the current writer gives the `◉NEWLINE◉` form.
+	- Decisions:
+		- (c). `upgrade` and `migrate` write the value 2.x read, in the current syntax. So `"C:\\new"` becomes `"C:\new"` and `t: C:\temp` becomes `t: "C:◉TAB◉emp"` (me, on JC's criteria).
+			- An upgrade that keeps what a file means is what a user expects, and it's what other format migrators do.
+			- The 2026-10-05 answer came before JC's 2026-10-15 rule. With it, a program calling `Upgrade` sees a clean result while values changed, and has no way to catch it.
+			- The code decodes the 2.x escapes in a piece and hands the text to the one emitter. No new machinery.
+			- `check-migrate.bash` drops its allowance for a backslash pair, so the gate compares reads exactly.
+		- A file with no Format line, and no `--from-2x`, could be 3.0, where the backslash is text. Such a piece is kept and counted `Ambiguous`, like `a,b` already is (me).
+		- A quoted name with a backslash pair read as typed under 1.2 and resolved under 2.0, so the file can't say which. It's kept as written and counted `Lost`, so the call exits 7 unless `--lossy`, even with `--from-2x` (me).
+		- A selector body gets whatever 2.x did with a backslash there, checked against the pinned 2.x build `7be348d`: converted like a value if 2.x resolved it, left alone if not (me).
+		- Rejected: (a), which keeps a silent wrong answer. (b), which leaves every caller to fix each line by hand, and adds a count to all 4 bindings.
+	- To do:
+		- All 4 bindings. In Rust it's `value_edits`, `v2_element_text` and the quoted-name branch of `migrate_line` in lib.rs, then the 3 ports.
+		- `check-migrate.bash`: drop the backslash allowance, and see it go red on the old code.
+		- Docs: value-syntax.md's migrate table and the bullet under it, and spec.md's "One change is quiet" paragraph and the "but for a backslash pair" line in its migrate section.
+		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
+	- Actual fix: in Rust, migrate reads each piece and selector body as the text 2.x read, and counts a quoted name with a backslash pair lost.
+	- Branch: `bslash`
+	- Commit: `ddc4f8e4` (Rust half)
+	- Test case: Rust EtD5PtP, EtD5PtQ, EtD5PtR, Es2R4TW; corpus 118, 119, 122, 124, 170; cli-regress EtD6lsl to EtD6lsq and the revived rows above; check-migrate Eq5YPgP with no backslash allowance.
+	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. The ports' code and comments come with the ports.
 
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
@@ -414,21 +413,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Anything wrong goes on the backlog for a fix.
 		- This may only affect what's already written in the backlog.
 
-- CICD has both `--leakcheck` and `--no-leakcheck`
-	- ID: 2026101920461167
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261019-204611
-	- Opened by: JC
-	- Related IDs: 2026101707582803, 2026101711273980, 2026101816034794
-	- Version and build: dev at `6f48dd7d`
-	- Requirements:
-		- Pre-next-cut.
-		- `--leakcheck`, e.g. useful to add back in for `--quick`.
-		- `--no-leakcheck`, e.g. to exclude from the default run, or with `--quiet`.
-		- By default, `--leakcheck` is assumed. At minimum, `--quick` and `--no-leakcheck` prevent it.
-
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -444,6 +428,70 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
 		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
+
+- CICD has both `--leakcheck` and `--no-leakcheck`
+	- ID: 2026101920461167
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: N. check-push-gate and shell-regress ran green on `353da441`.
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Related IDs: 2026101707582803, 2026101711273980, 2026101816034794
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- `--leakcheck`, e.g. useful to add back in for `--quick`.
+		- `--no-leakcheck`, e.g. to exclude from the default run, or with `--quiet`.
+		- By default, `--leakcheck` is assumed. At minimum, `--quick` and `--no-leakcheck` prevent it.
+	- Progress log:
+		- 20261019, branch `cileak`:
+			- `--no-leakcheck` in cicd.bash drops config.bash's `LEAKCHECK_STEPS` from any run, and goes on to a `--container` run like `--leakcheck` does. `--gate` and `--quick` still leave them out, and `--leakcheck` still adds them back.
+			- `--leakcheck --no-leakcheck`, in either order, is a usage error before anything runs: exit 2, as for an unknown option (me). The help text, contributing.md and the history lines say so.
+			- Note: an unknown option still exits 2.
+			- Verified: check-push-gate passes. `Et9t3dc` went red with an engine that ignores `--no-leakcheck`, and `EtD3jdR` with one that takes the pair with the last one winning. Both passed once restored by copy.
+			- Verified: shell-regress, shellcheck over the 47 lint targets, check-docs, and `test-ids.py check`.
+	- Decisions:
+		- JC, 20261019: `--gate` keeps leaving them out, since the pre-push gate can't take hours. The item's "at minimum" allows it.
+		- JC, 20261019: the pair is refused as a usage error, exit 1, per design.md's "Nothing on the command line resolves last-wins".
+	- Branch: `cileak`
+	- Commit: `353da441`
+	- Test case: check-push-gate `Et9t3dc` (`--no-leakcheck` drops the checks from a bare, `--gate` and `--quick` run) and `EtD3jdR` (the pair exits 2 in either order and runs nothing).
+	- Acceptance signoff: Self-closed on JC's criteria. The flag is the item's own, and the pair's refusal follows design.md.
+	- Closed: 20261019-211430
+
+- perf-gate fails a workload when a load spike lands on it and not on the baseline
+	- ID: 2026101914014130
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: N. perf-gate alone, all 4 bindings, exit 0 on `353da441`.
+	- Severity: Low
+	- Opened: 20261019-140141
+	- Opened by: backlog round 2026-10-19, from a full `--gate` on dev at `aa2e3b33`
+	- Version and build: dev at `aa2e3b33`
+	- Steps to reproduce: run a full `cicd.bash --gate` with the box loaded. This one ran at load 14 to 23.
+	- Incorrect behavior: `FAIL EqAMPEI perf-gate mounts`: Rust took 410 ms against a 345 ms budget, from a 95 ms parse-only baseline. Go, Python, and C ran 2 to 3 times their usual times on the same row and passed. 2 runs of perf-gate alone right after passed, Rust `mounts` at 100 and 102 ms. Earlier gate logs have it at 80 to 110 ms.
+	- Expected behavior: a gate that's linear passes whatever the load. A real slowdown still fails.
+	- Possible cause: the baseline is taken once per binding before the workloads, and each workload is best of 2. A spike that covers both runs of a workload and not the baseline breaks the 3x ratio.
+	- Possible fix: time the baseline next to each workload, or run a failing workload and its baseline again before calling it. Memory.md's perf-gate note prefers a count to a clock where one fits.
+	- Actual cause: perf-gate judged wall-clock time. Another process taking the CLI's core shows up in the wall clock and not in the CLI's own CPU time. A baseline timed next to each workload can't help when a spike covers only the workload.
+		- Measured, CLI pinned to one core, 4 runs each, a spike over `mounts` only. With 3 busy loops on that core, Rust's `mounts` took 624 to 639 ms wall and 156 to 160 ms of CPU, against 124 to 180 ms both ways alone. C went from about 100 ms to 400 to 450 ms wall, and stayed at 100 to 111 ms of CPU.
+		- A busy loop on the core's other hyperthread, or 3 memory-bound processes, moved wall and CPU time alike, by 1.2 to 2 times.
+		- Go's GC threads put its CPU time at 1.3 to 1.5 times its wall time. That barely moves from `GOMAXPROCS` 4 to 32, 162 against 168 ms on `mounts`.
+	- Actual fix: each run is judged by its CPU time, user plus system. Best of 2, the 3x factor, the 250 ms floor and the 5-minute wall-clock cap for a hang all stay.
+	- Progress log:
+		- 20261019, branch `cileak`:
+			- Verified: with 3 busy loops on the Rust CLI's core during `mounts` only, dev's perf-gate failed it at 695 ms against 316, exit 1, and this one passed at 153 of 315, exit 0. With `mounts` doing its work 5 times over, both failed, this one at 648 ms of CPU against 307, exit 1.
+			- Verified: the whole perf-gate on all 4 bindings, exit 0 at load 12, with margins about where the wall clock had them.
+			- Verified: `EtD6yAt` went red with the wall clock put back, a CLI that slept 1 s timed as 1003 ms. `EtD6yE6` went red with user time dropped, 500 ms of CPU timed as 5. Also shell-regress, shellcheck, check-docs, and `test-ids.py check`.
+			- Note: a spike on the core's other hyperthread, or on memory bandwidth, still moves CPU time. Rust `frags` and C `fills` sit at about 70 percent of their budgets.
+			- Note: `cargo test` builds `target/debug/shcl` again under `profile.test`, at opt-level 1, so the gate's perf-gate times that build, about 6 times faster than the dev one. Cargo.toml's comment says the CLI stays on the dev profile.
+	- Branch: `cileak`
+	- Commit: `353da441`
+	- Test case: perf-gate `EtD6yAt` (a second spent off the CPU counts for under half a second) and `EtD6yE6` (half a second of the CLI's own CPU counts in full).
+	- Swept: every timer in `cicd/` and the 4 test suites. perf-gate is the only one that holds a CLI to a budget. The suites time a few checks in-process, with bounds such as 25 times plus a second. Those belong to their own items and were left alone.
+	- Acceptance signoff: Self-closed: reproduced with a spike over the workload alone, red before the fix and green after, a real cost still fails, and each new self-test was seen red.
+	- Closed: 20261019-211430
 
 - Updates to CICD script flags
 	- ID: 2026101816034794

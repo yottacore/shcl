@@ -880,15 +880,23 @@ int main() {
 		CHECK(!upAgainErr && upAgain.current && upAgain.backup.empty());
 		auto [taken, takenErr] = shcl::write_backup(f, "x\n", 2);
 		CHECK(taken.empty() && takenErr && takenErr->kind == shcl::UpgradeErrorKind::BackupTaken && takenErr->message.rfind(bk, 0) == 0);
-		// The file and its text swapped keep nothing under a name made of the
-		// text (2026101807501110). A newline is no part of a windows name, so
-		// the create refuses it there.
-		std::string swappedText = dir + "/port: 80\nhost: x\n";
+		// The file and its text swapped write nothing (2026101807501110), so
+		// the folder the text names stays empty and comes off. Windows takes no
+		// newline or colon in a name, so there the refusal isn't NotFound, and
+		// a read of the backup name fails some other way.
+		std::string swapDir = dir + "/swap";
+#ifdef _WIN32
+		CHECK(_mkdir(swapDir.c_str()) == 0);
+#else
+		CHECK(mkdir(swapDir.c_str(), 0700) == 0);
+#endif
+		std::string swappedText = swapDir + "/port: 80\nhost: x\n";
 		auto [swapped, swappedErr] = shcl::write_backup(swappedText, f, 3);
-		CHECK(swapped.empty() && swappedErr && shcl::read_file(shcl::backup_file_name(swappedText, 3)).second == shcl::FileStatus::NotFound);
+		CHECK(swapped.empty() && swappedErr);
 #ifndef _WIN32
 		CHECK(swappedErr && swappedErr->kind == shcl::UpgradeErrorKind::NotFound);
 #endif
+		CHECK(rmdir(swapDir.c_str()) == 0);
 		CHECK(shcl::upgrade_file(dir + "/none.shcl", false).second->kind == shcl::UpgradeErrorKind::NotFound);
 		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n") == shcl::WriteStatus::Ok);
 		auto [amb2, amb2Err] = shcl::upgrade_file(f, false);
