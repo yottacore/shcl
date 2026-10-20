@@ -33,45 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
-	- ID: 2026101911300000
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261019-113000
-	- Opened by: shclwrap
-	- Version and build: Go module at `ea0998fa`, same code on dev at `aa2e3b33`
-	- Steps to reproduce:
-		- Go, `shcl.Upgrade(text, false)` with this text, which 2.0 wrote or a person typed under 2.x:
-
-			~~~shcl
-			p: "C:\\new"
-			t: C:\temp
-			q: a, b
-			~~~
-
-	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
-	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
-	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
-	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
-	- Question: the quiet change is JC's 2026-10-05 answer, in value-syntax.md ("A 2.x backslash is left as written, and reads literally") and spec.md ("One change is quiet"). Which way? (a) Keep it, and say in the `Upgrade` doc comments that the counts don't cover it. (b) Keep the text as written, and report each such line, such as a hint on the CLI and a count or list on the result in all 4 bindings. (c) Write the value 2.x read in the current syntax, such as `"C:\new"` and `"C:◉TAB◉emp"`, which reverses the 2026-10-05 answer and fits "never damage a correct file at exit 0" (JC, 2026-10-15).
-		- JC, 20261019: whichever fits the Objectives best, in order.
-	- Decisions:
-		- (c). `upgrade` and `migrate` write the value 2.x read, in the current syntax. So `"C:\\new"` becomes `"C:\new"` and `t: C:\temp` becomes `t: "C:◉TAB◉emp"` (me, on JC's criteria).
-			- An upgrade that keeps what a file means is what a user expects, and it's what other format migrators do.
-			- The 2026-10-05 answer came before JC's 2026-10-15 rule. With it, a program calling `Upgrade` sees a clean result while values changed, and has no way to catch it.
-			- The code decodes the 2.x escapes in a piece and hands the text to the one emitter. No new machinery.
-			- `check-migrate.bash` drops its allowance for a backslash pair, so the gate compares reads exactly.
-		- A file with no Format line, and no `--from-2x`, could be 3.0, where the backslash is text. Such a piece is kept and counted `Ambiguous`, like `a,b` already is (me).
-		- A quoted name with a backslash pair read as typed under 1.2 and resolved under 2.0, so the file can't say which. It's kept as written and counted `Lost`, so the call exits 7 unless `--lossy`, even with `--from-2x` (me).
-		- A selector body gets whatever 2.x did with a backslash there, checked against the pinned 2.x build `7be348d`: converted like a value if 2.x resolved it, left alone if not (me).
-		- Rejected: (a), which keeps a silent wrong answer. (b), which leaves every caller to fix each line by hand, and adds a count to all 4 bindings.
-	- To do:
-		- All 4 bindings. In Rust it's `value_edits`, `v2_element_text` and the quoted-name branch of `migrate_line` in lib.rs, then the 3 ports.
-		- `check-migrate.bash`: drop the backslash allowance, and see it go red on the old code.
-		- Docs: value-syntax.md's migrate table and the bullet under it, and spec.md's "One change is quiet" paragraph and the "but for a backslash pair" line in its migrate section.
-		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
-
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
@@ -369,6 +330,45 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the swapped call names a folder of its own, and the check is that the folder is still empty, so `rmdir` takes it. That means the same on every OS, and it also catches a colon turned into a stream on a file named `port`. The kind is still checked as `NotFound` off windows only.
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
+
+- `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
+	- ID: 2026101911300000
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261019-113000
+	- Opened by: shclwrap
+	- Version and build: Go module at `ea0998fa`, same code on dev at `aa2e3b33`
+	- Steps to reproduce:
+		- Go, `shcl.Upgrade(text, false)` with this text, which 2.0 wrote or a person typed under 2.x:
+
+			~~~shcl
+			p: "C:\\new"
+			t: C:\temp
+			q: a, b
+			~~~
+
+	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
+	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
+	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
+	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
+	- Question: the quiet change is JC's 2026-10-05 answer, in value-syntax.md ("A 2.x backslash is left as written, and reads literally") and spec.md ("One change is quiet"). Which way? (a) Keep it, and say in the `Upgrade` doc comments that the counts don't cover it. (b) Keep the text as written, and report each such line, such as a hint on the CLI and a count or list on the result in all 4 bindings. (c) Write the value 2.x read in the current syntax, such as `"C:\new"` and `"C:◉TAB◉emp"`, which reverses the 2026-10-05 answer and fits "never damage a correct file at exit 0" (JC, 2026-10-15).
+		- JC, 20261019: whichever fits the Objectives best, in order.
+	- Decisions:
+		- (c). `upgrade` and `migrate` write the value 2.x read, in the current syntax. So `"C:\\new"` becomes `"C:\new"` and `t: C:\temp` becomes `t: "C:◉TAB◉emp"` (me, on JC's criteria).
+			- An upgrade that keeps what a file means is what a user expects, and it's what other format migrators do.
+			- The 2026-10-05 answer came before JC's 2026-10-15 rule. With it, a program calling `Upgrade` sees a clean result while values changed, and has no way to catch it.
+			- The code decodes the 2.x escapes in a piece and hands the text to the one emitter. No new machinery.
+			- `check-migrate.bash` drops its allowance for a backslash pair, so the gate compares reads exactly.
+		- A file with no Format line, and no `--from-2x`, could be 3.0, where the backslash is text. Such a piece is kept and counted `Ambiguous`, like `a,b` already is (me).
+		- A quoted name with a backslash pair read as typed under 1.2 and resolved under 2.0, so the file can't say which. It's kept as written and counted `Lost`, so the call exits 7 unless `--lossy`, even with `--from-2x` (me).
+		- A selector body gets whatever 2.x did with a backslash there, checked against the pinned 2.x build `7be348d`: converted like a value if 2.x resolved it, left alone if not (me).
+		- Rejected: (a), which keeps a silent wrong answer. (b), which leaves every caller to fix each line by hand, and adds a count to all 4 bindings.
+	- To do:
+		- All 4 bindings. In Rust it's `value_edits`, `v2_element_text` and the quoted-name branch of `migrate_line` in lib.rs, then the 3 ports.
+		- `check-migrate.bash`: drop the backslash allowance, and see it go red on the old code.
+		- Docs: value-syntax.md's migrate table and the bullet under it, and spec.md's "One change is quiet" paragraph and the "but for a backslash pair" line in its migrate section.
+		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
 
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
