@@ -404,6 +404,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
 
+- `migrate --from-2x` writes a value ending in a backslash as `...\"`, which looks like an escaped quote
+	- ID: 2026102016593100
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261020-165931
+	- Version and build: dev at `bfc384c2`
+	- Problem description: the 2.x line `a: x\ty\\z\q\` migrates to `a: "x<TAB>y\z\q\"` in Rust and C alike. The quoted value ends in `\"`, which a person or another tool may read as an escaped quote.
+	- Verified: 20261020, the Rust CLI's `get` reads the migrated file back as `x<TAB>y\z\q\`, so the value survives. What's left is whether the text misleads.
+	- Requirements:
+		- Check it against value-syntax.md, and in Go and Python too.
+		- If the writer should avoid that ending, change it in all 4 and add a corpus case. If not, close it with the reason.
+
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
 	- ID: 2026101921290754
 	- Type: Enhancement
