@@ -530,6 +530,23 @@ fLeak -y --no-sync --quick --leakcheck
 ((engRc == 0 && leakRan == 1)) || fail "--quick --leakcheck left the leak checks out: exit ${engRc}, ran ${leakRan}"
 fLeak -y --no-sync --leakcheck --no-tests
 ((engRc == 0 && leakRan == 0)) || fail "--leakcheck --no-tests ran the leak checks: exit ${engRc}, ran ${leakRan}"
+## 2026101920461167: --no-leakcheck drops them from any run.
+fLeak -y --no-sync --no-leakcheck
+((engRc == 0 && leakRan == 0)) || fail "a run with --no-leakcheck ran the leak checks: exit ${engRc}, ran ${leakRan}"
+fLeak --gate --no-leakcheck
+((engRc == 0 && leakRan == 0)) || fail "--gate --no-leakcheck ran the leak checks: exit ${engRc}, ran ${leakRan}"
+fLeak -y --no-sync --quick --no-leakcheck
+((engRc == 0 && leakRan == 0)) || fail "--quick --no-leakcheck ran the leak checks: exit ${engRc}, ran ${leakRan}"
+fTest EtD3jdR --leakcheck and --no-leakcheck together are a usage error
+## 2026101920461167: nothing on the command line resolves last-wins, so the
+## pair is refused before anything runs, in either order.
+for leakFirst in --leakcheck --no-leakcheck; do
+	leakSecond=--no-leakcheck; if [[ "${leakFirst}" == --no-leakcheck ]]; then leakSecond=--leakcheck; fi
+	fLeak -y --no-sync "${leakFirst}" "${leakSecond}"
+	if ((engRc != 1 || leakRan != 0)) || ! grep -qF "can't go together" "${work}/eng.log"; then
+		fail "cicd.bash took ${leakFirst} ${leakSecond}: exit ${engRc}, ran ${leakRan}: $(tail -2 "${work}/eng.log")"
+	fi
+done
 fTest Et6Aum5 --ci is an unknown option
 ## 2026101816034794: renamed --gate, with no alias.
 fEngine -- --ci
@@ -668,3 +685,4 @@ exit "${rc}"
 ##		  extra --container image's mounts leave this tree's builds alone.
 ##		- 2026-10-19 JC: --gate in place of --ci, and an engine from before it. --quick leaves out what QUICK_SKIP names.
 ##		- 2026-10-19 JC: --leakcheck, and the leak checks in a run with no flags.
+##		- 2026-10-19 JC: --no-leakcheck, and the pair refused.
