@@ -177,7 +177,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: check-pins went red with CodeQL taken off the `--leakcheck`-only list (`EoSE8Nk`), with codeql-scan in `LINT_EXTRA` (`EtAC9of`), and with another version in the Dockerfile (`Esbpsph`).
 			- Verified: `LEAKCHECK_STEPS` but `--miri-all`, one after another: codeql-scan, `analyze-c.bash --ctu`, soak-c and `sanitize-c.bash --glibcxx-debug`. Also analyze-c, check-c-compilers (141 builds), sanitize-c, the C runner (206 cases), the veneer smoke, cppcheck at the normal level over main.c and conformance.c, check-pins, shell-regress, check-push-gate, `test-ids.py check`, markdownlint-cli2, and shellcheck over all 47 files. check-docs passes but for its installer row, as on dev.
 	- Decisions:
-		- Vendored code is included in the analyses (JC, 2026-10-17).
+		- Vendored code is included in the analyses (JC, 2026-10-17). Only code end users run (JC, 2026101920461160).
 		- JC, 20261018: a run with no flags does everything, the `--leakcheck` steps included, and `--gate` and `--quick` leave them out.
 		- The leak checks run last in the tests stage, so every quicker check reports first (me).
 		- The C soak judges glibc's own count of the bytes in use, read by the program between rounds. heaptrack's report is for reading, since it has no per-round figure (me).
