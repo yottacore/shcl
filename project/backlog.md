@@ -356,20 +356,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20261018-170500
 	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `EjtkR0S` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text holds characters windows refuses in a file name, so the read likely fails with another status. Python's `Et6Am8z` passed there.
 
-- perf-gate fails a workload when a load spike lands on it and not on the baseline
-	- ID: 2026101914014130
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261019-140141
-	- Opened by: backlog round 2026-10-19, from a full `--gate` on dev at `aa2e3b33`
-	- Version and build: dev at `aa2e3b33`
-	- Steps to reproduce: run a full `cicd.bash --gate` with the box loaded. This one ran at load 14 to 23.
-	- Incorrect behavior: `FAIL EqAMPEI perf-gate mounts`: Rust took 410 ms against a 345 ms budget, from a 95 ms parse-only baseline. Go, Python, and C ran 2 to 3 times their usual times on the same row and passed. 2 runs of perf-gate alone right after passed, Rust `mounts` at 100 and 102 ms. Earlier gate logs have it at 80 to 110 ms.
-	- Expected behavior: a gate that's linear passes whatever the load. A real slowdown still fails.
-	- Possible cause: the baseline is taken once per binding before the workloads, and each workload is best of 2. A spike that covers both runs of a workload and not the baseline breaks the 3x ratio.
-	- Possible fix: time the baseline next to each workload, or run a failing workload and its baseline again before calling it. Memory.md's perf-gate note prefers a count to a clock where one fits.
-
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
 	- Type: Enhancement
@@ -397,21 +383,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Anything wrong goes on the backlog for a fix.
 		- This may only affect what's already written in the backlog.
 
-- CICD has both `--leakcheck` and `--no-leakcheck`
-	- ID: 2026101920461167
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261019-204611
-	- Opened by: JC
-	- Related IDs: 2026101707582803, 2026101711273980, 2026101816034794
-	- Version and build: dev at `6f48dd7d`
-	- Requirements:
-		- Pre-next-cut.
-		- `--leakcheck`, e.g. useful to add back in for `--quick`.
-		- `--no-leakcheck`, e.g. to exclude from the default run, or with `--quiet`.
-		- By default, `--leakcheck` is assumed. At minimum, `--quick` and `--no-leakcheck` prevent it.
-
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -427,6 +398,70 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
 		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
+
+- CICD has both `--leakcheck` and `--no-leakcheck`
+	- ID: 2026101920461167
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: N. check-push-gate and shell-regress ran green on `353da441`.
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Related IDs: 2026101707582803, 2026101711273980, 2026101816034794
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- `--leakcheck`, e.g. useful to add back in for `--quick`.
+		- `--no-leakcheck`, e.g. to exclude from the default run, or with `--quiet`.
+		- By default, `--leakcheck` is assumed. At minimum, `--quick` and `--no-leakcheck` prevent it.
+	- Progress log:
+		- 20261019, branch `cileak`:
+			- `--no-leakcheck` in cicd.bash drops config.bash's `LEAKCHECK_STEPS` from any run, and goes on to a `--container` run like `--leakcheck` does. `--gate` and `--quick` still leave them out, and `--leakcheck` still adds them back.
+			- `--leakcheck --no-leakcheck`, in either order, is a usage error before anything runs: exit 2, as for an unknown option (me). The help text, contributing.md and the history lines say so.
+			- Note: an unknown option still exits 2.
+			- Verified: check-push-gate passes. `Et9t3dc` went red with an engine that ignores `--no-leakcheck`, and `EtD3jdR` with one that takes the pair with the last one winning. Both passed once restored by copy.
+			- Verified: shell-regress, shellcheck over the 47 lint targets, check-docs, and `test-ids.py check`.
+	- Decisions:
+		- JC, 20261019: `--gate` keeps leaving them out, since the pre-push gate can't take hours. The item's "at minimum" allows it.
+		- JC, 20261019: the pair is refused as a usage error, exit 1, per design.md's "Nothing on the command line resolves last-wins".
+	- Branch: `cileak`
+	- Commit: `353da441`
+	- Test case: check-push-gate `Et9t3dc` (`--no-leakcheck` drops the checks from a bare, `--gate` and `--quick` run) and `EtD3jdR` (the pair exits 2 in either order and runs nothing).
+	- Acceptance signoff: Self-closed on JC's criteria. The flag is the item's own, and the pair's refusal follows design.md.
+	- Closed: 20261019-211430
+
+- perf-gate fails a workload when a load spike lands on it and not on the baseline
+	- ID: 2026101914014130
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: N. perf-gate alone, all 4 bindings, exit 0 on `353da441`.
+	- Severity: Low
+	- Opened: 20261019-140141
+	- Opened by: backlog round 2026-10-19, from a full `--gate` on dev at `aa2e3b33`
+	- Version and build: dev at `aa2e3b33`
+	- Steps to reproduce: run a full `cicd.bash --gate` with the box loaded. This one ran at load 14 to 23.
+	- Incorrect behavior: `FAIL EqAMPEI perf-gate mounts`: Rust took 410 ms against a 345 ms budget, from a 95 ms parse-only baseline. Go, Python, and C ran 2 to 3 times their usual times on the same row and passed. 2 runs of perf-gate alone right after passed, Rust `mounts` at 100 and 102 ms. Earlier gate logs have it at 80 to 110 ms.
+	- Expected behavior: a gate that's linear passes whatever the load. A real slowdown still fails.
+	- Possible cause: the baseline is taken once per binding before the workloads, and each workload is best of 2. A spike that covers both runs of a workload and not the baseline breaks the 3x ratio.
+	- Possible fix: time the baseline next to each workload, or run a failing workload and its baseline again before calling it. Memory.md's perf-gate note prefers a count to a clock where one fits.
+	- Actual cause: perf-gate judged wall-clock time. Another process taking the CLI's core shows up in the wall clock and not in the CLI's own CPU time. A baseline timed next to each workload can't help when a spike covers only the workload.
+		- Measured, CLI pinned to one core, 4 runs each, a spike over `mounts` only. With 3 busy loops on that core, Rust's `mounts` took 624 to 639 ms wall and 156 to 160 ms of CPU, against 124 to 180 ms both ways alone. C went from about 100 ms to 400 to 450 ms wall, and stayed at 100 to 111 ms of CPU.
+		- A busy loop on the core's other hyperthread, or 3 memory-bound processes, moved wall and CPU time alike, by 1.2 to 2 times.
+		- Go's GC threads put its CPU time at 1.3 to 1.5 times its wall time. That barely moves from `GOMAXPROCS` 4 to 32, 162 against 168 ms on `mounts`.
+	- Actual fix: each run is judged by its CPU time, user plus system. Best of 2, the 3x factor, the 250 ms floor and the 5-minute wall-clock cap for a hang all stay.
+	- Progress log:
+		- 20261019, branch `cileak`:
+			- Verified: with 3 busy loops on the Rust CLI's core during `mounts` only, dev's perf-gate failed it at 695 ms against 316, exit 1, and this one passed at 153 of 315, exit 0. With `mounts` doing its work 5 times over, both failed, this one at 648 ms of CPU against 307, exit 1.
+			- Verified: the whole perf-gate on all 4 bindings, exit 0 at load 12, with margins about where the wall clock had them.
+			- Verified: `EtD6yAt` went red with the wall clock put back, a CLI that slept 1 s timed as 1003 ms. `EtD6yE6` went red with user time dropped, 500 ms of CPU timed as 5. Also shell-regress, shellcheck, check-docs, and `test-ids.py check`.
+			- Note: a spike on the core's other hyperthread, or on memory bandwidth, still moves CPU time. Rust `frags` and C `fills` sit at about 70 percent of their budgets.
+			- Note: `cargo test` builds `target/debug/shcl` again under `profile.test`, at opt-level 1, so the gate's perf-gate times that build, about 6 times faster than the dev one. Cargo.toml's comment says the CLI stays on the dev profile.
+	- Branch: `cileak`
+	- Commit: `353da441`
+	- Test case: perf-gate `EtD6yAt` (a second spent off the CPU counts for under half a second) and `EtD6yE6` (half a second of the CLI's own CPU counts in full).
+	- Swept: every timer in `cicd/` and the 4 test suites. perf-gate is the only one that holds a CLI to a budget. The suites time a few checks in-process, with bounds such as 25 times plus a second. Those belong to their own items and were left alone.
+	- Acceptance signoff: Self-closed: reproduced with a spike over the workload alone, red before the fix and green after, a real cost still fails, and each new self-test was seen red.
+	- Closed: 20261019-211430
 
 - Updates to CICD script flags
 	- ID: 2026101816034794

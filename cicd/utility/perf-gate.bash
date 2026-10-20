@@ -6,8 +6,8 @@
 ##		and absent-path defaults 140x slower, and both reached dev because
 ##		nothing had a number to fail on. A third round found a plain text file
 ##		parsing in quadratic time, and a fourth the did-you-mean suggestion
-##		quadratic in name length. Each workload is timed against the same
-##		binding's parse-only baseline on the same machine, so the gate has
+##		quadratic in name length. Each workload's CPU time is judged against the
+##		same binding's parse-only baseline on the same machine, so the gate has
 ##		no wall-clock constant and does not care how fast the runner is:
 ##		applying the ops, refusing every line, or suggesting a name for every
 ##		unknown field, must stay small beside reading a well-formed document
@@ -190,49 +190,54 @@ awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "int-default\tg%d.k\t0
 declare -i runSecs=300
 fRun(){ timeout -k 5 "${runSecs}" "$@"; }
 
-##	Milliseconds for one run of $2 (an ops file, a document when $3 is
-##	"check", or a document validated against ${sugSchema} when $3 is
-##	"suggest") through CLI $1, best of two so a scheduling hiccup does not
+##	CPU milliseconds, user plus system, for one run of $2 (an ops file, a
+##	document when $3 is "check", or a document validated against ${sugSchema}
+##	when $3 is "suggest") through CLI $1, best of two so a cache hiccup does not
 ##	fail the gate.
+##	CPU time, not wall time: another process taking the core shows up only in the
+##	wall clock, and a load spike over a workload and not its baseline put Rust's
+##	mounts at 4 times its usual time and over budget (2026101914014130). The
+##	wall clock still caps a hang, through fRun.
 ##	The exit code and the size of what came out are checked too: the timer used
 ##	to discard both, so a CLI that printed a usage error and exited 1 was inside
 ##	every budget and the gate reported OK. A run that did not do the work is a
 ##	failure, not a fast one.
 fTimeMs(){
-	local cli="$1" input="$2" mode="${3:-set}" want="${4:-1}" best=0 ms start end rc lines
+	local cli="$1" input="$2" mode="${3:-set}" want="${4:-1}" best=-1 ms rc lines userS sysS
+	local TIMEFORMAT='%3U %3S'
 	for _ in 1 2; do
-		start="$(date +%s%N)"
 		rc=0
-		if [[ "${mode}" == check ]]; then
-			fRun "${cli}" check "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == suggest ]]; then
-			fRun "${cli}" check --schema "${sugSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == recurse ]]; then
-			fRun "${cli}" check --schema "${recSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == frags ]]; then
-			fRun "${cli}" check --schema "${fragSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == stars ]]; then
-			fRun "${cli}" check --schema "${starSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == mounts ]]; then
-			fRun "${cli}" check --schema "${mountSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == selectors ]]; then
-			fRun "${cli}" check "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == unknowns ]]; then
-			fRun "${cli}" check --schema "${unkSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == merge ]]; then
-			fRun "${cli}" fmt --layer "${mergeBase}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == raws ]]; then
-			fRun "${cli}" fmt "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == removes ]]; then
-			fRun "${cli}" set "${input}" < "${tmpDir}/removes.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == keeps ]]; then
-			fRun "${cli}" set "${input}" < "${tmpDir}/keeps.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		elif [[ "${mode}" == fills || "${mode}" == apart ]]; then
-			fRun "${cli}" set "${input}" < "${tmpDir}/${mode}.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		else
-			fRun "${cli}" set "${doc}" < "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-		fi
-		end="$(date +%s%N)"
+		{ time {
+			if [[ "${mode}" == check ]]; then
+				fRun "${cli}" check "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == suggest ]]; then
+				fRun "${cli}" check --schema "${sugSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == recurse ]]; then
+				fRun "${cli}" check --schema "${recSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == frags ]]; then
+				fRun "${cli}" check --schema "${fragSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == stars ]]; then
+				fRun "${cli}" check --schema "${starSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == mounts ]]; then
+				fRun "${cli}" check --schema "${mountSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == selectors ]]; then
+				fRun "${cli}" check "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == unknowns ]]; then
+				fRun "${cli}" check --schema "${unkSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == merge ]]; then
+				fRun "${cli}" fmt --layer "${mergeBase}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == raws ]]; then
+				fRun "${cli}" fmt "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == removes ]]; then
+				fRun "${cli}" set "${input}" < "${tmpDir}/removes.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == keeps ]]; then
+				fRun "${cli}" set "${input}" < "${tmpDir}/keeps.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			elif [[ "${mode}" == fills || "${mode}" == apart ]]; then
+				fRun "${cli}" set "${input}" < "${tmpDir}/${mode}.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			else
+				fRun "${cli}" set "${doc}" < "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+			fi
+		} ; } 2> "${tmpDir}/cpu"
 		##	124 is timeout's own TERM, 137 the KILL five seconds behind it.
 		if ((rc == 124 || rc == 137)); then
 			echo "perf-gate: ${cli##*/}: ${mode} run was still going after ${runSecs} s" >&2
@@ -251,8 +256,10 @@ fTimeMs(){
 			echo "perf-gate: ${cli##*/}: ${mode} run printed ${lines} line(s), expected at least ${want}" >&2
 			printf '%s' -1; return
 		fi
-		ms=$(( (end - start) / 1000000 ))
-		if ((best == 0 || ms < best)); then best="${ms}"; fi
+		read -r userS sysS < "${tmpDir}/cpu"
+		## Bash prints the locale's decimal point.
+		ms=$(( 10#${userS//[!0-9]/} + 10#${sysS//[!0-9]/} ))
+		if ((best < 0 || ms < best)); then best="${ms}"; fi
 	done
 	printf '%s' "${best}"
 }
@@ -285,6 +292,30 @@ runSecs=1
 got="$(fTimeMs "${tmpDir}/bait-hang" "${tmpDir}/base.ops" set 1 2>/dev/null)"
 runSecs="${capWas}"
 [[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI that never returned was timed as ${got} ms, not refused" >&2; nBad+=1; }
+## The clock is CPU time (2026101914014130). A second spent waiting off the
+## CPU is what a busy core looks like to a wall clock, so it must count for
+## next to nothing, and half a second of the CLI's own work must count in full.
+fTest EtD6yAt self-test-off-cpu-wait
+printf '#!/bin/sh\nsleep 1\necho x\n' > "${tmpDir}/bait-wait"
+chmod +x "${tmpDir}/bait-wait"
+got="$(fTimeMs "${tmpDir}/bait-wait" "${tmpDir}/base.ops" set 1 2>/dev/null)"
+((got >= 0 && got < 500)) || { echo "perf-gate: self-test: a CLI that slept 1 s was timed as ${got} ms" >&2; nBad+=1; }
+fTest EtD6yE6 self-test-cpu-counted
+## Burns until its own user time reads 500 ms, however busy the box is.
+cat > "${tmpDir}/bait-burn" <<'EOF'
+#!/usr/bin/env bash
+t="${TMPDIR:-/tmp}/bait-burn.$$"
+while :; do
+	for ((i = 0; i < 20000; i++)); do :; done
+	times > "${t}"; read -r u _ < "${t}"
+	[[ "${u}" =~ ^([0-9]+)m([0-9]+)[^0-9]([0-9]{3}) ]] || break
+	((BASH_REMATCH[1] * 60000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]} >= 500)) && break
+done
+rm -f "${t}"; echo x
+EOF
+chmod +x "${tmpDir}/bait-burn"
+got="$(TMPDIR="${tmpDir}" fTimeMs "${tmpDir}/bait-burn" "${tmpDir}/base.ops" set 1 2>/dev/null)"
+((got >= 450)) || { echo "perf-gate: self-test: a CLI that burned 500 ms of CPU was timed as ${got} ms" >&2; nBad+=1; }
 ## A gate whose own guards are down judges nothing after them.
 if ((nBad)); then fTestEnd; exit 1; fi
 
@@ -379,7 +410,7 @@ for row in "${workloads[@]}"; do
 		if ((ms < 0)); then
 			nBad+=1
 		elif ((ms > budget)); then
-			echo "perf-gate: ${name}: ${w} took ${ms} ms against a ${budget} ms budget (${against})" >&2
+			echo "perf-gate: ${name}: ${w} took ${ms} ms of CPU against a ${budget} ms budget (${against})" >&2
 			nBad+=1
 		else
 			times+="${times:+, }${name} ${ms}/${budget} ms"
@@ -463,3 +494,5 @@ echo "perf-gate: OK: ${keys} keys, ${#bindings[@]} binding(s) within ${factor}x 
 ##		            rescanned its whole sibling run in the emitter.
 ##		2026-10-16  fills workload: a default over every bad field of one
 ##		            parent, each of which rescanned the parent's child list.
+##		2026-10-19  CPU time in place of the wall clock, since a load spike over
+##		            a workload adn not its baseline failed it.

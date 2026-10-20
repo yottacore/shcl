@@ -40,7 +40,9 @@
 ##	                       LEAKCHECK_STEPS, at the end of the tests stage, for
 ##	                       a --gate or --quick run, which leaves them out. A run
 ##	                       with no flags has them already. Some take hours
-##	   -q, --quiet         unattended (no prompt) and quiet: no preflight block,
+##	   --no-leakcheck      leave the leak checks out of any run. Not with
+##	                       --leakcheck
+##	   -q, --quiet        unattended (no prompt) and quiet: no preflight block,
 ##	                       and cargo, ruff and the gif renderer get their own
 ##	                       quiet flags. Stage headers, results and warnings
 ##	                       still print; tools with no quiet flag are unchanged
@@ -136,13 +138,14 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0
+assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=()
 while (($#)); do case "$1" in
 	--gate)                   gate_mode=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
 	--leakcheck)              leakcheck_flag=1; ctr_pass+=("$1"); shift ;;
+	--no-leakcheck)           no_leakcheck=1; ctr_pass+=("$1"); shift ;;
 	-q|--quiet)               quiet=1; assume_yes=1; QUIET_FLAG="-q"; export CARGO_TERM_QUIET=true; shift ;;
 	-y|--yes)                 assume_yes=1; shift ;;
 	--no-sync)                sync_enable=0; shift ;;
@@ -165,6 +168,8 @@ while (($#)); do case "$1" in
 	-h|--help)                sed -n '/^##	- Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; exit 0 ;;
 	*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
 esac; done
+## Nothing on the command line resolves last-wins (design.md).
+if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck can't go together (try --help)" >&2; exit 2; fi
 
 ## --gate: correctness only, deterministic, side-effect free.
 if ((gate_mode)); then
@@ -218,7 +223,7 @@ if ((quick)); then
 	if fQuickSkips crosscheck.bash; then xcheck_enable=0; fi
 fi
 ## A run with no flags does everything, these included (JC, 2026-10-18).
-if ((gate_mode || quick)) && ((! leakcheck_flag)); then LEAKCHECK_STEPS=(); fi
+if ((no_leakcheck)) || { ((gate_mode || quick)) && ((! leakcheck_flag)); }; then LEAKCHECK_STEPS=(); fi
 
 ## A run at least as thorough as the pre-push hook's records the tree it tested
 ## once the tests and the cross checks pass, and the hook lets a commit with
@@ -957,3 +962,4 @@ fEcho_Clean
 ##		  a stand-in for a missing one. --no-tests drops the calibration only under --ci.
 ##		- 2026-10-19 JC: --ci is --gate now. --quick runs every step but the ones config's QUICK_SKIP names, cross targets included.
 ##		- 2026-10-19 JC: --leakcheck, and config's LEAKCHECK_STEPS at the end of the tests stage of a run with no flags.
+##		- 2026-10-19 JC: --no-leakcheck, refused beside --leakcheck.
