@@ -207,9 +207,9 @@ printf 'ports: [80, 443]\n' > "${tmpDir}/brarray.shcl"
 printf 'srv("1,000").port: 1\n' > "${tmpDir}/selcomma.shcl"
 printf 'base:[Boston]\n\tlat: 42\n' > "${tmpDir}/sugar.shcl"
 ## A value the two rule sets read differently: 2.x resolved the backslash and
-## these rules do not. migrate leaves it as written, so it reads as text
-## (2026-10-05). Copied fresh for the rows that rewrite, the way the sugar
-## file is.
+## these rules do not. migrate writes the tab 2.x read, and asks about a file
+## that doesn't say it is 2.x (2026101911300000). Copied fresh for the rows
+## that rewrite, the way the sugar file is.
 printf 'p: %s\n' "'C:\temp'" > "${tmpDir}/bsrc.shcl"
 ## An escaped comma 2.x folded into one element, so migrate rewrites the line,
 ## plus a tab-indented line at no open level, which the load drops. The rewrite
@@ -929,6 +929,9 @@ rows=(
 	#'ErpZsUg|path-tab-set|set -|string\ta\tC:\\temp\n|0|a: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n|-'
 	'ErpZsUh|path-text-literal|set -|literal\tx\t"C:\\temp"\n|0|x: "C:\\temp"\n|-'
 	'ErpZsUi|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3\n|-'
+	## 2026101911300000: a backslash pair 2.x resolved, in a file that doesn't
+	## say it is 2.x, is left and asked about.
+	'EtD6lso|backslash-migrate-ambiguous|migrate -|q: "C:\\\\work"\n|7|q: "C:\\\\work"\n|does not say which it was written for'
 	## 2026100717500002: an op value reads the file's escape names, a tab or a
 	## line break included, and a backslash pair is text, the same as in --set.
 	'Es8bB4z|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: "C:\\temp\\new"\n|-'
@@ -1063,18 +1066,32 @@ rows=(
 	## 2026-10-05: migrate leaves a 2.x backslash as written, and it reads as
 	## text under these rules, so this file reads one way and nothing is left
 	## to refuse over.
-	#'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
-	#"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
-	#'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
-	'Ers2pOu|migrate-backslash-as-text|migrate %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|!.'
-	'Ers2pOv|migrate-backslash-write|migrate --write %BS%|-|0|-|migrated, 0 line\(s\) rewritten'
-	'Ers2pOw|migrate-backslash-pairs|migrate -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\\\work"\nb: \x27say \\"hi\\"\x27\nc: C:\\new\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## Back since 2026101911300000: migrate writes the text 2.x read, so the
+	## file reads two ways again.
+	'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
+	"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
+	'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
+	## Wrong since 2026101911300000, as above. Don't uncomment.
+	#'Ers2pOu|migrate-backslash-as-text|migrate %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|!.'
+	#'Ers2pOv|migrate-backslash-write|migrate --write %BS%|-|0|-|migrated, 0 line\(s\) rewritten'
+	#'Ers2pOw|migrate-backslash-pairs|migrate -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\\\work"\nb: \x27say \\"hi\\"\x27\nc: C:\\new\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'EtD6lsn|migrate-backslash-pairs-2x|migrate --from-2x -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\work"\nb: \x27say "hi"\x27\nc: "C:\xe2\x97\x89NEWLINE\xe2\x97\x89ew"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## 2026101911300000: the two lines of the report, as 2.x read them, and the
+	## same file refused without --from-2x, since it could be a 3.0 one.
+	'EtD6lsl|migrate-2x-read|migrate --from-2x -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'EtD6lsm|upgrade-2x-read-ambiguous|upgrade -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|7||2 value\(s\) read one way under 2\.x'
+	## A quoted name with a backslash pair read as typed under 1.2 and resolved
+	## under 2.0, so it is kept and counted lost, and the rest still converts.
+	'EtD6lsp|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|7|"n\\ty": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|1 line\(s\) bound a value under 2\.x.*quoted name'
+	'EtD6lsq|migrate-lost-quoted-name-lossy|migrate --from-2x --lossy -|"n\\ty": 1\n|0|"n\\ty": 1\n##    Format   3\n|bound a value under 2\.x'
 	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
 	## It is the TAB escape since 2026100207032800.
 	#'Eq4Rkv5|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026-10-05: the backslash stays, and reads as text.
-	#'ErUn2Bt|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'Ers2pOx|migrate-from-2x-backslash|migrate --from-2x %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|-'
+	## Back since 2026101911300000: the tab 2.x read is written.
+	'ErUn2Bt|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## Wrong since 2026101911300000. Don't uncomment.
+	#'Ers2pOx|migrate-from-2x-backslash|migrate --from-2x %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|-'
 	## A file that names its format has nothing to migrate, which is what stops
 	## the second run from rewriting the first run's output.
 	'Eq4Rkv6|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
@@ -1083,8 +1100,10 @@ rows=(
 	'EqGUXeC|migrate-format-in-raw-old|migrate %RF2%|-|7|-|does not say which it was written for'
 	## The value beside it is no longer read two ways (2026-10-05), so this
 	## pins the scan by the stamp migrate adds; ErfuRj5 holds the refusal.
-	#'EqGUXeD|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
-	'Ers2pOy|migrate-format-in-raw-stamps|migrate %RF3%|-|0|p: \x27C:\\temp\x27\nnote:\n\t\x60\x60\x60\n##    Format   3\n\t\x60\x60\x60\n##    Format   3\n|!nothing to migrate'
+	## Back since 2026101911300000: the value reads two ways again. The stamp
+	## row below is wrong since then. Don't uncomment it.
+	'EqGUXeD|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
+	#'Ers2pOy|migrate-format-in-raw-stamps|migrate %RF3%|-|0|p: \x27C:\\temp\x27\nnote:\n\t\x60\x60\x60\n##    Format   3\n\t\x60\x60\x60\n##    Format   3\n|!nothing to migrate'
 	'ErfuRj5|migrate-format-in-raw-after-backslash|migrate %RFQ%|-|7|-|does not say which it was written for'
 	## 20260918 item 2: C looked for the version line before taking off a BOM.
 	'EqGUXeE|migrate-bom-stamped|migrate %V3B%|-|0|-|nothing to migrate'
@@ -1149,9 +1168,11 @@ rows=(
 	'Eq4wD3Z|migrate-check-clean|migrate --check %F%|-|0||!.'
 	'Eq4wD3a|migrate-check-stamped|migrate --check %V3%|-|0||nothing to migrate'
 	## 2026-10-05: nothing in the backslash file is rewritten now.
-	#'Eq4wD3b|migrate-check-ambiguous|migrate --check %BS%|-|7||does not say which it was written for'
-	#'Eq4wD3c|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
-	'Ers2pOz|migrate-check-backslash|migrate --check --from-2x %BS%|-|0||!.'
+	## Back since 2026101911300000: the tab 2.x read is written. The row after
+	## them is wrong since then. Don't uncomment it.
+	'Eq4wD3b|migrate-check-ambiguous|migrate --check %BS%|-|7||does not say which it was written for'
+	'Eq4wD3c|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
+	#'Ers2pOz|migrate-check-backslash|migrate --check --from-2x %BS%|-|0||!.'
 	'Eq4wD3d|migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
 	'Eq4wD3e|migrate-write-says|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten'
 	## The Format and Migrated lines end the way most of the file's lines do.
@@ -1660,7 +1681,8 @@ fFindNoHelp(){   ## fFindNoHelp HITFILE WHAT STDERR: notes a last line naming no
 ##	is let through by content, each with its reason.
 re2x='\\[nt]([^[:alnum:]]|$)|\\{2}'
 allow2x=(
-	## migrate keeps a 2.x backslash pair as written (value-syntax.md, Migration).
+	## migrate keeps a 2.x backslash pair as written when the file doesn't say
+	## it is 2.x (value-syntax.md, Migration).
 	'"C:\\work"'
 	'"C:\\a\nb", "D:\\c\nd"'
 )

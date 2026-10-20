@@ -2577,13 +2577,15 @@ pub struct Migration {
 	/// Pieces both rule sets read cleanly and differently, such as `a,b` or
 	/// an escape, and runs of lines one rule set reads as a raw body and the
 	/// other as fields, which nothing can decide between, left as written.
-	/// Always 0 when the caller said the file is 2.x. A backslash is not one
-	/// of them: it stays as written either way.
+	/// Always 0 when the caller said the file is 2.x. A backslash pair 2.x
+	/// resolved is one of them, as in `"C:\\new"`.
 	pub ambiguous: usize,
 	/// Lines 2.x bound a value on that nothing binds now, since there is no
 	/// 3.0 spelling to move to: bracket text after the colon, a selector
 	/// holding a comma, which matched an array value, and a comma list with
-	/// lines under it (`E028` in brackets).
+	/// lines under it (`E028` in brackets). Also a quoted name with a
+	/// backslash pair, which 1.2 read as typed and 2.0 resolved, so it is
+	/// kept as written.
 	pub lost: usize,
 }
 
@@ -2878,20 +2880,22 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 
 /// Rewrite a document written under the 2.x rules so this parser reads the
 /// same tree. Each line is read with the 2.x tokenizer and rewritten only
-/// where the two rule sets disagree (value-syntax.md, Migration). A
-/// backslash stays as written and reads as text, so a piece is written
-/// another way only where these rules would read its text as something
-/// else: a quote it shielded, a real `◉`, a quote, tab or bracket in bare
-/// text, an open quote, which is quoted whole. A comma list goes in
-/// brackets, a `*` item becomes `- `, a bare name not led by a letter is
-/// quoted, and a selector goes from brackets to parens, its body quoted
-/// where these rules would refuse it bare. The `name:[disc]` selector sugar
-/// loses its colon, and on a last segment becomes `name: disc`, with `disc`
-/// written the way the formatter writes a value.
+/// where the two rule sets disagree (value-syntax.md, Migration). A piece
+/// is written another way only where these rules would read it as other
+/// text than 2.x did: a backslash pair 2.x resolved, such as `\\` or `\t`,
+/// a real `◉`, a quote, tab or bracket in bare text, an open quote, which
+/// is quoted whole. A comma list goes in brackets, a `*` item becomes `- `,
+/// a bare name not led by a letter is quoted, and a selector goes from
+/// brackets to parens, its body quoted where these rules would refuse it
+/// bare. The `name:[disc]` selector sugar loses its colon, and on a last
+/// segment becomes `name: disc`, with `disc` written the way the formatter
+/// writes a value.
 /// Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 /// could not read - comes through as written. One shape has no spelling
 /// here at all: a fence label holding a `#`, which 2.x ran to the end of the
-/// line and which now ends at the `#`.
+/// line and which now ends at the `#`. A quoted name with a backslash pair
+/// stays as written and counts in `lost`, since 1.2 read it as typed and 2.0
+/// resolved it.
 ///
 /// Which file this is cannot always be read off the text: `p: a,b` is an
 /// array under 2.x and one string under these rules, and a raw block can
@@ -3214,14 +3218,38 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 }
 
 /// How a changed piece is written: the way the writer writes its text, so it
-/// reads back as that text. A backslash pair 2.x resolved is not resolved
-/// here: it stays as written and reads as text now, with no escape added.
+/// reads back as that text. The text is the one 2.x read (`v2_text`).
 fn migrate_spelling(logical: &str, bare: bool) -> String {
 	if bare && !needs_quotes(logical) {
 		logical.to_string()
 	} else {
 		quote_text(logical)
 	}
+}
+
+/// The text 2.x read for a piece as written: `\t`, `\n`, `\\`, `\"` and `\'`
+/// resolved, in a value, an element and a selector body, bare or quoted. Any
+/// other backslash stays, and so does one at the end.
+fn v2_text(raw: &str) -> String {
+	let mut out = String::with_capacity(raw.len());
+	let mut it = raw.chars();
+	while let Some(c) = it.next() {
+		if c != '\\' {
+			out.push(c);
+			continue;
+		}
+		match it.next() {
+			Some('t') => out.push('\t'),
+			Some('n') => out.push('\n'),
+			Some(q @ ('\\' | '"' | '\'')) => out.push(q),
+			Some(other) => {
+				out.push('\\');
+				out.push(other);
+			}
+			None => out.push('\\'),
+		}
+	}
+	out
 }
 
 /// True when 2.x read this bare `[...]` body as the JSON-habit array rather
@@ -3236,8 +3264,8 @@ fn v2_bracket_array(body: &str) -> bool {
 /// The re-spellings a value's pieces need. Each piece is cut the 2.x way (a
 /// backslash shields the next character, an open quote is kept whole, a quote
 /// at both ends makes it quoted) and rewritten only where the current rules
-/// would read its text as something else. Its text is as 2.x wrote it, a
-/// backslash pair included, so the same bytes mean the same either way.
+/// would read it as other text than 2.x did. 2.x resolved a backslash pair,
+/// so `"C:\\new"` is written `"C:\new"` and `C:\temp` gets the tab escape.
 fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 	for p in &tok.elements {
 		let raw = &text[p.start..p.end];
@@ -3255,10 +3283,11 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		{
 			continue;
 		}
-		if reads_same(&text[a..b], quoted, raw) {
+		let logical = v2_text(raw);
+		if reads_same(&text[a..b], quoted, &logical) {
 			continue;
 		}
-		let spelling = migrate_spelling(raw, !(quoted || p.quote == Quote::Open));
+		let spelling = migrate_spelling(&logical, !(quoted || p.quote == Quote::Open));
 		edits.push((a, b, spelling));
 	}
 }
@@ -3283,17 +3312,17 @@ fn v2_array_text(text: &str, tok: &Tokens) -> String {
 	out
 }
 
-/// One 2.x element as the writer writes it, unless its quoted spelling
-/// already reads the same.
+/// One 2.x element, as the text 2.x read, the way the writer writes it,
+/// unless its quoted spelling already reads the same.
 fn v2_element_text(text: &str, p: &Piece) -> String {
-	let raw = &text[p.start..p.end];
+	let logical = v2_text(&text[p.start..p.end]);
 	let quoted = matches!(p.quote, Quote::Single | Quote::Double);
-	if quoted && reads_same(&text[p.start - 1..p.end + 1], true, raw) {
+	if quoted && reads_same(&text[p.start - 1..p.end + 1], true, &logical) {
 		text[p.start - 1..p.end + 1].to_string()
-	} else if p.quote == Quote::None && !needs_quotes(raw) {
-		raw.to_string()
+	} else if p.quote == Quote::None && !needs_quotes(&logical) {
+		logical
 	} else {
-		quote_text(raw)
+		quote_text(&logical)
 	}
 }
 
@@ -3366,15 +3395,21 @@ fn migrate_line(
 			.any(|(i, seg)| seg.selector.is_some() && !(i == last && tok.sep.is_none()));
 		for (i, seg) in tok.segments.iter().enumerate() {
 			let name = &rest[seg.name.start..seg.name.end];
-			// A backslash in a quoted name is text now, and stays. Only a
-			// quote it shielded, or a real escape mark, needs another
+			// A quoted name with a backslash pair read as typed under 1.2 and
+			// resolved under 2.0, so the file can't say which name it meant.
+			// It stays as written and counts as lost. Any other backslash is
+			// text either way. Only a real escape mark needs another
 			// spelling. A bare name not led by a letter goes in quotes, since
 			// `-` then a blank would start a list item now.
 			let spelled = || &rest[seg.name.start - 1..seg.name.end + 1];
 			// A file that does not say it is 2.x could be a 3.0 one. Where it
 			// reads clean under these rules as well, it is left and counted.
 			let (respell, clean_now) = if matches!(seg.name.quote, Quote::Single | Quote::Double) {
-				let now = (name.contains('\\') || name.contains(ESCAPE_MARK))
+				let pair = v2_text(name) != name;
+				if pair {
+					st.lost += 1;
+				}
+				let now = (!pair && (name.contains('\\') || name.contains(ESCAPE_MARK)))
 					.then(|| quoted_name_now(spelled()));
 				(
 					now.as_ref().is_some_and(|n| n.as_deref() != Some(name)),
@@ -3423,6 +3458,9 @@ fn migrate_line(
 			} else {
 				body
 			};
+			// 2.x matched a selector by its text with the backslash pairs
+			// resolved, as it read a value.
+			let logical = v2_text(body);
 			if i == last && tok.sep.is_none() {
 				if let Some(c) = colon {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -3456,11 +3494,11 @@ fn migrate_line(
 						}
 					}
 					let spelling = if !quoted {
-						migrate_spelling(body, true)
-					} else if reads_same(spelled, true, body) {
+						migrate_spelling(&logical, true)
+					} else if reads_same(spelled, true, &logical) {
 						spelled.to_string()
 					} else {
-						migrate_spelling(body, false)
+						migrate_spelling(&logical, false)
 					};
 					edits.push((c, close + 1, format!(": {}", spelling)));
 					continue;
@@ -3480,14 +3518,13 @@ fn migrate_line(
 			}
 			edits.push((open, open + 1, "(".to_string()));
 			edits.push((close, close + 1, ")".to_string()));
-			// A backslash is text now, and stays. Only a quote or a blank it
-			// shielded, or one the body has bare, a paren, or a real escape
-			// mark, needs another spelling.
-			if !index && !selector_reads_back(spelled, body, quoted) {
-				let spelling = migrate_spelling(body, false);
+			// A backslash pair 2.x resolved, a quote or a blank the body has
+			// bare, a paren, or a real escape mark needs another spelling.
+			if !index && !selector_reads_back(spelled, &logical, quoted) {
+				let spelling = migrate_spelling(&logical, false);
 				// Nothing reads back as that body, so there is no way to
 				// write it in parens.
-				if !selector_reads_back(&spelling, body, true) {
+				if !selector_reads_back(&spelling, &logical, true) {
 					st.lost += 1;
 					return rest.to_string();
 				}

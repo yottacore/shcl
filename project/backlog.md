@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
 	- ID: 2026101911300000
 	- Type: Bug
-	- Status: Queued
+	- Status: Started
 	- Severity: High
 	- Opened: 20261019-113000
 	- Opened by: shclwrap
@@ -56,6 +56,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
 	- Question: the quiet change is JC's 2026-10-05 answer, in value-syntax.md ("A 2.x backslash is left as written, and reads literally") and spec.md ("One change is quiet"). Which way? (a) Keep it, and say in the `Upgrade` doc comments that the counts don't cover it. (b) Keep the text as written, and report each such line, such as a hint on the CLI and a count or list on the result in all 4 bindings. (c) Write the value 2.x read in the current syntax, such as `"C:\new"` and `"C:◉TAB◉emp"`, which reverses the 2026-10-05 answer and fits "never damage a correct file at exit 0" (JC, 2026-10-15).
 		- JC, 20261019: whichever fits the Objectives best, in order.
+	- Progress log:
+		- 20261019: Rust, check-migrate, the docs and the tests are done on `bslash`. The Go, Python and C ports are next, on the same branch, and their runners fail the shared tests until then.
+		- Verified on the Rust side: `cargo test` with the fuzz at 20,000, cli-regress on the Rust CLI, check-migrate (630 compared, no divergence), check-readme, check-docs, shell-regress, test-ids check. With the old lib.rs, the 3 new Rust tests, the 5 corpus goldens, Es2R4TW, the new and revived cli-regress rows, and check-migrate (48 divergences over 630 documents) were each seen red.
+		- For the ports, mirror lib.rs:
+			- New `v2_text(raw)`: resolves `\t`, `\n`, `\\`, `\"` and `\'`, and leaves any other backslash, a trailing one included. It's 2.x's `apply_escapes`.
+			- `value_edits` and `v2_element_text` test and write `v2_text(raw)` where they used `raw`.
+			- `migrate_line`, quoted name: when `v2_text(name) != name`, add 1 to `lost`, make no edit, and go on with the line. No early return, or a same-line fence after it is missed.
+			- `migrate_line`, selector: `logical = v2_text(body)`, used by the sugar arm's spelling and `reads_same`, and by both `selector_reads_back` calls and the spelling in the paren arm.
+			- The CLI's lost message names "a quoted name with a backslash escape" (main.rs). The words up to the colon stay, since cli-regress and check-migrate match them.
+			- Doc comments: `migrate`, `Migration.ambiguous` and `.lost`, `migrate_spelling`, `value_edits`.
+		- Tests the ports have to pass: corpus migrate goldens 118, 119, 122, 124 and 170; cli-regress EtD6lsl to EtD6lsq, plus the revived Eq4Rkv2, Eq4Rkv3, Eq4Rkv4, ErUn2Bt, EqGUXeD, Eq4wD3b and Eq4wD3c; crosscheck; and each runner's twin of Rust's 3 new tests (EtD5PtP, EtD5PtQ, EtD5PtR), with fresh IDs. The upgrade test's `name: 'say \"hi\"'` becomes `name: 'say "hi"'` in Go `upgrade_test.go`, Python `conformance.py` and C `conformance.c`, as in Rust's Es2R4TW.
+		- Traps: `"C:\work"` with one backslash is no pair, so ErpZsUi stays. check-migrate's `fOneLine2x` now writes a 2.x element holding a line break through the Rust CLI's `--set`, since only the current writer gives the `◉NEWLINE◉` form.
 	- Decisions:
 		- (c). `upgrade` and `migrate` write the value 2.x read, in the current syntax. So `"C:\\new"` becomes `"C:\new"` and `t: C:\temp` becomes `t: "C:◉TAB◉emp"` (me, on JC's criteria).
 			- An upgrade that keeps what a file means is what a user expects, and it's what other format migrators do.
@@ -71,6 +83,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `check-migrate.bash`: drop the backslash allowance, and see it go red on the old code.
 		- Docs: value-syntax.md's migrate table and the bullet under it, and spec.md's "One change is quiet" paragraph and the "but for a backslash pair" line in its migrate section.
 		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
+	- Actual fix: in Rust, migrate reads each piece and selector body as the text 2.x read, and counts a quoted name with a backslash pair lost.
+	- Branch: `bslash`
+	- Commit:
+	- Test case: Rust EtD5PtP, EtD5PtQ, EtD5PtR, Es2R4TW; corpus 118, 119, 122, 124, 170; cli-regress EtD6lsl to EtD6lsq and the revived rows above; check-migrate Eq5YPgP with no backslash allowance.
+	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. The ports' code and comments come with the ports.
 
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
