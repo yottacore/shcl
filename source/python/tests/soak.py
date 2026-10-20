@@ -103,16 +103,20 @@ def main() -> int:
 	test_id("Et01jhM", "soak_heap_settles")
 	cases = soak_cases()
 	counts = {"saved": 0, "validated": 0}
-	# Every cycle the collector finds goes to gc.garbage instead of being
-	# freed. Since 3.4 it frees a cycle with __del__ too, so without this
-	# only a C type with tp_del would ever land there.
-	gc.collect()
-	gc.set_debug(gc.DEBUG_SAVEALL)
 	snaps = []
 	with tempfile.TemporaryDirectory() as td:
 		save_to = os.path.join(td, "soak.shcl")
 		for r in range(1, 2 * ROUNDS + 1):
 			soak_round(r, cases, save_to, counts)
+			if r == 1:
+				# From round 2 every cycle the collector finds goes to
+				# gc.garbage instead of being freed. Since 3.4 it frees a cycle
+				# with __del__ too, so without this only a C type with tp_del
+				# would ever land there. Round 1 is left out, since it imports
+				# what the library imports late, and ctypes leaves a class of
+				# its own in a cycle as it loads on windows.
+				gc.collect()
+				gc.set_debug(gc.DEBUG_SAVEALL)
 			if r % ROUNDS == 0:
 				snaps.append(soak_snapshot())
 	gc.set_debug(0)

@@ -747,6 +747,90 @@ def _temp_takes_the_targets_dacl(td):
 		raise SystemExit(f"a temp file with no DACL to copy has {sddl(copied)}, want {born}")
 
 
+class _FakeDLLFunc:
+	def __init__(self, call):
+		self.call = call
+		self.restype = None
+		self.argtypes = None
+
+	def __call__(self, *args):
+		return self.call(*args)
+
+
+def _fake_file_security(path, info, buf, size, need):
+	if buf is None:
+		need._obj.value = 40
+		return 0
+	return 1
+
+
+def _fake_sd_control(sd, control, revision):
+	control._obj.value = 0x0400
+	return 1
+
+
+_FAKE_DLL_CALLS = {"GetFileSecurityW": _fake_file_security, "GetSecurityDescriptorControl": _fake_sd_control, "CreateFileW": lambda *a: 7}
+_fake_dll_loads: list[str] = []
+
+
+class _FakeDLL:
+	# Stands in for ctypes.WinDLL, so the save's windows calls run anywhere.
+	# The calls a save needs succeed, and a file's DACL reads as 40 bytes.
+	def __init__(self, name, use_last_error=False):
+		_fake_dll_loads.append(name)
+
+	def __getattr__(self, name):
+		fn = _FakeDLLFunc(_FAKE_DLL_CALLS.get(name, lambda *a: 1))
+		setattr(self, name, fn)
+		return fn
+
+
+def windows_calls_build_their_ctypes_once():
+	# Each WinDLL, Structure and ctypes array type is a class of its own, so
+	# a reference cycle. The save's windows calls made them on every call,
+	# which piled up for the collector and failed the soak on windows
+	# (2026101711273980). Here a second round of them must make none.
+	import ctypes
+
+	fake_msvcrt = types.ModuleType("msvcrt")
+	fake_msvcrt.open_osfhandle = lambda h, flags: -1  # type: ignore[attr-defined]
+	_fake_dll_loads.clear()
+	shcl._win32.cache_clear()
+	with tempfile.TemporaryDirectory() as d, \
+		mock.patch.object(ctypes, "WinDLL", _FakeDLL, create=True), \
+		mock.patch.object(os, "O_BINARY", 0x8000, create=True), \
+		mock.patch.dict(sys.modules, {"msvcrt": fake_msvcrt}):
+		target, tmp = os.path.join(d, "t.shcl"), os.path.join(d, "t.shcl.tmp")
+		Path(target).write_bytes(b"a: 1\n")
+		Path(tmp).write_bytes(b"a: 2\n")
+
+		def round_of_calls():
+			shcl._restore_attrs(target, 0x2)
+			shcl._create_like(target, tmp)
+			shcl._windows_publish_file(tmp, target)
+
+		try:
+			round_of_calls()
+			made = list(_fake_dll_loads)
+			gc.collect()
+			gc.set_debug(gc.DEBUG_SAVEALL)
+			for _ in range(3):
+				round_of_calls()
+			gc.collect()
+		finally:
+			gc.set_debug(0)
+			left = list(gc.garbage)
+			gc.garbage.clear()
+			shcl._win32.cache_clear()
+	gc.collect()
+	if sorted(made) != ["advapi32", "kernel32"]:
+		raise SystemExit(f"the first round loaded {made}, want advapi32 and kernel32")
+	if _fake_dll_loads != made:
+		raise SystemExit(f"later rounds loaded {_fake_dll_loads[len(made):]} again")
+	if left:
+		raise SystemExit(f"later rounds left {len(left)} object(s) in reference cycles, such as {left[:3]!r}")
+
+
 def setters_write_only_what_reads_back():
 	# A setter writes only what reads back. Each one builds its text through the
 	# emitter and hands it to the tokenizer before the document is touched, so
@@ -5388,6 +5472,9 @@ def main():
 	):
 		if fagot != fawant:
 			raise SystemExit(f"typed array setter wrote {fagot!r}, want {fawant!r}")
+
+	test_id("EtD4W76", "windows_calls_build_their_ctypes_once")
+	windows_calls_build_their_ctypes_once()
 
 	test_id("Et01jhN", "nothing_unraisable_or_uncollectable")
 	# Since 3.4 a cycle with __del__ is collected, so only what the collector
