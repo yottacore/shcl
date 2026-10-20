@@ -22,6 +22,9 @@
 ##			                        SHCL_IN_IMAGE=1 tells the script where it is,
 ##			                        and SHCL_CTR_CARGO, when set, goes in as is.
 ##			                        Returns the script's exit, or 2.
+##			fCtrWhyNot              nothing when the images can run here, else
+##			                        why not: they're x86_64 only, and docker (or
+##			                        SHCL_DOCKER) counts once its daemon answers.
 ##	History: At bottom of script.
 
 ##	Copyright (c) 2026 Bubbles
@@ -29,6 +32,18 @@
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
 
+
+## An installed docker with no daemon behind it is no docker at all. The
+## timeout is for a DOCKER_HOST that never replies.
+fCtrWhyNot(){
+	local engine="${SHCL_DOCKER:-docker}"
+	local -a limit=()
+	if [[ "$(uname -m)" != x86_64 ]]; then echo "the build images are x86_64 only"; return 0; fi
+	if ! command -v "${engine}" >/dev/null 2>&1; then echo "there's no ${engine} here (SHCL_DOCKER names another)"; return 0; fi
+	if command -v timeout >/dev/null 2>&1; then limit=(timeout 30); fi
+	if ! "${limit[@]}" "${engine}" info >/dev/null 2>&1; then echo "${engine} doesn't answer"; fi
+	return 0
+}
 
 fCtrContext(){
 	local recipe="$1" ctx="$2" f
@@ -78,3 +93,4 @@ fCtrRunSelf(){
 ##		- 2026-10-17 JC: Created, out of cicd.bash, so a gate can find the image.
 ##		- 2026-10-19 JC: fCtrRunSelf, out of analyze-c.bash, for the soak too.
 ##		- 2026-10-19 JC: fCtrRunSelf takes several writable dirs, and SHCL_CTR_CARGO.
+##		- 2026-10-19 JC: fCtrWhyNot, so docker counts only when it answers.

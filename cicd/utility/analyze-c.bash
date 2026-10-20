@@ -112,10 +112,13 @@ if ((! ctu)) && command -v "${clangBin}" >/dev/null 2>&1 && ! printf '#include <
 fi
 if ((${#missing[@]})); then
 	if [[ -n "${SHCL_IN_IMAGE:-}" ]]; then echo "analyze-c: the build image has no ${missing[*]}" >&2; exit 2; fi
-	if command -v "${SHCL_DOCKER:-docker}" >/dev/null 2>&1; then fInImage "$@"; fi
+	# shellcheck source-path=SCRIPTDIR
+	source "${here}/include/ctr-image.bash"
+	whyNot="$(fCtrWhyNot)"
+	if [[ -z "${whyNot}" ]]; then fInImage "$@"; fi
 	## No tools and no way to the image: a skip here, a failure under the gate.
-	if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then echo "analyze-c: no ${missing[*]} and no docker to run the build image; the gate requires them" >&2; nBad=1
-	else echo "analyze-c: skipping, no ${missing[*]} and no docker to run the build image" >&2; echo analyze-c >> "${SHCL_GATE_SKIPS:-/dev/null}"; fi
+	if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then echo "analyze-c: no ${missing[*]}, and no build image, since ${whyNot}; the gate requires them" >&2; nBad=1
+	else echo "analyze-c: skipping, no ${missing[*]}, and no build image, since ${whyNot}" >&2; echo analyze-c >> "${SHCL_GATE_SKIPS:-/dev/null}"; fi
 	skipping=1
 fi
 
@@ -367,3 +370,4 @@ exit 0
 ##		- 2026-10-18 JC: The 3 bugprone checks that were off gate again, with each
 ##		  site suppressed at its line or filed.
 ##		- 2026-10-19 JC: --ctu, the cross-file clang analyzer, for --leakcheck.
+##		- 2026-10-19 JC: The build image only when docker answers.

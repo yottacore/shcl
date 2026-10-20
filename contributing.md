@@ -172,7 +172,7 @@ A run without `--gate` also wants the cross and packaging tools. `--quick` build
 
 None of this is needed for `--gate`, which is the gate that matters for a pull request.
 
-If you'd rather not install any of it, `cicd/cicd.bash --container` runs stages 1 to 6 in a Debian image with every tool at its pinned version. It needs docker, and builds the image from `cicd/container/` the first time. The sync, dogfood, demo gif and publish stages still run on your box. The stage flags pass through, so `cicd/cicd.bash --gate --container` is the gate in the image. Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points.
+With docker you may not need any of it. When docker answers on an x86_64 box, `cicd/cicd.bash` runs stages 1 to 6 in a Debian image with every tool at its pinned version, and builds the image from `cicd/container/` the first time. Without it they run on your box, with a one-line note saying why. `--no-container` keeps them on your box anyway, and `--container` fails rather than run without the image. The sync, dogfood, demo gif and publish stages always run on your box. The stage flags pass through, so `cicd/cicd.bash --gate` is the gate in the image, and so is the pre-push hook's. Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points.
 
 Two more images are there for now and then:
 
@@ -193,7 +193,7 @@ Two more images are there for now and then:
 
 - In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. A quick run never counts as a pass for the hook.
 
-- The slow leak and memory checks: a run with no flags ends its tests with them, and `--gate` and `--quick` leave them out. `--leakcheck` adds them back, so `cicd/cicd.bash --gate --leakcheck` is the gate plus all of them. `--no-leakcheck` drops them from any run, and can't be given with `--leakcheck`. `LEAKCHECK_STEPS` in `cicd/config.bash` lists them. Every Rust test under Miri is one of them, and that alone takes hours. It needs the dated nightly in `rust-toolchain.toml`, and skips without it. The C analyzer, the C soak and CodeQL run in the build image when their tools aren't on your box.
+- The slow leak and memory checks: a run with no flags ends its tests with them, and `--gate` and `--quick` leave them out. `--leakcheck` adds them back, so `cicd/cicd.bash --gate --leakcheck` is the gate plus all of them. `--no-leakcheck` drops them from any run, and can't be given with `--leakcheck`. `LEAKCHECK_STEPS` in `cicd/config.bash` lists them. Every Rust test under Miri is one of them, and that alone takes hours. It needs the dated nightly in `rust-toolchain.toml`, and skips without it. The C analyzer, the C soak and CodeQL run in the build image when their tools aren't on your box and docker answers.
 
 - CodeQL runs each language's security-and-quality suite over all 5, and any finding fails it. Fix it, or put a `codeql[QUERY-ID]` comment with the reason alone on the line above it, `// ...` or `# ...`, and `/* ... */` above commented-out C. A real bug gets a backlog item, and its ID goes in the reason. The databases and SARIF go in `cicd/artifacts/codeql/`.
 

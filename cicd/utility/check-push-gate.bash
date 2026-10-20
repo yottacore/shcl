@@ -9,8 +9,9 @@
 ##		should not is a push that reaches main untested, and nothing downstream
 ##		would say so. Only main is gated, so every other ref is checked for the
 ##		gate not running at all. cicd.bash itself runs on a stubbed repository
-##		too: what keeps a run from recording, the profiler calibration, and the
-##		mounts an extra --container image asks for.
+##		too: what keeps a run from recording, the profiler calibration, the
+##		mounts an extra --container image asks for, and when a run goes to the
+##		image at all.
 ##	Syntax:
 ##		check-push-gate.bash
 ##	Exit: 0 = all checks pass, 1 = a check failed (named), 2 = cannot set up.
@@ -449,7 +450,7 @@ CROSS_CHECKS=('stub|[[ -z "${STUB_CROSS_FAIL:-}" ]]')
 BINDING_CLIS=(); if [[ -n "${STUB_XCHECK:-}" ]]; then BINDING_CLIS=("stub|true"); fi
 LARGEDOC_MIB=0; CROSS_TARGETS=(); PROFILE_ENABLE=0; PACKAGE_ENABLE=0; GIF_ENABLE=0
 DOGFOOD_FIXED_DESTS=(); GIT_PUBLISH=(); RELEASE_NATIVE_CMD=()
-PROFILE_CHECK_BUILD_CMD=()
+PROFILE_CHECK_BUILD_CMD=(); CTR_PREP=''
 ## The profiler, with a calibration that leaves a file behind when it runs.
 if [[ -n "${STUB_PROFILE:-}" ]]; then
 	PROFILE_ENABLE=1; PROFILE_BUILD_CMD=(true); PROFILE_BIN=cicd/cicd.bash; PROFILE_TIMED=()
@@ -461,11 +462,13 @@ CFG
 { git -C "${eng}" add --all && git -C "${eng}" commit -q -m base; } || { echo "check-push-gate: engine repo commit failed" >&2; exit 2; }
 engTree="$(git -C "${eng}" rev-parse 'HEAD^{tree}')"
 engRecords="${eng}/.git/shcl-green-trees"
+## No docker unless a test brings its own, or every run would start the real
+## one on a stub repository.
 fEngine(){  ## fEngine [VAR=VALUE ...] -- ARGS... -> engRc, engRecorded
 	local envs=()
 	while [[ "$1" != "--" ]]; do envs+=("$1"); shift; done; shift
 	rm -f "${engRecords}"
-	engRc=0; env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS "${envs[@]}" bash "${eng}/cicd/cicd.bash" "$@" > "${work}/eng.log" 2>&1 || engRc=$?
+	engRc=0; env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS SHCL_DOCKER="${work}/no-docker" "${envs[@]}" bash "${eng}/cicd/cicd.bash" "$@" > "${work}/eng.log" 2>&1 || engRc=$?
 	engRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${engTree}"; then engRecorded=1; fi
 }
 fEngine -- --gate
@@ -573,22 +576,36 @@ fCalibrated --gate
 ((engRc == 0 && calibrated == 1)) || fail "a --gate run skipped the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
 fCalibrated --gate --no-tests
 ((engRc == 0 && calibrated == 0)) || fail "the hosted lint half ran the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
-fTest EstM5os an extra image builds into its own copies and leaves this tree as it was
-## 2026101514324713: an alpine run left a root-owned target dir where there had
-## been none, built into a gate worktree's target-gate, and swapped this box's C
-## CLI for a musl one that won't run here. Docker makes a missing mount point as
-## root and follows a link to mount where it leads, so the engine here is a stub
-## that writes down the mounts it's asked for, and those are held to that.
-if [[ "$(uname -m)" == x86_64 ]]; then
-	cat > "${work}/fake-docker" <<'EOF'
+## A docker that answers unless STUB_DOCKER_DOWN is set, and writes down each
+## call to STUB_DOCKER_LOG. A run writes down its mounts, or with
+## STUB_DOCKER_EXEC runs its command here, once, with its -e settings.
+cat > "${work}/fake-docker" <<'EOF'
 #!/usr/bin/env bash
+if [[ -n "${STUB_DOCKER_LOG:-}" ]]; then echo "${1:-}" >> "${STUB_DOCKER_LOG}"; fi
 case "${1:-}" in
+	info)  exit "${STUB_DOCKER_DOWN:-0}" ;;
 	image) exit 0 ;;
 	run)   ;;
 	*)     exit 1 ;;
 esac
 ## cat /etc/passwd or /etc/group
 if [[ " $* " != *" bash "* ]]; then echo "root:x:0:0::/root:/bin/sh"; exit 0; fi
+if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
+	echo run >> "${STUB_DOCKER_EXEC}"
+	if (($(wc -l < "${STUB_DOCKER_EXEC}") > 1)); then echo "fake-docker: a run started inside a run" >&2; exit 1; fi
+	shift; envs=(); dir=.
+	while (($#)); do
+		case "$1" in
+			--rm|--init)           shift ;;
+			-e)                    envs+=("$2"); shift 2 ;;
+			-w)                    dir="$2"; shift 2 ;;
+			-v|--user|--group-add) shift 2 ;;
+			*)                     break ;;
+		esac
+	done
+	shift
+	cd "${dir}" && exec env "${envs[@]}" "$@"
+fi
 : > "${STUB_MOUNTS}"
 while (($#)); do
 	if [[ "$1" == -v ]]; then
@@ -600,7 +617,61 @@ while (($#)); do
 	shift
 done
 EOF
-	chmod +x "${work}/fake-docker"
+chmod +x "${work}/fake-docker"
+## uname -m as another box would answer it.
+realUname="$(command -v uname)"
+for arch in x86_64 aarch64; do
+	mkdir -p "${work}/${arch}"
+	# shellcheck disable=SC2016  ## the stub's own text
+	printf '#!/usr/bin/env bash\nif [[ "${1:-}" == -m ]]; then echo %s; else exec %q "$@"; fi\n' "${arch}" "${realUname}" > "${work}/${arch}/uname"
+	chmod +x "${work}/${arch}/uname"
+done
+fCtr(){  ## fCtr [VAR=VALUE ...] -- ARGS... -> fEngine's, docker (its calls), ran (1 if the tests stage ran), noted (note lines)
+	local envs=()
+	while [[ "$1" != "--" ]]; do envs+=("$1"); shift; done; shift
+	rm -f "${work}/docker.log" "${work}/docker.exec" "${work}/eng.ran"
+	fEngine SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_LOG="${work}/docker.log" SHCL_CTR_CACHE="${work}/ctrcache" \
+		PATH="${work}/x86_64:${PATH}" STUB_GITDIR="${work}/eng.ran" "${envs[@]}" -- "$@"
+	docker=""; if [[ -f "${work}/docker.log" ]]; then docker="$(tr '\n' ' ' < "${work}/docker.log")"; docker="${docker% }"; fi
+	ran=0; if [[ -e "${work}/eng.ran" ]]; then ran=1; fi
+	noted="$(grep -c '^note: stages 1-6 run on this box' "${work}/eng.log" || true)"
+}
+fTest EtDCDE4 with no docker answering, stages 1-6 run here with a note
+## 2026101920461174: no docker, one whose daemon doesn't answer, and a box the
+## images can't run on all fall back to a local run, which still records.
+fCtr SHCL_DOCKER="${work}/no-docker" -- --gate
+if ((engRc != 0 || ran != 1 || noted != 1 || engRecorded != 1)) || ! grep -qF "there's no ${work}/no-docker here" "${work}/eng.log"; then
+	fail "a run with no docker: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
+fi
+fCtr STUB_DOCKER_DOWN=1 -- --gate
+if ((engRc != 0 || ran != 1 || noted != 1 || engRecorded != 1)) || [[ "${docker}" != info ]] || ! grep -qF "fake-docker doesn't answer" "${work}/eng.log"; then
+	fail "a run with a docker that doesn't answer: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}, docker calls '${docker}': $(tail -3 "${work}/eng.log")"
+fi
+fCtr PATH="${work}/aarch64:${PATH}" -- -y --no-sync
+if ((engRc != 0 || ran != 1 || noted != 1)) || [[ -n "${docker}" ]] || ! grep -qF "x86_64 only" "${work}/eng.log"; then
+	fail "a run on aarch64: exit ${engRc}, ran ${ran}, ${noted} note(s), docker calls '${docker}': $(tail -3 "${work}/eng.log")"
+fi
+fTest EtDCDE5 --no-container runs here and asks no docker
+fCtr -- --gate --no-container
+((engRc == 0 && ran == 1 && noted == 0 && engRecorded == 1)) && [[ -z "${docker}" ]] \
+	|| fail "--no-container: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}, docker calls '${docker}': $(tail -3 "${work}/eng.log")"
+fTest EtDCDE6 --container with --no-container, or with 2 images, is a usage error
+## Nothing on the command line resolves last-wins, so each is refused before
+## anything runs.
+for ctrArgs in "--container --no-container" "--no-container --container" "--container=alpine --no-container" "--container --container=alpine" "--container="; do
+	read -r -a ctrWords <<<"${ctrArgs}"
+	fCtr -- -y --no-sync "${ctrWords[@]}"
+	if ((engRc != 2 || ran != 0)) || [[ -n "${docker}" ]] || ! grep -qE "can't go together|names 2 images|names no image" "${work}/eng.log"; then
+		fail "cicd.bash took ${ctrArgs}: exit ${engRc}, ran ${ran}, docker calls '${docker}': $(tail -2 "${work}/eng.log")"
+	fi
+done
+fTest EstM5os an extra image builds into its own copies and leaves this tree as it was
+## 2026101514324713: an alpine run left a root-owned target dir where there had
+## been none, built into a gate worktree's target-gate, and swapped this box's C
+## CLI for a musl one that won't run here. Docker makes a missing mount point as
+## root and follows a link to mount where it leads, so the engine here is a stub
+## that writes down the mounts it's asked for, and those are held to that.
+if [[ "$(uname -m)" == x86_64 ]]; then
 	cp -r "${root}/cicd/container" "${eng}/cicd/"
 	mapfile -t ctrExtra < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
 	for f in "${ctrExtra[@]}"; do cp "${root}/${f}" "${eng}/${f}"; done
@@ -660,6 +731,25 @@ EOF
 else
 	fTestSkipBlock
 fi
+fTest EtDCDE7 with docker answering, a run goes to the main image, which records and starts no other
+## 2026101920461174: the run inside is told where it is, so it doesn't ask
+## docker again. The tree it records is the one on disk, recipes included.
+cp -r "${root}/cicd/container" "${eng}/cicd/"
+mapfile -t ctrExtra < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
+for f in "${ctrExtra[@]}"; do cp "${root}/${f}" "${eng}/${f}"; done
+ctrTree="$("${eng}/cicd/utility/green-tree.bash" tree "${eng}")"
+fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- --gate
+innerRuns="$(wc -l < "${work}/docker.exec" 2>/dev/null || echo 0)"
+ctrRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${ctrTree}"; then ctrRecorded=1; fi
+innerArgs="$(sed -n 's/^runs cicd\.bash //p' "${work}/eng.log")"
+if ((engRc != 0 || ran != 1 || noted != 0 || innerRuns != 1 || ctrRecorded != 1)) || [[ "${innerArgs}" != *--gate* || "${innerArgs}" == *container* ]]; then
+	fail "a run with docker answering: exit ${engRc}, ran ${ran}, ${noted} note(s), ${innerRuns} run(s) in the image, recorded ${ctrRecorded}, inner args '${innerArgs}': $(tail -3 "${work}/eng.log")"
+fi
+fTest EtDCDE8 --container with a silent docker fails rather than run here
+fCtr STUB_DOCKER_DOWN=1 -- -y --no-sync --container
+if ((engRc != 1 || ran != 0)) || ! grep -qF "can't run: ${work}/fake-docker doesn't answer" "${work}/eng.log"; then
+	fail "--container with docker down: exit ${engRc}, ran ${ran}: $(tail -3 "${work}/eng.log")"
+fi
 
 fTestEnd
 (( rc == 0 )) && echo "check-push-gate: OK: the tree matches a commit of the working copy, a recorded tree skips the gate, only a push to main runs it with the full gate, a red gate refuses, the gate builds into target-gate and runs once on main's commit in a multi-ref push, no gate sees a linked worktree's GIT_DIR, the drift check judges the pushed tree as main, a cut needs the banner tag on the remote or in the push, and a partial run records nothing"
@@ -686,3 +776,4 @@ exit "${rc}"
 ##		- 2026-10-19 JC: --gate in place of --ci, and an engine from before it. --quick leaves out what QUICK_SKIP names.
 ##		- 2026-10-19 JC: --leakcheck, and the leak checks in a run with no flags.
 ##		- 2026-10-19 JC: --no-leakcheck, and the pair refused.
+##		- 2026-10-19 JC: A run goes to the main image when docker answers, and --no-container.

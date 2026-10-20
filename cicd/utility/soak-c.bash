@@ -44,7 +44,10 @@ for t in heaptrack heaptrack_print cc; do
 done
 if ((${#missing[@]})); then
 	if [[ -n "${SHCL_IN_IMAGE:-}" ]]; then echo "soak-c: the build image has no ${missing[*]}" >&2; exit 2; fi
-	if command -v "${SHCL_DOCKER:-docker}" >/dev/null 2>&1; then
+	# shellcheck source-path=SCRIPTDIR
+	source "${here}/include/ctr-image.bash"
+	whyNot="$(fCtrWhyNot)"
+	if [[ -z "${whyNot}" ]]; then
 		## config.bash expands the cap while it loads; the image's tag needs it.
 		CPU_CAP="${CPU_CAP:-1}"
 		# shellcheck source-path=SCRIPTDIR
@@ -55,8 +58,8 @@ if ((${#missing[@]})); then
 		rc=0; fCtrRunSelf "${work}" "${art}" "${root}/cicd/utility/soak-c.bash" || rc=$?
 		exit "${rc}"
 	fi
-	if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then echo "soak-c: no ${missing[*]} and no docker to run the build image; the gate requires them" >&2; nBad=1
-	else echo "soak-c: skipping, no ${missing[*]} and no docker to run the build image" >&2; echo soak-c >> "${SHCL_GATE_SKIPS:-/dev/null}"; fi
+	if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then echo "soak-c: no ${missing[*]}, and no build image, since ${whyNot}; the gate requires them" >&2; nBad=1
+	else echo "soak-c: skipping, no ${missing[*]}, and no build image, since ${whyNot}" >&2; echo soak-c >> "${SHCL_GATE_SKIPS:-/dev/null}"; fi
 	skipping=1
 fi
 
@@ -109,3 +112,4 @@ exit 0
 
 ##	History:
 ##		- 2026-10-19 JC: Created.
+##		- 2026-10-19 JC: The build image only when docker answers.
