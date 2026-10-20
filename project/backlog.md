@@ -333,7 +333,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
 	- ID: 2026101911300000
 	- Type: Bug
-	- Status: Started
+	- Status: Waiting on signoff
 	- Severity: High
 	- Opened: 20261019-113000
 	- Opened by: shclwrap
@@ -365,6 +365,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Doc comments: `migrate`, `Migration.ambiguous` and `.lost`, `migrate_spelling`, `value_edits`.
 		- Tests the ports have to pass: corpus migrate goldens 118, 119, 122, 124 and 170; cli-regress EtD6lsl to EtD6lsq, plus the revived Eq4Rkv2, Eq4Rkv3, Eq4Rkv4, ErUn2Bt, EqGUXeD, Eq4wD3b and Eq4wD3c; crosscheck; and each runner's twin of Rust's 3 new tests (EtD5PtP, EtD5PtQ, EtD5PtR), with fresh IDs. The upgrade test's `name: 'say \"hi\"'` becomes `name: 'say "hi"'` in Go `upgrade_test.go`, Python `conformance.py` and C `conformance.c`, as in Rust's Es2R4TW.
 		- Traps: `"C:\work"` with one backslash is no pair, so ErpZsUi stays. check-migrate's `fOneLine2x` now writes a 2.x element holding a line break through the Rust CLI's `--set`, since only the current writer gives the `◉NEWLINE◉` form.
+		- 20261019: the Go, Python and C ports are done on `bslash`, mirroring lib.rs: `v2Text`/`_v2_text`/`v2_text`, the same 4 call sites, the quoted-name branch counting lost with no early return, the doc comments, and the CLI's lost message. `shcl.hpp` needed only its `Migration` comment, since `migrate` and `upgrade` already wrap the C calls and the struct has no new field.
+		- Waits on signoff since it reverses the 2026-10-05 answer in value-syntax.md and changes what `migrate --write` and `upgrade --write` write.
 	- Decisions:
 		- (c). `upgrade` and `migrate` write the value 2.x read, in the current syntax. So `"C:\\new"` becomes `"C:\new"` and `t: C:\temp` becomes `t: "C:◉TAB◉emp"` (me, on JC's criteria).
 			- An upgrade that keeps what a file means is what a user expects, and it's what other format migrators do.
@@ -380,11 +382,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `check-migrate.bash`: drop the backslash allowance, and see it go red on the old code.
 		- Docs: value-syntax.md's migrate table and the bullet under it, and spec.md's "One change is quiet" paragraph and the "but for a backslash pair" line in its migrate section.
 		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
-	- Actual fix: in Rust, migrate reads each piece and selector body as the text 2.x read, and counts a quoted name with a backslash pair lost.
+	- Actual fix: in all 4 bindings, migrate reads each piece and selector body as the text 2.x read, and counts a quoted name with a backslash pair lost.
 	- Branch: `bslash`
-	- Commit: `ddc4f8e4` (Rust half)
-	- Test case: Rust EtD5PtP, EtD5PtQ, EtD5PtR, Es2R4TW; corpus 118, 119, 122, 124, 170; cli-regress EtD6lsl to EtD6lsq and the revived rows above; check-migrate Eq5YPgP with no backslash allowance.
-	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. The ports' code and comments come with the ports.
+	- Commit: `ddc4f8e4` (Rust half), `ccde6330` (Go, Python, C)
+	- Test case: Rust EtD5PtP, EtD5PtQ, EtD5PtR, Es2R4TW; their twins Go EtDC3Ca, EtDC3FC, EtDC3Hr, Python EtDC3KV, EtDC3N7, EtDC3Po, and C EtDC3SS, EtDC3V8, EtDC3Xn; the upgrade test's `say "hi"` in Go Es2fws2, Python Es2k1Fd and C Es2qPd2; corpus 118, 119, 122, 124, 170; cli-regress EtD6lsl to EtD6lsq and the revived rows above; check-migrate Eq5YPgP with no backslash allowance.
+	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. In the ports: the same arms in `shcl.go`, `shcl.py` and `shcl.h`, each with 5 `v2_text` uses as in lib.rs and one new lost count; the doc comments on `Migration`, `migrate`, `migrate_spelling`, `value_edits` and `v2_element_text`; the 3 CLIs' lost message; `shcl.hpp`'s `Migration` comment. No other doc in the tree still says a 2.x backslash stays.
+	- Verified: with the old `shcl.go`, `shcl.py` and `shcl.h`, each port failed the 5 corpus goldens, its 3 new tests, and its `say "hi"` upgrade test. With the fix: `go test -count=1` for both Go modules, `-race`, the Python runner and soak, the C runner with the strict warnings, `cargo test`, cli-regress over all 4 CLIs (619 rows), crosscheck over the corpus (22236 comparisons), check-migrate (630 documents), check-veneer, sanitize-c, `test-ids.py check`, go vet, staticcheck, gofmt, ruff, and mypy. A quoted name with a backslash pair before a same-line fence, and a trailing backslash, a backslash before a multibyte character, and a `\'` in single quotes, migrate the same in all 4.
 
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
