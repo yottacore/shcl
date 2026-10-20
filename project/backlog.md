@@ -32,6 +32,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 Outside reports use GitHub Issues (see `contributing.md`), but the work itself is tracked here.
 
 ## Issues
+
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
@@ -333,7 +334,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
 	- ID: 2026101911300000
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: High
 	- Opened: 20261019-113000
 	- Opened by: shclwrap
@@ -388,6 +389,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: Rust EtD5PtP, EtD5PtQ, EtD5PtR, Es2R4TW; their twins Go EtDC3Ca, EtDC3FC, EtDC3Hr, Python EtDC3KV, EtDC3N7, EtDC3Po, and C EtDC3SS, EtDC3V8, EtDC3Xn; the upgrade test's `say "hi"` in Go Es2fws2, Python Es2k1Fd and C Es2qPd2; corpus 118, 119, 122, 124, 170; cli-regress EtD6lsl to EtD6lsq and the revived rows above; check-migrate Eq5YPgP with no backslash allowance.
 	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. In the ports: the same arms in `shcl.go`, `shcl.py` and `shcl.h`, each with 5 `v2_text` uses as in lib.rs and one new lost count; the doc comments on `Migration`, `migrate`, `migrate_spelling`, `value_edits` and `v2_element_text`; the 3 CLIs' lost message; `shcl.hpp`'s `Migration` comment. No other doc in the tree still says a 2.x backslash stays.
 	- Verified: with the old `shcl.go`, `shcl.py` and `shcl.h`, each port failed the 5 corpus goldens, its 3 new tests, and its `say "hi"` upgrade test. With the fix: `go test -count=1` for both Go modules, `-race`, the Python runner and soak, the C runner with the strict warnings, `cargo test`, cli-regress over all 4 CLIs (619 rows), crosscheck over the corpus (22236 comparisons), check-migrate (630 documents), check-veneer, sanitize-c, `test-ids.py check`, go vet, staticcheck, gofmt, ruff, and mypy. A quoted name with a backslash pair before a same-line fence, and a trailing backslash, a backslash before a multibyte character, and a `\'` in single quotes, migrate the same in all 4.
+	- Acceptance signoff: Closed on JC's criteria. JC, 20261019, left the call to the Objectives, and (c) was offered as the reversal of the 2026-10-05 answer, so it moves no decision JC kept. Each new test failed on the old code in all 4 bindings, and the gates above passed.
+	- Closed: 20261019-214731
 
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
