@@ -380,6 +380,35 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Pre-next-cut.
 		- Verify or ensure that builds clean up *stale* artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
 
+- The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
+	- ID: 2026101921290754
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Related IDs: 2026100413052100
+	- Version and build: dev at `baca8c01`
+	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64 or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
+	- Verified: 20261019, the windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux release on all 206 corpus cases, in about 30 s.
+	- Requirements:
+		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
+		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
+
+- The windows setup is never run by a test, so NSIS's installer code goes untested
+	- ID: 2026101921290791
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Needs external testing: Y. A windows host, hosted or a test box.
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Version and build: dev at `baca8c01`
+	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
+	- Requirements:
+		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
+		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
+
 - Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
 	- ID: 2026101921290717
 	- Type: Enhancement
@@ -412,35 +441,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-deps EtDJq3P (crates), EtDJq3Q (Go), EtDJq3R (Python), EtDJq3S (C includes), EtDJq3T (libraries in code), EtDJq3U (built CLIs), EtDJq3V (vendored trees), EtDJq3W (shipped files are ours).
 	- Acceptance signoff: Self-closed: the intent was clear, the check does what the item asked, and it was seen to fail for each language.
 	- Closed: 20261019-220911
-
-- The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
-	- ID: 2026101921290754
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261019-212908
-	- Opened by: 2026101920461160
-	- Related IDs: 2026100413052100
-	- Version and build: dev at `baca8c01`
-	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64 or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
-	- Verified: 20261019, the windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux release on all 206 corpus cases, in about 30 s.
-	- Requirements:
-		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
-		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
-
-- The windows setup is never run by a test, so NSIS's installer code goes untested
-	- ID: 2026101921290791
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Needs external testing: Y. A windows host, hosted or a test box.
-	- Opened: 20261019-212908
-	- Opened by: 2026101920461160
-	- Version and build: dev at `baca8c01`
-	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
-	- Requirements:
-		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
-		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
 
 - `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
 	- ID: 2026101911300000
