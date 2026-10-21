@@ -3451,6 +3451,14 @@ while IFS= read -r f; do
 	fi
 done < <(printf '%s\n' "${shellFileList[@]}")
 
+fTest EtIrTUG 2026102021300000-no-worktree-prune
+##	2026102021300000: check-migrate pruned worktrees from inside the image,
+##	where only its own tree is mounted, so every other worktree lost its entry.
+while IFS= read -r f; do
+	hits="$(grep -nE 'worktree[[:space:]]+prune' "${f}" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+	[[ -z "${hits}" ]] || fBad "${f#"${repoDir}/"}: a prune drops the worktrees an image can't see: ${hits}"
+done < <(printf '%s\n' "${shellFileList[@]}")
+
 fTest Et6AutN 2026101816034794-quick-skips-name-one-step-each
 ##	2026101816034794: --quick drops a step by plain text. A name that matches
 ##	nothing goes stale after a rename with no failure, and one that matches 2

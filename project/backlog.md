@@ -437,6 +437,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- windows-arm64: run it on the hosted `windows-11-arm` runner, if a public repo gets one.
 		- freebsd-x86_64: boot it under qemu-system-x86_64 from a pinned, hashed FreeBSD image, if that costs a few minutes at most.
 
+- A run in the image unregisters every other worktree of the repo
+	- ID: 2026102021300000
+	- Type: Bug
+	- Status: Done
+	- Severity: Medium
+	- Opened: 20261020-213000
+	- Opened by: me, while a `--gate` ran in `gatewt-r1020`
+	- Version and build: dev at `db311c7a`
+	- Steps to reproduce: keep a worktree beside `repo/`, then run `cicd.bash --gate` from another worktree, which runs its stages in the image.
+	- Incorrect behavior: the other worktree's entry under `.git/worktrees/` is gone once check-migrate has run. git in that folder then fails with `not a git repository`, and its index is lost. The files stay. `gatewt-r1019` lost its entry the same way, in an earlier run.
+	- Expected behavior: a run touches no worktree but its own.
+	- Actual cause: check-migrate's cleanup ran `git worktree prune` on every exit. In the image only the running tree is mounted, so every other worktree's folder reads as missing and its entry goes. The pre-push hook had the same prune on the host, where it drops a worktree whose folder is on an unmounted disk.
+	- Actual fix: both prunes are gone. Each script removes the worktree it made with `worktree remove --force`, as before. An entry left by a failed remove is harmless, and git gc expires it.
+	- Swept: every script under `cicd/` and the hook, for `worktree prune`, `worktree remove` and `worktrees/`. check-push-gate removes worktrees only in its own scratch repos.
+	- Branch: `bsquote`
+	- Test case: shell-regress `EtIrTUG` fails any `worktree prune` in a shell file under `cicd/` or the hook. It failed on both old scripts.
+	- Verified: check-migrate built its 2.x reference through its own worktree and removed it, and the 3 other worktrees stayed listed. shell-regress, check-push-gate and shellcheck pass.
+	- Acceptance signoff: Self-closed: the test failed on the old scripts and passes now, and the live run kept the other worktrees.
+	- Closed: 20261020-213500
+
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
 	- ID: 2026101921290754
 	- Type: Enhancement

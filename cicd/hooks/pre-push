@@ -89,8 +89,8 @@ tmpTree=""; treeAdded=0
 fCleanup(){
 	[[ -n "${tmpTree}" ]] || return 0
 	if ((treeAdded)); then git -C "${root}" worktree remove --force "${tmpTree}" >/dev/null 2>&1 || true; fi
+	## No prune: it's global, and drops every worktree whose folder is away (2026102021300000).
 	rm -rf "${tmpTree}"
-	git -C "${root}" worktree prune >/dev/null 2>&1 || true
 	tmpTree=""; treeAdded=0
 }
 trap fCleanup EXIT
