@@ -200,6 +200,8 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-cpu-floor.bash
+	cicd/utility/check-win-release.bash
+	cicd/utility/check-win-setup.bash
 	cicd/utility/check-completions.bash
 	cicd/utility/check-deps.bash
 	cicd/utility/check-doc-examples.bash
@@ -234,6 +236,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/win-runners.bash
 	cicd/hooks/pre-push
 	cicd/utility/include/c-flags.bash
+	cicd/utility/include/corpus-cases.bash
 	cicd/utility/include/ctr-image.bash
 	cicd/utility/include/gfs-rotate.bash
 	cicd/utility/include/largedoc-gen.bash
@@ -492,8 +495,12 @@ CROSS_CHECKS=(
 ## a few seconds, since dogfood still copies quick builds out.
 # shellcheck disable=SC2154  ## built_arts is the engine's, set in stage 6
 fX86Arts(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == *-x86_64 ]]; then printf '%s\n' "${a#*|}"; fi; done; }
+## The windows-x86_64 build over the corpus under wine, against the native
+## one (2026101921290754). About 35 s in the image, 2.5 minutes on this host.
+fWinArt(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == windows-x86_64 ]]; then printf '%s\n' "${a#*|}"; fi; done; }
 RELEASE_CHECKS=(
 	"x86_64 builds run on x86-64-v1, Penryn and Phenom|mapfile -t x86Arts < <(fX86Arts); floorBoot=(--run \"\${RELEASE_NATIVE_BIN}\"); if ((quick)); then floorBoot=(); fi; cicd/utility/check-cpu-floor.bash \"\${floorBoot[@]}\" \"\${x86Arts[@]}\""
+	"windows-x86_64 build runs the corpus under wine like the native one|winArt=\"\$(fWinArt)\"; if [[ -n \"\${winArt}\" ]]; then cicd/utility/check-win-release.bash \"\${RELEASE_NATIVE_BIN}\" \"\${winArt}\"; else echo 'check-win-release: no windows-x86_64 build'; fi"
 )
 
 ## What --quick leaves out, each matched as plain text against one step of

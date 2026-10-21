@@ -1464,6 +1464,16 @@ for failLine in 'src.c:3:5: error: conflicting types for x' 'SC2086 (info): Doub
 	lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260102-000000.log" 2>&1 || true)"
 	[[ "${lintOut}" == "FAILED "* ]] || fBad "lint-report.bash called a failed run clean (${failLine}): ${lintOut@Q}"
 done
+fTest EtIU3uI 2026102019120000-lint-report-extra-echo
+##	2026102019120000: the `extra:` echo of a python step run with
+##	`-W error::ResourceWarning` read as an error and a warning, so a passing
+##	run said FAILED. The same text from a tool still counts.
+printf 'OK: lint\nextra: python3 -X dev -W error::ResourceWarning tests/x.py\nextra: tool --warning-is-fatal\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash counted the pipeline's extra: echo: ${lintOut@Q}"
+printf 'OK: lint\nx.py:1: ResourceWarning: unclosed file\nsrc.c:3:5: error: conflicting types for x\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "FAILED "*"(1 error line(s), 1 warning line(s), "* ]] || fBad "lint-report.bash missed tool output beside the extra: filter: ${lintOut@Q}"
 fTest Epu2f58 20260909-24-lint-report-marker
 ##	20260909 item 24: --check --file wrote the named log's stamp into the shared
 ##	marker, so a name that sorts high left the gate at SEEN for good.
@@ -3440,6 +3450,43 @@ while IFS= read -r f; do
 		while IFS= read -r h; do fBad "${f#"${repoDir}/"}: unguarded grep in an assigned substitution: ${h}"; done <<<"${hits}"
 	fi
 done < <(printf '%s\n' "${shellFileList[@]}")
+
+fTest EtIrTUG 2026102021300000-no-worktree-prune
+##	2026102021300000: check-migrate pruned worktrees from inside the image,
+##	where only its own tree is mounted, so every other worktree lost its entry.
+while IFS= read -r f; do
+	hits="$(grep -nE 'worktree[[:space:]]+prune' "${f}" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+	[[ -z "${hits}" ]] || fBad "${f#"${repoDir}/"}: a prune drops the worktrees an image can't see: ${hits}"
+done < <(printf '%s\n' "${shellFileList[@]}")
+
+fTest EtLh7er 2026102106592600-miri-test-time-limit
+##	2026102106592600: 5 scale tests sat under Miri for 39 hours and the run
+##	never ended. A stub cargo lists 2 tests and sleeps on one; that one has to
+##	fail by name, soon, and the other not at all.
+miriT="${tmpDir}/miri-limit"
+mkdir -p "${miriT}/cicd/utility/include" "${miriT}/source/rust/tests" "${miriT}/bin"
+cp "${repoDir}/cicd/utility/sanitize-rust.bash" "${miriT}/cicd/utility/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${miriT}/cicd/utility/include/"
+: > "${miriT}/source/rust/tests/lone.rs"
+printf '[nightly]\nchannel = "nightly-stub"\n' > "${miriT}/rust-toolchain.toml"
+printf '#!/usr/bin/env bash\necho nightly-stub-x86_64-unknown-linux-gnu\n' > "${miriT}/bin/rustup"
+cat > "${miriT}/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+case " $* " in
+	*" --no-run "*) exit 0 ;;
+	*" --list "*) printf 'brisk: test\nslowpoke: test\n' ;;
+	*" --exact slowpoke "*) exec sleep 30 ;;
+esac
+EOF
+chmod +x "${miriT}/bin/rustup" "${miriT}/bin/cargo"
+miriRc=0; t0=${SECONDS}
+# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+PATH="${miriT}/bin:${PATH}" SHCL_MIRI_TEST_SECS=1 CPU_CAP=2 SHCL_GATE_STRICT='' \
+	bash "${miriT}/cicd/utility/sanitize-rust.bash" --miri >"${miriT}/out" 2>"${miriT}/err" || miriRc=$?
+((miriRc == 1)) || fBad "sanitize-rust with a stuck Miri test exited ${miriRc}, not 1: $(cat "${miriT}/err")"
+((SECONDS - t0 < 20)) || fBad "sanitize-rust took $((SECONDS - t0)) s to stop a test held to 1 s"
+[[ "$(grep -c 'slowpoke .* ran past 1 s under Miri' "${miriT}/err" || true)" == 2 ]] || fBad "the stuck Miri test isn't named once per binary: $(cat "${miriT}/err")"
+! grep -q brisk "${miriT}/err" || fBad "a Miri test that passed was reported: $(cat "${miriT}/err")"
 
 fTest Et6AutN 2026101816034794-quick-skips-name-one-step-each
 ##	2026101816034794: --quick drops a step by plain text. A name that matches

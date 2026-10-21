@@ -116,7 +116,10 @@ fi
 ##	on every run), and the echoed command lines that contain the word: cppcheck's
 ##	`--enable=warning`, and clippy's `-D warnings`, which the pre-push gate's
 ##	nested run echoes during publish and which used to read as a finding.
+##	`extra: CMD` is the pipeline echoing a step it runs, never tool output, and
+##	python's `-W error::ResourceWarning` hit both scans (2026102019120000).
 warns="$(grep -inE 'warning|rustsec-|vulnerab|unmaintained|yanked' "$log" 2>/dev/null \
+	| grep -vE '^[0-9]+:extra: ' \
 	| grep -viE 'generated 0 warnings|: 0 warnings|no warnings|0 warnings emitted' \
 	| grep -viE 'no vulnerabilities found|affected by 0 vulnerabilities|this scan also found|appear to call|^[0-9]+:these vulnerabilities\.$|enable=warning|-D warnings' || true)"
 if [[ -n "$warns" ]]; then n=$(printf '%s\n' "$warns" | grep -c .); else n=0; fi
@@ -125,7 +128,8 @@ if [[ -n "$warns" ]]; then n=$(printf '%s\n' "$warns" | grep -c .); else n=0; fi
 ##	way, and the lower-case words turn up in passing output. The pipeline stops
 ##	two ways: an unexpected error raises the ABORTED line, and a check that fails
 ##	on purpose prints `[ FAILED: ... ]` and exits.
-errs="$(grep -nE '(^|[^[:alnum:]_-])error(\[|:)|\bSC[0-9]{4}\b|test result: FAILED|^--- FAIL|^FAIL\b|panicked at|^Traceback \(most recent call last\)|CICD ABORTED|^\[ FAILED: ' "$log" 2>/dev/null || true)"
+errs="$(grep -nE '(^|[^[:alnum:]_-])error(\[|:)|\bSC[0-9]{4}\b|test result: FAILED|^--- FAIL|^FAIL\b|panicked at|^Traceback \(most recent call last\)|CICD ABORTED|^\[ FAILED: ' "$log" 2>/dev/null \
+	| grep -vE '^[0-9]+:extra: ' || true)"
 if [[ -n "$errs" ]]; then e=$(printf '%s\n' "$errs" | grep -c .); else e=0; fi
 
 tag="FLAG"; ((check)) && tag="NEW"

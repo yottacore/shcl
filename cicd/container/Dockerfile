@@ -23,7 +23,8 @@ RUN sed -i -e "s|^URIs: http://deb.debian.org/debian-security|URIs: http://snaps
 # gcc-12 and gcc-13 next to the default 14, and clang, for check-c-compilers;
 # 13 is the hosted runner's. zsh, bash-completion, nsis, rpm, man-db, strace,
 # locales and jq are for rows in the test stage that fail a skip under --gate.
-# qemu, busybox and cpio boot the CPU floor check. libicu and libgssapi are for pwsh.
+# qemu, busybox and cpio boot the CPU floor check, and wine runs the windows
+# build over the corpus. libicu and libgssapi are for pwsh.
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
 		bash ca-certificates curl wget openssl git xz-utils unzip file jq \
@@ -31,7 +32,7 @@ RUN apt-get update \
 		gcc-mingw-w64-x86-64 nsis rpm \
 		python3 python3-venv \
 		zsh bash-completion strace locales man-db \
-		qemu-system-x86 busybox cpio \
+		qemu-system-x86 busybox cpio wine wine64 \
 		libicu76 libgssapi-krb5-2 \
 	&& rm -rf /var/lib/apt/lists/*
 

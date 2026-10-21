@@ -99,8 +99,9 @@ fi
 
 tmpDir="$(mktemp -d)"; tree=""
 fCleanup(){
+	##	Never prune: in the image only this tree is mounted, so every other
+	##	worktree reads as gone and loses its entry (2026102021300000).
 	if [[ -n "${tree}" ]]; then git -C "${root}" worktree remove --force "${tree}" >/dev/null 2>&1 || true; fi
-	git -C "${root}" worktree prune >/dev/null 2>&1 || true
 	rm -rf "${tmpDir}"
 }
 trap fCleanup EXIT

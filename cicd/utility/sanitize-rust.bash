@@ -13,7 +13,10 @@
 ##		  the test, rerun that binary with --test-threads=1 and a filter.
 ##		- Miri skips tests that call FFI or start a process, each marked with
 ##		  why. Tests that walk the whole corpus or fuzz take minutes each there,
-##		  so they're marked too and only run under --miri-all.
+##		  so they're marked too and only run under --miri-all. Scale and timing
+##		  tests never finish there, so Miri skips them always.
+##		- A Miri test still going after SHCL_MIRI_TEST_SECS (default 7200) is
+##		  stopped and fails by name (2026102106592600).
 ##	Syntax:
 ##		sanitize-rust.bash [--asan] [--miri] [--miri-all] [--only=REGEX]
 ##		  --asan        the whole suite under ASan and LSan
@@ -155,6 +158,11 @@ if ((doMiri)); then
 			echo "sanitize-rust: no test matches ${only}" >&2
 			nBad=$((nBad + 1))
 		fi
+		## GNU timeout signals its whole process group, so the test binary
+		## cargo started goes too.
+		limit="${SHCL_MIRI_TEST_SECS:-7200}"
+		[[ "${limit}" =~ ^[1-9][0-9]*$ ]] || { echo "sanitize-rust: SHCL_MIRI_TEST_SECS must be a whole number of seconds" >&2; exit 2; }
+		command -v timeout >/dev/null 2>&1 || { echo "sanitize-rust: no timeout, so a stuck Miri test would never end" >&2; exit 2; }
 		nLive=0
 		for i in "${!jobTest[@]}"; do
 			if ((nLive >= cap)); then
@@ -162,7 +170,7 @@ if ((doMiri)); then
 				nLive=$((nLive - 1))
 			fi
 			# shellcheck disable=2086  ## the selector is 2 words
-			{ jrc=0; env "${miriEnv[@]}" "${miriCargo[@]}" ${jobSel[i]} -- --exact "${jobTest[i]}" >"${work}/miri-${i}.log" 2>&1 || jrc=$?; echo "${jrc}" >"${work}/miri-${i}.rc"; } &
+			{ jrc=0; timeout -k 60 "${limit}" env "${miriEnv[@]}" "${miriCargo[@]}" ${jobSel[i]} -- --exact "${jobTest[i]}" >"${work}/miri-${i}.log" 2>&1 || jrc=$?; echo "${jrc}" >"${work}/miri-${i}.rc"; } &
 			nLive=$((nLive + 1))
 		done
 		wait
@@ -170,6 +178,11 @@ if ((doMiri)); then
 			jrc=""
 			if [[ -f "${work}/miri-${i}.rc" ]]; then read -r jrc <"${work}/miri-${i}.rc"; fi
 			[[ "${jrc}" == 0 ]] && continue
+			if [[ "${jrc}" == 124 || "${jrc}" == 137 ]]; then
+				echo "sanitize-rust: ${jobTest[i]} (${jobSel[i]}) ran past ${limit} s under Miri and was stopped" >&2
+				nBad=$((nBad + 1))
+				continue
+			fi
 			fShow "${work}/miri-${i}.log"
 			echo "sanitize-rust: ${jobTest[i]} (${jobSel[i]}) under Miri exited ${jrc:-without a result}" >&2
 			nBad=$((nBad + 1))
@@ -185,3 +198,4 @@ echo "sanitize-rust: OK: nothing reported"
 ##	History:
 ##		- 2026-10-17 JC: Created.
 ##		- 2026-10-19 JC: --only, and --miri-all is a --leakcheck step.
+##		- 2026-10-21 JC: A time limit per Miri test.

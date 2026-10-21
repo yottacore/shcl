@@ -272,7 +272,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Question: a run with no flags now takes hours longer, since `--miri-all` alone was likely several hours when it was stopped at 72 of 155 tests. Keep it in the bare run, or move it behind `--leakcheck` alone?
 				- JC, 20261019: it stays in the bare run.
 			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for 29 minutes. Stopped there, short of its result.
-			- Needs local test suite run: a whole `--miri-all`, and a full run with no flags.
+			- 20261021: a whole `--miri-all` on `bsquote` finished in 1h45m, after 2026102106592600. Its one failure, a test that saves to disk, now skips under Miri.
+			- Needs local test suite run: a full run with no flags.
 		- 20261019, branch `codeql`, CodeQL: `cicd/utility/codeql-scan.bash` covers all 5 languages. The step, its tests and the decisions are on 2026101707582803.
 			- Rust: the pinned CodeQL has no Rust suppression query, so `cicd/codeql/rust-suppression` is the same query the other languages have, over Rust's comments. Rust had no findings.
 			- Go: 1 finding, a dead store in `parseIntText`, fixed. The other 3 bindings' twins have none.
@@ -287,6 +288,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Swept: Go's DLLs and procs are package-level `NewLazyDLL` vars, and Rust and C declare their imports, so none of them builds anything per call. The Python CLI's console check loads kernel32 once a run. The runner's windows fixtures load it once per test, in test code.
 			- Commit: `2251a602`.
 			- Needs external testing: the hosted windows job, for `Et01jhM` and `EtD4W76`.
+		- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `Et01jhM` and `EtD4W76`. Left: a whole `--miri-all` and a full run with no flags. JC's bare run from 17:04 is in its `--miri-all`.
 	- Decisions:
 		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
 		- The Rust extractor swaps a stable toolchain for 1.98.1 and would install it, so CodeQL runs on the dated nightly from rust-toolchain.toml, which it keeps. The crates Cargo.lock names are fetched before the image starts, since it has no network, into the cargo home `--container` runs use. Under the repo, the crates' own Cargo.toml and README files threw off check-docs' greps of the tree, and shell-regress's `EsndgSX` went red on it (me).
@@ -327,6 +329,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
 			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
 			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
+		- 20261020: `cicd.bash --gate` with neither flag, in `gatewt-r1020` at `db311c7a`, started the main image once and ended with `tree c3687f1204d6 recorded`. Left: the bare run, which is JC's from 17:04, and a pre-push gate on a main push.
 	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
@@ -358,6 +361,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A whole run then removes profiler sample files whose graph is gone. After a run in the image it also removes our image tags the recipes no longer hash to, every tag of a name with no recipe, and dangling images and stopped containers with our label. Runs and builds carry that label now. Names are matched whole, so other projects' images are never touched.
 			- A gate's build of the image removes the old tags too.
 			- One line at the end says what went and about how much.
+		- 20261020: the `--gate` in `gatewt-r1020` ended with `cleanup: removed shcl-cicd-alpine:c8cd323342bd, shcl-cicd-ubuntu:9aabbd056009, this run's temp files, about 7.8 GB`. Left: 2 bare runs in the image, the second stopped partway.
 		- Swept: every `mktemp` under `cicd/` and in the pre-push hook. All but check-docs and green-tree had an EXIT trap already. config.bash's inline test builds remove their binary after, and now sit in the run's dir. Every docker run and build goes through cicd.bash or ctr-image.bash, and both add the label.
 		- Verified: each new check-push-gate row went red with its part taken out, then passed: no trap, no read-only fallback, no sample-file sweep, no image sweep, and the gate's build without the tag drop. check-push-gate, shell-regress, check-docs, shellcheck over every cicd script, `test-ids.py check` and markdownlint pass. A killed check-docs leaves none of its own scratch.
 	- Decisions:
@@ -368,10 +372,116 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a1ca716f`
 	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc` and `EtDQOSv`.
 
+- A long run reads the live tree, so nothing can merge or check out there until it ends
+	- ID: 2026102108300000
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Medium
+	- Opened: 20261021-083000
+	- Related IDs: 2026102021300000, 2026102106592600
+	- Version and build: dev at `db311c7a`
+	- Problem description: a bare run took over 12 hours and read `repo/` the whole time, so `bsquote` sat unmerged. A bash script edited while it runs also resumes into the new text.
+	- Requirements:
+		- `cicd.bash` runs from a frozen copy of the tree at its start, such as a detached worktree or a ZFS clone, so merges, checkouts and edits in the live tree can't reach a running build.
+		- Uncommitted work in the tree goes into the copy, and the run says what it copied.
+		- The copy shares the target dirs and caches, or the first run of each costs a cold build.
+		- The green-tree record still lands in the real repo.
+	- Workaround: `git worktree lock` on each long-lived worktree, so a prune from any tool skips it. `wt-bsq` is locked since 2026-10-21.
+
+- The freebsd-x86_64 release build never runs in a pipeline test
+	- ID: 2026102022450000
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261020-224500
+	- Opened by: 2026102019500000
+	- Related IDs: 2026102019500000, 2026100413052100
+	- Version and build: dev at `db311c7a`
+	- Problem description: it links FreeBSD's own loader and libc, so neither this host nor a GitHub runner can run it. vmFreeBSD ran the suites by hand on 2026-10-04.
+	- Requirements:
+		- Pick a way: a third-party action such as `vmactions/freebsd-vm`, pinned by SHA, in the hosted run; or a pinned, hashed FreeBSD image booted under qemu in stage 6; or vmFreeBSD by hand under the host lock.
+		- No third-party action in ci.yml (JC, 2026-10-21). That leaves a FreeBSD image, pinned and hashed, booted under qemu by our own script, either in a hosted job or in stage 6.
+
+- `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
+	- ID: 2026102106592600
+	- Type: Bug
+	- Status: Done
+	- Priority: High
+	- Opened: 20261021-065926
+	- Related IDs: 2026101711273980
+	- Version and build: dev at `db311c7a`
+	- Problem description: 5 tests stay at full CPU under Miri and never return. The 10-19 run sat on them for 39 hours before it was stopped, and the 10-20 bare run has been on the same 5 for 12 hours.
+		- `index_rebuild_ignores_removed_nodes`, `merge_settles_only_what_it_touched`, `a_far_kept_line_costs_an_edit_nothing` and `generation_bounds_a_multiplying_schema` in conformance.rs, and `diagnostic_cap_bounds_the_parse` in mem_caps.rs.
+		- Each builds 2,000 to 200,000 lines or nodes. 4 of them time a ratio, which Miri can't judge anyway.
+	- Requirements:
+		- `--miri-all` finishes in hours. Scale tests skip under Miri, or run a small input there.
+		- A test that runs too long under Miri fails by name, rather than hold up the run.
+	- Progress:
+		- Fixed, on `bsquote`:
+			- The 5 skip under Miri always, each with its reason. The timing ones measure nothing there, and the other 2 need their full size to reach the cap they test. The same paths run under Miri in smaller tests. No other Miri test times anything.
+			- sanitize-rust stops a Miri test after `SHCL_MIRI_TEST_SECS`, 2 hours by default, and fails it by name.
+		- Verified: the new shell-regress row went red against the old script and passes now. A real `--miri-all --only` of a slow test with a 60 s limit was stopped and named, with nothing left running.
+		- A whole `--miri-all` from `wt-bsq` finished in 1h45m at 6 jobs. Its one failure was `setters_write_only_what_reads_back`, which saves to disk and was never reached before: Miri has no directory fsync. It now skips under Miri like the other 9 tests that save, and passes there as skipped. The longest test took about 50 minutes.
+		- The 2 test files pass natively.
+	- Branch: `bsquote`
+	- Commit: `1e3c925b`
+	- Test case: shell-regress `EtLh7er`.
+	- Acceptance signoff: Self-closed on JC's criteria: the whole mode finishes, and a stuck test fails by name.
+	- Closed: 20261021-102500
+
+- The linux-arm64, windows-arm64 and freebsd-x86_64 release builds never run in a pipeline test
+	- ID: 2026102019500000
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261020-195000
+	- Opened by: 2026101921290754
+	- Related IDs: 2026101921290754, 2026100413052100
+	- Version and build: dev at `db311c7a`
+	- Problem description: stage 6 runs the linux-x86_64 build under qemu and the windows-x86_64 one under wine. The hosted macos job runs the macOS arm64 half. Nothing runs the other 3.
+	- Requirements:
+		- linux-arm64: boot it under qemu-system-aarch64 over the corpus, the way the CPU floor check boots x86_64. It links glibc, so the image needs an arm64 kernel, libc and busybox.
+		- windows-arm64: run it on the hosted `windows-11-arm` runner, if a public repo gets one.
+		- freebsd-x86_64: boot it under qemu-system-x86_64 from a pinned, hashed FreeBSD image, if that costs a few minutes at most.
+	- Actual fix: GitHub's arm runners, free for a public repo, run the 2 arm builds on real hardware. That's simpler than an emulated boot, and nearer to what a user runs (me).
+		- linux-arm64: ci.yml's `linux-arm` job builds it with the stage 6 command, read out of config.bash as the macos job does, on `ubuntu-24.04-arm`. Then crosscheck over the corpus against a debug build, and cli-regress. It has no cache, since the key would match the x86_64 jobs' target dir.
+		- windows-arm64: `winarm-build` builds it on x86_64 with the stage 6 command, as it's released, and `winarm-test` runs cli-regress on it on `windows-11-arm`. Git-bash there is x64 under emulation; the arm64 exe runs natively.
+		- freebsd-x86_64 moved to 2026102022450000.
+	- Swept: the 3 jobs read the build command from CROSS_TARGETS, so a change there reaches them. Each fails when the target's line is missing or builds nothing. check-pins passes with the 2 new zig downloads hashed.
+	- Branch: `bsquote`
+	- Test case: hosted jobs `linux-arm` (crosscheck and cli-regress) and `winarm-test` (cli-regress).
+	- Verified: hosted run 39543831612: `linux-arm` agreed on 7412 crosscheck comparisons and passed cli-regress. Run 39544603290: `winarm-test` passed 622 cli-regress rows, 871 checks, with 71 skipped out loud. The jobs weren't fault-injected; the gates they run are the ones every other job runs.
+	- Acceptance signoff: Self-closed on JC's criteria: the call is hosted arm runners over an emulated boot for the 2 arm builds, and both jobs pass.
+	- Closed: 20261020-224500
+
+- The windows setup is never run by a test, so NSIS's installer code goes untested
+	- ID: 2026101921290791
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Low
+	- Needs external testing: Y. A windows host, hosted or a test box.
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Version and build: dev at `baca8c01`
+	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
+	- Requirements:
+		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
+		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
+	- 20261020, branch `bsquote`:
+		- ci.yml's `setup-build` job builds the released windows-x86_64 target and its setup with stage 6's own package.bash, on ubuntu, where nsis comes from apt. `setup-test` takes it to windows and runs `check-win-setup.bash`. Both run beside the long jobs, so the run takes no longer.
+		- `check-win-setup.bash` installs with `/S`, checks the folder is on the machine PATH and the uninstall key is there, runs `shcl --version` from the machine PATH in a new shell, then runs `uninstall.exe /S _?=<dir>` and checks the PATH entry, the files and the key are gone. With `_?=` the uninstaller runs in place and can't delete itself, so `uninstall.exe` is the one file allowed to stay, and the script removes it and the folder. It refuses to run over an existing install.
+		- The setup's stub is 32-bit, so its uninstall key is in the 32-bit registry view. Apps and features reads both views, and so does the check.
+		- msys quotes an argument with a space, and NSIS reads `_?=` only unquoted and last. Quoted, the uninstaller copied itself to temp and returned 0 at once. The check starts it through `Start-Process -Wait`, which passes the arguments as they are.
+	- Swept: package.bash is the one place the setup is built, and stage 6 and `setup-build` both call it. shclpath.ps1's PATH edits already had winpath-regress.
+	- Test case: `EtIkYkb`, `EtIkYnd` and `EtIkYqY` in `check-win-setup.bash`, run by ci.yml's `setup-test` job.
+	- Verified: hosted run 39542902000 passed all 3. Run 39537878800 failed all 3 on a setup path that didn't resolve, so nothing was installed. Run 39542221440 failed `EtIkYqY` while the uninstaller returned before it ran, and `EtIkYkb` on the 32-bit key.
+	- Acceptance signoff: Self-closed: each test was red on the hosted runner with nothing installed or nothing removed, and all 3 pass now.
+	- Closed: 20261020-215500
+
 - `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
 	- ID: 2026101807501110
 	- Type: Bug
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: N
 	- Needs external testing: Y. The hosted windows job, for the veneer smoke `EjtkR0S`.
 	- Severity: Low
@@ -403,24 +513,34 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the swapped call names a folder of its own, and the check is that the folder is still empty, so `rmdir` takes it. That means the same on every OS, and it also catches a colon turned into a stream on a file named `port`. The kind is still checked as `NotFound` off windows only.
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
+	- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `EjtkR0S` and the 4 `write_backup_refuses_a_swapped_file_and_text` tests.
+	- Acceptance signoff: Self-closed: the reopening row passes on the hosted windows job, and its fix was seen red under wine first.
+	- Closed: 20261020-220500
 
-- `migrate --from-2x` writes a value ending in a backslash as `...\"`, which looks like an escaped quote
-	- ID: 2026102016593100
+- A run in the image unregisters every other worktree of the repo
+	- ID: 2026102021300000
 	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261020-165931
-	- Version and build: dev at `bfc384c2`
-	- Problem description: the 2.x line `a: x\ty\\z\q\` migrates to `a: "x<TAB>y\z\q\"` in Rust and C alike. The quoted value ends in `\"`, which a person or another tool may read as an escaped quote.
-	- Verified: 20261020, the Rust CLI's `get` reads the migrated file back as `x<TAB>y\z\q\`, so the value survives. What's left is whether the text misleads.
-	- Requirements:
-		- Check it against value-syntax.md, and in Go and Python too.
-		- If the writer should avoid that ending, change it in all 4 and add a corpus case. If not, close it with the reason.
+	- Status: Done
+	- Severity: Medium
+	- Opened: 20261020-213000
+	- Opened by: me, while a `--gate` ran in `gatewt-r1020`
+	- Version and build: dev at `db311c7a`
+	- Steps to reproduce: keep a worktree beside `repo/`, then run `cicd.bash --gate` from another worktree, which runs its stages in the image.
+	- Incorrect behavior: the other worktree's entry under `.git/worktrees/` is gone once check-migrate has run. git in that folder then fails with `not a git repository`, and its index is lost. The files stay. `gatewt-r1019` lost its entry the same way, in an earlier run.
+	- Expected behavior: a run touches no worktree but its own.
+	- Actual cause: check-migrate's cleanup ran `git worktree prune` on every exit. In the image only the running tree is mounted, so every other worktree's folder reads as missing and its entry goes. The pre-push hook had the same prune on the host, where it drops a worktree whose folder is on an unmounted disk.
+	- Actual fix: both prunes are gone. Each script removes the worktree it made with `worktree remove --force`, as before. An entry left by a failed remove is harmless, and git gc expires it.
+	- Swept: every script under `cicd/` and the hook, for `worktree prune`, `worktree remove` and `worktrees/`. check-push-gate removes worktrees only in its own scratch repos.
+	- Branch: `bsquote`
+	- Test case: shell-regress `EtIrTUG` fails any `worktree prune` in a shell file under `cicd/` or the hook. It failed on both old scripts.
+	- Verified: check-migrate built its 2.x reference through its own worktree and removed it, and the 3 other worktrees stayed listed. shell-regress, check-push-gate and shellcheck pass.
+	- Acceptance signoff: Self-closed: the test failed on the old scripts and passes now, and the live run kept the other worktrees.
+	- Closed: 20261020-213500
 
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
 	- ID: 2026101921290754
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261019-212908
 	- Opened by: 2026101920461160
@@ -431,20 +551,53 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
 		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
+	- Actual fix: stage 6's release checks run `check-win-release.bash` over the windows-x86_64 build. Under wine it runs the same 4347 CLI cases the CPU floor boot does, 8 at a time under one wineserver, and compares stdout, stderr and exit code with the native release. The case list moved into `include/corpus-cases.bash`, which both scripts source. The OS words its own errors, such as "File not found." on windows, so stderr is compared up to the code in `(os error N)`. The main image has wine and wine64 now. It takes about 35 s in the image and 2.5 minutes on this host, so `--quick` keeps it.
+	- Found: the image has no `/run/user/UID`, so wine 10 falls back to a server dir under TMPDIR, and aborts with `free(): invalid pointer` when TMPDIR is set. The script unsets TMPDIR once its work dir is made.
+	- Found, for the other builds: nothing here runs them in a stage today. linux-arm64 links glibc, so qemu-system-aarch64, which this host has, could boot it the floor check's way, given an arm64 kernel and libc in the image. freebsd-x86_64 needs FreeBSD's own loader and libc, so a pinned FreeBSD boot image. Wine here can't run windows-arm64; the hosted `windows-11-arm` runner could. Filed as 2026102019500000.
+	- Swept: the floor check's case list is the one copy now. RELEASE_CHECKS, the lint list and the image recipe have the new script. Hosted CI never reaches stage 6, so ci.yml needs no wine.
+	- Branch: `bsquote`
+	- Test case: check-win-release `EtIZEst` (wine starts the build and gives the native `--version`) and `EtIZEvy` (the cases match). A copy of the exe with one byte of `explain` changed failed `EtIZEvy` on the `explain` case, and the windows-arm64 exe failed `EtIZEst`. With wine off PATH both skip, and under `SHCL_GATE_STRICT` the skip fails.
+	- Verified: passes on this host and in the current image with wine added, on the 2026-10-16 release builds. The RELEASE_CHECKS entry passes through `eval` with and without a windows build. shellcheck, test-ids check, shell-regress, check-pins, check-push-gate and check-docs pass.
+	- Acceptance signoff: Self-closed: each new test was seen red with a fault and green after, and the second requirement is answered with a follow-up item. The first full run with the new image is the end-to-end check.
+	- Closed: 20261020-195000
 
-- The windows setup is never run by a test, so NSIS's installer code goes untested
-	- ID: 2026101921290791
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Needs external testing: Y. A windows host, hosted or a test box.
-	- Opened: 20261019-212908
-	- Opened by: 2026101920461160
-	- Version and build: dev at `baca8c01`
-	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
+- lint-report says FAILED for a passing run that has a python step with `-W error::ResourceWarning`
+	- ID: 2026102019120000
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261020-191200
+	- Opened by: me, from the startup check
+	- Version and build: dev at `db311c7a`
+	- Incorrect behavior: `lint-report.bash --check` on the running full run's log said FAILED, with 2 error lines and 2 warning lines. All 4 were the pipeline's `extra: python3 -X dev -W error::ResourceWarning ...` echoes. Nothing had failed.
+	- Expected behavior: a running log reads INCOMPLETE, and a passing one CLEAN.
+	- Actual cause: both scans read the pipeline's own `extra: CMD` lines, and `error::` matches the error pattern.
+	- Actual fix: both scans drop the `extra: ` lines. Tool output never starts that way.
+	- Swept: the other echoes in the log, `veneer:`, `largedoc:`, `conformance:` and `crosscheck:`, are tool status lines and stay scanned. The `-D warnings` and `--enable=warning` filters stay for the `Lint ....:` echoes.
+	- Branch: `bsquote`
+	- Test case: shell-regress `EtIU3uI`. The `extra:` lines read CLEAN, and a real ResourceWarning and C error beside them still count. It failed on the old script.
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the running log reads INCOMPLETE now.
+	- Closed: 20261020-192000
+
+- `migrate --from-2x` writes a value ending in a backslash as `...\"`, which looks like an escaped quote
+	- ID: 2026102016593100
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261020-165931
+	- Version and build: dev at `bfc384c2`
+	- Problem description: the 2.x line `a: x\ty\\z\q\` migrates to `a: "x<TAB>y\z\q\"` in Rust and C alike. The quoted value ends in `\"`, which a person or another tool may read as an escaped quote.
+	- Verified: 20261020, the Rust CLI's `get` reads the migrated file back as `x<TAB>y\z\q\`, so the value survives. What's left is whether the text misleads.
 	- Requirements:
-		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
-		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
+		- Check it against value-syntax.md, and in Go and Python too.
+		- If the writer should avoid that ending, change it in all 4 and add a corpus case. If not, close it with the reason.
+	- Actual cause: works as designed. value-syntax.md says a backslash is never special, and that it plays no part in the writer's quote choice. So `\"` at the end is a backslash and then the closing quote, and all 4 read it back as written.
+	- Decided against: writing that ending some other way. It would make the backslash count again in 4 writers, which the 3.0 rules dropped to end the churn backslash escapes caused. A plain 3.0 `fmt` of `a: "C:\temp\"` gives the same text, so it isn't a migrate case either (me).
+	- Swept: `migrate --from-2x` gives the same line in Rust, Go, Python, and C, and `get` reads `x<TAB>y\z\q\` back in Rust, Go, and Python. `fmt` and `get` of a 3.0 value ending in a backslash agree in all 4 CLIs.
+	- Branch: `bsquote`
+	- Test case: cli-regress `EtIRb6R` (the report's line through `migrate --from-2x`), `EtIRbAz` (`get` of `"C:\temp\"`) and `EtIRbEZ` (`fmt` keeps it), over all 4 CLIs.
+	- Acceptance signoff: Self-closed on JC's criteria: the call is that the text stays as written, per value-syntax.md, and the 3 rows pin it in all 4.
+	- Closed: 20261020-190900
 
 - Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
 	- ID: 2026101921290717
