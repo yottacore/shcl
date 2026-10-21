@@ -371,6 +371,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a1ca716f`
 	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc` and `EtDQOSv`.
 
+- `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
+	- ID: 2026102106592600
+	- Type: Bug
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261021-065926
+	- Related IDs: 2026101711273980
+	- Version and build: dev at `db311c7a`
+	- Problem description: 5 tests stay at full CPU under Miri and never return. The 10-19 run sat on them for 39 hours before it was stopped, and the 10-20 bare run has been on the same 5 for 12 hours.
+		- `index_rebuild_ignores_removed_nodes`, `merge_settles_only_what_it_touched`, `a_far_kept_line_costs_an_edit_nothing` and `generation_bounds_a_multiplying_schema` in conformance.rs, and `diagnostic_cap_bounds_the_parse` in mem_caps.rs.
+		- Each builds 2,000 to 200,000 lines or nodes. 4 of them time a ratio, which Miri can't judge anyway.
+	- Requirements:
+		- `--miri-all` finishes in hours. Scale tests skip under Miri, or run a small input there.
+		- A test that runs too long under Miri fails by name, rather than hold up the run.
+
 - The freebsd-x86_64 release build never runs in a pipeline test
 	- ID: 2026102022450000
 	- Type: Enhancement
@@ -383,7 +398,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: it links FreeBSD's own loader and libc, so neither this host nor a GitHub runner can run it. vmFreeBSD ran the suites by hand on 2026-10-04.
 	- Requirements:
 		- Pick a way: a third-party action such as `vmactions/freebsd-vm`, pinned by SHA, in the hosted run; or a pinned, hashed FreeBSD image booted under qemu in stage 6; or vmFreeBSD by hand under the host lock.
-		- Question: is a third-party action OK in ci.yml? Every action there is GitHub's own today.
+		- No third-party action in ci.yml (JC, 2026-10-21). That leaves a FreeBSD image, pinned and hashed, booted under qemu by our own script, either in a hosted job or in stage 6.
 
 - The linux-arm64, windows-arm64 and freebsd-x86_64 release builds never run in a pipeline test
 	- ID: 2026102019500000
