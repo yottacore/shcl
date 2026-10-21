@@ -201,6 +201,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-cpu-floor.bash
 	cicd/utility/check-win-release.bash
+	cicd/utility/check-win-setup.bash
 	cicd/utility/check-completions.bash
 	cicd/utility/check-deps.bash
 	cicd/utility/check-doc-examples.bash

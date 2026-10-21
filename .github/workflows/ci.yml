@@ -245,6 +245,43 @@ jobs:
           key: ci-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
       - run: bash cicd/utility/win-runners.bash
 
+  ## The setup runs NSIS's installer code as administrator, and nothing else
+  ## runs it (2026101921290791). So this builds the released windows-x86_64
+  ## target and its setup with stage 6's own package.bash, and the job below
+  ## installs it, runs it from the machine PATH and uninstalls it.
+  setup-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq nsis gcc-mingw-w64-x86-64
+          cargo build --release --manifest-path source/rust/Cargo.toml --target x86_64-pc-windows-gnu
+          ver="$(sed -n 's/^version = "\(.*\)"$/\1/p' source/rust/Cargo.toml | head -n 1)"
+          mkdir -p setup-art
+          cp source/rust/target/x86_64-pc-windows-gnu/release/shcl.exe "setup-art/shcl-${ver}-windows-x86_64.exe"
+          bash cicd/utility/package.bash "${PWD}" "${PWD}/setup-art" "${ver}"
+          mv setup-art/shcl-*-windows-x86_64-setup.exe setup-art/setup.exe
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-setup
+          path: setup-art/setup.exe
+          retention-days: 3
+
+  setup-test:
+    needs: setup-build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-setup
+      - run: bash cicd/utility/check-win-setup.bash setup.exe
+
   ## The macOS binary is cross-built on Linux in stage 6, where it cannot run,
   ## and the Mac on hand is Intel. So this builds it on Apple silicon with the
   ## stage 6 command itself, read out of config.bash, and runs its arm64 half:
