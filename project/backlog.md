@@ -272,7 +272,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Question: a run with no flags now takes hours longer, since `--miri-all` alone was likely several hours when it was stopped at 72 of 155 tests. Keep it in the bare run, or move it behind `--leakcheck` alone?
 				- JC, 20261019: it stays in the bare run.
 			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for 29 minutes. Stopped there, short of its result.
-			- Needs local test suite run: a whole `--miri-all`, and a full run with no flags.
+			- 20261021: a whole `--miri-all` on `bsquote` finished in 1h45m, after 2026102106592600. Its one failure, a test that saves to disk, now skips under Miri.
+			- Needs local test suite run: a full run with no flags.
 		- 20261019, branch `codeql`, CodeQL: `cicd/utility/codeql-scan.bash` covers all 5 languages. The step, its tests and the decisions are on 2026101707582803.
 			- Rust: the pinned CodeQL has no Rust suppression query, so `cicd/codeql/rust-suppression` is the same query the other languages have, over Rust's comments. Rust had no findings.
 			- Go: 1 finding, a dead store in `parseIntText`, fixed. The other 3 bindings' twins have none.
