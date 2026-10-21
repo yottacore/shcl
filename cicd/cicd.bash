@@ -68,6 +68,7 @@
 ##	                       when docker can't. See below
 ##	   --no-container      run stages 1-6 on this box even when docker answers.
 ##	                       Not with --container
+##	   --no-freeze         run stages 2-6 in the checkout, not in a copy. See below
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
@@ -85,6 +86,15 @@
 ##	  gif and publish stay on this box. An extra image runs what CTR_ARGS_NAME in
 ##	  config.bash picks, and nothing runs here after it. The repo is mounted at
 ##	  its own path, so a run records its tree like any other.
+##	- Stages 2-6 run from a frozen copy of the tree, taken after the format
+##	  stage: a detached, locked worktree beside the run's temp dir, holding HEAD
+##	  plus every uncommitted edit and new file git doesn't ignore, which the run
+##	  lists. A merge, a checkout or an edit in the checkout during a run
+##	  reaches neither the build nor the script that runs it. Sync, format,
+##	  dogfood, gif and publish write the checkout, so they stay on it.
+##	  FROZEN_LINKS in config.bash link the copy back to the checkout's build
+##	  dirs, so its builds start warm and land where they always did. The copy
+##	  goes on the way out, with the temp dir. --no-freeze runs 2-6 in place.
 ##	- Reuse: copy the cicd/ directory into another project and edit config.bash.
 
 ##	History: At bottom of script.
@@ -96,6 +106,11 @@
 
 
 set -Eeuo pipefail
+
+## The whole run is one compound command, which bash reads to its end before any
+## of it runs. Otherwise an edit to this file during a run of hours is read at
+## the old offset, and the run goes on into the new text (2026102108300000).
+{
 
 ## GIT_DIR and friends, from a hook run in a linked worktree or from the caller,
 ## would point every gate's scratch repo at this one. The pre-push hook clears
@@ -126,6 +141,7 @@ export CPU_CAP
 ## without touching engine code. All default empty.
 FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); TEST_QUICK_CMD=()
 LEAKCHECK_STEPS=()  ## the slow checks; see --leakcheck
+FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
@@ -141,6 +157,16 @@ source "${here}/config.bash"
 in_container=0
 if [[ -n "${SHCL_IN_CONTAINER:-}" ]]; then in_container=1; fi
 unset SHCL_IN_CONTAINER SHCL_CTR_IMAGE
+## Set for the runs a run starts, on the frozen copy or on the checkout:
+## SHCL_RUN_PART=fmt runs the format stage alone, and =build the stages after it.
+## SHCL_FROZEN says the tree already is a copy, such as the pre-push hook's.
+run_part="${SHCL_RUN_PART:-}"; frozen_given="${SHCL_FROZEN:-}"
+unset SHCL_RUN_PART SHCL_FROZEN
+case "${run_part}" in ''|fmt|build) ;; *) echo "SHCL_RUN_PART=${run_part}: not fmt or build" >&2; exit 2 ;; esac
+## A run another run started, which leaves the log, the plan and the sweep to it.
+inner_run=0
+if ((in_container)) || [[ -n "${run_part}" ]]; then inner_run=1; fi
+source "${here}/utility/include/frozen-tree.bash"
 source "${here}/utility/include/gfs-rotate.bash"   ## gfs_rotate() for log/artifact pruning
 cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
@@ -148,7 +174,7 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 ## Parse options.
 assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0
 ## --container: which image, and the options the run inside it takes over.
-ctr_image=""; ctr_pass=(); no_container=0
+ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0
 fCtrPick(){
 	if [[ -z "$1" ]]; then echo "--container= names no image (try --help)" >&2; exit 2; fi
 	if [[ -n "${ctr_image}" && "${ctr_image}" != "$1" ]]; then echo "--container names 2 images, ${ctr_image} and $1 (try --help)" >&2; exit 2; fi
@@ -162,7 +188,7 @@ while (($#)); do case "$1" in
 	-q|--quiet)               quiet=1; assume_yes=1; QUIET_FLAG="-q"; export CARGO_TERM_QUIET=true; shift ;;
 	-y|--yes)                 assume_yes=1; shift ;;
 	--no-sync)                sync_enable=0; shift ;;
-	--no-fmt)                 FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
+	--no-fmt)                 fmt_off=1; FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); LEAKCHECK_STEPS=(); BINDING_CLIS=(); LARGEDOC_MIB=0; no_tests=1; gate_partial=1; ctr_pass+=("$1"); shift ;;
 	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
@@ -177,6 +203,7 @@ while (($#)); do case "$1" in
 	--container)              fCtrPick main; shift ;;
 	--container=*)            fCtrPick "${1#*=}"; shift ;;
 	--no-container)           no_container=1; shift ;;
+	--no-freeze)              no_freeze=1; shift ;;
 	--message=*|--msg=*|-m=*) cli_message="${1#*=}"; shift ;;
 	-m|--message|--msg)       cli_message="${2-}"; shift; (($#)) && shift ;;
 	-h|--help)                sed -n '/^##	- Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; exit 0 ;;
@@ -208,6 +235,10 @@ if ((gate_mode)); then
 else
 	FMT_CHECK_CMD=()    ## locally the formatter rewrites in place instead
 fi
+## The run that froze the tree formatted the checkout before it did.
+if [[ "${run_part}" == build ]]; then FMT_CMD=(); FMT_EXTRA=(); fi
+freeze=1
+if ((no_freeze || inner_run)) || [[ -n "${frozen_given}" ]]; then freeze=0; fi
 ## --quick: each QUICK_SKIP name is plain text matched against a whole step,
 ## so it can name a script, a command or a cross target's label. The
 ## crosscheck is the engine's own step, named by its script.
@@ -274,13 +305,28 @@ fRmRunTmp(){
 }
 ## KB to a size a person reads.
 fSize(){ if (($1 >= 1048576)); then printf '%d.%d GB' $(($1 / 1048576)) $(($1 % 1048576 * 10 / 1048576)); else printf '%d MB' $((($1 + 512) / 1024)); fi; }
+## The frozen copy, beside the temp dir rather than in it: docker would make a
+## mount point for it as root inside the dir mounted at /tmp. A copy git can't
+## take down is removed by hand, but only the one this run made.
+frozen_root=""
+fFrozenGone(){
+	local d="${frozen_root}"
+	frozen_root=""
+	[[ -n "${d}" ]] || return 0
+	fFrozenRemove "${root}" "${d}" && return 0
+	echo "cleanup: git could not remove the frozen copy at ${d}" >&2
+	[[ "${d}" == "${run_tmp_root}/${APP_NAME}-tree."* && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
+	rm -rf -- "${d}" 2>/dev/null || echo "cleanup: could not remove all of ${d}" >&2
+}
 ## A run that stops early. fCleanup has already done it on a whole run.
+# shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
 fRunTmpGone(){
 	local kb=0
+	fFrozenGone || true
 	[[ -n "${run_tmp}" ]] || return 0
 	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
 	fRmRunTmp
-	if ((! in_container)); then printf '[ cleanup: removed this run'\''s temp files, about %s ]\n' "$(fSize "${kb:-0}")" >&2; fi
+	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files, about %s ]\n' "$(fSize "${kb:-0}")" >&2; fi
 }
 trap 'fRunTmpGone || true' EXIT
 export SHCL_GATE_SKIPS="$(mktemp)"
@@ -368,8 +414,10 @@ fInstallAtomic(){
 
 ## Stages 1-6 in the --container image, built first if it's not here. The repo
 ## and its git dir are mounted at their own paths, so the tree it records and a
-## worktree's .git file still mean something.
-fRunContainer(){
+## worktree's .git file still mean something. TREE is the checkout or the frozen
+## copy, and PART is SHCL_RUN_PART for the run in there.
+fRunContainer(){   ## fRunContainer TREE [PART]
+	local tree="$1" part="${2:-}"
 	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" link="" real="" ctr_label="${CTR_IMAGE:-${APP_NAME}-cicd}"
 	local -a mounts=() groups=() env=() inner=()
 	fSection "Container: ${ctr_image}"
@@ -393,9 +441,9 @@ fRunContainer(){
 	## /tmp too, so big scratch goes where TMPDIR says rather than into the
 	## container's layer on the root disk.
 	local scratch; scratch="$(mktemp -d)"
-	mounts=(-v "${root}:${root}" -v "${cache}:/cache" -v "${scratch}:/tmp")
-	local gitCommon; gitCommon="$(git -C "${root}" rev-parse --path-format=absolute --git-common-dir)"
-	if [[ "${gitCommon}" != "${root}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
+	mounts=(-v "${tree}:${tree}" -v "${cache}:/cache" -v "${scratch}:/tmp")
+	local gitCommon; gitCommon="$(git -C "${tree}" rev-parse --path-format=absolute --git-common-dir)"
+	if [[ "${gitCommon}" != "${tree}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
 	## An extra image builds into its own copy of these, so it doesn't churn
 	## or replace this box's builds. Each copy goes where its path leads, so a
 	## gate worktree's target link reaches the copy and not target-gate. Docker
@@ -408,7 +456,7 @@ fRunContainer(){
 		for link in "${CTR_PRIVATE[@]}"; do
 			private["${link%/}"]=1
 			priv="${cache}/private/${link%/}"
-			dest="$(readlink -f -- "${root}/${link%/}")" || fDie "can't resolve ${link} for the ${ctr_image} image's own copy"
+			dest="$(readlink -f -- "${tree}/${link%/}")" || fDie "can't resolve ${link} for the ${ctr_image} image's own copy"
 			if [[ "${link}" == */ ]]; then
 				mkdir -p "${priv}" || fDie "could not make ${priv}"
 				if [[ ! -e "${dest}" ]]; then mkdir -p "${dest}" || fDie "could not make ${dest}"; standIns+=("${dest}"); fi
@@ -420,11 +468,13 @@ fRunContainer(){
 			mounts+=(-v "${priv}:${dest}")
 		done
 	fi
-	for link in "${CTR_LINKS[@]}"; do
+	## Once each, since docker refuses a mount point named twice.
+	local -A linked=()
+	for link in "${CTR_LINKS[@]}" "${FROZEN_LINKS[@]}"; do
 		if [[ -n "${private[${link%/}]:-}" ]]; then continue; fi
-		if [[ -L "${root}/${link}" ]]; then
-			real="$(readlink -f -- "${root}/${link}")"
-			if [[ "${real}" != "${root}/"* ]]; then mkdir -p "${real}"; mounts+=(-v "${real}:${real}"); fi
+		if [[ -L "${tree}/${link}" ]]; then
+			real="$(readlink -f -- "${tree}/${link}")"
+			if [[ "${real}" != "${tree}/"* && -z "${linked[${real}]:-}" ]]; then linked["${real}"]=1; mkdir -p "${real}"; mounts+=(-v "${real}:${real}"); fi
 		fi
 	done
 
@@ -448,6 +498,7 @@ fRunContainer(){
 
 	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
+	if [[ -n "${part}" ]]; then env+=(-e "SHCL_RUN_PART=${part}"); fi
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
 	if [[ "${ctr_image}" != main ]]; then
 		declare -p "CTR_ARGS_${ctr_image}" &>/dev/null || fDie "config.bash has no CTR_ARGS_${ctr_image}, the stages that image runs"
@@ -455,8 +506,8 @@ fRunContainer(){
 		inner+=("${ctrArgs_k3v[@]}")
 	fi
 	fEcho_Clean "runs cicd.bash ${inner[*]}"
-	"${engine}" run --rm --init --label "${ctr_label}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${root}" \
-		"${tag}" bash "${root}/cicd/cicd.bash" "${inner[@]}" \
+	"${engine}" run --rm --init --label "${ctr_label}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
+		"${tag}" bash "${tree}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
 	## Only a stand-in still empty: anything else was built here meanwhile.
 	for dest in "${standIns[@]}"; do
@@ -464,7 +515,11 @@ fRunContainer(){
 		elif [[ -f "${dest}" && ! -s "${dest}" ]]; then rm -f -- "${dest}"; fi
 	done
 	((ctrRc == 0)) || fDie "the run in the ${ctr_image} image failed; its output is above"
-	fEcho "OK: stages 1-6 in the ${ctr_image} image"
+	case "${part}" in
+		fmt)   fEcho "OK: stage 1 in the ${ctr_image} image" ;;
+		build) fEcho "OK: stages 2-6 in the ${ctr_image} image" ;;
+		*)     fEcho "OK: stages 1-6 in the ${ctr_image} image" ;;
+	esac
 }
 
 ## --container: stages 1-6 go to the image. An extra image builds nothing this
@@ -522,6 +577,10 @@ if ((! quiet)); then
 			fEcho_Clean "Quick skips ....: ${_qs%, }"
 		fi
 	fi
+	_fz='(off)'
+	if ((freeze)); then _fz='stages 2-6 run from a copy of the tree taken after the format stage'
+	elif [[ "${run_part}" == build ]]; then _fz='(this run is in it)'; fi
+	fEcho_Clean "Frozen copy ....: ${_fz}"
 	fEcho_Clean "Dogfood ........: $( if ((${#DOGFOOD_FIXED_DESTS[@]})); then _dfd="$(fFirstWritableDir "${DOGFOOD_FIXED_DESTS[@]}")"; [[ -n "$_dfd" ]] && echo "${_dfd}/${EXE_NAME}" || echo '(no writable dest; will skip)'; else echo '(skipped)'; fi )"
 	fEcho_Clean "Demo gif .......: $( ((GIF_ENABLE)) && echo "${GIF_OUT}" || echo '(skipped)')"
 	if ((${#GIT_PUBLISH[@]})); then
@@ -542,7 +601,7 @@ fi
 ## Tee the whole run to a rotated log so warnings can be reviewed later
 ## (lint-report.bash reads the newest one). Skipped under --gate (read-only gate),
 ## and in the container, where the run outside already logs all of it.
-if ((! gate_mode)) && ((! in_container)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
+if ((! gate_mode)) && ((! inner_run)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
 	gfs_rotate "${root}/${LINT_LOG_DIR}" run log >/dev/null 2>&1 || true
 	exec > >(tee "${root}/${LINT_LOG_DIR}/run_${stamp}.log") 2>&1
 fi
@@ -610,25 +669,8 @@ if ((sync_enable)); then
 	fi
 fi
 
-## Stages 1-6 run here, or in the container, which hands back its release
-## builds for dogfood and the gif.
-if [[ -n "${ctr_image}" ]]; then
-	fRunContainer
-	built_arts=()
-	if ((${#RELEASE_NATIVE_CMD[@]})) && [[ -f "${RELEASE_NATIVE_BIN}" ]]; then
-		built_arts=("${RELEASE_NATIVE_OSARCH:-native}|${RELEASE_NATIVE_BIN}")
-		for t in "${CROSS_TARGETS[@]}"; do
-			rest="${t#*|}"; t_osarch="${rest%%|*}"; rest="${rest#*|}"; t_art="${rest%%|*}"
-			if [[ -f "${t_art}" ]]; then built_arts+=("${t_osarch}|${t_art}"); fi
-		done
-	fi
-else
-	## Whatever the container needs before a run, such as crates the --gate
-	## profiler check reads offline.
-	if ((in_container)) && [[ -n "${CTR_PREP:-}" ]]; then eval "${CTR_PREP}"; fi
-	if [[ -n "${ctr_note}" ]]; then fEcho_Clean "note: ${ctr_note}"; fi
-
-	## Stage 1: format. In place locally; check-only (fail on diff) under --gate.
+## Stage 1: format. In place locally; check-only (fail on diff) under --gate.
+fStageFormat(){
 	fSection "1/9  Format"
 	if ((gate_mode)); then
 		if ((${#FMT_CHECK_CMD[@]})); then
@@ -640,9 +682,93 @@ else
 		"${FMT_CMD[@]}"
 		fRunExtras "${FMT_EXTRA[@]}"
 		fEcho "OK: formatted"
+	elif [[ "${run_part}" == build ]] && ((! fmt_off)); then
+		fEcho_Clean "formatted in the checkout, before the copy was taken"
 	else
 		fEcho_Clean "format skipped"
 	fi
+}
+
+## A detached, locked worktree holding the tree the format stage left, HEAD plus
+## what isn't committed, for stages 2-6 (2026102108300000). Any trouble making
+## it runs them in the checkout, as before, with a warning.
+fFreeze(){
+	local head="" tree="" link="" i=0
+	local -a changed=()
+	if ! head="$(git -C "${root}" rev-parse -q --verify HEAD 2>/dev/null)" || ! tree="$("${here}/utility/green-tree.bash" tree "${root}" 2>/dev/null)"; then
+		fEcho "WARNING: no commit to copy; stages 2-6 run in the checkout"
+		return 0
+	fi
+	frozen_root="$(mktemp -d "${run_tmp_root}/${APP_NAME}-tree.XXXXXX")" || fDie "could not make a dir for the frozen copy under ${run_tmp_root}"
+	if ! fFrozenAdd "${root}" "${frozen_root}" "${head}" "${tree}"; then
+		rmdir -- "${frozen_root}" 2>/dev/null || true
+		frozen_root=""
+		fEcho "WARNING: could not make a frozen copy; stages 2-6 run in the checkout"
+		return 0
+	fi
+	## An extra image builds into its own copies, and keeps nothing.
+	if [[ -z "${ctr_image}" || "${ctr_image}" == main ]]; then
+		for link in "${FROZEN_LINKS[@]}"; do
+			fFrozenLink "${root}" "${frozen_root}" "${link}" || fDie "could not link ${link} into the frozen copy"
+		done
+	fi
+	mapfile -t changed < <(git -C "${root}" diff --name-status --no-renames "${head}" "${tree}")
+	fSection "Frozen copy"
+	fEcho_Clean "stages 2-6 run from ${frozen_root}"
+	if ((${#changed[@]} == 0)); then
+		fEcho_Clean "copied ${head:0:12}, with nothing uncommitted"
+	else
+		fEcho_Clean "copied ${head:0:12} plus ${#changed[@]} uncommitted file(s):"
+		for ((i = 0; i < ${#changed[@]} && i < 20; i++)); do fEcho_Clean "	${changed[i]}"; done
+		if ((${#changed[@]} > 20)); then fEcho_Clean "	and $((${#changed[@]} - 20)) more"; fi
+	fi
+}
+
+## Stages 2-6 on this box, in the frozen copy, by the copy's own engine.
+fRunFrozen(){
+	local -a inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-container --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
+	local rc=0
+	SHCL_RUN_PART=build bash "${frozen_root}/cicd/cicd.bash" "${inner[@]}" || rc=$?
+	## A stopped run stays a stopped run.
+	if ((rc > 128)); then exit "${rc}"; fi
+	((rc == 0)) || fDie "the run in the frozen copy failed; its output is above"
+}
+
+## The release builds a run elsewhere left, for dogfood and the gif.
+fCollectBuilt(){
+	local t rest t_osarch t_art
+	built_arts=()
+	if ((${#RELEASE_NATIVE_CMD[@]})) && [[ -f "${RELEASE_NATIVE_BIN}" ]]; then
+		built_arts=("${RELEASE_NATIVE_OSARCH:-native}|${RELEASE_NATIVE_BIN}")
+		for t in "${CROSS_TARGETS[@]}"; do
+			rest="${t#*|}"; t_osarch="${rest%%|*}"; rest="${rest#*|}"; t_art="${rest%%|*}"
+			if [[ -f "${t_art}" ]]; then built_arts+=("${t_osarch}|${t_art}"); fi
+		done
+	fi
+}
+
+## Stages 1-6 run here, or in the container, which hands back its release
+## builds for dogfood and the gif. With a frozen copy, stage 1 runs on the
+## checkout first, and 2-6 in the copy, here or in the container.
+if [[ -n "${ctr_note}" ]]; then fEcho_Clean "note: ${ctr_note}"; fi
+if ((freeze)); then
+	if ((${#FMT_CMD[@]})); then
+		if [[ -n "${ctr_image}" ]]; then fRunContainer "${root}" fmt; else fStageFormat; fi
+	fi
+	fFreeze
+fi
+if [[ -n "${frozen_root}" ]]; then
+	if [[ -n "${ctr_image}" ]]; then fRunContainer "${frozen_root}" build; else fRunFrozen; fi
+	fCollectBuilt
+elif [[ -n "${ctr_image}" ]]; then
+	fRunContainer "${root}"
+	fCollectBuilt
+else
+	## Whatever the container needs before a run, such as crates the --gate
+	## profiler check reads offline.
+	if ((in_container)) && [[ -n "${CTR_PREP:-}" ]]; then eval "${CTR_PREP}"; fi
+	fStageFormat
+	if [[ "${run_part}" == fmt ]]; then exit 0; fi
 	## Taken after the formatter, since locally it rewrites what gets tested.
 	green_tree=""
 	if ((record_green)); then green_tree="$("${here}/utility/green-tree.bash" tree "${root}" || true)"; fi
@@ -998,7 +1124,8 @@ fCleanup(){
 	local -a gone=()
 	local -i kb=0 sidecars=0 kbTmp=0
 	local f stamp size profDir bytes what
-	if ((in_container)); then fRmRunTmp; return 0; fi
+	if ((inner_run)); then fRmRunTmp; return 0; fi
+	fFrozenGone || true
 	## A graph the rotation pruned leaves its sample count behind, under the
 	## role it was born with.
 	profDir="${root}/${PROFILE_OUT_DIR:-}"
@@ -1032,6 +1159,8 @@ fCleanup
 
 fSection "${APP_NAME} CI/CD: done."
 fEcho_Clean
+exit 0
+}
 
 
 ##	History:

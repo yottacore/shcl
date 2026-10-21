@@ -59,6 +59,8 @@ for gitVar in $(git rev-parse --local-env-vars 2>/dev/null || true); do unset "$
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "${here}/../.." && pwd)"
+# shellcheck disable=SC1091  # the shared worktree helper, beside the engine
+source "${root}/cicd/utility/include/frozen-tree.bash"
 
 ## stdin gives "<local ref> <local sha> <remote ref> <remote sha>" per ref.
 ## Only a push that would move main is worth the wait; the sha bound for it is
@@ -82,13 +84,13 @@ while read -r _localRef localSha remoteRef _remoteSha; do
 done
 ((${#gatedShas[@]})) || exit 0
 
-## A detached worktree at the pushed commit, removed once its gate is through so
-## the next sha (if any) starts clean.
+## A detached worktree at the pushed commit, locked while the gate runs and
+## removed once it's through, so the next sha (if any) starts clean.
 tmpTree=""; treeAdded=0
 # shellcheck disable=SC2329  # runs from the EXIT trap as well
 fCleanup(){
 	[[ -n "${tmpTree}" ]] || return 0
-	if ((treeAdded)); then git -C "${root}" worktree remove --force "${tmpTree}" >/dev/null 2>&1 || true; fi
+	if ((treeAdded)); then fFrozenRemove "${root}" "${tmpTree}" || true; fi
 	## No prune: it's global, and drops every worktree whose folder is away (2026102021300000).
 	rm -rf "${tmpTree}"
 	tmpTree=""; treeAdded=0
@@ -129,11 +131,10 @@ for i in "${!gatedShas[@]}"; do
 	echo "[ pre-push: running the correctness gate on ${sha:0:12} before ${gatedRefs[i]} ]"
 	echo
 	tmpTree="$(mktemp -d "${TMPDIR:-/tmp}/shcl-prepush.XXXXXX")"
-	if git -C "${root}" worktree add --detach "${tmpTree}" "${sha}" >/dev/null 2>&1; then
+	if fFrozenAdd "${root}" "${tmpTree}" "${sha}" 2>/dev/null; then
 		treeAdded=1
 		gateRoot="${tmpTree}"
-		mkdir -p "${root}/source/rust/target-gate"
-		ln -s "${root}/source/rust/target-gate" "${tmpTree}/source/rust/target"
+		fFrozenLink "${root}" "${tmpTree}" source/rust/target "${root}/source/rust/target-gate"
 	else
 		echo "[ pre-push: WARNING: could not check ${sha:0:12} out into a worktree; gating the working tree instead ]" >&2
 		gateRoot="${root}"
@@ -145,7 +146,8 @@ for i in "${!gatedShas[@]}"; do
 	## a docs-only merge to main gates main's tree. Drop this then.
 	gateFlag=--gate
 	if ! grep -qF -- '--gate)' "${gateRoot}/cicd/cicd.bash" 2>/dev/null; then gateFlag=--ci; fi
-	if ! SHCL_GATE_REF="${gatedRefs[i]}" "${gateRoot}/cicd/cicd.bash" "${gateFlag}" --no-largedoc; then
+	## Already a frozen tree, so the run doesn't make a copy of the copy.
+	if ! SHCL_FROZEN=1 SHCL_GATE_REF="${gatedRefs[i]}" "${gateRoot}/cicd/cicd.bash" "${gateFlag}" --no-largedoc; then
 		echo
 		echo "[ pre-push: the gate failed on ${sha:0:12} - push refused (--no-verify overrides) ]" >&2
 		echo

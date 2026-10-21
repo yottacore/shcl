@@ -375,7 +375,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A long run reads the live tree, so nothing can merge or check out there until it ends
 	- ID: 2026102108300000
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: a bare run and a `--gate` run through the main image, which needs a rebuild for the current recipe first. Only a stubbed docker has run the copy in the image so far.
+	- Needs external testing: one hosted run, since ci.yml's `--gate --no-container` now runs from a copy too.
 	- Priority: Medium
 	- Opened: 20261021-083000
 	- Related IDs: 2026102021300000, 2026102106592600
@@ -387,6 +389,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The copy shares the target dirs and caches, or the first run of each costs a cold build.
 		- The green-tree record still lands in the real repo.
 	- Workaround: `git worktree lock` on each long-lived worktree, so a prune from any tool skips it. `wt-bsq` is locked since 2026-10-21.
+	- Decisions:
+		- me: the copy is a detached, locked worktree beside the run's temp dir, holding HEAD plus the tree `green-tree.bash tree` gives, so uncommitted and new unignored files go in and deleted ones stay out. A ZFS clone would tie the engine to ZFS.
+		- me: the copy is taken after the format stage, not at the very start. Sync, format, dogfood, gif and publish write the checkout and stay on it; build, lint, tests, profiler and release (stages 2-6) run in the copy, on this box or in the image. A local run with docker makes 2 image runs, format on the checkout and then 2-6 on the copy.
+		- me: `FROZEN_LINKS` in config.bash (`source/rust/target`, `target-migrate`, `cicd/artifacts`) link the copy to the checkout's own dirs, so cargo starts warm and release builds and artifacts land where dogfood, the gif and a cut look. The C and Go CLIs build in the copy. An extra image gets no links, since it builds into its own copies.
+		- me: the whole of cicd.bash is one brace group, so bash reads it all before it runs, and an edit to the checkout's cicd.bash mid-run changes nothing.
+		- me: publish still commits the checkout as it stands at the end, edits made during the run included. The record names only the tree that was tested, so a push of such a commit runs the pre-push gate.
+		- me: `--no-freeze` runs 2-6 in the checkout as before. The pre-push hook's worktree is already frozen, so it passes `SHCL_FROZEN=1` and the gate makes no copy of the copy.
+		- me: the copy is unlocked and taken down with `worktree remove` on every exit path, never a prune. The hook and check-migrate use the same helper (`cicd/utility/include/frozen-tree.bash`), so their worktrees are locked too.
+	- Progress log:
+		- 20261021: done on `r1021`. The record is made by the run in the copy and goes to the main repo's common dir; it names the copied tree, so a run whose checkout holds extra edits records that tree, never HEAD's.
+		- 20261021: a `--gate --no-container --no-tests --no-lint --no-cross` run on this repo ran from the copy, listed 7 uncommitted files, rebuilt only the crate into the shared target in 3 s, and left no worktree behind.
+	- Swept: every `worktree add` and `worktree remove` under `cicd/` and the hook: pre-push and check-migrate now use the helper; check-push-gate and check-install-dev add worktrees only in their own scratch repos. The other users of the engine's stub repos (shell-regress `EqQUj04`, check-push-gate's engine and hook stubs) copy the helper. check-push-gate's extra-image mount rows pass `--no-freeze`, since they check mounts on the checkout's own paths. The docker scan in shell-regress `EtDCDEB` matches `fRunContainer` called with arguments.
+	- Test case: shell-regress `EtMYbKi` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
 
 - The freebsd-x86_64 release build never runs in a pipeline test
 	- ID: 2026102022450000

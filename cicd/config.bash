@@ -238,6 +238,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/include/c-flags.bash
 	cicd/utility/include/corpus-cases.bash
 	cicd/utility/include/ctr-image.bash
+	cicd/utility/include/frozen-tree.bash
 	cicd/utility/include/gfs-rotate.bash
 	cicd/utility/include/largedoc-gen.bash
 	cicd/utility/include/test-id.bash
@@ -592,6 +593,11 @@ CTR_LINKS=(source/rust/target)
 ## replaces this box's builds. A trailing / marks a dir. The C CLI built on
 ## musl won't run here.
 CTR_PRIVATE=(source/rust/target/ source/rust/target-migrate/ source/c/shcl source/go/shcl)
+## Stages 2-6 run from a frozen copy of the tree. These dirs in it link back to
+## the checkout's own, so its cargo builds start warm, and the release builds,
+## artifacts and reports land where dogfood, the gif and a release cut look.
+## The C and Go CLIs build in the copy; they take seconds.
+FROZEN_LINKS=(source/rust/target source/rust/target-migrate cicd/artifacts)
 ## The --gate profiler check builds offline from the cache, and a new cache dir is
 ## empty. Fetched before the gate, the way a full run here fetches them.
 CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 || cargo fetch --quiet --manifest-path "${MANIFEST}"'

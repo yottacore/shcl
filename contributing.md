@@ -174,6 +174,8 @@ None of this is needed for `--gate`, which is the gate that matters for a pull r
 
 With docker you may not need any of it. When docker answers on an x86_64 box, `cicd/cicd.bash` runs stages 1 to 6 in a Debian image with every tool at its pinned version, and builds the image from `cicd/container/` the first time. Without it they run on your box, with a one-line note saying why. `--no-container` keeps them on your box anyway, and `--container` fails rather than run without the image. The sync, dogfood, demo gif and publish stages always run on your box. The stage flags pass through, so `cicd/cicd.bash --gate` is the gate in the image, and so is the pre-push hook's. Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points.
 
+Stages 2 to 6 run from a copy of the tree taken after the format stage, with your uncommitted edits and any new file git does not ignore in it, so you can keep editing, merging and switching branches while a run goes. The run lists what it copied. `--no-freeze` runs them in the checkout instead.
+
 Two more images are there for now and then:
 
 - `--container=ubuntu` is Ubuntu 24.04 and its gcc 13, like the hosted runner, for a red that only shows up there. It runs the format check, build, tests and cross checks, strict like `--gate`.

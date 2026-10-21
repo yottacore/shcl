@@ -71,6 +71,8 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/frozen-tree.bash"
 testWhere=check-migrate; testCounter=nBad
 
 meDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -101,7 +103,7 @@ tmpDir="$(mktemp -d)"; tree=""
 fCleanup(){
 	##	Never prune: in the image only this tree is mounted, so every other
 	##	worktree reads as gone and loses its entry (2026102021300000).
-	if [[ -n "${tree}" ]]; then git -C "${root}" worktree remove --force "${tree}" >/dev/null 2>&1 || true; fi
+	if [[ -n "${tree}" ]]; then fFrozenRemove "${root}" "${tree}" || true; fi
 	rm -rf "${tmpDir}"
 }
 trap fCleanup EXIT
@@ -112,10 +114,9 @@ oldCli="${oldTarget}/debug/shcl"
 if [[ ! -x "${oldCli}" || "$(cat "${oldTarget}/.pin" 2>/dev/null || true)" != "${pin}" ]]; then
 	echo "check-migrate: building the 2.x reference at ${pin:0:12}"
 	tree="$(mktemp -d "${TMPDIR:-/tmp}/shcl-migrate.XXXXXX")"
-	git -C "${root}" worktree add --detach "${tree}" "${pin}" >/dev/null 2>&1 \
+	fFrozenAdd "${root}" "${tree}" "${pin}" 2>/dev/null \
 		|| { echo "check-migrate: cannot check ${pin:0:12} out" >&2; exit 2; }
-	mkdir -p "${oldTarget}"
-	ln -s "${oldTarget}" "${tree}/source/rust/target"
+	fFrozenLink "${root}" "${tree}" source/rust/target "${oldTarget}"
 	( cd "${tree}/source/rust" && cargo build --quiet ) || { echo "check-migrate: the 2.x build failed" >&2; exit 2; }
 	printf '%s\n' "${pin}" > "${oldTarget}/.pin"
 	fCleanup; tree=""; tmpDir="$(mktemp -d)"
