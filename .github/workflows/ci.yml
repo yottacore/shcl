@@ -340,3 +340,39 @@ jobs:
           lipo -archs "${art}"
           bash cicd/utility/crosscheck.bash --corpus project/conformance "rust|source/rust/target/debug/shcl" "macos|${art}"
           bash cicd/utility/cli-regress.bash "macos|${art}"
+
+  ## The linux-arm64 release is cross-built in stage 6 too, and nothing here
+  ## can run it (2026102019500000). So the same way as above: the stage 6
+  ## command on an arm runner, then crosscheck and cli-regress. No cache, since
+  ## its key would match the x86_64 jobs' target dir.
+  linux-arm:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - run: |
+          pip install --no-deps cargo-zigbuild==0.23.0
+          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/zig-aarch64-linux-0.16.0.tar.xz \
+            "https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz"
+          echo "ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17  /tmp/zig-aarch64-linux-0.16.0.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/zig-aarch64-linux-0.16.0.tar.xz -C /tmp
+          echo "/tmp/zig-aarch64-linux-0.16.0" >> "$GITHUB_PATH"
+      - run: |
+          CPU_CAP="$(nproc)"
+          export CPU_CAP
+          cargo build --manifest-path source/rust/Cargo.toml
+          art=""
+          # shellcheck source=/dev/null
+          source cicd/config.bash
+          for t in "${CROSS_TARGETS[@]}"; do
+            [[ "${t}" == *"|linux-arm64|"* ]] || continue
+            rest="${t#*|}"; rest="${rest#*|}"; art="${rest%%|*}"
+            eval "${rest#*|}"
+          done
+          [[ -n "${art}" && -f "${art}" ]] || { echo "no linux-arm64 binary built: ${art}" >&2; exit 1; }
+          file "${art}"
+          bash cicd/utility/crosscheck.bash --corpus project/conformance "rust|source/rust/target/debug/shcl" "arm64|${art}"
+          bash cicd/utility/cli-regress.bash "arm64|${art}"
