@@ -932,6 +932,11 @@ rows=(
 	## 2026101911300000: a backslash pair 2.x resolved, in a file that doesn't
 	## say it is 2.x, is left and asked about.
 	'EtD6lso|backslash-migrate-ambiguous|migrate -|q: "C:\\\\work"\n|7|q: "C:\\\\work"\n|does not say which it was written for'
+	## 2026102016593100: a value ending in a backslash is written as \" before
+	## the closing quote. The backslash is text, so it reads back as written.
+	'EtIRb6R|backslash-before-quote-migrate|migrate --from-2x -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'EtIRbAz|backslash-before-quote-read|get - a|a: "C:\\temp\\"\n|0|C:\\temp\\\n|-'
+	'EtIRbEZ|backslash-before-quote-fmt|fmt -|a: "C:\\temp\\"\n|0|a: "C:\\temp\\"\n|-'
 	## 2026100717500002: an op value reads the file's escape names, a tab or a
 	## line break included, and a backslash pair is text, the same as in --set.
 	'Es8bB4z|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: "C:\\temp\\new"\n|-'

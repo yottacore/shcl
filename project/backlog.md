@@ -404,19 +404,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
 
-- `migrate --from-2x` writes a value ending in a backslash as `...\"`, which looks like an escaped quote
-	- ID: 2026102016593100
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261020-165931
-	- Version and build: dev at `bfc384c2`
-	- Problem description: the 2.x line `a: x\ty\\z\q\` migrates to `a: "x<TAB>y\z\q\"` in Rust and C alike. The quoted value ends in `\"`, which a person or another tool may read as an escaped quote.
-	- Verified: 20261020, the Rust CLI's `get` reads the migrated file back as `x<TAB>y\z\q\`, so the value survives. What's left is whether the text misleads.
-	- Requirements:
-		- Check it against value-syntax.md, and in Go and Python too.
-		- If the writer should avoid that ending, change it in all 4 and add a corpus case. If not, close it with the reason.
-
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
 	- ID: 2026101921290754
 	- Type: Enhancement
@@ -445,6 +432,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
 		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
+
+- `migrate --from-2x` writes a value ending in a backslash as `...\"`, which looks like an escaped quote
+	- ID: 2026102016593100
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261020-165931
+	- Version and build: dev at `bfc384c2`
+	- Problem description: the 2.x line `a: x\ty\\z\q\` migrates to `a: "x<TAB>y\z\q\"` in Rust and C alike. The quoted value ends in `\"`, which a person or another tool may read as an escaped quote.
+	- Verified: 20261020, the Rust CLI's `get` reads the migrated file back as `x<TAB>y\z\q\`, so the value survives. What's left is whether the text misleads.
+	- Requirements:
+		- Check it against value-syntax.md, and in Go and Python too.
+		- If the writer should avoid that ending, change it in all 4 and add a corpus case. If not, close it with the reason.
+	- Actual cause: works as designed. value-syntax.md says a backslash is never special, and that it plays no part in the writer's quote choice. So `\"` at the end is a backslash and then the closing quote, and all 4 read it back as written.
+	- Decided against: writing that ending some other way. It would make the backslash count again in 4 writers, which the 3.0 rules dropped to end the churn backslash escapes caused. A plain 3.0 `fmt` of `a: "C:\temp\"` gives the same text, so it isn't a migrate case either (me).
+	- Swept: `migrate --from-2x` gives the same line in Rust, Go, Python, and C, and `get` reads `x<TAB>y\z\q\` back in Rust, Go, and Python. `fmt` and `get` of a 3.0 value ending in a backslash agree in all 4 CLIs.
+	- Branch: `bsquote`
+	- Test case: cli-regress `EtIRb6R` (the report's line through `migrate --from-2x`), `EtIRbAz` (`get` of `"C:\temp\"`) and `EtIRbEZ` (`fmt` keeps it), over all 4 CLIs.
+	- Acceptance signoff: Self-closed on JC's criteria: the call is that the text stays as written, per value-syntax.md, and the 3 rows pin it in all 4.
+	- Closed: 20261020-190900
 
 - Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
 	- ID: 2026101921290717
