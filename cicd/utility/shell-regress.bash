@@ -3459,6 +3459,35 @@ while IFS= read -r f; do
 	[[ -z "${hits}" ]] || fBad "${f#"${repoDir}/"}: a prune drops the worktrees an image can't see: ${hits}"
 done < <(printf '%s\n' "${shellFileList[@]}")
 
+fTest EtLh7er 2026102106592600-miri-test-time-limit
+##	2026102106592600: 5 scale tests sat under Miri for 39 hours and the run
+##	never ended. A stub cargo lists 2 tests and sleeps on one; that one has to
+##	fail by name, soon, and the other not at all.
+miriT="${tmpDir}/miri-limit"
+mkdir -p "${miriT}/cicd/utility/include" "${miriT}/source/rust/tests" "${miriT}/bin"
+cp "${repoDir}/cicd/utility/sanitize-rust.bash" "${miriT}/cicd/utility/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${miriT}/cicd/utility/include/"
+: > "${miriT}/source/rust/tests/lone.rs"
+printf '[nightly]\nchannel = "nightly-stub"\n' > "${miriT}/rust-toolchain.toml"
+printf '#!/usr/bin/env bash\necho nightly-stub-x86_64-unknown-linux-gnu\n' > "${miriT}/bin/rustup"
+cat > "${miriT}/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+case " $* " in
+	*" --no-run "*) exit 0 ;;
+	*" --list "*) printf 'brisk: test\nslowpoke: test\n' ;;
+	*" --exact slowpoke "*) exec sleep 30 ;;
+esac
+EOF
+chmod +x "${miriT}/bin/rustup" "${miriT}/bin/cargo"
+miriRc=0; t0=${SECONDS}
+# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+PATH="${miriT}/bin:${PATH}" SHCL_MIRI_TEST_SECS=1 CPU_CAP=2 SHCL_GATE_STRICT='' \
+	bash "${miriT}/cicd/utility/sanitize-rust.bash" --miri >"${miriT}/out" 2>"${miriT}/err" || miriRc=$?
+((miriRc == 1)) || fBad "sanitize-rust with a stuck Miri test exited ${miriRc}, not 1: $(cat "${miriT}/err")"
+((SECONDS - t0 < 20)) || fBad "sanitize-rust took $((SECONDS - t0)) s to stop a test held to 1 s"
+[[ "$(grep -c 'slowpoke .* ran past 1 s under Miri' "${miriT}/err" || true)" == 2 ]] || fBad "the stuck Miri test isn't named once per binary: $(cat "${miriT}/err")"
+! grep -q brisk "${miriT}/err" || fBad "a Miri test that passed was reported: $(cat "${miriT}/err")"
+
 fTest Et6AutN 2026101816034794-quick-skips-name-one-step-each
 ##	2026101816034794: --quick drops a step by plain text. A name that matches
 ##	nothing goes stale after a rename with no failure, and one that matches 2

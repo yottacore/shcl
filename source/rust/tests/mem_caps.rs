@@ -181,8 +181,8 @@ fn element_cap_bounds_the_parse() {
 }
 
 #[cfg_attr(
-	all(miri, not(shcl_miri_all)),
-	ignore = "slow under Miri; --miri-all runs it"
+	miri,
+	ignore = "200k refused lines never finish under Miri (2026102106592600)"
 )]
 #[test]
 fn diagnostic_cap_bounds_the_parse() {

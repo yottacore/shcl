@@ -3028,8 +3028,8 @@ fn written_spelling_matches_its_reload() {
 /// the same document with no dead nodes; the ratio is what matters, since an
 /// absolute figure would be a machine constant. Same fixture in every runner.
 #[cfg_attr(
-	all(miri, not(shcl_miri_all)),
-	ignore = "slow under Miri; --miri-all runs it"
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
 )]
 #[test]
 fn index_rebuild_ignores_removed_nodes() {
@@ -3085,8 +3085,8 @@ fn index_rebuild_ignores_removed_nodes() {
 /// caller folding many layers onto a big one paid it every time. Timed against
 /// the same merges with the big block left out. Same fixture in every runner.
 #[cfg_attr(
-	all(miri, not(shcl_miri_all)),
-	ignore = "slow under Miri; --miri-all runs it"
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
 )]
 #[test]
 fn merge_settles_only_what_it_touched() {
@@ -3130,8 +3130,8 @@ fn merge_settles_only_what_it_touched() {
 /// the same steps on the same document without the line. Same fixture in
 /// every runner.
 #[cfg_attr(
-	all(miri, not(shcl_miri_all)),
-	ignore = "slow under Miri; --miri-all runs it"
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
 )]
 #[test]
 fn a_far_kept_line_costs_an_edit_nothing() {
@@ -3503,8 +3503,8 @@ fn paths_enumeration_shape() {
 }
 
 #[cfg_attr(
-	all(miri, not(shcl_miri_all)),
-	ignore = "slow under Miri; --miri-all runs it"
+	miri,
+	ignore = "a 2000-deep chain never finishes under Miri (2026102106592600)"
 )]
 #[test]
 fn generation_bounds_a_multiplying_schema() {
