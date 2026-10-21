@@ -86,15 +86,9 @@
 ##	  gif and publish stay on this box. An extra image runs what CTR_ARGS_NAME in
 ##	  config.bash picks, and nothing runs here after it. The repo is mounted at
 ##	  its own path, so a run records its tree like any other.
-##	- Stages 2-6 run from a frozen copy of the tree, taken after the format
-##	  stage: a detached, locked worktree beside the run's temp dir, holding HEAD
-##	  plus every uncommitted edit and new file git doesn't ignore, which the run
-##	  lists. A merge, a checkout or an edit in the checkout during a run
-##	  reaches neither the build nor the script that runs it. Sync, format,
-##	  dogfood, gif and publish write the checkout, so they stay on it.
-##	  FROZEN_LINKS in config.bash link the copy back to the checkout's build
-##	  dirs, so its builds start warm and land where they always did. The copy
-##	  goes on the way out, with the temp dir. --no-freeze runs 2-6 in place.
+##	- Stages 2-6 run from a copy of the tree taken after formatting, uncommitted
+##	  work included, so a merge, checkout or edit during a run can't reach them.
+##	  FROZEN_LINKS in config.bash share build dirs. --no-freeze runs in place.
 ##	- Reuse: copy the cicd/ directory into another project and edit config.bash.
 
 ##	History: At bottom of script.

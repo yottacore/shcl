@@ -33,6 +33,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- cicd.bash's longer help pushed its copyright and SPDX lines out of the header check's window
+	- ID: 2026102113494069
+	- Type: Bug
+	- Status: Started
+	- Severity: High
+	- Opened: 20261021-134940
+	- Opened by: 2026102108300000
+	- Related IDs: 2026102108300000
+	- Version and build: `r1021` at `dbb9ff97`
+	- Steps to reproduce:
+		- `cicd/utility/check-docs.bash` on `r1021` at `fe2545f6` or later.
+	- Incorrect behavior: check-docs `EqL3TGq` fails on cicd.bash, with no SPDX or copyright line in its header. check-push-gate `EqGjDth` runs check-docs on a clone of HEAD and fails with it. Hosted run 39663476196 failed `ci (lint)` and `ci (tests)` on them, and the local `--gate` failed lint.
+	- Expected behavior: both pass.
+	- Reproduced: yes, `EqL3TGq` red on this tree.
+	- Actual cause: the frozen-copy paragraph and `--no-freeze` line added 10 lines to cicd.bash's help, which is its `##` header. The copyright and SPDX lines moved to 102 and 105, and the check reads the first 100 lines.
+	- Decisions:
+		- me: trim the new help paragraph to 3 lines, rather than move the copyright block or widen the window. Every other script under `cicd/` keeps it after the purpose text, none past line 67. The check covers every source file, so a wider window is weaker everywhere for one file. The detail the paragraph dropped is in `frozen-tree.bash`'s header, config.bash's `FROZEN_LINKS` comment and 2026102108300000.
+		- me: the copyright line now sits at 96 and SPDX at 99, so more help text there trips the check again. The help is the place to cut when it does.
+	- Actual fix: cicd.bash's frozen-copy help paragraph, 9 lines down to 3.
+
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
@@ -414,6 +434,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A bare run in the image (`-y --no-lint`) failed `EqGjDth` and `EtDCDE7` in stage 4, before the leak steps. Log `shcl/bare-r1021.log`.
 			- A run stopped by PID in stage 6 removed the copy and its temp dir at once, while its `docker run` and container kept going for about 2 minutes on the removed copy, until the CPU floor check failed. Log `shcl/stopped-r1021.log`.
 			- Verified: a `-y --no-lint --no-tests` run passed from the copy, with 2 image runs (format, then 2-6), "copied fe2545f648c7, with nothing uncommitted", and no worktree left. Log `shcl/bare2-r1021.log`.
+		- 20261021: the header failure is 2026102113494069.
 	- Swept: every `worktree add` and `worktree remove` under `cicd/` and the hook: pre-push and check-migrate now use the helper; check-push-gate and check-install-dev add worktrees only in their own scratch repos. The other users of the engine's stub repos (shell-regress `EqQUj04`, check-push-gate's engine and hook stubs) copy the helper. check-push-gate's extra-image mount rows pass `--no-freeze`, since they check mounts on the checkout's own paths. The docker scan in shell-regress `EtDCDEB` matches `fRunContainer` called with arguments.
 	- Test case: shell-regress `EtMYbKi` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
 
