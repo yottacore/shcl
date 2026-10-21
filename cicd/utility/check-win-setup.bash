@@ -48,15 +48,22 @@ fOnPath(){
 	done < <(fPs "[Environment]::GetEnvironmentVariable('Path','Machine')" | tr ';' '\n')
 	return 1
 }
+## The setup's stub is 32-bit, so its key is in the 32-bit view. Apps and
+## features reads both, and so does this.
+fHasKey(){ reg query "${regKey}" /reg:64 >/dev/null 2>&1 || reg query "${regKey}" /reg:32 >/dev/null 2>&1 ;}
+## NSIS reads _?= only unquoted and last, and msys quotes an argument with a
+## space, so the uninstaller copied itself to temp and returned at once.
+## Start-Process joins its arguments as they are and waits.
+fUninstall(){ fPs "exit (Start-Process -FilePath '${dirWin}\uninstall.exe' -ArgumentList '/S','_?=${dirWin}' -Wait -PassThru).ExitCode" ;}
 ## A failed run still takes the install off the box.
-trap '[[ -f "${dirU}/uninstall.exe" ]] && "${dirU}/uninstall.exe" /S "_?=${dirWin}" || true' EXIT
+trap '[[ -f "${dirU}/uninstall.exe" ]] && fUninstall || true' EXIT
 
 fTest EtIkYkb the setup installs silently and puts its folder on the machine PATH
 rc=0; "${setup}" /S || rc=$?
 ((rc == 0)) || fBad "setup /S exited ${rc}"
 [[ -f "${dirU}/shcl.exe" && -f "${dirU}/uninstall.exe" ]] || fBad "${dirWin} is missing shcl.exe or uninstall.exe"
 fOnPath "${dirWin}" || fBad "${dirWin} isn't on the machine PATH"
-reg query "${regKey}" /v DisplayVersion >/dev/null 2>&1 || fBad "no ${regKey}"
+fHasKey || fBad "no ${regKey}, in either view"
 
 fTest EtIkYnd shcl from the machine PATH is the installed one and runs
 want="$("${dirU}/shcl.exe" --version 2>&1 | tr -d '\r' || true)"
@@ -66,11 +73,11 @@ got="$(fPs "\$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine')
 
 fTest EtIkYqY the uninstaller takes off the PATH entry, the files and the uninstall key
 ## With _?= it runs in place and waits, so it can't delete itself or the folder.
-rc=0; "${dirU}/uninstall.exe" /S "_?=${dirWin}" || rc=$?
+rc=0; fUninstall || rc=$?
 ((rc == 0)) || fBad "uninstall.exe /S exited ${rc}"
 ! fOnPath "${dirWin}" || fBad "${dirWin} is still on the machine PATH"
-reg query "${regKey}" >/dev/null 2>&1 && fBad "${regKey} is still there"
-left="$(cd "${dirU}" 2>/dev/null && find . -mindepth 1 ! -name uninstall.exe | head -n 5 || true)"
+fHasKey && fBad "${regKey} is still there"
+left="$(cd "${dirU}" 2>/dev/null && find . -mindepth 1 ! -name uninstall.exe || true)"
 [[ -z "${left}" ]] || fBad "the uninstaller left ${left//$'\n'/ } in ${dirWin}"
 rm -f "${dirU}/uninstall.exe"; rmdir "${dirU}" 2>/dev/null || fBad "${dirWin} isn't empty past uninstall.exe"
 fTestEnd
