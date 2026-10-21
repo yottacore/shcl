@@ -376,3 +376,57 @@ jobs:
           file "${art}"
           bash cicd/utility/crosscheck.bash --corpus project/conformance "rust|source/rust/target/debug/shcl" "arm64|${art}"
           bash cicd/utility/cli-regress.bash "arm64|${art}"
+
+  ## The windows-arm64 release is built here on x86_64 with the stage 6
+  ## command, as it is released, and the job below runs cli-regress on it on
+  ## an arm runner.
+  winarm-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - run: |
+          pip install --no-deps cargo-zigbuild==0.23.0
+          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/zig-x86_64-linux-0.16.0.tar.xz \
+            "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig-x86_64-linux-0.16.0.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/zig-x86_64-linux-0.16.0.tar.xz -C /tmp
+          echo "/tmp/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - run: |
+          CPU_CAP="$(nproc)"
+          export CPU_CAP
+          art=""
+          # shellcheck source=/dev/null
+          source cicd/config.bash
+          for t in "${CROSS_TARGETS[@]}"; do
+            [[ "${t}" == *"|windows-arm64|"* ]] || continue
+            rest="${t#*|}"; rest="${rest#*|}"; art="${rest%%|*}"
+            eval "${rest#*|}"
+          done
+          [[ -n "${art}" && -f "${art}" ]] || { echo "no windows-arm64 binary built: ${art}" >&2; exit 1; }
+          file "${art}"
+          mkdir -p winarm-art && cp "${art}" winarm-art/shcl.exe
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-arm64
+          path: winarm-art/shcl.exe
+          retention-days: 3
+
+  winarm-test:
+    needs: winarm-build
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-arm64
+      - run: |
+          uname -m; ./shcl.exe --version
+          bash cicd/utility/cli-regress.bash "arm64|${PWD}/shcl.exe"
