@@ -33,7 +33,7 @@ case "${1:-}" in -h|--help) sed -n '/^##	Purpose:/,/^##	History:/p' "${BASH_SOUR
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ;; *) echo "check-win-setup: windows only" >&2; exit 2 ;; esac
 ## NSIS reads /S and /D itself, so msys must not turn them into paths.
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
-setup="$1"
+setup="$(realpath -- "$1")"
 dirWin="${ProgramW6432:-${PROGRAMFILES}}\\Shcl"
 dirU="$(cygpath -u "${dirWin}")"
 regKey='HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Shcl'
