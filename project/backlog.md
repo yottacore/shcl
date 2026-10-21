@@ -404,20 +404,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
 
-- The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
-	- ID: 2026101921290754
+- The linux-arm64, windows-arm64 and freebsd-x86_64 release builds never run in a pipeline test
+	- ID: 2026102019500000
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Opened: 20261019-212908
-	- Opened by: 2026101920461160
-	- Related IDs: 2026100413052100
-	- Version and build: dev at `baca8c01`
-	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64 or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
-	- Verified: 20261019, the windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux release on all 206 corpus cases, in about 30 s.
+	- Opened: 20261020-195000
+	- Opened by: 2026101921290754
+	- Related IDs: 2026101921290754, 2026100413052100
+	- Version and build: dev at `db311c7a`
+	- Problem description: stage 6 runs the linux-x86_64 build under qemu and the windows-x86_64 one under wine. The hosted macos job runs the macOS arm64 half. Nothing runs the other 3.
 	- Requirements:
-		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
-		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
+		- linux-arm64: boot it under qemu-system-aarch64 over the corpus, the way the CPU floor check boots x86_64. It links glibc, so the image needs an arm64 kernel, libc and busybox.
+		- windows-arm64: run it on the hosted `windows-11-arm` runner, if a public repo gets one.
+		- freebsd-x86_64: boot it under qemu-system-x86_64 from a pinned, hashed FreeBSD image, if that costs a few minutes at most.
 
 - The windows setup is never run by a test, so NSIS's installer code goes untested
 	- ID: 2026101921290791
@@ -432,6 +432,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
 		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
+
+- The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
+	- ID: 2026101921290754
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Related IDs: 2026100413052100
+	- Version and build: dev at `baca8c01`
+	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64 or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
+	- Verified: 20261019, the windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux release on all 206 corpus cases, in about 30 s.
+	- Requirements:
+		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
+		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
+	- Actual fix: stage 6's release checks run `check-win-release.bash` over the windows-x86_64 build. Under wine it runs the same 4347 CLI cases the CPU floor boot does, 8 at a time under one wineserver, and compares stdout, stderr and exit code with the native release. The case list moved into `include/corpus-cases.bash`, which both scripts source. The OS words its own errors, such as "File not found." on windows, so stderr is compared up to the code in `(os error N)`. The main image has wine and wine64 now. It takes about 35 s in the image and 2.5 minutes on this host, so `--quick` keeps it.
+	- Found: the image has no `/run/user/UID`, so wine 10 falls back to a server dir under TMPDIR, and aborts with `free(): invalid pointer` when TMPDIR is set. The script unsets TMPDIR once its work dir is made.
+	- Found, for the other builds: nothing here runs them in a stage today. linux-arm64 links glibc, so qemu-system-aarch64, which this host has, could boot it the floor check's way, given an arm64 kernel and libc in the image. freebsd-x86_64 needs FreeBSD's own loader and libc, so a pinned FreeBSD boot image. Wine here can't run windows-arm64; the hosted `windows-11-arm` runner could. Filed as 2026102019500000.
+	- Swept: the floor check's case list is the one copy now. RELEASE_CHECKS, the lint list and the image recipe have the new script. Hosted CI never reaches stage 6, so ci.yml needs no wine.
+	- Branch: `bsquote`
+	- Test case: check-win-release `EtIZEst` (wine starts the build and gives the native `--version`) and `EtIZEvy` (the cases match). A copy of the exe with one byte of `explain` changed failed `EtIZEvy` on the `explain` case, and the windows-arm64 exe failed `EtIZEst`. With wine off PATH both skip, and under `SHCL_GATE_STRICT` the skip fails.
+	- Verified: passes on this host and in the current image with wine added, on the 2026-10-16 release builds. The RELEASE_CHECKS entry passes through `eval` with and without a windows build. shellcheck, test-ids check, shell-regress, check-pins, check-push-gate and check-docs pass.
+	- Acceptance signoff: Self-closed: each new test was seen red with a fault and green after, and the second requirement is answered with a follow-up item. The first full run with the new image is the end-to-end check.
+	- Closed: 20261020-195000
 
 - lint-report says FAILED for a passing run that has a python step with `-W error::ResourceWarning`
 	- ID: 2026102019120000
