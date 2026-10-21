@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - cicd.bash's longer help pushed its copyright and SPDX lines out of the header check's window
 	- ID: 2026102113494069
 	- Type: Bug
-	- Status: Started
+	- Status: Done
 	- Severity: High
 	- Opened: 20261021-134940
 	- Opened by: 2026102108300000
@@ -52,6 +52,36 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: trim the new help paragraph to 3 lines, rather than move the copyright block or widen the window. Every other script under `cicd/` keeps it after the purpose text, none past line 67. The check covers every source file, so a wider window is weaker everywhere for one file. The detail the paragraph dropped is in `frozen-tree.bash`'s header, config.bash's `FROZEN_LINKS` comment and 2026102108300000.
 		- me: the copyright line now sits at 96 and SPDX at 99, so more help text there trips the check again. The help is the place to cut when it does.
 	- Actual fix: cicd.bash's frozen-copy help paragraph, 9 lines down to 3.
+	- Branch: `r1021`
+	- Commit: `67cabba7`
+	- Swept: check-docs runs `EqL3TGq` over every tracked source file, and cicd.bash was the only one past the window. The next deepest under `cicd/` is check-migrate.bash, with SPDX at 67.
+	- Verified: `EqL3TGq` failed on the tree before the fix and passes after. check-docs, check-push-gate (`EqGjDth` included, red before on a clone of HEAD), shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
+	- Test case: check-docs `EqL3TGq`.
+	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix whose test went red before and green after.
+	- Closed: 20261021-141000
+
+- check-push-gate's stand-in docker misreads `--device`, so `EtDCDE7` fails on a box with KVM
+	- ID: 2026102114060102
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261021-140601
+	- Opened by: 2026102113494069
+	- Related IDs: 2026102022450000, 2026102108300000
+	- Version and build: `r1021` at `67cabba7`
+	- Steps to reproduce:
+		- `cicd/utility/check-push-gate.bash` as a user who can write `/dev/kvm`.
+	- Incorrect behavior: `EtDCDE7` fails with "the run in the main image failed", and the run's log says `env: '/dev/kvm': Permission denied`. The bare run on `r1021` failed the same.
+	- Expected behavior: it passes.
+	- Reproduced: yes, here.
+	- Actual cause: since `fe2545f6` (2026102022450000) cicd.bash passes `--device /dev/kvm` to `docker run` when it can write `/dev/kvm`. The stand-in docker skips only the options it knows, so it took `/dev/kvm` for the image and ran `env /dev/kvm ...`. A box where the user can't write `/dev/kvm` never passes the option.
+	- Actual fix: the stand-in skips `--device` and its value.
+	- Branch: `r1021`
+	- Swept: `--device` is the only `docker run` option cicd.bash adds that the stand-in didn't know. Its mount-recording branch steps over unknown options one word at a time, which is right for `--device`. No other script in `cicd/` stands in for `docker run`.
+	- Verified: `EtDCDE7` failed before and passes after. check-push-gate, shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
+	- Test case: check-push-gate `EtDCDE7`.
+	- Acceptance signoff: Self-closed on JC's criteria: a test stand-in fix, red before and green after.
+	- Closed: 20261021-141000
 
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803

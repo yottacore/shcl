@@ -626,7 +626,7 @@ if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 			--rm|--init)           shift ;;
 			-e)                    envs+=("$2"); shift 2 ;;
 			-w)                    dir="$2"; shift 2 ;;
-			-v|--user|--group-add|--label|--network) shift 2 ;;
+			-v|--user|--group-add|--label|--network|--device) shift 2 ;;
 			*)                     break ;;
 		esac
 	done
