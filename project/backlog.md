@@ -83,6 +83,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed on JC's criteria: a test stand-in fix, red before and green after.
 	- Closed: 20261021-141000
 
+- check-freebsd fetches its image again on a bare run in the main image, though the cached copy is still there
+	- ID: 2026102114300000
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261021-143000
+	- Opened by: 2026102022450000
+	- Related IDs: 2026102022450000, 2026102108300000
+	- Version and build: `r1021` at `fe2545f6`
+	- Steps to reproduce:
+		- A bare run in the main image, with the image already in `~/.cache/shcl-cicd/main/freebsd`.
+	- Incorrect behavior: `shcl/bare2-r1021.log` line 338 prints "fetching ... about 640 MB", but the cached qcow2 and its `.sha256` keep their 12:33 ctime, so nothing in that cache was replaced. The download likely went to a path the run threw away.
+	- Expected behavior: the cached image passes its sum check and nothing is fetched.
+	- Reproduced: once, on the first frozen-copy run. Not looked into yet. A first guess is the cache mount or `HOME` in the second image run of a frozen copy.
+
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
@@ -386,6 +401,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261020: `cicd.bash --gate` with neither flag, in `gatewt-r1020` at `db311c7a`, started the main image once and ended with `tree c3687f1204d6 recorded`. Left: the bare run, which is JC's from 17:04, and a pre-push gate on a main push.
 		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `EtDCDE7` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
 			- `--gate` with neither flag started the image once, then stopped on check-docs `EqL3TGq` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
+			- Cause of the `EtDCDE7` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
 	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
