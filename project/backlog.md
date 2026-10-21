@@ -371,30 +371,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a1ca716f`
 	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc` and `EtDQOSv`.
 
-- `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
-	- ID: 2026102106592600
-	- Type: Bug
-	- Status: Waiting for testing
-	- Priority: High
-	- Opened: 20261021-065926
-	- Related IDs: 2026101711273980
-	- Version and build: dev at `db311c7a`
-	- Problem description: 5 tests stay at full CPU under Miri and never return. The 10-19 run sat on them for 39 hours before it was stopped, and the 10-20 bare run has been on the same 5 for 12 hours.
-		- `index_rebuild_ignores_removed_nodes`, `merge_settles_only_what_it_touched`, `a_far_kept_line_costs_an_edit_nothing` and `generation_bounds_a_multiplying_schema` in conformance.rs, and `diagnostic_cap_bounds_the_parse` in mem_caps.rs.
-		- Each builds 2,000 to 200,000 lines or nodes. 4 of them time a ratio, which Miri can't judge anyway.
-	- Requirements:
-		- `--miri-all` finishes in hours. Scale tests skip under Miri, or run a small input there.
-		- A test that runs too long under Miri fails by name, rather than hold up the run.
-	- Progress:
-		- Fixed, on `bsquote`:
-			- The 5 skip under Miri always, each with its reason. The timing ones measure nothing there, and the other 2 need their full size to reach the cap they test. The same paths run under Miri in smaller tests. No other Miri test times anything.
-			- sanitize-rust stops a Miri test after `SHCL_MIRI_TEST_SECS`, 2 hours by default, and fails it by name.
-		- Verified: the new shell-regress row went red against the old script and passes now. A real `--miri-all --only` of a slow test with a 60 s limit was stopped and named, with nothing left running.
-		- Needs local test suite run: a whole `--miri-all`, started 2026-10-21 08:27 from `wt-bsq`.
-	- Branch: `bsquote`
-	- Commit: `1e3c925b`
-	- Test case: shell-regress `EtLh7er`.
-
 - A long run reads the live tree, so nothing can merge or check out there until it ends
 	- ID: 2026102108300000
 	- Type: Enhancement
@@ -424,6 +400,33 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Pick a way: a third-party action such as `vmactions/freebsd-vm`, pinned by SHA, in the hosted run; or a pinned, hashed FreeBSD image booted under qemu in stage 6; or vmFreeBSD by hand under the host lock.
 		- No third-party action in ci.yml (JC, 2026-10-21). That leaves a FreeBSD image, pinned and hashed, booted under qemu by our own script, either in a hosted job or in stage 6.
+
+- `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
+	- ID: 2026102106592600
+	- Type: Bug
+	- Status: Done
+	- Priority: High
+	- Opened: 20261021-065926
+	- Related IDs: 2026101711273980
+	- Version and build: dev at `db311c7a`
+	- Problem description: 5 tests stay at full CPU under Miri and never return. The 10-19 run sat on them for 39 hours before it was stopped, and the 10-20 bare run has been on the same 5 for 12 hours.
+		- `index_rebuild_ignores_removed_nodes`, `merge_settles_only_what_it_touched`, `a_far_kept_line_costs_an_edit_nothing` and `generation_bounds_a_multiplying_schema` in conformance.rs, and `diagnostic_cap_bounds_the_parse` in mem_caps.rs.
+		- Each builds 2,000 to 200,000 lines or nodes. 4 of them time a ratio, which Miri can't judge anyway.
+	- Requirements:
+		- `--miri-all` finishes in hours. Scale tests skip under Miri, or run a small input there.
+		- A test that runs too long under Miri fails by name, rather than hold up the run.
+	- Progress:
+		- Fixed, on `bsquote`:
+			- The 5 skip under Miri always, each with its reason. The timing ones measure nothing there, and the other 2 need their full size to reach the cap they test. The same paths run under Miri in smaller tests. No other Miri test times anything.
+			- sanitize-rust stops a Miri test after `SHCL_MIRI_TEST_SECS`, 2 hours by default, and fails it by name.
+		- Verified: the new shell-regress row went red against the old script and passes now. A real `--miri-all --only` of a slow test with a 60 s limit was stopped and named, with nothing left running.
+		- A whole `--miri-all` from `wt-bsq` finished in 1h45m at 6 jobs. Its one failure was `setters_write_only_what_reads_back`, which saves to disk and was never reached before: Miri has no directory fsync. It now skips under Miri like the other 9 tests that save, and passes there as skipped. The longest test took about 50 minutes.
+		- The 2 test files pass natively.
+	- Branch: `bsquote`
+	- Commit: `1e3c925b`
+	- Test case: shell-regress `EtLh7er`.
+	- Acceptance signoff: Self-closed on JC's criteria: the whole mode finishes, and a stuck test fails by name.
+	- Closed: 20261021-102500
 
 - The linux-arm64, windows-arm64 and freebsd-x86_64 release builds never run in a pipeline test
 	- ID: 2026102019500000

@@ -4183,8 +4183,8 @@ fn stamp_hints_quote_digits() {
 /// checks what an in-memory reload does not: a setter once took bytes the
 /// save wrote and the next load refused. Same fixture in every runner.
 #[cfg_attr(
-	all(miri, not(shcl_miri_all)),
-	ignore = "slow under Miri; --miri-all runs it"
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
 )]
 #[test]
 fn setters_write_only_what_reads_back() {
