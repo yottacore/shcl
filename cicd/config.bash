@@ -200,6 +200,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-cpu-floor.bash
+	cicd/utility/check-freebsd.bash
 	cicd/utility/check-win-release.bash
 	cicd/utility/check-win-setup.bash
 	cicd/utility/check-completions.bash
@@ -498,10 +499,14 @@ CROSS_CHECKS=(
 fX86Arts(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == *-x86_64 ]]; then printf '%s\n' "${a#*|}"; fi; done; }
 ## The windows-x86_64 build over the corpus under wine, against the native
 ## one (2026101921290754). About 35 s in the image, 2.5 minutes on this host.
-fWinArt(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == windows-x86_64 ]]; then printf '%s\n' "${a#*|}"; fi; done; }
+## The freebsd-x86_64 one the same way, under FreeBSD's own VM image booted in
+## QEMU (2026102022450000): about 20 s with KVM, 2 minutes without, plus a
+## 640 MB download the first time.
+fArtOf(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == "$1" ]]; then printf '%s\n' "${a#*|}"; fi; done; }
 RELEASE_CHECKS=(
 	"x86_64 builds run on x86-64-v1, Penryn and Phenom|mapfile -t x86Arts < <(fX86Arts); floorBoot=(--run \"\${RELEASE_NATIVE_BIN}\"); if ((quick)); then floorBoot=(); fi; cicd/utility/check-cpu-floor.bash \"\${floorBoot[@]}\" \"\${x86Arts[@]}\""
-	"windows-x86_64 build runs the corpus under wine like the native one|winArt=\"\$(fWinArt)\"; if [[ -n \"\${winArt}\" ]]; then cicd/utility/check-win-release.bash \"\${RELEASE_NATIVE_BIN}\" \"\${winArt}\"; else echo 'check-win-release: no windows-x86_64 build'; fi"
+	"windows-x86_64 build runs the corpus under wine like the native one|winArt=\"\$(fArtOf windows-x86_64)\"; if [[ -n \"\${winArt}\" ]]; then cicd/utility/check-win-release.bash \"\${RELEASE_NATIVE_BIN}\" \"\${winArt}\"; else echo 'check-win-release: no windows-x86_64 build'; fi"
+	"freebsd-x86_64 build runs the corpus under FreeBSD like the native one|bsdArt=\"\$(fArtOf freebsd-x86_64)\"; if [[ -n \"\${bsdArt}\" ]]; then cicd/utility/check-freebsd.bash \"\${RELEASE_NATIVE_BIN}\" \"\${bsdArt}\"; else echo 'check-freebsd: no freebsd-x86_64 build'; fi"
 )
 
 ## What --quick leaves out, each matched as plain text against one step of
@@ -524,6 +529,7 @@ QUICK_SKIP=(
 	'sanitize-c.bash'
 	'sanitize-rust.bash'
 	'crosscheck.bash'
+	'check-freebsd.bash'
 )
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored

@@ -495,6 +495,9 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	for gid in $(id -G); do
 		if [[ "${gid}" != "$(id -g)" ]]; then groups+=(--group-add "${gid}"); fi
 	done
+	## check-freebsd boots FreeBSD in about 20 s with KVM, 2 minutes without.
+	## The caller's kvm group came along above.
+	if [[ -r /dev/kvm && -w /dev/kvm ]]; then mounts+=(--device /dev/kvm); fi
 
 	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi

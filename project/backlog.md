@@ -406,8 +406,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The freebsd-x86_64 release build never runs in a pipeline test
 	- ID: 2026102022450000
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
 	- Priority: Low
+	- Needs local test suite run?: one bare `cicd.bash` run in the main image, to see stage 6 run the new release check through `fRunContainer` with `/dev/kvm` passed in. Its first run fetches the image into `~/.cache/shcl-cicd/main/freebsd`, about a minute.
 	- Opened: 20261020-224500
 	- Opened by: 2026102019500000
 	- Related IDs: 2026102019500000, 2026100413052100
@@ -416,6 +417,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Pick a way: a third-party action such as `vmactions/freebsd-vm`, pinned by SHA, in the hosted run; or a pinned, hashed FreeBSD image booted under qemu in stage 6; or vmFreeBSD by hand under the host lock.
 		- No third-party action in ci.yml (JC, 2026-10-21). That leaves a FreeBSD image, pinned and hashed, booted under qemu by our own script, either in a hosted job or in stage 6.
+	- Decisions:
+		- Stage 6, not a hosted job (me). The image is a 640 MB download, 2.6 GB unpacked, which a hosted job would fetch every run, and hosted CI builds no release binaries. Stage 6 runs it on every bare run, before the artifacts are collected, like the CPU floor and wine checks. `--gate` builds no release, so it doesn't run there; `--quick` leaves it out.
+		- FreeBSD 15.1-RELEASE's BASIC-CLOUDINIT ufs qcow2, pinned by URL and sha256 in `check-freebsd.bash`. The guest has no network: nuageinit runs a script off a FAT disk QEMU makes from a folder, the build and corpus come in on a raw tar disk, and the outputs go out on another, compared here byte for byte with the Linux release.
+		- KVM when `/dev/kvm` is usable, TCG otherwise. The engine passes `/dev/kvm` into the image when the caller can use it.
+	- Progress log:
+		- 20261021: `cicd/utility/check-freebsd.bash`, in `RELEASE_CHECKS`, `SHELLCHECK_TARGETS` and `QUICK_SKIP`. 4347 CLI runs, boot included: 17 s with KVM, 112 s with TCG. A first run adds about 50 s to fetch and 10 s to unpack.
+	- Swept: the other release checks. `check-cpu-floor.bash` already scans the FreeBSD build and boots only the Linux one; `check-win-release.bash` now finds its build through the same `fArtOf` helper. Of the cross targets, the arm ones run in hosted jobs (2026102019500000) and macOS in the hosted macOS job, so FreeBSD was the last one nothing ran. Only the Rust CLI is cross-built, so the other 3 bindings have no twin.
+	- Verified: `check-freebsd.bash` passed with KVM and with TCG here, and with KVM inside the main image from the release check's own line in config.bash, which fetched into an empty cache. It went red on one changed stdout and on one changed exit code, naming the case, on an image that didn't match its sha256, and on a failed fetch under `SHCL_GATE_STRICT`. shellcheck over `SHELLCHECK_TARGETS`, `test-ids.py check` and `shell-regress.bash` passed.
+	- Test case: check-freebsd `EtMgsNv` (image pinned and cached), `EtMgrmj` (FreeBSD boots and runs the build), `EtMgs5P` (same bytes and exit codes as the Linux build).
 
 - `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
 	- ID: 2026102106592600
