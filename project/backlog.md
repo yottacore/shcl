@@ -374,7 +374,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
 	- ID: 2026102106592600
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
 	- Priority: High
 	- Opened: 20261021-065926
 	- Related IDs: 2026101711273980
@@ -385,6 +385,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- `--miri-all` finishes in hours. Scale tests skip under Miri, or run a small input there.
 		- A test that runs too long under Miri fails by name, rather than hold up the run.
+	- Progress:
+		- Fixed, on `bsquote`:
+			- The 5 skip under Miri always, each with its reason. The timing ones measure nothing there, and the other 2 need their full size to reach the cap they test. The same paths run under Miri in smaller tests. No other Miri test times anything.
+			- sanitize-rust stops a Miri test after `SHCL_MIRI_TEST_SECS`, 2 hours by default, and fails it by name.
+		- Verified: the new shell-regress row went red against the old script and passes now. A real `--miri-all --only` of a slow test with a 60 s limit was stopped and named, with nothing left running.
+		- Needs local test suite run: a whole `--miri-all`, started 2026-10-21 08:27 from `wt-bsq`.
+	- Branch: `bsquote`
+	- Commit: `1e3c925b`
+	- Test case: shell-regress `EtLh7er`.
+
+- A long run reads the live tree, so nothing can merge or check out there until it ends
+	- ID: 2026102108300000
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Medium
+	- Opened: 20261021-083000
+	- Related IDs: 2026102021300000, 2026102106592600
+	- Version and build: dev at `db311c7a`
+	- Problem description: a bare run took over 12 hours and read `repo/` the whole time, so `bsquote` sat unmerged. A bash script edited while it runs also resumes into the new text.
+	- Requirements:
+		- `cicd.bash` runs from a frozen copy of the tree at its start, such as a detached worktree or a ZFS clone, so merges, checkouts and edits in the live tree can't reach a running build.
+		- Uncommitted work in the tree goes into the copy, and the run says what it copied.
+		- The copy shares the target dirs and caches, or the first run of each costs a cold build.
+		- The green-tree record still lands in the real repo.
+	- Workaround: `git worktree lock` on each long-lived worktree, so a prune from any tool skips it. `wt-bsq` is locked since 2026-10-21.
 
 - The freebsd-x86_64 release build never runs in a pipeline test
 	- ID: 2026102022450000
