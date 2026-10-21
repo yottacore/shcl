@@ -404,6 +404,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
 
+- The windows setup is never run by a test, so NSIS's installer code goes untested
+	- ID: 2026101921290791
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Priority: Low
+	- Needs external testing: Y. A windows host, hosted or a test box.
+	- Opened: 20261019-212908
+	- Opened by: 2026101920461160
+	- Version and build: dev at `baca8c01`
+	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
+	- Requirements:
+		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
+		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
+	- 20261020, branch `bsquote`:
+		- ci.yml's `setup-build` job builds the released windows-x86_64 target and its setup with stage 6's own package.bash, on ubuntu, where nsis comes from apt. `setup-test` takes it to windows and runs `check-win-setup.bash`. Both run beside the long jobs, so the run takes no longer.
+		- `check-win-setup.bash` installs with `/S`, checks the folder is on the machine PATH and the uninstall key is there, runs `shcl --version` from the machine PATH in a new shell, then runs `uninstall.exe /S _?=<dir>` and checks the PATH entry, the files and the key are gone. With `_?=` the uninstaller runs in place and can't delete itself, so `uninstall.exe` is the one file allowed to stay, and the script removes it and the folder. It refuses to run over an existing install.
+		- Test case: `EtIkYkb`, `EtIkYnd` and `EtIkYqY`, in hosted run 39537878800.
+
 - The linux-arm64, windows-arm64 and freebsd-x86_64 release builds never run in a pipeline test
 	- ID: 2026102019500000
 	- Type: Enhancement
@@ -418,20 +436,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- linux-arm64: boot it under qemu-system-aarch64 over the corpus, the way the CPU floor check boots x86_64. It links glibc, so the image needs an arm64 kernel, libc and busybox.
 		- windows-arm64: run it on the hosted `windows-11-arm` runner, if a public repo gets one.
 		- freebsd-x86_64: boot it under qemu-system-x86_64 from a pinned, hashed FreeBSD image, if that costs a few minutes at most.
-
-- The windows setup is never run by a test, so NSIS's installer code goes untested
-	- ID: 2026101921290791
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Needs external testing: Y. A windows host, hosted or a test box.
-	- Opened: 20261019-212908
-	- Opened by: 2026101920461160
-	- Version and build: dev at `baca8c01`
-	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
-	- Requirements:
-		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
-		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
 
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
 	- ID: 2026101921290754
