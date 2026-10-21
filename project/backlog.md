@@ -189,6 +189,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Platform code is analyzed as the Linux build sees it. Go files behind other platforms' build tags are named and skipped, and the Windows branches in C and Rust aren't compiled. There's no Windows pass (me).
 			- JC, 20261019: add a windows pass for Go. It extracts with `GOOS=windows` and judges only the files the Linux pass leaves out (`EtBmwWo`, `EtBmwbF`, `EtBmwfq`). C and Rust stay Linux only.
 	- 20261019, tests on dev at `aa2e3b33`: a full `--gate` passed, analyze-c and the exhaustive cppcheck included. `analyze-c --ctu`, `soak-c`, `sanitize-c --glibcxx-debug`, and `codeql-scan` passed one after another, the 4 `--leakcheck` steps before `--miri-all`. Hosted run 39307128325: both ubuntu jobs green. Its windows job failed the veneer smoke on 2026101807501110's new check, which isn't this item's.
+	- 20261021, tests on `r1021` at `fe2545f6`: the bare run in the main image (`-y --no-lint`, since lint is red for 2026102108300000) stopped at check-push-gate in stage 4, before the leak steps. So the full run is still left. Log `shcl/bare-r1021.log`.
 	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
 	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
 	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch covers what it calls (me).
@@ -198,7 +199,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Waiting for testing
 	- Priority: Avg
-	- Needs local test suite run?: a full `--gate`, the ubuntu image rebuilt with the nightly, a whole `--leakcheck` run, a whole `sanitize-rust.bash --miri-all` (hours), and a full run with no flags. Then a hosted run, its windows job included for the Go and Python soaks.
+	- Needs local test suite run?: a full run with no flags, `--miri-all` included. The hosted windows job passed on 20261021.
 	- Opened: 20261017-112739
 	- Opened by: JC
 	- Related IDs: 2026101707582803
@@ -289,6 +290,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Commit: `2251a602`.
 			- Needs external testing: the hosted windows job, for `Et01jhM` and `EtD4W76`.
 		- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `Et01jhM` and `EtD4W76`. Left: a whole `--miri-all` and a full run with no flags. JC's bare run from 17:04 is in its `--miri-all`.
+		- 20261021, tests on `r1021` at `fe2545f6`:
+			- Verified: hosted run 39663476196's windows job passed `Et01jhM` (Python soak), `EtD4W76`, the Go soak `Et01j4C` and every win-runners step, the Python runner included.
+			- The bare run in the main image (`-y --no-lint`, since lint is red for 2026102108300000) stopped at check-push-gate in stage 4, before the leak steps and `--miri-all`. Log `shcl/bare-r1021.log`.
 	- Decisions:
 		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
 		- The Rust extractor swaps a stable toolchain for 1.98.1 and would install it, so CodeQL runs on the dated nightly from rust-toolchain.toml, which it keeps. The crates Cargo.lock names are fetched before the image starts, since it has no network, into the cargo home `--container` runs use. Under the repo, the crates' own Cargo.toml and README files threw off check-docs' greps of the tree, and shell-regress's `EsndgSX` went red on it (me).
@@ -305,8 +309,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs local test suite run?: a run with neither flag through the real main image on b23, `cicd.bash --gate` and then a pre-push gate on a main push. Each should start the image once and end with `tree ... recorded`.
+	- Status: Queued
+	- Needs local test suite run?: a run with neither flag through the real main image on b23, `cicd.bash --gate` and then a pre-push gate on a main push. Each should start the image once (twice for a run that formats in place, per 2026102108300000) and end with `tree ... recorded`.
 	- Priority: Avg
 	- Opened: 20261019-204611
 	- Opened by: JC
@@ -330,6 +334,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
 			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
 		- 20261020: `cicd.bash --gate` with neither flag, in `gatewt-r1020` at `db311c7a`, started the main image once and ended with `tree c3687f1204d6 recorded`. Left: the bare run, which is JC's from 17:04, and a pre-push gate on a main push.
+		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `EtDCDE7` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
+			- `--gate` with neither flag started the image once, then stopped on check-docs `EqL3TGq` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
 	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
@@ -338,9 +344,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Queued
 	- Priority: Avg
-	- Needs local test suite run?: 2 bare runs in the image, the second stopped partway. Nothing new piles up in the temp root, docker or `~/.cache/shcl-cicd`, and the first run's cleanup line names the 2 superseded images.
+	- Needs local test suite run?: after the fix, 2 bare runs in the image, the second stopped partway. Nothing new piles up in the temp root, docker or `~/.cache/shcl-cicd`, and the first run's cleanup line names the 2 superseded images.
 	- Opened: 20261019-204611
 	- Opened by: JC
 	- Version and build: dev at `6f48dd7d`
@@ -362,6 +368,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A gate's build of the image removes the old tags too.
 			- One line at the end says what went and about how much.
 		- 20261020: the `--gate` in `gatewt-r1020` ended with `cleanup: removed shcl-cicd-alpine:c8cd323342bd, shcl-cicd-ubuntu:9aabbd056009, this run's temp files, about 7.8 GB`. Left: 2 bare runs in the image, the second stopped partway.
+		- 20261021, tests on `r1021` at `fe2545f6`, failed: a run in the image stopped by a TERM to its PID in stage 6 printed `cleanup: removed this run's temp files, about 21 MB` and exited, but its `docker run` and container went on for about 2 minutes, on a copy and temp dir already gone, until the CPU floor check failed in them. A stop has to take the container down with the run. Log `shcl/stopped-r1021.log`.
+			- Verified: the runs left nothing in `/tmp`, the ext4 temp root, `git worktree list`, `docker ps -a` or dangling images, and `~/.cache/shcl-cicd` gained nothing. The gate's image build removed `shcl-cicd:a2da96ec8e18`, so the passing run's line, `cleanup: removed this run's temp files, about 0 MB`, had no image to name. Logs `shcl/gate-r1021.log` and `shcl/bare2-r1021.log`; the passing run used `--no-lint --no-tests`, since both are red this round (2026102108300000).
 		- Swept: every `mktemp` under `cicd/` and in the pre-push hook. All but check-docs and green-tree had an EXIT trap already. config.bash's inline test builds remove their binary after, and now sit in the run's dir. Every docker run and build goes through cicd.bash or ctr-image.bash, and both add the label.
 		- Verified: each new check-push-gate row went red with its part taken out, then passed: no trap, no read-only fallback, no sample-file sweep, no image sweep, and the gate's build without the tag drop. check-push-gate, shell-regress, check-docs, shellcheck over every cicd script, `test-ids.py check` and markdownlint pass. A killed check-docs leaves none of its own scratch.
 	- Decisions:
@@ -375,8 +383,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A long run reads the live tree, so nothing can merge or check out there until it ends
 	- ID: 2026102108300000
 	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs local test suite run?: a bare run and a `--gate` run through the main image, which needs a rebuild for the current recipe first. Only a stubbed docker has run the copy in the image so far.
+	- Status: Queued
+	- Needs local test suite run?: after the fix, a bare run and a `--gate` run through the main image.
 	- Needs external testing: one hosted run, since ci.yml's `--gate --no-container` now runs from a copy too.
 	- Priority: Medium
 	- Opened: 20261021-083000
@@ -400,15 +408,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261021: done on `r1021`. The record is made by the run in the copy and goes to the main repo's common dir; it names the copied tree, so a run whose checkout holds extra edits records that tree, never HEAD's.
 		- 20261021: a `--gate --no-container --no-tests --no-lint --no-cross` run on this repo ran from the copy, listed 7 uncommitted files, rebuilt only the crate into the shared target in 3 s, and left no worktree behind.
+		- 20261021, tests on `r1021` at `fe2545f6`, failed:
+			- `--gate` in the main image failed check-docs `EqL3TGq`. The longer help moved cicd.bash's copyright and SPDX lines to 102 and 105, past the check's 100-line header window. Log `shcl/gate-r1021.log`.
+			- Hosted run 39663476196 failed the same: `ci (lint)` on `EqL3TGq`, and `ci (tests)` on check-push-gate `EqGjDth`, which runs check-docs over the tree. The other 9 jobs passed.
+			- A bare run in the image (`-y --no-lint`) failed `EqGjDth` and `EtDCDE7` in stage 4, before the leak steps. Log `shcl/bare-r1021.log`.
+			- A run stopped by PID in stage 6 removed the copy and its temp dir at once, while its `docker run` and container kept going for about 2 minutes on the removed copy, until the CPU floor check failed. Log `shcl/stopped-r1021.log`.
+			- Verified: a `-y --no-lint --no-tests` run passed from the copy, with 2 image runs (format, then 2-6), "copied fe2545f648c7, with nothing uncommitted", and no worktree left. Log `shcl/bare2-r1021.log`.
 	- Swept: every `worktree add` and `worktree remove` under `cicd/` and the hook: pre-push and check-migrate now use the helper; check-push-gate and check-install-dev add worktrees only in their own scratch repos. The other users of the engine's stub repos (shell-regress `EqQUj04`, check-push-gate's engine and hook stubs) copy the helper. check-push-gate's extra-image mount rows pass `--no-freeze`, since they check mounts on the checkout's own paths. The docker scan in shell-regress `EtDCDEB` matches `fRunContainer` called with arguments.
 	- Test case: shell-regress `EtMYbKi` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
 
 - The freebsd-x86_64 release build never runs in a pipeline test
 	- ID: 2026102022450000
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Priority: Low
-	- Needs local test suite run?: one bare `cicd.bash` run in the main image, to see stage 6 run the new release check through `fRunContainer` with `/dev/kvm` passed in. Its first run fetches the image into `~/.cache/shcl-cicd/main/freebsd`, about a minute.
 	- Opened: 20261020-224500
 	- Opened by: 2026102019500000
 	- Related IDs: 2026102019500000, 2026100413052100
@@ -423,9 +436,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- KVM when `/dev/kvm` is usable, TCG otherwise. The engine passes `/dev/kvm` into the image when the caller can use it.
 	- Progress log:
 		- 20261021: `cicd/utility/check-freebsd.bash`, in `RELEASE_CHECKS`, `SHELLCHECK_TARGETS` and `QUICK_SKIP`. 4347 CLI runs, boot included: 17 s with KVM, 112 s with TCG. A first run adds about 50 s to fetch and 10 s to unpack.
+		- 20261021, tests on `r1021` at `fe2545f6`: a run in the main image with `-y --no-lint --no-tests`, since lint and tests are red this round for 2026102108300000, ran the check in stage 6 inside the image with `/dev/kvm` passed in. Log `shcl/bare2-r1021.log`.
+			- It printed `fetching ... about 640 MB`, though the cache held a matching image from 19:33Z, which it didn't replace. The cache check passes inside the image. Not explained.
 	- Swept: the other release checks. `check-cpu-floor.bash` already scans the FreeBSD build and boots only the Linux one; `check-win-release.bash` now finds its build through the same `fArtOf` helper. Of the cross targets, the arm ones run in hosted jobs (2026102019500000) and macOS in the hosted macOS job, so FreeBSD was the last one nothing ran. Only the Rust CLI is cross-built, so the other 3 bindings have no twin.
 	- Verified: `check-freebsd.bash` passed with KVM and with TCG here, and with KVM inside the main image from the release check's own line in config.bash, which fetched into an empty cache. It went red on one changed stdout and on one changed exit code, naming the case, on an image that didn't match its sha256, and on a failed fetch under `SHCL_GATE_STRICT`. shellcheck over `SHELLCHECK_TARGETS`, `test-ids.py check` and `shell-regress.bash` passed.
+	- Verified: in stage 6 of a run in the main image, `EtMgsNv`, `EtMgrmj` and `EtMgs5P` passed: 4347 CLI runs under FreeBSD 15.1, same bytes and exit codes as the Linux build, with KVM, 18 s with the boot.
 	- Test case: check-freebsd `EtMgsNv` (image pinned and cached), `EtMgrmj` (FreeBSD boots and runs the build), `EtMgs5P` (same bytes and exit codes as the Linux build).
+	- Acceptance signoff: Self-closed on JC's criteria: stage 6 runs the check through the image with KVM, and its 3 rows pass.
+	- Closed: 20261021-134800
 
 - `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
 	- ID: 2026102106592600
