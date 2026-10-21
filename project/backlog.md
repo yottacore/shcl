@@ -371,10 +371,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a1ca716f`
 	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc` and `EtDQOSv`.
 
+- The freebsd-x86_64 release build never runs in a pipeline test
+	- ID: 2026102022450000
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261020-224500
+	- Opened by: 2026102019500000
+	- Related IDs: 2026102019500000, 2026100413052100
+	- Version and build: dev at `db311c7a`
+	- Problem description: it links FreeBSD's own loader and libc, so neither this host nor a GitHub runner can run it. vmFreeBSD ran the suites by hand on 2026-10-04.
+	- Requirements:
+		- Pick a way: a third-party action such as `vmactions/freebsd-vm`, pinned by SHA, in the hosted run; or a pinned, hashed FreeBSD image booted under qemu in stage 6; or vmFreeBSD by hand under the host lock.
+		- Question: is a third-party action OK in ci.yml? Every action there is GitHub's own today.
+
 - The linux-arm64, windows-arm64 and freebsd-x86_64 release builds never run in a pipeline test
 	- ID: 2026102019500000
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261020-195000
 	- Opened by: 2026101921290754
@@ -385,6 +399,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- linux-arm64: boot it under qemu-system-aarch64 over the corpus, the way the CPU floor check boots x86_64. It links glibc, so the image needs an arm64 kernel, libc and busybox.
 		- windows-arm64: run it on the hosted `windows-11-arm` runner, if a public repo gets one.
 		- freebsd-x86_64: boot it under qemu-system-x86_64 from a pinned, hashed FreeBSD image, if that costs a few minutes at most.
+	- Actual fix: GitHub's arm runners, free for a public repo, run the 2 arm builds on real hardware. That's simpler than an emulated boot, and nearer to what a user runs (me).
+		- linux-arm64: ci.yml's `linux-arm` job builds it with the stage 6 command, read out of config.bash as the macos job does, on `ubuntu-24.04-arm`. Then crosscheck over the corpus against a debug build, and cli-regress. It has no cache, since the key would match the x86_64 jobs' target dir.
+		- windows-arm64: `winarm-build` builds it on x86_64 with the stage 6 command, as it's released, and `winarm-test` runs cli-regress on it on `windows-11-arm`. Git-bash there is x64 under emulation; the arm64 exe runs natively.
+		- freebsd-x86_64 moved to 2026102022450000.
+	- Swept: the 3 jobs read the build command from CROSS_TARGETS, so a change there reaches them. Each fails when the target's line is missing or builds nothing. check-pins passes with the 2 new zig downloads hashed.
+	- Branch: `bsquote`
+	- Test case: hosted jobs `linux-arm` (crosscheck and cli-regress) and `winarm-test` (cli-regress).
+	- Verified: hosted run 39543831612: `linux-arm` agreed on 7412 crosscheck comparisons and passed cli-regress. Run 39544603290: `winarm-test` passed 622 cli-regress rows, 871 checks, with 71 skipped out loud. The jobs weren't fault-injected; the gates they run are the ones every other job runs.
+	- Acceptance signoff: Self-closed on JC's criteria: the call is hosted arm runners over an emulated boot for the 2 arm builds, and both jobs pass.
+	- Closed: 20261020-224500
 
 - The windows setup is never run by a test, so NSIS's installer code goes untested
 	- ID: 2026101921290791
