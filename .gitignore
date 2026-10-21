@@ -4,8 +4,9 @@ source/rust/target-gate/
 ## It links that dir into its worktree as this symlink, which target/ misses:
 ## a trailing slash matches only a directory.
 source/rust/target
-source/rust/target-migrate/
-cicd/artifacts/
+## And a frozen run copy links these two in the same way (FROZEN_LINKS).
+source/rust/target-migrate
+cicd/artifacts
 source/go/shcl
 source/c/shcl
 __pycache__/

@@ -53,8 +53,9 @@ repo="${work}/repo"
 zeros=0000000000000000000000000000000000000000
 
 git init -q -b dev "${repo}" || { echo "check-push-gate: git init failed" >&2; exit 2; }
-mkdir -p "${repo}/cicd/hooks" "${repo}/cicd/utility" "${repo}/source/rust"
+mkdir -p "${repo}/cicd/hooks" "${repo}/cicd/utility/include" "${repo}/source/rust"
 cp "${root}/cicd/hooks/pre-push" "${repo}/cicd/hooks/pre-push"
+cp "${root}/cicd/utility/include/frozen-tree.bash" "${repo}/cicd/utility/include/"
 cp "${helper}" "${repo}/cicd/utility/green-tree.bash"
 cp "${root}/cicd/utility/check-banner-tag.bash" "${repo}/cicd/utility/check-banner-tag.bash"
 cp "${root}/.gitignore" "${repo}/.gitignore"
@@ -429,7 +430,7 @@ git init -q -b dev "${eng}" || { echo "check-push-gate: git init failed" >&2; ex
 mkdir -p "${eng}/cicd/utility/include" "${eng}/source/rust"
 cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${eng}/cicd/"
 cp "${root}/cicd/utility/green-tree.bash" "${eng}/cicd/utility/"
-cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${eng}/cicd/utility/include/"
+cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
 cat > "${eng}/cicd/utility/crosscheck.bash" <<'EOF'
 #!/usr/bin/env bash
@@ -625,7 +626,7 @@ if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 			--rm|--init)           shift ;;
 			-e)                    envs+=("$2"); shift 2 ;;
 			-w)                    dir="$2"; shift 2 ;;
-			-v|--user|--group-add|--label|--network) shift 2 ;;
+			-v|--user|--group-add|--label|--network|--device) shift 2 ;;
 			*)                     break ;;
 		esac
 	done
@@ -697,6 +698,7 @@ fTest EstM5os an extra image builds into its own copies and leaves this tree as 
 ## CLI for a musl one that won't run here. Docker makes a missing mount point as
 ## root and follows a link to mount where it leads, so the engine here is a stub
 ## that writes down the mounts it's asked for, and those are held to that.
+## On the checkout's own paths, so --no-freeze.
 if [[ "$(uname -m)" == x86_64 ]]; then
 	cp -r "${root}/cicd/container" "${eng}/cicd/"
 	mapfile -t ctrExtra < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
@@ -708,7 +710,7 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 		local label="$1" p host dst there seen="" before=() ctrRc=0
 		for p in "${ctrPrivate[@]}"; do before+=("$(if [[ -e "${eng}/${p%/}" || -L "${eng}/${p%/}" ]]; then echo yes; else echo no; fi)"); done
 		( cd "${eng}" && env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS SHCL_DOCKER="${work}/fake-docker" SHCL_CTR_CACHE="${work}/ctrcache" \
-			STUB_MOUNTS="${work}/mounts.tsv" bash "${eng}/cicd/cicd.bash" -y --no-sync --container=alpine ) > "${work}/ctr.log" 2>&1 || ctrRc=$?
+			STUB_MOUNTS="${work}/mounts.tsv" bash "${eng}/cicd/cicd.bash" -y --no-sync --no-freeze --container=alpine ) > "${work}/ctr.log" 2>&1 || ctrRc=$?
 		((ctrRc == 0)) || { fail "${label}: the stubbed alpine run failed: $(tail -3 "${work}/ctr.log")"; return 0; }
 		while IFS=$'\t' read -r _ dst there; do
 			if [[ "${dst}" == "${eng}/"* && "${there}" == no ]]; then fail "${label}: docker would make ${dst#"${eng}/"} as root"; fi
@@ -739,7 +741,7 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 		fCtrMounts "a gate worktree"
 		## The main image still builds into it, as the pre-push hook's run does.
 		( cd "${eng}" && env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS SHCL_DOCKER="${work}/fake-docker" SHCL_CTR_CACHE="${work}/ctrcache" \
-			STUB_MOUNTS="${work}/mounts.tsv" bash "${eng}/cicd/cicd.bash" -y --no-sync --container ) > "${work}/ctr.log" 2>&1 \
+			STUB_MOUNTS="${work}/mounts.tsv" bash "${eng}/cicd/cicd.bash" -y --no-sync --no-freeze --container ) > "${work}/ctr.log" 2>&1 \
 			|| fail "the stubbed run in the main image failed: $(tail -3 "${work}/ctr.log")"
 		awk -F'\t' -v d="${work}/target-gate" '$1 == d && $2 == d { f = 1 } END { exit !f }' "${work}/mounts.tsv" \
 			|| fail "the main image doesn't build into a gate worktree's target-gate"

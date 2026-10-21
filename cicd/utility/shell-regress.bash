@@ -1399,7 +1399,7 @@ fTest EtDCDEB 2026101920461174-docker-asked-one-way
 ##	docker, and the images are x86_64 only. fCtrWhyNot is the one place that
 ##	asks, so a script that runs the image without it, or looks for the docker
 ##	command itself, fails here.
-mapfile -t ctrRunners < <(git -C "${repoDir}" ls-files -z -- cicd | (cd "${repoDir}" && xargs -0 grep -lE 'fCtrRunSelf "|^[[:space:]]*fRunContainer$' --) | grep -vF -e include/ctr-image.bash -e shell-regress.bash || true)
+mapfile -t ctrRunners < <(git -C "${repoDir}" ls-files -z -- cicd | (cd "${repoDir}" && xargs -0 grep -lE 'fCtrRunSelf "|^[[:space:]]*fRunContainer( |$)' --) | grep -vF -e include/ctr-image.bash -e shell-regress.bash || true)
 [[ " ${ctrRunners[*]} " == *" cicd/cicd.bash "* ]] || fBad "the docker scan doesn't find cicd.bash running the image, so it finds nothing: ${ctrRunners[*]}"
 for f in "${ctrRunners[@]}"; do
 	grep -qF fCtrWhyNot "${repoDir}/${f}" || fBad "${f} runs the build image without asking fCtrWhyNot whether it can"
@@ -2221,7 +2221,7 @@ fTest EqQUj04 20260920-2-gate-runs-the-cross-checks
 stubDir="${tmpDir}/cicd-stub"
 mkdir -p "${stubDir}/cicd/utility/include"
 cp "${repoDir}/cicd/cicd.bash" "${stubDir}/cicd/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${stubDir}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${stubDir}/cicd/utility/include/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${stubDir}/cicd/utility/"
 cat > "${stubDir}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
@@ -3765,6 +3765,86 @@ fCrosscheck --corpus "${xcDir}/gate" "nogate|${xcDir}/nogate" "ref|${xcDir}/ref"
 	&& "${xcOut}" == *"WRONG ANSWER fmt --write 001-a: nogate exited 0, and the call has to exit 7"* \
 	&& "${xcOut}" == *"WRONG ANSWER fmt --write 002-b: nogate left the file different from expected.shcl"* ]] \
 	|| fBad "crosscheck passed a save gate answer the reference got wrong (exit ${xcRc}): ${xcOut@Q}"
+
+fTest EtMYbKi 2026102108300000-run-from-a-frozen-copy
+##	2026102108300000: a run of hours read the checkout, so nothing could merge
+##	or check out there until it ended, and an edit to cicd.bash took the run on
+##	into the new text. Stages 2-6 now run from a locked worktree holding the
+##	tree the format stage left, uncommitted work included. A stub repo's tests
+##	stage looks around the copy, then edits the checkout and the engine in place.
+frz="${tmpDir}/frozen"; frzLive="${frz}/live"; frzOut="${frz}/out"
+mkdir -p "${frzLive}/cicd/utility/include" "${frzLive}/cicd/artifacts" "${frz}/tmp" "${frzOut}"
+cp "${repoDir}/cicd/cicd.bash" "${frzLive}/cicd/"
+cp "${repoDir}/cicd/utility/green-tree.bash" "${frzLive}/cicd/utility/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${frzLive}/cicd/utility/include/"
+cp "${repoDir}/.gitignore" "${frzLive}/"
+cat > "${frzLive}/cicd/config.bash" <<'EOF'
+APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
+FMT_CMD=(touch formatted); FMT_CHECK_CMD=(); BUILD_CMD=(); LINT_CMD=()
+TEST_CMD=(bash "${STUB_PROBE}")
+SHELLCHECK_TARGETS=(); BINDING_CLIS=(); LARGEDOC_MIB=0
+PROFILE_ENABLE=0; GIF_ENABLE=0; GIT_PUBLISH=(); DOGFOOD_FIXED_DESTS=()
+RELEASE_NATIVE_CMD=(); RELEASE_NATIVE_BIN=""; RELEASE_NATIVE_OSARCH="x"
+CROSS_TARGETS=(); RELEASE_ARTIFACT_DIR=""; CROSS_CHECKS=()
+FROZEN_LINKS=(cicd/artifacts)
+EOF
+cat > "${frz}/probe.bash" <<'EOF'
+set -e
+o="${STUB_OUT}"
+pwd -P > "${o}/where"
+cat edited > "${o}/edited-before"
+if [[ -f untracked ]]; then echo yes > "${o}/untracked"; fi
+if [[ -f formatted ]]; then echo yes > "${o}/formatted"; fi
+if [[ -e gone ]]; then echo yes > "${o}/gone"; fi
+git worktree list --porcelain > "${o}/worktrees"
+echo art > cicd/artifacts/made
+echo late > "${STUB_LIVE}/edited"
+echo late > "${STUB_LIVE}/late"
+## In place, the way an editor saves, and longer at the top.
+{ printf '#%.0s' {1..400}; echo; cat "${STUB_LIVE}/cicd/cicd.bash"; } > "${o}/eng.new"
+cat "${o}/eng.new" > "${STUB_LIVE}/cicd/cicd.bash"
+cat edited > "${o}/edited-after"
+EOF
+cp "${frzLive}/cicd/cicd.bash" "${frz}/eng.orig"
+if (
+	cd "${frzLive}" && git init -q . && printf 'clean\n' > edited && printf 'x\n' > gone \
+		&& git add .gitignore cicd edited gone \
+		&& git -c user.email=stub@example.invalid -c user.name=stub commit -qm stub \
+		&& printf 'dirty\n' > edited && printf 'u\n' > untracked && rm gone
+); then
+	frzHeadTree="$(git -C "${frzLive}" rev-parse 'HEAD^{tree}')"
+	frzRc=0
+	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
+		bash cicd/cicd.bash -y --no-sync --no-container ) > "${frz}/run.log" 2>&1 || frzRc=$?
+	if ((frzRc)) || ! grep -qF 'CI/CD: done.' "${frz}/run.log"; then fBad "a run whose checkout and engine were edited mid-run failed (exit ${frzRc}): $(tail -n 5 "${frz}/run.log")"; fi
+	frzWhere="$(cat "${frzOut}/where" 2>/dev/null || true)"
+	[[ "${frzWhere}" == "${frz}/tmp/stub-tree."* ]] || fBad "the tests stage ran in ${frzWhere@Q}, not a frozen copy beside the run's temp dir"
+	[[ "$(cat "${frzOut}/edited-before" 2>/dev/null || true)" == dirty ]] || fBad "the frozen copy lacks the checkout's uncommitted edit"
+	[[ "$(cat "${frzOut}/edited-after" 2>/dev/null || true)" == dirty ]] || fBad "an edit to the checkout mid-run reached the frozen copy"
+	[[ -f "${frzOut}/untracked" ]] || fBad "the frozen copy lacks the checkout's untracked file"
+	[[ -f "${frzOut}/formatted" ]] || fBad "the frozen copy was taken before the format stage"
+	[[ ! -e "${frzOut}/gone" ]] || fBad "the frozen copy holds a file deleted in the checkout"
+	grep -qF 'locked' "${frzOut}/worktrees" 2>/dev/null || fBad "the frozen copy's worktree wasn't locked, so a prune could drop it"
+	[[ -f "${frzLive}/cicd/artifacts/made" ]] || fBad "what the copy wrote to a FROZEN_LINKS dir isn't in the checkout"
+	if ! { grep -qE 'plus 4 uncommitted file\(s\)' "${frz}/run.log" && grep -qE '^[[:space:]]+D[[:space:]]+gone$' "${frz}/run.log"; }; then
+		fBad "the run doesn't say what it copied: $(grep -A5 'Frozen copy' "${frz}/run.log" || true)"
+	fi
+	[[ "$(git -C "${frzLive}" worktree list --porcelain | grep -c '^worktree ')" == 1 ]] || fBad "the frozen copy is still registered after the run: $(git -C "${frzLive}" worktree list)"
+	if compgen -G "${frz}/tmp/stub-tree.*" >/dev/null; then fBad "the frozen copy's folder is still there after the run"; fi
+	##	The record names the tree that was tested: the checkout as the format
+	##	stage left it, never HEAD's, and never what it held at the end.
+	cp "${frz}/eng.orig" "${frzLive}/cicd/cicd.bash"; printf 'dirty\n' > "${frzLive}/edited"; rm -f "${frzLive}/late"
+	frzTree="$(bash "${repoDir}/cicd/utility/green-tree.bash" tree "${frzLive}" || true)"
+	bash "${repoDir}/cicd/utility/green-tree.bash" passed "${frzLive}" "${frzTree}" || fBad "the tree the frozen copy tested wasn't recorded in the checkout's git dir"
+	if bash "${repoDir}/cicd/utility/green-tree.bash" passed "${frzLive}" "${frzHeadTree}"; then fBad "HEAD's tree was recorded for a run that tested uncommitted work"; fi
+	##	--no-freeze runs in place, as before.
+	: > "${frzOut}/where"
+	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
+		bash cicd/cicd.bash -y --no-sync --no-container --no-freeze ) > "${frz}/run2.log" 2>&1 || true
+	[[ "$(cat "${frzOut}/where")" == "$(cd "${frzLive}" && pwd -P)" ]] || fBad "a --no-freeze run's tests ran in $(cat "${frzOut}/where"), not the checkout"
+else
+	fBad "could not stand up the frozen-copy stub repo"
+fi
 
 fTestEnd
 
