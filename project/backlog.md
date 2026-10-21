@@ -433,6 +433,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
 		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
 
+- lint-report says FAILED for a passing run that has a python step with `-W error::ResourceWarning`
+	- ID: 2026102019120000
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261020-191200
+	- Opened by: me, from the startup check
+	- Version and build: dev at `db311c7a`
+	- Incorrect behavior: `lint-report.bash --check` on the running full run's log said FAILED, with 2 error lines and 2 warning lines. All 4 were the pipeline's `extra: python3 -X dev -W error::ResourceWarning ...` echoes. Nothing had failed.
+	- Expected behavior: a running log reads INCOMPLETE, and a passing one CLEAN.
+	- Actual cause: both scans read the pipeline's own `extra: CMD` lines, and `error::` matches the error pattern.
+	- Actual fix: both scans drop the `extra: ` lines. Tool output never starts that way.
+	- Swept: the other echoes in the log, `veneer:`, `largedoc:`, `conformance:` and `crosscheck:`, are tool status lines and stay scanned. The `-D warnings` and `--enable=warning` filters stay for the `Lint ....:` echoes.
+	- Branch: `bsquote`
+	- Test case: shell-regress `EtIU3uI`. The `extra:` lines read CLEAN, and a real ResourceWarning and C error beside them still count. It failed on the old script.
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the running log reads INCOMPLETE now.
+	- Closed: 20261020-192000
+
 - `migrate --from-2x` writes a value ending in a backslash as `...\"`, which looks like an escaped quote
 	- ID: 2026102016593100
 	- Type: Bug

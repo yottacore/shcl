@@ -1464,6 +1464,16 @@ for failLine in 'src.c:3:5: error: conflicting types for x' 'SC2086 (info): Doub
 	lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260102-000000.log" 2>&1 || true)"
 	[[ "${lintOut}" == "FAILED "* ]] || fBad "lint-report.bash called a failed run clean (${failLine}): ${lintOut@Q}"
 done
+fTest EtIU3uI 2026102019120000-lint-report-extra-echo
+##	2026102019120000: the `extra:` echo of a python step run with
+##	`-W error::ResourceWarning` read as an error and a warning, so a passing
+##	run said FAILED. The same text from a tool still counts.
+printf 'OK: lint\nextra: python3 -X dev -W error::ResourceWarning tests/x.py\nextra: tool --warning-is-fatal\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash counted the pipeline's extra: echo: ${lintOut@Q}"
+printf 'OK: lint\nx.py:1: ResourceWarning: unclosed file\nsrc.c:3:5: error: conflicting types for x\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "FAILED "*"(1 error line(s), 1 warning line(s), "* ]] || fBad "lint-report.bash missed tool output beside the extra: filter: ${lintOut@Q}"
 fTest Epu2f58 20260909-24-lint-report-marker
 ##	20260909 item 24: --check --file wrote the named log's stamp into the shared
 ##	marker, so a name that sorts high left the gate at SEEN for good.
