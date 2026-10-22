@@ -33,81 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- check-freebsd fetches its image again on a bare run in the main image, though the cached copy is still there
-	- ID: 2026102114300000
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261021-143000
-	- Opened by: 2026102022450000
-	- Related IDs: 2026102022450000, 2026102108300000
-	- Version and build: `r1021` at `fe2545f6`
-	- Steps to reproduce:
-		- A bare run in the main image, with the image already in `~/.cache/shcl-cicd/main/freebsd`.
-	- Incorrect behavior: `shcl/bare2-r1021.log` line 338 prints "fetching ... about 640 MB", but the cached qcow2 and its `.sha256` keep their 12:33 ctime, so nothing in that cache was replaced. The download likely went to a path the run threw away.
-	- Expected behavior: the cached image passes its sum check and nothing is fetched.
-	- Reproduced: once, on the first frozen-copy run. The fetch went to a third copy, `~/.cache/shcl-cicd/main/home/.cache/shcl-cicd/freebsd`, made at 13:33 by that run.
-	- Actual cause: check-freebsd picked `/cache/freebsd` only when `SHCL_IN_CONTAINER` was set, but cicd.bash unsets that once it has read it, so no gate it runs sees it. In the image the check fell back to `$HOME/.cache`, and `HOME` there is `/cache/home`. That path is in the cache mount too, so later runs reuse it. Every run doesn't fetch, but the first one did, and 2.6 GB sat in a second copy.
-	- Decisions:
-		- me: the image sets `SHCL_FREEBSD_CACHE=/cache/freebsd` in its Dockerfile ENV, beside `CARGO_HOME` and the other cache paths, and check-freebsd drops its `SHCL_IN_CONTAINER` branch. Keeping `SHCL_IN_CONTAINER` for the gates was rejected: cicd.bash unsets it so a gate running a stub engine can't take itself for the run.
-	- Actual fix: `SHCL_FREEBSD_CACHE` in the main image's ENV; check-freebsd reads only that or `$HOME/.cache`.
-	- Branch: `stopfix`
-	- Swept: cicd.bash unsets `SHCL_IN_CONTAINER`, `SHCL_CTR_IMAGE`, `SHCL_RUN_PART` and `SHCL_FROZEN`. check-freebsd was the only script under `cicd/` or `.github/` that read one after the unset. config.bash reads `SHCL_CTR_IMAGE`, but it's sourced before the unset.
-	- Test case: shell-regress `EtNojbM`, which fails any script but cicd.bash and config.bash that reads a setting cicd.bash unsets, and checks config.bash is sourced first.
-	- Verified: `EtNojbM` failed on the old check-freebsd and passes on the fix. shellcheck over `SHELLCHECK_TARGETS` and shell-regress passed. The rebuilt main image, `shcl-cicd:7f80c73639ce`, ran check-freebsd on this box's cache with no fetch line: 4347 CLI runs passed, the cached image's mtime didn't change, and nothing was written under the image's HOME. The stray copy went to the trash.
-	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix, red before and green after, checked in the real image.
-	- Closed: 20261021-174500
-
-- cicd.bash's longer help pushed its copyright and SPDX lines out of the header check's window
-	- ID: 2026102113494069
-	- Type: Bug
-	- Status: Done
-	- Severity: High
-	- Opened: 20261021-134940
-	- Opened by: 2026102108300000
-	- Related IDs: 2026102108300000
-	- Version and build: `r1021` at `dbb9ff97`
-	- Steps to reproduce:
-		- `cicd/utility/check-docs.bash` on `r1021` at `fe2545f6` or later.
-	- Incorrect behavior: check-docs `EqL3TGq` fails on cicd.bash, with no SPDX or copyright line in its header. check-push-gate `EqGjDth` runs check-docs on a clone of HEAD and fails with it. Hosted run 39663476196 failed `ci (lint)` and `ci (tests)` on them, and the local `--gate` failed lint.
-	- Expected behavior: both pass.
-	- Reproduced: yes, `EqL3TGq` red on this tree.
-	- Actual cause: the frozen-copy paragraph and `--no-freeze` line added 10 lines to cicd.bash's help, which is its `##` header. The copyright and SPDX lines moved to 102 and 105, and the check reads the first 100 lines.
-	- Decisions:
-		- me: trim the new help paragraph to 3 lines, rather than move the copyright block or widen the window. Every other script under `cicd/` keeps it after the purpose text, none past line 67. The check covers every source file, so a wider window is weaker everywhere for one file. The detail the paragraph dropped is in `frozen-tree.bash`'s header, config.bash's `FROZEN_LINKS` comment and 2026102108300000.
-		- me: the copyright line now sits at 96 and SPDX at 99, so more help text there trips the check again. The help is the place to cut when it does.
-	- Actual fix: cicd.bash's frozen-copy help paragraph, 9 lines down to 3.
-	- Branch: `r1021`
-	- Commit: `67cabba7`
-	- Swept: check-docs runs `EqL3TGq` over every tracked source file, and cicd.bash was the only one past the window. The next deepest under `cicd/` is check-migrate.bash, with SPDX at 67.
-	- Verified: `EqL3TGq` failed on the tree before the fix and passes after. check-docs, check-push-gate (`EqGjDth` included, red before on a clone of HEAD), shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
-	- Test case: check-docs `EqL3TGq`.
-	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix whose test went red before and green after.
-	- Closed: 20261021-141000
-
-- check-push-gate's stand-in docker misreads `--device`, so `EtDCDE7` fails on a box with KVM
-	- ID: 2026102114060102
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261021-140601
-	- Opened by: 2026102113494069
-	- Related IDs: 2026102022450000, 2026102108300000
-	- Version and build: `r1021` at `67cabba7`
-	- Steps to reproduce:
-		- `cicd/utility/check-push-gate.bash` as a user who can write `/dev/kvm`.
-	- Incorrect behavior: `EtDCDE7` fails with "the run in the main image failed", and the run's log says `env: '/dev/kvm': Permission denied`. The bare run on `r1021` failed the same.
-	- Expected behavior: it passes.
-	- Reproduced: yes, here.
-	- Actual cause: since `fe2545f6` (2026102022450000) cicd.bash passes `--device /dev/kvm` to `docker run` when it can write `/dev/kvm`. The stand-in docker skips only the options it knows, so it took `/dev/kvm` for the image and ran `env /dev/kvm ...`. A box where the user can't write `/dev/kvm` never passes the option.
-	- Actual fix: the stand-in skips `--device` and its value.
-	- Branch: `r1021`
-	- Swept: `--device` is the only `docker run` option cicd.bash adds that the stand-in didn't know. Its mount-recording branch steps over unknown options one word at a time, which is right for `--device`. No other script in `cicd/` stands in for `docker run`.
-	- Verified: `EtDCDE7` failed before and passes after. check-push-gate, shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
-	- Test case: check-push-gate `EtDCDE7`.
-	- Acceptance signoff: Self-closed on JC's criteria: a test stand-in fix, red before and green after.
-	- Closed: 20261021-141000
-
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -519,6 +444,81 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `EtMYbKi` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
 	- Acceptance signoff: Self-closed on JC's criteria: `EtMYbKi` was seen red, and a bare run, a `--gate` in the main image and a hosted run all ran from a copy and passed.
 	- Closed: 20261022-112537
+
+- check-freebsd fetches its image again on a bare run in the main image, though the cached copy is still there
+	- ID: 2026102114300000
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261021-143000
+	- Opened by: 2026102022450000
+	- Related IDs: 2026102022450000, 2026102108300000
+	- Version and build: `r1021` at `fe2545f6`
+	- Steps to reproduce:
+		- A bare run in the main image, with the image already in `~/.cache/shcl-cicd/main/freebsd`.
+	- Incorrect behavior: `shcl/bare2-r1021.log` line 338 prints "fetching ... about 640 MB", but the cached qcow2 and its `.sha256` keep their 12:33 ctime, so nothing in that cache was replaced. The download likely went to a path the run threw away.
+	- Expected behavior: the cached image passes its sum check and nothing is fetched.
+	- Reproduced: once, on the first frozen-copy run. The fetch went to a third copy, `~/.cache/shcl-cicd/main/home/.cache/shcl-cicd/freebsd`, made at 13:33 by that run.
+	- Actual cause: check-freebsd picked `/cache/freebsd` only when `SHCL_IN_CONTAINER` was set, but cicd.bash unsets that once it has read it, so no gate it runs sees it. In the image the check fell back to `$HOME/.cache`, and `HOME` there is `/cache/home`. That path is in the cache mount too, so later runs reuse it. Every run doesn't fetch, but the first one did, and 2.6 GB sat in a second copy.
+	- Decisions:
+		- me: the image sets `SHCL_FREEBSD_CACHE=/cache/freebsd` in its Dockerfile ENV, beside `CARGO_HOME` and the other cache paths, and check-freebsd drops its `SHCL_IN_CONTAINER` branch. Keeping `SHCL_IN_CONTAINER` for the gates was rejected: cicd.bash unsets it so a gate running a stub engine can't take itself for the run.
+	- Actual fix: `SHCL_FREEBSD_CACHE` in the main image's ENV; check-freebsd reads only that or `$HOME/.cache`.
+	- Branch: `stopfix`
+	- Swept: cicd.bash unsets `SHCL_IN_CONTAINER`, `SHCL_CTR_IMAGE`, `SHCL_RUN_PART` and `SHCL_FROZEN`. check-freebsd was the only script under `cicd/` or `.github/` that read one after the unset. config.bash reads `SHCL_CTR_IMAGE`, but it's sourced before the unset.
+	- Test case: shell-regress `EtNojbM`, which fails any script but cicd.bash and config.bash that reads a setting cicd.bash unsets, and checks config.bash is sourced first.
+	- Verified: `EtNojbM` failed on the old check-freebsd and passes on the fix. shellcheck over `SHELLCHECK_TARGETS` and shell-regress passed. The rebuilt main image, `shcl-cicd:7f80c73639ce`, ran check-freebsd on this box's cache with no fetch line: 4347 CLI runs passed, the cached image's mtime didn't change, and nothing was written under the image's HOME. The stray copy went to the trash.
+	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix, red before and green after, checked in the real image.
+	- Closed: 20261021-174500
+
+- cicd.bash's longer help pushed its copyright and SPDX lines out of the header check's window
+	- ID: 2026102113494069
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261021-134940
+	- Opened by: 2026102108300000
+	- Related IDs: 2026102108300000
+	- Version and build: `r1021` at `dbb9ff97`
+	- Steps to reproduce:
+		- `cicd/utility/check-docs.bash` on `r1021` at `fe2545f6` or later.
+	- Incorrect behavior: check-docs `EqL3TGq` fails on cicd.bash, with no SPDX or copyright line in its header. check-push-gate `EqGjDth` runs check-docs on a clone of HEAD and fails with it. Hosted run 39663476196 failed `ci (lint)` and `ci (tests)` on them, and the local `--gate` failed lint.
+	- Expected behavior: both pass.
+	- Reproduced: yes, `EqL3TGq` red on this tree.
+	- Actual cause: the frozen-copy paragraph and `--no-freeze` line added 10 lines to cicd.bash's help, which is its `##` header. The copyright and SPDX lines moved to 102 and 105, and the check reads the first 100 lines.
+	- Decisions:
+		- me: trim the new help paragraph to 3 lines, rather than move the copyright block or widen the window. Every other script under `cicd/` keeps it after the purpose text, none past line 67. The check covers every source file, so a wider window is weaker everywhere for one file. The detail the paragraph dropped is in `frozen-tree.bash`'s header, config.bash's `FROZEN_LINKS` comment and 2026102108300000.
+		- me: the copyright line now sits at 96 and SPDX at 99, so more help text there trips the check again. The help is the place to cut when it does.
+	- Actual fix: cicd.bash's frozen-copy help paragraph, 9 lines down to 3.
+	- Branch: `r1021`
+	- Commit: `67cabba7`
+	- Swept: check-docs runs `EqL3TGq` over every tracked source file, and cicd.bash was the only one past the window. The next deepest under `cicd/` is check-migrate.bash, with SPDX at 67.
+	- Verified: `EqL3TGq` failed on the tree before the fix and passes after. check-docs, check-push-gate (`EqGjDth` included, red before on a clone of HEAD), shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
+	- Test case: check-docs `EqL3TGq`.
+	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix whose test went red before and green after.
+	- Closed: 20261021-141000
+
+- check-push-gate's stand-in docker misreads `--device`, so `EtDCDE7` fails on a box with KVM
+	- ID: 2026102114060102
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261021-140601
+	- Opened by: 2026102113494069
+	- Related IDs: 2026102022450000, 2026102108300000
+	- Version and build: `r1021` at `67cabba7`
+	- Steps to reproduce:
+		- `cicd/utility/check-push-gate.bash` as a user who can write `/dev/kvm`.
+	- Incorrect behavior: `EtDCDE7` fails with "the run in the main image failed", and the run's log says `env: '/dev/kvm': Permission denied`. The bare run on `r1021` failed the same.
+	- Expected behavior: it passes.
+	- Reproduced: yes, here.
+	- Actual cause: since `fe2545f6` (2026102022450000) cicd.bash passes `--device /dev/kvm` to `docker run` when it can write `/dev/kvm`. The stand-in docker skips only the options it knows, so it took `/dev/kvm` for the image and ran `env /dev/kvm ...`. A box where the user can't write `/dev/kvm` never passes the option.
+	- Actual fix: the stand-in skips `--device` and its value.
+	- Branch: `r1021`
+	- Swept: `--device` is the only `docker run` option cicd.bash adds that the stand-in didn't know. Its mount-recording branch steps over unknown options one word at a time, which is right for `--device`. No other script in `cicd/` stands in for `docker run`.
+	- Verified: `EtDCDE7` failed before and passes after. check-push-gate, shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
+	- Test case: check-push-gate `EtDCDE7`.
+	- Acceptance signoff: Self-closed on JC's criteria: a test stand-in fix, red before and green after.
+	- Closed: 20261021-141000
 
 - The freebsd-x86_64 release build never runs in a pipeline test
 	- ID: 2026102022450000
