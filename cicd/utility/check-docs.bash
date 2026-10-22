@@ -904,7 +904,7 @@ fTest Er8RudX backlog-closed-items-name-a-test
 ##	Every closed item says which test pins it, or why none does: a legacy
 ##	checkmark item has a Test case, Test or Pinned by line of its own or
 ##	under a checked item it sits in, and a new-format item that is Done or
-##	waiting on signoff has a Test case row. 98 closed items had none before
+##	waiting on UAT has a Test case row. 98 closed items had none before
 ##	anything checked (20260926 idea 1).
 hits="$(python3 - "${backlog}" <<'PYEOF'
 import re, sys
@@ -960,7 +960,7 @@ status = None
 for i, line in enumerate(lines):
 	if re.match(r"^- \S", line):
 		status, start, found = None, i, False
-	m = re.match(r"^\t- Status: (Done|Waiting on signoff)$", line)
+	m = re.match(r"^\t- Status: (Done|Waiting on UAT)$", line)
 	if m:
 		status = start
 	if re.match(r"^\t- Test case: ", line):
