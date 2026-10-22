@@ -86,11 +86,18 @@ fCtrRunSelf(){
 		mkdir -p "${d}" || return 2
 		rwMount+=(-v "${d}:${d}")
 	done
-	"${engine}" run --rm --init --label "${CTR_IMAGE:-${APP_NAME}-cicd}" --network none --user "$(id -u):$(id -g)" \
+	## A caller that sources stop-descendants.bash can then take the container
+	## down on a stop, even when its docker client won't go.
+	local cidfile="${work}/ctr.cid"
+	rm -f -- "${cidfile}"
+	if declare -p stop_cidfiles &>/dev/null; then stop_cidfiles=("${cidfile}"); fi
+	"${engine}" run --rm --init --cidfile "${cidfile}" --label "${CTR_IMAGE:-${APP_NAME}-cicd}" --network none --user "$(id -u):$(id -g)" \
 		-v "${root}:${root}:ro" -v "${work}/in:${work}/in" "${rwMount[@]}" -w "${root}" \
 		-e SHCL_IN_IMAGE=1 -e "CPU_CAP=${CPU_CAP:-}" -e "TMPDIR=${work}/in" -e "HOME=${work}/in" \
 		-e "SHCL_GATE_STRICT=${SHCL_GATE_STRICT:-}" -e "SHCL_CTR_CARGO=${SHCL_CTR_CARGO:-}" \
 		"${tag}" bash "$@" || rc=$?
+	if declare -p stop_cidfiles &>/dev/null; then stop_cidfiles=(); fi
+	rm -f -- "${cidfile}"
 	return "${rc}"
 }
 

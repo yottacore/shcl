@@ -17,8 +17,8 @@
 ##		  LINUX_BIN           the native release build, run here for the answers
 ##		  FREEBSD_BIN         the freebsd-x86_64 release build
 ##		  SHCL_FREEBSD_CACHE  where the image is kept (default
-##		                      ~/.cache/shcl-cicd/freebsd, /cache/freebsd in the
-##		                      pipeline's image)
+##		                      ~/.cache/shcl-cicd/freebsd; the pipeline's image
+##		                      sets /cache/freebsd)
 ##		  SHCL_FREEBSD_ACCEL  tcg to leave KVM out
 ##	Exit: 0 = clean or skipped, 1 = a check failed, 2 = usage.
 ##	History: At bottom of script.
@@ -51,8 +51,7 @@ case "${1:-}" in -h|--help) sed -n '/^##	Purpose:/,/^##	History:/p' "${BASH_SOUR
 linBin="$(realpath -- "$1")"; bsdBin="$(realpath -- "$2")"
 for f in "${linBin}" "${bsdBin}"; do [[ -f "${f}" ]] || { echo "check-freebsd: no such file: ${f}" >&2; exit 2 ;}; done
 
-if [[ -n "${SHCL_IN_CONTAINER:-}" ]]; then cache="${SHCL_FREEBSD_CACHE:-/cache/freebsd}"
-else cache="${SHCL_FREEBSD_CACHE:-${HOME}/.cache/shcl-cicd/freebsd}"; fi
+cache="${SHCL_FREEBSD_CACHE:-${HOME}/.cache/shcl-cicd/freebsd}"
 xzName="${imgUrl##*/}"; img="${cache}/${xzName%.xz}"
 
 ##	The unpacked image is kept, with a sum taken right after the download was
@@ -183,3 +182,4 @@ echo "check-freebsd: OK"
 
 ##	History:
 ##		2026-10-21  Created, for 2026102022450000.
+##		2026-10-21  The image's cache path comes from the image (2026102114300000).

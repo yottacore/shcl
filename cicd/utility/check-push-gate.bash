@@ -430,7 +430,8 @@ git init -q -b dev "${eng}" || { echo "check-push-gate: git init failed" >&2; ex
 mkdir -p "${eng}/cicd/utility/include" "${eng}/source/rust"
 cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${eng}/cicd/"
 cp "${root}/cicd/utility/green-tree.bash" "${eng}/cicd/utility/"
-cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" "${eng}/cicd/utility/include/"
+cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" \
+	"${root}/cicd/utility/include/stop-descendants.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
 cat > "${eng}/cicd/utility/crosscheck.bash" <<'EOF'
 #!/usr/bin/env bash
@@ -449,6 +450,8 @@ TEST_EXTRA=('if [[ -n "${STUB_SKIP:-}" ]]; then echo stub >> "${SHCL_GATE_SKIPS}
 ## that stops the run. TERM, as INT is ignored in a run started in the
 ## background.
 TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TMPDIR}"; mkdir -p "${TMPDIR}/left/deep" "${TMPDIR}/left/ro"; : > "${TMPDIR}/left/deep/f"; : > "${TMPDIR}/left/ro/f"; chmod 555 "${TMPDIR}/left/ro"; fi' 'if [[ -n "${STUB_STOP:-}" ]]; then kill -TERM $$; fi')
+## A test that hangs in a child process, which a stop has to take down.
+TEST_EXTRA+=('if [[ -n "${STUB_HANG:-}" ]]; then echo "${TMPDIR}" > "${STUB_HANG}.tmp"; sleep 300 & echo "$!" > "${STUB_HANG}"; wait "$!"; fi')
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
 LEAKCHECK_STEPS=('echo leak > "${STUB_LEAK:-/dev/null}"')
 CROSS_CHECKS=('stub|[[ -z "${STUB_CROSS_FAIL:-}" ]]')
@@ -588,7 +591,10 @@ fCalibrated --gate --no-tests
 ## STUB_DOCKER_DANGLING and STUB_DOCKER_STOPPED are an image and a container
 ## it has under the shcl-cicd label, and what it's asked to remove goes in
 ## STUB_DOCKER_GONE. With STUB_DOCKER_NOIMAGE it has no image to run, and a
-## build makes one.
+## build makes one. A run given --cidfile writes an ID there, and kill writes
+## down what it's asked to kill in STUB_DOCKER_GONE too. With STUB_DOCKER_HANG
+## a run writes its PID there and runs until stopped, and with
+## STUB_DOCKER_STUBBORN too it passes over a TERM, as a stuck client would.
 cat > "${work}/fake-docker" <<'EOF'
 #!/usr/bin/env bash
 if [[ -n "${STUB_DOCKER_LOG:-}" ]]; then echo "${1:-}" >> "${STUB_DOCKER_LOG}"; fi
@@ -608,7 +614,7 @@ case "${1:-}" in
 		esac
 		exit 0 ;;
 	build) exit 0 ;;
-	rmi|rm) echo "$1 ${2:-}" >> "${STUB_DOCKER_GONE:-/dev/null}"; exit 0 ;;
+	rmi|rm|kill) echo "$1 ${2:-}" >> "${STUB_DOCKER_GONE:-/dev/null}"; exit 0 ;;
 	ps)
 		if [[ " $* " == *" label=shcl-cicd "* && -n "${STUB_DOCKER_STOPPED:-}" ]]; then echo "${STUB_DOCKER_STOPPED}"; fi
 		exit 0 ;;
@@ -617,6 +623,14 @@ case "${1:-}" in
 esac
 ## cat /etc/passwd or /etc/group
 if [[ " $* " != *" bash "* ]]; then echo "root:x:0:0::/root:/bin/sh"; exit 0; fi
+for ((a = 1; a < $#; a++)); do
+	if [[ "${!a}" == --cidfile ]]; then b=$((a + 1)); echo c1d0c1d0c1d0 > "${!b}"; fi
+done
+if [[ -n "${STUB_DOCKER_HANG:-}" ]]; then
+	if [[ -n "${STUB_DOCKER_STUBBORN:-}" ]]; then trap '' TERM; fi
+	echo "$$" > "${STUB_DOCKER_HANG}"
+	while :; do sleep 1 || true; done
+fi
 if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 	echo run >> "${STUB_DOCKER_EXEC}"
 	if (($(wc -l < "${STUB_DOCKER_EXEC}") > 1)); then echo "fake-docker: a run started inside a run" >&2; exit 1; fi
@@ -626,7 +640,7 @@ if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 			--rm|--init)           shift ;;
 			-e)                    envs+=("$2"); shift 2 ;;
 			-w)                    dir="$2"; shift 2 ;;
-			-v|--user|--group-add|--label|--network|--device) shift 2 ;;
+			-v|--user|--group-add|--label|--network|--device|--cidfile) shift 2 ;;
 			*)                     break ;;
 		esac
 	done
@@ -850,6 +864,42 @@ selfOut="$(SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_I
 	STUB_MOUNTS="${work}/self.tsv" PATH="${work}/x86_64:${PATH}" bash "${work}/ctr-image-on.bash" "${eng}" self "${work}/self" 2>&1)" || true
 selfGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
 [[ "${selfGot}" == "rmi shcl-cicd:000000000000" ]] || fail "a gate's build of the image removed '${selfGot}', want the old main tag only: ${selfOut}"
+## A run started here and stopped by a TERM to its PID alone, once PIDFILE
+## names the process it hangs on.
+fStopRun(){  ## fStopRun PIDFILE [VAR=VALUE ...] -- ARGS... -> stopRc, stopPid, stopLeft (1 if stopPid outlived the run)
+	local pidFile="$1" envs=() ePid i
+	shift
+	while [[ "$1" != "--" ]]; do envs+=("$1"); shift; done; shift
+	rm -f "${pidFile}" "${pidFile}.tmp"
+	env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS SHCL_DOCKER="${work}/no-docker" "${envs[@]}" bash "${eng}/cicd/cicd.bash" "$@" > "${work}/stop.log" 2>&1 &
+	ePid=$!
+	for ((i = 0; i < 300; i++)); do [[ -s "${pidFile}" ]] && break; sleep 0.2; done
+	stopPid="$(cat "${pidFile}" 2>/dev/null || true)"
+	kill -TERM "${ePid}" 2>/dev/null || true
+	stopRc=0; wait "${ePid}" || stopRc=$?
+	stopLeft=0
+	if [[ -n "${stopPid}" ]] && kill -0 "${stopPid}" 2>/dev/null; then stopLeft=1; kill -KILL "${stopPid}" 2>/dev/null || true; fi
+}
+fTest EtNhygG a stopped run takes down the run in the frozen copy and what it started
+## 2026101920461153: a TERM to the run's PID ended the run and left its
+## children going, over a frozen copy and a temp dir already gone.
+fStopRun "${work}/hang.pid" STUB_HANG="${work}/hang.pid" -- --gate --no-container
+stopTmp="$(cat "${work}/hang.pid.tmp" 2>/dev/null || true)"
+stopTrees="$(git -C "${eng}" worktree list --porcelain | grep -c '^worktree ' || true)"
+if ((stopRc != 143 || stopLeft || stopTrees != 1)) || [[ -z "${stopPid}" || -z "${stopTmp}" || -e "${stopTmp}" ]] || ! grep -qF "cleanup: stopped" "${work}/stop.log"; then
+	fail "a stopped local run: exit ${stopRc}, its test's child $( ((stopLeft)) && echo 'outlived it' || echo "'${stopPid}' went"), ${stopTrees} worktree(s), the copy's TMPDIR '${stopTmp}': $(tail -3 "${work}/stop.log")"
+fi
+fTest EtNhz0U a stopped run in the image kills a container whose client will not stop
+## 2026101920461153: docker passes a TERM to the container and waits for it.
+## A client that doesn't is KILLed after the wait, which would leave the
+## container up, so the run kills it by the ID docker wrote down.
+rm -f "${work}/gone.txt"
+fStopRun "${work}/dhang.pid" SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_HANG="${work}/dhang.pid" STUB_DOCKER_STUBBORN=1 STUB_DOCKER_GONE="${work}/gone.txt" \
+	SHCL_STOP_WAIT=2 SHCL_CTR_CACHE="${work}/ctrcache" PATH="${work}/x86_64:${PATH}" -- --gate
+stopKilled="$(grep -c '^kill c1d0c1d0c1d0$' "${work}/gone.txt" 2>/dev/null || true)"
+if ((stopRc != 143 || stopLeft || stopKilled != 1)) || [[ -z "${stopPid}" ]] || ! grep -qF "by KILL after 2 s" "${work}/stop.log"; then
+	fail "a stopped run in the image: exit ${stopRc}, the client $( ((stopLeft)) && echo 'outlived it' || echo "'${stopPid}' went"), ${stopKilled:-0} kill(s) of its container: $(tail -3 "${work}/stop.log")"
+fi
 
 fTestEnd
 (( rc == 0 )) && echo "check-push-gate: OK: the tree matches a commit of the working copy, a recorded tree skips the gate, only a push to main runs it with the full gate, a red gate refuses, the gate builds into target-gate and runs once on main's commit in a multi-ref push, no gate sees a linked worktree's GIT_DIR, the drift check judges the pushed tree as main, a cut needs the banner tag on the remote or in the push, and a partial run records nothing"

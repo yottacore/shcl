@@ -161,6 +161,7 @@ case "${run_part}" in ''|fmt|build) ;; *) echo "SHCL_RUN_PART=${run_part}: not f
 inner_run=0
 if ((in_container)) || [[ -n "${run_part}" ]]; then inner_run=1; fi
 source "${here}/utility/include/frozen-tree.bash"
+source "${here}/utility/include/stop-descendants.bash"
 source "${here}/utility/include/gfs-rotate.bash"   ## gfs_rotate() for log/artifact pruning
 cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
@@ -316,6 +317,8 @@ fFrozenGone(){
 # shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
 fRunTmpGone(){
 	local kb=0
+	## First, or what's still running reads a copy and a temp dir already gone.
+	fStopDescendants || true
 	fFrozenGone || true
 	[[ -n "${run_tmp}" ]] || return 0
 	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
@@ -503,9 +506,14 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 		inner+=("${ctrArgs_k3v[@]}")
 	fi
 	fEcho_Clean "runs cicd.bash ${inner[*]}"
-	"${engine}" run --rm --init --label "${ctr_label}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
+	## So a stop can take the container down if its docker client won't go.
+	local cidfile="${run_tmp}/ctr.cid"
+	stop_cidfiles=("${cidfile}")
+	"${engine}" run --rm --init --cidfile "${cidfile}" --label "${ctr_label}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
 		"${tag}" bash "${tree}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
+	stop_cidfiles=()
+	rm -f -- "${cidfile}"
 	## Only a stand-in still empty: anything else was built here meanwhile.
 	for dest in "${standIns[@]}"; do
 		if [[ -d "${dest}" ]]; then rmdir -- "${dest}" 2>/dev/null || true
@@ -601,6 +609,8 @@ fi
 if ((! gate_mode)) && ((! inner_run)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
 	gfs_rotate "${root}/${LINT_LOG_DIR}" run log >/dev/null 2>&1 || true
 	exec > >(tee "${root}/${LINT_LOG_DIR}/run_${stamp}.log") 2>&1
+	## It has to outlive the stop, or the cleanup lines are lost.
+	stop_keep+=("$!")
 fi
 
 ## Warn (non-gating) when a pinned helper tool has drifted from TOOL_PINS, so a
