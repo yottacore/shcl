@@ -426,7 +426,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Needs local test suite run?: a run with neither flag through the real main image on b23, `cicd.bash --gate` and then a pre-push gate on a main push. Each should start the image once (twice for a run that formats in place, per 2026102108300000) and end with `tree ... recorded`.
 	- Priority: Avg
 	- Opened: 20261019-204611
@@ -454,6 +454,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `EtDCDE7` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
 			- `--gate` with neither flag started the image once, then stopped on check-docs `EqL3TGq` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
 			- Cause of the `EtDCDE7` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
+		- 20261022: back to Waiting on automated testing, since the fix is on dev and nothing is left to code. JC's bare run on dev `8b81b8c3` covers the first part.
 	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
@@ -462,7 +463,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A long run reads the live tree, so nothing can merge or check out there until it ends
 	- ID: 2026102108300000
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Needs local test suite run?: after the fix, a bare run and a `--gate` run through the main image.
 	- Needs external testing: one hosted run, since ci.yml's `--gate --no-container` now runs from a copy too.
 	- Priority: Medium
@@ -494,6 +495,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A run stopped by PID in stage 6 removed the copy and its temp dir at once, while its `docker run` and container kept going for about 2 minutes on the removed copy, until the CPU floor check failed. Log `shcl/stopped-r1021.log`.
 			- Verified: a `-y --no-lint --no-tests` run passed from the copy, with 2 image runs (format, then 2-6), "copied fe2545f648c7, with nothing uncommitted", and no worktree left. Log `shcl/bare2-r1021.log`.
 		- 20261021: the header failure is 2026102113494069.
+		- 20261022: back to Waiting on automated testing. The header fix (2026102113494069) and the stop of the image's container (2026101920461153, `stopfix`) are on dev, so only the tests are left. JC's bare run on dev `8b81b8c3` covers the bare run.
 	- Swept: every `worktree add` and `worktree remove` under `cicd/` and the hook: pre-push and check-migrate now use the helper; check-push-gate and check-install-dev add worktrees only in their own scratch repos. The other users of the engine's stub repos (shell-regress `EqQUj04`, check-push-gate's engine and hook stubs) copy the helper. check-push-gate's extra-image mount rows pass `--no-freeze`, since they check mounts on the checkout's own paths. The docker scan in shell-regress `EtDCDEB` matches `fRunContainer` called with arguments.
 	- Test case: shell-regress `EtMYbKi` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
 
