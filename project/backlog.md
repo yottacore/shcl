@@ -71,6 +71,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
 
+- CICD runs on GitHub's M4 macOS runners
+	- ID: 2026102216325314
+	- Type: Enhancement
+	- Status: Queued
+	- Needs external testing: a hosted run on the M4 runner.
+	- Priority: Avg
+	- Opened: 20261022-163253
+	- Opened by: JC
+	- Related IDs: 2026101921290754
+	- Target OS: macOS on Apple silicon
+	- Requirements:
+		- Run CICD on GitHub's M4 macOS runners.
+		- Build, run the tests, and smoke-test the CLI on the built binary.
+	- Progress log:
+		- 20261022: ci.yml's `macos` job already builds, runs `cargo test`, and runs crosscheck and cli-regress on the macOS universal release. It runs on `macos-14`, which is M1.
+	- Question: which runner label? GitHub's own docs didn't turn up an M4 label in a quick search. Its standard arm64 macOS runners are M1, and the paid `-xlarge` ones M2 Pro. M4 machines turned up only from third-party runner services.
+
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
