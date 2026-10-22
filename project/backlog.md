@@ -111,7 +111,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
-	- Status: Waiting on automated testing
+	- Status: Waiting for a full CICD run
 	- Priority: Avg
 	- Needs local test suite run?: a full run with no flags.
 	- Opened: 20261017-075828
@@ -272,7 +272,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
 	- ID: 2026101711273980
 	- Type: Enhancement
-	- Status: Waiting on automated testing
+	- Status: Waiting for a full CICD run
 	- Priority: Avg
 	- Needs local test suite run?: a full run with no flags, `--miri-all` included. The hosted windows job passed on 20261021.
 	- Opened: 20261017-112739
@@ -17275,11 +17275,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
 
-	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on UAT means automated testing passed and a person has to accept it (user acceptance testing). Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting on automated testing means the fix is in and waits on a long CI run or an outside test host. Can't reproduce means a real attempt to reproduce it failed.
+	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on UAT means automated testing passed and a person has to accept it (user acceptance testing). Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting for a full CICD run means all that's left is a full `cicd.bash` run with no flags, which either of us can start. Waiting on automated testing means the fix is in and waits on testing the next round runs and reads itself, such as an outside test host or a run stopped partway. Can't reproduce means a real attempt to reproduce it failed.
 		- An item with nothing left for a person to judge skips Waiting on UAT and goes straight to Done. `Clean up the backlog` in the directives says when.
 
 	- As issues are worked, and statuses change, place them in correct sorting order within the list:
-		- First by status: Waiting for answers, Waiting on UAT, Testing, Waiting on automated testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
+		- First by status: Waiting for answers, Waiting on UAT, Waiting for a full CICD run, Testing, Waiting on automated testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
 		- Then by severity|priority: Critical, High, Avg, Low
 		- Then by type: Bugs, [not bugs together]
 
@@ -17290,7 +17290,7 @@ Template:
 - Title
 	- ID: YYYYmmDDHHMMSSNN
 	- Type: [Bug|Feature|Enhancement|Task]
-	- Status: [Queued|Waiting for answers|Waiting on UAT|Waiting on automated testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
+	- Status: [Queued|Waiting for answers|Waiting on UAT|Waiting for a full CICD run|Waiting on automated testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
 	- Needs local test suite run?:
 	- Needs external testing:
 	- Priority [Feature|Enhancement] | Severity [Bug]: [Critical|High|Avg|Low]
