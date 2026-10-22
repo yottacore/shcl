@@ -371,6 +371,48 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261019, hosted run 39307128325 on dev at `59c6ecfb`: the windows job failed the Python soak `Et01jhM`. Traced memory grew from 28,929,219 bytes at round 6 to 55,877,467 at round 12, and 235,615 objects were in reference cycles, such as `ctypes.c_longdouble` and its bases. Linux is green. The cycles are ctypes classes, so the suspect is `shcl.py`'s windows-only ctypes code building types on each call. Not diagnosed yet. The Go soak passed there.
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 
+- Builds clean up stale artifacts and side-effects when they're done
+	- ID: 2026101920461153
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Priority: Avg
+	- Needs local test suite run?: after the fix, 2 bare runs in the image, the second stopped partway. Nothing new piles up in the temp root, docker or `~/.cache/shcl-cicd`, and the first run's cleanup line names the 2 superseded images.
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- Verify or ensure that builds clean up *stale* artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
+	- Progress log:
+		- 20261019, what a run leaves, measured:
+			- Docker: `shcl-cicd-alpine:c8cd323342bd` (3.2 GB) and `shcl-cicd-ubuntu:9aabbd056009` (5.2 GB) are superseded, since the recipes hash to other tags now. An old tag went only when cicd.bash rebuilt that same image, and a gate's own build of the image removed none. No dangling shcl image and no stopped container, since every run uses `--rm`.
+			- The build cache is 120 GB shared by every project on the box, none of it reclaimable, and no filter tells shcl's part apart.
+			- `~/.cache/shcl-cicd` is 1.35 GB of warm caches for the 3 images. Cargo ages out crates unused for 3 months on its own, and Go trims its build cache. Nothing in it is orphaned.
+			- `cicd/artifacts`: logs and flame graphs rotate already. A profiler sample file outlives its graph when the rotation prunes the graph. codeql (547 MB), release and crosscheck are replaced each run. 3 `run_ci_*.log` files (93 KB) and `source/python/dist` (130 KB) are from older layouts, and nothing makes them now.
+			- Target dirs: `target-gate` 1.3 GB, the main one 212 MB, `target-migrate` 58 MB. All reused by the next run.
+			- `.git/shcl-green-trees` is capped at 200 lines, 1.8 KB now.
+			- Temp: the gates remove their scratch through an EXIT trap, which runs on Ctrl+C and kill too. check-docs' 2 scratch files and green-tree's scratch index had none, and a failing Rust or C test leaves its dir in TMPDIR. 3 of those are in the temp roots now, 56 KB. About 7.3 GB of `tmp.*` dirs from 10-13 sit there too, which no current script makes. Left alone.
+		- Fixed, on `tidyup`:
+			- Each run makes its own temp dir and points TMPDIR at it, so what a gate or test leaves goes at the end, a failed or stopped run's too. It's removed only while it's still the dir the run made, with the run's mark in it.
+			- A whole run then removes profiler sample files whose graph is gone. After a run in the image it also removes our image tags the recipes no longer hash to, every tag of a name with no recipe, and dangling images and stopped containers with our label. Runs and builds carry that label now. Names are matched whole, so other projects' images are never touched.
+			- A gate's build of the image removes the old tags too.
+			- One line at the end says what went and about how much.
+		- 20261020: the `--gate` in `gatewt-r1020` ended with `cleanup: removed shcl-cicd-alpine:c8cd323342bd, shcl-cicd-ubuntu:9aabbd056009, this run's temp files, about 7.8 GB`. Left: 2 bare runs in the image, the second stopped partway.
+		- 20261021, tests on `r1021` at `fe2545f6`, failed: a run in the image stopped by a TERM to its PID in stage 6 printed `cleanup: removed this run's temp files, about 21 MB` and exited, but its `docker run` and container went on for about 2 minutes, on a copy and temp dir already gone, until the CPU floor check failed in them. A stop has to take the container down with the run. Log `shcl/stopped-r1021.log`.
+		- 20261021, fixed on `stopfix`: a run stops what it started before its EXIT trap removes anything. It sends a TERM to every process under it, waits up to 30 s, then KILLs the rest. A docker client passes the TERM to its container and waits for it. Each `docker run` writes a container ID file, so a container whose client had to be KILLed is killed by docker. The log tee is spared. analyze-c, soak-c and codeql-scan do the same, since they start the image themselves.
+			- The frozen copy's run had the same gap without docker: a TERM to the outer run left the inner one going.
+			- Verified: a `--gate` through the real main image, stopped by a TERM to its PID in the lint stage, ended 1 s later with the container, the frozen copy and the temp dirs gone. A busybox container that ignores the TERM was killed by its ID after the wait.
+			- Verified: the runs left nothing in `/tmp`, the ext4 temp root, `git worktree list`, `docker ps -a` or dangling images, and `~/.cache/shcl-cicd` gained nothing. The gate's image build removed `shcl-cicd:a2da96ec8e18`, so the passing run's line, `cleanup: removed this run's temp files, about 0 MB`, had no image to name. Logs `shcl/gate-r1021.log` and `shcl/bare2-r1021.log`; the passing run used `--no-lint --no-tests`, since both are red this round (2026102108300000).
+		- Swept: every `mktemp` under `cicd/` and in the pre-push hook. All but check-docs and green-tree had an EXIT trap already. config.bash's inline test builds remove their binary after, and now sit in the run's dir. Every docker run and build goes through cicd.bash or ctr-image.bash, and both add the label.
+		- Verified: each new check-push-gate row went red with its part taken out, then passed: no trap, no read-only fallback, no sample-file sweep, no image sweep, and the gate's build without the tag drop. check-push-gate, shell-regress, check-docs, shellcheck over every cicd script, `test-ids.py check` and markdownlint pass. A killed check-docs leaves none of its own scratch.
+	- Decisions:
+		- me: the build cache isn't pruned, since `docker builder prune` is box-wide.
+		- me: target dirs and the container caches stay whole. A toolchain change makes a target dir stale, but `target-gate` is shared with gate worktrees on other commits.
+		- me: a `--no-container` run makes no images, so it still asks docker nothing.
+	- Branch: `tidyup`, then `stopfix`
+	- Commit: `a1ca716f`
+	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc`, `EtDQOSv`, `EtNhygG` (a stopped run takes down the frozen copy's run and its children) and `EtNhz0U` (a container whose client won't stop is killed by its ID).
+
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -406,45 +448,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
-
-- Builds clean up stale artifacts and side-effects when they're done
-	- ID: 2026101920461153
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Needs local test suite run?: after the fix, 2 bare runs in the image, the second stopped partway. Nothing new piles up in the temp root, docker or `~/.cache/shcl-cicd`, and the first run's cleanup line names the 2 superseded images.
-	- Opened: 20261019-204611
-	- Opened by: JC
-	- Version and build: dev at `6f48dd7d`
-	- Requirements:
-		- Pre-next-cut.
-		- Verify or ensure that builds clean up *stale* artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
-	- Progress log:
-		- 20261019, what a run leaves, measured:
-			- Docker: `shcl-cicd-alpine:c8cd323342bd` (3.2 GB) and `shcl-cicd-ubuntu:9aabbd056009` (5.2 GB) are superseded, since the recipes hash to other tags now. An old tag went only when cicd.bash rebuilt that same image, and a gate's own build of the image removed none. No dangling shcl image and no stopped container, since every run uses `--rm`.
-			- The build cache is 120 GB shared by every project on the box, none of it reclaimable, and no filter tells shcl's part apart.
-			- `~/.cache/shcl-cicd` is 1.35 GB of warm caches for the 3 images. Cargo ages out crates unused for 3 months on its own, and Go trims its build cache. Nothing in it is orphaned.
-			- `cicd/artifacts`: logs and flame graphs rotate already. A profiler sample file outlives its graph when the rotation prunes the graph. codeql (547 MB), release and crosscheck are replaced each run. 3 `run_ci_*.log` files (93 KB) and `source/python/dist` (130 KB) are from older layouts, and nothing makes them now.
-			- Target dirs: `target-gate` 1.3 GB, the main one 212 MB, `target-migrate` 58 MB. All reused by the next run.
-			- `.git/shcl-green-trees` is capped at 200 lines, 1.8 KB now.
-			- Temp: the gates remove their scratch through an EXIT trap, which runs on Ctrl+C and kill too. check-docs' 2 scratch files and green-tree's scratch index had none, and a failing Rust or C test leaves its dir in TMPDIR. 3 of those are in the temp roots now, 56 KB. About 7.3 GB of `tmp.*` dirs from 10-13 sit there too, which no current script makes. Left alone.
-		- Fixed, on `tidyup`:
-			- Each run makes its own temp dir and points TMPDIR at it, so what a gate or test leaves goes at the end, a failed or stopped run's too. It's removed only while it's still the dir the run made, with the run's mark in it.
-			- A whole run then removes profiler sample files whose graph is gone. After a run in the image it also removes our image tags the recipes no longer hash to, every tag of a name with no recipe, and dangling images and stopped containers with our label. Runs and builds carry that label now. Names are matched whole, so other projects' images are never touched.
-			- A gate's build of the image removes the old tags too.
-			- One line at the end says what went and about how much.
-		- 20261020: the `--gate` in `gatewt-r1020` ended with `cleanup: removed shcl-cicd-alpine:c8cd323342bd, shcl-cicd-ubuntu:9aabbd056009, this run's temp files, about 7.8 GB`. Left: 2 bare runs in the image, the second stopped partway.
-		- 20261021, tests on `r1021` at `fe2545f6`, failed: a run in the image stopped by a TERM to its PID in stage 6 printed `cleanup: removed this run's temp files, about 21 MB` and exited, but its `docker run` and container went on for about 2 minutes, on a copy and temp dir already gone, until the CPU floor check failed in them. A stop has to take the container down with the run. Log `shcl/stopped-r1021.log`.
-			- Verified: the runs left nothing in `/tmp`, the ext4 temp root, `git worktree list`, `docker ps -a` or dangling images, and `~/.cache/shcl-cicd` gained nothing. The gate's image build removed `shcl-cicd:a2da96ec8e18`, so the passing run's line, `cleanup: removed this run's temp files, about 0 MB`, had no image to name. Logs `shcl/gate-r1021.log` and `shcl/bare2-r1021.log`; the passing run used `--no-lint --no-tests`, since both are red this round (2026102108300000).
-		- Swept: every `mktemp` under `cicd/` and in the pre-push hook. All but check-docs and green-tree had an EXIT trap already. config.bash's inline test builds remove their binary after, and now sit in the run's dir. Every docker run and build goes through cicd.bash or ctr-image.bash, and both add the label.
-		- Verified: each new check-push-gate row went red with its part taken out, then passed: no trap, no read-only fallback, no sample-file sweep, no image sweep, and the gate's build without the tag drop. check-push-gate, shell-regress, check-docs, shellcheck over every cicd script, `test-ids.py check` and markdownlint pass. A killed check-docs leaves none of its own scratch.
-	- Decisions:
-		- me: the build cache isn't pruned, since `docker builder prune` is box-wide.
-		- me: target dirs and the container caches stay whole. A toolchain change makes a target dir stale, but `target-gate` is shared with gate worktrees on other commits.
-		- me: a `--no-container` run makes no images, so it still asks docker nothing.
-	- Branch: `tidyup`
-	- Commit: `a1ca716f`
-	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc` and `EtDQOSv`.
 
 - A long run reads the live tree, so nothing can merge or check out there until it ends
 	- ID: 2026102108300000

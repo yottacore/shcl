@@ -55,6 +55,8 @@ root="$(cd -- "${here}/../.." && pwd)"
 cd "${root}"
 # shellcheck source-path=SCRIPTDIR
 source "${here}/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "${here}/include/stop-descendants.bash"
 testWhere=codeql-scan; testCounter=nBad; nBad=0
 
 if (($#)); then echo "codeql-scan: takes no arguments (see the header)" >&2; exit 2; fi
@@ -84,7 +86,7 @@ art="${root}/cicd/artifacts/codeql"
 scratch="${CTR_CACHE}"
 if [[ -n "${SHCL_IN_IMAGE:-}" ]]; then scratch="${TMPDIR:?}"; fi
 mkdir -p "${art}" "${scratch}"
-work="$(mktemp -d "${scratch}/codeql.XXXXXX")"; trap 'rm -rf "${work}"' EXIT
+work="$(mktemp -d "${scratch}/codeql.XXXXXX")"; trap 'fStopDescendants; rm -rf "${work}"' EXIT
 
 skipping=0
 missing=()
