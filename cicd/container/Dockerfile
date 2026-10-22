@@ -188,6 +188,7 @@ ENV PATH=/opt/venv/bin:/opt/cargo/bin:/opt/go/bin:/opt/zig:/opt/node/bin:/usr/lo
 	GOTOOLCHAIN=local \
 	LANG=C.UTF-8 \
 	SHCL_FLOOR_KERNEL=/opt/floor/vmlinuz \
+	SHCL_FREEBSD_CACHE=/cache/freebsd \
 	POWERSHELL_TELEMETRY_OPTOUT=1 \
 	POWERSHELL_UPDATECHECK=Off \
 	DOTNET_CLI_TELEMETRY_OPTOUT=1

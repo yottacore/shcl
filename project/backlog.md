@@ -33,6 +33,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- check-freebsd fetches its image again on a bare run in the main image, though the cached copy is still there
+	- ID: 2026102114300000
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261021-143000
+	- Opened by: 2026102022450000
+	- Related IDs: 2026102022450000, 2026102108300000
+	- Version and build: `r1021` at `fe2545f6`
+	- Steps to reproduce:
+		- A bare run in the main image, with the image already in `~/.cache/shcl-cicd/main/freebsd`.
+	- Incorrect behavior: `shcl/bare2-r1021.log` line 338 prints "fetching ... about 640 MB", but the cached qcow2 and its `.sha256` keep their 12:33 ctime, so nothing in that cache was replaced. The download likely went to a path the run threw away.
+	- Expected behavior: the cached image passes its sum check and nothing is fetched.
+	- Reproduced: once, on the first frozen-copy run. The fetch went to a third copy, `~/.cache/shcl-cicd/main/home/.cache/shcl-cicd/freebsd`, made at 13:33 by that run.
+	- Actual cause: check-freebsd picked `/cache/freebsd` only when `SHCL_IN_CONTAINER` was set, but cicd.bash unsets that once it has read it, so no gate it runs sees it. In the image the check fell back to `$HOME/.cache`, and `HOME` there is `/cache/home`. That path is in the cache mount too, so later runs reuse it. Every run doesn't fetch, but the first one did, and 2.6 GB sat in a second copy.
+	- Decisions:
+		- me: the image sets `SHCL_FREEBSD_CACHE=/cache/freebsd` in its Dockerfile ENV, beside `CARGO_HOME` and the other cache paths, and check-freebsd drops its `SHCL_IN_CONTAINER` branch. Keeping `SHCL_IN_CONTAINER` for the gates was rejected: cicd.bash unsets it so a gate running a stub engine can't take itself for the run.
+	- Actual fix: `SHCL_FREEBSD_CACHE` in the main image's ENV; check-freebsd reads only that or `$HOME/.cache`.
+	- Branch: `stopfix`
+	- Swept: cicd.bash unsets `SHCL_IN_CONTAINER`, `SHCL_CTR_IMAGE`, `SHCL_RUN_PART` and `SHCL_FROZEN`. check-freebsd was the only script under `cicd/` or `.github/` that read one after the unset. config.bash reads `SHCL_CTR_IMAGE`, but it's sourced before the unset.
+	- Test case: shell-regress `EtNojbM`, which fails any script but cicd.bash and config.bash that reads a setting cicd.bash unsets, and checks config.bash is sourced first.
+	- Verified: `EtNojbM` failed on the old check-freebsd and passes on the fix. shellcheck over `SHELLCHECK_TARGETS` and shell-regress passed. The rebuilt main image, `shcl-cicd:7f80c73639ce`, ran check-freebsd on this box's cache with no fetch line: 4347 CLI runs passed, the cached image's mtime didn't change, and nothing was written under the image's HOME. The stray copy went to the trash.
+	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix, red before and green after, checked in the real image.
+	- Closed: 20261021-174500
+
 - cicd.bash's longer help pushed its copyright and SPDX lines out of the header check's window
 	- ID: 2026102113494069
 	- Type: Bug
@@ -82,21 +107,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `EtDCDE7`.
 	- Acceptance signoff: Self-closed on JC's criteria: a test stand-in fix, red before and green after.
 	- Closed: 20261021-141000
-
-- check-freebsd fetches its image again on a bare run in the main image, though the cached copy is still there
-	- ID: 2026102114300000
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261021-143000
-	- Opened by: 2026102022450000
-	- Related IDs: 2026102022450000, 2026102108300000
-	- Version and build: `r1021` at `fe2545f6`
-	- Steps to reproduce:
-		- A bare run in the main image, with the image already in `~/.cache/shcl-cicd/main/freebsd`.
-	- Incorrect behavior: `shcl/bare2-r1021.log` line 338 prints "fetching ... about 640 MB", but the cached qcow2 and its `.sha256` keep their 12:33 ctime, so nothing in that cache was replaced. The download likely went to a path the run threw away.
-	- Expected behavior: the cached image passes its sum check and nothing is fetched.
-	- Reproduced: once, on the first frozen-copy run. Not looked into yet. A first guess is the cache mount or `HOME` in the second image run of a frozen copy.
 
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803

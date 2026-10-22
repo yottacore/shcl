@@ -1407,6 +1407,23 @@ done
 # shellcheck disable=SC2016  ## the scripts' own text, matched literally
 dockerAsks="$(git -C "${repoDir}" ls-files -z -- cicd | (cd "${repoDir}" && xargs -0 grep -nF -e 'command -v "${SHCL_DOCKER' -e 'command -v docker' --) | grep -vF shell-regress.bash || true)"
 [[ -z "${dockerAsks}" ]] || fBad "these look for docker themselves, not through fCtrWhyNot: ${dockerAsks}"
+fTest EtNojbM 2026102114300000-engine-settings-read-once
+##	2026102114300000: cicd.bash reads SHCL_IN_CONTAINER and its siblings, then
+##	unsets them, so a gate that runs a stub engine can't take itself for the
+##	run. check-freebsd keyed its cache path off SHCL_IN_CONTAINER, never saw
+##	it, and kept a second 2.6 GB image under the image's HOME. Only cicd.bash
+##	and config.bash, sourced before the unset, may read one.
+mapfile -t engVars < <(sed -n 's/^unset \(SHCL_[A-Z_ ]*\)$/\1/p' "${repoDir}/cicd/cicd.bash" | tr ' ' '\n' | grep -v '^$' || true)
+((${#engVars[@]} >= 4)) || fBad "found ${#engVars[@]} of the settings cicd.bash unsets, so the scan checks nothing: ${engVars[*]}"
+# shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
+cfgAt="$(grep -nF 'source "${here}/config.bash"' "${repoDir}/cicd/cicd.bash" | head -1 | cut -d: -f1 || true)"
+unsetAt="$(grep -nE '^unset SHCL_' "${repoDir}/cicd/cicd.bash" | head -1 | cut -d: -f1 || true)"
+if [[ -z "${cfgAt}" || -z "${unsetAt}" ]] || ((cfgAt > unsetAt)); then fBad "cicd.bash unsets its settings before it sources config.bash, which reads one"; fi
+if ((${#engVars[@]})); then
+	engReads="$(git -C "${repoDir}" ls-files -z -- cicd .github | (cd "${repoDir}" && xargs -0 grep -nE "\\\$\\{?($(IFS='|'; echo "${engVars[*]}"))\\b" --) \
+		| grep -vE '^cicd/(cicd|config)\.bash:' || true)"
+	[[ -z "${engReads}" ]] || fBad "these read a setting cicd.bash has already unset, so they never see it: ${engReads}"
+fi
 fTest Epu2f56 20260909-24-flame-report-marker
 ##	20260909 item 24: rotation retagged a graph and left its sidecar under the
 ##	old role, so the caveat vanished. And --check --file wrote the named graph's
