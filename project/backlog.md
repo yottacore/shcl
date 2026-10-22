@@ -108,12 +108,49 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed on JC's criteria: a test stand-in fix, red before and green after.
 	- Closed: 20261021-141000
 
+- CICD builds and tests in a container if one is available
+	- ID: 2026101920461174
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- Make sure a container is used for build and test if available.
+		- Fall back to local if not.
+	- Decisions:
+		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
+		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
+	- Progress log:
+		- 20261019, branch `ctrdef`:
+			- With neither flag, cicd.bash asks docker first. When it answers on x86_64, stages 1-6 go to the main image as under `--container`. Otherwise they run here, after one `note:` line that gives the reason. The run inside the image never asks, so it can't start another.
+			- An installed docker whose daemon doesn't answer counts as none. One helper in ctr-image.bash, `fCtrWhyNot`, decides it for cicd.bash and for the 3 leak checks that fall back to the image (analyze-c, soak-c, codeql-scan).
+			- `--container` fails up front when docker doesn't answer, rather than at the image build. `--container` with `--no-container`, 2 different images, or `--container=` with no name exit 2 before anything runs (me, per design.md's last-wins rule).
+			- ci.yml passes `--no-container`, and check-pins fails a hosted gate run without it. The pre-push hook isn't changed; it follows the default.
+			- The stubbed engines in check-push-gate and shell-regress no longer reach this box's docker.
+			- The help text, contributing.md, the hook's header and the history lines say so.
+			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
+			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
+			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
+		- 20261020: `cicd.bash --gate` with neither flag, in `gatewt-r1020` at `db311c7a`, started the main image once and ended with `tree c3687f1204d6 recorded`. Left: the bare run, which is JC's from 17:04, and a pre-push gate on a main push.
+		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `EtDCDE7` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
+			- `--gate` with neither flag started the image once, then stopped on check-docs `EqL3TGq` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
+			- Cause of the `EtDCDE7` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
+		- 20261022: back to Waiting on automated testing, since the fix is on dev and nothing is left to code. JC's bare run on dev `8b81b8c3` covers the first part.
+		- 20261022: JC's bare run on dev `8b81b8c3` (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed: the image started for stage 1 and again for 2-6, check-push-gate `EtDCDE4` to `EtDCDE8` passed, and `tree c739cfb75920 recorded`. Verified: `cicd.bash --gate` with neither flag on the same commit started the image once, passed `EtDCDE7` and recorded the same tree. Only the main push is left.
+	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
+	- Branch: `ctrdef`
+	- Commit: `bd0415a7`
+	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
+
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
-	- Status: Waiting for a full CICD run
+	- Status: Done
 	- Priority: Avg
-	- Needs local test suite run?: a full run with no flags.
 	- Opened: 20261017-075828
 	- Opened by: JC
 	- Related IDs: 2026101711273980
@@ -265,16 +302,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- JC, 20261019: add a windows pass for Go. It extracts with `GOOS=windows` and judges only the files the Linux pass leaves out (`EtBmwWo`, `EtBmwbF`, `EtBmwfq`). C and Rust stay Linux only.
 	- 20261019, tests on dev at `aa2e3b33`: a full `--gate` passed, analyze-c and the exhaustive cppcheck included. `analyze-c --ctu`, `soak-c`, `sanitize-c --glibcxx-debug`, and `codeql-scan` passed one after another, the 4 `--leakcheck` steps before `--miri-all`. Hosted run 39307128325: both ubuntu jobs green. Its windows job failed the veneer smoke on 2026101807501110's new check, which isn't this item's.
 	- 20261021, tests on `r1021` at `fe2545f6`: the bare run in the main image (`-y --no-lint`, since lint is red for 2026102108300000) stopped at check-push-gate in stage 4, before the leak steps. So the full run is still left. Log `shcl/bare-r1021.log`.
+	- 20261022, JC's bare run on dev `8b81b8c3`, 08:54 to 10:37, log `run_20261022-085416` in `cicd/artifacts/lint/`: every stage passed, no `FAIL` line.
+		- Verified: analyze-c `Et09ats` to `Et09atx` in the lint stage. In the tests stage, sanitize-c `EoLqLse`, `EoLqLsf`, `EoaFuVO`, `EoezJiF`, `EoSE8Nl`, `EstYPCw`, `Et09atr` and `EoSE8Nm` (6329 CLI runs), and check-push-gate `Et9t3dc`.
+		- Verified, the leak steps: `analyze-c --ctu` `Et9t3Ll` and `Et9t3PQ`, soak-c `Et9t3AU`, `Et9t3ED` and `Et9t3I4`, `sanitize-c --glibcxx-debug` `Et9t3Wv` and `Et9t3ab`, and codeql-scan's C and C++ rows `EtAC9AA`, `EtAC9Cx`, `EtAC9O4`, `EtAC9Zo` and `EtAC9lw`, all 5 languages clean in 308 s.
 	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
 	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
 	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch covers what it calls (me).
+	- Test case: analyze-c `Et09ats` to `Et09atx`, `Et9t3Ll` and `Et9t3PQ`; sanitize-c `Et09atr`, `Et9t3Wv` and `Et9t3ab`; soak-c `Et9t3AU`, `Et9t3ED` and `Et9t3I4`; codeql-scan `EtAC9AA`, `EtAC9Cx`, `EtAC9O4`, `EtAC9Zo` and `EtAC9lw`; check-push-gate `Et9t3dc`.
+	- Acceptance signoff: Self-closed on JC's criteria: every plant was seen red, and a full run with no flags passed each step and row above.
+	- Closed: 20261022-112537
 
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
 	- ID: 2026101711273980
 	- Type: Enhancement
-	- Status: Waiting for a full CICD run
+	- Status: Done
 	- Priority: Avg
-	- Needs local test suite run?: a full run with no flags, `--miri-all` included. The hosted windows job passed on 20261021.
 	- Opened: 20261017-112739
 	- Opened by: JC
 	- Related IDs: 2026101707582803
@@ -380,13 +422,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
 	- 20261019, hosted run 39307128325 on dev at `59c6ecfb`: the windows job failed the Python soak `Et01jhM`. Traced memory grew from 28,929,219 bytes at round 6 to 55,877,467 at round 12, and 235,615 objects were in reference cycles, such as `ctypes.c_longdouble` and its bases. Linux is green. The cycles are ctypes classes, so the suspect is `shcl.py`'s windows-only ctypes code building types on each call. Not diagnosed yet. The Go soak passed there.
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
+	- 20261022, JC's bare run on dev `8b81b8c3`, 08:54 to 10:37, log `run_20261022-085416` in `cicd/artifacts/lint/`: every stage passed, no `FAIL` line.
+		- Verified: sanitize-rust `EszIPWj` and `EszIPWk`, the soaks `EszDssm` (Rust), `Et01j4C` (Go) and `Et01jhM` (Python), Go's `Et01j1m` in the plain and `-race` suites, Python's `Et01jhN` and `EtD4W76`, and check-push-gate `Et9t3dc`. `Et01j4C` skips under `-race`, as designed.
+		- Verified, the leak steps: codeql-scan's Go, windows Go, Python and Rust rows `EtAC9FX`, `EtBmwWo`, `EtAC9IG`, `EtAC9L2`, `EtAC9Qz`, `EtBmwbF`, `EtAC9UO`, `EtAC9XH`, `EtAC9cY`, `EtBmwfq`, `EtAC9fG`, `EtAC9ie` and `EtAC9lw`, then `sanitize-rust --miri-all` `EszIPWl`, nothing reported.
+	- Test case: sanitize-rust `EszIPWj`, `EszIPWk` and `EszIPWl`; soaks `EszDssm`, `Et01j4C` and `Et01jhM`; `Et01j1m`, `Et01jhN` and `EtD4W76`; codeql-scan `EtAC9FX`, `EtBmwWo`, `EtAC9IG`, `EtAC9L2`, `EtAC9Qz`, `EtBmwbF`, `EtAC9UO`, `EtAC9XH`, `EtAC9cY`, `EtBmwfq`, `EtAC9fG`, `EtAC9ie` and `EtAC9lw`; check-push-gate `Et9t3dc`.
+	- Acceptance signoff: Self-closed on JC's criteria: every plant was seen red, hosted run 39663476196's windows job passed the soaks and `EtD4W76`, and a full run with no flags, `--miri-all` included, passed each row above.
+	- Closed: 20261022-112537
 
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
 	- Type: Enhancement
-	- Status: Waiting on automated testing
+	- Status: Done
 	- Priority: Avg
-	- Needs local test suite run?: after the fix, 2 bare runs in the image, the second stopped partway. Nothing new piles up in the temp root, docker or `~/.cache/shcl-cicd`, and the first run's cleanup line names the 2 superseded images.
+	- Needs local test suite run?: none left. 2 bare runs in the image passed on 20261022, the second stopped partway.
 	- Opened: 20261019-204611
 	- Opened by: JC
 	- Version and build: dev at `6f48dd7d`
@@ -415,6 +463,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: the runs left nothing in `/tmp`, the ext4 temp root, `git worktree list`, `docker ps -a` or dangling images, and `~/.cache/shcl-cicd` gained nothing. The gate's image build removed `shcl-cicd:a2da96ec8e18`, so the passing run's line, `cleanup: removed this run's temp files, about 0 MB`, had no image to name. Logs `shcl/gate-r1021.log` and `shcl/bare2-r1021.log`; the passing run used `--no-lint --no-tests`, since both are red this round (2026102108300000).
 		- Swept: every `mktemp` under `cicd/` and in the pre-push hook. All but check-docs and green-tree had an EXIT trap already. config.bash's inline test builds remove their binary after, and now sit in the run's dir. Every docker run and build goes through cicd.bash or ctr-image.bash, and both add the label.
 		- Verified: each new check-push-gate row went red with its part taken out, then passed: no trap, no read-only fallback, no sample-file sweep, no image sweep, and the gate's build without the tag drop. check-push-gate, shell-regress, check-docs, shellcheck over every cicd script, `test-ids.py check` and markdownlint pass. A killed check-docs leaves none of its own scratch.
+		- 20261022, 2 bare runs in the main image on dev `8b81b8c3`:
+			- Verified: JC's run (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed, check-push-gate's 6 rows above included, and ended with `cleanup: removed 1 profiler sample file(s) whose graph is gone, this run's temp files, about 0 MB`. The 2 superseded images were already gone, from the 10-20 `--gate`, so it had none to name. It left nothing in `/tmp` or the ext4 temp root, no worktree, no container with our label, and no dangling image of ours. Docker holds only `shcl-cicd:7f80c73639ce` of ours.
+			- Verified: the second run, `-y --no-sync --no-dogfood --no-gif --no-publish`, got a TERM to its `cicd.bash` PID in stage 4, during the Rust tests in the image. Within 5 s it printed `stopped 4 process(es)`, `stopped 1 process(es)` and `removed this run's temp files`, and its `docker run`, its container, the locked frozen worktree and its `shcl-run.*` and `shcl-tree.*` dirs were gone. The temp roots, `git worktree list`, `docker ps -a` and dangling images matched the baseline taken before it.
+			- `~/.cache/shcl-cicd` grew 17 MB, all in the Go build and staticcheck caches, which are kept whole and which Go trims itself. A full run also leaves about 20 small `.d` stubs in the cache's `zig/tmp`, and zig trims those itself: 100 files went to 50 during the next run.
 	- Decisions:
 		- me: the build cache isn't pruned, since `docker builder prune` is box-wide.
 		- me: target dirs and the container caches stay whole. A toolchain change makes a target dir stale, but `target-gate` is shared with gate worktrees on other commits.
@@ -422,50 +474,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `tidyup`, then `stopfix`
 	- Commit: `a1ca716f`
 	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc`, `EtDQOSv`, `EtNhygG` (a stopped run takes down the frozen copy's run and its children) and `EtNhz0U` (a container whose client won't stop is killed by its ID).
-
-- CICD builds and tests in a container if one is available
-	- ID: 2026101920461174
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: a run with neither flag through the real main image on b23, `cicd.bash --gate` and then a pre-push gate on a main push. Each should start the image once (twice for a run that formats in place, per 2026102108300000) and end with `tree ... recorded`.
-	- Priority: Avg
-	- Opened: 20261019-204611
-	- Opened by: JC
-	- Version and build: dev at `6f48dd7d`
-	- Requirements:
-		- Pre-next-cut.
-		- Make sure a container is used for build and test if available.
-		- Fall back to local if not.
-	- Decisions:
-		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
-		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
-	- Progress log:
-		- 20261019, branch `ctrdef`:
-			- With neither flag, cicd.bash asks docker first. When it answers on x86_64, stages 1-6 go to the main image as under `--container`. Otherwise they run here, after one `note:` line that gives the reason. The run inside the image never asks, so it can't start another.
-			- An installed docker whose daemon doesn't answer counts as none. One helper in ctr-image.bash, `fCtrWhyNot`, decides it for cicd.bash and for the 3 leak checks that fall back to the image (analyze-c, soak-c, codeql-scan).
-			- `--container` fails up front when docker doesn't answer, rather than at the image build. `--container` with `--no-container`, 2 different images, or `--container=` with no name exit 2 before anything runs (me, per design.md's last-wins rule).
-			- ci.yml passes `--no-container`, and check-pins fails a hosted gate run without it. The pre-push hook isn't changed; it follows the default.
-			- The stubbed engines in check-push-gate and shell-regress no longer reach this box's docker.
-			- The help text, contributing.md, the hook's header and the history lines say so.
-			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
-			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
-			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
-		- 20261020: `cicd.bash --gate` with neither flag, in `gatewt-r1020` at `db311c7a`, started the main image once and ended with `tree c3687f1204d6 recorded`. Left: the bare run, which is JC's from 17:04, and a pre-push gate on a main push.
-		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `EtDCDE7` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
-			- `--gate` with neither flag started the image once, then stopped on check-docs `EqL3TGq` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
-			- Cause of the `EtDCDE7` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
-		- 20261022: back to Waiting on automated testing, since the fix is on dev and nothing is left to code. JC's bare run on dev `8b81b8c3` covers the first part.
-	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
-	- Branch: `ctrdef`
-	- Commit: `bd0415a7`
-	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
+	- Acceptance signoff: Self-closed on JC's criteria: each check-push-gate row was seen red, a whole run and a stopped run in the real image left nothing behind, and the 10-20 `--gate` removed the superseded images.
+	- Closed: 20261022-112537
 
 - A long run reads the live tree, so nothing can merge or check out there until it ends
 	- ID: 2026102108300000
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: after the fix, a bare run and a `--gate` run through the main image.
-	- Needs external testing: one hosted run, since ci.yml's `--gate --no-container` now runs from a copy too.
+	- Status: Done
 	- Priority: Medium
 	- Opened: 20261021-083000
 	- Related IDs: 2026102021300000, 2026102106592600
@@ -496,8 +511,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: a `-y --no-lint --no-tests` run passed from the copy, with 2 image runs (format, then 2-6), "copied fe2545f648c7, with nothing uncommitted", and no worktree left. Log `shcl/bare2-r1021.log`.
 		- 20261021: the header failure is 2026102113494069.
 		- 20261022: back to Waiting on automated testing. The header fix (2026102113494069) and the stop of the image's container (2026101920461153, `stopfix`) are on dev, so only the tests are left. JC's bare run on dev `8b81b8c3` covers the bare run.
+		- 20261022, tests on dev `8b81b8c3` and `r1022` at `b1eabe99`:
+			- Verified: JC's bare run (log `run_20261022-085416` in `cicd/artifacts/lint/`) printed `copied 8b81b8c3cf3a, with nothing uncommitted`, made 2 image runs, format and then 2-6, passed `EtMYbKi` and recorded `tree c739cfb75920`.
+			- Verified: `cicd.bash --gate` from the dev checkout started the image once, ran 2-6 from `copied 8b81b8c3cf3a`, passed every stage and recorded the same tree. The frozen worktree and its temp dir were gone after.
+			- Verified: hosted run 39824537161 on `r1022` passed all 10 jobs. `ci (lint)` and `ci (tests)` each printed `copied b1eabe99bb50` and passed `EqL3TGq`, `EqGjDth` and `EtMYbKi`, at 46 and 45 of 60 minutes.
 	- Swept: every `worktree add` and `worktree remove` under `cicd/` and the hook: pre-push and check-migrate now use the helper; check-push-gate and check-install-dev add worktrees only in their own scratch repos. The other users of the engine's stub repos (shell-regress `EqQUj04`, check-push-gate's engine and hook stubs) copy the helper. check-push-gate's extra-image mount rows pass `--no-freeze`, since they check mounts on the checkout's own paths. The docker scan in shell-regress `EtDCDEB` matches `fRunContainer` called with arguments.
 	- Test case: shell-regress `EtMYbKi` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
+	- Acceptance signoff: Self-closed on JC's criteria: `EtMYbKi` was seen red, and a bare run, a `--gate` in the main image and a hosted run all ran from a copy and passed.
+	- Closed: 20261022-112537
 
 - The freebsd-x86_64 release build never runs in a pipeline test
 	- ID: 2026102022450000
