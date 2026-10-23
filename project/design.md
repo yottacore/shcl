@@ -244,9 +244,9 @@ Consequences of the flat form:
 
 - The validator needs no new lookup machinery: `Instances("field")` enumerates the described paths, and `field(<path>).type` reads a constraint.
 
-- A path containing a bracket selector had to be quoted (`field: "server[*].host"`), because a bracket ended a bare value. With selectors in parens a path reads bare, `field: server(*).host`, since a paren is text in a value. A path holding a quote or a `#` still needs quotes, and the formatter adds them, since it writes the path as a value.
+- A path containing a bracket selector had to be quoted (`field: "server[*].host"`), because a bracket ended a bare value. With selectors in parens a path reads bare, `field: server(*).host`, since a paren is text in a value. The formatter writes the path as a value, so it quotes one holding a paren, a quote or a `#`, and `fmt` makes `field: server(*).host` into `field: "server(*).host"`. Both read the same.
 
-- A schema file is a formatter fixpoint like any other SHCL document, so `shcl fmt` works on schemas for free.
+- `shcl fmt` works on schemas for free, like any other SHCL document, and its output is a fixpoint.
 
 **Wildcards cover the repeated-instance story.** `server(*).port` constrains every instance of `server`, which is how a schema says "each server needs a port" in a language whose core idea is repeated instances. `repeat` (on the parent path) bounds the instance count itself - the one constraint with no equivalent in tree-shaped schema languages.
 

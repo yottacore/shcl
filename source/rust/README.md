@@ -32,7 +32,7 @@ if file_status == FileStatus::NotFound {
 }
 
 // One call, a typed value, a visible fallback at the call site.
-let limit = doc.get_int("site(example.com).max-upload-mb").unwrap_or(10);
+let limit = doc.get_int_or("site(example.com).max-upload-mb", 10);
 
 // Or ask why a read failed: Good, Empty, NotFound, BadType, Multiple, BadPath.
 let r = doc.read_int("site(example.com).max-upload-mb");

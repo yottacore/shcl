@@ -71,35 +71,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
 
-- Doc fixes from the 2026-10-22 design review
-	- ID: 2026102307035786
-	- Type: Task
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261023-070357
-	- Opened by: JC
-	- Related IDs: 2026102307035771, 2026102307035776, 2026102307035781
-	- Estimated effort: Low
-	- Requirements:
-		- Docs only. No code or behavior change, except the `--no-banner` help line, which is the same in all 4 CLIs.
-		- spec.md Sizes: say `kB` is the same unit as `KB`, and that the 1024 default follows systemd, Docker and the JVM, not IEC. `decimal` stays the way to get powers of 1000.
-		- spec.md's advice on choosing `(i)` or `(value)` when mapping entities: walk with `fields()` or `instance_paths()`, which give every instance in one pass, and keep `Count` plus `(i)` for a point read. A loop over `Count` with `(i)` costs the square of the count.
-		- spec.md Ergonomic tiers: name all 3 read forms, `get_X_or`, `get_X` and `read_X`, and say what plain `get_X` returns in each binding: a Result in Rust, a status pair in Go, a raise in Python, and what C does.
-		- examples.md: the Rust example leads with `get_int_or`, the tier the spec calls the default, rather than `unwrap_or`.
-		- spec.md's north star, "a read API that stays small and predictable", says something true, such as a read API learned from a few calls.
-		- README and the parity section scope the byte-for-byte claim to valid UTF-8, as spec.md already does.
-		- README's read-type list gains duration and size, and drops the claim of an array of any of them, since there's no raw array.
-		- README's comparison cell "Nested arrays: Repeated child fields" says no, with instances as the way to do it. Arrays don't nest, by design.
-		- README's "wrong choice" list gains whole-file decode into a struct, which TOML and YAML users expect and design.md declines.
-		- design.md says the formatter quotes a schema path only for a quote or a `#`, and calls a schema a `fmt` fixpoint. spec.md has the writer quoting parens too, so a bare `field: server(*).host` gets rewritten. Make design.md match what the code does.
-		- The `--no-banner` help names both "banner" and "info block", since the prose and help call it the info block. v4 renames it.
-	- Decisions:
-		- JC, 20261023: keep 1024 as the `KB` default.
-		- JC, 20261023: keep all 3 read tiers through the beta. Dropping plain `get_X` is v4's.
-		- JC, 20261023: scope the UTF-8 claim rather than make 4 parsers agree on bytes that aren't text.
-		- JC, 20261023: no v3 code change for the quadratic walk. The per-name index is v4's node handles.
-		- Left out on purpose: the "never made to satisfy the machine" goal stays as written (20261006, and the comma and colon decision), and "adn" and "wiht" are planted slips.
-
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
@@ -160,6 +131,43 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings, spec.md, value-syntax.md, the lexical edges table in design.md, and corpus cases.
 	- Decisions:
 		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
+
+- Doc fixes from the 2026-10-22 design review
+	- ID: 2026102307035786
+	- Type: Task
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035771, 2026102307035776, 2026102307035781
+	- Estimated effort: Low
+	- Requirements:
+		- Docs only. No code or behavior change, except the `--no-banner` help line, which is the same in all 4 CLIs.
+		- spec.md Sizes: say `kB` is the same unit as `KB`, and that the 1024 default follows systemd, Docker and the JVM, not IEC. `decimal` stays the way to get powers of 1000.
+		- spec.md's advice on choosing `(i)` or `(value)` when mapping entities: walk with `fields()` or `instance_paths()`, which give every instance in one pass, and keep `Count` plus `(i)` for a point read. A loop over `Count` with `(i)` costs the square of the count.
+		- spec.md Ergonomic tiers: name all 3 read forms, `get_X_or`, `get_X` and `read_X`, and say what plain `get_X` returns in each binding: a Result in Rust, a status pair in Go, a raise in Python, and what C does.
+		- examples.md: the Rust example leads with `get_int_or`, the tier the spec calls the default, rather than `unwrap_or`.
+		- spec.md's north star, "a read API that stays small and predictable", says something true, such as a read API learned from a few calls.
+		- README and the parity section scope the byte-for-byte claim to valid UTF-8, as spec.md already does.
+		- README's read-type list gains duration and size, and drops the claim of an array of any of them, since there's no raw array.
+		- README's comparison cell "Nested arrays: Repeated child fields" says no, with instances as the way to do it. Arrays don't nest, by design.
+		- README's "wrong choice" list gains whole-file decode into a struct, which TOML and YAML users expect and design.md declines.
+		- design.md says the formatter quotes a schema path only for a quote or a `#`, and calls a schema a `fmt` fixpoint. spec.md has the writer quoting parens too, so a bare `field: server(*).host` gets rewritten. Make design.md match what the code does.
+		- The `--no-banner` help names both "banner" and "info block", since the prose and help call it the info block. v4 renames it.
+	- Decisions:
+		- JC, 20261023: keep 1024 as the `KB` default.
+		- JC, 20261023: keep all 3 read tiers through the beta. Dropping plain `get_X` is v4's.
+		- JC, 20261023: scope the UTF-8 claim rather than make 4 parsers agree on bytes that aren't text.
+		- JC, 20261023: no v3 code change for the quadratic walk. The per-name index is v4's node handles.
+		- Left out on purpose: the "never made to satisfy the machine" goal stays as written (20261006, and the comma and colon decision), and "adn" and "wiht" are planted slips.
+	- Progress log:
+		- 20261023: spec.md, design.md, README.md and examples.md changed as listed. The crate README's Rust example leads with `get_int_or` too.
+		- 20261023: the `--no-banner` help already says "leave out the info block", beside the flag's own name, in all 4 CLIs, so it stays as it is.
+		- 20261023: `fmt` turns a bare `field: server(*).host` into the quoted form, and its output is a fixpoint. `kB` and `KB` read alike, and `--decimal` gives powers of 1000.
+		- Swept: plain `get_X` in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h, `unwrap_or` and the changed claims across the .md files.
+	- Test case: check-docs and check-readme, which runs the README and examples.md blocks. Docs only, so no new test.
+	- Acceptance signoff: Self-closed on JC's criteria: each listed doc fix is in, and the help line already met its point.
+	- Closed: 20261023-071039
 
 - CICD runs on GitHub's M4 macOS runners
 	- ID: 2026102216325314

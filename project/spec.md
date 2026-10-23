@@ -55,7 +55,7 @@ Simple Hierarchical Config Language. This is the canonical language spec: termin
 
 ## Design goals (the north star)
 
-SHCL aims to be forgiving to write, predictable to read, and expressive enough for any flat or hierarchical data, with a read API that stays small and predictable. (Not "the simplest possible language": the grammar has real features, and pretending otherwise just invites the comparison. The simplicity claim lives where it is true - in what the two audiences below actually experience.) It is optimized for those two audiences and nobody else:
+SHCL aims to be forgiving to write, predictable to read, and expressive enough for any flat or hierarchical data, with a read API learned from a few calls. (Not "the simplest possible language": the grammar has real features, and pretending otherwise just invites the comparison. The simplicity claim lives where it is true - in what the two audiences below actually experience.) It is optimized for those two audiences and nobody else:
 
 - **The person writing config by hand.** It must be forgiving and obvious enough that a non-programmer can hand-author a whole file from scratch - even something as rich as a declarative DDL - without memorizing rules. If a modern parser can figure out what was meant, it must; the user is never asked to satisfy the machine.
 
@@ -361,7 +361,7 @@ A duration read gives whole milliseconds and a size read gives whole bytes, from
 
 - Duration units are `ms`, `s`, `m`, `h` and `d`, lower case. Parts run largest unit first, each once, and blanks are allowed between a number and its unit and between parts, so `1h30m` and `"1h 30m"` read alike and `30m1h` is `BadType`. A spelling with a blank in it is quoted in the file.
 
-- Size units are `B`, `KB`, `MB`, `GB`, `TB`, `KiB`, `MiB`, `GiB` and `TiB`, plus `kB`. Letter case is read, since `Mb` is megabits to most readers. `KiB` to `TiB` are powers of 1024. `KB` to `TB` are too, unless the read asks for decimal, which makes them powers of 1000.
+- Size units are `B`, `KB`, `MB`, `GB`, `TB`, `KiB`, `MiB`, `GiB` and `TiB`, plus `kB`, which is the same unit as `KB`. Letter case is read, since `Mb` is megabits to most readers. `KiB` to `TiB` are powers of 1024. `KB` to `TB` are too, unless the read asks for decimal, which makes them powers of 1000. The 1024 default follows systemd, Docker and the JVM, not IEC, where a kilobyte is 1000 bytes, so `decimal` is the way to get powers of 1000.
 
 - A number may have a fraction, and the result has to be whole: `1.5s` is 1500 ms, `0.5KiB` is 512 bytes, and `0.0001s` or `1.1KiB` is `BadType`. At most 18 digits after the point count. No sign, no exponent.
 
@@ -532,7 +532,7 @@ The consumer is assumed to be a junior programmer in **every** binding, so each 
 
 - **Full tier.** The same read exposing the status sentinel (and the raw text) for callers who must tell `Empty` from `NotFound` from `BadType`, or who want to raise on a status themselves. The `Empty`-vs-`NotFound` distinction is a deliberate feature, rare among config formats: `feature:` (written, empty) and no line at all are different answers, so a tri-state convention like "empty means explicitly disabled, absent means use the default" maps straight onto the status with no adapter. The raw text is the value span exactly as authored on its source line (comment stripped, trimmed) - `regex: '^\d{2,3}$'` reads back byte-for-byte, quotes, backslash and comma included. A value with no one-line source spelling (writer-built, a stacked `- ` list, a raw block) falls back to the display form.
 
-The convenience tier has the same shape everywhere (a mandatory, call-site-visible fallback), which is precisely what defuses the silent-zero trap: a junior cannot accidentally read a `0`/`""` that was really empty or missing, because there is no convenience call without a stated fallback. It also has the same *name* everywhere: `_or` (`Or` in the languages that capitalize) means "with a fallback" in every binding, so a routine ported between two of them cannot keep the call name while changing which tier it lands on. Each binding's native value-or-default idiom still works where it has one - `get_int(path).unwrap_or(0)` in Rust, `get_int(path, default=0)` in Python. A plain `get_*` call with no fallback reports why a read failed, by status or by raising, wherever a binding has one. C has none, since its full tier is `shcl_read_*`.
+The convenience tier has the same shape everywhere (a mandatory, call-site-visible fallback), which is precisely what defuses the silent-zero trap: a junior cannot accidentally read a `0`/`""` that was really empty or missing, because there is no convenience call without a stated fallback. It also has the same *name* everywhere: `_or` (`Or` in the languages that capitalize) means "with a fallback" in every binding, so a routine ported between two of them cannot keep the call name while changing which tier it lands on. Each binding's native value-or-default idiom still works where it has one - `get_int(path).unwrap_or(0)` in Rust, `get_int(path, default=0)` in Python. Each binding has 3 read forms, in its own spelling: `get_X_or` is the convenience tier, `read_X` the full tier, and plain `get_X`, with no fallback, gives the value or why there is none. Plain `get_X` returns a `Result<T, Status>` in Rust and a value and `Status` pair in Go, and in Python it raises `StatusError` unless a `default` is passed. C has no plain `get_X`, only `shcl_get_X_or` for the value types and `shcl_read_X`. The Rust and Go rows below show plain `get_X` as the full tier, since it gives the status too.
 
 | Language   | Convenience tier                             | Full tier
 | :---       | :---                                         | :---
@@ -570,7 +570,7 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 
 - Selector forms: `(Boston)` (bare non-numeric = value), `(0)` (bare numeric = index), `("2020")` (quoted = value even if numeric), `(*)` (wildcard, below). The old `[#2]` index is gone, and a bare body that starts with `#` finds nothing.
 
-- **Choosing `(i)` vs `(value)` when mapping entities** (a consumer walking instances into its own model): prefer `Count` + `(i)`. By-value selection misreads an entity whose name happens to be numeric (`(2020)` is an index; quote it to force a value match), collapses two same-named entities into one answer (`Multiple`), and never finds an instance whose value is an array. Index selection is positional, total, and collision-free.
+- **Choosing `(i)` vs `(value)` when mapping entities** (a consumer walking instances into its own model): walk with `Fields()` or `InstancePaths()`, which give every instance with its `(i)` path in one pass. Keep `Count` + `(i)` for a point read, since a loop over `Count` that reads each `(i)` costs the square of the count. Either way, prefer an index to a value. By-value selection misreads an entity whose name happens to be numeric (`(2020)` is an index; quote it to force a value match), collapses two same-named entities into one answer (`Multiple`), and never finds an instance whose value is an array. Index selection is positional, total, and collision-free.
 
 - `field(*)` is a wildcard returning every instance's value as an array: `GetIntArray("base(*).metrics.population")`. The result is positionally aligned to the instances - one slot per instance, in file order. If an instance lacks the sub-path, its slot is kept (status `NotFound`, with the zero value); slots are never silently dropped, so indices stay aligned with `Instances(field)`/`Count(field)`. A legitimately absent sub-path is not malformed, so it produces no diagnostic.
 	- Every array read has one status per slot alongside the values (a slot list on the result). Each slot reads like a scalar of the target type: `Good`, `Empty` (empty value), `NotFound` (missing sub-path), `BadType` (uncoercible, raw block, or array where one scalar is expected), or `Multiple` (sub-path ambiguous within that instance). The read's aggregate status is the worst slot, ordered `Good` < `Empty` < `NotFound` < `BadType` < `Multiple`, so a partial miss can never report `Good`.
@@ -982,6 +982,8 @@ The guarantee is the corpus, not the binding count: **every released binding is 
 - A **conformance corpus** of golden cases (`conformance/`) pins every implementation to identical results: each case is an input `.shcl`, its expected canonical formatting, and a set of expected typed reads with their status sentinels. The date/coercion/quoting edge cases live here so no parser can silently drift.
 
 - Every parser runs the corpus in CI before it is considered conformant.
+
+- The byte-for-byte promise covers valid UTF-8. What a library does with other bytes is unspecified (see [Encoding and lines](#encoding-and-lines)).
 
 ## Resolved minor items
 

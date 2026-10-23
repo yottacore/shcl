@@ -209,8 +209,8 @@ if file_status == FileStatus::NotFound {
 }
 
 // Typed read, with a fallback if the path is missing
-let workers = doc.get_int("workers").unwrap_or(4);
-let root = doc.get_string("site(example.com).root").unwrap_or_default();
+let workers = doc.get_int_or("workers", 4);
+let root = doc.get_string_or("site(example.com).root", String::new());
 println!("serving from {root}");
 
 // Or ask why a read failed, when the difference matters
