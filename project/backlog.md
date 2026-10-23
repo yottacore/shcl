@@ -74,8 +74,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD runs on GitHub's M4 macOS runners
 	- ID: 2026102216325314
 	- Type: Enhancement
-	- Status: Queued
-	- Needs external testing: a hosted run on the M4 runner.
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261022-163253
 	- Opened by: JC
@@ -86,7 +85,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Build, run the tests, and smoke-test the CLI on the built binary.
 	- Progress log:
 		- 20261022: ci.yml's `macos` job already builds, runs `cargo test`, and runs crosscheck and cli-regress on the macOS universal release. It runs on `macos-14`, which is M1.
-	- Question: which runner label? GitHub's own docs didn't turn up an M4 label in a quick search. Its standard arm64 macOS runners are M1, and the paid `-xlarge` ones M2 Pro. M4 machines turned up only from third-party runner services.
+		- 20261022: hosted run 39824537161 on `r1022`: the `macos` job passed.
+	- Decisions:
+		- JC, 20261022: stay on the free M1 runner. GitHub has no M4 runner, only third-party services do. What runs on M1 runs on M4, though not always the other way.
+		- The release isn't built for a newer CPU than M1, since nothing sets `target-cpu` and the Rust target's default is `apple-m1`.
+	- Test case: ci.yml's `macos` job, which runs `cargo test`, then crosscheck over the corpus and cli-regress on the release.
+	- Acceptance signoff: Self-closed on JC's criteria: the job already does each requirement on M1, and JC chose M1.
+	- Closed: 20261022-173253
 
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
