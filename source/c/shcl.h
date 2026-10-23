@@ -733,6 +733,7 @@ typedef struct { // NOLINT(clang-analyzer-optin.performance.Padding): each flag 
 	int has_misspelled; size_t misspelled; // the first bare name that breaks the spelling rule but still reads, such as `404` or `user name` (E014, level held open)
 	int has_bracket_selector; size_t bracket_selector; // the first selector written in brackets, `x[a]`, the old spelling (E029); its body is read as a selector all the same
 	size_t cap; int capped;
+	int has_glued; size_t glued;      // a `#` that opened a comment against a bare piece's text (H008): `http://h/#frag`, or `#fff` where the piece is empty
 	size_t seg_cap, elem_cap;         // storage bookkeeping
 	const void *arena;                // the read arena the two arrays live in
 } shcl_tokens;
@@ -1940,6 +1941,7 @@ static void tok_clear(ShclTokens *t) {
 	t->has_array = 0; t->array = 0; t->has_array_fault = 0; t->array_fault_at = 0; t->array_fault_why = NULL;
 	t->has_comment = 0; t->comment = 0; t->has_fault = 0; t->fault_at = 0; t->fault_why = NULL; t->capped = 0;
 	t->has_misspelled = 0; t->misspelled = 0; t->has_bracket_selector = 0; t->bracket_selector = 0;
+	t->has_glued = 0; t->glued = 0;
 }
 static void tok_push_seg(ShclArena *a, ShclTokens *t, ShclSegTok s) {
 	if (t->nseg == t->seg_cap) { size_t nc = t->seg_cap ? t->seg_cap * 2 : 8; t->segments = (ShclSegTok *)arena_grow(a, t->segments, t->seg_cap, nc, sizeof(ShclSegTok)); t->seg_cap = nc; }
@@ -2002,6 +2004,20 @@ static int quote_close(ShclStr s, size_t pos, ShclRules rules, size_t *close) {
    caller's business. */
 static int comment_at(ShclStr s, size_t i) {
 	return s.p[i] == '#';
+}
+
+#define SHCL_GLUED_HINT "a '#' against text opens a comment; quote the value if the '#' is part of it"
+
+/* Whether the comment a bare piece ended at, the `#` at `at`, is against
+   text: the piece's last character sits right before it, or the piece is
+   empty and a character other than a blank or `#` follows (H008).
+   `port: 80  # main` and `a: # note` are plain comments. */
+static int glued_comment(ShclStr s, const ShclPiece *p, size_t at) {
+	if (p->quote == SHCL_QUOTE_SINGLE || p->quote == SHCL_QUOTE_DOUBLE || p->quote == SHCL_QUOTE_BACKTICK) return 0;
+	if (p->end > p->start) return p->end == at;
+	if (at + 1 >= s.n) return 0;
+	char c = s.p[at + 1];
+	return c != ' ' && c != '\t' && c != '\r' && c != '#';
 }
 
 /* A comma at `at` with a blank, a comment or the end after it. Only that one
@@ -2108,7 +2124,10 @@ static void scan_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules,
 			if (out->cap && count > out->cap) { out->capped = 1; out->value_start = from; out->value_end = from; return; }
 		}
 		if (stop < text.n && text.p[stop] == ',') { pos = stop + 1; continue; }
-		if (stop < text.n) { out->has_comment = 1; out->comment = stop; }
+		if (stop < text.n) {
+			out->has_comment = 1; out->comment = stop;
+			if (glued_comment(text, &piece, stop)) { out->has_glued = 1; out->glued = stop; }
+		}
 		stop_at = stop;
 		break;
 	}
@@ -2150,6 +2169,7 @@ static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, Shc
 		}
 		if (stop < s.n && s.p[stop] == ',') { pos = stop + 1; continue; }
 		if (stop < s.n && s.p[stop] == ']') { closed = 1; close = stop; }
+		else if (stop < s.n && glued_comment(s, &piece, stop)) { out->has_glued = 1; out->glued = stop; }
 		stop_at = stop;
 		break;
 	}
@@ -2161,8 +2181,9 @@ static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, Shc
 			if (!out->has_array_fault) tok_array_fault(out, after, "text after ']'");
 			/* The comment past the stray text, found the way a value finds it. */
 			for (;;) {
-				ShclPiece ignored; size_t stop = scan_piece(s, after, ',', SHCL_RULES_CURRENT, 1, 0, &ignored);
+				ShclPiece piece; size_t stop = scan_piece(s, after, ',', SHCL_RULES_CURRENT, 1, 0, &piece);
 				if (stop < s.n && s.p[stop] == ',') { after = stop + 1; continue; }
+				if (stop < s.n && glued_comment(s, &piece, stop)) { out->has_glued = 1; out->glued = stop; }
 				end = stop;
 				break;
 			}
@@ -2245,6 +2266,7 @@ static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules r
 		if (have_open) {
 			if (seg.star) { tok_fault(out, open, "selector on a name wildcard"); return; }
 			ShclPiece piece; size_t stop = scan_piece(s, open + 1, close, rules, !path, 0, &piece);
+			if (!path && stop < s.n && comment_at(s, stop) && glued_comment(s, &piece, stop)) { out->has_glued = 1; out->glued = stop; }
 			if (stop >= s.n || s.p[stop] != close) { tok_fault(out, open, "unterminated selector"); return; }
 			if (piece.end == piece.start && piece.quote == SHCL_QUOTE_NONE) { tok_fault(out, open, "empty selector"); return; }
 			if (piece.quote == SHCL_QUOTE_OPEN && rules == SHCL_RULES_V2) { tok_fault(out, open, "unterminated quote in a selector"); return; }
@@ -4926,6 +4948,11 @@ static void p_diag(ShclParser *P, size_t line, shcl_severity sev, const char *co
 	push_diag(P->d, line, sev, code, s_dup(&P->d->arena, msg));
 }
 static void p_err(ShclParser *P, size_t line, const char *code, ShclStr msg) { p_diag(P, line, SHCL_SEV_ERROR, code, msg); }
+/* H008, from the scan that found the comment. It changes nothing the load
+   reads, so it comes first among its line's diagnostics. */
+static void hint_glued(ShclParser *P, size_t line, const ShclTokens *tok) {
+	if (tok->has_glued) p_diag(P, line, SHCL_SEV_HINT, "H008", s_lit(SHCL_GLUED_HINT));
+}
 
 static void remap_child(ShclParser *P, size_t node, uint64_t old_key, uint64_t old_disp);
 static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr text);
@@ -6317,6 +6344,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		ShclFence f; f.ok = 0; f.ch = 0; f.len = 0; f.info = s_empty();
 		if (rest.p[0] == '`' || rest.p[0] == '~') f = child_fence(P.tmp, rest, &tok);
 		if (f.ok) {
+			hint_glued(&P, lineno, &tok);
 			ShclStr fcomment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
 			size_t parent;
 			int resolved = resolve_parent(&P, indent, found, &parent);
@@ -6371,10 +6399,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		}
 		if (item || rest.p[0] == '*') {
 			if (item) {
+				tokenize_value(P.tmp, rest, 1, SHCL_RULES_CURRENT, &tok);
+				hint_glued(&P, lineno, &tok);
 				size_t parent;
 				if (!resolve_parent(&P, indent, found, &parent)) { misplaced(&P, lineno, "E012", indent, rest, had_blank, 0); i++; continue; }
 				if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, 0); i++; continue; }
-				tokenize_value(P.tmp, rest, 1, SHCL_RULES_CURRENT, &tok);
 				/* An item past the cap is refused for that, whatever its value.
 				   A good one finds out where it would join. */
 				ShclFault fault;
@@ -6422,6 +6451,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		}
 		/* Field line. */
 		tokenize(P.tmp, rest, ':', 0, SHCL_RULES_CURRENT, &tok);
+		hint_glued(&P, lineno, &tok);
 		ShclStr comment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
 		size_t parent;
 		if (!resolve_parent(&P, indent, found, &parent)) { misplaced(&P, lineno, "E012", indent, rest, had_blank, line_fence(P.tmp, &tok, rest).ok); i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue; }

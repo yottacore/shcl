@@ -140,6 +140,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Hints `H006` and `H007` on the info block's Format line when it names a newer or an older format than the reader's. The older one points at `shcl upgrade --from-2x`. Either one changes nothing about the load.
 
+- Hint `H008` when a `#` against text opens a comment, as in `url: http://h/#frag` or `color: #fff`, which read `http://h/` and nothing. It changes nothing about the load; quote the value to keep the `#`.
+
 - Integers can be written in octal and binary, `0o644` and `0b101`, beside hex.
 
 - A config file can name its schema on a `##    Schema   PATH` line. `shcl check` uses it when `--schema` is not given, reading the path from the file's directory, and leaves a URL to editors. `schema_ref()` in every binding reads it.

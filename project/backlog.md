@@ -71,6 +71,40 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
 
+- A `#` glued to text changes a value with no word
+	- ID: 2026102307035776
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: cppcheck `--check-level=exhaustive` over main.c and conformance.c, which didn't finish in 4 minutes on the changed header. The round's sanitizers, leak checks and Miri over the tokenizer and parser change in all 4 (`glued_comment` and the item line now tokenized before its position is judged).
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035786, 2026102309053667
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Problem description:
+		- `url: http://h/#frag` reads `http://h/`, and `color: #fff` reads empty, at exit 0 with nothing said. The comment rule is settled (`#` anywhere outside quotes opens a comment) and stays.
+	- Requirements:
+		- New hint `H008`, raised when a `#` opens a comment with a non-blank character right before it, in a bare value, an element, a selector body or a fence label.
+		- Like `H005`, it changes no load, no read and no exit code, so Strict and the corpus reads don't change.
+		- The prose names the fix: quote the value.
+		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
+		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
+	- Decisions:
+		- me, 20261023: "Right before it" taken so `color: #fff` hints too. A `#` that opens a comment hints when text sits right before it in a bare piece, or the piece is empty and a character other than a blank or `#` follows. `port: 80   # main`, `a: # note`, `a: ## two`, a whole-line comment, and a `#` after a closing quote or `]` get none. design.md's Lexical edges has the reason and the alternatives.
+		- me, 20261023: a fence label follows the same rule, since the value scan finds its `#`: ```` ```c# ```` hints and ```` ``` # note ```` doesn't. A name is left out, as the item lists only the 4 places.
+		- me, 20261023: the hint also shows on a line with an error, ahead of it, since the scan finds it first (185's found-order rule). A `- ` item is tokenized before its position is judged, so a misplaced item hints as a misplaced field line does.
+	- Progress log:
+		- 20261023: `Tokens` gains `glued` in all 4, set where the scan already stops at a comment, from the characters on either side of the `#`. The parser emits `H008` right after it tokenizes a field line, an item or a child-indent fence line. No second scan.
+		- Corpus 056, 068 and 109 already had a `#` against text, so their expected-diags gain `H008` lines. Their reads and Strict rows don't change.
+		- check-abnf counted any hint as unclean, so 2 of its samples went red. It now counts errors only.
+		- spec.md (Comments, code table), design.md (Lexical edges, Load outcomes), value-syntax.md, the corpus README, the changelog and `explain H008` in all 4 CLIs. The fuzz grammar generator expects `glued`, and checks both shapes come up.
+		- Verified: the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-docs, check-abnf, check-doc-examples, test-ids check, shell-regress, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy. The release fuzz at 2,000,000 passed every property but `upgrade_leaves_its_own_output_alone`, which fails at iteration 628247 on the old code too once the 2 new cases are in the seed set (2026102309053667).
+		- Seen to fail on the old code: the diags of 207, 208 and the 3 updated cases, and `explain H008`.
+		- Swept: every stop at a `#` in `scan_value`, `scan_array` (an element and the text after `]`) and the selector body in `tokenize`, plus the parser's tokenize calls in its line loop, in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h. The explain tables in all 4 CLIs.
+	- Branch: `r1023`
+	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `EtXOTsa`, `EtXOTxq` and `EtXOTvD`, and fuzz `EpFkZy4`.
+
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
@@ -144,24 +178,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
 
-- A `#` glued to text changes a value with no word
-	- ID: 2026102307035776
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261023-070357
-	- Opened by: JC
-	- Related IDs: 2026102307035786
-	- Estimated effort: High
-	- Problem description:
-		- `url: http://h/#frag` reads `http://h/`, and `color: #fff` reads empty, at exit 0 with nothing said. The comment rule is settled (`#` anywhere outside quotes opens a comment) and stays.
-	- Requirements:
-		- New hint `H008`, raised when a `#` opens a comment with a non-blank character right before it, in a bare value, an element, a selector body or a fence label.
-		- Like `H005`, it changes no load, no read and no exit code, so Strict and the corpus reads don't change.
-		- The prose names the fix: quote the value.
-		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
-		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
-
 - An apostrophe inside a bare word is an error
 	- ID: 2026102307035781
 	- Type: Enhancement
@@ -182,6 +198,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings, spec.md, value-syntax.md, the lexical edges table in design.md, and corpus cases.
 	- Decisions:
 		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
+
+- `upgrade --from-2x` can write a fresh file that names no current format
+	- ID: 2026102309053667
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261023-090602
+	- Opened by: 2026102307035776
+	- Related IDs: 2026102307035776
+	- Version and build: `r1023` at `c92e1c05`
+	- Steps to reproduce:
+		- With corpus cases 207 and 208 in the seed set, `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke upgrade_leaves_its_own_output_alone`.
+	- Incorrect behavior: iteration 628247, `from_v2` true, fails "the fresh text names no current format". The input has `##    Format   3`, then a second info block with `##    Format   99999999999` and a line `   3` under it. The fresh text writes that line as `"3":` and indents the block's comments under it.
+	- Expected behavior: the fresh file names this format, or the upgrade refuses.
+	- Reproduced: on `c92e1c05`, before the `H008` change, with the 2 new cases copied in, at the same iteration.
 
 - Doc fixes from the 2026-10-22 design review
 	- ID: 2026102307035786

@@ -132,6 +132,7 @@ A few nouns from the wider surface:
 ### Comments
 
 - `#` begins a comment that runs to the end of the line, wherever it sits, as long as it is outside quotes, backticks and a raw block. No space is needed before it: `url: http://h/#frag` is the value `http://h/` and a comment, `a:#x` is an empty value and a comment, and ```` ```c# ```` labels a raw block `c`. A value holding a `#` is quoted: `color: "#ff0000"`.
+	- The load says so with the hint `H008` when the `#` is against text: text right before it in a bare value, an array element, a selector body or a fence label, as in `url: http://h/#frag` and ```` ```c# ````, or right after it where that piece is empty, as in `color: #fff` and `a:#x`. A blank before it, or a blank or another `#` after it in an empty piece, makes a plain comment with no hint: `pop: 700  # note`, `a: # note`, `a: ## two`. So does a `#` after a closing quote or `]`. The hint changes nothing the load reads.
 
 - Comments may be a whole line or trail a value (`pop: 700  # note`).
 
@@ -642,6 +643,7 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 | `H005` | a value in another unit than the one its field name ends in, as `timeout-ms: 5s` or `cache-mb: 2GB`. Legal, and a unit in the value wins over the one the name gives a bare number, but the two disagreeing is usually a slip. Only a name ending in a duration or size unit after a `-` or `_` is looked at, and only a value that reads as that kind
 | `H006` | the info block's `Format` line names a newer format major than this reader's, so the file may use rules it does not know. The load goes on as usual. On the stamp's line, read as `ReadFormatVersion` reads it. The message quotes the number as written
 | `H007` | the `Format` line names an older format major than this reader's, so some lines may read differently than written: `p: a,b` was an array in 2.x. The prose points at `shcl upgrade --from-2x`. On the stamp's line, read as `ReadFormatVersion` reads it. The message quotes the number as written
+| `H008` | a `#` against text opened a comment, so the piece stops before it: `url: http://h/#frag` reads `http://h/` and `color: #fff` reads nothing. Text sits right before the `#` in a bare value, an array element, a selector body or a fence label, or right after it where that piece is empty (see Comments). The prose names the fix, quoting the value. It changes no outcome, and comes first among its line's diagnostics, since the scan finds it before the line is judged
 
 - A retired code is one no load reports any more. `shcl explain` on a retired code says it was retired and names the code that replaced it, or says that none did, at exit 0 like any code it knows.
 	- `E010` is retired. It was a bare comma in a stacked item, and `E026` took its rule.

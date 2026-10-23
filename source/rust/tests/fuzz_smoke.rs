@@ -3872,11 +3872,20 @@ fn tokens_follow_the_grammar() {
 	let iters = iter_count(2000);
 	let mut rng = Rng(0x5EED_70CE_0000_0005);
 	let mut tok = Tokens::default();
+	let mut glued = [0usize; 2];
 	for i in 0..iters {
 		let (line, want) = grammar_line(&mut rng);
 		tokenize(&line, b':', false, Rules::Current, &mut tok);
 		assert_eq!(tok, want, "iteration {i}: {line:?}");
+		if let Some(at) = want.glued {
+			glued[usize::from(at > 0 && line.as_bytes()[at - 1] == b' ')] += 1;
+		}
 	}
+	// Both H008 shapes come up: text before the `#`, and after it only.
+	assert!(
+		iters < 500 || glued.iter().all(|&n| n > 0),
+		"glued {glued:?}"
+	);
 }
 
 struct LineGen {
@@ -4093,8 +4102,17 @@ fn grammar_line(rng: &mut Rng) -> (String, Tokens) {
 			// included; an empty value is a point.
 			let end = g.text.trim_end_matches([' ', '\t', '\r']).len();
 			if rng.below(2) == 0 {
-				g.text.push_str(["# c", "  # c"][rng.below(2)]);
-				g.want.comment = Some(g.text.len() - 3);
+				// The `#` against text or not, on either side (H008).
+				let c = ["# c", "  # c", "#c", "  #c"][rng.below(4)];
+				let at = g.text.len() + c.find('#').unwrap();
+				g.text.push_str(c);
+				g.want.comment = Some(at);
+				let last = *g.want.elements.last().unwrap();
+				let bare = matches!(last.quote, Quote::None | Quote::Open);
+				let empty = last.start == last.end;
+				if bare && ((!empty && last.end == at) || (empty && c.ends_with("#c"))) {
+					g.want.glued = Some(at);
+				}
 			}
 			// An empty piece sits where the scan gave up on it: at the comma,
 			// the comment or the end that follows the blank, not at the blank.

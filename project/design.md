@@ -564,6 +564,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `H002` | hint          | bound
 | `H003` | hint          | retired: the case is `E025` or `E027`
 | `H004` | hint          | retired: became `E024`, which is retired too
+| `H008` | hint          | changes nothing: the line has the outcome it has without it
 
 - `spec.md` has what each code means, and [the value syntax design](design_docs/20261002-132445_value-syntax.md) why `E013`, `E014`, `E017`, `E019`, `E023` and `E025` to `E028` work as they do. Format 3 moved `E017` from bound to retained, since reading an open quote as bare text would break the quote rule.
 
@@ -619,6 +620,10 @@ The full rules for each kind of bare piece are in `spec.md`, under Whitespace, q
 What follows from the table:
 
 - A `#` is a comment anywhere outside quotes, backticks and a raw body, whether or not whitespace precedes it. `color: "#ff0000"` and `url: "http://x/y#frag"` are the spellings for a value holding one. `a(#0)` in a file is a selector cut off by a comment. The `[#N]` index went with bracket selectors, so a lookup path with a bare body that starts with `#` finds nothing too. An index is a bare number, `a(0)`, and a file addresses an instance by value. A fence line's info string ends where a comment starts, so ```` ```c# ```` labels the block `c`.
+
+- A `#` against text still opens a comment, and the load hints `H008` so the cut is not silent (2026102307035776). Against text means text right before the `#` in a bare piece (a value, an element, a selector body or a fence label), as in `url: http://h/#frag`, `a(x#y)` or ```` ```c# ````, or an empty piece with text right after it, as in `color: #fff` or `a(#0)`. A blank before the `#`, a closing quote or `]` before it, or a blank or another `#` after it in an empty piece is a plain comment, so `port: 80  # main`, `a: # note` and `a: ## two` get none. The scan judges it from the characters on either side of the `#` it already stopped at, so a line with no comment costs nothing more.
+	- Among hinting only a `#` with text right before it, which misses `color: #fff`, the commonest case; hinting any `#` with text right after it, which also hints a plain `port: 80 #main`; and this rule, it was decided that it is this rule. A header written `server: #main` gets the hint, since it reads exactly as `color: #fff` does; `server:  # main` gets none.
+	- Nothing suppresses it. A value that wants a comment with no blank before it is rare enough to quote.
 
 - `##` for prose and `# ` for a disabled setting are conventions. To the language both are comments, and a config author may write one with any number of `#` and any spacing.
 
