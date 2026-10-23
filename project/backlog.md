@@ -71,6 +71,97 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
 
+- Doc fixes from the 2026-10-22 design review
+	- ID: 2026102307035786
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035771, 2026102307035776, 2026102307035781
+	- Estimated effort: Low
+	- Requirements:
+		- Docs only. No code or behavior change, except the `--no-banner` help line, which is the same in all 4 CLIs.
+		- spec.md Sizes: say `kB` is the same unit as `KB`, and that the 1024 default follows systemd, Docker and the JVM, not IEC. `decimal` stays the way to get powers of 1000.
+		- spec.md's advice on choosing `(i)` or `(value)` when mapping entities: walk with `fields()` or `instance_paths()`, which give every instance in one pass, and keep `Count` plus `(i)` for a point read. A loop over `Count` with `(i)` costs the square of the count.
+		- spec.md Ergonomic tiers: name all 3 read forms, `get_X_or`, `get_X` and `read_X`, and say what plain `get_X` returns in each binding: a Result in Rust, a status pair in Go, a raise in Python, and what C does.
+		- examples.md: the Rust example leads with `get_int_or`, the tier the spec calls the default, rather than `unwrap_or`.
+		- spec.md's north star, "a read API that stays small and predictable", says something true, such as a read API learned from a few calls.
+		- README and the parity section scope the byte-for-byte claim to valid UTF-8, as spec.md already does.
+		- README's read-type list gains duration and size, and drops the claim of an array of any of them, since there's no raw array.
+		- README's comparison cell "Nested arrays: Repeated child fields" says no, with instances as the way to do it. Arrays don't nest, by design.
+		- README's "wrong choice" list gains whole-file decode into a struct, which TOML and YAML users expect and design.md declines.
+		- design.md says the formatter quotes a schema path only for a quote or a `#`, and calls a schema a `fmt` fixpoint. spec.md has the writer quoting parens too, so a bare `field: server(*).host` gets rewritten. Make design.md match what the code does.
+		- design.md and spec.md both say the user is never made to satisfy the machine. The quote, comma, colon and bare-name rules won, so soften it to what's true.
+		- The `--no-banner` help names both "banner" and "info block", since the prose and help call it the info block. v4 renames it.
+		- Typos: "adn" in spec.md twice, "wiht" once.
+	- Decisions:
+		- JC, 20261023: keep 1024 as the `KB` default.
+		- JC, 20261023: keep all 3 read tiers through the beta. Dropping plain `get_X` is v4's.
+		- JC, 20261023: scope the UTF-8 claim rather than make 4 parsers agree on bytes that aren't text.
+		- JC, 20261023: no v3 code change for the quadratic walk. The per-name index is v4's node handles.
+
+- A stacked list and a field under one parent load 3 different ways
+	- ID: 2026102307035771
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026100511210900, 2026102307035786
+	- Estimated effort: High
+	- Problem description:
+		- Items then a field under one parent bind both (`E001`, bound). A field then items drops the items as lost, so the save refuses (`E008`, dropped). The bracket spelling of the same tree is refused (`E028`, retained). Swapping 2 lines changes whether data is lost.
+		- The `E001` tree then needs its own exceptions: the merge keeps it stacked (spec.md near line 430), it's a case no text loads back (value-syntax.md near line 453), and the save refusal filed as 2026100511210900.
+		- Several dropped codes fail design.md's stated test for dropping, "re-emitted it could bind somewhere else". The emitter already asks the reload before it writes a kept line, and writes it as a comment where it would bind (design.md, the paragraph starting "The emitter asks the reload"), so that case is covered for every retained line.
+	- Requirements:
+		- `E001` and `E008` are both retained: the line is kept as written, binds nothing, counts nothing lost, and what is indented under it goes with it as `E018`. A list with a field under it then can't be built, and the 3 exceptions above go.
+		- New test for dropping, as one sentence in design.md above the Load outcomes table: a line is dropped only when, re-emitted, it could feed a raw block, or when its refusal comes from a caller cap or the depth cap, which the next load may set differently.
+		- By that test `E003`, `E004`, `E007`, `E009` and `E011` become retained too. `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line stay as they are. Check each against the sentence and say so on the item where one doesn't fit.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the corpus goldens for the cases that change. Strict fails either way, so strict outcomes don't change.
+	- Decisions:
+		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
+		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
+
+- A `#` glued to text changes a value with no word
+	- ID: 2026102307035776
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035786
+	- Estimated effort: High
+	- Problem description:
+		- `url: http://h/#frag` reads `http://h/`, and `color: #fff` reads empty, at exit 0 with nothing said. The comment rule is settled (`#` anywhere outside quotes opens a comment) and stays.
+	- Requirements:
+		- New hint `H008`, raised when a `#` opens a comment with a non-blank character right before it, in a bare value, an element, a selector body or a fence label.
+		- Like `H005`, it changes no load, no read and no exit code, so Strict and the corpus reads don't change.
+		- The prose names the fix: quote the value.
+		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
+		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
+
+- An apostrophe inside a bare word is an error
+	- ID: 2026102307035781
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035786
+	- Estimated effort: Avg
+	- Problem description:
+		- `name: O'Brien` and `title: Jim's Server` are `E025`. The stated reason was that a quote left a person guessing whether it opened a string (value-syntax.md near line 356). A quote opens a piece only as its first character now, so there's no guess left.
+	- Requirements:
+		- A `'` with a non-blank character right before it and right after it is text, in a bare field value or a `- ` item. `O'Brien`, `Jim's Server` and `rock'n'roll` read as written.
+		- Everything else stays `E025`: a `"` or a backtick anywhere in a bare piece, a `'` with a blank or the end of the value on either side, and any quote in a `[]` element or a selector body.
+		- A quote as the first character still opens a quoted piece.
+		- The writer still quotes any value holding a quote, so canonical output keeps one reading.
+		- `migrate`'s handling of a bare 2.x value with an apostrophe follows.
+		- All 4 bindings, spec.md, value-syntax.md, the lexical edges table in design.md, and corpus cases.
+	- Decisions:
+		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
+
 - CICD runs on GitHub's M4 macOS runners
 	- ID: 2026102216325314
 	- Type: Enhancement
