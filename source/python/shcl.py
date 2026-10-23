@@ -838,7 +838,7 @@ class _Trivia:
 
 class _Node:
 	__slots__ = (
-		"name", "value", "children", "parent", "line", "star_list", "star_mixed",
+		"name", "value", "children", "parent", "line", "star_list",
 		"trivia", "blank_before", "src_set", "src", "name_src",
 	)
 
@@ -857,7 +857,6 @@ class _Node:
 		self.parent = parent
 		self.line = line
 		self.star_list = False    # value built from stacked "- " lines, and written that way
-		self.star_mixed = False   # mix of "- " and field children already diagnosed
 		# Comment trivia sidecar (_Trivia): None until the first write, so the
 		# common comment-free node never allocates the four containers.
 		self.trivia = None
@@ -1063,12 +1062,11 @@ def _fold_list_into_empty(arena, empty, lst):
 
 def _stacks(nd):
 	"""Written stacked: a list the file wrote one `- ` item per line, kept that
-	way like an author's quotes, or one holding a kept line among its items, a
-	comment on one, or a field under it (E001), which in brackets would make
-	the array E028."""
+	way like an author's quotes, or one holding a kept line among its items or
+	a comment on one."""
 	if nd.value.kind != "array" or not nd.value.els:
 		return False
-	return nd.star_list or bool(nd.among()) or bool(nd.notes()) or bool(nd.children)
+	return nd.star_list or bool(nd.among()) or bool(nd.notes())
 
 
 def _unstack(nd):
@@ -1100,9 +1098,8 @@ def _unstack(nd):
 
 
 def _bracket(nd):
-	"""A merge writes a list in brackets. One with a field under it stays
-	stacked (E001), since in brackets it is E028."""
-	if not nd.children and (nd.star_list or nd.trivia is not None):
+	"""A merge writes a list in brackets."""
+	if nd.star_list or nd.trivia is not None:
 		_unstack(nd)
 
 
@@ -3491,6 +3488,26 @@ def _opens_later(text):
 	return f.opens if f is not None else tok.array is not None
 
 
+def _kept_for_place(text):
+	"""A kept line that reads clean, so only where it sat refused it: True for
+	a field line (E001), False for a `- ` item (E008), else None."""
+	tok = Tokens()
+	if _is_item(text):
+		tokenize_value(text, 1, Rules.Current, tok)
+		return False if _item_fault(tok, tok.src) is None else None
+	if not _is_field_text(text):
+		return None
+	tokenize(text, ":", False, Rules.Current, tok)
+	# An array line is _settle_arrays()'s.
+	if tok.array is not None:
+		return None
+	try:
+		_path_of(tok, tok.src)
+	except _PathError:
+		return None
+	return True if _line_fault(tok) is None else None
+
+
 def _is_item(text):
 	"""A stacked list item's line: `-` then a blank. The blank is what keeps
 	`-x: y` a field line (E014) and `- -5` the item `-5`."""
@@ -4187,11 +4204,6 @@ class _Parser:
 		self._star_flush()
 		if parent != _ROOT and not self.arena[parent].star_list and self.arena[parent].value.kind == "array":
 			parent = self._array_under(parent)
-		# Field child under a stacked list: diagnose the mix once, keep the field.
-		pnode = self.arena[parent]
-		if pnode.star_list and not pnode.star_mixed:
-			pnode.star_mixed = True
-			self._err(line, "E001", "field mixed with list elements")
 		# Nesting cap: parent depth plus the segments this line adds. Checked
 		# before any node is created so a rejected line leaves nothing behind.
 		parent_depth = 0
@@ -4359,10 +4371,6 @@ class _Parser:
 		True when it joined the list."""
 		if parent == _ROOT:
 			self._refuse(line, "E007", "list element with no parent field", _OUT_DROPPED, indent)
-			return False
-		# Uniform-or-nothing (spec): a mix with field children is not a block array.
-		if self.arena[parent].children:
-			self._refuse(line, "E008", "list element mixed with field children; ignored", _OUT_DROPPED, indent)
 			return False
 		piece = tok.elements[0]
 		el = _element_of(piece, s)
@@ -4609,6 +4617,13 @@ class _Parser:
 						i += 1
 						continue
 					parent = self._open_lazy(parent)
+					# Uniform-or-nothing (spec): an item after field children is
+					# kept, as a field after items is (E001).
+					if parent != _ROOT and self.arena[parent].children:
+						self.kept_any = True
+						self._refuse(lineno, "E008", "list element mixed with field children", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+						i += 1
+						continue
 					comment = tok.src[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
 					# Elements have no node of their own; trivia rides the field. At the
 					# root there is no field (E007), so the comment rides the document
@@ -4688,10 +4703,13 @@ class _Parser:
 			f = _name_fault(tok)
 			if f is None and not tok.capped:
 				f = _value_side_fault(tok)
+			# Under stacked items a line refused for its content keeps its
+			# code and opens nothing, so no field goes under the list.
+			listed = 0 <= parent < len(self.arena) and self.arena[parent].star_list
 			if f is not None:
 				msg = f.msg if f.at is None else f"{f.msg}, at column {len(indent) + lead + f.at + 1}"
 				self._refuse(lineno, f.code, msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
-				if f.opens:
+				if f.opens and not listed:
 					self._hold_open(parent, segments, lineno, indent)
 				# Only a fault in the name leaves a fence to read here.
 				i = self._keep_body(lines, i, indent, tok)
@@ -4704,6 +4722,21 @@ class _Parser:
 			if tok.capped:
 				self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", _OUT_DROPPED, indent)
 				i = self._skip_field_line(lines, i, indent, tok)
+				continue
+			# A field under stacked items: kept, so a list never has a field
+			# under it. One that opens a raw block is dropped with it, as a
+			# misplaced one is: moved where it binds, it could not be written
+			# as a comment.
+			if listed:
+				if _line_fence(tok) is not None:
+					self._refuse(lineno, "E001", "field mixed with list elements", _OUT_DROPPED, indent)
+					i = self._skip_field_line(lines, i, indent, tok)
+					continue
+				self.kept_any = True
+				if tok.array is not None:
+					self.kept_arrays = True
+				self._refuse(lineno, "E001", "field mixed with list elements", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				i += 1
 				continue
 			# The verbatim value span, kept for reads' `raw` (only the plain
 			# scalar/inline-array case has a one-line source spelling).
@@ -4873,7 +4906,7 @@ class _Emit:
 	`open`, which the last binding line leaves, then what the lines refused
 	since then pushed, and the indent of a kept misplaced line that the lines
 	under it are kept with."""
-	__slots__ = ("out", "open", "tail", "hold", "record", "fell", "verbatim", "near", "flushed", "kept_near", "lines", "marks", "bodies", "spans")
+	__slots__ = ("out", "open", "tail", "hold", "record", "fell", "verbatim", "near", "flushed", "kept_near", "lv", "lines", "marks", "bodies", "spans")
 
 	def __init__(self, record):
 		self.out: list[str] = []
@@ -4890,6 +4923,10 @@ class _Emit:
 		self.near: list[tuple[int, int]] = []
 		self.flushed = 0
 		self.kept_near: list[tuple[int, int]] = []
+		# Per binding depth, whether that node has a `- ` item written yet
+		# and a field line under it, for a kept line refused only for where
+		# it sits.
+		self.lv: list[list[bool]] = []
 		# to_text_keep_lines() only: where the lines from each source line
 		# start (0 for none), each raw body with the tabs its lines are padded
 		# with, and where each value is written on its binding line. Positions
@@ -4930,6 +4967,14 @@ class _Emit:
 		self.tail = tail
 		if not (tail and tail[-1] == (indent, _UNOPENED)):
 			tail.append((indent, _DEAD))
+
+	def bound(self, depth):
+		"""A binding line at this depth: the levels under it are gone, and its
+		parent has a field line written under it."""
+		del self.lv[depth:]
+		if self.lv:
+			self.lv[-1][1] = True
+		self.lv.append([False, False])
 
 	def placed(self, indent):
 		"""A line a reload binds, such as a list element: it resolves, then
@@ -5203,6 +5248,25 @@ def _push_leads(e, leads, base, at):
 			# open for the lines under it when only its value was wrong.
 			indent = "\t" * pad
 			parent, open_, tail = e.resolve(indent)
+			# One kept only for where it sat, E001 or E008, reloads kept only
+			# under a list with an item written, or a field with a field line
+			# written. Anywhere else it would bind: a comment then.
+			kind = _kept_for_place(text)
+			if kind is not None:
+				stays = False
+				if pad > 0 and not tail and open_ == pad - 1 and pad - 1 < len(e.lv) and parent is not None and parent not in (_DEAD, _UNOPENED):
+					stays = e.lv[pad - 1][0 if kind else 1]
+				if not stays and "\n" not in text:
+					if e.record:
+						e.fell.append((at[0], at[1], at[2] + i, c.depth))
+					out.append("\t" * pad)
+					out.append(_commented(text))
+					out.append("\n")
+					continue
+				e.verbatim += 1
+				if e.record:
+					e.kept_near.extend(e.near[e.flushed:])
+					e.flushed = len(e.near)
 			e.hold = None
 			if parent is not None and parent != _DEAD and _opens_later(text):
 				e.open = open_
@@ -6089,36 +6153,8 @@ class Document:
 		content, so save_file refuses then (save_file_lossy overrides), and
 		save_file_keep_lines does when it cannot keep the lines. It also counts
 		lines the load kept as written that an edit took and design.md's
-		kept-lines table does not let it take, and list items the saved text
-		could not load back (see _unloadable_items)."""
-		return self._lost + self._kept_shortfall() + self._unloadable_items()
-
-	def _unloadable_items(self) -> int:
-		"""The items of a list no text loads back: one with a field under it
-		(E001), so written stacked, after an empty binding of its name that has
-		fields. A reload joins its bare header to that binding and drops the
-		items (E008), so a save refuses (2026100511210900). An edit or a merge
-		can build one, and so can a load, where a kept array line (E028) heads
-		the list. Then the source text loads it back, so the save that keeps
-		lines still writes it."""
-		n = 0
-		stack = [_ROOT]
-		arena = self.arena
-		while stack:
-			kids = arena[stack.pop()].children
-			for k, c in enumerate(kids):
-				nd = arena[c]
-				if nd.value.kind != "array" or not nd.children or not _stacks(nd):
-					continue
-				# The first empty one is the one a reload joins it to.
-				for e in kids[:k]:
-					en = arena[e]
-					if en.name == nd.name and en.value.is_empty():
-						if en.children:
-							n += len(nd.value.els)
-						break
-			stack.extend(kids)
-		return n
+		kept-lines table does not let it take."""
+		return self._lost + self._kept_shortfall()
 
 	def _kept_shortfall(self) -> int:
 		"""Kept lines the document owes and no longer holds. Free on a
@@ -6242,11 +6278,8 @@ class Document:
 		an edit took a kept line it should not have, this is to_canonical()
 		and False."""
 		# The reparse check cannot see a kept line gone from both the tree and
-		# the text, so falling back leaves it to the lost-count gate. A source
-		# that was canonical skips that check, so a list no text loads back
-		# falls back to it too. Any other source is held to the check, and one
-		# that loads such a list back is kept.
-		if self._source is not None and self._kept_shortfall() == 0 and (self._source != "" or self._unloadable_items() == 0):
+		# the text, so falling back leaves it to the lost-count gate.
+		if self._source is not None and self._kept_shortfall() == 0:
 			t = _keep_lines(self._source, self)
 			if t is not None:
 				return t, True
@@ -6342,6 +6375,11 @@ class Document:
 			if t is None:
 				continue
 			_settle_array_run(t.leading, heads)
+			# Among a stacked list's items and after them, an array line is
+			# kept for where it sits (E001), and a reload keeps it again.
+			if _stacks(arena[n]):
+				_settle_array_run(t.after, False)
+				continue
 			_settle_array_run(t.inside, False)
 			_settle_array_run(t.after, False)
 			start = 0
@@ -6466,6 +6504,7 @@ class Document:
 		out = e.out
 		# The kept line just written opens this block on a reload.
 		if _heads_block(node):
+			e.bound(depth)
 			e.open = depth
 			e.tail = []
 			e.hold = None
@@ -6484,6 +6523,7 @@ class Document:
 		out.append(_emit_name(node.name))
 		out.append(":")
 		# A binding line: a reload's stack is its levels and nothing else.
+		e.bound(depth)
 		e.open = depth
 		if e.tail:
 			e.tail = []
@@ -6520,6 +6560,8 @@ class Document:
 						out.append(note)
 				out.append("\n")
 				e.placed(column)
+				if depth < len(e.lv):
+					e.lv[depth][0] = True
 			while nxt < len(among):
 				_push_leads(e, (among[nxt][1],), depth + 1, (idx, "among", nxt))
 				nxt += 1
@@ -8299,7 +8341,6 @@ class Document:
 		cv = src.value.copy()
 		node = _Node(src.name, cv, parent, src.line, src.name_src)
 		node.star_list = src.star_list
-		node.star_mixed = src.star_mixed
 		st = src.trivia
 		if st is not None:
 			t = node._triv()

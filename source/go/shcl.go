@@ -788,13 +788,12 @@ func (v *value) isEmpty() bool {
 }
 
 type nodeData struct {
-	name      string // ASCII-folded to lower; non-ASCII never folds
-	value     value
-	children  []int
-	parent    int
-	line      int
-	starList  bool // value built from stacked "- " lines, and written that way
-	starMixed bool // mix of "- " and field children already diagnosed
+	name     string // ASCII-folded to lower; non-ASCII never folds
+	value    value
+	children []int
+	parent   int
+	line     int
+	starList bool // value built from stacked "- " lines, and written that way
 	// Blank-line grouping is the other half of hand-authored layout: set when
 	// a blank line preceded this node's binding line (runs collapse to one).
 	blankBefore bool
@@ -1253,13 +1252,12 @@ func foldListIntoEmpty(arena []nodeData, empty, list int) bool {
 
 // stacks: written stacked, a list the file wrote one `- ` item per line, kept
 // that way like an author's quotes, or one holding a kept line among its
-// items, a comment on one, or a field under it (E001), which in brackets would
-// make the array E028.
+// items or a comment on one.
 func stacks(nd *nodeData) bool {
 	if nd.value.kind != vArray || len(nd.value.els) == 0 {
 		return false
 	}
-	return nd.starList || len(nd.among()) > 0 || len(nd.notes()) > 0 || len(nd.children) > 0
+	return nd.starList || len(nd.among()) > 0 || len(nd.notes()) > 0
 }
 
 // unstack: a list after an empty binding of its name cannot be written
@@ -1297,10 +1295,9 @@ func unstack(nd *nodeData) {
 	t.notes = nil
 }
 
-// bracket: a merge writes a list in brackets. One with a field under it stays
-// stacked (E001), since in brackets it is E028.
+// bracket: a merge writes a list in brackets.
 func bracket(nd *nodeData) {
-	if len(nd.children) == 0 && (nd.starList || nd.trivia != nil) {
+	if nd.starList || nd.trivia != nil {
 		unstack(nd)
 	}
 }
@@ -4270,6 +4267,35 @@ func opensLater(text string) bool {
 	return tok.Array >= 0
 }
 
+// What only where a kept line sat refused it for.
+const (
+	placeNone = iota
+	placeField
+	placeItem
+)
+
+// keptForPlace: a kept line that reads clean, so only where it sat refused
+// it, a field line (E001) or a `- ` item (E008).
+func keptForPlace(text string) int {
+	var tok Tokens
+	if isItem(text) {
+		TokenizeValue(text, 1, RulesCurrent, &tok)
+		if itemFault(&tok, text) == nil {
+			return placeItem
+		}
+		return placeNone
+	}
+	if !isFieldText(text) {
+		return placeNone
+	}
+	Tokenize(text, ':', false, RulesCurrent, &tok)
+	// An array line is settleArrays()'s.
+	if _, err := pathOf(&tok, text); tok.Array < 0 && err == nil && lineFault(&tok, text) == nil {
+		return placeField
+	}
+	return placeNone
+}
+
 // isItem reports a stacked list item's line: `-` then a blank. The blank is
 // what keeps `-x: y` a field line (E014) and `- -5` the item `-5`.
 func isItem(text string) bool {
@@ -5270,11 +5296,6 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 	if parent != root && !p.arena[parent].starList && p.arena[parent].value.kind == vArray {
 		parent = p.arrayUnder(parent)
 	}
-	// Field child under a stacked list: diagnose the mix once, keep the field.
-	if p.arena[parent].starList && !p.arena[parent].starMixed {
-		p.arena[parent].starMixed = true
-		p.err(line, "E001", "field mixed with list elements")
-	}
 	// Nesting cap: parent depth plus the segments this line adds. Checked
 	// before any node is created so a rejected line leaves nothing behind.
 	parentDepth := 0
@@ -5475,11 +5496,6 @@ func (p *parser) refuseCapped(line int, indent string) {
 func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, indent string) bool {
 	if parent == root {
 		p.refuse(line, "E007", "list element with no parent field", outDropped, indent)
-		return false
-	}
-	// Uniform-or-nothing (spec): a mix with field children is not a block array.
-	if len(p.arena[parent].children) != 0 {
-		p.refuse(line, "E008", "list element mixed with field children; ignored", outDropped, indent)
 		return false
 	}
 	piece := tok.Elements[0]
@@ -5842,6 +5858,14 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					continue
 				}
 				parent = p.openLazy(parent)
+				// Uniform-or-nothing (spec): an item after field children is
+				// kept, as a field after items is (E001).
+				if parent != root && len(p.arena[parent].children) != 0 {
+					p.keptAny = true
+					p.refuse(lineno, "E008", "list element mixed with field children", outRetained(trimEndWS(rest), hadBlank), indent)
+					i++
+					continue
+				}
 				comment := ""
 				if tok.Comment >= 0 {
 					comment = rest[tok.Comment:]
@@ -5946,13 +5970,16 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		if f == nil && !tok.Capped {
 			f = valueSideFault(&tok, rest)
 		}
+		// Under stacked items a line refused for its content keeps its code
+		// and opens nothing, so no field goes under the list.
+		listed := parent >= 0 && parent < len(p.arena) && p.arena[parent].starList
 		if f != nil {
 			msg := f.msg
 			if f.at >= 0 {
 				msg = fmt.Sprintf("%s, at column %d", f.msg, len(indent)+lead+f.at+1)
 			}
 			p.refuse(lineno, f.code, msg, outRetained(trimEndWS(rest), hadBlank), indent)
-			if f.opens {
+			if f.opens && !listed {
 				p.holdOpen(parent, scan.segments, lineno, indent)
 			}
 			// Only a fault in the name leaves a fence to read here.
@@ -5967,6 +5994,22 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		if tok.Capped {
 			p.refuse(lineno, "E021", fmt.Sprintf("array longer than %d elements; line skipped", p.maxElements), outDropped, indent)
 			i = p.skipFieldLine(lines, i, indent, &tok, rest)
+			continue
+		}
+		// A field under stacked items: kept, so a list never has a field under
+		// it.
+		if listed {
+			// One that opens a raw block is dropped with it, as a misplaced one
+			// is: moved where it binds, it could not be written as a comment.
+			if _, _, _, raw := lineFence(&tok, rest); raw {
+				p.refuse(lineno, "E001", "field mixed with list elements", outDropped, indent)
+				i = p.skipFieldLine(lines, i, indent, &tok, rest)
+				continue
+			}
+			p.keptAny = true
+			p.keptArrays = p.keptArrays || tok.Array >= 0
+			p.refuse(lineno, "E001", "field mixed with list elements", outRetained(trimEndWS(rest), hadBlank), indent)
+			i++
 			continue
 		}
 		// The verbatim value span, kept for reads' Raw (only the plain
@@ -6168,45 +6211,9 @@ func (d *Document) Diagnostics() []Diagnostic {
 // hand-written content, so SaveFile refuses then (SaveFileLossy overrides),
 // and SaveFileKeepLines does when it cannot keep the lines. It also counts
 // lines the load kept as written that an edit took and design.md's
-// kept-lines table does not let it take, and list items the saved text could
-// not load back (see unloadableItems).
+// kept-lines table does not let it take.
 func (d *Document) LostCount() int {
-	return d.lost + d.keptShortfall() + d.unloadableItems()
-}
-
-// unloadableItems is the items of a list no text loads back: one with a field
-// under it (E001), so written stacked, after an empty binding of its name that
-// has fields. A reload joins its bare header to that binding and drops the
-// items (E008), so a save refuses (2026100511210900). An edit or a merge can
-// build one, and so can a load, where a kept array line (E028) heads the
-// list. Then the source text loads it back, so the save that keeps lines
-// still writes it.
-func (d *Document) unloadableItems() int {
-	n := 0
-	stack := []int{root}
-	for len(stack) > 0 {
-		i := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		kids := d.arena[i].children
-		for k, c := range kids {
-			nd := &d.arena[c]
-			if nd.value.kind != vArray || len(nd.children) == 0 || !stacks(nd) {
-				continue
-			}
-			// The first empty one is the one a reload joins it to.
-			for _, e := range kids[:k] {
-				en := &d.arena[e]
-				if en.name == nd.name && en.value.isEmpty() {
-					if len(en.children) != 0 {
-						n += len(nd.value.els)
-					}
-					break
-				}
-			}
-		}
-		stack = append(stack, kids...)
-	}
-	return n
+	return d.lost + d.keptShortfall()
 }
 
 // keptShortfall is the kept lines the document owes and no longer holds. Free
@@ -6437,11 +6444,8 @@ func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus, er
 // kept line it should not have, this is ToCanonical() and false.
 func (d *Document) ToTextKeepLines() (string, bool) {
 	// The reparse check cannot see a kept line gone from both the tree and
-	// the text, so falling back leaves it to the lost-count gate. A source
-	// that was canonical skips that check, so a list no text loads back falls
-	// back to it too. Any other source is held to the check, and one that
-	// loads such a list back is kept.
-	if d.source != nil && d.keptShortfall() == 0 && (*d.source != "" || d.unloadableItems() == 0) {
+	// the text, so falling back leaves it to the lost-count gate.
+	if d.source != nil && d.keptShortfall() == 0 {
 		if t, ok := keepLines(*d.source, d); ok {
 			return t, true
 		}
@@ -6519,6 +6523,12 @@ func (d *Document) settleArrays() {
 			continue
 		}
 		settleArrayRun(t.leading, heads)
+		// Among a stacked list's items and after them, an array line is kept
+		// for where it sits (E001), and a reload keeps it again.
+		if stacks(&d.arena[n]) {
+			settleArrayRun(t.after, false)
+			continue
+		}
 		settleArrayRun(t.inside, false)
 		settleArrayRun(t.after, false)
 		for from := 0; from < len(t.among); {
@@ -6703,6 +6713,9 @@ type emit struct {
 	nearBy   []nearNode
 	flushed  int
 	keptNear []nearNode
+	// Per binding depth, whether that node has a `- ` item written yet and a
+	// field line under it, for a kept line refused only for where it sits.
+	lv []lv
 	// ToTextKeepLines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
 	// and where each value is written on its binding line.
@@ -6710,6 +6723,12 @@ type emit struct {
 	marks  [][2]int
 	bodies [][3]int
 	spans  [][2]int
+}
+
+// lv is what an emit wrote under one open binding line.
+type lv struct {
+	items  bool
+	fields bool
 }
 
 // nearNode is a node an emit passed through and its index in its parent's
@@ -6761,6 +6780,13 @@ func (e *emit) span(at int) {
 // bound: a binding line at this depth, so the stack is its levels and
 // nothing else.
 func (e *emit) bound(depth int) {
+	if len(e.lv) > depth {
+		e.lv = e.lv[:depth]
+	}
+	if len(e.lv) > 0 {
+		e.lv[len(e.lv)-1].fields = true
+	}
+	e.lv = append(e.lv, lv{})
 	e.open = depth
 	e.tail = e.tail[:0]
 	e.held = false
@@ -7085,6 +7111,30 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			// open for the lines under it when only its value was wrong.
 			indent := strings.Repeat("\t", pad)
 			found, open, tail := e.resolve(indent)
+			// One kept only for where it sat, E001 or E008, reloads kept only
+			// under a list with an item written, or a field with a field line
+			// written. Anywhere else it would bind: a comment then.
+			if kind := keptForPlace(c.text); kind != placeNone {
+				stays := false
+				if pad > 0 && len(tail) == 0 && open == pad-1 && pad-1 < len(e.lv) && found.ok && found.parent != dead && found.parent != unopened {
+					up := e.lv[pad-1]
+					stays = (kind == placeField && up.items) || (kind == placeItem && up.fields)
+				}
+				if !stays && !strings.Contains(c.text, "\n") {
+					if e.record {
+						e.fell = append(e.fell, fell{node: node, site: at, i: from + i, depth: c.depth})
+					}
+					writeTabs(&e.out, pad)
+					e.out.WriteString(commented(c.text))
+					e.out.WriteByte('\n')
+					continue
+				}
+				e.verbatim++
+				if e.record {
+					e.keptNear = append(e.keptNear, e.nearBy[e.flushed:]...)
+					e.flushed = len(e.nearBy)
+				}
+			}
 			e.held = false
 			if found.ok && found.parent != dead && opensLater(c.text) {
 				e.open = open
@@ -8096,6 +8146,9 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 			}
 			out.WriteByte('\n')
 			e.placed(column)
+			if depth < len(e.lv) {
+				e.lv[depth].items = true
+			}
 		}
 		for j := next; j < len(among); j++ {
 			pushLeads(e, []lead{among[j].lead}, depth+1, idx, siteAmong, j)
@@ -12157,7 +12210,6 @@ func (d *Document) cloneSubtree(over *Document, oi, parent int) int {
 		parent:      parent,
 		line:        src.line,
 		starList:    src.starList,
-		starMixed:   src.starMixed,
 		trivia:      cloneTrivia(src.trivia),
 		blankBefore: src.blankBefore,
 		srcSet:      src.srcSet,

@@ -5,4 +5,4 @@ sizes.n	int	-	NotFound
 list	string[]	a|b	Good
 full	int	1	Good
 full.deep	int	-	NotFound
--	lost	6	-
+-	lost	5	-

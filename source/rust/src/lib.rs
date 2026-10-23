@@ -718,8 +718,7 @@ struct NodeData {
 	children: Vec<usize>,
 	parent: usize,
 	line: usize,
-	star_list: bool,  // value built from stacked "- " lines, and written that way
-	star_mixed: bool, // mix of "- " and field children already diagnosed
+	star_list: bool, // value built from stacked "- " lines, and written that way
 	// Comment trivia, boxed off to the side: most nodes have none, and the
 	// four empty containers were a third of every node.
 	trivia: Option<Box<Trivia>>,
@@ -1118,15 +1117,11 @@ fn fold_list_into_empty(arena: &mut [NodeData], empty: usize, list: usize) -> bo
 }
 
 /// Written stacked: a list the file wrote one `- ` item per line, kept that
-/// way like an author's quotes, or one holding a kept line among its items,
-/// a comment on one, or a field under it (E001), which in brackets would make
-/// the array `E028`.
+/// way like an author's quotes, or one holding a kept line among its items
+/// or a comment on one.
 fn stacks(nd: &NodeData) -> bool {
 	matches!(&nd.value, Value::Array(els) if !els.is_empty())
-		&& (nd.star_list
-			|| !nd.among().is_empty()
-			|| !nd.notes().is_empty()
-			|| !nd.children.is_empty())
+		&& (nd.star_list || !nd.among().is_empty() || !nd.notes().is_empty())
 }
 
 /// A list after an empty binding of its name cannot be written stacked: its
@@ -1154,10 +1149,9 @@ fn unstack(nd: &mut NodeData) {
 	}
 }
 
-/// A merge writes a list in brackets. One with a field under it stays
-/// stacked (E001), since in brackets it is E028.
+/// A merge writes a list in brackets.
 fn bracket(nd: &mut NodeData) {
-	if nd.children.is_empty() && (nd.star_list || nd.trivia.is_some()) {
+	if nd.star_list || nd.trivia.is_some() {
 		unstack(nd);
 	}
 }
@@ -3964,6 +3958,23 @@ fn opens_later(text: &str) -> bool {
 		&& line_fault(&tok, text).map_or(tok.array.is_some(), |f| f.opens)
 }
 
+/// A kept line that reads clean, so only where it sat refused it: Some(true)
+/// for a field line (E001), Some(false) for a `- ` item (E008).
+fn kept_for_place(text: &str) -> Option<bool> {
+	let mut tok = Tokens::default();
+	if is_item(text) {
+		tokenize_value(text, 1, Rules::Current, &mut tok);
+		return item_fault(&tok, text).is_none().then_some(false);
+	}
+	if !is_field_text(text) {
+		return None;
+	}
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	// An array line is settle_arrays()'s.
+	(tok.array.is_none() && path_of(&tok, text).is_ok() && line_fault(&tok, text).is_none())
+		.then_some(true)
+}
+
 /// A stacked list item's line: `-` then a blank. The blank is what keeps
 /// `-x: y` a field line (`E014`) and `- -5` the item `-5`.
 fn is_item(text: &str) -> bool {
@@ -4197,7 +4208,6 @@ impl<'a> Parser<'a> {
 				parent: 0,
 				line: 0,
 				star_list: false,
-				star_mixed: false,
 				trivia: None,
 				blank_before: false,
 				src_set: false,
@@ -4422,7 +4432,6 @@ impl<'a> Parser<'a> {
 			parent,
 			line,
 			star_list: false,
-			star_mixed: false,
 			trivia: None,
 			blank_before: false,
 			src_set: false,
@@ -5035,11 +5044,6 @@ impl<'a> Parser<'a> {
 		} else {
 			parent
 		};
-		// Field child under a stacked list: diagnose the mix once, keep the field.
-		if self.arena[parent].star_list && !self.arena[parent].star_mixed {
-			self.arena[parent].star_mixed = true;
-			self.err(line, "E001", "field mixed with list elements");
-		}
 		// Nesting cap: parent depth plus the segments this line adds. Checked
 		// before any node is created so a rejected line leaves nothing behind.
 		let mut parent_depth = 0usize;
@@ -5334,17 +5338,6 @@ impl<'a> Parser<'a> {
 				line,
 				"E007",
 				"list element with no parent field",
-				Outcome::Dropped,
-				indent,
-			);
-			return false;
-		}
-		// Uniform-or-nothing (spec): a mix with field children is not a block array.
-		if !self.arena[parent].children.is_empty() {
-			self.refuse(
-				line,
-				"E008",
-				"list element mixed with field children; ignored",
 				Outcome::Dropped,
 				indent,
 			);
@@ -5707,6 +5700,23 @@ impl<'a> Parser<'a> {
 						continue;
 					}
 					let parent = self.open_lazy(parent);
+					// Uniform-or-nothing (spec): an item after field children is
+					// kept, as a field after items is (E001).
+					if parent != ROOT && !self.arena[parent].children.is_empty() {
+						self.kept_any = true;
+						self.refuse(
+							lineno,
+							"E008",
+							"list element mixed with field children",
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
 					let comment = tok.comment.map(|c| &rest[c..]);
 					// Elements have no node of their own; trivia rides the field.
 					// At the root there is no field (E007), so the comment rides
@@ -5841,6 +5851,9 @@ impl<'a> Parser<'a> {
 				None => value_side_fault(&tok, rest),
 				named => named,
 			};
+			// Under stacked items a line refused for its content keeps its code
+			// and opens nothing, so no field goes under the list.
+			let listed = self.arena.get(parent).is_some_and(|nd| nd.star_list);
 			if let Some(f) = fault {
 				let msg = match f.at {
 					Some(at) => format!("{}, at column {}", f.msg, indent.len() + lead + at + 1),
@@ -5856,7 +5869,7 @@ impl<'a> Parser<'a> {
 					},
 					indent,
 				);
-				if f.opens {
+				if f.opens && !listed {
 					self.hold_open(parent, scan.segments, lineno, indent);
 				}
 				// Only a fault in the name leaves a fence to read here.
@@ -5880,6 +5893,32 @@ impl<'a> Parser<'a> {
 					indent,
 				);
 				i = self.skip_field_line(&lines, i, indent, &tok, rest);
+				continue;
+			}
+			// A field under stacked items: kept, so a list never has a field
+			// under it. One that opens a raw block is dropped with it, as a
+			// misplaced one is: moved where it binds, it could not be written
+			// as a comment.
+			if listed {
+				let msg = "field mixed with list elements";
+				if line_fence(&tok, rest).is_some() {
+					self.refuse(lineno, "E001", msg, Outcome::Dropped, indent);
+					i = self.skip_field_line(&lines, i, indent, &tok, rest);
+					continue;
+				}
+				self.kept_any = true;
+				self.kept_arrays |= tok.array.is_some();
+				self.refuse(
+					lineno,
+					"E001",
+					msg,
+					Outcome::Retained {
+						text: trim_wsp_end(rest).to_string(),
+						blank_before: had_blank,
+					},
+					indent,
+				);
+				i += 1;
 				continue;
 			}
 			// The verbatim value span, kept for reads' `raw` (only the plain
@@ -6125,44 +6164,9 @@ impl Document {
 	/// content, so save_file refuses then (save_file_lossy overrides), and
 	/// save_file_keep_lines does when it cannot keep the lines. It also counts
 	/// lines the load kept as written that an edit took and design.md's
-	/// kept-lines table does not let it take, and list items the saved text
-	/// could not load back (see `unloadable_items`).
+	/// kept-lines table does not let it take.
 	pub fn lost_count(&self) -> usize {
-		self.lost + self.kept_shortfall() + self.unloadable_items()
-	}
-
-	/// Items of a list no text loads back: one with a field under it (E001),
-	/// so written stacked, after an empty binding of its name that has
-	/// fields. A reload joins its bare header to that binding and drops the
-	/// items (E008), so a save refuses (2026100511210900). An edit or a merge
-	/// can build one, and so can a load, where a kept array line (E028)
-	/// heads the list. Then the source text loads it back, so the save that
-	/// keeps lines still writes it.
-	fn unloadable_items(&self) -> usize {
-		let mut n = 0;
-		let mut stack = vec![ROOT];
-		while let Some(i) = stack.pop() {
-			let kids = &self.arena[i].children;
-			for (k, &c) in kids.iter().enumerate() {
-				let nd = &self.arena[c];
-				let Value::Array(els) = &nd.value else {
-					continue;
-				};
-				if nd.children.is_empty() || !stacks(nd) {
-					continue;
-				}
-				// The first empty one is the one a reload joins it to.
-				let joins = kids[..k]
-					.iter()
-					.map(|&e| &self.arena[e])
-					.find(|e| e.name == nd.name && e.value.is_empty());
-				if joins.is_some_and(|e| !e.children.is_empty()) {
-					n += els.len();
-				}
-			}
-			stack.extend_from_slice(kids);
-		}
-		n
+		self.lost + self.kept_shortfall()
 	}
 
 	/// Kept lines the document owes and no longer holds. Free on a document
@@ -6397,12 +6401,8 @@ impl Document {
 	pub fn to_text_keep_lines(&self) -> (String, bool) {
 		// The reparse check below cannot see a kept line gone from both the
 		// tree and the text, so falling back leaves it to the lost-count gate.
-		// A source that was canonical skips that check, so a list no text
-		// loads back falls back to it too. Any other source is held to the
-		// check, and one that loads such a list back is kept.
 		if let Some(src) = &self.source
 			&& self.kept_shortfall() == 0
-			&& (!src.is_empty() || self.unloadable_items() == 0)
 			&& let Some(t) = keep_lines(src, self)
 		{
 			return (t, true);
@@ -6475,10 +6475,17 @@ impl Document {
 		while let Some(n) = stack.pop() {
 			stack.extend_from_slice(&self.arena[n].children);
 			let heads = heads_block(&self.arena[n]);
+			// Among a stacked list's items and after them, an array line is
+			// kept for where it sits (E001), and a reload keeps it again.
+			let listed = stacks(&self.arena[n]);
 			let Some(t) = self.arena[n].trivia.as_deref_mut() else {
 				continue;
 			};
 			settle_array_run(&mut t.leading, heads);
+			if listed {
+				settle_array_run(&mut t.after, false);
+				continue;
+			}
 			settle_array_run(&mut t.inside, false);
 			settle_array_run(&mut t.after, false);
 			let mut from = 0;
@@ -6719,6 +6726,9 @@ impl Document {
 					}
 					e.out.push('\n');
 					e.placed(&column);
+					if let Some(l) = e.lv.get_mut(depth) {
+						l.items = true;
+					}
 				}
 				for (j, (_, l)) in among[next..].iter().enumerate() {
 					push_leads(
@@ -6808,6 +6818,9 @@ struct Emit {
 	near: Vec<(usize, usize)>,
 	flushed: usize,
 	kept_near: Vec<(usize, usize)>,
+	// Per binding depth, whether that node has a `- ` item written yet and
+	// a field line under it, for a kept line refused only for where it sits.
+	lv: Vec<Lv>,
 	// to_text_keep_lines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
 	// and where each value is written on its binding line.
@@ -6830,6 +6843,7 @@ impl Emit {
 			near: Vec::new(),
 			flushed: 0,
 			kept_near: Vec::new(),
+			lv: Vec::new(),
 			lines: false,
 			marks: Vec::new(),
 			bodies: Vec::new(),
@@ -6852,6 +6866,11 @@ impl Emit {
 
 	/// A binding line at this depth: the stack is its levels and nothing else.
 	fn bound(&mut self, depth: usize) {
+		self.lv.truncate(depth);
+		if let Some(up) = self.lv.last_mut() {
+			up.fields = true;
+		}
+		self.lv.push(Lv::default());
 		self.open = depth as isize;
 		self.tail.clear();
 		self.hold = None;
@@ -6910,6 +6929,12 @@ impl Emit {
 		self.tail.push((indent.to_string(), ROOT));
 		self.hold = None;
 	}
+}
+
+#[derive(Clone, Copy, Default)]
+struct Lv {
+	items: bool,
+	fields: bool,
 }
 
 /// Which trivia list a line sits in.
@@ -7360,6 +7385,30 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			// open for the lines under it when only its value was wrong.
 			let indent = "\t".repeat(pad);
 			let (parent, open, tail) = e.resolve(&indent);
+			// One kept only for where it sat, E001 or E008, reloads kept only
+			// under a list with an item written, or a field with a field
+			// line written. Anywhere else it would bind: a comment then.
+			if let Some(field) = kept_for_place(&c.text) {
+				let up = (pad > 0 && tail.is_empty() && open == pad as isize - 1)
+					.then(|| e.lv.get(pad - 1))
+					.flatten()
+					.filter(|_| parent.is_some_and(|p| p != DEAD && p != UNOPENED));
+				let stays = up.is_some_and(|l| if field { l.items } else { l.fields });
+				if !stays && !c.text.contains('\n') {
+					if e.record {
+						e.fell.push((at.0, at.1, at.2 + i, c.depth));
+					}
+					e.out.extend(std::iter::repeat_n('\t', pad));
+					e.out.push_str(&commented(&c.text));
+					e.out.push('\n');
+					continue;
+				}
+				e.verbatim += 1;
+				if e.record {
+					e.kept_near.extend_from_slice(&e.near[e.flushed..]);
+					e.flushed = e.near.len();
+				}
+			}
 			e.hold = None;
 			if parent.is_some_and(|p| p != DEAD) && opens_later(&c.text) {
 				e.open = open;
@@ -10905,7 +10954,6 @@ impl Document {
 			parent,
 			line: 0,
 			star_list: false,
-			star_mixed: false,
 			trivia: None,
 			// Hand-written files separate top-level sections with a blank line;
 			// writer-built ones do the same (the emitter never blanks line 1).
@@ -11326,7 +11374,6 @@ impl Document {
 			parent,
 			line: 0,
 			star_list: false,
-			star_mixed: false,
 			trivia: Some(Box::new(Trivia {
 				leading,
 				after,
@@ -12568,7 +12615,6 @@ impl Document {
 			parent,
 			line: src.line,
 			star_list: src.star_list,
-			star_mixed: src.star_mixed,
 			trivia: src.trivia.clone(),
 			blank_before: src.blank_before,
 			src_set: src.src_set,

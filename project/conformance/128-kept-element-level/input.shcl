@@ -1,7 +1,7 @@
 # A kept element holds its column the way a dropped one does, with the field as
-# that level's node. A field written deeper binds under the field (E001), and a
-# line back at the element's column is its sibling: the next field binds, and
-# an element after a field child is E008.
+# that level's node. A field line under the elements, written deeper or back
+# at their column, is kept and binds nothing (E001), and the elements after it
+# still join the list.
 a:
 	- x
 		c: 1

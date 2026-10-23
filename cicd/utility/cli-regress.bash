@@ -1369,9 +1369,12 @@ rows=(
 	## 20260918b item 14: `set` kept its own copy of the fold and missed it.
 	'EqLcx3w|layer-diags-named-set|set --set=q=1 --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
 	## 2026100511210900: emptying an instance left a list after it that the
-	## reload drops, and the write went through at exit 0.
-	'Ers2pP0|list-after-empty-refused|set --write %LEW%|empty\tx(v)\n|7|-|would delete 2 line|x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
-	'Ers2pP1|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx(v)\n|0|-|rewritten in the canonical form|x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
+	## reload drops, and the write went through at exit 0. Since
+	## 2026102307143752 the field under the items is kept, binds nothing
+	## (E001), and goes out as a comment once the list is in brackets, so the
+	## save writes and nothing is lost.
+	'Ers2pP0|list-after-empty-refused|set --write %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n'
+	'Ers2pP1|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n'
 	'Eon9YY5|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E014'
 	## 2026-10-05: a line with no colon that is one name is E015 whatever its
 	## name, and binds the name it reads as. With a colon, the name rule still

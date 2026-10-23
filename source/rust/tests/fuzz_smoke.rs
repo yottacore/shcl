@@ -345,15 +345,14 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 				text
 			);
 		}
-		// The formatter must be a fixpoint on its own output. A load can build a
-		// list no text loads back, under a kept array line (2026100511210900).
-		// A save refuses it, so only that unsaved text is not a fixpoint.
-		if list_after_empty(&doc) {
-			assert!(
-				doc.lost_count() > 0,
-				"a list no text loads back saves at iteration {i}:\n{text}"
-			);
-		} else {
+		// The formatter must be a fixpoint on its own output. No load builds a
+		// list with a field under it, which no text loaded back
+		// (2026102307143752).
+		assert!(
+			!list_with_field(&doc),
+			"a list with a field under it at iteration {i}:\n{text}"
+		);
+		{
 			let once = doc.to_canonical();
 			let twice = Document::parse(&once).to_canonical();
 			assert_eq!(
@@ -532,15 +531,10 @@ fn writes_on_structural_soup_stay_fixpoint() {
 				v
 			);
 		}
-		// No text loads that case back, so a save refuses it rather than
-		// writing it; only the unsaved text is not a fixpoint.
-		if list_after_empty(&doc) {
-			assert!(
-				doc.lost_count() > 0,
-				"a list no text loads back saves at iteration {i} (op {op}, path {path:?}, value {v:?}):\n{text}"
-			);
-			continue;
-		}
+		assert!(
+			!list_with_field(&doc),
+			"a list with a field under it at iteration {i} (op {op}, path {path:?}, value {v:?}):\n{text}"
+		);
 		let once = doc.to_canonical();
 		let twice = Document::parse(&once).to_canonical();
 		assert_eq!(
@@ -701,8 +695,9 @@ fn lost_count_follows_the_outcome_table() {
 		for d in doc.diagnostics() {
 			let src = lines.get(d.line.wrapping_sub(1)).copied().unwrap_or("");
 			match d.code {
-				"E002" | "E003" | "E004" | "E006" | "E007" | "E008" | "E009" | "E011" | "E016"
-				| "E021" => want += 1,
+				"E002" | "E003" | "E004" | "E006" | "E007" | "E009" | "E011" | "E016" | "E021" => {
+					want += 1
+				}
 				"E012" | "E018" if !kept.contains(&d.line) => want += 1,
 				"E012" | "E018" => {
 					kept_seen += 1;
@@ -722,7 +717,16 @@ fn lost_count_follows_the_outcome_table() {
 					);
 				}
 				"E014" if src.trim_start_matches([' ', '\t']).starts_with('\u{feff}') => want += 1,
-				"E013" | "E014" | "E019" | "E026" | "E027" | "E028" => {
+				// One that opens a raw block goes with it.
+				"E001"
+					if src.split_once(':').is_some_and(|(_, v)| {
+						let v = v.trim_start_matches([' ', '\t']);
+						v.starts_with("```") || v.starts_with("~~~")
+					}) =>
+				{
+					want += 1
+				}
+				"E001" | "E008" | "E013" | "E014" | "E019" | "E026" | "E027" | "E028" => {
 					kept_seen += 1;
 					let kept = src.trim_matches([' ', '\t']);
 					// Or as the comment a settle makes of a line under a list
@@ -1265,41 +1269,47 @@ fn upgrade_leaves_its_own_output_alone() {
 	assert!(odd > iters / 10, "only {odd} files had an odd name");
 }
 
-/// A list with a field under it (E001) after an empty binding of its name
-/// that has fields of its own. A merge or an edit can leave one, and then no
-/// text reloads as it: stacked, its header joins that binding and its items
-/// are dropped (E008), and in brackets it is E028 (2026100511210900). The
-/// save gate counts its items lost, so it is never written; the properties
-/// that compare written text check that and skip the rest.
-fn list_after_empty(doc: &Document) -> bool {
+/// A list with a field under it. No load builds one, since that field line
+/// is kept and binds nothing (E001), and no edit or merge does either. It
+/// was the shape no text loaded back after an empty binding of its name
+/// (2026100511210900).
+fn list_with_field(doc: &Document) -> bool {
 	doc.instance_paths().iter().any(|p| {
 		let r = doc.read_string(p);
-		let list = !doc.children(p).is_empty()
+		!doc.children(p).is_empty()
 			&& r.status == shcl::Status::Good
 			&& !r.quoted
-			&& r.value.starts_with('[');
-		let Some((head, k)) = p
-			.strip_suffix(')')
-			.and_then(|q| q.rsplit_once('('))
-			.and_then(|(h, k)| Some((h, k.parse::<usize>().ok()?)))
-		else {
-			return false;
-		};
-		list && (0..k).any(|j| {
-			let e = format!("{head}({j})");
-			doc.read_string(&e).status == shcl::Status::Empty && !doc.children(&e).is_empty()
-		})
+			&& r.value.starts_with('[')
+			&& doc.read_string_array(p).status == shcl::Status::Good
 	})
 }
 
-/// The fmt property's case: a kept array line (E028) with a wildcard line
-/// under it builds a list no text loads back, and the save refuses it.
+// Gone with the shape (2026102307143752): the field line under the items
+// is kept now (E001), so this text builds no list with a field under it.
+// a_kept_array_line_builds_no_list_with_a_field pins what it does now.
+// /// The fmt property's case: a kept array line (E028) with a wildcard line
+// /// under it builds a list no text loads back, and the save refuses it.
+// #[test]
+// fn a_kept_array_line_can_build_the_list_no_text_loads_back() {
+// 	let _id = test_id("Erxfmqc");
+// 	let doc = Document::parse("srv.srv: 2\nsrv: [v1]\n\tq(*): 7\n\t- 0\n\tc: 1\n");
+// 	assert!(list_after_empty(&doc), "{}", doc.to_canonical());
+// 	assert!(doc.lost_count() > 0);
+// }
+
+/// The text that built one before: a kept array line (E028) with a wildcard
+/// line under it, then items, then a field. The field line is kept, and only
+/// the wildcard line is lost. The list goes in brackets after the empty
+/// binding of its name, so the kept line is written as a comment.
 #[test]
-fn a_kept_array_line_can_build_the_list_no_text_loads_back() {
-	let _id = test_id("Erxfmqc");
+fn a_kept_array_line_builds_no_list_with_a_field() {
+	let _id = test_id("EtXAOBZ");
 	let doc = Document::parse("srv.srv: 2\nsrv: [v1]\n\tq(*): 7\n\t- 0\n\tc: 1\n");
-	assert!(list_after_empty(&doc), "{}", doc.to_canonical());
-	assert!(doc.lost_count() > 0);
+	assert!(!list_with_field(&doc), "{}", doc.to_canonical());
+	assert_eq!(doc.lost_count(), 1);
+	let once = doc.to_canonical();
+	assert!(once.contains("\n\t# c: 1\n"), "{once}");
+	assert_eq!(Document::parse(&once).to_canonical(), once);
 }
 
 /// Layered merge over mutated soup: overlaying one document on another must
@@ -1322,13 +1332,10 @@ fn merge_never_panics_and_stays_fixpoint() {
 		let b = mutate(&mut rng, &seeds[b_i]);
 		let mut doc = Document::parse(&a);
 		doc.merge(&Document::parse(&b));
-		if list_after_empty(&doc) {
-			assert!(
-				doc.lost_count() > 0,
-				"a merged list no text loads back saves at iteration {i}:\nA:\n{a}\nB:\n{b}"
-			);
-			continue;
-		}
+		assert!(
+			!list_with_field(&doc),
+			"a merged list with a field under it at iteration {i}:\nA:\n{a}\nB:\n{b}"
+		);
 		let once = doc.to_canonical();
 		let twice = Document::parse(&once).to_canonical();
 		assert_eq!(
@@ -1712,9 +1719,10 @@ fn typed_reads_survive_a_save() {
 			docs.push(set);
 		}
 		for doc in &docs {
-			if list_after_empty(doc) {
-				continue;
-			}
+			assert!(
+				!list_with_field(doc),
+				"a list with a field under it:\n{soup}"
+			);
 			let once = doc.to_canonical();
 			let Ok(back) = Document::parse_with(&once, level) else {
 				continue;
@@ -1929,13 +1937,10 @@ fn edits_and_merges_match_a_reload() {
 				_ => format!("op {op} at {path:?}\n"),
 			});
 			let (a, b) = (live.to_canonical(), back.to_canonical());
-			if list_after_empty(&live) {
-				assert!(
-					live.lost_count() > 0,
-					"a list no text loads back saves at iteration {i}:\n{log}"
-				);
-				break;
-			}
+			assert!(
+				!list_with_field(&live),
+				"a list with a field under it at iteration {i}:\n{log}"
+			);
 			assert!(
 				a == b || ((op == 4 || op == 10) && reload_took_only_comments(&a, &b)),
 				"a step on the document and on its reload differ at iteration {i}:\n{log}"
@@ -3520,16 +3525,10 @@ fn kept_lines_survive_edits() {
 				);
 			}
 			log.push_str(&format!("op {op} at {path:?}\n"));
-			// A list no text loads back counts its items lost, so the save
-			// refuses it (2026100511210900), and the steps after it go
-			// unchecked.
-			if list_after_empty(&doc) {
-				assert!(
-					doc.lost_count() > lost,
-					"iteration {i}: a list no text loads back saves:\n{log}"
-				);
-				break;
-			}
+			assert!(
+				!list_with_field(&doc),
+				"iteration {i}: a list with a field under it:\n{log}"
+			);
 			// (b) Only the table's own losses: none outside a merge's.
 			assert_eq!(
 				doc.lost_count(),

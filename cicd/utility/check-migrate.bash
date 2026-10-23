@@ -152,15 +152,17 @@ for f in sys.argv[2:]:
 ' "${brackets}" "${corpus}"/*/input.shcl
 
 ##	The lines 2.x did not read cleanly, by number. A line is clean when every
-##	code 2.x reports on it binds the line: E001 (field kept), E005 (fence
-##	unterminated, body kept), E015 (repaired), E017 (kept literally), the two
-##	hints, and E019 as a hint, which is the `name:[x]` sugar read as `name: x`.
-##	E019 as an error is the bracket array. Read from what 2.x's `check` printed,
-##	so one run of it serves every question asked of the same bytes.
+##	code 2.x reports on it binds the line: E005 (fence unterminated, body
+##	kept), E015 (repaired), E017 (kept literally), the two hints, and E019 as a
+##	hint, which is the `name:[x]` sugar read as `name: x`. E019 as an error is
+##	the bracket array. 2.x bound an E001 field too, but the field under the
+##	items is kept and binds nothing now (2026102307143752), so that line is
+##	not clean. Read from what 2.x's `check` printed, so one run of it serves
+##	every question asked of the same bytes.
 fCheck2x(){ "${oldCli}" check "$1" 2>/dev/null || true; }
 fUnclean2x(){
 	awk '$1 == "line" {
-		if ($4 ~ /^(E001|E005|E015|E017|H001|H002)$/ || ($4 == "E019" && $3 == "Hint:")) next
+		if ($4 ~ /^(E005|E015|E017|H001|H002)$/ || ($4 == "E019" && $3 == "Hint:")) next
 		sub(/:$/, "", $2); print $2 }'
 }
 
