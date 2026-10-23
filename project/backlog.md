@@ -92,14 +92,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- README's comparison cell "Nested arrays: Repeated child fields" says no, with instances as the way to do it. Arrays don't nest, by design.
 		- README's "wrong choice" list gains whole-file decode into a struct, which TOML and YAML users expect and design.md declines.
 		- design.md says the formatter quotes a schema path only for a quote or a `#`, and calls a schema a `fmt` fixpoint. spec.md has the writer quoting parens too, so a bare `field: server(*).host` gets rewritten. Make design.md match what the code does.
-		- design.md and spec.md both say the user is never made to satisfy the machine. The quote, comma, colon and bare-name rules won, so soften it to what's true.
 		- The `--no-banner` help names both "banner" and "info block", since the prose and help call it the info block. v4 renames it.
-		- Typos: "adn" in spec.md twice, "wiht" once.
 	- Decisions:
 		- JC, 20261023: keep 1024 as the `KB` default.
 		- JC, 20261023: keep all 3 read tiers through the beta. Dropping plain `get_X` is v4's.
 		- JC, 20261023: scope the UTF-8 claim rather than make 4 parsers agree on bytes that aren't text.
 		- JC, 20261023: no v3 code change for the quadratic walk. The per-name index is v4's node handles.
+		- Left out on purpose: the "never made to satisfy the machine" goal stays as written (20261006, and the comma and colon decision), and "adn" and "wiht" are planted slips.
 
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
