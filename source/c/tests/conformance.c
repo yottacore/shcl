@@ -5845,6 +5845,31 @@ int main(int argc, char **argv) {
 		if (dir_entries(udir) != 1) fail("upgrade_left", "entries");
 		dir_clear(udir);
 	}
+	test_id("EtaIsjz", "a_block_kept_at_the_top_names_this_format_too");
+	{
+		/* The lone stamp comes off, and the block kept above the first field's
+		   child named another format, which the fresh text then read as its
+		   own (2026102309053667). */
+		const char *top = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n";
+		if (shcl_format_version(top, strlen(top)) != 3) fail("upgrade_kept_top", "input");
+		shcl_upgraded up = shcl_upgrade(top, strlen(top), 1);
+		if (up.current || up.errors_left || up.ambiguous) fail("upgrade_kept_top", "not made over");
+		if (shcl_format_version(up.text, up.len) != 3 || strstr(up.text, "Format   4")) fail("upgrade_kept_top", "the fresh text names another format");
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, 0);
+		if (!again.current) fail("upgrade_kept_top", "a second run made it over again");
+		shcl_upgraded_free(&again);
+		shcl_upgraded_free(&up);
+		/* shcl_set_banner takes the same path. */
+		const char *sb = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n";
+		shcl_doc *d = shcl_parse(sb, strlen(sb));
+		if (!d) fail("upgrade_kept_top", "parse");
+		else {
+			shcl_set_banner(d, 1);
+			shcl_str c = shcl_to_canonical(d);
+			if (shcl_format_version(c.p, c.n) != 3) fail("upgrade_kept_top", "set_banner names another format");
+			shcl_free(d);
+		}
+	}
 #undef UP_V2
 #undef UP_TAG
 

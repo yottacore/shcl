@@ -173,7 +173,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade --from-2x` can write a fresh file that names no current format
 	- ID: 2026102309053667
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261023-090602
 	- Opened by: 2026102307035776
@@ -184,6 +184,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: iteration 628247, `from_v2` true, fails "the fresh text names no current format". The input has `##    Format   3`, then a second info block with `##    Format   99999999999` and a line `   3` under it. The fresh text writes that line as `"3":` and indents the block's comments under it.
 	- Expected behavior: the fresh file names this format, or the upgrade refuses.
 	- Reproduced: on `c92e1c05`, before the `H008` change, with the 2 new cases copied in, at the same iteration.
+		- 20261023, again on `r1024` at `bc24aafa`. Cut down to `a: 1`, `##    Format   3`, `##`, `## This config file format is SHCL.`, `##    Format   4`, then `   b`. `banner on` does the same to that file with `   b: 2`, which loads clean: it names format 4 afterwards, with `H006`.
+	- Actual cause: a whole info block above the first field's first child stays, and the lone `Format 3` line above it comes off once the new block goes on. The kept block's Format line then comes first, and the first line naming this format or a newer one is the one read. `upgrade` and `set_banner` share that path.
+	- Actual fix: when the new block goes on, a Format line in a block kept at the top is set to this format, in `swap_banner`. All 4.
+	- Decisions:
+		- me, 20261023: set the kept line rather than refuse. The input named this format, the new block names it, and migrate already turns an older Format line into this one where it sits. A refusal would need a new reason on `Upgrade` in all 4, for a file made by hand.
+		- me, 20261023: the line-keeping save writes the changed line at its field's indent, as it does any line a write made.
+	- Swept: `swap_banner` in Rust, Go, Python and C, which `upgrade`, `upgrade_file`, `set_banner` and the `banner` op all reach; the C++ veneer only wraps them. The footer always loses its old block, so only the top nodes keep one. `migrate`'s stamp goes through `restamp`, which already checks that the line it writes is the one read. The `upgrade` and `set_banner` doc comments in all 4 and the veneer, spec.md (`UpgradeFile` and the info block), the man page and the changelog.
+	- Verified: the new test fails on the old code in all 4 and passes with the fix. The 2,000,000 release fuzz passes all 31 properties. Also the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-migrate, check-docs, test-ids check, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy.
+	- Branch: `r1024`
+	- Test case: `a_block_kept_at_the_top_names_this_format_too` in Rust (`EtaIsb8`), Go (`EtaIse6`), Python (`EtaIsh6`) and C (`EtaIsjz`), through `upgrade` and `set_banner`, and fuzz `EssNzSi`.
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new test failed before and passes after, and the fuzz that found it passes. Setting the line rather than refusing is my call, noted under Decisions.
+	- Closed: 20261023-205517
 
 - A dev build shows its date after the build number
 	- ID: 2026102319430000

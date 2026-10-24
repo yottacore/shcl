@@ -3124,22 +3124,21 @@ pub struct Upgrade {
 /// input run through `migrate_unstamped`, then written the way `fmt` writes
 /// it, with the info block `init` writes at the end in place of an old one
 /// there. A whole block above the first field stays, so a file with its
-/// block at the top comes out with 2. This is the one library call that
-/// writes the block. A file that names this format comes back `current` and
-/// untouched, and so does one that loads with no error under these rules,
-/// since a program calling this on every start must never rewrite a good
-/// file. `from_v2` is migrate's: the file can only have been written for
+/// block at the top comes out with 2, both naming this format. This is the one
+/// library call that writes the block. A file that names this format comes back
+/// `current` and untouched, and so does one that loads with no error under
+/// these rules, since a program calling this on every start must never rewrite
+/// a good file. `from_v2` is migrate's: the file can only have been written for
 /// 2.x. Then a file that loads clean is still made over when `migrate` would
-/// change it, as it would `p: a,b`, an array under 2.x and one string now.
-/// One it would not change that names an older format gets this format on
-/// that Format line, and nothing else. The one file naming this format that
-/// is made over is one that loads with an error when `from_v2` says a 2.x
-/// build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is taken
-/// as 2.x. With `from_v2`, any file is made over only when the fresh text
-/// loads clean; when it wouldn't, `errors_left` names the lines still in
-/// error. Pass `from_v2` only for a file known to be old, never on every
-/// start: a file this format wrote that picks up an error later would be
-/// read by 2.x rules too.
+/// change it, as it would `p: a,b`, an array under 2.x and one string now. One
+/// it would not change that names an older format gets this format on that
+/// Format line, and nothing else. The one file naming this format that is made
+/// over is one that loads with an error when `from_v2` says a 2.x build wrote
+/// it, as with a beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With
+/// `from_v2`, any file is made over only when the fresh text loads clean; when
+/// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
+/// only for a file known to be old, never on every start: a file this format
+/// wrote that picks up an error later would be read by 2.x rules too.
 pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
@@ -11907,10 +11906,11 @@ impl Document {
 	/// as its comment. A block at the top of the file is left alone.
 	/// A dotted first line hangs it on its last name, which a saved file
 	/// writes as the first field's first child, so a block there is left
-	/// alone too, however it got there. A lone Format line there comes off
-	/// with `on`, since the new block names the format. The library save
-	/// never adds the block by itself; this is for a program that wants it in
-	/// a file it writes. Returns how many old blocks came off.
+	/// alone too, however it got there. A lone Format line there comes off with
+	/// `on`, since the new block names the format. A kept block's Format line
+	/// is set to this format too, since it reads first. The library save never
+	/// adds the block by itself; this is for a program that wants it in a file
+	/// it writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
 		self.swap_banner(on, false)
 	}
@@ -11951,6 +11951,18 @@ impl Document {
 			removed += drop_banners(&mut self.orphans, mark, true).0;
 		}
 		if on {
+			// A block kept at the top reads before the new one, so it names
+			// this format too (2026102309053667).
+			for &n in &top {
+				if let Some(tr) = self.arena[n].trivia.as_deref_mut() {
+					for l in &mut tr.leading {
+						if l.text.starts_with(FORMAT_LINE_HEAD) && l.text != FORMAT_LINE {
+							l.text = FORMAT_LINE.to_string();
+							l.line = 0;
+						}
+					}
+				}
+			}
 			let open = !self.orphans.is_empty() || !self.arena[ROOT].children.is_empty();
 			for (n, line) in GEN_BANNER.lines().enumerate() {
 				let mut l = Lead::plain(line.to_string());

@@ -3404,21 +3404,21 @@ type Upgraded struct {
 // one: the input run through MigrateUnstamped, then written the way `fmt`
 // writes it, with the info block `init` writes at the end in place of an old
 // one there. A whole block above the first field stays, so a file with its
-// block at the top comes out with 2. This is the one library call that writes
-// the block. A file that names this format comes back Current and untouched,
-// and so does one that loads with no error under these rules, since a program
-// calling this on every start must never rewrite a good file. fromV2 is
-// Migrate's: the file can only have been written for 2.x. Then a file that
-// loads clean is still made over when Migrate would change it, as it would
-// `p: a,b`, an array under 2.x and one string now. One it would not change
-// that names an older format gets this format on that Format line, and
+// block at the top comes out with 2, both naming this format. This is the one
+// library call that writes the block. A file that names this format comes back
+// Current and untouched, and so does one that loads with no error under these
+// rules, since a program calling this on every start must never rewrite a good
+// file. fromV2 is Migrate's: the file can only have been written for 2.x. Then
+// a file that loads clean is still made over when Migrate would change it, as
+// it would `p: a,b`, an array under 2.x and one string now. One it would not
+// change that names an older format gets this format on that Format line, and
 // nothing else. The one file naming this format that is made over is one that
-// loads with an error when fromV2 says a 2.x build wrote it, as with a beta
-// of 3.0 that wrote 2.x lines. It is taken as 2.x. With fromV2, any file is
-// made over only when the fresh text loads clean; when it wouldn't,
-// ErrorsLeft names the lines still in error. Pass fromV2 only for a file
-// known to be old, never on every start: a file this format wrote that picks
-// up an error later would be read by 2.x rules too.
+// loads with an error when fromV2 says a 2.x build wrote it, as with a beta of
+// 3.0 that wrote 2.x lines. It is taken as 2.x. With fromV2, any file is made
+// over only when the fresh text loads clean; when it wouldn't, ErrorsLeft names
+// the lines still in error. Pass fromV2 only for a file known to be old, never
+// on every start: a file this format wrote that picks up an error later would
+// be read by 2.x rules too.
 func Upgrade(text string, fromV2 bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
@@ -11473,7 +11473,8 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // left alone. A dotted first line hangs it on its last name, which a saved file
 // writes as the first field's first child, so a block there is left alone too,
 // however it got there. A lone Format line there comes off with on, since the
-// new block names the format. The library save never adds the block by itself;
+// new block names the format. A kept block's Format line is set to this format
+// too, since it reads first. The library save never adds the block by itself;
 // this is for a program that wants it in a file it writes. Returns how many old
 // blocks came off.
 func (d *Document) SetBanner(on bool) int {
@@ -11521,6 +11522,17 @@ func (d *Document) swapBanner(on, v2 bool) int {
 		removed += gone
 	}
 	if on {
+		// A block kept at the top reads before the new one, so it names this
+		// format too (2026102309053667).
+		for _, n := range top {
+			if tr := d.arena[n].trivia; tr != nil {
+				for k := range tr.leading {
+					if l := &tr.leading[k]; strings.HasPrefix(l.text, FormatLineHead) && l.text != FormatLine {
+						l.text, l.line = FormatLine, 0
+					}
+				}
+			}
+		}
 		open := len(d.orphans) > 0 || len(d.arena[root].children) > 0
 		for n, line := range strings.Split(strings.TrimSuffix(GenBanner, "\n"), "\n") {
 			l := plainLead(line)

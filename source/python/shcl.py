@@ -2820,17 +2820,17 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	input run through migrate_unstamped(), then written the way `fmt` writes
 	it, with the info block `init` writes at the end in place of an old one
 	there. A whole block above the first field stays, so a file with its block
-	at the top comes out with 2. This is the one library call that writes the
-	block. A file that names this format comes back current and untouched, and
-	so does one that loads with no error under these rules, since a program
-	calling this on every start must never rewrite a good file. from_v2 is
-	migrate's: the file can only have been written for 2.x. Then a file that
-	loads clean is still made over when migrate would change it, as it would
-	`p: a,b`, an array under 2.x and one string now. One it would not change
-	that names an older format gets this format on that Format line, and
-	nothing else. The one file naming this format that is made over is one
-	that loads with an error when from_v2 says a 2.x build wrote it, as with a
-	beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With from_v2, any
+	at the top comes out with 2, both naming this format. This is the one
+	library call that writes the block. A file that names this format comes back
+	current and untouched, and so does one that loads with no error under these
+	rules, since a program calling this on every start must never rewrite a good
+	file. from_v2 is migrate's: the file can only have been written for 2.x.
+	Then a file that loads clean is still made over when migrate would change
+	it, as it would `p: a,b`, an array under 2.x and one string now. One it
+	would not change that names an older format gets this format on that Format
+	line, and nothing else. The one file naming this format that is made over is
+	one that loads with an error when from_v2 says a 2.x build wrote it, as with
+	a beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With from_v2, any
 	file is made over only when the fresh text loads clean; when it wouldn't,
 	errors_left names the lines still in error. Pass from_v2 only for a file
 	known to be old, never on every start: a file this format wrote that picks
@@ -7787,11 +7787,11 @@ class Document:
 		its comment. A block at the top of the file is left alone. A dotted
 		first line hangs it on its last name, which a saved file writes as
 		the first field's first child, so a block there is left alone too,
-		however it got there. A lone Format line there comes off with on,
-		since the new block names the format. The library save never adds the
+		however it got there. A lone Format line there comes off with on, since
+		the new block names the format. A kept block's Format line is set to
+		this format too, since it reads first. The library save never adds the
 		block by itself; this is for a program that wants it in a file it
-		writes.
-		Returns how many old blocks came off."""
+		writes. Returns how many old blocks came off."""
 		_want("set_banner", on, "bool")
 		return self._swap_banner(on, False)
 
@@ -7827,6 +7827,13 @@ class Document:
 			gone, _, self.orphans = _drop_banners(self.orphans, mark, True)
 			removed += gone
 		if on:
+			# A block kept at the top reads before the new one, so it names this
+			# format too (2026102309053667).
+			for n in top:
+				tr = self.arena[n].trivia
+				for c in tr.leading if tr is not None else ():
+					if c.text.startswith(FORMAT_LINE_HEAD) and c.text != FORMAT_LINE:
+						c.text, c.line = FORMAT_LINE, 0
 			open_ = bool(self.orphans) or bool(self.arena[_ROOT].children)
 			for n, line in enumerate(GEN_BANNER.rstrip("\n").split("\n")):
 				self.orphans.append(_Lead(line, n == 0 and open_))
