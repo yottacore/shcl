@@ -140,21 +140,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
 
-- r1024's kept banner stamp leaves mypy and check-docs red
-	- ID: 2026102321462051
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261023-214620
-	- Opened by: the work on 2026102307143752
-	- Related IDs: 2026102309053667
-	- Version and build: r1024 at `83068cdb`
-	- Incorrect behavior:
-		- mypy: `Need type annotation for "c"`, on the loop over `tr.leading if tr is not None else ()` that sets a kept block's `Format` line in `shcl.py`.
-		- check-docs `man-page-date-current`: `shcl.1`'s `.TH` date is 2026-10-19, older than its last commit, `d6820c2e`.
-	- Expected behavior: both gates pass.
-	- Reproduced: Yes, 20261023, on r1024's tree as merged into `wip/r1023-2026102307143752`.
-
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
 	- Type: Enhancement
@@ -191,6 +176,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings, spec.md, value-syntax.md, the lexical edges table in design.md, and corpus cases.
 	- Decisions:
 		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
+
+- r1024's kept banner stamp leaves mypy and check-docs red
+	- ID: 2026102321462051
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261023-214620
+	- Opened by: the work on 2026102307143752
+	- Related IDs: 2026102309053667
+	- Version and build: r1024 at `83068cdb`
+	- Incorrect behavior:
+		- mypy: `Need type annotation for "c"`, on the loop over `tr.leading if tr is not None else ()` that sets a kept block's `Format` line in `shcl.py`.
+		- check-docs `man-page-date-current`: `shcl.1`'s `.TH` date is 2026-10-19, older than its last commit, `d6820c2e`.
+	- Expected behavior: both gates pass.
+	- Reproduced: Yes, 20261023, on r1024's tree as merged into `wip/r1023-2026102307143752`.
+	- Actual cause: the loop's `X if tr is not None else ()` gave mypy a union it couldn't type, and `d6820c2e` edited the man page without moving its date.
+	- Actual fix: the Python loop skips a node with no trivia before it runs, and the man page's `.TH` date is 2026-10-23.
+	- Swept: Python and `cicd/utility` for the same conditional loop shape, none left. Only Python has a type check, and the other 3 bindings' `swap_banner` were never red. The man page is the only page with a `.TH` date.
+	- Verified: mypy failed on the old `shcl.py` with the same error and passes on the fix. check-docs passes, `EqL29qS` included. ruff and the Python conformance suite pass (208 cases, `EtaIsh6` included).
+	- Branch: `r1024`
+	- Test case: none new. The gates that went red are the checks: mypy in the lint stage, and check-docs `EqL29qS`.
+	- Acceptance signoff: Self-closed: both gates were red before and pass after, with no change in behavior.
+	- Closed: 20261023-215140
 
 - `upgrade --from-2x` can write a fresh file that names no current format
 	- ID: 2026102309053667

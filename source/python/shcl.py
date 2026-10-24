@@ -7902,7 +7902,9 @@ class Document:
 			# format too (2026102309053667).
 			for n in top:
 				tr = self.arena[n].trivia
-				for c in tr.leading if tr is not None else ():
+				if tr is None:
+					continue
+				for c in tr.leading:
 					if c.text.startswith(FORMAT_LINE_HEAD) and c.text != FORMAT_LINE:
 						c.text, c.line = FORMAT_LINE, 0
 			open_ = bool(self.orphans) or bool(self.arena[_ROOT].children)
