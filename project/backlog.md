@@ -196,6 +196,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: Python and `cicd/utility` for the same conditional loop shape, none left. Only Python has a type check, and the other 3 bindings' `swap_banner` were never red. The man page is the only page with a `.TH` date.
 	- Verified: mypy failed on the old `shcl.py` with the same error and passes on the fix. check-docs passes, `EqL29qS` included. ruff and the Python conformance suite pass (208 cases, `EtaIsh6` included).
 	- Branch: `r1024`
+	- Commit: `f3359dd4`
 	- Test case: none new. The gates that went red are the checks: mypy in the lint stage, and check-docs `EqL29qS`.
 	- Acceptance signoff: Self-closed: both gates were red before and pass after, with no change in behavior.
 	- Closed: 20261023-215140
