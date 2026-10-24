@@ -246,6 +246,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A diagnostic lists the first 3 values of a list and counts the rest. The `H001` hint for a field repeated on 400,000 lines printed all of them, on one line, every run. `V004` on an array read as a string did the same.
 
+- A dotted line that reaches a list through an index, such as `srv(0).tls: on`, no longer puts a field under the list. On an array line it is `E028`, and after `- ` items `E001`, as the same field is on the line under `srv(0):`.
+
 ### Reads
 
 - A wildcard whose parent is missing reads `NotFound`, not `Empty`.

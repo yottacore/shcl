@@ -4190,6 +4190,55 @@ class _Parser:
 			node = self.stack[start - 1][1]
 		return 0 <= node < len(self.arena) and self.arena[node].star_list
 
+	def _through_items(self, parent, segs):
+		"""True when a dotted path reaches stacked items through an index before
+		its last segment, as `srv(0).tls: on` does after `srv:` and `- a`. Its
+		field would go under the list, as the line under `srv(0):` would. Only
+		an index selects a list, and it never creates, so a step that finds
+		nothing ends the walk."""
+		steps = segs[:-1]
+		if not any(s.selector is not None and s.selector[0] == "idx" for s in steps):
+			return False
+		node = parent
+		if parent == _LAZY:
+			start = len(self.stack) - 1
+			while start > 1 and self.stack[start - 1][1] == _LAZY:
+				start -= 1
+			node = self.stack[start - 1][1]
+			for lz in self.lazies:
+				if lz[0] < start:
+					continue
+				for seg in lz[1]:
+					node = self._found_step(node, seg)
+					if node is None:
+						return False
+		for seg in steps:
+			node = self._found_step(node, seg)
+			if node is None:
+				return False
+			if self.arena[node].star_list:
+				return True
+		return False
+
+	def _found_step(self, cur, seg):
+		"""The child one path step selects under `cur` without creating it."""
+		if not 0 <= cur < len(self.arena):
+			return None
+		sel = seg.selector
+		if sel is None:
+			cmap = self.child_map[cur]
+			return cmap.get(_merge_key(seg.name, _empty())) if cmap is not None else None
+		if sel[0] == "val":
+			return self._find_by_value(cur, seg.name, sel[1])
+		if sel[0] == "idx":
+			seen = 0
+			for c in self.arena[cur].children:
+				if self.arena[c].name == seg.name:
+					if seen == sel[1]:
+						return c
+					seen += 1
+		return None
+
 	def _head_of(self, node, nsegs):
 		"""The node a path's first segment bound, from the one its last did."""
 		head = node
@@ -4307,6 +4356,10 @@ class _Parser:
 						seen += 1
 				if found is not None:
 					cur = found
+					# A field through an index onto an array line goes as one on
+					# the line under `srv(0):` does (E028).
+					if not is_last and not self.arena[cur].star_list and self.arena[cur].value.kind == "array":
+						cur = self._array_under(cur)
 				else:
 					self._refuse(line, "E003", f"no instance {k} of '{_diag_name(seg.name)}'", _OUT_DROPPED, indent)
 					return None
@@ -4771,7 +4824,7 @@ class _Parser:
 			f = _name_fault(tok)
 			if f is None and not tok.capped:
 				f = _value_side_fault(tok)
-			listed = self._under_items(parent)
+			listed = self._under_items(parent) or self._through_items(parent, segments)
 			if f is not None:
 				msg = f.msg if f.at is None else f"{f.msg}, at column {len(indent) + lead + f.at + 1}"
 				self._refuse(lineno, f.code, msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)

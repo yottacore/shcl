@@ -6136,6 +6136,64 @@ func TestAFieldUnderItemsStaysKept(t *testing.T) {
 	check(doc, "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n")
 }
 
+// An index can select a list, and a dotted line through it does what the
+// same field on the line under `srv(0):` does: an array line is kept for the
+// field (E028), and a field after stacked items is kept (E001). So no load or
+// merge builds a list with a field under it. Same fixture in every runner.
+func TestAnIndexOntoAListTakesNoField(t *testing.T) {
+	defer testID(t, "EtdPW8G")
+	check := func(doc *Document, want string) {
+		t.Helper()
+		text := doc.ToCanonical()
+		if text != want {
+			t.Fatalf("canonical %q, want %q", text, want)
+		}
+		back := Parse(text)
+		if back.ToCanonical() != text || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
+			t.Fatalf("reload differs: %q", text)
+		}
+		if doc.LostCount() != 0 || back.LostCount() != 0 {
+			t.Fatalf("lost %d, reload %d: %q", doc.LostCount(), back.LostCount(), text)
+		}
+	}
+	codes := func(doc *Document) []string {
+		var out []string
+		for _, d := range doc.Diagnostics() {
+			out = append(out, fmt.Sprintf("%d %s", d.Line, d.Code))
+		}
+		return out
+	}
+	doc := Parse("srv: [a]\nsrv(0).tls: on\n")
+	if got := codes(doc); !reflect.DeepEqual(got, []string{"1 E028"}) {
+		t.Fatalf("diagnostics %v", got)
+	}
+	if v, st := doc.GetString("srv.tls"); st != Good || v != "on" {
+		t.Fatalf("srv.tls: %q %v", v, st)
+	}
+	if got := codes(Parse("srv: [a]\nsrv(0):\n\ttls: on\n")); !reflect.DeepEqual(got, []string{"1 E028"}) {
+		t.Fatalf("nested diagnostics %v", got)
+	}
+	check(doc, "srv: [a]\n\ttls: on\n")
+	doc = Parse("srv:\n\t- a\nsrv(0).tls: on\n")
+	if got := codes(doc); !reflect.DeepEqual(got, []string{"3 E001"}) {
+		t.Fatalf("diagnostics %v", got)
+	}
+	if v, st := doc.GetStringArray("srv"); st != Good || !reflect.DeepEqual(v, []string{"a"}) {
+		t.Fatalf("srv: %v %v", v, st)
+	}
+	if _, st := doc.GetString("srv.tls"); st == Good {
+		t.Fatal("srv.tls binds")
+	}
+	check(doc, "srv:\n\t- a\n# srv(0).tls: on\n")
+	// The 2M merge fuzz's case: the layer brought the list and the field.
+	doc = Parse("m: 1\n")
+	doc.Merge(Parse("srv: [a]\nsrv(0).tls: on\n"))
+	check(doc, "m: 1\nsrv: [a]\n\ttls: on\n")
+	doc = Parse("m: 1\n")
+	doc.Merge(Parse("srv:\n\t- a\nsrv(0).tls: on\n"))
+	check(doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n")
+}
+
 // A field with lines under it takes one plain value or none (E028), so a
 // setter puts no field under an array and no array over fields. Each used to
 // write text that reloads as E028.

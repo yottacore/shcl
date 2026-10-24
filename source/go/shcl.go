@@ -5231,6 +5231,84 @@ func (p *parser) underItems(parent int) bool {
 	return node >= 0 && node < len(p.arena) && p.arena[node].starList
 }
 
+// throughItems is true when a dotted path reaches stacked items through an
+// index before its last segment, as `srv(0).tls: on` does after `srv:` and
+// `- a`. Its field would go under the list, as the line under `srv(0):`
+// would. Only an index selects a list, and it never creates, so a step that
+// finds nothing ends the walk.
+func (p *parser) throughItems(parent int, segs []segment) bool {
+	if len(segs) == 0 {
+		return false
+	}
+	steps := segs[:len(segs)-1]
+	indexed := false
+	for _, s := range steps {
+		indexed = indexed || (s.sel != nil && s.sel.kind == selByIndex)
+	}
+	if !indexed {
+		return false
+	}
+	node := parent
+	if parent == lazy {
+		from := len(p.stack) - 1
+		for from > 1 && p.stack[from-1].node == lazy {
+			from--
+		}
+		node = p.stack[from-1].node
+		for _, l := range p.lazies {
+			if l.at < from {
+				continue
+			}
+			for _, seg := range l.segs {
+				c, ok := p.foundStep(node, seg)
+				if !ok {
+					return false
+				}
+				node = c
+			}
+		}
+	}
+	for _, seg := range steps {
+		c, ok := p.foundStep(node, seg)
+		if !ok {
+			return false
+		}
+		if p.arena[c].starList {
+			return true
+		}
+		node = c
+	}
+	return false
+}
+
+// foundStep is the child one path step selects under cur without creating it.
+func (p *parser) foundStep(cur int, seg segment) (int, bool) {
+	if cur < 0 || cur >= len(p.arena) {
+		return 0, false
+	}
+	switch {
+	case seg.sel == nil:
+		empty := value{}
+		return slotFirstMatch(p.childMap[cur], mergeHash(seg.name, &empty), func(c int) bool {
+			return mergeEq(p.arena[c].name, &p.arena[c].value, seg.name, &empty)
+		})
+	case seg.sel.kind == selByValue:
+		return p.findByValue(cur, seg.name, seg.sel.value)
+	case seg.sel.kind == selByIndex:
+		var nth uint64
+		for _, c := range p.arena[cur].children {
+			if p.arena[c].name != seg.name {
+				continue
+			}
+			if nth == seg.sel.index {
+				return c, true
+			}
+			nth++
+		}
+	}
+	return 0, false
+}
+
 // headOf is the node a path's first segment bound, from the one its last did.
 func (p *parser) headOf(node, nsegs int) int {
 	head := node
@@ -5413,6 +5491,11 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 			}
 			if ok {
 				cur = found
+				// A field through an index onto an array line goes as one on
+				// the line under `srv(0):` does (E028).
+				if !isLast && !p.arena[cur].starList && p.arena[cur].value.kind == vArray {
+					cur = p.arrayUnder(cur)
+				}
 			} else {
 				p.refuse(line, "E003", fmt.Sprintf("no instance %d of '%s'", seg.sel.index, diagName(seg.name)), outDropped, indent)
 				return 0, false
@@ -6050,7 +6133,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		if f == nil && !tok.Capped {
 			f = valueSideFault(&tok, rest)
 		}
-		listed := p.underItems(parent)
+		listed := p.underItems(parent) || p.throughItems(parent, scan.segments)
 		if f != nil {
 			msg := f.msg
 			if f.at >= 0 {

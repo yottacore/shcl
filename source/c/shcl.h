@@ -5752,8 +5752,12 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 				if (nth == seg->sel.index) { found = c; break; }
 				nth++;
 			}
-			if (found != (size_t)-1) cur = found;
-			else {
+			if (found != (size_t)-1) {
+				cur = found;
+				/* A field through an index onto an array line goes as one on
+				   the line under `srv(0):` does (E028). */
+				if (!is_last && !NODE(P->d, cur).star_list && NODE(P->d, cur).value.kind == V_ARRAY) cur = array_under(P, cur);
+			} else {
 				ShclSB m = {0}; sb_puts(P->line, &m, "no instance "); sb_put_u64(P->line, &m, seg->sel.index); sb_puts(P->line, &m, " of '"); sb_putS(P->line, &m, diag_name(P->line, seg->name)); sb_putc(P->line, &m, '\'');
 				p_refuse(P, line, "E003", sb_S(&m), out_kind(OUT_DROPPED), indent); return 0;
 			}
@@ -6011,6 +6015,64 @@ static int under_items(const ShclParser *P, size_t parent) {
 		node = P->stack.data[from - 1].node;
 	}
 	return node < P->d->nodes.len && NODE(P->d, node).star_list;
+}
+
+/* The child one path step selects under cur without creating it, or -1. */
+static size_t found_step(ShclParser *P, size_t cur, const ShclSegment *seg) {
+	if (cur >= P->d->nodes.len) return (size_t)-1;
+	switch (seg->sel.tag) {
+	case SEL_NONE: {
+		ShclValue empty = v_empty();
+		uint64_t h = merge_hash(seg->name, &empty);
+		for (ShclCMapEnt *e = cmap_first(P->cmaps->data[cur], h); e; e = cmap_next(e, h))
+			if (merge_eq(NODE(P->d, e->val).name, &NODE(P->d, e->val).value, seg->name, &empty)) return e->val;
+		return (size_t)-1;
+	}
+	case SEL_VALUE: return find_by_value(P, cur, seg->name, seg->sel.value);
+	case SEL_INDEX: {
+		size_t nth = 0; ShclVecSize ch = NODE(P->d, cur).children;
+		for (size_t k = 0; k < ch.len; k++) {
+			size_t c = ch.data[k];
+			if (!s_eq(NODE(P->d, c).name, seg->name)) continue;
+			if (nth == seg->sel.index) return c;
+			nth++;
+		}
+		return (size_t)-1;
+	}
+	default: return (size_t)-1;
+	}
+}
+
+/* True when a dotted path reaches stacked items through an index before its
+   last segment, as `srv(0).tls: on` does after `srv:` and `- a`. Its field
+   would go under the list, as the line under `srv(0):` would. Only an index
+   selects a list, and it never creates, so a step that finds nothing ends the
+   walk. */
+static int through_items(ShclParser *P, size_t parent, const ShclSegment *segs, size_t nsegs) {
+	if (nsegs == 0) return 0;
+	int indexed = 0;
+	for (size_t i = 0; i + 1 < nsegs; i++) indexed |= segs[i].sel.tag == SEL_INDEX;
+	if (!indexed) return 0;
+	size_t node = parent;
+	if (parent == LAZY) {
+		size_t from = P->stack.len - 1;
+		while (from > 1 && P->stack.data[from - 1].node == LAZY) from--;
+		node = P->stack.data[from - 1].node;
+		for (size_t j = 0; j < P->lazies.len; j++) {
+			const ShclLazy *lz = &P->lazies.data[j];
+			if (lz->at < from) continue;
+			for (size_t k = 0; k < lz->nsegs; k++) {
+				node = found_step(P, node, &lz->segs[k]);
+				if (node == (size_t)-1) return 0;
+			}
+		}
+	}
+	for (size_t i = 0; i + 1 < nsegs; i++) {
+		node = found_step(P, node, &segs[i]);
+		if (node == (size_t)-1) return 0;
+		if (NODE(P->d, node).star_list) return 1;
+	}
+	return 0;
 }
 
 /* Where the parse resumes after a refused field line. Every arm that skips one
@@ -6534,7 +6596,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			ShclFault fault;
 			int faulted = name_fault(P.line, &tok, rest, &fault);
 			if (!faulted && !tok.capped) faulted = value_side_fault(P.line, &tok, rest, &fault);
-			listed = under_items(&P, parent);
+			listed = under_items(&P, parent) || through_items(&P, parent, scan.segs.data, scan.segs.len);
 			if (faulted) {
 				ShclStr fmsg = fault.msg;
 				if (fault.has_at) {
