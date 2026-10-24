@@ -3887,6 +3887,18 @@ else
 	fBad "could not stand up the frozen-copy stub repo"
 fi
 
+fTest EtasKEp 2026102322233656-check-migrate-errors-past-a-missing-schema
+##	2026102322233656: check-migrate read a file's errors from `check`, which
+##	exits 8 with no diagnostics when the Schema line names a missing file, so
+##	such a file counted 0 errors and upgrade looked wrong for leaving it.
+eval "$(sed -n '/^fCheckNew()/p;/^fErrors()/p' "${repoDir}/cicd/utility/check-migrate.bash")"
+cmDir="${tmpDir}/cm-schema"; mkdir -p "${cmDir}"
+printf 'a: 1\nno colon here\n##    Schema   missing.shcl\n' > "${cmDir}/cfg.shcl"
+cmN="$(newCli="${cli}" fErrors "${cmDir}/cfg.shcl")"
+[[ "${cmN}" == 1 ]] || fBad "check-migrate counted ${cmN} error(s) in a file naming a missing schema, not 1"
+cmOut="$(newCli="${cli}" fCheckNew - < "${cmDir}/cfg.shcl")"
+[[ "${cmOut}" == *"line 2: Error: E014"* ]] || fBad "check-migrate's read of stdin naming a missing schema had no E014: ${cmOut@Q}"
+
 fTestEnd
 
 if ((nBad)); then
@@ -3913,3 +3925,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-16  crosscheck's save gate rows have to give the right answer.
 ##		2026-10-19  Each QUICK_SKIP name matches one step.
 ##		2026-10-19  Hosted gate runs pass --no-container, and only fCtrWhyNot asks for docker.
+##		2026-10-23  check-migrate counts errors past a Schema line naming a missing file.
