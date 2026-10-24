@@ -33,65 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- A stacked list and a field under one parent load 3 different ways
-	- ID: 2026102307035771
-	- Type: Enhancement
-	- Status: Waiting for answers
-		- Waits on the question filed for 2026102307143752: the premise that the emitter already covers every retained line.
-	- Priority: Avg
-	- Opened: 20261023-070357
-	- Opened by: JC
-	- Related IDs: 2026100511210900, 2026102307035786
-	- Estimated effort: High
-	- Problem description:
-		- Items then a field under one parent bind both (`E001`, bound). A field then items drops the items as lost, so the save refuses (`E008`, dropped). The bracket spelling of the same tree is refused (`E028`, retained). Swapping 2 lines changes whether data is lost.
-		- The `E001` tree then needs its own exceptions: the merge keeps it stacked (spec.md near line 430), it's a case no text loads back (value-syntax.md near line 453), and the save refusal filed as 2026100511210900.
-		- Several dropped codes fail design.md's stated test for dropping, "re-emitted it could bind somewhere else". The emitter already asks the reload before it writes a kept line, and writes it as a comment where it would bind (design.md, the paragraph starting "The emitter asks the reload"), so that case is covered for every retained line.
-	- Requirements:
-		- `E001` and `E008` are both retained: the line is kept as written, binds nothing, counts nothing lost, and what is indented under it goes with it as `E018`. A list with a field under it then can't be built, and the 3 exceptions above go.
-		- New test for dropping, as one sentence in design.md above the Load outcomes table: a line is dropped only when, re-emitted, it could feed a raw block, or when its refusal comes from a caller cap or the depth cap, which the next load may set differently.
-		- By that test `E003`, `E004`, `E007`, `E009` and `E011` become retained too. `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line stay as they are. Check each against the sentence and say so on the item where one doesn't fit.
-		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the corpus goldens for the cases that change. Strict fails either way, so strict outcomes don't change.
-	- Decisions:
-		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
-		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
-	- Progress log:
-		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
-		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
-
-- `E001` and `E008` are retained
-	- ID: 2026102307143752
-	- Type: Enhancement
-	- Status: Waiting for answers
-		- Waits on the question in questions.md: the emitter asked the reload only for lines kept with their own indent and for `E028`'s array line, not for every retained line, so the item's premise didn't hold.
-	- Recommendation (me, 20261023): option A. It's built in all 4 and short of one fuzz case, it covers the second child's codes with no more code, and it keeps one rule in the one emitter. B adds a pass per code in 4 bindings. C keeps the 3 exceptions and the line-order difference, and leaves the second child unsolved.
-		- Stop rule: if the 2,000,000 fuzz still fails after the planned fix and one more, drop the wip branch and leave dev as it is, rather than switch to B or C.
-	- Priority: Avg
-	- Opened: 20261023-071437
-	- Opened by: JC
-	- Parent ID: 2026102307035771
-	- Related IDs: 2026100511210900
-	- Requirements:
-		- The parent's first requirement: `E001` and `E008` both retained, the line kept as written, binding nothing, counting nothing lost, and what is under it going with it as `E018`.
-		- The 3 exceptions go: the merge keeping such a list stacked, the value-syntax.md case no text loads back, and the save refusal from 2026100511210900.
-		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the goldens and tests that change.
-	- Estimated effort: High
-	- Progress log:
-		- 20261023, on `wip/r1023-2026102307143752`, all 4 bindings:
-			- A clean field line under stacked items is `E001`, kept as written, and an item after a field child is `E008`, kept. What is under either is `E018`. A field line that opens a raw block is `E001` and dropped with the block, since it can't be written as a comment once moved; that fits the parent's new test for dropping. A line refused for its content keeps its own code there and opens nothing.
-			- The emitter's model now knows, per open binding line, whether an item or a field line was written under it. A clean kept `E001` or `E008` line that a reload would bind goes out as a comment, through the settle a misplaced line uses (option A in the question). Without it, `set a=[p, q]` and a remove of the fields each made a kept line bind at exit 0.
-			- The 3 exceptions are gone: `stacks()` no longer counts children, `bracket()` brackets every list, and `unloadable_items` is removed with its use in the lost count and the keep-lines save. `settle_arrays` leaves array lines among and after a stacked list's items alone.
-			- Docs: design.md's table rows and 2 paragraphs, spec.md's Arrays, code table, `E018` row and merge text, value-syntax.md's stacked-list case and item table, the conformance README, and check-migrate's clean-code list (2.x bound an `E001` field).
-			- Goldens: `010`, `095` (lost 5), `128` (comments too), `188` (the line under the `E019` among the items went, since it would now be lost), `201` (comments, merged text).
-			- Tests: the 6 conformance tests per runner that built the list (Rust `Ers2oF1`, `ErsETML`, `Ert70BF`, `EsFs76t`, `Ert70DM`, `ErsWiow` and their Go, Python and C twins) are commented out with the reason. New `a_field_under_items_stays_kept` pins the load, the set-empty, merge, array setter and remove cases. The fuzz helper `list_after_empty` became `list_with_field`, and every property asserts it never holds. Fuzz `Erxfmqc` is commented out; `EtXAOBZ` pins the same text now. The outcome-table property moves `E008` to retained and counts a raw-block `E001`. cli-regress `Ers2pP0` and `Ers2pP1` expect exit 0 and the commented line.
-			- Verified: the 4 conformance suites, cli-regress (622 rows), crosscheck over the corpus plus a 2000-iteration dump (53499 comparisons), check-docs with check-abnf, test-ids, shell-regress, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and a 200,000-iteration release fuzz. Each new test failed on the old library (`EtXAjYU`, `EtXAOBZ`, `EtXCOeu`, `EtXCOkG`).
-			- Failed: the 2,000,000-iteration release fuzz, 4 properties (`Ejri0IV`, `Eof6zmK`, `EsJZkoB`, `Eqk24nZ`), all one case. A kept line refused for its value, with a kept line under it, sits in an empty field that later takes items, so canonical output writes it after the items. The reload no longer holds its level open there, so the line under it is `E018` and lost. Repro, from `Ejri0IV`, not a fixpoint under `fmt`: `a:` / `\tb: C:\dir, a\tb, 'it\'s'` / `\t\t\tno colon here` / `a: 1, , 2` / `  - 0`.
-			- Next: hold that level open again under items, as before, and refuse instead the line that would bind through it and so put a field under the list (`E001`, kept), with the emitter's model told the same. Then the 2,000,000 fuzz again.
-	- Branch: `wip/r1023-2026102307143752`
-	- Test case: conformance `EtXAjYU` (Rust), `EtXCOeu` (Go), `EtXCOhX` (Python), `EtXCOkG` (C), `a_field_under_items_stays_kept`; fuzz `EtXAOBZ`; corpus `010`, `095`, `128`, `188`, `201`; cli-regress `Ers2pP0`, `Ers2pP1`.
-	- Swept: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays` and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python and C runners; the CLI `explain` tables (wording still holds); check-migrate.
-	- Needs local test suite run?: once the fuzz passes, a full run that doesn't publish, for check-migrate (its 2.x reads now count an `E001` line unclean), the leak checks and Miri over the changed emitter.
-
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -129,6 +70,68 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
+
+- A stacked list and a field under one parent load 3 different ways
+	- ID: 2026102307035771
+	- Type: Enhancement
+	- Status: Started
+		- Its first child, 2026102307143752, goes on with option A (JC).
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026100511210900, 2026102307035786
+	- Estimated effort: High
+	- Problem description:
+		- Items then a field under one parent bind both (`E001`, bound). A field then items drops the items as lost, so the save refuses (`E008`, dropped). The bracket spelling of the same tree is refused (`E028`, retained). Swapping 2 lines changes whether data is lost.
+		- The `E001` tree then needs its own exceptions: the merge keeps it stacked (spec.md near line 430), it's a case no text loads back (value-syntax.md near line 453), and the save refusal filed as 2026100511210900.
+		- Several dropped codes fail design.md's stated test for dropping, "re-emitted it could bind somewhere else". The emitter already asks the reload before it writes a kept line, and writes it as a comment where it would bind (design.md, the paragraph starting "The emitter asks the reload"), so that case is covered for every retained line.
+	- Requirements:
+		- `E001` and `E008` are both retained: the line is kept as written, binds nothing, counts nothing lost, and what is indented under it goes with it as `E018`. A list with a field under it then can't be built, and the 3 exceptions above go.
+		- New test for dropping, as one sentence in design.md above the Load outcomes table: a line is dropped only when, re-emitted, it could feed a raw block, or when its refusal comes from a caller cap or the depth cap, which the next load may set differently.
+		- By that test `E003`, `E004`, `E007`, `E009` and `E011` become retained too. `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line stay as they are. Check each against the sentence and say so on the item where one doesn't fit.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the corpus goldens for the cases that change. Strict fails either way, so strict outcomes don't change.
+	- Decisions:
+		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
+		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
+		- JC, 20261023: option A for the emitter, with the stop rule on 2026102307143752.
+	- Progress log:
+		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
+		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
+
+- `E001` and `E008` are retained
+	- ID: 2026102307143752
+	- Type: Enhancement
+	- Status: Started
+		- Option A picked (JC). Next is the planned fix for the open fuzz case, then the 2,000,000 fuzz again.
+	- Question, answered: the emitter asked the reload only for lines kept with their own indent and for `E028`'s array line, not for every retained line, so the item's premise didn't hold.
+		- JC, 20261023: option A, with the stop rule below.
+	- Recommendation (me, 20261023): option A. It's built in all 4 and short of one fuzz case, it covers the second child's codes with no more code, and it keeps one rule in the one emitter. B adds a pass per code in 4 bindings. C keeps the 3 exceptions and the line-order difference, and leaves the second child unsolved.
+		- Stop rule: if the 2,000,000 fuzz still fails after the planned fix and one more, drop the wip branch and leave dev as it is, rather than switch to B or C.
+	- Priority: Avg
+	- Opened: 20261023-071437
+	- Opened by: JC
+	- Parent ID: 2026102307035771
+	- Related IDs: 2026100511210900
+	- Requirements:
+		- The parent's first requirement: `E001` and `E008` both retained, the line kept as written, binding nothing, counting nothing lost, and what is under it going with it as `E018`.
+		- The 3 exceptions go: the merge keeping such a list stacked, the value-syntax.md case no text loads back, and the save refusal from 2026100511210900.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the goldens and tests that change.
+	- Estimated effort: High
+	- Progress log:
+		- 20261023, on `wip/r1023-2026102307143752`, all 4 bindings:
+			- A clean field line under stacked items is `E001`, kept as written, and an item after a field child is `E008`, kept. What is under either is `E018`. A field line that opens a raw block is `E001` and dropped with the block, since it can't be written as a comment once moved; that fits the parent's new test for dropping. A line refused for its content keeps its own code there and opens nothing.
+			- The emitter's model now knows, per open binding line, whether an item or a field line was written under it. A clean kept `E001` or `E008` line that a reload would bind goes out as a comment, through the settle a misplaced line uses (option A in the question). Without it, `set a=[p, q]` and a remove of the fields each made a kept line bind at exit 0.
+			- The 3 exceptions are gone: `stacks()` no longer counts children, `bracket()` brackets every list, and `unloadable_items` is removed with its use in the lost count and the keep-lines save. `settle_arrays` leaves array lines among and after a stacked list's items alone.
+			- Docs: design.md's table rows and 2 paragraphs, spec.md's Arrays, code table, `E018` row and merge text, value-syntax.md's stacked-list case and item table, the conformance README, and check-migrate's clean-code list (2.x bound an `E001` field).
+			- Goldens: `010`, `095` (lost 5), `128` (comments too), `188` (the line under the `E019` among the items went, since it would now be lost), `201` (comments, merged text).
+			- Tests: the 6 conformance tests per runner that built the list (Rust `Ers2oF1`, `ErsETML`, `Ert70BF`, `EsFs76t`, `Ert70DM`, `ErsWiow` and their Go, Python and C twins) are commented out with the reason. New `a_field_under_items_stays_kept` pins the load, the set-empty, merge, array setter and remove cases. The fuzz helper `list_after_empty` became `list_with_field`, and every property asserts it never holds. Fuzz `Erxfmqc` is commented out; `EtXAOBZ` pins the same text now. The outcome-table property moves `E008` to retained and counts a raw-block `E001`. cli-regress `Ers2pP0` and `Ers2pP1` expect exit 0 and the commented line.
+			- Verified: the 4 conformance suites, cli-regress (622 rows), crosscheck over the corpus plus a 2000-iteration dump (53499 comparisons), check-docs with check-abnf, test-ids, shell-regress, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and a 200,000-iteration release fuzz. Each new test failed on the old library (`EtXAjYU`, `EtXAOBZ`, `EtXCOeu`, `EtXCOkG`).
+			- Failed: the 2,000,000-iteration release fuzz, 4 properties (`Ejri0IV`, `Eof6zmK`, `EsJZkoB`, `Eqk24nZ`), all one case. A kept line refused for its value, with a kept line under it, sits in an empty field that later takes items, so canonical output writes it after the items. The reload no longer holds its level open there, so the line under it is `E018` and lost. Repro, from `Ejri0IV`, not a fixpoint under `fmt`: `a:` / `\tb: C:\dir, a\tb, 'it\'s'` / `\t\t\tno colon here` / `a: 1, , 2` / `  - 0`.
+			- Next: hold that level open again under items, as before, and refuse instead the line that would bind through it and so put a field under the list (`E001`, kept), with the emitter's model told the same. Then the 2,000,000 fuzz again.
+	- Branch: `wip/r1023-2026102307143752`
+	- Test case: conformance `EtXAjYU` (Rust), `EtXCOeu` (Go), `EtXCOhX` (Python), `EtXCOkG` (C), `a_field_under_items_stays_kept`; fuzz `EtXAOBZ`; corpus `010`, `095`, `128`, `188`, `201`; cli-regress `Ers2pP0`, `Ers2pP1`.
+	- Swept: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays` and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python and C runners; the CLI `explain` tables (wording still holds); check-migrate.
+	- Needs local test suite run?: once the fuzz passes, a full run that doesn't publish, for check-migrate (its 2.x reads now count an `E001` line unclean), the leak checks and Miri over the changed emitter.
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
