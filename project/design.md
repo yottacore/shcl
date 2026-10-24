@@ -532,14 +532,14 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 
 | Code   | Severity      | Outcome
 | :---   | :---          | :---
-| `E001` | error         | bound
+| `E001` | error         | retained, unless the line opens a raw block, then dropped with it; a line refused for its content keeps its own code
 | `E002` | error         | value dropped
 | `E003` | error         | dropped
 | `E004` | error         | dropped
 | `E005` | error         | bound
 | `E006` | error         | dropped
 | `E007` | error         | dropped
-| `E008` | error         | dropped
+| `E008` | error         | retained
 | `E009` | error         | dropped
 | `E010` | error         | retired: a bare comma in a `- ` item is `E026`
 | `E011` | error         | dropped
@@ -588,9 +588,11 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 
 - A kept misplaced line never hangs on a block, and a line refused for where it sits never hangs the comments before it. Its indent is not one canonical output writes levels with, so the block it matches in the source is not the one it matches on a reload, and comments it measured differently moved on the next load. It waits for the next binding line, and whatever follows it waits with it.
 
-- The emitter asks the reload before it writes one. It runs the parser's own resolve on a model of the level stack the reload will have at that line: the levels up to the last binding line, and what the lines refused since then pushed. The line goes out as written only where the parser would keep it again. A merge or an edit can move a kept line to where it would bind, and there it is written as a comment. The document settles to that comment after every load and edit, so the next step gives the same result whether or not the file was saved in between. Whether a kept line binds depends only on the lines between it and the binding line above it. An edit that changes none of those skips the settle, so a kept line far away costs an edit nothing.
+- The emitter asks the reload before it writes one. It runs the parser's own resolve on a model of the level stack the reload will have at that line: the levels up to the last binding line, and what the lines refused since then pushed. The line goes out as written only where the parser would keep it again. A retained line that reads clean, `E001` or `E008`, is refused only for where it sits, so it is asked the same: the model also knows, for each open binding line, whether an item or a field line has been written under it. Kept `E028` array lines have a settle of their own. A merge or an edit can move a kept line to where it would bind, and there it is written as a comment. The document settles to that comment after every load and edit, so the next step gives the same result whether or not the file was saved in between. Whether a kept line binds depends only on the lines between it and the binding line above it. An edit that changes none of those skips the settle, so a kept line far away costs an edit nothing.
 
 - `migrate` refuses a rewrite that leaves a misplaced line, even kept. 2.x placed some such lines by a looser rule and read them, so the migration would lose a binding at exit 0.
+
+- A field line after a list's items (`E001`) and an item after a field line (`E008`) are both retained, so no list has a field under it. Before, the first bound and the second was dropped, so swapping the 2 lines decided whether data was lost, and the bound case built a list no text loaded back (2026100511210900). Retaining both was chosen over binding the bracket spelling too (`E028`), which would have spread the exception into the writer and the schema (JC, 2026-10-23). A field line that opens a raw block is dropped with it instead, since moved where it binds it could not be written as a comment.
 
 - A malformed or misplaced line kept among a stacked list's elements stays where it sat, and keeps the list in the stacked spelling. It used to ride the field line like a comment, so a fix typed into it ended up outside the list (the SilkTerm report). Comments among the elements still ride the field line. A setter that replaces the list's value moves the kept lines above it, and so does a list after an empty binding of its name, whose bare header would merge into that binding on a reload.
 

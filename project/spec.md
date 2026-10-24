@@ -418,17 +418,17 @@ is exactly `sizes: [small, "extra large", "Bond, James"]`. The rules that keep i
 
 - A line led by `*`, the old marker, is `E013`, and the message says to use `- `. The line is kept as written, the other items still load, and what is written under it goes with it.
 
-- **Uniform or nothing:** at the child indent, every line is a `- ` item or none is; a mix is not a list (each line is parsed as whatever it is, with a diagnostic if malformed).
+- **Uniform or nothing:** at the child indent, every line is a `- ` item or none is. A field line after the items is `E001`, and an item after a field line is `E008`. Each is kept as written and binds nothing, and what is written under it goes with it (`E018`), so no list has a field under it. A line refused for its content there keeps its own code, and one refused for its value alone still holds its level open for what is kept under it. A line that would bind under it is `E001`, kept, since it would put a field under the list. A field line that opens a raw block is dropped with the block.
 
 - The field opening the list has an **empty inline value**; a field may not have both an inline value and a `- ` list.
 
-- **Scalars only**: an item is a value, not a sub-node, so it has no `field: value` children. Arrays *of objects* are expressed with instances and discriminators. An item that joins a list still holds its column, with its field as that level: a line written deeper binds under the field, which is `E001`, and a line back at the item's column is the item's sibling.
+- **Scalars only**: an item is a value, not a sub-node, so it has no `field: value` children. Arrays *of objects* are expressed with instances and discriminators. An item that joins a list still holds its column, with its field as that level: a field line written deeper is under the field, which is `E001`, and a line back at the item's column is the item's sibling.
 
 Element typing is accessor-driven, so `GetStringArray`/`GetIntArray` read either spelling identically.
 
 A field with lines under it takes one plain value or none. An array there, `route: [GET, POST]` with lines under it, is `E028`, and so is `[]`. The line is kept, and the lines under it load under the field with no value. A list as an instance's value was always rare, and other spellings cover it: a string, `route: "GET POST"`; a position, `route(1)`; or one plain value with the list in a child field, `route: api` with `methods: [GET, POST]` under it.
 
-Canonical output writes a bracket array `[a, b]`, with one space after each comma. A one-element array keeps its brackets, `[80]`, when it was written that way or set through an array setter, and the empty array is `[]`. A list written with `- ` stays stacked, one item per line, since that is the author's choice, like quotes. A merge writes every list in brackets, whatever form its layers used, except one with a field under it (`E001`), which stays stacked since in brackets it would be `E028`.
+Canonical output writes a bracket array `[a, b]`, with one space after each comma. A one-element array keeps its brackets, `[80]`, when it was written that way or set through an array setter, and the empty array is `[]`. A list written with `- ` stays stacked, one item per line, since that is the author's choice, like quotes. A merge writes every list in brackets, whatever form its layers used. A field line kept among or after its items (`E001`) would bind under the brackets, so it is written as a comment there.
 
 An array (either spelling) is **one cell holding many values** - not the same as repeating a field on separate lines, which makes distinct **instances** of that field. The two look alike only for a bare repeated leaf; once an instance has children the intent is plain. A parser **must** emit a hint diagnostic on a bare repeated leaf (`did you mean tags: [red, blue]?`) and never silently treats one form as the other. The hint is advisory (severity `hint`, not `error`) - repeated leaves are legal and are the instance mechanism working as designed; the diagnostic just makes the lookalike impossible to hit unknowingly.
 
@@ -611,14 +611,14 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 
 | Code | Meaning
 | :--: | :--
-| `E001` | field line under a parent already holding stacked `- ` list items (field kept)
+| `E001` | field line under a parent already holding stacked `- ` list items. The line is kept as written and binds nothing, the other items still load, and what is written under it goes with it. One that opens a raw block is dropped with the block
 | `E002` | value after a last-segment selector (`a.b(X): v`) - the value is ignored
 | `E003` | selector names an instance that does not exist: `a(5).b` where there is one `a`. An index selects an existing instance by position and never creates one, which is why a binding line should select by value. On a write path the same situation comes back as the `NoSuchIndex` set-path check rather than as a diagnostic
 | `E004` | wildcard selector on a binding line (wildcards are query-only)
 | `E005` | unterminated raw block (closing fence never found)
 | `E006` | raw-block fence with no parent field to bind to
 | `E007` | stacked `- ` list item with no parent field
-| `E008` | stacked `- ` list item under a parent with field children (item dropped)
+| `E008` | stacked `- ` list item under a parent with field children. The line is kept as written and binds nothing, and what is written under it goes with it
 | `E009` | empty stacked `- ` list item
 | `E011` | stacked `- ` item for a field that already has a value (item ignored)
 | `E012` | indentation matches no open level; kept as written when the indent holds a space and the line opens no raw block, lost otherwise
@@ -627,7 +627,7 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 | `E015` | missing colon on a line that is one clean name or path, quoted or bare (`404`, `"user name"`, `a.b(x).c`), repaired as that path with an empty value
 | `E016` | nesting deeper than the 512-level cap (line skipped)
 | `E017` | a value, array element or selector body opens a quote or backtick it never closes with the matching one as its last character (`a: "open`, `a: "x" y`). The line is kept verbatim and binds nothing. In a value, the lines under it still load, under the field with no value. In a field name the same typo is `E014`
-| `E018` | line written under a line that was skipped (indented beneath it); skipped with it, so a skipped line's block never re-parents one level up. A skipped field line whose value opens a raw block takes the body with it, here and under `E012` and `E021`, so the body is never read as lines. A `- ` item line whose item was dropped (`E007` to `E009`, `E011`, `E021`) is a skipped line for this purpose. Under a kept `E012` line it is kept as written too
+| `E018` | line written under a line that was skipped (indented beneath it); skipped with it, so a skipped line's block never re-parents one level up. A skipped field line whose value opens a raw block takes the body with it, here and under `E012` and `E021`, so the body is never read as lines. A `- ` item line whose item was refused (`E007` to `E009`, `E011`, `E021`) is a skipped line for this purpose. Under a kept `E012` line it is kept as written too
 | `E019` | a bracket array that is not well formed: text after the closing `]` (`log: [INFO] started`), a bare `[` or `]` inside, an empty element (`[a,, b]`), or no closing `]` on the line. A list item that is an array (`- [a]`) is `E019` too, since arrays don't nest. The line is kept verbatim: it binds nothing, and nothing is counted lost. The lines under it still load, under the field with no value. A read on the field is `Empty` when one of them loads, and `NotFound` when none does. Quote the value if it is text
 | `E020` | node cap exceeded (fires only under a caller-supplied cap, see Limits): the parse stopped, and the unparsed remainder counts as lost content
 | `E021` | array longer than the caller-supplied element cap (see Limits); the line, or the stacked item past the cap, is skipped whole rather than truncated to a value the author never wrote, whatever its value. A fault in the path or the name is reported first
@@ -712,7 +712,7 @@ The formatter normalizes structure only - it cannot know value types, so it neve
 
 - Preserve comments as attached trivia. A whole-line comment attaches to the node bound by the next non-comment line and re-emits just above that node's line, at its indent, plus one tab for each level it sits under the comment before it (see Comments); a trailing comment stays on its line, two spaces before the `#`. Comment text is never rewritten.
 
-- When instances merge, their comments concatenate in encounter order; a second trailing comment moves to the lines above (a canonical line has room for one). A list written with `- ` stays stacked. A comment trailing an item stays on its item, and a whole-line comment or a kept malformed or misplaced line among the items stays where it sat, so a fix typed into it stays in the list. A stacked list after an empty instance of its name is written in brackets anyway, since its bare header would merge into that instance on re-read, and the lines and comments among its items go above it. One with a field under it can't be, so it joins that instance when nothing there would land after its items, as a reload joins it. Top-level comments after the last binding line re-emit at the end of the output, unindented; indented ones stay with their block (see Comments).
+- When instances merge, their comments concatenate in encounter order; a second trailing comment moves to the lines above (a canonical line has room for one). A list written with `- ` stays stacked. A comment trailing an item stays on its item, and a whole-line comment or a kept malformed or misplaced line among the items stays where it sat, so a fix typed into it stays in the list. A stacked list after an empty instance of its name is written in brackets anyway, since its bare header would merge into that instance on re-read, and the lines and comments among its items go above it. A field line kept among or after its items (`E001`) would bind there, so it goes out as a comment. Top-level comments after the last binding line re-emit at the end of the output, unindented; indented ones stay with their block (see Comments).
 
 - Quote a value, item or array element that holds whitespace, a colon, a comma, a paren or any other reserved character (see Whitespace, quoting, and reserved characters). Keep the author's quotes adn quote kind on every value, backticks included; quotes are never dropped. Arrays are written `[a, b]`, and a list written with `- ` stays stacked (see Arrays).
 

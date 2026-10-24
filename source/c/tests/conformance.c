@@ -1051,12 +1051,6 @@ static int reload_took_only_comments(const char *lp, size_t ln, const char *bp, 
 	return same;
 }
 
-/* A list with a field under it (E001) after an empty binding of its name that
-   has fields of its own. A merge or an edit can leave one, and then no text
-   reloads as it: stacked, its header joins that binding and its items are
-   dropped (E008), and in brackets it is E028 (2026100511210900). The save
-   gate counts its items lost, so it is never written; the fixture checks
-   that and skips the rest. */
 /* A string read at the path that comes back unquoted and in brackets. A read
    of an array is never quoted, though shcl_quoted gives a one-element array
    its element's flag; an array's element never reads as the array's own
@@ -1069,29 +1063,16 @@ static int reads_bracketed(shcl_doc *d, const char *path, size_t plen) {
 	return sa.status == SHCL_GOOD && (sa.n != 1 || sa.values[0].n != r.value.n || memcmp(sa.values[0].p, r.value.p, r.value.n) != 0);
 }
 
-static int list_after_empty(shcl_doc *d) {
+/* A list with a field under it. No load builds one, since that field line
+   is kept and binds nothing (E001), and no edit or merge does either. It was
+   the shape no text loaded back after an empty binding of its name
+   (2026100511210900). */
+static int list_with_field(shcl_doc *d) {
 	shcl_str *ips; size_t ni = shcl_instance_paths(d, &ips);
 	for (size_t i = 0; i < ni; i++) {
 		shcl_str p = ips[i];
 		shcl_str *kids;
-		if (!shcl_children(d, p.p, p.n, &kids) || !reads_bracketed(d, p.p, p.n)) continue;
-		if (!p.n || p.p[p.n - 1] != ')') continue;
-		size_t at = p.n - 1;
-		while (at > 0 && p.p[at - 1] != '(') at--;
-		if (at == 0) continue;
-		size_t k = 0;
-		int digits = 0;
-		for (size_t j = at; j + 1 < p.n; j++) {
-			if (p.p[j] < '0' || p.p[j] > '9') { digits = 0; break; }
-			k = k * 10 + (size_t)(p.p[j] - '0'); digits = 1;
-		}
-		if (!digits) continue;
-		for (size_t j = 0; j < k; j++) {
-			char e[512];
-			int n = snprintf(e, sizeof e, "%.*s%zu)", (int)at, p.p, j);
-			if (n < 0 || (size_t)n >= sizeof e) continue;
-			if (shcl_read_string(d, e, (size_t)n).status == SHCL_EMPTY && shcl_children(d, e, (size_t)n, &kids)) return 1;
-		}
+		if (shcl_children(d, p.p, p.n, &kids) && reads_bracketed(d, p.p, p.n) && shcl_read_string_array(d, p.p, p.n).status == SHCL_GOOD) return 1;
 	}
 	return 0;
 }
@@ -1151,11 +1132,9 @@ static void edits_and_merges_match_a_reload(void) {
 			(void)applied;
 			if (op <= 1) { seq_puts(&log, "merge:\n"); seq_put(&log, layer.p, layer.n); }
 			else { seq_puts(&log, "op "); seq_num(&log, op); seq_puts(&log, " at "); seq_put(&log, path.p, path.n); seq_puts(&log, "\n"); }
-			if (list_after_empty(live)) {
-				if (shcl_lost_count(live) == 0) {
-					fprintf(stderr, "FAIL edits_and_merges: a list no text loads back saves at iteration %d:\n%s", i, log.p);
-					nfail++; bad = 1;
-				}
+			if (list_with_field(live)) {
+				fprintf(stderr, "FAIL edits_and_merges: a list with a field under it at iteration %d:\n%s", i, log.p);
+				nfail++; bad = 1;
 				shcl_free(back);
 				break;
 			}
@@ -4958,6 +4937,11 @@ int main(int argc, char **argv) {
 		shcl_free(ds);
 		shcl_free(dl);
 	}
+	/* The 6 tests below built a list with a field under it, which no load,
+	   edit or merge builds now: the field line is kept and binds nothing
+	   (E001, 2026102307143752). a_field_under_items_stays_kept pins what each
+	   case does now. */
+#if 0
 	test_id("Es1gWRs", "a_list_no_text_loads_back_refuses_to_save");
 	/* A list with a field under it (E001) after an empty binding of its name
 	   that has fields: no text loads it back, since a reload joins the list's
@@ -5146,6 +5130,83 @@ int main(int argc, char **argv) {
 			if (shcl_lost_count(rd) != 0) fail("remove_list_join", "lost");
 			shcl_free(rb); shcl_free(rd);
 		}
+	}
+#endif
+	test_id("EtXCOkG", "a_field_under_items_stays_kept");
+	/* A field line under stacked items is kept and binds nothing (E001), and
+	   so is an item after a field line (E008). Where an edit or a merge leaves
+	   one that a reload would bind, it is written as a comment. Same fixture
+	   in every runner. */
+	{
+		const char *fsrc = "a:\n\t- x\n\tb: 1\n\t- y\nc:\n\td: 1\n\t- z\n\te: 2\n";
+		shcl_doc *fd = shcl_parse(fsrc, strlen(fsrc));
+		if (shcl_diag_count(fd) != 2 || shcl_diag_line(fd, 0) != 3 || strcmp(shcl_diag_code(fd, 0), "E001") != 0
+			|| shcl_diag_line(fd, 1) != 7 || strcmp(shcl_diag_code(fd, 1), "E008") != 0) fail("field_under_items", "diagnostics");
+		shcl_read_str_arr fa = shcl_read_string_array(fd, "a", 1);
+		if (fa.status != SHCL_GOOD || fa.n != 2 || !str_is(fa.values[0], "x") || !str_is(fa.values[1], "y")) fail("field_under_items", "a");
+		if (shcl_read_string(fd, "a.b", 3).status == SHCL_GOOD) fail("field_under_items", "a.b binds");
+		shcl_str *fk;
+		if (shcl_children(fd, "c", 1, &fk) != 2 || !str_is(fk[0], "d") || !str_is(fk[1], "e")) fail("field_under_items", "c children");
+		struct { const char *src, *want; int step; } fc[] = {
+			{"a:\n\t- x\n\tb: 1\n\t- y\nc:\n\td: 1\n\t- z\n\te: 2\n", "a:\n\t- x\n\tb: 1\n\t- y\nc:\n\td: 1\n\t- z\n\te: 2\n", 0},
+			/* A list after an empty binding of its name goes in brackets, so
+			   the field line kept after its items is written as a comment. */
+			{"x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n", "x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n", 1},
+			{"p:\n\ts:\n\t\tx: 1\n", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n\t\t# c: 1\n", 2},
+			/* A setter that replaces the list moves the kept line above it. */
+			{"a:\n\t- x\n\tb: 1\n\t- y\nd: 1\n", "# b: 1\na:\n\t- p\n\t- q\nd: 1\n", 3},
+			/* A remove of the field before it leaves the item where it would
+			   join. */
+			{"a:\n\tb: 1\n\t- x\n\tc: 2\n", "a:\n\t# - x\n\tc: 2\n", 4},
+			{"a:\n\tb: 1\n\t- x\n\tc: 2\n", "a:\n\t# - x\n", 5},
+			/* A line refused for its value still holds its level open under
+			   items, for what is kept under it. A line that would bind through
+			   it is E001. */
+			{"a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n", "a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n", 0},
+			{"a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n", "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n", 0},
+			/* Once a merge brackets the list, such a line is a comment, at
+			   most one level past the comment before it. */
+			{"a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n", "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n", 6},
+		};
+		for (size_t k = 0; k < sizeof fc / sizeof fc[0]; k++) {
+			shcl_doc *cd = shcl_parse(fc[k].src, strlen(fc[k].src));
+			int ok = 1;
+			if (fc[k].step == 1) ok = shcl_set_empty(cd, "x(v)", 4) == SHCL_SET_OK;
+			if (fc[k].step == 6) {
+				shcl_doc *lo = shcl_parse("z: 1\n", 5);
+				shcl_merge(cd, lo);
+				shcl_free(lo);
+			}
+			if (fc[k].step == 2) {
+				const char *ly = "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n";
+				shcl_doc *lo = shcl_parse(ly, strlen(ly));
+				shcl_merge(cd, lo);
+				shcl_free(lo);
+			}
+			if (fc[k].step == 3) {
+				const char *pq[] = {"p", "q"}; size_t pql[] = {1, 1};
+				ok = shcl_set_string_array(cd, "a", 1, pq, pql, 2) == SHCL_SET_OK;
+			}
+			if (fc[k].step == 4 || fc[k].step == 5) ok = shcl_remove(cd, "a.b", 3) == 1;
+			if (fc[k].step == 5) ok = ok && shcl_remove(cd, "a.c", 3) == 1;
+			if (!ok) fail("field_under_items", "an edit refused");
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, fc[k].want)) { fail("field_under_items", fc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("field_under_items", "reload differs");
+			if (shcl_lost_count(cd) != 0 || shcl_lost_count(cb) != 0) fail("field_under_items", "lost");
+			shcl_free(cb); shcl_free(cd);
+		}
+		shcl_free(fd);
+		const char *hsrc = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n";
+		shcl_doc *hd = shcl_parse(hsrc, strlen(hsrc));
+		if (shcl_diag_count(hd) != 3 || shcl_diag_line(hd, 0) != 3 || strcmp(shcl_diag_code(hd, 0), "E026") != 0
+			|| shcl_diag_line(hd, 1) != 4 || strcmp(shcl_diag_code(hd, 1), "E001") != 0
+			|| shcl_diag_line(hd, 2) != 5 || strcmp(shcl_diag_code(hd, 2), "E001") != 0) fail("field_under_items", "held open diagnostics");
+		shcl_read_str_arr ha = shcl_read_string_array(hd, "a", 1);
+		if (ha.status != SHCL_GOOD || ha.n != 1 || !str_is(ha.values[0], "0")) fail("field_under_items", "held open a");
+		shcl_free(hd);
 	}
 	test_id("Es1gWRx", "a_setter_keeps_fields_and_arrays_apart");
 	/* A field with lines under it takes one plain value or none (E028), so a

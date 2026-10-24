@@ -1053,30 +1053,15 @@ def keeps_every_line(base):
 	return not kept or all(any(t == ln for t in rest) for ln in base.split("\n") if ln.strip())
 
 
-def list_after_empty(doc) -> bool:
-	"""A list with a field under it (E001) after an empty binding of its name
-	that has fields of its own. A merge or an edit can leave one, and then no
-	text reloads as it: stacked, its header joins that binding and its items
-	are dropped (E008), and in brackets it is E028 (2026100511210900). The save
-	gate counts its items lost, so it is never written; the fixture checks that
-	and skips the rest."""
+def list_with_field(doc) -> bool:
+	"""A list with a field under it. No load builds one, since that field line
+	is kept and binds nothing (E001), and no edit or merge does either. It was
+	the shape no text loaded back after an empty binding of its name
+	(2026100511210900)."""
 	for p in doc.instance_paths():
 		r = doc.read_string(p)
-		if not doc.children(p) or r.status != shcl.Status.Good or r.quoted or not r.value.startswith("["):
-			continue
-		if not p.endswith(")"):
-			continue
-		at = p.rfind("(")
-		if at < 0:
-			continue
-		try:
-			k = int(p[at + 1:-1])
-		except ValueError:
-			continue
-		for j in range(k):
-			e = f"{p[:at]}({j})"
-			if doc.read_string(e).status == shcl.Status.Empty and doc.children(e):
-				return True
+		if doc.children(p) and r.status == shcl.Status.Good and not r.quoted and r.value.startswith("[") and doc.read_string_array(p).status == shcl.Status.Good:
+			return True
 	return False
 
 
@@ -1177,10 +1162,8 @@ def edits_and_merges_match_a_reload():
 				else:
 					d.set_banner(v != "v0")
 			log += f"merge:\n{layer}" if op <= 1 else f"op {op} at {path!r}\n"
-			if list_after_empty(live):
-				if live.lost_count() == 0:
-					raise SystemExit(f"a list no text loads back saves at iteration {i}:\n{log}")
-				break
+			if list_with_field(live):
+				raise SystemExit(f"a list with a field under it at iteration {i}:\n{log}")
 			a, b = live.to_canonical(), back.to_canonical()
 			if a != b and not (op in (4, 9) and reload_took_only_comments(a, b)):
 				raise SystemExit(f"a step on the document and on its reload differ at iteration {i}:\n{log}--- live\n{a}--- reload\n{b}")
@@ -4321,177 +4304,247 @@ def main():
 			if (td_xa.status, td_xa.value) != (td_ya.status, td_ya.value):
 				raise SystemExit(f"{td_path} int[]: {td_xa!r} vs {td_ya!r}")
 
-	test_id("ErylLpa", "a_list_no_text_loads_back_refuses_to_save")
-	# A list with a field under it (E001) after an empty binding of its name
-	# that has fields: no text loads it back, since a reload joins the list's
-	# header to that binding and drops its items (E008). The load is left as
-	# it is; a save that would write it refuses (2026100511210900). An edit
-	# and a merge can each leave one. Same fixture in every runner.
-	lsrc = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
-	ldoc = shcl.Document.parse_keep_lines(lsrc, shcl.Strictness.Standard)
-	if ldoc.lost_count() != 0:
-		raise SystemExit(f"load lost {ldoc.lost_count()}")
-	if not ldoc.set_empty("x(v)"):
+	# The 6 tests below built a list with a field under it, which no load,
+	# edit or merge builds now: the field line is kept and binds nothing
+	# (E001, 2026102307143752). a_field_under_items_stays_kept pins what each
+	# case does now.
+	# test_id("ErylLpa", "a_list_no_text_loads_back_refuses_to_save")
+	# # A list with a field under it (E001) after an empty binding of its name
+	# # that has fields: no text loads it back, since a reload joins the list's
+	# # header to that binding and drops its items (E008). The load is left as
+	# # it is; a save that would write it refuses (2026100511210900). An edit
+	# # and a merge can each leave one. Same fixture in every runner.
+	# lsrc = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
+	# ldoc = shcl.Document.parse_keep_lines(lsrc, shcl.Strictness.Standard)
+	# if ldoc.lost_count() != 0:
+	# 	raise SystemExit(f"load lost {ldoc.lost_count()}")
+	# if not ldoc.set_empty("x(v)"):
+	# 	raise SystemExit("set empty refused")
+	# ltext = ldoc.to_canonical()
+	# if ltext != "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n":
+	# 	raise SystemExit(f"canonical {ltext!r}")
+	# if shcl.Document.parse(ltext).lost_count() != 2:
+	# 	raise SystemExit(f"the reload drops both items: {shcl.Document.parse(ltext).lost_count()}")
+	# if ldoc.lost_count() != 2:
+	# 	raise SystemExit(f"lost {ldoc.lost_count()}")
+	# if ldoc.to_text_keep_lines()[1]:
+	# 	raise SystemExit("the source was canonical, and still no lines are kept")
+	# with tempfile.TemporaryDirectory() as ld:
+	# 	lf = os.path.join(ld, "t.shcl")
+	# 	Path(lf).write_bytes(lsrc.encode())
+	# 	for lsave in (ldoc.save_file, ldoc.save_file_keep_lines):
+	# 		try:
+	# 			lsave(lf)
+	# 			raise SystemExit(f"{lsave.__name__} went through")
+	# 		except shcl.SaveRefused as e:
+	# 			if e.lost != 2:
+	# 				raise SystemExit(f"{lsave.__name__}: lost {e.lost}") from None
+	# 	if Path(lf).read_bytes() != lsrc.encode():
+	# 		raise SystemExit(f"file changed: {Path(lf).read_bytes()!r}")
+	# 	ldoc.save_file_lossy(lf)
+	# # The same through a merge: the list arrives over an empty binding.
+	# lmerged = shcl.Document.parse("x:\n\tf: 1\n")
+	# lmerged.merge(shcl.Document.parse("x:\n\t- a\n\t- b\n\tg: 2\n"))
+	# if lmerged.lost_count() != 2:
+	# 	raise SystemExit(f"merge lost {lmerged.lost_count()}: {lmerged.to_canonical()!r}")
+	# # An empty binding with no fields takes the list in, so nothing is lost,
+	# # and a list with no field under it goes in brackets.
+	# for lsrc in ("x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"):
+	# 	ldoc = shcl.Document.parse(lsrc)
+	# 	if not ldoc.set_empty("x(v)") or ldoc.lost_count() != 0:
+	# 		raise SystemExit(f"{lsrc!r}: lost {ldoc.lost_count()}: {ldoc.to_canonical()!r}")
+	#
+	# test_id("ErylLpb", "a_list_joining_an_emptied_field_keeps_its_fields_found")
+	# # A setter that empties a field joins the stacked list after it, fields
+	# # and all, as a reload would. A read made before the write has the lookup
+	# # built, and the fields that moved still have to be found through it.
+	# for jsrc, jpath, jfield, jwant in (
+	# 	("b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
+	# 	("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
+	# 	("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
+	# ):
+	# 	jdoc = shcl.Document.parse(jsrc)
+	# 	if jdoc.read_string(jfield).status != shcl.Status.Good:
+	# 		raise SystemExit(f"{jsrc!r}: before: {jdoc.read_string(jfield)!r}")
+	# 	if not jdoc.set_empty(jpath):
+	# 		raise SystemExit(f"{jsrc!r}: set empty refused")
+	# 	jback = shcl.Document.parse(jdoc.to_canonical())
+	# 	for jd, jwhich in ((jback, "reload"), (jdoc, "live")):
+	# 		jr = jd.read_string(jfield)
+	# 		if jr.status != shcl.Status.Good or jr.value != jwant:
+	# 			raise SystemExit(f"{jsrc!r}: {jwhich}: {jr!r}")
+	# 	if jdoc.paths() != jback.paths():
+	# 		raise SystemExit(f"{jsrc!r}: paths {jdoc.paths()} vs {jback.paths()}")
+	#
+	# test_id("ErylLpc", "a_list_the_source_loads_back_keeps_its_lines")
+	# # A load can build that list too, under a kept array line (E028). The
+	# # canonical text writes the line as a comment and cannot load the list
+	# # back, so that save refuses. The source text does, so with no edits the
+	# # save that keeps lines writes it as it was.
+	# ksrc = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
+	# kdoc = shcl.Document.parse_keep_lines(ksrc, shcl.Strictness.Standard)
+	# if kdoc.lost_count() != 2:
+	# 	raise SystemExit(f"the wildcard line and the item: lost {kdoc.lost_count()}")
+	# if kdoc.to_text_keep_lines() != (ksrc, True):
+	# 	raise SystemExit(f"keep: {kdoc.to_text_keep_lines()!r}")
+	# with tempfile.TemporaryDirectory() as kd:
+	# 	kpath = os.path.join(kd, "t.shcl")
+	# 	Path(kpath).write_bytes(ksrc.encode())
+	# 	try:
+	# 		kdoc.save_file(kpath)
+	# 		raise SystemExit("save went through")
+	# 	except shcl.SaveRefused as e:
+	# 		if e.lost != 2:
+	# 			raise SystemExit(f"save: lost {e.lost}") from None
+	# 	if not kdoc.save_file_keep_lines(kpath):
+	# 		raise SystemExit("the keep save kept no lines")
+	# 	if Path(kpath).read_bytes() != ksrc.encode():
+	# 		raise SystemExit(f"file changed: {Path(kpath).read_bytes()!r}")
+	#
+	# test_id("ErylLpd", "a_merged_list_joins_an_empty_field_past_a_comment")
+	# # A merge adds a list with a field under it as a new instance after an
+	# # empty binding of its name. A comment or kept line left after the
+	# # binding held the join off, though a reload joins the two
+	# # (2026100520243961).
+	# for mbase in (
+	# 	"p:\n\ts:\n\t# c\n",
+	# 	"p:\n\ts:\n\tk: [1\n",
+	# 	"p:\n\ts:\n\t# c\n\t\t# d\n",
+	# 	"p:\n\ts:\n\t# c\n\tt: 2\n",
+	# ):
+	# 	mdoc = shcl.Document.parse(mbase)
+	# 	mdoc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
+	# 	mtext = mdoc.to_canonical()
+	# 	mback = shcl.Document.parse(mtext)
+	# 	if mback.to_canonical() != mtext:
+	# 		raise SystemExit(f"{mbase!r}: not a fixpoint: {mtext!r}")
+	# 	if mdoc.paths() != mback.paths():
+	# 		raise SystemExit(f"{mbase!r}: paths {mdoc.paths()} vs {mback.paths()}")
+	# 	for md in (mdoc, mback):
+	# 		mr = md.read_string("p.s.c")
+	# 		if mr.status != shcl.Status.Good or mr.value != "1":
+	# 			raise SystemExit(f"{mbase!r}: p.s.c {mr!r}")
+	# 	if len(mdoc.instances("p.s")) != 1:
+	# 		raise SystemExit(f"{mbase!r}: {len(mdoc.instances('p.s'))} instances")
+	#
+	# test_id("EsFs7xw", "a_joined_list_files_the_bindings_lines_like_a_reload")
+	# # A list that joins an empty binding brings its fields, and the binding's
+	# # own kept line inside its block is written after them. A merge left it
+	# # filed inside the block, so a remove of the last field wrote it before
+	# # the kept line among the items, and a reload after it (2026100914525821).
+	# ylayer = shcl.Document.parse("srv:\n\t- 1\n\t*\n\tb: 1\n")
+	# ydoc = shcl.Document.parse("srv:\n\t[\n")
+	# ydoc.merge(ylayer)
+	# ytext = ydoc.to_canonical()
+	# if ytext != "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n":
+	# 	raise SystemExit(f"joined list: merged {ytext!r}")
+	# yback = shcl.Document.parse(ytext)
+	# if ydoc.remove("srv.b") != 1 or yback.remove("srv.b") != 1:
+	# 	raise SystemExit("joined list: remove srv.b")
+	# if ydoc.to_canonical() != "srv:\n\t- 1\n\t*\n\t[\n":
+	# 	raise SystemExit(f"joined list: removed {ydoc.to_canonical()!r}")
+	# if yback.to_canonical() != ydoc.to_canonical():
+	# 	raise SystemExit(f"joined list: reload {yback.to_canonical()!r}, document {ydoc.to_canonical()!r}")
+	# # The write side's join, when a remove empties the binding.
+	# ydoc = shcl.Document.parse("srv:\n\tx: 1\n\t[\n")
+	# ydoc.merge(ylayer)
+	# if ydoc.remove("srv.x") != 1:
+	# 	raise SystemExit("joined list: remove srv.x")
+	# yback = shcl.Document.parse(ydoc.to_canonical())
+	# if ydoc.remove("srv.b") != 1 or yback.remove("srv.b") != 1:
+	# 	raise SystemExit("joined list: remove srv.b after the join")
+	# if yback.to_canonical() != ydoc.to_canonical():
+	# 	raise SystemExit(f"joined list after the join: reload {yback.to_canonical()!r}, document {ydoc.to_canonical()!r}")
+	#
+	# test_id("ErylLpe", "a_remove_settles_a_list_after_an_empty_field")
+	# # The remove twin: the merge without the gap builds the list no text loads
+	# # back, after a binding with a field. A remove that takes that field joins
+	# # the list, and one that takes the list's field puts it in brackets, as a
+	# # reload reads each.
+	# for rpath, rwant in (
+	# 	("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
+	# 	("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
+	# ):
+	# 	rdoc = shcl.Document.parse("p:\n\ts:\n\t\tx: 1\n")
+	# 	rdoc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
+	# 	if rdoc.lost_count() == 0:
+	# 		raise SystemExit(f"{rpath}: the list no text loads back")
+	# 	if rdoc.remove(rpath) != 1:
+	# 		raise SystemExit(f"{rpath}: remove missed")
+	# 	rtext = rdoc.to_canonical()
+	# 	if rtext != rwant:
+	# 		raise SystemExit(f"{rpath}: {rtext!r}")
+	# 	rback = shcl.Document.parse(rtext)
+	# 	if rback.to_canonical() != rtext or rdoc.paths() != rback.paths():
+	# 		raise SystemExit(f"{rpath}: reload differs")
+	# 	if rdoc.lost_count() != 0:
+	# 		raise SystemExit(f"{rpath}: lost {rdoc.lost_count()}")
+
+	test_id("EtXCOhX", "a_field_under_items_stays_kept")
+	# A field line under stacked items is kept and binds nothing (E001), and
+	# so is an item after a field line (E008). Where an edit or a merge leaves
+	# one that a reload would bind, it is written as a comment. Same fixture
+	# in every runner.
+
+	def fu_check(doc, want):
+		text = doc.to_canonical()
+		if text != want:
+			raise SystemExit(f"canonical {text!r}, want {want!r}")
+		back = shcl.Document.parse(text)
+		if back.to_canonical() != text or doc.paths() != back.paths():
+			raise SystemExit(f"reload differs: {text!r}")
+		if doc.lost_count() != 0 or back.lost_count() != 0:
+			raise SystemExit(f"lost {doc.lost_count()}, reload {back.lost_count()}: {text!r}")
+
+	fu_src = "a:\n\t- x\n\tb: 1\n\t- y\nc:\n\td: 1\n\t- z\n\te: 2\n"
+	fu_doc = shcl.Document.parse(fu_src)
+	if [(d.line, d.code) for d in fu_doc.diagnostics()] != [(3, "E001"), (7, "E008")]:
+		raise SystemExit(f"diagnostics {fu_doc.diagnostics()!r}")
+	if fu_doc.get_string_array("a") != ["x", "y"]:
+		raise SystemExit(f"a: {fu_doc.get_string_array('a')!r}")
+	if fu_doc.read_string("a.b").status is shcl.Status.Good:
+		raise SystemExit("a.b binds")
+	if fu_doc.children("c") != ["d", "e"]:
+		raise SystemExit(f"c children {fu_doc.children('c')!r}")
+	fu_check(fu_doc, fu_src)
+	# A list after an empty binding of its name goes in brackets, so the
+	# field line kept after its items is written as a comment.
+	fu_doc = shcl.Document.parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n")
+	if fu_doc.set_empty("x(v)") != shcl.SetStatus.Ok:
 		raise SystemExit("set empty refused")
-	ltext = ldoc.to_canonical()
-	if ltext != "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n":
-		raise SystemExit(f"canonical {ltext!r}")
-	if shcl.Document.parse(ltext).lost_count() != 2:
-		raise SystemExit(f"the reload drops both items: {shcl.Document.parse(ltext).lost_count()}")
-	if ldoc.lost_count() != 2:
-		raise SystemExit(f"lost {ldoc.lost_count()}")
-	if ldoc.to_text_keep_lines()[1]:
-		raise SystemExit("the source was canonical, and still no lines are kept")
-	with tempfile.TemporaryDirectory() as ld:
-		lf = os.path.join(ld, "t.shcl")
-		Path(lf).write_bytes(lsrc.encode())
-		for lsave in (ldoc.save_file, ldoc.save_file_keep_lines):
-			try:
-				lsave(lf)
-				raise SystemExit(f"{lsave.__name__} went through")
-			except shcl.SaveRefused as e:
-				if e.lost != 2:
-					raise SystemExit(f"{lsave.__name__}: lost {e.lost}") from None
-		if Path(lf).read_bytes() != lsrc.encode():
-			raise SystemExit(f"file changed: {Path(lf).read_bytes()!r}")
-		ldoc.save_file_lossy(lf)
-	# The same through a merge: the list arrives over an empty binding.
-	lmerged = shcl.Document.parse("x:\n\tf: 1\n")
-	lmerged.merge(shcl.Document.parse("x:\n\t- a\n\t- b\n\tg: 2\n"))
-	if lmerged.lost_count() != 2:
-		raise SystemExit(f"merge lost {lmerged.lost_count()}: {lmerged.to_canonical()!r}")
-	# An empty binding with no fields takes the list in, so nothing is lost,
-	# and a list with no field under it goes in brackets.
-	for lsrc in ("x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"):
-		ldoc = shcl.Document.parse(lsrc)
-		if not ldoc.set_empty("x(v)") or ldoc.lost_count() != 0:
-			raise SystemExit(f"{lsrc!r}: lost {ldoc.lost_count()}: {ldoc.to_canonical()!r}")
-
-	test_id("ErylLpb", "a_list_joining_an_emptied_field_keeps_its_fields_found")
-	# A setter that empties a field joins the stacked list after it, fields
-	# and all, as a reload would. A read made before the write has the lookup
-	# built, and the fields that moved still have to be found through it.
-	for jsrc, jpath, jfield, jwant in (
-		("b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
-		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
-		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
-	):
-		jdoc = shcl.Document.parse(jsrc)
-		if jdoc.read_string(jfield).status != shcl.Status.Good:
-			raise SystemExit(f"{jsrc!r}: before: {jdoc.read_string(jfield)!r}")
-		if not jdoc.set_empty(jpath):
-			raise SystemExit(f"{jsrc!r}: set empty refused")
-		jback = shcl.Document.parse(jdoc.to_canonical())
-		for jd, jwhich in ((jback, "reload"), (jdoc, "live")):
-			jr = jd.read_string(jfield)
-			if jr.status != shcl.Status.Good or jr.value != jwant:
-				raise SystemExit(f"{jsrc!r}: {jwhich}: {jr!r}")
-		if jdoc.paths() != jback.paths():
-			raise SystemExit(f"{jsrc!r}: paths {jdoc.paths()} vs {jback.paths()}")
-
-	test_id("ErylLpc", "a_list_the_source_loads_back_keeps_its_lines")
-	# A load can build that list too, under a kept array line (E028). The
-	# canonical text writes the line as a comment and cannot load the list
-	# back, so that save refuses. The source text does, so with no edits the
-	# save that keeps lines writes it as it was.
-	ksrc = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
-	kdoc = shcl.Document.parse_keep_lines(ksrc, shcl.Strictness.Standard)
-	if kdoc.lost_count() != 2:
-		raise SystemExit(f"the wildcard line and the item: lost {kdoc.lost_count()}")
-	if kdoc.to_text_keep_lines() != (ksrc, True):
-		raise SystemExit(f"keep: {kdoc.to_text_keep_lines()!r}")
-	with tempfile.TemporaryDirectory() as kd:
-		kpath = os.path.join(kd, "t.shcl")
-		Path(kpath).write_bytes(ksrc.encode())
-		try:
-			kdoc.save_file(kpath)
-			raise SystemExit("save went through")
-		except shcl.SaveRefused as e:
-			if e.lost != 2:
-				raise SystemExit(f"save: lost {e.lost}") from None
-		if not kdoc.save_file_keep_lines(kpath):
-			raise SystemExit("the keep save kept no lines")
-		if Path(kpath).read_bytes() != ksrc.encode():
-			raise SystemExit(f"file changed: {Path(kpath).read_bytes()!r}")
-
-	test_id("ErylLpd", "a_merged_list_joins_an_empty_field_past_a_comment")
-	# A merge adds a list with a field under it as a new instance after an
-	# empty binding of its name. A comment or kept line left after the
-	# binding held the join off, though a reload joins the two
-	# (2026100520243961).
-	for mbase in (
-		"p:\n\ts:\n\t# c\n",
-		"p:\n\ts:\n\tk: [1\n",
-		"p:\n\ts:\n\t# c\n\t\t# d\n",
-		"p:\n\ts:\n\t# c\n\tt: 2\n",
-	):
-		mdoc = shcl.Document.parse(mbase)
-		mdoc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
-		mtext = mdoc.to_canonical()
-		mback = shcl.Document.parse(mtext)
-		if mback.to_canonical() != mtext:
-			raise SystemExit(f"{mbase!r}: not a fixpoint: {mtext!r}")
-		if mdoc.paths() != mback.paths():
-			raise SystemExit(f"{mbase!r}: paths {mdoc.paths()} vs {mback.paths()}")
-		for md in (mdoc, mback):
-			mr = md.read_string("p.s.c")
-			if mr.status != shcl.Status.Good or mr.value != "1":
-				raise SystemExit(f"{mbase!r}: p.s.c {mr!r}")
-		if len(mdoc.instances("p.s")) != 1:
-			raise SystemExit(f"{mbase!r}: {len(mdoc.instances('p.s'))} instances")
-
-	test_id("EsFs7xw", "a_joined_list_files_the_bindings_lines_like_a_reload")
-	# A list that joins an empty binding brings its fields, and the binding's
-	# own kept line inside its block is written after them. A merge left it
-	# filed inside the block, so a remove of the last field wrote it before
-	# the kept line among the items, and a reload after it (2026100914525821).
-	ylayer = shcl.Document.parse("srv:\n\t- 1\n\t*\n\tb: 1\n")
-	ydoc = shcl.Document.parse("srv:\n\t[\n")
-	ydoc.merge(ylayer)
-	ytext = ydoc.to_canonical()
-	if ytext != "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n":
-		raise SystemExit(f"joined list: merged {ytext!r}")
-	yback = shcl.Document.parse(ytext)
-	if ydoc.remove("srv.b") != 1 or yback.remove("srv.b") != 1:
-		raise SystemExit("joined list: remove srv.b")
-	if ydoc.to_canonical() != "srv:\n\t- 1\n\t*\n\t[\n":
-		raise SystemExit(f"joined list: removed {ydoc.to_canonical()!r}")
-	if yback.to_canonical() != ydoc.to_canonical():
-		raise SystemExit(f"joined list: reload {yback.to_canonical()!r}, document {ydoc.to_canonical()!r}")
-	# The write side's join, when a remove empties the binding.
-	ydoc = shcl.Document.parse("srv:\n\tx: 1\n\t[\n")
-	ydoc.merge(ylayer)
-	if ydoc.remove("srv.x") != 1:
-		raise SystemExit("joined list: remove srv.x")
-	yback = shcl.Document.parse(ydoc.to_canonical())
-	if ydoc.remove("srv.b") != 1 or yback.remove("srv.b") != 1:
-		raise SystemExit("joined list: remove srv.b after the join")
-	if yback.to_canonical() != ydoc.to_canonical():
-		raise SystemExit(f"joined list after the join: reload {yback.to_canonical()!r}, document {ydoc.to_canonical()!r}")
-
-	test_id("ErylLpe", "a_remove_settles_a_list_after_an_empty_field")
-	# The remove twin: the merge without the gap builds the list no text loads
-	# back, after a binding with a field. A remove that takes that field joins
-	# the list, and one that takes the list's field puts it in brackets, as a
-	# reload reads each.
-	for rpath, rwant in (
-		("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
-		("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
-	):
-		rdoc = shcl.Document.parse("p:\n\ts:\n\t\tx: 1\n")
-		rdoc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
-		if rdoc.lost_count() == 0:
-			raise SystemExit(f"{rpath}: the list no text loads back")
-		if rdoc.remove(rpath) != 1:
-			raise SystemExit(f"{rpath}: remove missed")
-		rtext = rdoc.to_canonical()
-		if rtext != rwant:
-			raise SystemExit(f"{rpath}: {rtext!r}")
-		rback = shcl.Document.parse(rtext)
-		if rback.to_canonical() != rtext or rdoc.paths() != rback.paths():
-			raise SystemExit(f"{rpath}: reload differs")
-		if rdoc.lost_count() != 0:
-			raise SystemExit(f"{rpath}: lost {rdoc.lost_count()}")
+	fu_check(fu_doc, "x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n")
+	fu_doc = shcl.Document.parse("p:\n\ts:\n\t\tx: 1\n")
+	fu_doc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
+	fu_check(fu_doc, "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n\t\t# c: 1\n")
+	# A setter that replaces the list moves the kept line above it.
+	fu_doc = shcl.Document.parse("a:\n\t- x\n\tb: 1\n\t- y\nd: 1\n")
+	if fu_doc.set_string_array("a", ["p", "q"]) != shcl.SetStatus.Ok:
+		raise SystemExit("set array refused")
+	fu_check(fu_doc, "# b: 1\na:\n\t- p\n\t- q\nd: 1\n")
+	# A remove of the field before it leaves the item where it would join.
+	fu_doc = shcl.Document.parse("a:\n\tb: 1\n\t- x\n\tc: 2\n")
+	if fu_doc.remove("a.b") != 1:
+		raise SystemExit("remove a.b")
+	fu_check(fu_doc, "a:\n\t# - x\n\tc: 2\n")
+	if fu_doc.remove("a.c") != 1:
+		raise SystemExit("remove a.c")
+	fu_check(fu_doc, "a:\n\t# - x\n")
+	# A line refused for its value still holds its level open under items,
+	# for what is kept under it. A line that would bind through it is E001.
+	fu_doc = shcl.Document.parse("a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n")
+	fu_check(fu_doc, "a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n")
+	fu_src = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n"
+	fu_doc = shcl.Document.parse(fu_src)
+	if [(d.line, d.code) for d in fu_doc.diagnostics()] != [(3, "E026"), (4, "E001"), (5, "E001")]:
+		raise SystemExit(f"diagnostics {fu_doc.diagnostics()!r}")
+	if fu_doc.get_string_array("a") != ["0"]:
+		raise SystemExit(f"a: {fu_doc.get_string_array('a')!r}")
+	fu_check(fu_doc, fu_src)
+	# Once a merge brackets the list, such a line is a comment, at most one
+	# level past the comment before it.
+	fu_doc = shcl.Document.parse("a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n")
+	fu_doc.merge(shcl.Document.parse("z: 1\n"))
+	fu_check(fu_doc, "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n")
 
 	test_id("ErylLpf", "a_setter_keeps_fields_and_arrays_apart")
 	# A field with lines under it takes one plain value or none (E028), so a

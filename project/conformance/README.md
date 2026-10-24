@@ -58,7 +58,7 @@ Case `008` pins 10-element typed arrays of every kind (int, float, bool, datetim
 
 Case `009` pins wildcard slot alignment: a missing sub-path keeps its slot (per-slot `NotFound`, value zero/default), an uncoercible one reads `BadType`, the aggregate status is the worst slot, and `count`/`instances` stay index-aligned with the read (unresolved slots enumerate as "").
 
-Case `010` pins uniform-or-nothing: mixing `- ` items and field children under one parent is not a block array - the first mixed field diagnoses an Error (and keeps the field), every `- ` line after a field child is an Error and is dropped, and the document loads at `standard` but fails at `strict`.
+Case `010` pins uniform-or-nothing: a field line after `- ` items is `E001` and an item after a field child is `E008`. Each is kept as written and binds nothing, the items around the field line still join the list, nothing is lost, and the document loads at `standard` but fails at `strict`.
 
 Case `011` pins array-as-string: an array read as one string is its canonical bracket form (minimal quoting, escapes intact), while the array-of-strings read unquotes and applies escapes per element. Its `base(Boston, MA)` line, once in brackets, selected the array-valued instance by its display form; a bare selector body cannot hold a space now (`E025`), so the line is kept and takes its block with it.
 
@@ -216,7 +216,7 @@ Case `093` pins `allowed` on a datetime with an offset: the same instant written
 
 Case `094` pins what trimming takes off a bare piece: a space, a tab and a carriage return. A no-break space, a line separator, a vertical tab or a form feed left at an edge is whitespace inside the piece, so the line is `E025` and kept as written.
 
-Case `095` pins that a dropped item holds its level: what is written under an `E008`, `E009` or `E011` item is `E018` and lost with it.
+Case `095` pins that a refused item holds its level: what is written under an `E008`, `E009` or `E011` item is `E018` and lost with it. The `E008` item itself is kept.
 
 Cases `096` and `097` pin a raw block that never closes, with and without a final newline: `E005`, and the block reads `body` either way.
 
@@ -282,7 +282,7 @@ Case `130` pins a wildcard remove over a leaf that repeats under one instance. A
 
 Case `129` pins a remove that matches many nodes at once. One path takes every child of a parent, another takes several top-level instances, a third matches nothing, and a write after them shows the parent and the name index still answer. Each match used to be dropped on its own, rebuilding the parent's whole child list every time.
 
-Case `128` pins the column a kept `- ` item holds, beside case `095`'s dropped one (20260918b item 28). A field written deeper binds under the field (`E001`), the next field at the item's column binds as its sibling, and an item after a field child is `E008`. Every later sibling used to be `E012` and lost.
+Case `128` pins the column a kept `- ` item holds, beside case `095`'s dropped one (20260918b item 28). A field line written deeper or back at the item's column is kept and binds nothing (`E001`), and the items after it still join the list. Every later sibling used to be `E012` and lost.
 
 Case `127` pins the `init` shapes where the generator guessed what the scanner would read (20260918b items 6, 7, 8, 25, 26 and 27). The first of two lines on one path is the instance its child selects. Two by-value fields with different values are two instances. An all-digit value past 64 bits is a quoted body, since bare it reads as an index. A `#` in a selector body is quoted. A fragment name holding a line break stays inside the trailing block. The input is the output with every line uncommented, and its reads count the instances. A child of an array value had a selector of the elements joined, which a bare body cannot spell now, so those fields are commented out of its schema.
 
@@ -400,7 +400,7 @@ Case `186` pins a misplaced line kept as written that the load turns into a comm
 
 Case `187` pins a field line refused for its value alone, `E019`, `E023` in a value and `E025`: it binds nothing, and the lines under it load under the field with no value, nested ones and stacked items included. A field with nothing under it stays absent, and a line with an escape in its name still takes its block with it (`E018`). Canonical output writes the kept line in place of the bare `name:` line, and both saves keep it as written.
 
-Case `188` pins where a line refused for its value alone is written back: under the line it sat under, so it reads at the same path once its value is fixed. That holds under another such line, before a dotted line, after a comment at column 0 inside a block, before a child fence and among stacked items. Its write ops change a value and add a field, and the save that keeps lines writes every other line as it was.
+Case `188` pins where a line refused for its value alone is written back: under the line it sat under, so it reads at the same path once its value is fixed. That holds under another such line, before a dotted line, after a comment at column 0 inside a block, before a child fence and among stacked items, where it keeps its own code. Its write ops change a value and add a field, and the save that keeps lines writes every other line as it was.
 
 Case `189` pins a Schema line and a Format line in a raw body opened by the single-quoted name `'C:\'`. Under 2.x a backslash escaped the closing quote, so a line walk that read the file that way missed the block and took the Schema line in its body as the file's.
 
@@ -426,7 +426,7 @@ Case `199` pins `E028`: an array on a field with fields under it is kept as writ
 
 Case `200` pins that a selector matches one plain value, quoted or not: `srv(a)` and `srv("a")` find the scalar `a` and never the array `[a]` or a raw block holding `a`. A bare selector body with a space is `E025` on a file line, which takes the block under it, and in a lookup it reads `BadPath`.
 
-Case `201` pins a list with a field under it that a merge adds after an empty binding of its name in a lower layer, with a comment and a kept line between the two. A reload of the merged text joins the list to the binding and puts the two lines above it, so the merge does the same.
+Case `201` pins a list with a kept field line under it (`E001`) that a merge adds after an empty binding of its name in a lower layer. The merge puts the list in brackets and joins it to the binding, and the kept line, which would bind under the brackets, goes out as a comment.
 
 Case `202` pins spaces, colons and commas in bare text. A bare value or stacked item keeps its spaces as typed, and canonical output quotes it. A colon or comma with something other than a blank after it is text, so `rw,noatime`, `:0`, a URL and `80,443` stay bare, and the last is a string that a typed int read refuses. A quoted `"1,000"` is text too, but at Loose it reads as 1000, while the bare `80,443` stays text there. The writer leaves `80,443` bare, so a save cannot change that. A colon then a space or the end is `E025` in a value and `E027` in an item, and a comma then a space or the end is `E026`. A tab or a bracket in a bare value and a space in an array element are `E025`. Inside brackets every comma splits. The writer quotes any value, item or element with a space, colon or comma, so canonical output puts all of these but `80,443` in quotes.
 
