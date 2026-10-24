@@ -193,6 +193,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: `swap_banner` in Rust, Go, Python and C, which `upgrade`, `upgrade_file`, `set_banner` and the `banner` op all reach; the C++ veneer only wraps them. The footer always loses its old block, so only the top nodes keep one. `migrate`'s stamp goes through `restamp`, which already checks that the line it writes is the one read. The `upgrade` and `set_banner` doc comments in all 4 and the veneer, spec.md (`UpgradeFile` and the info block), the man page and the changelog.
 	- Verified: the new test fails on the old code in all 4 and passes with the fix. The 2,000,000 release fuzz passes all 31 properties. Also the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-migrate, check-docs, test-ids check, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy.
 	- Branch: `r1024`
+	- Commit: `d6820c2e`
 	- Test case: `a_block_kept_at_the_top_names_this_format_too` in Rust (`EtaIsb8`), Go (`EtaIse6`), Python (`EtaIsh6`) and C (`EtaIsjz`), through `upgrade` and `set_banner`, and fuzz `EssNzSi`.
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new test failed before and passes after, and the fuzz that found it passes. Setting the line rather than refusing is my call, noted under Decisions.
 	- Closed: 20261023-205517
