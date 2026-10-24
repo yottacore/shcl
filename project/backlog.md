@@ -186,20 +186,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `EkyV758` fails with "a merged list with a field under it at iteration 1139165". A is a mutation of the case on a list closing onto an earlier sibling's value, and B one of the selector case.
 	- Reproduced: 20261023, the same iteration and message on `e3418e0c`'s code with the new corpus, so the library change in 2026102307035781 plays no part. Neither document has an apostrophe outside a comment.
 	- Estimated effort: Avg
-
-- check-migrate counts no errors in a file whose Schema line names a missing schema
-	- ID: 2026102322233656
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261023-222336
-	- Opened by: 2026102307035781's test run
-	- Version and build: r1024 at `e3418e0c` plus 2026102307035781's change
-	- Steps to reproduce:
-		- `cicd/utility/check-migrate.bash` once the corpus inputs changed for 2026102307035781, which moved the fuzz seeds.
-	- Incorrect behavior: `Es34DZj` fails on fuzz documents 00202 and 00332, mutated from corpus 175. Each names format 3 and a Schema file that isn't beside it. The harness expects them left alone, while `upgrade --write --from-2x` exits 7 on one and rewrites the other.
-	- Possible cause: `fErrors` counts `check`'s stdout. `check` on such a file exits 8 and prints no diagnostics, so the count is 0 though the load has errors (`E014`, and `E006` plus `E015`). The HEAD CLI does the same on both documents, so the library didn't change.
-	- Estimated effort: Low
+	- Progress log:
+		- 20261023: dev's code at `bc24aafa`, from before option A, fails the same way on the 2 documents: the merge builds a `srv` list with `tls` under it, and 2 lines lost. So the defect was there before the round, and it waits for a later one. There the shape was the known exception (2026100511210900), whose save refuses. r1024's merged output is no fixpoint either, while `bc24aafa`'s is. The property stops at the first assert, so the fuzz never showed that.
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
@@ -216,6 +204,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
 	- Estimated effort: High
 	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
+
+- check-migrate counts no errors in a file whose Schema line names a missing schema
+	- ID: 2026102322233656
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261023-222336
+	- Opened by: 2026102307035781's test run
+	- Version and build: r1024 at `e3418e0c` plus 2026102307035781's change
+	- Steps to reproduce:
+		- `cicd/utility/check-migrate.bash` once the corpus inputs changed for 2026102307035781, which moved the fuzz seeds.
+	- Incorrect behavior: `Es34DZj` fails on fuzz documents 00202 and 00332, mutated from corpus 175. Each names format 3 and a Schema file that isn't beside it. The harness expects them left alone, while `upgrade --write --from-2x` exits 7 on one and rewrites the other.
+	- Reproduced: Yes, 20261023, `check-migrate.bash` on r1024 at `b9ee7918`: 3 divergences over 642 documents, on `fuzz_00202` and `fuzz_00332`.
+	- Possible cause: `fErrors` counts `check`'s stdout. `check` on such a file exits 8 and prints no diagnostics, so the count is 0 though the load has errors (`E014`, and `E006` plus `E015`). The HEAD CLI does the same on both documents, so the library didn't change.
+	- Estimated effort: Low
+	- Actual cause: as the possible cause says. `check` reads the file's Schema line, and one naming a missing file is a read error, exit 8, before any diagnostic prints. `upgrade` reads no schema. `fUnplaced` and the `E028` scan read `check`'s output the same way.
+	- Actual fix: one helper, `fCheckNew`, runs `check --schema=/dev/null`, so the file's Schema line is never read. `fErrors`, `fUnplaced` and the `E028` scan go through it. The empty schema adds only `V` codes, which none of the 3 count.
+	- Swept: every `check` call in `check-migrate.bash`. 2.x's `check` (`fCheck2x`) reads no Schema line, so it stays. The `check` calls in the other gates (check-readme, check-doc-examples, perf-gate, largedoc, sanitize-c, crosscheck, cli-regress) test `check` itself, by its exit or whole output, and none counts errors to judge another command. The 4 bindings are unchanged, since the fault was in the gate.
+	- Verified: check-migrate passes, 642 documents with 0 divergences. The new shell-regress row fails on the old script (0 errors counted, and no helper) and passes on the fix. shell-regress, shellcheck and `test-ids.py check` pass.
+	- Branch: `r1024`
+	- Commit: `489705be`
+	- Test case: shell-regress `EtasKEp`: a file with an error and a Schema line naming a missing file counts 1 error, and its read from stdin shows the `E014`.
+	- Acceptance signoff: Self-closed: reproduced, the new row failed before the fix and passes after, and check-migrate is green.
+	- Closed: 20261023-224421
 
 - r1024's kept banner stamp leaves mypy and check-docs red
 	- ID: 2026102321462051
