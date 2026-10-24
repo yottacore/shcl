@@ -90,6 +90,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `shcl --version` prints `shcl v3.0.0`, plus a build number on a release binary. The words `version`, `about` and `donate` are gone: use `--version`, `--about` and `--donate`. Several of them in one run each print once, in order.
 
+- A dev build from the pipeline prints its date after the build number, in your own time zone, as in `shcl v3.0.0 build dd2f6 (2026-10-23)`. A release leaves the date off.
+
 - `shcl set` writes back the lines its edits leave alone, printing or with `--write`, where it wrote the canonical form. `shcl fmt` still writes the canonical form.
 
 - The installers default to the newest full release, installed for the current user. With no full release yet, that is the newest pre-release.

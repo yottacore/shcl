@@ -63,6 +63,7 @@ def fWhen(tid: str) -> str:
 NEED: list[tuple[str, str, str, int]] = [
 	("source/rust/tests/*.rs", r"^\s*#\[test\]$", rf'^\s*let _id = test_id\("({ID})"\);$', 2),
 	("source/rust/src/lib.rs", r"^\s*#\[test\]$", rf'^\s*let _id = test_id\("({ID})"\);$', 2),
+	("source/rust/src/main.rs", r"^\s*#\[test\]$", rf'^\s*let _id = test_id\("({ID})"\);$', 2),
 	("source/go/*_test.go", r"^func Test\w+\(t \*testing\.T\) \{$", rf'^\tdefer testID\(t, "({ID})"\)$', 1),
 ]
 COLLECT: list[tuple[str, str]] = [

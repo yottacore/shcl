@@ -2338,6 +2338,30 @@ if [[ -z "${buildLine}" || -z "${releaseLine}" ]] || ((buildLine > releaseLine))
 	fBad "cicd.bash does not hand SHCL_BUILD to the native release build"
 fi
 
+fTest EtaC4oT 2026102319560000-dev-builds-show-the-date
+##	A stamped build of a version that already has its tag is a dev build and
+##	shows its date. The bump commit's build, before the tag, is the release.
+# shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
+datedLine="$( { grep -m1 -F 'refs/tags/v$(fVersion)' "${repoDir}/cicd/cicd.bash" || true; } )"
+exportLine="$( { grep -n '^[[:space:]]*export SHCL_BUILD_DATED$' "${repoDir}/cicd/cicd.bash" || true; } | head -n1 | cut -d: -f1)"
+if [[ -z "${datedLine}" || -z "${exportLine}" || -z "${releaseLine}" ]] || ((exportLine > releaseLine)); then
+	fBad "cicd.bash does not hand SHCL_BUILD_DATED to the native release build"
+elif command -v git >/dev/null 2>&1; then
+	out="$(
+		unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX GIT_CONFIG_COUNT
+		root="${tmpDir}/dated"
+		git init -q -b main "${root}" && cd "${root}" || exit
+		git config user.name t; git config user.email t@t.invalid
+		echo x > f; git add f; git commit -qm one
+		# shellcheck disable=SC2329  ## called by the lifted line
+		fVersion(){ echo 1.2.3; }
+		eval "SHCL_BUILD_DATED=''; ${datedLine}"; printf 'untagged=%s ' "${SHCL_BUILD_DATED}"
+		git tag v1.2.3
+		eval "SHCL_BUILD_DATED=''; ${datedLine}"; printf 'tagged=%s' "${SHCL_BUILD_DATED}"
+	)"
+	[[ "${out}" == "untagged= tagged=1" ]] || fBad "cicd.bash's dated-build test gave ${out@Q}, want 'untagged= tagged=1'"
+fi
+
 fTest Ep1EGVh 20260904-28-gates-read-the-strict-flag
 ##	20260904 item 28: SHCL_GATE_STRICT is armed by one line in cicd.bash and read
 ##	by the gates; deleting the line disarmed every skip-as-failure silently.

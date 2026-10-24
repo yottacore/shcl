@@ -955,7 +955,12 @@ else
 		## unstamped, the same as the other three CLIs they are compared against.
 		SHCL_BUILD="$(fBuildNumber "$(git -C "${root}" log -1 --format=%ct)")" || fDie "no build number from the commit time"
 		export SHCL_BUILD
-		fEcho "build ${SHCL_BUILD}"
+		## A build whose version is already tagged is a dev build, so it shows its
+		## date. A release is built from the bump commit, before its tag exists.
+		SHCL_BUILD_DATED=""
+		if git -C "${root}" rev-parse -q --verify "refs/tags/v$(fVersion)" >/dev/null; then SHCL_BUILD_DATED=1; fi
+		export SHCL_BUILD_DATED
+		fEcho "build ${SHCL_BUILD}${SHCL_BUILD_DATED:+ (dated)}"
 		"${RELEASE_NATIVE_CMD[@]}"
 		[[ -f "${RELEASE_NATIVE_BIN}" ]] || fDie "native release binary missing: ${RELEASE_NATIVE_BIN}"
 		fEcho "OK: native release: ${RELEASE_NATIVE_BIN} ($(du -h "${RELEASE_NATIVE_BIN}" | cut -f1))"
@@ -968,7 +973,7 @@ else
 			fEcho "OK: ${t_label}: ${t_art} ($(du -h "${t_art}" | cut -f1))"
 			built_arts+=("${t_osarch}|${t_art}")
 		done
-		unset SHCL_BUILD
+		unset SHCL_BUILD SHCL_BUILD_DATED
 		## Before anything is collected, so a build that fails one never reaches
 		## the artifact dir. built_arts is in scope for the commands.
 		for c in "${RELEASE_CHECKS[@]}"; do
