@@ -471,8 +471,10 @@ def fWrite(work: Path, text: str) -> None:
 
 
 def fClean(cli: Path, work: Path) -> bool:
+	## A hint is legal input, so only an error makes a sample unclean. H008
+	## hints at `url: http://h/#frag`, which the grammar derives.
 	rc, out = fRun(cli, ["check", "s.shcl"], work)
-	return rc == 0 and any("0 diagnostic(s)" in ln for ln in out)
+	return rc == 0 and any(ln.startswith("ok (") for ln in out) and not any(": Error: " in ln for ln in out)
 
 
 def fFenceClose(cli: Path, work: Path, line: str) -> str:

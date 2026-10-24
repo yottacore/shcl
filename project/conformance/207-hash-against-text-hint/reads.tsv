@@ -1,0 +1,15 @@
+query	type	expected	status
+-	load	ok	-
+-	load	ok	-	strict
+-	lost	0	-
+url	string	http://h/	Good
+color	string	-	Empty
+tight	string	-	Empty
+list	string[]	a|ok	Good
+code	raw	x	Good
+port	int	80	Good
+quoted	string	#fff	Good
+qtight	string	a	Good
+arr	string[]	a|b	Good
+note	string	-	Empty
+prose	string	-	Empty

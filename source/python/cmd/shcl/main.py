@@ -472,6 +472,14 @@ H007|hint|the file names an older format than this reader
   and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites
   the file for these rules and keeps the original beside it. A file with
   nothing else to change gets this format on its Format line.
+H008|hint|a '#' against text opens a comment
+  A '#' outside quotes opens a comment wherever it sits, so
+  url: http://h/#frag reads http://h/, color: #fff reads nothing and
+  lang: c# reads c. Quote the value to keep the '#': color: "#fff". The
+  hint comes when text sits right before the '#' in a bare value, an array
+  element, a selector body or a fence label, or right after it where that
+  piece is empty. A blank before it, as in port: 80  # main, makes a plain
+  comment. A fence label can't hold a '#'.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
   subtree is skipped. The prose has the did-you-mean suggestion.

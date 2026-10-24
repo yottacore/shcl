@@ -33,6 +33,63 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A stacked list and a field under one parent load 3 different ways
+	- ID: 2026102307035771
+	- Type: Enhancement
+	- Status: Waiting for answers
+		- Waits on the question filed for 2026102307143752: the premise that the emitter already covers every retained line.
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026100511210900, 2026102307035786
+	- Estimated effort: High
+	- Problem description:
+		- Items then a field under one parent bind both (`E001`, bound). A field then items drops the items as lost, so the save refuses (`E008`, dropped). The bracket spelling of the same tree is refused (`E028`, retained). Swapping 2 lines changes whether data is lost.
+		- The `E001` tree then needs its own exceptions: the merge keeps it stacked (spec.md near line 430), it's a case no text loads back (value-syntax.md near line 453), and the save refusal filed as 2026100511210900.
+		- Several dropped codes fail design.md's stated test for dropping, "re-emitted it could bind somewhere else". The emitter already asks the reload before it writes a kept line, and writes it as a comment where it would bind (design.md, the paragraph starting "The emitter asks the reload"), so that case is covered for every retained line.
+	- Requirements:
+		- `E001` and `E008` are both retained: the line is kept as written, binds nothing, counts nothing lost, and what is indented under it goes with it as `E018`. A list with a field under it then can't be built, and the 3 exceptions above go.
+		- New test for dropping, as one sentence in design.md above the Load outcomes table: a line is dropped only when, re-emitted, it could feed a raw block, or when its refusal comes from a caller cap or the depth cap, which the next load may set differently.
+		- By that test `E003`, `E004`, `E007`, `E009` and `E011` become retained too. `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line stay as they are. Check each against the sentence and say so on the item where one doesn't fit.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the corpus goldens for the cases that change. Strict fails either way, so strict outcomes don't change.
+	- Decisions:
+		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
+		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
+	- Progress log:
+		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
+		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
+
+- `E001` and `E008` are retained
+	- ID: 2026102307143752
+	- Type: Enhancement
+	- Status: Waiting for answers
+		- Waits on the question in questions.md: the emitter asked the reload only for lines kept with their own indent and for `E028`'s array line, not for every retained line, so the item's premise didn't hold.
+	- Priority: Avg
+	- Opened: 20261023-071437
+	- Opened by: JC
+	- Parent ID: 2026102307035771
+	- Related IDs: 2026100511210900
+	- Requirements:
+		- The parent's first requirement: `E001` and `E008` both retained, the line kept as written, binding nothing, counting nothing lost, and what is under it going with it as `E018`.
+		- The 3 exceptions go: the merge keeping such a list stacked, the value-syntax.md case no text loads back, and the save refusal from 2026100511210900.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the goldens and tests that change.
+	- Estimated effort: High
+	- Progress log:
+		- 20261023, on `wip/r1023-2026102307143752`, all 4 bindings:
+			- A clean field line under stacked items is `E001`, kept as written, and an item after a field child is `E008`, kept. What is under either is `E018`. A field line that opens a raw block is `E001` and dropped with the block, since it can't be written as a comment once moved; that fits the parent's new test for dropping. A line refused for its content keeps its own code there and opens nothing.
+			- The emitter's model now knows, per open binding line, whether an item or a field line was written under it. A clean kept `E001` or `E008` line that a reload would bind goes out as a comment, through the settle a misplaced line uses (option A in the question). Without it, `set a=[p, q]` and a remove of the fields each made a kept line bind at exit 0.
+			- The 3 exceptions are gone: `stacks()` no longer counts children, `bracket()` brackets every list, and `unloadable_items` is removed with its use in the lost count and the keep-lines save. `settle_arrays` leaves array lines among and after a stacked list's items alone.
+			- Docs: design.md's table rows and 2 paragraphs, spec.md's Arrays, code table, `E018` row and merge text, value-syntax.md's stacked-list case and item table, the conformance README, and check-migrate's clean-code list (2.x bound an `E001` field).
+			- Goldens: `010`, `095` (lost 5), `128` (comments too), `188` (the line under the `E019` among the items went, since it would now be lost), `201` (comments, merged text).
+			- Tests: the 6 conformance tests per runner that built the list (Rust `Ers2oF1`, `ErsETML`, `Ert70BF`, `EsFs76t`, `Ert70DM`, `ErsWiow` and their Go, Python and C twins) are commented out with the reason. New `a_field_under_items_stays_kept` pins the load, the set-empty, merge, array setter and remove cases. The fuzz helper `list_after_empty` became `list_with_field`, and every property asserts it never holds. Fuzz `Erxfmqc` is commented out; `EtXAOBZ` pins the same text now. The outcome-table property moves `E008` to retained and counts a raw-block `E001`. cli-regress `Ers2pP0` and `Ers2pP1` expect exit 0 and the commented line.
+			- Verified: the 4 conformance suites, cli-regress (622 rows), crosscheck over the corpus plus a 2000-iteration dump (53499 comparisons), check-docs with check-abnf, test-ids, shell-regress, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and a 200,000-iteration release fuzz. Each new test failed on the old library (`EtXAjYU`, `EtXAOBZ`, `EtXCOeu`, `EtXCOkG`).
+			- Failed: the 2,000,000-iteration release fuzz, 4 properties (`Ejri0IV`, `Eof6zmK`, `EsJZkoB`, `Eqk24nZ`), all one case. A kept line refused for its value, with a kept line under it, sits in an empty field that later takes items, so canonical output writes it after the items. The reload no longer holds its level open there, so the line under it is `E018` and lost. Repro, from `Ejri0IV`, not a fixpoint under `fmt`: `a:` / `\tb: C:\dir, a\tb, 'it\'s'` / `\t\t\tno colon here` / `a: 1, , 2` / `  - 0`.
+			- Next: hold that level open again under items, as before, and refuse instead the line that would bind through it and so put a field under the list (`E001`, kept), with the emitter's model told the same. Then the 2,000,000 fuzz again.
+	- Branch: `wip/r1023-2026102307143752`
+	- Test case: conformance `EtXAjYU` (Rust), `EtXCOeu` (Go), `EtXCOhX` (Python), `EtXCOkG` (C), `a_field_under_items_stays_kept`; fuzz `EtXAOBZ`; corpus `010`, `095`, `128`, `188`, `201`; cli-regress `Ers2pP0`, `Ers2pP1`.
+	- Swept: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays` and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python and C runners; the CLI `explain` tables (wording still holds); check-migrate.
+	- Needs local test suite run?: once the fuzz passes, a full run that doesn't publish, for check-migrate (its 2.x reads now count an `E001` line unclean), the leak checks and Miri over the changed emitter.
+
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -70,6 +127,133 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
+
+- Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
+	- ID: 2026102307143758
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261023-071437
+	- Opened by: JC
+	- Parent ID: 2026102307035771
+	- Prereq IDs: 2026102307143752
+	- Requirements:
+		- The parent's second and third requirements: the one-sentence test for dropping in design.md above the Load outcomes table, and `E003`, `E004`, `E007`, `E009` and `E011` retained by it.
+		- Check `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line against the sentence, and say so here where one doesn't fit.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Estimated effort: High
+	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
+
+- An apostrophe inside a bare word is an error
+	- ID: 2026102307035781
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035786
+	- Estimated effort: Avg
+	- Problem description:
+		- `name: O'Brien` and `title: Jim's Server` are `E025`. The stated reason was that a quote left a person guessing whether it opened a string (value-syntax.md near line 356). A quote opens a piece only as its first character now, so there's no guess left.
+	- Requirements:
+		- A `'` with a non-blank character right before it and right after it is text, in a bare field value or a `- ` item. `O'Brien`, `Jim's Server` and `rock'n'roll` read as written.
+		- Everything else stays `E025`: a `"` or a backtick anywhere in a bare piece, a `'` with a blank or the end of the value on either side, and any quote in a `[]` element or a selector body.
+		- A quote as the first character still opens a quoted piece.
+		- The writer still quotes any value holding a quote, so canonical output keeps one reading.
+		- `migrate`'s handling of a bare 2.x value with an apostrophe follows.
+		- All 4 bindings, spec.md, value-syntax.md, the lexical edges table in design.md, and corpus cases.
+	- Decisions:
+		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
+
+- `upgrade --from-2x` can write a fresh file that names no current format
+	- ID: 2026102309053667
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261023-090602
+	- Opened by: 2026102307035776
+	- Related IDs: 2026102307035776
+	- Version and build: `r1023` at `c92e1c05`
+	- Steps to reproduce:
+		- With corpus cases 207 and 208 in the seed set, `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke upgrade_leaves_its_own_output_alone`.
+	- Incorrect behavior: iteration 628247, `from_v2` true, fails "the fresh text names no current format". The input has `##    Format   3`, then a second info block with `##    Format   99999999999` and a line `   3` under it. The fresh text writes that line as `"3":` and indents the block's comments under it.
+	- Expected behavior: the fresh file names this format, or the upgrade refuses.
+	- Reproduced: on `c92e1c05`, before the `H008` change, with the 2 new cases copied in, at the same iteration.
+
+- A `#` glued to text changes a value with no word
+	- ID: 2026102307035776
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035786, 2026102309053667
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Problem description:
+		- `url: http://h/#frag` reads `http://h/`, and `color: #fff` reads empty, at exit 0 with nothing said. The comment rule is settled (`#` anywhere outside quotes opens a comment) and stays.
+	- Requirements:
+		- New hint `H008`, raised when a `#` opens a comment with a non-blank character right before it, in a bare value, an element, a selector body or a fence label.
+		- Like `H005`, it changes no load, no read and no exit code, so Strict and the corpus reads don't change.
+		- The prose names the fix: quote the value.
+		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
+		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
+	- Decisions:
+		- me, 20261023: "Right before it" taken so `color: #fff` hints too. A `#` that opens a comment hints when text sits right before it in a bare piece, or the piece is empty and a character other than a blank or `#` follows. `port: 80   # main`, `a: # note`, `a: ## two`, a whole-line comment, and a `#` after a closing quote or `]` get none. design.md's Lexical edges has the reason and the alternatives.
+		- me, 20261023: a fence label follows the same rule, since the value scan finds its `#`: ```` ```c# ```` hints and ```` ``` # note ```` doesn't. A name is left out, as the item lists only the 4 places.
+		- me, 20261023: the hint also shows on a line with an error, ahead of it, since the scan finds it first (185's found-order rule). A `- ` item is tokenized before its position is judged, so a misplaced item hints as a misplaced field line does.
+	- Progress log:
+		- 20261023: `Tokens` gains `glued` in all 4, set where the scan already stops at a comment, from the characters on either side of the `#`. The parser emits `H008` right after it tokenizes a field line, an item or a child-indent fence line. No second scan.
+		- Corpus 056, 068 and 109 already had a `#` against text, so their expected-diags gain `H008` lines. Their reads and Strict rows don't change.
+		- check-abnf counted any hint as unclean, so 2 of its samples went red. It now counts errors only.
+		- spec.md (Comments, code table), design.md (Lexical edges, Load outcomes), value-syntax.md, the corpus README, the changelog and `explain H008` in all 4 CLIs. The fuzz grammar generator expects `glued`, and checks both shapes come up.
+		- Verified: the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-docs, check-abnf, check-doc-examples, test-ids check, shell-regress, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy. The release fuzz at 2,000,000 passed every property but `upgrade_leaves_its_own_output_alone`, which fails at iteration 628247 on the old code too once the 2 new cases are in the seed set (2026102309053667).
+		- Seen to fail on the old code: the diags of 207, 208 and the 3 updated cases, and `explain H008`.
+		- 20261023, test batch: fuzz `EqGWdij` (`raw_bodies_stay_content`) failed at 100 iterations, as `--miri-all` runs it. It skipped the read-back for any opener with a diagnostic, so the `c#` openers it draws stopped counting once they hint. It now skips only an opener with an error, and the 2 line-to-code maps that find kept misplaced lines take errors only. A body line still may not draw any diagnostic. Verified: `EqGWdij` failed at 100 before and passes at 100 and the default, all of fuzz_smoke passes at both, plus clippy, the C mem, oom and veneer tests and the Python soak.
+		- 20261023, test batch: run 1 (`-y --no-sync --no-dogfood --no-gif --no-publish`) passed stages 1-3, exhaustive cppcheck included, and stage 4 through analyze-c, soak-c, sanitize-c and codeql-scan, then stopped at the `EqGWdij` failure above. After the fix, `EqGWdij` passed under Miri at 100 iterations, and run 2 (the same with `--no-leakcheck`) passed every stage, sanitize-rust ASan and Miri, check-migrate, the release builds and their cross checks included. The slow share of `--miri-all` (scale tests) wasn't rerun.
+		- Swept: every stop at a `#` in `scan_value`, `scan_array` (an element and the text after `]`) and the selector body in `tokenize`, plus the parser's tokenize calls in its line loop, in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h. The explain tables in all 4 CLIs.
+	- Branch: `r1023`
+	- Commit: `c11e41cd`, `5e032fc2`
+	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `EtXOTsa`, `EtXOTxq` and `EtXOTvD`, and fuzz `EpFkZy4`.
+	- Acceptance signoff: Self-closed on JC's criteria: the hint changes no read or exit code, each case it names is pinned by a test seen to fail before, and the full run passed. The call on "right before it" is noted under Decisions.
+	- Closed: 20261023-183115
+
+- Doc fixes from the 2026-10-22 design review
+	- ID: 2026102307035786
+	- Type: Task
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035771, 2026102307035776, 2026102307035781
+	- Estimated effort: Low
+	- Requirements:
+		- Docs only. No code or behavior change, except the `--no-banner` help line, which is the same in all 4 CLIs.
+		- spec.md Sizes: say `kB` is the same unit as `KB`, and that the 1024 default follows systemd, Docker and the JVM, not IEC. `decimal` stays the way to get powers of 1000.
+		- spec.md's advice on choosing `(i)` or `(value)` when mapping entities: walk with `fields()` or `instance_paths()`, which give every instance in one pass, and keep `Count` plus `(i)` for a point read. A loop over `Count` with `(i)` costs the square of the count.
+		- spec.md Ergonomic tiers: name all 3 read forms, `get_X_or`, `get_X` and `read_X`, and say what plain `get_X` returns in each binding: a Result in Rust, a status pair in Go, a raise in Python, and what C does.
+		- examples.md: the Rust example leads with `get_int_or`, the tier the spec calls the default, rather than `unwrap_or`.
+		- spec.md's north star, "a read API that stays small and predictable", says something true, such as a read API learned from a few calls.
+		- README and the parity section scope the byte-for-byte claim to valid UTF-8, as spec.md already does.
+		- README's read-type list gains duration and size, and drops the claim of an array of any of them, since there's no raw array.
+		- README's comparison cell "Nested arrays: Repeated child fields" says no, with instances as the way to do it. Arrays don't nest, by design.
+		- README's "wrong choice" list gains whole-file decode into a struct, which TOML and YAML users expect and design.md declines.
+		- design.md says the formatter quotes a schema path only for a quote or a `#`, and calls a schema a `fmt` fixpoint. spec.md has the writer quoting parens too, so a bare `field: server(*).host` gets rewritten. Make design.md match what the code does.
+		- The `--no-banner` help names both "banner" and "info block", since the prose and help call it the info block. v4 renames it.
+	- Decisions:
+		- JC, 20261023: keep 1024 as the `KB` default.
+		- JC, 20261023: keep all 3 read tiers through the beta. Dropping plain `get_X` is v4's.
+		- JC, 20261023: scope the UTF-8 claim rather than make 4 parsers agree on bytes that aren't text.
+		- JC, 20261023: no v3 code change for the quadratic walk. The per-name index is v4's node handles.
+		- Left out on purpose: the "never made to satisfy the machine" goal stays as written (20261006, and the comma and colon decision), and "adn" and "wiht" are planted slips.
+	- Progress log:
+		- 20261023: spec.md, design.md, README.md and examples.md changed as listed. The crate README's Rust example leads with `get_int_or` too.
+		- 20261023: the `--no-banner` help already says "leave out the info block", beside the flag's own name, in all 4 CLIs, so it stays as it is.
+		- 20261023: `fmt` turns a bare `field: server(*).host` into the quoted form, and its output is a fixpoint. `kB` and `KB` read alike, and `--decimal` gives powers of 1000.
+		- Swept: plain `get_X` in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h, `unwrap_or` and the changed claims across the .md files.
+	- Test case: check-docs and check-readme, which runs the README and examples.md blocks. Docs only, so no new test.
+	- Acceptance signoff: Self-closed on JC's criteria: each listed doc fix is in, and the help line already met its point.
+	- Closed: 20261023-071039
 
 - CICD runs on GitHub's M4 macOS runners
 	- ID: 2026102216325314

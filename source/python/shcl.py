@@ -1341,7 +1341,7 @@ class Tokens:
 	tokenized."""
 	__slots__ = (
 		"segments", "sep", "value", "elements", "array", "array_fault", "comment", "fault", "misspelled",
-		"bracket_selector", "cap", "capped", "src",
+		"bracket_selector", "cap", "capped", "glued", "src",
 	)
 	segments: list[SegTok]
 	# Offset of the separator (`:` on a line, `=` in --set); None when the
@@ -1373,6 +1373,9 @@ class Tokens:
 	cap: int
 	# True when the cap stopped the scan; `elements` is then incomplete.
 	capped: bool
+	# Offset of a `#` that opened a comment against a bare piece's text
+	# (H008): `http://h/#frag`, or `#fff` where the piece is empty.
+	glued: int | None
 	src: bytes
 
 	def __init__(self, cap: int = 0):
@@ -1388,6 +1391,7 @@ class Tokens:
 		self.bracket_selector = None
 		self.cap = cap
 		self.capped = False
+		self.glued = None
 		self.src = b""
 
 	def _clear(self):
@@ -1402,6 +1406,7 @@ class Tokens:
 		self.misspelled = None
 		self.bracket_selector = None
 		self.capped = False
+		self.glued = None
 
 	def element_count(self) -> int:
 		"""How many elements the value holds: a quoted piece counts even when
@@ -1490,6 +1495,21 @@ def _comment_at(s, i):
 	"""True when the byte at i opens a comment. Being outside quotes is the
 	caller's business."""
 	return s[i] == _B_HASH
+
+
+_GLUED_HINT = "a '#' against text opens a comment; quote the value if the '#' is part of it"
+
+
+def _glued_comment(s, p, at):
+	"""Whether the comment a bare piece ended at, the `#` at `at`, is against
+	text: the piece's last character sits right before it, or the piece is
+	empty and a character other than a blank or `#` follows (H008).
+	`port: 80  # main` and `a: # note` are plain comments."""
+	if p.quote is Quote.Single or p.quote is Quote.Double or p.quote is Quote.Backtick:
+		return False
+	if p.end > p.start:
+		return p.end == at
+	return at + 1 < len(s) and s[at + 1] not in (_B_SPACE, _B_TAB, _B_CR, _B_HASH)
 
 
 def _loose_comma(s, at):
@@ -1662,6 +1682,8 @@ def _scan_value(s, from_, rules, out):
 			continue
 		if stop < n:
 			out.comment = stop
+			if _glued_comment(s, piece, stop):
+				out.glued = stop
 		stop_at = stop
 		break
 	_end_value(s, from_, stop_at, out)
@@ -1714,6 +1736,8 @@ def _scan_array(s, from_, open_at, out):
 			continue
 		if stop < n and s[stop] == _B_RBRACKET:
 			close = stop
+		elif stop < n and _glued_comment(s, piece, stop):
+			out.glued = stop
 		stop_at = stop
 		break
 	end = stop_at
@@ -1725,10 +1749,12 @@ def _scan_array(s, from_, open_at, out):
 				out.array_fault = (after, "text after ']'")
 			# The comment past the stray text, found the way a value finds it.
 			while True:
-				_, stop = _scan_piece(s, after, _B_COMMA, Rules.Current, True)
+				piece, stop = _scan_piece(s, after, _B_COMMA, Rules.Current, True)
 				if stop < n and s[stop] == _B_COMMA:
 					after = stop + 1
 					continue
+				if stop < n and _glued_comment(s, piece, stop):
+					out.glued = stop
 				end = stop
 				break
 	else:
@@ -1824,6 +1850,8 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 				out.fault = (open_at, "selector on a name wildcard")
 				return
 			piece, stop = _scan_piece(s, open_at + 1, close_b, rules, not path)
+			if not path and stop < n and _comment_at(s, stop) and _glued_comment(s, piece, stop):
+				out.glued = stop
 			if stop >= n or s[stop] != close_b:
 				out.fault = (open_at, "unterminated selector")
 				return
@@ -3699,6 +3727,12 @@ class _Parser:
 		# depth it opens to].
 		self.lazies: list[list] = []
 
+	def _hint_glued(self, line, tok):
+		"""H008, from the scan that found the comment. It changes nothing the
+		load reads, so it comes first among its line's diagnostics."""
+		if tok.glued is not None:
+			self._diag(Diagnostic(line, Severity.Hint, _GLUED_HINT, "H008"))
+
 	def _err(self, line, code, msg):
 		self._diag(Diagnostic(line, Severity.Error, msg, code))
 
@@ -4541,6 +4575,7 @@ class _Parser:
 			if rest[0] == "`" or rest[0] == "~":
 				fence = _child_fence(rest, tok)
 			if fence is not None:
+				self._hint_glued(lineno, tok)
 				comment = tok.src[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
 				parent = self._resolve_parent(indent, found)
 				value, nxt = self._consume_raw(lines, i + 1, lineno, indent, fence)
@@ -4588,6 +4623,8 @@ class _Parser:
 					item = lines[i][at:at + 1] in (" ", "\t", "\r")
 			if item or rest.startswith("*"):
 				if item:
+					tokenize_value(rest, 1, Rules.Current, tok)
+					self._hint_glued(lineno, tok)
 					parent = self._resolve_parent(indent, found)
 					if parent is None:
 						self._misplaced(lineno, "E012", indent, rest, had_blank, False)
@@ -4597,7 +4634,6 @@ class _Parser:
 						self._misplaced(lineno, "E018", indent, rest, had_blank, False)
 						i += 1
 						continue
-					tokenize_value(rest, 1, Rules.Current, tok)
 					# An item past the cap is refused for that, whatever its
 					# value. A good one finds out where it would join.
 					f = _item_fault(tok, tok.src)
@@ -4650,6 +4686,7 @@ class _Parser:
 				continue
 			# Field line.
 			tokenize(rest, ":", False, Rules.Current, tok)
+			self._hint_glued(lineno, tok)
 			s = tok.src
 			comment = s[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
 			parent = self._resolve_parent(indent, found)

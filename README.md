@@ -34,7 +34,7 @@
 
 - Your code decides a value's type when it reads it. Nothing is guessed at parse time.
 
-- The same file reads the same in every language. The Rust reference and the Go, Python, and C/C++ bindings produce byte-for-byte identical output, held to one conformance corpus. Zig uses the C header as is.
+- The same file reads the same in every language. The Rust reference and the Go, Python, and C/C++ bindings produce byte-for-byte identical output for valid UTF-8, held to one conformance corpus. Zig uses the C header as is.
 
 - Each binding is one drop-in source file with no dependencies. The CLI is a single binary, and shell scripts call it directly.
 
@@ -115,7 +115,7 @@ When you do want zero-tolerance rigor: schema validation, plus a strict mode tha
 | Bad lines don't break the whole thing | ✅                          | 🚫               | 🚫                                         | 🚫                              | 🚫
 | Who decides a value's type            | Your code, at read time    | The file        | The parser guesses                        | The file                       | Your code
 | Deep nesting                          | Indent or dot paths, mixed | Brace pyramids  | Indent, whitespace-fragile                | `[a.b.c]` headers get old fast | Tag soup
-| Nested arrays                         | Repeated child fields      | ✅               | ✅                                         | ✅                              | Repeated child tags
+| Nested arrays                         | 🚫 Use repeated instances   | ✅               | ✅                                         | ✅                              | Repeated child tags
 | Nested object definitions             | ✅                          | ✅               | ✅                                         | ✅                              | ✅
 | Multi-line verbatim blocks            | Fenced, like Markdown      | Escaped strings | Block scalars, with rules to memorize     | Multi-line strings             | CDATA
 | Hand-editable by a non-programmer     | ✅                          | Risky           | Risky                                     | ✅ Mostly                       | 🚫
@@ -131,13 +131,15 @@ The benchmark numbers, and how SHCL differs from Pkl, CUE, and Dhall, are in [Co
 
 - You are serializing machine-to-machine data at high volume. Use JSON or something binary. SHCL is for files that people edit.
 
+- You want the whole file decoded into a struct in one call, the way TOML and YAML libraries do it. SHCL reads one path at a time, and that is [by design](project/design.md#consumer-api).
+
 ## More features
 
 Beyond the list at the top:
 
 - Hierarchy by indentation or dot paths (`site(blog.example.com).tls.hsts: off`), freely mixed. Both give the same tree.
 
-- Reads come as int, float, bool, datetime, string, raw block, or an array of any of them.
+- Reads come as int, float, bool, datetime, duration, size, string, or raw block. Int, float, bool, datetime, and string reads have array forms too.
 
 - Repeated fields are queryable as a set. Count them, list them, or fan one read across all of them with `site(*).root` and get a status per slot.
 
