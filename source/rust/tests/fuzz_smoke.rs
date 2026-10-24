@@ -694,8 +694,13 @@ fn lost_count_follows_the_outcome_table() {
 			.lines()
 			.collect();
 		let canon = doc.to_canonical();
-		let codes: std::collections::HashMap<usize, &str> =
-			doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+		// Errors only: a hint on the same line (H008) is no refusal.
+		let codes: std::collections::HashMap<usize, &str> = doc
+			.diagnostics()
+			.iter()
+			.filter(|d| d.severity == Severity::Error)
+			.map(|d| (d.line, d.code))
+			.collect();
 		let kept = kept_misplaced(&lines, &codes);
 		let mut want = 0usize;
 		for d in doc.diagnostics() {
@@ -1013,6 +1018,13 @@ fn raw_bodies_stay_content() {
 				.iter()
 				.any(|d| d.line == n && (codes.is_empty() || codes.contains(&d.code)))
 		};
+		// A hint changes no load, so an opener with only a hint (H008 on
+		// ```c#) still has its body read back.
+		let refused = |n: usize| {
+			diags
+				.iter()
+				.any(|d| d.line == n && d.severity == Severity::Error)
+		};
 		for (opener, last) in raw_spans(&text) {
 			if on(opener, &["E006"]) {
 				continue;
@@ -1030,9 +1042,9 @@ fn raw_bodies_stay_content() {
 					i,
 					text
 				);
-				// Only where the opening line itself drew nothing: a skipped or
+				// Only where the opening line itself drew no error: a skipped or
 				// capped opener takes its body with it, which is a separate rule.
-				if on(opener, &[]) {
+				if refused(opener) {
 					continue;
 				}
 				let t = lines[body - 1].trim();
@@ -2422,8 +2434,12 @@ fn kept_text(text: &str) -> KeptText {
 		.unwrap_or(text)
 		.lines()
 		.collect();
-	let codes: std::collections::HashMap<usize, &str> =
-		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	let codes: std::collections::HashMap<usize, &str> = doc
+		.diagnostics()
+		.iter()
+		.filter(|d| d.severity == Severity::Error)
+		.map(|d| (d.line, d.code))
+		.collect();
 	let misplaced = kept_misplaced(&lines, &codes);
 	let spans = raw_spans(text);
 	// A body line is the block's content, whatever the parser made of it.
