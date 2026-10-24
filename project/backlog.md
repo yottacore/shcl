@@ -185,6 +185,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the fresh file names this format, or the upgrade refuses.
 	- Reproduced: on `c92e1c05`, before the `H008` change, with the 2 new cases copied in, at the same iteration.
 
+- A dev build shows its date after the build number
+	- ID: 2026102319430000
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-194300
+	- Opened by: JC
+	- Requirements:
+		- For non-release builds, include " (YYYY-mm-DD)" after the build number.
+		- Report the date as the local date of whoever views the version.
+	- Decisions:
+		- JC, 20261023: a stamped build whose version already has its `vX.Y.Z` tag is a dev build. A release is built from the bump commit, before the tag, so it has no date.
+		- me, 20261023: the CLI works the date out from the build number when it runs, so no second stamp is needed. Unstamped builds stay `shcl vX.Y.Z`, so the 4 CLIs still match in crosscheck. Only the Rust CLI is stamped, so the other 3 get no date code.
+	- Progress log:
+		- 20261023: cicd.bash sets `SHCL_BUILD_DATED` from the tag beside `SHCL_BUILD`. build.rs passes it on, and `--version` and `--about` add the date in the local zone, through `localtime_r` or `SystemTimeToTzSpecificLocalTime`.
+		- Verified: a stamped build gave `(2025-10-22)` under Los Angeles and `(2025-10-23)` under UTC and Tokyo for a midnight UTC commit, the windows build under wine the same, and no date without the flag. Plus clippy, cli-regress, check-docs, test-ids check and shell-regress.
+	- Commit: `b01bad6c`
+	- Test case: Rust `EtaBWuf`, `EtaBWyo` and `EtaBX2b` in main.rs, and shell-regress `EtaC4oT`, seen to fail with the tag test broken.
+	- Acceptance signoff: Self-closed on JC's criteria: each requirement is in and tested, and JC made the release call.
+	- Closed: 20261023-201500
+
 - A `#` glued to text changes a value with no word
 	- ID: 2026102307035776
 	- Type: Enhancement
@@ -277,6 +298,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261022: hosted run 39824537161 on `r1022`: the `macos` job passed.
 	- Decisions:
 		- JC, 20261022: stay on the free M1 runner. GitHub has no M4 runner, only third-party services do. What runs on M1 runs on M4, though not always the other way.
+		- JC, 20261023: "GitHub's M4 macOS runners" means GitHub's free arm64 macOS runners, which aren't M4 now.
 		- The release isn't built for a newer CPU than M1, since nothing sets `target-cpu` and the Rust target's default is `apple-m1`.
 	- Test case: ci.yml's `macos` job, which runs `cargo test`, then crosscheck over the corpus and cli-regress on the release.
 	- Acceptance signoff: Self-closed on JC's criteria: the job already does each requirement on M1, and JC chose M1.
