@@ -1,0 +1,9 @@
+# H008 on a line with an error comes first on its line, since the scan finds
+# it before the line is judged. A '#' that ends an array element, a piece
+# after a loose comma or the text after a closing ']' opens a comment like
+# any other, and the line is refused as it would be without the hint.
+pal: [#fff, #000]
+two: a,#b
+tail: [a] b#c
+gap: [a] b #c
+ok: 1

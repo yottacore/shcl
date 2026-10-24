@@ -74,8 +74,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
-	- Status: Waiting for answers
-		- Waits on the question filed for 2026102307143752: the premise that the emitter already covers every retained line.
+	- Status: Started
+		- Its first child, 2026102307143752, goes on with option A (JC).
 	- Priority: Avg
 	- Opened: 20261023-070357
 	- Opened by: JC
@@ -93,6 +93,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
 		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
+		- JC, 20261023: option A for the emitter, with the stop rule on 2026102307143752.
 	- Progress log:
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
@@ -100,8 +101,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `E001` and `E008` are retained
 	- ID: 2026102307143752
 	- Type: Enhancement
-	- Status: Waiting for answers
-		- Waits on the question in questions.md: the emitter asked the reload only for lines kept with their own indent and for `E028`'s array line, not for every retained line, so the item's premise didn't hold.
+	- Status: Started
+		- Option A picked (JC). Next is the planned fix for the open fuzz case, then the 2,000,000 fuzz again.
+	- Question, answered: the emitter asked the reload only for lines kept with their own indent and for `E028`'s array line, not for every retained line, so the item's premise didn't hold.
+		- JC, 20261023: option A, with the stop rule below.
+	- Recommendation (me, 20261023): option A. It's built in all 4 and short of one fuzz case, it covers the second child's codes with no more code, and it keeps one rule in the one emitter. B adds a pass per code in 4 bindings. C keeps the 3 exceptions and the line-order difference, and leaves the second child unsolved.
+		- Stop rule: if the 2,000,000 fuzz still fails after the planned fix and one more, drop the wip branch and leave dev as it is, rather than switch to B or C.
 	- Priority: Avg
 	- Opened: 20261023-071437
 	- Opened by: JC
@@ -144,24 +149,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
 
-- A `#` glued to text changes a value with no word
-	- ID: 2026102307035776
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261023-070357
-	- Opened by: JC
-	- Related IDs: 2026102307035786
-	- Estimated effort: High
-	- Problem description:
-		- `url: http://h/#frag` reads `http://h/`, and `color: #fff` reads empty, at exit 0 with nothing said. The comment rule is settled (`#` anywhere outside quotes opens a comment) and stays.
-	- Requirements:
-		- New hint `H008`, raised when a `#` opens a comment with a non-blank character right before it, in a bare value, an element, a selector body or a fence label.
-		- Like `H005`, it changes no load, no read and no exit code, so Strict and the corpus reads don't change.
-		- The prose names the fix: quote the value.
-		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
-		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
-
 - An apostrophe inside a bare word is an error
 	- ID: 2026102307035781
 	- Type: Enhancement
@@ -182,6 +169,93 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings, spec.md, value-syntax.md, the lexical edges table in design.md, and corpus cases.
 	- Decisions:
 		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
+
+- `upgrade --from-2x` can write a fresh file that names no current format
+	- ID: 2026102309053667
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261023-090602
+	- Opened by: 2026102307035776
+	- Related IDs: 2026102307035776
+	- Version and build: `r1023` at `c92e1c05`
+	- Steps to reproduce:
+		- With corpus cases 207 and 208 in the seed set, `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke upgrade_leaves_its_own_output_alone`.
+	- Incorrect behavior: iteration 628247, `from_v2` true, fails "the fresh text names no current format". The input has `##    Format   3`, then a second info block with `##    Format   99999999999` and a line `   3` under it. The fresh text writes that line as `"3":` and indents the block's comments under it.
+	- Expected behavior: the fresh file names this format, or the upgrade refuses.
+	- Reproduced: on `c92e1c05`, before the `H008` change, with the 2 new cases copied in, at the same iteration.
+		- 20261023, again on `r1024` at `bc24aafa`. Cut down to `a: 1`, `##    Format   3`, `##`, `## This config file format is SHCL.`, `##    Format   4`, then `   b`. `banner on` does the same to that file with `   b: 2`, which loads clean: it names format 4 afterwards, with `H006`.
+	- Actual cause: a whole info block above the first field's first child stays, and the lone `Format 3` line above it comes off once the new block goes on. The kept block's Format line then comes first, and the first line naming this format or a newer one is the one read. `upgrade` and `set_banner` share that path.
+	- Actual fix: when the new block goes on, a Format line in a block kept at the top is set to this format, in `swap_banner`. All 4.
+	- Decisions:
+		- me, 20261023: set the kept line rather than refuse. The input named this format, the new block names it, and migrate already turns an older Format line into this one where it sits. A refusal would need a new reason on `Upgrade` in all 4, for a file made by hand.
+		- me, 20261023: the line-keeping save writes the changed line at its field's indent, as it does any line a write made.
+	- Swept: `swap_banner` in Rust, Go, Python and C, which `upgrade`, `upgrade_file`, `set_banner` and the `banner` op all reach; the C++ veneer only wraps them. The footer always loses its old block, so only the top nodes keep one. `migrate`'s stamp goes through `restamp`, which already checks that the line it writes is the one read. The `upgrade` and `set_banner` doc comments in all 4 and the veneer, spec.md (`UpgradeFile` and the info block), the man page and the changelog.
+	- Verified: the new test fails on the old code in all 4 and passes with the fix. The 2,000,000 release fuzz passes all 31 properties. Also the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-migrate, check-docs, test-ids check, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy.
+	- Branch: `r1024`
+	- Commit: `d6820c2e`
+	- Test case: `a_block_kept_at_the_top_names_this_format_too` in Rust (`EtaIsb8`), Go (`EtaIse6`), Python (`EtaIsh6`) and C (`EtaIsjz`), through `upgrade` and `set_banner`, and fuzz `EssNzSi`.
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new test failed before and passes after, and the fuzz that found it passes. Setting the line rather than refusing is my call, noted under Decisions.
+	- Closed: 20261023-205517
+
+- A dev build shows its date after the build number
+	- ID: 2026102319430000
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-194300
+	- Opened by: JC
+	- Requirements:
+		- For non-release builds, include " (YYYY-mm-DD)" after the build number.
+		- Report the date as the local date of whoever views the version.
+	- Decisions:
+		- JC, 20261023: a stamped build whose version already has its `vX.Y.Z` tag is a dev build. A release is built from the bump commit, before the tag, so it has no date.
+		- me, 20261023: the CLI works the date out from the build number when it runs, so no second stamp is needed. Unstamped builds stay `shcl vX.Y.Z`, so the 4 CLIs still match in crosscheck. Only the Rust CLI is stamped, so the other 3 get no date code.
+	- Progress log:
+		- 20261023: cicd.bash sets `SHCL_BUILD_DATED` from the tag beside `SHCL_BUILD`. build.rs passes it on, and `--version` and `--about` add the date in the local zone, through `localtime_r` or `SystemTimeToTzSpecificLocalTime`.
+		- Verified: a stamped build gave `(2025-10-22)` under Los Angeles and `(2025-10-23)` under UTC and Tokyo for a midnight UTC commit, the windows build under wine the same, and no date without the flag. Plus clippy, cli-regress, check-docs, test-ids check and shell-regress.
+	- Commit: `b01bad6c`
+	- Test case: Rust `EtaBWuf`, `EtaBWyo` and `EtaBX2b` in main.rs, and shell-regress `EtaC4oT`, seen to fail with the tag test broken.
+	- Acceptance signoff: Self-closed on JC's criteria: each requirement is in and tested, and JC made the release call.
+	- Closed: 20261023-201500
+
+- A `#` glued to text changes a value with no word
+	- ID: 2026102307035776
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035786, 2026102309053667
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Problem description:
+		- `url: http://h/#frag` reads `http://h/`, and `color: #fff` reads empty, at exit 0 with nothing said. The comment rule is settled (`#` anywhere outside quotes opens a comment) and stays.
+	- Requirements:
+		- New hint `H008`, raised when a `#` opens a comment with a non-blank character right before it, in a bare value, an element, a selector body or a fence label.
+		- Like `H005`, it changes no load, no read and no exit code, so Strict and the corpus reads don't change.
+		- The prose names the fix: quote the value.
+		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
+		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
+	- Decisions:
+		- me, 20261023: "Right before it" taken so `color: #fff` hints too. A `#` that opens a comment hints when text sits right before it in a bare piece, or the piece is empty and a character other than a blank or `#` follows. `port: 80   # main`, `a: # note`, `a: ## two`, a whole-line comment, and a `#` after a closing quote or `]` get none. design.md's Lexical edges has the reason and the alternatives.
+		- me, 20261023: a fence label follows the same rule, since the value scan finds its `#`: ```` ```c# ```` hints and ```` ``` # note ```` doesn't. A name is left out, as the item lists only the 4 places.
+		- me, 20261023: the hint also shows on a line with an error, ahead of it, since the scan finds it first (185's found-order rule). A `- ` item is tokenized before its position is judged, so a misplaced item hints as a misplaced field line does.
+	- Progress log:
+		- 20261023: `Tokens` gains `glued` in all 4, set where the scan already stops at a comment, from the characters on either side of the `#`. The parser emits `H008` right after it tokenizes a field line, an item or a child-indent fence line. No second scan.
+		- Corpus 056, 068 and 109 already had a `#` against text, so their expected-diags gain `H008` lines. Their reads and Strict rows don't change.
+		- check-abnf counted any hint as unclean, so 2 of its samples went red. It now counts errors only.
+		- spec.md (Comments, code table), design.md (Lexical edges, Load outcomes), value-syntax.md, the corpus README, the changelog and `explain H008` in all 4 CLIs. The fuzz grammar generator expects `glued`, and checks both shapes come up.
+		- Verified: the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-docs, check-abnf, check-doc-examples, test-ids check, shell-regress, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy. The release fuzz at 2,000,000 passed every property but `upgrade_leaves_its_own_output_alone`, which fails at iteration 628247 on the old code too once the 2 new cases are in the seed set (2026102309053667).
+		- Seen to fail on the old code: the diags of 207, 208 and the 3 updated cases, and `explain H008`.
+		- 20261023, test batch: fuzz `EqGWdij` (`raw_bodies_stay_content`) failed at 100 iterations, as `--miri-all` runs it. It skipped the read-back for any opener with a diagnostic, so the `c#` openers it draws stopped counting once they hint. It now skips only an opener with an error, and the 2 line-to-code maps that find kept misplaced lines take errors only. A body line still may not draw any diagnostic. Verified: `EqGWdij` failed at 100 before and passes at 100 and the default, all of fuzz_smoke passes at both, plus clippy, the C mem, oom and veneer tests and the Python soak.
+		- 20261023, test batch: run 1 (`-y --no-sync --no-dogfood --no-gif --no-publish`) passed stages 1-3, exhaustive cppcheck included, and stage 4 through analyze-c, soak-c, sanitize-c and codeql-scan, then stopped at the `EqGWdij` failure above. After the fix, `EqGWdij` passed under Miri at 100 iterations, and run 2 (the same with `--no-leakcheck`) passed every stage, sanitize-rust ASan and Miri, check-migrate, the release builds and their cross checks included. The slow share of `--miri-all` (scale tests) wasn't rerun.
+		- Swept: every stop at a `#` in `scan_value`, `scan_array` (an element and the text after `]`) and the selector body in `tokenize`, plus the parser's tokenize calls in its line loop, in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h. The explain tables in all 4 CLIs.
+	- Branch: `r1023`
+	- Commit: `c11e41cd`, `5e032fc2`
+	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `EtXOTsa`, `EtXOTxq` and `EtXOTvD`, and fuzz `EpFkZy4`.
+	- Acceptance signoff: Self-closed on JC's criteria: the hint changes no read or exit code, each case it names is pinned by a test seen to fail before, and the full run passed. The call on "right before it" is noted under Decisions.
+	- Closed: 20261023-183115
 
 - Doc fixes from the 2026-10-22 design review
 	- ID: 2026102307035786
@@ -237,6 +311,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261022: hosted run 39824537161 on `r1022`: the `macos` job passed.
 	- Decisions:
 		- JC, 20261022: stay on the free M1 runner. GitHub has no M4 runner, only third-party services do. What runs on M1 runs on M4, though not always the other way.
+		- JC, 20261023: "GitHub's M4 macOS runners" means GitHub's free arm64 macOS runners, which aren't M4 now.
 		- The release isn't built for a newer CPU than M1, since nothing sets `target-cpu` and the Rust target's default is `apple-m1`.
 	- Test case: ci.yml's `macos` job, which runs `cargo test`, then crosscheck over the corpus and cli-regress on the release.
 	- Acceptance signoff: Self-closed on JC's criteria: the job already does each requirement on M1, and JC chose M1.

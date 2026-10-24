@@ -1044,6 +1044,12 @@ rows=(
 	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
 	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual. A shcl made\n  for that format reads it as written.\n\n|-"
 	"EsEtTda|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now: p: a,b was an array in 2.x\n  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites\n  the file for these rules and keeps the original beside it. A file with\n  nothing else to change gets this format on its Format line.\n\n|-"
+	## 2026102307035776: a '#' against text opens a comment as any other does,
+	## and the load hints H008 so the cut is not silent. A blank before it gets
+	## none, and Strict still passes. The prose is the same in all four.
+	"EtXOTsa|glued-hash-hint|check -|url: http://h/#frag\ncolor: #fff\nport: 80   # main\n|0|line 1: Hint: H008\nline 2: Hint: H008\nok (2 diagnostic(s))\n|=line 1: Hint: H008 a '#' against text opens a comment; quote the value if the '#' is part of it\nline 2: Hint: H008 a '#' against text opens a comment; quote the value if the '#' is part of it\n(run 'shcl explain CODE' for the rule behind a code)\n"
+	'EtXOTxq|glued-hash-strict-passes|check --strictness=strict -|tags:\n\t- c#\n|0|line 2: Hint: H008\nok (1 diagnostic(s))\n|-'
+	"EtXOTvD|explain-h008|explain H008|-|0|\nH008  hint        a '#' against text opens a comment\n  A '#' outside quotes opens a comment wherever it sits, so\n  url: http://h/#frag reads http://h/, color: #fff reads nothing and\n  lang: c# reads c. Quote the value to keep the '#': color: \"#fff\". The\n  hint comes when text sits right before the '#' in a bare value, an array\n  element, a selector body or a fence label, or right after it where that\n  piece is empty. A blank before it, as in port: 80  # main, makes a plain\n  comment. A fence label can't hold a '#'.\n\n|-"
 	## 20260928 idea 4: a hint found after the parse's pass, here a late fold,
 	## was listed after every other diagnostic. The prose is the same in all
 	## four, so stderr is pinned whole.

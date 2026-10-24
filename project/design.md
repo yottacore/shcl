@@ -564,6 +564,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `H002` | hint          | bound
 | `H003` | hint          | retired: the case is `E025` or `E027`
 | `H004` | hint          | retired: became `E024`, which is retired too
+| `H008` | hint          | changes nothing: the line has the outcome it has without it
 
 - `spec.md` has what each code means, and [the value syntax design](design_docs/20261002-132445_value-syntax.md) why `E013`, `E014`, `E017`, `E019`, `E023` and `E025` to `E028` work as they do. Format 3 moved `E017` from bound to retained, since reading an open quote as bare text would break the quote rule.
 
@@ -621,6 +622,10 @@ The full rules for each kind of bare piece are in `spec.md`, under Whitespace, q
 What follows from the table:
 
 - A `#` is a comment anywhere outside quotes, backticks and a raw body, whether or not whitespace precedes it. `color: "#ff0000"` and `url: "http://x/y#frag"` are the spellings for a value holding one. `a(#0)` in a file is a selector cut off by a comment. The `[#N]` index went with bracket selectors, so a lookup path with a bare body that starts with `#` finds nothing too. An index is a bare number, `a(0)`, and a file addresses an instance by value. A fence line's info string ends where a comment starts, so ```` ```c# ```` labels the block `c`.
+
+- A `#` against text still opens a comment, and the load hints `H008` so the cut is not silent (2026102307035776). Against text means text right before the `#` in a bare piece (a value, an element, a selector body or a fence label), as in `url: http://h/#frag`, `a(x#y)` or ```` ```c# ````, or an empty piece with text right after it, as in `color: #fff` or `a(#0)`. A blank before the `#`, a closing quote or `]` before it, or a blank or another `#` after it in an empty piece is a plain comment, so `port: 80  # main`, `a: # note` and `a: ## two` get none. The scan judges it from the characters on either side of the `#` it already stopped at, so a line with no comment costs nothing more.
+	- Among hinting only a `#` with text right before it, which misses `color: #fff`, the commonest case; hinting any `#` with text right after it, which also hints a plain `port: 80 #main`; and this rule, it was decided that it is this rule. A header written `server: #main` gets the hint, since it reads exactly as `color: #fff` does; `server:  # main` gets none.
+	- Nothing suppresses it. A value that wants a comment with no blank before it is rare enough to quote.
 
 - `##` for prose and `# ` for a disabled setting are conventions. To the language both are comments, and a config author may write one with any number of `#` and any spacing.
 
@@ -877,6 +882,8 @@ The responsibility is split rather than duplicate the pipeline:
 - One canonical version source: `source/rust/Cargo.toml`. The pipeline reads it for artifact names and release tags. (An automatic bump-before-push guard was tried and dropped: dev is the integration branch, and versions there are cut deliberately at release time, not policed per push.)
 	- The Go/Python/C CLI version strings and `source/python/pyproject.toml` are hand-kept mirrors of it, moved together at a cut along with the changelog heading and the literal version strings in `install.md` and `examples.md`.
 	- A release binary prints a build number after its version, as in `shcl v3.0.0 build dd2f6`. It is the minutes from 2000 to the commit's time, in lower-case Crockford base32. It comes from the commit rather than the clock, so a rebuild of one commit still gives the same bytes. Only the pipeline's release builds are stamped. A `cargo install` from crates.io has no git history to read, so it prints the version alone, and so do the other three CLIs, which are compared byte for byte against an unstamped build.
+	- A stamped build of a version that already has its tag is a dev build, so it adds the date, as in `shcl v3.0.0 build dd2f6 (2026-10-23)`. A release is built from the bump commit, before the tag exists, so it leaves the date off. The date is worked out from the build number when the CLI runs, in the local time zone of whoever asks. Among these options, it was decided that the tag tells the two apart (JC, 2026-10-23).
+		- Rejected: a `--release` flag on the cut's run, which a missed flag turns into a dated release. Rejected: a date on every build, which breaks the byte-for-byte `--version` across the four CLIs. Rejected: the date stamped in at build time, which is the builder's day and not the reader's.
 	- Two tags per cut, not one: `vX.Y.Z` for the release, and `source/go/vX.Y.Z` for the Go module. Go resolves a module in a subdirectory only through a path-prefixed tag, so skipping the second one silently strands every Go consumer on a pseudo-version.
 	- Release assets are signed before the release is published: both installers refuse a release whose sums file has no valid signature, so publishing first would offer an install nothing can verify.
 	- A registry publish cannot be taken back. Neither crates.io nor PyPI allows reuploading a version, and each bakes in the README it was given at that moment - so the per-binding READMEs (`source/rust/README.md`, `source/python/README.md`) get their example code compiled and run against the packaged artifact before the upload, not after. Those files exist separately from the front-page README because relative links and images break on a package page, and Cargo cannot reach above the crate root anyway.

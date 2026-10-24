@@ -308,11 +308,157 @@ const VERSION_LINE: &str = concat!(
 	env!("SHCL_BUILD_SUFFIX")
 );
 
-const ABOUT: &str = concat!(
-	"shcl v",
-	env!("CARGO_PKG_VERSION"),
-	env!("SHCL_BUILD_SUFFIX"),
-	"
+// The version line plus the build's date, for a stamped build that isn't a
+// release. The date is the viewer's own, so it can differ by a day between two
+// people looking at one binary.
+fn version_line() -> String {
+	match build_date(env!("SHCL_BUILD_DATED")) {
+		Some(date) => format!("{VERSION_LINE} ({date})"),
+		None => VERSION_LINE.to_string(),
+	}
+}
+
+// The build number is minutes from 2000 to the commit, in lower-case Crockford
+// base32 (cicd.bash fBuildNumber). Seconds since 1970, or None when unstamped.
+fn build_epoch(build: &str) -> Option<i64> {
+	const DIGITS: &str = "0123456789abcdefghjkmnpqrstvwxyz";
+	if build.is_empty() || build.len() > 9 {
+		return None;
+	}
+	let mut minutes: i64 = 0;
+	for c in build.chars() {
+		minutes = minutes * 32 + DIGITS.find(c)? as i64;
+	}
+	Some(946_684_800 + minutes * 60)
+}
+
+fn build_date(build: &str) -> Option<String> {
+	let (y, m, d) = local_civil(build_epoch(build)?);
+	Some(format!("{y:04}-{m:02}-{d:02}"))
+}
+
+// Days since 1970 to a proleptic Gregorian date (Howard Hinnant's
+// civil_from_days).
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+	let z = days + 719_468;
+	let era = z.div_euclid(146_097);
+	let doe = z.rem_euclid(146_097);
+	let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+	let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+	let mp = (5 * doy + 2) / 153;
+	let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+	let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+	let y = yoe + era * 400 + i64::from(m <= 2);
+	(y, m, d)
+}
+
+// The local date for a time, through the C library's zone rules. Falls back to
+// the UTC date when the lookup fails, rather than print nothing.
+#[cfg(unix)]
+fn local_civil(epoch: i64) -> (i64, u32, u32) {
+	// The 9 POSIX fields, then glibc's and the BSDs' tm_gmtoff and tm_zone,
+	// which musl has too. Only the first 9 are read.
+	#[repr(C)]
+	struct Tm {
+		sec: i32,
+		min: i32,
+		hour: i32,
+		mday: i32,
+		mon: i32,
+		year: i32,
+		wday: i32,
+		yday: i32,
+		isdst: i32,
+		gmtoff: i64,
+		zone: *const u8,
+	}
+	unsafe extern "C" {
+		fn tzset();
+		fn localtime_r(t: *const i64, tm: *mut Tm) -> *mut Tm;
+	}
+	let mut tm = Tm {
+		sec: 0,
+		min: 0,
+		hour: 0,
+		mday: 0,
+		mon: 0,
+		year: 0,
+		wday: 0,
+		yday: 0,
+		isdst: 0,
+		gmtoff: 0,
+		zone: std::ptr::null(),
+	};
+	// SAFETY: tzset takes nothing. localtime_r writes only into tm, which is
+	// at least as large as the platform's struct tm, and reads only t.
+	let ok = unsafe {
+		tzset();
+		!localtime_r(&epoch, &mut tm).is_null()
+	};
+	if ok && (1..=12).contains(&(tm.mon + 1)) && (1..=31).contains(&tm.mday) {
+		(
+			i64::from(tm.year) + 1900,
+			(tm.mon + 1) as u32,
+			tm.mday as u32,
+		)
+	} else {
+		civil_from_days(epoch.div_euclid(86_400))
+	}
+}
+
+#[cfg(windows)]
+fn local_civil(epoch: i64) -> (i64, u32, u32) {
+	#[repr(C)]
+	#[derive(Default)]
+	struct SystemTime {
+		year: u16,
+		month: u16,
+		dow: u16,
+		day: u16,
+		hour: u16,
+		minute: u16,
+		second: u16,
+		ms: u16,
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn SystemTimeToTzSpecificLocalTime(
+			tz: *const u8,
+			utc: *const SystemTime,
+			local: *mut SystemTime,
+		) -> i32;
+	}
+	let (y, m, d) = civil_from_days(epoch.div_euclid(86_400));
+	let secs = epoch.rem_euclid(86_400);
+	let utc = SystemTime {
+		year: y as u16,
+		month: m as u16,
+		day: d as u16,
+		hour: (secs / 3600) as u16,
+		minute: (secs / 60 % 60) as u16,
+		second: (secs % 60) as u16,
+		..Default::default()
+	};
+	let mut local = SystemTime::default();
+	// SAFETY: a null zone means the current one. Both structs are SYSTEMTIME's
+	// 8 WORDs, and the call writes only into local.
+	if unsafe { SystemTimeToTzSpecificLocalTime(std::ptr::null(), &utc, &mut local) } != 0 {
+		(
+			i64::from(local.year),
+			u32::from(local.month),
+			u32::from(local.day),
+		)
+	} else {
+		(y, m, d)
+	}
+}
+
+#[cfg(not(any(unix, windows)))]
+fn local_civil(epoch: i64) -> (i64, u32, u32) {
+	civil_from_days(epoch.div_euclid(86_400))
+}
+
+const ABOUT_BODY: &str = "
 Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
 Project: https://github.com/yottacore/shcl
 Licensed under the MIT License. Full text at:
@@ -322,8 +468,7 @@ No warranty.
 Simple Hierarchical Config Language. Forgiving to write, predictable to read.
 Types live in your code, not in the file, so nothing is guessed at parse time.
 One broken line is skipped with a note instead of taking down the whole file.
-"
-);
+";
 
 const DONATE: &str = "\
 shcl is free software under the MIT License, and stays that way.
@@ -482,6 +627,14 @@ H007|hint|the file names an older format than this reader
   and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites
   the file for these rules and keeps the original beside it. A file with
   nothing else to change gets this format on its Format line.
+H008|hint|a '#' against text opens a comment
+  A '#' outside quotes opens a comment wherever it sits, so
+  url: http://h/#frag reads http://h/, color: #fff reads nothing and
+  lang: c# reads c. Quote the value to keep the '#': color: \"#fff\". The
+  hint comes when text sits right before the '#' in a bare value, an array
+  element, a selector body or a fence label, or right after it where that
+  piece is empty. A blank before it, as in port: 80  # main, makes a plain
+  comment. A fence label can't hold a '#'.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
   subtree is skipped. The prose has the did-you-mean suggestion.
@@ -3677,13 +3830,13 @@ fn run_cli() -> u8 {
 					Ok(None) => blocks.push(HELP.to_string()),
 					Err(code) => return code,
 				},
-				"version" => blocks.push(format!("{}\n", VERSION_LINE)),
-				"about" => blocks.push(ABOUT.to_string()),
+				"version" => blocks.push(format!("{}\n", version_line())),
+				"about" => blocks.push(format!("{}{ABOUT_BODY}", version_line())),
 				_ => blocks.push(DONATE.to_string()),
 			}
 		}
 		if asked == ["version"] {
-			outln!("{}", VERSION_LINE);
+			outln!("{}", version_line());
 		} else {
 			out!("\n{}\n", blocks.join("\n"));
 		}
@@ -3728,4 +3881,96 @@ fn run_cli() -> u8 {
 		return run_profiled(cmd, &o, &out);
 	}
 	run(cmd, &o)
+}
+
+// The build date's pieces. No test here reads the clock, so none pins it.
+#[cfg(test)]
+mod build_date_tests {
+	use super::*;
+
+	// The status line tests/common prints, since that module is out of reach.
+	struct TestId(&'static str);
+
+	fn test_id(id: &'static str) -> TestId {
+		TestId(id)
+	}
+
+	impl Drop for TestId {
+		fn drop(&mut self) {
+			use std::io::Write;
+			let status = if std::thread::panicking() {
+				"FAIL"
+			} else {
+				"ok"
+			};
+			let thread = std::thread::current();
+			let name = thread.name().unwrap_or("?");
+			let _ = writeln!(
+				std::io::stderr().lock(),
+				"{:<4} {} rust {}",
+				status,
+				self.0,
+				name
+			);
+		}
+	}
+
+	#[test]
+	fn build_number_decodes_to_the_commit_minute() {
+		let _id = test_id("EtaBWuf");
+		// The same rows shell-regress pins fBuildNumber with.
+		for (epoch, build) in [
+			(946_684_800, "0"),
+			(946_686_720, "10"),
+			(946_746_240, "100"),
+			(2_052_828_780, "hjkmn"),
+			(2_959_950_660, "zzzzz"),
+		] {
+			assert_eq!(build_epoch(build), Some(epoch), "{build}");
+		}
+		for bad in ["", "i", "u", "A", "1-2", "0000000000"] {
+			assert_eq!(build_epoch(bad), None, "{bad:?}");
+		}
+	}
+
+	#[test]
+	fn day_counts_turn_into_calendar_dates() {
+		let _id = test_id("EtaBWyo");
+		for (days, date) in [
+			(0, (1970, 1, 1)),
+			(-1, (1969, 12, 31)),
+			(10_957, (2000, 1, 1)),
+			(19_782, (2024, 2, 29)),
+			(47_541, (2100, 3, 1)),
+		] {
+			assert_eq!(civil_from_days(days), date, "{days}");
+		}
+	}
+
+	#[test]
+	fn the_local_date_is_within_a_day_of_utc() {
+		let _id = test_id("EtaBX2b");
+		if cfg!(miri) {
+			return;
+		}
+		for epoch in [946_684_800_i64, 1_761_177_599, 1_761_177_600, 2_052_828_780] {
+			let day = epoch.div_euclid(86_400);
+			let near = [
+				civil_from_days(day - 1),
+				civil_from_days(day),
+				civil_from_days(day + 1),
+			];
+			assert!(
+				near.contains(&local_civil(epoch)),
+				"{epoch}: {:?}",
+				local_civil(epoch)
+			);
+		}
+		assert_eq!(build_date(""), None);
+		let date = build_date("hjkmn").unwrap();
+		assert!(
+			date.len() == 10 && date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-',
+			"{date}"
+		);
+	}
 }

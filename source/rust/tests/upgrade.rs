@@ -128,6 +128,28 @@ fn from_v2_refuses_a_conversion_that_keeps_an_error() {
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn a_block_kept_at_the_top_names_this_format_too() {
+	let _id = test_id("EtaIsb8");
+	// The lone stamp comes off, and the block kept above the first field's
+	// child named another format, which the fresh text then read as its own
+	// (2026102309053667).
+	let text =
+		"a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n";
+	assert_eq!(shcl::format_version(text), Some(3));
+	let up = upgrade(text, true);
+	assert!(!up.current && up.errors_left.is_empty() && up.ambiguous == 0);
+	assert_eq!(shcl::format_version(&up.text), Some(3));
+	assert!(!up.text.contains("Format   4"));
+	assert!(upgrade(&up.text, false).current);
+	// set_banner takes the same path.
+	let mut doc = Document::parse(
+		"a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n",
+	);
+	let _ = doc.set_banner(true);
+	assert_eq!(shcl::format_version(&doc.to_canonical()), Some(3));
+}
+
 fn stamped_comma_list() -> String {
 	format!("p: a,b\n\n{}", GEN_BANNER)
 }

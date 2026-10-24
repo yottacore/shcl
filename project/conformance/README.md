@@ -162,7 +162,7 @@ Case `066` pins comment text through the writer: a trailing space comes off, a t
 
 Case `067` pins the i64 edge at the loose float fallback: `9223372036854775807.0` lands on 2^63 as a double and is `BadType` as an int, while `-9223372036854775808.0` reads.
 
-Case `068` pins a `#` on a fence line in both spellings: it ends the label and opens the line's comment, so ```` ```c# ```` labels the block `c`.
+Case `068` pins a `#` on a fence line in both spellings: it ends the label and opens the line's comment, so ```` ```c# ```` labels the block `c`. A `#` against the label like that gets the hint `H008`; one after a blank gets none.
 
 Case `069` pins traversal through the `children`, `paths` and `instance_paths` rows: children in file order with repeats kept, each instance's in turn where a path has several, nothing for a missing path, every path once, quoted where a name needs it, and every binding once with `(i)` on a name its parent repeats.
 
@@ -242,7 +242,7 @@ Case `107` pins recursive fragment mounts under the validation memo: a type faul
 
 Case `108` pins a bracket array holding an index or a wildcard (`[80]`, `[*]`): an ordinary array of that text, with nothing lost.
 
-Case `109` pins a `#` in a bare selector body. On a file line it opens a comment, the selector is left unterminated (`E014`), and the line is kept with nothing lost. In a lookup a body that starts with `#` is refused, so `b(#5).c` reads `BadPath`, since the old `[#N]` index is gone.
+Case `109` pins a `#` in a bare selector body. On a file line it opens a comment, the selector is left unterminated (`E014`), and the line is kept with nothing lost. In a lookup a body that starts with `#` is refused, so `b(#5).c` reads `BadPath`, since the old `[#N]` index is gone. Each line gets the hint `H008` ahead of its `E014`, since the `#` is against text.
 
 Case `110` pins `init` for a schema listed out of tree order, a parent after its child with another field between: the output keeps tree order and loads with no diagnostics, hints included.
 
@@ -435,6 +435,10 @@ Case `203` pins a selector in brackets, the old spelling, as `E029`: the line is
 Cases `204` and `205` pin the hints for a Format line naming another major than this one: `H006` on the stamp's line for a newer one, `H007` for an older one. Either is a hint, so the load goes on as usual and a Strict load still passes. A Format line inside a raw body is the block's content and gets none. The older file reads by these rules, so its backslash is text and `a,b` is one string.
 
 Case `206` pins the Loose read of a quoted thousands number: exact 3-digit groups, a currency symbol, a sign, a decimal part, a trailing `.` and a `%` read as a number, and `"1, 200"`, `"1,2,3"` and `".1,200"` stay text. Bare `1,200` is text at every level, and Standard and Strict read none of them. `fmt` and the setters leave a bare one bare, and a stacked item like that goes in quotes when a merge puts the list in brackets.
+
+Case `207` pins the hint `H008` for a `#` against text: text right before it in a value, a stacked item or a fence label, or an empty value with text right after it, as in `color: #fff` and `tight:#x`. The reads are what the comment leaves, and a Strict load still passes. A blank before the `#`, a closing quote or `]` before it, or a blank or another `#` after it gets none. Canonical output puts a blank before the comment, so the two empty values still hint after a save and the others don't.
+
+Case `208` pins `H008` on lines that are refused anyway: an array element, a piece after a loose comma, and text after a closing `]`. The hint comes first on its line, ahead of the `E019` or `E026`, and the lines are kept as they would be without it.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

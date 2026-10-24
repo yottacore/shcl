@@ -1,3 +1,5 @@
+line 1: Hint: H008
 line 1: Error: E014
+line 2: Hint: H008
 line 2: Error: E014
-failed: 2 diagnostic(s), 2 error(s)
+failed: 4 diagnostic(s), 2 error(s)

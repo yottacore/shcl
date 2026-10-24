@@ -41,6 +41,18 @@ fn main() {
 	};
 	println!("cargo:rustc-env=SHCL_BUILD_SUFFIX={suffix}");
 
+	// A stamped build that isn't a release shows its date as well. The CLI
+	// works it out from the build number when it runs, in the local zone of
+	// whoever asks, so only the number is passed on.
+	println!("cargo:rerun-if-env-changed=SHCL_BUILD_DATED");
+	let dated = env::var("SHCL_BUILD_DATED").unwrap_or_default();
+	assert!(
+		dated.is_empty() || (dated == "1" && !build.is_empty()),
+		"SHCL_BUILD_DATED must be empty, or 1 with SHCL_BUILD set, got {dated:?}"
+	);
+	let dated_build = if dated.is_empty() { "" } else { build.as_str() };
+	println!("cargo:rustc-env=SHCL_BUILD_DATED={dated_build}");
+
 	if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
 		return;
 	}

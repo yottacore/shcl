@@ -4931,6 +4931,26 @@ def main():
 		if len(os.listdir(ud)) != 1:
 			raise SystemExit(f"left: {os.listdir(ud)}")
 
+	test_id("EtaIsh6", "a_block_kept_at_the_top_names_this_format_too")
+	# The lone stamp comes off, and the block kept above the first field's
+	# child named another format, which the fresh text then read as its own
+	# (2026102309053667).
+	up_top = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n"
+	if shcl.format_version(up_top) != 3:
+		raise SystemExit(f"kept top: input names {shcl.format_version(up_top)}")
+	up = shcl.upgrade(up_top, True)
+	if up.current or up.errors_left or up.ambiguous:
+		raise SystemExit(f"kept top: {up.current} {up.errors_left} {up.ambiguous}")
+	if shcl.format_version(up.text) != 3 or "Format   4" in up.text:
+		raise SystemExit(f"kept top: fresh text names {shcl.format_version(up.text)}: {up.text!r}")
+	if not shcl.upgrade(up.text, False).current:
+		raise SystemExit(f"kept top: a second run made it over again: {up.text!r}")
+	# set_banner takes the same path.
+	up_doc = shcl.Document.parse("a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n")
+	up_doc.set_banner(True)
+	if shcl.format_version(up_doc.to_canonical()) != 3:
+		raise SystemExit(f"kept top: set_banner names {shcl.format_version(up_doc.to_canonical())}")
+
 	test_id("Es2k1DD", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently")
 	# The caller says it is 2.x, where a,b was an array.
 	up = shcl.upgrade("p: a,b\n", True)

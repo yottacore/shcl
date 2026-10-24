@@ -1458,6 +1458,10 @@ type Tokens struct {
 	// Capped is true when the cap stopped the scan; Elements is then
 	// incomplete.
 	Capped bool
+	// Glued is the offset of a `#` that opened a comment against a bare
+	// piece's text (H008): `http://h/#frag`, or `#fff` where the piece is
+	// empty; -1 when there is none.
+	Glued int
 }
 
 func (t *Tokens) clear() {
@@ -1474,6 +1478,7 @@ func (t *Tokens) clear() {
 	t.Misspelled = -1
 	t.BracketSelector = -1
 	t.Capped = false
+	t.Glued = -1
 }
 
 // ElementCount is how many elements the value holds: a quoted piece counts
@@ -1572,6 +1577,22 @@ func quoteClose(s string, pos int, rules Rules) int {
 // is the caller's business.
 func commentAt(s string, i int) bool {
 	return s[i] == '#'
+}
+
+const gluedHint = "a '#' against text opens a comment; quote the value if the '#' is part of it"
+
+// gluedComment: whether the comment a bare piece ended at, the `#` at `at`,
+// is against text: the piece's last character sits right before it, or the
+// piece is empty and a character other than a blank or `#` follows (H008).
+// `port: 80  # main` and `a: # note` are plain comments.
+func gluedComment(s string, p Piece, at int) bool {
+	if p.Quote == QuoteSingle || p.Quote == QuoteDouble || p.Quote == QuoteBacktick {
+		return false
+	}
+	if p.End > p.Start {
+		return p.End == at
+	}
+	return at+1 < len(s) && !isWspByte(s[at+1]) && s[at+1] != '#'
 }
 
 // looseComma: a comma at `at` with a blank, a comment or the end after it.
@@ -1722,6 +1743,9 @@ func scanValue(text string, from int, rules Rules, out *Tokens) {
 		}
 		if stop < len(s) {
 			out.Comment = stop
+			if gluedComment(s, piece, stop) {
+				out.Glued = stop
+			}
 		}
 		stopAt = stop
 		break
@@ -1792,6 +1816,8 @@ func scanArray(text string, from, open int, out *Tokens) {
 		}
 		if stop < len(s) && s[stop] == ']' {
 			closeAt = stop
+		} else if stop < len(s) && gluedComment(s, piece, stop) {
+			out.Glued = stop
 		}
 		stopAt = stop
 		break
@@ -1804,10 +1830,13 @@ func scanArray(text string, from, open int, out *Tokens) {
 			noteFault(after, "text after ']'")
 			// The comment past the stray text, found the way a value finds it.
 			for {
-				_, stop := scanPiece(s, after, ',', RulesCurrent, true, false)
+				piece, stop := scanPiece(s, after, ',', RulesCurrent, true, false)
 				if stop < len(s) && s[stop] == ',' {
 					after = stop + 1
 					continue
+				}
+				if stop < len(s) && gluedComment(s, piece, stop) {
+					out.Glued = stop
 				}
 				end = stop
 				break
@@ -1923,6 +1952,9 @@ func Tokenize(text string, sep byte, path bool, rules Rules, out *Tokens) {
 				return
 			}
 			piece, stop := scanPiece(s, open+1, close, rules, !path, false)
+			if !path && stop < len(s) && commentAt(s, stop) && gluedComment(s, piece, stop) {
+				out.Glued = stop
+			}
 			if stop >= len(s) || s[stop] != close {
 				out.Fault, out.FaultReason = open, "unterminated selector"
 				return
@@ -3369,21 +3401,21 @@ type Upgraded struct {
 // one: the input run through MigrateUnstamped, then written the way `fmt`
 // writes it, with the info block `init` writes at the end in place of an old
 // one there. A whole block above the first field stays, so a file with its
-// block at the top comes out with 2. This is the one library call that writes
-// the block. A file that names this format comes back Current and untouched,
-// and so does one that loads with no error under these rules, since a program
-// calling this on every start must never rewrite a good file. fromV2 is
-// Migrate's: the file can only have been written for 2.x. Then a file that
-// loads clean is still made over when Migrate would change it, as it would
-// `p: a,b`, an array under 2.x and one string now. One it would not change
-// that names an older format gets this format on that Format line, and
+// block at the top comes out with 2, both naming this format. This is the one
+// library call that writes the block. A file that names this format comes back
+// Current and untouched, and so does one that loads with no error under these
+// rules, since a program calling this on every start must never rewrite a good
+// file. fromV2 is Migrate's: the file can only have been written for 2.x. Then
+// a file that loads clean is still made over when Migrate would change it, as
+// it would `p: a,b`, an array under 2.x and one string now. One it would not
+// change that names an older format gets this format on that Format line, and
 // nothing else. The one file naming this format that is made over is one that
-// loads with an error when fromV2 says a 2.x build wrote it, as with a beta
-// of 3.0 that wrote 2.x lines. It is taken as 2.x. With fromV2, any file is
-// made over only when the fresh text loads clean; when it wouldn't,
-// ErrorsLeft names the lines still in error. Pass fromV2 only for a file
-// known to be old, never on every start: a file this format wrote that picks
-// up an error later would be read by 2.x rules too.
+// loads with an error when fromV2 says a 2.x build wrote it, as with a beta of
+// 3.0 that wrote 2.x lines. It is taken as 2.x. With fromV2, any file is made
+// over only when the fresh text loads clean; when it wouldn't, ErrorsLeft names
+// the lines still in error. Pass fromV2 only for a file known to be old, never
+// on every start: a file this format wrote that picks up an error later would
+// be read by 2.x rules too.
 func Upgrade(text string, fromV2 bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
@@ -4487,6 +4519,14 @@ func newParser() *parser {
 		dispMap:    []map[uint64]int{nil},
 		reentered:  map[int]int{},
 		arrayLines: map[int]arrayLine{},
+	}
+}
+
+// hintGlued: H008, from the scan that found the comment. It changes nothing
+// the load reads, so it comes first among its line's diagnostics.
+func (p *parser) hintGlued(line int, tok *Tokens) {
+	if tok.Glued >= 0 {
+		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: gluedHint, Code: "H008"})
 	}
 }
 
@@ -5760,6 +5800,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		// and its info string are the value; a comment may follow them.
 		if rest[0] == '`' || rest[0] == '~' {
 			if ch, length, info, ok := childFence(rest, &tok); ok {
+				p.hintGlued(lineno, &tok)
 				comment := ""
 				if tok.Comment >= 0 {
 					comment = rest[tok.Comment:]
@@ -5834,6 +5875,8 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		}
 		if item || strings.HasPrefix(rest, "*") {
 			if item {
+				TokenizeValue(rest, 1, RulesCurrent, &tok)
+				p.hintGlued(lineno, &tok)
 				parent, okp := p.resolveParent(indent, found)
 				if !okp {
 					p.misplaced(lineno, "E012", indent, rest, hadBlank, false)
@@ -5845,7 +5888,6 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					i++
 					continue
 				}
-				TokenizeValue(rest, 1, RulesCurrent, &tok)
 				// An item past the cap is refused for that, whatever its
 				// value. A good one finds out where it would join.
 				if f := itemFault(&tok, rest); f != nil {
@@ -5920,6 +5962,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		}
 		// Field line.
 		Tokenize(rest, ':', false, RulesCurrent, &tok)
+		p.hintGlued(lineno, &tok)
 		comment := ""
 		if tok.Comment >= 0 {
 			comment = rest[tok.Comment:]
@@ -11483,7 +11526,8 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // left alone. A dotted first line hangs it on its last name, which a saved file
 // writes as the first field's first child, so a block there is left alone too,
 // however it got there. A lone Format line there comes off with on, since the
-// new block names the format. The library save never adds the block by itself;
+// new block names the format. A kept block's Format line is set to this format
+// too, since it reads first. The library save never adds the block by itself;
 // this is for a program that wants it in a file it writes. Returns how many old
 // blocks came off.
 func (d *Document) SetBanner(on bool) int {
@@ -11531,6 +11575,17 @@ func (d *Document) swapBanner(on, v2 bool) int {
 		removed += gone
 	}
 	if on {
+		// A block kept at the top reads before the new one, so it names this
+		// format too (2026102309053667).
+		for _, n := range top {
+			if tr := d.arena[n].trivia; tr != nil {
+				for k := range tr.leading {
+					if l := &tr.leading[k]; strings.HasPrefix(l.text, FormatLineHead) && l.text != FormatLine {
+						l.text, l.line = FormatLine, 0
+					}
+				}
+			}
+		}
 		open := len(d.orphans) > 0 || len(d.arena[root].children) > 0
 		for n, line := range strings.Split(strings.TrimSuffix(GenBanner, "\n"), "\n") {
 			l := plainLead(line)

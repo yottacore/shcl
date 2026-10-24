@@ -688,8 +688,13 @@ fn lost_count_follows_the_outcome_table() {
 			.lines()
 			.collect();
 		let canon = doc.to_canonical();
-		let codes: std::collections::HashMap<usize, &str> =
-			doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+		// Errors only: a hint on the same line (H008) is no refusal.
+		let codes: std::collections::HashMap<usize, &str> = doc
+			.diagnostics()
+			.iter()
+			.filter(|d| d.severity == Severity::Error)
+			.map(|d| (d.line, d.code))
+			.collect();
 		let kept = kept_misplaced(&lines, &codes);
 		let mut want = 0usize;
 		for d in doc.diagnostics() {
@@ -1017,6 +1022,13 @@ fn raw_bodies_stay_content() {
 				.iter()
 				.any(|d| d.line == n && (codes.is_empty() || codes.contains(&d.code)))
 		};
+		// A hint changes no load, so an opener with only a hint (H008 on
+		// ```c#) still has its body read back.
+		let refused = |n: usize| {
+			diags
+				.iter()
+				.any(|d| d.line == n && d.severity == Severity::Error)
+		};
 		for (opener, last) in raw_spans(&text) {
 			if on(opener, &["E006"]) {
 				continue;
@@ -1034,9 +1046,9 @@ fn raw_bodies_stay_content() {
 					i,
 					text
 				);
-				// Only where the opening line itself drew nothing: a skipped or
+				// Only where the opening line itself drew no error: a skipped or
 				// capped opener takes its body with it, which is a separate rule.
-				if on(opener, &[]) {
+				if refused(opener) {
 					continue;
 				}
 				let t = lines[body - 1].trim();
@@ -2427,8 +2439,12 @@ fn kept_text(text: &str) -> KeptText {
 		.unwrap_or(text)
 		.lines()
 		.collect();
-	let codes: std::collections::HashMap<usize, &str> =
-		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	let codes: std::collections::HashMap<usize, &str> = doc
+		.diagnostics()
+		.iter()
+		.filter(|d| d.severity == Severity::Error)
+		.map(|d| (d.line, d.code))
+		.collect();
 	let misplaced = kept_misplaced(&lines, &codes);
 	let spans = raw_spans(text);
 	// A body line is the block's content, whatever the parser made of it.
@@ -3871,11 +3887,20 @@ fn tokens_follow_the_grammar() {
 	let iters = iter_count(2000);
 	let mut rng = Rng(0x5EED_70CE_0000_0005);
 	let mut tok = Tokens::default();
+	let mut glued = [0usize; 2];
 	for i in 0..iters {
 		let (line, want) = grammar_line(&mut rng);
 		tokenize(&line, b':', false, Rules::Current, &mut tok);
 		assert_eq!(tok, want, "iteration {i}: {line:?}");
+		if let Some(at) = want.glued {
+			glued[usize::from(at > 0 && line.as_bytes()[at - 1] == b' ')] += 1;
+		}
 	}
+	// Both H008 shapes come up: text before the `#`, and after it only.
+	assert!(
+		iters < 500 || glued.iter().all(|&n| n > 0),
+		"glued {glued:?}"
+	);
 }
 
 struct LineGen {
@@ -4092,8 +4117,17 @@ fn grammar_line(rng: &mut Rng) -> (String, Tokens) {
 			// included; an empty value is a point.
 			let end = g.text.trim_end_matches([' ', '\t', '\r']).len();
 			if rng.below(2) == 0 {
-				g.text.push_str(["# c", "  # c"][rng.below(2)]);
-				g.want.comment = Some(g.text.len() - 3);
+				// The `#` against text or not, on either side (H008).
+				let c = ["# c", "  # c", "#c", "  #c"][rng.below(4)];
+				let at = g.text.len() + c.find('#').unwrap();
+				g.text.push_str(c);
+				g.want.comment = Some(at);
+				let last = *g.want.elements.last().unwrap();
+				let bare = matches!(last.quote, Quote::None | Quote::Open);
+				let empty = last.start == last.end;
+				if bare && ((!empty && last.end == at) || (empty && c.ends_with("#c"))) {
+					g.want.glued = Some(at);
+				}
 			}
 			// An empty piece sits where the scan gave up on it: at the comma,
 			// the comment or the end that follows the blank, not at the blank.

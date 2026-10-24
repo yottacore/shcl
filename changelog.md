@@ -90,6 +90,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `shcl --version` prints `shcl v3.0.0`, plus a build number on a release binary. The words `version`, `about` and `donate` are gone: use `--version`, `--about` and `--donate`. Several of them in one run each print once, in order.
 
+- A dev build from the pipeline prints its date after the build number, in your own time zone, as in `shcl v3.0.0 build dd2f6 (2026-10-23)`. A release leaves the date off.
+
 - `shcl set` writes back the lines its edits leave alone, printing or with `--write`, where it wrote the canonical form. `shcl fmt` still writes the canonical form.
 
 - The installers default to the newest full release, installed for the current user. With no full release yet, that is the newest pre-release.
@@ -126,7 +128,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `upgrade_file()` in every binding, for a program to call on start: a config file it cannot load clean, naming no format or an older one, is kept under a timestamped backup name and written fresh, with whatever settings carry over and the info block. A file that loads clean is left alone, unless the caller says it is 2.x and it reads differently now. When the only change would be an older Format line, that line alone is rewritten to name this format, after the backup. `upgrade()` is the text half, and `backup_file_name()` and `write_backup()` the backup half. `shcl upgrade FILE` does the same, printing or with `--write`.
 
-- `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay. A lone Format line comes off when the new block goes on, even above the first field, so the file names one format. `upgrade` gets the same, so an older Format line at the top of a 2.x file no longer stays above the new block.
+- `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay. A lone Format line comes off when the new block goes on, even above the first field, so the file names one format. `upgrade` gets the same, so an older Format line at the top of a 2.x file no longer stays above the new block. A whole block kept at the top names this format too.
 
 - `clear_comments()` in every binding, and the `clear-comments` op, take off the comment lines above a node, so a comment can be replaced. `comments()` reads them.
 
@@ -139,6 +141,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Hint `H005` for a value in another unit than its field name ends in, as `timeout-ms: 5s`.
 
 - Hints `H006` and `H007` on the info block's Format line when it names a newer or an older format than the reader's. The older one points at `shcl upgrade --from-2x`. Either one changes nothing about the load.
+
+- Hint `H008` when a `#` against text opens a comment, as in `url: http://h/#frag` or `color: #fff`, which read `http://h/` and nothing. It changes nothing about the load; quote the value to keep the `#`.
 
 - Integers can be written in octal and binary, `0o644` and `0b101`, beside hex.
 

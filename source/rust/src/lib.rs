@@ -1310,6 +1310,9 @@ pub struct Tokens {
 	pub cap: usize,
 	/// True when the cap stopped the scan; `elements` is then incomplete.
 	pub capped: bool,
+	/// Offset of a `#` that opened a comment against a bare piece's text
+	/// (`H008`): `http://h/#frag`, or `#fff` where the piece is empty.
+	pub glued: Option<usize>,
 }
 
 impl Tokens {
@@ -1325,6 +1328,7 @@ impl Tokens {
 		self.misspelled = None;
 		self.bracket_selector = None;
 		self.capped = false;
+		self.glued = None;
 	}
 	/// How many elements the value holds: a quoted piece counts even when
 	/// empty (`""` is a real element), an empty bare slot does not.
@@ -1406,6 +1410,23 @@ fn quote_close(s: &[u8], pos: usize, rules: Rules) -> Option<usize> {
 /// caller's business.
 fn comment_at(s: &[u8], i: usize) -> bool {
 	s[i] == b'#'
+}
+
+const GLUED_HINT: &str =
+	"a '#' against text opens a comment; quote the value if the '#' is part of it";
+
+/// Whether the comment a bare piece ended at, the `#` at `at`, is against
+/// text: the piece's last character sits right before it, or the piece is
+/// empty and a character other than a blank or `#` follows (`H008`).
+/// `port: 80  # main` and `a: # note` are plain comments.
+fn glued_comment(s: &[u8], p: &Piece, at: usize) -> bool {
+	if matches!(p.quote, Quote::Single | Quote::Double | Quote::Backtick) {
+		return false;
+	}
+	if p.end > p.start {
+		return p.end == at;
+	}
+	s.get(at + 1).is_some_and(|&b| !is_wsp_byte(b) && b != b'#')
 }
 
 /// A comma at `at` with a blank, a comment or the end after it. Only that
@@ -1580,6 +1601,9 @@ fn scan_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
 		}
 		if stop < s.len() {
 			out.comment = Some(stop);
+			if glued_comment(s, &piece, stop) {
+				out.glued = Some(stop);
+			}
 		}
 		stop_at = stop;
 		break;
@@ -1641,6 +1665,8 @@ fn scan_array(text: &str, from: usize, open: usize, out: &mut Tokens) {
 		}
 		if stop < s.len() && s[stop] == b']' {
 			close = Some(stop);
+		} else if stop < s.len() && glued_comment(s, &piece, stop) {
+			out.glued = Some(stop);
 		}
 		break stop;
 	};
@@ -1654,10 +1680,13 @@ fn scan_array(text: &str, from: usize, open: usize, out: &mut Tokens) {
 				out.array_fault.get_or_insert((after, "text after ']'"));
 				// The comment past the stray text, found the way a value finds it.
 				loop {
-					let (_, stop) = scan_piece(s, after, b',', Rules::Current, true, false);
+					let (piece, stop) = scan_piece(s, after, b',', Rules::Current, true, false);
 					if stop < s.len() && s[stop] == b',' {
 						after = stop + 1;
 						continue;
+					}
+					if stop < s.len() && glued_comment(s, &piece, stop) {
+						out.glued = Some(stop);
 					}
 					end = stop;
 					break;
@@ -1793,6 +1822,9 @@ pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens)
 				return;
 			}
 			let (piece, stop) = scan_piece(s, at + 1, close, rules, !path, false);
+			if !path && stop < s.len() && comment_at(s, stop) && glued_comment(s, &piece, stop) {
+				out.glued = Some(stop);
+			}
 			if stop >= s.len() || s[stop] != close {
 				out.fault = Some((at, "unterminated selector"));
 				return;
@@ -3086,22 +3118,21 @@ pub struct Upgrade {
 /// input run through `migrate_unstamped`, then written the way `fmt` writes
 /// it, with the info block `init` writes at the end in place of an old one
 /// there. A whole block above the first field stays, so a file with its
-/// block at the top comes out with 2. This is the one library call that
-/// writes the block. A file that names this format comes back `current` and
-/// untouched, and so does one that loads with no error under these rules,
-/// since a program calling this on every start must never rewrite a good
-/// file. `from_v2` is migrate's: the file can only have been written for
+/// block at the top comes out with 2, both naming this format. This is the one
+/// library call that writes the block. A file that names this format comes back
+/// `current` and untouched, and so does one that loads with no error under
+/// these rules, since a program calling this on every start must never rewrite
+/// a good file. `from_v2` is migrate's: the file can only have been written for
 /// 2.x. Then a file that loads clean is still made over when `migrate` would
-/// change it, as it would `p: a,b`, an array under 2.x and one string now.
-/// One it would not change that names an older format gets this format on
-/// that Format line, and nothing else. The one file naming this format that
-/// is made over is one that loads with an error when `from_v2` says a 2.x
-/// build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is taken
-/// as 2.x. With `from_v2`, any file is made over only when the fresh text
-/// loads clean; when it wouldn't, `errors_left` names the lines still in
-/// error. Pass `from_v2` only for a file known to be old, never on every
-/// start: a file this format wrote that picks up an error later would be
-/// read by 2.x rules too.
+/// change it, as it would `p: a,b`, an array under 2.x and one string now. One
+/// it would not change that names an older format gets this format on that
+/// Format line, and nothing else. The one file naming this format that is made
+/// over is one that loads with an error when `from_v2` says a 2.x build wrote
+/// it, as with a beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With
+/// `from_v2`, any file is made over only when the fresh text loads clean; when
+/// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
+/// only for a file known to be old, never on every start: a file this format
+/// wrote that picks up an error later would be read by 2.x rules too.
 pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
@@ -4261,6 +4292,19 @@ impl<'a> Parser<'a> {
 			return;
 		}
 		self.diags.push(d);
+	}
+
+	/// `H008`, from the scan that found the comment. It changes nothing the
+	/// load reads, so it comes first among its line's diagnostics.
+	fn hint_glued(&mut self, line: usize, tok: &Tokens) {
+		if tok.glued.is_some() {
+			self.diag(Diagnostic {
+				line,
+				severity: Severity::Hint,
+				message: GLUED_HINT.to_string(),
+				code: "H008",
+			});
+		}
 	}
 
 	fn err(&mut self, line: usize, code: &'static str, msg: impl Into<String>) {
@@ -5594,6 +5638,7 @@ impl<'a> Parser<'a> {
 			if rest.starts_with(['`', '~'])
 				&& let Some(fence) = child_fence(rest, &mut tok)
 			{
+				self.hint_glued(lineno, &tok);
 				let comment = tok.comment.map(|c| &rest[c..]);
 				let parent = self.resolve_parent(indent, found);
 				let (value, next) = self.consume_raw(&lines, i + 1, lineno, indent, fence);
@@ -5667,6 +5712,8 @@ impl<'a> Parser<'a> {
 			});
 			if item || rest.starts_with('*') {
 				if item {
+					tokenize_value(rest, 1, Rules::Current, &mut tok);
+					self.hint_glued(lineno, &tok);
 					let Some(parent) = self.resolve_parent(indent, found) else {
 						self.misplaced(lineno, "E012", indent, rest, had_blank, false);
 						i += 1;
@@ -5677,7 +5724,6 @@ impl<'a> Parser<'a> {
 						i += 1;
 						continue;
 					}
-					tokenize_value(rest, 1, Rules::Current, &mut tok);
 					// An item past the cap is refused for that, whatever its
 					// value. A good one finds out where it would join.
 					if self.list_full(parent) && item_fault(&tok, rest).is_some() {
@@ -5787,6 +5833,7 @@ impl<'a> Parser<'a> {
 			}
 			// Field line.
 			tokenize(rest, b':', false, Rules::Current, &mut tok);
+			self.hint_glued(lineno, &tok);
 			let comment = tok.comment.map(|c| &rest[c..]);
 			let Some(parent) = self.resolve_parent(indent, found) else {
 				let raw = line_fence(&tok, rest).is_some();
@@ -11906,10 +11953,11 @@ impl Document {
 	/// as its comment. A block at the top of the file is left alone.
 	/// A dotted first line hangs it on its last name, which a saved file
 	/// writes as the first field's first child, so a block there is left
-	/// alone too, however it got there. A lone Format line there comes off
-	/// with `on`, since the new block names the format. The library save
-	/// never adds the block by itself; this is for a program that wants it in
-	/// a file it writes. Returns how many old blocks came off.
+	/// alone too, however it got there. A lone Format line there comes off with
+	/// `on`, since the new block names the format. A kept block's Format line
+	/// is set to this format too, since it reads first. The library save never
+	/// adds the block by itself; this is for a program that wants it in a file
+	/// it writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
 		self.swap_banner(on, false)
 	}
@@ -11950,6 +11998,18 @@ impl Document {
 			removed += drop_banners(&mut self.orphans, mark, true).0;
 		}
 		if on {
+			// A block kept at the top reads before the new one, so it names
+			// this format too (2026102309053667).
+			for &n in &top {
+				if let Some(tr) = self.arena[n].trivia.as_deref_mut() {
+					for l in &mut tr.leading {
+						if l.text.starts_with(FORMAT_LINE_HEAD) && l.text != FORMAT_LINE {
+							l.text = FORMAT_LINE.to_string();
+							l.line = 0;
+						}
+					}
+				}
+			}
 			let open = !self.orphans.is_empty() || !self.arena[ROOT].children.is_empty();
 			for (n, line) in GEN_BANNER.lines().enumerate() {
 				let mut l = Lead::plain(line.to_string());
