@@ -1,5 +1,7 @@
 sizes:
 	- small
 	color: red
+	- medium
 shape:
 	side: 4
+	- round

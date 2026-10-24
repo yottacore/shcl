@@ -154,6 +154,33 @@ func TestFromV2RefusesAConversionThatKeepsAnError(t *testing.T) {
 	}
 }
 
+func TestABlockKeptAtTheTopNamesThisFormatToo(t *testing.T) {
+	defer testID(t, "EtaIse6")
+	// The lone stamp comes off, and the block kept above the first field's
+	// child named another format, which the fresh text then read as its own
+	// (2026102309053667).
+	text := "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n"
+	if v, ok := FormatVersion(text); !ok || v != 3 {
+		t.Fatalf("input names %d, %v", v, ok)
+	}
+	up := Upgrade(text, true)
+	if up.Current || len(up.ErrorsLeft) != 0 || up.Ambiguous != 0 {
+		t.Fatalf("not made over: %+v", up)
+	}
+	if v, ok := FormatVersion(up.Text); !ok || v != 3 || strings.Contains(up.Text, "Format   4") {
+		t.Fatalf("fresh text names %d, %v: %q", v, ok, up.Text)
+	}
+	if !Upgrade(up.Text, false).Current {
+		t.Fatalf("a second run made it over again: %q", up.Text)
+	}
+	// SetBanner takes the same path.
+	d := Parse("a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n")
+	d.SetBanner(true)
+	if v, ok := FormatVersion(d.ToCanonical()); !ok || v != 3 {
+		t.Fatalf("SetBanner: names %d, %v", v, ok)
+	}
+}
+
 func TestUpgradeFromV2RewritesACleanFileThatReadsDifferently(t *testing.T) {
 	defer testID(t, "Es2fwpc")
 	// The caller says it is 2.x, where a,b was an array.

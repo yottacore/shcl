@@ -4620,11 +4620,8 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 			} else {
 				log += fmt.Sprintf("op %d at %q\n", op, path)
 			}
-			if listAfterEmpty(live) {
-				if live.LostCount() == 0 {
-					t.Fatalf("a list no text loads back saves at iteration %d:\n%s", i, log)
-				}
-				break
+			if listWithField(live) {
+				t.Fatalf("a list with a field under it at iteration %d:\n%s", i, log)
 			}
 			if a, b := live.ToCanonical(), back.ToCanonical(); a != b && !((op == 4 || op == 9) && reloadTookOnlyComments(a, b)) {
 				t.Fatalf("a step on the document and on its reload differ at iteration %d:\n%s--- live\n%s--- reload\n%s", i, log, a, b)
@@ -4646,34 +4643,15 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 	}
 }
 
-// listAfterEmpty: a list with a field under it (E001) after an empty binding
-// of its name that has fields of its own. A merge or an edit can leave one,
-// and then no text reloads as it: stacked, its header joins that binding and
-// its items are dropped (E008), and in brackets it is E028
-// (2026100511210900). The save gate counts its items lost, so it is never
-// written; the fixture checks that and skips the rest.
-func listAfterEmpty(doc *Document) bool {
+// listWithField: a list with a field under it. No load builds one, since that
+// field line is kept and binds nothing (E001), and no edit or merge does
+// either. It was the shape no text loaded back after an empty binding of its
+// name (2026100511210900).
+func listWithField(doc *Document) bool {
 	for _, p := range doc.InstancePaths() {
 		r := doc.ReadString(p)
-		if len(doc.Children(p)) == 0 || r.Status != Good || r.Quoted || !strings.HasPrefix(r.Value, "[") {
-			continue
-		}
-		if !strings.HasSuffix(p, ")") {
-			continue
-		}
-		open := strings.LastIndex(p, "(")
-		if open < 0 {
-			continue
-		}
-		k, err := strconv.Atoi(p[open+1 : len(p)-1])
-		if err != nil {
-			continue
-		}
-		for j := 0; j < k; j++ {
-			e := p[:open] + "(" + strconv.Itoa(j) + ")"
-			if doc.ReadString(e).Status == Empty && len(doc.Children(e)) != 0 {
-				return true
-			}
+		if len(doc.Children(p)) != 0 && r.Status == Good && !r.Quoted && strings.HasPrefix(r.Value, "[") && doc.ReadStringArray(p).Status == Good {
+			return true
 		}
 	}
 	return false
@@ -5591,7 +5569,7 @@ func TestMigrateWritesALone2xElementPlain(t *testing.T) {
 func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
 	defer testID(t, "ErykhtE")
 	m := Migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true)
-	if !strings.HasPrefix(m.Text, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n") {
+	if !strings.HasPrefix(m.Text, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n") {
 		t.Fatalf("%q", m.Text)
 	}
 	back := Parse(m.Text)
@@ -5840,228 +5818,322 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 	}
 }
 
-// A list with a field under it (E001) after an empty binding of its name
-// that has fields: no text loads it back, since a reload joins the list's
-// header to that binding and drops its items (E008). The load is left as it
-// is; a save that would write it refuses (2026100511210900). An edit and a
-// merge can each leave one. Same fixture in every runner.
-func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
-	defer testID(t, "EryDfqr")
-	src := "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
-	doc, _ := ParseKeepLines(src, Standard)
-	if doc.LostCount() != 0 {
-		t.Fatalf("load lost %d", doc.LostCount())
-	}
-	if doc.SetEmpty("x(v)") != SetOk {
-		t.Fatal("set empty refused")
-	}
-	text := doc.ToCanonical()
-	if text != "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n" {
-		t.Fatalf("canonical %q", text)
-	}
-	if n := Parse(text).LostCount(); n != 2 {
-		t.Fatalf("the reload drops both items: %d", n)
-	}
-	if doc.LostCount() != 2 {
-		t.Fatalf("lost %d", doc.LostCount())
-	}
-	if _, kept := doc.ToTextKeepLines(); kept {
-		t.Fatal("the source was canonical, and still no lines are kept")
-	}
-	f := filepath.Join(t.TempDir(), "t.shcl")
-	if err := os.WriteFile(f, []byte(src), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var refused *SaveRefused
-	if err := doc.SaveFile(f); !errors.As(err, &refused) || refused.Lost != 2 {
-		t.Fatalf("save: %v", err)
-	}
-	if _, err := doc.SaveFileKeepLines(f); !errors.As(err, &refused) || refused.Lost != 2 {
-		t.Fatalf("keep save: %v", err)
-	}
-	if b, _ := os.ReadFile(f); string(b) != src {
-		t.Fatalf("file changed: %q", b)
-	}
-	if err := doc.SaveFileLossy(f); err != nil {
-		t.Fatalf("lossy save: %v", err)
-	}
-	// The same through a merge: the list arrives over an empty binding.
-	merged := Parse("x:\n\tf: 1\n")
-	merged.Merge(Parse("x:\n\t- a\n\t- b\n\tg: 2\n"))
-	if merged.LostCount() != 2 {
-		t.Fatalf("merge lost %d: %q", merged.LostCount(), merged.ToCanonical())
-	}
-	// An empty binding with no fields takes the list in, so nothing is lost,
-	// and a list with no field under it goes in brackets.
-	for _, src := range []string{"x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"} {
-		doc := Parse(src)
-		if doc.SetEmpty("x(v)") != SetOk || doc.LostCount() != 0 {
-			t.Fatalf("%q: lost %d: %q", src, doc.LostCount(), doc.ToCanonical())
-		}
-	}
-}
+// The 6 tests below built a list with a field under it, which no load, edit
+// or merge builds now: the field line is kept and binds nothing (E001,
+// 2026102307143752). TestAFieldUnderItemsStaysKept pins what each case does
+// now.
+// // A list with a field under it (E001) after an empty binding of its name
+// // that has fields: no text loads it back, since a reload joins the list's
+// // header to that binding and drops its items (E008). The load is left as it
+// // is; a save that would write it refuses (2026100511210900). An edit and a
+// // merge can each leave one. Same fixture in every runner.
+// func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
+// 	defer testID(t, "EryDfqr")
+// 	src := "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
+// 	doc, _ := ParseKeepLines(src, Standard)
+// 	if doc.LostCount() != 0 {
+// 		t.Fatalf("load lost %d", doc.LostCount())
+// 	}
+// 	if doc.SetEmpty("x(v)") != SetOk {
+// 		t.Fatal("set empty refused")
+// 	}
+// 	text := doc.ToCanonical()
+// 	if text != "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n" {
+// 		t.Fatalf("canonical %q", text)
+// 	}
+// 	if n := Parse(text).LostCount(); n != 2 {
+// 		t.Fatalf("the reload drops both items: %d", n)
+// 	}
+// 	if doc.LostCount() != 2 {
+// 		t.Fatalf("lost %d", doc.LostCount())
+// 	}
+// 	if _, kept := doc.ToTextKeepLines(); kept {
+// 		t.Fatal("the source was canonical, and still no lines are kept")
+// 	}
+// 	f := filepath.Join(t.TempDir(), "t.shcl")
+// 	if err := os.WriteFile(f, []byte(src), 0o644); err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	var refused *SaveRefused
+// 	if err := doc.SaveFile(f); !errors.As(err, &refused) || refused.Lost != 2 {
+// 		t.Fatalf("save: %v", err)
+// 	}
+// 	if _, err := doc.SaveFileKeepLines(f); !errors.As(err, &refused) || refused.Lost != 2 {
+// 		t.Fatalf("keep save: %v", err)
+// 	}
+// 	if b, _ := os.ReadFile(f); string(b) != src {
+// 		t.Fatalf("file changed: %q", b)
+// 	}
+// 	if err := doc.SaveFileLossy(f); err != nil {
+// 		t.Fatalf("lossy save: %v", err)
+// 	}
+// 	// The same through a merge: the list arrives over an empty binding.
+// 	merged := Parse("x:\n\tf: 1\n")
+// 	merged.Merge(Parse("x:\n\t- a\n\t- b\n\tg: 2\n"))
+// 	if merged.LostCount() != 2 {
+// 		t.Fatalf("merge lost %d: %q", merged.LostCount(), merged.ToCanonical())
+// 	}
+// 	// An empty binding with no fields takes the list in, so nothing is lost,
+// 	// and a list with no field under it goes in brackets.
+// 	for _, src := range []string{"x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"} {
+// 		doc := Parse(src)
+// 		if doc.SetEmpty("x(v)") != SetOk || doc.LostCount() != 0 {
+// 			t.Fatalf("%q: lost %d: %q", src, doc.LostCount(), doc.ToCanonical())
+// 		}
+// 	}
+// }
+//
+// // A setter that empties a field joins the stacked list after it, fields and
+// // all, as a reload would. A read made before the write has the lookup built,
+// // and the fields that moved still have to be found through it.
+// func TestAListJoiningAnEmptiedFieldKeepsItsFieldsFound(t *testing.T) {
+// 	defer testID(t, "EryDfsy")
+// 	for _, c := range []struct{ src, path, field, want string }{
+// 		{"b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
+// 		{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
+// 		{"x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"},
+// 	} {
+// 		doc := Parse(c.src)
+// 		if _, st := doc.GetString(c.field); st != Good {
+// 			t.Fatalf("%q: before: %v", c.src, st)
+// 		}
+// 		if doc.SetEmpty(c.path) != SetOk {
+// 			t.Fatalf("%q: set empty refused", c.src)
+// 		}
+// 		back := Parse(doc.ToCanonical())
+// 		if v, st := back.GetString(c.field); st != Good || v != c.want {
+// 			t.Fatalf("%q: reload: %q %v", c.src, v, st)
+// 		}
+// 		if v, st := doc.GetString(c.field); st != Good || v != c.want {
+// 			t.Fatalf("%q: live: %q %v", c.src, v, st)
+// 		}
+// 		if !reflect.DeepEqual(doc.Paths(), back.Paths()) {
+// 			t.Fatalf("%q: paths %v vs %v", c.src, doc.Paths(), back.Paths())
+// 		}
+// 	}
+// }
+//
+// // A load can build that list too, under a kept array line (E028). The
+// // canonical text writes the line as a comment and cannot load the list back,
+// // so that save refuses. The source text does, so with no edits the save that
+// // keeps lines writes it as it was.
+// func TestAListTheSourceLoadsBackKeepsItsLines(t *testing.T) {
+// 	defer testID(t, "EryDfv3")
+// 	src := "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
+// 	doc, _ := ParseKeepLines(src, Standard)
+// 	if doc.LostCount() != 2 {
+// 		t.Fatalf("the wildcard line and the item: lost %d", doc.LostCount())
+// 	}
+// 	if text, kept := doc.ToTextKeepLines(); !kept || text != src {
+// 		t.Fatalf("keep: %v %q", kept, text)
+// 	}
+// 	f := filepath.Join(t.TempDir(), "t.shcl")
+// 	if err := os.WriteFile(f, []byte(src), 0o644); err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	var refused *SaveRefused
+// 	if err := doc.SaveFile(f); !errors.As(err, &refused) || refused.Lost != 2 {
+// 		t.Fatalf("save: %v", err)
+// 	}
+// 	if kept, err := doc.SaveFileKeepLines(f); err != nil || !kept {
+// 		t.Fatalf("keep save: %v %v", kept, err)
+// 	}
+// 	if b, _ := os.ReadFile(f); string(b) != src {
+// 		t.Fatalf("file changed: %q", b)
+// 	}
+// }
+//
+// // A merge adds a list with a field under it as a new instance after an empty
+// // binding of its name. A comment or kept line left after the binding held the
+// // join off, though a reload joins the two (2026100520243961).
+// func TestAMergedListJoinsAnEmptyFieldPastAComment(t *testing.T) {
+// 	defer testID(t, "EryDfx5")
+// 	layer := Parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n")
+// 	for _, base := range []string{
+// 		"p:\n\ts:\n\t# c\n",
+// 		"p:\n\ts:\n\tk: [1\n",
+// 		"p:\n\ts:\n\t# c\n\t\t# d\n",
+// 		"p:\n\ts:\n\t# c\n\tt: 2\n",
+// 	} {
+// 		doc := Parse(base)
+// 		doc.Merge(layer)
+// 		text := doc.ToCanonical()
+// 		back := Parse(text)
+// 		if back.ToCanonical() != text {
+// 			t.Fatalf("%q: not a fixpoint: %q", base, text)
+// 		}
+// 		if !reflect.DeepEqual(doc.Paths(), back.Paths()) {
+// 			t.Fatalf("%q: paths %v vs %v", base, doc.Paths(), back.Paths())
+// 		}
+// 		for _, d := range []*Document{doc, back} {
+// 			if v, st := d.GetString("p.s.c"); st != Good || v != "1" {
+// 				t.Fatalf("%q: p.s.c %q %v", base, v, st)
+// 			}
+// 		}
+// 		if n := len(doc.Instances("p.s")); n != 1 {
+// 			t.Fatalf("%q: %d instances", base, n)
+// 		}
+// 	}
+// }
+//
+// // A list that joins an empty binding brings its fields, and the binding's
+// // own kept line inside its block is written after them. A merge left it
+// // filed inside the block, so a remove of the last field wrote it before the
+// // kept line among the items, and a reload after it (2026100914525821).
+// func TestAJoinedListFilesTheBindingsLinesLikeAReload(t *testing.T) {
+// 	defer testID(t, "EsFs7xv")
+// 	layer := Parse("srv:\n\t- 1\n\t*\n\tb: 1\n")
+// 	doc := Parse("srv:\n\t[\n")
+// 	doc.Merge(layer)
+// 	text := doc.ToCanonical()
+// 	if want := "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n"; text != want {
+// 		t.Fatalf("merged %q, want %q", text, want)
+// 	}
+// 	back := Parse(text)
+// 	if doc.Remove("srv.b") != 1 || back.Remove("srv.b") != 1 {
+// 		t.Fatal("remove srv.b")
+// 	}
+// 	if got, want := doc.ToCanonical(), "srv:\n\t- 1\n\t*\n\t[\n"; got != want {
+// 		t.Fatalf("removed %q, want %q", got, want)
+// 	}
+// 	if back.ToCanonical() != doc.ToCanonical() {
+// 		t.Fatalf("reload %q, document %q", back.ToCanonical(), doc.ToCanonical())
+// 	}
+// 	// The write side's join, when a remove empties the binding.
+// 	doc = Parse("srv:\n\tx: 1\n\t[\n")
+// 	doc.Merge(layer)
+// 	if doc.Remove("srv.x") != 1 {
+// 		t.Fatal("remove srv.x")
+// 	}
+// 	back = Parse(doc.ToCanonical())
+// 	if doc.Remove("srv.b") != 1 || back.Remove("srv.b") != 1 {
+// 		t.Fatal("remove srv.b after the join")
+// 	}
+// 	if back.ToCanonical() != doc.ToCanonical() {
+// 		t.Fatalf("after the join: reload %q, document %q", back.ToCanonical(), doc.ToCanonical())
+// 	}
+// }
+//
+// // The remove twin: the merge without the gap builds the list no text loads
+// // back, after a binding with a field. A remove that takes that field joins
+// // the list, and one that takes the list's field puts it in brackets, as a
+// // reload reads each.
+// func TestARemoveSettlesAListAfterAnEmptyField(t *testing.T) {
+// 	defer testID(t, "EryDfzB")
+// 	for _, c := range []struct{ path, want string }{
+// 		{"p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"},
+// 		{"p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"},
+// 	} {
+// 		doc := Parse("p:\n\ts:\n\t\tx: 1\n")
+// 		doc.Merge(Parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
+// 		if doc.LostCount() == 0 {
+// 			t.Fatalf("%s: the list no text loads back", c.path)
+// 		}
+// 		if n := doc.Remove(c.path); n != 1 {
+// 			t.Fatalf("%s: removed %d", c.path, n)
+// 		}
+// 		text := doc.ToCanonical()
+// 		if text != c.want {
+// 			t.Fatalf("%s: %q", c.path, text)
+// 		}
+// 		back := Parse(text)
+// 		if back.ToCanonical() != text || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
+// 			t.Fatalf("%s: reload differs", c.path)
+// 		}
+// 		if doc.LostCount() != 0 {
+// 			t.Fatalf("%s: lost %d", c.path, doc.LostCount())
+// 		}
+// 	}
+// }
 
-// A setter that empties a field joins the stacked list after it, fields and
-// all, as a reload would. A read made before the write has the lookup built,
-// and the fields that moved still have to be found through it.
-func TestAListJoiningAnEmptiedFieldKeepsItsFieldsFound(t *testing.T) {
-	defer testID(t, "EryDfsy")
-	for _, c := range []struct{ src, path, field, want string }{
-		{"b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
-		{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
-		{"x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"},
-	} {
-		doc := Parse(c.src)
-		if _, st := doc.GetString(c.field); st != Good {
-			t.Fatalf("%q: before: %v", c.src, st)
-		}
-		if doc.SetEmpty(c.path) != SetOk {
-			t.Fatalf("%q: set empty refused", c.src)
-		}
-		back := Parse(doc.ToCanonical())
-		if v, st := back.GetString(c.field); st != Good || v != c.want {
-			t.Fatalf("%q: reload: %q %v", c.src, v, st)
-		}
-		if v, st := doc.GetString(c.field); st != Good || v != c.want {
-			t.Fatalf("%q: live: %q %v", c.src, v, st)
-		}
-		if !reflect.DeepEqual(doc.Paths(), back.Paths()) {
-			t.Fatalf("%q: paths %v vs %v", c.src, doc.Paths(), back.Paths())
-		}
-	}
-}
-
-// A load can build that list too, under a kept array line (E028). The
-// canonical text writes the line as a comment and cannot load the list back,
-// so that save refuses. The source text does, so with no edits the save that
-// keeps lines writes it as it was.
-func TestAListTheSourceLoadsBackKeepsItsLines(t *testing.T) {
-	defer testID(t, "EryDfv3")
-	src := "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
-	doc, _ := ParseKeepLines(src, Standard)
-	if doc.LostCount() != 2 {
-		t.Fatalf("the wildcard line and the item: lost %d", doc.LostCount())
-	}
-	if text, kept := doc.ToTextKeepLines(); !kept || text != src {
-		t.Fatalf("keep: %v %q", kept, text)
-	}
-	f := filepath.Join(t.TempDir(), "t.shcl")
-	if err := os.WriteFile(f, []byte(src), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var refused *SaveRefused
-	if err := doc.SaveFile(f); !errors.As(err, &refused) || refused.Lost != 2 {
-		t.Fatalf("save: %v", err)
-	}
-	if kept, err := doc.SaveFileKeepLines(f); err != nil || !kept {
-		t.Fatalf("keep save: %v %v", kept, err)
-	}
-	if b, _ := os.ReadFile(f); string(b) != src {
-		t.Fatalf("file changed: %q", b)
-	}
-}
-
-// A merge adds a list with a field under it as a new instance after an empty
-// binding of its name. A comment or kept line left after the binding held the
-// join off, though a reload joins the two (2026100520243961).
-func TestAMergedListJoinsAnEmptyFieldPastAComment(t *testing.T) {
-	defer testID(t, "EryDfx5")
-	layer := Parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n")
-	for _, base := range []string{
-		"p:\n\ts:\n\t# c\n",
-		"p:\n\ts:\n\tk: [1\n",
-		"p:\n\ts:\n\t# c\n\t\t# d\n",
-		"p:\n\ts:\n\t# c\n\tt: 2\n",
-	} {
-		doc := Parse(base)
-		doc.Merge(layer)
+// A field line under stacked items is kept and binds nothing (E001), and so is
+// an item after a field line (E008). Where an edit or a merge leaves one that
+// a reload would bind, it is written as a comment. Same fixture in every
+// runner.
+func TestAFieldUnderItemsStaysKept(t *testing.T) {
+	defer testID(t, "EtXCOeu")
+	check := func(doc *Document, want string) {
+		t.Helper()
 		text := doc.ToCanonical()
-		back := Parse(text)
-		if back.ToCanonical() != text {
-			t.Fatalf("%q: not a fixpoint: %q", base, text)
-		}
-		if !reflect.DeepEqual(doc.Paths(), back.Paths()) {
-			t.Fatalf("%q: paths %v vs %v", base, doc.Paths(), back.Paths())
-		}
-		for _, d := range []*Document{doc, back} {
-			if v, st := d.GetString("p.s.c"); st != Good || v != "1" {
-				t.Fatalf("%q: p.s.c %q %v", base, v, st)
-			}
-		}
-		if n := len(doc.Instances("p.s")); n != 1 {
-			t.Fatalf("%q: %d instances", base, n)
-		}
-	}
-}
-
-// A list that joins an empty binding brings its fields, and the binding's
-// own kept line inside its block is written after them. A merge left it
-// filed inside the block, so a remove of the last field wrote it before the
-// kept line among the items, and a reload after it (2026100914525821).
-func TestAJoinedListFilesTheBindingsLinesLikeAReload(t *testing.T) {
-	defer testID(t, "EsFs7xv")
-	layer := Parse("srv:\n\t- 1\n\t*\n\tb: 1\n")
-	doc := Parse("srv:\n\t[\n")
-	doc.Merge(layer)
-	text := doc.ToCanonical()
-	if want := "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n"; text != want {
-		t.Fatalf("merged %q, want %q", text, want)
-	}
-	back := Parse(text)
-	if doc.Remove("srv.b") != 1 || back.Remove("srv.b") != 1 {
-		t.Fatal("remove srv.b")
-	}
-	if got, want := doc.ToCanonical(), "srv:\n\t- 1\n\t*\n\t[\n"; got != want {
-		t.Fatalf("removed %q, want %q", got, want)
-	}
-	if back.ToCanonical() != doc.ToCanonical() {
-		t.Fatalf("reload %q, document %q", back.ToCanonical(), doc.ToCanonical())
-	}
-	// The write side's join, when a remove empties the binding.
-	doc = Parse("srv:\n\tx: 1\n\t[\n")
-	doc.Merge(layer)
-	if doc.Remove("srv.x") != 1 {
-		t.Fatal("remove srv.x")
-	}
-	back = Parse(doc.ToCanonical())
-	if doc.Remove("srv.b") != 1 || back.Remove("srv.b") != 1 {
-		t.Fatal("remove srv.b after the join")
-	}
-	if back.ToCanonical() != doc.ToCanonical() {
-		t.Fatalf("after the join: reload %q, document %q", back.ToCanonical(), doc.ToCanonical())
-	}
-}
-
-// The remove twin: the merge without the gap builds the list no text loads
-// back, after a binding with a field. A remove that takes that field joins
-// the list, and one that takes the list's field puts it in brackets, as a
-// reload reads each.
-func TestARemoveSettlesAListAfterAnEmptyField(t *testing.T) {
-	defer testID(t, "EryDfzB")
-	for _, c := range []struct{ path, want string }{
-		{"p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"},
-		{"p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"},
-	} {
-		doc := Parse("p:\n\ts:\n\t\tx: 1\n")
-		doc.Merge(Parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
-		if doc.LostCount() == 0 {
-			t.Fatalf("%s: the list no text loads back", c.path)
-		}
-		if n := doc.Remove(c.path); n != 1 {
-			t.Fatalf("%s: removed %d", c.path, n)
-		}
-		text := doc.ToCanonical()
-		if text != c.want {
-			t.Fatalf("%s: %q", c.path, text)
+		if text != want {
+			t.Fatalf("canonical %q, want %q", text, want)
 		}
 		back := Parse(text)
 		if back.ToCanonical() != text || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
-			t.Fatalf("%s: reload differs", c.path)
+			t.Fatalf("reload differs: %q", text)
 		}
-		if doc.LostCount() != 0 {
-			t.Fatalf("%s: lost %d", c.path, doc.LostCount())
+		if doc.LostCount() != 0 || back.LostCount() != 0 {
+			t.Fatalf("lost %d, reload %d: %q", doc.LostCount(), back.LostCount(), text)
 		}
 	}
+	// The load keeps both lines, and the items around them still join.
+	src := "a:\n\t- x\n\tb: 1\n\t- y\nc:\n\td: 1\n\t- z\n\te: 2\n"
+	doc := Parse(src)
+	var codes []string
+	for _, d := range doc.Diagnostics() {
+		codes = append(codes, fmt.Sprintf("%d %s", d.Line, d.Code))
+	}
+	if !reflect.DeepEqual(codes, []string{"3 E001", "7 E008"}) {
+		t.Fatalf("diagnostics %v", codes)
+	}
+	if v, st := doc.GetStringArray("a"); st != Good || !reflect.DeepEqual(v, []string{"x", "y"}) {
+		t.Fatalf("a: %v %v", v, st)
+	}
+	if _, st := doc.GetString("a.b"); st == Good {
+		t.Fatal("a.b binds")
+	}
+	if got := doc.Children("c"); !reflect.DeepEqual(got, []string{"d", "e"}) {
+		t.Fatalf("c children %v", got)
+	}
+	check(doc, src)
+	// A list after an empty binding of its name goes in brackets, so the field
+	// line kept after its items is written as a comment.
+	doc = Parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n")
+	if doc.SetEmpty("x(v)") != SetOk {
+		t.Fatal("set empty refused")
+	}
+	check(doc, "x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n")
+	doc = Parse("p:\n\ts:\n\t\tx: 1\n")
+	doc.Merge(Parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
+	check(doc, "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n\t\t# c: 1\n")
+	// A setter that replaces the list moves the kept line above it.
+	doc = Parse("a:\n\t- x\n\tb: 1\n\t- y\nd: 1\n")
+	if doc.SetStringArray("a", []string{"p", "q"}) != SetOk {
+		t.Fatal("set array refused")
+	}
+	check(doc, "# b: 1\na:\n\t- p\n\t- q\nd: 1\n")
+	// A remove of the field before it leaves the item where it would join.
+	doc = Parse("a:\n\tb: 1\n\t- x\n\tc: 2\n")
+	if doc.Remove("a.b") != 1 {
+		t.Fatal("remove a.b")
+	}
+	check(doc, "a:\n\t# - x\n\tc: 2\n")
+	if doc.Remove("a.c") != 1 {
+		t.Fatal("remove a.c")
+	}
+	check(doc, "a:\n\t# - x\n")
+	// A line refused for its value still holds its level open under items,
+	// for what is kept under it. A line that would bind through it is E001.
+	doc = Parse("a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n")
+	check(doc, "a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n")
+	src = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n"
+	doc = Parse(src)
+	codes = nil
+	for _, d := range doc.Diagnostics() {
+		codes = append(codes, fmt.Sprintf("%d %s", d.Line, d.Code))
+	}
+	if !reflect.DeepEqual(codes, []string{"3 E026", "4 E001", "5 E001"}) {
+		t.Fatalf("diagnostics %v", codes)
+	}
+	if v, st := doc.GetStringArray("a"); st != Good || !reflect.DeepEqual(v, []string{"0"}) {
+		t.Fatalf("a: %v %v", v, st)
+	}
+	check(doc, src)
+	// Once a merge brackets the list, such a line is a comment, at most one
+	// level past the comment before it.
+	doc = Parse("a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n")
+	doc.Merge(Parse("z: 1\n"))
+	check(doc, "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n")
 }
 
 // A field with lines under it takes one plain value or none (E028), so a

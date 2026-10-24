@@ -1,0 +1,22 @@
+# An apostrophe with text right before and after it is text in a bare value or item.
+name: "O'Brien"
+title: "Jim's Server"
+song: "rock'n'roll"
+path: "C:\Users\O'Brien\x"
+list:
+	- "it's"
+	- "Jim's Server"
+# Next to a blank or the end, a double quote or backtick, an element or a selector, it is E025.
+gap: O' Brien
+lead: O 'Brien
+end: Brien'
+dq: O"Brien
+tick: O`Brien
+arr: [O'Brien, x]
+srv(O'Brien).port: 1
+items:
+	- Brien'
+# A quote first still opens a piece.
+q: 'it'
+open: 'O'Brien
+last: 1

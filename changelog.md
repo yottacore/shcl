@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An array is written in brackets, `ports: [80, 443]`, or one `- ` item per line. `[]` is empty. A malformed one is `E019`.
 
-- A bare value may hold spaces, as in `title: My App`, but not a quote, a tab or a bracket (`E025`). A colon or comma needs a character other than whitespace right after it, so `rw,noatime` and `localhost:8080` read bare, `host: a.com port: 80` is `E025` and `ports: 80, 443` is `E026`.
+- A bare value may hold spaces, as in `title: My App`, but not a quote, a tab or a bracket (`E025`). An apostrophe inside a word is text, so `name: O'Brien` reads as written. A colon or comma needs a character other than whitespace right after it, so `rw,noatime` and `localhost:8080` read bare, `host: a.com port: 80` is `E025` and `ports: 80, 443` is `E026`.
 
 - A bare field name starts with a letter. Quote any other name, as in `"404": x`, or it is `E014`.
 
@@ -128,7 +128,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `upgrade_file()` in every binding, for a program to call on start: a config file it cannot load clean, naming no format or an older one, is kept under a timestamped backup name and written fresh, with whatever settings carry over and the info block. A file that loads clean is left alone, unless the caller says it is 2.x and it reads differently now. When the only change would be an older Format line, that line alone is rewritten to name this format, after the backup. `upgrade()` is the text half, and `backup_file_name()` and `write_backup()` the backup half. `shcl upgrade FILE` does the same, printing or with `--write`.
 
-- `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay. A lone Format line comes off when the new block goes on, even above the first field, so the file names one format. `upgrade` gets the same, so an older Format line at the top of a 2.x file no longer stays above the new block.
+- `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay. A lone Format line comes off when the new block goes on, even above the first field, so the file names one format. `upgrade` gets the same, so an older Format line at the top of a 2.x file no longer stays above the new block. A whole block kept at the top names this format too.
 
 - `clear_comments()` in every binding, and the `clear-comments` op, take off the comment lines above a node, so a comment can be replaced. `comments()` reads them.
 

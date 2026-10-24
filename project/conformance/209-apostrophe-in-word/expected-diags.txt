@@ -1,0 +1,10 @@
+line 10: Error: E025
+line 11: Error: E025
+line 12: Error: E025
+line 13: Error: E025
+line 14: Error: E025
+line 15: Error: E025
+line 16: Error: E025
+line 18: Error: E025
+line 21: Error: E017
+failed: 9 diagnostic(s), 9 error(s)

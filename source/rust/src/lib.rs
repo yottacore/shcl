@@ -718,8 +718,7 @@ struct NodeData {
 	children: Vec<usize>,
 	parent: usize,
 	line: usize,
-	star_list: bool,  // value built from stacked "- " lines, and written that way
-	star_mixed: bool, // mix of "- " and field children already diagnosed
+	star_list: bool, // value built from stacked "- " lines, and written that way
 	// Comment trivia, boxed off to the side: most nodes have none, and the
 	// four empty containers were a third of every node.
 	trivia: Option<Box<Trivia>>,
@@ -1118,15 +1117,11 @@ fn fold_list_into_empty(arena: &mut [NodeData], empty: usize, list: usize) -> bo
 }
 
 /// Written stacked: a list the file wrote one `- ` item per line, kept that
-/// way like an author's quotes, or one holding a kept line among its items,
-/// a comment on one, or a field under it (E001), which in brackets would make
-/// the array `E028`.
+/// way like an author's quotes, or one holding a kept line among its items
+/// or a comment on one.
 fn stacks(nd: &NodeData) -> bool {
 	matches!(&nd.value, Value::Array(els) if !els.is_empty())
-		&& (nd.star_list
-			|| !nd.among().is_empty()
-			|| !nd.notes().is_empty()
-			|| !nd.children.is_empty())
+		&& (nd.star_list || !nd.among().is_empty() || !nd.notes().is_empty())
 }
 
 /// A list after an empty binding of its name cannot be written stacked: its
@@ -1154,10 +1149,9 @@ fn unstack(nd: &mut NodeData) {
 	}
 }
 
-/// A merge writes a list in brackets. One with a field under it stays
-/// stacked (E001), since in brackets it is E028.
+/// A merge writes a list in brackets.
 fn bracket(nd: &mut NodeData) {
-	if nd.children.is_empty() && (nd.star_list || nd.trivia.is_some()) {
+	if nd.star_list || nd.trivia.is_some() {
 		unstack(nd);
 	}
 }
@@ -3124,22 +3118,21 @@ pub struct Upgrade {
 /// input run through `migrate_unstamped`, then written the way `fmt` writes
 /// it, with the info block `init` writes at the end in place of an old one
 /// there. A whole block above the first field stays, so a file with its
-/// block at the top comes out with 2. This is the one library call that
-/// writes the block. A file that names this format comes back `current` and
-/// untouched, and so does one that loads with no error under these rules,
-/// since a program calling this on every start must never rewrite a good
-/// file. `from_v2` is migrate's: the file can only have been written for
+/// block at the top comes out with 2, both naming this format. This is the one
+/// library call that writes the block. A file that names this format comes back
+/// `current` and untouched, and so does one that loads with no error under
+/// these rules, since a program calling this on every start must never rewrite
+/// a good file. `from_v2` is migrate's: the file can only have been written for
 /// 2.x. Then a file that loads clean is still made over when `migrate` would
-/// change it, as it would `p: a,b`, an array under 2.x and one string now.
-/// One it would not change that names an older format gets this format on
-/// that Format line, and nothing else. The one file naming this format that
-/// is made over is one that loads with an error when `from_v2` says a 2.x
-/// build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is taken
-/// as 2.x. With `from_v2`, any file is made over only when the fresh text
-/// loads clean; when it wouldn't, `errors_left` names the lines still in
-/// error. Pass `from_v2` only for a file known to be old, never on every
-/// start: a file this format wrote that picks up an error later would be
-/// read by 2.x rules too.
+/// change it, as it would `p: a,b`, an array under 2.x and one string now. One
+/// it would not change that names an older format gets this format on that
+/// Format line, and nothing else. The one file naming this format that is made
+/// over is one that loads with an error when `from_v2` says a 2.x build wrote
+/// it, as with a beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With
+/// `from_v2`, any file is made over only when the fresh text loads clean; when
+/// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
+/// only for a file known to be old, never on every start: a file this format
+/// wrote that picks up an error later would be read by 2.x rules too.
 pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
@@ -3745,6 +3738,15 @@ fn loose_colon(raw: &str, i: usize) -> bool {
 	raw[i..].starts_with(':') && raw[i + 1..].chars().next().is_none_or(white_space)
 }
 
+/// An apostrophe at `i` of `raw` with text right before and after it, such
+/// as `O'Brien`: bare text in a value or item, since only a first character
+/// opens a quote.
+fn in_word(raw: &str, i: usize) -> bool {
+	let before = raw[..i].chars().next_back();
+	let after = raw[i + 1..].chars().next();
+	before.is_some_and(|c| !white_space(c)) && after.is_some_and(|c| !white_space(c))
+}
+
 /// What a bare piece may not hold (`E025`): the first such character, named
 /// with the fix for the message.
 fn bare_trouble(raw: &str, kind: Bare) -> Option<String> {
@@ -3760,6 +3762,7 @@ fn bare_trouble(raw: &str, kind: Bare) -> Option<String> {
 	}
 	for (i, c) in raw.char_indices() {
 		let trouble = match c {
+			'\'' if !strict && in_word(raw, i) => continue,
 			'\'' | '"' | '`' => "a quote",
 			'[' | ']' => "a bracket",
 			'(' | ')' if kind == Bare::Selector => "a paren",
@@ -3996,6 +3999,23 @@ fn opens_later(text: &str) -> bool {
 		&& line_fault(&tok, text).map_or(tok.array.is_some(), |f| f.opens)
 }
 
+/// A kept line that reads clean, so only where it sat refused it: Some(true)
+/// for a field line (E001), Some(false) for a `- ` item (E008).
+fn kept_for_place(text: &str) -> Option<bool> {
+	let mut tok = Tokens::default();
+	if is_item(text) {
+		tokenize_value(text, 1, Rules::Current, &mut tok);
+		return item_fault(&tok, text).is_none().then_some(false);
+	}
+	if !is_field_text(text) {
+		return None;
+	}
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	// An array line is settle_arrays()'s.
+	(tok.array.is_none() && path_of(&tok, text).is_ok() && line_fault(&tok, text).is_none())
+		.then_some(true)
+}
+
 /// A stacked list item's line: `-` then a blank. The blank is what keeps
 /// `-x: y` a field line (`E014`) and `- -5` the item `-5`.
 fn is_item(text: &str) -> bool {
@@ -4229,7 +4249,6 @@ impl<'a> Parser<'a> {
 				parent: 0,
 				line: 0,
 				star_list: false,
-				star_mixed: false,
 				trivia: None,
 				blank_before: false,
 				src_set: false,
@@ -4467,7 +4486,6 @@ impl<'a> Parser<'a> {
 			parent,
 			line,
 			star_list: false,
-			star_mixed: false,
 			trivia: None,
 			blank_before: false,
 			src_set: false,
@@ -4949,6 +4967,20 @@ impl<'a> Parser<'a> {
 		node
 	}
 
+	/// True when a line binding at `parent` would put a field under stacked
+	/// items: the parent is a list, or a LAZY level held open under one.
+	fn under_items(&self, parent: usize) -> bool {
+		let mut node = parent;
+		if parent == LAZY {
+			let mut from = self.stack.len() - 1;
+			while from > 1 && self.stack[from - 1].1 == LAZY {
+				from -= 1;
+			}
+			node = self.stack[from - 1].1;
+		}
+		self.arena.get(node).is_some_and(|nd| nd.star_list)
+	}
+
 	/// The node a path's first segment bound, from the one its last did.
 	fn head_of(&self, node: usize, nsegs: usize) -> usize {
 		let mut head = node;
@@ -5080,11 +5112,6 @@ impl<'a> Parser<'a> {
 		} else {
 			parent
 		};
-		// Field child under a stacked list: diagnose the mix once, keep the field.
-		if self.arena[parent].star_list && !self.arena[parent].star_mixed {
-			self.arena[parent].star_mixed = true;
-			self.err(line, "E001", "field mixed with list elements");
-		}
 		// Nesting cap: parent depth plus the segments this line adds. Checked
 		// before any node is created so a rejected line leaves nothing behind.
 		let mut parent_depth = 0usize;
@@ -5384,17 +5411,6 @@ impl<'a> Parser<'a> {
 			);
 			return false;
 		}
-		// Uniform-or-nothing (spec): a mix with field children is not a block array.
-		if !self.arena[parent].children.is_empty() {
-			self.refuse(
-				line,
-				"E008",
-				"list element mixed with field children; ignored",
-				Outcome::Dropped,
-				indent,
-			);
-			return false;
-		}
 		let piece = tok.elements[0];
 		let Some(el) = element_of(&piece, text) else {
 			self.refuse(line, "E009", "empty list element", Outcome::Dropped, indent);
@@ -5678,6 +5694,16 @@ impl<'a> Parser<'a> {
 						Outcome::Dropped,
 						indent,
 					);
+				} else if parent == LAZY && self.under_items(parent) {
+					// It would open a field under the list. The block goes with
+					// it, as with a field line there.
+					self.refuse(
+						lineno,
+						"E001",
+						"field mixed with list elements",
+						Outcome::Dropped,
+						indent,
+					);
 				} else {
 					let parent = self.open_lazy(parent);
 					// The fence binds its field again, so a kept field line
@@ -5753,7 +5779,41 @@ impl<'a> Parser<'a> {
 						i += 1;
 						continue;
 					}
+					// Opened here, a line held open under stacked items would be a
+					// field under the list.
+					if parent == LAZY && self.under_items(parent) {
+						self.kept_any = true;
+						self.refuse(
+							lineno,
+							"E001",
+							"field mixed with list elements",
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
 					let parent = self.open_lazy(parent);
+					// Uniform-or-nothing (spec): an item after field children is
+					// kept, as a field after items is (E001).
+					if parent != ROOT && !self.arena[parent].children.is_empty() {
+						self.kept_any = true;
+						self.refuse(
+							lineno,
+							"E008",
+							"list element mixed with field children",
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
 					let comment = tok.comment.map(|c| &rest[c..]);
 					// Elements have no node of their own; trivia rides the field.
 					// At the root there is no field (E007), so the comment rides
@@ -5889,6 +5949,7 @@ impl<'a> Parser<'a> {
 				None => value_side_fault(&tok, rest),
 				named => named,
 			};
+			let listed = self.under_items(parent);
 			if let Some(f) = fault {
 				let msg = match f.at {
 					Some(at) => format!("{}, at column {}", f.msg, indent.len() + lead + at + 1),
@@ -5928,6 +5989,33 @@ impl<'a> Parser<'a> {
 					indent,
 				);
 				i = self.skip_field_line(&lines, i, indent, &tok, rest);
+				continue;
+			}
+			// A field under stacked items, or one that would open a field there
+			// through a line held open: kept, so a list never has a field under
+			// it. One that opens a raw block is dropped with it, as a misplaced
+			// one is: moved where it binds, it could not be written as a
+			// comment.
+			if listed {
+				let msg = "field mixed with list elements";
+				if line_fence(&tok, rest).is_some() {
+					self.refuse(lineno, "E001", msg, Outcome::Dropped, indent);
+					i = self.skip_field_line(&lines, i, indent, &tok, rest);
+					continue;
+				}
+				self.kept_any = true;
+				self.kept_arrays |= tok.array.is_some();
+				self.refuse(
+					lineno,
+					"E001",
+					msg,
+					Outcome::Retained {
+						text: trim_wsp_end(rest).to_string(),
+						blank_before: had_blank,
+					},
+					indent,
+				);
+				i += 1;
 				continue;
 			}
 			// The verbatim value span, kept for reads' `raw` (only the plain
@@ -6173,44 +6261,9 @@ impl Document {
 	/// content, so save_file refuses then (save_file_lossy overrides), and
 	/// save_file_keep_lines does when it cannot keep the lines. It also counts
 	/// lines the load kept as written that an edit took and design.md's
-	/// kept-lines table does not let it take, and list items the saved text
-	/// could not load back (see `unloadable_items`).
+	/// kept-lines table does not let it take.
 	pub fn lost_count(&self) -> usize {
-		self.lost + self.kept_shortfall() + self.unloadable_items()
-	}
-
-	/// Items of a list no text loads back: one with a field under it (E001),
-	/// so written stacked, after an empty binding of its name that has
-	/// fields. A reload joins its bare header to that binding and drops the
-	/// items (E008), so a save refuses (2026100511210900). An edit or a merge
-	/// can build one, and so can a load, where a kept array line (E028)
-	/// heads the list. Then the source text loads it back, so the save that
-	/// keeps lines still writes it.
-	fn unloadable_items(&self) -> usize {
-		let mut n = 0;
-		let mut stack = vec![ROOT];
-		while let Some(i) = stack.pop() {
-			let kids = &self.arena[i].children;
-			for (k, &c) in kids.iter().enumerate() {
-				let nd = &self.arena[c];
-				let Value::Array(els) = &nd.value else {
-					continue;
-				};
-				if nd.children.is_empty() || !stacks(nd) {
-					continue;
-				}
-				// The first empty one is the one a reload joins it to.
-				let joins = kids[..k]
-					.iter()
-					.map(|&e| &self.arena[e])
-					.find(|e| e.name == nd.name && e.value.is_empty());
-				if joins.is_some_and(|e| !e.children.is_empty()) {
-					n += els.len();
-				}
-			}
-			stack.extend_from_slice(kids);
-		}
-		n
+		self.lost + self.kept_shortfall()
 	}
 
 	/// Kept lines the document owes and no longer holds. Free on a document
@@ -6445,12 +6498,8 @@ impl Document {
 	pub fn to_text_keep_lines(&self) -> (String, bool) {
 		// The reparse check below cannot see a kept line gone from both the
 		// tree and the text, so falling back leaves it to the lost-count gate.
-		// A source that was canonical skips that check, so a list no text
-		// loads back falls back to it too. Any other source is held to the
-		// check, and one that loads such a list back is kept.
 		if let Some(src) = &self.source
 			&& self.kept_shortfall() == 0
-			&& (!src.is_empty() || self.unloadable_items() == 0)
 			&& let Some(t) = keep_lines(src, self)
 		{
 			return (t, true);
@@ -6523,10 +6572,17 @@ impl Document {
 		while let Some(n) = stack.pop() {
 			stack.extend_from_slice(&self.arena[n].children);
 			let heads = heads_block(&self.arena[n]);
+			// Among a stacked list's items and after them, an array line is
+			// kept for where it sits (E001), and a reload keeps it again.
+			let listed = stacks(&self.arena[n]);
 			let Some(t) = self.arena[n].trivia.as_deref_mut() else {
 				continue;
 			};
 			settle_array_run(&mut t.leading, heads);
+			if listed {
+				settle_array_run(&mut t.after, false);
+				continue;
+			}
 			settle_array_run(&mut t.inside, false);
 			settle_array_run(&mut t.after, false);
 			let mut from = 0;
@@ -6767,6 +6823,9 @@ impl Document {
 					}
 					e.out.push('\n');
 					e.placed(&column);
+					if let Some(l) = e.lv.get_mut(depth) {
+						l.items = true;
+					}
 				}
 				for (j, (_, l)) in among[next..].iter().enumerate() {
 					push_leads(
@@ -6856,6 +6915,9 @@ struct Emit {
 	near: Vec<(usize, usize)>,
 	flushed: usize,
 	kept_near: Vec<(usize, usize)>,
+	// Per binding depth, whether that node has a `- ` item written yet and
+	// a field line under it, for a kept line refused only for where it sits.
+	lv: Vec<Lv>,
 	// to_text_keep_lines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
 	// and where each value is written on its binding line.
@@ -6878,6 +6940,7 @@ impl Emit {
 			near: Vec::new(),
 			flushed: 0,
 			kept_near: Vec::new(),
+			lv: Vec::new(),
 			lines: false,
 			marks: Vec::new(),
 			bodies: Vec::new(),
@@ -6900,6 +6963,11 @@ impl Emit {
 
 	/// A binding line at this depth: the stack is its levels and nothing else.
 	fn bound(&mut self, depth: usize) {
+		self.lv.truncate(depth);
+		if let Some(up) = self.lv.last_mut() {
+			up.fields = true;
+		}
+		self.lv.push(Lv::default());
 		self.open = depth as isize;
 		self.tail.clear();
 		self.hold = None;
@@ -6958,6 +7026,12 @@ impl Emit {
 		self.tail.push((indent.to_string(), ROOT));
 		self.hold = None;
 	}
+}
+
+#[derive(Clone, Copy, Default)]
+struct Lv {
+	items: bool,
+	fields: bool,
 }
 
 /// Which trivia list a line sits in.
@@ -7402,17 +7476,53 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			continue;
 		}
 		let pad = base + c.depth;
+		let before = last_comment;
 		last_comment = c.depth;
 		if !c.text.starts_with('#') {
 			// A kept malformed line resolves and holds its column on a reload,
 			// open for the lines under it when only its value was wrong.
 			let indent = "\t".repeat(pad);
 			let (parent, open, tail) = e.resolve(&indent);
+			// One kept only for where it sat, E001 or E008, reloads kept only
+			// under a list with an item written, or a field with a field
+			// line written, or as E001 under lines held open on such a list.
+			// Anywhere else it would bind: a comment then.
+			if let Some(field) = kept_for_place(&c.text) {
+				let up = (pad > 0 && tail.is_empty() && open == pad as isize - 1)
+					.then(|| e.lv.get(pad - 1))
+					.flatten()
+					.filter(|_| parent.is_some_and(|p| p != DEAD && p != UNOPENED));
+				let held = parent == Some(LAZY)
+					&& tail.iter().all(|t| t.1 == LAZY)
+					&& usize::try_from(open)
+						.ok()
+						.and_then(|d| e.lv.get(d))
+						.is_some_and(|l| l.items);
+				let stays = held || up.is_some_and(|l| if field { l.items } else { l.fields });
+				if !stays && !c.text.contains('\n') {
+					// A comment nests at most one level past the line before it,
+					// or a reload reads it shallower.
+					let depth = c.depth.min(before + 1);
+					last_comment = depth;
+					if e.record {
+						e.fell.push((at.0, at.1, at.2 + i, depth));
+					}
+					e.out.extend(std::iter::repeat_n('\t', base + depth));
+					e.out.push_str(&commented(&c.text));
+					e.out.push('\n');
+					continue;
+				}
+				e.verbatim += 1;
+				if e.record {
+					e.kept_near.extend_from_slice(&e.near[e.flushed..]);
+					e.flushed = e.near.len();
+				}
+			}
 			e.hold = None;
 			if parent.is_some_and(|p| p != DEAD) && opens_later(&c.text) {
 				e.open = open;
 				e.tail = tail;
-				e.tail.push((indent, ROOT));
+				e.tail.push((indent, LAZY));
 			} else {
 				e.refused(&indent, open, tail);
 			}
@@ -10953,7 +11063,6 @@ impl Document {
 			parent,
 			line: 0,
 			star_list: false,
-			star_mixed: false,
 			trivia: None,
 			// Hand-written files separate top-level sections with a blank line;
 			// writer-built ones do the same (the emitter never blanks line 1).
@@ -11374,7 +11483,6 @@ impl Document {
 			parent,
 			line: 0,
 			star_list: false,
-			star_mixed: false,
 			trivia: Some(Box::new(Trivia {
 				leading,
 				after,
@@ -11907,10 +12015,11 @@ impl Document {
 	/// as its comment. A block at the top of the file is left alone.
 	/// A dotted first line hangs it on its last name, which a saved file
 	/// writes as the first field's first child, so a block there is left
-	/// alone too, however it got there. A lone Format line there comes off
-	/// with `on`, since the new block names the format. The library save
-	/// never adds the block by itself; this is for a program that wants it in
-	/// a file it writes. Returns how many old blocks came off.
+	/// alone too, however it got there. A lone Format line there comes off with
+	/// `on`, since the new block names the format. A kept block's Format line
+	/// is set to this format too, since it reads first. The library save never
+	/// adds the block by itself; this is for a program that wants it in a file
+	/// it writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
 		self.swap_banner(on, false)
 	}
@@ -11951,6 +12060,18 @@ impl Document {
 			removed += drop_banners(&mut self.orphans, mark, true).0;
 		}
 		if on {
+			// A block kept at the top reads before the new one, so it names
+			// this format too (2026102309053667).
+			for &n in &top {
+				if let Some(tr) = self.arena[n].trivia.as_deref_mut() {
+					for l in &mut tr.leading {
+						if l.text.starts_with(FORMAT_LINE_HEAD) && l.text != FORMAT_LINE {
+							l.text = FORMAT_LINE.to_string();
+							l.line = 0;
+						}
+					}
+				}
+			}
 			let open = !self.orphans.is_empty() || !self.arena[ROOT].children.is_empty();
 			for (n, line) in GEN_BANNER.lines().enumerate() {
 				let mut l = Lead::plain(line.to_string());
@@ -12616,7 +12737,6 @@ impl Document {
 			parent,
 			line: src.line,
 			star_list: src.star_list,
-			star_mixed: src.star_mixed,
 			trivia: src.trivia.clone(),
 			blank_before: src.blank_before,
 			src_set: src.src_set,

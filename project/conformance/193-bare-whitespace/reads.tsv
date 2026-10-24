@@ -6,7 +6,7 @@ port	int	80	Good
 title	string	My App	Good
 title.sub	int	1	Good
 quoted	string	My App	Good
-name	string	-	NotFound
+name	string	O'Brien	Good
 fixed	string	O'Brien	Good
 mid	string	-	NotFound
 tab	string	-	NotFound

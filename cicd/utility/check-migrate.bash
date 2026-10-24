@@ -152,15 +152,22 @@ for f in sys.argv[2:]:
 ' "${brackets}" "${corpus}"/*/input.shcl
 
 ##	The lines 2.x did not read cleanly, by number. A line is clean when every
-##	code 2.x reports on it binds the line: E001 (field kept), E005 (fence
-##	unterminated, body kept), E015 (repaired), E017 (kept literally), the two
-##	hints, and E019 as a hint, which is the `name:[x]` sugar read as `name: x`.
-##	E019 as an error is the bracket array. Read from what 2.x's `check` printed,
-##	so one run of it serves every question asked of the same bytes.
+##	code 2.x reports on it binds the line: E005 (fence unterminated, body
+##	kept), E015 (repaired), E017 (kept literally), the two hints, and E019 as a
+##	hint, which is the `name:[x]` sugar read as `name: x`. E019 as an error is
+##	the bracket array. 2.x bound an E001 field too, but the field under the
+##	items is kept and binds nothing now (2026102307143752), so that line is
+##	not clean. Read from what 2.x's `check` printed, so one run of it serves
+##	every question asked of the same bytes.
 fCheck2x(){ "${oldCli}" check "$1" 2>/dev/null || true; }
+##	The current rules' diagnostics on a load. The empty schema keeps `check`
+##	off the file's Schema line, since one naming a missing file exits 8 with
+##	no diagnostics (2026102322233656). 2.x's `check` reads no Schema line,
+##	and neither does `upgrade` or `migrate`.
+fCheckNew(){ "${newCli}" check --schema=/dev/null "$1" 2>/dev/null || true; }
 fUnclean2x(){
 	awk '$1 == "line" {
-		if ($4 ~ /^(E001|E005|E015|E017|H001|H002)$/ || ($4 == "E019" && $3 == "Hint:")) next
+		if ($4 ~ /^(E005|E015|E017|H001|H002)$/ || ($4 == "E019" && $3 == "Hint:")) next
 		sub(/:$/, "", $2); print $2 }'
 }
 
@@ -319,7 +326,7 @@ fRawOpen2x(){ awk '$1 == "line" && $4 == "E005" { found = 1 } END { exit !found 
 ##	parser rather than matched on the text, since what counts is the column the
 ##	indent falls on and not which characters make it up.
 fUnplaced(){
-	{ "${newCli}" check "$1" 2>/dev/null || true; } | awk '$1 == "line" && $4 == "E012" { sub(/:$/, "", $2); print $2 }'
+	fCheckNew "$1" | awk '$1 == "line" && $4 == "E012" { sub(/:$/, "", $2); print $2 }'
 }
 
 ##	Lines 2.x read cleanly that nothing spells now, so migrate counts them
@@ -382,7 +389,7 @@ for n, line in enumerate(text.split("\n"), 1):
 			break
 		i += m.end()
 ' "$1"
-	{ "${newCli}" migrate --from-2x "$1" 2>/dev/null || true; } | { "${newCli}" check - 2>/dev/null || true; } \
+	{ "${newCli}" migrate --from-2x "$1" 2>/dev/null || true; } | fCheckNew - \
 		| awk '$1 == "line" && $4 == "E028" { sub(/:$/, "", $2); print $2 }' \
 		| awk 'NR == FNR { if (index($0, ",")) comma[FNR] = 1; next } comma[$1]' "$1" -
 }
@@ -429,7 +436,7 @@ declare -i nUpBad=0 nUpRewritten=0 nUpCleanRewritten=0 nUpCurrent=0 nUpPlain=0 n
 
 ##	Errors the current rules find on a load. Hints don't count; `upgrade`
 ##	leaves a file with only those alone.
-fErrors(){ { "${newCli}" check "$1" 2>/dev/null || true; } | awk '$1 == "line" && $3 == "Error:" && $4 ~ /^E/ { n++ } END { print n + 0 }'; }
+fErrors(){ fCheckNew "$1" | awk '$1 == "line" && $3 == "Error:" && $4 ~ /^E/ { n++ } END { print n + 0 }'; }
 
 ##	Whether `migrate --from-2x` changed anything but the stamp. It adds the
 ##	migrated line only then; a refused file gets no stamp, so its text is
@@ -774,3 +781,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		2026-10-19  migrate writes the text 2.x read for a backslash pair, so
 ##		            reads compare exactly, and a quoted name with a pair is
 ##		            lost.
+##		2026-10-23  A file's errors are counted past a Schema line naming a
+##		            missing file.

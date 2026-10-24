@@ -1,8 +1,8 @@
 query	type	expected	status	level
 -	load	ok	-
 -	load	fail	-	strict
-sizes	string	[small]	Good
-sizes.color	string	red	Good
+sizes	string	[small, medium]	Good
+sizes.color	string	-	NotFound
 shape	string	-	Empty
 shape.side	int	4	Good
--	lost	2	-
+-	lost	0	-

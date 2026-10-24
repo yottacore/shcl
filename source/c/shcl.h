@@ -857,20 +857,20 @@ typedef struct {
 // input run through shcl_migrate_unstamped, then written the way `fmt` writes
 // it, with the info block `init` writes at the end in place of an old one
 // there. A whole block above the first field stays, so a file with its block
-// at the top comes out with 2. This is the one library call that writes the
-// block. A file that names this format comes back current and untouched, and
-// so does one that loads with no error under these rules, since a program
-// calling this on every start must never rewrite a good file. from_v2 is
-// shcl_migrate's: the file can only have been written for 2.x. Then a file
-// that loads clean is still made over when migrate would change it, as it
-// would `p: a,b`, an array under 2.x and one string now. The one file naming
+// at the top comes out with 2, both naming this format. This is the one library
+// call that writes the block. A file that names this format comes back current
+// and untouched, and so does one that loads with no error under these rules,
+// since a program calling this on every start must never rewrite a good file.
+// from_v2 is shcl_migrate's: the file can only have been written for 2.x. Then
+// a file that loads clean is still made over when migrate would change it, as
+// it would `p: a,b`, an array under 2.x and one string now. The one file naming
 // this format that is made over is one that loads with an error when from_v2
-// says a 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It
-// is taken as 2.x. With from_v2, any file is made over only when the fresh
-// text loads clean; when it wouldn't, errors_left names the lines still in
-// error. Pass from_v2 only for a file known to be old, never on every start:
-// a file this format wrote that picks up an error later would be read by 2.x
-// rules too.
+// says a 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is
+// taken as 2.x. With from_v2, any file is made over only when the fresh text
+// loads clean; when it wouldn't, errors_left names the lines still in error.
+// Pass from_v2 only for a file known to be old, never on every start: a file
+// this format wrote that picks up an error later would be read by 2.x rules
+// too.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
@@ -979,7 +979,8 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // dotted first line hangs it on its last name, which a saved file writes as the
 // first field's first child, so a block there is left alone too, however it got
 // there. A lone Format line there comes off with on, since the new block names
-// the format. The library save never adds the block by itself; this is for a
+// the format. A kept block's Format line is set to this format too, since it
+// reads first. The library save never adds the block by itself; this is for a
 // program that wants it in a file it writes. Returns how many old blocks came
 // off.
 size_t shcl_set_banner(shcl_doc *d, int on);
@@ -1578,7 +1579,6 @@ static int lead_is_comment(const ShclLead *l) { return l->text.n && l->text.p[0]
    (design.md, Kept lines under edits). */
 static int lead_is_kept_line(const ShclLead *l) { return l->kept || !(l->text.n && l->text.p[0] == '#'); }
 static size_t kept_shortfall(const shcl_doc *d);
-static size_t unloadable_items(const shcl_doc *d);
 static size_t kept_taken(shcl_doc *d, size_t node);
 /* A kept line among a stacked list's elements, with how many elements come
    before it. */
@@ -1628,7 +1628,6 @@ typedef struct {
 	   four empty containers were a third of every node. NULL = none. */
 	ShclTrivia *trivia;
 	int star_list;  /* value built from stacked "- " lines, and written that way */
-	int star_mixed; /* mix of "- " and field children already diagnosed */
 	/* Blank-line grouping is the other half of hand-authored layout: set when
 	   a blank line preceded this node's binding line (runs collapse to one). */
 	int blank_before;
@@ -2872,6 +2871,19 @@ static int loose_colon(ShclStr raw, size_t i) {
 	return white_space(c);
 }
 
+/* The apostrophe at i of raw has text right before and after it, such as
+   O'Brien: bare text in a value or item, since only a first character opens
+   a quote. */
+static int in_word(ShclStr raw, size_t i) {
+	if (i == 0 || i + 1 >= raw.n) return 0;
+	size_t j = i - 1;
+	while (j > 0 && (raw.p[j] & 0xC0) == 0x80) j--;
+	uint32_t before, after;
+	utf8_decode(raw.p, raw.n, j, &before);
+	utf8_decode(raw.p, raw.n, i + 1, &after);
+	return !white_space(before) && !white_space(after);
+}
+
 /* What a bare piece may not hold (E025): the first such character, named with
    the fix for the message. 0 when there is none. */
 static int bare_trouble(ShclArena *a, ShclStr raw, ShclBare kind, ShclStr *why) {
@@ -2887,6 +2899,7 @@ static int bare_trouble(ShclArena *a, ShclStr raw, ShclBare kind, ShclStr *why) 
 		uint32_t c; size_t l = utf8_decode(raw.p, raw.n, i, &c);
 		const char *trouble = NULL;
 		ShclSB m = {0};
+		if (c == '\'' && !strict && in_word(raw, i)) { i += l; continue; }
 		if (c == '\'' || c == '"' || c == '`') trouble = "a quote";
 		else if (c == '[' || c == ']') trouble = "a bracket";
 		else if ((c == '(' || c == ')') && kind == BARE_SELECTOR) trouble = "a paren";
@@ -4975,7 +4988,7 @@ static size_t select_or_create(ShclParser *P, size_t parent, ShclStr name, ShclS
 	ShclNode n; memset(&n, 0, sizeof n);
 	n.name = s_keep(a, P->src, name);
 	n.name_src = s_eq(name_src, name) ? s_empty() : s_keep(a, P->src, name_src);
-	n.value = value; n.parent = parent; n.line = line; n.star_list = 0; n.star_mixed = 0;
+	n.value = value; n.parent = parent; n.line = line; n.star_list = 0;
 	nodes_push(P->d, n);
 	ShclVecSize_push(a, &NODE(P->d, parent).children, idx);
 	maps_push(P->d->panic, P->cmaps, NULL);
@@ -5014,12 +5027,11 @@ static void trailing_to_leading(shcl_doc *d, ShclNode *nd) {
 }
 
 /* Written stacked: a list the file wrote one `- ` item per line, kept that
-   way like an author's quotes, or one holding a kept line among its items, a
-   comment on one, or a field under it (E001), which in brackets would make
-   the array E028. */
+   way like an author's quotes, or one holding a kept line among its items or
+   a comment on one. */
 static int stacks(const ShclNode *nd) {
 	if (nd->value.kind != V_ARRAY || !nd->value.nels) return 0;
-	return nd->star_list || triv_among(nd).len || triv_notes(nd).len || nd->children.len;
+	return nd->star_list || triv_among(nd).len || triv_notes(nd).len;
 }
 
 /* A list after an empty binding of its name cannot be written stacked: its
@@ -5047,10 +5059,9 @@ static void unstack(shcl_doc *d, ShclNode *nd) {
 	t->notes.len = 0;
 }
 
-/* A merge writes a list in brackets. One with a field under it stays stacked
-   (E001), since in brackets it is E028. */
+/* A merge writes a list in brackets. */
 static void bracket(shcl_doc *d, ShclNode *nd) {
-	if (!nd->children.len && (nd->star_list || nd->trivia)) unstack(d, nd);
+	if (nd->star_list || nd->trivia) unstack(d, nd);
 }
 
 /* A block's inside comments go to its last child's own, where a reload
@@ -5695,13 +5706,8 @@ static size_t array_under(ShclParser *P, size_t node) {
 
 static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t nsegs, ShclValue value, size_t line, ShclStr indent, size_t *out) {
 	ShclArena *a = &P->d->arena;
-	/* Field child under a stacked list: diagnose the mix once, keep the field. */
 	star_flush(P);
 	if (parent != ROOT && !NODE(P->d, parent).star_list && NODE(P->d, parent).value.kind == V_ARRAY) parent = array_under(P, parent);
-	if (NODE(P->d, parent).star_list && !NODE(P->d, parent).star_mixed) {
-		NODE(P->d, parent).star_mixed = 1;
-		p_err(P, line, "E001", s_lit("field mixed with list elements"));
-	}
 	/* Nesting cap: parent depth plus the segments this line adds. Checked
 	   before any node is created so a rejected line leaves nothing behind. */
 	size_t parent_depth = 0;
@@ -5885,6 +5891,22 @@ static int opens_as_written(const ShclSegment *seg) { return seg->sel.tag == SEL
 /* True when a reload holds this kept line's level open (LAZY): a field line
    refused for its value alone, or a bare name that still reads, with a path
    that opens. */
+/* A kept line that reads clean, so only where it sat refused it: 1 for a
+   field line (E001), 2 for a `- ` item (E008), else 0. */
+static int kept_for_place(ShclArena *a, ShclStr text) {
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	ShclFault f;
+	if (is_item(text)) {
+		tokenize_value(a, text, 1, SHCL_RULES_CURRENT, &tok);
+		return item_fault(a, &tok, text, &f) ? 0 : 2;
+	}
+	if (!is_field_text(text)) return 0;
+	tokenize(a, text, ':', 0, SHCL_RULES_CURRENT, &tok);
+	/* An array line is settle_arrays()'s. */
+	if (tok.has_array || !path_of(a, &tok, text).ok) return 0;
+	return line_fault(a, &tok, text, &f) ? 0 : 1;
+}
+
 static int opens_later(ShclArena *a, ShclStr text) {
 	if (!is_field_text(text)) return 0;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
@@ -5979,6 +6001,18 @@ static size_t open_lazy(ShclParser *P, size_t parent) {
 	return node;
 }
 
+/* True when a line binding at parent would put a field under stacked items:
+   the parent is a list, or a LAZY level held open under one. */
+static int under_items(const ShclParser *P, size_t parent) {
+	size_t node = parent;
+	if (parent == LAZY) {
+		size_t from = P->stack.len - 1;
+		while (from > 1 && P->stack.data[from - 1].node == LAZY) from--;
+		node = P->stack.data[from - 1].node;
+	}
+	return node < P->d->nodes.len && NODE(P->d, node).star_list;
+}
+
 /* Where the parse resumes after a refused field line. Every arm that skips one
    comes through here, so a skipped line whose value opens a raw block takes the
    body with it: read as lines, the body would bind or be refused line by line,
@@ -6052,8 +6086,6 @@ static void refuse_capped(ShclParser *P, size_t line, ShclStr indent) {
 static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok, ShclStr text, size_t line, ShclStr indent) {
 	ShclArena *a = &P->d->arena;
 	if (parent == ROOT) { p_refuse(P, line, "E007", s_lit("list element with no parent field"), out_kind(OUT_DROPPED), indent); return 0; }
-	/* Uniform-or-nothing (spec): a mix with field children is not a block array. */
-	if (NODE(P->d, parent).children.len != 0) { p_refuse(P, line, "E008", s_lit("list element mixed with field children; ignored"), out_kind(OUT_DROPPED), indent); return 0; }
 	ShclPiece piece = tok->elements[0];
 	ShclElement el;
 	if (!element_of(a, &piece, text, &el)) { p_refuse(P, line, "E009", s_lit("empty list element"), out_kind(OUT_DROPPED), indent); return 0; }
@@ -6359,6 +6391,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				ShclSB m = {0}; sb_puts(P.line, &m, "array longer than "); sb_put_u64(P.line, &m, P.max_elements); sb_puts(P.line, &m, " elements; line skipped");
 				p_refuse(&P, lineno, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
 			}
+			else if (parent == LAZY && under_items(&P, parent)) {
+				/* It would open a field under the list. The block goes with it,
+				   as with a field line there. */
+				p_refuse(&P, lineno, "E001", s_lit("field mixed with list elements"), out_kind(OUT_DROPPED), indent);
+			}
 			else {
 				parent = open_lazy(&P, parent);
 				/* The fence binds its field again, so a kept field line before
@@ -6412,7 +6449,21 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 					else p_refuse(&P, lineno, fault.code, fault.msg, out_retained(trim_wsp_end(rest), had_blank), indent);
 					i++; continue;
 				}
+				/* Opened here, a line held open under stacked items would be a
+				   field under the list. */
+				if (parent == LAZY && under_items(&P, parent)) {
+					P.kept_any = 1;
+					p_refuse(&P, lineno, "E001", s_lit("field mixed with list elements"), out_retained(trim_wsp_end(rest), had_blank), indent);
+					i++; continue;
+				}
 				parent = open_lazy(&P, parent);
+				/* Uniform-or-nothing (spec): an item after field children is
+				   kept, as a field after items is (E001). */
+				if (parent != ROOT && NODE(d, parent).children.len != 0) {
+					P.kept_any = 1;
+					p_refuse(&P, lineno, "E008", s_lit("list element mixed with field children"), out_retained(trim_wsp_end(rest), had_blank), indent);
+					i++; continue;
+				}
 				ShclStr ecomment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
 				/* Elements have no node of their own; trivia rides the field. At the
 				   root there is no field (E007), so the comment rides the document
@@ -6471,6 +6522,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			continue;
 		}
 		size_t next = i + 1;
+		int listed;
 		/* A line that reads only one way, or no way, is kept verbatim rather
 		   than read with a guess: a malformed array, an open quote, a bad
 		   escape, a tab, a quote or a loose colon, a bare comma, or a bare name
@@ -6482,6 +6534,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			ShclFault fault;
 			int faulted = name_fault(P.line, &tok, rest, &fault);
 			if (!faulted && !tok.capped) faulted = value_side_fault(P.line, &tok, rest, &fault);
+			listed = under_items(&P, parent);
 			if (faulted) {
 				ShclStr fmsg = fault.msg;
 				if (fault.has_at) {
@@ -6504,6 +6557,20 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			ShclSB m = {0}; sb_puts(P.line, &m, "array longer than "); sb_put_u64(P.line, &m, P.max_elements); sb_puts(P.line, &m, " elements; line skipped");
 			p_refuse(&P, lineno, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
 			i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
+		}
+		/* A field under stacked items, or one that would open a field there
+		   through a line held open: kept, so a list never has a field under
+		   it. One that opens a raw block is dropped with it, as a misplaced one
+		   is: moved where it binds, it could not be written as a comment. */
+		if (listed) {
+			if (line_fence(P.tmp, &tok, rest).ok) {
+				p_refuse(&P, lineno, "E001", s_lit("field mixed with list elements"), out_kind(OUT_DROPPED), indent);
+				i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
+			}
+			P.kept_any = 1;
+			if (tok.has_array) P.kept_arrays = 1;
+			p_refuse(&P, lineno, "E001", s_lit("field mixed with list elements"), out_retained(trim_wsp_end(rest), had_blank), indent);
+			i++; continue;
 		}
 		ShclValue value;
 		int celled = 0;
@@ -8204,6 +8271,15 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 	ShclVecLead *o = &d->orphans;
 	for (size_t k = 0; k < nmarks; k++) removed += drop_banners(o, marks[k], 1, &owed);
 	if (on) {
+		/* A block kept at the top reads before the new one, so it names this
+		   format too (2026102309053667). */
+		for (size_t i = 0; i < top.len; i++) {
+			ShclTrivia *tr = NODE(d, top.data[i]).trivia;
+			for (size_t k = 0; tr && k < tr->leading.len; k++) {
+				ShclLead *l = &tr->leading.data[k];
+				if (s_starts(l->text, SHCL_FORMAT_LINE_HEAD) && !s_eq(l->text, s_lit(SHCL_FORMAT_LINE))) { l->text = s_lit(SHCL_FORMAT_LINE); l->line = 0; }
+			}
+		}
 		int open = o->len || NODE(d, ROOT).children.len;
 		/* The lines point into the literal, which outlives any document. */
 		const char *b = SHCL_GEN_BANNER;
@@ -8503,7 +8579,6 @@ static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size
 	n.parent = parent;
 	n.line = src->line;
 	n.star_list = src->star_list;
-	n.star_mixed = src->star_mixed;
 	n.blank_before = src->blank_before;
 	n.src_set = src->src_set;
 	n.src = s_dup(a, src->src);
@@ -9418,6 +9493,10 @@ typedef struct {
 	   pairs. */
 	int record; ShclVecFell fell; size_t verbatim;
 	ShclVecSize near; size_t flushed; ShclVecSize kept_near;
+	/* Per binding depth, LV_ITEMS when that node has a `- ` item written
+	   and LV_FIELDS when it has a field line under it, for a kept line
+	   refused only for where it sits. */
+	ShclVecSize lv;
 	/* shcl_to_text_keep_lines only: where the lines from each source line
 	   start (offset, line; 0 for none), each raw body with the tabs its lines
 	   are padded with (start, end, pad), and where each value is written on
@@ -9446,8 +9525,13 @@ static ShclStr emit_tabs(ShclEmit *e, size_t n) {
 	return t;
 }
 
+enum { LV_ITEMS = 1, LV_FIELDS = 2 };
+
 /* A binding line at this depth: the stack is its levels and nothing else. */
 static void emit_bound(ShclEmit *e, size_t depth) {
+	if (e->lv.len > depth) e->lv.len = depth;
+	if (e->lv.len) e->lv.data[e->lv.len - 1] |= LV_FIELDS;
+	ShclVecSize_push(e->a, &e->lv, 0);
 	e->open = (ptrdiff_t)depth;
 	e->tail.len = 0;
 	e->has_hold = 0;
@@ -9905,16 +9989,47 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			continue;
 		}
 		size_t pad = base + c->depth;
+		size_t before = last_comment;
 		last_comment = c->depth;
 		if (!(c->text.n && c->text.p[0] == '#')) {
 			/* A kept malformed line resolves and holds its column on a reload,
 			   open for the lines under it when only its value was wrong. */
 			ShclStr ind = emit_tabs(e, pad);
 			ShclTrial t = emit_resolve(e, ind);
+			/* One kept only for where it sat, E001 or E008, reloads kept only
+			   under a list with an item written, or a field with a field line
+			   written, or as E001 under lines held open on such a list.
+			   Anywhere else it would bind: a comment then. */
+			int kind = kept_for_place(a, c->text);
+			if (kind) {
+				int stays = 0;
+				if (pad > 0 && !t.ntail && t.open == (ptrdiff_t)pad - 1 && pad - 1 < e->lv.len && t.found && t.parent != DEAD && t.parent != UNOPENED)
+					stays = (e->lv.data[pad - 1] & (kind == 1 ? LV_ITEMS : LV_FIELDS)) != 0;
+				if (t.found && t.parent == LAZY && t.open >= 0 && (size_t)t.open < e->lv.len && (e->lv.data[t.open] & LV_ITEMS)) {
+					int held = 1;
+					for (size_t k = 0; k < t.ntail; k++) held = held && t.tail[k].node == LAZY;
+					stays = stays || held;
+				}
+				if (!stays && !memchr(c->text.p, '\n', c->text.n)) {
+					/* A comment nests at most one level past the line before it,
+					   or a reload reads it shallower. */
+					size_t depth = c->depth < before + 1 ? c->depth : before + 1;
+					last_comment = depth;
+					if (e->record) { ShclFell f; f.node = node; f.site = site; f.i = first + i; f.depth = depth; ShclVecFell_push(a, &e->fell, f); }
+					sb_putS(a, &e->out, emit_tabs(e, base + depth));
+					sb_putS(a, &e->out, commented(a, c->text)); sb_putc(a, &e->out, '\n');
+					continue;
+				}
+				e->verbatim++;
+				if (e->record) {
+					for (size_t k = e->flushed; k < e->near.len; k++) ShclVecSize_push(a, &e->kept_near, e->near.data[k]);
+					e->flushed = e->near.len;
+				}
+			}
 			e->has_hold = 0;
 			if (t.found && t.parent != DEAD && opens_later(a, c->text)) {
 				emit_take(e, &t);
-				ShclStackEnt se; se.indent = ind; se.node = ROOT; ShclVecStack_push(a, &e->tail, se);
+				ShclStackEnt se; se.indent = ind; se.node = LAZY; ShclVecStack_push(a, &e->tail, se);
 			}
 			else emit_refused(e, ind, &t);
 		}
@@ -10015,6 +10130,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 				if (notes.data[k].at == i) emit_trailing(a, out, notes.data[k].text);
 			sb_putc(a, out, '\n');
 			emit_placed(e, column);
+			if (depth < e->lv.len) e->lv.data[depth] |= LV_ITEMS;
 		}
 		for (size_t j = next; j < am.len; j++) push_leads(e, &am.data[j].lead, 1, depth + 1, idx, SITE_AMONG, j);
 	}
@@ -10236,6 +10352,12 @@ static void settle_arrays(shcl_doc *d) {
 		ShclTrivia *tr = NODE(d, n).trivia;
 		if (!tr) continue;
 		settle_array_run(d, &tr->leading, heads);
+		/* Among a stacked list's items and after them, an array line is kept
+		   for where it sits (E001), and a reload keeps it again. */
+		if (stacks(&NODE(d, n))) {
+			settle_array_run(d, &tr->after, 0);
+			continue;
+		}
 		settle_array_run(d, &tr->inside, 0);
 		settle_array_run(d, &tr->after, 0);
 		for (size_t from = 0; from < tr->among.len;) {
@@ -10911,11 +11033,8 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 #endif
 static int keep_text(shcl_doc *d, ShclStr *out) {
 	/* The reparse check cannot see a kept line gone from both the tree and the
-	   text, so falling back leaves it to the lost-count gate. A source that was
-	   canonical skips that check, so a list no text loads back falls back to it
-	   too. Any other source is held to the check, and one that loads such a
-	   list back is kept. */
-	if (!d->has_source || kept_shortfall(d) > 0 || (d->source.n == 0 && unloadable_items(d) > 0)) { *out = emit_canonical(d); return 0; }
+	   text, so falling back leaves it to the lost-count gate. */
+	if (!d->has_source || kept_shortfall(d) > 0) { *out = emit_canonical(d); return 0; }
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclKeepOwn *volatile own = (ShclKeepOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
@@ -12901,38 +13020,7 @@ static size_t kept_taken(shcl_doc *d, size_t node) {
 	return n;
 }
 
-/* The items of a list no text loads back: one with a field under it (E001),
-   so written stacked, after an empty binding of its name that has fields. A
-   reload joins its bare header to that binding and drops the items (E008), so
-   a save refuses (2026100511210900). An edit or a merge can build one, and so
-   can a load, where a kept array line (E028) heads the list. Then the source
-   text loads it back, so the save that keeps lines still writes it. */
-static size_t unloadable_items(const shcl_doc *d) {
-	size_t n = 0;
-	size_t *stack = kept_stack(d);
-	size_t len = 0;
-	stack[len++] = ROOT;
-	while (len) {
-		ShclVecSize kids = NODE(d, stack[--len]).children;
-		for (size_t k = 0; k < kids.len; k++) {
-			const ShclNode *nd = &NODE(d, kids.data[k]);
-			stack[len++] = kids.data[k];
-			if (nd->value.kind != V_ARRAY || !nd->children.len || !stacks(nd)) continue;
-			/* The first empty one is the one a reload joins it to. */
-			for (size_t j = 0; j < k; j++) {
-				const ShclNode *en = &NODE(d, kids.data[j]);
-				if (s_eq(en->name, nd->name) && v_is_empty(&en->value)) {
-					if (en->children.len) n += nd->value.nels;
-					break;
-				}
-			}
-		}
-	}
-	free(stack);
-	return n;
-}
-
-size_t shcl_lost_count(const shcl_doc *d) { return d->lost + kept_shortfall(d) + unloadable_items(d); }
+size_t shcl_lost_count(const shcl_doc *d) { return d->lost + kept_shortfall(d); }
 
 size_t shcl_error_count(const shcl_doc *d) {
 	size_t n = 0;

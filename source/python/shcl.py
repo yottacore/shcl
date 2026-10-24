@@ -838,7 +838,7 @@ class _Trivia:
 
 class _Node:
 	__slots__ = (
-		"name", "value", "children", "parent", "line", "star_list", "star_mixed",
+		"name", "value", "children", "parent", "line", "star_list",
 		"trivia", "blank_before", "src_set", "src", "name_src",
 	)
 
@@ -857,7 +857,6 @@ class _Node:
 		self.parent = parent
 		self.line = line
 		self.star_list = False    # value built from stacked "- " lines, and written that way
-		self.star_mixed = False   # mix of "- " and field children already diagnosed
 		# Comment trivia sidecar (_Trivia): None until the first write, so the
 		# common comment-free node never allocates the four containers.
 		self.trivia = None
@@ -1063,12 +1062,11 @@ def _fold_list_into_empty(arena, empty, lst):
 
 def _stacks(nd):
 	"""Written stacked: a list the file wrote one `- ` item per line, kept that
-	way like an author's quotes, or one holding a kept line among its items, a
-	comment on one, or a field under it (E001), which in brackets would make
-	the array E028."""
+	way like an author's quotes, or one holding a kept line among its items or
+	a comment on one."""
 	if nd.value.kind != "array" or not nd.value.els:
 		return False
-	return nd.star_list or bool(nd.among()) or bool(nd.notes()) or bool(nd.children)
+	return nd.star_list or bool(nd.among()) or bool(nd.notes())
 
 
 def _unstack(nd):
@@ -1100,9 +1098,8 @@ def _unstack(nd):
 
 
 def _bracket(nd):
-	"""A merge writes a list in brackets. One with a field under it stays
-	stacked (E001), since in brackets it is E028."""
-	if not nd.children and (nd.star_list or nd.trivia is not None):
+	"""A merge writes a list in brackets."""
+	if nd.star_list or nd.trivia is not None:
 		_unstack(nd)
 
 
@@ -2820,17 +2817,17 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	input run through migrate_unstamped(), then written the way `fmt` writes
 	it, with the info block `init` writes at the end in place of an old one
 	there. A whole block above the first field stays, so a file with its block
-	at the top comes out with 2. This is the one library call that writes the
-	block. A file that names this format comes back current and untouched, and
-	so does one that loads with no error under these rules, since a program
-	calling this on every start must never rewrite a good file. from_v2 is
-	migrate's: the file can only have been written for 2.x. Then a file that
-	loads clean is still made over when migrate would change it, as it would
-	`p: a,b`, an array under 2.x and one string now. One it would not change
-	that names an older format gets this format on that Format line, and
-	nothing else. The one file naming this format that is made over is one
-	that loads with an error when from_v2 says a 2.x build wrote it, as with a
-	beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With from_v2, any
+	at the top comes out with 2, both naming this format. This is the one
+	library call that writes the block. A file that names this format comes back
+	current and untouched, and so does one that loads with no error under these
+	rules, since a program calling this on every start must never rewrite a good
+	file. from_v2 is migrate's: the file can only have been written for 2.x.
+	Then a file that loads clean is still made over when migrate would change
+	it, as it would `p: a,b`, an array under 2.x and one string now. One it
+	would not change that names an older format gets this format on that Format
+	line, and nothing else. The one file naming this format that is made over is
+	one that loads with an error when from_v2 says a 2.x build wrote it, as with
+	a beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With from_v2, any
 	file is made over only when the fresh text loads clean; when it wouldn't,
 	errors_left names the lines still in error. Pass from_v2 only for a file
 	known to be old, never on every start: a file this format wrote that picks
@@ -3319,6 +3316,13 @@ def _loose_colon(raw, i):
 	return raw[i] == ":" and (i + 1 == len(raw) or raw[i + 1] in _WHITE_SPACE)
 
 
+def _in_word(raw, i):
+	"""The apostrophe at i of raw has text right before and after it, such as
+	O'Brien: bare text in a value or item, since only a first character opens
+	a quote."""
+	return 0 < i < len(raw) - 1 and raw[i - 1] not in _WHITE_SPACE and raw[i + 1] not in _WHITE_SPACE
+
+
 def _bare_trouble(raw, kind):
 	"""What a bare piece may not hold (E025): the first such character, named
 	with the fix for the message, or None."""
@@ -3328,6 +3332,8 @@ def _bare_trouble(raw, kind):
 	if kind == _BARE_SELECTOR and raw.startswith("#"):
 		return "a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted"
 	for i, c in enumerate(raw):
+		if c == "'" and not strict and _in_word(raw, i):
+			continue
 		if c == "'" or c == '"' or c == "`":
 			trouble = "a quote"
 		elif c == "[" or c == "]":
@@ -3517,6 +3523,26 @@ def _opens_later(text):
 		return False
 	f = _line_fault(tok)
 	return f.opens if f is not None else tok.array is not None
+
+
+def _kept_for_place(text):
+	"""A kept line that reads clean, so only where it sat refused it: True for
+	a field line (E001), False for a `- ` item (E008), else None."""
+	tok = Tokens()
+	if _is_item(text):
+		tokenize_value(text, 1, Rules.Current, tok)
+		return False if _item_fault(tok, tok.src) is None else None
+	if not _is_field_text(text):
+		return None
+	tokenize(text, ":", False, Rules.Current, tok)
+	# An array line is _settle_arrays()'s.
+	if tok.array is not None:
+		return None
+	try:
+		_path_of(tok, tok.src)
+	except _PathError:
+		return None
+	return True if _line_fault(tok) is None else None
 
 
 def _is_item(text):
@@ -4153,6 +4179,17 @@ class _Parser:
 			self._give_pending(self._head_of(node, len(segs)), indent, count, False)
 		return node
 
+	def _under_items(self, parent):
+		"""True when a line binding at parent would put a field under stacked
+		items: the parent is a list, or a _LAZY level held open under one."""
+		node = parent
+		if parent == _LAZY:
+			start = len(self.stack) - 1
+			while start > 1 and self.stack[start - 1][1] == _LAZY:
+				start -= 1
+			node = self.stack[start - 1][1]
+		return 0 <= node < len(self.arena) and self.arena[node].star_list
+
 	def _head_of(self, node, nsegs):
 		"""The node a path's first segment bound, from the one its last did."""
 		head = node
@@ -4221,11 +4258,6 @@ class _Parser:
 		self._star_flush()
 		if parent != _ROOT and not self.arena[parent].star_list and self.arena[parent].value.kind == "array":
 			parent = self._array_under(parent)
-		# Field child under a stacked list: diagnose the mix once, keep the field.
-		pnode = self.arena[parent]
-		if pnode.star_list and not pnode.star_mixed:
-			pnode.star_mixed = True
-			self._err(line, "E001", "field mixed with list elements")
 		# Nesting cap: parent depth plus the segments this line adds. Checked
 		# before any node is created so a rejected line leaves nothing behind.
 		parent_depth = 0
@@ -4393,10 +4425,6 @@ class _Parser:
 		True when it joined the list."""
 		if parent == _ROOT:
 			self._refuse(line, "E007", "list element with no parent field", _OUT_DROPPED, indent)
-			return False
-		# Uniform-or-nothing (spec): a mix with field children is not a block array.
-		if self.arena[parent].children:
-			self._refuse(line, "E008", "list element mixed with field children; ignored", _OUT_DROPPED, indent)
 			return False
 		piece = tok.elements[0]
 		el = _element_of(piece, s)
@@ -4591,6 +4619,10 @@ class _Parser:
 					# The block goes with its line, or the body would read as live
 					# lines.
 					self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", _OUT_DROPPED, indent)
+				elif parent == _LAZY and self._under_items(parent):
+					# It would open a field under the list. The block goes with
+					# it, as with a field line there.
+					self._refuse(lineno, "E001", "field mixed with list elements", _OUT_DROPPED, indent)
 				else:
 					parent = self._open_lazy(parent)
 					# The fence binds its field again, so a kept field line
@@ -4644,7 +4676,21 @@ class _Parser:
 							self._refuse(lineno, f.code, f.msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
 						i += 1
 						continue
+					# Opened here, a line held open under stacked items would be a
+					# field under the list.
+					if parent == _LAZY and self._under_items(parent):
+						self.kept_any = True
+						self._refuse(lineno, "E001", "field mixed with list elements", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+						i += 1
+						continue
 					parent = self._open_lazy(parent)
+					# Uniform-or-nothing (spec): an item after field children is
+					# kept, as a field after items is (E001).
+					if parent != _ROOT and self.arena[parent].children:
+						self.kept_any = True
+						self._refuse(lineno, "E008", "list element mixed with field children", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+						i += 1
+						continue
 					comment = tok.src[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
 					# Elements have no node of their own; trivia rides the field. At the
 					# root there is no field (E007), so the comment rides the document
@@ -4725,6 +4771,7 @@ class _Parser:
 			f = _name_fault(tok)
 			if f is None and not tok.capped:
 				f = _value_side_fault(tok)
+			listed = self._under_items(parent)
 			if f is not None:
 				msg = f.msg if f.at is None else f"{f.msg}, at column {len(indent) + lead + f.at + 1}"
 				self._refuse(lineno, f.code, msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
@@ -4741,6 +4788,22 @@ class _Parser:
 			if tok.capped:
 				self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", _OUT_DROPPED, indent)
 				i = self._skip_field_line(lines, i, indent, tok)
+				continue
+			# A field under stacked items, or one that would open a field there
+			# through a line held open: kept, so a list never has a field
+			# under it. One that opens a raw block is dropped with it, as a
+			# misplaced one is: moved where it binds, it could not be written
+			# as a comment.
+			if listed:
+				if _line_fence(tok) is not None:
+					self._refuse(lineno, "E001", "field mixed with list elements", _OUT_DROPPED, indent)
+					i = self._skip_field_line(lines, i, indent, tok)
+					continue
+				self.kept_any = True
+				if tok.array is not None:
+					self.kept_arrays = True
+				self._refuse(lineno, "E001", "field mixed with list elements", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				i += 1
 				continue
 			# The verbatim value span, kept for reads' `raw` (only the plain
 			# scalar/inline-array case has a one-line source spelling).
@@ -4910,7 +4973,7 @@ class _Emit:
 	`open`, which the last binding line leaves, then what the lines refused
 	since then pushed, and the indent of a kept misplaced line that the lines
 	under it are kept with."""
-	__slots__ = ("out", "open", "tail", "hold", "record", "fell", "verbatim", "near", "flushed", "kept_near", "lines", "marks", "bodies", "spans")
+	__slots__ = ("out", "open", "tail", "hold", "record", "fell", "verbatim", "near", "flushed", "kept_near", "lv", "lines", "marks", "bodies", "spans")
 
 	def __init__(self, record):
 		self.out: list[str] = []
@@ -4927,6 +4990,10 @@ class _Emit:
 		self.near: list[tuple[int, int]] = []
 		self.flushed = 0
 		self.kept_near: list[tuple[int, int]] = []
+		# Per binding depth, whether that node has a `- ` item written yet
+		# and a field line under it, for a kept line refused only for where
+		# it sits.
+		self.lv: list[list[bool]] = []
 		# to_text_keep_lines() only: where the lines from each source line
 		# start (0 for none), each raw body with the tabs its lines are padded
 		# with, and where each value is written on its binding line. Positions
@@ -4967,6 +5034,14 @@ class _Emit:
 		self.tail = tail
 		if not (tail and tail[-1] == (indent, _UNOPENED)):
 			tail.append((indent, _DEAD))
+
+	def bound(self, depth):
+		"""A binding line at this depth: the levels under it are gone, and its
+		parent has a field line written under it."""
+		del self.lv[depth:]
+		if self.lv:
+			self.lv[-1][1] = True
+		self.lv.append([False, False])
 
 	def placed(self, indent):
 		"""A line a reload binds, such as a list element: it resolves, then
@@ -5234,17 +5309,44 @@ def _push_leads(e, leads, base, at):
 				out.append("\n")
 			continue
 		pad = base + c.depth
+		before = last_comment
 		last_comment = c.depth
 		if not text.startswith("#"):
 			# A kept malformed line resolves and holds its column on a reload,
 			# open for the lines under it when only its value was wrong.
 			indent = "\t" * pad
 			parent, open_, tail = e.resolve(indent)
+			# One kept only for where it sat, E001 or E008, reloads kept only
+			# under a list with an item written, or a field with a field line
+			# written, or as E001 under lines held open on such a list.
+			# Anywhere else it would bind: a comment then.
+			kind = _kept_for_place(text)
+			if kind is not None:
+				stays = False
+				if pad > 0 and not tail and open_ == pad - 1 and pad - 1 < len(e.lv) and parent is not None and parent not in (_DEAD, _UNOPENED):
+					stays = e.lv[pad - 1][0 if kind else 1]
+				if parent == _LAZY and 0 <= open_ < len(e.lv) and e.lv[open_][0] and all(t[1] == _LAZY for t in tail):
+					stays = True
+				if not stays and "\n" not in text:
+					# A comment nests at most one level past the line before it,
+					# or a reload reads it shallower.
+					depth = min(c.depth, before + 1)
+					last_comment = depth
+					if e.record:
+						e.fell.append((at[0], at[1], at[2] + i, depth))
+					out.append("\t" * (base + depth))
+					out.append(_commented(text))
+					out.append("\n")
+					continue
+				e.verbatim += 1
+				if e.record:
+					e.kept_near.extend(e.near[e.flushed:])
+					e.flushed = len(e.near)
 			e.hold = None
 			if parent is not None and parent != _DEAD and _opens_later(text):
 				e.open = open_
 				e.tail = tail
-				tail.append((indent, _ROOT))
+				tail.append((indent, _LAZY))
 			else:
 				e.refused(indent, open_, tail)
 		out.append("\t" * pad)
@@ -6126,36 +6228,8 @@ class Document:
 		content, so save_file refuses then (save_file_lossy overrides), and
 		save_file_keep_lines does when it cannot keep the lines. It also counts
 		lines the load kept as written that an edit took and design.md's
-		kept-lines table does not let it take, and list items the saved text
-		could not load back (see _unloadable_items)."""
-		return self._lost + self._kept_shortfall() + self._unloadable_items()
-
-	def _unloadable_items(self) -> int:
-		"""The items of a list no text loads back: one with a field under it
-		(E001), so written stacked, after an empty binding of its name that has
-		fields. A reload joins its bare header to that binding and drops the
-		items (E008), so a save refuses (2026100511210900). An edit or a merge
-		can build one, and so can a load, where a kept array line (E028) heads
-		the list. Then the source text loads it back, so the save that keeps
-		lines still writes it."""
-		n = 0
-		stack = [_ROOT]
-		arena = self.arena
-		while stack:
-			kids = arena[stack.pop()].children
-			for k, c in enumerate(kids):
-				nd = arena[c]
-				if nd.value.kind != "array" or not nd.children or not _stacks(nd):
-					continue
-				# The first empty one is the one a reload joins it to.
-				for e in kids[:k]:
-					en = arena[e]
-					if en.name == nd.name and en.value.is_empty():
-						if en.children:
-							n += len(nd.value.els)
-						break
-			stack.extend(kids)
-		return n
+		kept-lines table does not let it take."""
+		return self._lost + self._kept_shortfall()
 
 	def _kept_shortfall(self) -> int:
 		"""Kept lines the document owes and no longer holds. Free on a
@@ -6279,11 +6353,8 @@ class Document:
 		an edit took a kept line it should not have, this is to_canonical()
 		and False."""
 		# The reparse check cannot see a kept line gone from both the tree and
-		# the text, so falling back leaves it to the lost-count gate. A source
-		# that was canonical skips that check, so a list no text loads back
-		# falls back to it too. Any other source is held to the check, and one
-		# that loads such a list back is kept.
-		if self._source is not None and self._kept_shortfall() == 0 and (self._source != "" or self._unloadable_items() == 0):
+		# the text, so falling back leaves it to the lost-count gate.
+		if self._source is not None and self._kept_shortfall() == 0:
 			t = _keep_lines(self._source, self)
 			if t is not None:
 				return t, True
@@ -6379,6 +6450,11 @@ class Document:
 			if t is None:
 				continue
 			_settle_array_run(t.leading, heads)
+			# Among a stacked list's items and after them, an array line is
+			# kept for where it sits (E001), and a reload keeps it again.
+			if _stacks(arena[n]):
+				_settle_array_run(t.after, False)
+				continue
 			_settle_array_run(t.inside, False)
 			_settle_array_run(t.after, False)
 			start = 0
@@ -6503,6 +6579,7 @@ class Document:
 		out = e.out
 		# The kept line just written opens this block on a reload.
 		if _heads_block(node):
+			e.bound(depth)
 			e.open = depth
 			e.tail = []
 			e.hold = None
@@ -6521,6 +6598,7 @@ class Document:
 		out.append(_emit_name(node.name))
 		out.append(":")
 		# A binding line: a reload's stack is its levels and nothing else.
+		e.bound(depth)
 		e.open = depth
 		if e.tail:
 			e.tail = []
@@ -6557,6 +6635,8 @@ class Document:
 						out.append(note)
 				out.append("\n")
 				e.placed(column)
+				if depth < len(e.lv):
+					e.lv[depth][0] = True
 			while nxt < len(among):
 				_push_leads(e, (among[nxt][1],), depth + 1, (idx, "among", nxt))
 				nxt += 1
@@ -7787,11 +7867,11 @@ class Document:
 		its comment. A block at the top of the file is left alone. A dotted
 		first line hangs it on its last name, which a saved file writes as
 		the first field's first child, so a block there is left alone too,
-		however it got there. A lone Format line there comes off with on,
-		since the new block names the format. The library save never adds the
+		however it got there. A lone Format line there comes off with on, since
+		the new block names the format. A kept block's Format line is set to
+		this format too, since it reads first. The library save never adds the
 		block by itself; this is for a program that wants it in a file it
-		writes.
-		Returns how many old blocks came off."""
+		writes. Returns how many old blocks came off."""
 		_want("set_banner", on, "bool")
 		return self._swap_banner(on, False)
 
@@ -7827,6 +7907,15 @@ class Document:
 			gone, _, self.orphans = _drop_banners(self.orphans, mark, True)
 			removed += gone
 		if on:
+			# A block kept at the top reads before the new one, so it names this
+			# format too (2026102309053667).
+			for n in top:
+				tr = self.arena[n].trivia
+				if tr is None:
+					continue
+				for c in tr.leading:
+					if c.text.startswith(FORMAT_LINE_HEAD) and c.text != FORMAT_LINE:
+						c.text, c.line = FORMAT_LINE, 0
 			open_ = bool(self.orphans) or bool(self.arena[_ROOT].children)
 			for n, line in enumerate(GEN_BANNER.rstrip("\n").split("\n")):
 				self.orphans.append(_Lead(line, n == 0 and open_))
@@ -8336,7 +8425,6 @@ class Document:
 		cv = src.value.copy()
 		node = _Node(src.name, cv, parent, src.line, src.name_src)
 		node.star_list = src.star_list
-		node.star_mixed = src.star_mixed
 		st = src.trivia
 		if st is not None:
 			t = node._triv()

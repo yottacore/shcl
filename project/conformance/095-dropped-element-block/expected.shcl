@@ -2,6 +2,7 @@
 # An empty item spelled with a space after the dash is E009, not E014.
 sizes:
 	k: 1
+	- small
 list:
 	- a
 	- b

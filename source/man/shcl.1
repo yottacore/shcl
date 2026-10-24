@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-19 shcl "User Commands"
+.TH SHCL 1 2026-10-23 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -280,7 +280,7 @@ keep the original under the backup name
 uses and rewrite
 .IR FILE ).
 A whole info block above the first field stays, so a file with its block at
-the top comes out with 2.
+the top comes out with 2, both naming this format.
 A file whose
 .B Format
 line names this format is left alone at exit 0, and so is one that loads with
@@ -922,7 +922,7 @@ bracket text after a colon is
 .BR E019 ,
 a bad escape is
 .BR E023 ,
-a quote, a tab or a bracket in a bare value is
+a quote other than an apostrophe inside a word, a tab or a bracket in a bare value is
 .BR E025 ,
 a bare comma before a blank is
 .BR E026 ,

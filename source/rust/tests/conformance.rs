@@ -3200,187 +3200,260 @@ fn standard_trait_surface() {
 	let _: shcl::DateTime = shcl::ShclDateTime::default();
 }
 
-/// A list with a field under it (E001) after an empty binding of its name
-/// that has fields: no text loads it back, since a reload joins the list's
-/// header to that binding and drops its items (E008). The load is left as
-/// it is; a save that would write it refuses (2026100511210900). An edit and
-/// a merge can each leave one. Same fixture in every runner.
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
+// The 6 tests below built a list with a field under it, which no load,
+// edit or merge builds now: the field line is kept and binds nothing (E001,
+// 2026102307143752). a_field_under_items_stays_kept pins what each case
+// does now.
+// /// A list with a field under it (E001) after an empty binding of its name
+// /// that has fields: no text loads it back, since a reload joins the list's
+// /// header to that binding and drops its items (E008). The load is left as
+// /// it is; a save that would write it refuses (2026100511210900). An edit and
+// /// a merge can each leave one. Same fixture in every runner.
+// #[cfg_attr(
+// 	miri,
+// 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+// )]
+// #[test]
+// fn a_list_no_text_loads_back_refuses_to_save() {
+// 	let _id = test_id("Ers2oF1");
+// 	let src = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
+// 	let mut doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
+// 	assert_eq!(doc.lost_count(), 0);
+// 	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
+// 	let text = doc.to_canonical();
+// 	assert_eq!(text, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
+// 	assert_eq!(
+// 		Document::parse(&text).lost_count(),
+// 		2,
+// 		"the reload drops both items"
+// 	);
+// 	assert_eq!(doc.lost_count(), 2);
+// 	assert!(
+// 		!doc.to_text_keep_lines().1,
+// 		"the source was canonical, and still no lines are kept"
+// 	);
+// 	let dir = std::env::temp_dir().join(format!("shcl-unloadable-{}", std::process::id()));
+// 	std::fs::create_dir_all(&dir).unwrap();
+// 	let f = dir.join("t.shcl");
+// 	let fs = f.to_str().unwrap();
+// 	std::fs::write(&f, src).unwrap();
+// 	assert!(matches!(
+// 		doc.save_file(fs),
+// 		Err(shcl::SaveError::Refused { lost: 2, .. })
+// 	));
+// 	assert!(matches!(
+// 		doc.save_file_keep_lines(fs),
+// 		Err(shcl::SaveError::Refused { lost: 2, .. })
+// 	));
+// 	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
+// 	assert!(doc.save_file_lossy(fs).is_ok());
+// 	std::fs::remove_dir_all(&dir).unwrap();
+// 	// The same through a merge: the list arrives over an empty binding.
+// 	let mut merged = Document::parse("x:\n\tf: 1\n");
+// 	merged.merge(&Document::parse("x:\n\t- a\n\t- b\n\tg: 2\n"));
+// 	assert_eq!(merged.lost_count(), 2, "{:?}", merged.to_canonical());
+// 	// An empty binding with no fields takes the list in, so nothing is lost,
+// 	// and a list with no field under it goes in brackets.
+// 	let mut doc = Document::parse("x: v\nx:\n\t- a\n\tg: 2\n");
+// 	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
+// 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
+// 	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n");
+// 	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
+// 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
+// }
+//
+// /// A setter that empties a field joins the stacked list after it, fields
+// /// and all, as a reload would. A read made before the write has the lookup
+// /// built, and the fields that moved still have to be found through it.
+// #[test]
+// fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
+// 	let _id = test_id("ErsETML");
+// 	for (src, path, field, want) in [
+// 		("b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
+// 		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
+// 		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
+// 	] {
+// 		let mut doc = Document::parse(src);
+// 		assert!(doc.get_string(field).is_ok(), "{src:?}");
+// 		assert_eq!(doc.set_empty(path), shcl::SetStatus::Ok, "{src:?}");
+// 		let back = Document::parse(&doc.to_canonical());
+// 		assert_eq!(back.get_string(field).as_deref(), Ok(want), "{src:?}");
+// 		assert_eq!(doc.get_string(field).as_deref(), Ok(want), "{src:?}");
+// 		assert_eq!(doc.paths(), back.paths(), "{src:?}");
+// 	}
+// }
+//
+// /// A merge adds a list with a field under it as a new instance after an
+// /// empty binding of its name. A comment or kept line left after the binding
+// /// held the join off, though a reload joins the two (2026100520243961).
+// #[test]
+// fn a_merged_list_joins_an_empty_field_past_a_comment() {
+// 	let _id = test_id("Ert70BF");
+// 	let layer = Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n");
+// 	for base in [
+// 		"p:\n\ts:\n\t# c\n",
+// 		"p:\n\ts:\n\tk: [1\n",
+// 		"p:\n\ts:\n\t# c\n\t\t# d\n",
+// 		"p:\n\ts:\n\t# c\n\tt: 2\n",
+// 	] {
+// 		let mut doc = Document::parse(base);
+// 		doc.merge(&layer);
+// 		let text = doc.to_canonical();
+// 		let back = Document::parse(&text);
+// 		assert_eq!(back.to_canonical(), text, "{base:?}");
+// 		assert_eq!(doc.paths(), back.paths(), "{base:?}");
+// 		assert_eq!(doc.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
+// 		assert_eq!(back.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
+// 		assert_eq!(doc.instances("p.s").len(), 1, "{base:?}");
+// 	}
+// }
+//
+// /// A list that joins an empty binding brings its fields, and the binding's
+// /// own kept line inside its block is written after them. A merge left it
+// /// filed inside the block, so a remove of the last field wrote it before the
+// /// kept line among the items, and a reload after it (2026100914525821).
+// #[test]
+// fn a_joined_list_files_the_bindings_lines_like_a_reload() {
+// 	let _id = test_id("EsFs76t");
+// 	let mut doc = Document::parse("srv:\n\t[\n");
+// 	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
+// 	let text = doc.to_canonical();
+// 	assert_eq!(text, "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n");
+// 	let mut back = Document::parse(&text);
+// 	assert_eq!(doc.remove("srv.b"), 1);
+// 	assert_eq!(back.remove("srv.b"), 1);
+// 	assert_eq!(doc.to_canonical(), "srv:\n\t- 1\n\t*\n\t[\n");
+// 	assert_eq!(back.to_canonical(), doc.to_canonical());
+// 	// The write side's join, when a remove empties the binding.
+// 	let mut doc = Document::parse("srv:\n\tx: 1\n\t[\n");
+// 	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
+// 	assert_eq!(doc.remove("srv.x"), 1);
+// 	let mut back = Document::parse(&doc.to_canonical());
+// 	assert_eq!(doc.remove("srv.b"), 1);
+// 	assert_eq!(back.remove("srv.b"), 1);
+// 	assert_eq!(back.to_canonical(), doc.to_canonical());
+// }
+//
+// /// The remove twin: the merge without the gap builds the list no text loads
+// /// back, after a binding with a field. A remove that takes that field joins
+// /// the list, and one that takes the list's field puts it in brackets, as a
+// /// reload reads each.
+// #[test]
+// fn a_remove_settles_a_list_after_an_empty_field() {
+// 	let _id = test_id("Ert70DM");
+// 	for (path, want) in [
+// 		("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
+// 		("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
+// 	] {
+// 		let mut doc = Document::parse("p:\n\ts:\n\t\tx: 1\n");
+// 		doc.merge(&Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"));
+// 		assert!(doc.lost_count() > 0, "the list no text loads back");
+// 		assert_eq!(doc.remove(path), 1);
+// 		let text = doc.to_canonical();
+// 		assert_eq!(text, want, "{path}");
+// 		let back = Document::parse(&text);
+// 		assert_eq!(back.to_canonical(), text, "{path}");
+// 		assert_eq!(doc.paths(), back.paths(), "{path}");
+// 		assert_eq!(doc.lost_count(), 0, "{path}");
+// 	}
+// }
+//
+// /// A load can build that list too, under a kept array line (E028). The
+// /// canonical text writes the line as a comment and cannot load the list
+// /// back, so that save refuses. The source text does, so with no edits the
+// /// save that keeps lines writes it as it was.
+// #[cfg_attr(
+// 	miri,
+// 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+// )]
+// #[test]
+// fn a_list_the_source_loads_back_keeps_its_lines() {
+// 	let _id = test_id("ErsWiow");
+// 	let src = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n";
+// 	let doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
+// 	assert_eq!(doc.lost_count(), 2, "the wildcard line and the item");
+// 	assert_eq!(doc.to_text_keep_lines(), (src.to_string(), true));
+// 	let dir = std::env::temp_dir().join(format!("shcl-sourcelist-{}", std::process::id()));
+// 	std::fs::create_dir_all(&dir).unwrap();
+// 	let f = dir.join("t.shcl");
+// 	let fs = f.to_str().unwrap();
+// 	std::fs::write(&f, src).unwrap();
+// 	assert!(matches!(
+// 		doc.save_file(fs),
+// 		Err(shcl::SaveError::Refused { lost: 2, .. })
+// 	));
+// 	assert!(matches!(doc.save_file_keep_lines(fs), Ok(true)));
+// 	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
+// 	std::fs::remove_dir_all(&dir).unwrap();
+// }
+
+/// A field line under stacked items is kept and binds nothing (E001), and so
+/// is an item after a field line (E008). Where an edit or a merge leaves one
+/// that a reload would bind, it is written as a comment. Same fixture in
+/// every runner.
 #[test]
-fn a_list_no_text_loads_back_refuses_to_save() {
-	let _id = test_id("Ers2oF1");
-	let src = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
-	let mut doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
-	assert_eq!(doc.lost_count(), 0);
-	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
-	let text = doc.to_canonical();
-	assert_eq!(text, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
+fn a_field_under_items_stays_kept() {
+	let _id = test_id("EtXAjYU");
+	let check = |doc: &Document, want: &str| {
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(doc.paths(), back.paths(), "{text:?}");
+		assert_eq!(doc.lost_count(), 0, "{text:?}");
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+	};
+	// The load keeps both lines, and the items around them still join.
+	let src = "a:\n\t- x\n\tb: 1\n\t- y\nc:\n\td: 1\n\t- z\n\te: 2\n";
+	let doc = Document::parse(src);
+	let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	assert_eq!(codes, [(3, "E001"), (7, "E008")]);
 	assert_eq!(
-		Document::parse(&text).lost_count(),
-		2,
-		"the reload drops both items"
+		doc.get_string_array("a"),
+		Ok(vec!["x".to_string(), "y".to_string()])
 	);
-	assert_eq!(doc.lost_count(), 2);
-	assert!(
-		!doc.to_text_keep_lines().1,
-		"the source was canonical, and still no lines are kept"
+	assert!(doc.get_string("a.b").is_err());
+	assert_eq!(doc.children("c"), ["d", "e"]);
+	check(&doc, src);
+	// A list after an empty binding of its name goes in brackets, so the
+	// field line kept after its items is written as a comment.
+	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
+	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
+	check(&doc, "x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n");
+	let mut doc = Document::parse("p:\n\ts:\n\t\tx: 1\n");
+	doc.merge(&Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"));
+	check(&doc, "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n\t\t# c: 1\n");
+	// A setter that replaces the list moves the kept line above it.
+	let mut doc = Document::parse("a:\n\t- x\n\tb: 1\n\t- y\nd: 1\n");
+	assert_eq!(doc.set_string_array("a", &["p", "q"]), shcl::SetStatus::Ok);
+	check(&doc, "# b: 1\na:\n\t- p\n\t- q\nd: 1\n");
+	// A remove of the field before it leaves the item where it would join.
+	let mut doc = Document::parse("a:\n\tb: 1\n\t- x\n\tc: 2\n");
+	assert_eq!(doc.remove("a.b"), 1);
+	check(&doc, "a:\n\t# - x\n\tc: 2\n");
+	assert_eq!(doc.remove("a.c"), 1);
+	check(&doc, "a:\n\t# - x\n");
+	// A line refused for its value still holds its level open under items,
+	// for what is kept under it. A line that would bind through it is E001.
+	let doc = Document::parse("a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n");
+	check(
+		&doc,
+		"a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n",
 	);
-	let dir = std::env::temp_dir().join(format!("shcl-unloadable-{}", std::process::id()));
-	std::fs::create_dir_all(&dir).unwrap();
-	let f = dir.join("t.shcl");
-	let fs = f.to_str().unwrap();
-	std::fs::write(&f, src).unwrap();
-	assert!(matches!(
-		doc.save_file(fs),
-		Err(shcl::SaveError::Refused { lost: 2, .. })
-	));
-	assert!(matches!(
-		doc.save_file_keep_lines(fs),
-		Err(shcl::SaveError::Refused { lost: 2, .. })
-	));
-	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
-	assert!(doc.save_file_lossy(fs).is_ok());
-	std::fs::remove_dir_all(&dir).unwrap();
-	// The same through a merge: the list arrives over an empty binding.
-	let mut merged = Document::parse("x:\n\tf: 1\n");
-	merged.merge(&Document::parse("x:\n\t- a\n\t- b\n\tg: 2\n"));
-	assert_eq!(merged.lost_count(), 2, "{:?}", merged.to_canonical());
-	// An empty binding with no fields takes the list in, so nothing is lost,
-	// and a list with no field under it goes in brackets.
-	let mut doc = Document::parse("x: v\nx:\n\t- a\n\tg: 2\n");
-	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
-	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
-	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n");
-	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
-	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
-}
-
-/// A setter that empties a field joins the stacked list after it, fields
-/// and all, as a reload would. A read made before the write has the lookup
-/// built, and the fields that moved still have to be found through it.
-#[test]
-fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
-	let _id = test_id("ErsETML");
-	for (src, path, field, want) in [
-		("b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
-		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
-		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
-	] {
-		let mut doc = Document::parse(src);
-		assert!(doc.get_string(field).is_ok(), "{src:?}");
-		assert_eq!(doc.set_empty(path), shcl::SetStatus::Ok, "{src:?}");
-		let back = Document::parse(&doc.to_canonical());
-		assert_eq!(back.get_string(field).as_deref(), Ok(want), "{src:?}");
-		assert_eq!(doc.get_string(field).as_deref(), Ok(want), "{src:?}");
-		assert_eq!(doc.paths(), back.paths(), "{src:?}");
-	}
-}
-
-/// A merge adds a list with a field under it as a new instance after an
-/// empty binding of its name. A comment or kept line left after the binding
-/// held the join off, though a reload joins the two (2026100520243961).
-#[test]
-fn a_merged_list_joins_an_empty_field_past_a_comment() {
-	let _id = test_id("Ert70BF");
-	let layer = Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n");
-	for base in [
-		"p:\n\ts:\n\t# c\n",
-		"p:\n\ts:\n\tk: [1\n",
-		"p:\n\ts:\n\t# c\n\t\t# d\n",
-		"p:\n\ts:\n\t# c\n\tt: 2\n",
-	] {
-		let mut doc = Document::parse(base);
-		doc.merge(&layer);
-		let text = doc.to_canonical();
-		let back = Document::parse(&text);
-		assert_eq!(back.to_canonical(), text, "{base:?}");
-		assert_eq!(doc.paths(), back.paths(), "{base:?}");
-		assert_eq!(doc.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
-		assert_eq!(back.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
-		assert_eq!(doc.instances("p.s").len(), 1, "{base:?}");
-	}
-}
-
-/// A list that joins an empty binding brings its fields, and the binding's
-/// own kept line inside its block is written after them. A merge left it
-/// filed inside the block, so a remove of the last field wrote it before the
-/// kept line among the items, and a reload after it (2026100914525821).
-#[test]
-fn a_joined_list_files_the_bindings_lines_like_a_reload() {
-	let _id = test_id("EsFs76t");
-	let mut doc = Document::parse("srv:\n\t[\n");
-	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
-	let text = doc.to_canonical();
-	assert_eq!(text, "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n");
-	let mut back = Document::parse(&text);
-	assert_eq!(doc.remove("srv.b"), 1);
-	assert_eq!(back.remove("srv.b"), 1);
-	assert_eq!(doc.to_canonical(), "srv:\n\t- 1\n\t*\n\t[\n");
-	assert_eq!(back.to_canonical(), doc.to_canonical());
-	// The write side's join, when a remove empties the binding.
-	let mut doc = Document::parse("srv:\n\tx: 1\n\t[\n");
-	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
-	assert_eq!(doc.remove("srv.x"), 1);
-	let mut back = Document::parse(&doc.to_canonical());
-	assert_eq!(doc.remove("srv.b"), 1);
-	assert_eq!(back.remove("srv.b"), 1);
-	assert_eq!(back.to_canonical(), doc.to_canonical());
-}
-
-/// The remove twin: the merge without the gap builds the list no text loads
-/// back, after a binding with a field. A remove that takes that field joins
-/// the list, and one that takes the list's field puts it in brackets, as a
-/// reload reads each.
-#[test]
-fn a_remove_settles_a_list_after_an_empty_field() {
-	let _id = test_id("Ert70DM");
-	for (path, want) in [
-		("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
-		("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
-	] {
-		let mut doc = Document::parse("p:\n\ts:\n\t\tx: 1\n");
-		doc.merge(&Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"));
-		assert!(doc.lost_count() > 0, "the list no text loads back");
-		assert_eq!(doc.remove(path), 1);
-		let text = doc.to_canonical();
-		assert_eq!(text, want, "{path}");
-		let back = Document::parse(&text);
-		assert_eq!(back.to_canonical(), text, "{path}");
-		assert_eq!(doc.paths(), back.paths(), "{path}");
-		assert_eq!(doc.lost_count(), 0, "{path}");
-	}
-}
-
-/// A load can build that list too, under a kept array line (E028). The
-/// canonical text writes the line as a comment and cannot load the list
-/// back, so that save refuses. The source text does, so with no edits the
-/// save that keeps lines writes it as it was.
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
-#[test]
-fn a_list_the_source_loads_back_keeps_its_lines() {
-	let _id = test_id("ErsWiow");
-	let src = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n";
-	let doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
-	assert_eq!(doc.lost_count(), 2, "the wildcard line and the item");
-	assert_eq!(doc.to_text_keep_lines(), (src.to_string(), true));
-	let dir = std::env::temp_dir().join(format!("shcl-sourcelist-{}", std::process::id()));
-	std::fs::create_dir_all(&dir).unwrap();
-	let f = dir.join("t.shcl");
-	let fs = f.to_str().unwrap();
-	std::fs::write(&f, src).unwrap();
-	assert!(matches!(
-		doc.save_file(fs),
-		Err(shcl::SaveError::Refused { lost: 2, .. })
-	));
-	assert!(matches!(doc.save_file_keep_lines(fs), Ok(true)));
-	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
-	std::fs::remove_dir_all(&dir).unwrap();
+	let src = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n";
+	let doc = Document::parse(src);
+	let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	assert_eq!(codes, [(3, "E026"), (4, "E001"), (5, "E001")]);
+	assert_eq!(doc.get_string_array("a"), Ok(vec!["0".to_string()]));
+	check(&doc, src);
+	// Once a merge brackets the list, such a line is a comment, at most one
+	// level past the comment before it.
+	let mut doc = Document::parse("a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n");
+	doc.merge(&Document::parse("z: 1\n"));
+	check(
+		&doc,
+		"a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n",
+	);
 }
 
 #[cfg_attr(
@@ -4753,7 +4826,7 @@ fn migrate_writes_star_items_as_dashes() {
 	let m = migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true);
 	assert!(
 		m.text
-			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n"),
+			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n"),
 		"{:?}",
 		m.text
 	);
