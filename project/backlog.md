@@ -181,6 +181,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Status: Waiting on automated testing
 		- Fixed in the load, not the merge. Left is the full run below.
 	- Needs local test suite run?: Y, a full run without publish. The C header changed, so cppcheck and `analyze-c` run there.
+	- Needs external testing: a hosted ci.yml run on `r1024b`, after run 40112190832 failed `EsJLUJy` on 2 spec.md rows.
 	- Severity: High
 	- Opened: 20261023-222703
 	- Opened by: 2026102307035781's test run
@@ -199,6 +200,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: the issue's A and B now merge with no list with a field, and the output is a fixpoint. The 2,000,000 release fuzz passes all 31 properties. Also the 4 conformance suites, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-migrate (642 documents), shell-regress, perf-gate, check-c-compilers, sanitize-c, test-ids, markdownlint, rustfmt, clippy, go vet, staticcheck, ruff and mypy. The new test fails on the old library in each runner.
 			- Swept: `attach_path`'s other selector arms, since a value selector never matches a list; `open_lazy`, whose held paths have no index; the setters, which refuse `srv(0).tls` on a list in all 4 CLIs; and the stacked-list and array-line checks at the level, in Rust, Go, Python and C.
 			- A kept dotted line after items is written as a comment, `# srv(0).tls: on`, since the emitter's model doesn't follow an index. That is the safe side, as with any kept line it reads as binding.
+		- 20261024 later: hosted run 40112190832 failed `EsJLUJy`. The 2 new spec.md rows quoted `srv(0).tls: on` and `srv: [a]` as whole lines, which check-doc-examples loads alone as examples of the row's code. Each needs the other line above it, so the rows now name the path, `srv(0).tls`, and the line before it in words. What they say is unchanged.
+			- Verified: check-doc-examples on the 4 CLIs (spec.md 34 rows, value-syntax.md 62, man page 7 blocks), check-docs, markdownlint. `check -` gives `E028` on line 1 for `srv: [a]` then `srv(0).tls: on`, and `E001` on line 3 after `srv:` with `- a`, in the C CLI.
+			- Swept: the same spans in design.md and the changelog are prose, which the gate doesn't read.
 	- Decisions:
 		- me, 20261024: option A stays, and this is worked first next round. Reverting brings back 3 load outcomes for 2 swapped lines and the 3 exceptions. The missing fixpoint is the same defect showing worse. The merge still builds a list with a field under it, which option A says can't exist, so the fix is in the merge and covers both.
 		- The fix includes a fixpoint check on this case that doesn't sit behind the first assert.
