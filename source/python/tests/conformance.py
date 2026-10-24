@@ -4529,6 +4529,22 @@ def main():
 	if fu_doc.remove("a.c") != 1:
 		raise SystemExit("remove a.c")
 	fu_check(fu_doc, "a:\n\t# - x\n")
+	# A line refused for its value still holds its level open under items,
+	# for what is kept under it. A line that would bind through it is E001.
+	fu_doc = shcl.Document.parse("a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n")
+	fu_check(fu_doc, "a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n")
+	fu_src = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n"
+	fu_doc = shcl.Document.parse(fu_src)
+	if [(d.line, d.code) for d in fu_doc.diagnostics()] != [(3, "E026"), (4, "E001"), (5, "E001")]:
+		raise SystemExit(f"diagnostics {fu_doc.diagnostics()!r}")
+	if fu_doc.get_string_array("a") != ["0"]:
+		raise SystemExit(f"a: {fu_doc.get_string_array('a')!r}")
+	fu_check(fu_doc, fu_src)
+	# Once a merge brackets the list, such a line is a comment, at most one
+	# level past the comment before it.
+	fu_doc = shcl.Document.parse("a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n")
+	fu_doc.merge(shcl.Document.parse("z: 1\n"))
+	fu_check(fu_doc, "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n")
 
 	test_id("ErylLpf", "a_setter_keeps_fields_and_arrays_apart")
 	# A field with lines under it takes one plain value or none (E028), so a

@@ -400,7 +400,7 @@ Case `186` pins a misplaced line kept as written that the load turns into a comm
 
 Case `187` pins a field line refused for its value alone, `E019`, `E023` in a value and `E025`: it binds nothing, and the lines under it load under the field with no value, nested ones and stacked items included. A field with nothing under it stays absent, and a line with an escape in its name still takes its block with it (`E018`). Canonical output writes the kept line in place of the bare `name:` line, and both saves keep it as written.
 
-Case `188` pins where a line refused for its value alone is written back: under the line it sat under, so it reads at the same path once its value is fixed. That holds under another such line, before a dotted line, after a comment at column 0 inside a block, before a child fence and among stacked items, where it keeps its own code and opens nothing. Its write ops change a value and add a field, and the save that keeps lines writes every other line as it was.
+Case `188` pins where a line refused for its value alone is written back: under the line it sat under, so it reads at the same path once its value is fixed. That holds under another such line, before a dotted line, after a comment at column 0 inside a block, before a child fence and among stacked items, where it keeps its own code. Its write ops change a value and add a field, and the save that keeps lines writes every other line as it was.
 
 Case `189` pins a Schema line and a Format line in a raw body opened by the single-quoted name `'C:\'`. Under 2.x a backslash escaped the closing quote, so a line walk that read the file that way missed the block and took the Schema line in its body as the file's.
 

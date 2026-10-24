@@ -3433,6 +3433,27 @@ fn a_field_under_items_stays_kept() {
 	check(&doc, "a:\n\t# - x\n\tc: 2\n");
 	assert_eq!(doc.remove("a.c"), 1);
 	check(&doc, "a:\n\t# - x\n");
+	// A line refused for its value still holds its level open under items,
+	// for what is kept under it. A line that would bind through it is E001.
+	let doc = Document::parse("a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n");
+	check(
+		&doc,
+		"a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n",
+	);
+	let src = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n";
+	let doc = Document::parse(src);
+	let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	assert_eq!(codes, [(3, "E026"), (4, "E001"), (5, "E001")]);
+	assert_eq!(doc.get_string_array("a"), Ok(vec!["0".to_string()]));
+	check(&doc, src);
+	// Once a merge brackets the list, such a line is a comment, at most one
+	// level past the comment before it.
+	let mut doc = Document::parse("a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n");
+	doc.merge(&Document::parse("z: 1\n"));
+	check(
+		&doc,
+		"a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n",
+	);
 }
 
 #[cfg_attr(

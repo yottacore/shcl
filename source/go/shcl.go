@@ -5206,6 +5206,20 @@ func (p *parser) openLazy(parent int) int {
 	return node
 }
 
+// underItems is true when a line binding at parent would put a field under
+// stacked items: the parent is a list, or a lazy level held open under one.
+func (p *parser) underItems(parent int) bool {
+	node := parent
+	if parent == lazy {
+		from := len(p.stack) - 1
+		for from > 1 && p.stack[from-1].node == lazy {
+			from--
+		}
+		node = p.stack[from-1].node
+	}
+	return node >= 0 && node < len(p.arena) && p.arena[node].starList
+}
+
 // headOf is the node a path's first segment bound, from the one its last did.
 func (p *parser) headOf(node, nsegs int) int {
 	head := node
@@ -5820,6 +5834,10 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					// The block goes with its line, or the body would read as live
 					// lines.
 					p.refuse(lineno, "E021", fmt.Sprintf("array longer than %d elements; line skipped", p.maxElements), outDropped, indent)
+				} else if parent == lazy && p.underItems(parent) {
+					// It would open a field under the list. The block goes with
+					// it, as with a field line there.
+					p.refuse(lineno, "E001", "field mixed with list elements", outDropped, indent)
 				} else {
 					parent = p.openLazy(parent)
 					// The fence binds its field again, so a kept field line
@@ -5896,6 +5914,14 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					} else {
 						p.refuse(lineno, f.code, f.msg, outRetained(trimEndWS(rest), hadBlank), indent)
 					}
+					i++
+					continue
+				}
+				// Opened here, a line held open under stacked items would be a
+				// field under the list.
+				if parent == lazy && p.underItems(parent) {
+					p.keptAny = true
+					p.refuse(lineno, "E001", "field mixed with list elements", outRetained(trimEndWS(rest), hadBlank), indent)
 					i++
 					continue
 				}
@@ -6013,16 +6039,14 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		if f == nil && !tok.Capped {
 			f = valueSideFault(&tok, rest)
 		}
-		// Under stacked items a line refused for its content keeps its code
-		// and opens nothing, so no field goes under the list.
-		listed := parent >= 0 && parent < len(p.arena) && p.arena[parent].starList
+		listed := p.underItems(parent)
 		if f != nil {
 			msg := f.msg
 			if f.at >= 0 {
 				msg = fmt.Sprintf("%s, at column %d", f.msg, len(indent)+lead+f.at+1)
 			}
 			p.refuse(lineno, f.code, msg, outRetained(trimEndWS(rest), hadBlank), indent)
-			if f.opens && !listed {
+			if f.opens {
 				p.holdOpen(parent, scan.segments, lineno, indent)
 			}
 			// Only a fault in the name leaves a fence to read here.
@@ -6039,7 +6063,8 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			i = p.skipFieldLine(lines, i, indent, &tok, rest)
 			continue
 		}
-		// A field under stacked items: kept, so a list never has a field under
+		// A field under stacked items, or one that would open a field there
+		// through a line held open: kept, so a list never has a field under
 		// it.
 		if listed {
 			// One that opens a raw block is dropped with it, as a misplaced one
@@ -7148,6 +7173,7 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			continue
 		}
 		pad := base + c.depth
+		before := lastComment
 		lastComment = c.depth
 		if !strings.HasPrefix(c.text, "#") {
 			// A kept malformed line resolves and holds its column on a reload,
@@ -7156,18 +7182,33 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			found, open, tail := e.resolve(indent)
 			// One kept only for where it sat, E001 or E008, reloads kept only
 			// under a list with an item written, or a field with a field line
-			// written. Anywhere else it would bind: a comment then.
+			// written, or as E001 under lines held open on such a list.
+			// Anywhere else it would bind: a comment then.
 			if kind := keptForPlace(c.text); kind != placeNone {
 				stays := false
 				if pad > 0 && len(tail) == 0 && open == pad-1 && pad-1 < len(e.lv) && found.ok && found.parent != dead && found.parent != unopened {
 					up := e.lv[pad-1]
 					stays = (kind == placeField && up.items) || (kind == placeItem && up.fields)
 				}
-				if !stays && !strings.Contains(c.text, "\n") {
-					if e.record {
-						e.fell = append(e.fell, fell{node: node, site: at, i: from + i, depth: c.depth})
+				if found.ok && found.parent == lazy && open >= 0 && open < len(e.lv) && e.lv[open].items {
+					held := true
+					for _, t := range tail {
+						held = held && t.node == lazy
 					}
-					writeTabs(&e.out, pad)
+					stays = stays || held
+				}
+				if !stays && !strings.Contains(c.text, "\n") {
+					// A comment nests at most one level past the line before it,
+					// or a reload reads it shallower.
+					depth := c.depth
+					if depth > before+1 {
+						depth = before + 1
+					}
+					lastComment = depth
+					if e.record {
+						e.fell = append(e.fell, fell{node: node, site: at, i: from + i, depth: depth})
+					}
+					writeTabs(&e.out, base+depth)
 					e.out.WriteString(commented(c.text))
 					e.out.WriteByte('\n')
 					continue
@@ -7181,7 +7222,7 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			e.held = false
 			if found.ok && found.parent != dead && opensLater(c.text) {
 				e.open = open
-				e.tail = append(tail, stackEnt{indent: indent, node: root})
+				e.tail = append(tail, stackEnt{indent: indent, node: lazy})
 			} else {
 				e.refused(indent, open, tail)
 			}

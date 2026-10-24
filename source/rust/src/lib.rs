@@ -4957,6 +4957,20 @@ impl<'a> Parser<'a> {
 		node
 	}
 
+	/// True when a line binding at `parent` would put a field under stacked
+	/// items: the parent is a list, or a LAZY level held open under one.
+	fn under_items(&self, parent: usize) -> bool {
+		let mut node = parent;
+		if parent == LAZY {
+			let mut from = self.stack.len() - 1;
+			while from > 1 && self.stack[from - 1].1 == LAZY {
+				from -= 1;
+			}
+			node = self.stack[from - 1].1;
+		}
+		self.arena.get(node).is_some_and(|nd| nd.star_list)
+	}
+
 	/// The node a path's first segment bound, from the one its last did.
 	fn head_of(&self, node: usize, nsegs: usize) -> usize {
 		let mut head = node;
@@ -5670,6 +5684,16 @@ impl<'a> Parser<'a> {
 						Outcome::Dropped,
 						indent,
 					);
+				} else if parent == LAZY && self.under_items(parent) {
+					// It would open a field under the list. The block goes with
+					// it, as with a field line there.
+					self.refuse(
+						lineno,
+						"E001",
+						"field mixed with list elements",
+						Outcome::Dropped,
+						indent,
+					);
 				} else {
 					let parent = self.open_lazy(parent);
 					// The fence binds its field again, so a kept field line
@@ -5736,6 +5760,23 @@ impl<'a> Parser<'a> {
 							lineno,
 							f.code,
 							f.msg,
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
+					// Opened here, a line held open under stacked items would be a
+					// field under the list.
+					if parent == LAZY && self.under_items(parent) {
+						self.kept_any = true;
+						self.refuse(
+							lineno,
+							"E001",
+							"field mixed with list elements",
 							Outcome::Retained {
 								text: trim_wsp_end(rest).to_string(),
 								blank_before: had_blank,
@@ -5898,9 +5939,7 @@ impl<'a> Parser<'a> {
 				None => value_side_fault(&tok, rest),
 				named => named,
 			};
-			// Under stacked items a line refused for its content keeps its code
-			// and opens nothing, so no field goes under the list.
-			let listed = self.arena.get(parent).is_some_and(|nd| nd.star_list);
+			let listed = self.under_items(parent);
 			if let Some(f) = fault {
 				let msg = match f.at {
 					Some(at) => format!("{}, at column {}", f.msg, indent.len() + lead + at + 1),
@@ -5916,7 +5955,7 @@ impl<'a> Parser<'a> {
 					},
 					indent,
 				);
-				if f.opens && !listed {
+				if f.opens {
 					self.hold_open(parent, scan.segments, lineno, indent);
 				}
 				// Only a fault in the name leaves a fence to read here.
@@ -5942,10 +5981,11 @@ impl<'a> Parser<'a> {
 				i = self.skip_field_line(&lines, i, indent, &tok, rest);
 				continue;
 			}
-			// A field under stacked items: kept, so a list never has a field
-			// under it. One that opens a raw block is dropped with it, as a
-			// misplaced one is: moved where it binds, it could not be written
-			// as a comment.
+			// A field under stacked items, or one that would open a field there
+			// through a line held open: kept, so a list never has a field under
+			// it. One that opens a raw block is dropped with it, as a misplaced
+			// one is: moved where it binds, it could not be written as a
+			// comment.
 			if listed {
 				let msg = "field mixed with list elements";
 				if line_fence(&tok, rest).is_some() {
@@ -7426,6 +7466,7 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			continue;
 		}
 		let pad = base + c.depth;
+		let before = last_comment;
 		last_comment = c.depth;
 		if !c.text.starts_with('#') {
 			// A kept malformed line resolves and holds its column on a reload,
@@ -7434,18 +7475,29 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			let (parent, open, tail) = e.resolve(&indent);
 			// One kept only for where it sat, E001 or E008, reloads kept only
 			// under a list with an item written, or a field with a field
-			// line written. Anywhere else it would bind: a comment then.
+			// line written, or as E001 under lines held open on such a list.
+			// Anywhere else it would bind: a comment then.
 			if let Some(field) = kept_for_place(&c.text) {
 				let up = (pad > 0 && tail.is_empty() && open == pad as isize - 1)
 					.then(|| e.lv.get(pad - 1))
 					.flatten()
 					.filter(|_| parent.is_some_and(|p| p != DEAD && p != UNOPENED));
-				let stays = up.is_some_and(|l| if field { l.items } else { l.fields });
+				let held = parent == Some(LAZY)
+					&& tail.iter().all(|t| t.1 == LAZY)
+					&& usize::try_from(open)
+						.ok()
+						.and_then(|d| e.lv.get(d))
+						.is_some_and(|l| l.items);
+				let stays = held || up.is_some_and(|l| if field { l.items } else { l.fields });
 				if !stays && !c.text.contains('\n') {
+					// A comment nests at most one level past the line before it,
+					// or a reload reads it shallower.
+					let depth = c.depth.min(before + 1);
+					last_comment = depth;
 					if e.record {
-						e.fell.push((at.0, at.1, at.2 + i, c.depth));
+						e.fell.push((at.0, at.1, at.2 + i, depth));
 					}
-					e.out.extend(std::iter::repeat_n('\t', pad));
+					e.out.extend(std::iter::repeat_n('\t', base + depth));
 					e.out.push_str(&commented(&c.text));
 					e.out.push('\n');
 					continue;
@@ -7460,7 +7512,7 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			if parent.is_some_and(|p| p != DEAD) && opens_later(&c.text) {
 				e.open = open;
 				e.tail = tail;
-				e.tail.push((indent, ROOT));
+				e.tail.push((indent, LAZY));
 			} else {
 				e.refused(&indent, open, tail);
 			}

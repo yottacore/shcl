@@ -6112,6 +6112,28 @@ func TestAFieldUnderItemsStaysKept(t *testing.T) {
 		t.Fatal("remove a.c")
 	}
 	check(doc, "a:\n\t# - x\n")
+	// A line refused for its value still holds its level open under items,
+	// for what is kept under it. A line that would bind through it is E001.
+	doc = Parse("a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n")
+	check(doc, "a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n")
+	src = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n"
+	doc = Parse(src)
+	codes = nil
+	for _, d := range doc.Diagnostics() {
+		codes = append(codes, fmt.Sprintf("%d %s", d.Line, d.Code))
+	}
+	if !reflect.DeepEqual(codes, []string{"3 E026", "4 E001", "5 E001"}) {
+		t.Fatalf("diagnostics %v", codes)
+	}
+	if v, st := doc.GetStringArray("a"); st != Good || !reflect.DeepEqual(v, []string{"0"}) {
+		t.Fatalf("a: %v %v", v, st)
+	}
+	check(doc, src)
+	// Once a merge brackets the list, such a line is a comment, at most one
+	// level past the comment before it.
+	doc = Parse("a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n")
+	doc.Merge(Parse("z: 1\n"))
+	check(doc, "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n")
 }
 
 // A field with lines under it takes one plain value or none (E028), so a

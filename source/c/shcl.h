@@ -5987,6 +5987,18 @@ static size_t open_lazy(ShclParser *P, size_t parent) {
 	return node;
 }
 
+/* True when a line binding at parent would put a field under stacked items:
+   the parent is a list, or a LAZY level held open under one. */
+static int under_items(const ShclParser *P, size_t parent) {
+	size_t node = parent;
+	if (parent == LAZY) {
+		size_t from = P->stack.len - 1;
+		while (from > 1 && P->stack.data[from - 1].node == LAZY) from--;
+		node = P->stack.data[from - 1].node;
+	}
+	return node < P->d->nodes.len && NODE(P->d, node).star_list;
+}
+
 /* Where the parse resumes after a refused field line. Every arm that skips one
    comes through here, so a skipped line whose value opens a raw block takes the
    body with it: read as lines, the body would bind or be refused line by line,
@@ -6365,6 +6377,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				ShclSB m = {0}; sb_puts(P.line, &m, "array longer than "); sb_put_u64(P.line, &m, P.max_elements); sb_puts(P.line, &m, " elements; line skipped");
 				p_refuse(&P, lineno, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
 			}
+			else if (parent == LAZY && under_items(&P, parent)) {
+				/* It would open a field under the list. The block goes with it,
+				   as with a field line there. */
+				p_refuse(&P, lineno, "E001", s_lit("field mixed with list elements"), out_kind(OUT_DROPPED), indent);
+			}
 			else {
 				parent = open_lazy(&P, parent);
 				/* The fence binds its field again, so a kept field line before
@@ -6416,6 +6433,13 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				if (item_fault(P.line, &tok, rest, &fault)) {
 					if (list_full(&P, parent)) refuse_capped(&P, lineno, indent);
 					else p_refuse(&P, lineno, fault.code, fault.msg, out_retained(trim_wsp_end(rest), had_blank), indent);
+					i++; continue;
+				}
+				/* Opened here, a line held open under stacked items would be a
+				   field under the list. */
+				if (parent == LAZY && under_items(&P, parent)) {
+					P.kept_any = 1;
+					p_refuse(&P, lineno, "E001", s_lit("field mixed with list elements"), out_retained(trim_wsp_end(rest), had_blank), indent);
 					i++; continue;
 				}
 				parent = open_lazy(&P, parent);
@@ -6496,9 +6520,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			ShclFault fault;
 			int faulted = name_fault(P.line, &tok, rest, &fault);
 			if (!faulted && !tok.capped) faulted = value_side_fault(P.line, &tok, rest, &fault);
-			/* Under stacked items a line refused for its content keeps its
-			   code and opens nothing, so no field goes under the list. */
-			listed = parent < d->nodes.len && NODE(d, parent).star_list;
+			listed = under_items(&P, parent);
 			if (faulted) {
 				ShclStr fmsg = fault.msg;
 				if (fault.has_at) {
@@ -6507,7 +6529,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 					fmsg = sb_S(&m);
 				}
 				p_refuse(&P, lineno, fault.code, fmsg, out_retained(trim_wsp_end(rest), had_blank), indent);
-				if (fault.opens && !listed) hold_open(&P, parent, scan.segs.data, scan.segs.len, lineno, indent);
+				if (fault.opens) hold_open(&P, parent, scan.segs.data, scan.segs.len, lineno, indent);
 				/* Only a fault in the name leaves a fence to read here. */
 				i = keep_body(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
 			}
@@ -6522,7 +6544,8 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			p_refuse(&P, lineno, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
 			i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
 		}
-		/* A field under stacked items: kept, so a list never has a field under
+		/* A field under stacked items, or one that would open a field there
+		   through a line held open: kept, so a list never has a field under
 		   it. One that opens a raw block is dropped with it, as a misplaced one
 		   is: moved where it binds, it could not be written as a comment. */
 		if (listed) {
@@ -9952,6 +9975,7 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			continue;
 		}
 		size_t pad = base + c->depth;
+		size_t before = last_comment;
 		last_comment = c->depth;
 		if (!(c->text.n && c->text.p[0] == '#')) {
 			/* A kept malformed line resolves and holds its column on a reload,
@@ -9960,15 +9984,25 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			ShclTrial t = emit_resolve(e, ind);
 			/* One kept only for where it sat, E001 or E008, reloads kept only
 			   under a list with an item written, or a field with a field line
-			   written. Anywhere else it would bind: a comment then. */
+			   written, or as E001 under lines held open on such a list.
+			   Anywhere else it would bind: a comment then. */
 			int kind = kept_for_place(a, c->text);
 			if (kind) {
 				int stays = 0;
 				if (pad > 0 && !t.ntail && t.open == (ptrdiff_t)pad - 1 && pad - 1 < e->lv.len && t.found && t.parent != DEAD && t.parent != UNOPENED)
 					stays = (e->lv.data[pad - 1] & (kind == 1 ? LV_ITEMS : LV_FIELDS)) != 0;
+				if (t.found && t.parent == LAZY && t.open >= 0 && (size_t)t.open < e->lv.len && (e->lv.data[t.open] & LV_ITEMS)) {
+					int held = 1;
+					for (size_t k = 0; k < t.ntail; k++) held = held && t.tail[k].node == LAZY;
+					stays = stays || held;
+				}
 				if (!stays && !memchr(c->text.p, '\n', c->text.n)) {
-					if (e->record) { ShclFell f; f.node = node; f.site = site; f.i = first + i; f.depth = c->depth; ShclVecFell_push(a, &e->fell, f); }
-					sb_putS(a, &e->out, emit_tabs(e, pad));
+					/* A comment nests at most one level past the line before it,
+					   or a reload reads it shallower. */
+					size_t depth = c->depth < before + 1 ? c->depth : before + 1;
+					last_comment = depth;
+					if (e->record) { ShclFell f; f.node = node; f.site = site; f.i = first + i; f.depth = depth; ShclVecFell_push(a, &e->fell, f); }
+					sb_putS(a, &e->out, emit_tabs(e, base + depth));
 					sb_putS(a, &e->out, commented(a, c->text)); sb_putc(a, &e->out, '\n');
 					continue;
 				}
@@ -9981,7 +10015,7 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			e->has_hold = 0;
 			if (t.found && t.parent != DEAD && opens_later(a, c->text)) {
 				emit_take(e, &t);
-				ShclStackEnt se; se.indent = ind; se.node = ROOT; ShclVecStack_push(a, &e->tail, se);
+				ShclStackEnt se; se.indent = ind; se.node = LAZY; ShclVecStack_push(a, &e->tail, se);
 			}
 			else emit_refused(e, ind, &t);
 		}

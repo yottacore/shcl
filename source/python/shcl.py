@@ -4170,6 +4170,17 @@ class _Parser:
 			self._give_pending(self._head_of(node, len(segs)), indent, count, False)
 		return node
 
+	def _under_items(self, parent):
+		"""True when a line binding at parent would put a field under stacked
+		items: the parent is a list, or a _LAZY level held open under one."""
+		node = parent
+		if parent == _LAZY:
+			start = len(self.stack) - 1
+			while start > 1 and self.stack[start - 1][1] == _LAZY:
+				start -= 1
+			node = self.stack[start - 1][1]
+		return 0 <= node < len(self.arena) and self.arena[node].star_list
+
 	def _head_of(self, node, nsegs):
 		"""The node a path's first segment bound, from the one its last did."""
 		head = node
@@ -4599,6 +4610,10 @@ class _Parser:
 					# The block goes with its line, or the body would read as live
 					# lines.
 					self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", _OUT_DROPPED, indent)
+				elif parent == _LAZY and self._under_items(parent):
+					# It would open a field under the list. The block goes with
+					# it, as with a field line there.
+					self._refuse(lineno, "E001", "field mixed with list elements", _OUT_DROPPED, indent)
 				else:
 					parent = self._open_lazy(parent)
 					# The fence binds its field again, so a kept field line
@@ -4650,6 +4665,13 @@ class _Parser:
 							self._refuse_capped(lineno, indent)
 						else:
 							self._refuse(lineno, f.code, f.msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
+						i += 1
+						continue
+					# Opened here, a line held open under stacked items would be a
+					# field under the list.
+					if parent == _LAZY and self._under_items(parent):
+						self.kept_any = True
+						self._refuse(lineno, "E001", "field mixed with list elements", _out_retained(_trim_wsp_end(rest), had_blank), indent)
 						i += 1
 						continue
 					parent = self._open_lazy(parent)
@@ -4740,13 +4762,11 @@ class _Parser:
 			f = _name_fault(tok)
 			if f is None and not tok.capped:
 				f = _value_side_fault(tok)
-			# Under stacked items a line refused for its content keeps its
-			# code and opens nothing, so no field goes under the list.
-			listed = 0 <= parent < len(self.arena) and self.arena[parent].star_list
+			listed = self._under_items(parent)
 			if f is not None:
 				msg = f.msg if f.at is None else f"{f.msg}, at column {len(indent) + lead + f.at + 1}"
 				self._refuse(lineno, f.code, msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
-				if f.opens and not listed:
+				if f.opens:
 					self._hold_open(parent, segments, lineno, indent)
 				# Only a fault in the name leaves a fence to read here.
 				i = self._keep_body(lines, i, indent, tok)
@@ -4760,7 +4780,8 @@ class _Parser:
 				self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", _OUT_DROPPED, indent)
 				i = self._skip_field_line(lines, i, indent, tok)
 				continue
-			# A field under stacked items: kept, so a list never has a field
+			# A field under stacked items, or one that would open a field there
+			# through a line held open: kept, so a list never has a field
 			# under it. One that opens a raw block is dropped with it, as a
 			# misplaced one is: moved where it binds, it could not be written
 			# as a comment.
@@ -5279,6 +5300,7 @@ def _push_leads(e, leads, base, at):
 				out.append("\n")
 			continue
 		pad = base + c.depth
+		before = last_comment
 		last_comment = c.depth
 		if not text.startswith("#"):
 			# A kept malformed line resolves and holds its column on a reload,
@@ -5287,16 +5309,23 @@ def _push_leads(e, leads, base, at):
 			parent, open_, tail = e.resolve(indent)
 			# One kept only for where it sat, E001 or E008, reloads kept only
 			# under a list with an item written, or a field with a field line
-			# written. Anywhere else it would bind: a comment then.
+			# written, or as E001 under lines held open on such a list.
+			# Anywhere else it would bind: a comment then.
 			kind = _kept_for_place(text)
 			if kind is not None:
 				stays = False
 				if pad > 0 and not tail and open_ == pad - 1 and pad - 1 < len(e.lv) and parent is not None and parent not in (_DEAD, _UNOPENED):
 					stays = e.lv[pad - 1][0 if kind else 1]
+				if parent == _LAZY and 0 <= open_ < len(e.lv) and e.lv[open_][0] and all(t[1] == _LAZY for t in tail):
+					stays = True
 				if not stays and "\n" not in text:
+					# A comment nests at most one level past the line before it,
+					# or a reload reads it shallower.
+					depth = min(c.depth, before + 1)
+					last_comment = depth
 					if e.record:
-						e.fell.append((at[0], at[1], at[2] + i, c.depth))
-					out.append("\t" * pad)
+						e.fell.append((at[0], at[1], at[2] + i, depth))
+					out.append("\t" * (base + depth))
 					out.append(_commented(text))
 					out.append("\n")
 					continue
@@ -5308,7 +5337,7 @@ def _push_leads(e, leads, base, at):
 			if parent is not None and parent != _DEAD and _opens_later(text):
 				e.open = open_
 				e.tail = tail
-				tail.append((indent, _ROOT))
+				tail.append((indent, _LAZY))
 			else:
 				e.refused(indent, open_, tail)
 		out.append("\t" * pad)

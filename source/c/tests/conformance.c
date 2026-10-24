@@ -5159,11 +5159,24 @@ int main(int argc, char **argv) {
 			   join. */
 			{"a:\n\tb: 1\n\t- x\n\tc: 2\n", "a:\n\t# - x\n\tc: 2\n", 4},
 			{"a:\n\tb: 1\n\t- x\n\tc: 2\n", "a:\n\t# - x\n", 5},
+			/* A line refused for its value still holds its level open under
+			   items, for what is kept under it. A line that would bind through
+			   it is E001. */
+			{"a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n", "a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n", 0},
+			{"a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n", "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n", 0},
+			/* Once a merge brackets the list, such a line is a comment, at
+			   most one level past the comment before it. */
+			{"a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n", "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n", 6},
 		};
 		for (size_t k = 0; k < sizeof fc / sizeof fc[0]; k++) {
 			shcl_doc *cd = shcl_parse(fc[k].src, strlen(fc[k].src));
 			int ok = 1;
 			if (fc[k].step == 1) ok = shcl_set_empty(cd, "x(v)", 4) == SHCL_SET_OK;
+			if (fc[k].step == 6) {
+				shcl_doc *lo = shcl_parse("z: 1\n", 5);
+				shcl_merge(cd, lo);
+				shcl_free(lo);
+			}
 			if (fc[k].step == 2) {
 				const char *ly = "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n";
 				shcl_doc *lo = shcl_parse(ly, strlen(ly));
@@ -5174,7 +5187,7 @@ int main(int argc, char **argv) {
 				const char *pq[] = {"p", "q"}; size_t pql[] = {1, 1};
 				ok = shcl_set_string_array(cd, "a", 1, pq, pql, 2) == SHCL_SET_OK;
 			}
-			if (fc[k].step >= 4) ok = shcl_remove(cd, "a.b", 3) == 1;
+			if (fc[k].step == 4 || fc[k].step == 5) ok = shcl_remove(cd, "a.b", 3) == 1;
 			if (fc[k].step == 5) ok = ok && shcl_remove(cd, "a.c", 3) == 1;
 			if (!ok) fail("field_under_items", "an edit refused");
 			shcl_str ct = shcl_to_canonical(cd);
@@ -5186,6 +5199,14 @@ int main(int argc, char **argv) {
 			shcl_free(cb); shcl_free(cd);
 		}
 		shcl_free(fd);
+		const char *hsrc = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n";
+		shcl_doc *hd = shcl_parse(hsrc, strlen(hsrc));
+		if (shcl_diag_count(hd) != 3 || shcl_diag_line(hd, 0) != 3 || strcmp(shcl_diag_code(hd, 0), "E026") != 0
+			|| shcl_diag_line(hd, 1) != 4 || strcmp(shcl_diag_code(hd, 1), "E001") != 0
+			|| shcl_diag_line(hd, 2) != 5 || strcmp(shcl_diag_code(hd, 2), "E001") != 0) fail("field_under_items", "held open diagnostics");
+		shcl_read_str_arr ha = shcl_read_string_array(hd, "a", 1);
+		if (ha.status != SHCL_GOOD || ha.n != 1 || !str_is(ha.values[0], "0")) fail("field_under_items", "held open a");
+		shcl_free(hd);
 	}
 	test_id("Es1gWRx", "a_setter_keeps_fields_and_arrays_apart");
 	/* A field with lines under it takes one plain value or none (E028), so a

@@ -418,7 +418,7 @@ is exactly `sizes: [small, "extra large", "Bond, James"]`. The rules that keep i
 
 - A line led by `*`, the old marker, is `E013`, and the message says to use `- `. The line is kept as written, the other items still load, and what is written under it goes with it.
 
-- **Uniform or nothing:** at the child indent, every line is a `- ` item or none is. A field line after the items is `E001`, and an item after a field line is `E008`. Each is kept as written and binds nothing, and what is written under it goes with it (`E018`), so no list has a field under it. A line refused for its content there keeps its own code. A field line that opens a raw block is dropped with the block.
+- **Uniform or nothing:** at the child indent, every line is a `- ` item or none is. A field line after the items is `E001`, and an item after a field line is `E008`. Each is kept as written and binds nothing, and what is written under it goes with it (`E018`), so no list has a field under it. A line refused for its content there keeps its own code, and one refused for its value alone still holds its level open for what is kept under it. A line that would bind under it is `E001`, kept, since it would put a field under the list. A field line that opens a raw block is dropped with the block.
 
 - The field opening the list has an **empty inline value**; a field may not have both an inline value and a `- ` list.
 

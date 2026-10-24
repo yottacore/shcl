@@ -722,12 +722,16 @@ fn lost_count_follows_the_outcome_table() {
 					);
 				}
 				"E014" if src.trim_start_matches([' ', '\t']).starts_with('\u{feff}') => want += 1,
-				// One that opens a raw block goes with it.
+				// One that opens a raw block goes with it, a bare fence line
+				// included.
 				"E001"
-					if src.split_once(':').is_some_and(|(_, v)| {
-						let v = v.trim_start_matches([' ', '\t']);
-						v.starts_with("```") || v.starts_with("~~~")
-					}) =>
+					if {
+						let fence = |s: &str| {
+							let s = s.trim_start_matches([' ', '\t']);
+							s.starts_with("```") || s.starts_with("~~~")
+						};
+						fence(src) || src.split_once(':').is_some_and(|(_, v)| fence(v))
+					} =>
 				{
 					want += 1
 				}
