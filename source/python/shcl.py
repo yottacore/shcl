@@ -3316,6 +3316,13 @@ def _loose_colon(raw, i):
 	return raw[i] == ":" and (i + 1 == len(raw) or raw[i + 1] in _WHITE_SPACE)
 
 
+def _in_word(raw, i):
+	"""The apostrophe at i of raw has text right before and after it, such as
+	O'Brien: bare text in a value or item, since only a first character opens
+	a quote."""
+	return 0 < i < len(raw) - 1 and raw[i - 1] not in _WHITE_SPACE and raw[i + 1] not in _WHITE_SPACE
+
+
 def _bare_trouble(raw, kind):
 	"""What a bare piece may not hold (E025): the first such character, named
 	with the fix for the message, or None."""
@@ -3325,6 +3332,8 @@ def _bare_trouble(raw, kind):
 	if kind == _BARE_SELECTOR and raw.startswith("#"):
 		return "a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted"
 	for i, c in enumerate(raw):
+		if c == "'" and not strict and _in_word(raw, i):
+			continue
 		if c == "'" or c == '"' or c == "`":
 			trouble = "a quote"
 		elif c == "[" or c == "]":

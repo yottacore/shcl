@@ -5372,7 +5372,7 @@ int main(int argc, char **argv) {
 	{
 		const char *t = "list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n";
 		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
-		if (!mig_starts(&mm, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n")) fail("migrate_star_items", mm.text);
+		if (!mig_starts(&mm, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n")) fail("migrate_star_items", mm.text);
 		shcl_doc *d = mig_load(&mm, "migrate_star_items");
 		shcl_read_str_arr r = shcl_read_string_array(d, "list", 4);
 		if (r.status != SHCL_GOOD || r.n != 4 || !str_is(r.values[0], "a") || !str_is(r.values[1], "key: value") || !str_is(r.values[2], "c") || !str_is(r.values[3], "O'Brien"))

@@ -5569,7 +5569,7 @@ func TestMigrateWritesALone2xElementPlain(t *testing.T) {
 func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
 	defer testID(t, "ErykhtE")
 	m := Migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true)
-	if !strings.HasPrefix(m.Text, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n") {
+	if !strings.HasPrefix(m.Text, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n") {
 		t.Fatalf("%q", m.Text)
 	}
 	back := Parse(m.Text)

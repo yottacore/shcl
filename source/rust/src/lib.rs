@@ -3738,6 +3738,15 @@ fn loose_colon(raw: &str, i: usize) -> bool {
 	raw[i..].starts_with(':') && raw[i + 1..].chars().next().is_none_or(white_space)
 }
 
+/// An apostrophe at `i` of `raw` with text right before and after it, such
+/// as `O'Brien`: bare text in a value or item, since only a first character
+/// opens a quote.
+fn in_word(raw: &str, i: usize) -> bool {
+	let before = raw[..i].chars().next_back();
+	let after = raw[i + 1..].chars().next();
+	before.is_some_and(|c| !white_space(c)) && after.is_some_and(|c| !white_space(c))
+}
+
 /// What a bare piece may not hold (`E025`): the first such character, named
 /// with the fix for the message.
 fn bare_trouble(raw: &str, kind: Bare) -> Option<String> {
@@ -3753,6 +3762,7 @@ fn bare_trouble(raw: &str, kind: Bare) -> Option<String> {
 	}
 	for (i, c) in raw.char_indices() {
 		let trouble = match c {
+			'\'' if !strict && in_word(raw, i) => continue,
 			'\'' | '"' | '`' => "a quote",
 			'[' | ']' => "a bracket",
 			'(' | ')' if kind == Bare::Selector => "a paren",

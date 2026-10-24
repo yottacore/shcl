@@ -4658,7 +4658,7 @@ def main():
 	# A 2.x `*` item becomes `- `, and an item these rules would read as
 	# something else is quoted, such as one that looks like `- name: value`.
 	mm = shcl.migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", True)
-	if not mm.text.startswith("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n"):
+	if not mm.text.startswith("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n"):
 		raise SystemExit(repr(mm.text))
 	mback = shcl.Document.parse(mm.text)
 	if mback.diagnostics():

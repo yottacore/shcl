@@ -113,6 +113,38 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the 3 callers of `open_lazy` (fence, item and field arms), the emitter's held-open push and its kept-line comment path in all 4; the outcome-table predicate, which only the Rust fuzz has. Before that: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays` and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python and C runners; the CLI `explain` tables (wording still holds); check-migrate.
 	- Needs local test suite run?: a full run that doesn't publish, for check-migrate (its 2.x reads now count an `E001` line unclean), the leak checks, Miri over the changed emitter, and exhaustive cppcheck over the C change.
 
+- An apostrophe inside a bare word is an error
+	- ID: 2026102307035781
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Y, a full run without publish. The corpus changes move the fuzz seeds, which exposed 2 older defects: check-migrate stays red until 2026102322233656, and the 2M fuzz's merge property until 2026102322270349.
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035786
+	- Estimated effort: Avg
+	- Problem description:
+		- `name: O'Brien` and `title: Jim's Server` are `E025`. The stated reason was that a quote left a person guessing whether it opened a string (value-syntax.md near line 356). A quote opens a piece only as its first character now, so there's no guess left.
+	- Requirements:
+		- A `'` with a non-blank character right before it and right after it is text, in a bare field value or a `- ` item. `O'Brien`, `Jim's Server` and `rock'n'roll` read as written.
+		- Everything else stays `E025`: a `"` or a backtick anywhere in a bare piece, a `'` with a blank or the end of the value on either side, and any quote in a `[]` element or a selector body.
+		- A quote as the first character still opens a quoted piece.
+		- The writer still quotes any value holding a quote, so canonical output keeps one reading.
+		- `migrate`'s handling of a bare 2.x value with an apostrophe follows.
+		- All 4 bindings, spec.md, value-syntax.md, the lexical edges table in design.md, and corpus cases.
+	- Progress log:
+		- 20261023: a `'` with a character other than whitespace on both sides is text in a bare value or `- ` item, in all 4 bindings (`in_word`, `inWord`, `_in_word`). Elements and selector bodies still refuse it. "Blank" is read as Unicode `White_Space`, the same set the rest of the bare rules use.
+		- 20261023: `migrate` follows by itself, since it re-spells only what `bare_trouble` refuses: a 2.x `O'Brien` stays bare, and `O' Brien` is still quoted.
+		- 20261023: `explain E025` in all 4 CLIs, spec.md, value-syntax.md, design.md's lexical edges table and example note, grammar.abnf (`bare-joint`), the man page, the v4 draft's example and the changelog say so.
+		- 20261023: corpus 088 and 193 regenerated, and 187 and 188 now use `O"Brien` so their lines stay refused for the value. New case 209.
+		- 20261023, asserts given new values for this change: `migrate_writes_star_items_as_dashes` and its 3 twins expect `- O'Brien` where they had `- "O'Brien"`. 193's `write-bad.ops` refuses `O' Brien` where it had `O'Brien`. check-abnf's `it's` samples now derive, with new negatives beside them.
+		- Swept: `bare_trouble` and its callers (`piece_fault`, `value_edits`) in Rust, Go, Python and C; `needs_quotes` and `emit_element`, which still quote any `'`; every `O'Brien`, `it's` and "a quote in a bare" in the docs, corpus, CLI help and cli-regress. The C++ veneer has no copy of the rule.
+		- Verified: cargo test, go test, the Python and C conformance runners, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-doc-examples, check-abnf, test-ids, shell-regress, markdownlint, cargo fmt, go vet, staticcheck, ruff and mypy. On the old code, corpus 088, 193 and 209, `migrate_writes_star_items_as_dashes` and cli-regress `EtahgWm`, `EtahhXs` and `Ervo6BP` fail. `EtahhXt` and `EtahhXu` pass on both, since they pin what stays `E025`. Also clippy, the C CLI under gcc 15 with `_FORTIFY_SOURCE=3`, and the C++ veneer smoke.
+		- 20261023: the 2M release fuzz passes 30 of 31 properties. `EkyV758` fails at iteration 1139165 on the old code too (2026102322270349). check-migrate has 3 divergences over 642 documents, all from its error count (2026102322233656), and the old CLI does the same on them.
+	- Decisions:
+		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
+	- Test case: corpus `209-apostrophe-in-word` (`EtahhXv`, all 4 runners), cli-regress `EtahgWm`, `EtahhXs`, `EtahhXt` and `EtahhXu`, and the updated 088 and 193.
+
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
@@ -140,6 +172,35 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
 
+- A merge can still build a list with a field under it, at 2M fuzz
+	- ID: 2026102322270349
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261023-222703
+	- Opened by: 2026102307035781's test run
+	- Related IDs: 2026102307143752
+	- Version and build: r1024 at `e3418e0c`, with 2026102307035781's corpus inputs
+	- Steps to reproduce:
+		- `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke merge_never_panics_and_stays_fixpoint`, on the corpus with 2026102307035781's changes to 187, 188, 193 and the new 209, which move the seeds.
+	- Incorrect behavior: `EkyV758` fails with "a merged list with a field under it at iteration 1139165". A is a mutation of the case on a list closing onto an earlier sibling's value, and B one of the selector case.
+	- Reproduced: 20261023, the same iteration and message on `e3418e0c`'s code with the new corpus, so the library change in 2026102307035781 plays no part. Neither document has an apostrophe outside a comment.
+	- Estimated effort: Avg
+
+- check-migrate counts no errors in a file whose Schema line names a missing schema
+	- ID: 2026102322233656
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261023-222336
+	- Opened by: 2026102307035781's test run
+	- Version and build: r1024 at `e3418e0c` plus 2026102307035781's change
+	- Steps to reproduce:
+		- `cicd/utility/check-migrate.bash` once the corpus inputs changed for 2026102307035781, which moved the fuzz seeds.
+	- Incorrect behavior: `Es34DZj` fails on fuzz documents 00202 and 00332, mutated from corpus 175. Each names format 3 and a Schema file that isn't beside it. The harness expects them left alone, while `upgrade --write --from-2x` exits 7 on one and rewrites the other.
+	- Possible cause: `fErrors` counts `check`'s stdout. `check` on such a file exits 8 and prints no diagnostics, so the count is 0 though the load has errors (`E014`, and `E006` plus `E015`). The HEAD CLI does the same on both documents, so the library didn't change.
+	- Estimated effort: Low
+
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
 	- Type: Enhancement
@@ -155,27 +216,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
 	- Estimated effort: High
 	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
-
-- An apostrophe inside a bare word is an error
-	- ID: 2026102307035781
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261023-070357
-	- Opened by: JC
-	- Related IDs: 2026102307035786
-	- Estimated effort: Avg
-	- Problem description:
-		- `name: O'Brien` and `title: Jim's Server` are `E025`. The stated reason was that a quote left a person guessing whether it opened a string (value-syntax.md near line 356). A quote opens a piece only as its first character now, so there's no guess left.
-	- Requirements:
-		- A `'` with a non-blank character right before it and right after it is text, in a bare field value or a `- ` item. `O'Brien`, `Jim's Server` and `rock'n'roll` read as written.
-		- Everything else stays `E025`: a `"` or a backtick anywhere in a bare piece, a `'` with a blank or the end of the value on either side, and any quote in a `[]` element or a selector body.
-		- A quote as the first character still opens a quoted piece.
-		- The writer still quotes any value holding a quote, so canonical output keeps one reading.
-		- `migrate`'s handling of a bare 2.x value with an apostrophe follows.
-		- All 4 bindings, spec.md, value-syntax.md, the lexical edges table in design.md, and corpus cases.
-	- Decisions:
-		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
 
 - r1024's kept banner stamp leaves mypy and check-docs red
 	- ID: 2026102321462051

@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An array is written in brackets, `ports: [80, 443]`, or one `- ` item per line. `[]` is empty. A malformed one is `E019`.
 
-- A bare value may hold spaces, as in `title: My App`, but not a quote, a tab or a bracket (`E025`). A colon or comma needs a character other than whitespace right after it, so `rw,noatime` and `localhost:8080` read bare, `host: a.com port: 80` is `E025` and `ports: 80, 443` is `E026`.
+- A bare value may hold spaces, as in `title: My App`, but not a quote, a tab or a bracket (`E025`). An apostrophe inside a word is text, so `name: O'Brien` reads as written. A colon or comma needs a character other than whitespace right after it, so `rw,noatime` and `localhost:8080` read bare, `host: a.com port: 80` is `E025` and `ports: 80, 443` is `E026`.
 
 - A bare field name starts with a letter. Quote any other name, as in `"404": x`, or it is `E014`.
 

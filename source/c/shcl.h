@@ -2871,6 +2871,19 @@ static int loose_colon(ShclStr raw, size_t i) {
 	return white_space(c);
 }
 
+/* The apostrophe at i of raw has text right before and after it, such as
+   O'Brien: bare text in a value or item, since only a first character opens
+   a quote. */
+static int in_word(ShclStr raw, size_t i) {
+	if (i == 0 || i + 1 >= raw.n) return 0;
+	size_t j = i - 1;
+	while (j > 0 && (raw.p[j] & 0xC0) == 0x80) j--;
+	uint32_t before, after;
+	utf8_decode(raw.p, raw.n, j, &before);
+	utf8_decode(raw.p, raw.n, i + 1, &after);
+	return !white_space(before) && !white_space(after);
+}
+
 /* What a bare piece may not hold (E025): the first such character, named with
    the fix for the message. 0 when there is none. */
 static int bare_trouble(ShclArena *a, ShclStr raw, ShclBare kind, ShclStr *why) {
@@ -2886,6 +2899,7 @@ static int bare_trouble(ShclArena *a, ShclStr raw, ShclBare kind, ShclStr *why) 
 		uint32_t c; size_t l = utf8_decode(raw.p, raw.n, i, &c);
 		const char *trouble = NULL;
 		ShclSB m = {0};
+		if (c == '\'' && !strict && in_word(raw, i)) { i += l; continue; }
 		if (c == '\'' || c == '"' || c == '`') trouble = "a quote";
 		else if (c == '[' || c == ']') trouble = "a bracket";
 		else if ((c == '(' || c == ')') && kind == BARE_SELECTOR) trouble = "a paren";

@@ -131,15 +131,19 @@ btchar          = %x00-09 / %x0B-5F / %x61-10FFFF
                 ; value or an array element only, never a name or a selector.
 
 bareword        = bare-run *( 1*SP bare-run )
-bare-run        = *bare-punct bare-unit *( *bare-punct bare-unit )
+bare-run        = *bare-punct bare-unit *( *bare-joint bare-unit )
 bare-punct      = ":" / ","
+bare-joint      = bare-punct / SQUOTE
+                ; so an apostrophe with text right before and after it is
+                ; text, as in O'Brien. Next to a blank or an end it is E025.
 bare-unit       = bare-text / escape
                 ; what the PARSER takes. Everything after the ":" up to an
                 ; unquoted "#" is the value, trimmed at both edges of a SP,
                 ; HTAB or CR only. Spaces inside are kept as typed, so
                 ; "q: needs no quotes" is fine. Any other whitespace (a tab or
-                ; another White_Space character), a quote, a backtick, a "["
-                ; or a "]" is E025, so "k: it's" is an error. A ":" or ","
+                ; another White_Space character), a quote other than that
+                ; apostrophe, a backtick, a "[" or a "]" is E025, so
+                ; k: say "hi" is an error. A ":" or ","
                 ; needs a character other than whitespace right after it:
                 ; t: 12:30, d: :0 and o: rw,noatime are text. A ":" before a
                 ; blank or the end is E025 (h: a.com port: 80), and a "," there

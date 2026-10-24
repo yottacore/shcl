@@ -1,0 +1,17 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+name	string	O'Brien	Good
+title	string	Jim's Server	Good
+song	string	rock'n'roll	Good
+path	string	C:\Users\O'Brien\x	Good
+list	string[]	it's|Jim's Server	Good
+gap	string	-	NotFound
+end	string	-	NotFound
+dq	string	-	NotFound
+arr	string[]	-	NotFound
+srv("O'Brien").port	int	-	NotFound
+q	string	it	Good
+open	string	-	NotFound
+last	int	1	Good

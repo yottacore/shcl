@@ -4044,6 +4044,15 @@ func looseColon(raw string, i int) bool {
 	return whiteSpace(r)
 }
 
+// inWord says the apostrophe at i of raw has text right before and after it,
+// such as O'Brien: bare text in a value or item, since only a first character
+// opens a quote.
+func inWord(raw string, i int) bool {
+	before, nb := utf8.DecodeLastRuneInString(raw[:i])
+	after, na := utf8.DecodeRuneInString(raw[i+1:])
+	return nb > 0 && na > 0 && !whiteSpace(before) && !whiteSpace(after)
+}
+
 // bareTrouble is what a bare piece may not hold (E025): the first such
 // character, named with the fix for the message.
 func bareTrouble(raw string, kind bareKind) (string, bool) {
@@ -4057,6 +4066,8 @@ func bareTrouble(raw string, kind bareKind) (string, bool) {
 	for i, c := range raw {
 		var trouble string
 		switch {
+		case c == '\'' && !strict && inWord(raw, i):
+			continue
 		case c == '\'' || c == '"' || c == '`':
 			trouble = "a quote"
 		case c == '[' || c == ']':

@@ -421,11 +421,12 @@ E025|error|a tab, a quote, a bracket or a loose colon in bare text
   A bare value or list item may hold spaces, kept as typed. A tab or other
   whitespace, a quote, a bracket, or a colon with a space or the end after
   it is an error: host: a.com port: 80 is two fields on one line. Put each
-  field on its own line, or quote the value: name: "O'Brien". An array
-  element or a selector body takes no whitespace, and a selector body no
-  colon, comma or paren either. Whitespace at either end is trimmed first.
-  The line is kept verbatim and binds nothing. In a value, the lines under
-  it still load, under the field with no value.
+  field on its own line, or quote the value. An apostrophe inside a word,
+  as in O'Brien, is text. An array element or a selector body takes no
+  whitespace or quote, and a selector body no colon, comma or paren either.
+  Whitespace at either end is trimmed first. The line is kept verbatim and
+  binds nothing. In a value, the lines under it still load, under the field
+  with no value.
 E026|error|a bare comma with a space or the end after it
   ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
   or quote text that has a comma. A comma with text right after it is text,

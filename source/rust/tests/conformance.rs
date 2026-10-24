@@ -4826,7 +4826,7 @@ fn migrate_writes_star_items_as_dashes() {
 	let m = migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true);
 	assert!(
 		m.text
-			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n"),
+			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n"),
 		"{:?}",
 		m.text
 	);
