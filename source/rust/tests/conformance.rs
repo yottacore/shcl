@@ -3456,6 +3456,50 @@ fn a_field_under_items_stays_kept() {
 	);
 }
 
+/// An index can select a list, and a dotted line through it does what the
+/// same field on the line under `srv(0):` does: an array line is kept for
+/// the field (E028), and a field after stacked items is kept (E001). So no
+/// load or merge builds a list with a field under it. Same fixture in every
+/// runner.
+#[test]
+fn an_index_onto_a_list_takes_no_field() {
+	let _id = test_id("EtdPVpd");
+	let check = |doc: &Document, want: &str| {
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(doc.paths(), back.paths(), "{text:?}");
+		assert_eq!(doc.lost_count(), 0, "{text:?}");
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+	};
+	let codes = |doc: &Document| -> Vec<(usize, &'static str)> {
+		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect()
+	};
+	let src = "srv: [a]\nsrv(0).tls: on\n";
+	let doc = Document::parse(src);
+	assert_eq!(codes(&doc), [(1, "E028")]);
+	assert_eq!(doc.get_string("srv.tls"), Ok("on".to_string()));
+	assert_eq!(
+		codes(&Document::parse("srv: [a]\nsrv(0):\n\ttls: on\n")),
+		[(1, "E028")]
+	);
+	check(&doc, "srv: [a]\n\ttls: on\n");
+	let src = "srv:\n\t- a\nsrv(0).tls: on\n";
+	let doc = Document::parse(src);
+	assert_eq!(codes(&doc), [(3, "E001")]);
+	assert_eq!(doc.get_string_array("srv"), Ok(vec!["a".to_string()]));
+	assert!(doc.get_string("srv.tls").is_err());
+	check(&doc, "srv:\n\t- a\n# srv(0).tls: on\n");
+	// The 2M merge fuzz's case: the layer brought the list and the field.
+	let mut doc = Document::parse("m: 1\n");
+	doc.merge(&Document::parse("srv: [a]\nsrv(0).tls: on\n"));
+	check(&doc, "m: 1\nsrv: [a]\n\ttls: on\n");
+	let mut doc = Document::parse("m: 1\n");
+	doc.merge(&Document::parse("srv:\n\t- a\nsrv(0).tls: on\n"));
+	check(&doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n");
+}
+
 #[cfg_attr(
 	miri,
 	ignore = "saves to disk, and Miri has no fchown or directory fsync"

@@ -5208,6 +5208,57 @@ int main(int argc, char **argv) {
 		if (ha.status != SHCL_GOOD || ha.n != 1 || !str_is(ha.values[0], "0")) fail("field_under_items", "held open a");
 		shcl_free(hd);
 	}
+	test_id("EtdPWjj", "an_index_onto_a_list_takes_no_field");
+	/* An index can select a list, and a dotted line through it does what the
+	   same field on the line under `srv(0):` does: an array line is kept for
+	   the field (E028), and a field after stacked items is kept (E001). So no
+	   load or merge builds a list with a field under it. Same fixture in
+	   every runner. */
+	{
+		const char *isrc = "srv: [a]\nsrv(0).tls: on\n";
+		shcl_doc *id = shcl_parse(isrc, strlen(isrc));
+		if (shcl_diag_count(id) != 1 || shcl_diag_line(id, 0) != 1 || strcmp(shcl_diag_code(id, 0), "E028") != 0) fail("index_onto_list", "diagnostics");
+		shcl_read_str it = shcl_read_string(id, "srv.tls", 7);
+		if (it.status != SHCL_GOOD || !str_is(it.value, "on")) fail("index_onto_list", "srv.tls");
+		shcl_free(id);
+		const char *nsrc = "srv: [a]\nsrv(0):\n\ttls: on\n";
+		id = shcl_parse(nsrc, strlen(nsrc));
+		if (shcl_diag_count(id) != 1 || shcl_diag_line(id, 0) != 1 || strcmp(shcl_diag_code(id, 0), "E028") != 0) fail("index_onto_list", "nested diagnostics");
+		shcl_free(id);
+		const char *ssrc = "srv:\n\t- a\nsrv(0).tls: on\n";
+		id = shcl_parse(ssrc, strlen(ssrc));
+		if (shcl_diag_count(id) != 1 || shcl_diag_line(id, 0) != 3 || strcmp(shcl_diag_code(id, 0), "E001") != 0) fail("index_onto_list", "stacked diagnostics");
+		shcl_read_str_arr ia = shcl_read_string_array(id, "srv", 3);
+		if (ia.status != SHCL_GOOD || ia.n != 1 || !str_is(ia.values[0], "a")) fail("index_onto_list", "srv");
+		if (shcl_read_string(id, "srv.tls", 7).status == SHCL_GOOD) fail("index_onto_list", "srv.tls binds");
+		shcl_free(id);
+		/* The last two are the 2M merge fuzz's case: the layer brought the
+		   list and the field. */
+		struct { const char *src, *want; int merge; } ic[] = {
+			{"srv: [a]\nsrv(0).tls: on\n", "srv: [a]\n\ttls: on\n", 0},
+			{"srv:\n\t- a\nsrv(0).tls: on\n", "srv:\n\t- a\n# srv(0).tls: on\n", 0},
+			{"srv: [a]\nsrv(0).tls: on\n", "m: 1\nsrv: [a]\n\ttls: on\n", 1},
+			{"srv:\n\t- a\nsrv(0).tls: on\n", "m: 1\nsrv: [a]\n# srv(0).tls: on\n", 1},
+		};
+		for (size_t k = 0; k < sizeof ic / sizeof ic[0]; k++) {
+			shcl_doc *cd;
+			if (ic[k].merge) {
+				cd = shcl_parse("m: 1\n", 5);
+				shcl_doc *lo = shcl_parse(ic[k].src, strlen(ic[k].src));
+				shcl_merge(cd, lo);
+				shcl_free(lo);
+			} else {
+				cd = shcl_parse(ic[k].src, strlen(ic[k].src));
+			}
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, ic[k].want)) { fail("index_onto_list", ic[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("index_onto_list", "reload differs");
+			if (shcl_lost_count(cd) != 0 || shcl_lost_count(cb) != 0) fail("index_onto_list", "lost");
+			shcl_free(cb); shcl_free(cd);
+		}
+	}
 	test_id("Es1gWRx", "a_setter_keeps_fields_and_arrays_apart");
 	/* A field with lines under it takes one plain value or none (E028), so a
 	   setter puts no field under an array and no array over fields. Each used

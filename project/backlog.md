@@ -178,7 +178,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A merge can still build a list with a field under it, at 2M fuzz
 	- ID: 2026102322270349
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+		- Fixed in the load, not the merge. Left is the full run below.
+	- Needs local test suite run?: Y, a full run without publish. The C header changed, so cppcheck and `analyze-c` run there.
 	- Severity: High
 	- Opened: 20261023-222703
 	- Opened by: 2026102307035781's test run
@@ -188,12 +190,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke merge_never_panics_and_stays_fixpoint`, on the corpus with 2026102307035781's changes to 187, 188, 193 and the new 209, which move the seeds.
 	- Incorrect behavior: `EkyV758` fails with "a merged list with a field under it at iteration 1139165". A is a mutation of the case on a list closing onto an earlier sibling's value, and B one of the selector case.
 	- Reproduced: 20261023, the same iteration and message on `e3418e0c`'s code with the new corpus, so the library change in 2026102307035781 plays no part. Neither document has an apostrophe outside a comment.
+	- Actual cause: the load, not the merge. B alone builds the list: `srv: [a]` then `srv(0).tls: on`. An index can select a list, and a dotted line through it put the field under the list. The same field on the line under `srv(0):` was already `E028`, or `E001` after `- ` items. The merge only carried B's list over.
 	- Estimated effort: Avg
 	- Progress log:
 		- 20261023: dev's code at `bc24aafa`, from before option A, fails the same way on the 2 documents: the merge builds a `srv` list with `tls` under it, and 2 lines lost. So the defect was there before the round, and it waits for a later one. There the shape was the known exception (2026100511210900), whose save refuses. r1024's merged output is no fixpoint either, while `bc24aafa`'s is. The property stops at the first assert, so the fuzz never showed that.
+		- 20261024, all 4 bindings: a dotted line whose index reaches stacked items before its last segment is `E001`, kept, as a field line there is. One whose index reaches an array line makes that line `E028`, and the field opens with no value. spec.md's `E001` and `E028` rows, design.md's retained-lines paragraph and the changelog say so.
+			- Departs from the wording: the fix is in the load. No merge builds the shape from 2 documents that don't hold it, since a merge matches by name and value.
+			- Verified: the issue's A and B now merge with no list with a field, and the output is a fixpoint. The 2,000,000 release fuzz passes all 31 properties. Also the 4 conformance suites, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-migrate (642 documents), shell-regress, perf-gate, check-c-compilers, sanitize-c, test-ids, markdownlint, rustfmt, clippy, go vet, staticcheck, ruff and mypy. The new test fails on the old library in each runner.
+			- Swept: `attach_path`'s other selector arms, since a value selector never matches a list; `open_lazy`, whose held paths have no index; the setters, which refuse `srv(0).tls` on a list in all 4 CLIs; and the stacked-list and array-line checks at the level, in Rust, Go, Python and C.
+			- A kept dotted line after items is written as a comment, `# srv(0).tls: on`, since the emitter's model doesn't follow an index. That is the safe side, as with any kept line it reads as binding.
 	- Decisions:
 		- me, 20261024: option A stays, and this is worked first next round. Reverting brings back 3 load outcomes for 2 swapped lines and the 3 exceptions. The missing fixpoint is the same defect showing worse. The merge still builds a list with a field under it, which option A says can't exist, so the fix is in the merge and covers both.
 		- The fix includes a fixpoint check on this case that doesn't sit behind the first assert.
+	- Actual fix: `through_items` beside `under_items`, and an `E028` turn in the index arm of `attach_path`, in all 4.
+	- Branch: `r1024b`
+	- Test case: `an_index_onto_a_list_takes_no_field` (`EtdPVpd` Rust, `EtdPW8G` Go, `EtdPWQz` Python, `EtdPWjj` C). It checks each case's fixpoint and lost count apart from the list check, the merge case included. `EkyV758` at 2,000,000.
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758

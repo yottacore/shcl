@@ -4981,6 +4981,80 @@ impl<'a> Parser<'a> {
 		self.arena.get(node).is_some_and(|nd| nd.star_list)
 	}
 
+	/// True when a dotted path reaches stacked items through an index before
+	/// its last segment, as `srv(0).tls: on` does after `srv:` and `- a`. Its
+	/// field would go under the list, as the line under `srv(0):` would. Only
+	/// an index selects a list, and it never creates, so a step that finds
+	/// nothing ends the walk.
+	fn through_items(&self, parent: usize, segs: &[Segment]) -> bool {
+		let Some((_, steps)) = segs.split_last() else {
+			return false;
+		};
+		if !steps
+			.iter()
+			.any(|s| matches!(s.selector, Some(Selector::ByIndex(_))))
+		{
+			return false;
+		}
+		let mut node = parent;
+		if parent == LAZY {
+			let top = self.stack.len() - 1;
+			let mut from = top;
+			while from > 1 && self.stack[from - 1].1 == LAZY {
+				from -= 1;
+			}
+			node = self.stack[from - 1].1;
+			for l in self.lazies.iter().filter(|l| l.at >= from) {
+				for seg in &l.segs {
+					match self.found_step(node, seg) {
+						Some(c) => node = c,
+						None => return false,
+					}
+				}
+			}
+		}
+		for seg in steps {
+			match self.found_step(node, seg) {
+				Some(c) if self.arena[c].star_list => return true,
+				Some(c) => node = c,
+				None => return false,
+			}
+		}
+		false
+	}
+
+	/// The child one path step selects under `cur` without creating it.
+	fn found_step(&self, cur: usize, seg: &Segment) -> Option<usize> {
+		if cur >= self.arena.len() {
+			return None;
+		}
+		match &seg.selector {
+			None => self.child_map[cur]
+				.as_deref()
+				.and_then(|m| m.get(&merge_hash(&seg.name, &Value::Empty)))
+				.and_then(|slot| {
+					slot.first_match(|c| {
+						merge_eq(
+							&self.arena[c].name,
+							&self.arena[c].value,
+							&seg.name,
+							&Value::Empty,
+						)
+					})
+				}),
+			Some(Selector::ByValue { text, .. }) => self.find_by_value(cur, &seg.name, text),
+			Some(Selector::ByIndex(n)) => index_usize(*n).and_then(|i| {
+				self.arena[cur]
+					.children
+					.iter()
+					.copied()
+					.filter(|&c| self.arena[c].name == seg.name)
+					.nth(i)
+			}),
+			Some(Selector::Wildcard) => None,
+		}
+	}
+
 	/// The node a path's first segment bound, from the one its last did.
 	fn head_of(&self, node: usize, nsegs: usize) -> usize {
 		let mut head = node;
@@ -5183,6 +5257,14 @@ impl<'a> Parser<'a> {
 					});
 					if let Some(found) = found {
 						cur = found;
+						// A field through an index onto an array line goes as
+						// one on the line under `srv(0):` does (E028).
+						if !is_last
+							&& !self.arena[cur].star_list
+							&& matches!(self.arena[cur].value, Value::Array(_))
+						{
+							cur = self.array_under(cur);
+						}
 					} else {
 						self.refuse(
 							line,
@@ -5949,7 +6031,7 @@ impl<'a> Parser<'a> {
 				None => value_side_fault(&tok, rest),
 				named => named,
 			};
-			let listed = self.under_items(parent);
+			let listed = self.under_items(parent) || self.through_items(parent, &scan.segments);
 			if let Some(f) = fault {
 				let msg = match f.at {
 					Some(at) => format!("{}, at column {}", f.msg, indent.len() + lead + at + 1),

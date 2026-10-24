@@ -4560,6 +4560,38 @@ def main():
 	fu_doc.merge(shcl.Document.parse("z: 1\n"))
 	fu_check(fu_doc, "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n")
 
+	test_id("EtdPWQz", "an_index_onto_a_list_takes_no_field")
+	# An index can select a list, and a dotted line through it does what the
+	# same field on the line under `srv(0):` does: an array line is kept for
+	# the field (E028), and a field after stacked items is kept (E001). So no
+	# load or merge builds a list with a field under it. Same fixture in every
+	# runner.
+	ix_doc = shcl.Document.parse("srv: [a]\nsrv(0).tls: on\n")
+	if [(d.line, d.code) for d in ix_doc.diagnostics()] != [(1, "E028")]:
+		raise SystemExit(f"diagnostics {ix_doc.diagnostics()!r}")
+	ix_read = ix_doc.read_string("srv.tls")
+	if ix_read.status is not shcl.Status.Good or ix_read.value != "on":
+		raise SystemExit(f"srv.tls: {ix_read!r}")
+	ix_nested = shcl.Document.parse("srv: [a]\nsrv(0):\n\ttls: on\n")
+	if [(d.line, d.code) for d in ix_nested.diagnostics()] != [(1, "E028")]:
+		raise SystemExit(f"nested diagnostics {ix_nested.diagnostics()!r}")
+	fu_check(ix_doc, "srv: [a]\n\ttls: on\n")
+	ix_doc = shcl.Document.parse("srv:\n\t- a\nsrv(0).tls: on\n")
+	if [(d.line, d.code) for d in ix_doc.diagnostics()] != [(3, "E001")]:
+		raise SystemExit(f"diagnostics {ix_doc.diagnostics()!r}")
+	if ix_doc.get_string_array("srv") != ["a"]:
+		raise SystemExit(f"srv: {ix_doc.get_string_array('srv')!r}")
+	if ix_doc.read_string("srv.tls").status is shcl.Status.Good:
+		raise SystemExit("srv.tls binds")
+	fu_check(ix_doc, "srv:\n\t- a\n# srv(0).tls: on\n")
+	# The 2M merge fuzz's case: the layer brought the list and the field.
+	ix_doc = shcl.Document.parse("m: 1\n")
+	ix_doc.merge(shcl.Document.parse("srv: [a]\nsrv(0).tls: on\n"))
+	fu_check(ix_doc, "m: 1\nsrv: [a]\n\ttls: on\n")
+	ix_doc = shcl.Document.parse("m: 1\n")
+	ix_doc.merge(shcl.Document.parse("srv:\n\t- a\nsrv(0).tls: on\n"))
+	fu_check(ix_doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n")
+
 	test_id("ErylLpf", "a_setter_keeps_fields_and_arrays_apart")
 	# A field with lines under it takes one plain value or none (E028), so a
 	# setter puts no field under an array and no array over fields. Each used
