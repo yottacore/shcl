@@ -150,7 +150,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: the full run stopped at codeql-scan on commented-out Python tests from 2026102307143752, fixed in `7e1be7d0`. Stages after it weren't reached, so the full run is still left.
 		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` passed stages 1-3 and stage 4's tests. Verified: corpus `209` in all 4 runners, cli-regress `EtahgWm`, `EtahhXs`, `EtahhXt`, `EtahhXu` and `Ervo6BP`, check-migrate (642 documents), and `EkyV758` at 200,000. It stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
 	- Decisions:
-		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
+		- Only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
 	- Test case: corpus `209-apostrophe-in-word` (`EtahhXv`, all 4 runners), cli-regress `EtahgWm`, `EtahhXs`, `EtahhXt` and `EtahhXu`, and the updated 088 and 193.
 
 - A stacked list and a field under one parent load 3 different ways
