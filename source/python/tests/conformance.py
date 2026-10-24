@@ -4316,11 +4316,13 @@ def main():
 	# # and a merge can each leave one. Same fixture in every runner.
 	# lsrc = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
 	# ldoc = shcl.Document.parse_keep_lines(lsrc, shcl.Strictness.Standard)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if ldoc.lost_count() != 0:
 	# 	raise SystemExit(f"load lost {ldoc.lost_count()}")
 	# if not ldoc.set_empty("x(v)"):
 	# 	raise SystemExit("set empty refused")
 	# ltext = ldoc.to_canonical()
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if ltext != "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n":
 	# 	raise SystemExit(f"canonical {ltext!r}")
 	# if shcl.Document.parse(ltext).lost_count() != 2:
@@ -4345,6 +4347,7 @@ def main():
 	# # The same through a merge: the list arrives over an empty binding.
 	# lmerged = shcl.Document.parse("x:\n\tf: 1\n")
 	# lmerged.merge(shcl.Document.parse("x:\n\t- a\n\t- b\n\tg: 2\n"))
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if lmerged.lost_count() != 2:
 	# 	raise SystemExit(f"merge lost {lmerged.lost_count()}: {lmerged.to_canonical()!r}")
 	# # An empty binding with no fields takes the list in, so nothing is lost,
@@ -4364,11 +4367,13 @@ def main():
 	# 	("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
 	# ):
 	# 	jdoc = shcl.Document.parse(jsrc)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# 	if jdoc.read_string(jfield).status != shcl.Status.Good:
 	# 		raise SystemExit(f"{jsrc!r}: before: {jdoc.read_string(jfield)!r}")
 	# 	if not jdoc.set_empty(jpath):
 	# 		raise SystemExit(f"{jsrc!r}: set empty refused")
 	# 	jback = shcl.Document.parse(jdoc.to_canonical())
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# 	for jd, jwhich in ((jback, "reload"), (jdoc, "live")):
 	# 		jr = jd.read_string(jfield)
 	# 		if jr.status != shcl.Status.Good or jr.value != jwant:
@@ -4383,6 +4388,7 @@ def main():
 	# # save that keeps lines writes it as it was.
 	# ksrc = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
 	# kdoc = shcl.Document.parse_keep_lines(ksrc, shcl.Strictness.Standard)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if kdoc.lost_count() != 2:
 	# 	raise SystemExit(f"the wildcard line and the item: lost {kdoc.lost_count()}")
 	# if kdoc.to_text_keep_lines() != (ksrc, True):
@@ -4416,6 +4422,7 @@ def main():
 	# 	mdoc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
 	# 	mtext = mdoc.to_canonical()
 	# 	mback = shcl.Document.parse(mtext)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# 	if mback.to_canonical() != mtext:
 	# 		raise SystemExit(f"{mbase!r}: not a fixpoint: {mtext!r}")
 	# 	if mdoc.paths() != mback.paths():
@@ -4436,9 +4443,11 @@ def main():
 	# ydoc = shcl.Document.parse("srv:\n\t[\n")
 	# ydoc.merge(ylayer)
 	# ytext = ydoc.to_canonical()
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if ytext != "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n":
 	# 	raise SystemExit(f"joined list: merged {ytext!r}")
 	# yback = shcl.Document.parse(ytext)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if ydoc.remove("srv.b") != 1 or yback.remove("srv.b") != 1:
 	# 	raise SystemExit("joined list: remove srv.b")
 	# if ydoc.to_canonical() != "srv:\n\t- 1\n\t*\n\t[\n":
@@ -4448,9 +4457,11 @@ def main():
 	# # The write side's join, when a remove empties the binding.
 	# ydoc = shcl.Document.parse("srv:\n\tx: 1\n\t[\n")
 	# ydoc.merge(ylayer)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if ydoc.remove("srv.x") != 1:
 	# 	raise SystemExit("joined list: remove srv.x")
 	# yback = shcl.Document.parse(ydoc.to_canonical())
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# if ydoc.remove("srv.b") != 1 or yback.remove("srv.b") != 1:
 	# 	raise SystemExit("joined list: remove srv.b after the join")
 	# if yback.to_canonical() != ydoc.to_canonical():
@@ -4467,14 +4478,17 @@ def main():
 	# ):
 	# 	rdoc = shcl.Document.parse("p:\n\ts:\n\t\tx: 1\n")
 	# 	rdoc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# 	if rdoc.lost_count() == 0:
 	# 		raise SystemExit(f"{rpath}: the list no text loads back")
 	# 	if rdoc.remove(rpath) != 1:
 	# 		raise SystemExit(f"{rpath}: remove missed")
 	# 	rtext = rdoc.to_canonical()
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# 	if rtext != rwant:
 	# 		raise SystemExit(f"{rpath}: {rtext!r}")
 	# 	rback = shcl.Document.parse(rtext)
+	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# 	if rback.to_canonical() != rtext or rdoc.paths() != rback.paths():
 	# 		raise SystemExit(f"{rpath}: reload differs")
 	# 	if rdoc.lost_count() != 0:
