@@ -80,6 +80,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- JC, 20261023: option A, with the stop rule below.
 	- Recommendation (me, 20261023): option A. It's built in all 4 and short of one fuzz case, it covers the second child's codes with no more code, and it keeps one rule in the one emitter. B adds a pass per code in 4 bindings. C keeps the 3 exceptions and the line-order difference, and leaves the second child unsolved.
 		- Stop rule: if the 2,000,000 fuzz still fails after the planned fix and one more, drop the wip branch and leave dev as it is, rather than switch to B or C.
+		- me, 20261024: the stop rule wasn't hit, so option A stays on dev. It passed on its own seeds within the 2 fixes. The later fail came from seeds another item moved, and fails on `bc24aafa` too. See 2026102322270349.
 	- Priority: Avg
 	- Opened: 20261023-071437
 	- Opened by: JC
@@ -190,6 +191,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Progress log:
 		- 20261023: dev's code at `bc24aafa`, from before option A, fails the same way on the 2 documents: the merge builds a `srv` list with `tls` under it, and 2 lines lost. So the defect was there before the round, and it waits for a later one. There the shape was the known exception (2026100511210900), whose save refuses. r1024's merged output is no fixpoint either, while `bc24aafa`'s is. The property stops at the first assert, so the fuzz never showed that.
+	- Decisions:
+		- me, 20261024: option A stays, and this is worked first next round. Reverting brings back 3 load outcomes for 2 swapped lines and the 3 exceptions. The missing fixpoint is the same defect showing worse. The merge still builds a list with a field under it, which option A says can't exist, so the fix is in the merge and covers both.
+		- The fix includes a fixpoint check on this case that doesn't sit behind the first assert.
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
