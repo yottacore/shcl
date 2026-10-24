@@ -66,6 +66,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Cause of the `EtDCDE7` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
 		- 20261022: back to Waiting on automated testing, since the fix is on dev and nothing is left to code. JC's bare run on dev `8b81b8c3` covers the first part.
 		- 20261022: JC's bare run on dev `8b81b8c3` (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed: the image started for stage 1 and again for 2-6, check-push-gate `EtDCDE4` to `EtDCDE8` passed, and `tree c739cfb75920 recorded`. Verified: `cicd.bash --gate` with neither flag on the same commit started the image once, passed `EtDCDE7` and recorded the same tree. Only the main push is left.
+		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` ran stages 1-6 in the main image. Verified: check-push-gate `EtDCDE4` to `EtDCDE8`, check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB` passed. The round pushes no main, so the main push is still left.
 	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
@@ -85,6 +86,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20261023-071437
 	- Opened by: JC
 	- Parent ID: 2026102307035771
+	- Prereq IDs: 2026102413172941
 	- Related IDs: 2026100511210900
 	- Requirements:
 		- The parent's first requirement: `E001` and `E008` both retained, the line kept as written, binding nothing, counting nothing lost, and what is under it going with it as `E018`.
@@ -110,19 +112,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: the 2,000,000 release fuzz (31 properties), the 4 conformance suites, `cargo test`, cli-regress (625 rows), crosscheck over the corpus plus a 2000-iteration dump (53775 comparisons), check-abnf, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff.
 			- Red, and red on r1024 before this branch's changes: mypy and check-docs `man-page-date-current`, both from `d6820c2e`. Filed as 2026102321462051.
 		- 20261024, test batch: the full run failed codeql-scan `EtAC9fG` on 14 `py/commented-out-code` alerts in the Python conformance tests commented out above. Each now has a `codeql[...]` line with its reason. Verified: codeql-scan passes, all 5 languages.
+		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760`. Verified: check-migrate (642 documents), `analyze-c --ctu`, soak-c, `sanitize-c --glibcxx-debug`, codeql-scan, `sanitize-rust` Miri over every test but the slow ones (`EszIPWk`), and this item's tests in all 4. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. `--miri-all` failed on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
 	- Branch: `wip/r1023-2026102307143752`
 	- Test case: conformance `EtXAjYU` (Rust), `EtXCOeu` (Go), `EtXCOhX` (Python), `EtXCOkG` (C), `a_field_under_items_stays_kept`; fuzz `EtXAOBZ`; corpus `010`, `095`, `128`, `188`, `201`; cli-regress `Ers2pP0`, `Ers2pP1`.
 	- Swept: the 3 callers of `open_lazy` (fence, item and field arms), the emitter's held-open push and its kept-line comment path in all 4; the outcome-table predicate, which only the Rust fuzz has. Before that: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays` and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python and C runners; the CLI `explain` tables (wording still holds); check-migrate.
-	- Needs local test suite run?: a full run that doesn't publish, for check-migrate (its 2.x reads now count an `E001` line unclean), the leak checks, Miri over the changed emitter, and exhaustive cppcheck over the C change.
+	- Needs local test suite run?: a full run that doesn't publish, for `--miri-all`'s slow fuzz tests over the changed emitter and stages 5-9, once 2026102413172941 is fixed.
 
 - An apostrophe inside a bare word is an error
 	- ID: 2026102307035781
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: Y, a full run without publish. The corpus changes move the fuzz seeds, which exposed 2 older defects: check-migrate stays red until 2026102322233656, and the 2M fuzz's merge property until 2026102322270349.
+	- Needs local test suite run?: Y, a full run without publish, for `--miri-all` and stages 5-9, once 2026102413172941 is fixed.
 	- Priority: Avg
 	- Opened: 20261023-070357
 	- Opened by: JC
+	- Prereq IDs: 2026102413172941
 	- Related IDs: 2026102307035786
 	- Estimated effort: Avg
 	- Problem description:
@@ -144,6 +148,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: cargo test, go test, the Python and C conformance runners, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-doc-examples, check-abnf, test-ids, shell-regress, markdownlint, cargo fmt, go vet, staticcheck, ruff and mypy. On the old code, corpus 088, 193 and 209, `migrate_writes_star_items_as_dashes` and cli-regress `EtahgWm`, `EtahhXs` and `Ervo6BP` fail. `EtahhXt` and `EtahhXu` pass on both, since they pin what stays `E025`. Also clippy, the C CLI under gcc 15 with `_FORTIFY_SOURCE=3`, and the C++ veneer smoke.
 		- 20261023: the 2M release fuzz passes 30 of 31 properties. `EkyV758` fails at iteration 1139165 on the old code too (2026102322270349). check-migrate has 3 divergences over 642 documents, all from its error count (2026102322233656), and the old CLI does the same on them.
 		- 20261024: the full run stopped at codeql-scan on commented-out Python tests from 2026102307143752, fixed in `7e1be7d0`. Stages after it weren't reached, so the full run is still left.
+		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` passed stages 1-3 and stage 4's tests. Verified: corpus `209` in all 4 runners, cli-regress `EtahgWm`, `EtahhXs`, `EtahhXt`, `EtahhXu` and `Ervo6BP`, check-migrate (642 documents), and `EkyV758` at 200,000. It stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
 	- Decisions:
 		- JC, 20261023: only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
 	- Test case: corpus `209-apostrophe-in-word` (`EtahhXv`, all 4 runners), cli-regress `EtahgWm`, `EtahhXs`, `EtahhXt` and `EtahhXu`, and the updated 088 and 193.
@@ -180,11 +185,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Waiting on automated testing
 		- Fixed in the load, not the merge. Left is the full run below.
-	- Needs local test suite run?: Y, a full run without publish. The C header changed, so cppcheck and `analyze-c` run there.
-	- Needs external testing: a hosted ci.yml run on `r1024b`, after run 40112190832 failed `EsJLUJy` on 2 spec.md rows.
+	- Needs local test suite run?: Y, a full run without publish, for `--miri-all` and stages 5-9, once 2026102413172941 is fixed.
 	- Severity: High
 	- Opened: 20261023-222703
 	- Opened by: 2026102307035781's test run
+	- Prereq IDs: 2026102413172941
 	- Related IDs: 2026102307143752
 	- Version and build: r1024 at `e3418e0c`, with 2026102307035781's corpus inputs
 	- Steps to reproduce:
@@ -203,12 +208,33 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024 later: hosted run 40112190832 failed `EsJLUJy`. The 2 new spec.md rows quoted `srv(0).tls: on` and `srv: [a]` as whole lines, which check-doc-examples loads alone as examples of the row's code. Each needs the other line above it, so the rows now name the path, `srv(0).tls`, and the line before it in words. What they say is unchanged.
 			- Verified: check-doc-examples on the 4 CLIs (spec.md 34 rows, value-syntax.md 62, man page 7 blocks), check-docs, markdownlint. `check -` gives `E028` on line 1 for `srv: [a]` then `srv(0).tls: on`, and `E001` on line 3 after `srv:` with `- a`, in the C CLI.
 			- Swept: the same spans in design.md and the changelog are prose, which the gate doesn't read.
+		- 20261024, test batch, on `r1024b` at `d064d760`. Verified: hosted ci.yml run 40114707715, every job green. In the no-publish full run, `analyze-c` and `analyze-c --ctu`, sanitize-c, this item's tests in all 4, and `EsJLUJy`. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. The run stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
 	- Decisions:
 		- me, 20261024: option A stays, and this is worked first next round. Reverting brings back 3 load outcomes for 2 swapped lines and the 3 exceptions. The missing fixpoint is the same defect showing worse. The merge still builds a list with a field under it, which option A says can't exist, so the fix is in the merge and covers both.
 		- The fix includes a fixpoint check on this case that doesn't sit behind the first assert.
 	- Actual fix: `through_items` beside `under_items`, and an `E028` turn in the index arm of `attach_path`, in all 4.
 	- Branch: `r1024b`
 	- Test case: `an_index_onto_a_list_takes_no_field` (`EtdPVpd` Rust, `EtdPW8G` Go, `EtdPWQz` Python, `EtdPWjj` C). It checks each case's fixpoint and lost count apart from the list check, the merge case included. `EkyV758` at 2,000,000.
+
+- Two slow fuzz tests fail under Miri's `--miri-all`
+	- ID: 2026102413172941
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261024-131729
+	- Opened by: the r1024b test batch
+	- Version and build: `r1024b` at `d064d760`, and dev's `58f1b93f`
+	- Steps to reproduce:
+		- `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish`, or `cicd/utility/sanitize-rust.bash --miri-all`. Stage 4 aborts on `EszIPWl`.
+	- Incorrect behavior:
+		- `upgrade_leaves_its_own_output_alone` (`EssNzSi`) fails its guard "only 1 files naming this format were made over". At Miri's 100 iterations the guard needs `beta > iters / 100`, so 2. Natively with `SHCL_FUZZ_ITERS=100` it fails the same on `r1024b` and on `58f1b93f`.
+		- `merge_never_panics_and_stays_fixpoint` (`EkyV758`) ran past the 7200 s limit under Miri and was stopped, at host load about 42 beside another project's Miri run. Natively at 20,000 iterations it took 6.5-6.7 s on `r1024b` and 6.7-7.2 s on dev, so the round didn't slow it.
+	- Expected behavior: both pass under `--miri-all`, as on dev `8b81b8c3` on 2026-10-22.
+	- Reproduced: 20261024, the first natively at 100 iterations on both commits. The second only under Miri, on a loaded box.
+	- Possible cause: the corpus edits since 2026-10-22 moved the fuzz seeds, so the 100-iteration soup makes fewer format-3 files. Unconfirmed. The second may be load alone.
+	- Estimated effort: Low
+	- Note: it blocks the rest of the full run for 2026102307143752, 2026102307035781 and 2026102322270349, since stage 4 aborts before stages 5-9.
+	- Test case: `EssNzSi` and `EkyV758` under `--miri-all` themselves.
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
