@@ -33,79 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- CICD builds and tests in a container if one is available
-	- ID: 2026101920461174
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
-	- Priority: Avg
-	- Opened: 20261019-204611
-	- Opened by: JC
-	- Version and build: dev at `6f48dd7d`
-	- Requirements:
-		- Pre-next-cut.
-		- Make sure a container is used for build and test if available.
-		- Fall back to local if not.
-	- Decisions:
-		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
-		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
-	- Progress log:
-		- 20261019, branch `ctrdef`:
-			- With neither flag, cicd.bash asks docker first. When it answers on x86_64, stages 1-6 go to the main image as under `--container`. Otherwise they run here, after one `note:` line that gives the reason. The run inside the image never asks, so it can't start another.
-			- An installed docker whose daemon doesn't answer counts as none. One helper in ctr-image.bash, `fCtrWhyNot`, decides it for cicd.bash and for the 3 leak checks that fall back to the image (analyze-c, soak-c, codeql-scan).
-			- `--container` fails up front when docker doesn't answer, rather than at the image build. `--container` with `--no-container`, 2 different images, or `--container=` with no name exit 2 before anything runs (me, per design.md's last-wins rule).
-			- ci.yml passes `--no-container`, and check-pins fails a hosted gate run without it. The pre-push hook isn't changed; it follows the default.
-			- The stubbed engines in check-push-gate and shell-regress no longer reach this box's docker.
-			- The help text, contributing.md, the hook's header and the history lines say so.
-			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
-			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
-			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
-		- 20261020: `cicd.bash --gate` with neither flag, in `gatewt-r1020` at `db311c7a`, started the main image once and ended with `tree c3687f1204d6 recorded`. Left: the bare run, which is JC's from 17:04, and a pre-push gate on a main push.
-		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `EtDCDE7` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
-			- `--gate` with neither flag started the image once, then stopped on check-docs `EqL3TGq` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
-			- Cause of the `EtDCDE7` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
-		- 20261022: back to Waiting on automated testing, since the fix is on dev and nothing is left to code. JC's bare run on dev `8b81b8c3` covers the first part.
-		- 20261022: JC's bare run on dev `8b81b8c3` (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed: the image started for stage 1 and again for 2-6, check-push-gate `EtDCDE4` to `EtDCDE8` passed, and `tree c739cfb75920 recorded`. Verified: `cicd.bash --gate` with neither flag on the same commit started the image once, passed `EtDCDE7` and recorded the same tree. Only the main push is left.
-	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
-	- Branch: `ctrdef`
-	- Commit: `bd0415a7`
-	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
-
-- A `#` glued to text changes a value with no word
-	- ID: 2026102307035776
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: cppcheck `--check-level=exhaustive` over main.c and conformance.c, which didn't finish in 4 minutes on the changed header. The round's sanitizers, leak checks and Miri over the tokenizer and parser change in all 4 (`glued_comment` and the item line now tokenized before its position is judged).
-	- Priority: Avg
-	- Opened: 20261023-070357
-	- Opened by: JC
-	- Related IDs: 2026102307035786, 2026102309053667
-	- Estimated effort: High
-	- Actual effort: Avg
-	- Problem description:
-		- `url: http://h/#frag` reads `http://h/`, and `color: #fff` reads empty, at exit 0 with nothing said. The comment rule is settled (`#` anywhere outside quotes opens a comment) and stays.
-	- Requirements:
-		- New hint `H008`, raised when a `#` opens a comment with a non-blank character right before it, in a bare value, an element, a selector body or a fence label.
-		- Like `H005`, it changes no load, no read and no exit code, so Strict and the corpus reads don't change.
-		- The prose names the fix: quote the value.
-		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
-		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
-	- Decisions:
-		- me, 20261023: "Right before it" taken so `color: #fff` hints too. A `#` that opens a comment hints when text sits right before it in a bare piece, or the piece is empty and a character other than a blank or `#` follows. `port: 80   # main`, `a: # note`, `a: ## two`, a whole-line comment, and a `#` after a closing quote or `]` get none. design.md's Lexical edges has the reason and the alternatives.
-		- me, 20261023: a fence label follows the same rule, since the value scan finds its `#`: ```` ```c# ```` hints and ```` ``` # note ```` doesn't. A name is left out, as the item lists only the 4 places.
-		- me, 20261023: the hint also shows on a line with an error, ahead of it, since the scan finds it first (185's found-order rule). A `- ` item is tokenized before its position is judged, so a misplaced item hints as a misplaced field line does.
-	- Progress log:
-		- 20261023: `Tokens` gains `glued` in all 4, set where the scan already stops at a comment, from the characters on either side of the `#`. The parser emits `H008` right after it tokenizes a field line, an item or a child-indent fence line. No second scan.
-		- Corpus 056, 068 and 109 already had a `#` against text, so their expected-diags gain `H008` lines. Their reads and Strict rows don't change.
-		- check-abnf counted any hint as unclean, so 2 of its samples went red. It now counts errors only.
-		- spec.md (Comments, code table), design.md (Lexical edges, Load outcomes), value-syntax.md, the corpus README, the changelog and `explain H008` in all 4 CLIs. The fuzz grammar generator expects `glued`, and checks both shapes come up.
-		- Verified: the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-docs, check-abnf, check-doc-examples, test-ids check, shell-regress, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy. The release fuzz at 2,000,000 passed every property but `upgrade_leaves_its_own_output_alone`, which fails at iteration 628247 on the old code too once the 2 new cases are in the seed set (2026102309053667).
-		- Seen to fail on the old code: the diags of 207, 208 and the 3 updated cases, and `explain H008`.
-		- 20261023, test batch: fuzz `EqGWdij` (`raw_bodies_stay_content`) failed at 100 iterations, as `--miri-all` runs it. It skipped the read-back for any opener with a diagnostic, so the `c#` openers it draws stopped counting once they hint. It now skips only an opener with an error, and the 2 line-to-code maps that find kept misplaced lines take errors only. A body line still may not draw any diagnostic. Verified: `EqGWdij` failed at 100 before and passes at 100 and the default, all of fuzz_smoke passes at both, plus clippy, the C mem, oom and veneer tests and the Python soak.
-		- Swept: every stop at a `#` in `scan_value`, `scan_array` (an element and the text after `]`) and the selector body in `tokenize`, plus the parser's tokenize calls in its line loop, in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h. The explain tables in all 4 CLIs.
-	- Branch: `r1023`
-	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `EtXOTsa`, `EtXOTxq` and `EtXOTvD`, and fuzz `EpFkZy4`.
-
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
@@ -163,6 +90,44 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays` and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python and C runners; the CLI `explain` tables (wording still holds); check-migrate.
 	- Needs local test suite run?: once the fuzz passes, a full run that doesn't publish, for check-migrate (its 2.x reads now count an `E001` line unclean), the leak checks and Miri over the changed emitter.
 
+- CICD builds and tests in a container if one is available
+	- ID: 2026101920461174
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
+	- Priority: Avg
+	- Opened: 20261019-204611
+	- Opened by: JC
+	- Version and build: dev at `6f48dd7d`
+	- Requirements:
+		- Pre-next-cut.
+		- Make sure a container is used for build and test if available.
+		- Fall back to local if not.
+	- Decisions:
+		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
+		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
+	- Progress log:
+		- 20261019, branch `ctrdef`:
+			- With neither flag, cicd.bash asks docker first. When it answers on x86_64, stages 1-6 go to the main image as under `--container`. Otherwise they run here, after one `note:` line that gives the reason. The run inside the image never asks, so it can't start another.
+			- An installed docker whose daemon doesn't answer counts as none. One helper in ctr-image.bash, `fCtrWhyNot`, decides it for cicd.bash and for the 3 leak checks that fall back to the image (analyze-c, soak-c, codeql-scan).
+			- `--container` fails up front when docker doesn't answer, rather than at the image build. `--container` with `--no-container`, 2 different images, or `--container=` with no name exit 2 before anything runs (me, per design.md's last-wins rule).
+			- ci.yml passes `--no-container`, and check-pins fails a hosted gate run without it. The pre-push hook isn't changed; it follows the default.
+			- The stubbed engines in check-push-gate and shell-regress no longer reach this box's docker.
+			- The help text, contributing.md, the hook's header and the history lines say so.
+			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
+			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
+			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
+		- 20261020: `cicd.bash --gate` with neither flag, in `gatewt-r1020` at `db311c7a`, started the main image once and ended with `tree c3687f1204d6 recorded`. Left: the bare run, which is JC's from 17:04, and a pre-push gate on a main push.
+		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `EtDCDE7` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
+			- `--gate` with neither flag started the image once, then stopped on check-docs `EqL3TGq` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
+			- Cause of the `EtDCDE7` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
+		- 20261022: back to Waiting on automated testing, since the fix is on dev and nothing is left to code. JC's bare run on dev `8b81b8c3` covers the first part.
+		- 20261022: JC's bare run on dev `8b81b8c3` (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed: the image started for stage 1 and again for 2-6, check-push-gate `EtDCDE4` to `EtDCDE8` passed, and `tree c739cfb75920 recorded`. Verified: `cicd.bash --gate` with neither flag on the same commit started the image once, passed `EtDCDE7` and recorded the same tree. Only the main push is left.
+	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
+	- Branch: `ctrdef`
+	- Commit: `bd0415a7`
+	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
+
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
 	- Type: Enhancement
@@ -214,6 +179,44 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: iteration 628247, `from_v2` true, fails "the fresh text names no current format". The input has `##    Format   3`, then a second info block with `##    Format   99999999999` and a line `   3` under it. The fresh text writes that line as `"3":` and indents the block's comments under it.
 	- Expected behavior: the fresh file names this format, or the upgrade refuses.
 	- Reproduced: on `c92e1c05`, before the `H008` change, with the 2 new cases copied in, at the same iteration.
+
+- A `#` glued to text changes a value with no word
+	- ID: 2026102307035776
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026102307035786, 2026102309053667
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Problem description:
+		- `url: http://h/#frag` reads `http://h/`, and `color: #fff` reads empty, at exit 0 with nothing said. The comment rule is settled (`#` anywhere outside quotes opens a comment) and stays.
+	- Requirements:
+		- New hint `H008`, raised when a `#` opens a comment with a non-blank character right before it, in a bare value, an element, a selector body or a fence label.
+		- Like `H005`, it changes no load, no read and no exit code, so Strict and the corpus reads don't change.
+		- The prose names the fix: quote the value.
+		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
+		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
+	- Decisions:
+		- me, 20261023: "Right before it" taken so `color: #fff` hints too. A `#` that opens a comment hints when text sits right before it in a bare piece, or the piece is empty and a character other than a blank or `#` follows. `port: 80   # main`, `a: # note`, `a: ## two`, a whole-line comment, and a `#` after a closing quote or `]` get none. design.md's Lexical edges has the reason and the alternatives.
+		- me, 20261023: a fence label follows the same rule, since the value scan finds its `#`: ```` ```c# ```` hints and ```` ``` # note ```` doesn't. A name is left out, as the item lists only the 4 places.
+		- me, 20261023: the hint also shows on a line with an error, ahead of it, since the scan finds it first (185's found-order rule). A `- ` item is tokenized before its position is judged, so a misplaced item hints as a misplaced field line does.
+	- Progress log:
+		- 20261023: `Tokens` gains `glued` in all 4, set where the scan already stops at a comment, from the characters on either side of the `#`. The parser emits `H008` right after it tokenizes a field line, an item or a child-indent fence line. No second scan.
+		- Corpus 056, 068 and 109 already had a `#` against text, so their expected-diags gain `H008` lines. Their reads and Strict rows don't change.
+		- check-abnf counted any hint as unclean, so 2 of its samples went red. It now counts errors only.
+		- spec.md (Comments, code table), design.md (Lexical edges, Load outcomes), value-syntax.md, the corpus README, the changelog and `explain H008` in all 4 CLIs. The fuzz grammar generator expects `glued`, and checks both shapes come up.
+		- Verified: the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-docs, check-abnf, check-doc-examples, test-ids check, shell-regress, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy. The release fuzz at 2,000,000 passed every property but `upgrade_leaves_its_own_output_alone`, which fails at iteration 628247 on the old code too once the 2 new cases are in the seed set (2026102309053667).
+		- Seen to fail on the old code: the diags of 207, 208 and the 3 updated cases, and `explain H008`.
+		- 20261023, test batch: fuzz `EqGWdij` (`raw_bodies_stay_content`) failed at 100 iterations, as `--miri-all` runs it. It skipped the read-back for any opener with a diagnostic, so the `c#` openers it draws stopped counting once they hint. It now skips only an opener with an error, and the 2 line-to-code maps that find kept misplaced lines take errors only. A body line still may not draw any diagnostic. Verified: `EqGWdij` failed at 100 before and passes at 100 and the default, all of fuzz_smoke passes at both, plus clippy, the C mem, oom and veneer tests and the Python soak.
+		- 20261023, test batch: run 1 (`-y --no-sync --no-dogfood --no-gif --no-publish`) passed stages 1-3, exhaustive cppcheck included, and stage 4 through analyze-c, soak-c, sanitize-c and codeql-scan, then stopped at the `EqGWdij` failure above. After the fix, `EqGWdij` passed under Miri at 100 iterations, and run 2 (the same with `--no-leakcheck`) passed every stage, sanitize-rust ASan and Miri, check-migrate, the release builds and their cross checks included. The slow share of `--miri-all` (scale tests) wasn't rerun.
+		- Swept: every stop at a `#` in `scan_value`, `scan_array` (an element and the text after `]`) and the selector body in `tokenize`, plus the parser's tokenize calls in its line loop, in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h. The explain tables in all 4 CLIs.
+	- Branch: `r1023`
+	- Commit: `c11e41cd`, `5e032fc2`
+	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `EtXOTsa`, `EtXOTxq` and `EtXOTvD`, and fuzz `EpFkZy4`.
+	- Acceptance signoff: Self-closed on JC's criteria: the hint changes no read or exit code, each case it names is pinned by a test seen to fail before, and the full run passed. The call on "right before it" is noted under Decisions.
+	- Closed: 20261023-183115
 
 - Doc fixes from the 2026-10-22 design review
 	- ID: 2026102307035786
