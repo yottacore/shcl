@@ -26,10 +26,12 @@
 ##	  cicd/cicd.bash [options]
 ##	  Options:
 ##	   With no options a run does every stage and check but the ones taking hours.
+##	   --merge-gate, --ci  every check of a run with no flags, strict and hands-off,
+##	                       with no format rewrite, sync, dogfood, gif or publish.
+##	                       The pre-push hook runs it on a push to main
 ##	   --gate              correctness gate only: format check (no rewrite), build,
-##	                       lint, tests, cross checks; strict, non-interactive, no
-##	                       cross-compiled release artifacts and no publish. This is
-##	                       what the GitHub workflow runs - one definition of "passing".
+##	                       lint, tests, cross checks; strict, no release builds.
+##	                       What the GitHub workflow runs
 ##	   --quick             the fast loop: leaves out the slow steps, and the ones
 ##	                       that need another host, that config.bash lists in
 ##	                       QUICK_SKIP, plus the large-document gate, the slow
@@ -42,10 +44,8 @@
 ##	                       tests stage, the ones that take hours included
 ##	   --no-leakcheck      every leak check out, fast ones and sanitizer runs too.
 ##	                       Not with --leakcheck
-##	   -q, --quiet        unattended (no prompt) and quiet: no preflight block,
-##	                       and cargo, ruff and the gif renderer get their own
-##	                       quiet flags. Stage headers, results and warnings
-##	                       still print; tools with no quiet flag are unchanged
+##	   -q, --quiet         unattended and quiet: no preflight block, and cargo,
+##	                       ruff and the gif renderer get their quiet flags
 ##	   -y, --yes           unattended (no prompt) but not quiet
 ##	   -m, --message MSG   publish hands-off with this commit message (no editor)
 ##	   --no-sync           skip the remote sync stage
@@ -203,7 +203,7 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0
+assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0; no_remote=0
 fCtrPick(){
@@ -213,6 +213,8 @@ fCtrPick(){
 }
 while (($#)); do case "$1" in
 	--gate)                   gate_mode=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
+	--merge-gate)             gate_mode=1; merge_gate=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
+	--ci)                     echo "--ci is another name for --merge-gate"; gate_mode=1; merge_gate=1; assume_yes=1; ctr_pass+=(--merge-gate); shift ;;
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
 	--leakcheck)              leakcheck_flag=1; ctr_pass+=("$1"); shift ;;
 	--no-leakcheck)           no_leakcheck=1; ctr_pass+=("$1"); shift ;;
@@ -247,7 +249,9 @@ if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck
 if ((quick && long_run)); then echo "--quick and --long can't go together (try --help)" >&2; exit 2; fi
 if [[ -n "${ctr_image}" ]] && ((no_container)); then echo "--container and --no-container can't go together (try --help)" >&2; exit 2; fi
 
-## --gate: correctness only, deterministic, side-effect free.
+## --gate: correctness only, deterministic, side-effect free. --merge-gate is
+## the same, with every check of a run with no flags: the release and cross
+## builds, their checks, the packages, the test boxes and the leak checks.
 if ((gate_mode)); then
 	## A gate that quietly skips what it cannot run is a gate that stops
 	## checking when a runner loses a tool. The gates read this and fail on a
@@ -256,9 +260,11 @@ if ((gate_mode)); then
 	export SHCL_GATE_STRICT=1
 	sync_enable=0       ## the runner already checked out the exact commit under test
 	FMT_CMD=()          ## check-only via FMT_CHECK_CMD; never rewrite in CI
-	CROSS_TARGETS=()
-	RELEASE_NATIVE_CMD=()
-	PACKAGE_ENABLE=0
+	if ((! merge_gate)); then
+		CROSS_TARGETS=()
+		RELEASE_NATIVE_CMD=()
+		PACKAGE_ENABLE=0
+	fi
 	PROFILE_ENABLE=0
 	## The other hosted job runs the tests and the calibration. A local
 	## --no-tests run keeps it, since it still draws a graph.
@@ -321,7 +327,7 @@ if ((no_leakcheck || no_tests)); then
 elif ((leakcheck_flag || long_run)); then
 	LEAKCHECK_STEPS=("${LEAKCHECK_FAST[@]}" "${LEAKCHECK_STEPS[@]}" "${LEAKCHECK_LONG[@]}")
 	if ((${#LEAKCHECK_LONG[@]})); then leak_long=1; fi
-elif ((gate_mode)); then
+elif ((gate_mode && ! merge_gate)); then
 	LEAKCHECK_STEPS=()
 elif ((quick)); then
 	LEAKCHECK_STEPS=("${LEAKCHECK_FAST[@]}")
@@ -635,7 +641,7 @@ if [[ -n "${ctr_image}" && "${ctr_image}" != main ]]; then DOGFOOD_FIXED_DESTS=(
 ## Preflight: show the plan, then capture the commit message so the rest runs unattended.
 if ((! quiet)); then
 	fEcho_Clean
-	fEcho_Clean "${APP_NAME} $( ((gate_mode)) && echo 'gate' || echo 'local CI/CD')$( ((quick)) && echo ', quick' )"
+	fEcho_Clean "${APP_NAME} $( ((merge_gate)) && echo 'merge gate' || { ((gate_mode)) && echo 'gate'; } || echo 'local CI/CD')$( ((quick)) && echo ', quick' )"
 	fEcho_Clean
 	fEcho_Clean "Repo root ......: ${root}"
 	fEcho_Clean "Remote sync ....: $( ((sync_enable)) && echo 'fast-forward when behind; abort when diverged' || echo '(skipped)')"
@@ -1320,3 +1326,4 @@ exit 0
 ##		  and the run at nice 19 and idle I/O.
 ##		- 2026-10-25 JC: --long and --slow. The leak checks that take hours are only there and in --leakcheck, --quick keeps
 ##		  the fast ones, and --no-leakcheck drops the sanitizer runs too. Sizes printed are the files' own.
+##		- 2026-10-25 JC: --merge-gate, every check of a run with no flags, for the pre-push hook. --ci is another name for it.

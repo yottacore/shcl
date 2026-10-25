@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-##	- Purpose: Run the correctness gate before a push reaches main, so nothing
-##	  gets there unverified even outside a full cicd run.
+##	- Purpose: Run the merge gate, cicd.bash --merge-gate, before a push
+##	  reaches main, so nothing gets there unverified even outside a full cicd
+##	  run. It runs every check of a run with no flags.
 ##	- Nothing else waits, dev included. Everyday work would otherwise spend ten
 ##	  minutes per push re-running what the branch was already built and tested
 ##	  against, and dev is where work collects rather than where it has to be
@@ -32,8 +33,8 @@
 ##	  names has to find that tag on the remote, or send it in the same push
 ##	  (utility/check-banner-tag.bash). That check runs even when the gate is
 ##	  skipped.
-##	- The large-document stage is left out here (minutes; a full local run and
-##	  the hosted workflow on main run it); this is the fast correctness half.
+##	- An engine from before --merge-gate gets the gate it knew, --gate or
+##	  --ci, without the large-document stage, as it ran then.
 ##	- Escape hatch: `git push --no-verify`, or SHCL_SKIP_HOOK=1.
 ##	- Installed by pointing git at this directory:
 ##		git config core.hooksPath cicd/hooks
@@ -128,7 +129,7 @@ for i in "${!gatedShas[@]}"; do
 		echo "[ pre-push: ${sha:0:12} passed a gate, but its installers differ from dev's, which that run did not judge for main ]"
 	fi
 	echo
-	echo "[ pre-push: running the correctness gate on ${sha:0:12} before ${gatedRefs[i]} ]"
+	echo "[ pre-push: running the merge gate on ${sha:0:12} before ${gatedRefs[i]} ]"
 	echo
 	tmpTree="$(mktemp -d "${TMPDIR:-/tmp}/shcl-prepush.XXXXXX")"
 	if fFrozenAdd "${root}" "${tmpTree}" "${sha}" 2>/dev/null; then
@@ -142,12 +143,15 @@ for i in "${!gatedShas[@]}"; do
 	## The gate is told which ref it stands in for: the installer drift check
 	## has to judge this tree as main, since git moves origin/main only after
 	## the hook returns.
-	## main's engine knows only --ci until the next cut takes --gate there, and
-	## a docs-only merge to main gates main's tree. Drop this then.
-	gateFlag=--gate
-	if ! grep -qF -- '--gate)' "${gateRoot}/cicd/cicd.bash" 2>/dev/null; then gateFlag=--ci; fi
+	## main's engine knows only --ci until the next cut, and a docs-only merge
+	## to main gates main's tree. Drop the fallbacks then.
+	gateArgs=(--merge-gate)
+	if ! grep -qF -- '--merge-gate)' "${gateRoot}/cicd/cicd.bash" 2>/dev/null; then
+		gateArgs=(--gate --no-largedoc)
+		if ! grep -qF -- '--gate)' "${gateRoot}/cicd/cicd.bash" 2>/dev/null; then gateArgs=(--ci --no-largedoc); fi
+	fi
 	## Already a frozen tree, so the run doesn't make a copy of the copy.
-	if ! SHCL_FROZEN=1 SHCL_GATE_REF="${gatedRefs[i]}" "${gateRoot}/cicd/cicd.bash" "${gateFlag}" --no-largedoc; then
+	if ! SHCL_FROZEN=1 SHCL_GATE_REF="${gatedRefs[i]}" "${gateRoot}/cicd/cicd.bash" "${gateArgs[@]}"; then
 		echo
 		echo "[ pre-push: the gate failed on ${sha:0:12} - push refused (--no-verify overrides) ]" >&2
 		echo

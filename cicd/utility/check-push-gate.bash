@@ -62,6 +62,7 @@ cp "${root}/.gitignore" "${repo}/.gitignore"
 cat > "${repo}/cicd/cicd.bash" <<'EOF'
 #!/usr/bin/env bash
 ## --gate) is what the hook looks for in an engine that knows the flag.
+## --merge-gate) likewise.
 echo "ran ${SHCL_GATE_REF:-}" >> "${STUB_LOG}"
 echo "$*" > "${STUB_LOG}.args"
 echo "${GIT_DIR:-unset}" > "${STUB_LOG}.gitdir"
@@ -150,7 +151,15 @@ grep -qx 'ran main' "${STUB_LOG}" || fail "the hook did not tell the gate it sta
 fTest EqGl8me the hook calls the full gate
 ## 20260918 item 24: the stub ran whatever it was asked to, so the hook could
 ## have called a quick or partial gate and passed here all the same.
-[[ "$(cat "${STUB_LOG}.args")" == "--gate --no-largedoc" ]] || fail "the hook called the gate as: $(cat "${STUB_LOG}.args")"
+[[ "$(cat "${STUB_LOG}.args")" == "--merge-gate" ]] || fail "the hook called the gate as: $(cat "${STUB_LOG}.args")"
+fTest EtkuOxf an engine from before --merge-gate is called with --gate
+## 2026102515494619: the hook's gate is --merge-gate, every check of a run with
+## no flags. An engine without it gets the gate it knew.
+sed -i '/^## --merge-gate) /d' "${repo}/cicd/cicd.bash"
+git -C "${repo}" commit -q -am gateengine
+fPush main "$(git -C "${repo}" rev-parse HEAD)"
+((hookRc == 0 && ran == 1)) && [[ "$(cat "${STUB_LOG}.args")" == "--gate --no-largedoc" ]] \
+	|| fail "the hook called an engine from before --merge-gate as: $(cat "${STUB_LOG}.args"), exit ${hookRc}"
 fTest Et6Ak52 an engine from before --gate is called with --ci
 ## 2026101816034794: main's tree keeps an engine that knows only --ci until
 ## the next cut, and a docs-only merge to main gates that tree.
@@ -461,6 +470,11 @@ BINDING_CLIS=(); if [[ -n "${STUB_XCHECK:-}" ]]; then BINDING_CLIS=("stub|true")
 LARGEDOC_MIB=0; CROSS_TARGETS=(); PROFILE_ENABLE=0; PACKAGE_ENABLE=0; GIF_ENABLE=0
 DOGFOOD_FIXED_DESTS=(); GIT_PUBLISH=(); RELEASE_NATIVE_CMD=()
 PROFILE_CHECK_BUILD_CMD=(); CTR_PREP=''
+## A release build that leaves a file, with nothing collected or checked.
+if [[ -n "${STUB_RELEASE:-}" ]]; then
+	RELEASE_NATIVE_CMD=(touch "${STUB_RELEASE}"); RELEASE_NATIVE_BIN="${STUB_RELEASE}"
+	RELEASE_CHECKS=(); RELEASE_ARTIFACT_DIR=""; REMOTE_BOXES=(); PACKAGE_ENABLE=0
+fi
 ## The profiler, with a calibration that leaves a file behind when it runs.
 if [[ -n "${STUB_PROFILE:-}" ]]; then
 	PROFILE_ENABLE=1; PROFILE_BUILD_CMD=(true); PROFILE_BIN=cicd/cicd.bash; PROFILE_TIMED=()
@@ -575,7 +589,7 @@ fLeakLen(){  ## fLeakLen ARGS... -> engRc, leakRun as fast slow long test, 1 or 
 }
 for leakCase in '1101|-y --no-sync' '1001|-y --no-sync --quick' '1111|-y --no-sync --long' '1111|-y --no-sync --slow' \
 	'1111|-y --no-sync --leakcheck' '1111|-y --no-sync --quick --leakcheck' '0000|-y --no-sync --no-leakcheck' \
-	'0000|-y --no-sync --long --no-tests' '0001|--gate' '1111|--gate --long'; do
+	'0000|-y --no-sync --long --no-tests' '0001|--gate' '1111|--gate --long' '1101|--merge-gate' '1101|--ci'; do
 	read -r -a leakArgs <<< "${leakCase#*|}"
 	fLeakLen "${leakArgs[@]}"
 	if ((engRc != 0)) || [[ "${leakRun}" != "${leakCase%%|*}" ]]; then
@@ -586,10 +600,24 @@ fLeakLen -y --no-sync --quick --long
 if ((engRc != 2)) || [[ "${leakRun}" != 0000 ]] || ! grep -qF "can't go together" "${work}/eng.log"; then
 	fail "cicd.bash took --quick --long: exit ${engRc}, ran ${leakRun}: $(tail -2 "${work}/eng.log")"
 fi
-fTest Et6Aum5 --ci is an unknown option
-## 2026101816034794: renamed --gate, with no alias.
+fTest Et6Aum5 --ci is another name for --merge-gate
+## 2026101816034794 made --ci unknown; 2026102515494619 brings it back as
+## another name for --merge-gate, which says so in one line.
 fEngine -- --ci
-if ((engRc != 2)) || ! grep -qF 'unknown option: --ci' "${work}/eng.log"; then fail "cicd.bash took --ci: exit ${engRc}: $(tail -2 "${work}/eng.log")"; fi
+if ((engRc != 0)) || ! grep -qxF -- '--ci is another name for --merge-gate' "${work}/eng.log"; then fail "cicd.bash --ci: exit ${engRc}: $(tail -2 "${work}/eng.log")"; fi
+fTest EtkuOxg --merge-gate runs every check of a run with no flags
+## 2026102515494619: the release builds and the default run's leak checks,
+## which --gate leaves out, and the tree is recorded. No dogfood or publish.
+rm -f "${work}/eng.release"
+fEngine STUB_RELEASE="${work}/eng.release" -- --merge-gate
+((engRc == 0 && engRecorded == 1)) && [[ -e "${work}/eng.release" ]] \
+	|| fail "a --merge-gate run: exit ${engRc}, recorded ${engRecorded}, release built $([[ -e "${work}/eng.release" ]] && echo 1 || echo 0): $(tail -3 "${work}/eng.log")"
+if ! grep -qF 'dogfood skipped' "${work}/eng.log" || ! grep -qF 'publish skipped' "${work}/eng.log"; then
+	fail "a --merge-gate run dogfooded or published: $(grep -iE 'dogfood|publish' "${work}/eng.log" || true)"
+fi
+rm -f "${work}/eng.release"
+fEngine STUB_RELEASE="${work}/eng.release" -- --gate
+[[ ! -e "${work}/eng.release" ]] || fail "a --gate run built the release"
 fTest EqL1d4D cicd.bash clears GIT_DIR before its gates
 ## 20260918b item 2: a direct run with GIT_DIR exported clears it too.
 fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --gate
@@ -1057,3 +1085,4 @@ exit "${rc}"
 ##		- 2026-10-24 JC: The run labels and container names, a failed or stopped run's containers, the tag
 ##		  before the current one, the build cache prune and the docker sizes on the cleanup line.
 ##		- 2026-10-25 JC: The leak checks by length, and --long.
+##		- 2026-10-25 JC: --merge-gate and --ci, and the hook's call of each engine's gate.

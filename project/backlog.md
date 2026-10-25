@@ -381,7 +381,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: merge gate
 	- ID: 2026102515494619
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -390,7 +390,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--ci` is another name for it, and says so in one line.
 		- It doesn't dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt.
-		- The hosted workflow runs it as far as the runner can.
+		- The hosted workflow runs it as far as the runner can. Moved to 2026102515494624, since the workflow's `--gate` changes meaning there.
+	- Needs local test suite run?: one `cicd.bash --merge-gate` from the checkout, in the image, to see every stage pass and the tree recorded.
+	- Decisions:
+		- me: `--merge-gate` is `--gate` plus the release and cross builds, their checks, the packages, the test boxes and the default run's leak checks. The profiler runs only its calibration, as under `--gate`, since the graph is an artifact rather than a check.
+		- me: the hook drops `--no-largedoc`, since the merge gate runs every check of the default run. An engine from before `--merge-gate` still gets `--gate --no-largedoc`, or `--ci --no-largedoc` before that.
+		- me: `--ci` prints `--ci is another name for --merge-gate` and passes `--merge-gate` to the run in the image, so the line shows once.
+	- Progress log:
+		- 20261025: done in cicd.bash and the pre-push hook. Help, the hook's header, contributing.md and design.md say so.
+		- 20261025: 2 check-push-gate asserts changed with the hook's gate. `EqGl8me`: the hook's call was `--gate --no-largedoc`, and is `--merge-gate`. `Et6Aum5`: `--ci` exited 2 as an unknown option, and now exits 0 with its one line. `Et6Ak52` takes both markers out of its stub engine, so it still checks an engine from before `--gate`.
+		- Verified: check-push-gate `EtkuOxg` (release built, leak checks run, tree recorded, no dogfood or publish), `EqGl8me` and `Et6Aum5` failed on the old engine and hook and pass now. `EtkuOxf` covers the fallback to `--gate`. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
+		- Swept: every caller of the hook's gate flag (check-push-gate's hook stub) and every `--gate` and `--ci` under `cicd/`, `.github/`, the docs and install-dev.bash. ci.yml, install-dev.bash, install.md and contributing.md's other `--gate` lines stay, as `--gate` is unchanged until 2026102515494624.
+	- Test case: check-push-gate `EtkuOxg`, `EtkuOxf`, `EqGl8me` and `Et6Aum5`.
 
 - CICD reset: backlog runs
 	- ID: 2026102515494624
@@ -406,6 +417,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--gate` is another name for `--backlog-run-quick`, and says so in one line.
 		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
 		- The round settings' gate and full-run lines move to them.
+		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
+		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
+		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
 
 - CICD reset: docs-only pushes to main
 	- ID: 2026102515494629
