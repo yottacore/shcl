@@ -110,11 +110,12 @@ fCtrRunSelf(){
 	rm -f -- "${cidfile}"
 	if declare -p stop_cidfiles &>/dev/null; then stop_cidfiles=("${cidfile}"); fi
 	d="${1##*/}"
-	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${d%.bash}")" --network none --user "$(id -u):$(id -g)" \
+	## nice here doesn't reach the container: a CPU quota, a low share, and nice inside.
+	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${d%.bash}")" --cpus "${CPU_CAP:-1}" --cpu-shares 256 --network none --user "$(id -u):$(id -g)" \
 		-v "${root}:${root}:ro" -v "${work}/in:${work}/in" "${rwMount[@]}" -w "${root}" \
 		-e SHCL_IN_IMAGE=1 -e "CPU_CAP=${CPU_CAP:-}" -e "TMPDIR=${work}/in" -e "HOME=${work}/in" \
 		-e "SHCL_GATE_STRICT=${SHCL_GATE_STRICT:-}" -e "SHCL_CTR_CARGO=${SHCL_CTR_CARGO:-}" \
-		"${tag}" bash "$@" || rc=$?
+		"${tag}" nice -n 19 bash "$@" || rc=$?
 	if declare -p stop_cidfiles &>/dev/null; then stop_cidfiles=(); fi
 	rm -f -- "${cidfile}"
 	return "${rc}"
@@ -229,7 +230,7 @@ fCtrZigTrim(){
 	[[ "${cap}" =~ ^[0-9]{1,15}$ ]] || cap=2097152
 	"${engine}" volume inspect "${vol}" >/dev/null 2>&1 || return 0
 	# shellcheck disable=SC2016  ## for the shell in the image
-	out="$("${engine}" run --rm "${labels[@]}" --name "$(fCtrName zig-trim)" --network none --user "$(id -u):$(id -g)" -v "${vol}:/zig-cache" "${tag}" \
+	out="$("${engine}" run --rm "${labels[@]}" --name "$(fCtrName zig-trim)" --cpus 1 --cpu-shares 256 --network none --user "$(id -u):$(id -g)" -v "${vol}:/zig-cache" "${tag}" \
 		sh -c 'v="$(zig version)" || exit 1; f=/zig-cache/zig-version.stamp; s="$(cat "${f}" 2>/dev/null)"
 			if [ -z "${s}" ]; then s="${v}"; printf "%s\n" "${v}" > "${f}"; fi
 			printf "%s\t%s\t%s\n" "$(du -sk /zig-cache | cut -f1)" "${s}" "${v}"' 2>/dev/null)" || return 0

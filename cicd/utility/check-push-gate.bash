@@ -666,7 +666,7 @@ if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 			--rm|--init)           shift ;;
 			-e)                    envs+=("$2"); shift 2 ;;
 			-w)                    dir="$2"; shift 2 ;;
-			-v|--user|--group-add|--label|--name|--network|--device|--cidfile) shift 2 ;;
+			-v|--user|--group-add|--label|--name|--network|--device|--cidfile|--cpus|--cpu-shares) shift 2 ;;
 			*)                     break ;;
 		esac
 	done
@@ -940,6 +940,16 @@ if ((engRc != 0 || lblBuilds < 1 || lblVols < 1)) || [[ ! "${lblRun}" =~ ^shcl-r
 	fail "the labels on what a run makes: exit ${engRc}, run '${lblRun}', ${lblBuilds} build(s), ${lblVols} volume(s), without both labels: ${lblBad:-none}: $(tail -2 "${work}/eng.log")"
 fi
 [[ "$(printf '%s\n' "${lblNames[@]}" | paste -sd' ')" == "${lblWant}" ]] || fail "the containers' names: '${lblNames[*]}', want '${lblWant}'"
+fTest EtgShUg every container a run starts has a CPU quota and a low share
+## 2026102421025783: nice on the docker client doesn't reach the container.
+cpuRuns="$(grep -c '^run ' "${work}/args.txt" || true)"
+cpuBad="$(grep '^run ' "${work}/args.txt" | grep -vE -- ' --cpus [1-9][0-9]* --cpu-shares 256 ' || true)"
+if ((cpuRuns < 7)) || [[ -n "${cpuBad}" ]]; then
+	fail "the CPU limits on a run's containers: ${cpuRuns} run(s), without --cpus and --cpu-shares 256: ${cpuBad:-none}"
+fi
+## The scripts a gate runs in the image, which this stub doesn't start.
+# shellcheck disable=SC2016  ## ctr-image.bash's own text, matched literally
+grep -qF '"${tag}" nice -n 19 bash "$@"' "${root}/cicd/utility/include/ctr-image.bash" || fail "fCtrRunSelf no longer runs its script under nice in the image"
 fTest EtgFdh7 a run that fails stops and removes its containers by its run label
 ## 2026102416250030: on any exit, not only a whole run, and only this run's.
 rm -f "${work}/gone.txt"

@@ -529,8 +529,8 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## need the second group a runner's user has. So the image's passwd and
 	## group files plus the caller's entries, and the caller's groups.
 	local etc gid gname; etc="$(mktemp -d)"
-	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
-	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" --cpus 1 --cpu-shares 256 "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" --cpus 1 --cpu-shares 256 "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
 	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
 	for gid in $(id -G); do
 		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
@@ -559,7 +559,9 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## So a stop can take the container down if its docker client won't go.
 	local cidfile="${run_tmp}/ctr.cid"
 	stop_cidfiles=("${cidfile}")
-	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
+	## nice on this side doesn't reach the container, so a CPU quota and a low
+	## share; the engine inside renices itself.
+	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --cpus "${CPU_CAP}" --cpu-shares 256 --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
 		"${tag}" bash "${tree}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
 	stop_cidfiles=()

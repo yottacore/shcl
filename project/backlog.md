@@ -439,6 +439,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The same rules on other hosts, with that host's CPU count and load.
 	- Progress log:
 		- 20261024: split in 3. This box's cap and priority is 2026102421025778, the containers 2026102421025783, the test boxes 2026102421025788. This item closes with the last of them.
+		- 20261024: 2026102421025778 and 2026102421025783 are in on `r1024c`, waiting on the full run. 2026102421025788 is next.
 
 - CICD reset: CPU and priority on this box
 	- ID: 2026102421025778
@@ -474,7 +475,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: CPU and priority in containers
 	- ID: 2026102421025783
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: High
 	- Opened: 20261024-210257
 	- Opened by: 2026102416250040
@@ -484,6 +485,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--cpus <jobs>` and `--cpu-shares 256` on each `docker run`, the ones analyze-c, soak-c and codeql-scan start included.
 		- `nice` inside the image too, since `nice` on the docker client doesn't reach the container.
 		- check-push-gate's fake docker learns the new options.
+	- Progress log:
+		- 20261024: every `docker run` cicd.bash and ctr-image.bash make passes `--cpus` and `--cpu-shares 256`: the stages' run at the run's count, `fCtrRunSelf` at its script's, and the passwd, group and Zig trim reads at 1. analyze-c, soak-c and codeql-scan start theirs through `fCtrRunSelf`.
+		- 20261024: `fCtrRunSelf` runs its script under `nice -n 19` in the image. The stages' run is cicd.bash, which renices itself (2026102421025778).
+	- Swept: the 5 `docker run` sites under `cicd/` and the hook: cicd.bash's passwd, group and stages runs, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. `docker build` and `volume create` start no container. ci.yml runs `--no-container`.
+	- Verified: check-push-gate `EtgShUg` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container: `cpu.max` read `800000 100000` and `cpu.weight` 35.
+	- Needs local test suite run?: Y. The full run line, the first real run in the main image with the limits on. It should pass as before.
+	- Branch: `r1024c`
+	- Test case: check-push-gate `EtgShUg`.
 
 - CICD reset: CPU and priority on the test boxes
 	- ID: 2026102421025788
