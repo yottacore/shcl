@@ -480,18 +480,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
-- check-push-gate's gate worktree half of `EstM5os` never runs
-	- ID: 2026102419595509
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261024-195955
-	- Opened by: 2026102416250020
-	- Related IDs: 2026101514324713
-	- Incorrect behavior: the block that links `source/rust/target` to a stand-in `target-gate` runs only when there's no `source/rust/target` in the stub repository. By then there is one, an empty dir, so the block is skipped with no line saying so. Its 2 checks, the extra image's mounts in a gate worktree and the main image building into `target-gate`, assert nothing.
-	- Expected behavior: the block runs every time, or fails when it can't set up.
-	- Reproduced: 20261024, on `r1024c`. A probe echo in the block's else branch printed the empty dir, made earlier in the same run.
-
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
 	- Type: Enhancement
@@ -580,6 +568,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- check-push-gate's gate worktree half of `EstM5os` never runs
+	- ID: 2026102419595509
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261024-195955
+	- Opened by: 2026102416250020
+	- Related IDs: 2026101514324713
+	- Incorrect behavior: the block that links `source/rust/target` to a stand-in `target-gate` runs only when there's no `source/rust/target` in the stub repository. By then there is one, an empty dir, so the block is skipped with no line saying so. Its 2 checks, the extra image's mounts in a gate worktree and the main image building into `target-gate`, assert nothing.
+	- Expected behavior: the block runs every time, or fails when it can't set up.
+	- Reproduced: 20261024, on `r1024c`. A probe echo in the block's else branch printed the empty dir, made earlier in the same run.
+	- Actual cause: every earlier stubbed run but `EstM5os`'s own is frozen, and the frozen copy makes the checkout's end of each `FROZEN_LINKS` entry with `mkdir -p` (`fFrozenLink`). So `source/rust/target` and `target-migrate` were empty dirs in the stub repository before the first layout too. Its "nothing built here" never had them missing, so the stand-ins for a missing dir weren't checked either.
+	- Actual fix: before the first layout, `EstM5os` removes the empty `CTR_PRIVATE` dirs left by the earlier runs, and fails if one is still there. The gate worktree layout then always runs, and fails by name when `source/rust/target` is in the way, rather than skipping.
+	- Swept: the other file tests in check-push-gate, shell-regress and check-install-dev that open a block. None guards on state an earlier run of the same script leaves. `fFrozenLink`'s other caller, the pre-push hook, links into the gate tree, which check-push-gate checks apart (`EqzwPFC`). Only bash gates are involved, so the bindings have no twin.
+	- Test case: check-push-gate `EstM5os`.
+	- Verified: check-push-gate passes. With an extra image mounting target-gate as well, the main image not mounting it, or no stand-in for a missing private dir, the new `EstM5os` goes red and the old one stays green. A non-empty `source/rust/target` planted before the layouts fails both by name. Also shellcheck, shell-regress and `test-ids.py check`.
+	- Branch: `r1024c`
+	- Acceptance signoff: Self-closed: the test went red on 3 faults the old one passed, and passes on the round branch.
+	- Closed: 20261024-202500
 
 - check-migrate counts no errors in a file whose Schema line names a missing schema
 	- ID: 2026102322233656

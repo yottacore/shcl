@@ -759,10 +759,18 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 		done
 		return 0
 	}
-	fCtrMounts "nothing built here"
-	## A gate worktree's target dir is a link to the checkout's target-gate. A
-	## target the run above left behind has already failed.
-	if [[ ! -e "${eng}/source/rust/target" ]]; then
+	## The frozen runs above left the checkout's end of each FROZEN_LINKS entry as
+	## an empty dir, so they go first, or nothing built here isn't that layout.
+	ctrSetUp=1
+	for p in "${ctrPrivate[@]}"; do
+		if [[ "${p}" == */ && -d "${eng}/${p%/}" && ! -L "${eng}/${p%/}" ]]; then rmdir -- "${eng}/${p%/}" 2>/dev/null || true; fi
+		if [[ -e "${eng}/${p%/}" || -L "${eng}/${p%/}" ]]; then fail "can't set up nothing built here: ${p} is in the stub repository"; ctrSetUp=0; fi
+	done
+	if ((ctrSetUp)); then fCtrMounts "nothing built here"; fi
+	## A gate worktree's target dir is a link to the checkout's target-gate.
+	if [[ -e "${eng}/source/rust/target" || -L "${eng}/source/rust/target" ]]; then
+		fail "can't set up a gate worktree: source/rust/target is in the stub repository"
+	else
 		mkdir -p "${work}/target-gate"; ln -s "${work}/target-gate" "${eng}/source/rust/target"
 		fCtrMounts "a gate worktree"
 		## The main image still builds into it, as the pre-push hook's run does.
@@ -961,3 +969,4 @@ exit "${rc}"
 ##		- 2026-10-19 JC: A run goes to the main image when docker answers, and --no-container.
 ##		- 2026-10-19 JC: A run's own temp dir, and the cleanup of stale images, containers and sample files.
 ##		- 2026-10-24 JC: Zig's cache volume in the main image, and when a run empties it.
+##		- 2026-10-24 JC: The gate worktree half of the extra image check runs every time.
