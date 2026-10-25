@@ -506,6 +506,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- check-boxes' box half works out its cap from that box's CPU count and load, by the same rule as this box.
 		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
+	- Progress log:
+		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
 
 - CICD reset: standard flags
 	- ID: 2026102416250050
