@@ -35,7 +35,8 @@
 ##		building it first if it isn't here. The hosted gate installs them.
 ##	Syntax:
 ##		analyze-c.bash [--ctu]
-##		CPU_CAP in the environment caps the jobs (default half the cores).
+##		CPU_CAP in the environment caps the jobs (default half the cores, a
+##		quarter with --ctu or on a busy box).
 ##	Exit: 0 = clean, 1 = a finding, or a tool that missed its bait,
 ##	      2 = could not run.
 ##	History: At bottom of script.
@@ -66,9 +67,11 @@ for arg in "$@"; do
 done
 
 cap="${CPU_CAP:-}"
-[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || cap=$(( $(nproc 2>/dev/null || echo 2) / 2 ))
+## --ctu is a leak check, so a quarter.
+# shellcheck source-path=SCRIPTDIR
+[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || { source "$(dirname -- "${BASH_SOURCE[0]}")/include/cpu-cap.bash"; if ((ctu)); then fCpuCap hard; else fCpuCap; fi; cap="${CPU_CAP}"; }
 ((cap > 0)) || cap=1
-## config.bash expands the cap while it loads.
+## For the strings config.bash eval's later, and the run in the image.
 CPU_CAP="${cap}"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../config.bash

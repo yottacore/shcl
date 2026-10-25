@@ -2240,7 +2240,7 @@ fTest EqQUj04 20260920-2-gate-runs-the-cross-checks
 stubDir="${tmpDir}/cicd-stub"
 mkdir -p "${stubDir}/cicd/utility/include"
 cp "${repoDir}/cicd/cicd.bash" "${stubDir}/cicd/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${stubDir}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${stubDir}/cicd/utility/include/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${stubDir}/cicd/utility/"
 cat > "${stubDir}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
@@ -2335,7 +2335,7 @@ else
 fi
 buildLine="$( { grep -n '^[[:space:]]*export SHCL_BUILD$' "${repoDir}/cicd/cicd.bash" || true; } | head -n1 | cut -d: -f1)"
 # shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
-releaseLine="$( { grep -n '^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$' "${repoDir}/cicd/cicd.bash" || true; } | head -n1 | cut -d: -f1)"
+releaseLine="$( { grep -nE '^[[:space:]]*(fStep )?"\$\{RELEASE_NATIVE_CMD\[@\]\}"$' "${repoDir}/cicd/cicd.bash" || true; } | head -n1 | cut -d: -f1)"
 if [[ -z "${buildLine}" || -z "${releaseLine}" ]] || ((buildLine > releaseLine)); then
 	fBad "cicd.bash does not hand SHCL_BUILD to the native release build"
 fi
@@ -3825,7 +3825,7 @@ frz="${tmpDir}/frozen"; frzLive="${frz}/live"; frzOut="${frz}/out"
 mkdir -p "${frzLive}/cicd/utility/include" "${frzLive}/cicd/artifacts" "${frz}/tmp" "${frzOut}"
 cp "${repoDir}/cicd/cicd.bash" "${frzLive}/cicd/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${frzLive}/cicd/utility/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${frzLive}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${frzLive}/cicd/utility/include/"
 cp "${repoDir}/.gitignore" "${frzLive}/"
 cat > "${frzLive}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
@@ -3906,6 +3906,89 @@ cmN="$(newCli="${cli}" fErrors "${cmDir}/cfg.shcl")"
 [[ "${cmN}" == 1 ]] || fBad "check-migrate counted ${cmN} error(s) in a file naming a missing schema, not 1"
 cmOut="$(newCli="${cli}" fCheckNew - < "${cmDir}/cfg.shcl")"
 [[ "${cmOut}" == *"line 2: Error: E014"* ]] || fBad "check-migrate's read of stdin naming a missing schema had no E014: ${cmOut@Q}"
+
+fTest EtgMbxn 2026102421025778-cpu-cap-half-quarter-busy
+##	2026102421025778: half the CPUs, a quarter for a hard step or when the
+##	1-minute load is over half the CPU count, never under 1, and a count the
+##	caller gave holds over all of it. nproc and the load are stand-ins.
+ccDir="${tmpDir}/cpucap"; mkdir -p "${ccDir}/bin"
+# shellcheck disable=SC2016  ## the stub's own variable
+printf '#!/bin/sh\necho "${CC_CPUS}"\n' > "${ccDir}/bin/nproc"; chmod +x "${ccDir}/bin/nproc"
+fCcRun(){  ## fCcRun CPUS LOAD FIXED [hard] -> "CPU_CAP|why|CARGO_BUILD_JOBS|RUST_TEST_THREADS|GOMAXPROCS|RAYON_NUM_THREADS"
+	printf '%s 1.00 1.00 1/100 1\n' "$2" > "${ccDir}/loadavg"
+	# shellcheck disable=SC2016,SC2031  ## the inner shell's own variables; the gate's own PATH, which no subshell above changed for this one
+	CC_CPUS="$1" SHCL_CPU_FIXED="$3" PATH="${ccDir}/bin:${PATH}" cpuLoadFile="${ccDir}/loadavg" "${BASH}" -c 'set -euo pipefail; source "$1"; fCpuCap "${2:-}"
+		printf "%s|%s|%s|%s|%s|%s" "${CPU_CAP}" "${cpuWhy}" "${CARGO_BUILD_JOBS}" "${RUST_TEST_THREADS}" "${GOMAXPROCS}" "${RAYON_NUM_THREADS}"' _ \
+		"${repoDir}/cicd/utility/include/cpu-cap.bash" "${4:-}" 2>&1 || true
+}
+for ccRow in '32|1.53||-|16|' '32|16.00||-|16|' '32|16.01||-|8|busy' '32|40.5||-|8|busy' '32|0.10||hard|8|hard step' \
+	'32|40.5|4|-|4|given' '32|0.10|4|hard|4|given' '1|0.00||-|1|' '1|9.00||-|1|busy' '3|0.00||hard|1|hard step' '2|1.01||-|1|busy'; do
+	IFS='|' read -r ccCpus ccLoad ccFixed ccHard ccCap ccWhy <<< "${ccRow}"
+	[[ "${ccHard}" == - ]] && ccHard=''
+	ccOut="$(fCcRun "${ccCpus}" "${ccLoad}" "${ccFixed}" "${ccHard}")"
+	[[ "${ccOut}" == "${ccCap}|${ccWhy}|${ccCap}|${ccCap}|${ccCap}|${ccCap}" ]] \
+		|| fBad "cpu-cap at ${ccCpus} CPUs, load ${ccLoad}, fixed '${ccFixed}', '${ccHard}' gave ${ccOut@Q}, not ${ccCap} (${ccWhy:-plain}) on every knob"
+done
+
+fTest EtgMc0M 2026102421025778-each-step-checks-the-cap
+##	cicd.bash works the cap out again before each step: a HARD_STEPS match and
+##	every leak check get a quarter, and the jobs line prints only when the cap
+##	changes. A run it starts gets the caller's count, not the step's.
+eval "$(sed -n '/^fCpuStep(){/,/^}/p;/^fRunExtras(){/,/^}/p;/^fStep(){/p' "${repoDir}/cicd/cicd.bash")"
+declare -F fCpuStep fRunExtras fStep > /dev/null || fBad "fCpuStep, fRunExtras or fStep is no longer where this test lifts it from in cicd.bash"
+# shellcheck disable=SC2016,SC2031  ## the inner shell's own variables; the gate's own PATH, which no subshell above changed for this one
+ccOut="$(CC_CPUS=32 PATH="${ccDir}/bin:${PATH}" cpuLoadFile="${ccDir}/loadavg" SHCL_CPU_FIXED='' "${BASH}" -c 'set -euo pipefail
+	source "$1"; eval "$2"
+	fEcho_Clean(){ echo "$*"; }
+	printf "0.50 0 0 1/1 1\n" > "${cpuLoadFile}"
+	HARD_STEPS=(sanitize-c.bash); cpu_said=""
+	fStep true; fRunExtras true "echo cap=\${CPU_CAP}"
+	fRunExtras ": sanitize-c.bash; echo cap=\${CPU_CAP}"
+	fRunExtras --hard "echo cap=\${CPU_CAP}"
+	printf "20.00 0 0 1/1 1\n" > "${cpuLoadFile}"
+	fStep echo cap=busy' _ "${repoDir}/cicd/utility/include/cpu-cap.bash" \
+	"$(declare -f fCpuStep fRunExtras fStep)" 2>&1 || true)"
+# shellcheck disable=SC2016  ## the steps' own text, printed as is
+ccWant='jobs: 16 of 32 CPUs
+extra: true
+extra: echo cap=${CPU_CAP}
+cap=16
+jobs: 8 of 32 CPUs (hard step)
+extra: : sanitize-c.bash; echo cap=${CPU_CAP}
+cap=8
+extra: echo cap=${CPU_CAP}
+cap=8
+jobs: 8 of 32 CPUs (busy, load 20.00)
+cap=busy'
+[[ "${ccOut}" == "${ccWant}" ]] || fBad "cicd.bash's per-step cap went wrong: ${ccOut@Q}"
+# shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
+grep -qF 'fRunExtras --hard "${LEAKCHECK_STEPS[@]}"' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer runs the leak checks as hard steps"
+# shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
+grep -qF -- '-e "SHCL_CPU_FIXED=${SHCL_CPU_FIXED}"' "${repoDir}/cicd/cicd.bash" || fBad "the run in the image no longer gets the caller's CPU count"
+## The run's own priority, which every child takes.
+ccPri="$(grep -E '^renice -n 19 -p |^if command -v ionice ' "${repoDir}/cicd/cicd.bash" || true)"
+# shellcheck disable=SC2016  ## the inner shell's own variables
+ccOut="$("${BASH}" -c 'eval "$1"; printf "%s|" "$(nice)"; if command -v ionice > /dev/null; then ionice -p $$; else echo idle; fi' _ "${ccPri}" 2>&1 || true)"
+[[ "${ccOut}" == "19|idle" ]] || fBad "cicd.bash no longer runs at nice 19 and idle I/O: ${ccOut@Q}"
+
+fTest EtgMc2s 2026102421025778-config-arrays-name-no-count
+##	A plain array in config.bash expands while it loads, so a count in one
+##	would stay at the run's first cap. The engine exports the knobs instead.
+# shellcheck disable=SC2016  ## the inner shell's own variables
+ccOut="$(CPU_CAP=777 "${BASH}" -c 'set +u; source "$1"
+	for a in FMT_CMD FMT_CHECK_CMD BUILD_CMD LINT_CMD TEST_CMD TEST_QUICK_CMD PROFILE_BUILD_CMD PROFILE_CHECK_BUILD_CMD RELEASE_NATIVE_CMD; do
+		declare -n arr="${a}"; if [[ " ${arr[*]-} " == *777* ]]; then echo "${a}"; fi; unset -n arr
+	done; true' _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
+[[ -z "${ccOut}" ]] || fBad "config.bash arrays fixed a CPU count at load: ${ccOut@Q}"
+## HARD_STEPS takes the sanitizer, race and soak runs, and no build or lint step.
+# shellcheck disable=SC2016  ## the inner shell's own variables
+ccOut="$(CPU_CAP=1 "${BASH}" -c 'set +u; source "$1"
+	fHard(){ local p; for p in "${HARD_STEPS[@]}"; do if [[ "$1" == *"${p}"* ]]; then return 0; fi; done; return 1; }
+	for s in "${BUILD_CMD[*]}" "${BUILD_EXTRA[@]}" "${LINT_CMD[*]}" "${LINT_EXTRA[@]}" "${TEST_QUICK_CMD[*]}"; do if fHard "${s}"; then echo "hard: ${s}"; fi; done
+	for s in "${TEST_CMD[*]}" "${TEST_EXTRA[@]}"; do
+		case "${s}" in *sanitize-c.bash*|*sanitize-rust.bash*|*" -race "*|*tests/soak.py*|*SHCL_FUZZ_ITERS=200000*) fHard "${s}" || echo "not hard: ${s}" ;; esac
+	done; true' _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
+[[ -z "${ccOut}" ]] || fBad "config.bash's HARD_STEPS took the wrong steps: ${ccOut@Q}"
 
 fTestEnd
 

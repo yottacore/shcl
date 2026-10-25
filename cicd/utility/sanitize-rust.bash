@@ -26,8 +26,8 @@
 ##		  --only=REGEX  Miri over only the tests whose names match, to rerun
 ##		                one or try the mode out
 ##		  No option means --asan --miri, which is the full run's share.
-##		CPU_CAP in the environment sets the jobs and test threads (default half
-##		the cores).
+##		CPU_CAP in the environment sets the jobs and test threads (default a
+##		quarter of the cores).
 ##	Exit: 0 = clean, 1 = a test failed or a sanitizer or Miri reported, 2 = can't run.
 ##	History: At bottom of script.
 
@@ -60,7 +60,8 @@ done
 if ((! doAsan && ! doMiri)); then doAsan=1; doMiri=1; fi
 
 cap="${CPU_CAP:-}"
-[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || cap=$(( $(nproc 2>/dev/null || echo 2) / 2 ))
+# shellcheck source-path=SCRIPTDIR
+[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || { source "$(dirname -- "${BASH_SOURCE[0]}")/include/cpu-cap.bash"; fCpuCap hard; cap="${CPU_CAP}"; }
 ((cap > 0)) || cap=1
 
 nightly="$(sed -n '/^\[nightly\]/,/^\[/s/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"

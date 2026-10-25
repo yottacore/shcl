@@ -30,7 +30,7 @@
 ##		                collapsed corpus/dump can't pass on zero)
 ##		  NAME|CLI      binding name + its CLI path; first entry is the reference
 ##		CPU_CAP in the environment sets how many workers share the work (default
-##		half the cores).
+##		half the cores, a quarter when busy).
 ##	Exit: 0 all agree, 1 divergence, 2 usage/missing input or too few comparisons.
 ##	History: At bottom of script.
 
@@ -664,9 +664,10 @@ fUsage(){
 ##	The work, as units a worker takes whole: the usage block, each corpus case
 ##	and each fuzz input. Most of the run is CLI start-up, Python's above all, and
 ##	nothing is shared between units but the read-only inputs, so the units go
-##	round-robin to CPU_CAP background workers, half the cores by default. Each
-##	worker has its own scratch directory and leaves its counts in a file there;
-##	one with no counts file did not finish, and fails the run.
+##	round-robin to CPU_CAP background workers, half the cores by default, or a
+##	quarter when busy. Each worker has its own scratch directory and leaves its
+##	counts in a file there; one with no counts file did not finish, and fails
+##	the run.
 units=(usage)
 ## The usage block always compares, so the floor at the end cannot see a
 ## corpus with no case in it.
@@ -747,9 +748,10 @@ fWorker(){
 	echo "${nCompared} ${nBad}" >"${tmpDir}/counts"
 }
 
-## CPU_CAP from cicd.bash, or half the cores when run alone.
+## CPU_CAP from cicd.bash, or the cap of include/cpu-cap.bash when run alone.
 nWorkers="${CPU_CAP:-}"
-if [[ ! "$nWorkers" =~ ^[1-9][0-9]*$ ]]; then nWorkers=$(( $(nproc) / 2 )); fi
+# shellcheck source-path=SCRIPTDIR
+if [[ ! "$nWorkers" =~ ^[1-9][0-9]*$ ]]; then source "$(dirname -- "${BASH_SOURCE[0]}")/include/cpu-cap.bash"; fCpuCap; nWorkers="${CPU_CAP}"; fi
 if ((nWorkers < 1)); then nWorkers=1; fi
 if ((nWorkers > ${#units[@]})); then nWorkers=${#units[@]}; fi
 pids=()

@@ -120,16 +120,21 @@ root="$(cd "${here}/.." && pwd)"   ## the git repo root (cicd/..)
 ## rust-toolchain.toml is meaningless and target/ fills with mixed artifacts.
 export PATH="${HOME}/.cargo/bin:${PATH}"
 
-## Cap every stage at 50% of cores, since a workstation is usually running
-## something else; config command arrays can consume CPU_CAP. A runner that runs
-## only this sets CPU_CAP itself. Anything but a plain count is ignored, since
-## the value goes into arithmetic.
-_cores="$(nproc 2>/dev/null || echo 2)"
-if [[ ! "${CPU_CAP:-}" =~ ^[1-9][0-9]*$ ]]; then
-	CPU_CAP=$(( _cores / 2 ))
-	if (( CPU_CAP < 1 )); then CPU_CAP=1; fi
-fi
-export CPU_CAP
+## Low priority for the whole run, since the box is usually running something
+## else. Set on this shell, so every child takes it, inside the image too.
+renice -n 19 -p $$ > /dev/null 2>&1 || true
+if command -v ionice > /dev/null 2>&1; then ionice -c 3 -p $$ > /dev/null 2>&1 || true; fi
+
+## Half the cores, or a quarter when the box is busy or the step is hard, checked
+## here and before each step (fCpuStep). A runner that runs only this sets
+## CPU_CAP itself, which then holds for every step; anything but a plain count is
+## ignored, since the value goes into arithmetic. A run this one starts gets the
+## caller's count, or none, through SHCL_CPU_FIXED, not the CPU_CAP of the step.
+source "${here}/utility/include/cpu-cap.bash"
+if [[ ! -v SHCL_CPU_FIXED ]]; then SHCL_CPU_FIXED="${CPU_CAP:-}"; fi
+if [[ ! "${SHCL_CPU_FIXED}" =~ ^[1-9][0-9]*$ ]]; then SHCL_CPU_FIXED=""; fi
+export SHCL_CPU_FIXED
+fCpuCap
 
 ## Per-stage extras: eval'd strings run after the stage's primary command, so a
 ## second binding (Go, C, ...) adds its fmt/build/lint/test commands in config
@@ -144,7 +149,35 @@ PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release a
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
 ## cargo reads CARGO_TERM_QUIET from the environment instead. Empty otherwise.
 QUIET_FLAG=""
-fRunExtras(){ local c; for c in "$@"; do fEcho_Clean "extra: ${c}"; eval "${c}"; done; }
+## HARD_STEPS: text that marks a step as hard on the machine, matched like
+## QUICK_SKIP; it gets a quarter of the cores, busy or not. --hard marks them all.
+HARD_STEPS=()
+## fCpuStep STEP [hard]: the cap for the step about to run, with a line when
+## it changes.
+cpu_said=""
+fCpuStep(){
+	local step="$1" hard="${2:-}" pat said
+	if [[ -z "${hard}" ]]; then
+		for pat in "${HARD_STEPS[@]}"; do
+			if [[ "${step}" == *"${pat}"* ]]; then hard=hard; break; fi
+		done
+	fi
+	fCpuCap "${hard}"
+	said="${CPU_CAP}|${cpuWhy}"
+	[[ "${said}" == "${cpu_said}" ]] && return 0
+	cpu_said="${said}"
+	case "${cpuWhy}" in
+		busy) fEcho_Clean "jobs: ${CPU_CAP} of ${cpuCount} CPUs (busy, load $((cpuLoad / 100)).$(printf '%02d' $((cpuLoad % 100))))" ;;
+		'')   fEcho_Clean "jobs: ${CPU_CAP} of ${cpuCount} CPUs" ;;
+		*)    fEcho_Clean "jobs: ${CPU_CAP} of ${cpuCount} CPUs (${cpuWhy})" ;;
+	esac
+}
+fRunExtras(){
+	local c hard=""
+	if [[ "${1:-}" == --hard ]]; then hard=hard; shift; fi
+	for c in "$@"; do fCpuStep "${c}" "${hard}"; fEcho_Clean "extra: ${c}"; eval "${c}"; done
+}
+fStep(){ fCpuStep "$*"; "$@"; }
 
 ## shellcheck source=config.bash
 source "${here}/config.bash"
@@ -513,7 +546,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## The caller's kvm group came along above.
 	if [[ -r /dev/kvm && -w /dev/kvm ]]; then mounts+=(--device /dev/kvm); fi
 
-	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}")
+	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}" -e "SHCL_CPU_FIXED=${SHCL_CPU_FIXED}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
 	if [[ -n "${part}" ]]; then env+=(-e "SHCL_RUN_PART=${part}"); fi
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
@@ -698,12 +731,12 @@ fStageFormat(){
 	fSection "1/9  Format"
 	if ((gate_mode)); then
 		if ((${#FMT_CHECK_CMD[@]})); then
-			"${FMT_CHECK_CMD[@]}"
+			fStep "${FMT_CHECK_CMD[@]}"
 			fRunExtras "${FMT_CHECK_EXTRA[@]}"
 			fEcho "OK: format clean"
 		else fEcho_Clean "no format check configured"; fi
 	elif ((${#FMT_CMD[@]})); then
-		"${FMT_CMD[@]}"
+		fStep "${FMT_CMD[@]}"
 		fRunExtras "${FMT_EXTRA[@]}"
 		fEcho "OK: formatted"
 	elif [[ "${run_part}" == build ]] && ((! fmt_off)); then
@@ -800,7 +833,7 @@ else
 	## Stage 2: debug build (fast compile sanity; the tests run against this).
 	fSection "2/9  Build (debug)"
 	if ((${#BUILD_CMD[@]})); then
-		"${BUILD_CMD[@]}"
+		fStep "${BUILD_CMD[@]}"
 		fRunExtras "${BUILD_EXTRA[@]}"
 		fEcho "OK: build"
 	else
@@ -812,7 +845,7 @@ else
 	## is optional locally (warn if missing) but present on GitHub runners.
 	fSection "3/9  Lint"
 	if ((${#LINT_CMD[@]})); then
-		"${LINT_CMD[@]}"
+		fStep "${LINT_CMD[@]}"
 		fRunExtras "${LINT_EXTRA[@]}"
 		fEcho "OK: lint clean"
 	else
@@ -838,7 +871,7 @@ else
 	## ceilings, at a size no corpus case can reach.
 	fSection "4/9  Tests"
 	if ((${#TEST_CMD[@]})); then
-		"${TEST_CMD[@]}"
+		fStep "${TEST_CMD[@]}"
 		fRunExtras "${TEST_EXTRA[@]}"
 		fEcho "OK: tests passed"
 	else
@@ -851,17 +884,17 @@ else
 		if ((${#BINDING_CLIS[@]} >= 2)) && [[ -n "${XCHECK_GEN:-}" ]]; then
 			export XCHECK_DUMP_DIR="${root}/cicd/artifacts/crosscheck"
 			rm -rf "${XCHECK_DUMP_DIR}"; mkdir -p "${XCHECK_DUMP_DIR}"
-			eval "${XCHECK_GEN}"
+			fCpuStep "${XCHECK_GEN}"; eval "${XCHECK_GEN}"
 			xcheck_extra=(--extra "${XCHECK_DUMP_DIR}")
 		fi
-		"${here}/utility/crosscheck.bash" --corpus "${root}/project/conformance" "${xcheck_extra[@]}" "${BINDING_CLIS[@]}"
+		fStep "${here}/utility/crosscheck.bash" --corpus "${root}/project/conformance" "${xcheck_extra[@]}" "${BINDING_CLIS[@]}"
 		if ((LARGEDOC_MIB)); then
-			"${here}/utility/largedoc.bash" --mib "${LARGEDOC_MIB}" "${BINDING_CLIS[@]}"
+			fStep "${here}/utility/largedoc.bash" --mib "${LARGEDOC_MIB}" "${BINDING_CLIS[@]}"
 		fi
 	fi
 	## Last, since the slowest of them takes hours and the rest should report first.
 	if ((${#LEAKCHECK_STEPS[@]})); then
-		fRunExtras "${LEAKCHECK_STEPS[@]}"
+		fRunExtras --hard "${LEAKCHECK_STEPS[@]}"
 		fEcho "OK: leak checks passed"
 	fi
 	## Stage 5: profiler. Non-gating artifact, not a pass/fail test: an optimized
@@ -872,7 +905,7 @@ else
 	fSection "5/9  Profiler"
 	if ((PROFILE_ENABLE)); then
 		fEcho_Clean "building: ${PROFILE_BUILD_CMD[*]}"
-		"${PROFILE_BUILD_CMD[@]}" || fDie "profiler build failed (app problem)"
+		fStep "${PROFILE_BUILD_CMD[@]}" || fDie "profiler build failed (app problem)"
 		[[ -f "${PROFILE_BIN}" ]] || fDie "profiler binary missing: ${PROFILE_BIN}"
 		## The sampler's attribution against a workload of known shape (config
 		## PROFILE_CHECK), before any graph is drawn: a graph that names the wrong
@@ -928,7 +961,7 @@ else
 		if ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); then
 			if "${PROFILE_CHECK_PROBE_CMD[@]}" >/dev/null 2>&1; then
 				fEcho_Clean "building: ${PROFILE_CHECK_BUILD_CMD[*]}"
-				"${PROFILE_CHECK_BUILD_CMD[@]}" || fDie "profiler check build failed (app problem)"
+				fStep "${PROFILE_CHECK_BUILD_CMD[@]}" || fDie "profiler check build failed (app problem)"
 				( PROFILE_BIN="${PROFILE_CHECK_BIN}"; eval "${PROFILE_CHECK}" ) \
 					|| fDie "profiler attribution check failed; its graph would name the wrong code"
 			else
@@ -953,7 +986,7 @@ else
 	for c in "${CROSS_CHECKS[@]}"; do
 		c_label="${c%%|*}"; c_cmd="${c#*|}"
 		fEcho "cross check: ${c_label}"
-		eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
+		fCpuStep "${c_cmd}"; eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
 		fEcho "OK: ${c_label}"
 	done
 	## The record waits for the cross checks, the last gate a --gate run has. It sat at
@@ -978,14 +1011,14 @@ else
 		if git -C "${root}" rev-parse -q --verify "refs/tags/v$(fVersion)" >/dev/null; then SHCL_BUILD_DATED=1; fi
 		export SHCL_BUILD_DATED
 		fEcho "build ${SHCL_BUILD}${SHCL_BUILD_DATED:+ (dated)}"
-		"${RELEASE_NATIVE_CMD[@]}"
+		fStep "${RELEASE_NATIVE_CMD[@]}"
 		[[ -f "${RELEASE_NATIVE_BIN}" ]] || fDie "native release binary missing: ${RELEASE_NATIVE_BIN}"
 		fEcho "OK: native release: ${RELEASE_NATIVE_BIN} ($(du -h "${RELEASE_NATIVE_BIN}" | cut -f1))"
 		built_arts=("${RELEASE_NATIVE_OSARCH:-native}|${RELEASE_NATIVE_BIN}")
 		for t in "${CROSS_TARGETS[@]}"; do
 			t_label="${t%%|*}"; rest="${t#*|}"; t_osarch="${rest%%|*}"; rest="${rest#*|}"; t_art="${rest%%|*}"; t_cmd="${rest#*|}"
 			fEcho "cross: ${t_label}"
-			eval "${t_cmd}"
+			fCpuStep "${t_cmd}"; eval "${t_cmd}"
 			[[ -f "${t_art}" ]] || fDie "missing artifact for ${t_label}: ${t_art}"
 			fEcho "OK: ${t_label}: ${t_art} ($(du -h "${t_art}" | cut -f1))"
 			built_arts+=("${t_osarch}|${t_art}")
@@ -996,7 +1029,7 @@ else
 		for c in "${RELEASE_CHECKS[@]}"; do
 			c_label="${c%%|*}"; c_cmd="${c#*|}"
 			fEcho "release check: ${c_label}"
-			eval "${c_cmd}" || fDie "release check failed: ${c_label}"
+			fCpuStep "${c_cmd}"; eval "${c_cmd}" || fDie "release check failed: ${c_label}"
 			fEcho "OK: ${c_label}"
 		done
 		if [[ -n "${RELEASE_ARTIFACT_DIR:-}" ]]; then
@@ -1016,7 +1049,7 @@ else
 			export SOURCE_DATE_EPOCH="$(git -C "${root}" log -1 --format=%ct)"
 			## Installer packages (.deb/.rpm via nfpm, NSIS setup per Windows exe) join
 			## the artifact family before the sums are written, so they ship verified too.
-			((PACKAGE_ENABLE)) && "${here}/utility/package.bash" "${root}" "${art_dir}" "${ver}"
+			((PACKAGE_ENABLE)) && fStep "${here}/utility/package.bash" "${root}" "${art_dir}" "${ver}"
 			## The drop-in sources, man page and completions the installer
 			## lays down, as one asset in the same family - so they are covered by the
 			## signed sums like everything else. The installer used to take them from
@@ -1057,7 +1090,7 @@ if ((! inner_run)); then
 			IFS='|' read -r r_box r_target r_osarch <<< "${r}"
 			box_rows+=("${r_box}|${r_target}|$(fArtOf "${r_osarch}")")
 		done
-		box_rc=0
+		box_rc=0; fCpuStep check-boxes.bash
 		"${here}/utility/check-boxes.bash" "${RELEASE_NATIVE_BIN}" "${box_rows[@]}" 2>&1 | tee "${run_tmp}/boxes.out" || box_rc=$?
 		mapfile -t remote_skips < <(grep '^SKIP ' "${run_tmp}/boxes.out" || true)
 		((box_rc == 0)) || fDie "a test box check failed"
@@ -1254,3 +1287,5 @@ exit 0
 ##		- 2026-10-24 JC: Zig's cache in the main image is a volume of its own, emptied at the end when it's over 2 GB or another Zig filled it.
 ##		- 2026-10-24 JC: dev.project and dev.run labels and names on what docker makes; a run's containers go on any exit. The tag
 ##		  before the current one stays, a week of build cache stays, and the cleanup line has docker system df before and after.
+##		- 2026-10-24 JC: The CPU cap is checked again before each step: a quarter when the box is busy or the step is hard,
+##		  and the run at nice 19 and idle I/O.

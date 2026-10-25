@@ -50,7 +50,7 @@ if ((${#missing[@]})); then
 	source "${here}/include/ctr-image.bash"
 	whyNot="$(fCtrWhyNot)"
 	if [[ -z "${whyNot}" ]]; then
-		## config.bash expands the cap while it loads; the image's tag needs it.
+		## The cap the run in the image takes.
 		CPU_CAP="${CPU_CAP:-1}"
 		# shellcheck source-path=SCRIPTDIR
 		# shellcheck source=../config.bash

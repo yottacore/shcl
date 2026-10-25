@@ -431,7 +431,7 @@ mkdir -p "${eng}/cicd/utility/include" "${eng}/source/rust"
 cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${eng}/cicd/"
 cp "${root}/cicd/utility/green-tree.bash" "${eng}/cicd/utility/"
 cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" \
-	"${root}/cicd/utility/include/stop-descendants.bash" "${eng}/cicd/utility/include/"
+	"${root}/cicd/utility/include/stop-descendants.bash" "${root}/cicd/utility/include/cpu-cap.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
 cat > "${eng}/cicd/utility/crosscheck.bash" <<'EOF'
 #!/usr/bin/env bash
@@ -741,11 +741,11 @@ fTest EstM5os an extra image builds into its own copies and leaves this tree as 
 ## On the checkout's own paths, so --no-freeze.
 if [[ "$(uname -m)" == x86_64 ]]; then
 	cp -r "${root}/cicd/container" "${eng}/cicd/"
-	mapfile -t ctrExtra < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
+	mapfile -t ctrExtra < <(source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
 	for f in "${ctrExtra[@]}"; do cp "${root}/${f}" "${eng}/${f}"; done
 	mkdir -p "${eng}/source/c" "${eng}/source/go"
-	mapfile -t ctrPrivate < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_PRIVATE[@]}")
-	mapfile -t ctrClis < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${BINDING_CLIS[@]}")
+	mapfile -t ctrPrivate < <(source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_PRIVATE[@]}")
+	mapfile -t ctrClis < <(source "${root}/cicd/config.bash"; printf '%s\n' "${BINDING_CLIS[@]}")
 	fCtrMounts(){  ## fCtrMounts LABEL: an alpine run on eng, its mounts held to the rules
 		local label="$1" p host dst there seen="" before=() ctrRc=0
 		for p in "${ctrPrivate[@]}"; do before+=("$(if [[ -e "${eng}/${p%/}" || -L "${eng}/${p%/}" ]]; then echo yes; else echo no; fi)"); done
@@ -812,7 +812,7 @@ fTest EtDCDE7 with docker answering, a run goes to the main image, which records
 ## 2026101920461174: the run inside is told where it is, so it doesn't ask
 ## docker again. The tree it records is the one on disk, recipes included.
 cp -r "${root}/cicd/container" "${eng}/cicd/"
-mapfile -t ctrExtra < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
+mapfile -t ctrExtra < <(source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
 for f in "${ctrExtra[@]}"; do cp "${root}/${f}" "${eng}/${f}"; done
 ctrTree="$("${eng}/cicd/utility/green-tree.bash" tree "${eng}")"
 fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- --gate

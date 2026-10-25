@@ -37,7 +37,8 @@
 ##		The hosted gate doesn't run --leakcheck, so it doesn't install CodeQL.
 ##	Syntax:
 ##		codeql-scan.bash
-##		CPU_CAP in the environment caps the threads (default half the cores).
+##		CPU_CAP in the environment caps the threads (default a quarter of the
+##		cores).
 ##	Exit: 0 = clean, 1 = a finding, a missed bait, a dropped file or a bad
 ##	      suppression, 2 = could not run.
 ##	History: At bottom of script.
@@ -62,9 +63,10 @@ testWhere=codeql-scan; testCounter=nBad; nBad=0
 if (($#)); then echo "codeql-scan: takes no arguments (see the header)" >&2; exit 2; fi
 
 cap="${CPU_CAP:-}"
-[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || cap=$(( $(nproc 2>/dev/null || echo 2) / 2 ))
+# shellcheck source-path=SCRIPTDIR
+[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || { source "$(dirname -- "${BASH_SOURCE[0]}")/include/cpu-cap.bash"; fCpuCap hard; cap="${CPU_CAP}"; }
 ((cap > 0)) || cap=1
-## config.bash expands the cap while it loads.
+## For the strings config.bash eval's later, and the run in the image.
 CPU_CAP="${cap}"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../config.bash

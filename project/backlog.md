@@ -425,7 +425,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: CPU and priority
 	- ID: 2026102416250040
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -437,6 +437,66 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `nice -n 19`, plus `ionice -c 3`, over the whole run.
 		- `--cpus` and `--cpu-shares 256` on each `docker run`, and `nice` inside the image too.
 		- The same rules on other hosts, with that host's CPU count and load.
+	- Progress log:
+		- 20261024: split in 3. This box's cap and priority is 2026102421025778, the containers 2026102421025783, the test boxes 2026102421025788. This item closes with the last of them.
+
+- CICD reset: CPU and priority on this box
+	- ID: 2026102421025778
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Priority: High
+	- Opened: 20261024-210257
+	- Opened by: 2026102416250040
+	- Parent ID: 2026102416250040
+	- Requirements:
+		- The cap is worked out in one place: half the CPUs, or a quarter when the 1-minute load is over half the CPU count, never under 1.
+		- The busy check runs at the start and again before each step.
+		- The hard steps get a quarter, busy or not: leak checks, sanitizer builds, Miri, soak tests and the long fuzz.
+		- `nice -n 19`, plus `ionice -c 3` where it exists, over the whole run.
+	- Progress log:
+		- 20261024: `cicd/utility/include/cpu-cap.bash` has the rule. cicd.bash checks it at the start and before each step, and prints a `jobs:` line when the count changes. It exports the count as `CPU_CAP`, `CARGO_BUILD_JOBS`, `RUST_TEST_THREADS`, `GOMAXPROCS` and `RAYON_NUM_THREADS`, so config.bash's plain arrays no longer fix a `-j` count when they load.
+		- 20261024: config.bash's `HARD_STEPS` names the hard steps: both sanitizer scripts (Miri is in sanitize-rust), `go test -race`, the 2 soak runs, the large document and the 200,000 fuzz. Every leak check is hard without a row.
+		- 20261024: cicd.bash renices itself to 19 and sets `ionice -c 3` at the top, so every child, the run in the image included, takes both.
+		- 20261024: the gate scripts run by hand get their count from the same include, at a quarter for sanitize-c, sanitize-rust, codeql-scan, largedoc and `analyze-c --ctu`.
+		- 20261024: the priority check in `EtgMc0M` can't go red when shell-regress itself runs at nice 19, as it does inside a run. It was seen red run alone.
+	- Decisions:
+		- A count the caller gives as `CPU_CAP` still holds for every step, with no busy check and no quarter. ci.yml's hosted jobs give `nproc` on runners with nothing else on them, and they're already at 46 of their 60 minutes. A run that cicd.bash starts, in the image or from the frozen copy, gets the caller's count through `SHCL_CPU_FIXED`, not the step's (me).
+		- The 1-minute load includes the run's own last step, so after a step at half the cores the next can read as busy. Left as the rule says, to be read from the full run's `jobs:` lines (me).
+	- Swept: every `nproc` cap under `cicd/` (check-c-compilers, sanitize-c, sanitize-rust, analyze-c, codeql-scan, crosscheck, largedoc, check-win-release), every `-j "${CPU_CAP}"` and `RUST_TEST_THREADS` in config.bash's plain arrays, and every step call in cicd.bash. soak-c, check-deps and check-pins default to 1, and check-freebsd's `xz` to 2, so they stay. The eval'd strings expand when they run, so they stay too. check-push-gate's and shell-regress's stub engines copy the new include. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Verified: shell-regress `EtgMbxn`, `EtgMc0M` and `EtgMc2s` pass. Each went red on its own fault: the old config.bash, `>=` for the busy compare, no floor of 1, no `CARGO_BUILD_JOBS`, the leak checks not hard, `HARD_STEPS` not read or missing a row or taking the py_compile build step, a `jobs:` line on every step, and no renice.
+	- Verified: the whole of shell-regress and check-push-gate, shellcheck over `SHELLCHECK_TARGETS`, check-docs, markdownlint and `test-ids.py check` passed. `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` printed `jobs: 16 of 32 CPUs` once in the build stage and passed.
+	- Needs local test suite run?: Y. The full run line. Its log should show a `jobs:` line at the start, `(hard step)` on the sanitizer, soak, race and leak steps, and the leak checks at 8 of 32 here.
+	- Needs external testing: Y. ci.yml on the round branch, to see the hosted jobs still pass at about their old times with `CPU_CAP` given and no `-j` in the arrays.
+	- Branch: `r1024c`
+	- Test case: shell-regress `EtgMbxn` (the rule), `EtgMc0M` (each step, the leak checks, the image's count, the run's priority) and `EtgMc2s` (no count fixed at load, and which steps are hard).
+		- 20261024: `EqpNNtw` finds the native release build by its line, which is now `fStep "${RELEASE_NATIVE_CMD[@]}"`. Its pattern went from `^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$` to one that also takes a leading `fStep `. `EtaC4oT` reads the same line number.
+
+- CICD reset: CPU and priority in containers
+	- ID: 2026102421025783
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-210257
+	- Opened by: 2026102416250040
+	- Parent ID: 2026102416250040
+	- Prereq IDs: 2026102421025778
+	- Requirements:
+		- `--cpus <jobs>` and `--cpu-shares 256` on each `docker run`, the ones analyze-c, soak-c and codeql-scan start included.
+		- `nice` inside the image too, since `nice` on the docker client doesn't reach the container.
+		- check-push-gate's fake docker learns the new options.
+
+- CICD reset: CPU and priority on the test boxes
+	- ID: 2026102421025788
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-210257
+	- Opened by: 2026102416250040
+	- Parent ID: 2026102416250040
+	- Prereq IDs: 2026102421025778
+	- Requirements:
+		- check-boxes' box half works out its cap from that box's CPU count and load, by the same rule as this box.
+		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
 
 - CICD reset: standard flags
 	- ID: 2026102416250050
