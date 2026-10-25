@@ -58,6 +58,7 @@ cp "${root}/cicd/hooks/pre-push" "${repo}/cicd/hooks/pre-push"
 cp "${root}/cicd/utility/include/frozen-tree.bash" "${repo}/cicd/utility/include/"
 cp "${helper}" "${repo}/cicd/utility/green-tree.bash"
 cp "${root}/cicd/utility/check-banner-tag.bash" "${repo}/cicd/utility/check-banner-tag.bash"
+cp "${root}/cicd/docs-only-paths.txt" "${repo}/cicd/docs-only-paths.txt"
 cp "${root}/.gitignore" "${repo}/.gitignore"
 cat > "${repo}/cicd/cicd.bash" <<'EOF'
 #!/usr/bin/env bash
@@ -168,6 +169,28 @@ git -C "${repo}" commit -q -am oldengine
 fPush main "$(git -C "${repo}" rev-parse HEAD)"
 ((hookRc == 0 && ran == 1)) && [[ "$(cat "${STUB_LOG}.args")" == "--ci --no-largedoc" ]] \
 	|| fail "the hook called an engine from before --gate as: $(cat "${STUB_LOG}.args"), exit ${hookRc}"
+git -C "${repo}" reset -q --hard "${sha}"
+fTest Etl0lIx a push to main of docs alone skips the gate
+## 2026102515494629: judged against the remote's main, by the hook's one list.
+## Anything else in the push, the corpus under project/, a remote main the
+## clone doesn't have, or a new main runs it.
+fDocsPush(){  ## fDocsPush OLD FILE... -> hookRc, ran, for a commit on sha adding FILEs
+	local old="$1" f; shift
+	git -C "${repo}" reset -q --hard "${sha}"
+	for f in "$@"; do
+		if [[ "${f}" == */* ]]; then mkdir -p "${repo}/${f%/*}"; fi
+		printf 'doc\n' > "${repo}/${f}"; git -C "${repo}" add -- "${f}"
+	done
+	git -C "${repo}" commit -q -m docs
+	fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s' "$(git -C "${repo}" rev-parse HEAD)" "${old}")"$'\n'
+}
+fDocsPush "${sha}" notes.md project/design_docs/x.md assets/logo.png
+((hookRc == 0 && ran == 0)) || fail "a docs-only push to main: exit ${hookRc}, gate ran ${ran} time(s)"
+for docsCase in "${sha}|notes.md a.sh" "${sha}|project/conformance/999/input.shcl" "${sha}|project/grammar.abnf" "${zeros}|notes.md" "$(printf '%040d' 1)|notes.md"; do
+	read -r -a docsFiles <<< "${docsCase#*|}"
+	fDocsPush "${docsCase%%|*}" "${docsFiles[@]}"
+	((hookRc == 0 && ran == 1)) || fail "a push to main of ${docsCase#*|} from ${docsCase%%|*}: exit ${hookRc}, gate ran ${ran} time(s)"
+done
 git -C "${repo}" reset -q --hard "${sha}"
 fTest EqzwPFC the gate builds into target-gate
 ## 20260830 item 5: the gate's worktree got the checkout's own target dir, so

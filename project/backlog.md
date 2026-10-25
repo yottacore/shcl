@@ -421,19 +421,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
 		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
 
-- CICD reset: docs-only pushes to main
-	- ID: 2026102515494629
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261025-154946
-	- Opened by: 2026102416250050
-	- Parent ID: 2026102416250050
-	- Prereq IDs: 2026102515494619
-	- Requirements:
-		- No gate on a push to dev.
-		- A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
-
 - CICD reset: keep-temp and list
 	- ID: 2026102515494634
 	- Type: Enhancement
@@ -577,6 +564,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: docs-only pushes to main
+	- ID: 2026102515494629
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494619
+	- Requirements:
+		- No gate on a push to dev.
+		- A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
+	- Decisions:
+		- me: the list is `cicd/docs-only-paths.txt`: every `*.md`, `project/` but its corpus and `grammar.abnf`, which tests and check-abnf read, and the art no build reads, `assets/demo.gif`, `icon.png` and `logo.png`. `shcl.ico` goes into the Windows build, so it's out. The installers stay gated, since the one-liners run them from main.
+		- me: the push is judged against what the remote's main holds. A new main, or one the clone hasn't fetched, runs the gate. The banner tag check still runs.
+	- Progress log:
+		- 20261025: done in the pre-push hook. No gate on a push to dev was already so. The hook's header, contributing.md and design.md say so.
+		- Verified: check-push-gate `Etl0lIx` failed on the old hook, which gated a docs-only push, and passes now. Its cases that must still gate pass: a script beside the docs, a corpus file, `grammar.abnf`, a new main and an unknown one. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
+		- Departs from the wording: `project/` leaves out its corpus and the grammar, since a build or test reads both.
+	- Test case: check-push-gate `Etl0lIx`.
+	- Acceptance signoff: closed on JC's criteria. The call: which paths count as docs, above.
+	- Closed: 20261025-162100
 
 - A release build's size in the run log reads 1.0K
 	- ID: 2026102421543041

@@ -33,6 +33,9 @@
 ##	  names has to find that tag on the remote, or send it in the same push
 ##	  (utility/check-banner-tag.bash). That check runs even when the gate is
 ##	  skipped.
+##	- A push to main whose files all match cicd/docs-only-paths.txt, docs and
+##	  art no build reads, skips the gate. It's judged against what the remote's
+##	  main holds, so a new or unknown remote main runs the gate.
 ##	- An engine from before --merge-gate gets the gate it knew, --gate or
 ##	  --ci, without the large-document stage, as it ran then.
 ##	- Escape hatch: `git push --no-verify`, or SHCL_SKIP_HOOK=1.
@@ -69,8 +72,8 @@ source "${root}/cicd/utility/include/frozen-tree.bash"
 ## main at most once, so this collects a single sha, and the loop stays general
 ## in case another branch is gated again. Tag refs are collected for the banner
 ## tag check. Collected inside the loop: the read that ends it clears the vars.
-gatedShas=(); gatedRefs=(); pushedTags=()
-while read -r _localRef localSha remoteRef _remoteSha; do
+gatedShas=(); gatedRefs=(); gatedOld=(); pushedTags=()
+while read -r _localRef localSha remoteRef remoteSha; do
 	case "${remoteRef}" in
 		refs/tags/*) pushedTags+=("${remoteRef}=${localSha}") ;;
 		refs/heads/main)
@@ -80,10 +83,36 @@ while read -r _localRef localSha remoteRef _remoteSha; do
 				[[ "${gatedShas[i]}" == "${localSha}" ]] || continue
 				gatedRefs[i]="${gatedRefs[i]} + ${refName}"; seen=1
 			done
-			((seen)) || { gatedShas+=("${localSha}"); gatedRefs+=("${refName}"); } ;;
+			((seen)) || { gatedShas+=("${localSha}"); gatedRefs+=("${refName}"); gatedOld+=("${remoteSha}"); } ;;
 	esac
 done
 ((${#gatedShas[@]})) || exit 0
+
+## True when every file that differs from OLD to NEW matches the docs-only
+## list. No list, no OLD here, or a file it can't place runs the gate.
+fDocsOnly(){   ## fDocsOnly OLD NEW
+	local list="${root}/cicd/docs-only-paths.txt" line f pat hit want glob
+	local -a pats=() files=()
+	[[ -f "${list}" && ! "$1" =~ ^0+$ ]] || return 1
+	git -C "${root}" cat-file -e "$1^{commit}" 2>/dev/null || return 1
+	while IFS= read -r line; do
+		if [[ -n "${line}" && "${line}" != '#'* ]]; then pats+=("${line}"); fi
+	done < "${list}"
+	mapfile -t files < <(git -C "${root}" diff --name-only --no-renames "$1" "$2" 2>/dev/null || echo ':')
+	((${#files[@]})) || return 1
+	for f in "${files[@]}"; do
+		hit=0
+		for pat in "${pats[@]}"; do
+			want=1; glob="${pat}"
+			if [[ "${glob}" == '!'* ]]; then want=0; glob="${glob#!}"; fi
+			if [[ "${glob}" == */ ]]; then glob+='*'; fi
+			# shellcheck disable=SC2053  # the pattern is a glob on purpose
+			if [[ "${f}" == ${glob} ]]; then hit="${want}"; fi
+		done
+		((hit)) || return 1
+	done
+	return 0
+}
 
 ## A detached worktree at the pushed commit, locked while the gate runs and
 ## removed once it's through, so the next sha (if any) starts clean.
@@ -107,6 +136,12 @@ for i in "${!gatedShas[@]}"; do
 		echo "[ pre-push: the tag the banner's Syntax link names will not be on ${1:-origin} - push refused (--no-verify overrides) ]" >&2
 		echo
 		exit 1
+	fi
+	if fDocsOnly "${gatedOld[i]}" "${sha}"; then
+		echo
+		echo "[ pre-push: ${sha:0:12} changes only what cicd/docs-only-paths.txt lists; no merge gate ]"
+		echo
+		continue
 	fi
 	## A failed lookup, or a checkout with no helper, reads as not passed.
 	tree="$(git -C "${root}" rev-parse -q --verify "${sha}^{tree}" || true)"

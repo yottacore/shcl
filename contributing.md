@@ -139,7 +139,7 @@ Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/ci
 
 The pipeline fast-forwards from the remote before it builds anything, so what it tests is what you would push. It stops and says so if your branch and its upstream have both moved. `--no-sync` skips that.
 
-There is also a `pre-push` hook that runs the merge gate, `cicd/cicd.bash --merge-gate`, for you, but only when the push would move `main`. It runs every check of a run with no flags, and dogfoods, publishes and rewrites nothing. `--ci` is another name for it. Everything else pushes straight through, `dev` and feature branches alike. `install-dev.bash` turns it on; to do it by hand:
+There is also a `pre-push` hook that runs the merge gate, `cicd/cicd.bash --merge-gate`, for you, but only when the push would move `main`. It runs every check of a run with no flags, and dogfoods, publishes and rewrites nothing. `--ci` is another name for it. A push that changes only docs and art, the files `cicd/docs-only-paths.txt` lists, goes to `main` without it. Everything else pushes straight through, `dev` and feature branches alike. `install-dev.bash` turns it on; to do it by hand:
 
 ~~~sh
 git config core.hooksPath cicd/hooks
