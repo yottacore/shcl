@@ -569,6 +569,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
 
+- 3 shell-regress blocks pass with no line when the file they test is gone
+	- ID: 2026102420263500
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261024-202635
+	- Opened by: 2026102419595509's sweep
+	- Related IDs: 2026102419595509
+	- Incorrect behavior: the pyworker, uninstall and flame-report blocks in `shell-regress.bash` each open with `if [[ -f FILE ]]`. When that file is renamed or moved, the block is skipped and the gate stays green, with nothing in the log.
+	- Expected behavior: a tracked file the gate checks that has gone missing fails by name, or the block prints a skip line.
+	- Swept so far: found while checking the guard that 2026102419595509 fixed. All 3 files exist today, so nothing is broken yet.
+	- Estimated effort: Low
+
 - check-push-gate's gate worktree half of `EstM5os` never runs
 	- ID: 2026102419595509
 	- Type: Bug
