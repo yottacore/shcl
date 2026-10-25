@@ -38,8 +38,7 @@
 ##	                       leak checks, packages, profiler and demo gif. Tests
 ##	                       run at the shorter fuzz depth when the config has
 ##	                       TEST_QUICK_CMD
-##	   --long, --slow      everything, the leak checks that take hours included.
-##	                       Not with --quick
+##	   --long, --slow      also the leak checks that take hours. Not with --quick
 ##	   --leakcheck         every leak check config.bash lists, at the end of the
 ##	                       tests stage, the ones that take hours included
 ##	   --no-leakcheck      every leak check out, fast ones and sanitizer runs too.
@@ -70,6 +69,7 @@
 ##	   --no-container      run stages 1-6 on this box even when docker answers.
 ##	                       Not with --container
 ##	   --no-freeze         run stages 2-6 in the checkout, not in a copy. See below
+##	   --list              print the steps the other flags would run; run nothing
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
@@ -203,7 +203,7 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0; keep_temp=0
+assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0; keep_temp=0; list_only=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0; no_remote=0
 fCtrPick(){
@@ -236,6 +236,7 @@ while (($#)); do case "$1" in
 	--no-publish)             GIT_PUBLISH=(); shift ;;
 	--no-remote)              no_remote=1; shift ;;
 	--keep-temp)              keep_temp=1; ctr_pass+=("$1"); shift ;;
+	--list)                   list_only=1; shift ;;
 	--container)              fCtrPick main; shift ;;
 	--container=*)            fCtrPick "${1#*=}"; shift ;;
 	--no-container)           no_container=1; shift ;;
@@ -343,6 +344,53 @@ fi
 ## anything noted there records nothing.
 record_green=1
 if ((quick || gate_partial)); then record_green=0; fi
+
+## --list: the steps a run with the other flags would take, by stage, and
+## nothing run, made or asked. Test IDs aren't listed yet (2026102515494634).
+if ((list_only)); then
+	fListStage(){   ## fListStage TITLE STEP... (empty steps dropped)
+		local step n=0
+		printf '%s\n' "$1"; shift
+		for step in "$@"; do
+			if [[ -n "${step}" ]]; then printf '\t%s\n' "${step}"; n=$((n + 1)); fi
+		done
+		if ((n == 0)); then printf '\t(none)\n'; fi
+	}
+	lsSteps=()
+	if ((sync_enable)); then lsSteps=("fast-forward from upstream"); fi
+	fListStage "0/9  Remote sync" "${lsSteps[@]}"
+	if ((gate_mode)); then fListStage "1/9  Format (check only)" "${FMT_CHECK_CMD[*]}" "${FMT_CHECK_EXTRA[@]}"
+	else fListStage "1/9  Format" "${FMT_CMD[*]}" "${FMT_EXTRA[@]}"; fi
+	fListStage "2/9  Build (debug)" "${BUILD_CMD[*]}" "${BUILD_EXTRA[@]}"
+	lsSteps=(); if ((${#SHELLCHECK_TARGETS[@]})); then lsSteps=("shellcheck over ${#SHELLCHECK_TARGETS[@]} file(s)"); fi
+	fListStage "3/9  Lint" "${LINT_CMD[*]}" "${LINT_EXTRA[@]}" "${lsSteps[@]}"
+	lsSteps=()
+	if ((${#BINDING_CLIS[@]} && xcheck_enable)); then lsSteps+=("crosscheck.bash over ${#BINDING_CLIS[@]} binding(s)"); fi
+	if ((LARGEDOC_MIB)); then lsSteps+=("largedoc.bash at ${LARGEDOC_MIB} MiB"); fi
+	fListStage "4/9  Tests" "${TEST_CMD[*]}" "${TEST_EXTRA[@]}" "${lsSteps[@]}" "${LEAKCHECK_STEPS[@]}"
+	lsSteps=()
+	if ((PROFILE_ENABLE)); then lsSteps=("${PROFILE_BUILD_CMD[*]}" "profiler run, ${PROFILE_SECS}s")
+	elif ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]]; then lsSteps=("profiler attribution check"); fi
+	fListStage "5/9  Profiler" "${lsSteps[@]}"
+	lsSteps=()
+	for c in "${CROSS_CHECKS[@]}"; do lsSteps+=("cross check: ${c%%|*}"); done
+	if ((${#RELEASE_NATIVE_CMD[@]})); then
+		lsSteps+=("${RELEASE_NATIVE_CMD[*]}")
+		for c in "${CROSS_TARGETS[@]}"; do lsSteps+=("cross: ${c%%|*}"); done
+		for c in "${RELEASE_CHECKS[@]}"; do lsSteps+=("release check: ${c%%|*}"); done
+		if ((PACKAGE_ENABLE)); then lsSteps+=("package.bash"); fi
+	fi
+	fListStage "6/9  Release builds" "${lsSteps[@]}"
+	lsSteps=()
+	if ((! no_remote && ${#RELEASE_NATIVE_CMD[@]})); then for c in "${REMOTE_BOXES[@]}"; do lsSteps+=("${c%%|*}"); done; fi
+	fListStage "6/9  Test boxes" "${lsSteps[@]}"
+	lsSteps=(); if ((${#DOGFOOD_FIXED_DESTS[@]} && ${#RELEASE_NATIVE_CMD[@]})); then lsSteps=("${DOGFOOD_FIXED_DESTS[@]}"); fi
+	fListStage "7/9  Dogfood" "${lsSteps[@]}"
+	lsSteps=(); if ((GIF_ENABLE)); then lsSteps=("${GIF_OUT}"); fi
+	fListStage "8/9  Demo gif" "${lsSteps[@]}"
+	fListStage "9/9  Backup + publish" "${GIT_PUBLISH[*]}"
+	exit 0
+fi
 
 ## Every run gets a temp dir of its own, and TMPDIR points into it, so what a
 ## gate or a test leaves when it fails or is killed goes with it at the end. A
@@ -1344,4 +1392,4 @@ exit 0
 ##		- 2026-10-25 JC: --long and --slow. The leak checks that take hours are only there and in --leakcheck, --quick keeps
 ##		  the fast ones, and --no-leakcheck drops the sanitizer runs too. Sizes printed are the files' own.
 ##		- 2026-10-25 JC: --merge-gate, every check of a run with no flags, for the pre-push hook. --ci is another name for it.
-##		- 2026-10-25 JC: --keep-temp keeps the run's temp folder and containers.
+##		- 2026-10-25 JC: --keep-temp keeps the run's temp folder and containers. --list prints the steps and runs nothing.

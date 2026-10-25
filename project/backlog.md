@@ -424,20 +424,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: keep-temp and list
 	- ID: 2026102515494634
 	- Type: Enhancement
-	- Status: Started
+	- Status: Stalled
+		- Held for 2026102416250080, for the test IDs `--list` prints. `--keep-temp` and the steps `--list` prints are in.
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
 	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102416250080
 	- Requirements:
 		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
 		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
 	- Decisions:
 		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
 	- Progress log:
-		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so. `--list` is left.
+		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
 		- Verified: check-push-gate `Etl0lIy` failed on the old engine and passes now, with `EtDQOIx`, `EtgFdOY` and `EtgShUg` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
-	- Test case: check-push-gate `Etl0lIy` (`--keep-temp`).
+		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
+		- Verified: check-push-gate `Etl3oti` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
+	- Test case: check-push-gate `Etl0lIy` (`--keep-temp`) and `Etl3oti` (`--list`).
 
 - CICD reset: step output
 	- ID: 2026102416250060

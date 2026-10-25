@@ -946,6 +946,20 @@ keepRuns="$(grep -cE -- '--name shcl-[^ ]+-(build|fmt) ' "${work}/keep-args.txt"
 if ((engRc != 0 || keepRuns < 2 || keepRm != 0)) || ! grep -qF 'and its containers: docker ps -a --filter label=dev.run=shcl-run.' "${work}/eng.log"; then
 	fail "--keep-temp in the image: exit ${engRc}, ${keepRuns} step run(s), ${keepRm} with --rm: $(tail -3 "${work}/eng.log")"
 fi
+fTest Etl3oti --list prints the steps the other flags would run and runs none
+## 2026102515494634: the leak checks by length show it, and nothing runs, is
+## recorded or is left in TMPDIR.
+for listCase in '-y --no-sync --list|echo leak' '-y --no-sync --quick --list|echo fast' '--gate --list|Format (check only)'; do
+	read -r -a listArgs <<< "${listCase%%|*}"
+	rm -f "${work}/eng.leak" "${work}/eng.leakfast"
+	ls -d "${work}"/shcl-run.* > "${work}/list.before" 2>/dev/null || true
+	fEngine STUB_LEAK="${work}/eng.leak" STUB_LEAK_FAST="${work}/eng.leakfast" -- "${listArgs[@]}"
+	ls -d "${work}"/shcl-run.* > "${work}/list.after" 2>/dev/null || true
+	if ((engRc != 0 || engRecorded != 0)) || [[ -e "${work}/eng.leak" || -e "${work}/eng.leakfast" ]] || ! grep -qF -- "${listCase#*|}" "${work}/eng.log" \
+		|| ! grep -qx '4/9  Tests' "${work}/eng.log" || ! cmp -s "${work}/list.before" "${work}/list.after"; then
+		fail "cicd.bash ${listCase%%|*}: exit ${engRc}, recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
+	fi
+done
 fTest EtDQOMF a whole run removes a profiler sample file whose graph is gone
 ## 2026101920461153: the rotation prunes a graph and leaves the sample count
 ## beside it. One whose graph is still there stays, whatever its role now.
