@@ -337,6 +337,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- The macos-universal release over the CLI cases, as `mactest`, through the box step. Both Macs are Intel, so only the x86_64 slice runs. The hosted macOS job stays for arm64.
 		- A non-interactive ssh there has the stock bash 3.2 and a bare PATH, so the box half is plain sh.
+		- The outputs come back as a tar on ssh's stdout, so anything a login file prints there breaks it, as `collierjr`'s `.bashrc` on b26 does. Check `mactest`'s.
 
 - Other hosts: Windows on b29w, timed work on vm925w
 	- ID: 2026102419263432
