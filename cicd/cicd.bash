@@ -63,6 +63,7 @@
 ##	   --no-dogfood        skip installing the release builds locally
 ##	   --no-gif            skip the demo gif refresh
 ##	   --no-publish        skip the git backup + publish stage
+##	   --no-remote         skip the test boxes config.bash lists in REMOTE_BOXES
 ##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
 ##	                       or NAME.Dockerfile there for an extra one, and fail
 ##	                       when docker can't. See below
@@ -119,16 +120,21 @@ root="$(cd "${here}/.." && pwd)"   ## the git repo root (cicd/..)
 ## rust-toolchain.toml is meaningless and target/ fills with mixed artifacts.
 export PATH="${HOME}/.cargo/bin:${PATH}"
 
-## Cap every stage at 50% of cores, since a workstation is usually running
-## something else; config command arrays can consume CPU_CAP. A runner that runs
-## only this sets CPU_CAP itself. Anything but a plain count is ignored, since
-## the value goes into arithmetic.
-_cores="$(nproc 2>/dev/null || echo 2)"
-if [[ ! "${CPU_CAP:-}" =~ ^[1-9][0-9]*$ ]]; then
-	CPU_CAP=$(( _cores / 2 ))
-	if (( CPU_CAP < 1 )); then CPU_CAP=1; fi
-fi
-export CPU_CAP
+## Low priority for the whole run, since the box is usually running something
+## else. Set on this shell, so every child takes it, inside the image too.
+renice -n 19 -p $$ > /dev/null 2>&1 || true
+if command -v ionice > /dev/null 2>&1; then ionice -c 3 -p $$ > /dev/null 2>&1 || true; fi
+
+## Half the cores, or a quarter when the box is busy or the step is hard, checked
+## here and before each step (fCpuStep). A runner that runs only this sets
+## CPU_CAP itself, which then holds for every step; anything but a plain count is
+## ignored, since the value goes into arithmetic. A run this one starts gets the
+## caller's count, or none, through SHCL_CPU_FIXED, not the CPU_CAP of the step.
+source "${here}/utility/include/cpu-cap.bash"
+if [[ ! -v SHCL_CPU_FIXED ]]; then SHCL_CPU_FIXED="${CPU_CAP:-}"; fi
+if [[ ! "${SHCL_CPU_FIXED}" =~ ^[1-9][0-9]*$ ]]; then SHCL_CPU_FIXED=""; fi
+export SHCL_CPU_FIXED
+fCpuCap
 
 ## Per-stage extras: eval'd strings run after the stage's primary command, so a
 ## second binding (Go, C, ...) adds its fmt/build/lint/test commands in config
@@ -137,12 +143,41 @@ FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); 
 LEAKCHECK_STEPS=()  ## the slow checks; see --leakcheck
 FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
+REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch" test boxes, after the release builds
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
 ## cargo reads CARGO_TERM_QUIET from the environment instead. Empty otherwise.
 QUIET_FLAG=""
-fRunExtras(){ local c; for c in "$@"; do fEcho_Clean "extra: ${c}"; eval "${c}"; done; }
+## HARD_STEPS: text that marks a step as hard on the machine, matched like
+## QUICK_SKIP; it gets a quarter of the cores, busy or not. --hard marks them all.
+HARD_STEPS=()
+## fCpuStep STEP [hard]: the cap for the step about to run, with a line when
+## it changes.
+cpu_said=""
+fCpuStep(){
+	local step="$1" hard="${2:-}" pat said
+	if [[ -z "${hard}" ]]; then
+		for pat in "${HARD_STEPS[@]}"; do
+			if [[ "${step}" == *"${pat}"* ]]; then hard=hard; break; fi
+		done
+	fi
+	fCpuCap "${hard}"
+	said="${CPU_CAP}|${cpuWhy}"
+	[[ "${said}" == "${cpu_said}" ]] && return 0
+	cpu_said="${said}"
+	case "${cpuWhy}" in
+		busy) fEcho_Clean "jobs: ${CPU_CAP} of ${cpuCount} CPUs (busy, load $((cpuLoad / 100)).$(printf '%02d' $((cpuLoad % 100))))" ;;
+		'')   fEcho_Clean "jobs: ${CPU_CAP} of ${cpuCount} CPUs" ;;
+		*)    fEcho_Clean "jobs: ${CPU_CAP} of ${cpuCount} CPUs (${cpuWhy})" ;;
+	esac
+}
+fRunExtras(){
+	local c hard=""
+	if [[ "${1:-}" == --hard ]]; then hard=hard; shift; fi
+	for c in "$@"; do fCpuStep "${c}" "${hard}"; fEcho_Clean "extra: ${c}"; eval "${c}"; done
+}
+fStep(){ fCpuStep "$*"; "$@"; }
 
 ## shellcheck source=config.bash
 source "${here}/config.bash"
@@ -169,7 +204,7 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 ## Parse options.
 assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0
 ## --container: which image, and the options the run inside it takes over.
-ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0
+ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0; no_remote=0
 fCtrPick(){
 	if [[ -z "$1" ]]; then echo "--container= names no image (try --help)" >&2; exit 2; fi
 	if [[ -n "${ctr_image}" && "${ctr_image}" != "$1" ]]; then echo "--container names 2 images, ${ctr_image} and $1 (try --help)" >&2; exit 2; fi
@@ -195,6 +230,7 @@ while (($#)); do case "$1" in
 	--no-dogfood)             DOGFOOD_FIXED_DESTS=(); shift ;;
 	--no-gif)                 GIF_ENABLE=0; shift ;;
 	--no-publish)             GIT_PUBLISH=(); shift ;;
+	--no-remote)              no_remote=1; shift ;;
 	--container)              fCtrPick main; shift ;;
 	--container=*)            fCtrPick "${1#*=}"; shift ;;
 	--no-container)           no_container=1; shift ;;
@@ -283,6 +319,8 @@ run_tmp_root="${run_tmp_root%/}"
 run_tmp="$(mktemp -d "${run_tmp_root}/${APP_NAME}-run.XXXXXX")" || { echo "could not make a temp dir under ${run_tmp_root}" >&2; exit 2; }
 echo "$$" > "${run_tmp}/.cicd-run"
 export TMPDIR="${run_tmp}"
+## What docker makes for this run carries the folder's name, as dev.run.
+export SHCL_DEV_RUN="${run_tmp##*/}"
 ## Only the dir this run made: still at its path, a real dir that's ours, with
 ## this run's mark in it.
 fRmRunTmp(){
@@ -316,9 +354,13 @@ fFrozenGone(){
 ## A run that stops early. fCleanup has already done it on a whole run.
 # shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
 fRunTmpGone(){
-	local kb=0
+	local kb=0 n=""
 	## First, or what's still running reads a copy and a temp dir already gone.
 	fStopDescendants || true
+	if ((! inner_run)) && [[ -n "${ctr_image:-}" ]] && declare -F fCtrRunGone >/dev/null; then
+		n="$(fCtrRunGone "${SHCL_DEV_RUN}")" || n=""
+		if [[ -n "${n}" ]]; then printf '[ cleanup: stopped and removed %s container(s) of this run ]\n' "${n}" >&2; fi
+	fi
 	fFrozenGone || true
 	[[ -n "${run_tmp}" ]] || return 0
 	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
@@ -415,9 +457,10 @@ fInstallAtomic(){
 ## copy, and PART is SHCL_RUN_PART for the run in there.
 fRunContainer(){   ## fRunContainer TREE [PART]
 	local tree="$1" part="${2:-}"
-	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" link="" real="" ctr_label="${CTR_IMAGE:-${APP_NAME}-cicd}"
-	local -a mounts=() groups=() env=() inner=()
+	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" link="" real="" step="${2:-stages}"
+	local -a mounts=() groups=() env=() inner=() labels=()
 	fSection "Container: ${ctr_image}"
+	fCtrLabelArgs labels
 
 	## The image is built from a copy of its recipe dir plus the files the
 	## config adds, and tagged by their hash, so an edit can't run on an old one.
@@ -432,6 +475,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 		fEcho_Clean "building ${tag}, which takes several minutes the first time"
 		fCtrBuild "${tag}" "${ctx}" || fDie "could not build ${tag}"
 	fi
+	ctr_tag="${tag}"
 
 	local cache="${CTR_CACHE:-${HOME}/.cache/${APP_NAME}-cicd}/${ctr_image}"
 	mkdir -p "${cache}" || fDie "could not make the cache dir ${cache}"
@@ -441,6 +485,12 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	mounts=(-v "${tree}:${tree}" -v "${cache}:/cache" -v "${scratch}:/tmp")
 	local gitCommon; gitCommon="$(git -C "${tree}" rev-parse --path-format=absolute --git-common-dir)"
 	if [[ "${gitCommon}" != "${tree}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
+	## Zig's cache, apart from the cache dir so fCtrZigTrim can empty it whole.
+	## Made here first, since a volume docker makes for a run has no label.
+	if [[ "${ctr_image}" == main ]]; then
+		"${engine}" volume create "${labels[@]}" "${CTR_ZIG_VOLUME}" >/dev/null || fDie "could not make the ${CTR_ZIG_VOLUME} volume"
+		mounts+=(-v "${CTR_ZIG_VOLUME}:/zig-cache")
+	fi
 	## An extra image builds into its own copy of these, so it doesn't churn
 	## or replace this box's builds. Each copy goes where its path leads, so a
 	## gate worktree's target link reaches the copy and not target-gate. Docker
@@ -479,8 +529,8 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## need the second group a runner's user has. So the image's passwd and
 	## group files plus the caller's entries, and the caller's groups.
 	local etc gid gname; etc="$(mktemp -d)"
-	"${engine}" run --rm --label "${ctr_label}" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
-	"${engine}" run --rm --label "${ctr_label}" "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" --cpus 1 --cpu-shares 256 "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" --cpus 1 --cpu-shares 256 "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
 	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
 	for gid in $(id -G); do
 		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
@@ -496,7 +546,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## The caller's kvm group came along above.
 	if [[ -r /dev/kvm && -w /dev/kvm ]]; then mounts+=(--device /dev/kvm); fi
 
-	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}")
+	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}" -e "SHCL_CPU_FIXED=${SHCL_CPU_FIXED}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
 	if [[ -n "${part}" ]]; then env+=(-e "SHCL_RUN_PART=${part}"); fi
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
@@ -509,7 +559,9 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## So a stop can take the container down if its docker client won't go.
 	local cidfile="${run_tmp}/ctr.cid"
 	stop_cidfiles=("${cidfile}")
-	"${engine}" run --rm --init --cidfile "${cidfile}" --label "${ctr_label}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
+	## nice on this side doesn't reach the container, so a CPU quota and a low
+	## share; the engine inside renices itself.
+	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --cpus "${CPU_CAP}" --cpu-shares 256 --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
 		"${tag}" bash "${tree}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
 	stop_cidfiles=()
@@ -529,7 +581,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 
 ## --container: stages 1-6 go to the image. An extra image builds nothing this
 ## box should install or publish, so nothing runs here after it.
-ctr_recipe=""; ctr_note=""
+ctr_recipe=""; ctr_note=""; ctr_tag=""
 fCtrRecipe(){
 	ctr_recipe="${CTR_DIR:-cicd/container}/${ctr_image}.Dockerfile"
 	[[ "${ctr_image}" == main ]] && ctr_recipe="${CTR_DIR:-cicd/container}/Dockerfile"
@@ -681,12 +733,12 @@ fStageFormat(){
 	fSection "1/9  Format"
 	if ((gate_mode)); then
 		if ((${#FMT_CHECK_CMD[@]})); then
-			"${FMT_CHECK_CMD[@]}"
+			fStep "${FMT_CHECK_CMD[@]}"
 			fRunExtras "${FMT_CHECK_EXTRA[@]}"
 			fEcho "OK: format clean"
 		else fEcho_Clean "no format check configured"; fi
 	elif ((${#FMT_CMD[@]})); then
-		"${FMT_CMD[@]}"
+		fStep "${FMT_CMD[@]}"
 		fRunExtras "${FMT_EXTRA[@]}"
 		fEcho "OK: formatted"
 	elif [[ "${run_part}" == build ]] && ((! fmt_off)); then
@@ -783,7 +835,7 @@ else
 	## Stage 2: debug build (fast compile sanity; the tests run against this).
 	fSection "2/9  Build (debug)"
 	if ((${#BUILD_CMD[@]})); then
-		"${BUILD_CMD[@]}"
+		fStep "${BUILD_CMD[@]}"
 		fRunExtras "${BUILD_EXTRA[@]}"
 		fEcho "OK: build"
 	else
@@ -795,7 +847,7 @@ else
 	## is optional locally (warn if missing) but present on GitHub runners.
 	fSection "3/9  Lint"
 	if ((${#LINT_CMD[@]})); then
-		"${LINT_CMD[@]}"
+		fStep "${LINT_CMD[@]}"
 		fRunExtras "${LINT_EXTRA[@]}"
 		fEcho "OK: lint clean"
 	else
@@ -821,7 +873,7 @@ else
 	## ceilings, at a size no corpus case can reach.
 	fSection "4/9  Tests"
 	if ((${#TEST_CMD[@]})); then
-		"${TEST_CMD[@]}"
+		fStep "${TEST_CMD[@]}"
 		fRunExtras "${TEST_EXTRA[@]}"
 		fEcho "OK: tests passed"
 	else
@@ -834,17 +886,17 @@ else
 		if ((${#BINDING_CLIS[@]} >= 2)) && [[ -n "${XCHECK_GEN:-}" ]]; then
 			export XCHECK_DUMP_DIR="${root}/cicd/artifacts/crosscheck"
 			rm -rf "${XCHECK_DUMP_DIR}"; mkdir -p "${XCHECK_DUMP_DIR}"
-			eval "${XCHECK_GEN}"
+			fCpuStep "${XCHECK_GEN}"; eval "${XCHECK_GEN}"
 			xcheck_extra=(--extra "${XCHECK_DUMP_DIR}")
 		fi
-		"${here}/utility/crosscheck.bash" --corpus "${root}/project/conformance" "${xcheck_extra[@]}" "${BINDING_CLIS[@]}"
+		fStep "${here}/utility/crosscheck.bash" --corpus "${root}/project/conformance" "${xcheck_extra[@]}" "${BINDING_CLIS[@]}"
 		if ((LARGEDOC_MIB)); then
-			"${here}/utility/largedoc.bash" --mib "${LARGEDOC_MIB}" "${BINDING_CLIS[@]}"
+			fStep "${here}/utility/largedoc.bash" --mib "${LARGEDOC_MIB}" "${BINDING_CLIS[@]}"
 		fi
 	fi
 	## Last, since the slowest of them takes hours and the rest should report first.
 	if ((${#LEAKCHECK_STEPS[@]})); then
-		fRunExtras "${LEAKCHECK_STEPS[@]}"
+		fRunExtras --hard "${LEAKCHECK_STEPS[@]}"
 		fEcho "OK: leak checks passed"
 	fi
 	## Stage 5: profiler. Non-gating artifact, not a pass/fail test: an optimized
@@ -855,7 +907,7 @@ else
 	fSection "5/9  Profiler"
 	if ((PROFILE_ENABLE)); then
 		fEcho_Clean "building: ${PROFILE_BUILD_CMD[*]}"
-		"${PROFILE_BUILD_CMD[@]}" || fDie "profiler build failed (app problem)"
+		fStep "${PROFILE_BUILD_CMD[@]}" || fDie "profiler build failed (app problem)"
 		[[ -f "${PROFILE_BIN}" ]] || fDie "profiler binary missing: ${PROFILE_BIN}"
 		## The sampler's attribution against a workload of known shape (config
 		## PROFILE_CHECK), before any graph is drawn: a graph that names the wrong
@@ -911,7 +963,7 @@ else
 		if ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); then
 			if "${PROFILE_CHECK_PROBE_CMD[@]}" >/dev/null 2>&1; then
 				fEcho_Clean "building: ${PROFILE_CHECK_BUILD_CMD[*]}"
-				"${PROFILE_CHECK_BUILD_CMD[@]}" || fDie "profiler check build failed (app problem)"
+				fStep "${PROFILE_CHECK_BUILD_CMD[@]}" || fDie "profiler check build failed (app problem)"
 				( PROFILE_BIN="${PROFILE_CHECK_BIN}"; eval "${PROFILE_CHECK}" ) \
 					|| fDie "profiler attribution check failed; its graph would name the wrong code"
 			else
@@ -936,7 +988,7 @@ else
 	for c in "${CROSS_CHECKS[@]}"; do
 		c_label="${c%%|*}"; c_cmd="${c#*|}"
 		fEcho "cross check: ${c_label}"
-		eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
+		fCpuStep "${c_cmd}"; eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
 		fEcho "OK: ${c_label}"
 	done
 	## The record waits for the cross checks, the last gate a --gate run has. It sat at
@@ -961,14 +1013,14 @@ else
 		if git -C "${root}" rev-parse -q --verify "refs/tags/v$(fVersion)" >/dev/null; then SHCL_BUILD_DATED=1; fi
 		export SHCL_BUILD_DATED
 		fEcho "build ${SHCL_BUILD}${SHCL_BUILD_DATED:+ (dated)}"
-		"${RELEASE_NATIVE_CMD[@]}"
+		fStep "${RELEASE_NATIVE_CMD[@]}"
 		[[ -f "${RELEASE_NATIVE_BIN}" ]] || fDie "native release binary missing: ${RELEASE_NATIVE_BIN}"
 		fEcho "OK: native release: ${RELEASE_NATIVE_BIN} ($(du -h "${RELEASE_NATIVE_BIN}" | cut -f1))"
 		built_arts=("${RELEASE_NATIVE_OSARCH:-native}|${RELEASE_NATIVE_BIN}")
 		for t in "${CROSS_TARGETS[@]}"; do
 			t_label="${t%%|*}"; rest="${t#*|}"; t_osarch="${rest%%|*}"; rest="${rest#*|}"; t_art="${rest%%|*}"; t_cmd="${rest#*|}"
 			fEcho "cross: ${t_label}"
-			eval "${t_cmd}"
+			fCpuStep "${t_cmd}"; eval "${t_cmd}"
 			[[ -f "${t_art}" ]] || fDie "missing artifact for ${t_label}: ${t_art}"
 			fEcho "OK: ${t_label}: ${t_art} ($(du -h "${t_art}" | cut -f1))"
 			built_arts+=("${t_osarch}|${t_art}")
@@ -979,7 +1031,7 @@ else
 		for c in "${RELEASE_CHECKS[@]}"; do
 			c_label="${c%%|*}"; c_cmd="${c#*|}"
 			fEcho "release check: ${c_label}"
-			eval "${c_cmd}" || fDie "release check failed: ${c_label}"
+			fCpuStep "${c_cmd}"; eval "${c_cmd}" || fDie "release check failed: ${c_label}"
 			fEcho "OK: ${c_label}"
 		done
 		if [[ -n "${RELEASE_ARTIFACT_DIR:-}" ]]; then
@@ -999,7 +1051,7 @@ else
 			export SOURCE_DATE_EPOCH="$(git -C "${root}" log -1 --format=%ct)"
 			## Installer packages (.deb/.rpm via nfpm, NSIS setup per Windows exe) join
 			## the artifact family before the sums are written, so they ship verified too.
-			((PACKAGE_ENABLE)) && "${here}/utility/package.bash" "${root}" "${art_dir}" "${ver}"
+			((PACKAGE_ENABLE)) && fStep "${here}/utility/package.bash" "${root}" "${art_dir}" "${ver}"
 			## The drop-in sources, man page and completions the installer
 			## lays down, as one asset in the same family - so they are covered by the
 			## signed sums like everything else. The installer used to take them from
@@ -1018,6 +1070,33 @@ else
 		fi
 	else
 		fEcho_Clean "release builds skipped"
+	fi
+fi
+
+## The test boxes, here whichever way stages 1-6 ran, since the host lock and
+## the ssh keys are on this box (2026102419263412). A box that isn't there is a
+## SKIP, and the run goes on; the summary at the end names it again.
+remote_skips=()
+if ((! inner_run)); then
+	fSection "6/9  Test boxes"
+	if ((no_remote)); then
+		fEcho_Clean "test boxes skipped (--no-remote)"
+	elif ((${#REMOTE_BOXES[@]} == 0)); then
+		fEcho_Clean "no test boxes configured"
+	elif [[ ! -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]] || ((${#built_arts[@]} == 0)); then
+		for r in "${REMOTE_BOXES[@]}"; do remote_skips+=("SKIP ${r%%|*}: no release builds this run"); done
+		printf '%s\n' "${remote_skips[@]}"
+	else
+		box_rows=()
+		for r in "${REMOTE_BOXES[@]}"; do
+			IFS='|' read -r r_box r_target r_osarch <<< "${r}"
+			box_rows+=("${r_box}|${r_target}|$(fArtOf "${r_osarch}")")
+		done
+		box_rc=0; fCpuStep check-boxes.bash
+		"${here}/utility/check-boxes.bash" "${RELEASE_NATIVE_BIN}" "${box_rows[@]}" 2>&1 | tee "${run_tmp}/boxes.out" || box_rc=$?
+		mapfile -t remote_skips < <(grep '^SKIP ' "${run_tmp}/boxes.out" || true)
+		((box_rc == 0)) || fDie "a test box check failed"
+		fEcho "OK: test boxes"
 	fi
 fi
 
@@ -1135,7 +1214,7 @@ fi
 fCleanup(){
 	local -a gone=()
 	local -i kb=0 sidecars=0 kbTmp=0
-	local f stamp size profDir bytes what
+	local f stamp size profDir bytes what dfBefore="" dfAfter="" dfLine=""
 	if ((inner_run)); then fRmRunTmp; return 0; fi
 	fFrozenGone || true
 	## A graph the rotation pruned leaves its sample count behind, under the
@@ -1156,20 +1235,27 @@ fCleanup(){
 	fi
 	if [[ -n "${ctr_image}" ]]; then
 		mkdir -p "${run_tmp}/sweep"
+		dfBefore="$(fCtrDf)"
 		while IFS=$'\t' read -r bytes what; do
 			gone+=("${what}")
 			if [[ "${bytes}" =~ ^[0-9]{1,15}$ ]]; then kb+=$((bytes / 1024)); fi
-		done < <(fCtrSweep "${run_tmp}/sweep" || true)
+		done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true)
+		## A week of build cache stays, for every project on the box.
+		"${SHCL_DOCKER:-docker}" builder prune -f --filter until=168h >/dev/null 2>&1 || true
+		dfAfter="$(fCtrDf)"
+		dfLine="$(paste <(printf '%s\n' "${dfBefore}") <(printf '%s\n' "${dfAfter}") \
+			| awk -F'\t' '$1 != "" && $1 == $3 { t = tolower($1); sub(/^local /, "", t); printf "%s%s %s -> %s", (n++ ? ", " : "; docker "), t, $2, $4 }')"
 	fi
 	kbTmp="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kbTmp=0
 	kb+=kbTmp
 	fRmRunTmp
 	gone+=("this run's temp files")
-	fEcho_Clean "cleanup: removed $(printf '%s, ' "${gone[@]}" | sed 's/, $//'), about $(fSize "${kb}")"
+	fEcho_Clean "cleanup: removed $(printf '%s, ' "${gone[@]}" | sed 's/, $//'), about $(fSize "${kb}")${dfLine}"
 }
 fCleanup
 
 fSection "${APP_NAME} CI/CD: done."
+for s in "${remote_skips[@]}"; do fEcho_Clean "${s}"; done
 fEcho_Clean
 exit 0
 }
@@ -1200,3 +1286,8 @@ exit 0
 ##		- 2026-10-19 JC: --no-leakcheck, refused beside --leakcheck.
 ##		- 2026-10-19 JC: Stages 1-6 run in the main image whenever docker answers. --no-container.
 ##		- 2026-10-19 JC: A temp dir per run, and a cleanup of stale images, containers and profiler sample files at the end.
+##		- 2026-10-24 JC: Zig's cache in the main image is a volume of its own, emptied at the end when it's over 2 GB or another Zig filled it.
+##		- 2026-10-24 JC: dev.project and dev.run labels and names on what docker makes; a run's containers go on any exit. The tag
+##		  before the current one stays, a week of build cache stays, and the cleanup line has docker system df before and after.
+##		- 2026-10-24 JC: The CPU cap is checked again before each step: a quarter when the box is busy or the step is hard,
+##		  and the run at nice 19 and idle I/O.

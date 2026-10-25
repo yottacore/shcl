@@ -1181,7 +1181,10 @@ fn schema_and_format_lines_follow_the_parser() {
 #[test]
 fn upgrade_leaves_its_own_output_alone() {
 	let _id = test_id("EssNzSi");
-	let iters = iter_count(1);
+	// About 4 in 100 runs make over a file naming this format, so at Miri's
+	// 100 the guard below rode on 1 or 2 hits and a seed move broke it
+	// (2026102413172941). At 300 it needs 4 of about 11.
+	let iters = iter_count(300);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_06AD_0000_0004);
 	let (mut kept, mut made, mut beta, mut newer, mut odd) =
@@ -1328,6 +1331,19 @@ fn a_kept_array_line_builds_no_list_with_a_field() {
 	assert_eq!(Document::parse(&once).to_canonical(), once);
 }
 
+/// Under Miri, whether a round should be passed over as too costly. Every path
+/// walk reads each path from the root, so it costs the paths' total length. A
+/// mutation that takes one dot off the depth cap's line binds a 511-deep
+/// chain, about 650 KB of paths to walk, where a seed has 1 KB at most. Drawn
+/// once in Miri's 100 rounds, it took that test past its 7200 s limit
+/// (2026102413172941). Natively it costs a second, so it stays in.
+fn too_deep_for_miri(docs: &[&Document]) -> bool {
+	cfg!(miri)
+		&& docs
+			.iter()
+			.any(|d| d.paths().iter().map(String::len).sum::<usize>() > 64 * 1024)
+}
+
 /// Layered merge over mutated soup: overlaying one document on another must
 /// never panic and the merged result must be a formatter fixpoint - the same
 /// guarantee `fmt` gives, now for the composed document.
@@ -1341,13 +1357,20 @@ fn merge_never_panics_and_stays_fixpoint() {
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_CAFE_F00D_0007);
+	let mut skipped = 0usize;
 	for i in 0..iters {
 		let a_i = rng.below(seeds.len());
 		let a = mutate(&mut rng, &seeds[a_i]);
 		let b_i = rng.below(seeds.len());
 		let b = mutate(&mut rng, &seeds[b_i]);
 		let mut doc = Document::parse(&a);
-		doc.merge(&Document::parse(&b));
+		let layer = Document::parse(&b);
+		// After the last draw, so the rounds left are a native run's.
+		if too_deep_for_miri(&[&doc, &layer]) {
+			skipped += 1;
+			continue;
+		}
+		doc.merge(&layer);
 		assert!(
 			!list_with_field(&doc),
 			"a merged list with a field under it at iteration {i}:\nA:\n{a}\nB:\n{b}"
@@ -1365,7 +1388,6 @@ fn merge_never_panics_and_stays_fixpoint() {
 		// that text gives the same text again.
 		let mut empty = Document::new();
 		empty.merge(&Document::parse(&b));
-		let layer = Document::parse(&b);
 		assert_eq!(
 			empty.paths(),
 			layer.paths(),
@@ -1451,6 +1473,10 @@ fn merge_never_panics_and_stays_fixpoint() {
 			b
 		);
 	}
+	assert!(
+		skipped * 10 <= iters,
+		"{skipped} of {iters} rounds were too deep for Miri"
+	);
 }
 
 /// Writer round-trip: a set_string value must read back verbatim (encode is the

@@ -11,7 +11,7 @@
 ##		check-win-release.bash LINUX_BIN WIN_BIN
 ##		  LINUX_BIN   the native release build, run here for the answers
 ##		  WIN_BIN     the windows-x86_64 release build
-##		  CPU_CAP     parallel runs (default half the cores)
+##		  CPU_CAP     parallel runs (default half the cores, a quarter when busy)
 ##	Exit: 0 = clean or skipped, 1 = a check failed, 2 = usage.
 ##	History: At bottom of script.
 
@@ -37,7 +37,9 @@ case "${1:-}" in -h|--help) sed -n '/^##	Purpose:/,/^##	History:/p' "${BASH_SOUR
 (($# == 2)) || { echo "usage: check-win-release.bash LINUX_BIN WIN_BIN" >&2; exit 2 ;}
 linBin="$(realpath -- "$1")"; winBin="$(realpath -- "$2")"
 for f in "${linBin}" "${winBin}"; do [[ -f "${f}" ]] || { echo "check-win-release: no such file: ${f}" >&2; exit 2 ;}; done
-jobs="${CPU_CAP:-$(( $(nproc) / 2 ))}"; ((jobs >= 1)) || jobs=1
+jobs="${CPU_CAP:-}"
+# shellcheck source-path=SCRIPTDIR
+[[ "${jobs}" =~ ^[1-9][0-9]*$ ]] || { source "${meDir}/include/cpu-cap.bash"; fCpuCap; jobs="${CPU_CAP}"; }
 
 ##	fRunAll TAG CMD... -> TAG/N.o, TAG/N.e and TAG/N.rc for each case
 fRunAll(){

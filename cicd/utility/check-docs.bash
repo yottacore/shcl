@@ -434,7 +434,9 @@ fTest EoXVY4O installer-tar-prerequisite
 ##	prerequisites used to cover only the Linux side, so the requirement was
 ##	reachable only by running it and failing.
 ps1="${repoDir}/install.ps1"
-if [[ -f "${ps1}" ]] && grep -q "needs tar to unpack" "${ps1}"; then
+if [[ ! -f "${ps1}" ]]; then
+	fBad "install.ps1 is gone, so its tar and parse rows check nothing"
+elif grep -q "needs tar to unpack" "${ps1}"; then
 	grep -qE '(^|[^a-z])tar([^a-z]|$).*[Ww]indows|[Ww]indows.*(^|[^a-z])tar([^a-z]|$)' "${installDoc}" \
 		|| fBad "install.ps1 requires tar and project/install.md never says so on the Windows side"
 fi
@@ -1514,3 +1516,4 @@ echo "check-docs: OK"
 ##		2026-10-16  The man SYNOPSIS is read against the help both ways.
 ##		2026-10-19  The header checks read 100 lines, since cicd.bash's help grew past 80.
 ##		2026-10-19  Its scratch files go in one dir, removed on any exit.
+##		2026-10-24  A missing install.ps1 fails by name, not silently.

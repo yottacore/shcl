@@ -431,7 +431,7 @@ mkdir -p "${eng}/cicd/utility/include" "${eng}/source/rust"
 cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${eng}/cicd/"
 cp "${root}/cicd/utility/green-tree.bash" "${eng}/cicd/utility/"
 cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" \
-	"${root}/cicd/utility/include/stop-descendants.bash" "${eng}/cicd/utility/include/"
+	"${root}/cicd/utility/include/stop-descendants.bash" "${root}/cicd/utility/include/cpu-cap.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
 cat > "${eng}/cicd/utility/crosscheck.bash" <<'EOF'
 #!/usr/bin/env bash
@@ -588,44 +588,70 @@ fCalibrated --gate --no-tests
 ## call to STUB_DOCKER_LOG. A run writes down its mounts, or with
 ## STUB_DOCKER_EXEC runs its command here, once, with its -e settings.
 ## STUB_DOCKER_IMAGES is a file of the images it has, as REPO:TAG lines,
-## STUB_DOCKER_DANGLING and STUB_DOCKER_STOPPED are an image and a container
-## it has under the shcl-cicd label, and what it's asked to remove goes in
-## STUB_DOCKER_GONE. With STUB_DOCKER_NOIMAGE it has no image to run, and a
+## oldest first, STUB_DOCKER_DANGLING and STUB_DOCKER_STOPPED are an image and
+## a stopped container it has under the dev.project label, STUB_DOCKER_RUNNING
+## a container of the asking run until it's stopped, and what it's asked to stop or remove goes in
+## STUB_DOCKER_GONE. Each run and build writes its arguments to
+## STUB_DOCKER_ARGS. system df gives smaller images once something is gone. With STUB_DOCKER_NOIMAGE it has no image to run, and a
 ## build makes one. A run given --cidfile writes an ID there, and kill writes
 ## down what it's asked to kill in STUB_DOCKER_GONE too. With STUB_DOCKER_HANG
 ## a run writes its PID there and runs until stopped, and with
 ## STUB_DOCKER_STUBBORN too it passes over a TERM, as a stuck client would.
+## A volume create goes in STUB_DOCKER_VOLS. With STUB_DOCKER_ZIG it has Zig's
+## cache volume, and a run that mounts it without bash prints that, as
+## fCtrZigTrim's would: "KB<TAB>STAMP<TAB>VERSION".
 cat > "${work}/fake-docker" <<'EOF'
 #!/usr/bin/env bash
 if [[ -n "${STUB_DOCKER_LOG:-}" ]]; then echo "${1:-}" >> "${STUB_DOCKER_LOG}"; fi
+if [[ -n "${STUB_DOCKER_ARGS:-}" && ( "${1:-}" == run || "${1:-}" == build || "${1:-}${2:-}" == volumecreate ) ]]; then a="$*"; echo "${a//$'\n'/ }" >> "${STUB_DOCKER_ARGS}"; fi
 case "${1:-}" in
 	info)  exit "${STUB_DOCKER_DOWN:-0}" ;;
 	image)
 		case "${2:-}" in
 			ls)
 				if [[ " $* " == *" dangling=true "* ]]; then
-					if [[ " $* " == *" label=shcl-cicd "* && -n "${STUB_DOCKER_DANGLING:-}" ]]; then echo "${STUB_DOCKER_DANGLING}"; fi
+					if [[ " $* " == *" label=dev.project=shcl "* && -n "${STUB_DOCKER_DANGLING:-}" ]]; then echo "${STUB_DOCKER_DANGLING}"; fi
 				elif [[ -n "${STUB_DOCKER_IMAGES:-}" ]]; then
 					if [[ "${3:-}" != -* ]]; then grep "^${3}:" "${STUB_DOCKER_IMAGES}" || true; else cat "${STUB_DOCKER_IMAGES}"; fi
 				fi ;;
 			inspect)
-				if [[ "${3:-}" == --format ]]; then echo 1048576
+				if [[ "${3:-}" == --format && "${4:-}" == '{{.Created}}' ]]; then
+					for ref in "${@:5}"; do printf '2026-01-01T00:%02d:00Z\n' "$(grep -nxF -- "${ref}" "${STUB_DOCKER_IMAGES:-/dev/null}" | cut -d: -f1)"; done
+				elif [[ "${3:-}" == --format ]]; then echo 1048576
 				elif [[ -n "${STUB_DOCKER_NOIMAGE:-}" ]]; then exit 1; fi ;;
 		esac
 		exit 0 ;;
 	build) exit 0 ;;
-	rmi|rm|kill) echo "$1 ${2:-}" >> "${STUB_DOCKER_GONE:-/dev/null}"; exit 0 ;;
+	volume)
+		case "${2:-}" in
+			create)  echo "$*" >> "${STUB_DOCKER_VOLS:-/dev/null}"; exit 0 ;;
+			inspect) [[ -n "${STUB_DOCKER_ZIG:-}" ]]; exit ;;
+			rm)      echo "volume rm ${3:-}" >> "${STUB_DOCKER_GONE:-/dev/null}"; exit 0 ;;
+		esac
+		exit 1 ;;
+	rmi|rm|kill|stop) echo "$1 ${*: -1}" >> "${STUB_DOCKER_GONE:-/dev/null}"; exit 0 ;;
+	builder) echo "$*" >> "${STUB_DOCKER_PRUNE:-/dev/null}"; exit 0 ;;
+	system)
+		if [[ -s "${STUB_DOCKER_GONE:-/dev/null}" ]]; then images=1GB; else images=2GB; fi
+		printf 'Images\t%s\nContainers\t0B\nLocal Volumes\t119MB\nBuild Cache\t5GB\n' "${images}"
+		exit 0 ;;
 	ps)
-		if [[ " $* " == *" label=shcl-cicd "* && -n "${STUB_DOCKER_STOPPED:-}" ]]; then echo "${STUB_DOCKER_STOPPED}"; fi
+		if [[ " $* " == *" label=dev.project=shcl "* ]]; then
+			if [[ " $* " == *" status=exited "* && -n "${STUB_DOCKER_STOPPED:-}" ]]; then echo "${STUB_DOCKER_STOPPED}"; fi
+			if [[ " $* " == *" label=dev.run=${SHCL_DEV_RUN:-?} "* && -n "${STUB_DOCKER_RUNNING:-}" ]] \
+				&& ! grep -qx "stop ${STUB_DOCKER_RUNNING}" "${STUB_DOCKER_GONE:-/dev/null}" 2>/dev/null; then echo "${STUB_DOCKER_RUNNING}"; fi
+		fi
 		exit 0 ;;
 	run)   ;;
 	*)     exit 1 ;;
 esac
+if [[ " $* " == *":/zig-cache "* && " $* " != *" bash "* ]]; then printf '%b\n' "${STUB_DOCKER_ZIG:-}"; exit 0; fi
 ## cat /etc/passwd or /etc/group
 if [[ " $* " != *" bash "* ]]; then echo "root:x:0:0::/root:/bin/sh"; exit 0; fi
 for ((a = 1; a < $#; a++)); do
 	if [[ "${!a}" == --cidfile ]]; then b=$((a + 1)); echo c1d0c1d0c1d0 > "${!b}"; fi
 done
+if [[ -n "${STUB_DOCKER_RUNFAIL:-}" ]]; then exit 1; fi
 if [[ -n "${STUB_DOCKER_HANG:-}" ]]; then
 	if [[ -n "${STUB_DOCKER_STUBBORN:-}" ]]; then trap '' TERM; fi
 	echo "$$" > "${STUB_DOCKER_HANG}"
@@ -640,7 +666,7 @@ if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 			--rm|--init)           shift ;;
 			-e)                    envs+=("$2"); shift 2 ;;
 			-w)                    dir="$2"; shift 2 ;;
-			-v|--user|--group-add|--label|--network|--device|--cidfile) shift 2 ;;
+			-v|--user|--group-add|--label|--name|--network|--device|--cidfile|--cpus|--cpu-shares) shift 2 ;;
 			*)                     break ;;
 		esac
 	done
@@ -715,11 +741,11 @@ fTest EstM5os an extra image builds into its own copies and leaves this tree as 
 ## On the checkout's own paths, so --no-freeze.
 if [[ "$(uname -m)" == x86_64 ]]; then
 	cp -r "${root}/cicd/container" "${eng}/cicd/"
-	mapfile -t ctrExtra < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
+	mapfile -t ctrExtra < <(source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
 	for f in "${ctrExtra[@]}"; do cp "${root}/${f}" "${eng}/${f}"; done
 	mkdir -p "${eng}/source/c" "${eng}/source/go"
-	mapfile -t ctrPrivate < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_PRIVATE[@]}")
-	mapfile -t ctrClis < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${BINDING_CLIS[@]}")
+	mapfile -t ctrPrivate < <(source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_PRIVATE[@]}")
+	mapfile -t ctrClis < <(source "${root}/cicd/config.bash"; printf '%s\n' "${BINDING_CLIS[@]}")
 	fCtrMounts(){  ## fCtrMounts LABEL: an alpine run on eng, its mounts held to the rules
 		local label="$1" p host dst there seen="" before=() ctrRc=0
 		for p in "${ctrPrivate[@]}"; do before+=("$(if [[ -e "${eng}/${p%/}" || -L "${eng}/${p%/}" ]]; then echo yes; else echo no; fi)"); done
@@ -731,6 +757,7 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 			if [[ "${seen}" == *$'\n'"${dst}"$'\n'* ]]; then fail "${label}: 2 mounts at ${dst}"; fi
 			seen+=$'\n'"${dst}"$'\n'
 		done < "${work}/mounts.tsv"
+		if grep -qF /zig-cache "${work}/mounts.tsv"; then fail "${label}: an extra image, which has no Zig, gets Zig's cache volume"; fi
 		for p in "${ctrPrivate[@]}"; do
 			host="$(readlink -f -- "${eng}/${p%/}")"
 			if ! awk -F'\t' -v d="${host}" -v c="${work}/ctrcache/" '$2 == d && index($1, c) == 1 { f = 1 } END { exit !f }' "${work}/mounts.tsv"; then
@@ -747,10 +774,18 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 		done
 		return 0
 	}
-	fCtrMounts "nothing built here"
-	## A gate worktree's target dir is a link to the checkout's target-gate. A
-	## target the run above left behind has already failed.
-	if [[ ! -e "${eng}/source/rust/target" ]]; then
+	## The frozen runs above left the checkout's end of each FROZEN_LINKS entry as
+	## an empty dir, so they go first, or nothing built here isn't that layout.
+	ctrSetUp=1
+	for p in "${ctrPrivate[@]}"; do
+		if [[ "${p}" == */ && -d "${eng}/${p%/}" && ! -L "${eng}/${p%/}" ]]; then rmdir -- "${eng}/${p%/}" 2>/dev/null || true; fi
+		if [[ -e "${eng}/${p%/}" || -L "${eng}/${p%/}" ]]; then fail "can't set up nothing built here: ${p} is in the stub repository"; ctrSetUp=0; fi
+	done
+	if ((ctrSetUp)); then fCtrMounts "nothing built here"; fi
+	## A gate worktree's target dir is a link to the checkout's target-gate.
+	if [[ -e "${eng}/source/rust/target" || -L "${eng}/source/rust/target" ]]; then
+		fail "can't set up a gate worktree: source/rust/target is in the stub repository"
+	else
 		mkdir -p "${work}/target-gate"; ln -s "${work}/target-gate" "${eng}/source/rust/target"
 		fCtrMounts "a gate worktree"
 		## The main image still builds into it, as the pre-push hook's run does.
@@ -777,7 +812,7 @@ fTest EtDCDE7 with docker answering, a run goes to the main image, which records
 ## 2026101920461174: the run inside is told where it is, so it doesn't ask
 ## docker again. The tree it records is the one on disk, recipes included.
 cp -r "${root}/cicd/container" "${eng}/cicd/"
-mapfile -t ctrExtra < <(CPU_CAP=1; source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
+mapfile -t ctrExtra < <(source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
 for f in "${ctrExtra[@]}"; do cp "${root}/${f}" "${eng}/${f}"; done
 ctrTree="$("${eng}/cicd/utility/green-tree.bash" tree "${eng}")"
 fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- --gate
@@ -846,16 +881,23 @@ done
 EOF
 mapfile -t ctrNow < <(bash "${work}/ctr-image-on.bash" "${eng}" tags || true)
 ((${#ctrNow[@]} >= 2)) || fail "could not work out the images' current tags: ${ctrNow[*]}"
-printf '%s\n' "${ctrNow[@]}" shcl-cicd:000000000000 shcl-cicd-alpine:000000000000 shcl-cicd-gone:000000000000 \
-	shclwrap-c-tools:1 other-cicd:1 shcl-cicd-x:y:1 '<none>:<none>' > "${work}/images.txt"
-rm -f "${work}/gone.txt"
-fCtr STUB_DOCKER_IMAGES="${work}/images.txt" STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_DANGLING=d0d0 STUB_DOCKER_STOPPED=c0c0 -- --gate
+## 2026102416250030: the newest tag but the current one stays, as the one
+## before it, so the 111111111111 tags stay. A name with no recipe keeps none.
+printf '%s\n' shcl-cicd:000000000000 shcl-cicd-alpine:000000000000 shcl-cicd-gone:000000000000 shcl-cicd:111111111111 \
+	shcl-cicd-alpine:111111111111 shcl-cicd-gone:111111111111 "${ctrNow[@]}" shclwrap-c-tools:1 other-cicd:1 shcl-cicd-x:y:1 '<none>:<none>' > "${work}/images.txt"
+rm -f "${work}/gone.txt" "${work}/prune.txt"
+fCtr STUB_DOCKER_IMAGES="${work}/images.txt" STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_DANGLING=d0d0 STUB_DOCKER_STOPPED=c0c0 STUB_DOCKER_PRUNE="${work}/prune.txt" -- --gate
 sweptGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
-sweptWant="rm c0c0 rmi d0d0 rmi shcl-cicd-alpine:000000000000 rmi shcl-cicd-gone:000000000000 rmi shcl-cicd:000000000000"
+sweptWant="rm c0c0 rmi d0d0 rmi shcl-cicd-alpine:000000000000 rmi shcl-cicd-gone:000000000000 rmi shcl-cicd-gone:111111111111 rmi shcl-cicd:000000000000"
 if ((engRc != 0)) || [[ "${sweptGot}" != "${sweptWant}" ]]; then
 	fail "the sweep after a run in the image: exit ${engRc}, removed '${sweptGot}', want '${sweptWant}': $(tail -3 "${work}/eng.log")"
 fi
 grep -qF "shcl-cicd:000000000000" <(grep -F 'cleanup: removed' "${work}/eng.log") || fail "the cleanup line doesn't name the image it removed"
+## After the sweep, a week of build cache stays, and the line has docker's
+## sizes from before and after.
+[[ "$(cat "${work}/prune.txt" 2>/dev/null)" == "builder prune -f --filter until=168h" ]] || fail "the build cache prune after the sweep: '$(cat "${work}/prune.txt" 2>/dev/null)'"
+grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "; docker images 2GB -> 1GB, containers 0B -> 0B, volumes 119MB -> 119MB, build cache 5GB -> 5GB" \
+	|| fail "the cleanup line doesn't compare docker system df before and after: $(grep -F 'cleanup:' "${work}/eng.log" || true)"
 fTest EtDQOSv a gate that builds the image removes the tags it replaces
 ## 2026101920461153: the leak checks build the image when it's missing, and
 ## that build left the old tag behind. Only the name it built is touched.
@@ -863,7 +905,59 @@ rm -f "${work}/gone.txt"
 selfOut="$(SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_IMAGES="${work}/images.txt" STUB_DOCKER_GONE="${work}/gone.txt" \
 	STUB_MOUNTS="${work}/self.tsv" PATH="${work}/x86_64:${PATH}" bash "${work}/ctr-image-on.bash" "${eng}" self "${work}/self" 2>&1)" || true
 selfGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
-[[ "${selfGot}" == "rmi shcl-cicd:000000000000" ]] || fail "a gate's build of the image removed '${selfGot}', want the old main tag only: ${selfOut}"
+[[ "${selfGot}" == "rmi shcl-cicd:000000000000" ]] || fail "a gate's build of the image removed '${selfGot}', want the oldest main tag only, since the one before stays: ${selfOut}"
+fTest Etg0eIJ a run in the main image empties the Zig cache volume over 2 GB or filled by another Zig, and keeps it otherwise
+## 2026102416250020: Zig's cache is a labeled volume of the main image's own,
+## and it goes whole, never part of it.
+for zigCase in "over the cap|2097153\t0.16.0\t0.16.0|volume rm shcl-zig-cache" "another Zig|512\t0.15.2\t0.16.0|volume rm shcl-zig-cache" \
+	"at the cap|2097152\t0.16.0\t0.16.0|" "a stamp it can't read|garbage|" "no volume||"; do
+	IFS='|' read -r zigLabel zigHas zigWant <<<"${zigCase}"
+	rm -f "${work}/gone.txt" "${work}/vols.txt"
+	fCtr STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_VOLS="${work}/vols.txt" STUB_DOCKER_ZIG="${zigHas}" STUB_MOUNTS="${work}/zig.tsv" -- --gate
+	awk -F'\t' '$1 == "shcl-zig-cache" && $2 == "/zig-cache" { f = 1 } END { exit !f }' "${work}/zig.tsv" \
+		|| fail "Zig's cache volume, ${zigLabel}: the main image doesn't get it at /zig-cache"
+	zigGot="$(grep -F volume "${work}/gone.txt" 2>/dev/null || true)"
+	if ((engRc != 0)) || [[ "${zigGot}" != "${zigWant}" ]]; then
+		fail "Zig's cache volume, ${zigLabel}: exit ${engRc}, removed '${zigGot}', want '${zigWant}': $(tail -3 "${work}/eng.log")"
+	fi
+	if [[ -n "${zigWant}" ]] && ! grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "the shcl-zig-cache volume"; then
+		fail "Zig's cache volume, ${zigLabel}: the cleanup line doesn't name it"
+	fi
+	[[ "$(cat "${work}/vols.txt" 2>/dev/null)" =~ ^"volume create --label dev.project=shcl --label dev.run=shcl-run."[A-Za-z0-9]+" shcl-zig-cache"$ ]] \
+		|| fail "Zig's cache volume, ${zigLabel}: made as '$(cat "${work}/vols.txt" 2>/dev/null)', want our label on it before the run"
+done
+fTest EtgFdOY what a run makes in docker carries its labels, and each container its name
+## 2026102416250030: dev.project and dev.run, the run folder's name, on each
+## container, image and volume, and containers named shcl-RUN-STEP.
+rm -f "${work}/args.txt"
+fCtr STUB_DOCKER_ARGS="${work}/args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_ZIG='512\t0.16.0\t0.16.0' STUB_MOUNTS="${work}/lbl.tsv" -- -y --no-sync
+lblRun="$(grep -oE 'dev\.run=[^ ]*' "${work}/args.txt" 2>/dev/null | sed -n '1s/^dev\.run=//p' || true)"
+lblBad="$(grep -vF -- "--label dev.project=shcl --label dev.run=${lblRun} " "${work}/args.txt" || true)"
+mapfile -t lblNames < <(grep -oE -- '--name [^ ]+' "${work}/args.txt" | cut -d' ' -f2 | LC_ALL=C sort)
+lblWant="$(printf "shcl-${lblRun}-%s\n" build build-group build-passwd fmt fmt-group fmt-passwd zig-trim | LC_ALL=C sort | paste -sd' ')"
+lblBuilds="$(grep -c '^build ' "${work}/args.txt" || true)"; lblVols="$(grep -c '^volume create ' "${work}/args.txt" || true)"
+if ((engRc != 0 || lblBuilds < 1 || lblVols < 1)) || [[ ! "${lblRun}" =~ ^shcl-run\.[A-Za-z0-9]+$ || -n "${lblBad}" ]]; then
+	fail "the labels on what a run makes: exit ${engRc}, run '${lblRun}', ${lblBuilds} build(s), ${lblVols} volume(s), without both labels: ${lblBad:-none}: $(tail -2 "${work}/eng.log")"
+fi
+[[ "$(printf '%s\n' "${lblNames[@]}" | paste -sd' ')" == "${lblWant}" ]] || fail "the containers' names: '${lblNames[*]}', want '${lblWant}'"
+fTest EtgShUg every container a run starts has a CPU quota and a low share
+## 2026102421025783: nice on the docker client doesn't reach the container.
+cpuRuns="$(grep -c '^run ' "${work}/args.txt" || true)"
+cpuBad="$(grep '^run ' "${work}/args.txt" | grep -vE -- ' --cpus [1-9][0-9]* --cpu-shares 256 ' || true)"
+if ((cpuRuns < 7)) || [[ -n "${cpuBad}" ]]; then
+	fail "the CPU limits on a run's containers: ${cpuRuns} run(s), without --cpus and --cpu-shares 256: ${cpuBad:-none}"
+fi
+## The scripts a gate runs in the image, which this stub doesn't start.
+# shellcheck disable=SC2016  ## ctr-image.bash's own text, matched literally
+grep -qF '"${tag}" nice -n 19 bash "$@"' "${root}/cicd/utility/include/ctr-image.bash" || fail "fCtrRunSelf no longer runs its script under nice in the image"
+fTest EtgFdh7 a run that fails stops and removes its containers by its run label
+## 2026102416250030: on any exit, not only a whole run, and only this run's.
+rm -f "${work}/gone.txt"
+fCtr STUB_DOCKER_RUNFAIL=1 STUB_DOCKER_RUNNING=r1r1 STUB_DOCKER_GONE="${work}/gone.txt" -- --gate
+runGot="$(paste -sd' ' "${work}/gone.txt" 2>/dev/null || true)"
+if ((engRc != 1)) || [[ "${runGot}" != "stop r1r1 rm r1r1" ]] || ! grep -qF "stopped and removed 1 container(s) of this run" "${work}/eng.log"; then
+	fail "a failed run's containers: exit ${engRc}, stopped and removed '${runGot}', want 'stop r1r1 rm r1r1': $(tail -3 "${work}/eng.log")"
+fi
 ## A run started here and stopped by a TERM to its PID alone, once PIDFILE
 ## names the process it hangs on.
 fStopRun(){  ## fStopRun PIDFILE [VAR=VALUE ...] -- ARGS... -> stopRc, stopPid, stopLeft (1 if stopPid outlived the run)
@@ -894,9 +988,11 @@ fTest EtNhz0U a stopped run in the image kills a container whose client will not
 ## A client that doesn't is KILLed after the wait, which would leave the
 ## container up, so the run kills it by the ID docker wrote down.
 rm -f "${work}/gone.txt"
-fStopRun "${work}/dhang.pid" SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_HANG="${work}/dhang.pid" STUB_DOCKER_STUBBORN=1 STUB_DOCKER_GONE="${work}/gone.txt" \
+fStopRun "${work}/dhang.pid" SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_HANG="${work}/dhang.pid" STUB_DOCKER_STUBBORN=1 STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_RUNNING=r2r2 \
 	SHCL_STOP_WAIT=2 SHCL_CTR_CACHE="${work}/ctrcache" PATH="${work}/x86_64:${PATH}" -- --gate
 stopKilled="$(grep -c '^kill c1d0c1d0c1d0$' "${work}/gone.txt" 2>/dev/null || true)"
+## 2026102416250030: and then what's left of this run, by its label.
+grep -qx 'stop r2r2' "${work}/gone.txt" 2>/dev/null || fail "a stopped run in the image didn't stop its containers by its run label: $(paste -sd' ' "${work}/gone.txt" 2>/dev/null || true)"
 if ((stopRc != 143 || stopLeft || stopKilled != 1)) || [[ -z "${stopPid}" ]] || ! grep -qF "by KILL after 2 s" "${work}/stop.log"; then
 	fail "a stopped run in the image: exit ${stopRc}, the client $( ((stopLeft)) && echo 'outlived it' || echo "'${stopPid}' went"), ${stopKilled:-0} kill(s) of its container: $(tail -3 "${work}/stop.log")"
 fi
@@ -928,3 +1024,7 @@ exit "${rc}"
 ##		- 2026-10-19 JC: --no-leakcheck, and the pair refused.
 ##		- 2026-10-19 JC: A run goes to the main image when docker answers, and --no-container.
 ##		- 2026-10-19 JC: A run's own temp dir, and the cleanup of stale images, containers and sample files.
+##		- 2026-10-24 JC: Zig's cache volume in the main image, and when a run empties it.
+##		- 2026-10-24 JC: The gate worktree half of the extra image check runs every time.
+##		- 2026-10-24 JC: The run labels and container names, a failed or stopped run's containers, the tag
+##		  before the current one, the build cache prune and the docker sizes on the cleanup line.

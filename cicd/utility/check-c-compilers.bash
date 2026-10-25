@@ -128,7 +128,8 @@ fMusl(){  ## fMusl - build the C CLI against musl and run cli-regress over it
 ## A job counts as passed only if it wrote its ok file, so one that dies
 ## without a word is a failure rather than a silent pass.
 cap="${CPU_CAP:-}"
-[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || cap=$(( $(nproc 2>/dev/null || echo 2) / 2 ))
+# shellcheck source-path=SCRIPTDIR
+[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || { source "$(dirname -- "${BASH_SOURCE[0]}")/include/cpu-cap.bash"; fCpuCap; cap="${CPU_CAP}"; }
 ((cap > 0)) || cap=1
 ## Each job belongs to a kind, which is one test: the same build on every
 ## compiler, and at every level where it is swept.

@@ -174,7 +174,8 @@ for name in "${!ceilMib[@]}"; do
 done
 budgetMib=$(( $(awk '/^MemAvailable:/{print int($2 / 1024)}' /proc/meminfo) - 2048 ))
 cap="${CPU_CAP:-}"
-[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || cap=$(( $(nproc) / 2 ))
+# shellcheck source-path=SCRIPTDIR
+[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || { source "$(dirname -- "${BASH_SOURCE[0]}")/include/cpu-cap.bash"; fCpuCap hard; cap="${CPU_CAP}"; }
 ((cap > 0)) || cap=1
 
 fJobRun() {

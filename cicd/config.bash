@@ -111,13 +111,14 @@ TOOL_PINS=(
 ## the binary pin above; check-pins.bash holds ci.yml to both.
 CPPCHECK_WHEEL="1.5.1"
 
-## Stage 2: debug build (what the tests exercise). Capped at half the cores -
-## cargo via -j, the Go toolchain (and the Go-built lint tools below) via
-## GOMAXPROCS, which they all honor.
+## Stage 2: debug build (what the tests exercise). The engine works out the
+## cap before each step and exports it as CPU_CAP, CARGO_BUILD_JOBS,
+## RUST_TEST_THREADS, GOMAXPROCS and RAYON_NUM_THREADS, so a plain array here
+## names no count: one expanded now would keep the count from the start.
 ## The Go and C binding CLIs build here too - crosscheck needs them in stage 4.
 ## C has no separate fmt/lint stage (no committed zero-dep formatter); the
 ## strict-warning compile is its quality gate, same spirit as clippy.
-BUILD_CMD=(cargo build -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+BUILD_CMD=(cargo build --manifest-path "${MANIFEST}")
 BUILD_EXTRA=(
 	'GOAMD64=v1 GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd build -o ../shcl ./shcl'
 	'python3 -m py_compile source/python/shcl.py source/python/cmd/shcl/main.py source/python/tests/conformance.py source/python/tests/soak.py'
@@ -137,7 +138,7 @@ BUILD_EXTRA=(
 ## over the rust lockfile (config in source/rust/deny.toml). All four libraries
 ## are dependency-free, so what these actually watch is the toolchain and the
 ## feature-gated profiler chain - small, and not nothing.
-LINT_CMD=(cargo clippy -j "${CPU_CAP}" --manifest-path "${MANIFEST}" --all-targets -- -D warnings)
+LINT_CMD=(cargo clippy --manifest-path "${MANIFEST}" --all-targets -- -D warnings)
 LINT_EXTRA=(
 	## The host clippy never compiles the cfg(windows) code. The target comes with
 	## rust-toolchain.toml, and a check needs no mingw linker.
@@ -200,6 +201,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-cpu-floor.bash
+	cicd/utility/check-boxes.bash
 	cicd/utility/check-freebsd.bash
 	cicd/utility/check-win-release.bash
 	cicd/utility/check-win-setup.bash
@@ -237,6 +239,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/win-runners.bash
 	cicd/hooks/pre-push
 	cicd/utility/include/c-flags.bash
+	cicd/utility/include/cpu-cap.bash
 	cicd/utility/include/corpus-cases.bash
 	cicd/utility/include/ctr-image.bash
 	cicd/utility/include/frozen-tree.bash
@@ -259,14 +262,12 @@ SHELLCHECK_TARGETS=(
 ## Deeper still is worth a run before a release cut:
 ##     SHCL_FUZZ_ITERS=1000000 cargo test --manifest-path source/rust/Cargo.toml \
 ##         --test fuzz_smoke
-## RUST_TEST_THREADS caps the harness the way -j caps the compile; the fuzz
-## tests are the heavy ones and would otherwise take every core.
 ## libtest-quiet.bash drops libtest's per-test lines, since each test prints
 ## its own with its test ID.
-TEST_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=200000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+TEST_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=200000 cargo test --manifest-path "${MANIFEST}")
 ## --quick swaps in this test command: same suites, fuzz at the old 20k gate
 ## depth - the minute-scale 200k soak is what the fast loop sheds.
-TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 cargo test --manifest-path "${MANIFEST}")
 ## -count=1: the corpus sits outside the Go module, so go's test cache cannot
 ## see a changed case and answers `ok (cached)` over a broken golden. The
 ## library is one package, named by directory rather than ./..., since a
@@ -404,7 +405,7 @@ LARGEDOC_MIB=100
 ## themselves, by package.bash.
 PROFILE_ENABLE=1
 PROFILE_SECS=8
-PROFILE_BUILD_CMD=(cargo build --profile profiling --features profiling -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+PROFILE_BUILD_CMD=(cargo build --profile profiling --features profiling --manifest-path "${MANIFEST}")
 PROFILE_BIN="source/rust/target/profiling/${EXE_NAME}"
 PROFILE_OUT_DIR="cicd/artifacts/profiling"   ## relative to repo root; gitignored
 PROFILE_WORKLOAD_GEN='source cicd/utility/include/largedoc-gen.bash; largedoc_gen 4 > "${PROFILE_WORKLOAD}"'
@@ -421,7 +422,7 @@ PROFILE_CHECK='s=ok; SHCL_PROFILE_CHECK=1 "${PROFILE_BIN}" || s=FAIL; printf "%-
 ## is a noted skip.
 PROFILE_CHECK_PROBE_CMD=(cargo fetch --offline --manifest-path "${MANIFEST}")
 PROFILE_CHECK_BUILD_CMD=(env CARGO_PROFILE_PROFILING_LTO=false CARGO_PROFILE_PROFILING_CODEGEN_UNITS=16
-	cargo build --offline --profile profiling --features profiling -j "${CPU_CAP}" --manifest-path "${MANIFEST}"
+	cargo build --offline --profile profiling --features profiling --manifest-path "${MANIFEST}"
 	--target-dir source/rust/target/profile-check)
 PROFILE_CHECK_BIN="source/rust/target/profile-check/profiling/${EXE_NAME}"
 PROFILE_RUN='SHCL_PROFILE_OUT="${PROFILE_OUT}" SHCL_PROFILE_SECS="${PROFILE_SECS}" "${PROFILE_BIN}" fmt "${PROFILE_WORKLOAD}" >/dev/null 2>&1'
@@ -463,7 +464,7 @@ fMacSdk(){
 	[[ "${zigEnv}" =~ ${re} ]] && printf '%s/libc/darwin' "${BASH_REMATCH[1]}"
 	return 0
 }
-RELEASE_NATIVE_CMD=(cargo build --release -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+RELEASE_NATIVE_CMD=(cargo build --release --manifest-path "${MANIFEST}")
 RELEASE_NATIVE_BIN="source/rust/target/release/${EXE_NAME}"
 RELEASE_NATIVE_OSARCH="linux-x86_64"
 CROSS_TARGETS=(
@@ -510,6 +511,20 @@ RELEASE_CHECKS=(
 	"freebsd-x86_64 build runs the corpus under FreeBSD like the native one|bsdArt=\"\$(fArtOf freebsd-x86_64)\"; if [[ -n \"\${bsdArt}\" ]]; then cicd/utility/check-freebsd.bash \"\${RELEASE_NATIVE_BIN}\" \"\${bsdArt}\"; else echo 'check-freebsd: no freebsd-x86_64 build'; fi"
 )
 
+## The steps hard on the machine, which get a quarter of the cores, busy or
+## not: the sanitizer builds, the race detector, the soak tests, the large
+## document and the full-depth fuzz (2026102421025778). Matched as text like
+## QUICK_SKIP below. Every leak check is one too, without a row here.
+HARD_STEPS=(
+	'sanitize-c.bash'
+	'sanitize-rust.bash'
+	'test -race'
+	'ResourceWarning source/python/tests/soak.py'
+	'soak-c.bash'
+	'largedoc.bash'
+	'SHCL_FUZZ_ITERS=200000'
+)
+
 ## What --quick leaves out, each matched as plain text against one step of
 ## LINT_EXTRA, TEST_EXTRA, the cross lists and RELEASE_CHECKS, or the engine's
 ## crosscheck. The slow ones take over a minute each here, cppcheck far more
@@ -531,6 +546,14 @@ QUICK_SKIP=(
 	'sanitize-rust.bash'
 	'crosscheck.bash'
 	'check-freebsd.bash'
+)
+
+## Test boxes, after the release builds, on this box rather than in the image,
+## since the host lock and the ssh keys are here (2026102419263412). One row per
+## box: "BOX|SSH_TARGET|os-arch", the os-arch naming the release build it runs.
+## --no-remote leaves them out, and a box that isn't there is a SKIP.
+REMOTE_BOXES=(
+	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64"
 )
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored
@@ -593,6 +616,11 @@ CTR_CONTEXT_EXTRA=(rust-toolchain.toml)
 ## Cargo, Go, pip and the advisory db, one dir per image. Under ~/.cache here,
 ## which is ZFS, rather than in a docker volume on the root disk.
 CTR_CACHE="${SHCL_CTR_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/${APP_NAME}-cicd}"
+## Zig's cache in the main image is a volume of its own, so it can be emptied
+## whole: at the end of a run, when it's over the cap or another Zig filled it.
+## This box's ~/.cache/zig is every project's, and nothing here empties it.
+CTR_ZIG_VOLUME="${APP_NAME}-zig-cache"
+CTR_ZIG_CAP_KB=$((2 * 1024 * 1024))
 ## A gate worktree's target dir is a link into the main checkout, which the the
 ## container has to see too.
 CTR_LINKS=(source/rust/target)
@@ -674,3 +702,5 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-19 JC: --quick keeps the CPU floor scan and drops only the emulated boot.
 ##		- 2026-10-19 JC: LEAKCHECK_STEPS, for --leakcheck and a run with no flags.
 ##		- 2026-10-19 JC: CodeQL in TOOL_PINS and LEAKCHECK_STEPS.
+##		- 2026-10-24 JC: CTR_ZIG_VOLUME and CTR_ZIG_CAP_KB, Zig's cache volume in the main image.
+##		- 2026-10-24 JC: HARD_STEPS; the plain arrays name no CPU count, since the engine exports it per step.

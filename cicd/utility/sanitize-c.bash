@@ -30,8 +30,8 @@
 ##	Syntax:
 ##		sanitize-c.bash [--glibcxx-debug] [CORPUS_DIR]
 ##		  CORPUS_DIR  conformance corpus root (default project/conformance)
-##		CPU_CAP in the environment sets how many jobs run at once (default half
-##		the cores).
+##		CPU_CAP in the environment sets how many jobs run at once (default a
+##		quarter of the cores).
 ##	Exit: 0 = clean, 1 = a program failed or a sanitizer reported, 2 = build failed.
 ##	History: At bottom of script.
 
@@ -90,7 +90,8 @@ fLeakBait(){
 ## CLI run after another. A job leaves its output in N.log and its exit code in
 ## N.rc, so one that died before it could write the code is a failure too.
 cap="${CPU_CAP:-}"
-[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || cap=$(( $(nproc 2>/dev/null || echo 2) / 2 ))
+# shellcheck source-path=SCRIPTDIR
+[[ "${cap}" =~ ^[1-9][0-9]*$ ]] || { source "$(dirname -- "${BASH_SOURCE[0]}")/include/cpu-cap.bash"; fCpuCap hard; cap="${CPU_CAP}"; }
 ((cap > 0)) || cap=1
 declare -i nJobs=0 nLive=0
 jobNames=()

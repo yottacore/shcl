@@ -37,7 +37,7 @@ cicdDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ciFile="${cicdDir}/../.github/workflows/ci.yml"
 [[ -r "${ciFile}" ]] || { echo "check-pins: cannot read ${ciFile}" >&2; exit 2; }
 
-## config.bash expands the cap while it loads; any value will do here.
+## The cap config.bash's strings read; any value will do here.
 CPU_CAP="${CPU_CAP:-1}"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../config.bash
