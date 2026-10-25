@@ -286,6 +286,8 @@ run_tmp_root="${run_tmp_root%/}"
 run_tmp="$(mktemp -d "${run_tmp_root}/${APP_NAME}-run.XXXXXX")" || { echo "could not make a temp dir under ${run_tmp_root}" >&2; exit 2; }
 echo "$$" > "${run_tmp}/.cicd-run"
 export TMPDIR="${run_tmp}"
+## What docker makes for this run carries the folder's name, as dev.run.
+export SHCL_DEV_RUN="${run_tmp##*/}"
 ## Only the dir this run made: still at its path, a real dir that's ours, with
 ## this run's mark in it.
 fRmRunTmp(){
@@ -319,9 +321,13 @@ fFrozenGone(){
 ## A run that stops early. fCleanup has already done it on a whole run.
 # shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
 fRunTmpGone(){
-	local kb=0
+	local kb=0 n=""
 	## First, or what's still running reads a copy and a temp dir already gone.
 	fStopDescendants || true
+	if ((! inner_run)) && [[ -n "${ctr_image:-}" ]] && declare -F fCtrRunGone >/dev/null; then
+		n="$(fCtrRunGone "${SHCL_DEV_RUN}")" || n=""
+		if [[ -n "${n}" ]]; then printf '[ cleanup: stopped and removed %s container(s) of this run ]\n' "${n}" >&2; fi
+	fi
 	fFrozenGone || true
 	[[ -n "${run_tmp}" ]] || return 0
 	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
@@ -418,9 +424,10 @@ fInstallAtomic(){
 ## copy, and PART is SHCL_RUN_PART for the run in there.
 fRunContainer(){   ## fRunContainer TREE [PART]
 	local tree="$1" part="${2:-}"
-	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" link="" real="" ctr_label="${CTR_IMAGE:-${APP_NAME}-cicd}"
-	local -a mounts=() groups=() env=() inner=()
+	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" link="" real="" step="${2:-stages}"
+	local -a mounts=() groups=() env=() inner=() labels=()
 	fSection "Container: ${ctr_image}"
+	fCtrLabelArgs labels
 
 	## The image is built from a copy of its recipe dir plus the files the
 	## config adds, and tagged by their hash, so an edit can't run on an old one.
@@ -448,7 +455,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## Zig's cache, apart from the cache dir so fCtrZigTrim can empty it whole.
 	## Made here first, since a volume docker makes for a run has no label.
 	if [[ "${ctr_image}" == main ]]; then
-		"${engine}" volume create --label "${ctr_label}" "${CTR_ZIG_VOLUME}" >/dev/null || fDie "could not make the ${CTR_ZIG_VOLUME} volume"
+		"${engine}" volume create "${labels[@]}" "${CTR_ZIG_VOLUME}" >/dev/null || fDie "could not make the ${CTR_ZIG_VOLUME} volume"
 		mounts+=(-v "${CTR_ZIG_VOLUME}:/zig-cache")
 	fi
 	## An extra image builds into its own copy of these, so it doesn't churn
@@ -489,8 +496,8 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## need the second group a runner's user has. So the image's passwd and
 	## group files plus the caller's entries, and the caller's groups.
 	local etc gid gname; etc="$(mktemp -d)"
-	"${engine}" run --rm --label "${ctr_label}" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
-	"${engine}" run --rm --label "${ctr_label}" "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
 	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
 	for gid in $(id -G); do
 		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
@@ -519,7 +526,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## So a stop can take the container down if its docker client won't go.
 	local cidfile="${run_tmp}/ctr.cid"
 	stop_cidfiles=("${cidfile}")
-	"${engine}" run --rm --init --cidfile "${cidfile}" --label "${ctr_label}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
+	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
 		"${tag}" bash "${tree}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
 	stop_cidfiles=()
@@ -1172,7 +1179,7 @@ fi
 fCleanup(){
 	local -a gone=()
 	local -i kb=0 sidecars=0 kbTmp=0
-	local f stamp size profDir bytes what
+	local f stamp size profDir bytes what dfBefore="" dfAfter="" dfLine=""
 	if ((inner_run)); then fRmRunTmp; return 0; fi
 	fFrozenGone || true
 	## A graph the rotation pruned leaves its sample count behind, under the
@@ -1193,16 +1200,22 @@ fCleanup(){
 	fi
 	if [[ -n "${ctr_image}" ]]; then
 		mkdir -p "${run_tmp}/sweep"
+		dfBefore="$(fCtrDf)"
 		while IFS=$'\t' read -r bytes what; do
 			gone+=("${what}")
 			if [[ "${bytes}" =~ ^[0-9]{1,15}$ ]]; then kb+=$((bytes / 1024)); fi
 		done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true)
+		## A week of build cache stays, for every project on the box.
+		"${SHCL_DOCKER:-docker}" builder prune -f --filter until=168h >/dev/null 2>&1 || true
+		dfAfter="$(fCtrDf)"
+		dfLine="$(paste <(printf '%s\n' "${dfBefore}") <(printf '%s\n' "${dfAfter}") \
+			| awk -F'\t' '$1 != "" && $1 == $3 { t = tolower($1); sub(/^local /, "", t); printf "%s%s %s -> %s", (n++ ? ", " : "; docker "), t, $2, $4 }')"
 	fi
 	kbTmp="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kbTmp=0
 	kb+=kbTmp
 	fRmRunTmp
 	gone+=("this run's temp files")
-	fEcho_Clean "cleanup: removed $(printf '%s, ' "${gone[@]}" | sed 's/, $//'), about $(fSize "${kb}")"
+	fEcho_Clean "cleanup: removed $(printf '%s, ' "${gone[@]}" | sed 's/, $//'), about $(fSize "${kb}")${dfLine}"
 }
 fCleanup
 
@@ -1239,3 +1252,5 @@ exit 0
 ##		- 2026-10-19 JC: Stages 1-6 run in the main image whenever docker answers. --no-container.
 ##		- 2026-10-19 JC: A temp dir per run, and a cleanup of stale images, containers and profiler sample files at the end.
 ##		- 2026-10-24 JC: Zig's cache in the main image is a volume of its own, emptied at the end when it's over 2 GB or another Zig filled it.
+##		- 2026-10-24 JC: dev.project and dev.run labels and names on what docker makes; a run's containers go on any exit. The tag
+##		  before the current one stays, a week of build cache stays, and the cleanup line has docker system df before and after.

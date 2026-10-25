@@ -386,7 +386,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: container cleanup
 	- ID: 2026102416250030
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the full no-publish run, which builds the new main image. Its image runs should be named `shcl-<run folder>-fmt` and `-build`, `shcl-cicd:7f80c73639ce` should stay as the tag before the new one, and the cleanup line should end with docker's sizes before and after.
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -401,6 +402,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cache volumes follow the same 2 GB rule as the Zig caches.
 		- The cleanup line compares `docker system df` before and after.
 		- One pass by hand, by ID, over what the pipeline made before these labels.
+	- Progress log:
+		- 20261024: cicd.bash exports `SHCL_DEV_RUN`, the name of the run's temp folder. Every `docker run`, `build` and `volume create` in cicd.bash and ctr-image.bash carries `dev.project=shcl` and `dev.run`, and each container is named `shcl-<run folder>-<step>`: `fmt`, `build` or `stages`, their `-passwd` and `-group` reads, and `zig-trim`. A leak check run by hand through `fCtrRunSelf` is a run of its own, named by its scratch dir, and its container by the script.
+		- 20261024: on any exit the run stops and removes its containers by `dev.run` (`fCtrRunGone`), after the cidfile stop, and says how many. It waits out docker's removal of a `--rm` one, which shows as Dead for a moment after its stop.
+		- 20261024: `fCtrBuild` and `fCtrSweep` keep the newest other tag of each recipe's name as the one before it (`fCtrPrev`). A name with no recipe still keeps none. Stopped containers and dangling images are matched by `dev.project` now, not the old `shcl-cicd` label.
+		- 20261024: after the sweep and the Zig trim, a whole run in the image runs `docker builder prune -f --filter until=168h`, and the cleanup line ends with `; docker images A -> B, containers ..., volumes ..., build cache ...` from `docker system df`. contributing.md says so, since the prune reaches other projects' cache.
+		- 20261024: cache volumes: `shcl-zig-cache` is the only volume a run makes, and it already follows the 2 GB rule (2026102416250020). The other caches are the bind-mounted `CTR_CACHE` dir.
+		- 20261024: the hand pass is left for the round, since the full run in flight holds the only candidate. By ID: image `61b558c4520c` (`shcl-cicd:7f80c73639ce`, 10.1 GB), run by container `2e54cc96effe`. No other image, dangling image, stopped container or volume of ours. Once the next run builds the new tag, that image stays as the one before it, so today the pass has nothing to remove.
+	- Decisions:
+		- 20261024: the run folder is the run's own temp dir, `shcl-run.XXXXXX` today, so a container reads `shcl-shcl-run.XXXXXX-build`. It follows whatever 2026102416250090 makes the folder (me).
+		- 20261024: the old `shcl-cicd` label is dropped, not kept beside the new pair. Only the image above still carries it (me).
+		- 20261024: the one before is the newest other tag by docker's created time. When those times can't be matched to the tags, every tag stays (me).
+		- 20261024: analyze-c, soak-c and codeql-scan keep their cidfile stop when run by hand. Their containers are labeled and named, but they don't stop by label on their own exit (me).
+	- Swept: every `docker run`, `build` and `volume create` under `cicd/` and the hook: fRunContainer's 3 runs and the volume, and ctr-image.bash's fCtrRunSelf, fCtrBuild and fCtrZigTrim. ci.yml and `--no-container` runs start none. Every `label=shcl-cicd` filter, in ctr-image.bash and in check-push-gate's fake docker. shell-regress names no label.
+	- Branch: `r1024c`
+	- Test case: check-push-gate `EtgFdOY` (both labels with the run folder on every run, build and volume, and the 7 container names of a whole run) and `EtgFdh7` (a failed run stops and removes its containers by `dev.run`), plus checks added to `EtNhz0U` (a stopped run, the same), `EtDQOPc` (the tag before stays, the build cache prune, docker's sizes on the line) and `EtDQOSv` (a gate's build keeps the tag before).
+		- 20261024: `Etg0eIJ`'s volume assert went from `--label shcl-cicd` to the `dev.project` and `dev.run` pair. `EtDQOPc` and `EtDQOSv` got a newer old tag per name, and `EtDQOPc` expects the one more removal that gives, of `shcl-cicd-gone`, which has no recipe.
+	- Verified: check-push-gate passes. `EtDQOPc` and `EtDQOSv` went red with no tag kept before the current one, `EtgFdh7` and `EtNhz0U` with no stop by label, `EtgFdOY` with no name on the Zig trim and with an empty `dev.run` (which turned `Etg0eIJ` red too), and `EtDQOPc` with no prune and with no sizes on the line. Each passed again once restored by copy.
+	- Verified: `fCtrBuild`, `fCtrPrev`, `fCtrRunGone` and `fCtrDf` against this box's docker, on throwaway images and containers under another project name: 3 builds left the last 2 tags, the image carries both labels, and a run's 2 containers went while another run's stayed until its own turn.
+	- Verified: shellcheck over every cicd script, shell-regress, check-pins, check-docs, markdownlint and `test-ids.py check`.
 
 - CICD reset: CPU and priority
 	- ID: 2026102416250040
