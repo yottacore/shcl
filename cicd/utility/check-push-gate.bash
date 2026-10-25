@@ -923,6 +923,29 @@ for tmpCase in "whole run|0|" "failed run|1|STUB_CROSS_FAIL=1" "stopped run|143|
 	fi
 done
 [[ -e "${work}/keep.me" ]] || fail "a run removed a file in TMPDIR that isn't its own"
+fTest Etl0lIy --keep-temp keeps the temp folder and containers of a run, and says where
+## 2026102515494634: a whole, failed or stopped run keeps its folder, and the
+## run in the image starts its containers without --rm and leaves them.
+for tmpCase in "whole run|0|" "failed run|1|STUB_CROSS_FAIL=1" "stopped run|143|STUB_STOP=1"; do
+	IFS='|' read -r tmpLabel tmpWant tmpEnv <<<"${tmpCase}"
+	rm -f "${work}/eng.tmpdir"
+	tmpEnvs=(STUB_TMPDIR="${work}/eng.tmpdir"); if [[ -n "${tmpEnv}" ]]; then tmpEnvs+=("${tmpEnv}"); fi
+	fEngine "${tmpEnvs[@]}" -- --gate --keep-temp 2>/dev/null
+	## The tests ran in the frozen copy, whose run folder is inside the kept one.
+	runTmp="$(cat "${work}/eng.tmpdir" 2>/dev/null || true)"
+	keptTmp="$(sed -n "/^\[ kept this run's temp folder: /{s/^\[ kept this run's temp folder: \(.*\) \]\$/\1/p;q;}" "${work}/eng.log" || true)"
+	if ((engRc != tmpWant)) || [[ "${keptTmp}" != "${work}/"?* || "${runTmp}" != "${keptTmp}"* || ! -d "${runTmp}/left/deep" ]]; then
+		fail "--keep-temp, ${tmpLabel}: exit ${engRc}, kept '${keptTmp}', its TMPDIR '${runTmp}' $([[ -n "${runTmp}" && -d "${runTmp}" ]] && echo 'is there' || echo 'is gone'): $(tail -3 "${work}/eng.log")"
+	fi
+	if [[ -n "${keptTmp}" && -d "${keptTmp}" ]]; then chmod -R u+rwX -- "${keptTmp}"; fi
+done
+rm -f "${work}/keep-args.txt"
+fCtr STUB_DOCKER_ARGS="${work}/keep-args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_ZIG='512\t0.16.0\t0.16.0' STUB_MOUNTS="${work}/keep-lbl.tsv" -- -y --no-sync --keep-temp
+keepRm="$(grep -E -- '--name shcl-[^ ]+-(build|fmt) ' "${work}/keep-args.txt" | grep -cF -- ' --rm ' || true)"
+keepRuns="$(grep -cE -- '--name shcl-[^ ]+-(build|fmt) ' "${work}/keep-args.txt" || true)"
+if ((engRc != 0 || keepRuns < 2 || keepRm != 0)) || ! grep -qF 'and its containers: docker ps -a --filter label=dev.run=shcl-run.' "${work}/eng.log"; then
+	fail "--keep-temp in the image: exit ${engRc}, ${keepRuns} step run(s), ${keepRm} with --rm: $(tail -3 "${work}/eng.log")"
+fi
 fTest EtDQOMF a whole run removes a profiler sample file whose graph is gone
 ## 2026101920461153: the rotation prunes a graph and leaves the sample count
 ## beside it. One whose graph is still there stays, whatever its role now.
@@ -1109,3 +1132,4 @@ exit "${rc}"
 ##		  before the current one, the build cache prune and the docker sizes on the cleanup line.
 ##		- 2026-10-25 JC: The leak checks by length, and --long.
 ##		- 2026-10-25 JC: --merge-gate and --ci, and the hook's call of each engine's gate.
+##		- 2026-10-25 JC: A push to main of docs alone, and --keep-temp.

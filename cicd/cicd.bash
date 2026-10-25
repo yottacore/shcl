@@ -53,8 +53,7 @@
 ##	   --no-lint           skip the lint stage
 ##	   --no-tests          skip the tests stage (crosscheck and large document
 ##	                       included) and, under --gate, the profiler calibration
-##	   --no-cross          skip the cross-compile targets and the cross checks
-##	                       (native release still builds)
+##	   --no-cross          skip the cross targets and checks; native release builds
 ##	   --no-package        skip building installer packages (.deb/.rpm/NSIS setup)
 ##	   --no-largedoc       skip the large-document gate in the tests stage
 ##	   --no-profile        skip the profiler stage
@@ -64,6 +63,7 @@
 ##	   --no-gif            skip the demo gif refresh
 ##	   --no-publish        skip the git backup + publish stage
 ##	   --no-remote         skip the test boxes config.bash lists in REMOTE_BOXES
+##	   --keep-temp         keep the run's temp folder and containers, and say where
 ##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
 ##	                       or NAME.Dockerfile there for an extra one, and fail
 ##	                       when docker can't. See below
@@ -203,7 +203,7 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0
+assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0; keep_temp=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0; no_remote=0
 fCtrPick(){
@@ -235,6 +235,7 @@ while (($#)); do case "$1" in
 	--no-gif)                 GIF_ENABLE=0; shift ;;
 	--no-publish)             GIT_PUBLISH=(); shift ;;
 	--no-remote)              no_remote=1; shift ;;
+	--keep-temp)              keep_temp=1; ctr_pass+=("$1"); shift ;;
 	--container)              fCtrPick main; shift ;;
 	--container=*)            fCtrPick "${1#*=}"; shift ;;
 	--no-container)           no_container=1; shift ;;
@@ -359,6 +360,13 @@ export SHCL_DEV_RUN="${run_tmp##*/}"
 fRmRunTmp(){
 	local d="${run_tmp}" mark=""
 	run_tmp=""
+	if ((keep_temp)); then
+		if ((! inner_run)) && [[ -n "${d}" ]]; then
+			printf '[ kept this run'\''s temp folder: %s ]\n' "${d}" >&2
+			if [[ -n "${ctr_image:-}" ]]; then printf '[ and its containers: docker ps -a --filter label=dev.run=%s ]\n' "${SHCL_DEV_RUN}" >&2; fi
+		fi
+		return 0
+	fi
 	[[ -n "${d}" && "${d}" == "${run_tmp_root}/${APP_NAME}-run."* && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
 	mark="$(cat -- "${d}/.cicd-run" 2>/dev/null || true)"
 	[[ "${mark}" == "$$" ]] || return 0
@@ -390,12 +398,13 @@ fRunTmpGone(){
 	local kb=0 n=""
 	## First, or what's still running reads a copy and a temp dir already gone.
 	fStopDescendants || true
-	if ((! inner_run)) && [[ -n "${ctr_image:-}" ]] && declare -F fCtrRunGone >/dev/null; then
+	if ((! inner_run && ! keep_temp)) && [[ -n "${ctr_image:-}" ]] && declare -F fCtrRunGone >/dev/null; then
 		n="$(fCtrRunGone "${SHCL_DEV_RUN}")" || n=""
 		if [[ -n "${n}" ]]; then printf '[ cleanup: stopped and removed %s container(s) of this run ]\n' "${n}" >&2; fi
 	fi
 	fFrozenGone || true
 	[[ -n "${run_tmp}" ]] || return 0
+	if ((keep_temp)); then fRmRunTmp; return 0; fi
 	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
 	fRmRunTmp
 	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files, about %s ]\n' "$(fSize "${kb:-0}")" >&2; fi
@@ -594,7 +603,9 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	stop_cidfiles=("${cidfile}")
 	## nice on this side doesn't reach the container, so a CPU quota and a low
 	## share; the engine inside renices itself.
-	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --cpus "${CPU_CAP}" --cpu-shares 256 --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
+	local -a rmArg=(--rm)
+	if ((keep_temp)); then rmArg=(); fi
+	"${engine}" run "${rmArg[@]}" --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --cpus "${CPU_CAP}" --cpu-shares 256 --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
 		"${tag}" bash "${tree}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
 	stop_cidfiles=()
@@ -1266,7 +1277,8 @@ fCleanup(){
 		done
 		if ((sidecars)); then gone+=("${sidecars} profiler sample file(s) whose graph is gone"); fi
 	fi
-	if [[ -n "${ctr_image}" ]]; then
+	## --keep-temp keeps this run's containers, which the sweep would take.
+	if [[ -n "${ctr_image}" ]] && ((! keep_temp)); then
 		mkdir -p "${run_tmp}/sweep"
 		dfBefore="$(fCtrDf)"
 		while IFS=$'\t' read -r bytes what; do
@@ -1278,6 +1290,11 @@ fCleanup(){
 		dfAfter="$(fCtrDf)"
 		dfLine="$(paste <(printf '%s\n' "${dfBefore}") <(printf '%s\n' "${dfAfter}") \
 			| awk -F'\t' '$1 != "" && $1 == $3 { t = tolower($1); sub(/^local /, "", t); printf "%s%s %s -> %s", (n++ ? ", " : "; docker "), t, $2, $4 }')"
+	fi
+	if ((keep_temp)); then
+		if ((${#gone[@]})); then fEcho_Clean "cleanup: removed $(printf '%s, ' "${gone[@]}" | sed 's/, $//'), about $(fSize "${kb}")"; fi
+		fRmRunTmp
+		return 0
 	fi
 	kbTmp="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kbTmp=0
 	kb+=kbTmp
@@ -1327,3 +1344,4 @@ exit 0
 ##		- 2026-10-25 JC: --long and --slow. The leak checks that take hours are only there and in --leakcheck, --quick keeps
 ##		  the fast ones, and --no-leakcheck drops the sanitizer runs too. Sizes printed are the files' own.
 ##		- 2026-10-25 JC: --merge-gate, every check of a run with no flags, for the pre-push hook. --ci is another name for it.
+##		- 2026-10-25 JC: --keep-temp keeps the run's temp folder and containers.

@@ -424,7 +424,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: keep-temp and list
 	- ID: 2026102515494634
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -432,6 +432,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
 		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
+	- Decisions:
+		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
+	- Progress log:
+		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so. `--list` is left.
+		- Verified: check-push-gate `Etl0lIy` failed on the old engine and passes now, with `EtDQOIx`, `EtgFdOY` and `EtgShUg` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
+	- Test case: check-push-gate `Etl0lIy` (`--keep-temp`).
 
 - CICD reset: step output
 	- ID: 2026102416250060
