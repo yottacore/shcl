@@ -172,7 +172,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: shell-regress `EtgMbxn`, `EtgMc0M` and `EtgMc2s` pass. Each went red on its own fault: the old config.bash, `>=` for the busy compare, no floor of 1, no `CARGO_BUILD_JOBS`, the leak checks not hard, `HARD_STEPS` not read or missing a row or taking the py_compile build step, a `jobs:` line on every step, and no renice.
 	- Verified: the whole of shell-regress and check-push-gate, shellcheck over `SHELLCHECK_TARGETS`, check-docs, markdownlint and `test-ids.py check` passed. `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` printed `jobs: 16 of 32 CPUs` once in the build stage and passed.
 	- Needs local test suite run?: Y. The full run line. Its log should show a `jobs:` line at the start, `(hard step)` on the sanitizer, soak, race and leak steps, and the leak checks at 8 of 32 here.
-	- Needs external testing: Y. ci.yml on the round branch, to see the hosted jobs still pass at about their old times with `CPU_CAP` given and no `-j` in the arrays.
+	- Needs external testing: N. Hosted run 40163335236 on `r1024c` passed every job, `ci (lint)` in 44 min and `ci (tests)` in 36, against 46 and 45 before.
 	- Branch: `r1024c`
 	- Test case: shell-regress `EtgMbxn` (the rule), `EtgMc0M` (each step, the leak checks, the image's count, the run's priority) and `EtgMc2s` (no count fixed at load, and which steps are hard).
 		- 20261024: `EqpNNtw` finds the native release build by its line, which is now `fStep "${RELEASE_NATIVE_CMD[@]}"`. Its pattern went from `^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$` to one that also takes a leading `fStep `. `EtaC4oT` reads the same line number.
