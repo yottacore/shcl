@@ -294,7 +294,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: `cicd/utility/check-boxes.bash`, and config.bash's `REMOTE_BOXES`, one row per box. cicd.bash runs it as `6/9  Test boxes` after stages 1-6, on this box whichever way they ran, and lists its `SKIP` lines again at the end. `--no-remote` leaves it out. A run with no release builds, such as `--gate`, is a `SKIP` per box.
 		- Each box goes through `claude_vm-state.bash wrap BOX --wait 900`, and the lock is held only while the box works. The comparison runs after it's let go. The box half makes `${HOST_TEMP:-${TMPDIR:-/tmp}}/shcl/<stamp>_<NNN>`, runs the cases under `nice -n 19`, and removes the folder on exit.
 		- Verified, with a stand-in VM state helper and ssh that run the box half here: a matching build passes 4416 CLI runs; a box that doesn't answer, no build, no helper and a refused lock are each a `SKIP` at exit 0; one changed output fails naming the case; a down box beside a good one skips the first and passes the second. The box folder was gone after each run. shellcheck over `SHELLCHECK_TARGETS`, shell-regress and `test-ids.py check` passed.
-		- Not run: the step from cicd.bash, and any real box.
+		- Verified: `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` prints `SKIP vmFreeBSD: no release builds this run` in the step and again at the end, at exit 0, and with `--no-remote` the step says it was skipped. The step's block, run alone over stand-in boxes with release builds given, passed one, skipped the other 2, listed the 2 at the end, and stopped the run on a build with one changed output.
+		- Not run: the step inside a whole run with release builds, and any real box.
 		- Swept: `fDriver` is the same text as check-freebsd's. check-cpu-floor has its own. The other 3 bindings have no CLI release, so no twin there.
 	- Test case: check-boxes `Etfwju5`.
 
