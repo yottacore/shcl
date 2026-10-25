@@ -668,16 +668,8 @@ LINT_LOG_DIR="cicd/artifacts/lint"
 ## Stage 9: backup + publish via the standalone publisher (versioned RAR backup of
 ## the whole project dir, then stash/pull/pop, add, commit, push).
 GIT_PUBLISH=(cicd/utility/n8git_backup-and-publish)
-## Backup excludes only this project has, on top of the publisher's own: the C
-## and Go CLI builds, the Python build dir, the comparison tool's build (none
-## ship), and CodeQL's databases, a GB or so a run. The publisher already drops review scratch (crMMDD), gate worktrees,
-## extra target-* dirs, and the runbuilds, crosscheck and profiling artifacts.
-## One rar pattern per line, no '-x' and no quoting.
-export GIT_BACKUP_AND_PUBLISH_RAR_EXCLUDES="*/source/c/shcl
-*/source/go/shcl
-*/source/python/build
-*/comparison/target
-*/cicd/artifacts/codeql"
+## This project's backup excludes are in cicd/rar-excludes.conf, which the
+## publisher reads however it's run.
 PUBLISH_AUTO_MESSAGE=""
 
 
@@ -704,3 +696,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-19 JC: CodeQL in TOOL_PINS and LEAKCHECK_STEPS.
 ##		- 2026-10-24 JC: CTR_ZIG_VOLUME and CTR_ZIG_CAP_KB, Zig's cache volume in the main image.
 ##		- 2026-10-24 JC: HARD_STEPS; the plain arrays name no CPU count, since the engine exports it per step.
+##		- 2026-10-25 JC: Backup excludes moved to cicd/rar-excludes.conf, so a standalone backup leaves out the CodeQL databases too.
