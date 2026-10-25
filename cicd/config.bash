@@ -602,6 +602,11 @@ CTR_CONTEXT_EXTRA=(rust-toolchain.toml)
 ## Cargo, Go, pip and the advisory db, one dir per image. Under ~/.cache here,
 ## which is ZFS, rather than in a docker volume on the root disk.
 CTR_CACHE="${SHCL_CTR_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/${APP_NAME}-cicd}"
+## Zig's cache in the main image is a volume of its own, so it can be emptied
+## whole: at the end of a run, when it's over the cap or another Zig filled it.
+## This box's ~/.cache/zig is every project's, and nothing here empties it.
+CTR_ZIG_VOLUME="${APP_NAME}-zig-cache"
+CTR_ZIG_CAP_KB=$((2 * 1024 * 1024))
 ## A gate worktree's target dir is a link into the main checkout, which the the
 ## container has to see too.
 CTR_LINKS=(source/rust/target)
@@ -683,3 +688,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-19 JC: --quick keeps the CPU floor scan and drops only the emulated boot.
 ##		- 2026-10-19 JC: LEAKCHECK_STEPS, for --leakcheck and a run with no flags.
 ##		- 2026-10-19 JC: CodeQL in TOOL_PINS and LEAKCHECK_STEPS.
+##		- 2026-10-24 JC: CTR_ZIG_VOLUME and CTR_ZIG_CAP_KB, Zig's cache volume in the main image.

@@ -356,7 +356,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: Zig cache
 	- ID: 2026102416250020
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the full no-publish run. It rebuilds the main image, runs the zig cross builds into the volume, and should end with `shcl-zig-cache` labeled `shcl-cicd` and stamped `0.16.0`.
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -366,6 +367,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- In the image, Zig's global cache is a volume of its own, `shcl-zig-cache`, not part of the cache dir mounted from this box.
 		- At the end of a run, a Zig cache over 2 GB, or filled by another Zig version, is emptied whole. A stamp file inside it records the version.
 		- `~/.cache/zig` on the host is never emptied, since every project shares it.
+	- Progress log:
+		- 20261024: the main image sets `ZIG_GLOBAL_CACHE_DIR=/zig-cache`, and a run makes the `shcl-zig-cache` volume with our label and mounts it there. The image's `/zig-cache` is mode 1777, which a new volume takes, so the caller's uid can write it.
+		- 20261024: at the end of a whole run in the main image, `fCtrZigTrim` (ctr-image.bash) reads the volume's size, its `zig-version.stamp` and the image's `zig version`. Over `CTR_ZIG_CAP_KB` (2 GB), or a stamp naming another Zig, and the volume goes by `docker volume rm`, named on the cleanup line. A volume with no stamp yet gets one.
+		- 20261024: the old cache, `~/.cache/shcl-cicd/main/home/.cache/zig` (119 MB), is left for one removal by hand once the next run is on the new image.
+	- Decisions:
+		- 20261024: the mount point is `/zig-cache`, not under `/cache`, since docker would make a mount point inside the box's cache dir as root (me).
+		- 20261024: the volume is emptied by removing it, since docker refuses while another run's container has it. That run keeps its cache (me).
+		- 20261024: only the main image has zig, so the extra images don't get the volume (me).
+		- 20261024: this replaces, for Zig's cache only, 2026101303344553's call to keep caches in `~/.cache/shcl-cicd` rather than a docker volume.
+	- Swept: every `docker run` of the images. fRunContainer mounts it for main. fCtrRunSelf (analyze-c, soak-c, codeql-scan) runs no zig, and its HOME and TMPDIR are its scratch. The alpine and ubuntu recipes have no zig. ci.yml and `--no-container` runs use the box's `~/.cache/zig`, which nothing empties. No tracked `.zig-cache`. check-readme's `zig build-exe` keeps its local cache in its scratch dir.
+	- Branch: `r1024c`
+	- Test case: check-push-gate `Etg0eIJ` (over the cap or another Zig: removed and named; at the cap, an unreadable answer or no volume: kept; made with our label and mounted at `/zig-cache` in the main image), plus a check in `EstM5os` that an extra image doesn't get it.
+	- Verified: check-push-gate passes. `Etg0eIJ` went red with `>=` for the cap, no version compare, no label, no trim call and no mount, and `EstM5os` with the volume on the extra images. Each passed again once restored by copy.
+	- Verified: `fCtrZigTrim` against the real main image `shcl-cicd:7f80c73639ce` and a stand-in volume filled by a real `zig cc` build: a new volume stamped `0.16.0` and kept, a `0.15.2` stamp removed, a 1 KB cap removed, and a volume another container had kept.
+	- Verified: shellcheck, shell-regress, check-pins, check-docs and `test-ids.py check`.
 
 - CICD reset: container cleanup
 	- ID: 2026102416250030
@@ -463,6 +479,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
+
+- check-push-gate's gate worktree half of `EstM5os` never runs
+	- ID: 2026102419595509
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261024-195955
+	- Opened by: 2026102416250020
+	- Related IDs: 2026101514324713
+	- Incorrect behavior: the block that links `source/rust/target` to a stand-in `target-gate` runs only when there's no `source/rust/target` in the stub repository. By then there is one, an empty dir, so the block is skipped with no line saying so. Its 2 checks, the extra image's mounts in a gate worktree and the main image building into `target-gate`, assert nothing.
+	- Expected behavior: the block runs every time, or fails when it can't set up.
+	- Reproduced: 20261024, on `r1024c`. A probe echo in the block's else branch printed the empty dir, made earlier in the same run.
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758

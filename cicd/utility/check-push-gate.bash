@@ -595,6 +595,9 @@ fCalibrated --gate --no-tests
 ## down what it's asked to kill in STUB_DOCKER_GONE too. With STUB_DOCKER_HANG
 ## a run writes its PID there and runs until stopped, and with
 ## STUB_DOCKER_STUBBORN too it passes over a TERM, as a stuck client would.
+## A volume create goes in STUB_DOCKER_VOLS. With STUB_DOCKER_ZIG it has Zig's
+## cache volume, and a run that mounts it without bash prints that, as
+## fCtrZigTrim's would: "KB<TAB>STAMP<TAB>VERSION".
 cat > "${work}/fake-docker" <<'EOF'
 #!/usr/bin/env bash
 if [[ -n "${STUB_DOCKER_LOG:-}" ]]; then echo "${1:-}" >> "${STUB_DOCKER_LOG}"; fi
@@ -614,6 +617,13 @@ case "${1:-}" in
 		esac
 		exit 0 ;;
 	build) exit 0 ;;
+	volume)
+		case "${2:-}" in
+			create)  echo "$*" >> "${STUB_DOCKER_VOLS:-/dev/null}"; exit 0 ;;
+			inspect) [[ -n "${STUB_DOCKER_ZIG:-}" ]]; exit ;;
+			rm)      echo "volume rm ${3:-}" >> "${STUB_DOCKER_GONE:-/dev/null}"; exit 0 ;;
+		esac
+		exit 1 ;;
 	rmi|rm|kill) echo "$1 ${2:-}" >> "${STUB_DOCKER_GONE:-/dev/null}"; exit 0 ;;
 	ps)
 		if [[ " $* " == *" label=shcl-cicd "* && -n "${STUB_DOCKER_STOPPED:-}" ]]; then echo "${STUB_DOCKER_STOPPED}"; fi
@@ -621,6 +631,7 @@ case "${1:-}" in
 	run)   ;;
 	*)     exit 1 ;;
 esac
+if [[ " $* " == *":/zig-cache "* && " $* " != *" bash "* ]]; then printf '%b\n' "${STUB_DOCKER_ZIG:-}"; exit 0; fi
 ## cat /etc/passwd or /etc/group
 if [[ " $* " != *" bash "* ]]; then echo "root:x:0:0::/root:/bin/sh"; exit 0; fi
 for ((a = 1; a < $#; a++)); do
@@ -731,6 +742,7 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 			if [[ "${seen}" == *$'\n'"${dst}"$'\n'* ]]; then fail "${label}: 2 mounts at ${dst}"; fi
 			seen+=$'\n'"${dst}"$'\n'
 		done < "${work}/mounts.tsv"
+		if grep -qF /zig-cache "${work}/mounts.tsv"; then fail "${label}: an extra image, which has no Zig, gets Zig's cache volume"; fi
 		for p in "${ctrPrivate[@]}"; do
 			host="$(readlink -f -- "${eng}/${p%/}")"
 			if ! awk -F'\t' -v d="${host}" -v c="${work}/ctrcache/" '$2 == d && index($1, c) == 1 { f = 1 } END { exit !f }' "${work}/mounts.tsv"; then
@@ -864,6 +876,26 @@ selfOut="$(SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_I
 	STUB_MOUNTS="${work}/self.tsv" PATH="${work}/x86_64:${PATH}" bash "${work}/ctr-image-on.bash" "${eng}" self "${work}/self" 2>&1)" || true
 selfGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
 [[ "${selfGot}" == "rmi shcl-cicd:000000000000" ]] || fail "a gate's build of the image removed '${selfGot}', want the old main tag only: ${selfOut}"
+fTest Etg0eIJ a run in the main image empties the Zig cache volume over 2 GB or filled by another Zig, and keeps it otherwise
+## 2026102416250020: Zig's cache is a labeled volume of the main image's own,
+## and it goes whole, never part of it.
+for zigCase in "over the cap|2097153\t0.16.0\t0.16.0|volume rm shcl-zig-cache" "another Zig|512\t0.15.2\t0.16.0|volume rm shcl-zig-cache" \
+	"at the cap|2097152\t0.16.0\t0.16.0|" "a stamp it can't read|garbage|" "no volume||"; do
+	IFS='|' read -r zigLabel zigHas zigWant <<<"${zigCase}"
+	rm -f "${work}/gone.txt" "${work}/vols.txt"
+	fCtr STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_VOLS="${work}/vols.txt" STUB_DOCKER_ZIG="${zigHas}" STUB_MOUNTS="${work}/zig.tsv" -- --gate
+	awk -F'\t' '$1 == "shcl-zig-cache" && $2 == "/zig-cache" { f = 1 } END { exit !f }' "${work}/zig.tsv" \
+		|| fail "Zig's cache volume, ${zigLabel}: the main image doesn't get it at /zig-cache"
+	zigGot="$(grep -F volume "${work}/gone.txt" 2>/dev/null || true)"
+	if ((engRc != 0)) || [[ "${zigGot}" != "${zigWant}" ]]; then
+		fail "Zig's cache volume, ${zigLabel}: exit ${engRc}, removed '${zigGot}', want '${zigWant}': $(tail -3 "${work}/eng.log")"
+	fi
+	if [[ -n "${zigWant}" ]] && ! grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "the shcl-zig-cache volume"; then
+		fail "Zig's cache volume, ${zigLabel}: the cleanup line doesn't name it"
+	fi
+	[[ "$(cat "${work}/vols.txt" 2>/dev/null)" == "volume create --label shcl-cicd shcl-zig-cache" ]] \
+		|| fail "Zig's cache volume, ${zigLabel}: made as '$(cat "${work}/vols.txt" 2>/dev/null)', want our label on it before the run"
+done
 ## A run started here and stopped by a TERM to its PID alone, once PIDFILE
 ## names the process it hangs on.
 fStopRun(){  ## fStopRun PIDFILE [VAR=VALUE ...] -- ARGS... -> stopRc, stopPid, stopLeft (1 if stopPid outlived the run)
@@ -928,3 +960,4 @@ exit "${rc}"
 ##		- 2026-10-19 JC: --no-leakcheck, and the pair refused.
 ##		- 2026-10-19 JC: A run goes to the main image when docker answers, and --no-container.
 ##		- 2026-10-19 JC: A run's own temp dir, and the cleanup of stale images, containers and sample files.
+##		- 2026-10-24 JC: Zig's cache volume in the main image, and when a run empties it.

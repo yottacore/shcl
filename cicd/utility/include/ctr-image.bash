@@ -28,6 +28,9 @@
 ##			fCtrSweep WORK          remove our images and containers a run
 ##			                        won't use again; see the function. WORK is
 ##			                        a scratch dir the caller removes
+##			fCtrZigTrim TAG         empty Zig's cache volume when it's over the
+##			                        cap or another Zig filled it; see the
+##			                        function. TAG is the main image this run used
 ##			fCtrWhyNot              nothing when the images can run here, else
 ##			                        why not: they're x86_64 only, and docker (or
 ##			                        SHCL_DOCKER) counts once its daemon answers.
@@ -152,6 +155,30 @@ fCtrSweep(){
 	return 0
 }
 
+## At the end of a run that used the main image TAG. Zig's cache volume goes
+## whole, since its manifests point into the rest of it: when it's over
+## CTR_ZIG_CAP_KB, or when the Zig in TAG isn't the one its stamp names. The
+## first run to end with a new volume stamps it. Docker won't remove a volume
+## another run still has, so that one stays. Prints "BYTES<TAB>WHAT" when it goes.
+fCtrZigTrim(){
+	local engine="${SHCL_DOCKER:-docker}" tag="$1" vol="${CTR_ZIG_VOLUME:-${APP_NAME}-zig-cache}" cap="${CTR_ZIG_CAP_KB:-}" out="" kb="" stamp="" ver="" why=""
+	[[ -n "${tag}" ]] || return 0
+	[[ "${cap}" =~ ^[0-9]{1,15}$ ]] || cap=2097152
+	"${engine}" volume inspect "${vol}" >/dev/null 2>&1 || return 0
+	# shellcheck disable=SC2016  ## for the shell in the image
+	out="$("${engine}" run --rm --label "${CTR_IMAGE:-${APP_NAME}-cicd}" --network none --user "$(id -u):$(id -g)" -v "${vol}:/zig-cache" "${tag}" \
+		sh -c 'v="$(zig version)" || exit 1; f=/zig-cache/zig-version.stamp; s="$(cat "${f}" 2>/dev/null)"
+			if [ -z "${s}" ]; then s="${v}"; printf "%s\n" "${v}" > "${f}"; fi
+			printf "%s\t%s\t%s\n" "$(du -sk /zig-cache | cut -f1)" "${s}" "${v}"' 2>/dev/null)" || return 0
+	IFS=$'\t' read -r kb stamp ver <<<"${out}"
+	[[ "${kb}" =~ ^[0-9]{1,15}$ && -n "${ver}" ]] || return 0
+	if ((kb > cap)); then why="over $((cap / 1024)) MB"
+	elif [[ "${stamp}" != "${ver}" ]]; then why="filled by Zig ${stamp}"
+	else return 0; fi
+	if "${engine}" volume rm "${vol}" >/dev/null 2>&1; then printf '%s\t%s\n' "$((kb * 1024))" "the ${vol} volume (${why})"; fi
+	return 0
+}
+
 
 ##	History:
 ##		- 2026-10-17 JC: Created, out of cicd.bash, so a gate can find the image.
@@ -159,3 +186,4 @@ fCtrSweep(){
 ##		- 2026-10-19 JC: fCtrRunSelf takes several writable dirs, and SHCL_CTR_CARGO.
 ##		- 2026-10-19 JC: fCtrWhyNot, so docker counts only when it answers.
 ##		- 2026-10-19 JC: fCtrBuild, so a gate's build drops the old tags too, and fCtrSweep.
+##		- 2026-10-24 JC: fCtrZigTrim, for the main image's Zig cache volume.

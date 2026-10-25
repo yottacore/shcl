@@ -177,14 +177,16 @@ RUN curl -fsSLo codeql.tgz "https://github.com/github/codeql-action/releases/dow
 WORKDIR /
 
 # Runs as the caller's uid, which has no passwd entry here. /cache is the cache
-# dir cicd.bash mounts from the host.
-RUN mkdir -m 1777 /cache
+# dir cicd.bash mounts from the host, and /zig-cache where it mounts Zig's cache
+# volume, which takes this mode when it's new.
+RUN mkdir -m 1777 /cache /zig-cache
 ENV PATH=/opt/venv/bin:/opt/cargo/bin:/opt/go/bin:/opt/zig:/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 	HOME=/cache/home \
 	CARGO_HOME=/cache/cargo \
 	GOPATH=/cache/go \
 	GOCACHE=/cache/go/build \
 	GOMODCACHE=/cache/go/mod \
+	ZIG_GLOBAL_CACHE_DIR=/zig-cache \
 	GOTOOLCHAIN=local \
 	LANG=C.UTF-8 \
 	SHCL_FLOOR_KERNEL=/opt/floor/vmlinuz \

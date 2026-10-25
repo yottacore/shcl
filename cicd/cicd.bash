@@ -435,6 +435,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 		fEcho_Clean "building ${tag}, which takes several minutes the first time"
 		fCtrBuild "${tag}" "${ctx}" || fDie "could not build ${tag}"
 	fi
+	ctr_tag="${tag}"
 
 	local cache="${CTR_CACHE:-${HOME}/.cache/${APP_NAME}-cicd}/${ctr_image}"
 	mkdir -p "${cache}" || fDie "could not make the cache dir ${cache}"
@@ -444,6 +445,12 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	mounts=(-v "${tree}:${tree}" -v "${cache}:/cache" -v "${scratch}:/tmp")
 	local gitCommon; gitCommon="$(git -C "${tree}" rev-parse --path-format=absolute --git-common-dir)"
 	if [[ "${gitCommon}" != "${tree}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
+	## Zig's cache, apart from the cache dir so fCtrZigTrim can empty it whole.
+	## Made here first, since a volume docker makes for a run has no label.
+	if [[ "${ctr_image}" == main ]]; then
+		"${engine}" volume create --label "${ctr_label}" "${CTR_ZIG_VOLUME}" >/dev/null || fDie "could not make the ${CTR_ZIG_VOLUME} volume"
+		mounts+=(-v "${CTR_ZIG_VOLUME}:/zig-cache")
+	fi
 	## An extra image builds into its own copy of these, so it doesn't churn
 	## or replace this box's builds. Each copy goes where its path leads, so a
 	## gate worktree's target link reaches the copy and not target-gate. Docker
@@ -532,7 +539,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 
 ## --container: stages 1-6 go to the image. An extra image builds nothing this
 ## box should install or publish, so nothing runs here after it.
-ctr_recipe=""; ctr_note=""
+ctr_recipe=""; ctr_note=""; ctr_tag=""
 fCtrRecipe(){
 	ctr_recipe="${CTR_DIR:-cicd/container}/${ctr_image}.Dockerfile"
 	[[ "${ctr_image}" == main ]] && ctr_recipe="${CTR_DIR:-cicd/container}/Dockerfile"
@@ -1189,7 +1196,7 @@ fCleanup(){
 		while IFS=$'\t' read -r bytes what; do
 			gone+=("${what}")
 			if [[ "${bytes}" =~ ^[0-9]{1,15}$ ]]; then kb+=$((bytes / 1024)); fi
-		done < <(fCtrSweep "${run_tmp}/sweep" || true)
+		done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true)
 	fi
 	kbTmp="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kbTmp=0
 	kb+=kbTmp
@@ -1231,3 +1238,4 @@ exit 0
 ##		- 2026-10-19 JC: --no-leakcheck, refused beside --leakcheck.
 ##		- 2026-10-19 JC: Stages 1-6 run in the main image whenever docker answers. --no-container.
 ##		- 2026-10-19 JC: A temp dir per run, and a cleanup of stale images, containers and profiler sample files at the end.
+##		- 2026-10-24 JC: Zig's cache in the main image is a volume of its own, emptied at the end when it's over 2 GB or another Zig filled it.
