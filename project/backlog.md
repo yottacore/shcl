@@ -218,6 +218,41 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1024b`
 	- Test case: `an_index_onto_a_list_takes_no_field` (`EtdPVpd` Rust, `EtdPW8G` Go, `EtdPWQz` Python, `EtdPWjj` C). It checks each case's fixpoint and lost count apart from the list check, the merge case included. `EkyV758` at 2,000,000.
 
+- Two slow fuzz tests fail under Miri's `--miri-all`
+	- ID: 2026102413172941
+	- Type: Bug
+	- Status: Waiting on automated testing
+		- Fixed in the 2 tests. Left is the 2 of them under Miri, as below.
+	- Needs local test suite run?: Y, `cicd/utility/sanitize-rust.bash --miri-all --only='^(upgrade_leaves_its_own_output_alone|merge_never_panics_and_stays_fixpoint)$'`, or the full run's `--miri-all`, which the 3 items waiting on this one need anyway.
+	- Severity: Avg
+	- Opened: 20261024-131729
+	- Opened by: the r1024b test batch
+	- Related IDs: 2026102418441478
+	- Version and build: `r1024b` at `d064d760`, and dev's `58f1b93f`
+	- Steps to reproduce:
+		- `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish`, or `cicd/utility/sanitize-rust.bash --miri-all`. Stage 4 aborts on `EszIPWl`.
+	- Incorrect behavior:
+		- `upgrade_leaves_its_own_output_alone` (`EssNzSi`) fails its guard "only 1 files naming this format were made over". At Miri's 100 iterations the guard needs `beta > iters / 100`, so 2. Natively with `SHCL_FUZZ_ITERS=100` it fails the same on `r1024b` and on `58f1b93f`.
+		- `merge_never_panics_and_stays_fixpoint` (`EkyV758`) ran past the 7200 s limit under Miri and was stopped, at host load about 42 beside another project's Miri run. Natively at 20,000 iterations it took 6.5-6.7 s on `r1024b` and 6.7-7.2 s on dev, so the round didn't slow it.
+	- Expected behavior: both pass under `--miri-all`, as on dev `8b81b8c3` on 2026-10-22.
+	- Reproduced: 20261024, the first natively at 100 iterations on both commits. The second only under Miri, on a loaded box.
+	- Possible cause: the corpus edits since 2026-10-22 moved the fuzz seeds, so the 100-iteration soup makes fewer format-3 files. Unconfirmed. The second may be load alone.
+	- Actual cause:
+		- Both come from the corpus edits since 2026-10-22, which moved the draws. Load isn't it.
+		- `EssNzSi`: about 4 in 100 runs make over a file naming this format, at every depth from 100 to 20,000. So at 100 the guard rode on luck. Today's code over `8b81b8c3`'s corpus gets 2 in the first 100, the least it passes on, and over today's corpus 1.
+		- `EkyV758`: round 72 now draws the depth cap case with one dot gone from its 513-segment line, so the line binds a 511-deep chain. Each path walk reads every path from the root, about 650 KB of paths, where a seed has 1 KB at most. At Miri's 100 rounds and opt-level 0, that round took 1.07 s of the test's 1.32 s natively, and the test went from 0.13 s on `8b81b8c3` to 1.34 s. No other fuzz test moved.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Progress log:
+		- 20261024: Verified: `EssNzSi` fails at `SHCL_FUZZ_ITERS=100` before the fix and passes after. Both tests pass natively at 100, the default 300 and 20,000, and so does all of fuzz_smoke at the default. Also rustfmt, clippy and test-ids. With the skip forced on natively, `EkyV758` at 100 rounds and opt-level 0 takes 0.24 s, which is today's cost without round 72.
+		- Swept: every share guard in fuzz_smoke at 100 rounds. Only 3 are thin, filed as 2026102418441478, and none of those draws from the corpus. Every fuzz test's time at 100 rounds, against `8b81b8c3`: only `EkyV758` moved. The fuzz is in Rust only, so Go, Python and C have no twin.
+	- Decisions:
+		- me, 20261024: `EssNzSi` takes a floor rather than a lower bar. A bar low enough for 100 rounds would barely check the arm at 20,000. The floor is the native default, 300, so only Miri's run gets longer, about 3 times its old length.
+		- me, 20261024: under Miri only, `EkyV758` passes over the rare round that deep, after the round's last draw. Natively it still runs. A floor or a raised time limit would leave Miri's time hanging on the draw.
+	- Actual fix: `EssNzSi` runs at least 300 rounds, so its guard needs 4 hits of about 11. Under Miri, `EkyV758` passes over a round whose paths come to more than 64 KB, and fails if that's over 1 round in 10.
+	- Branch: `r1024c`
+	- Test case: `EssNzSi` and `EkyV758` under `--miri-all` themselves.
+
 - CICD reset: other hosts and VMs
 	- ID: 2026102416250010
 	- Type: Enhancement
@@ -346,26 +381,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
-- Two slow fuzz tests fail under Miri's `--miri-all`
-	- ID: 2026102413172941
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261024-131729
-	- Opened by: the r1024b test batch
-	- Version and build: `r1024b` at `d064d760`, and dev's `58f1b93f`
-	- Steps to reproduce:
-		- `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish`, or `cicd/utility/sanitize-rust.bash --miri-all`. Stage 4 aborts on `EszIPWl`.
-	- Incorrect behavior:
-		- `upgrade_leaves_its_own_output_alone` (`EssNzSi`) fails its guard "only 1 files naming this format were made over". At Miri's 100 iterations the guard needs `beta > iters / 100`, so 2. Natively with `SHCL_FUZZ_ITERS=100` it fails the same on `r1024b` and on `58f1b93f`.
-		- `merge_never_panics_and_stays_fixpoint` (`EkyV758`) ran past the 7200 s limit under Miri and was stopped, at host load about 42 beside another project's Miri run. Natively at 20,000 iterations it took 6.5-6.7 s on `r1024b` and 6.7-7.2 s on dev, so the round didn't slow it.
-	- Expected behavior: both pass under `--miri-all`, as on dev `8b81b8c3` on 2026-10-22.
-	- Reproduced: 20261024, the first natively at 100 iterations on both commits. The second only under Miri, on a loaded box.
-	- Possible cause: the corpus edits since 2026-10-22 moved the fuzz seeds, so the 100-iteration soup makes fewer format-3 files. Unconfirmed. The second may be load alone.
-	- Estimated effort: Low
-	- Note: it blocks the rest of the full run for 2026102307143752, 2026102307035781 and 2026102322270349, since stage 4 aborts before stages 5-9.
-	- Test case: `EssNzSi` and `EkyV758` under `--miri-all` themselves.
-
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
 	- Type: Enhancement
@@ -439,6 +454,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Overrides the deferred `BSD package` item.
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
+
+- Three fuzz guards are thin at Miri's 100 iterations
+	- ID: 2026102418441478
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261024-184414
+	- Opened by: 2026102413172941's sweep
+	- Related IDs: 2026102413172941
+	- Problem description:
+		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `EssNzSi`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
+		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
+	- Requirements:
+		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
+	- Estimated effort: Low
 
 - check-migrate counts no errors in a file whose Schema line names a missing schema
 	- ID: 2026102322233656
