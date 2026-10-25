@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
-	- Priority: Avg
+	- Priority: High
 	- Opened: 20261019-204611
 	- Opened by: JC
 	- Version and build: dev at `6f48dd7d`
@@ -46,6 +46,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Pre-next-cut.
 		- Make sure a container is used for build and test if available.
 		- Fall back to local if not.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 	- Decisions:
 		- JC, 20261019: available means docker answers on x86_64. Then stages 1-6 run in the main image, built first if it's missing, as `--container` does now. With no docker the run stays here with a one-line note. A new `--no-container` forces local.
 		- JC, 20261019: the pre-push hook's `--gate` follows the default. ci.yml passes `--no-container`, since the hosted runner installs its own tools and an image build wouldn't fit its 60 minutes.
@@ -67,6 +68,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261022: back to Waiting on automated testing, since the fix is on dev and nothing is left to code. JC's bare run on dev `8b81b8c3` covers the first part.
 		- 20261022: JC's bare run on dev `8b81b8c3` (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed: the image started for stage 1 and again for 2-6, check-push-gate `EtDCDE4` to `EtDCDE8` passed, and `tree c739cfb75920 recorded`. Verified: `cicd.bash --gate` with neither flag on the same commit started the image once, passed `EtDCDE7` and recorded the same tree. Only the main push is left.
 		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` ran stages 1-6 in the main image. Verified: check-push-gate `EtDCDE4` to `EtDCDE8`, check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB` passed. The round pushes no main, so the main push is still left.
+		- 20261024, CICD reset: this item is the reset's `CICD reset: containers` item, raised to High. The rule is otherwise in place. Its cleanup, CPU limits and Zig cache are 2026102416250030, 2026102416250040 and 2026102416250020.
 	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
@@ -216,6 +218,134 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1024b`
 	- Test case: `an_index_onto_a_list_takes_no_field` (`EtdPVpd` Rust, `EtdPW8G` Go, `EtdPWQz` Python, `EtdPWjj` C). It checks each case's fixpoint and lost count apart from the list check, the merge case included. `EkyV758` at 2,000,000.
 
+- CICD reset: other hosts and VMs
+	- ID: 2026102416250010
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `Other hosts and VMs` in the shared CICD rules.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides the private notes' `Test boxes` line that the hosted windows job covers Windows, so most items need no box visit.
+		- The default run builds and tests on the test boxes, as far as shcl needs them: Windows on b29w, with vm925w for timed work, plus macOS, FreeBSD and Linux arm64. Today Windows runs under wine and hosted, FreeBSD in a local qemu boot, and macOS and arm64 only hosted.
+		- Each box is held through the shared host lock for the whole time it's used, by `wrap`, and a VM is put back the way it was found through the VM state helper.
+		- `--no-remote` skips them. A box that isn't there is a `SKIP` in its step and in the summary, and the run goes on, `--merge-gate` included.
+		- A work folder of its own on each box, under that box's temp root.
+		- `b29w`, never `b29w-wif`. No script names either yet.
+
+- CICD reset: Zig cache
+	- ID: 2026102416250020
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the Zig bullets in `Cleanup after a run` in the shared CICD rules. The cross builds use `cargo zigbuild`.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- In the image, Zig's global cache is a volume of its own, `shcl-zig-cache`, not part of the cache dir mounted from this box.
+		- At the end of a run, a Zig cache over 2 GB, or filled by another Zig version, is emptied whole. A stamp file inside it records the version.
+		- `~/.cache/zig` on the host is never emptied, since every project shares it.
+
+- CICD reset: container cleanup
+	- ID: 2026102416250030
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026101920461174
+	- Requirements:
+		- Per the container bullets in `Cleanup after a run` in the shared CICD rules.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `dev.project=shcl` and `dev.run=<run folder>` labels on every container, image and volume, and containers named `shcl-<run folder>-<step>`.
+		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by `dev.run`.
+		- The current image tag and the one before it stay. Today only the current one does.
+		- `docker builder prune -f --filter until=168h` after the sweep.
+		- Cache volumes follow the same 2 GB rule as the Zig caches.
+		- The cleanup line compares `docker system df` before and after.
+		- One pass by hand, by ID, over what the pipeline made before these labels.
+
+- CICD reset: CPU and priority
+	- ID: 2026102416250040
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `Machine use` in the shared CICD rules. The half-the-cores cap is already worked out once and passed to each tool.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- A busy check at the start and before each step: with the 1-minute load over half the CPU count, the cap drops to a quarter.
+		- A quarter, busy or not, for the hard steps: leak checks, sanitizer builds, Miri, soak tests and the long fuzz.
+		- `nice -n 19`, plus `ionice -c 3`, over the whole run.
+		- `--cpus` and `--cpu-shares 256` on each `docker run`, and `nice` inside the image too.
+		- The same rules on other hosts, with that host's CPU count and load.
+
+- CICD reset: standard flags
+	- ID: 2026102416250050
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the flags in `CICD style guide` and per `Merge gate`, in the shared CICD rules. `--quick`, `--leakcheck`, `--no-leakcheck`, `--quiet`, `--message`, `--no-container` and `--no-sync` are in already.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides 2026101816034794, where `--ci` became an unknown option, the JC 20261018 decisions in 2026101707582803 and 2026101711273980 that a bare run has every leak check, `--miri-all` too, and `--gate` and `--quick` none, 2026101920461167's decision that `--gate` leaves them out, and the private notes' 2026-10-18 and 2026-10-19 lines that keep `--miri-all` in a bare run.
+		- The default run fits in about an hour. A bare run took 1h43m on 2026-10-22, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
+		- `--quick` keeps the fast leak checks.
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line.
+		- None of those 3 dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt. So a round never dogfoods.
+		- No gate on a push to dev. A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
+		- `--no-remote`, `--keep-temp` and `--list`.
+
+- CICD reset: step output
+	- ID: 2026102416250060
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the step lines in `CICD style guide` in the shared CICD rules. Each stage already opens with the section rule and a `N/9  Name` header.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Each step opens with a `Starting` line and closes with a `PASS` or `FAIL` line, both as `Step N of M` with a local timestamp to the hundredth of a second, under a rule 79 characters wide.
+		- A step that's turned off isn't counted in the total, and the first section lists those with the flag or reason for each.
+		- One blank line between sections, and one at the end.
+
+- CICD reset: a test for every Done item
+	- ID: 2026102416250070
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026102416250080
+	- Requirements:
+		- Per the regression bullet in `Testing` in the shared CICD rules. check-docs already wants a `Test case:` row on every closed item.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
+		- A Done item that says none where a test could exist and would make sense gets one.
+
+- CICD reset: test IDs
+	- ID: 2026102416250080
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints a line when it runs.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides the private notes' `Test IDs` rule of 2026-09-27.
+		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
+		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
+		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
+
 - Two slow fuzz tests fail under Miri's `--miri-all`
 	- ID: 2026102413172941
 	- Type: Bug
@@ -251,6 +381,64 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
 	- Estimated effort: High
 	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
+
+- CICD reset: temp files and safe removal
+	- ID: 2026102416250090
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `Temp files` and `Safe removal` in the shared CICD rules. Each run already has a temp dir of its own, with `TMPDIR` pointed at it and a trap that removes it.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- The run's folder is `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, made with a plain `mkdir`, with `TEMP` and `TMP` pointed there too.
+		- `--keep-temp` keeps it and prints its path.
+		- Each run removes the project's own run folders older than 2 days whose `run.pid` names no live process.
+		- A copy of the shared safe removal guard in the repo, for every recursive removal in cicd.bash, the hook, the gate scripts and the installers, and a guard of the same kind for the PowerShell ones. File list in the private notes.
+
+- CICD reset: version line
+	- ID: 2026102416250100
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026102319430000
+	- Requirements:
+		- Per the build number bullets in `Branches and releases` in the shared CICD rules. The build number and the dev build's date are in already.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides 2026102319430000's decision that unstamped builds stay `shcl vX.Y.Z`, and the private notes' rule that `--version` stays one line.
+		- Every build prints `shcl v<version> build <build>`, then the copyright line, in `--version`, `--about` and the release notes. Today only release builds are stamped, and the copyright line is only in `--about`.
+		- A non-release build adds its date after the build number.
+		- Only the Rust CLI ships. The C, Go and Python CLIs are for testing, so crosscheck leaves the version line out of its compare, and the four stay byte-identical everywhere else.
+		- Need to work out ambiguities: whether the one shipped CLI should be the Rust one, as today, or Go.
+
+- CICD reset: macOS runner
+	- ID: 2026102416250110
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `macOS builds on GitHub` in the shared CICD rules. The hosted `macos` job already builds, runs the tests and checks the CLI on the arm64 runner.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Pick which cicd.bash flags start that job, by how long it takes, and have them start it.
+
+- CICD reset: CICD process gaps
+	- ID: 2026102416250120
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- What else in the shared CICD rules' `CICD process` shcl doesn't do yet.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides the deferred `BSD package` item.
+		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
+		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
 - check-migrate counts no errors in a file whose Schema line names a missing schema
 	- ID: 2026102322233656
@@ -17530,6 +17718,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 - ✋ BSD package.
 	- Listed among the packaging targets and never built. README.md is accurate.
+	- 20261024: superseded by 2026102416250120, from the CICD reset, which wants a FreeBSD `.pkg`.
 	- Opened: 20260819-111243
 
 ### Canceled
