@@ -222,8 +222,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026102413172941
 	- Type: Bug
 	- Status: Waiting on automated testing
-		- Fixed in the 2 tests. Left is the 2 of them under Miri, as below.
-	- Needs local test suite run?: Y, `cicd/utility/sanitize-rust.bash --miri-all --only='^(upgrade_leaves_its_own_output_alone|merge_never_panics_and_stays_fixpoint)$'`, or the full run's `--miri-all`, which the 3 items waiting on this one need anyway.
+		- Fixed in the 2 tests. `EssNzSi` passes under Miri. Left is `EkyV758` there, as below.
+	- Needs local test suite run?: Y, `cicd/utility/sanitize-rust.bash --miri-all --only='^merge_never_panics_and_stays_fixpoint$'`, or the full run's `--miri-all`, which the 3 items waiting on this one need anyway.
 	- Severity: Avg
 	- Opened: 20261024-131729
 	- Opened by: the r1024b test batch
@@ -245,12 +245,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Progress log:
 		- 20261024: Verified: `EssNzSi` fails at `SHCL_FUZZ_ITERS=100` before the fix and passes after. Both tests pass natively at 100, the default 300 and 20,000, and so does all of fuzz_smoke at the default. Also rustfmt, clippy and test-ids. With the skip forced on natively, `EkyV758` at 100 rounds and opt-level 0 takes 0.24 s, which is today's cost without round 72.
+		- 20261024: Verified: `EssNzSi` passes under Miri as `--miri-all` runs it, in 2006 s at load 2.4. `EkyV758` there was still going at 28 minutes when it was stopped at the time cap, so it's unverified.
 		- Swept: every share guard in fuzz_smoke at 100 rounds. Only 3 are thin, filed as 2026102418441478, and none of those draws from the corpus. Every fuzz test's time at 100 rounds, against `8b81b8c3`: only `EkyV758` moved. The fuzz is in Rust only, so Go, Python and C have no twin.
 	- Decisions:
 		- me, 20261024: `EssNzSi` takes a floor rather than a lower bar. A bar low enough for 100 rounds would barely check the arm at 20,000. The floor is the native default, 300, so only Miri's run gets longer, about 3 times its old length.
 		- me, 20261024: under Miri only, `EkyV758` passes over the rare round that deep, after the round's last draw. Natively it still runs. A floor or a raised time limit would leave Miri's time hanging on the draw.
 	- Actual fix: `EssNzSi` runs at least 300 rounds, so its guard needs 4 hits of about 11. Under Miri, `EkyV758` passes over a round whose paths come to more than 64 KB, and fails if that's over 1 round in 10.
 	- Branch: `r1024c`
+	- Commit: `c1ac7f51`
 	- Test case: `EssNzSi` and `EkyV758` under `--miri-all` themselves.
 
 - CICD reset: other hosts and VMs
