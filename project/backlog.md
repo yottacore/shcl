@@ -353,6 +353,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--no-remote`, `--keep-temp` and `--list`.
 	- Progress log:
 		- 20261025: split into children 2026102515494614 (run lengths), 2026102515494619 (`--merge-gate`), 2026102515494624 (backlog runs), 2026102515494629 (docs-only pushes to main) and 2026102515494634 (`--keep-temp` and `--list`). `--no-remote` was in already (2026102419263412).
+		- 20261025: in on `r1025`: run lengths (Waiting on automated testing), `--merge-gate` and `--ci` (Waiting on automated testing), docs-only pushes to main (Done), `--keep-temp` and the steps `--list` prints. Left: the backlog runs and `--gate`'s move to them (2026102515494624), and the test IDs in `--list`.
 
 - CICD reset: run lengths
 	- ID: 2026102515494614
