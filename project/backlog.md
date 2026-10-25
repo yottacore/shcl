@@ -258,7 +258,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: other hosts and VMs
 	- ID: 2026102416250010
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -271,6 +271,85 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--no-remote` skips them. A box that isn't there is a `SKIP` in its step and in the summary, and the run goes on, `--merge-gate` included.
 		- A work folder of its own on each box, under that box's temp root.
 		- `b29w`, never `b29w-wif`. No script names either yet.
+	- Progress log:
+		- 20261024: split into 5 children, one per box plus the step they share: 2026102419263412 (first), 2026102419263417, 2026102419263422, 2026102419263427 and 2026102419263432. This one closes with the last of them.
+
+- Other hosts: the box step, and the FreeBSD release on vmFreeBSD
+	- ID: 2026102419263412
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Y. The full run line, which is the first run of the step from cicd.bash. Its output should end with a `SKIP vmFreeBSD` line or a `PASS vmFreeBSD` one.
+	- Needs external testing: Y. vmFreeBSD through the real host lock and VM state helper, from a paused or off VM, which has to end as it started. `bsdtest`'s login shell has to be a Bourne shell, since the box half is sent as `sh -c '...'`.
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Requirements:
+		- One step on this box, after the release builds, that runs each box in config.bash's list through `claude_vm-state.bash wrap`, so the host lock is held and a VM is put back the way it was found.
+		- A work folder of its own on each box, under its temp root, removed after.
+		- A box that isn't there, or no lock tool, is a `SKIP` in the step and in the run's summary, and the run goes on.
+		- `--no-remote` leaves the step out.
+		- First box: vmFreeBSD runs the freebsd-x86_64 release over the CLI cases, against the Linux release.
+	- Progress log:
+		- 20261024: `cicd/utility/check-boxes.bash`, and config.bash's `REMOTE_BOXES`, one row per box. cicd.bash runs it as `6/9  Test boxes` after stages 1-6, on this box whichever way they ran, and lists its `SKIP` lines again at the end. `--no-remote` leaves it out. A run with no release builds, such as `--gate`, is a `SKIP` per box.
+		- Each box goes through `claude_vm-state.bash wrap BOX --wait 900`, and the lock is held only while the box works. The comparison runs after it's let go. The box half makes `${HOST_TEMP:-${TMPDIR:-/tmp}}/shcl/<stamp>_<NNN>`, runs the cases under `nice -n 19`, and removes the folder on exit.
+		- Verified, with a stand-in VM state helper and ssh that run the box half here: a matching build passes 4416 CLI runs; a box that doesn't answer, no build, no helper and a refused lock are each a `SKIP` at exit 0; one changed output fails naming the case; a down box beside a good one skips the first and passes the second. The box folder was gone after each run. shellcheck over `SHELLCHECK_TARGETS`, shell-regress and `test-ids.py check` passed.
+		- Not run: the step from cicd.bash, and any real box.
+		- Swept: `fDriver` is the same text as check-freebsd's. check-cpu-floor has its own. The other 3 bindings have no CLI release, so no twin there.
+	- Test case: check-boxes `Etfwju5`.
+
+- Other hosts: the 4 suites on vmFreeBSD
+	- ID: 2026102419263417
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- Build the 4 bindings on vmFreeBSD and run their conformance suites and cli-regress there, through the box step.
+		- Say whether `check-freebsd.bash`'s qemu boot stays once vmFreeBSD runs the release.
+
+- Other hosts: Linux arm64 on vmDebARM64
+	- ID: 2026102419263422
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
+		- It runs under TCG, so keep its share of the run short.
+
+- Other hosts: macOS on b26 and vmKt6m
+	- ID: 2026102419263427
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- The macos-universal release over the CLI cases, as `mactest`, through the box step. Both Macs are Intel, so only the x86_64 slice runs. The hosted macOS job stays for arm64.
+		- A non-interactive ssh there has the stock bash 3.2 and a bare PATH, so the box half is plain sh.
+
+- Other hosts: Windows on b29w, timed work on vm925w
+	- ID: 2026102419263432
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- The windows-x86_64 release over the CLI cases, and `win-runners.bash` and `winpath-regress.ps1`, on b29w through the box step. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
+		- Anything timed, such as perf-gate, goes to vm925w.
+		- `b29w`, never `b29w-wif`.
 
 - CICD reset: Zig cache
 	- ID: 2026102416250020

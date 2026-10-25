@@ -200,6 +200,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-cpu-floor.bash
+	cicd/utility/check-boxes.bash
 	cicd/utility/check-freebsd.bash
 	cicd/utility/check-win-release.bash
 	cicd/utility/check-win-setup.bash
@@ -531,6 +532,14 @@ QUICK_SKIP=(
 	'sanitize-rust.bash'
 	'crosscheck.bash'
 	'check-freebsd.bash'
+)
+
+## Test boxes, after the release builds, on this box rather than in the image,
+## since the host lock and the ssh keys are here (2026102419263412). One row per
+## box: "BOX|SSH_TARGET|os-arch", the os-arch naming the release build it runs.
+## --no-remote leaves them out, and a box that isn't there is a SKIP.
+REMOTE_BOXES=(
+	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64"
 )
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored

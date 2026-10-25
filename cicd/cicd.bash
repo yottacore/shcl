@@ -63,6 +63,7 @@
 ##	   --no-dogfood        skip installing the release builds locally
 ##	   --no-gif            skip the demo gif refresh
 ##	   --no-publish        skip the git backup + publish stage
+##	   --no-remote         skip the test boxes config.bash lists in REMOTE_BOXES
 ##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
 ##	                       or NAME.Dockerfile there for an extra one, and fail
 ##	                       when docker can't. See below
@@ -137,6 +138,7 @@ FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); 
 LEAKCHECK_STEPS=()  ## the slow checks; see --leakcheck
 FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
+REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch" test boxes, after the release builds
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
@@ -169,7 +171,7 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 ## Parse options.
 assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0
 ## --container: which image, and the options the run inside it takes over.
-ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0
+ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0; no_remote=0
 fCtrPick(){
 	if [[ -z "$1" ]]; then echo "--container= names no image (try --help)" >&2; exit 2; fi
 	if [[ -n "${ctr_image}" && "${ctr_image}" != "$1" ]]; then echo "--container names 2 images, ${ctr_image} and $1 (try --help)" >&2; exit 2; fi
@@ -195,6 +197,7 @@ while (($#)); do case "$1" in
 	--no-dogfood)             DOGFOOD_FIXED_DESTS=(); shift ;;
 	--no-gif)                 GIF_ENABLE=0; shift ;;
 	--no-publish)             GIT_PUBLISH=(); shift ;;
+	--no-remote)              no_remote=1; shift ;;
 	--container)              fCtrPick main; shift ;;
 	--container=*)            fCtrPick "${1#*=}"; shift ;;
 	--no-container)           no_container=1; shift ;;
@@ -1021,6 +1024,33 @@ else
 	fi
 fi
 
+## The test boxes, here whichever way stages 1-6 ran, since the host lock and
+## the ssh keys are on this box (2026102419263412). A box that isn't there is a
+## SKIP, and the run goes on; the summary at the end names it again.
+remote_skips=()
+if ((! inner_run)); then
+	fSection "6/9  Test boxes"
+	if ((no_remote)); then
+		fEcho_Clean "test boxes skipped (--no-remote)"
+	elif ((${#REMOTE_BOXES[@]} == 0)); then
+		fEcho_Clean "no test boxes configured"
+	elif [[ ! -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]] || ((${#built_arts[@]} == 0)); then
+		for r in "${REMOTE_BOXES[@]}"; do remote_skips+=("SKIP ${r%%|*}: no release builds this run"); done
+		printf '%s\n' "${remote_skips[@]}"
+	else
+		box_rows=()
+		for r in "${REMOTE_BOXES[@]}"; do
+			IFS='|' read -r r_box r_target r_osarch <<< "${r}"
+			box_rows+=("${r_box}|${r_target}|$(fArtOf "${r_osarch}")")
+		done
+		box_rc=0
+		"${here}/utility/check-boxes.bash" "${RELEASE_NATIVE_BIN}" "${box_rows[@]}" 2>&1 | tee "${run_tmp}/boxes.out" || box_rc=$?
+		mapfile -t remote_skips < <(grep '^SKIP ' "${run_tmp}/boxes.out" || true)
+		((box_rc == 0)) || fDie "a test box check failed"
+		fEcho "OK: test boxes"
+	fi
+fi
+
 ## Stage 7: dogfood - drop the freshly built optimized native binary into the first
 ## existing+writable fixed dest, under EXE_NAME, so the copy launched by hand stays
 ## current. Each cross-built binary goes to its own per-os-arch dest where one is
@@ -1170,6 +1200,7 @@ fCleanup(){
 fCleanup
 
 fSection "${APP_NAME} CI/CD: done."
+for s in "${remote_skips[@]}"; do fEcho_Clean "${s}"; done
 fEcho_Clean
 exit 0
 }
