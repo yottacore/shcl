@@ -2150,6 +2150,8 @@ PYEOF
 	printf 'a: 1\nb\nc: 2\n' > "${tmpDir}/wbad.shcl"
 	rc=0; out="$(python3 "${worker}" shcl "${tmpDir}/wbad.shcl" 1 2>&1)" || rc=$?
 	[[ "${rc}" == 0 && "${out}" == "failed=1 diagnostics, 0 lines lost" ]] || fBad "pyworker.py timed a partial parse (exit ${rc}): ${out@Q}"
+else
+	fBad "cicd/utility/comparison/pyworker.py is gone, so its rows check nothing"
 fi
 
 fTest EqBCxoW 20260909-61-demo-output-order
@@ -3119,6 +3121,8 @@ PYEOF
 	elif ! out="$("${gate}" "${fix}" 2>&1)"; then
 		fBad "check-completions rejects an option-less subcommand the completions list correctly: ${out}"
 	fi
+else
+	fBad "cicd/utility/check-completions.bash is gone or not executable, so its row checks nothing"
 fi
 
 fTest EoXV3tQ installers-help-version-refusals
@@ -3175,6 +3179,8 @@ if [[ -f "${repoDir}/install.bash" ]]; then
 	out="$(HOME="${fake}" bash "${repoDir}/install.bash" --target user --uninstall --yes 2>&1 || true)"
 	grep -q 'did not put there' <<<"${out}" || fBad "install.bash --uninstall said nothing about the files it left behind: ${out}"
 	[[ -f "${fake}/.local/share/shcl/not-ours.txt" ]] || fBad "install.bash --uninstall removed a file it did not install"
+else
+	fBad "install.bash is gone, so its uninstall row checks nothing"
 fi
 
 fTest EqzwPFO 20260829-20-no-terminal-prompt
@@ -3275,6 +3281,8 @@ if [[ -f "${report}" ]]; then
 	if grep -qE 'flame-report\.py[^|]*2>/dev/null' "${repoDir}/cicd/cicd.bash"; then
 		fBad "cicd.bash discards the hot-spot report's stderr, which is its only diagnostic"
 	fi
+else
+	fBad "cicd/utility/flame-report.py is gone, so its row checks nothing"
 fi
 
 ##	Every tracked shell script, whether or not it is named `*.bash`: the
@@ -3926,3 +3934,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-19  Each QUICK_SKIP name matches one step.
 ##		2026-10-19  Hosted gate runs pass --no-container, and only fCtrWhyNot asks for docker.
 ##		2026-10-23  check-migrate counts errors past a Schema line naming a missing file.
+##		2026-10-24  The pyworker, uninstall, flame-report and check-completions rows fail by name when their file is gone.

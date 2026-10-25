@@ -572,7 +572,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - 3 shell-regress blocks pass with no line when the file they test is gone
 	- ID: 2026102420263500
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261024-202635
 	- Opened by: 2026102419595509's sweep
@@ -581,6 +581,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a tracked file the gate checks that has gone missing fails by name, or the block prints a skip line.
 	- Swept so far: found while checking the guard that 2026102419595509 fixed. All 3 files exist today, so nothing is broken yet.
 	- Estimated effort: Low
+	- Actual fix: each of the 3 blocks has an else branch that fails naming the missing file.
+	- Swept: every file test that opens a block in shell-regress, check-docs, check-push-gate and check-install-dev. 2 more were silent the same way, and fail by name now too: shell-regress's check-completions row and check-docs' install.ps1 tar and parse rows. The demo gif and the other install.ps1 block already print a skip line, and the rest test state the run makes. Only bash gates are involved, so the bindings have no twin.
+	- Test case: shell-regress `EoXLk6q`, `EoXVLaC`, `EomZie0` and `EoXPkY4`, and check-docs `EoXVY4O`, each failing by name when its file is gone.
+	- Verified: with the repo root pointed at an empty dir, the 5 blocks fail by name, and the old ones stay green. shell-regress, check-docs, shellcheck and `test-ids.py check` pass.
+	- Branch: `r1024c`
+	- Acceptance signoff: Self-closed: each block went red with its file gone where the old one stayed green, and the gates pass on the round branch.
+	- Closed: 20261024-203400
 
 - check-push-gate's gate worktree half of `EstM5os` never runs
 	- ID: 2026102419595509
