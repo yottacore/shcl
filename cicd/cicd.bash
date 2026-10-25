@@ -25,23 +25,23 @@
 ##	- Syntax:
 ##	  cicd/cicd.bash [options]
 ##	  Options:
-##	   With no options a run does every stage and every check this box can run.
+##	   With no options a run does every stage and check but the ones taking hours.
 ##	   --gate              correctness gate only: format check (no rewrite), build,
 ##	                       lint, tests, cross checks; strict, non-interactive, no
 ##	                       cross-compiled release artifacts and no publish. This is
 ##	                       what the GitHub workflow runs - one definition of "passing".
 ##	   --quick             the fast loop: leaves out the slow steps, and the ones
 ##	                       that need another host, that config.bash lists in
-##	                       QUICK_SKIP, plus the large-document gate, the leak
-##	                       checks, packages, profiler and demo gif. Tests run at
-##	                       the shorter fuzz depth when the config has
+##	                       QUICK_SKIP, plus the large-document gate, the slow
+##	                       leak checks, packages, profiler and demo gif. Tests
+##	                       run at the shorter fuzz depth when the config has
 ##	                       TEST_QUICK_CMD
-##	   --leakcheck         the slow leak and memory checks config.bash lists in
-##	                       LEAKCHECK_STEPS, at the end of the tests stage, for
-##	                       a --gate or --quick run, which leaves them out. A run
-##	                       with no flags has them already. Some take hours
-##	   --no-leakcheck      leave the leak checks out of any run. Not with
-##	                       --leakcheck
+##	   --long, --slow      everything, the leak checks that take hours included.
+##	                       Not with --quick
+##	   --leakcheck         every leak check config.bash lists, at the end of the
+##	                       tests stage, the ones that take hours included
+##	   --no-leakcheck      every leak check out, fast ones and sanitizer runs too.
+##	                       Not with --leakcheck
 ##	   -q, --quiet        unattended (no prompt) and quiet: no preflight block,
 ##	                       and cargo, ruff and the gif renderer get their own
 ##	                       quiet flags. Stage headers, results and warnings
@@ -140,7 +140,8 @@ fCpuCap
 ## second binding (Go, C, ...) adds its fmt/build/lint/test commands in config
 ## without touching engine code. All default empty.
 FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); TEST_QUICK_CMD=()
-LEAKCHECK_STEPS=()  ## the slow checks; see --leakcheck
+## The leak checks by length, and the test steps that are leak checks too.
+LEAKCHECK_FAST=(); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=(); LEAKCHECK_TESTS=()
 FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
 REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch" test boxes, after the release builds
@@ -202,7 +203,7 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0
+assume_yes=0; quiet=0; gate_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0; no_remote=0
 fCtrPick(){
@@ -215,6 +216,7 @@ while (($#)); do case "$1" in
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
 	--leakcheck)              leakcheck_flag=1; ctr_pass+=("$1"); shift ;;
 	--no-leakcheck)           no_leakcheck=1; ctr_pass+=("$1"); shift ;;
+	--long|--slow)            long_run=1; ctr_pass+=("$1"); shift ;;
 	-q|--quiet)               quiet=1; assume_yes=1; QUIET_FLAG="-q"; export CARGO_TERM_QUIET=true; shift ;;
 	-y|--yes)                 assume_yes=1; shift ;;
 	--no-sync)                sync_enable=0; shift ;;
@@ -242,6 +244,7 @@ while (($#)); do case "$1" in
 esac; done
 ## Nothing on the command line resolves last-wins (design.md).
 if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck can't go together (try --help)" >&2; exit 2; fi
+if ((quick && long_run)); then echo "--quick and --long can't go together (try --help)" >&2; exit 2; fi
 if [[ -n "${ctr_image}" ]] && ((no_container)); then echo "--container and --no-container can't go together (try --help)" >&2; exit 2; fi
 
 ## --gate: correctness only, deterministic, side-effect free.
@@ -299,8 +302,32 @@ if ((quick)); then
 	for list in LINT_EXTRA TEST_EXTRA CROSS_CHECKS CROSS_TARGETS RELEASE_CHECKS; do fQuickDrop "${list}"; done
 	if fQuickSkips crosscheck.bash; then xcheck_enable=0; fi
 fi
-## A run with no flags does everything, these included (JC, 2026-10-18).
-if ((no_leakcheck)) || { ((gate_mode || quick)) && ((! leakcheck_flag)); }; then LEAKCHECK_STEPS=(); fi
+## The leak checks by length: the fast ones in --quick too, the slow ones in
+## the default run, and the ones that take hours only under --long or
+## --leakcheck, so the default run fits in about an hour (2026102515494614).
+leak_long=0
+if ((no_leakcheck || no_tests)); then
+	LEAKCHECK_STEPS=()
+	if ((no_leakcheck)); then
+		leakKept=()
+		for step in "${TEST_EXTRA[@]}"; do
+			for pat in "${LEAKCHECK_TESTS[@]}"; do
+				if [[ "${step}" == *"${pat}"* ]]; then continue 2; fi
+			done
+			leakKept+=("${step}")
+		done
+		TEST_EXTRA=("${leakKept[@]}")
+	fi
+elif ((leakcheck_flag || long_run)); then
+	LEAKCHECK_STEPS=("${LEAKCHECK_FAST[@]}" "${LEAKCHECK_STEPS[@]}" "${LEAKCHECK_LONG[@]}")
+	if ((${#LEAKCHECK_LONG[@]})); then leak_long=1; fi
+elif ((gate_mode)); then
+	LEAKCHECK_STEPS=()
+elif ((quick)); then
+	LEAKCHECK_STEPS=("${LEAKCHECK_FAST[@]}")
+else
+	LEAKCHECK_STEPS=("${LEAKCHECK_FAST[@]}" "${LEAKCHECK_STEPS[@]}")
+fi
 
 ## A run at least as thorough as the pre-push hook's records the tree it tested
 ## once the tests and the cross checks pass, and the hook lets a commit with
@@ -620,7 +647,7 @@ if ((! quiet)); then
 		fEcho_Clean "Build (debug) ..: ${BUILD_CMD[*]:-(none configured)}$( ((${#BUILD_EXTRA[@]})) && echo "  (+ ${#BUILD_EXTRA[@]} extra)" )"
 		fEcho_Clean "Lint ...........: ${LINT_CMD[*]:-(none configured)}$( ((${#LINT_EXTRA[@]})) && echo "  (+ ${#LINT_EXTRA[@]} extra)" )  + shellcheck: ${#SHELLCHECK_TARGETS[@]} file(s)"
 		fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: $( ((xcheck_enable)) && echo "${#BINDING_CLIS[@]} binding(s)" || echo "(skipped)" )$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
-		fEcho_Clean "Leak checks ....: $( ((${#LEAKCHECK_STEPS[@]})) && echo "${#LEAKCHECK_STEPS[@]}, at the end of the tests (some take hours)" || echo '(skipped)')"
+		fEcho_Clean "Leak checks ....: $( ((${#LEAKCHECK_STEPS[@]})) && echo "${#LEAKCHECK_STEPS[@]}, at the end of the tests$( ((leak_long)) && echo ' (some take hours)')" || echo '(skipped)')"
 		fEcho_Clean "Profiler .......: $( ((PROFILE_ENABLE)) && echo "${PROFILE_SECS}s run -> flamegraph SVG -> ${PROFILE_OUT_DIR}/" || echo '(skipped)')"
 		if ((${#RELEASE_NATIVE_CMD[@]})); then
 			fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/$( ((${#RELEASE_CHECKS[@]})) && echo "  + ${#RELEASE_CHECKS[@]} check(s)" )"
@@ -1015,14 +1042,14 @@ else
 		fEcho "build ${SHCL_BUILD}${SHCL_BUILD_DATED:+ (dated)}"
 		fStep "${RELEASE_NATIVE_CMD[@]}"
 		[[ -f "${RELEASE_NATIVE_BIN}" ]] || fDie "native release binary missing: ${RELEASE_NATIVE_BIN}"
-		fEcho "OK: native release: ${RELEASE_NATIVE_BIN} ($(du -h "${RELEASE_NATIVE_BIN}" | cut -f1))"
+		fEcho "OK: native release: ${RELEASE_NATIVE_BIN} ($(du -h --apparent-size "${RELEASE_NATIVE_BIN}" | cut -f1))"
 		built_arts=("${RELEASE_NATIVE_OSARCH:-native}|${RELEASE_NATIVE_BIN}")
 		for t in "${CROSS_TARGETS[@]}"; do
 			t_label="${t%%|*}"; rest="${t#*|}"; t_osarch="${rest%%|*}"; rest="${rest#*|}"; t_art="${rest%%|*}"; t_cmd="${rest#*|}"
 			fEcho "cross: ${t_label}"
 			fCpuStep "${t_cmd}"; eval "${t_cmd}"
 			[[ -f "${t_art}" ]] || fDie "missing artifact for ${t_label}: ${t_art}"
-			fEcho "OK: ${t_label}: ${t_art} ($(du -h "${t_art}" | cut -f1))"
+			fEcho "OK: ${t_label}: ${t_art} ($(du -h --apparent-size "${t_art}" | cut -f1))"
 			built_arts+=("${t_osarch}|${t_art}")
 		done
 		unset SHCL_BUILD SHCL_BUILD_DATED
@@ -1169,7 +1196,7 @@ if ((GIF_ENABLE)); then
 			gif_kept=( "${gif_dir}/demo_${stamp}_"*.gif )
 			cp -f "${gif_kept[0]}" "${root}/${GIF_OUT}"
 		fi
-		fEcho "OK: demo gif -> ${GIF_OUT} ($(du -h "${root}/${GIF_OUT}" | cut -f1))"
+		fEcho "OK: demo gif -> ${GIF_OUT} ($(du -h --apparent-size "${root}/${GIF_OUT}" | cut -f1))"
 	else
 		fEcho "WARNING: demo gif skipped (non-fatal)"
 	fi
@@ -1291,3 +1318,5 @@ exit 0
 ##		  before the current one stays, a week of build cache stays, and the cleanup line has docker system df before and after.
 ##		- 2026-10-24 JC: The CPU cap is checked again before each step: a quarter when the box is busy or the step is hard,
 ##		  and the run at nice 19 and idle I/O.
+##		- 2026-10-25 JC: --long and --slow. The leak checks that take hours are only there and in --leakcheck, --quick keeps
+##		  the fast ones, and --no-leakcheck drops the sanitizer runs too. Sizes printed are the files' own.

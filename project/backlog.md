@@ -336,7 +336,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: standard flags
 	- ID: 2026102416250050
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -351,6 +351,86 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- None of those 3 dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt. So a round never dogfoods.
 		- No gate on a push to dev. A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
 		- `--no-remote`, `--keep-temp` and `--list`.
+	- Progress log:
+		- 20261025: split into children 2026102515494614 (run lengths), 2026102515494619 (`--merge-gate`), 2026102515494624 (backlog runs), 2026102515494629 (docs-only pushes to main) and 2026102515494634 (`--keep-temp` and `--list`). `--no-remote` was in already (2026102419263412).
+
+- CICD reset: run lengths
+	- ID: 2026102515494614
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Requirements:
+		- The default run fits in about an hour, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
+		- `--quick` keeps the fast leak checks. `--leakcheck` adds every leak check, and `--no-leakcheck` takes every one out, fast ones included.
+	- Needs local test suite run?: the round's full run, to see it fit in about an hour.
+	- Decisions:
+		- me: the leak checks split by how long they took in the 2026-10-25 full run. Fast, in `--quick` too: `analyze-c.bash --ctu` (17 s), `soak-c.bash` (100 s) and `sanitize-c.bash --glibcxx-debug`. Slow, in the default run: `codeql-scan.bash` (535 s). Long, only in `--long` and `--leakcheck`: `--miri-all`.
+		- me: `--no-leakcheck` also drops the sanitizer runs in the tests, `sanitize-c.bash` and `sanitize-rust.bash`. `--quick` still leaves those out through `QUICK_SKIP`.
+		- me: `--quick --long` is a usage error, since nothing on the command line resolves last-wins.
+		- me: `--gate` still runs no leak checks. It moves to `--backlog-run-quick` in 2026102515494624, and `--merge-gate` (2026102515494619) takes the default run's.
+	- Progress log:
+		- 20261025: done. config.bash lists the leak checks as `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG`, plus `LEAKCHECK_TESTS` for the test steps. `--long` and `--slow` in cicd.bash, passed on to the run in the image and the frozen copy. Help, contributing.md, design.md and sanitize-rust.bash's help say so.
+		- No step takes hours but `--miri-all`, so no benchmark moved.
+		- Verified: check-push-gate `EtkuOxe` failed on the old engine (an unknown `--long`, the fast ones left out of `--quick` and the default run) and passes on the new one, with `Et9t3dc` and `EtD3jdR` unchanged. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
+		- Swept: every reader of `LEAKCHECK_STEPS`: the engine, the alpine branch of config.bash, check-push-gate's stub, shell-regress `EtgMc2s`'s text match, and check-pins' leak-only tool scan, which reads no leak list.
+	- Test case: check-push-gate `EtkuOxe`.
+
+- CICD reset: merge gate
+	- ID: 2026102515494619
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494614
+	- Requirements:
+		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--ci` is another name for it, and says so in one line.
+		- It doesn't dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt.
+		- The hosted workflow runs it as far as the runner can.
+
+- CICD reset: backlog runs
+	- ID: 2026102515494624
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494619
+	- Requirements:
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line.
+		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
+		- The round settings' gate and full-run lines move to them.
+
+- CICD reset: docs-only pushes to main
+	- ID: 2026102515494629
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494619
+	- Requirements:
+		- No gate on a push to dev.
+		- A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
+
+- CICD reset: keep-temp and list
+	- ID: 2026102515494634
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Requirements:
+		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
+		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
 
 - CICD reset: step output
 	- ID: 2026102416250060
@@ -469,20 +549,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
-- A release build's size in the run log reads 1.0K
-	- ID: 2026102421543041
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261024-215430
-	- Opened by: the r1024c test batch
-	- Version and build: `r1024c` at `d842ecf8`
-	- Incorrect behavior: stage 6 prints `OK: native release: source/rust/target/release/shcl (1.0K)`, and `(1.0K)` for each cross build, where the files are 1.1 to 2.3 MB.
-	- Expected behavior: the file's size.
-	- Reproduced: 20261024, in the full run's log. `du -h` on a 1.3 MB file just written on ZFS gives 1.0K, and 1.3M a few seconds later.
-	- Possible cause: cicd.bash prints `du -h`, which counts allocated blocks. ZFS hasn't allocated a new file's blocks until its next sync, and the run's `target` is on ZFS. `stat -c %s` or `du --apparent-size` would give the size. The demo gif line uses `du -h` too.
-	- Estimated effort: Low
-
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
 	- Type: Task
@@ -497,6 +563,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- A release build's size in the run log reads 1.0K
+	- ID: 2026102421543041
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261024-215430
+	- Opened by: the r1024c test batch
+	- Version and build: `r1024c` at `d842ecf8`
+	- Incorrect behavior: stage 6 prints `OK: native release: source/rust/target/release/shcl (1.0K)`, and `(1.0K)` for each cross build, where the files are 1.1 to 2.3 MB.
+	- Expected behavior: the file's size.
+	- Reproduced: 20261024, in the full run's log. `du -h` on a 1.3 MB file just written on ZFS gives 1.0K, and 1.3M a few seconds later.
+	- Possible cause: cicd.bash prints `du -h`, which counts allocated blocks. ZFS hasn't allocated a new file's blocks until its next sync, and the run's `target` is on ZFS. `stat -c %s` or `du --apparent-size` would give the size. The demo gif line uses `du -h` too.
+	- Actual cause: `du -h` counts allocated blocks. ZFS gives a new file its blocks only at its next sync, and the run's `target` is on ZFS.
+	- Estimated effort: Low
+	- Actual fix: the 3 sizes cicd.bash prints, the native and cross release builds and the demo gif, use `du -h --apparent-size`, as package.bash's already did.
+	- Swept: every `du` under `cicd/` and in the hook. package.bash's 2 already gave the size. The `du -sk` ones measure what a cleanup frees, where allocated blocks are right.
+	- Verified: a 1.3 MB file just written in `source/rust/target` read 1.0K with `du -h` and 1.3M with `--apparent-size`. shell-regress `EtkuOxd` failed on the old cicd.bash and passes on the fix.
+	- Test case: shell-regress `EtkuOxd`.
+	- Acceptance signoff: Self-closed: a mechanical fix, its test failed before and passes after.
+	- Closed: 20261025-160100
 
 - A merge can still build a list with a field under it, at 2M fuzz
 	- ID: 2026102322270349

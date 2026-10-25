@@ -99,9 +99,9 @@ TOOL_PINS=(
 	"clang-tidy|19|clang-tidy-19 --version"
 	## The index analyze-c.bash --ctu builds, from clang's major.
 	"clang-tools|19|clang-extdef-mapping-19 --version"
-	## The C soak's heap report, under --leakcheck (soak-c.bash).
+	## The C soak's heap report, a fast leak check (soak-c.bash).
 	"heaptrack|1.5.0|heaptrack --version"
-	## CodeQL over all 5 languages, under --leakcheck (codeql-scan.bash). The
+	## CodeQL over all 5 languages, a slow leak check (codeql-scan.bash). The
 	## bundle of this CLI version, with its query packs, whose sha256 is in
 	## the Dockerfile. Its findings move between releases, as cppcheck's do.
 	"codeql|2.27.2|codeql version --format=terse"
@@ -329,31 +329,41 @@ TEST_EXTRA=(
 	## The Rust suite under ASan and LSan, then under Miri without the tests
 	## that take minutes each there, on the dated nightly in rust-toolchain.toml.
 	## Its --miri-all, every test under Miri, is hours, so it's in
-	## LEAKCHECK_STEPS below.
+	## LEAKCHECK_LONG below.
 	'cicd/utility/sanitize-rust.bash'
 )
 
-## Stage 4, last: the slow leak and memory checks. A run with no flags runs
-## them, and --gate and --quick leave them out unless --leakcheck is given
-## too (JC, 2026-10-18).
-LEAKCHECK_STEPS=(
+## Stage 4, last: the leak and memory checks, by how long they take. The fast
+## ones run in --quick too, the slow ones in the default run, and the ones
+## that take hours only under --long or --leakcheck. --no-leakcheck drops all
+## of them, and the TEST_EXTRA steps LEAKCHECK_TESTS names.
+LEAKCHECK_FAST=(
 	## The clang analyzer in its cross-file mode, over each C program split
 	## into its own code and the library's, as a program using the header is
-	## built.
+	## built. About 20 s.
 	'cicd/utility/analyze-c.bash --ctu'
 	## The C soak, a plain build under heaptrack. The report goes in
-	## cicd/artifacts/soak/.
+	## cicd/artifacts/soak/. About 100 s.
 	'cicd/utility/soak-c.bash'
 	## The veneer smoke in libstdc++'s debug mode, which changes the ABI and
 	## so has a build of its own.
 	'cicd/utility/sanitize-c.bash --glibcxx-debug'
+)
+LEAKCHECK_STEPS=(
 	## CodeQL's security-and-quality suites over all 5 languages, in the
-	## build image. About 5 minutes; the databases and SARIF go in
+	## build image. About 9 minutes; the databases and SARIF go in
 	## cicd/artifacts/codeql/.
 	'cicd/utility/codeql-scan.bash'
+)
+LEAKCHECK_LONG=(
 	## Every Rust test under Miri, the ones that take minutes each there
 	## included. Hours.
 	'cicd/utility/sanitize-rust.bash --miri-all'
+)
+## The sanitizer runs in TEST_EXTRA, matched as text like QUICK_SKIP.
+LEAKCHECK_TESTS=(
+	'sanitize-c.bash'
+	'sanitize-rust.bash'
 )
 
 ## Stage 4b: cross-binding differential check (crosscheck.bash). Every entry is
@@ -657,7 +667,7 @@ if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then
 	done
 	TEST_EXTRA=("${ctrKeep[@]}")
 	## Every one needs glibc, a sanitizer, or a tool the image doesn't have.
-	LEAKCHECK_STEPS=()
+	LEAKCHECK_FAST=(); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=()
 	unset ctrSkip ctrKeep x
 fi
 
@@ -697,3 +707,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-24 JC: CTR_ZIG_VOLUME and CTR_ZIG_CAP_KB, Zig's cache volume in the main image.
 ##		- 2026-10-24 JC: HARD_STEPS; the plain arrays name no CPU count, since the engine exports it per step.
 ##		- 2026-10-25 JC: Backup excludes moved to cicd/rar-excludes.conf, so a standalone backup leaves out the CodeQL databases too.
+##		- 2026-10-25 JC: The leak checks split by length: LEAKCHECK_FAST for --quick too, LEAKCHECK_STEPS, LEAKCHECK_LONG for --long, and LEAKCHECK_TESTS.

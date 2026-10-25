@@ -3990,6 +3990,12 @@ ccOut="$(CPU_CAP=1 "${BASH}" -c 'set +u; source "$1"
 	done; true' _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
 [[ -z "${ccOut}" ]] || fBad "config.bash's HARD_STEPS took the wrong steps: ${ccOut@Q}"
 
+fTest EtkuOxd 2026102421543041-sizes-printed-are-apparent
+##	du counts allocated blocks, and ZFS gives a new file its blocks only at
+##	the next sync, so a release build just written read 1.0K.
+duPlain="$(grep -nE 'du -h( |$)' "${repoDir}/cicd/cicd.bash" "${repoDir}/cicd/utility/package.bash" | grep -vF -e '--apparent-size' || true)"
+[[ -z "${duPlain}" ]] || fBad "a file size printed from allocated blocks: ${duPlain}"
+
 fTestEnd
 
 if ((nBad)); then

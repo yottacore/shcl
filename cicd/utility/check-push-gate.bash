@@ -454,6 +454,8 @@ TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TM
 TEST_EXTRA+=('if [[ -n "${STUB_HANG:-}" ]]; then echo "${TMPDIR}" > "${STUB_HANG}.tmp"; sleep 300 & echo "$!" > "${STUB_HANG}"; wait "$!"; fi')
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
 LEAKCHECK_STEPS=('echo leak > "${STUB_LEAK:-/dev/null}"')
+LEAKCHECK_FAST=('echo fast > "${STUB_LEAK_FAST:-/dev/null}"'); LEAKCHECK_LONG=('echo long > "${STUB_LEAK_LONG:-/dev/null}"')
+LEAKCHECK_TESTS=(STUB_LEAK_TEST); TEST_EXTRA+=('echo t > "${STUB_LEAK_TEST:-/dev/null}"')
 CROSS_CHECKS=('stub|[[ -z "${STUB_CROSS_FAIL:-}" ]]')
 BINDING_CLIS=(); if [[ -n "${STUB_XCHECK:-}" ]]; then BINDING_CLIS=("stub|true"); fi
 LARGEDOC_MIB=0; CROSS_TARGETS=(); PROFILE_ENABLE=0; PACKAGE_ENABLE=0; GIF_ENABLE=0
@@ -558,6 +560,32 @@ for leakFirst in --leakcheck --no-leakcheck; do
 		fail "cicd.bash took ${leakFirst} ${leakSecond}: exit ${engRc}, ran ${leakRan}: $(tail -2 "${work}/eng.log")"
 	fi
 done
+fTest EtkuOxe the leak checks by length, and --long
+## 2026102515494614: the default run fits in about an hour, so what takes hours
+## is only in --long, --slow and --leakcheck. --quick keeps the fast ones, and
+## --no-leakcheck drops every one, the test steps that are leak checks too.
+fLeakLen(){  ## fLeakLen ARGS... -> engRc, leakRun as fast slow long test, 1 or 0 each
+	local f
+	rm -f "${work}/eng.leak" "${work}/eng.leakfast" "${work}/eng.leaklong" "${work}/eng.leaktest"
+	fEngine STUB_LEAK="${work}/eng.leak" STUB_LEAK_FAST="${work}/eng.leakfast" STUB_LEAK_LONG="${work}/eng.leaklong" STUB_LEAK_TEST="${work}/eng.leaktest" -- "$@"
+	leakRun=""
+	for f in leakfast leak leaklong leaktest; do
+		if [[ -e "${work}/eng.${f}" ]]; then leakRun+="1"; else leakRun+="0"; fi
+	done
+}
+for leakCase in '1101|-y --no-sync' '1001|-y --no-sync --quick' '1111|-y --no-sync --long' '1111|-y --no-sync --slow' \
+	'1111|-y --no-sync --leakcheck' '1111|-y --no-sync --quick --leakcheck' '0000|-y --no-sync --no-leakcheck' \
+	'0000|-y --no-sync --long --no-tests' '0001|--gate' '1111|--gate --long'; do
+	read -r -a leakArgs <<< "${leakCase#*|}"
+	fLeakLen "${leakArgs[@]}"
+	if ((engRc != 0)) || [[ "${leakRun}" != "${leakCase%%|*}" ]]; then
+		fail "cicd.bash ${leakCase#*|} ran the leak checks as ${leakRun} (fast, slow, long, test), not ${leakCase%%|*}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+	fi
+done
+fLeakLen -y --no-sync --quick --long
+if ((engRc != 2)) || [[ "${leakRun}" != 0000 ]] || ! grep -qF "can't go together" "${work}/eng.log"; then
+	fail "cicd.bash took --quick --long: exit ${engRc}, ran ${leakRun}: $(tail -2 "${work}/eng.log")"
+fi
 fTest Et6Aum5 --ci is an unknown option
 ## 2026101816034794: renamed --gate, with no alias.
 fEngine -- --ci
@@ -1028,3 +1056,4 @@ exit "${rc}"
 ##		- 2026-10-24 JC: The gate worktree half of the extra image check runs every time.
 ##		- 2026-10-24 JC: The run labels and container names, a failed or stopped run's containers, the tag
 ##		  before the current one, the build cache prune and the docker sizes on the cleanup line.
+##		- 2026-10-25 JC: The leak checks by length, and --long.
