@@ -199,6 +199,101 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1024c`
 	- Test case: check-push-gate `EtgShUg`.
 
+- CICD reset: run lengths
+	- ID: 2026102515494614
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Requirements:
+		- The default run fits in about an hour, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
+		- `--quick` keeps the fast leak checks. `--leakcheck` adds every leak check, and `--no-leakcheck` takes every one out, fast ones included.
+	- Needs local test suite run?: the round's full run, to see it fit in about an hour.
+	- Decisions:
+		- me: the leak checks split by how long they took in the 2026-10-25 full run. Fast, in `--quick` too: `analyze-c.bash --ctu` (17 s), `soak-c.bash` (100 s) and `sanitize-c.bash --glibcxx-debug`. Slow, in the default run: `codeql-scan.bash` (535 s). Long, only in `--long` and `--leakcheck`: `--miri-all`.
+		- me: `--no-leakcheck` also drops the sanitizer runs in the tests, `sanitize-c.bash` and `sanitize-rust.bash`. `--quick` still leaves those out through `QUICK_SKIP`.
+		- me: `--quick --long` is a usage error, since nothing on the command line resolves last-wins.
+		- me: `--gate` still runs no leak checks. It moves to `--backlog-run-quick` in 2026102515494624, and `--merge-gate` (2026102515494619) takes the default run's.
+	- Progress log:
+		- 20261025: done. config.bash lists the leak checks as `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG`, plus `LEAKCHECK_TESTS` for the test steps. `--long` and `--slow` in cicd.bash, passed on to the run in the image and the frozen copy. Help, contributing.md, design.md and sanitize-rust.bash's help say so.
+		- No step takes hours but `--miri-all`, so no benchmark moved.
+		- Verified: check-push-gate `EtkuOxe` failed on the old engine (an unknown `--long`, the fast ones left out of `--quick` and the default run) and passes on the new one, with `Et9t3dc` and `EtD3jdR` unchanged. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
+		- Swept: every reader of `LEAKCHECK_STEPS`: the engine, the alpine branch of config.bash, check-push-gate's stub, shell-regress `EtgMc2s`'s text match, and check-pins' leak-only tool scan, which reads no leak list.
+	- Test case: check-push-gate `EtkuOxe`.
+
+- CICD reset: merge gate
+	- ID: 2026102515494619
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494614
+	- Requirements:
+		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--ci` is another name for it, and says so in one line.
+		- It doesn't dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt.
+		- The hosted workflow runs it as far as the runner can. Moved to 2026102515494624, since the workflow's `--gate` changes meaning there.
+	- Needs local test suite run?: one `cicd.bash --merge-gate` from the checkout, in the image, to see every stage pass and the tree recorded.
+	- Decisions:
+		- me: `--merge-gate` is `--gate` plus the release and cross builds, their checks, the packages, the test boxes and the default run's leak checks. The profiler runs only its calibration, as under `--gate`, since the graph is an artifact rather than a check.
+		- me: the hook drops `--no-largedoc`, since the merge gate runs every check of the default run. An engine from before `--merge-gate` still gets `--gate --no-largedoc`, or `--ci --no-largedoc` before that.
+		- me: `--ci` prints `--ci is another name for --merge-gate` and passes `--merge-gate` to the run in the image, so the line shows once.
+	- Progress log:
+		- 20261025: done in cicd.bash and the pre-push hook. Help, the hook's header, contributing.md and design.md say so.
+		- 20261025: 2 check-push-gate asserts changed with the hook's gate. `EqGl8me`: the hook's call was `--gate --no-largedoc`, and is `--merge-gate`. `Et6Aum5`: `--ci` exited 2 as an unknown option, and now exits 0 with its one line. `Et6Ak52` takes both markers out of its stub engine, so it still checks an engine from before `--gate`.
+		- Verified: check-push-gate `EtkuOxg` (release built, leak checks run, tree recorded, no dogfood or publish), `EqGl8me` and `Et6Aum5` failed on the old engine and hook and pass now. `EtkuOxf` covers the fallback to `--gate`. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
+		- Swept: every caller of the hook's gate flag (check-push-gate's hook stub) and every `--gate` and `--ci` under `cicd/`, `.github/`, the docs and install-dev.bash. ci.yml, install-dev.bash, install.md and contributing.md's other `--gate` lines stay, as `--gate` is unchanged until 2026102515494624.
+	- Test case: check-push-gate `EtkuOxg`, `EtkuOxf`, `EqGl8me` and `Et6Aum5`.
+
+- CICD reset: step output
+	- ID: 2026102416250060
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Y: one full no-publish run, plain. Read its log: each step from `Step 1 of M` to `Step M of M` opens and closes once, the steps in the image and the frozen copy go on with the same count, and the first section lists what's off.
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the step lines in `CICD style guide` in the shared CICD rules. Each stage already opens with the section rule and a `N/9  Name` header.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Each step opens with a `Starting` line and closes with a `PASS` or `FAIL` line, both as `Step N of M` with a local timestamp to the hundredth of a second, under a rule 79 characters wide.
+		- A step that's turned off isn't counted in the total, and the first section lists those with the flag or reason for each.
+		- One blank line between sections, and one at the end.
+	- Progress log:
+		- 20261025: each stage is a step, and opens with `[ YYYYmmDD-HHMMSS.NN: Step N of M; Starting Name ]` under a 79-wide rule. It closes with `PASS`, or `FAIL` when the run stops inside it, right under the reason. Remote sync, Format, Build (debug), Lint, Tests, Profiler, Release builds, Test boxes, Dogfood, Demo gif and Backup + publish.
+		- A step that's off isn't counted. The first section lists each with the flags that took it out, or `not configured`, and prints under `--quiet` too, with only the count and that list.
+		- The run in the image or the frozen copy numbers its steps from the outer run's list. With `--container=NAME`, the steps that image's own flags in config.bash take out come off the count too.
+		- The Container, Frozen copy and done sections keep their rule and header. The run inside no longer prints a done section of its own.
+		- Verified: check-push-gate `EtlDIOQ` failed on the old engine in all 4 cases and passes now. Its alpine case also fails with the image's own flags left off the count. The rest of check-push-gate, shell-regress, check-docs, test-ids, shellcheck, markdownlint and `lint-report.bash --check --no-mark` pass.
+	- Swept: cicd.bash's other sections and `fDie`. No other cicd script prints a rule or a step header. shell-regress's lift of the sync stage and the check-boxes stand-in moved to the step helpers. `--list` still prints `N/9` labels (Check in questions). Not a binding change, so the four bindings don't apply.
+	- Test case: check-push-gate `EtlDIOQ`: a default run, a failing cross check, `--gate` and an alpine image run.
+		- 20261025: `EtkuOxg` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
+
+- CICD reset: keep-temp and list
+	- ID: 2026102515494634
+	- Type: Enhancement
+	- Status: Stalled
+		- Held for 2026102416250080, for the test IDs `--list` prints. `--keep-temp` and the steps `--list` prints are in.
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102416250080
+	- Requirements:
+		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
+		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
+	- Decisions:
+		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
+	- Progress log:
+		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
+		- Verified: check-push-gate `Etl0lIy` failed on the old engine and passes now, with `EtDQOIx`, `EtgFdOY` and `EtgShUg` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
+		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
+		- Verified: check-push-gate `Etl3oti` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
+	- Test case: check-push-gate `Etl0lIy` (`--keep-temp`) and `Etl3oti` (`--list`).
+
 - CICD reset: other hosts and VMs
 	- ID: 2026102416250010
 	- Type: Enhancement
@@ -236,6 +331,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261024: split in 3. This box's cap and priority is 2026102421025778, the containers 2026102421025783, the test boxes 2026102421025788. This item closes with the last of them.
 		- 20261024: 2026102421025778 and 2026102421025783 are in on `r1024c`, waiting on the full run. 2026102421025788 is next.
+
+- CICD reset: standard flags
+	- ID: 2026102416250050
+	- Type: Enhancement
+	- Status: Started
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the flags in `CICD style guide` and per `Merge gate`, in the shared CICD rules. `--quick`, `--leakcheck`, `--no-leakcheck`, `--quiet`, `--message`, `--no-container` and `--no-sync` are in already.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides 2026101816034794, where `--ci` became an unknown option, the JC 20261018 decisions in 2026101707582803 and 2026101711273980 that a bare run has every leak check, `--miri-all` too, and `--gate` and `--quick` none, 2026101920461167's decision that `--gate` leaves them out, and the private notes' 2026-10-18 and 2026-10-19 lines that keep `--miri-all` in a bare run.
+		- The default run fits in about an hour. A bare run took 1h43m on 2026-10-22, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
+		- `--quick` keeps the fast leak checks.
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line.
+		- None of those 3 dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt. So a round never dogfoods.
+		- No gate on a push to dev. A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
+		- `--no-remote`, `--keep-temp` and `--list`.
+	- Progress log:
+		- 20261025: split into children 2026102515494614 (run lengths), 2026102515494619 (`--merge-gate`), 2026102515494624 (backlog runs), 2026102515494629 (docs-only pushes to main) and 2026102515494634 (`--keep-temp` and `--list`). `--no-remote` was in already (2026102419263412).
+		- 20261025: in on `r1025`: run lengths (Waiting on automated testing), `--merge-gate` and `--ci` (Waiting on automated testing), docs-only pushes to main (Done), `--keep-temp` and the steps `--list` prints. Left: the backlog runs and `--gate`'s move to them (2026102515494624), and the test IDs in `--list`.
 
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
@@ -333,77 +450,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
 
-- CICD reset: standard flags
-	- ID: 2026102416250050
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per the flags in `CICD style guide` and per `Merge gate`, in the shared CICD rules. `--quick`, `--leakcheck`, `--no-leakcheck`, `--quiet`, `--message`, `--no-container` and `--no-sync` are in already.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides 2026101816034794, where `--ci` became an unknown option, the JC 20261018 decisions in 2026101707582803 and 2026101711273980 that a bare run has every leak check, `--miri-all` too, and `--gate` and `--quick` none, 2026101920461167's decision that `--gate` leaves them out, and the private notes' 2026-10-18 and 2026-10-19 lines that keep `--miri-all` in a bare run.
-		- The default run fits in about an hour. A bare run took 1h43m on 2026-10-22, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
-		- `--quick` keeps the fast leak checks.
-		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
-		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line.
-		- None of those 3 dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt. So a round never dogfoods.
-		- No gate on a push to dev. A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
-		- `--no-remote`, `--keep-temp` and `--list`.
-	- Progress log:
-		- 20261025: split into children 2026102515494614 (run lengths), 2026102515494619 (`--merge-gate`), 2026102515494624 (backlog runs), 2026102515494629 (docs-only pushes to main) and 2026102515494634 (`--keep-temp` and `--list`). `--no-remote` was in already (2026102419263412).
-		- 20261025: in on `r1025`: run lengths (Waiting on automated testing), `--merge-gate` and `--ci` (Waiting on automated testing), docs-only pushes to main (Done), `--keep-temp` and the steps `--list` prints. Left: the backlog runs and `--gate`'s move to them (2026102515494624), and the test IDs in `--list`.
-
-- CICD reset: run lengths
-	- ID: 2026102515494614
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Priority: High
-	- Opened: 20261025-154946
-	- Opened by: 2026102416250050
-	- Parent ID: 2026102416250050
-	- Requirements:
-		- The default run fits in about an hour, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
-		- `--quick` keeps the fast leak checks. `--leakcheck` adds every leak check, and `--no-leakcheck` takes every one out, fast ones included.
-	- Needs local test suite run?: the round's full run, to see it fit in about an hour.
-	- Decisions:
-		- me: the leak checks split by how long they took in the 2026-10-25 full run. Fast, in `--quick` too: `analyze-c.bash --ctu` (17 s), `soak-c.bash` (100 s) and `sanitize-c.bash --glibcxx-debug`. Slow, in the default run: `codeql-scan.bash` (535 s). Long, only in `--long` and `--leakcheck`: `--miri-all`.
-		- me: `--no-leakcheck` also drops the sanitizer runs in the tests, `sanitize-c.bash` and `sanitize-rust.bash`. `--quick` still leaves those out through `QUICK_SKIP`.
-		- me: `--quick --long` is a usage error, since nothing on the command line resolves last-wins.
-		- me: `--gate` still runs no leak checks. It moves to `--backlog-run-quick` in 2026102515494624, and `--merge-gate` (2026102515494619) takes the default run's.
-	- Progress log:
-		- 20261025: done. config.bash lists the leak checks as `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG`, plus `LEAKCHECK_TESTS` for the test steps. `--long` and `--slow` in cicd.bash, passed on to the run in the image and the frozen copy. Help, contributing.md, design.md and sanitize-rust.bash's help say so.
-		- No step takes hours but `--miri-all`, so no benchmark moved.
-		- Verified: check-push-gate `EtkuOxe` failed on the old engine (an unknown `--long`, the fast ones left out of `--quick` and the default run) and passes on the new one, with `Et9t3dc` and `EtD3jdR` unchanged. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
-		- Swept: every reader of `LEAKCHECK_STEPS`: the engine, the alpine branch of config.bash, check-push-gate's stub, shell-regress `EtgMc2s`'s text match, and check-pins' leak-only tool scan, which reads no leak list.
-	- Test case: check-push-gate `EtkuOxe`.
-
-- CICD reset: merge gate
-	- ID: 2026102515494619
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Priority: High
-	- Opened: 20261025-154946
-	- Opened by: 2026102416250050
-	- Parent ID: 2026102416250050
-	- Prereq IDs: 2026102515494614
-	- Requirements:
-		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--ci` is another name for it, and says so in one line.
-		- It doesn't dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt.
-		- The hosted workflow runs it as far as the runner can. Moved to 2026102515494624, since the workflow's `--gate` changes meaning there.
-	- Needs local test suite run?: one `cicd.bash --merge-gate` from the checkout, in the image, to see every stage pass and the tree recorded.
-	- Decisions:
-		- me: `--merge-gate` is `--gate` plus the release and cross builds, their checks, the packages, the test boxes and the default run's leak checks. The profiler runs only its calibration, as under `--gate`, since the graph is an artifact rather than a check.
-		- me: the hook drops `--no-largedoc`, since the merge gate runs every check of the default run. An engine from before `--merge-gate` still gets `--gate --no-largedoc`, or `--ci --no-largedoc` before that.
-		- me: `--ci` prints `--ci is another name for --merge-gate` and passes `--merge-gate` to the run in the image, so the line shows once.
-	- Progress log:
-		- 20261025: done in cicd.bash and the pre-push hook. Help, the hook's header, contributing.md and design.md say so.
-		- 20261025: 2 check-push-gate asserts changed with the hook's gate. `EqGl8me`: the hook's call was `--gate --no-largedoc`, and is `--merge-gate`. `Et6Aum5`: `--ci` exited 2 as an unknown option, and now exits 0 with its one line. `Et6Ak52` takes both markers out of its stub engine, so it still checks an engine from before `--gate`.
-		- Verified: check-push-gate `EtkuOxg` (release built, leak checks run, tree recorded, no dogfood or publish), `EqGl8me` and `Et6Aum5` failed on the old engine and hook and pass now. `EtkuOxf` covers the fallback to `--gate`. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
-		- Swept: every caller of the hook's gate flag (check-push-gate's hook stub) and every `--gate` and `--ci` under `cicd/`, `.github/`, the docs and install-dev.bash. ci.yml, install-dev.bash, install.md and contributing.md's other `--gate` lines stay, as `--gate` is unchanged until 2026102515494624.
-	- Test case: check-push-gate `EtkuOxg`, `EtkuOxf`, `EqGl8me` and `Et6Aum5`.
-
 - CICD reset: backlog runs
 	- ID: 2026102515494624
 	- Type: Enhancement
@@ -421,52 +467,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
 		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
 		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
-
-- CICD reset: keep-temp and list
-	- ID: 2026102515494634
-	- Type: Enhancement
-	- Status: Stalled
-		- Held for 2026102416250080, for the test IDs `--list` prints. `--keep-temp` and the steps `--list` prints are in.
-	- Priority: High
-	- Opened: 20261025-154946
-	- Opened by: 2026102416250050
-	- Parent ID: 2026102416250050
-	- Prereq IDs: 2026102416250080
-	- Requirements:
-		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
-		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
-	- Decisions:
-		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
-	- Progress log:
-		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
-		- Verified: check-push-gate `Etl0lIy` failed on the old engine and passes now, with `EtDQOIx`, `EtgFdOY` and `EtgShUg` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
-		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
-		- Verified: check-push-gate `Etl3oti` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
-	- Test case: check-push-gate `Etl0lIy` (`--keep-temp`) and `Etl3oti` (`--list`).
-
-- CICD reset: step output
-	- ID: 2026102416250060
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: Y: one full no-publish run, plain. Read its log: each step from `Step 1 of M` to `Step M of M` opens and closes once, the steps in the image and the frozen copy go on with the same count, and the first section lists what's off.
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per the step lines in `CICD style guide` in the shared CICD rules. Each stage already opens with the section rule and a `N/9  Name` header.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Each step opens with a `Starting` line and closes with a `PASS` or `FAIL` line, both as `Step N of M` with a local timestamp to the hundredth of a second, under a rule 79 characters wide.
-		- A step that's turned off isn't counted in the total, and the first section lists those with the flag or reason for each.
-		- One blank line between sections, and one at the end.
-	- Progress log:
-		- 20261025: each stage is a step, and opens with `[ YYYYmmDD-HHMMSS.NN: Step N of M; Starting Name ]` under a 79-wide rule. It closes with `PASS`, or `FAIL` when the run stops inside it, right under the reason. Remote sync, Format, Build (debug), Lint, Tests, Profiler, Release builds, Test boxes, Dogfood, Demo gif and Backup + publish.
-		- A step that's off isn't counted. The first section lists each with the flags that took it out, or `not configured`, and prints under `--quiet` too, with only the count and that list.
-		- The run in the image or the frozen copy numbers its steps from the outer run's list. With `--container=NAME`, the steps that image's own flags in config.bash take out come off the count too.
-		- The Container, Frozen copy and done sections keep their rule and header. The run inside no longer prints a done section of its own.
-		- Verified: check-push-gate `EtlDIOQ` failed on the old engine in all 4 cases and passes now. Its alpine case also fails with the image's own flags left off the count. The rest of check-push-gate, shell-regress, check-docs, test-ids, shellcheck, markdownlint and `lint-report.bash --check --no-mark` pass.
-	- Swept: cicd.bash's other sections and `fDie`. No other cicd script prints a rule or a step header. shell-regress's lift of the sync stage and the check-boxes stand-in moved to the step helpers. `--list` still prints `N/9` labels (Check in questions). Not a binding change, so the four bindings don't apply.
-	- Test case: check-push-gate `EtlDIOQ`: a default run, a failing cross check, `--gate` and an alpine image run.
-		- 20261025: `EtkuOxg` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
