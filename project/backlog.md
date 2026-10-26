@@ -27,7 +27,7 @@
 
 ## Introduction
 
-Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. Refer to '## Reference' for sort order. Issues in the old format (with the status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues more structured and importable.)
+Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. Refer to '## Reference' for sort order. Issues in the old format (with the status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to gitniblet anyway. This new template is an intermediate effort to make issues more structured and importable.)
 
 Outside reports use GitHub Issues (see `contributing.md`), but the work itself is tracked here.
 
@@ -2969,12 +2969,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- Take only a file with a lone Format line and no info block, if that's what the betas wrote.
 		- Drop the advice to pass `from_v2` on every start, and document that it's for a file the caller knows is old.
-		- Check to see if other projects using this (e.g. silkterm, nemo-anywhere, nano-git-db, tradeclanker, slodworld, slodworld2, convert-base-v2) would even run into any of these problems as they've progressed. They are the only ones using shcl now. If not, then it could be a lot of fuss over nothing. Also, those program are aware of the changing nature of this program, and can take their own steps to mitigate. I'm not saying we don't need conversion helpers and backward compatibility in general - I'm saying that these specific conversion issues could be a non-problem.
+		- Check to see if other projects using this (e.g. silkterm, nemo-anywhere, gitniblet, tradeclanker, slodworld, slodworld2, convert-base-v2) would even run into any of these problems as they've progressed. They are the only ones using shcl now. If not, then it could be a lot of fuss over nothing. Also, those program are aware of the changing nature of this program, and can take their own steps to mitigate. I'm not saying we don't need conversion helpers and backward compatibility in general - I'm saying that these specific conversion issues could be a non-problem.
 	- Sweep: Go `Upgrade`, Python `upgrade` and C `shcl_upgrade` have the same rule. So do the docs on `Upgrade.current` and spec.md's upgrade text.
 	- Outcome, by decision:
 		- Lone Format line: doesn't apply (me). The betas wrote the whole info block, nemo through `SHCL_GEN_BANNER` and slodworld through `shcl_set_banner`, so that rule would skip the files 2026101407100010 converts.
 		- Every-start advice: dropped. `from_v2` is now documented as for a file the caller knows is old. Without it the call is still meant for every start.
-		- Consumers: none calls `upgrade` or `upgrade_file`. gitsby, nemo and slodworld gate their own `migrate` calls on `format_version` and never migrate a file naming Format 3. silkterm converts only an unstamped file, slodworld2 stamps and converts with its own code, convert-base-v2 only prints a `migrate --from-2x` hint, and tradeclanker and nano-git-db are on v1.2.0. The bug needs a person passing `--from-2x` for a file that isn't old.
+		- Consumers: none calls `upgrade` or `upgrade_file`. gitsby, nemo and slodworld gate their own `migrate` calls on `format_version` and never migrate a file naming Format 3. silkterm converts only an unstamped file, slodworld2 stamps and converts with its own code, convert-base-v2 only prints a `migrate --from-2x` hint, and tradeclanker and gitniblet are on v1.2.0. The bug needs a person passing `--from-2x` for a file that isn't old.
 	- Actual fix: docs only, no behavior change, since `upgrade` stays simple and doesn't chase every 2.x edge case (JC, 20261015). The `upgrade` doc comment in all four bindings and the C++ interface, spec.md's `UpgradeFile` text, design.md's `upgrade_file` entry, and the man page. The man page had no word of the beta-file rule at all, and has it now.
 	- Verified: check-docs, markdownlint, and the four bindings' lint and format checks pass.
 	- Test case: none. Docs only, and 2026101407100010's tests pin the rule, which is unchanged.
@@ -3248,7 +3248,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 13, from the consumer survey
 	- Version and build: dev at `9dff6949`
-	- Problem description: all four take `schema_text`. nano-git-db keeps a parsed schema and calls `parse_with` then `validate`, which leaves `diagnostics()` and `error_count` at the load's values and passes at Strict where the one-shot fails on a validation error.
+	- Problem description: all four take `schema_text`. gitniblet keeps a parsed schema and calls `parse_with` then `validate`, which leaves `diagnostics()` and `error_count` at the load's values and passes at Strict where the one-shot fails on a validation error.
 	- Requirements:
 		- A form taking a schema document with the one-shot's combined list and strict rule, or a spec sentence saying how the two-step differs and how to merge.
 	- Decisions:
@@ -9337,7 +9337,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20260820-154417
 
 - ✅ Canonical output dropped the author's quoting on plain strings, in `fmt` and in `generate` defaults.
-	- From nano-git-db: a quoted `"fFoo()"` default came out bare in the starter file, so their function-ref convention read it back as a call. One `fmt` pass did the same to a document (`"@null"` -> `@null`), un-escaping the sentinel the `quoted` read flag exists to protect. `emit_element` re-derived quoting from content alone.
+	- From gitniblet: a quoted `"fFoo()"` default came out bare in the starter file, so their function-ref convention read it back as a call. One `fmt` pass did the same to a document (`"@null"` -> `@null`), un-escaping the sentinel the `quoted` read flag exists to protect. `emit_element` re-derived quoting from content alone.
 	- Done, all four bindings: a quoted element keeps its quotes unless the text reads as an int, float, bool, or datetime at standard strictness - those still normalize to bare (`ver: "8"` -> `ver: 8`). The clause only ever adds quoting over the reserved-character minimum, so no bare emit becomes unsafe (quoted thousands stay covered by the comma rule).
 	- Goldens 017 (NUL string keeps quotes) and 030 (newline default now in its quoted spelling, which the spec prose had promised all along) moved; spec and `design.md` updated.
 	- Test case: corpus `164-quoted-data-bare`, and the moved goldens of `017-nul-merge-key` and `030-init-edge`.
@@ -9381,7 +9381,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20260802-120213
 
 - ✅ `Raw` on a read result was not raw.
-	- Reported from nano-git-db, which found it corrupting regexes. The doc comment promised the original text from the file, but every read filled the field from the canonical display form, which joins elements with a comma and a space.
+	- Reported from gitniblet, which found it corrupting regexes. The doc comment promised the original text from the file, but every read filled the field from the canonical display form, which joins elements with a comma and a space.
 	- Reproduced: `regex: ^\d{2,3}$` came back as `^\d{2, 3}$` with no diagnostics. Anything already written `a, b` round-tripped looking correct, so casual testing passed and only a value like `{2,3}` failed.
 	- Fixed: the parser keeps the source line's value span, and reads hand it back verbatim. Writer-built values, stacked-list elements, and raw blocks fall back to the display form. Rust, Go and Python have it - those are the bindings whose read result exposes the field.
 	- Note: this also covers their separate request to read a comma-bearing scalar verbatim without a fenced block. Having the reader consult the schema's declared type before comma-splitting was declined, since it buys the same result at much higher complexity.
@@ -14352,7 +14352,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20260818-154310
 
 - ✅ H002 reports every merged level, and `reopen:` in a schema disavows it.
-	- From nano-git-db: no way to declare "this section is meant to be re-opened", so every legitimate re-open hinted forever - and only the outermost merge reported, so filtering by hand waved nested merges through.
+	- From gitniblet: no way to declare "this section is meant to be re-opened", so every legitimate re-open hinted forever - and only the outermost merge reported, so filtering by hand waved nested merges through.
 	- Done, all four bindings: the parser passes the re-open line down, so merges under a hinted container hint too, each naming its own earlier line; content the re-opened region itself wrote stays silent, and adjacent re-mentions stay silent as before.
 	- Done: new schema key `reopen: true` (a dedicated key, not a `repeat` overload) disavows the hint by leaf name, dropped at `check --schema` and the one-shot exactly like the H001 suppression; a bad value is a V092 fault.
 	- Verified: golden 001 gained the previously-invisible nested hint; new case 048 pins three-level reporting plus the disavowal. Spec vocabulary table and `design.md` updated.
@@ -14361,7 +14361,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20260817-114152
 
 - ✅ The unknown-field sweep survives schema faults.
-	- From nano-git-db, round two of the same trap: v1.2.0 let surviving constraints check through faults, but the sweep still skipped on any fault, so their schema self-check probe was still required.
+	- From gitniblet, round two of the same trap: v1.2.0 let surviving constraints check through faults, but the sweep still skipped on any fault, so their schema self-check probe was still required.
 	- Done, all four bindings: only two fault classes actually lose a name chain, an unreadable `field:` path (V093) and a mount naming no declared fragment (V095), so the sweep now skips only on those. Every key-level fault keeps its entry, whose path still legalizes its chain.
 	- Verified: case 046 gained the previously-invisible V001; new case 047 pins that a path-losing fault still holds the sweep back. Spec, `design.md`, and the veneer smoke test updated.
 	- Test case: corpus `046-schema-partial` and `047-schema-path-fault`.
@@ -14394,7 +14394,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20260804-153849
 
 - ✅ A schema fault suppressed all data validation; it now validates with the surviving constraints instead.
-	- Reported from nano-git-db as "a schema fault silently disables all data validation, so a broken schema looks like a clean file". They added a schema self-check test as a workaround.
+	- Reported from gitniblet as "a schema fault silently disables all data validation, so a broken schema looks like a clean file". They added a schema self-check test as a workaround.
 	- Not literally silent - verified: every schema fault is an Error diagnostic, `validate()` returns them, and `check --schema` exits 6. The file only looks clean if the caller drops the schema-line diagnostics.
 	- The substantive gap was real though: one broken constraint turned off validation for the whole file, even though the schema builder already drops broken constraints one by one before deciding to bail.
 	- Done, as a three-way split. Faults report first, the surviving constraints still check the document, and only the unknown-field sweep needs a fault-free schema - a dropped constraint would turn its own fields into false unknowns. Generation still fails on any fault.
@@ -14448,7 +14448,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20260802-110332
 	- Closed: 20260802-150827
 
-- ✅ Schema fragments. From nano-git-db, the top feature request: the schema language can't express recursion or path aliases. Arbitrarily-nesting layout blocks are generated to a fixed depth, past which validation silently stops and correct keys start reporting as unknown. Wrapped vs flat spellings force dozens of lines of string surgery over their own schema file at init. Both are the same missing idea, "this subtree is built like that one", and a single fragment/reference construct closes both, taking dozens of hand-written field entries plus two generators down to something reviewable.
+- ✅ Schema fragments. From gitniblet, the top feature request: the schema language can't express recursion or path aliases. Arbitrarily-nesting layout blocks are generated to a fixed depth, past which validation silently stops and correct keys start reporting as unknown. Wrapped vs flat spellings force dozens of lines of string surgery over their own schema file at init. Both are the same missing idea, "this subtree is built like that one", and a single fragment/reference construct closes both, taking dozens of hand-written field entries plus two generators down to something reviewable.
 	- Big. Design first, post-1.0. Weigh hard against keeping the schema language small, but two independent workarounds in the most rigorous consumer argue it earns its keep.
 	- Done: `fragment: <name>` declares (children are ordinary `field:` instances with relative paths), `inherits: <name>` mounts, all four bindings. Recursion/mutual refs legal with no depth limit (demand-driven expansion); `init` expands mounts and cuts where a fragment re-enters; H001 disavowal covers fragment-declared repeats; new V094/V095 faults. Cases 039-041; spec + design.md updated.
 	- Test case: corpus `039-schema-fragment`, `040-schema-fragment-faults` and `041-init-fragment`.
@@ -14467,7 +14467,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - ✅ Docs batch from the feedback round:
 	- Done in the spec (Empty-vs-NotFound as an advertised full-tier feature; a "choosing [#i] vs [value] when mapping entities" bullet in the traversal section). Done in the Go package docs (a "writing a mapper" worked example: one-shot load, Count+[#i] iteration, Children for open sections, QuoteSegment, raw blocks). IndexOf not added; Count+[#i] covers the need without growing the API.
 	- Advertise the Empty vs NotFound distinction. convert-base-v2 mapped it straight onto their tri-state marker convention with no adapter ("empty means explicitly disabled, absent means default") and called it rare among config parsers. It belongs in the README/spec as a feature, not something discovered by reading source.
-	- A spec paragraph on choosing `[#i]` vs `[value]` selectors when mapping entities. By-value misreads an entity whose name is numeric and collapses two same-named entities. Since matching is against the display form, a scalar written `"a, b"` and the two-element list meet the same selector. nano-git-db and convert-base-v2 each worked these out the hard way; nano-git-db suggests an IndexOf(path, value) alongside.
+	- A spec paragraph on choosing `[#i]` vs `[value]` selectors when mapping entities. By-value misreads an entity whose name is numeric and collapses two same-named entities. Since matching is against the display form, a scalar written `"a, b"` and the two-element list meet the same selector. gitniblet and convert-base-v2 each worked these out the hard way; gitniblet suggests an IndexOf(path, value) alongside.
 	- A "writing a mapper" worked example in the Go package docs. The exported API is 60+ methods, and the pattern of a real consumer (descend by path prefix, Count then `[#i]`, schema validation for line-numbered errors, fences for verbatim) cost them most of a day to discover.
 	- Test case: None, docs only (spec and Go package docs).
 	- Opened: 20260802-105223
@@ -14516,21 +14516,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 - ✅ Expose whether a value was quoted.
 	- Done: `quoted` on the read result (rust/go/python; C read structs stay value+status by design) - true for a quoted single scalar element, false for arrays/raw/empty.
-		- From nano-git-db: `a: @null` and `a: "@null"` read identically, so a language built on shcl can't reserve a sentinel value and still let a user write it literally. They had to make `@null` unconditionally reserved and walk back docs that promised quoting would escape it.
+		- From gitniblet: `a: @null` and `a: "@null"` read identically, so a language built on shcl can't reserve a sentinel value and still let a user write it literally. They had to make `@null` unconditionally reserved and walk back docs that promised quoting would escape it.
 		- The parser already tracks quoted per element and drops it at the read boundary; one field on the read result makes "quoting is the escape" true for every downstream language.
 	- Test case: `read_surface_line_quoted_children` in Rust and its twins in Go, Python and C (`shcl_quoted`).
 	- Opened: n/a
 	- Closed: 20260802-121147
 
 - ✅ Line numbers on the read path.
-	- Done both ways as filed: `Line(path)` accessor in all four bindings + veneer, and `line` on the read result itself (rust/go/python). 0 = unresolved or writer-built; merged instances cite the first binding, matching diagnostics. From nano-git-db: node line is populated and never exported, so any consumer check the schema can't express can only name the entity, never the line - their warnings degraded from `line 81: ...` to `table issue: ...`. A Line(path) accessor is the cheapest high-value ask in their list.
+	- Done both ways as filed: `Line(path)` accessor in all four bindings + veneer, and `line` on the read result itself (rust/go/python). 0 = unresolved or writer-built; merged instances cite the first binding, matching diagnostics. From gitniblet: node line is populated and never exported, so any consumer check the schema can't express can only name the entity, never the line - their warnings degraded from `line 81: ...` to `table issue: ...`. A Line(path) accessor is the cheapest high-value ask in their list.
 	- Second consumer, same gap (TradeClanker): parser diagnostics have a line and reads don't, so half the errors a user sees cite a line and half don't. A bad value reports nothing while a malformed line one field above reports `line 12`. They want the line on the read result itself, not just a separate accessor; do both, it's the same code path.
 	- Test case: `read_surface_line_quoted_children` in Rust and its twins in Go, Python and C (`shcl_line`).
 	- Opened: n/a
 	- Closed: 20260802-121147
 
 - ✅ Enumerate a node's children.
-	- Done: `Children(path)` in all four bindings + veneer: file order, duplicates included, empty path = top level; names as stored, QuoteSegment for splicing. From nano-git-db: Paths() dedupes, so there is no way to ask "what keys are under this section?". They hardcode a ten-name hook list purely because they can't ask what's under `code:`, and any open-ended or map-like section is unmodellable. Children(path) returning child names in file order, duplicates included, deletes more of their workaround code than anything else they asked for.
+	- Done: `Children(path)` in all four bindings + veneer: file order, duplicates included, empty path = top level; names as stored, QuoteSegment for splicing. From gitniblet: Paths() dedupes, so there is no way to ask "what keys are under this section?". They hardcode a ten-name hook list purely because they can't ask what's under `code:`, and any open-ended or map-like section is unmodellable. Children(path) returning child names in file order, duplicates included, deletes more of their workaround code than anything else they asked for.
 	- TradeClanker asks for the same thing for the same reason (reading an open section means scanning all of Paths() and prefix-matching), and notes it also sidesteps the Paths() quoted-name bug for that use.
 	- Test case: `read_surface_line_quoted_children` and `children_and_instance_paths_walk_a_repeated_key` in Rust and their twins in the other runners.
 	- Opened: n/a
@@ -14539,7 +14539,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - ✅ Hint when a merge combines non-adjacent bindings.
 	- Done: H002, hint severity, at the later line with the earlier line named in the prose.
 		- Fires only on a last-segment no-selector merge into a non-last child - adjacent re-mentions and the dotted redundant-path idiom stay silent. Corpus case 035; 001/013 diags goldens gained one each.
-		- From nano-git-db: merge-by-(name, value) means two separately-written `table: t` sections silently become one combined table, and only the parser can know it happened - their consumer-side "already defined; first wins" check was unreachable and got deleted as dead code.
+		- From gitniblet: merge-by-(name, value) means two separately-written `table: t` sections silently become one combined table, and only the parser can know it happened - their consumer-side "already defined; first wins" check was unreachable and got deleted as dead code.
 		- A hint-severity diagnostic with both line numbers makes that class of check possible without touching the documented merge semantics.
 	- New H-code; diagnostics are contract, so all four bindings plus the expected-diags goldens move together.
 	- Test case: corpus `035-merge-hint`, and the `001-messy-cities` and `013-comments` diagnostics goldens.
@@ -14548,7 +14548,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 - ✅ Suppress H001 where the schema declares the repetition.
 	- Done at check --schema assembly (and inside the one-shot), via a shared library helper so CLIs and runners can't drift; matched by leaf name, the filter consumers hand-rolled. Corpus case 036.
-		- From nano-git-db: the repeated-bare-leaf hint is structurally a false positive for any field whose repetition is the instance mechanism (`unique:`, `index:`, `row:`). So every correct file warns on load and users learn to ignore warnings; they filter it by hand for exactly three names.
+		- From gitniblet: the repeated-bare-leaf hint is structurally a false positive for any field whose repetition is the instance mechanism (`unique:`, `index:`, `row:`). So every correct file warns on load and users learn to ignore warnings; they filter it by hand for exactly three names.
 		- When a schema is present and a path declares repeat with an upper bound above 1, H001 is dropped there - the information already exists and would otherwise go unused.
 	- H001 is parse-time and the schema arrives at validate, so the suppression belongs where check --schema assembles output, not in the parser.
 	- Test case: corpus `036-h001-suppress`.
@@ -14557,7 +14557,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 - ✅ One-shot load-and-validate, plus an error predicate.
 	- Done: LoadAndValidate(text, schema, strictness) -> document with one combined diagnostics list (never throws; empty schema skips validation; declared-repeat H001s dropped), plus ErrorCount() on the document. All four bindings + veneer.
-		- From nano-git-db: doc diagnostics and schema validation come back as two separate lists that must be merged by hand (forget one and half the errors vanish), and there's no HasErrors/ErrorCount, so "did this file have errors" is consumer bookkeeping.
+		- From gitniblet: doc diagnostics and schema validation come back as two separate lists that must be merged by hand (forget one and half the errors vanish), and there's no HasErrors/ErrorCount, so "did this file have errors" is consumer bookkeeping.
 		- That matters, since recover-and-continue means a mixed-indentation file otherwise returns no error at all.
 		- A combined entry point (text + schema + strictness in, doc + one diagnostic list out) plus an error count removes a whole class of consumer mistake.
 	- TradeClanker independently hand-rolled the same thing. No strictness level means "forgiving about spelling, loud about a dropped line", so at Standard an error diagnostic comes back beside a nil error and the line is silently skipped, and every consumer writes the same fifteen lines. An Errors() helper on the document is the smallest form of this ask, from a second consumer.

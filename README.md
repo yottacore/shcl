@@ -166,8 +166,8 @@ These projects use SHCL today, and harden it in the process:
 | Project                                                                                    | OSS? | Release status | Used for
 | :--                                                                                        | :--: | :--            | :--
 | [SilkTerm](https://github.com/jim-collier/silkterm)                                        |  Y   | beta           | Config & UI language
-| [Nano-Git DB OSS Edition](https://github.com/jim-collier/nano-git-db)                      |  Y   | beta           | Config & DDL
-| [Nano-Git DB Enterprise Edition](https://www.yottacore.com/product/nano-git-db-enterprise) |  Y   | beta           | Config
+| [GitNiblet OSS Edition](https://github.com/yottacore/gitniblet)                            |  Y   | beta           | Config & DDL
+| [GitNiblet Enterprise Edition](https://www.yottacore.com/product/nano-git-db-enterprise)   |  Y   | beta           | Config
 | [convert-base-v2](https://github.com/jim-collier/convert-base-v2)                          |  Y   | **stable**     | Config
 | [TradeClanker](https://www.yottacore.com/product/tradeclanker)                             |  n   | beta           | Config & User's rules
 
