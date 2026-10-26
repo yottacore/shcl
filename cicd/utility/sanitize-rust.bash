@@ -22,7 +22,7 @@
 ##		  --asan        the whole suite under ASan and LSan
 ##		  --miri        Miri over every test but the slow ones
 ##		  --miri-all    Miri over every test it can run. Hours, so it's in
-##		                --leakcheck, and a run with no flags.
+##		                --long and --leakcheck only.
 ##		  --only=REGEX  Miri over only the tests whose names match, to rerun
 ##		                one or try the mode out
 ##		  No option means --asan --miri, which is the full run's share.

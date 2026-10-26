@@ -37,7 +37,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101920461174
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
+	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image, which since 2026102515494619 runs `cicd.bash --merge-gate`. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
 	- Priority: High
 	- Opened: 20261019-204611
 	- Opened by: JC
@@ -69,113 +69,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261022: JC's bare run on dev `8b81b8c3` (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed: the image started for stage 1 and again for 2-6, check-push-gate `EtDCDE4` to `EtDCDE8` passed, and `tree c739cfb75920 recorded`. Verified: `cicd.bash --gate` with neither flag on the same commit started the image once, passed `EtDCDE7` and recorded the same tree. Only the main push is left.
 		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` ran stages 1-6 in the main image. Verified: check-push-gate `EtDCDE4` to `EtDCDE8`, check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB` passed. The round pushes no main, so the main push is still left.
 		- 20261024, CICD reset: this item is the reset's `CICD reset: containers` item, raised to High. The rule is otherwise in place. Its cleanup, CPU limits and Zig cache are 2026102416250030, 2026102416250040 and 2026102416250020.
+		- 20261025, test batch: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) ran stages 1-6 in the main image and passed. Verified: check-push-gate `EtDCDE4` to `EtDCDE8`, check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB` passed in it. The main push is still left.
 	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
-
-- CICD reset: Zig cache
-	- ID: 2026102416250020
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the full no-publish run. It rebuilds the main image, runs the zig cross builds into the volume, and should end with `shcl-zig-cache` labeled `shcl-cicd` and stamped `0.16.0`.
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per the Zig bullets in `Cleanup after a run` in the shared CICD rules. The cross builds use `cargo zigbuild`.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- In the image, Zig's global cache is a volume of its own, `shcl-zig-cache`, not part of the cache dir mounted from this box.
-		- At the end of a run, a Zig cache over 2 GB, or filled by another Zig version, is emptied whole. A stamp file inside it records the version.
-		- `~/.cache/zig` on the host is never emptied, since every project shares it.
-	- Progress log:
-		- 20261024: the main image sets `ZIG_GLOBAL_CACHE_DIR=/zig-cache`, and a run makes the `shcl-zig-cache` volume with our label and mounts it there. The image's `/zig-cache` is mode 1777, which a new volume takes, so the caller's uid can write it.
-		- 20261024: at the end of a whole run in the main image, `fCtrZigTrim` (ctr-image.bash) reads the volume's size, its `zig-version.stamp` and the image's `zig version`. Over `CTR_ZIG_CAP_KB` (2 GB), or a stamp naming another Zig, and the volume goes by `docker volume rm`, named on the cleanup line. A volume with no stamp yet gets one.
-		- 20261024: the old cache, `~/.cache/shcl-cicd/main/home/.cache/zig` (119 MB), is left for one removal by hand once the next run is on the new image.
-		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run.
-	- Decisions:
-		- 20261024: the mount point is `/zig-cache`, not under `/cache`, since docker would make a mount point inside the box's cache dir as root (me).
-		- 20261024: the volume is emptied by removing it, since docker refuses while another run's container has it. That run keeps its cache (me).
-		- 20261024: only the main image has zig, so the extra images don't get the volume (me).
-		- 20261024: this replaces, for Zig's cache only, 2026101303344553's call to keep caches in `~/.cache/shcl-cicd` rather than a docker volume.
-	- Swept: every `docker run` of the images. fRunContainer mounts it for main. fCtrRunSelf (analyze-c, soak-c, codeql-scan) runs no zig, and its HOME and TMPDIR are its scratch. The alpine and ubuntu recipes have no zig. ci.yml and `--no-container` runs use the box's `~/.cache/zig`, which nothing empties. No tracked `.zig-cache`. check-readme's `zig build-exe` keeps its local cache in its scratch dir.
-	- Branch: `r1024c`
-	- Test case: check-push-gate `Etg0eIJ` (over the cap or another Zig: removed and named; at the cap, an unreadable answer or no volume: kept; made with our label and mounted at `/zig-cache` in the main image), plus a check in `EstM5os` that an extra image doesn't get it.
-	- Verified: check-push-gate passes. `Etg0eIJ` went red with `>=` for the cap, no version compare, no label, no trim call and no mount, and `EstM5os` with the volume on the extra images. Each passed again once restored by copy.
-	- Verified: `fCtrZigTrim` against the real main image `shcl-cicd:7f80c73639ce` and a stand-in volume filled by a real `zig cc` build: a new volume stamped `0.16.0` and kept, a `0.15.2` stamp removed, a 1 KB cap removed, and a volume another container had kept.
-	- Verified: shellcheck, shell-regress, check-pins, check-docs and `test-ids.py check`.
-
-- CICD reset: container cleanup
-	- ID: 2026102416250030
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the full no-publish run, which builds the new main image. Its image runs should be named `shcl-<run folder>-fmt` and `-build`, `shcl-cicd:7f80c73639ce` should stay as the tag before the new one, and the cleanup line should end with docker's sizes before and after.
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Related IDs: 2026101920461174
-	- Requirements:
-		- Per the container bullets in `Cleanup after a run` in the shared CICD rules.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- `dev.project=shcl` and `dev.run=<run folder>` labels on every container, image and volume, and containers named `shcl-<run folder>-<step>`.
-		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by `dev.run`.
-		- The current image tag and the one before it stay. Today only the current one does.
-		- `docker builder prune -f --filter until=168h` after the sweep.
-		- Cache volumes follow the same 2 GB rule as the Zig caches.
-		- The cleanup line compares `docker system df` before and after.
-		- One pass by hand, by ID, over what the pipeline made before these labels.
-	- Progress log:
-		- 20261024: cicd.bash exports `SHCL_DEV_RUN`, the name of the run's temp folder. Every `docker run`, `build` and `volume create` in cicd.bash and ctr-image.bash carries `dev.project=shcl` and `dev.run`, and each container is named `shcl-<run folder>-<step>`: `fmt`, `build` or `stages`, their `-passwd` and `-group` reads, and `zig-trim`. A leak check run by hand through `fCtrRunSelf` is a run of its own, named by its scratch dir, and its container by the script.
-		- 20261024: on any exit the run stops and removes its containers by `dev.run` (`fCtrRunGone`), after the cidfile stop, and says how many. It waits out docker's removal of a `--rm` one, which shows as Dead for a moment after its stop.
-		- 20261024: `fCtrBuild` and `fCtrSweep` keep the newest other tag of each recipe's name as the one before it (`fCtrPrev`). A name with no recipe still keeps none. Stopped containers and dangling images are matched by `dev.project` now, not the old `shcl-cicd` label.
-		- 20261024: after the sweep and the Zig trim, a whole run in the image runs `docker builder prune -f --filter until=168h`, and the cleanup line ends with `; docker images A -> B, containers ..., volumes ..., build cache ...` from `docker system df`. contributing.md says so, since the prune reaches other projects' cache.
-		- 20261024: cache volumes: `shcl-zig-cache` is the only volume a run makes, and it already follows the 2 GB rule (2026102416250020). The other caches are the bind-mounted `CTR_CACHE` dir.
-		- 20261024: the hand pass is left for the round, since the full run in flight holds the only candidate. By ID: image `61b558c4520c` (`shcl-cicd:7f80c73639ce`, 10.1 GB), run by container `2e54cc96effe`. No other image, dangling image, stopped container or volume of ours. Once the next run builds the new tag, that image stays as the one before it, so today the pass has nothing to remove.
-		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run.
-	- Decisions:
-		- 20261024: the run folder is the run's own temp dir, `shcl-run.XXXXXX` today, so a container reads `shcl-shcl-run.XXXXXX-build`. It follows whatever 2026102416250090 makes the folder (me).
-		- 20261024: the old `shcl-cicd` label is dropped, not kept beside the new pair. Only the image above still carries it (me).
-		- 20261024: the one before is the newest other tag by docker's created time. When those times can't be matched to the tags, every tag stays (me).
-		- 20261024: analyze-c, soak-c and codeql-scan keep their cidfile stop when run by hand. Their containers are labeled and named, but they don't stop by label on their own exit (me).
-	- Swept: every `docker run`, `build` and `volume create` under `cicd/` and the hook: fRunContainer's 3 runs and the volume, and ctr-image.bash's fCtrRunSelf, fCtrBuild and fCtrZigTrim. ci.yml and `--no-container` runs start none. Every `label=shcl-cicd` filter, in ctr-image.bash and in check-push-gate's fake docker. shell-regress names no label.
-	- Branch: `r1024c`
-	- Test case: check-push-gate `EtgFdOY` (both labels with the run folder on every run, build and volume, and the 7 container names of a whole run) and `EtgFdh7` (a failed run stops and removes its containers by `dev.run`), plus checks added to `EtNhz0U` (a stopped run, the same), `EtDQOPc` (the tag before stays, the build cache prune, docker's sizes on the line) and `EtDQOSv` (a gate's build keeps the tag before).
-		- 20261024: `Etg0eIJ`'s volume assert went from `--label shcl-cicd` to the `dev.project` and `dev.run` pair. `EtDQOPc` and `EtDQOSv` got a newer old tag per name, and `EtDQOPc` expects the one more removal that gives, of `shcl-cicd-gone`, which has no recipe.
-	- Verified: check-push-gate passes. `EtDQOPc` and `EtDQOSv` went red with no tag kept before the current one, `EtgFdh7` and `EtNhz0U` with no stop by label, `EtgFdOY` with no name on the Zig trim and with an empty `dev.run` (which turned `Etg0eIJ` red too), and `EtDQOPc` with no prune and with no sizes on the line. Each passed again once restored by copy.
-	- Verified: `fCtrBuild`, `fCtrPrev`, `fCtrRunGone` and `fCtrDf` against this box's docker, on throwaway images and containers under another project name: 3 builds left the last 2 tags, the image carries both labels, and a run's 2 containers went while another run's stayed until its own turn.
-	- Verified: shellcheck over every cicd script, shell-regress, check-pins, check-docs, markdownlint and `test-ids.py check`.
-
-- CICD reset: CPU and priority on this box
-	- ID: 2026102421025778
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Priority: High
-	- Opened: 20261024-210257
-	- Opened by: 2026102416250040
-	- Parent ID: 2026102416250040
-	- Requirements:
-		- The cap is worked out in one place: half the CPUs, or a quarter when the 1-minute load is over half the CPU count, never under 1.
-		- The busy check runs at the start and again before each step.
-		- The hard steps get a quarter, busy or not: leak checks, sanitizer builds, Miri, soak tests and the long fuzz.
-		- `nice -n 19`, plus `ionice -c 3` where it exists, over the whole run.
-	- Progress log:
-		- 20261024: `cicd/utility/include/cpu-cap.bash` has the rule. cicd.bash checks it at the start and before each step, and prints a `jobs:` line when the count changes. It exports the count as `CPU_CAP`, `CARGO_BUILD_JOBS`, `RUST_TEST_THREADS`, `GOMAXPROCS` and `RAYON_NUM_THREADS`, so config.bash's plain arrays no longer fix a `-j` count when they load.
-		- 20261024: config.bash's `HARD_STEPS` names the hard steps: both sanitizer scripts (Miri is in sanitize-rust), `go test -race`, the 2 soak runs, the large document and the 200,000 fuzz. Every leak check is hard without a row.
-		- 20261024: cicd.bash renices itself to 19 and sets `ionice -c 3` at the top, so every child, the run in the image included, takes both.
-		- 20261024: the gate scripts run by hand get their count from the same include, at a quarter for sanitize-c, sanitize-rust, codeql-scan, largedoc and `analyze-c --ctu`.
-		- 20261024: the priority check in `EtgMc0M` can't go red when shell-regress itself runs at nice 19, as it does inside a run. It was seen red run alone.
-		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run, and hosted run 40163335236 on `r1024c`, still going, for the external part.
-	- Decisions:
-		- A count the caller gives as `CPU_CAP` still holds for every step, with no busy check and no quarter. ci.yml's hosted jobs give `nproc` on runners with nothing else on them, and they're already at 46 of their 60 minutes. A run that cicd.bash starts, in the image or from the frozen copy, gets the caller's count through `SHCL_CPU_FIXED`, not the step's (me).
-		- The 1-minute load includes the run's own last step, so after a step at half the cores the next can read as busy. Left as the rule says, to be read from the full run's `jobs:` lines (me).
-	- Swept: every `nproc` cap under `cicd/` (check-c-compilers, sanitize-c, sanitize-rust, analyze-c, codeql-scan, crosscheck, largedoc, check-win-release), every `-j "${CPU_CAP}"` and `RUST_TEST_THREADS` in config.bash's plain arrays, and every step call in cicd.bash. soak-c, check-deps and check-pins default to 1, and check-freebsd's `xz` to 2, so they stay. The eval'd strings expand when they run, so they stay too. check-push-gate's and shell-regress's stub engines copy the new include. The other 3 bindings have no pipeline of their own, so no twin there.
-	- Verified: shell-regress `EtgMbxn`, `EtgMc0M` and `EtgMc2s` pass. Each went red on its own fault: the old config.bash, `>=` for the busy compare, no floor of 1, no `CARGO_BUILD_JOBS`, the leak checks not hard, `HARD_STEPS` not read or missing a row or taking the py_compile build step, a `jobs:` line on every step, and no renice.
-	- Verified: the whole of shell-regress and check-push-gate, shellcheck over `SHELLCHECK_TARGETS`, check-docs, markdownlint and `test-ids.py check` passed. `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` printed `jobs: 16 of 32 CPUs` once in the build stage and passed.
-	- Needs local test suite run?: Y. The full run line. Its log should show a `jobs:` line at the start, `(hard step)` on the sanitizer, soak, race and leak steps, and the leak checks at 8 of 32 here.
-	- Needs external testing: N. Hosted run 40163335236 on `r1024c` passed every job, `ci (lint)` in 44 min and `ci (tests)` in 36, against 46 and 45 before.
-	- Branch: `r1024c`
-	- Test case: shell-regress `EtgMbxn` (the rule), `EtgMc0M` (each step, the leak checks, the image's count, the run's priority) and `EtgMc2s` (no count fixed at load, and which steps are hard).
-		- 20261024: `EqpNNtw` finds the native release build by its line, which is now `fStep "${RELEASE_NATIVE_CMD[@]}"`. Its pattern went from `^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$` to one that also takes a leading `fStep `. `EtaC4oT` reads the same line number.
 
 - CICD reset: CPU and priority in containers
 	- ID: 2026102421025783
@@ -198,6 +96,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Needs local test suite run?: Y. The full run line, the first real run in the main image with the limits on. It should pass as before.
 	- Branch: `r1024c`
 	- Test case: check-push-gate `EtgShUg`.
+
+- CICD reset: keep-temp and list
+	- ID: 2026102515494634
+	- Type: Enhancement
+	- Status: Stalled
+		- Held for 2026102416250080, for the test IDs `--list` prints. `--keep-temp` and the steps `--list` prints are in.
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102416250080
+	- Requirements:
+		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
+		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
+	- Decisions:
+		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
+	- Progress log:
+		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
+		- Verified: check-push-gate `Etl0lIy` failed on the old engine and passes now, with `EtDQOIx`, `EtgFdOY` and `EtgShUg` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
+		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
+		- Verified: check-push-gate `Etl3oti` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
+	- Test case: check-push-gate `Etl0lIy` (`--keep-temp`) and `Etl3oti` (`--list`).
 
 - CICD reset: other hosts and VMs
 	- ID: 2026102416250010
@@ -236,6 +156,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261024: split in 3. This box's cap and priority is 2026102421025778, the containers 2026102421025783, the test boxes 2026102421025788. This item closes with the last of them.
 		- 20261024: 2026102421025778 and 2026102421025783 are in on `r1024c`, waiting on the full run. 2026102421025788 is next.
+
+- CICD reset: standard flags
+	- ID: 2026102416250050
+	- Type: Enhancement
+	- Status: Started
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the flags in `CICD style guide` and per `Merge gate`, in the shared CICD rules. `--quick`, `--leakcheck`, `--no-leakcheck`, `--quiet`, `--message`, `--no-container` and `--no-sync` are in already.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides 2026101816034794, where `--ci` became an unknown option, the JC 20261018 decisions in 2026101707582803 and 2026101711273980 that a bare run has every leak check, `--miri-all` too, and `--gate` and `--quick` none, 2026101920461167's decision that `--gate` leaves them out, and the private notes' 2026-10-18 and 2026-10-19 lines that keep `--miri-all` in a bare run.
+		- The default run fits in about an hour. A bare run took 1h43m on 2026-10-22, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
+		- `--quick` keeps the fast leak checks.
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line.
+		- None of those 3 dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt. So a round never dogfoods.
+		- No gate on a push to dev. A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
+		- `--no-remote`, `--keep-temp` and `--list`.
+	- Progress log:
+		- 20261025: split into children 2026102515494614 (run lengths), 2026102515494619 (`--merge-gate`), 2026102515494624 (backlog runs), 2026102515494629 (docs-only pushes to main) and 2026102515494634 (`--keep-temp` and `--list`). `--no-remote` was in already (2026102419263412).
+		- 20261025: in on `r1025`: run lengths (Waiting on automated testing), `--merge-gate` and `--ci` (Waiting on automated testing), docs-only pushes to main (Done), `--keep-temp` and the steps `--list` prints. Left: the backlog runs and `--gate`'s move to them (2026102515494624), and the test IDs in `--list`.
 
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
@@ -333,38 +275,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
 
-- CICD reset: standard flags
-	- ID: 2026102416250050
+- CICD reset: backlog runs
+	- ID: 2026102515494624
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494619
 	- Requirements:
-		- Per the flags in `CICD style guide` and per `Merge gate`, in the shared CICD rules. `--quick`, `--leakcheck`, `--no-leakcheck`, `--quiet`, `--message`, `--no-container` and `--no-sync` are in already.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides 2026101816034794, where `--ci` became an unknown option, the JC 20261018 decisions in 2026101707582803 and 2026101711273980 that a bare run has every leak check, `--miri-all` too, and `--gate` and `--quick` none, 2026101920461167's decision that `--gate` leaves them out, and the private notes' 2026-10-18 and 2026-10-19 lines that keep `--miri-all` in a bare run.
-		- The default run fits in about an hour. A bare run took 1h43m on 2026-10-22, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
-		- `--quick` keeps the fast leak checks.
 		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
-		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line.
-		- None of those 3 dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt. So a round never dogfoods.
-		- No gate on a push to dev. A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
-		- `--no-remote`, `--keep-temp` and `--list`.
-
-- CICD reset: step output
-	- ID: 2026102416250060
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per the step lines in `CICD style guide` in the shared CICD rules. Each stage already opens with the section rule and a `N/9  Name` header.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Each step opens with a `Starting` line and closes with a `PASS` or `FAIL` line, both as `Step N of M` with a local timestamp to the hundredth of a second, under a rule 79 characters wide.
-		- A step that's turned off isn't counted in the total, and the first section lists those with the flag or reason for each.
-		- One blank line between sections, and one at the end.
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line.
+		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
+		- The round settings' gate and full-run lines move to them.
+		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
+		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
+		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
@@ -394,6 +321,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
+
+- Step lines from inside the image print UTC, while the host's print local time
+	- ID: 2026102520122877
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261025-201228
+	- Opened by: the r1025 test batch
+	- Related IDs: 2026102416250060
+	- Version and build: `r1025` at `e9732a84`
+	- Steps to reproduce:
+		- Run `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish` on a box whose time zone isn't UTC, and read the step lines.
+	- Incorrect behavior: the steps in the image stamp UTC and the host's stamp local time. The full run's `[ 20261026-014258.83: Step 6 of 7; PASS Release builds ]`, in the image, is followed a second later by `[ 20261025-184259.63: Step 7 of 7; Starting Test boxes ]` on the host.
+	- Expected behavior: local time in every step line, per 2026102416250060.
+	- Reproduced: 20261025, in the full run's log (chain log `20261025-173800_001`), and in a Format and Build run in the image at 20:10 PDT, which stamped `20261026-031001.56`.
+	- Possible cause: the image runs with neither `TZ` nor the host's `/etc/localtime`, so `date` there gives UTC. Nothing in cicd.bash, the includes or the Dockerfile names either.
+	- Estimated effort: Low
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
@@ -469,18 +413,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
-- A release build's size in the run log reads 1.0K
-	- ID: 2026102421543041
+- lint-report flags govulncheck's wrapped "vulnerabilities." line and a git hint as warnings
+	- ID: 2026102520122882
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Opened: 20261024-215430
-	- Opened by: the r1024c test batch
-	- Version and build: `r1024c` at `d842ecf8`
-	- Incorrect behavior: stage 6 prints `OK: native release: source/rust/target/release/shcl (1.0K)`, and `(1.0K)` for each cross build, where the files are 1.1 to 2.3 MB.
-	- Expected behavior: the file's size.
-	- Reproduced: 20261024, in the full run's log. `du -h` on a 1.3 MB file just written on ZFS gives 1.0K, and 1.3M a few seconds later.
-	- Possible cause: cicd.bash prints `du -h`, which counts allocated blocks. ZFS hasn't allocated a new file's blocks until its next sync, and the run's `target` is on ZFS. `stat -c %s` or `du --apparent-size` would give the size. The demo gif line uses `du -h` too.
+	- Opened: 20261025-201228
+	- Opened by: the r1025 test batch
+	- Version and build: `r1025` at `e9732a84`
+	- Steps to reproduce:
+		- `cicd/utility/lint-report.bash --check --no-mark` over `run_20261025-174444.log`, the full run's log.
+	- Incorrect behavior: it prints `NEW` with 3 warning lines: `vulnerabilities.` twice, from the 2 govulncheck runs, and `hint: of your new repositories, which will suppress this warning, call:`.
+	- Expected behavior: `CLEAN`, since none of the 3 is a warning.
+	- Reproduced: 20261025, on that log in the frozen worktree.
+	- Possible cause: govulncheck now wraps "your code doesn't appear to call these" before "vulnerabilities.", so that word is a line of its own, and the filter only takes `these vulnerabilities.`. The hint is git's default branch notice from a `git init` in check-install-dev, and it says "warning".
 	- Estimated effort: Low
 
 - Three fuzz guards are thin at Miri's 100 iterations
@@ -497,6 +443,248 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: step output
+	- ID: 2026102416250060
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026102520122877
+	- Requirements:
+		- Per the step lines in `CICD style guide` in the shared CICD rules. Each stage already opens with the section rule and a `N/9  Name` header.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Each step opens with a `Starting` line and closes with a `PASS` or `FAIL` line, both as `Step N of M` with a local timestamp to the hundredth of a second, under a rule 79 characters wide.
+		- A step that's turned off isn't counted in the total, and the first section lists those with the flag or reason for each.
+		- One blank line between sections, and one at the end.
+	- Progress log:
+		- 20261025: each stage is a step, and opens with `[ YYYYmmDD-HHMMSS.NN: Step N of M; Starting Name ]` under a 79-wide rule. It closes with `PASS`, or `FAIL` when the run stops inside it, right under the reason. Remote sync, Format, Build (debug), Lint, Tests, Profiler, Release builds, Test boxes, Dogfood, Demo gif and Backup + publish.
+		- A step that's off isn't counted. The first section lists each with the flags that took it out, or `not configured`, and prints under `--quiet` too, with only the count and that list.
+		- The run in the image or the frozen copy numbers its steps from the outer run's list. With `--container=NAME`, the steps that image's own flags in config.bash take out come off the count too.
+		- The Container, Frozen copy and done sections keep their rule and header. The run inside no longer prints a done section of its own.
+		- Verified: check-push-gate `EtlDIOQ` failed on the old engine in all 4 cases and passes now. Its alpine case also fails with the image's own flags left off the count. The rest of check-push-gate, shell-regress, check-docs, test-ids, shellcheck, markdownlint and `lint-report.bash --check --no-mark` pass.
+		- 20261025, test batch: Verified: in the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`), each step from `Step 1 of 7` to `Step 7 of 7` opens and closes once. The runs in the image and the frozen copy go on with the same count, the first section lists the 4 steps that are off with their flags, and sections have one blank line between them and one at the end. check-push-gate `EtlDIOQ` and `EtkuOxg` passed in the run.
+		- 20261025: the steps run in the image stamp UTC, while the host's stamp local time, so Steps 6 and 7 read 7 hours apart. Filed as Bug 2026102520122877.
+		- Departs from the wording: the local timestamp holds only on the host until that bug is fixed.
+	- Decisions:
+		- me: closed here, with the image's UTC stamps left to Bug 2026102520122877, so the one defect left has one open item.
+	- Swept: cicd.bash's other sections and `fDie`. No other cicd script prints a rule or a step header. shell-regress's lift of the sync stage and the check-boxes stand-in moved to the step helpers. `--list` still prints `N/9` labels (Check in questions). Not a binding change, so the four bindings don't apply.
+	- Test case: check-push-gate `EtlDIOQ`: a default run, a failing cross check, `--gate` and an alpine image run.
+		- 20261025: `EtkuOxg` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
+	- Acceptance signoff: closed on JC's criteria: the full run's log covers each point but the image's time zone, which is Bug 2026102520122877.
+	- Closed: 20261025-201300
+
+- CICD reset: merge gate
+	- ID: 2026102515494619
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494614
+	- Requirements:
+		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--ci` is another name for it, and says so in one line.
+		- It doesn't dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt.
+		- The hosted workflow runs it as far as the runner can. Moved to 2026102515494624, since the workflow's `--gate` changes meaning there.
+	- Decisions:
+		- me: `--merge-gate` is `--gate` plus the release and cross builds, their checks, the packages, the test boxes and the default run's leak checks. The profiler runs only its calibration, as under `--gate`, since the graph is an artifact rather than a check.
+		- me: the hook drops `--no-largedoc`, since the merge gate runs every check of the default run. An engine from before `--merge-gate` still gets `--gate --no-largedoc`, or `--ci --no-largedoc` before that.
+		- me: `--ci` prints `--ci is another name for --merge-gate` and passes `--merge-gate` to the run in the image, so the line shows once.
+	- Progress log:
+		- 20261025: done in cicd.bash and the pre-push hook. Help, the hook's header, contributing.md and design.md say so.
+		- 20261025: 2 check-push-gate asserts changed with the hook's gate. `EqGl8me`: the hook's call was `--gate --no-largedoc`, and is `--merge-gate`. `Et6Aum5`: `--ci` exited 2 as an unknown option, and now exits 0 with its one line. `Et6Ak52` takes both markers out of its stub engine, so it still checks an engine from before `--gate`.
+		- Verified: check-push-gate `EtkuOxg` (release built, leak checks run, tree recorded, no dogfood or publish), `EqGl8me` and `Et6Aum5` failed on the old engine and hook and pass now. `EtkuOxf` covers the fallback to `--gate`. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
+		- Swept: every caller of the hook's gate flag (check-push-gate's hook stub) and every `--gate` and `--ci` under `cicd/`, `.github/`, the docs and install-dev.bash. ci.yml, install-dev.bash, install.md and contributing.md's other `--gate` lines stay, as `--gate` is unchanged until 2026102515494624.
+		- 20261025, test batch: no `cicd.bash --merge-gate` run was made. Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed every stage the merge gate adds to `--gate`: the release and cross builds, their checks, the packages, the test boxes and the 4 default leak checks. check-push-gate `EtkuOxg`, `EtkuOxf`, `EqGl8me` and `Et6Aum5` passed in the run.
+		- Departs from the Needs row: the flag itself first runs for real on the next push that moves main, through the hook (2026101920461174).
+	- Test case: check-push-gate `EtkuOxg`, `EtkuOxf`, `EqGl8me` and `Et6Aum5`.
+	- Acceptance signoff: closed on JC's criteria: the full run and the merge gate's own tests cover each point. The call: what the merge gate runs, above.
+	- Closed: 20261025-201300
+
+- CICD reset: run lengths
+	- ID: 2026102515494614
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Requirements:
+		- The default run fits in about an hour, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
+		- `--quick` keeps the fast leak checks. `--leakcheck` adds every leak check, and `--no-leakcheck` takes every one out, fast ones included.
+	- Decisions:
+		- me: the leak checks split by how long they took in the 2026-10-25 full run. Fast, in `--quick` too: `analyze-c.bash --ctu` (17 s), `soak-c.bash` (100 s) and `sanitize-c.bash --glibcxx-debug`. Slow, in the default run: `codeql-scan.bash` (535 s). Long, only in `--long` and `--leakcheck`: `--miri-all`.
+		- me: `--no-leakcheck` also drops the sanitizer runs in the tests, `sanitize-c.bash` and `sanitize-rust.bash`. `--quick` still leaves those out through `QUICK_SKIP`.
+		- me: `--quick --long` is a usage error, since nothing on the command line resolves last-wins.
+		- me: `--gate` still runs no leak checks. It moves to `--backlog-run-quick` in 2026102515494624, and `--merge-gate` (2026102515494619) takes the default run's.
+	- Progress log:
+		- 20261025: done. config.bash lists the leak checks as `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG`, plus `LEAKCHECK_TESTS` for the test steps. `--long` and `--slow` in cicd.bash, passed on to the run in the image and the frozen copy. Help, contributing.md, design.md and sanitize-rust.bash's help say so.
+		- No step takes hours but `--miri-all`, so no benchmark moved.
+		- Verified: check-push-gate `EtkuOxe` failed on the old engine (an unknown `--long`, the fast ones left out of `--quick` and the default run) and passes on the new one, with `Et9t3dc` and `EtD3jdR` unchanged. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
+		- Swept: every reader of `LEAKCHECK_STEPS`: the engine, the alpine branch of config.bash, check-push-gate's stub, shell-regress `EtgMc2s`'s text match, and check-pins' leak-only tool scan, which reads no leak list.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in 59 minutes, 17:44:44 to 18:43:38, at a load of about 18 to 30. It ran no `--miri-all`, and its 4 leak checks were `analyze-c.bash --ctu` (19 s), `soak-c.bash` (29 s), `sanitize-c.bash --glibcxx-debug` and `codeql-scan.bash` (558 s). check-push-gate `EtkuOxe`, `Et9t3dc` and `EtD3jdR` passed in the run.
+	- Test case: check-push-gate `EtkuOxe`.
+	- Acceptance signoff: closed on JC's criteria: the full run fit in about an hour. The call: which leak checks are fast, slow and long, above.
+	- Closed: 20261025-201300
+
+- CICD reset: CPU and priority on this box
+	- ID: 2026102421025778
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-210257
+	- Opened by: 2026102416250040
+	- Parent ID: 2026102416250040
+	- Requirements:
+		- The cap is worked out in one place: half the CPUs, or a quarter when the 1-minute load is over half the CPU count, never under 1.
+		- The busy check runs at the start and again before each step.
+		- The hard steps get a quarter, busy or not: leak checks, sanitizer builds, Miri, soak tests and the long fuzz.
+		- `nice -n 19`, plus `ionice -c 3` where it exists, over the whole run.
+	- Progress log:
+		- 20261024: `cicd/utility/include/cpu-cap.bash` has the rule. cicd.bash checks it at the start and before each step, and prints a `jobs:` line when the count changes. It exports the count as `CPU_CAP`, `CARGO_BUILD_JOBS`, `RUST_TEST_THREADS`, `GOMAXPROCS` and `RAYON_NUM_THREADS`, so config.bash's plain arrays no longer fix a `-j` count when they load.
+		- 20261024: config.bash's `HARD_STEPS` names the hard steps: both sanitizer scripts (Miri is in sanitize-rust), `go test -race`, the 2 soak runs, the large document and the 200,000 fuzz. Every leak check is hard without a row.
+		- 20261024: cicd.bash renices itself to 19 and sets `ionice -c 3` at the top, so every child, the run in the image included, takes both.
+		- 20261024: the gate scripts run by hand get their count from the same include, at a quarter for sanitize-c, sanitize-rust, codeql-scan, largedoc and `analyze-c --ctu`.
+		- 20261024: the priority check in `EtgMc0M` can't go red when shell-regress itself runs at nice 19, as it does inside a run. It was seen red run alone.
+		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run, and hosted run 40163335236 on `r1024c`, still going, for the external part.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed. Its first step opens with `jobs: 8 of 32 CPUs (busy, load 18.11)`. `(hard step)` shows on the 200,000 fuzz suite, `go test -race`, the Python soak, sanitize-c and the large document, and the leak checks run at 8 of 32. A `jobs:` line shows only when the count changes, so sanitize-rust and the leak checks, which follow a hard step, print none of their own. shell-regress `EtgMbxn`, `EtgMc0M`, `EtgMc2s`, `EqpNNtw` and `EtaC4oT` passed in the run.
+		- 20261025: the busy reads came at loads of 17.9 to 29.7 on a box shared with other projects' runs, so the 1-minute load rule stays as it is.
+	- Decisions:
+		- A count the caller gives as `CPU_CAP` still holds for every step, with no busy check and no quarter. ci.yml's hosted jobs give `nproc` on runners with nothing else on them, and they're already at 46 of their 60 minutes. A run that cicd.bash starts, in the image or from the frozen copy, gets the caller's count through `SHCL_CPU_FIXED`, not the step's (me).
+		- The 1-minute load includes the run's own last step, so after a step at half the cores the next can read as busy. Left as the rule says, to be read from the full run's `jobs:` lines (me).
+	- Swept: every `nproc` cap under `cicd/` (check-c-compilers, sanitize-c, sanitize-rust, analyze-c, codeql-scan, crosscheck, largedoc, check-win-release), every `-j "${CPU_CAP}"` and `RUST_TEST_THREADS` in config.bash's plain arrays, and every step call in cicd.bash. soak-c, check-deps and check-pins default to 1, and check-freebsd's `xz` to 2, so they stay. The eval'd strings expand when they run, so they stay too. check-push-gate's and shell-regress's stub engines copy the new include. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Verified: shell-regress `EtgMbxn`, `EtgMc0M` and `EtgMc2s` pass. Each went red on its own fault: the old config.bash, `>=` for the busy compare, no floor of 1, no `CARGO_BUILD_JOBS`, the leak checks not hard, `HARD_STEPS` not read or missing a row or taking the py_compile build step, a `jobs:` line on every step, and no renice.
+	- Verified: the whole of shell-regress and check-push-gate, shellcheck over `SHELLCHECK_TARGETS`, check-docs, markdownlint and `test-ids.py check` passed. `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` printed `jobs: 16 of 32 CPUs` once in the build stage and passed.
+	- Needs external testing: N. Hosted run 40163335236 on `r1024c` passed every job, `ci (lint)` in 44 min and `ci (tests)` in 36, against 46 and 45 before.
+	- Branch: `r1024c`
+	- Test case: shell-regress `EtgMbxn` (the rule), `EtgMc0M` (each step, the leak checks, the image's count, the run's priority) and `EtgMc2s` (no count fixed at load, and which steps are hard).
+		- 20261024: `EqpNNtw` finds the native release build by its line, which is now `fStep "${RELEASE_NATIVE_CMD[@]}"`. Its pattern went from `^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$` to one that also takes a leading `fStep `. `EtaC4oT` reads the same line number.
+	- Acceptance signoff: closed on JC's criteria: the full run's `jobs:` lines and the hosted run cover each point.
+	- Closed: 20261025-201300
+
+- CICD reset: container cleanup
+	- ID: 2026102416250030
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026101920461174
+	- Requirements:
+		- Per the container bullets in `Cleanup after a run` in the shared CICD rules.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `dev.project=shcl` and `dev.run=<run folder>` labels on every container, image and volume, and containers named `shcl-<run folder>-<step>`.
+		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by `dev.run`.
+		- The current image tag and the one before it stay. Today only the current one does.
+		- `docker builder prune -f --filter until=168h` after the sweep.
+		- Cache volumes follow the same 2 GB rule as the Zig caches.
+		- The cleanup line compares `docker system df` before and after.
+		- One pass by hand, by ID, over what the pipeline made before these labels.
+	- Progress log:
+		- 20261024: cicd.bash exports `SHCL_DEV_RUN`, the name of the run's temp folder. Every `docker run`, `build` and `volume create` in cicd.bash and ctr-image.bash carries `dev.project=shcl` and `dev.run`, and each container is named `shcl-<run folder>-<step>`: `fmt`, `build` or `stages`, their `-passwd` and `-group` reads, and `zig-trim`. A leak check run by hand through `fCtrRunSelf` is a run of its own, named by its scratch dir, and its container by the script.
+		- 20261024: on any exit the run stops and removes its containers by `dev.run` (`fCtrRunGone`), after the cidfile stop, and says how many. It waits out docker's removal of a `--rm` one, which shows as Dead for a moment after its stop.
+		- 20261024: `fCtrBuild` and `fCtrSweep` keep the newest other tag of each recipe's name as the one before it (`fCtrPrev`). A name with no recipe still keeps none. Stopped containers and dangling images are matched by `dev.project` now, not the old `shcl-cicd` label.
+		- 20261024: after the sweep and the Zig trim, a whole run in the image runs `docker builder prune -f --filter until=168h`, and the cleanup line ends with `; docker images A -> B, containers ..., volumes ..., build cache ...` from `docker system df`. contributing.md says so, since the prune reaches other projects' cache.
+		- 20261024: cache volumes: `shcl-zig-cache` is the only volume a run makes, and it already follows the 2 GB rule (2026102416250020). The other caches are the bind-mounted `CTR_CACHE` dir.
+		- 20261024: the hand pass is left for the round, since the full run in flight holds the only candidate. By ID: image `61b558c4520c` (`shcl-cicd:7f80c73639ce`, 10.1 GB), run by container `2e54cc96effe`. No other image, dangling image, stopped container or volume of ours. Once the next run builds the new tag, that image stays as the one before it, so today the pass has nothing to remove.
+		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, which carries `dev.project=shcl` and `dev.run`. `shcl-cicd:7f80c73639ce` stays beside it as the tag before. The cleanup line ends with `docker images 147.8GB -> 147.8GB, containers 6.755GB -> 6.755GB, volumes 12.45GB -> 12.45GB, build cache 148.2GB -> 148.2GB`, and no container of ours was left after it. check-push-gate `EtgFdOY`, `EtgFdh7`, `EtNhz0U`, `EtDQOPc` and `EtDQOSv` passed in the run.
+		- 20261025, test batch: Verified: a Format and Build run of `e9732a84` in the image, from a fresh clone, with `--keep-temp`, left `shcl-shcl-run.aKPgwp-fmt` and `shcl-shcl-run.aKPgwp-build`, both labeled `dev.run=shcl-run.aKPgwp`. Both were removed by ID after.
+		- 20261025, the hand pass: by ID, image `61b558c4520c` (`shcl-cicd:7f80c73639ce`) is the only thing of ours with the old label, and it stays as the tag before. No stopped container or other volume of ours, so the pass removed nothing.
+	- Decisions:
+		- 20261024: the run folder is the run's own temp dir, `shcl-run.XXXXXX` today, so a container reads `shcl-shcl-run.XXXXXX-build`. It follows whatever 2026102416250090 makes the folder (me).
+		- 20261024: the old `shcl-cicd` label is dropped, not kept beside the new pair. Only the image above still carries it (me).
+		- 20261024: the one before is the newest other tag by docker's created time. When those times can't be matched to the tags, every tag stays (me).
+		- 20261024: analyze-c, soak-c and codeql-scan keep their cidfile stop when run by hand. Their containers are labeled and named, but they don't stop by label on their own exit (me).
+	- Swept: every `docker run`, `build` and `volume create` under `cicd/` and the hook: fRunContainer's 3 runs and the volume, and ctr-image.bash's fCtrRunSelf, fCtrBuild and fCtrZigTrim. ci.yml and `--no-container` runs start none. Every `label=shcl-cicd` filter, in ctr-image.bash and in check-push-gate's fake docker. shell-regress names no label.
+	- Branch: `r1024c`
+	- Test case: check-push-gate `EtgFdOY` (both labels with the run folder on every run, build and volume, and the 7 container names of a whole run) and `EtgFdh7` (a failed run stops and removes its containers by `dev.run`), plus checks added to `EtNhz0U` (a stopped run, the same), `EtDQOPc` (the tag before stays, the build cache prune, docker's sizes on the line) and `EtDQOSv` (a gate's build keeps the tag before).
+		- 20261024: `Etg0eIJ`'s volume assert went from `--label shcl-cicd` to the `dev.project` and `dev.run` pair. `EtDQOPc` and `EtDQOSv` got a newer old tag per name, and `EtDQOPc` expects the one more removal that gives, of `shcl-cicd-gone`, which has no recipe.
+	- Verified: check-push-gate passes. `EtDQOPc` and `EtDQOSv` went red with no tag kept before the current one, `EtgFdh7` and `EtNhz0U` with no stop by label, `EtgFdOY` with no name on the Zig trim and with an empty `dev.run` (which turned `Etg0eIJ` red too), and `EtDQOPc` with no prune and with no sizes on the line. Each passed again once restored by copy.
+	- Verified: `fCtrBuild`, `fCtrPrev`, `fCtrRunGone` and `fCtrDf` against this box's docker, on throwaway images and containers under another project name: 3 builds left the last 2 tags, the image carries both labels, and a run's 2 containers went while another run's stayed until its own turn.
+	- Verified: shellcheck over every cicd script, shell-regress, check-pins, check-docs, markdownlint and `test-ids.py check`.
+	- Acceptance signoff: closed on JC's criteria: the full run, the kept run's containers and the hand pass cover each point.
+	- Closed: 20261025-201300
+
+- CICD reset: Zig cache
+	- ID: 2026102416250020
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the Zig bullets in `Cleanup after a run` in the shared CICD rules. The cross builds use `cargo zigbuild`.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- In the image, Zig's global cache is a volume of its own, `shcl-zig-cache`, not part of the cache dir mounted from this box.
+		- At the end of a run, a Zig cache over 2 GB, or filled by another Zig version, is emptied whole. A stamp file inside it records the version.
+		- `~/.cache/zig` on the host is never emptied, since every project shares it.
+	- Progress log:
+		- 20261024: the main image sets `ZIG_GLOBAL_CACHE_DIR=/zig-cache`, and a run makes the `shcl-zig-cache` volume with our label and mounts it there. The image's `/zig-cache` is mode 1777, which a new volume takes, so the caller's uid can write it.
+		- 20261024: at the end of a whole run in the main image, `fCtrZigTrim` (ctr-image.bash) reads the volume's size, its `zig-version.stamp` and the image's `zig version`. Over `CTR_ZIG_CAP_KB` (2 GB), or a stamp naming another Zig, and the volume goes by `docker volume rm`, named on the cleanup line. A volume with no stamp yet gets one.
+		- 20261024: the old cache, `~/.cache/shcl-cicd/main/home/.cache/zig` (119 MB), is left for one removal by hand once the next run is on the new image.
+		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, with its 4 zig cross builds. The `shcl-zig-cache` volume carries `dev.project=shcl` and `dev.run`, the pair that replaced the `shcl-cicd` label (2026102416250030). Its `zig-version.stamp` reads `0.16.0`, and it holds 130 MB. check-push-gate `Etg0eIJ` and `EstM5os` passed in the run.
+		- 20261025: the old cache under `~/.cache/shcl-cicd/main/home/.cache/zig` is already gone.
+	- Decisions:
+		- 20261024: the mount point is `/zig-cache`, not under `/cache`, since docker would make a mount point inside the box's cache dir as root (me).
+		- 20261024: the volume is emptied by removing it, since docker refuses while another run's container has it. That run keeps its cache (me).
+		- 20261024: only the main image has zig, so the extra images don't get the volume (me).
+		- 20261024: this replaces, for Zig's cache only, 2026101303344553's call to keep caches in `~/.cache/shcl-cicd` rather than a docker volume.
+	- Swept: every `docker run` of the images. fRunContainer mounts it for main. fCtrRunSelf (analyze-c, soak-c, codeql-scan) runs no zig, and its HOME and TMPDIR are its scratch. The alpine and ubuntu recipes have no zig. ci.yml and `--no-container` runs use the box's `~/.cache/zig`, which nothing empties. No tracked `.zig-cache`. check-readme's `zig build-exe` keeps its local cache in its scratch dir.
+	- Branch: `r1024c`
+	- Test case: check-push-gate `Etg0eIJ` (over the cap or another Zig: removed and named; at the cap, an unreadable answer or no volume: kept; made with our label and mounted at `/zig-cache` in the main image), plus a check in `EstM5os` that an extra image doesn't get it.
+	- Verified: check-push-gate passes. `Etg0eIJ` went red with `>=` for the cap, no version compare, no label, no trim call and no mount, and `EstM5os` with the volume on the extra images. Each passed again once restored by copy.
+	- Verified: `fCtrZigTrim` against the real main image `shcl-cicd:7f80c73639ce` and a stand-in volume filled by a real `zig cc` build: a new volume stamped `0.16.0` and kept, a `0.15.2` stamp removed, a 1 KB cap removed, and a volume another container had kept.
+	- Verified: shellcheck, shell-regress, check-pins, check-docs and `test-ids.py check`.
+	- Acceptance signoff: closed on JC's criteria: the full run and the volume cover each point.
+	- Closed: 20261025-201300
+
+- CICD reset: docs-only pushes to main
+	- ID: 2026102515494629
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494619
+	- Requirements:
+		- No gate on a push to dev.
+		- A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
+	- Decisions:
+		- me: the list is `cicd/docs-only-paths.txt`: every `*.md`, `project/` but its corpus and `grammar.abnf`, which tests and check-abnf read, and the art no build reads, `assets/demo.gif`, `icon.png` and `logo.png`. `shcl.ico` goes into the Windows build, so it's out. The installers stay gated, since the one-liners run them from main.
+		- me: the push is judged against what the remote's main holds. A new main, or one the clone hasn't fetched, runs the gate. The banner tag check still runs.
+	- Progress log:
+		- 20261025: done in the pre-push hook. No gate on a push to dev was already so. The hook's header, contributing.md and design.md say so.
+		- Verified: check-push-gate `Etl0lIx` failed on the old hook, which gated a docs-only push, and passes now. Its cases that must still gate pass: a script beside the docs, a corpus file, `grammar.abnf`, a new main and an unknown one. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
+		- Departs from the wording: `project/` leaves out its corpus and the grammar, since a build or test reads both.
+	- Test case: check-push-gate `Etl0lIx`.
+	- Acceptance signoff: closed on JC's criteria. The call: which paths count as docs, above.
+	- Closed: 20261025-162100
+
+- A release build's size in the run log reads 1.0K
+	- ID: 2026102421543041
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261024-215430
+	- Opened by: the r1024c test batch
+	- Version and build: `r1024c` at `d842ecf8`
+	- Incorrect behavior: stage 6 prints `OK: native release: source/rust/target/release/shcl (1.0K)`, and `(1.0K)` for each cross build, where the files are 1.1 to 2.3 MB.
+	- Expected behavior: the file's size.
+	- Reproduced: 20261024, in the full run's log. `du -h` on a 1.3 MB file just written on ZFS gives 1.0K, and 1.3M a few seconds later.
+	- Possible cause: cicd.bash prints `du -h`, which counts allocated blocks. ZFS hasn't allocated a new file's blocks until its next sync, and the run's `target` is on ZFS. `stat -c %s` or `du --apparent-size` would give the size. The demo gif line uses `du -h` too.
+	- Actual cause: `du -h` counts allocated blocks. ZFS gives a new file its blocks only at its next sync, and the run's `target` is on ZFS.
+	- Estimated effort: Low
+	- Actual fix: the 3 sizes cicd.bash prints, the native and cross release builds and the demo gif, use `du -h --apparent-size`, as package.bash's already did.
+	- Swept: every `du` under `cicd/` and in the hook. package.bash's 2 already gave the size. The `du -sk` ones measure what a cleanup frees, where allocated blocks are right.
+	- Verified: a 1.3 MB file just written in `source/rust/target` read 1.0K with `du -h` and 1.3M with `--apparent-size`. shell-regress `EtkuOxd` failed on the old cicd.bash and passes on the fix.
+	- Test case: shell-regress `EtkuOxd`.
+	- Acceptance signoff: Self-closed: a mechanical fix, its test failed before and passes after.
+	- Closed: 20261025-160100
 
 - A merge can still build a list with a field under it, at 2M fuzz
 	- ID: 2026102322270349

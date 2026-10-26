@@ -58,10 +58,12 @@ cp "${root}/cicd/hooks/pre-push" "${repo}/cicd/hooks/pre-push"
 cp "${root}/cicd/utility/include/frozen-tree.bash" "${repo}/cicd/utility/include/"
 cp "${helper}" "${repo}/cicd/utility/green-tree.bash"
 cp "${root}/cicd/utility/check-banner-tag.bash" "${repo}/cicd/utility/check-banner-tag.bash"
+cp "${root}/cicd/docs-only-paths.txt" "${repo}/cicd/docs-only-paths.txt"
 cp "${root}/.gitignore" "${repo}/.gitignore"
 cat > "${repo}/cicd/cicd.bash" <<'EOF'
 #!/usr/bin/env bash
 ## --gate) is what the hook looks for in an engine that knows the flag.
+## --merge-gate) likewise.
 echo "ran ${SHCL_GATE_REF:-}" >> "${STUB_LOG}"
 echo "$*" > "${STUB_LOG}.args"
 echo "${GIT_DIR:-unset}" > "${STUB_LOG}.gitdir"
@@ -150,7 +152,15 @@ grep -qx 'ran main' "${STUB_LOG}" || fail "the hook did not tell the gate it sta
 fTest EqGl8me the hook calls the full gate
 ## 20260918 item 24: the stub ran whatever it was asked to, so the hook could
 ## have called a quick or partial gate and passed here all the same.
-[[ "$(cat "${STUB_LOG}.args")" == "--gate --no-largedoc" ]] || fail "the hook called the gate as: $(cat "${STUB_LOG}.args")"
+[[ "$(cat "${STUB_LOG}.args")" == "--merge-gate" ]] || fail "the hook called the gate as: $(cat "${STUB_LOG}.args")"
+fTest EtkuOxf an engine from before --merge-gate is called with --gate
+## 2026102515494619: the hook's gate is --merge-gate, every check of a run with
+## no flags. An engine without it gets the gate it knew.
+sed -i '/^## --merge-gate) /d' "${repo}/cicd/cicd.bash"
+git -C "${repo}" commit -q -am gateengine
+fPush main "$(git -C "${repo}" rev-parse HEAD)"
+((hookRc == 0 && ran == 1)) && [[ "$(cat "${STUB_LOG}.args")" == "--gate --no-largedoc" ]] \
+	|| fail "the hook called an engine from before --merge-gate as: $(cat "${STUB_LOG}.args"), exit ${hookRc}"
 fTest Et6Ak52 an engine from before --gate is called with --ci
 ## 2026101816034794: main's tree keeps an engine that knows only --ci until
 ## the next cut, and a docs-only merge to main gates that tree.
@@ -159,6 +169,28 @@ git -C "${repo}" commit -q -am oldengine
 fPush main "$(git -C "${repo}" rev-parse HEAD)"
 ((hookRc == 0 && ran == 1)) && [[ "$(cat "${STUB_LOG}.args")" == "--ci --no-largedoc" ]] \
 	|| fail "the hook called an engine from before --gate as: $(cat "${STUB_LOG}.args"), exit ${hookRc}"
+git -C "${repo}" reset -q --hard "${sha}"
+fTest Etl0lIx a push to main of docs alone skips the gate
+## 2026102515494629: judged against the remote's main, by the hook's one list.
+## Anything else in the push, the corpus under project/, a remote main the
+## clone doesn't have, or a new main runs it.
+fDocsPush(){  ## fDocsPush OLD FILE... -> hookRc, ran, for a commit on sha adding FILEs
+	local old="$1" f; shift
+	git -C "${repo}" reset -q --hard "${sha}"
+	for f in "$@"; do
+		if [[ "${f}" == */* ]]; then mkdir -p "${repo}/${f%/*}"; fi
+		printf 'doc\n' > "${repo}/${f}"; git -C "${repo}" add -- "${f}"
+	done
+	git -C "${repo}" commit -q -m docs
+	fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s' "$(git -C "${repo}" rev-parse HEAD)" "${old}")"$'\n'
+}
+fDocsPush "${sha}" notes.md project/design_docs/x.md assets/logo.png
+((hookRc == 0 && ran == 0)) || fail "a docs-only push to main: exit ${hookRc}, gate ran ${ran} time(s)"
+for docsCase in "${sha}|notes.md a.sh" "${sha}|project/conformance/999/input.shcl" "${sha}|project/grammar.abnf" "${zeros}|notes.md" "$(printf '%040d' 1)|notes.md"; do
+	read -r -a docsFiles <<< "${docsCase#*|}"
+	fDocsPush "${docsCase%%|*}" "${docsFiles[@]}"
+	((hookRc == 0 && ran == 1)) || fail "a push to main of ${docsCase#*|} from ${docsCase%%|*}: exit ${hookRc}, gate ran ${ran} time(s)"
+done
 git -C "${repo}" reset -q --hard "${sha}"
 fTest EqzwPFC the gate builds into target-gate
 ## 20260830 item 5: the gate's worktree got the checkout's own target dir, so
@@ -454,11 +486,18 @@ TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TM
 TEST_EXTRA+=('if [[ -n "${STUB_HANG:-}" ]]; then echo "${TMPDIR}" > "${STUB_HANG}.tmp"; sleep 300 & echo "$!" > "${STUB_HANG}"; wait "$!"; fi')
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
 LEAKCHECK_STEPS=('echo leak > "${STUB_LEAK:-/dev/null}"')
+LEAKCHECK_FAST=('echo fast > "${STUB_LEAK_FAST:-/dev/null}"'); LEAKCHECK_LONG=('echo long > "${STUB_LEAK_LONG:-/dev/null}"')
+LEAKCHECK_TESTS=(STUB_LEAK_TEST); TEST_EXTRA+=('echo t > "${STUB_LEAK_TEST:-/dev/null}"')
 CROSS_CHECKS=('stub|[[ -z "${STUB_CROSS_FAIL:-}" ]]')
 BINDING_CLIS=(); if [[ -n "${STUB_XCHECK:-}" ]]; then BINDING_CLIS=("stub|true"); fi
 LARGEDOC_MIB=0; CROSS_TARGETS=(); PROFILE_ENABLE=0; PACKAGE_ENABLE=0; GIF_ENABLE=0
 DOGFOOD_FIXED_DESTS=(); GIT_PUBLISH=(); RELEASE_NATIVE_CMD=()
 PROFILE_CHECK_BUILD_CMD=(); CTR_PREP=''
+## A release build that leaves a file, with nothing collected or checked.
+if [[ -n "${STUB_RELEASE:-}" ]]; then
+	RELEASE_NATIVE_CMD=(touch "${STUB_RELEASE}"); RELEASE_NATIVE_BIN="${STUB_RELEASE}"
+	RELEASE_CHECKS=(); RELEASE_ARTIFACT_DIR=""; REMOTE_BOXES=(); PACKAGE_ENABLE=0
+fi
 ## The profiler, with a calibration that leaves a file behind when it runs.
 if [[ -n "${STUB_PROFILE:-}" ]]; then
 	PROFILE_ENABLE=1; PROFILE_BUILD_CMD=(true); PROFILE_BIN=cicd/cicd.bash; PROFILE_TIMED=()
@@ -558,10 +597,51 @@ for leakFirst in --leakcheck --no-leakcheck; do
 		fail "cicd.bash took ${leakFirst} ${leakSecond}: exit ${engRc}, ran ${leakRan}: $(tail -2 "${work}/eng.log")"
 	fi
 done
-fTest Et6Aum5 --ci is an unknown option
-## 2026101816034794: renamed --gate, with no alias.
+fTest EtkuOxe the leak checks by length, and --long
+## 2026102515494614: the default run fits in about an hour, so what takes hours
+## is only in --long, --slow and --leakcheck. --quick keeps the fast ones, and
+## --no-leakcheck drops every one, the test steps that are leak checks too.
+fLeakLen(){  ## fLeakLen ARGS... -> engRc, leakRun as fast slow long test, 1 or 0 each
+	local f
+	rm -f "${work}/eng.leak" "${work}/eng.leakfast" "${work}/eng.leaklong" "${work}/eng.leaktest"
+	fEngine STUB_LEAK="${work}/eng.leak" STUB_LEAK_FAST="${work}/eng.leakfast" STUB_LEAK_LONG="${work}/eng.leaklong" STUB_LEAK_TEST="${work}/eng.leaktest" -- "$@"
+	leakRun=""
+	for f in leakfast leak leaklong leaktest; do
+		if [[ -e "${work}/eng.${f}" ]]; then leakRun+="1"; else leakRun+="0"; fi
+	done
+}
+for leakCase in '1101|-y --no-sync' '1001|-y --no-sync --quick' '1111|-y --no-sync --long' '1111|-y --no-sync --slow' \
+	'1111|-y --no-sync --leakcheck' '1111|-y --no-sync --quick --leakcheck' '0000|-y --no-sync --no-leakcheck' \
+	'0000|-y --no-sync --long --no-tests' '0001|--gate' '1111|--gate --long' '1101|--merge-gate' '1101|--ci'; do
+	read -r -a leakArgs <<< "${leakCase#*|}"
+	fLeakLen "${leakArgs[@]}"
+	if ((engRc != 0)) || [[ "${leakRun}" != "${leakCase%%|*}" ]]; then
+		fail "cicd.bash ${leakCase#*|} ran the leak checks as ${leakRun} (fast, slow, long, test), not ${leakCase%%|*}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+	fi
+done
+fLeakLen -y --no-sync --quick --long
+if ((engRc != 2)) || [[ "${leakRun}" != 0000 ]] || ! grep -qF "can't go together" "${work}/eng.log"; then
+	fail "cicd.bash took --quick --long: exit ${engRc}, ran ${leakRun}: $(tail -2 "${work}/eng.log")"
+fi
+fTest Et6Aum5 --ci is another name for --merge-gate
+## 2026101816034794 made --ci unknown; 2026102515494619 brings it back as
+## another name for --merge-gate, which says so in one line.
 fEngine -- --ci
-if ((engRc != 2)) || ! grep -qF 'unknown option: --ci' "${work}/eng.log"; then fail "cicd.bash took --ci: exit ${engRc}: $(tail -2 "${work}/eng.log")"; fi
+if ((engRc != 0)) || ! grep -qxF -- '--ci is another name for --merge-gate' "${work}/eng.log"; then fail "cicd.bash --ci: exit ${engRc}: $(tail -2 "${work}/eng.log")"; fi
+fTest EtkuOxg --merge-gate runs every check of a run with no flags
+## 2026102515494619: the release builds and the default run's leak checks,
+## which --gate leaves out, and the tree is recorded. No dogfood or publish.
+rm -f "${work}/eng.release"
+fEngine STUB_RELEASE="${work}/eng.release" -- --merge-gate
+((engRc == 0 && engRecorded == 1)) && [[ -e "${work}/eng.release" ]] \
+	|| fail "a --merge-gate run: exit ${engRc}, recorded ${engRecorded}, release built $([[ -e "${work}/eng.release" ]] && echo 1 || echo 0): $(tail -3 "${work}/eng.log")"
+if ! grep -qF 'Off ............: Dogfood (--merge-gate)' "${work}/eng.log" || ! grep -qF 'Off ............: Backup + publish (--merge-gate)' "${work}/eng.log" \
+	|| grep -qE 'Starting (Dogfood|Backup)' "${work}/eng.log"; then
+	fail "a --merge-gate run dogfooded or published: $(grep -iE 'dogfood|publish' "${work}/eng.log" || true)"
+fi
+rm -f "${work}/eng.release"
+fEngine STUB_RELEASE="${work}/eng.release" -- --gate
+[[ ! -e "${work}/eng.release" ]] || fail "a --gate run built the release"
 fTest EqL1d4D cicd.bash clears GIT_DIR before its gates
 ## 20260918b item 2: a direct run with GIT_DIR exported clears it too.
 fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --gate
@@ -844,6 +924,96 @@ for tmpCase in "whole run|0|" "failed run|1|STUB_CROSS_FAIL=1" "stopped run|143|
 	fi
 done
 [[ -e "${work}/keep.me" ]] || fail "a run removed a file in TMPDIR that isn't its own"
+fTest Etl0lIy --keep-temp keeps the temp folder and containers of a run, and says where
+## 2026102515494634: a whole, failed or stopped run keeps its folder, and the
+## run in the image starts its containers without --rm and leaves them.
+for tmpCase in "whole run|0|" "failed run|1|STUB_CROSS_FAIL=1" "stopped run|143|STUB_STOP=1"; do
+	IFS='|' read -r tmpLabel tmpWant tmpEnv <<<"${tmpCase}"
+	rm -f "${work}/eng.tmpdir"
+	tmpEnvs=(STUB_TMPDIR="${work}/eng.tmpdir"); if [[ -n "${tmpEnv}" ]]; then tmpEnvs+=("${tmpEnv}"); fi
+	fEngine "${tmpEnvs[@]}" -- --gate --keep-temp 2>/dev/null
+	## The tests ran in the frozen copy, whose run folder is inside the kept one.
+	runTmp="$(cat "${work}/eng.tmpdir" 2>/dev/null || true)"
+	keptTmp="$(sed -n "/^\[ kept this run's temp folder: /{s/^\[ kept this run's temp folder: \(.*\) \]\$/\1/p;q;}" "${work}/eng.log" || true)"
+	if ((engRc != tmpWant)) || [[ "${keptTmp}" != "${work}/"?* || "${runTmp}" != "${keptTmp}"* || ! -d "${runTmp}/left/deep" ]]; then
+		fail "--keep-temp, ${tmpLabel}: exit ${engRc}, kept '${keptTmp}', its TMPDIR '${runTmp}' $([[ -n "${runTmp}" && -d "${runTmp}" ]] && echo 'is there' || echo 'is gone'): $(tail -3 "${work}/eng.log")"
+	fi
+	if [[ -n "${keptTmp}" && -d "${keptTmp}" ]]; then chmod -R u+rwX -- "${keptTmp}"; fi
+done
+rm -f "${work}/keep-args.txt"
+fCtr STUB_DOCKER_ARGS="${work}/keep-args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_ZIG='512\t0.16.0\t0.16.0' STUB_MOUNTS="${work}/keep-lbl.tsv" -- -y --no-sync --keep-temp
+keepRm="$(grep -E -- '--name shcl-[^ ]+-(build|fmt) ' "${work}/keep-args.txt" | grep -cF -- ' --rm ' || true)"
+keepRuns="$(grep -cE -- '--name shcl-[^ ]+-(build|fmt) ' "${work}/keep-args.txt" || true)"
+if ((engRc != 0 || keepRuns < 2 || keepRm != 0)) || ! grep -qF 'and its containers: docker ps -a --filter label=dev.run=shcl-run.' "${work}/eng.log"; then
+	fail "--keep-temp in the image: exit ${engRc}, ${keepRuns} step run(s), ${keepRm} with --rm: $(tail -3 "${work}/eng.log")"
+fi
+fTest Etl3oti --list prints the steps the other flags would run and runs none
+## 2026102515494634: the leak checks by length show it, and nothing runs, is
+## recorded or is left in TMPDIR.
+for listCase in '-y --no-sync --list|echo leak' '-y --no-sync --quick --list|echo fast' '--gate --list|Format (check only)'; do
+	read -r -a listArgs <<< "${listCase%%|*}"
+	rm -f "${work}/eng.leak" "${work}/eng.leakfast"
+	ls -d "${work}"/shcl-run.* > "${work}/list.before" 2>/dev/null || true
+	fEngine STUB_LEAK="${work}/eng.leak" STUB_LEAK_FAST="${work}/eng.leakfast" -- "${listArgs[@]}"
+	ls -d "${work}"/shcl-run.* > "${work}/list.after" 2>/dev/null || true
+	if ((engRc != 0 || engRecorded != 0)) || [[ -e "${work}/eng.leak" || -e "${work}/eng.leakfast" ]] || ! grep -qF -- "${listCase#*|}" "${work}/eng.log" \
+		|| ! grep -qx '4/9  Tests' "${work}/eng.log" || ! cmp -s "${work}/list.before" "${work}/list.after"; then
+		fail "cicd.bash ${listCase%%|*}: exit ${engRc}, recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
+	fi
+done
+fTest EtlDIOQ each step opens and closes with a numbered, timed line under a rule
+## 2026102416250060: Starting, then PASS or FAIL, as Step N of M, with only
+## the steps that run counted, the same numbers in the frozen copy's run, and
+## the first section naming each step that's off with its flag or reason.
+fStepLines(){  ## fStepLines WANT -> "" when eng.log's step lines are whole, numbered 1 to WANT and in order
+	awk -v want="$1" -v rule="$(printf '•%.0s' {1..79})" '
+		function bad(m) { if (!err) err = m }
+		/^\[ [0-9]{8}-[0-9]{6}\.[0-9]{2}: Step [0-9]+ of [0-9]+; (Starting|PASS|FAIL) / {
+			split($0, a, /: Step | of |; /); n = a[2] + 0; m = a[3] + 0; word = a[4]; sub(/ .*/, "", word)
+			if (m != want) bad("line " NR " counts " m " steps")
+			if (word == "Starting") {
+				if (open) bad("line " NR " starts a step inside step " open)
+				if (n != done + 1) bad("line " NR " is step " n " after step " done)
+				if (prev != rule || prev2 != "") bad("line " NR " has no blank line and 79-wide rule before it")
+				open = n
+			} else {
+				if (n != open) bad("line " NR " closes step " n " while step " open " is open")
+				open = 0; done = n
+			}
+		}
+		{ prev2 = prev; prev = $0 }
+		END { if (!err && open) err = "step " open " never closed"; if (!err && done != want) err = done " of " want " steps ran"; print err }
+	' "${work}/eng.log"
+}
+fEngine -- -y --no-sync
+stepErr="$(fStepLines 5)"
+if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qxF 'Steps ..........: 5' "${work}/eng.log" \
+	|| ! grep -qxF 'Off ............: Remote sync (--no-sync)' "${work}/eng.log" || (($(grep -c '^Off \.' "${work}/eng.log" || true) != 6)) \
+	|| ! grep -qE '^\[ [0-9.-]+: Step 5 of 5; PASS Release builds \]$' "${work}/eng.log"; then
+	fail "a run with no sync: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
+fi
+fEngine STUB_CROSS_FAIL=1 -- -y --no-sync
+stepErr="$(fStepLines 5)"
+if ((engRc == 0)) || [[ -n "${stepErr}" ]] \
+	|| ! grep -qE '^\[ [0-9.-]+: Step 5 of 5; FAIL Release builds \]$' "${work}/eng.log" || grep -qF 'PASS Release builds' "${work}/eng.log"; then
+	fail "a run whose cross check fails: exit ${engRc}, ${stepErr}: $(grep -E 'Step [0-9]' "${work}/eng.log" | tail -3 || true)"
+fi
+fEngine -- --gate
+stepErr="$(fStepLines 5)"
+if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qE '^\[ [0-9.-]+: Step 1 of 5; Starting Format \(check only\) \]$' "${work}/eng.log" \
+	|| ! grep -qxF 'Off ............: Remote sync (--gate)' "${work}/eng.log"; then
+	fail "a --gate run: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
+fi
+## An extra image's own flags take out Format, Lint and the cross checks in
+## there, so the run here counts only Build and Tests.
+if [[ -d "${eng}/cicd/container" ]]; then
+	fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- -y --no-sync --no-freeze --container=alpine
+	stepErr="$(fStepLines 2)"
+	if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qxF 'Off ............: Lint (--container=alpine)' "${work}/eng.log" \
+		|| ! grep -qE '^\[ [0-9.-]+: Step 2 of 2; PASS Tests \]$' "${work}/eng.log"; then
+		fail "an alpine run: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
+	fi
+fi
 fTest EtDQOMF a whole run removes a profiler sample file whose graph is gone
 ## 2026101920461153: the rotation prunes a graph and leaves the sample count
 ## beside it. One whose graph is still there stays, whatever its role now.
@@ -1028,3 +1198,6 @@ exit "${rc}"
 ##		- 2026-10-24 JC: The gate worktree half of the extra image check runs every time.
 ##		- 2026-10-24 JC: The run labels and container names, a failed or stopped run's containers, the tag
 ##		  before the current one, the build cache prune and the docker sizes on the cleanup line.
+##		- 2026-10-25 JC: The leak checks by length, and --long.
+##		- 2026-10-25 JC: --merge-gate and --ci, and the hook's call of each engine's gate.
+##		- 2026-10-25 JC: A push to main of docs alone, and --keep-temp.
