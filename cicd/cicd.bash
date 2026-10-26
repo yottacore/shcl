@@ -192,6 +192,9 @@ unset SHCL_IN_CONTAINER SHCL_CTR_IMAGE
 ## SHCL_FROZEN says the tree already is a copy, such as the pre-push hook's.
 run_part="${SHCL_RUN_PART:-}"; frozen_given="${SHCL_FROZEN:-}"
 unset SHCL_RUN_PART SHCL_FROZEN
+## The steps the run that started this one counts, so both number them alike.
+step_plan_given="${SHCL_STEP_PLAN:-}"; plan_only="${SHCL_STEP_PLAN_ONLY:-}"
+unset SHCL_STEP_PLAN SHCL_STEP_PLAN_ONLY
 case "${run_part}" in ''|fmt|build) ;; *) echo "SHCL_RUN_PART=${run_part}: not fmt or build" >&2; exit 2 ;; esac
 ## A run another run started, which leaves the log, the plan and the sweep to it.
 inner_run=0
@@ -205,36 +208,43 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 ## Parse options.
 assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0; keep_temp=0; list_only=0
 ## --container: which image, and the options the run inside it takes over.
-ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; fmt_off=0; no_remote=0
+ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; no_remote=0
+## Why each step may be off, by step id, for the list in the first section.
+declare -A step_why=()
+fOff(){   ## fOff STEP REASON
+	local w="${step_why[$1]:-}"
+	if [[ ", ${w}, " != *", $2, "* ]]; then step_why[$1]="${w:+${w}, }$2"; fi
+}
+mode_flag=""
 fCtrPick(){
 	if [[ -z "$1" ]]; then echo "--container= names no image (try --help)" >&2; exit 2; fi
 	if [[ -n "${ctr_image}" && "${ctr_image}" != "$1" ]]; then echo "--container names 2 images, ${ctr_image} and $1 (try --help)" >&2; exit 2; fi
 	ctr_image="$1"
 }
 while (($#)); do case "$1" in
-	--gate)                   gate_mode=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
-	--merge-gate)             gate_mode=1; merge_gate=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
-	--ci)                     echo "--ci is another name for --merge-gate"; gate_mode=1; merge_gate=1; assume_yes=1; ctr_pass+=(--merge-gate); shift ;;
+	--gate)                   gate_mode=1; assume_yes=1; mode_flag="${mode_flag:-$1}"; ctr_pass+=("$1"); shift ;;
+	--merge-gate)             gate_mode=1; merge_gate=1; assume_yes=1; mode_flag=--merge-gate; ctr_pass+=("$1"); shift ;;
+	--ci)                     echo "--ci is another name for --merge-gate"; gate_mode=1; merge_gate=1; assume_yes=1; mode_flag=--merge-gate; ctr_pass+=(--merge-gate); shift ;;
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
 	--leakcheck)              leakcheck_flag=1; ctr_pass+=("$1"); shift ;;
 	--no-leakcheck)           no_leakcheck=1; ctr_pass+=("$1"); shift ;;
 	--long|--slow)            long_run=1; ctr_pass+=("$1"); shift ;;
 	-q|--quiet)               quiet=1; assume_yes=1; QUIET_FLAG="-q"; export CARGO_TERM_QUIET=true; shift ;;
 	-y|--yes)                 assume_yes=1; shift ;;
-	--no-sync)                sync_enable=0; shift ;;
-	--no-fmt)                 fmt_off=1; FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
-	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
-	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); LEAKCHECK_STEPS=(); BINDING_CLIS=(); LARGEDOC_MIB=0; no_tests=1; gate_partial=1; ctr_pass+=("$1"); shift ;;
-	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
+	--no-sync)                sync_enable=0; fOff sync "$1"; shift ;;
+	--no-fmt)                 FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; fOff fmt "$1"; ctr_pass+=("$1"); shift ;;
+	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; fOff lint "$1"; ctr_pass+=("$1"); shift ;;
+	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); LEAKCHECK_STEPS=(); BINDING_CLIS=(); LARGEDOC_MIB=0; no_tests=1; gate_partial=1; fOff tests "$1"; ctr_pass+=("$1"); shift ;;
+	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; fOff release "$1"; ctr_pass+=("$1"); shift ;;
 	--no-package)             PACKAGE_ENABLE=0; ctr_pass+=("$1"); shift ;;
 	--no-largedoc)            LARGEDOC_MIB=0; ctr_pass+=("$1"); shift ;;
-	--no-profile)             PROFILE_ENABLE=0; ctr_pass+=("$1"); shift ;;
+	--no-profile)             PROFILE_ENABLE=0; fOff profile "$1"; ctr_pass+=("$1"); shift ;;
 	## Dogfood and the gif take the release binary, so a stale one would go out.
-	--no-release)             RELEASE_NATIVE_CMD=(); PACKAGE_ENABLE=0; DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; ctr_pass+=("$1"); shift ;;
-	--no-dogfood)             DOGFOOD_FIXED_DESTS=(); shift ;;
-	--no-gif)                 GIF_ENABLE=0; shift ;;
-	--no-publish)             GIT_PUBLISH=(); shift ;;
-	--no-remote)              no_remote=1; shift ;;
+	--no-release)             RELEASE_NATIVE_CMD=(); PACKAGE_ENABLE=0; DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; for s in release boxes dogfood gif; do fOff "${s}" "$1"; done; ctr_pass+=("$1"); shift ;;
+	--no-dogfood)             DOGFOOD_FIXED_DESTS=(); fOff dogfood "$1"; shift ;;
+	--no-gif)                 GIF_ENABLE=0; fOff gif "$1"; shift ;;
+	--no-publish)             GIT_PUBLISH=(); fOff publish "$1"; shift ;;
+	--no-remote)              no_remote=1; fOff boxes "$1"; shift ;;
 	--keep-temp)              keep_temp=1; ctr_pass+=("$1"); shift ;;
 	--list)                   list_only=1; shift ;;
 	--container)              fCtrPick main; shift ;;
@@ -261,11 +271,13 @@ if ((gate_mode)); then
 	## copy is not required to have every one.
 	export SHCL_GATE_STRICT=1
 	sync_enable=0       ## the runner already checked out the exact commit under test
+	for s in sync profile dogfood gif publish; do fOff "${s}" "${mode_flag}"; done
 	FMT_CMD=()          ## check-only via FMT_CHECK_CMD; never rewrite in CI
 	if ((! merge_gate)); then
 		CROSS_TARGETS=()
 		RELEASE_NATIVE_CMD=()
 		PACKAGE_ENABLE=0
+		fOff release "${mode_flag}"; fOff boxes "${mode_flag}"
 	fi
 	PROFILE_ENABLE=0
 	## The other hosted job runs the tests and the calibration. A local
@@ -306,6 +318,7 @@ if ((quick)); then
 	PACKAGE_ENABLE=0   ## installers, not checks
 	PROFILE_ENABLE=0
 	GIF_ENABLE=0
+	fOff profile --quick; fOff gif --quick
 	((${#TEST_QUICK_CMD[@]})) && TEST_CMD=("${TEST_QUICK_CMD[@]}")
 	for list in LINT_EXTRA TEST_EXTRA CROSS_CHECKS CROSS_TARGETS RELEASE_CHECKS; do fQuickDrop "${list}"; done
 	if fQuickSkips crosscheck.bash; then xcheck_enable=0; fi
@@ -344,6 +357,54 @@ fi
 ## anything noted there records nothing.
 record_green=1
 if ((quick || gate_partial)); then record_green=0; fi
+
+## The steps this run takes, by id, in order. A step that's off isn't counted,
+## and the first section names it with the flag or the reason. A run another run
+## started takes that run's list, so the two number the steps alike, and runs
+## only its own part of it.
+step_order=(sync fmt build lint tests profile release boxes dogfood gif publish)
+step_inner=" fmt build lint tests profile release "
+step_ids=(); steps_off=(); step_open=""
+fStepWanted(){   ## fStepWanted ID -> 0 when this run's settings take the step
+	case "$1" in
+		sync)    ((sync_enable)) ;;
+		fmt)     if ((gate_mode)); then ((${#FMT_CHECK_CMD[@]})); else ((${#FMT_CMD[@]})); fi ;;
+		build)   ((${#BUILD_CMD[@]})) ;;
+		lint)    ((${#LINT_CMD[@]} + ${#SHELLCHECK_TARGETS[@]})) ;;
+		tests)   ((${#TEST_CMD[@]} + ${#BINDING_CLIS[@]} + ${#LEAKCHECK_STEPS[@]})) ;;
+		profile) ((PROFILE_ENABLE)) || { ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); } ;;
+		release) ((${#CROSS_CHECKS[@]} + ${#RELEASE_NATIVE_CMD[@]})) ;;
+		boxes)   ((! no_remote && ! inner_run && ${#REMOTE_BOXES[@]} && ${#RELEASE_NATIVE_CMD[@]})) ;;
+		dogfood) ((${#DOGFOOD_FIXED_DESTS[@]} && ${#RELEASE_NATIVE_CMD[@]})) ;;
+		gif)     ((GIF_ENABLE)) ;;
+		publish) ((${#GIT_PUBLISH[@]})) ;;
+		*)       return 1 ;;
+	esac
+}
+fStepTitle(){   ## fStepTitle ID -> the step's name in its lines
+	case "$1" in
+		sync)    echo "Remote sync" ;;
+		fmt)     if ((gate_mode)); then echo "Format (check only)"; else echo "Format"; fi ;;
+		build)   echo "Build (debug)" ;;
+		lint)    echo "Lint" ;;
+		tests)   echo "Tests" ;;
+		profile) echo "Profiler" ;;
+		release) echo "Release builds" ;;
+		boxes)   echo "Test boxes" ;;
+		dogfood) echo "Dogfood" ;;
+		gif)     echo "Demo gif" ;;
+		publish) echo "Backup + publish" ;;
+	esac
+}
+## SHCL_STEP_PLAN_ONLY: the steps of stages 1-6 these flags take, one per line,
+## and nothing run or made. A run that starts an extra image asks it for the
+## flags the run in there gets, since that image's own flags take out more.
+if [[ -n "${plan_only}" ]]; then
+	for s in "${step_order[@]}"; do
+		if [[ "${step_inner}" == *" ${s} "* ]] && fStepWanted "${s}"; then printf '%s\n' "${s}"; fi
+	done
+	exit 0
+fi
 
 ## --list: the steps a run with the other flags would take, by stage, and
 ## nothing run, made or asked. Test IDs aren't listed yet (2026102515494634).
@@ -457,7 +518,7 @@ fRunTmpGone(){
 	fRmRunTmp
 	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files, about %s ]\n' "$(fSize "${kb:-0}")" >&2; fi
 }
-trap 'fRunTmpGone || true' EXIT
+trap 'if declare -F fStepFail >/dev/null; then fStepFail || true; fi; fRunTmpGone || true' EXIT
 export SHCL_GATE_SKIPS="$(mktemp)"
 
 ## Publish commit message: -m wins, then config, then a default when unattended.
@@ -473,9 +534,36 @@ fEcho_ResetBlankCounter(){ _wasLastEchoBlank=0; }
 fEcho_Clean(){ if [[ -n "${1:-}" ]]; then echo -e "$*"; _wasLastEchoBlank=0; elif [[ "${_wasLastEchoBlank}" == 0 ]] && echo; then _wasLastEchoBlank=1; fi; }
 fEcho(){       if [[ -n "$*"     ]]; then fEcho_Clean "[ $* ]"; else fEcho_Clean ""; fi; }
 fEcho_Force(){ fEcho_ResetBlankCounter; fEcho "$*"; }
-_letterbox="••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
+_letterbox="•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
 fSection(){ fEcho_Clean; fEcho_Clean "${_letterbox}"; fEcho "$*"; }
-fDie(){ { fEcho_Force "FAILED: $*"; echo; } >&2; exit 1; }
+## Local time to the hundredth of a second, with no fork.
+fStepNow(){   ## fStepNow VAR
+	local -n now_r4k="$1"
+	local e="${EPOCHREALTIME:-}" t f
+	e="${e/,/.}"
+	if [[ "${e}" =~ ^([0-9]+)\.([0-9]{2}) ]]; then
+		printf -v t '%(%Y%m%d-%H%M%S)T' "${BASH_REMATCH[1]}"; f="${BASH_REMATCH[2]}"
+	else
+		printf -v t '%(%Y%m%d-%H%M%S)T' -1; f=00
+	fi
+	now_r4k="${t}.${f}"
+}
+## fStepLine ID WORD: "[ TIME: Step N of M; WORD Title ]".
+fStepLine(){
+	local i n=0 now
+	for i in "${!step_ids[@]}"; do
+		if [[ "${step_ids[i]}" == "$1" ]]; then n=$((i + 1)); break; fi
+	done
+	fStepNow now
+	fEcho "${now}: Step ${n} of ${#step_ids[@]}; $2 $(fStepTitle "$1")"
+}
+fStepStart(){ fEcho_Clean; fEcho_Clean "${_letterbox}"; fStepLine "$1" Starting; step_open="$1"; }
+fStepEnd(){ local id="${step_open}"; step_open=""; fStepLine "${id}" PASS; }
+## From the EXIT trap: a step still open when the run stops failed.
+# shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
+fStepFail(){ local id="${step_open:-}"; step_open=""; if [[ -n "${id}" ]]; then fStepLine "${id}" FAIL; fEcho_Clean; fi; }
+## A step that's open closes on its FAIL line, right under the reason.
+fDie(){ fEcho_Force "FAILED: $*" >&2; if [[ -n "${step_open:-}" ]]; then fStepFail; else echo >&2; fi; exit 1; }
 trap 'rc=$?; printf "\n[ CICD ABORTED (exit %s) at line %s: %s ]\n\n" "$rc" "$LINENO" "$BASH_COMMAND" >&2; exit $rc' ERR
 
 ## Current version from the single canonical source.
@@ -639,6 +727,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}" -e "SHCL_CPU_FIXED=${SHCL_CPU_FIXED}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
 	if [[ -n "${part}" ]]; then env+=(-e "SHCL_RUN_PART=${part}"); fi
+	env+=(-e "SHCL_STEP_PLAN=${step_ids[*]}")
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
 	if [[ "${ctr_image}" != main ]]; then
 		declare -p "CTR_ARGS_${ctr_image}" &>/dev/null || fDie "config.bash has no CTR_ARGS_${ctr_image}, the stages that image runs"
@@ -695,12 +784,56 @@ if ((! no_container && ! in_container)); then
 		else ctr_image=main; fCtrRecipe; fi
 	fi
 fi
-if [[ -n "${ctr_image}" && "${ctr_image}" != main ]]; then DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; GIT_PUBLISH=(); fi
+if [[ -n "${ctr_image}" && "${ctr_image}" != main ]]; then
+	DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; GIT_PUBLISH=()
+	for s in dogfood gif publish; do fOff "${s}" "--container=${ctr_image}"; done
+fi
+
+## The plan: the list the run that started this one gave, or this run's own.
+read -r -a step_ids <<< "${step_plan_given}"
+for s in "${step_ids[@]}"; do
+	if [[ " ${step_order[*]} " != *" ${s} "* ]]; then step_ids=(); break; fi
+done
+if ((${#step_ids[@]} == 0)); then
+	for s in "${step_order[@]}"; do
+		if fStepWanted "${s}"; then step_ids+=("${s}"); else steps_off+=("${s}"); fi
+	done
+fi
+if ((${#step_plan_given} == 0)) && [[ -n "${ctr_image}" && "${ctr_image}" != main ]] && declare -p "CTR_ARGS_${ctr_image}" &>/dev/null; then
+	declare -n planArgs_m2x="CTR_ARGS_${ctr_image}"
+	ctrSteps="$(SHCL_STEP_PLAN_ONLY=1 SHCL_IN_CONTAINER=1 bash "${here}/cicd.bash" -y --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}" "${planArgs_m2x[@]}")" \
+		|| fDie "could not work out the steps the ${ctr_image} image takes"
+	keptIds=" ${step_ids[*]} "; step_ids=(); steps_off=()
+	for s in "${step_order[@]}"; do
+		if [[ "${step_inner}" == *" ${s} "* ]]; then
+			if [[ $'\n'"${ctrSteps}"$'\n' == *$'\n'"${s}"$'\n'* ]]; then step_ids+=("${s}"); continue; fi
+			if [[ "${keptIds}" == *" ${s} "* ]]; then fOff "${s}" "--container=${ctr_image}"; fi
+		elif [[ "${keptIds}" == *" ${s} "* ]]; then
+			step_ids+=("${s}"); continue
+		fi
+		steps_off+=("${s}")
+	done
+fi
+## fStepOn ID: the step is counted and this run is the one that takes it.
+fStepOn(){
+	if [[ " ${step_ids[*]} " != *" $1 "* ]]; then return 1; fi
+	((! inner_run)) || [[ "${step_inner}" == *" $1 "* ]]
+}
 
 ## Preflight: show the plan, then capture the commit message so the rest runs unattended.
+run_title="${APP_NAME} $( ((merge_gate)) && echo 'merge gate' || { ((gate_mode)) && echo 'gate'; } || echo 'local CI/CD')"
+if ((quick)); then run_title+=", quick"; fi
+## The steps that are off, with the flag or reason for each.
+fStepsOff(){
+	local id
+	((! inner_run)) || return 0
+	fEcho_Clean "Steps ..........: ${#step_ids[@]}"
+	for id in "${steps_off[@]}"; do
+		fEcho_Clean "Off ............: $(fStepTitle "${id}") (${step_why[${id}]:-not configured})"
+	done
+}
 if ((! quiet)); then
-	fEcho_Clean
-	fEcho_Clean "${APP_NAME} $( ((merge_gate)) && echo 'merge gate' || { ((gate_mode)) && echo 'gate'; } || echo 'local CI/CD')$( ((quick)) && echo ', quick' )"
+	fSection "${run_title}"
 	fEcho_Clean
 	fEcho_Clean "Repo root ......: ${root}"
 	fEcho_Clean "Remote sync ....: $( ((sync_enable)) && echo 'fast-forward when behind; abort when diverged' || echo '(skipped)')"
@@ -737,9 +870,12 @@ if ((! quiet)); then
 	else
 		fEcho_Clean "Publish (last) .: (skipped)"
 	fi
+	fStepsOff
 	fEcho_Clean
-	fEcho_Clean "Fail-fast: any error aborts before the next stage."
-	fEcho_Clean
+	fEcho_Clean "Fail-fast: any error aborts before the next step."
+elif ((! inner_run)); then
+	fSection "${run_title}"
+	fStepsOff
 fi
 if ((! assume_yes)) && ((${#GIT_PUBLISH[@]})) && [[ -z "$publish_msg" ]]; then
 	read -r -p "Publish commit message (blank = editor; Ctrl+C aborts): " m
@@ -782,8 +918,8 @@ fi
 ## validates the tree that will be pushed. The publish stage pulls too, but that
 ## happens after the tests - a change merged upstream meanwhile would go out
 ## having never been built here.
-if ((sync_enable)); then
-	fSection "0/9  Remote sync"
+if fStepOn sync; then
+	fStepStart sync
 	branch="$(git -C "${root}" symbolic-ref --quiet --short HEAD || true)"
 	upstream="$(git -C "${root}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
 	if [[ -z "$branch" ]]; then
@@ -818,26 +954,28 @@ if ((sync_enable)); then
 		else                 fEcho "OK: level with ${upstream}"
 		fi
 	fi
+	fStepEnd
 fi
 
 ## Stage 1: format. In place locally; check-only (fail on diff) under --gate.
+## The run on a frozen copy leaves it to the run that formatted the checkout.
 fStageFormat(){
-	fSection "1/9  Format"
+	fStepOn fmt || return 0
 	if ((gate_mode)); then
-		if ((${#FMT_CHECK_CMD[@]})); then
-			fStep "${FMT_CHECK_CMD[@]}"
-			fRunExtras "${FMT_CHECK_EXTRA[@]}"
-			fEcho "OK: format clean"
-		else fEcho_Clean "no format check configured"; fi
+		((${#FMT_CHECK_CMD[@]})) || return 0
+		fStepStart fmt
+		fStep "${FMT_CHECK_CMD[@]}"
+		fRunExtras "${FMT_CHECK_EXTRA[@]}"
+		fEcho "OK: format clean"
 	elif ((${#FMT_CMD[@]})); then
+		fStepStart fmt
 		fStep "${FMT_CMD[@]}"
 		fRunExtras "${FMT_EXTRA[@]}"
 		fEcho "OK: formatted"
-	elif [[ "${run_part}" == build ]] && ((! fmt_off)); then
-		fEcho_Clean "formatted in the checkout, before the copy was taken"
 	else
-		fEcho_Clean "format skipped"
+		return 0
 	fi
+	fStepEnd
 }
 
 ## A detached, locked worktree holding the tree the format stage left, HEAD plus
@@ -879,7 +1017,7 @@ fFreeze(){
 fRunFrozen(){
 	local -a inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-container --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
 	local rc=0
-	SHCL_RUN_PART=build bash "${frozen_root}/cicd/cicd.bash" "${inner[@]}" || rc=$?
+	SHCL_STEP_PLAN="${step_ids[*]}" SHCL_RUN_PART=build bash "${frozen_root}/cicd/cicd.bash" "${inner[@]}" || rc=$?
 	## A stopped run stays a stopped run.
 	if ((rc > 128)); then exit "${rc}"; fi
 	((rc == 0)) || fDie "the run in the frozen copy failed; its output is above"
@@ -925,25 +1063,22 @@ else
 	if ((record_green)); then green_tree="$("${here}/utility/green-tree.bash" tree "${root}" || true)"; fi
 
 	## Stage 2: debug build (fast compile sanity; the tests run against this).
-	fSection "2/9  Build (debug)"
-	if ((${#BUILD_CMD[@]})); then
+	if fStepOn build; then
+		fStepStart build
 		fStep "${BUILD_CMD[@]}"
 		fRunExtras "${BUILD_EXTRA[@]}"
 		fEcho "OK: build"
-	else
-		fEcho_Clean "nothing to build yet"
+		fStepEnd
 	fi
 
 	## Stage 3: lint. Project lint first, then shellcheck over the cicd scripts (and
 	## any other bash config lists), so the pipeline can't rot silently. shellcheck
 	## is optional locally (warn if missing) but present on GitHub runners.
-	fSection "3/9  Lint"
+	if fStepOn lint; then fStepStart lint; fi
 	if ((${#LINT_CMD[@]})); then
 		fStep "${LINT_CMD[@]}"
 		fRunExtras "${LINT_EXTRA[@]}"
 		fEcho "OK: lint clean"
-	else
-		fEcho_Clean "no project lint configured yet"
 	fi
 	if ((${#SHELLCHECK_TARGETS[@]})); then
 		if command -v shellcheck >/dev/null 2>&1; then
@@ -956,6 +1091,7 @@ else
 			echo shellcheck >> "${SHCL_GATE_SKIPS}"
 		fi
 	fi
+	if [[ "${step_open}" == lint ]]; then fStepEnd; fi
 
 	## Stage 4: tests (conformance corpus + fuzz smoke + anything else config wires in),
 	## then the cross-binding differential check: every binding CLI must agree with
@@ -963,13 +1099,11 @@ else
 	## With one binding it is a no-op note; it gets teeth the day a second binding arrives.
 	## Last comes the large-document gate - the same agreement plus time and memory
 	## ceilings, at a size no corpus case can reach.
-	fSection "4/9  Tests"
+	if fStepOn tests; then fStepStart tests; fi
 	if ((${#TEST_CMD[@]})); then
 		fStep "${TEST_CMD[@]}"
 		fRunExtras "${TEST_EXTRA[@]}"
 		fEcho "OK: tests passed"
-	else
-		fEcho_Clean "no tests configured yet"
 	fi
 	if ((${#BINDING_CLIS[@]})) && ((! xcheck_enable)); then
 		fEcho_Clean "crosscheck skipped (--quick)"
@@ -991,12 +1125,13 @@ else
 		fRunExtras --hard "${LEAKCHECK_STEPS[@]}"
 		fEcho "OK: leak checks passed"
 	fi
+	if [[ "${step_open}" == tests ]]; then fStepEnd; fi
 	## Stage 5: profiler. Non-gating artifact, not a pass/fail test: an optimized
 	## build with symbols runs a heavy workload under an in-process sampler (kernel
 	## perf is locked down on this box) and writes a flamegraph SVG, gfs-rotated like
 	## the run logs; flame-report.py prints the hot spots into the log. Environmental
 	## problems skip with a warning; a build or run failure is the app's fault -> die.
-	fSection "5/9  Profiler"
+	if fStepOn profile; then fStepStart profile; fi
 	if ((PROFILE_ENABLE)); then
 		fEcho_Clean "building: ${PROFILE_BUILD_CMD[*]}"
 		fStep "${PROFILE_BUILD_CMD[@]}" || fDie "profiler build failed (app problem)"
@@ -1048,7 +1183,6 @@ else
 			fEcho "WARNING: python3 not found; hot-spot report skipped"
 		fi
 	else
-		fEcho_Clean "profiler skipped"
 		## The calibration alone, on the config's cheaper build, since the graph's
 		## attribution is otherwise unchecked under --gate. It runs offline, and a
 		## cache without the sampler's crates is a noted skip rather than a fetch.
@@ -1064,11 +1198,12 @@ else
 			fi
 		fi
 	fi
+	if [[ "${step_open}" == profile ]]; then fStepEnd; fi
 
 	## Stage 6: native release + cross targets, collected under versioned names plus
 	## a sha256 checksums file, ready to attach to a release as plain uploads.
 	## Naming (stable; download links depend on it): <exe>-<version>-<os-arch>[.exe]
-	fSection "6/9  Release builds"
+	if fStepOn release; then fStepStart release; fi
 	built_arts=()   ## <os-arch>|<path> per built binary; stage 7 dogfoods off it too
 	## Cross-compile checks that produce no artifact: the other bindings' own
 	## platform branches. Without these the C header's Windows path is never
@@ -1160,22 +1295,19 @@ else
 			fEcho "OK: ${#built_arts[@]} release artifact(s) + ${sums} -> ${RELEASE_ARTIFACT_DIR}/"
 			((${#CROSS_TARGETS[@]})) || fEcho_Clean "note: cross targets skipped - artifact set is partial (native only)"
 		fi
-	else
-		fEcho_Clean "release builds skipped"
+	elif [[ "${step_open}" == release ]]; then
+		fEcho_Clean "release builds skipped; cross checks only"
 	fi
+	if [[ "${step_open}" == release ]]; then fStepEnd; fi
 fi
 
 ## The test boxes, here whichever way stages 1-6 ran, since the host lock and
 ## the ssh keys are on this box (2026102419263412). A box that isn't there is a
 ## SKIP, and the run goes on; the summary at the end names it again.
 remote_skips=()
-if ((! inner_run)); then
-	fSection "6/9  Test boxes"
-	if ((no_remote)); then
-		fEcho_Clean "test boxes skipped (--no-remote)"
-	elif ((${#REMOTE_BOXES[@]} == 0)); then
-		fEcho_Clean "no test boxes configured"
-	elif [[ ! -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]] || ((${#built_arts[@]} == 0)); then
+if fStepOn boxes; then
+	fStepStart boxes
+	if [[ ! -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]] || ((${#built_arts[@]} == 0)); then
 		for r in "${REMOTE_BOXES[@]}"; do remote_skips+=("SKIP ${r%%|*}: no release builds this run"); done
 		printf '%s\n' "${remote_skips[@]}"
 	else
@@ -1190,6 +1322,7 @@ if ((! inner_run)); then
 		((box_rc == 0)) || fDie "a test box check failed"
 		fEcho "OK: test boxes"
 	fi
+	fStepEnd
 fi
 
 ## Stage 7: dogfood - drop the freshly built optimized native binary into the first
@@ -1198,8 +1331,10 @@ fi
 ## configured.
 ## Skipped when no release binary was built (e.g. --gate) or the dest list is empty.
 ## No sudo: a non-writable dest is passed over with a warning, never force-installed.
-fSection "7/9  Dogfood"
-if ((${#DOGFOOD_FIXED_DESTS[@]})) && [[ -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]]; then
+if fStepOn dogfood; then
+	fStepStart dogfood
+fi
+if fStepOn dogfood && [[ -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]]; then
 	dogfood_dest="$(fFirstWritableDir "${DOGFOOD_FIXED_DESTS[@]}")"
 	if [[ -n "$dogfood_dest" ]] && fInUse "${dogfood_dest}/${EXE_NAME}"; then
 		fEcho "WARNING: ${dogfood_dest}/${EXE_NAME} is running; dogfood copy skipped"
@@ -1234,16 +1369,17 @@ if ((${#DOGFOOD_FIXED_DESTS[@]})) && [[ -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]]
 			fInstallAtomic "$r_src" "$r_dir" "${r_src##*/}"
 		done
 	done
-else
-	fEcho_Clean "dogfood skipped"
+elif fStepOn dogfood; then
+	fEcho "WARNING: no release binary at ${RELEASE_NATIVE_BIN}; dogfood skipped"
 fi
+if [[ "${step_open}" == dogfood ]]; then fStepEnd; fi
 
 ## Stage 8: demo gif for the README (non-gating: a missing Pillow/font/etc. skips).
 ## Renders into the rotated private/ store (gfs-kept), then copies the newest onto
 ## the committed GIF_OUT. If that store is unreachable (no private tree), render
 ## straight to GIF_OUT and skip rotation.
-fSection "8/9  Demo gif"
-if ((GIF_ENABLE)); then
+if fStepOn gif; then
+	fStepStart gif
 	gif_dir="${root}/${GIF_ROTATE_DIR}"
 	if mkdir -p "${gif_dir}" 2>/dev/null; then
 		## Born canonical (role "frequent"); the rotation retags the newest "latest".
@@ -1265,13 +1401,12 @@ if ((GIF_ENABLE)); then
 	else
 		fEcho "WARNING: demo gif skipped (non-fatal)"
 	fi
-else
-	fEcho_Clean "demo gif skipped"
+	fStepEnd
 fi
 
 ## Stage 9: backup + publish via the standalone publisher.
-fSection "9/9  Backup + publish"
-if ((${#GIT_PUBLISH[@]})); then
+if fStepOn publish; then
+	fStepStart publish
 	command -v rar >/dev/null 2>&1 || export GIT_BACKUP_AND_PUBLISH_NOBACKUP=1
 	## The publisher's continue-prompt is skipped either way (this run already
 	## confirmed); --quiet also quiets its output and makes up a commit message
@@ -1296,8 +1431,7 @@ if ((${#GIT_PUBLISH[@]})); then
 		installer_drift="$(git diff --stat origin/main -- install.bash install.ps1 install-dev.bash || true)"
 		[[ -z "${installer_drift}" ]] || fDie "the installers differ from origin/main; merge them to main under the docs-only rule:"$'\n'"${installer_drift}"
 	fi
-else
-	fEcho_Clean "publish skipped"
+	fStepEnd
 fi
 
 ## What's gone stale that the pipeline made, then this run's temp dir, in one
@@ -1352,9 +1486,12 @@ fCleanup(){
 }
 fCleanup
 
-fSection "${APP_NAME} CI/CD: done."
-for s in "${remote_skips[@]}"; do fEcho_Clean "${s}"; done
-fEcho_Clean
+## The run that started this one says it's done, after its own steps.
+if ((! inner_run)); then
+	fSection "${APP_NAME} CI/CD: done."
+	for s in "${remote_skips[@]}"; do fEcho_Clean "${s}"; done
+	fEcho_Clean
+fi
 exit 0
 }
 
@@ -1393,3 +1530,5 @@ exit 0
 ##		  the fast ones, and --no-leakcheck drops the sanitizer runs too. Sizes printed are the files' own.
 ##		- 2026-10-25 JC: --merge-gate, every check of a run with no flags, for the pre-push hook. --ci is another name for it.
 ##		- 2026-10-25 JC: --keep-temp keeps the run's temp folder and containers. --list prints the steps and runs nothing.
+##		- 2026-10-25 JC: Each step opens with a Starting line and closes with PASS or FAIL, as Step N of M with the time, under a
+##		  79-wide rule. Steps that are off aren't counted, and the first section names them with the flag or reason.

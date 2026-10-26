@@ -635,7 +635,8 @@ rm -f "${work}/eng.release"
 fEngine STUB_RELEASE="${work}/eng.release" -- --merge-gate
 ((engRc == 0 && engRecorded == 1)) && [[ -e "${work}/eng.release" ]] \
 	|| fail "a --merge-gate run: exit ${engRc}, recorded ${engRecorded}, release built $([[ -e "${work}/eng.release" ]] && echo 1 || echo 0): $(tail -3 "${work}/eng.log")"
-if ! grep -qF 'dogfood skipped' "${work}/eng.log" || ! grep -qF 'publish skipped' "${work}/eng.log"; then
+if ! grep -qF 'Off ............: Dogfood (--merge-gate)' "${work}/eng.log" || ! grep -qF 'Off ............: Backup + publish (--merge-gate)' "${work}/eng.log" \
+	|| grep -qE 'Starting (Dogfood|Backup)' "${work}/eng.log"; then
 	fail "a --merge-gate run dogfooded or published: $(grep -iE 'dogfood|publish' "${work}/eng.log" || true)"
 fi
 rm -f "${work}/eng.release"
@@ -960,6 +961,59 @@ for listCase in '-y --no-sync --list|echo leak' '-y --no-sync --quick --list|ech
 		fail "cicd.bash ${listCase%%|*}: exit ${engRc}, recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
 	fi
 done
+fTest EtlDIOQ each step opens and closes with a numbered, timed line under a rule
+## 2026102416250060: Starting, then PASS or FAIL, as Step N of M, with only
+## the steps that run counted, the same numbers in the frozen copy's run, and
+## the first section naming each step that's off with its flag or reason.
+fStepLines(){  ## fStepLines WANT -> "" when eng.log's step lines are whole, numbered 1 to WANT and in order
+	awk -v want="$1" -v rule="$(printf '•%.0s' {1..79})" '
+		function bad(m) { if (!err) err = m }
+		/^\[ [0-9]{8}-[0-9]{6}\.[0-9]{2}: Step [0-9]+ of [0-9]+; (Starting|PASS|FAIL) / {
+			split($0, a, /: Step | of |; /); n = a[2] + 0; m = a[3] + 0; word = a[4]; sub(/ .*/, "", word)
+			if (m != want) bad("line " NR " counts " m " steps")
+			if (word == "Starting") {
+				if (open) bad("line " NR " starts a step inside step " open)
+				if (n != done + 1) bad("line " NR " is step " n " after step " done)
+				if (prev != rule || prev2 != "") bad("line " NR " has no blank line and 79-wide rule before it")
+				open = n
+			} else {
+				if (n != open) bad("line " NR " closes step " n " while step " open " is open")
+				open = 0; done = n
+			}
+		}
+		{ prev2 = prev; prev = $0 }
+		END { if (!err && open) err = "step " open " never closed"; if (!err && done != want) err = done " of " want " steps ran"; print err }
+	' "${work}/eng.log"
+}
+fEngine -- -y --no-sync
+stepErr="$(fStepLines 5)"
+if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qxF 'Steps ..........: 5' "${work}/eng.log" \
+	|| ! grep -qxF 'Off ............: Remote sync (--no-sync)' "${work}/eng.log" || (($(grep -c '^Off \.' "${work}/eng.log" || true) != 6)) \
+	|| ! grep -qE '^\[ [0-9.-]+: Step 5 of 5; PASS Release builds \]$' "${work}/eng.log"; then
+	fail "a run with no sync: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
+fi
+fEngine STUB_CROSS_FAIL=1 -- -y --no-sync
+stepErr="$(fStepLines 5)"
+if ((engRc == 0)) || [[ -n "${stepErr}" ]] \
+	|| ! grep -qE '^\[ [0-9.-]+: Step 5 of 5; FAIL Release builds \]$' "${work}/eng.log" || grep -qF 'PASS Release builds' "${work}/eng.log"; then
+	fail "a run whose cross check fails: exit ${engRc}, ${stepErr}: $(grep -E 'Step [0-9]' "${work}/eng.log" | tail -3 || true)"
+fi
+fEngine -- --gate
+stepErr="$(fStepLines 5)"
+if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qE '^\[ [0-9.-]+: Step 1 of 5; Starting Format \(check only\) \]$' "${work}/eng.log" \
+	|| ! grep -qxF 'Off ............: Remote sync (--gate)' "${work}/eng.log"; then
+	fail "a --gate run: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
+fi
+## An extra image's own flags take out Format, Lint and the cross checks in
+## there, so the run here counts only Build and Tests.
+if [[ -d "${eng}/cicd/container" ]]; then
+	fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- -y --no-sync --no-freeze --container=alpine
+	stepErr="$(fStepLines 2)"
+	if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qxF 'Off ............: Lint (--container=alpine)' "${work}/eng.log" \
+		|| ! grep -qE '^\[ [0-9.-]+: Step 2 of 2; PASS Tests \]$' "${work}/eng.log"; then
+		fail "an alpine run: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
+	fi
+fi
 fTest EtDQOMF a whole run removes a profiler sample file whose graph is gone
 ## 2026101920461153: the rotation prunes a graph and leaves the sample count
 ## beside it. One whose graph is still there stays, whatever its role now.

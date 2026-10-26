@@ -447,7 +447,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: step output
 	- ID: 2026102416250060
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Y: one full no-publish run, plain. Read its log: each step from `Step 1 of M` to `Step M of M` opens and closes once, the steps in the image and the frozen copy go on with the same count, and the first section lists what's off.
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -457,6 +458,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Each step opens with a `Starting` line and closes with a `PASS` or `FAIL` line, both as `Step N of M` with a local timestamp to the hundredth of a second, under a rule 79 characters wide.
 		- A step that's turned off isn't counted in the total, and the first section lists those with the flag or reason for each.
 		- One blank line between sections, and one at the end.
+	- Progress log:
+		- 20261025: each stage is a step, and opens with `[ YYYYmmDD-HHMMSS.NN: Step N of M; Starting Name ]` under a 79-wide rule. It closes with `PASS`, or `FAIL` when the run stops inside it, right under the reason. Remote sync, Format, Build (debug), Lint, Tests, Profiler, Release builds, Test boxes, Dogfood, Demo gif and Backup + publish.
+		- A step that's off isn't counted. The first section lists each with the flags that took it out, or `not configured`, and prints under `--quiet` too, with only the count and that list.
+		- The run in the image or the frozen copy numbers its steps from the outer run's list. With `--container=NAME`, the steps that image's own flags in config.bash take out come off the count too.
+		- The Container, Frozen copy and done sections keep their rule and header. The run inside no longer prints a done section of its own.
+		- Verified: check-push-gate `EtlDIOQ` failed on the old engine in all 4 cases and passes now. Its alpine case also fails with the image's own flags left off the count. The rest of check-push-gate, shell-regress, check-docs, test-ids, shellcheck, markdownlint and `lint-report.bash --check --no-mark` pass.
+	- Swept: cicd.bash's other sections and `fDie`. No other cicd script prints a rule or a step header. shell-regress's lift of the sync stage and the check-boxes stand-in moved to the step helpers. `--list` still prints `N/9` labels (Check in questions). Not a binding change, so the four bindings don't apply.
+	- Test case: check-push-gate `EtlDIOQ`: a default run, a failing cross check, `--gate` and an alpine image run.
+		- 20261025: `EtkuOxg` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070

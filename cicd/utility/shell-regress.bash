@@ -2590,8 +2590,8 @@ fTest Er20EK9 20260819-1-remote-sync-stage
 ##	fast-forwards around a stashed edit, and a stash that will not go back
 ##	stops with the work kept. An untracked file upstream also adds is stashed
 ##	too, so the fast-forward goes through (20260923 item 14).
-syncBlock="$(sed -n '/^if ((sync_enable)); then$/,/^fi$/p' "${repoDir}/cicd/cicd.bash")"
-if [[ "${syncBlock}" == *"Remote sync"* && "${syncBlock}" == *"merge --ff-only"* ]]; then
+syncBlock="$(sed -n '/^if fStepOn sync; then$/,/^fi$/p' "${repoDir}/cicd/cicd.bash")"
+if [[ "${syncBlock}" == *"fStepStart sync"* && "${syncBlock}" == *"merge --ff-only"* ]]; then
 	out="$(
 		## The lifted block calls git too, so the user's own config is kept out here.
 		git(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git "$@" ;}
@@ -2601,7 +2601,7 @@ if [[ "${syncBlock}" == *"Remote sync"* && "${syncBlock}" == *"merge --ff-only"*
 		fSync(){   ## fSync CLONE: the lifted stage on CLONE; prints its last line
 			# shellcheck disable=SC2034,SC2329  ## read by, and called from, the lifted block
 			( root="$1"; sync_enable=1; stamp=t
-			  fSection(){ :; }; fEcho(){ echo "$*"; }; fDie(){ echo "DIE: $*"; exit 1; }
+			  fStepOn(){ :; }; fStepStart(){ :; }; fStepEnd(){ :; }; fEcho(){ echo "$*"; }; fDie(){ echo "DIE: $*"; exit 1; }
 			  eval "${syncBlock}" ) 2>&1 | tail -n 1 || true
 		}
 		git init -q --bare -b main "${sb}/remote.git"
