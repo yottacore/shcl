@@ -206,6 +206,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
 
+- Upgrade splits a 2.x element at a comma inside quotes
+	- ID: 2026102620591100
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261026-205911
+	- Opened by: JC
+	- Version and build: dev at `2174f0d9`
+	- Steps to reproduce:
+		- In Go, `Upgrade("row: idx=2, title=\"a, b\", description=\"say \\\"hi\\\"\"\n", true)`, then read `row` as strings. With `fromV2` false the file is taken as 2.x by its errors, and it's the same.
+	- Incorrect behavior: `row: [idx=2, 'title="a', 'b"', 'description="say "hi""']`, 4 elements where 1.2 and 2.0 read 3. `one: x="a, b"` comes back as 2 elements, where 2.0 read one string. Silent wrong answer.
+	- Expected behavior: `row: [idx=2, 'title="a, b"', 'description="say "hi""']`. 2.0 reads a quote inside an element as text that keeps a comma in it.
+	- Reproduced: 20261026, in Go. shclwrap's Rust, C and Python ports of the upgrade give the same.
+	- Note: shclwrap works around it by setting each value that reads otherwise than 2.0 back to 2.0's reading (its 2026102618065640). Found through gitniblet's seed rows.
+
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
 	- Type: Enhancement
@@ -321,21 +336,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
-
-- Upgrade splits a 2.x element at a comma inside quotes
-	- ID: 2026102620591100
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261026-205911
-	- Opened by: JC
-	- Version and build: dev at `2174f0d9`
-	- Steps to reproduce:
-		- In Go, `Upgrade("row: idx=2, title=\"a, b\", description=\"say \\\"hi\\\"\"\n", true)`, then read `row` as strings. With `fromV2` false the file is taken as 2.x by its errors, and it's the same.
-	- Incorrect behavior: `row: [idx=2, 'title="a', 'b"', 'description="say "hi""']`, 4 elements where 1.2 and 2.0 read 3. `one: x="a, b"` comes back as 2 elements, where 2.0 read one string. Silent wrong answer.
-	- Expected behavior: `row: [idx=2, 'title="a, b"', 'description="say "hi""']`. 2.0 reads a quote inside an element as text that keeps a comma in it.
-	- Reproduced: 20261026, in Go. shclwrap's Rust, C and Python ports of the upgrade give the same.
-	- Note: shclwrap works around it by setting each value that reads otherwise than 2.0 back to 2.0's reading (its 2026102618065640). Found through gitniblet's seed rows.
 
 - Upgrade drops and folds blank lines, so every line after them moves
 	- ID: 2026102620591101
