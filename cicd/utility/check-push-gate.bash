@@ -1120,6 +1120,39 @@ fi
 ## The scripts a gate runs in the image, which this stub doesn't start.
 # shellcheck disable=SC2016  ## ctr-image.bash's own text, matched literally
 grep -qF '"${tag}" nice -n 19 bash "$@"' "${root}/cicd/utility/include/ctr-image.bash" || fail "fCtrRunSelf no longer runs its script under nice in the image"
+fTest Eu1i7hL a run in the image keeps the local time of the box it runs on
+## 2026102520122877: the image has no zone, so its step lines read UTC. The
+## zone file goes in as its /etc/localtime, and a TZ rule with no file as is.
+fZoneRuns(){  ## fZoneRuns LABEL WANT [VAR=VALUE ...]: each run of cicd.bash or a gate in the image has WANT
+	local label="$1" want="$2" runs bad
+	shift 2
+	rm -f "${work}/tz-args.txt"
+	fCtr STUB_DOCKER_ARGS="${work}/tz-args.txt" STUB_MOUNTS="${work}/tz.tsv" "$@" -- -y --no-sync
+	env "$@" SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_ARGS="${work}/tz-args.txt" STUB_MOUNTS="${work}/tz.tsv" PATH="${work}/x86_64:${PATH}" \
+		bash "${work}/ctr-image-on.bash" "${eng}" self "${work}/tz-self" > "${work}/tz-self.log" 2>&1 || true
+	runs="$(grep -c '^run .* bash ' "${work}/tz-args.txt" || true)"
+	bad="$(grep '^run .* bash ' "${work}/tz-args.txt" | grep -vF -- " ${want} " | grep -oE -- '--name [^ ]+' || true)"
+	if ((engRc != 0 || runs < 3)) || [[ -n "${bad}" ]]; then
+		fail "${label}: exit ${engRc}, ${runs} run(s), without '${want}': ${bad:-none}: $(tail -2 "${work}/eng.log")"
+	fi
+	if grep '^run .* bash ' "${work}/tz-args.txt" | grep -qE -- '(-e TZ=.*-v [^ ]+:/etc/localtime|/etc/localtime.*-e TZ=)'; then
+		fail "${label}: both a zone file and TZ go in"
+	fi
+	return 0
+}
+if [[ "$(uname -m)" == x86_64 ]]; then
+	fZoneRuns "TZ naming a zone" "-v $(readlink -f /usr/share/zoneinfo/Asia/Bangkok):/etc/localtime:ro" TZ=Asia/Bangkok
+	fZoneRuns "TZ naming a zone, with a colon" "-v $(readlink -f /usr/share/zoneinfo/Asia/Bangkok):/etc/localtime:ro" TZ=:Asia/Bangkok
+	fZoneRuns "a TZ rule" "-e TZ=UTC7" TZ=UTC7
+	if [[ -f /etc/localtime ]]; then
+		tzWas="${TZ-}"; tzHad=0; if [[ -v TZ ]]; then tzHad=1; fi
+		unset TZ
+		fZoneRuns "no TZ" "-v $(readlink -f /etc/localtime):/etc/localtime:ro"
+		if ((tzHad)); then export TZ="${tzWas}"; fi
+	fi
+else
+	fTestSkipBlock
+fi
 fTest EtgFdh7 a run that fails stops and removes its containers by its run label
 ## 2026102416250030: on any exit, not only a whole run, and only this run's.
 rm -f "${work}/gone.txt"

@@ -350,23 +350,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
-- Step lines from inside the image print UTC, while the host's print local time
-	- ID: 2026102520122877
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261025-201228
-	- Opened by: the r1025 test batch
-	- Related IDs: 2026102416250060
-	- Version and build: `r1025` at `e9732a84`
-	- Steps to reproduce:
-		- Run `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish` on a box whose time zone isn't UTC, and read the step lines.
-	- Incorrect behavior: the steps in the image stamp UTC and the host's stamp local time. The full run's `[ 20261026-014258.83: Step 6 of 7; PASS Release builds ]`, in the image, is followed a second later by `[ 20261025-184259.63: Step 7 of 7; Starting Test boxes ]` on the host.
-	- Expected behavior: local time in every step line, per 2026102416250060.
-	- Reproduced: 20261025, in the full run's log (chain log `20261025-173800_001`), and in a Format and Build run in the image at 20:10 PDT, which stamped `20261026-031001.56`.
-	- Possible cause: the image runs with neither `TZ` nor the host's `/etc/localtime`, so `date` there gives UTC. Nothing in cicd.bash, the includes or the Dockerfile names either.
-	- Estimated effort: Low
-
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
 	- Type: Enhancement
@@ -441,22 +424,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
-- lint-report flags govulncheck's wrapped "vulnerabilities." line and a git hint as warnings
-	- ID: 2026102520122882
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261025-201228
-	- Opened by: the r1025 test batch
-	- Version and build: `r1025` at `e9732a84`
-	- Steps to reproduce:
-		- `cicd/utility/lint-report.bash --check --no-mark` over `run_20261025-174444.log`, the full run's log.
-	- Incorrect behavior: it prints `NEW` with 3 warning lines: `vulnerabilities.` twice, from the 2 govulncheck runs, and `hint: of your new repositories, which will suppress this warning, call:`.
-	- Expected behavior: `CLEAN`, since none of the 3 is a warning.
-	- Reproduced: 20261025, on that log in the frozen worktree.
-	- Possible cause: govulncheck now wraps "your code doesn't appear to call these" before "vulnerabilities.", so that word is a line of its own, and the filter only takes `these vulnerabilities.`. The hint is git's default branch notice from a `git init` in check-install-dev, and it says "warning".
-	- Estimated effort: Low
-
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
 	- Type: Task
@@ -471,6 +438,62 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Step lines from inside the image print UTC, while the host's print local time
+	- ID: 2026102520122877
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261025-201228
+	- Opened by: the r1025 test batch
+	- Related IDs: 2026102416250060
+	- Version and build: `r1025` at `e9732a84`
+	- Steps to reproduce:
+		- Run `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish` on a box whose time zone isn't UTC, and read the step lines.
+	- Incorrect behavior: the steps in the image stamp UTC and the host's stamp local time. The full run's `[ 20261026-014258.83: Step 6 of 7; PASS Release builds ]`, in the image, is followed a second later by `[ 20261025-184259.63: Step 7 of 7; Starting Test boxes ]` on the host.
+	- Expected behavior: local time in every step line, per 2026102416250060.
+	- Reproduced: 20261025, in the full run's log (chain log `20261025-173800_001`), and in a Format and Build run in the image at 20:10 PDT, which stamped `20261026-031001.56`.
+	- Possible cause: the image runs with neither `TZ` nor the host's `/etc/localtime`, so `date` there gives UTC. Nothing in cicd.bash, the includes or the Dockerfile names either.
+	- Estimated effort: Low
+	- Actual cause: an image has no zone of its own, and nothing gave it the host's, so its clock read UTC.
+	- Actual effort: Low
+	- Progress log:
+		- 20261028: Verified: in the main image, bash's `printf '%(...)T'` gave UTC with no mount, and PDT with the host's zone file mounted at `/etc/localtime`. `Asia/Bangkok`'s file gave +07, and `-e TZ=EST5EDT,M3.2.0,M11.1.0` gave EDT.
+		- 20261028: Verified: check-push-gate `Eu1i7hL` failed in all 4 cases on the old cicd.bash and ctr-image.bash, and passes now.
+	- Decisions:
+		- me: the zone file goes in as the image's `/etc/localtime`, not `-e TZ=<name>`, since the main image has no zone files to look a name up in. A `TZ` that names no file, such as a POSIX rule, goes in as `-e TZ`. Tests that need a zone pin `TZ` themselves, as they do on the host.
+	- Actual fix: `fCtrZoneArgs` in `ctr-image.bash`, used by cicd.bash's run in the image and by `fCtrRunSelf`, which the C analysis, CodeQL and the C soak run through.
+	- Swept: every `docker run` in `cicd/`. cicd.bash's passwd and group reads print no time. No other script starts a container. Not a binding change, so the four bindings don't apply.
+	- Test case: check-push-gate `Eu1i7hL`: each run of cicd.bash or a gate in the image gets the zone file for `TZ` unset, a zone name and a `:`-led name, and `-e TZ` for a rule.
+	- Acceptance signoff: closed on JC's criteria. The next full run's step lines in the image show it end to end.
+	- Closed: 20261028-130250
+
+- lint-report flags govulncheck's wrapped "vulnerabilities." line and a git hint as warnings
+	- ID: 2026102520122882
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261025-201228
+	- Opened by: the r1025 test batch
+	- Version and build: `r1025` at `e9732a84`
+	- Steps to reproduce:
+		- `cicd/utility/lint-report.bash --check --no-mark` over `run_20261025-174444.log`, the full run's log.
+	- Incorrect behavior: it prints `NEW` with 3 warning lines: `vulnerabilities.` twice, from the 2 govulncheck runs, and `hint: of your new repositories, which will suppress this warning, call:`.
+	- Expected behavior: `CLEAN`, since none of the 3 is a warning.
+	- Reproduced: 20261025, on that log in the frozen worktree.
+	- Possible cause: govulncheck now wraps "your code doesn't appear to call these" before "vulnerabilities.", so that word is a line of its own, and the filter only takes `these vulnerabilities.`. The hint is git's default branch notice from a `git init` in check-install-dev, and it says "warning".
+	- Estimated effort: Low
+	- Actual cause: as above. check-install-dev's `git init` named no branch, and git prints its hint where no default branch is set, as in the image.
+	- Actual effort: Low
+	- Progress log:
+		- 20261028: Verified: `run_20261025-174444.log` has rotated out, so on `run_20261027-114343.log`, which has the same 3 lines, the old lint-report says `NEW` with 3 and the new one `CLEAN`. shell-regress `Eu1jhy2` failed on the old lint-report and passes now.
+	- Decisions:
+		- me: a bare `vulnerabilities.` line is dropped on its own, since a real govulncheck finding prints its own `Vulnerability #N` and `affected by N` lines, and those still count. A `hint:` line is git's advice, never a finding, so it's dropped as well as fixed at the source.
+	- Actual fix: lint-report drops a bare `vulnerabilities.` line and any `hint:` line. check-install-dev's `git init` names its branch, and so do the 5 in shell-regress that named none.
+	- Swept: every `git init` in `cicd/`. check-push-gate's 4 bare ones stay, since none printed a hint in its runs. Not a binding change, so the four bindings don't apply.
+	- Test case: shell-regress `Eu1jhy2`: the wrapped note and the hint read `CLEAN`, and a govulncheck finding and a git `warning:` line still flag.
+	- Acceptance signoff: closed on JC's criteria.
+	- Closed: 20261028-130250
 
 - Upgrade splits a 2.x element at a comma inside quotes
 	- ID: 2026102620591100

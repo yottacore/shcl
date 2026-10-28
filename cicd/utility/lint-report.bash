@@ -118,10 +118,13 @@ fi
 ##	nested run echoes during publish and which used to read as a finding.
 ##	`extra: CMD` is the pipeline echoing a step it runs, never tool output, and
 ##	python's `-W error::ResourceWarning` hit both scans (2026102019120000).
+##	govulncheck wraps that note, so "vulnerabilities." can end it on a line of
+##	its own; a real finding has its own lines. A git `hint:` is advice, and the
+##	default branch one says "warning" (2026102520122882).
 warns="$(grep -inE 'warning|rustsec-|vulnerab|unmaintained|yanked' "$log" 2>/dev/null \
-	| grep -vE '^[0-9]+:extra: ' \
+	| grep -vE '^[0-9]+:(extra|hint): ' \
 	| grep -viE 'generated 0 warnings|: 0 warnings|no warnings|0 warnings emitted' \
-	| grep -viE 'no vulnerabilities found|affected by 0 vulnerabilities|this scan also found|appear to call|^[0-9]+:these vulnerabilities\.$|enable=warning|-D warnings' || true)"
+	| grep -viE 'no vulnerabilities found|affected by 0 vulnerabilities|this scan also found|appear to call|^[0-9]+:(these )?vulnerabilities\.$|enable=warning|-D warnings' || true)"
 if [[ -n "$warns" ]]; then n=$(printf '%s\n' "$warns" | grep -c .); else n=0; fi
 
 ##	A failed run is never CLEAN. Case-sensitive: each tool prints its failure one
@@ -159,3 +162,5 @@ fi
 ##		  fortnight-old run reads as one.
 ##		- 20260919: `[ FAILED: ... ]` counts as a failure. A log with no done or
 ##		  abort line is INCOMPLETE and never marked seen.
+##		- 20261028: govulncheck's note wrapped to a bare "vulnerabilities." line, and git `hint:` lines,
+##		  are not findings.

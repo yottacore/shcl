@@ -636,9 +636,10 @@ fInstallAtomic(){
 fRunContainer(){   ## fRunContainer TREE [PART]
 	local tree="$1" part="${2:-}"
 	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" link="" real="" step="${2:-stages}"
-	local -a mounts=() groups=() env=() inner=() labels=()
+	local -a mounts=() groups=() env=() inner=() labels=() zone=()
 	fSection "Container: ${ctr_image}"
 	fCtrLabelArgs labels
+	fCtrZoneArgs zone
 
 	## The image is built from a copy of its recipe dir plus the files the
 	## config adds, and tagged by their hash, so an edit can't run on an old one.
@@ -716,7 +717,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 		if [[ -z "${gname}" ]] || grep -q "^${gname}:" "${etc}/group"; then gname="g${gid}"; fi
 		printf '%s:x:%s:\n' "${gname}" "${gid}" >> "${etc}/group"
 	done
-	mounts+=(-v "${etc}/passwd:/etc/passwd:ro" -v "${etc}/group:/etc/group:ro")
+	mounts+=(-v "${etc}/passwd:/etc/passwd:ro" -v "${etc}/group:/etc/group:ro" "${zone[@]}")
 	for gid in $(id -G); do
 		if [[ "${gid}" != "$(id -g)" ]]; then groups+=(--group-add "${gid}"); fi
 	done
@@ -1532,3 +1533,4 @@ exit 0
 ##		- 2026-10-25 JC: --keep-temp keeps the run's temp folder and containers. --list prints the steps and runs nothing.
 ##		- 2026-10-25 JC: Each step opens with a Starting line and closes with PASS or FAIL, as Step N of M with the time, under a
 ##		  79-wide rule. Steps that are off aren't counted, and the first section names them with the flag or reason.
+##		- 2026-10-28 JC: The run in the image gets this box's zone, so its step lines are in local time too.
