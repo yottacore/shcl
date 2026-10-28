@@ -1024,7 +1024,7 @@ if fHave openssl; then
 	##	mistyped tag signed assets no download URL names. The same tree as a
 	##	repository: untagged and wrongly tagged are refused on the tag, and the
 	##	right tag beside the Go module's gets past it to the key copies.
-	git -C "${tmpDir}/signtree" init -q
+	git -C "${tmpDir}/signtree" init -q -b main
 	git -C "${tmpDir}/signtree" add -A
 	git -C "${tmpDir}/signtree" -c user.name=t -c user.email=t@t commit -q -m t
 	fSignTag(){   ## fSignTag: run the signer in that tree with the tag check on; stderr in signOut
@@ -1352,14 +1352,22 @@ fTest EsZzNEZ 2026101011200000-hosted-jobs-cover-the-gate
 ##	2026101011200000: the ubuntu gate split into parallel jobs, each leaving a
 ##	stage out. A job list that drops a stage everywhere, or a flag that drops
 ##	more than one, must fail the check, or a stage stops running hosted.
-fPinsRun 's/args: --gate --no-tests$/args: --gate --no-lint/' && fBad "check-pins.bash passed hosted jobs that all leave lint out"
-fPinsRun 's/args: --gate --no-lint --no-cross$/args: --gate --no-largedoc/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
-fPinsRun 's/args: --gate --no-tests$/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --gate"
+fPinsRun 's/args: --merge-gate --no-tests --no-release --no-remote$/args: --merge-gate --no-lint --no-remote/' && fBad "check-pins.bash passed hosted jobs that all leave lint out"
+fPinsRun 's/--no-cross --no-remote --skip/--no-largedoc --no-remote --skip/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
+fPinsRun 's/args: --merge-gate --no-tests/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --merge-gate"
 fPinsRun 's#cicd/cicd\.bash#cicd/other.bash#' && fBad "check-pins.bash passed a workflow with no job running cicd.bash"
 ##	2026101514324719: the single job the split replaced, and a third job that
 ##	runs everything beside the 2 halves.
-fPinsRun '/^[[:space:]]*- part: tests$/,/args:/d; s/args: --gate --no-tests$/args: --gate/' && fBad "check-pins.bash passed one hosted job running lint and tests together"
-fPinsRun 's/^([[:space:]]*)(- part: tests)$/\1- part: all\n\1  args: --gate\n\1\2/' && fBad "check-pins.bash passed a hosted job running lint and tests beside the 2 halves"
+fPinsRun '/^[[:space:]]*- part: tests$/,/args:/d; s/args: --merge-gate --no-tests --no-release --no-remote$/args: --merge-gate --no-remote/' && fBad "check-pins.bash passed one hosted job running lint and tests together"
+fPinsRun 's/^([[:space:]]*)(- part: tests)$/\1- part: all\n\1  args: --merge-gate --no-remote --skip=codeql-scan.bash\n\1\2/' && fBad "check-pins.bash passed a hosted job running lint and tests beside the 2 halves"
+fTest Eu21cec 2026102813104371-hosted-jobs-run-the-merge-gate
+##	2026102813104371: the hosted jobs run --merge-gate, not the shorter --gate.
+##	The native release runs in one of them, and the leak check whose tool ci.yml
+##	leaves out is skipped by name, and nothing else is.
+fPinsRun 's/args: --merge-gate --no-lint/args: --gate --no-lint/' && fBad "check-pins.bash passed a hosted job run with --gate"
+fPinsRun 's/--no-cross --no-remote --skip/--no-cross --no-release --no-remote --skip/' && fBad "check-pins.bash passed hosted jobs that all leave the release out"
+fPinsRun 's/ --skip=codeql-scan\.bash//' && fBad "check-pins.bash passed a hosted job that runs CodeQL, which ci.yml doesn't install"
+fPinsRun 's/--skip=codeql-scan\.bash/--skip=codeql-scan.bash --skip=cli-regress.bash/' && fBad "check-pins.bash passed a hosted job that skips a step it can run"
 fTest Esbq6Ie 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to
@@ -1471,6 +1479,16 @@ printf 'Lint ...........: cargo clippy --all-targets -- -D warnings\nLint ......
 printf 'warning: unused variable: x\n --> src/main.rs:1:1\nsrc.c:12:3: warning: uninitialized variable [uninitvar]\n%s' "${lintDone}" >> "${tmpDir}/run_20260101-000000.log"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
 [[ "${lintOut}" == "FLAG "*"(2 warning line(s), "* ]] || fBad "lint-report.bash missed a real warning: ${lintOut@Q}"
+fTest Eu1jhy2 2026102520122882-lint-report-wrapped-govulncheck-and-git-hint
+##	2026102520122882: govulncheck wraps its note so "vulnerabilities." is a line
+##	of its own, and git's default branch hint says "warning". Neither is one.
+printf 'OK: lint\nYour code is affected by 0 vulnerabilities.\nThis scan also found 0 vulnerabilities in packages you import and 1\nvulnerability in modules you require, but your code doesn'"'"'t appear to call these\nvulnerabilities.\n' > "${tmpDir}/run_20260101-000000.log"
+printf 'hint: is subject to change. To configure the initial branch name to use in all\nhint: of your new repositories, which will suppress this warning, call:\nhint:\n%s' "${lintDone}" >> "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash counted govulncheck's wrapped note or a git hint as a warning: ${lintOut@Q}"
+printf 'Your code is affected by 1 vulnerability from 1 module.\nVulnerability #1: GO-2026-0001\nwarning: in the working copy of x, LF will be replaced by CRLF\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "FLAG "*"(3 warning line(s), "* ]] || fBad "lint-report.bash missed a govulncheck finding or a git warning: ${lintOut@Q}"
 fTest Epu2f57 20260909-23-lint-report-failed-runs
 ##	20260909 item 23: a failed run printed CLEAN, since only rustc's `error[`
 ##	counted as a failure. Each spelling on its own must report FAILED.
@@ -2253,7 +2271,7 @@ CROSS_CHECKS=( "marker|touch \"${SHCL_STUB_MARKER}\"${SHCL_STUB_FAIL:+; false}" 
 EOF
 (
 	cd "${stubDir}"
-	git init -q .
+	git init -q -b main .
 	printf 'x\n' > f
 	git add -A
 	git -c user.email=stub@example.invalid -c user.name=stub commit -qm stub
@@ -3005,7 +3023,7 @@ printf '#!/usr/bin/env bash\n# see %s#typo-anchor\n# see %s#real-heading\n' "${a
 printf '# see %s#real-heading\n' "${ancUrl}" > "${cdAnc}/repo/install.ps1"
 printf '# Install\n\n## Real heading\n\n~~~bash\n# typo anchor\n~~~\n' > "${cdAnc}/repo/project/install.md"
 printf -- '- [a](project/install.md#typo-anchor)\n- [b](project/install.md#real-heading)\n' > "${cdAnc}/repo/links.md"
-(unset GIT_DIR GIT_WORK_TREE; git init -q "${cdAnc}/repo" && git -C "${cdAnc}/repo" add install.bash install.ps1 project/install.md links.md)
+(unset GIT_DIR GIT_WORK_TREE; git init -q -b main "${cdAnc}/repo" && git -C "${cdAnc}/repo" add install.bash install.ps1 project/install.md links.md)
 out="$(env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=/dev/null bash "${cdAnc}/check-docs.bash" "${cdAnc}/repo" 2>&1)" && ancRc=0 || ancRc=$?
 [[ "${ancRc}" == 1 && "${out}" == *"install.bash: links to ${ancUrl}#typo-anchor, and no heading in project/install.md makes #typo-anchor"* \
 	&& "${out}" == *"links.md:1: links to project/install.md#typo-anchor, and no heading there makes #typo-anchor"* \
@@ -3038,7 +3056,7 @@ printf 'workloads=(\n)\n' > "${ti}/cicd/utility/perf-gate.bash"
 printf '#[cfg(test)]\nmod t {\n\t#[test]\n\tfn x() {}\n}\n' > "${ti}/source/rust/src/other.rs"
 printf 'package shcl\n\nfunc TestTT(tt *testing.T) {\n}\n\nfunc TestOk(t *testing.T) {\n\tdefer testID(t, "ErD9eyd")\n}\n' > "${ti}/source/go/x_test.go"
 printf 'package main\n\nfunc TestCmd(t *testing.T) {\n}\n' > "${ti}/source/go/cmd/shcl/main_test.go"
-if git -C "${ti}" init -q 2>/dev/null && git -C "${ti}" add -A 2>/dev/null; then
+if git -C "${ti}" init -q -b main 2>/dev/null && git -C "${ti}" add -A 2>/dev/null; then
 	out="$(python3 "${ti}/cicd/utility/test-ids.py" check 2>&1 || true)"
 	n="$(grep -c 'a test in a place the tables here do not know' <<<"${out}" || true)"
 	[[ "${n}" == 3 && "${out}" == *"other.rs:3:"* && "${out}" == *"x_test.go:3:"* && "${out}" == *"main_test.go:3:"* ]] \
@@ -3856,7 +3874,7 @@ cat edited > "${o}/edited-after"
 EOF
 cp "${frzLive}/cicd/cicd.bash" "${frz}/eng.orig"
 if (
-	cd "${frzLive}" && git init -q . && printf 'clean\n' > edited && printf 'x\n' > gone \
+	cd "${frzLive}" && git init -q -b main . && printf 'clean\n' > edited && printf 'x\n' > gone \
 		&& git add .gitignore cicd edited gone \
 		&& git -c user.email=stub@example.invalid -c user.name=stub commit -qm stub \
 		&& printf 'dirty\n' > edited && printf 'u\n' > untracked && rm gone
@@ -4024,3 +4042,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-19  Hosted gate runs pass --no-container, and only fCtrWhyNot asks for docker.
 ##		2026-10-23  check-migrate counts errors past a Schema line naming a missing file.
 ##		2026-10-24  The pyworker, uninstall, flame-report and check-completions rows fail by name when their file is gone.
+##		2026-10-28  The hosted job rows read --merge-gate, and the release and the skipped leak check are held.

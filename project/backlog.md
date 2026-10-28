@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
-	- Status: Waiting on automated testing
+	- Status: Stalled
 	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image, which since 2026102515494619 runs `cicd.bash --merge-gate`. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
 	- Priority: High
 	- Opened: 20261019-204611
@@ -74,28 +74,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
-
-- CICD reset: CPU and priority in containers
-	- ID: 2026102421025783
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Priority: High
-	- Opened: 20261024-210257
-	- Opened by: 2026102416250040
-	- Parent ID: 2026102416250040
-	- Prereq IDs: 2026102421025778
-	- Requirements:
-		- `--cpus <jobs>` and `--cpu-shares 256` on each `docker run`, the ones analyze-c, soak-c and codeql-scan start included.
-		- `nice` inside the image too, since `nice` on the docker client doesn't reach the container.
-		- check-push-gate's fake docker learns the new options.
-	- Progress log:
-		- 20261024: every `docker run` cicd.bash and ctr-image.bash make passes `--cpus` and `--cpu-shares 256`: the stages' run at the run's count, `fCtrRunSelf` at its script's, and the passwd, group and Zig trim reads at 1. analyze-c, soak-c and codeql-scan start theirs through `fCtrRunSelf`.
-		- 20261024: `fCtrRunSelf` runs its script under `nice -n 19` in the image. The stages' run is cicd.bash, which renices itself (2026102421025778).
-	- Swept: the 5 `docker run` sites under `cicd/` and the hook: cicd.bash's passwd, group and stages runs, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. `docker build` and `volume create` start no container. ci.yml runs `--no-container`.
-	- Verified: check-push-gate `EtgShUg` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container: `cpu.max` read `800000 100000` and `cpu.weight` 35.
-	- Needs local test suite run?: Y. The full run line, the first real run in the main image with the limits on. It should pass as before.
-	- Branch: `r1024c`
-	- Test case: check-push-gate `EtgShUg`.
+	- Held for the next push that moves main, which is the only thing left to watch.
 
 - CICD reset: keep-temp and list
 	- ID: 2026102515494634
@@ -179,6 +158,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261025: split into children 2026102515494614 (run lengths), 2026102515494619 (`--merge-gate`), 2026102515494624 (backlog runs), 2026102515494629 (docs-only pushes to main) and 2026102515494634 (`--keep-temp` and `--list`). `--no-remote` was in already (2026102419263412).
 		- 20261025: in on `r1025`: run lengths (Waiting on automated testing), `--merge-gate` and `--ci` (Waiting on automated testing), docs-only pushes to main (Done), `--keep-temp` and the steps `--list` prints. Left: the backlog runs and `--gate`'s move to them (2026102515494624), and the test IDs in `--list`.
 
+- CICD reset: backlog runs
+	- ID: 2026102515494624
+	- Type: Enhancement
+	- Status: Started
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494619
+	- Requirements:
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line.
+		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
+		- The round settings' gate and full-run lines move to them.
+		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
+		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
+		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
+	- Progress log:
+		- 20261028: split into children 2026102813104060 (the backlog run flags), 2026102813104371 (the hosted workflow on `--merge-gate`, then `--gate` as another name for `--backlog-run-quick`) and 2026102813104377 (install-dev's gate lines and the docs-only sync to main), in that order. The hosted workflow runs `--gate` today, and would lose the slow checks if `--gate` changed first.
+		- 20261028: the backlog run flags are in (Waiting on automated testing).
+	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
+
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
@@ -205,6 +206,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
+
+- CICD reset: --gate as a backlog run
+	- ID: 2026102814013272
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261028-140132
+	- Opened by: 2026102813104371
+	- Parent ID: 2026102813104371
+	- Requirements:
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+
+- CICD reset: install-dev's gate lines
+	- ID: 2026102813104377
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261028-131043
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Prereq IDs: 2026102813104371, 2026102814013272
+	- Requirements:
+		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
+	- Prereq IDs now name 2026102814013272 too, since that split-off child changes --gate before install-dev's lines can follow.
 
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
@@ -275,24 +302,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
 
-- CICD reset: backlog runs
-	- ID: 2026102515494624
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261025-154946
-	- Opened by: 2026102416250050
-	- Parent ID: 2026102416250050
-	- Prereq IDs: 2026102515494619
-	- Requirements:
-		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
-		- `--gate` is another name for `--backlog-run-quick`, and says so in one line.
-		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
-		- The round settings' gate and full-run lines move to them.
-		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
-		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
-		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
-
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
 	- Type: Enhancement
@@ -321,52 +330,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
-
-- Upgrade splits a 2.x element at a comma inside quotes
-	- ID: 2026102620591100
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261026-205911
-	- Opened by: JC
-	- Version and build: dev at `2174f0d9`
-	- Steps to reproduce:
-		- In Go, `Upgrade("row: idx=2, title=\"a, b\", description=\"say \\\"hi\\\"\"\n", true)`, then read `row` as strings. With `fromV2` false the file is taken as 2.x by its errors, and it's the same.
-	- Incorrect behavior: `row: [idx=2, 'title="a', 'b"', 'description="say "hi""']`, 4 elements where 1.2 and 2.0 read 3. `one: x="a, b"` comes back as 2 elements, where 2.0 read one string. Silent wrong answer.
-	- Expected behavior: `row: [idx=2, 'title="a, b"', 'description="say "hi""']`. 2.0 reads a quote inside an element as text that keeps a comma in it.
-	- Reproduced: 20261026, in Go. shclwrap's Rust, C and Python ports of the upgrade give the same.
-	- Note: shclwrap works around it by setting each value that reads otherwise than 2.0 back to 2.0's reading (its 2026102618065640). Found through gitniblet's seed rows.
-
-- Upgrade drops and folds blank lines, so every line after them moves
-	- ID: 2026102620591101
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261026-205911
-	- Opened by: JC
-	- Version and build: dev at `2174f0d9`
-	- Steps to reproduce:
-		- In Go, `Upgrade("\n\nt:\n\taliases: a, b\n", true)` or with `fromV2` false, then parse the text and ask for the line of `t.aliases`.
-	- Incorrect behavior: the 2 blank lines at the top are gone, and a run of blank lines inside comes out as one, so `t.aliases` is on line 2. A diagnostic on the upgraded text names a line the file doesn't have there. Silent wrong answer.
-	- Expected behavior: line 4, as in the file. Blank lines stay where they were, as `migrate` keeps comments.
-	- Note: 2.x's `x: ~~~` comes out as `x:` with the fence on a line of its own, so lines after a raw block move by one too. shclwrap puts blank lines back itself (its 2026102618065634), but can't fix the raw block case (its 2026102620430717).
-
-- Step lines from inside the image print UTC, while the host's print local time
-	- ID: 2026102520122877
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261025-201228
-	- Opened by: the r1025 test batch
-	- Related IDs: 2026102416250060
-	- Version and build: `r1025` at `e9732a84`
-	- Steps to reproduce:
-		- Run `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish` on a box whose time zone isn't UTC, and read the step lines.
-	- Incorrect behavior: the steps in the image stamp UTC and the host's stamp local time. The full run's `[ 20261026-014258.83: Step 6 of 7; PASS Release builds ]`, in the image, is followed a second later by `[ 20261025-184259.63: Step 7 of 7; Starting Test boxes ]` on the host.
-	- Expected behavior: local time in every step line, per 2026102416250060.
-	- Reproduced: 20261025, in the full run's log (chain log `20261025-173800_001`), and in a Format and Build run in the image at 20:10 PDT, which stamped `20261026-031001.56`.
-	- Possible cause: the image runs with neither `TZ` nor the host's `/etc/localtime`, so `date` there gives UTC. Nothing in cicd.bash, the includes or the Dockerfile names either.
-	- Estimated effort: Low
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
@@ -442,22 +405,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
-- lint-report flags govulncheck's wrapped "vulnerabilities." line and a git hint as warnings
-	- ID: 2026102520122882
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261025-201228
-	- Opened by: the r1025 test batch
-	- Version and build: `r1025` at `e9732a84`
-	- Steps to reproduce:
-		- `cicd/utility/lint-report.bash --check --no-mark` over `run_20261025-174444.log`, the full run's log.
-	- Incorrect behavior: it prints `NEW` with 3 warning lines: `vulnerabilities.` twice, from the 2 govulncheck runs, and `hint: of your new repositories, which will suppress this warning, call:`.
-	- Expected behavior: `CLEAN`, since none of the 3 is a warning.
-	- Reproduced: 20261025, on that log in the frozen worktree.
-	- Possible cause: govulncheck now wraps "your code doesn't appear to call these" before "vulnerabilities.", so that word is a line of its own, and the filter only takes `these vulnerabilities.`. The hint is git's default branch notice from a `git init` in check-install-dev, and it says "warning".
-	- Estimated effort: Low
-
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
 	- Type: Task
@@ -472,6 +419,203 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: backlog run flags
+	- ID: 2026102813104060
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: High
+	- Opened: 20261028-131040
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Requirements:
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
+		- `--backlog-run-quick` is partial, so it records no tree.
+		- The round settings' gate and full-run lines move to them.
+	- Decisions:
+		- me: `--backlog-run-quick` is `--gate` less what `--quick` leaves out: the format check, the debug build, lint and the tests less `QUICK_SKIP`, at the 20,000-input fuzz, and the cross checks. No leak checks, profiler calibration or release builds. It records no tree.
+		- me: with no areas named it also leaves out config.bash's `BACKLOG_SKIP`, today check-push-gate, which took 4 minutes of a 10.5-minute run at a load of 10 to 13.
+		- me: areas narrow only the tests stage, as in the floss engine, since the format check and lint are quick. `QUICK_SKIP` still applies inside an area, and an area brings back its `BACKLOG_SKIP` steps. They are `rust`, `go`, `python`, `c`, `cli` and `cicd`, in config.bash's `BACKLOG_AREAS`, matched as text like `QUICK_SKIP`.
+		- me: `--backlog-run-full` runs the merge gate's checks and records its tree, as `--merge-gate` does.
+		- me: one run mode per run. `--gate`, `--merge-gate` (`--ci`) and the 2 backlog runs refuse each other with exit 2, since nothing on the command line resolves last-wins. `--backlog-run-quick --long` is refused too. Before, `--gate --merge-gate` ran the merge gate.
+		- me: the help stays inside check-docs' 100-line header window, per 2026102108300000. `--gate`'s entry and 2 paragraphs got shorter.
+		- me: `--gate` keeps its meaning until 2026102813104371, since the hosted workflow runs it.
+	- Progress log:
+		- 20261028: done in cicd.bash and config.bash. Help, contributing.md and design.md say so.
+		- Verified: check-push-gate `Eu1ovZE` (the 2 runs, areas, `BACKLOG_SKIP`, no tree from the quick one, no dogfood or publish, the usage errors) and `Eu1ovZF` (every test step in an area, and the areas in `--help`) failed on the old engine and pass now. Also test-ids, shellcheck and markdownlint.
+		- Verified: the whole of check-push-gate, shell-regress and check-docs passed on this change before `BACKLOG_SKIP`. After it, this box's pwsh crashed on start with a `FileLoadException`, on any tree, so check-docs `EqKhPQP`, check-push-gate `EqGjDth` and shell-regress's install.ps1 rows failed with it. The rest of each passed.
+		- Verified: a real `cicd.bash --backlog-run-quick` in the main image, before `BACKLOG_SKIP`, passed its 5 steps in 10.5 minutes at a load of 10 to 13, recorded nothing and left no tracked file changed. Without check-push-gate that's about 6.5 minutes.
+		- Swept: every reader of the run mode (`mode_flag`, `gate_mode`, `merge_gate`, `quick`) in cicd.bash, the tests step's `TEST_CMD`-only guard, and check-push-gate's stub config.
+	- Test case: check-push-gate `Eu1ovZE` and `Eu1ovZF`.
+	- Closed: 20261028-1625
+	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, as the round's full run. EqKhPQP, EqGjDth and shell-regress passed there with pwsh working again. `--backlog-run-quick` with every area named took 12 min at load 13 to 27, and the worker timed it at 6.5 min with none named, so the 4-minute aim is still the parent's to meet.
+
+- CICD reset: hosted workflow on the merge gate, and --gate as a backlog run
+	- ID: 2026102813104371
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261028-131043
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Prereq IDs: 2026102813104060
+	- Requirements:
+		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
+		- Then `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- In this order, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+	- Progress log:
+		- 20261028: split. The hosted workflow is done here. `--gate` as a backlog run, with the contributing.md and install.md lines, is child 2026102814013272, free to start now that the hosted run doesn't use `--gate`.
+		- 20261028: ci.yml's halves run `--merge-gate --no-tests --no-release --no-remote` and `--merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash`, and the tests half installs qemu, busybox and cpio for the CPU floor check. cicd.bash takes `--skip TEXT`, which leaves out each step whose command holds TEXT, and the run records nothing. A TEXT that matches no step is exit 2. check-pins' job check wants `--merge-gate`, allows `--no-release` and `--no-remote`, and holds `--skip` to a leak check whose tool ci.yml leaves out. Help, the ci.yml comments, contributing.md and design.md say so.
+		- Verified: check-push-gate `Eu21ced` (both `--skip` forms, no record, the off line, the usage errors) went red with the record rule taken out, and passes. shell-regress `Eu21cec` (`--gate` in a job, the release nowhere, CodeQL run, another step skipped) went red with each check taken out of check-pins, and passes. The whole of check-push-gate, shell-regress, check-pins, check-docs and test-ids, shellcheck and markdownlint passed.
+		- Verified: `cicd.bash --backlog-run-quick cicd` in the main image passed its 5 steps in 6.5 minutes at a load of about 7, `Eu21ced`, `EsZzNCY` and `EtAC9of` included.
+		- Swept: every reader of the hosted job args (check-pins' `EsZzNCY`, `EtDCDE9`, `EtAC9of`, shell-regress `EsZzNEZ`, `EtDCDEA`), every `--gate` line in ci.yml and the design.md and contributing.md lines about the hosted run and what records a tree. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Decisions:
+		- me: the halves keep their split, and the tests half takes the native release, its checks and packages, and the fast leak checks. It was about 36 minutes, and the lint half about 44 with cppcheck.
+		- me: the runner leaves out the test boxes, which are on the LAN, CodeQL, whose bundle is about 700 MB and its run about 10 minutes more than the tests half has, and the cross targets, which would need a third job with wine, QEMU and FreeBSD's 640 MB image. The macOS, Linux arm64 and Windows jobs already build on their own runners, and the style guide asks for a small hosted workflow.
+		- me: CodeQL goes by a new `--skip TEXT` rather than `--no-leakcheck`, which would drop the sanitizer runs hosted already had. It is general, matched as text like `QUICK_SKIP`, and the run says what it left out.
+		- me: makensis stays unpinned in ci.yml, since the hosted run builds no Windows release and so no setup.
+	- Test case: check-push-gate `Eu21ced`, shell-regress `Eu21cec`, plus the changed rows of `EsZzNEZ`.
+		- 20261028: `EsZzNEZ`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
+	- Closed: 20261028-1625
+	- Verified: 2026-10-28, hosted ci.yml run 40779407541 on r1028 passed after the runner's kernel was made readable (commit after 9d0943c1). Lint half 12 min, tests half 50 min. The tests half built the release, booted it on Penryn and Phenom (EsaOGRX to EsaOGRb), built packages and passed the leak checks. CodeQL and the test boxes were off.
+
+- CICD reset: CPU and priority in containers
+	- ID: 2026102421025783
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-210257
+	- Opened by: 2026102416250040
+	- Parent ID: 2026102416250040
+	- Prereq IDs: 2026102421025778
+	- Requirements:
+		- `--cpus <jobs>` and `--cpu-shares 256` on each `docker run`, the ones analyze-c, soak-c and codeql-scan start included.
+		- `nice` inside the image too, since `nice` on the docker client doesn't reach the container.
+		- check-push-gate's fake docker learns the new options.
+	- Progress log:
+		- 20261024: every `docker run` cicd.bash and ctr-image.bash make passes `--cpus` and `--cpu-shares 256`: the stages' run at the run's count, `fCtrRunSelf` at its script's, and the passwd, group and Zig trim reads at 1. analyze-c, soak-c and codeql-scan start theirs through `fCtrRunSelf`.
+		- 20261024: `fCtrRunSelf` runs its script under `nice -n 19` in the image. The stages' run is cicd.bash, which renices itself (2026102421025778).
+	- Swept: the 5 `docker run` sites under `cicd/` and the hook: cicd.bash's passwd, group and stages runs, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. `docker build` and `volume create` start no container. ci.yml runs `--no-container`.
+	- Verified: check-push-gate `EtgShUg` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container: `cpu.max` read `800000 100000` and `cpu.weight` 35.
+	- Needs local test suite run?: No
+	- Branch: `r1024c`
+	- Test case: check-push-gate `EtgShUg`.
+	- Closed: 20261028-1625
+	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, in the main image with the CPU limits on.
+
+- Upgrade drops and folds blank lines, so every line after them moves
+	- ID: 2026102620591101
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261026-205911
+	- Opened by: JC
+	- Version and build: dev at `2174f0d9`
+	- Steps to reproduce:
+		- In Go, `Upgrade("\n\nt:\n\taliases: a, b\n", true)` or with `fromV2` false, then parse the text and ask for the line of `t.aliases`.
+	- Incorrect behavior: the 2 blank lines at the top are gone, and a run of blank lines inside comes out as one, so `t.aliases` is on line 2. A diagnostic on the upgraded text names a line the file doesn't have there. Silent wrong answer.
+	- Expected behavior: line 4, as in the file. Blank lines stay where they were, as `migrate` keeps comments.
+	- Note: 2.x's `x: ~~~` comes out as `x:` with the fence on a line of its own, so lines after a raw block move by one too. shclwrap puts blank lines back itself (its 2026102618065634), but can't fix the raw block case (its 2026102620430717).
+	- Actual cause: `upgrade` wrote the migrated text the way `fmt` does. `fmt` drops blank lines before the first line, folds a run of them into one, and puts a raw block's fence on its own line.
+	- Actual fix: `upgrade` saves the migrated text the way `set` saves, keeping its lines, with the info block added at the end. Every line stays where it was, blank lines and `x: ~~~` included, so shclwrap's raw block case is fixed too. Where the lines can't be kept, or keeping them keeps an error the canonical form repairs, such as `   b` with no colon, it falls back to the `fmt` form as before. Same in Rust, Go, Python and C.
+	- Decisions:
+		- The whole layout is kept, not only blank lines, as `migrate` keeps it. The other way, a `fmt` that keeps blank-line runs, would still move every line after a raw block, and needs a new emitter mode in all 4 (me).
+		- The `fmt` fallback keeps upgrades that load clean only through `fmt`'s repair loading clean, as `EtaIsb8` shows. Without it that file would be refused with `--from-2x` (me).
+		- Departs from the item: it does more than keep blank lines. Indent, quoting and layout come through as `migrate` wrote them, where they used to come out in `fmt`'s form. spec.md, the man page, examples.md, the help text in the 4 CLIs and the doc comments say so.
+	- Swept: `upgrade` in the 4 libraries, the one place the fresh text is made. `upgrade_file`, the CLIs and the C++ `upgrade` go through it. `migrate` already kept lines. The help text is the same in the 4 CLIs.
+	- Verified: the new tests fail on the old code in all 4 and pass on the fix. `EtaIsb8` failed with the lines always kept, which is why the fallback is there. `cargo test`, `go test`, the Python and C conformance suites, the Python soak, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, cli-regress (629 rows, 4 bindings), crosscheck (22758 comparisons), check-migrate (647 documents), the 2,000,000 release fuzz (31 tests), check-docs, check-doc-examples, check-completions, test-ids check, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and the C CLI under gcc 15 and clang pass.
+	- Branch: `r1028`
+	- Test case: `upgrade_keeps_each_line_where_it_was` (Rust `Eu1bOv2`, Go `Eu1bOv3`, Python `Eu1bOv4`, C `Eu1bOv5`), and `EtaIsb8` and its twins for the fallback.
+	- Acceptance signoff:
+		- Waits on JC: it keeps the whole layout rather than only the blank lines, which changes what `upgrade` writes (questions.md Check line).
+	- Acceptance signoff: me, 2026-10-28, per the standing call that a behavior change that fits the project better is made, not parked. Keeping each line where it was is what the item asks, and shclwrap needs it. The Check: entry in questions.md stays open for a veto.
+	- Closed: 20261028-1200
+
+- Step lines from inside the image print UTC, while the host's print local time
+	- ID: 2026102520122877
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261025-201228
+	- Opened by: the r1025 test batch
+	- Related IDs: 2026102416250060
+	- Version and build: `r1025` at `e9732a84`
+	- Steps to reproduce:
+		- Run `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish` on a box whose time zone isn't UTC, and read the step lines.
+	- Incorrect behavior: the steps in the image stamp UTC and the host's stamp local time. The full run's `[ 20261026-014258.83: Step 6 of 7; PASS Release builds ]`, in the image, is followed a second later by `[ 20261025-184259.63: Step 7 of 7; Starting Test boxes ]` on the host.
+	- Expected behavior: local time in every step line, per 2026102416250060.
+	- Reproduced: 20261025, in the full run's log (chain log `20261025-173800_001`), and in a Format and Build run in the image at 20:10 PDT, which stamped `20261026-031001.56`.
+	- Possible cause: the image runs with neither `TZ` nor the host's `/etc/localtime`, so `date` there gives UTC. Nothing in cicd.bash, the includes or the Dockerfile names either.
+	- Estimated effort: Low
+	- Actual cause: an image has no zone of its own, and nothing gave it the host's, so its clock read UTC.
+	- Actual effort: Low
+	- Progress log:
+		- 20261028: Verified: in the main image, bash's `printf '%(...)T'` gave UTC with no mount, and PDT with the host's zone file mounted at `/etc/localtime`. `Asia/Bangkok`'s file gave +07, and `-e TZ=EST5EDT,M3.2.0,M11.1.0` gave EDT.
+		- 20261028: Verified: check-push-gate `Eu1i7hL` failed in all 4 cases on the old cicd.bash and ctr-image.bash, and passes now.
+	- Decisions:
+		- me: the zone file goes in as the image's `/etc/localtime`, not `-e TZ=<name>`, since the main image has no zone files to look a name up in. A `TZ` that names no file, such as a POSIX rule, goes in as `-e TZ`. Tests that need a zone pin `TZ` themselves, as they do on the host.
+	- Actual fix: `fCtrZoneArgs` in `ctr-image.bash`, used by cicd.bash's run in the image and by `fCtrRunSelf`, which the C analysis, CodeQL and the C soak run through.
+	- Swept: every `docker run` in `cicd/`. cicd.bash's passwd and group reads print no time. No other script starts a container. Not a binding change, so the four bindings don't apply.
+	- Test case: check-push-gate `Eu1i7hL`: each run of cicd.bash or a gate in the image gets the zone file for `TZ` unset, a zone name and a `:`-led name, and `-e TZ` for a rule.
+	- Acceptance signoff: closed on JC's criteria. The next full run's step lines in the image show it end to end.
+	- Closed: 20261028-130250
+
+- lint-report flags govulncheck's wrapped "vulnerabilities." line and a git hint as warnings
+	- ID: 2026102520122882
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261025-201228
+	- Opened by: the r1025 test batch
+	- Version and build: `r1025` at `e9732a84`
+	- Steps to reproduce:
+		- `cicd/utility/lint-report.bash --check --no-mark` over `run_20261025-174444.log`, the full run's log.
+	- Incorrect behavior: it prints `NEW` with 3 warning lines: `vulnerabilities.` twice, from the 2 govulncheck runs, and `hint: of your new repositories, which will suppress this warning, call:`.
+	- Expected behavior: `CLEAN`, since none of the 3 is a warning.
+	- Reproduced: 20261025, on that log in the frozen worktree.
+	- Possible cause: govulncheck now wraps "your code doesn't appear to call these" before "vulnerabilities.", so that word is a line of its own, and the filter only takes `these vulnerabilities.`. The hint is git's default branch notice from a `git init` in check-install-dev, and it says "warning".
+	- Estimated effort: Low
+	- Actual cause: as above. check-install-dev's `git init` named no branch, and git prints its hint where no default branch is set, as in the image.
+	- Actual effort: Low
+	- Progress log:
+		- 20261028: Verified: `run_20261025-174444.log` has rotated out, so on `run_20261027-114343.log`, which has the same 3 lines, the old lint-report says `NEW` with 3 and the new one `CLEAN`. shell-regress `Eu1jhy2` failed on the old lint-report and passes now.
+	- Decisions:
+		- me: a bare `vulnerabilities.` line is dropped on its own, since a real govulncheck finding prints its own `Vulnerability #N` and `affected by N` lines, and those still count. A `hint:` line is git's advice, never a finding, so it's dropped as well as fixed at the source.
+	- Actual fix: lint-report drops a bare `vulnerabilities.` line and any `hint:` line. check-install-dev's `git init` names its branch, and so do the 5 in shell-regress that named none.
+	- Swept: every `git init` in `cicd/`. check-push-gate's 4 bare ones stay, since none printed a hint in its runs. Not a binding change, so the four bindings don't apply.
+	- Test case: shell-regress `Eu1jhy2`: the wrapped note and the hint read `CLEAN`, and a govulncheck finding and a git `warning:` line still flag.
+	- Acceptance signoff: closed on JC's criteria.
+	- Closed: 20261028-130250
+
+- Upgrade splits a 2.x element at a comma inside quotes
+	- ID: 2026102620591100
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261026-205911
+	- Opened by: JC
+	- Version and build: dev at `2174f0d9`
+	- Steps to reproduce:
+		- In Go, `Upgrade("row: idx=2, title=\"a, b\", description=\"say \\\"hi\\\"\"\n", true)`, then read `row` as strings. With `fromV2` false the file is taken as 2.x by its errors, and it's the same.
+	- Incorrect behavior: `row: [idx=2, 'title="a', 'b"', 'description="say "hi""']`, 4 elements where 1.2 and 2.0 read 3. `one: x="a, b"` comes back as 2 elements, where 2.0 read one string. Silent wrong answer.
+	- Expected behavior: `row: [idx=2, 'title="a, b"', 'description="say "hi""']`. 2.0 reads a quote inside an element as text that keeps a comma in it.
+	- Reproduced: 20261026, in Go. shclwrap's Rust, C and Python ports of the upgrade give the same.
+	- Note: shclwrap works around it by setting each value that reads otherwise than 2.0 back to 2.0's reading (its 2026102618065640). Found through gitniblet's seed rows.
+	- Actual cause: 1.2 and 2.0 let a quote anywhere in a piece shield a comma or a `#` until it closed. The migrate tokenizer copies the last dev build before the lexical cut, which shields only from a quote that opens a piece (`07c2becc`, 2026-09-05), so it cut `title="a, b"` at the comma. That build was never released.
+	- Actual fix: under the 2.x rules, a quote in the middle of a value piece that closes on the line takes everything up to its close into the piece, a comma or `#` included. One that never closes stays text. A bare piece holding a comma or a `#` is then always written another way, since it can only have come from such a quote. Same change in Rust, Go, Python and C.
+	- Decisions:
+		- A mid-piece quote that never closes, as in `don't, stop`, keeps the pinned build's reading, 2 elements, where 2.0 ran the quote to the end of the line and read one. That reading swallowed comments, it is the bug `07c2becc` fixed, and the apostrophe in a word is the common case (me).
+		- check-migrate still compares against the pinned build, and takes lines where it and 2.0 read a value apart out first, as it does for a fence label holding a `#` (me).
+	- Swept: `scan_piece` in all 4 bindings is the one place 2.x value pieces are cut, for a value, a `*` item and the array arm, so `migrate`, `upgrade` and their CLIs all get it. `value_edits`' early skip in all 4 learned that a bare piece can hold a comma or a `#`. Selector bodies and names are cut elsewhere, and 2.0 had no mid-piece quote rule there that differs. The repeated `row:` case from floss reads right too, since the fix is per line. spec.md and value-syntax.md's Migration table say so.
+	- Verified: corpus case `210-migrate-mid-quote-comma` fails on the old Python port and passes on the fix. The 4 conformance suites, `cargo test`, `go test`, cli-regress (629 rows), crosscheck (22758 comparisons), check-migrate (647 documents, its new `Eu1VP9o` included), the 2,000,000 release fuzz (31 tests), check-doc-examples, check-docs, check-abnf, shell-regress, test-ids check, lint-report, shellcheck, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff and mypy pass.
+	- Branch: `r1028`
+	- Test case: corpus `Eu1VP9n` (`210-migrate-mid-quote-comma`) in all 4 runners, check-migrate `Eu1VP9o`.
+	- Acceptance signoff: Self-closed: the new case failed before and passes after, and every gate run is green.
+	- Closed: 20261028-121432
 
 - CICD reset: step output
 	- ID: 2026102416250060

@@ -181,6 +181,26 @@ func TestABlockKeptAtTheTopNamesThisFormatToo(t *testing.T) {
 	}
 }
 
+func TestUpgradeKeepsEachLineWhereItWas(t *testing.T) {
+	defer testID(t, "Eu1bOv3")
+	// Blank lines and a raw block on its field's line stay put, so a line
+	// number in the old file names the same line in the fresh one
+	// (2026102620591101).
+	text := "\n\nt:\n\taliases: a, b\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n"
+	for _, fromV2 := range []bool{true, false} {
+		up := Upgrade(text, fromV2)
+		if up.Current || len(up.ErrorsLeft) != 0 {
+			t.Fatalf("%v: not made over: %+v", fromV2, up)
+		}
+		if !strings.HasPrefix(up.Text, "\n\nt:\n\taliases: [a, b]\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n") {
+			t.Fatalf("%v: lines moved: %q", fromV2, up.Text)
+		}
+		if !Upgrade(up.Text, false).Current {
+			t.Fatalf("%v: a second run made it over again: %q", fromV2, up.Text)
+		}
+	}
+}
+
 func TestUpgradeFromV2RewritesACleanFileThatReadsDifferently(t *testing.T) {
 	defer testID(t, "Es2fwpc")
 	// The caller says it is 2.x, where a,b was an array.

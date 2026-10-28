@@ -485,6 +485,8 @@ TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TM
 ## A test that hangs in a child process, which a stop has to take down.
 TEST_EXTRA+=('if [[ -n "${STUB_HANG:-}" ]]; then echo "${TMPDIR}" > "${STUB_HANG}.tmp"; sleep 300 & echo "$!" > "${STUB_HANG}"; wait "$!"; fi')
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
+BACKLOG_AREAS=("slow|STUB_SLOW" "other|STUB_GITDIR" "xcheck|crosscheck.bash" "bskip|STUB_BSKIP")
+BACKLOG_SKIP=(STUB_BSKIP); TEST_EXTRA+=('echo b > "${STUB_BSKIP:-/dev/null}"')
 LEAKCHECK_STEPS=('echo leak > "${STUB_LEAK:-/dev/null}"')
 LEAKCHECK_FAST=('echo fast > "${STUB_LEAK_FAST:-/dev/null}"'); LEAKCHECK_LONG=('echo long > "${STUB_LEAK_LONG:-/dev/null}"')
 LEAKCHECK_TESTS=(STUB_LEAK_TEST); TEST_EXTRA+=('echo t > "${STUB_LEAK_TEST:-/dev/null}"')
@@ -623,6 +625,32 @@ fLeakLen -y --no-sync --quick --long
 if ((engRc != 2)) || [[ "${leakRun}" != 0000 ]] || ! grep -qF "can't go together" "${work}/eng.log"; then
 	fail "cicd.bash took --quick --long: exit ${engRc}, ran ${leakRun}: $(tail -2 "${work}/eng.log")"
 fi
+fTest Eu21ced --skip leaves out each step that holds its text, and the run records nothing
+## 2026102813104371: the hosted run skips the leak check whose tool it can't
+## install. A text that matches no step this run takes is a usage error.
+fLeakLen --merge-gate
+((engRc == 0 && engRecorded == 1)) || fail "cicd.bash --merge-gate: exit ${engRc}, recorded ${engRecorded}: $(tail -2 "${work}/eng.log")"
+fSkipRun(){  ## fSkipRun WANT ARGS...: a run with --skip passes, records nothing, and runs the leak checks as WANT
+	local want="$1"; shift
+	fLeakLen "$@"
+	if ((engRc != 0 || engRecorded != 0)) || [[ "${leakRun}" != "${want}" ]]; then
+		fail "cicd.bash $*: exit ${engRc}, recorded ${engRecorded}, ran the leak checks as ${leakRun}, not ${want}: $(tail -2 "${work}/eng.log")"
+	fi
+}
+fSkipRun 1001 --merge-gate --skip='echo leak'
+grep -qF 'Off ............: each step with echo leak (--skip)' "${work}/eng.log" || fail "a --skip run didn't say what it left out: $(grep -F 'Off ...' "${work}/eng.log" || true)"
+fSkipRun 1001 --merge-gate --skip 'echo leak'
+fSkipRun 1100 --merge-gate --skip=STUB_LEAK_TEST
+fSkipBad(){  ## fSkipBad MESSAGE ARGS...: a usage error before anything runs
+	local msg="$1"; shift
+	fLeakLen "$@"
+	if ((engRc != 2 || engRecorded != 0)) || [[ "${leakRun}" != 0000 ]] || ! grep -qF -- "${msg}" "${work}/eng.log"; then
+		fail "cicd.bash $*: exit ${engRc}, ran ${leakRun}: $(tail -2 "${work}/eng.log")"
+	fi
+}
+fSkipBad 'matches no step' --merge-gate --skip=nope
+fSkipBad 'matches no step' --merge-gate --no-tests --skip='echo leak'
+fSkipBad 'names no step' --merge-gate --skip=
 fTest Et6Aum5 --ci is another name for --merge-gate
 ## 2026101816034794 made --ci unknown; 2026102515494619 brings it back as
 ## another name for --merge-gate, which says so in one line.
@@ -664,6 +692,85 @@ fCalibrated --gate
 ((engRc == 0 && calibrated == 1)) || fail "a --gate run skipped the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
 fCalibrated --gate --no-tests
 ((engRc == 0 && calibrated == 0)) || fail "the hosted lint half ran the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
+fTest Eu1ovZE the backlog runs
+## 2026102813104060: --backlog-run-quick is --gate less what --quick leaves
+## out, with no leak checks or profiler calibration, and records nothing,
+## since it's partial. Areas keep only their tests. --backlog-run-full is the
+## merge gate's checks. Neither dogfoods or publishes.
+fQuick --backlog-run-quick
+((engRc == 0 && engRecorded == 0 && slowRan == 0 && xcheckRan == 0 && otherRan == 1)) \
+	|| fail "a --backlog-run-quick run: exit ${engRc}, recorded ${engRecorded}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}, another step ${otherRan}: $(tail -3 "${work}/eng.log")"
+if ! grep -qF 'Off ............: Dogfood (--backlog-run-quick)' "${work}/eng.log" || ! grep -qF 'Off ............: Backup + publish (--backlog-run-quick)' "${work}/eng.log" \
+	|| ! grep -qF 'shcl backlog run, quick' "${work}/eng.log" || grep -qF -- '--quick)' "${work}/eng.log"; then
+	fail "a --backlog-run-quick run didn't say what it left out: $(grep -E '^Off|backlog run' "${work}/eng.log" || true)"
+fi
+fQuick --backlog-run-quick other
+((engRc == 0 && engRecorded == 0 && slowRan == 0 && xcheckRan == 0 && otherRan == 1)) \
+	|| fail "--backlog-run-quick other: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}, the area's step ${otherRan}: $(tail -3 "${work}/eng.log")"
+grep -qF 'shcl backlog run, quick: other' "${work}/eng.log" || fail "--backlog-run-quick other didn't name its area: $(grep -F 'backlog run' "${work}/eng.log" || true)"
+fQuick --backlog-run-quick slow xcheck
+((engRc == 0 && slowRan == 0 && xcheckRan == 0 && otherRan == 0)) \
+	|| fail "--backlog-run-quick slow xcheck ran a step of no area named, or one --quick leaves out: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}, another step ${otherRan}"
+for leakCase in '0001|--backlog-run-quick' '1101|--backlog-run-full'; do
+	read -r -a leakArgs <<< "${leakCase#*|}"
+	fLeakLen "${leakArgs[@]}"
+	if ((engRc != 0)) || [[ "${leakRun}" != "${leakCase%%|*}" ]]; then
+		fail "cicd.bash ${leakCase#*|} ran the leak checks as ${leakRun} (fast, slow, long, test), not ${leakCase%%|*}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+	fi
+done
+## BACKLOG_SKIP's steps go when no area is named, and come back with theirs.
+for bskipCase in '0|--backlog-run-quick' '1|--backlog-run-quick bskip' '0|--backlog-run-quick other' '1|--gate'; do
+	read -r -a bskipArgs <<< "${bskipCase#*|}"
+	rm -f "${work}/eng.bskip"
+	fEngine STUB_BSKIP="${work}/eng.bskip" -- "${bskipArgs[@]}"
+	bskipRan=0; if [[ -e "${work}/eng.bskip" ]]; then bskipRan=1; fi
+	((engRc == 0)) && [[ "${bskipRan}" == "${bskipCase%%|*}" ]] \
+		|| fail "cicd.bash ${bskipCase#*|} ran the step BACKLOG_SKIP names ${bskipRan} time(s), not ${bskipCase%%|*}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+done
+fCalibrated --backlog-run-quick
+((engRc == 0 && calibrated == 0)) || fail "--backlog-run-quick ran the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
+rm -f "${work}/eng.release"
+fEngine STUB_RELEASE="${work}/eng.release" -- --backlog-run-quick
+[[ ! -e "${work}/eng.release" ]] || fail "a --backlog-run-quick run built the release"
+rm -f "${work}/eng.release"
+fEngine STUB_RELEASE="${work}/eng.release" -- --backlog-run-full
+((engRc == 0 && engRecorded == 1)) && [[ -e "${work}/eng.release" ]] \
+	|| fail "a --backlog-run-full run: exit ${engRc}, recorded ${engRecorded}, release built $([[ -e "${work}/eng.release" ]] && echo 1 || echo 0): $(tail -3 "${work}/eng.log")"
+if ! grep -qF 'Off ............: Dogfood (--backlog-run-full)' "${work}/eng.log" || ! grep -qF 'Off ............: Backup + publish (--backlog-run-full)' "${work}/eng.log" \
+	|| grep -qE 'Starting (Dogfood|Backup)' "${work}/eng.log"; then
+	fail "a --backlog-run-full run dogfooded or published: $(grep -iE 'dogfood|publish' "${work}/eng.log" || true)"
+fi
+## Usage errors, before anything runs: an area config.bash doesn't list, 2
+## run modes, and --long, which would undo the quick run.
+for badCase in 'unknown area: nope|--backlog-run-quick nope' "can't go together|--backlog-run-quick --merge-gate" \
+	"can't go together|--gate --backlog-run-full" "can't go together|--backlog-run-quick other --long"; do
+	read -r -a badArgs <<< "${badCase#*|}"
+	fEngine -- "${badArgs[@]}"
+	if ((engRc != 2 || engRecorded != 0)) || ! grep -qF -- "${badCase%%|*}" "${work}/eng.log"; then
+		fail "cicd.bash ${badCase#*|}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+	fi
+done
+fTest Eu1ovZF every test step is in a backlog area
+## 2026102813104060: a test step in no area would never run in a backlog run
+## that names areas, and nothing would say so.
+noArea="$(
+	## shellcheck source=../config.bash
+	source "${root}/cicd/config.bash"
+	for step in "${TEST_CMD[*]}" "${TEST_EXTRA[@]}"; do
+		inArea=0
+		for def in "${BACKLOG_AREAS[@]}"; do
+			IFS='|' read -r -a pats <<< "${def#*|}"
+			for pat in "${pats[@]}"; do
+				if [[ "${step}" == *"${pat}"* ]]; then inArea=1; fi
+			done
+		done
+		if ((! inArea)); then printf '%s\n' "${step}"; fi
+	done
+)" || fail "cannot read config.bash's test steps"
+[[ -z "${noArea}" ]] || fail "a test step in no BACKLOG_AREAS area: ${noArea}"
+helpAreas="$(bash "${root}/cicd/cicd.bash" --help | sed -nE 's/.*--backlog-run-quick \[AREA\.\.\.\] +AREAs: //p')"
+cfgAreas="$( source "${root}/cicd/config.bash"; for def in "${BACKLOG_AREAS[@]}"; do printf '%s ' "${def%%|*}"; done )"
+[[ "${helpAreas}" == "${cfgAreas% }" ]] || fail "--help lists the areas as '${helpAreas}', and config.bash as '${cfgAreas% }'"
 ## A docker that answers unless STUB_DOCKER_DOWN is set, and writes down each
 ## call to STUB_DOCKER_LOG. A run writes down its mounts, or with
 ## STUB_DOCKER_EXEC runs its command here, once, with its -e settings.
@@ -1120,6 +1227,39 @@ fi
 ## The scripts a gate runs in the image, which this stub doesn't start.
 # shellcheck disable=SC2016  ## ctr-image.bash's own text, matched literally
 grep -qF '"${tag}" nice -n 19 bash "$@"' "${root}/cicd/utility/include/ctr-image.bash" || fail "fCtrRunSelf no longer runs its script under nice in the image"
+fTest Eu1i7hL a run in the image keeps the local time of the box it runs on
+## 2026102520122877: the image has no zone, so its step lines read UTC. The
+## zone file goes in as its /etc/localtime, and a TZ rule with no file as is.
+fZoneRuns(){  ## fZoneRuns LABEL WANT [VAR=VALUE ...]: each run of cicd.bash or a gate in the image has WANT
+	local label="$1" want="$2" runs bad
+	shift 2
+	rm -f "${work}/tz-args.txt"
+	fCtr STUB_DOCKER_ARGS="${work}/tz-args.txt" STUB_MOUNTS="${work}/tz.tsv" "$@" -- -y --no-sync
+	env "$@" SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_ARGS="${work}/tz-args.txt" STUB_MOUNTS="${work}/tz.tsv" PATH="${work}/x86_64:${PATH}" \
+		bash "${work}/ctr-image-on.bash" "${eng}" self "${work}/tz-self" > "${work}/tz-self.log" 2>&1 || true
+	runs="$(grep -c '^run .* bash ' "${work}/tz-args.txt" || true)"
+	bad="$(grep '^run .* bash ' "${work}/tz-args.txt" | grep -vF -- " ${want} " | grep -oE -- '--name [^ ]+' || true)"
+	if ((engRc != 0 || runs < 3)) || [[ -n "${bad}" ]]; then
+		fail "${label}: exit ${engRc}, ${runs} run(s), without '${want}': ${bad:-none}: $(tail -2 "${work}/eng.log")"
+	fi
+	if grep '^run .* bash ' "${work}/tz-args.txt" | grep -qE -- '(-e TZ=.*-v [^ ]+:/etc/localtime|/etc/localtime.*-e TZ=)'; then
+		fail "${label}: both a zone file and TZ go in"
+	fi
+	return 0
+}
+if [[ "$(uname -m)" == x86_64 ]]; then
+	fZoneRuns "TZ naming a zone" "-v $(readlink -f /usr/share/zoneinfo/Asia/Bangkok):/etc/localtime:ro" TZ=Asia/Bangkok
+	fZoneRuns "TZ naming a zone, with a colon" "-v $(readlink -f /usr/share/zoneinfo/Asia/Bangkok):/etc/localtime:ro" TZ=:Asia/Bangkok
+	fZoneRuns "a TZ rule" "-e TZ=UTC7" TZ=UTC7
+	if [[ -f /etc/localtime ]]; then
+		tzWas="${TZ-}"; tzHad=0; if [[ -v TZ ]]; then tzHad=1; fi
+		unset TZ
+		fZoneRuns "no TZ" "-v $(readlink -f /etc/localtime):/etc/localtime:ro"
+		if ((tzHad)); then export TZ="${tzWas}"; fi
+	fi
+else
+	fTestSkipBlock
+fi
 fTest EtgFdh7 a run that fails stops and removes its containers by its run label
 ## 2026102416250030: on any exit, not only a whole run, and only this run's.
 rm -f "${work}/gone.txt"
@@ -1201,3 +1341,4 @@ exit "${rc}"
 ##		- 2026-10-25 JC: The leak checks by length, and --long.
 ##		- 2026-10-25 JC: --merge-gate and --ci, and the hook's call of each engine's gate.
 ##		- 2026-10-25 JC: A push to main of docs alone, and --keep-temp.
+##		- 2026-10-28 JC: The backlog runs, their areas, and one run mode per run.

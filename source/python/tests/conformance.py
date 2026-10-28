@@ -5013,6 +5013,20 @@ def main():
 	if shcl.format_version(up_doc.to_canonical()) != 3:
 		raise SystemExit(f"kept top: set_banner names {shcl.format_version(up_doc.to_canonical())}")
 
+	test_id("Eu1bOv4", "upgrade_keeps_each_line_where_it_was")
+	# Blank lines and a raw block on its field's line stay put, so a line
+	# number in the old file names the same line in the fresh one
+	# (2026102620591101).
+	up_lines = "\n\nt:\n\taliases: a, b\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n"
+	for keep_v2 in (True, False):
+		up = shcl.upgrade(up_lines, keep_v2)
+		if up.current or up.errors_left:
+			raise SystemExit(f"keeps lines {keep_v2}: {up.current} {up.errors_left}")
+		if not up.text.startswith("\n\nt:\n\taliases: [a, b]\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n"):
+			raise SystemExit(f"keeps lines {keep_v2}: lines moved: {up.text!r}")
+		if not shcl.upgrade(up.text, False).current:
+			raise SystemExit(f"keeps lines {keep_v2}: a second run made it over again: {up.text!r}")
+
 	test_id("Es2k1DD", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently")
 	# The caller says it is 2.x, where a,b was an array.
 	up = shcl.upgrade("p: a,b\n", True)

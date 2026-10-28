@@ -80,7 +80,7 @@ fTest Ep10fNQ --hooks-only refuses a repository that is not a clone
 ## is not an shcl clone, since that is what the guard is for - a bare directory
 ## fails inside git config whether the guard is there or not, and the config
 ## is read back because the exit status alone proved nothing either way.
-git init -q "${work}/other"
+git init -q -b main "${work}/other"
 if ( cd "${work}" && bash "${script}" --hooks-only --dir other >/dev/null 2>&1 ); then
 	fail "--hooks-only accepted a repository that is not an shcl clone"
 fi

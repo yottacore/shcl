@@ -558,6 +558,25 @@ QUICK_SKIP=(
 	'check-freebsd.bash'
 )
 
+## --backlog-run-quick's areas, in --help's order, as "name|text|text...". Each
+## text is matched as plain text against the tests stage's steps, like
+## QUICK_SKIP, and with areas named only the steps of those areas run, less
+## what QUICK_SKIP leaves out. check-push-gate fails a test step in no area.
+## With none named, BACKLOG_SKIP's steps go too, to keep the run near 4
+## minutes: check-push-gate took 4 of a 10-minute run on 2026-10-28. The cicd
+## area brings it back.
+BACKLOG_SKIP=(
+	'check-push-gate.bash'
+)
+BACKLOG_AREAS=(
+	"rust|cargo test|sanitize-rust.bash"
+	"go|go -C source/go"
+	"python|source/python/tests"
+	"c|source/c/tests|check-c-compilers.bash|sanitize-c.bash"
+	"cli|cli-regress.bash|check-doc-examples.bash|perf-gate.bash|check-locale.bash|check-migrate.bash|crosscheck.bash"
+	"cicd|shell-regress.bash|check-install-dev.bash|check-push-gate.bash"
+)
+
 ## Test boxes, after the release builds, on this box rather than in the image,
 ## since the host lock and the ssh keys are here (2026102419263412). One row per
 ## box: "BOX|SSH_TARGET|os-arch", the os-arch naming the release build it runs.

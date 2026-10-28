@@ -293,8 +293,10 @@ struct Upgrade {
 	std::vector<std::size_t> errors_left;
 };
 // A config file written for an older format, made over for this one: migrated
-// without the stamp, written the way fmt writes it, with the info block init
-// writes at the end in place of an old one there. A whole block above the
+// without the stamp, saved keeping its lines, so each line stays where it was,
+// with the info block init writes at the end in place of an old one there.
+// Where the lines can't be kept, or keeping them keeps an error, it is written
+// the way fmt writes it. A whole block above the
 // first field stays, so a file with its block at the top comes out with 2, both
 // naming this format. A file that names this format, or loads with no error
 // under these rules, comes back current and untouched. With from_v2, which says

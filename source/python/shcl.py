@@ -1580,6 +1580,15 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 			pos += 1 + _utf8_len(s[pos + 1])
 			content_end = pos
 			continue
+		# 2.0 read a quote inside a piece as text, but a comma or a `#`
+		# before its close did not end the piece. One that never closes is
+		# text, as `don't` is.
+		if shield and b in (_B_DQUOTE, _B_SQUOTE):
+			close = _quote_close(s, pos, rules)
+			if close is not None:
+				pos = close + 1
+				content_end = pos
+				continue
 		if b == term:
 			if every_comma or _loose_comma(s, pos):
 				break
@@ -2814,9 +2823,11 @@ class Upgrade:
 
 def upgrade(text: str, from_v2: bool) -> Upgrade:
 	"""A config file written for an older format, made over for this one: the
-	input run through migrate_unstamped(), then written the way `fmt` writes
-	it, with the info block `init` writes at the end in place of an old one
-	there. A whole block above the first field stays, so a file with its block
+	input run through migrate_unstamped(), then saved keeping its lines, so
+	each line, blank ones included, stays where it was, with the info block
+	`init` writes at the end in place of an old one there. Where the lines
+	can't be kept, or keeping them keeps an error, it is written the way `fmt`
+	writes it. A whole block above the first field stays, so a file with its block
 	at the top comes out with 2, both naming this format. This is the one
 	library call that writes the block. A file that names this format comes back
 	current and untouched, and so does one that loads with no error under these
@@ -2861,11 +2872,12 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	if m.ambiguous != 0:
 		return up
 	fresh = Document.parse(m.text)
+	fresh._keep_source(m.text)
 	lost = m.lost + fresh.lost_count()
 	# migrate keeps every line where it was, so these are the input's.
 	left = _error_lines(fresh.diagnostics())
 	fresh._swap_banner(True, True)
-	made = fresh.to_canonical()
+	made = _upgrade_text(fresh)
 	# With from_v2 it goes only when that leaves it loading clean, or the next
 	# run with it would read the result by 2.x rules again
 	# (2026101515372401). Without, a Format 3 file with an error is current.
@@ -2879,6 +2891,19 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	up.lost = lost
 	up.text = made
 	return up
+
+
+def _upgrade_text(fresh: Document) -> str:
+	"""The fresh file's text, saved the way `set` saves, so each line of the
+	input is on the same line here, blank ones included (2026102620591101).
+	Where the lines can't be kept, or keeping them keeps an error the
+	canonical form repairs, such as a missing colon, it is the canonical
+	form."""
+	canonical = fresh.to_canonical()
+	kept, ok = fresh.to_text_keep_lines()
+	if ok and Document.parse(kept).error_count() <= Document.parse(canonical).error_count():
+		return kept
+	return canonical
 
 
 def _error_lines(diags: list[Diagnostic]) -> list[int]:
@@ -2969,9 +2994,12 @@ def _value_edits(s, tok, edits):
 			a, b = p.start - 1, p.end + 1
 		else:
 			a, b = p.start, p.end
+		# A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if (
 			p.quote is Quote.None_
 			and "\\" not in raw
+			and "," not in raw
+			and "#" not in raw
 			and _ESCAPE_MARK not in raw
 			and raw
 			and _bare_trouble(raw, _BARE_VALUE) is None

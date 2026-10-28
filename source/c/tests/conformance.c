@@ -5982,6 +5982,25 @@ int main(int argc, char **argv) {
 			shcl_free(d);
 		}
 	}
+	test_id("Eu1bOv5", "upgrade_keeps_each_line_where_it_was");
+	{
+		/* Blank lines and a raw block on its field's line stay put, so a line
+		   number in the old file names the same line in the fresh one
+		   (2026102620591101). */
+		const char *lines = "\n\nt:\n\taliases: a, b\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n";
+		const char *want = "\n\nt:\n\taliases: [a, b]\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n";
+		for (int v2 = 1; v2 >= 0; v2--) {
+			shcl_upgraded up = shcl_upgrade(lines, strlen(lines), v2);
+			if (up.current || up.errors_left_n) fail("upgrade_keeps_lines", "not made over");
+			else if (up.len < strlen(want) || memcmp(up.text, want, strlen(want)) != 0) fail("upgrade_keeps_lines", "lines moved");
+			else {
+				shcl_upgraded again = shcl_upgrade(up.text, up.len, 0);
+				if (!again.current) fail("upgrade_keeps_lines", "a second run made it over again");
+				shcl_upgraded_free(&again);
+			}
+			shcl_upgraded_free(&up);
+		}
+	}
 #undef UP_V2
 #undef UP_TAG
 

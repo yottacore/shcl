@@ -32,6 +32,8 @@
 ##			                        this run makes: dev.project, and dev.run,
 ##			                        SHCL_DEV_RUN, the name of the run's folder
 ##			fCtrName STEP           a container's name: APP-RUN-STEP
+##			fCtrZoneArgs ARRAY      fill ARRAY with the docker args that give a
+##			                        run in the image this box's local time
 ##			fCtrRunGone RUN         stop and remove RUN's containers; prints
 ##			                        how many there were
 ##			fCtrDf                  docker system df's sizes, "TYPE<TAB>SIZE"
@@ -83,14 +85,32 @@ fCtrTag(){
 fCtrLabelArgs(){ local -n out_l4b="$1"; out_l4b=(--label "dev.project=${APP_NAME}" --label "dev.run=${SHCL_DEV_RUN:-}"); }
 fCtrName(){ printf '%s-%s-%s\n' "${APP_NAME}" "${SHCL_DEV_RUN:-}" "$1"; }
 
+## An image has no zone of its own, so its clock reads UTC. The zone file TZ or
+## /etc/localtime names goes in as its /etc/localtime, since an image may have
+## no zone files to look a name up in. A TZ that names no file is a rule, such
+## as UTC0, and goes in as is.
+# shellcheck disable=SC2034  ## a nameref, read by the caller
+fCtrZoneArgs(){
+	local -n out_z7k="$1"
+	local f=/etc/localtime
+	out_z7k=()
+	if [[ -v TZ ]]; then
+		f="${TZ#:}"
+		if [[ -n "${f}" && "${f}" != /* ]]; then f="${TZDIR:-/usr/share/zoneinfo}/${f}"; fi
+	fi
+	if [[ -n "${f}" && -f "${f}" ]]; then out_z7k=(-v "$(readlink -f -- "${f}"):/etc/localtime:ro")
+	elif [[ -v TZ ]]; then out_z7k=(-e "TZ=${TZ}"); fi
+}
+
 fCtrRunSelf(){
 	local engine="${SHCL_DOCKER:-docker}" work="$1" rw="$2" ctx tag rc=0 d
-	local -a rwMount=() rwDirs=() labels=()
+	local -a rwMount=() rwDirs=() labels=() zone=()
 	shift 2
 	## A gate run by hand is a run of its own, named by its scratch dir. Local,
 	## so the build below gets it too.
 	local SHCL_DEV_RUN="${SHCL_DEV_RUN:-${work##*/}}"
 	fCtrLabelArgs labels
+	fCtrZoneArgs zone
 	ctx="${work}/ctx"; mkdir -p "${ctx}" "${work}/in"
 	fCtrContext "${CTR_DIR:-cicd/container}/Dockerfile" "${ctx}" || { echo "${1##*/}: could not copy the build image's context" >&2; return 2; }
 	tag="$(fCtrTag "${ctx}" main)"
@@ -112,7 +132,7 @@ fCtrRunSelf(){
 	d="${1##*/}"
 	## nice here doesn't reach the container: a CPU quota, a low share, and nice inside.
 	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${d%.bash}")" --cpus "${CPU_CAP:-1}" --cpu-shares 256 --network none --user "$(id -u):$(id -g)" \
-		-v "${root}:${root}:ro" -v "${work}/in:${work}/in" "${rwMount[@]}" -w "${root}" \
+		-v "${root}:${root}:ro" -v "${work}/in:${work}/in" "${rwMount[@]}" "${zone[@]}" -w "${root}" \
 		-e SHCL_IN_IMAGE=1 -e "CPU_CAP=${CPU_CAP:-}" -e "TMPDIR=${work}/in" -e "HOME=${work}/in" \
 		-e "SHCL_GATE_STRICT=${SHCL_GATE_STRICT:-}" -e "SHCL_CTR_CARGO=${SHCL_CTR_CARGO:-}" \
 		"${tag}" nice -n 19 bash "$@" || rc=$?
@@ -253,3 +273,4 @@ fCtrZigTrim(){
 ##		- 2026-10-24 JC: fCtrZigTrim, for the main image's Zig cache volume.
 ##		- 2026-10-24 JC: dev.project and dev.run labels, container names, fCtrRunGone and fCtrDf.
 ##		  The tag before the current one stays.
+##		- 2026-10-28 JC: fCtrZoneArgs, so a run in the image keeps this box's local time.

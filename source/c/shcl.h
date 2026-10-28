@@ -854,9 +854,11 @@ typedef struct {
 	size_t *errors_left; size_t errors_left_n;
 } shcl_upgraded;
 // A config file written for an older format, made over for this one: the
-// input run through shcl_migrate_unstamped, then written the way `fmt` writes
-// it, with the info block `init` writes at the end in place of an old one
-// there. A whole block above the first field stays, so a file with its block
+// input run through shcl_migrate_unstamped, then saved keeping its lines, so
+// each line, blank ones included, stays where it was, with the info block
+// `init` writes at the end in place of an old one there. Where the lines can't
+// be kept, or keeping them keeps an error, it is written the way `fmt` writes
+// it. A whole block above the first field stays, so a file with its block
 // at the top comes out with 2, both naming this format. This is the one library
 // call that writes the block. A file that names this format comes back current
 // and untouched, and so does one that loads with no error under these rules,
@@ -2083,6 +2085,13 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 	while (pos < s.n) {
 		unsigned char b = (unsigned char)s.p[pos];
 		if (shield && b == '\\' && pos + 1 < s.n) { pos += 1 + utf8_len(s, pos + 1); content_end = min_sz(pos, s.n); continue; }
+		/* 2.0 read a quote inside a piece as text, but a comma or a `#`
+		   before its close did not end the piece. One that never closes is
+		   text, as `don't` is. */
+		if (shield && (b == '"' || b == '\'')) {
+			size_t close;
+			if (quote_close(s, pos, rules, &close)) { pos = close + 1; content_end = pos; continue; }
+		}
 		if (b == (unsigned char)term) {
 			if (every_comma || loose_comma(s, pos)) break;
 		} else if ((array && b == ']') || (comments && comment_at(s, pos))) break;
@@ -3340,7 +3349,8 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		ShclStr raw = s_slice(text, p->start, p->end), why;
 		int quoted = piece_quoted(p->quote);
 		size_t ea = quoted ? p->start - 1 : p->start, eb = quoted ? p->end + 1 : p->end;
-		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && !has_mark(raw) && raw.n && !bare_trouble(a, raw, BARE_VALUE, &why)) continue;
+		/* A comma or a `#` in a bare piece sat inside a quote 2.0 paired. */
+		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && !memchr(raw.p, ',', raw.n) && !memchr(raw.p, '#', raw.n) && !has_mark(raw) && raw.n && !bare_trouble(a, raw, BARE_VALUE, &why)) continue;
 		ShclStr logical = v2_text(a, raw);
 		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
 		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
@@ -3980,6 +3990,29 @@ static int size_cmp(const void *pa, const void *pb);
    as ShclMigrateOwn. */
 typedef struct { shcl_doc *before, *fresh, *made; char *migrated, *text; size_t *left; } ShclUpgradeOwn;
 
+static void keep_source_in(shcl_doc *k, ShclStr t);
+
+/* The fresh file's text, saved the way `set` saves, so each line of the
+   input is on the same line here, blank ones included (2026102620591101).
+   Where the lines can't be kept, or keeping them keeps an error the canonical
+   form repairs, such as a missing colon, it is the canonical form. Both live
+   in the document's arena. */
+static shcl_str upgrade_text(shcl_doc *fresh, jmp_buf *panic) {
+	shcl_str canonical = shcl_to_canonical(fresh);
+	int kept = 0;
+	shcl_str lines = shcl_to_text_keep_lines(fresh, &kept);
+	if (!kept) return canonical;
+	shcl_doc *d = shcl_parse(lines.p, lines.n);
+	if (!d) longjmp(*panic, 1);
+	size_t n = shcl_error_count(d);
+	shcl_free(d);
+	d = shcl_parse(canonical.p, canonical.n);
+	if (!d) longjmp(*panic, 1);
+	int better = n <= shcl_error_count(d);
+	shcl_free(d);
+	return better ? lines : canonical;
+}
+
 /* The lines with an error on them, in order, each once, into *out (malloc'd).
    Returns how many. */
 static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
@@ -4040,8 +4073,10 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			up->lost = m.lost + shcl_lost_count(own->fresh);
 			/* migrate keeps every line where it was, so these are the input's. */
 			size_t nleft = error_lines(own->fresh, &own->left, panic);
+			ShclStr src; src.p = m.text; src.n = m.len;
+			keep_source_in(own->fresh, src);
 			swap_banner(own->fresh, 1, 1);
-			keep = shcl_to_canonical(own->fresh);
+			keep = upgrade_text(own->fresh, panic);
 			/* With from_v2 it goes only when that leaves it loading clean, or
 			   the next run with it would read the result by 2.x rules again
 			   (2026101515372401). Without, a Format 3 file with an error is
