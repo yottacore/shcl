@@ -625,6 +625,32 @@ fLeakLen -y --no-sync --quick --long
 if ((engRc != 2)) || [[ "${leakRun}" != 0000 ]] || ! grep -qF "can't go together" "${work}/eng.log"; then
 	fail "cicd.bash took --quick --long: exit ${engRc}, ran ${leakRun}: $(tail -2 "${work}/eng.log")"
 fi
+fTest Eu21ced --skip leaves out each step that holds its text, and the run records nothing
+## 2026102813104371: the hosted run skips the leak check whose tool it can't
+## install. A text that matches no step this run takes is a usage error.
+fLeakLen --merge-gate
+((engRc == 0 && engRecorded == 1)) || fail "cicd.bash --merge-gate: exit ${engRc}, recorded ${engRecorded}: $(tail -2 "${work}/eng.log")"
+fSkipRun(){  ## fSkipRun WANT ARGS...: a run with --skip passes, records nothing, and runs the leak checks as WANT
+	local want="$1"; shift
+	fLeakLen "$@"
+	if ((engRc != 0 || engRecorded != 0)) || [[ "${leakRun}" != "${want}" ]]; then
+		fail "cicd.bash $*: exit ${engRc}, recorded ${engRecorded}, ran the leak checks as ${leakRun}, not ${want}: $(tail -2 "${work}/eng.log")"
+	fi
+}
+fSkipRun 1001 --merge-gate --skip='echo leak'
+grep -qF 'Off ............: each step with echo leak (--skip)' "${work}/eng.log" || fail "a --skip run didn't say what it left out: $(grep -F 'Off ...' "${work}/eng.log" || true)"
+fSkipRun 1001 --merge-gate --skip 'echo leak'
+fSkipRun 1100 --merge-gate --skip=STUB_LEAK_TEST
+fSkipBad(){  ## fSkipBad MESSAGE ARGS...: a usage error before anything runs
+	local msg="$1"; shift
+	fLeakLen "$@"
+	if ((engRc != 2 || engRecorded != 0)) || [[ "${leakRun}" != 0000 ]] || ! grep -qF -- "${msg}" "${work}/eng.log"; then
+		fail "cicd.bash $*: exit ${engRc}, ran ${leakRun}: $(tail -2 "${work}/eng.log")"
+	fi
+}
+fSkipBad 'matches no step' --merge-gate --skip=nope
+fSkipBad 'matches no step' --merge-gate --no-tests --skip='echo leak'
+fSkipBad 'names no step' --merge-gate --skip=
 fTest Et6Aum5 --ci is another name for --merge-gate
 ## 2026101816034794 made --ci unknown; 2026102515494619 brings it back as
 ## another name for --merge-gate, which says so in one line.

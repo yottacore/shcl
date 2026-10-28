@@ -14,12 +14,13 @@
 ##		its PyPI wheel, whose version (CPPCHECK_WHEEL) is not the binary version
 ##		TOOL_PINS checks, so ci.yml has to name the wheel token and, on a line
 ##		naming cppcheck, the binary version that wheel bundles - bump both.
-##		Also fails when the jobs that run cicd.bash --gate between them leave a
-##		stage out, when one of them runs both lint and tests or without
+##		Also fails when the jobs that run cicd.bash --merge-gate between them
+##		leave a stage out, when one of them runs both lint and tests or without
 ##		--no-container, when a
 ##		cicd/container recipe installs a pinned tool at another version, and
-##		when one fetches something it doesn't hash. A tool only --leakcheck
-##		runs is left out of ci.yml, and fails here if a gate step names it.
+##		when one fetches something it doesn't hash. A leak check's tool that
+##		ci.yml leaves out fails here unless every job that runs the leak
+##		checks skips its step, and no other step may name it.
 ##	Syntax:
 ##		check-pins.bash
 ##	Exit: 0 = every pin matches, 1 = a mismatch (named), 2 = cannot read inputs.
@@ -49,14 +50,14 @@ testWhere="check-pins"; testCounter="nBad"; nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 
-## Not pinned in the hosted gate, which builds no release packages. It installs
-## apt's nsis for the shell-regress rows that compile the setup script, whose
-## output is read and thrown away. cargo-zigbuild is pinned there, for the
-## macOS job's universal build.
+## Not pinned in the hosted gate, which builds no windows release and so no
+## setup. It installs apt's nsis for the shell-regress rows that compile the
+## setup script, whose output is read and thrown away. cargo-zigbuild is
+## pinned there, for the macOS job's universal build.
 notInCi=(makensis)
-## Run only by a --leakcheck step, which the hosted gate leaves out, so it
-## would download for nothing. CodeQL's bundle is about 700 MB. The check
-## below holds each to that: no step the gate runs may name it.
+## Run only by a leak check that every hosted job skips with --skip, since
+## CodeQL's bundle is about 700 MB and its run more than the tests half has
+## time for. The check below holds each to that.
 leakOnly=(codeql)
 notInCi+=("${leakOnly[@]}")
 
@@ -86,16 +87,6 @@ for pin in "${TOOL_PINS[@]}"; do
 	fi
 	echo "check-pins: ${name} is pinned at ${ver} in config.bash, and no line of ci.yml names ${name} with that version" >&2
 	nBad=$((nBad + 1))
-done
-
-fTest EtAC9of leakcheck-only-tools-stay-out-of-the-gate
-for tool in "${leakOnly[@]}"; do
-	for step in "${FMT_CHECK_CMD[*]:-}" "${FMT_CHECK_EXTRA[@]}" "${BUILD_CMD[*]:-}" "${BUILD_EXTRA[@]}" "${LINT_CMD[*]:-}" "${LINT_EXTRA[@]}" \
-		"${TEST_CMD[*]:-}" "${TEST_EXTRA[@]}" "${CROSS_CHECKS[@]}" "${RELEASE_CHECKS[@]}"; do
-		if [[ "${step}" =~ (^|[^A-Za-z0-9_-])${tool}([^A-Za-z0-9_]|$) ]]; then
-			echo "check-pins: ${tool} is left out of ci.yml as a --leakcheck tool, and a step the gate runs names it: ${step}" >&2; nBad=$((nBad + 1))
-		fi
-	done
 done
 
 ## A version pin is only half of it. The workflow also fetches two tools as
@@ -174,13 +165,16 @@ while IFS= read -r named; do
 	((found)) || { echo "check-pins: ci.yml installs ${named} at a pinned version and config.bash has no TOOL_PINS entry for it" >&2; nBad=$((nBad + 1)); }
 done < <(printf '%s\n%s\n%s\n%s\n' "${pipNames}" "${npmNames}" "${goNames}" "${psNames}" | sed '/^$/d' | sort -u)
 
-## The hosted gate is split into parallel jobs, each running cicd.bash --gate
-## with a flag that leaves one stage out. Between them they have to run every
-## stage. Only flags that each drop a stage no other flag touches are allowed,
-## so "some job runs without each flag" is the whole test. --no-largedoc and
-## --quick overlap --no-tests, and would let the large document fall through.
+## The hosted gate is split into parallel jobs, each running cicd.bash
+## --merge-gate with flags that leave stages out. Between them they have to run
+## every stage. Only flags that each drop a stage no other flag touches are
+## allowed, so "some job runs without each flag" is the whole test. --no-largedoc
+## and --quick overlap --no-tests, and would let the large document fall
+## through. --no-cross and --no-release share the cross targets, which the
+## halves leave to the jobs that build on their own runners (2026102813104371).
+## --no-remote is the LAN boxes, and --skip is held to the leak check below.
 fTest EsZzNCY hosted-jobs-cover-the-gate
-stageFlags=(--no-fmt --no-lint --no-tests --no-cross)
+stageFlags=(--no-fmt --no-lint --no-tests --no-cross --no-release)
 gateRuns=()
 matrixRe='\$\{\{ *matrix\.([A-Za-z0-9_-]+) *\}\}'
 while IFS= read -r runLine; do
@@ -199,13 +193,15 @@ while IFS= read -r runLine; do
 done < <(grep -E -- 'cicd/cicd\.bash' <<<"${liveLines}" || true)
 ((${#gateRuns[@]})) || { echo "check-pins: no job in ci.yml runs cicd/cicd.bash" >&2; nBad=$((nBad + 1)); }
 declare -A flagMissingSomewhere=() flagUsed=()
-inImage=()
+inImage=(); runSkips=()
 for runArgs in "${gateRuns[@]}"; do
 	read -r -a runWords <<<"${runArgs}"
-	hasGate=0; hasNoCtr=0
+	hasGate=0; hasNoCtr=0; skips=""
 	for w in "${runWords[@]}"; do
-		if [[ "${w}" == --gate ]]; then hasGate=1; continue; fi
+		if [[ "${w}" == --merge-gate ]]; then hasGate=1; continue; fi
 		if [[ "${w}" == --no-container ]]; then hasNoCtr=1; continue; fi
+		if [[ "${w}" == --no-remote ]]; then continue; fi
+		if [[ "${w}" == --skip=?* ]]; then skips+="${w#--skip=}"$'\n'; continue; fi
 		known=0
 		for f in "${stageFlags[@]}"; do
 			if [[ "${w}" == "${f}" ]]; then known=1; fi
@@ -213,8 +209,9 @@ for runArgs in "${gateRuns[@]}"; do
 		if ((known)); then flagUsed["${w}"]=1
 		else echo "check-pins: ci.yml runs the gate with ${w}, which may leave out more than one stage:${runArgs}" >&2; nBad=$((nBad + 1)); fi
 	done
-	((hasGate)) || { echo "check-pins: ci.yml runs cicd.bash without --gate:${runArgs}" >&2; nBad=$((nBad + 1)); }
+	((hasGate)) || { echo "check-pins: ci.yml runs cicd.bash without --merge-gate:${runArgs}" >&2; nBad=$((nBad + 1)); }
 	((hasNoCtr)) || inImage+=("${runArgs}")
+	runSkips+=("${skips}")
 	## Lint and tests together were the one job that ran past the 60-minute
 	## limit (2026101011200000), so each job leaves one of them out.
 	if [[ " ${runArgs} " != *" --no-lint "* && " ${runArgs} " != *" --no-tests "* ]]; then
@@ -233,6 +230,44 @@ done
 fTest EtDCDE9 hosted-jobs-skip-the-image
 for runArgs in "${inImage[@]}"; do
 	echo "check-pins: ci.yml runs the gate without --no-container, so it would build the image first:${runArgs}" >&2; nBad=$((nBad + 1))
+done
+
+## A leak check's tool ci.yml leaves out is skipped by name in every hosted job
+## that runs the leak checks, the ones without --no-tests, and no other step
+## names it. A --skip of anything else leaves out a step the runner can run.
+fTest EtAC9of leakcheck-only-tools-stay-out-of-the-gate
+for tool in "${leakOnly[@]}"; do
+	toolRe="(^|[^A-Za-z0-9_-])${tool}([^A-Za-z0-9_]|$)"
+	for step in "${FMT_CHECK_CMD[*]:-}" "${FMT_CHECK_EXTRA[@]}" "${BUILD_CMD[*]:-}" "${BUILD_EXTRA[@]}" "${LINT_CMD[*]:-}" "${LINT_EXTRA[@]}" \
+		"${TEST_CMD[*]:-}" "${TEST_EXTRA[@]}" "${CROSS_CHECKS[@]}" "${RELEASE_CHECKS[@]}"; do
+		if [[ "${step}" =~ ${toolRe} ]]; then
+			echo "check-pins: ${tool} is left out of ci.yml as a leak check's tool, and a step the gate runs names it: ${step}" >&2; nBad=$((nBad + 1))
+		fi
+	done
+	for step in "${LEAKCHECK_FAST[@]}" "${LEAKCHECK_STEPS[@]}"; do
+		[[ "${step}" =~ ${toolRe} ]] || continue
+		for i in "${!gateRuns[@]}"; do
+			[[ " ${gateRuns[${i}]} " != *" --no-tests "* ]] || continue
+			skipped=0
+			while IFS= read -r skipText; do
+				if [[ -n "${skipText}" && "${step}" == *"${skipText}"* ]]; then skipped=1; fi
+			done <<<"${runSkips[${i}]}"
+			((skipped)) || { echo "check-pins: ${tool} is left out of ci.yml, and a hosted job runs the leak check that needs it: ${step}:${gateRuns[${i}]}" >&2; nBad=$((nBad + 1)); }
+		done
+	done
+done
+for i in "${!gateRuns[@]}"; do
+	while IFS= read -r skipText; do
+		[[ -n "${skipText}" ]] || continue
+		needed=0
+		for step in "${LEAKCHECK_FAST[@]}" "${LEAKCHECK_STEPS[@]}"; do
+			[[ "${step}" == *"${skipText}"* ]] || continue
+			for tool in "${leakOnly[@]}"; do
+				if [[ "${step}" =~ (^|[^A-Za-z0-9_-])${tool}([^A-Za-z0-9_]|$) ]]; then needed=1; fi
+			done
+		done
+		((needed)) || { echo "check-pins: ci.yml skips ${skipText}, which is no leak check whose tool it leaves out:${gateRuns[${i}]}" >&2; nBad=$((nBad + 1)); }
+	done <<<"${runSkips[${i}]}"
 done
 
 ## The --container images are the other copy. The main one installs every
@@ -368,3 +403,6 @@ exit "${rc}"
 ##		- 2026-10-19 JC: The hosted jobs run --gate. apt's name=version is a joiner.
 ##		- 2026-10-19 JC: A --leakcheck-only tool stays out of ci.yml, and out of every gate step.
 ##		- 2026-10-19 JC: Every hosted gate run passes --no-container.
+##		- 2026-10-28: The hosted jobs run --merge-gate, with --no-release and --no-remote
+##		  allowed. A leak check's tool ci.yml leaves out is skipped by --skip in every
+##		  job that runs the leak checks, and --skip names nothing else.

@@ -145,7 +145,7 @@ There is also a `pre-push` hook that runs the merge gate, `cicd/cicd.bash --merg
 git config core.hooksPath cicd/hooks
 ~~~
 
-It skips the gate for a commit whose files a run already passed. Every `cicd.bash` run that gets through the tests and the cross checks without `--quick`, `--no-fmt`, `--no-lint`, `--no-tests`, `--no-cross` or a skipped tool records the tree it tested. So the push at the end of a full run goes straight out, and so does a `--no-ff` merge of a branch that passed onto a `main` that has not moved since. `SHCL_GATE_RERUN=1` runs the gate anyway, and `git push --no-verify` or `SHCL_SKIP_HOOK=1` gets past it when you need to.
+It skips the gate for a commit whose files a run already passed. Every `cicd.bash` run that gets through the tests and the cross checks without `--quick`, `--no-fmt`, `--no-lint`, `--no-tests`, `--no-cross`, `--skip` or a skipped tool records the tree it tested. So the push at the end of a full run goes straight out, and so does a `--no-ff` merge of a branch that passed onto a `main` that has not moved since. `SHCL_GATE_RERUN=1` runs the gate anyway, and `git push --no-verify` or `SHCL_SKIP_HOOK=1` gets past it when you need to.
 
 GitHub CI runs on pushes to `main`, on pull requests, and by hand from the Actions tab. Pushes to `dev` do not start it, and nothing gates `dev`, so run `cicd/cicd.bash --gate` on your own box before you merge there.
 
@@ -196,6 +196,8 @@ Two more images are there for now and then:
 - In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. A quick run never counts as a pass for the hook.
 
 - Before a commit in a backlog round: `cicd/cicd.bash --backlog-run-quick` is `--gate` less what `--quick` leaves out, with no leak checks or profiler calibration, in about 4 minutes. It also leaves out the slow tests `BACKLOG_SKIP` in `cicd/config.bash` lists, and records no tree. Area names after it, such as `--backlog-run-quick go cli`, keep only those areas' tests, `BACKLOG_SKIP`'s included. `--help` lists them, and `BACKLOG_AREAS` says which steps each holds. `--backlog-run-full`, for the round's last run, runs the merge gate's checks. Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts.
+
+- `--skip TEXT` leaves out each lint, test, leak check, cross or release check step whose command holds `TEXT`, and the run records nothing. The hosted workflow runs the merge gate with `--skip=codeql-scan.bash`, since it doesn't install CodeQL.
 
 - The leak and memory checks, by how long they take. `--quick` ends its tests with the fast ones, a run with no flags with the slow ones too, and `--long` (or `--slow`) adds the ones that take hours, so a run with no flags stays near an hour. `--gate` leaves them out. `--leakcheck` adds every one, so `cicd/cicd.bash --gate --leakcheck` is the gate plus all of them. `--no-leakcheck` drops every one, the sanitizer runs in the tests too, and can't be given with `--leakcheck`. `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG` in `cicd/config.bash` list them. Every Rust test under Miri is a long one, and takes hours. It needs the dated nightly in `rust-toolchain.toml`, and skips without it. The C analyzer, the C soak and CodeQL run in the build image when their tools aren't on your box and docker answers.
 

@@ -1352,14 +1352,22 @@ fTest EsZzNEZ 2026101011200000-hosted-jobs-cover-the-gate
 ##	2026101011200000: the ubuntu gate split into parallel jobs, each leaving a
 ##	stage out. A job list that drops a stage everywhere, or a flag that drops
 ##	more than one, must fail the check, or a stage stops running hosted.
-fPinsRun 's/args: --gate --no-tests$/args: --gate --no-lint/' && fBad "check-pins.bash passed hosted jobs that all leave lint out"
-fPinsRun 's/args: --gate --no-lint --no-cross$/args: --gate --no-largedoc/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
-fPinsRun 's/args: --gate --no-tests$/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --gate"
+fPinsRun 's/args: --merge-gate --no-tests --no-release --no-remote$/args: --merge-gate --no-lint --no-remote/' && fBad "check-pins.bash passed hosted jobs that all leave lint out"
+fPinsRun 's/--no-cross --no-remote --skip/--no-largedoc --no-remote --skip/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
+fPinsRun 's/args: --merge-gate --no-tests/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --merge-gate"
 fPinsRun 's#cicd/cicd\.bash#cicd/other.bash#' && fBad "check-pins.bash passed a workflow with no job running cicd.bash"
 ##	2026101514324719: the single job the split replaced, and a third job that
 ##	runs everything beside the 2 halves.
-fPinsRun '/^[[:space:]]*- part: tests$/,/args:/d; s/args: --gate --no-tests$/args: --gate/' && fBad "check-pins.bash passed one hosted job running lint and tests together"
-fPinsRun 's/^([[:space:]]*)(- part: tests)$/\1- part: all\n\1  args: --gate\n\1\2/' && fBad "check-pins.bash passed a hosted job running lint and tests beside the 2 halves"
+fPinsRun '/^[[:space:]]*- part: tests$/,/args:/d; s/args: --merge-gate --no-tests --no-release --no-remote$/args: --merge-gate --no-remote/' && fBad "check-pins.bash passed one hosted job running lint and tests together"
+fPinsRun 's/^([[:space:]]*)(- part: tests)$/\1- part: all\n\1  args: --merge-gate --no-remote --skip=codeql-scan.bash\n\1\2/' && fBad "check-pins.bash passed a hosted job running lint and tests beside the 2 halves"
+fTest Eu21cec 2026102813104371-hosted-jobs-run-the-merge-gate
+##	2026102813104371: the hosted jobs run --merge-gate, not the shorter --gate.
+##	The native release runs in one of them, and the leak check whose tool ci.yml
+##	leaves out is skipped by name, and nothing else is.
+fPinsRun 's/args: --merge-gate --no-lint/args: --gate --no-lint/' && fBad "check-pins.bash passed a hosted job run with --gate"
+fPinsRun 's/--no-cross --no-remote --skip/--no-cross --no-release --no-remote --skip/' && fBad "check-pins.bash passed hosted jobs that all leave the release out"
+fPinsRun 's/ --skip=codeql-scan\.bash//' && fBad "check-pins.bash passed a hosted job that runs CodeQL, which ci.yml doesn't install"
+fPinsRun 's/--skip=codeql-scan\.bash/--skip=codeql-scan.bash --skip=cli-regress.bash/' && fBad "check-pins.bash passed a hosted job that skips a step it can run"
 fTest Esbq6Ie 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to
@@ -4034,3 +4042,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-19  Hosted gate runs pass --no-container, and only fCtrWhyNot asks for docker.
 ##		2026-10-23  check-migrate counts errors past a Schema line naming a missing file.
 ##		2026-10-24  The pyworker, uninstall, flame-report and check-completions rows fail by name when their file is gone.
+##		2026-10-28  The hosted job rows read --merge-gate, and the release and the skipped leak check are held.

@@ -43,8 +43,7 @@
 ##	   --long, --slow      also the leak checks that take hours. Not with --quick
 ##	   --leakcheck         every leak check config.bash lists, at the end of the
 ##	                       tests stage, the ones that take hours included
-##	   --no-leakcheck      every leak check out, fast ones and sanitizer runs too.
-##	                       Not with --leakcheck
+##	   --no-leakcheck      no leak check or sanitizer run. Not with --leakcheck
 ##	   -q, --quiet         unattended and quiet: no preflight block, and cargo,
 ##	                       ruff and the gif renderer get their quiet flags
 ##	   -y, --yes           unattended (no prompt) but not quiet
@@ -64,6 +63,7 @@
 ##	   --no-gif            skip the demo gif refresh
 ##	   --no-publish        skip the git backup + publish stage
 ##	   --no-remote         skip the test boxes config.bash lists in REMOTE_BOXES
+##	   --skip TEXT         leave out each step whose command holds TEXT; record nothing
 ##	   --keep-temp         keep the run's temp folder and containers, and say where
 ##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
 ##	                       or NAME.Dockerfile there for an extra one, and fail
@@ -208,7 +208,7 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 ## Parse options.
 assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; backlog_quick=0; run_areas=(); quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0; keep_temp=0; list_only=0
 ## --container: which image, and the options the run inside it takes over.
-ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; no_remote=0
+ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; no_remote=0; skip_texts=()
 ## Why each step may be off, by step id, for the list in the first section.
 declare -A step_why=()
 fOff(){   ## fOff STEP REASON
@@ -254,6 +254,8 @@ while (($#)); do case "$1" in
 	--no-gif)                 GIF_ENABLE=0; fOff gif "$1"; shift ;;
 	--no-publish)             GIT_PUBLISH=(); fOff publish "$1"; shift ;;
 	--no-remote)              no_remote=1; fOff boxes "$1"; shift ;;
+	--skip=*)                 skip_texts+=("${1#*=}"); ctr_pass+=("$1"); shift ;;
+	--skip)                   skip_texts+=("${2-}"); ctr_pass+=(--skip="${2-}"); shift; (($#)) && shift ;;
 	--keep-temp)              keep_temp=1; ctr_pass+=("$1"); shift ;;
 	--list)                   list_only=1; shift ;;
 	--container)              fCtrPick main; shift ;;
@@ -406,13 +408,34 @@ else
 	LEAKCHECK_STEPS=("${LEAKCHECK_FAST[@]}" "${LEAKCHECK_STEPS[@]}")
 fi
 
+## --skip TEXT: each step that holds TEXT goes, matched like QUICK_SKIP. The
+## hosted run leaves out a leak check whose tool it can't install that way. A
+## TEXT that matches no step is a typo, or a step another flag took out.
+skip_partial=0
+for skipText in "${skip_texts[@]}"; do
+	if [[ -z "${skipText}" ]]; then echo "--skip names no step (try --help)" >&2; exit 2; fi
+	skipHit=0
+	for list in LINT_EXTRA TEST_EXTRA CROSS_CHECKS CROSS_TARGETS RELEASE_CHECKS LEAKCHECK_STEPS; do
+		declare -n skipList_k4v="${list}"
+		skipKept=()
+		for step in "${skipList_k4v[@]}"; do
+			if [[ "${step}" == *"${skipText}"* ]]; then skipHit=1; else skipKept+=("${step}"); fi
+		done
+		skipList_k4v=("${skipKept[@]}")
+		unset -n skipList_k4v
+	done
+	if ((xcheck_enable && ${#BINDING_CLIS[@]})) && [[ crosscheck.bash == *"${skipText}"* ]]; then xcheck_enable=0; skipHit=1; fi
+	if ((! skipHit)); then echo "--skip ${skipText} matches no step this run takes (try --help)" >&2; exit 2; fi
+	skip_partial=1
+done
+
 ## A run at least as thorough as the pre-push hook's records the tree it tested
 ## once the tests and the cross checks pass, and the hook lets a commit with
 ## that tree through. A gate that skips a missing tool locally notes it in
 ## SHCL_GATE_SKIPS. Under --gate the same skip is a failure, so a run with
 ## anything noted there records nothing.
 record_green=1
-if ((quick || gate_partial)); then record_green=0; fi
+if ((quick || gate_partial || skip_partial)); then record_green=0; fi
 
 ## The steps this run takes, by id, in order. A step that's off isn't counted,
 ## and the first section names it with the flag or the reason. A run another run
@@ -894,6 +917,7 @@ fStepsOff(){
 	for id in "${steps_off[@]}"; do
 		fEcho_Clean "Off ............: $(fStepTitle "${id}") (${step_why[${id}]:-not configured})"
 	done
+	for id in "${skip_texts[@]}"; do fEcho_Clean "Off ............: each step with ${id} (--skip)"; done
 }
 if ((! quiet)); then
 	fSection "${run_title}"
@@ -1598,3 +1622,4 @@ exit 0
 ##		- 2026-10-25 JC: Each step opens with a Starting line and closes with PASS or FAIL, as Step N of M with the time, under a
 ##		  79-wide rule. Steps that are off aren't counted, and the first section names them with the flag or reason.
 ##		- 2026-10-28 JC: The run in the image gets this box's zone, so its step lines are in local time too.
+##		- 2026-10-28 JC: --skip TEXT leaves out each step that holds TEXT, and the run records nothing. The hosted run skips CodeQL.

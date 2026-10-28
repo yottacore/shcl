@@ -1,6 +1,6 @@
 ## Correctness gate only. Everything else (cross-compile, publish, artifacts)
 ## stays in the local pipeline: cicd/cicd.bash. One definition of "passing" -
-## this just runs the engine's --gate mode.
+## this just runs the engine's --merge-gate mode, as far as the runner can.
 ##
 ## Not on dev pushes. A branch is built and tested before it merges there, so a
 ## hosted run per dev push was the same gate again at half an hour each. main
@@ -22,14 +22,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ## Two parallel halves of the one gate. As one job it ran 31 to 50 minutes
-  ## and then over the 60-minute limit: lint was 3 minutes plus cppcheck's
-  ## exhaustive pass, 16 to 26 more whenever shcl.h changed, and the tests
-  ## stage with crosscheck and the large document was 20 to 29. Each half runs
-  ## the engine with stage flags, so what passing means stays in cicd.bash,
-  ## and check-pins.bash fails when the halves stop covering everything --gate
-  ## runs. Both install every tool, so a strict skip can't
+  ## Two parallel halves of the one merge gate. As one job it ran 31 to 50
+  ## minutes and then over the 60-minute limit: lint was 3 minutes plus
+  ## cppcheck's exhaustive pass, 16 to 26 more whenever shcl.h changed, and the
+  ## tests stage with crosscheck and the large document was 20 to 29. Each half
+  ## runs the engine with stage flags, so what passing means stays in cicd.bash,
+  ## and check-pins.bash fails when the halves stop covering everything the
+  ## merge gate runs here. Both install every tool, so a strict skip can't
   ## come from a tool one half forgot.
+  ##
+  ## What the runner can't: the test boxes are on the LAN (--no-remote), and
+  ## CodeQL's bundle is about 700 MB and 10 minutes more than the tests half
+  ## has (--skip). The cross targets would take a third job of their own; the
+  ## macos, linux-arm and windows jobs below build on their own runners instead.
   ci:
     name: ci (${{ matrix.part }})
     runs-on: ubuntu-latest
@@ -39,11 +44,12 @@ jobs:
       matrix:
         include:
           ## The cross checks take half a minute. Lint is the shorter half
-          ## unless the C header changed.
+          ## unless the C header changed. The tests half takes the native
+          ## release, its checks and packages, and the leak checks.
           - part: lint
-            args: --gate --no-tests
+            args: --merge-gate --no-tests --no-release --no-remote
           - part: tests
-            args: --gate --no-lint --no-cross
+            args: --merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash
     steps:
       ## Actions by commit SHA (tag in the comment), so a moved tag cannot
       ## silently change what runs.
@@ -107,11 +113,12 @@ jobs:
           ## TOOL_PINS, with Ubuntu's apt fixing the point release, and g++ at
           ## gcc's major, since clang takes the C++ headers of the newest gcc
           ## it finds and fails without them. clang-tools and heaptrack are for
-          ## the --leakcheck steps, which the gate doesn't run; they're here so
-          ## the image and this job keep the same tools. CodeQL isn't, since its
-          ## bundle is about 700 MB for a step this job never runs, and
-          ## check-pins fails if a gate step ever names it.
-          sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19 clang-tools-19 'heaptrack=1.5.0*'
+          ## the fast leak checks the merge gate runs. CodeQL isn't, since its
+          ## bundle is about 700 MB for the step the tests half skips, and
+          ## check-pins fails if a step this workflow runs ever names it.
+          ## qemu, busybox and cpio boot the native release on the old CPUs
+          ## for the CPU floor check.
+          sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19 clang-tools-19 'heaptrack=1.5.0*' qemu-system-x86 busybox cpio
           pip install ruff==0.15.22 mypy==2.3.0 cppcheck==1.5.1 build==1.5.0 pillow==11.1.0
           npm install -g markdownlint-cli2@0.23.1
           pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser'
@@ -288,8 +295,8 @@ jobs:
   ## cli-regress, and crosscheck over the corpus against a plain debug build.
   ## The Rust tests run the corpus against the library here as well.
   ##
-  ## Not under --gate, so a row this host has no device or tool for (/dev/full,
-  ## strace, the page map) is skipped out loud rather than failed. GNU
+  ## Not under the merge gate, so a row this host has no device or tool for
+  ## (/dev/full, strace, the page map) is skipped out loud rather than failed. GNU
   ## coreutils go first on PATH, since the gate scripts use timeout and
   ## stat -c. cargo-zigbuild is installed without its ziglang dependency, which
   ## it would take over the pinned zig below.

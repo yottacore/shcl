@@ -66,7 +66,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: hosted workflow on the merge gate, and --gate as a backlog run
 	- ID: 2026102813104371
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: a hosted `ci.yml` run on the round branch. Both halves pass under 60 minutes, `ci (tests)` builds the native release, boots it on the old CPUs, packages it and runs the 3 fast leak checks, and neither half runs CodeQL or the test boxes.
 	- Priority: High
 	- Opened: 20261028-131043
 	- Opened by: 2026102515494624
@@ -76,6 +77,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
 		- Then `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
 		- In this order, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+	- Progress log:
+		- 20261028: split. The hosted workflow is done here. `--gate` as a backlog run, with the contributing.md and install.md lines, is child 2026102814013272, free to start now that the hosted run doesn't use `--gate`.
+		- 20261028: ci.yml's halves run `--merge-gate --no-tests --no-release --no-remote` and `--merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash`, and the tests half installs qemu, busybox and cpio for the CPU floor check. cicd.bash takes `--skip TEXT`, which leaves out each step whose command holds TEXT, and the run records nothing. A TEXT that matches no step is exit 2. check-pins' job check wants `--merge-gate`, allows `--no-release` and `--no-remote`, and holds `--skip` to a leak check whose tool ci.yml leaves out. Help, the ci.yml comments, contributing.md and design.md say so.
+		- Verified: check-push-gate `Eu21ced` (both `--skip` forms, no record, the off line, the usage errors) went red with the record rule taken out, and passes. shell-regress `Eu21cec` (`--gate` in a job, the release nowhere, CodeQL run, another step skipped) went red with each check taken out of check-pins, and passes. The whole of check-push-gate, shell-regress, check-pins, check-docs and test-ids, shellcheck and markdownlint passed.
+		- Verified: `cicd.bash --backlog-run-quick cicd` in the main image passed its 5 steps in 6.5 minutes at a load of about 7, `Eu21ced`, `EsZzNCY` and `EtAC9of` included.
+		- Swept: every reader of the hosted job args (check-pins' `EsZzNCY`, `EtDCDE9`, `EtAC9of`, shell-regress `EsZzNEZ`, `EtDCDEA`), every `--gate` line in ci.yml and the design.md and contributing.md lines about the hosted run and what records a tree. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Decisions:
+		- me: the halves keep their split, and the tests half takes the native release, its checks and packages, and the fast leak checks. It was about 36 minutes, and the lint half about 44 with cppcheck.
+		- me: the runner leaves out the test boxes, which are on the LAN, CodeQL, whose bundle is about 700 MB and its run about 10 minutes more than the tests half has, and the cross targets, which would need a third job with wine, QEMU and FreeBSD's 640 MB image. The macOS, Linux arm64 and Windows jobs already build on their own runners, and the style guide asks for a small hosted workflow.
+		- me: CodeQL goes by a new `--skip TEXT` rather than `--no-leakcheck`, which would drop the sanitizer runs hosted already had. It is general, matched as text like `QUICK_SKIP`, and the run says what it left out.
+		- me: makensis stays unpinned in ci.yml, since the hosted run builds no Windows release and so no setup.
+	- Test case: check-push-gate `Eu21ced`, shell-regress `Eu21cec`, plus the changed rows of `EsZzNEZ`.
+		- 20261028: `EsZzNEZ`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
+
+- CICD reset: --gate as a backlog run
+	- ID: 2026102814013272
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261028-140132
+	- Opened by: 2026102813104371
+	- Parent ID: 2026102813104371
+	- Requirements:
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
 		- contributing.md's and install.md's `--gate` lines follow.
 
 - CICD reset: install-dev's gate lines
