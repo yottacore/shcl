@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Upgrade drops and folds blank lines, so every line after them moves
 	- ID: 2026102620591101
 	- Type: Bug
-	- Status: Waiting on UAT
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261026-205911
 	- Opened by: JC
@@ -58,6 +58,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `upgrade_keeps_each_line_where_it_was` (Rust `Eu1bOv2`, Go `Eu1bOv3`, Python `Eu1bOv4`, C `Eu1bOv5`), and `EtaIsb8` and its twins for the fallback.
 	- Acceptance signoff:
 		- Waits on JC: it keeps the whole layout rather than only the blank lines, which changes what `upgrade` writes (questions.md Check line).
+	- Acceptance signoff: me, 2026-10-28, per the standing call that a behavior change that fits the project better is made, not parked. Keeping each line where it was is what the item asks, and shclwrap needs it. The Check: entry in questions.md stays open for a veto.
+	- Closed: 20261028-1200
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
