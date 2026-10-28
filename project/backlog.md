@@ -92,60 +92,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `Eu21ced`, shell-regress `Eu21cec`, plus the changed rows of `EsZzNEZ`.
 		- 20261028: `EsZzNEZ`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
 
-- CICD reset: --gate as a backlog run
-	- ID: 2026102814013272
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261028-140132
-	- Opened by: 2026102813104371
-	- Parent ID: 2026102813104371
-	- Requirements:
-		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
-		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
-		- contributing.md's and install.md's `--gate` lines follow.
-
-- CICD reset: install-dev's gate lines
-	- ID: 2026102813104377
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261028-131043
-	- Opened by: 2026102515494624
-	- Parent ID: 2026102515494624
-	- Prereq IDs: 2026102813104371, 2026102814013272
-	- Requirements:
-		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
-	- Prereq IDs now name 2026102814013272 too, since that split-off child changes --gate before install-dev's lines can follow.
-
-- Upgrade drops and folds blank lines, so every line after them moves
-	- ID: 2026102620591101
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261026-205911
-	- Opened by: JC
-	- Version and build: dev at `2174f0d9`
-	- Steps to reproduce:
-		- In Go, `Upgrade("\n\nt:\n\taliases: a, b\n", true)` or with `fromV2` false, then parse the text and ask for the line of `t.aliases`.
-	- Incorrect behavior: the 2 blank lines at the top are gone, and a run of blank lines inside comes out as one, so `t.aliases` is on line 2. A diagnostic on the upgraded text names a line the file doesn't have there. Silent wrong answer.
-	- Expected behavior: line 4, as in the file. Blank lines stay where they were, as `migrate` keeps comments.
-	- Note: 2.x's `x: ~~~` comes out as `x:` with the fence on a line of its own, so lines after a raw block move by one too. shclwrap puts blank lines back itself (its 2026102618065634), but can't fix the raw block case (its 2026102620430717).
-	- Actual cause: `upgrade` wrote the migrated text the way `fmt` does. `fmt` drops blank lines before the first line, folds a run of them into one, and puts a raw block's fence on its own line.
-	- Actual fix: `upgrade` saves the migrated text the way `set` saves, keeping its lines, with the info block added at the end. Every line stays where it was, blank lines and `x: ~~~` included, so shclwrap's raw block case is fixed too. Where the lines can't be kept, or keeping them keeps an error the canonical form repairs, such as `   b` with no colon, it falls back to the `fmt` form as before. Same in Rust, Go, Python and C.
-	- Decisions:
-		- The whole layout is kept, not only blank lines, as `migrate` keeps it. The other way, a `fmt` that keeps blank-line runs, would still move every line after a raw block, and needs a new emitter mode in all 4 (me).
-		- The `fmt` fallback keeps upgrades that load clean only through `fmt`'s repair loading clean, as `EtaIsb8` shows. Without it that file would be refused with `--from-2x` (me).
-		- Departs from the item: it does more than keep blank lines. Indent, quoting and layout come through as `migrate` wrote them, where they used to come out in `fmt`'s form. spec.md, the man page, examples.md, the help text in the 4 CLIs and the doc comments say so.
-	- Swept: `upgrade` in the 4 libraries, the one place the fresh text is made. `upgrade_file`, the CLIs and the C++ `upgrade` go through it. `migrate` already kept lines. The help text is the same in the 4 CLIs.
-	- Verified: the new tests fail on the old code in all 4 and pass on the fix. `EtaIsb8` failed with the lines always kept, which is why the fallback is there. `cargo test`, `go test`, the Python and C conformance suites, the Python soak, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, cli-regress (629 rows, 4 bindings), crosscheck (22758 comparisons), check-migrate (647 documents), the 2,000,000 release fuzz (31 tests), check-docs, check-doc-examples, check-completions, test-ids check, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and the C CLI under gcc 15 and clang pass.
-	- Branch: `r1028`
-	- Test case: `upgrade_keeps_each_line_where_it_was` (Rust `Eu1bOv2`, Go `Eu1bOv3`, Python `Eu1bOv4`, C `Eu1bOv5`), and `EtaIsb8` and its twins for the fallback.
-	- Acceptance signoff:
-		- Waits on JC: it keeps the whole layout rather than only the blank lines, which changes what `upgrade` writes (questions.md Check line).
-	- Acceptance signoff: me, 2026-10-28, per the standing call that a behavior change that fits the project better is made, not parked. Keeping each line where it was is what the item asks, and shclwrap needs it. The Check: entry in questions.md stays open for a veto.
-	- Closed: 20261028-1200
-
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -292,6 +238,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261025: split into children 2026102515494614 (run lengths), 2026102515494619 (`--merge-gate`), 2026102515494624 (backlog runs), 2026102515494629 (docs-only pushes to main) and 2026102515494634 (`--keep-temp` and `--list`). `--no-remote` was in already (2026102419263412).
 		- 20261025: in on `r1025`: run lengths (Waiting on automated testing), `--merge-gate` and `--ci` (Waiting on automated testing), docs-only pushes to main (Done), `--keep-temp` and the steps `--list` prints. Left: the backlog runs and `--gate`'s move to them (2026102515494624), and the test IDs in `--list`.
 
+- CICD reset: backlog runs
+	- ID: 2026102515494624
+	- Type: Enhancement
+	- Status: Started
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102515494619
+	- Requirements:
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line.
+		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
+		- The round settings' gate and full-run lines move to them.
+		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
+		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
+		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
+	- Progress log:
+		- 20261028: split into children 2026102813104060 (the backlog run flags), 2026102813104371 (the hosted workflow on `--merge-gate`, then `--gate` as another name for `--backlog-run-quick`) and 2026102813104377 (install-dev's gate lines and the docs-only sync to main), in that order. The hosted workflow runs `--gate` today, and would lose the slow checks if `--gate` changed first.
+		- 20261028: the backlog run flags are in (Waiting on automated testing).
+
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
@@ -318,6 +285,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
+
+- CICD reset: --gate as a backlog run
+	- ID: 2026102814013272
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261028-140132
+	- Opened by: 2026102813104371
+	- Parent ID: 2026102813104371
+	- Requirements:
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+
+- CICD reset: install-dev's gate lines
+	- ID: 2026102813104377
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261028-131043
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Prereq IDs: 2026102813104371, 2026102814013272
+	- Requirements:
+		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
+	- Prereq IDs now name 2026102814013272 too, since that split-off child changes --gate before install-dev's lines can follow.
 
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
@@ -387,27 +380,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
 	- Progress log:
 		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
-
-- CICD reset: backlog runs
-	- ID: 2026102515494624
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261025-154946
-	- Opened by: 2026102416250050
-	- Parent ID: 2026102416250050
-	- Prereq IDs: 2026102515494619
-	- Requirements:
-		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
-		- `--gate` is another name for `--backlog-run-quick`, and says so in one line.
-		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
-		- The round settings' gate and full-run lines move to them.
-		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
-		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
-		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
-	- Progress log:
-		- 20261028: split into children 2026102813104060 (the backlog run flags), 2026102813104371 (the hosted workflow on `--merge-gate`, then `--gate` as another name for `--backlog-run-quick`) and 2026102813104377 (install-dev's gate lines and the docs-only sync to main), in that order. The hosted workflow runs `--gate` today, and would lose the slow checks if `--gate` changed first.
-		- 20261028: the backlog run flags are in (Waiting on automated testing).
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
@@ -526,6 +498,34 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Upgrade drops and folds blank lines, so every line after them moves
+	- ID: 2026102620591101
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261026-205911
+	- Opened by: JC
+	- Version and build: dev at `2174f0d9`
+	- Steps to reproduce:
+		- In Go, `Upgrade("\n\nt:\n\taliases: a, b\n", true)` or with `fromV2` false, then parse the text and ask for the line of `t.aliases`.
+	- Incorrect behavior: the 2 blank lines at the top are gone, and a run of blank lines inside comes out as one, so `t.aliases` is on line 2. A diagnostic on the upgraded text names a line the file doesn't have there. Silent wrong answer.
+	- Expected behavior: line 4, as in the file. Blank lines stay where they were, as `migrate` keeps comments.
+	- Note: 2.x's `x: ~~~` comes out as `x:` with the fence on a line of its own, so lines after a raw block move by one too. shclwrap puts blank lines back itself (its 2026102618065634), but can't fix the raw block case (its 2026102620430717).
+	- Actual cause: `upgrade` wrote the migrated text the way `fmt` does. `fmt` drops blank lines before the first line, folds a run of them into one, and puts a raw block's fence on its own line.
+	- Actual fix: `upgrade` saves the migrated text the way `set` saves, keeping its lines, with the info block added at the end. Every line stays where it was, blank lines and `x: ~~~` included, so shclwrap's raw block case is fixed too. Where the lines can't be kept, or keeping them keeps an error the canonical form repairs, such as `   b` with no colon, it falls back to the `fmt` form as before. Same in Rust, Go, Python and C.
+	- Decisions:
+		- The whole layout is kept, not only blank lines, as `migrate` keeps it. The other way, a `fmt` that keeps blank-line runs, would still move every line after a raw block, and needs a new emitter mode in all 4 (me).
+		- The `fmt` fallback keeps upgrades that load clean only through `fmt`'s repair loading clean, as `EtaIsb8` shows. Without it that file would be refused with `--from-2x` (me).
+		- Departs from the item: it does more than keep blank lines. Indent, quoting and layout come through as `migrate` wrote them, where they used to come out in `fmt`'s form. spec.md, the man page, examples.md, the help text in the 4 CLIs and the doc comments say so.
+	- Swept: `upgrade` in the 4 libraries, the one place the fresh text is made. `upgrade_file`, the CLIs and the C++ `upgrade` go through it. `migrate` already kept lines. The help text is the same in the 4 CLIs.
+	- Verified: the new tests fail on the old code in all 4 and pass on the fix. `EtaIsb8` failed with the lines always kept, which is why the fallback is there. `cargo test`, `go test`, the Python and C conformance suites, the Python soak, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, cli-regress (629 rows, 4 bindings), crosscheck (22758 comparisons), check-migrate (647 documents), the 2,000,000 release fuzz (31 tests), check-docs, check-doc-examples, check-completions, test-ids check, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and the C CLI under gcc 15 and clang pass.
+	- Branch: `r1028`
+	- Test case: `upgrade_keeps_each_line_where_it_was` (Rust `Eu1bOv2`, Go `Eu1bOv3`, Python `Eu1bOv4`, C `Eu1bOv5`), and `EtaIsb8` and its twins for the fallback.
+	- Acceptance signoff:
+		- Waits on JC: it keeps the whole layout rather than only the blank lines, which changes what `upgrade` writes (questions.md Check line).
+	- Acceptance signoff: me, 2026-10-28, per the standing call that a behavior change that fits the project better is made, not parked. Keeping each line where it was is what the item asks, and shclwrap needs it. The Check: entry in questions.md stays open for a veto.
+	- Closed: 20261028-1200
 
 - Step lines from inside the image print UTC, while the host's print local time
 	- ID: 2026102520122877
