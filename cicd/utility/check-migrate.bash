@@ -20,11 +20,13 @@
 ##		as a binding now, which is a gain, not a migration; a bracket array it
 ##		counted lost was refused by 2.x itself; a dropped line of any kind says
 ##		nothing. So those lines come out of the document first, and the rest is
-##		compared, as long as 2.x then reads it cleanly. Two more kinds of line
+##		compared, as long as 2.x then reads it cleanly. Three more kinds of line
 ##		come out the same way: a fence label holding a `#`, which 2.x ran to
 ##		the end of the line and which ends at the `#` now, with no quoting to
-##		write it; and a carriage return in the middle of a line, which 2.x kept
-##		as content and which is a blank at a piece's edge now. These are found
+##		write it; a carriage return in the middle of a line, which 2.x kept
+##		as content and which is a blank at a piece's edge now; and a quote in
+##		the middle of a value piece that closes past a comma or a `#`, which
+##		2.0 read as one piece and the pinned build cut there. These are found
 ##		in the 2.x text, never in migrate's output. Each is asserted on a
 ##		corpus case, so the list cannot rot. A backslash pair 2.x read as an
 ##		escape is written as the text 2.x read, so reads compare exactly.
@@ -394,6 +396,76 @@ for n, line in enumerate(text.split("\n"), 1):
 		| awk 'NR == FNR { if (index($0, ",")) comma[FNR] = 1; next } comma[$1]' "$1" -
 }
 
+##	Lines where the pinned build and 2.0 read a value apart: a quote in the
+##	middle of a piece, with a comma or a `#` before its close. 2.0 kept the
+##	piece whole, and migrate does too (2026102620591100), while the pinned
+##	build cut it there. Found in the 2.x text, the way 2.x reads a value: a
+##	backslash shields the next character, and a quote that opens a piece runs
+##	to its close. A raw body is passed over, as in fLostNow.
+fMidQuote2x(){
+	python3 -c '
+import re, sys
+text = open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape")
+fence = None
+def opens(v):
+	m = re.match(r"(`{3,}|~{3,})", v.lstrip(" \t"))
+	return (m.group(1)[0], len(m.group(1))) if m else None
+def close(s, i):
+	j = i + 1
+	while j < len(s) and s[j] != s[i]:
+		j += 2 if s[j] == "\\" else 1
+	return j if j < len(s) else None
+for n, line in enumerate(text.split("\n"), 1):
+	s = line.strip(" \t\r")
+	if fence:
+		if len(s) >= fence[1] and s == fence[0] * len(s):
+			fence = None
+		continue
+	fence = opens(s)
+	if fence or s.startswith("#"):
+		continue
+	if s.startswith("* "):
+		i = 2
+	else:
+		i = 0
+		while i < len(s) and s[i] != ":":
+			if s[i] in "\"\x27":
+				j = close(s, i)
+				i = len(s) if j is None else j + 1
+			elif s[i] == "[":
+				j = s.find("]", i)
+				i = len(s) if j < 0 else j + 1
+			else:
+				i += 2 if s[i] == "\\" else 1
+		i += 1
+		fence = opens(s[i:])
+		if fence:
+			continue
+	start = True
+	while i < len(s):
+		c = s[i]
+		if c == "\\":
+			i, start = i + 2, False
+		elif c == "#":
+			break
+		elif c == ",":
+			i, start = i + 1, True
+		elif c in "\"\x27":
+			j = close(s, i)
+			if j is None:
+				if start:
+					break
+				i, start = i + 1, False
+				continue
+			if not start and ("," in s[i + 1:j] or "#" in s[i + 1:j]):
+				print(n)
+				break
+			i, start = j + 1, False
+		else:
+			i, start = i + 1, start and c in " \t"
+' "$1"
+}
+
 ##	A document that names this format is not a 2.x file, whatever 2.x makes of
 ##	it: migrate leaves it as written, and so does upgrade but for one case,
 ##	beta files included (value-syntax.md, Migration; fUpFormat3). A fuzz document mutated from a
@@ -419,6 +491,7 @@ fTrim(){
 		lines="$( { fUnclean2x <<<"${check2x}"
 			fUnplaced "${dst}"
 			fLostNow "${dst}"
+			fMidQuote2x "${dst}"
 			grep -anE '(```|~~~)[^#]*#' "${dst}" | cut -d: -f1
 			grep -an $'\r[^\r]' "${dst}" | cut -d: -f1; } | sort -un)"
 		if [[ -z "${lines}" ]]; then [[ -s "${dst}" ]]; return; fi
@@ -711,6 +784,9 @@ rawRc=0; "${newCli}" migrate --from-2x "${corpus}/096-raw-unterminated-eof/input
 fTest EpUIoZe 094 still has a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 094-unicode-space no longer has a mid-line carriage return" >&2; nBad+=1; }
+fTest Eu1VP9o 210 still has a quote in a piece that closes past a comma and a hash
+[[ "$(fMidQuote2x "${corpus}/210-migrate-mid-quote-comma/input.shcl" | paste -sd ' ')" == "1 2 3 4 5" ]] \
+	|| { echo "check-migrate: 210-migrate-mid-quote-comma no longer has a quote in a piece closing past a comma or a # on lines 1 to 5" >&2; nBad+=1; }
 fTest EsIx4hA 149 names format 3 and is passed over as current
 fNamesFormat3 "${corpus}/149-banner/input.shcl" \
 	|| { echo "check-migrate: 149-banner no longer names format 3 in a way migrate passes over" >&2; nBad+=1; }
@@ -783,3 +859,6 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            lost.
 ##		2026-10-23  A file's errors are counted past a Schema line naming a
 ##		            missing file.
+##		2026-10-28  A quote in the middle of a value piece that closes past a
+##		            comma or a `#` reads as 2.0 read it, so such a line comes
+##		            out of the comparison with the pinned build.

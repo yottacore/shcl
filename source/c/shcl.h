@@ -2083,6 +2083,13 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 	while (pos < s.n) {
 		unsigned char b = (unsigned char)s.p[pos];
 		if (shield && b == '\\' && pos + 1 < s.n) { pos += 1 + utf8_len(s, pos + 1); content_end = min_sz(pos, s.n); continue; }
+		/* 2.0 read a quote inside a piece as text, but a comma or a `#`
+		   before its close did not end the piece. One that never closes is
+		   text, as `don't` is. */
+		if (shield && (b == '"' || b == '\'')) {
+			size_t close;
+			if (quote_close(s, pos, rules, &close)) { pos = close + 1; content_end = pos; continue; }
+		}
 		if (b == (unsigned char)term) {
 			if (every_comma || loose_comma(s, pos)) break;
 		} else if ((array && b == ']') || (comments && comment_at(s, pos))) break;
@@ -3340,7 +3347,8 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		ShclStr raw = s_slice(text, p->start, p->end), why;
 		int quoted = piece_quoted(p->quote);
 		size_t ea = quoted ? p->start - 1 : p->start, eb = quoted ? p->end + 1 : p->end;
-		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && !has_mark(raw) && raw.n && !bare_trouble(a, raw, BARE_VALUE, &why)) continue;
+		/* A comma or a `#` in a bare piece sat inside a quote 2.0 paired. */
+		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && !memchr(raw.p, ',', raw.n) && !memchr(raw.p, '#', raw.n) && !has_mark(raw) && raw.n && !bare_trouble(a, raw, BARE_VALUE, &why)) continue;
 		ShclStr logical = v2_text(a, raw);
 		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
 		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));

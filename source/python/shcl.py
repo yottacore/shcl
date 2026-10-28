@@ -1580,6 +1580,15 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 			pos += 1 + _utf8_len(s[pos + 1])
 			content_end = pos
 			continue
+		# 2.0 read a quote inside a piece as text, but a comma or a `#`
+		# before its close did not end the piece. One that never closes is
+		# text, as `don't` is.
+		if shield and b in (_B_DQUOTE, _B_SQUOTE):
+			close = _quote_close(s, pos, rules)
+			if close is not None:
+				pos = close + 1
+				content_end = pos
+				continue
 		if b == term:
 			if every_comma or _loose_comma(s, pos):
 				break
@@ -2969,9 +2978,12 @@ def _value_edits(s, tok, edits):
 			a, b = p.start - 1, p.end + 1
 		else:
 			a, b = p.start, p.end
+		# A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if (
 			p.quote is Quote.None_
 			and "\\" not in raw
+			and "," not in raw
+			and "#" not in raw
 			and _ESCAPE_MARK not in raw
 			and raw
 			and _bare_trouble(raw, _BARE_VALUE) is None

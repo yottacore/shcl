@@ -1519,6 +1519,17 @@ fn scan_piece(
 			content_end = pos.min(s.len());
 			continue;
 		}
+		// 2.0 read a quote inside a piece as text, but a comma or a `#`
+		// before its close did not end the piece. One that never closes is
+		// text, as `don't` is.
+		if shield
+			&& (b == b'"' || b == b'\'')
+			&& let Some(close) = quote_close(s, pos, rules)
+		{
+			pos = close + 1;
+			content_end = pos;
+			continue;
+		}
 		if ends_at(s, pos) || (array && b == b']') || (comments && comment_at(s, pos)) {
 			break;
 		}
@@ -3300,8 +3311,9 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		} else {
 			(p.start, p.end)
 		};
+		// A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if p.quote == Quote::None
-			&& !raw.contains('\\')
+			&& !raw.contains(['\\', ',', '#'])
 			&& !raw.contains(ESCAPE_MARK)
 			&& !raw.is_empty()
 			&& bare_trouble(raw, Bare::Value).is_none()

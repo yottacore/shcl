@@ -206,21 +206,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
 
-- Upgrade splits a 2.x element at a comma inside quotes
-	- ID: 2026102620591100
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261026-205911
-	- Opened by: JC
-	- Version and build: dev at `2174f0d9`
-	- Steps to reproduce:
-		- In Go, `Upgrade("row: idx=2, title=\"a, b\", description=\"say \\\"hi\\\"\"\n", true)`, then read `row` as strings. With `fromV2` false the file is taken as 2.x by its errors, and it's the same.
-	- Incorrect behavior: `row: [idx=2, 'title="a', 'b"', 'description="say "hi""']`, 4 elements where 1.2 and 2.0 read 3. `one: x="a, b"` comes back as 2 elements, where 2.0 read one string. Silent wrong answer.
-	- Expected behavior: `row: [idx=2, 'title="a, b"', 'description="say "hi""']`. 2.0 reads a quote inside an element as text that keeps a comma in it.
-	- Reproduced: 20261026, in Go. shclwrap's Rust, C and Python ports of the upgrade give the same.
-	- Note: shclwrap works around it by setting each value that reads otherwise than 2.0 back to 2.0's reading (its 2026102618065640). Found through gitniblet's seed rows.
-
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
 	- Type: Enhancement
@@ -472,6 +457,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Upgrade splits a 2.x element at a comma inside quotes
+	- ID: 2026102620591100
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261026-205911
+	- Opened by: JC
+	- Version and build: dev at `2174f0d9`
+	- Steps to reproduce:
+		- In Go, `Upgrade("row: idx=2, title=\"a, b\", description=\"say \\\"hi\\\"\"\n", true)`, then read `row` as strings. With `fromV2` false the file is taken as 2.x by its errors, and it's the same.
+	- Incorrect behavior: `row: [idx=2, 'title="a', 'b"', 'description="say "hi""']`, 4 elements where 1.2 and 2.0 read 3. `one: x="a, b"` comes back as 2 elements, where 2.0 read one string. Silent wrong answer.
+	- Expected behavior: `row: [idx=2, 'title="a, b"', 'description="say "hi""']`. 2.0 reads a quote inside an element as text that keeps a comma in it.
+	- Reproduced: 20261026, in Go. shclwrap's Rust, C and Python ports of the upgrade give the same.
+	- Note: shclwrap works around it by setting each value that reads otherwise than 2.0 back to 2.0's reading (its 2026102618065640). Found through gitniblet's seed rows.
+	- Actual cause: 1.2 and 2.0 let a quote anywhere in a piece shield a comma or a `#` until it closed. The migrate tokenizer copies the last dev build before the lexical cut, which shields only from a quote that opens a piece (`07c2becc`, 2026-09-05), so it cut `title="a, b"` at the comma. That build was never released.
+	- Actual fix: under the 2.x rules, a quote in the middle of a value piece that closes on the line takes everything up to its close into the piece, a comma or `#` included. One that never closes stays text. A bare piece holding a comma or a `#` is then always written another way, since it can only have come from such a quote. Same change in Rust, Go, Python and C.
+	- Decisions:
+		- A mid-piece quote that never closes, as in `don't, stop`, keeps the pinned build's reading, 2 elements, where 2.0 ran the quote to the end of the line and read one. That reading swallowed comments, it is the bug `07c2becc` fixed, and the apostrophe in a word is the common case (me).
+		- check-migrate still compares against the pinned build, and takes lines where it and 2.0 read a value apart out first, as it does for a fence label holding a `#` (me).
+	- Swept: `scan_piece` in all 4 bindings is the one place 2.x value pieces are cut, for a value, a `*` item and the array arm, so `migrate`, `upgrade` and their CLIs all get it. `value_edits`' early skip in all 4 learned that a bare piece can hold a comma or a `#`. Selector bodies and names are cut elsewhere, and 2.0 had no mid-piece quote rule there that differs. The repeated `row:` case from floss reads right too, since the fix is per line. spec.md and value-syntax.md's Migration table say so.
+	- Verified: corpus case `210-migrate-mid-quote-comma` fails on the old Python port and passes on the fix. The 4 conformance suites, `cargo test`, `go test`, cli-regress (629 rows), crosscheck (22758 comparisons), check-migrate (647 documents, its new `Eu1VP9o` included), the 2,000,000 release fuzz (31 tests), check-doc-examples, check-docs, check-abnf, shell-regress, test-ids check, lint-report, shellcheck, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff and mypy pass.
+	- Branch: `r1028`
+	- Test case: corpus `Eu1VP9n` (`210-migrate-mid-quote-comma`) in all 4 runners, check-migrate `Eu1VP9o`.
+	- Acceptance signoff: Self-closed: the new case failed before and passes after, and every gate run is green.
+	- Closed: 20261028-121432
 
 - CICD reset: step output
 	- ID: 2026102416250060

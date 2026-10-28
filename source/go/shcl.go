@@ -1677,6 +1677,16 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 			contentEnd = clamp(pos)
 			continue
 		}
+		// 2.0 read a quote inside a piece as text, but a comma or a `#`
+		// before its close did not end the piece. One that never closes is
+		// text, as `don't` is.
+		if shield && (b == '"' || b == '\'') {
+			if close := quoteClose(s, pos, rules); close >= 0 {
+				pos = close + 1
+				contentEnd = pos
+				continue
+			}
+		}
 		if endsAt(pos) || (array && b == ']') || (comments && commentAt(s, pos)) {
 			break
 		}
@@ -3606,7 +3616,8 @@ func valueEdits(text string, tok *Tokens, edits *[]edit) {
 		if quoted {
 			a, b = p.Start-1, p.End+1
 		}
-		if p.Quote == QuoteNone && !strings.Contains(raw, "\\") && !strings.ContainsRune(raw, escapeMark) && raw != "" {
+		// A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
+		if p.Quote == QuoteNone && !strings.ContainsAny(raw, "\\,#") && !strings.ContainsRune(raw, escapeMark) && raw != "" {
 			if _, bad := bareTrouble(raw, bareValue); !bad {
 				continue
 			}
