@@ -113,9 +113,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20261028-131043
 	- Opened by: 2026102515494624
 	- Parent ID: 2026102515494624
-	- Prereq IDs: 2026102813104371
+	- Prereq IDs: 2026102813104371, 2026102814013272
 	- Requirements:
 		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
+	- Prereq IDs now name 2026102814013272 too, since that split-off child changes --gate before install-dev's lines can follow.
 
 - Upgrade drops and folds blank lines, so every line after them moves
 	- ID: 2026102620591101
