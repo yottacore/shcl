@@ -117,8 +117,10 @@ jobs:
           ## bundle is about 700 MB for the step the tests half skips, and
           ## check-pins fails if a step this workflow runs ever names it.
           ## qemu, busybox and cpio boot the native release on the old CPUs
-          ## for the CPU floor check.
+          ## for the CPU floor check, which boots the runner's own kernel. That
+          ## file is root-only on the runner, so it's made readable here.
           sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19 clang-tools-19 'heaptrack=1.5.0*' qemu-system-x86 busybox cpio
+          sudo chmod a+r "/boot/vmlinuz-$(uname -r)"
           pip install ruff==0.15.22 mypy==2.3.0 cppcheck==1.5.1 build==1.5.0 pillow==11.1.0
           npm install -g markdownlint-cli2@0.23.1
           pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser'
