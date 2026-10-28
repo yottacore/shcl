@@ -112,11 +112,11 @@ Usage:
   shcl upgrade [options] FILE            when FILE does not load clean and
                                          names no format or an older one, or
                                          with --from-2x reads differently once
-                                         migrated, print it migrated and made
-                                         over the way fmt writes it, with the
-                                         info block (or back it up and rewrite
-                                         it with --write); anything else is
-                                         left alone
+                                         migrated, print it migrated with its
+                                         lines where they were and the info
+                                         block (or back it up and rewrite it
+                                         with --write); anything else is left
+                                         alone
   shcl tokens FILE                       each line's lexical spans, for seeing
                                          why the parser read a line as it did
                                          (every line on its own, raw bodies

@@ -854,9 +854,11 @@ typedef struct {
 	size_t *errors_left; size_t errors_left_n;
 } shcl_upgraded;
 // A config file written for an older format, made over for this one: the
-// input run through shcl_migrate_unstamped, then written the way `fmt` writes
-// it, with the info block `init` writes at the end in place of an old one
-// there. A whole block above the first field stays, so a file with its block
+// input run through shcl_migrate_unstamped, then saved keeping its lines, so
+// each line, blank ones included, stays where it was, with the info block
+// `init` writes at the end in place of an old one there. Where the lines can't
+// be kept, or keeping them keeps an error, it is written the way `fmt` writes
+// it. A whole block above the first field stays, so a file with its block
 // at the top comes out with 2, both naming this format. This is the one library
 // call that writes the block. A file that names this format comes back current
 // and untouched, and so does one that loads with no error under these rules,
@@ -3988,6 +3990,29 @@ static int size_cmp(const void *pa, const void *pb);
    as ShclMigrateOwn. */
 typedef struct { shcl_doc *before, *fresh, *made; char *migrated, *text; size_t *left; } ShclUpgradeOwn;
 
+static void keep_source_in(shcl_doc *k, ShclStr t);
+
+/* The fresh file's text, saved the way `set` saves, so each line of the
+   input is on the same line here, blank ones included (2026102620591101).
+   Where the lines can't be kept, or keeping them keeps an error the canonical
+   form repairs, such as a missing colon, it is the canonical form. Both live
+   in the document's arena. */
+static shcl_str upgrade_text(shcl_doc *fresh, jmp_buf *panic) {
+	shcl_str canonical = shcl_to_canonical(fresh);
+	int kept = 0;
+	shcl_str lines = shcl_to_text_keep_lines(fresh, &kept);
+	if (!kept) return canonical;
+	shcl_doc *d = shcl_parse(lines.p, lines.n);
+	if (!d) longjmp(*panic, 1);
+	size_t n = shcl_error_count(d);
+	shcl_free(d);
+	d = shcl_parse(canonical.p, canonical.n);
+	if (!d) longjmp(*panic, 1);
+	int better = n <= shcl_error_count(d);
+	shcl_free(d);
+	return better ? lines : canonical;
+}
+
 /* The lines with an error on them, in order, each once, into *out (malloc'd).
    Returns how many. */
 static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
@@ -4048,8 +4073,10 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			up->lost = m.lost + shcl_lost_count(own->fresh);
 			/* migrate keeps every line where it was, so these are the input's. */
 			size_t nleft = error_lines(own->fresh, &own->left, panic);
+			ShclStr src; src.p = m.text; src.n = m.len;
+			keep_source_in(own->fresh, src);
 			swap_banner(own->fresh, 1, 1);
-			keep = shcl_to_canonical(own->fresh);
+			keep = upgrade_text(own->fresh, panic);
 			/* With from_v2 it goes only when that leaves it loading clean, or
 			   the next run with it would read the result by 2.x rules again
 			   (2026101515372401). Without, a Format 3 file with an error is

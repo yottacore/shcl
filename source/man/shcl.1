@@ -269,9 +269,7 @@ would give, 7 included.
 .B upgrade
 For a program's config file that this shcl cannot load clean: run it through
 .BR migrate ,
-write the result the way
-.B fmt
-does, with the info block
+keep each line where it was, blank ones included, add the info block
 .B init
 writes at the end in place of an older one there, and print it (or with
 .BR \-\-write ,
@@ -281,6 +279,10 @@ uses and rewrite
 .IR FILE ).
 A whole info block above the first field stays, so a file with its block at
 the top comes out with 2, both naming this format.
+Where the lines can't be kept, or keeping them would keep an error, it is
+written the way
+.B fmt
+writes it.
 A file whose
 .B Format
 line names this format is left alone at exit 0, and so is one that loads with

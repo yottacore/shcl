@@ -150,6 +150,26 @@ fn a_block_kept_at_the_top_names_this_format_too() {
 	assert_eq!(shcl::format_version(&doc.to_canonical()), Some(3));
 }
 
+#[test]
+fn upgrade_keeps_each_line_where_it_was() {
+	let _id = test_id("Eu1bOv2");
+	// Blank lines and a raw block on its field's line stay put, so a line
+	// number in the old file names the same line in the fresh one
+	// (2026102620591101).
+	let text = "\n\nt:\n\taliases: a, b\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n";
+	for from_v2 in [true, false] {
+		let up = upgrade(text, from_v2);
+		assert!(!up.current && up.errors_left.is_empty(), "{from_v2}");
+		assert!(
+			up.text
+				.starts_with("\n\nt:\n\taliases: [a, b]\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n"),
+			"{from_v2}: {:?}",
+			up.text
+		);
+		assert!(upgrade(&up.text, false).current);
+	}
+}
+
 fn stamped_comma_list() -> String {
 	format!("p: a,b\n\n{}", GEN_BANNER)
 }

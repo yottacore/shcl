@@ -33,6 +33,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Upgrade drops and folds blank lines, so every line after them moves
+	- ID: 2026102620591101
+	- Type: Bug
+	- Status: Waiting on UAT
+	- Severity: Avg
+	- Opened: 20261026-205911
+	- Opened by: JC
+	- Version and build: dev at `2174f0d9`
+	- Steps to reproduce:
+		- In Go, `Upgrade("\n\nt:\n\taliases: a, b\n", true)` or with `fromV2` false, then parse the text and ask for the line of `t.aliases`.
+	- Incorrect behavior: the 2 blank lines at the top are gone, and a run of blank lines inside comes out as one, so `t.aliases` is on line 2. A diagnostic on the upgraded text names a line the file doesn't have there. Silent wrong answer.
+	- Expected behavior: line 4, as in the file. Blank lines stay where they were, as `migrate` keeps comments.
+	- Note: 2.x's `x: ~~~` comes out as `x:` with the fence on a line of its own, so lines after a raw block move by one too. shclwrap puts blank lines back itself (its 2026102618065634), but can't fix the raw block case (its 2026102620430717).
+	- Actual cause: `upgrade` wrote the migrated text the way `fmt` does. `fmt` drops blank lines before the first line, folds a run of them into one, and puts a raw block's fence on its own line.
+	- Actual fix: `upgrade` saves the migrated text the way `set` saves, keeping its lines, with the info block added at the end. Every line stays where it was, blank lines and `x: ~~~` included, so shclwrap's raw block case is fixed too. Where the lines can't be kept, or keeping them keeps an error the canonical form repairs, such as `   b` with no colon, it falls back to the `fmt` form as before. Same in Rust, Go, Python and C.
+	- Decisions:
+		- The whole layout is kept, not only blank lines, as `migrate` keeps it. The other way, a `fmt` that keeps blank-line runs, would still move every line after a raw block, and needs a new emitter mode in all 4 (me).
+		- The `fmt` fallback keeps upgrades that load clean only through `fmt`'s repair loading clean, as `EtaIsb8` shows. Without it that file would be refused with `--from-2x` (me).
+		- Departs from the item: it does more than keep blank lines. Indent, quoting and layout come through as `migrate` wrote them, where they used to come out in `fmt`'s form. spec.md, the man page, examples.md, the help text in the 4 CLIs and the doc comments say so.
+	- Swept: `upgrade` in the 4 libraries, the one place the fresh text is made. `upgrade_file`, the CLIs and the C++ `upgrade` go through it. `migrate` already kept lines. The help text is the same in the 4 CLIs.
+	- Verified: the new tests fail on the old code in all 4 and pass on the fix. `EtaIsb8` failed with the lines always kept, which is why the fallback is there. `cargo test`, `go test`, the Python and C conformance suites, the Python soak, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, cli-regress (629 rows, 4 bindings), crosscheck (22758 comparisons), check-migrate (647 documents), the 2,000,000 release fuzz (31 tests), check-docs, check-doc-examples, check-completions, test-ids check, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and the C CLI under gcc 15 and clang pass.
+	- Branch: `r1028`
+	- Test case: `upgrade_keeps_each_line_where_it_was` (Rust `Eu1bOv2`, Go `Eu1bOv3`, Python `Eu1bOv4`, C `Eu1bOv5`), and `EtaIsb8` and its twins for the fallback.
+	- Acceptance signoff:
+		- Waits on JC: it keeps the whole layout rather than only the blank lines, which changes what `upgrade` writes (questions.md Check line).
+
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -321,20 +347,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
-
-- Upgrade drops and folds blank lines, so every line after them moves
-	- ID: 2026102620591101
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261026-205911
-	- Opened by: JC
-	- Version and build: dev at `2174f0d9`
-	- Steps to reproduce:
-		- In Go, `Upgrade("\n\nt:\n\taliases: a, b\n", true)` or with `fromV2` false, then parse the text and ask for the line of `t.aliases`.
-	- Incorrect behavior: the 2 blank lines at the top are gone, and a run of blank lines inside comes out as one, so `t.aliases` is on line 2. A diagnostic on the upgraded text names a line the file doesn't have there. Silent wrong answer.
-	- Expected behavior: line 4, as in the file. Blank lines stay where they were, as `migrate` keeps comments.
-	- Note: 2.x's `x: ~~~` comes out as `x:` with the fence on a line of its own, so lines after a raw block move by one too. shclwrap puts blank lines back itself (its 2026102618065634), but can't fix the raw block case (its 2026102620430717).
 
 - Step lines from inside the image print UTC, while the host's print local time
 	- ID: 2026102520122877

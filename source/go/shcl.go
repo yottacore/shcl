@@ -3408,9 +3408,11 @@ type Upgraded struct {
 }
 
 // Upgrade is a config file written for an older format, made over for this
-// one: the input run through MigrateUnstamped, then written the way `fmt`
-// writes it, with the info block `init` writes at the end in place of an old
-// one there. A whole block above the first field stays, so a file with its
+// one: the input run through MigrateUnstamped, then saved keeping its lines,
+// so each line, blank ones included, stays where it was, with the info block
+// `init` writes at the end in place of an old one there. Where the lines can't
+// be kept, or keeping them keeps an error, it is written the way `fmt` writes
+// it. A whole block above the first field stays, so a file with its
 // block at the top comes out with 2, both naming this format. This is the one
 // library call that writes the block. A file that names this format comes back
 // Current and untouched, and so does one that loads with no error under these
@@ -3466,11 +3468,12 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 		return up
 	}
 	fresh := Parse(m.Text)
+	fresh.keepSource(m.Text)
 	lost := m.Lost + fresh.LostCount()
 	// migrate keeps every line where it was, so these are the input's.
 	left := errorLines(fresh.diags)
 	fresh.swapBanner(true, true)
-	made := fresh.ToCanonical()
+	made := upgradeText(fresh)
 	// With fromV2 it goes only when that leaves it loading clean, or the next
 	// run with it would read the result by 2.x rules again
 	// (2026101515372401). Without, a Format 3 file with an error is current.
@@ -3488,6 +3491,19 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 	up.Lost = lost
 	up.Text = made
 	return up
+}
+
+// upgradeText is the fresh file's text, saved the way `set` saves, so each
+// line of the input is on the same line here, blank ones included
+// (2026102620591101). Where the lines can't be kept, or keeping them keeps an
+// error the canonical form repairs, such as a missing colon, it is the
+// canonical form.
+func upgradeText(fresh *Document) string {
+	canonical := fresh.ToCanonical()
+	if kept, ok := fresh.ToTextKeepLines(); ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
+		return kept
+	}
+	return canonical
 }
 
 // errorLines is the lines with an error on them, in order, each once.
