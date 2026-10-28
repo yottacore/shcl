@@ -211,7 +211,7 @@ gfs_rotate(){
 
 ## Check if sourced
 declare -i isSourced_t6wq5=0; [[ "${BASH_SOURCE[0]}" == "${0}" ]] || isSourced_t6wq5=1
-((isSourced_t6wq5)) || { echo -e "\nError in $(basename "${BASH_SOURCE[0]}"): This script is meant to be 'sourced' from within another script.\n"; exit "${ERRNUM_MSG_ALREADY_SHOWN}"; }
+((isSourced_t6wq5)) || { echo -e "\nError in ${BASH_SOURCE[0]##*/}: This script is meant to be 'sourced' from within another script.\n" >&2; exit "${ERRNUM_MSG_ALREADY_SHOWN}"; }
 
 
 ##	History:
@@ -226,3 +226,4 @@ declare -i isSourced_t6wq5=0; [[ "${BASH_SOURCE[0]}" == "${0}" ]] || isSourced_t
 ##		- 2026-10-04: Every expansion braced, and shellcheck enforces it. The loop
 ##		  variables in gfs_rotate have real names. No change in behavior.
 ##		- 2026-10-04: The prune refuses an empty path, and ends options before it.
+##		- 2026-10-28: The not-sourced error goes to stderr, without a basename fork.
