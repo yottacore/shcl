@@ -33,69 +33,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- CICD reset: backlog run flags
-	- ID: 2026102813104060
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd.bash --backlog-run-quick` timed at a load under half the cores, against the 4 minutes. If it's well over, more slow tests go in `BACKLOG_SKIP`. And `cicd.bash --backlog-run-full` as the round's last run, in place of the full-run line. Also check-docs `EqKhPQP`, check-push-gate `EqGjDth` and shell-regress again, once this box's pwsh starts.
-	- Priority: High
-	- Opened: 20261028-131040
-	- Opened by: 2026102515494624
-	- Parent ID: 2026102515494624
-	- Requirements:
-		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
-		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
-		- `--backlog-run-quick` is partial, so it records no tree.
-		- The round settings' gate and full-run lines move to them.
-	- Decisions:
-		- me: `--backlog-run-quick` is `--gate` less what `--quick` leaves out: the format check, the debug build, lint and the tests less `QUICK_SKIP`, at the 20,000-input fuzz, and the cross checks. No leak checks, profiler calibration or release builds. It records no tree.
-		- me: with no areas named it also leaves out config.bash's `BACKLOG_SKIP`, today check-push-gate, which took 4 minutes of a 10.5-minute run at a load of 10 to 13.
-		- me: areas narrow only the tests stage, as in the floss engine, since the format check and lint are quick. `QUICK_SKIP` still applies inside an area, and an area brings back its `BACKLOG_SKIP` steps. They are `rust`, `go`, `python`, `c`, `cli` and `cicd`, in config.bash's `BACKLOG_AREAS`, matched as text like `QUICK_SKIP`.
-		- me: `--backlog-run-full` runs the merge gate's checks and records its tree, as `--merge-gate` does.
-		- me: one run mode per run. `--gate`, `--merge-gate` (`--ci`) and the 2 backlog runs refuse each other with exit 2, since nothing on the command line resolves last-wins. `--backlog-run-quick --long` is refused too. Before, `--gate --merge-gate` ran the merge gate.
-		- me: the help stays inside check-docs' 100-line header window, per 2026102108300000. `--gate`'s entry and 2 paragraphs got shorter.
-		- me: `--gate` keeps its meaning until 2026102813104371, since the hosted workflow runs it.
-	- Progress log:
-		- 20261028: done in cicd.bash and config.bash. Help, contributing.md and design.md say so.
-		- Verified: check-push-gate `Eu1ovZE` (the 2 runs, areas, `BACKLOG_SKIP`, no tree from the quick one, no dogfood or publish, the usage errors) and `Eu1ovZF` (every test step in an area, and the areas in `--help`) failed on the old engine and pass now. Also test-ids, shellcheck and markdownlint.
-		- Verified: the whole of check-push-gate, shell-regress and check-docs passed on this change before `BACKLOG_SKIP`. After it, this box's pwsh crashed on start with a `FileLoadException`, on any tree, so check-docs `EqKhPQP`, check-push-gate `EqGjDth` and shell-regress's install.ps1 rows failed with it. The rest of each passed.
-		- Verified: a real `cicd.bash --backlog-run-quick` in the main image, before `BACKLOG_SKIP`, passed its 5 steps in 10.5 minutes at a load of 10 to 13, recorded nothing and left no tracked file changed. Without check-push-gate that's about 6.5 minutes.
-		- Swept: every reader of the run mode (`mode_flag`, `gate_mode`, `merge_gate`, `quick`) in cicd.bash, the tests step's `TEST_CMD`-only guard, and check-push-gate's stub config.
-	- Test case: check-push-gate `Eu1ovZE` and `Eu1ovZF`.
-
-- CICD reset: hosted workflow on the merge gate, and --gate as a backlog run
-	- ID: 2026102813104371
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: a hosted `ci.yml` run on the round branch. Both halves pass under 60 minutes, `ci (tests)` builds the native release, boots it on the old CPUs, packages it and runs the 3 fast leak checks, and neither half runs CodeQL or the test boxes.
-	- Priority: High
-	- Opened: 20261028-131043
-	- Opened by: 2026102515494624
-	- Parent ID: 2026102515494624
-	- Prereq IDs: 2026102813104060
-	- Requirements:
-		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
-		- Then `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
-		- In this order, so the hosted run never runs the shorter `--gate`.
-		- contributing.md's and install.md's `--gate` lines follow.
-	- Progress log:
-		- 20261028: split. The hosted workflow is done here. `--gate` as a backlog run, with the contributing.md and install.md lines, is child 2026102814013272, free to start now that the hosted run doesn't use `--gate`.
-		- 20261028: ci.yml's halves run `--merge-gate --no-tests --no-release --no-remote` and `--merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash`, and the tests half installs qemu, busybox and cpio for the CPU floor check. cicd.bash takes `--skip TEXT`, which leaves out each step whose command holds TEXT, and the run records nothing. A TEXT that matches no step is exit 2. check-pins' job check wants `--merge-gate`, allows `--no-release` and `--no-remote`, and holds `--skip` to a leak check whose tool ci.yml leaves out. Help, the ci.yml comments, contributing.md and design.md say so.
-		- Verified: check-push-gate `Eu21ced` (both `--skip` forms, no record, the off line, the usage errors) went red with the record rule taken out, and passes. shell-regress `Eu21cec` (`--gate` in a job, the release nowhere, CodeQL run, another step skipped) went red with each check taken out of check-pins, and passes. The whole of check-push-gate, shell-regress, check-pins, check-docs and test-ids, shellcheck and markdownlint passed.
-		- Verified: `cicd.bash --backlog-run-quick cicd` in the main image passed its 5 steps in 6.5 minutes at a load of about 7, `Eu21ced`, `EsZzNCY` and `EtAC9of` included.
-		- Swept: every reader of the hosted job args (check-pins' `EsZzNCY`, `EtDCDE9`, `EtAC9of`, shell-regress `EsZzNEZ`, `EtDCDEA`), every `--gate` line in ci.yml and the design.md and contributing.md lines about the hosted run and what records a tree. The other 3 bindings have no pipeline of their own, so no twin there.
-	- Decisions:
-		- me: the halves keep their split, and the tests half takes the native release, its checks and packages, and the fast leak checks. It was about 36 minutes, and the lint half about 44 with cppcheck.
-		- me: the runner leaves out the test boxes, which are on the LAN, CodeQL, whose bundle is about 700 MB and its run about 10 minutes more than the tests half has, and the cross targets, which would need a third job with wine, QEMU and FreeBSD's 640 MB image. The macOS, Linux arm64 and Windows jobs already build on their own runners, and the style guide asks for a small hosted workflow.
-		- me: CodeQL goes by a new `--skip TEXT` rather than `--no-leakcheck`, which would drop the sanitizer runs hosted already had. It is general, matched as text like `QUICK_SKIP`, and the run says what it left out.
-		- me: makensis stays unpinned in ci.yml, since the hosted run builds no Windows release and so no setup.
-	- Test case: check-push-gate `Eu21ced`, shell-regress `Eu21cec`, plus the changed rows of `EsZzNEZ`.
-		- 20261028: `EsZzNEZ`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
-
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
-	- Status: Waiting on automated testing
+	- Status: Stalled
 	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image, which since 2026102515494619 runs `cicd.bash --merge-gate`. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
 	- Priority: High
 	- Opened: 20261019-204611
@@ -133,28 +74,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
-
-- CICD reset: CPU and priority in containers
-	- ID: 2026102421025783
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Priority: High
-	- Opened: 20261024-210257
-	- Opened by: 2026102416250040
-	- Parent ID: 2026102416250040
-	- Prereq IDs: 2026102421025778
-	- Requirements:
-		- `--cpus <jobs>` and `--cpu-shares 256` on each `docker run`, the ones analyze-c, soak-c and codeql-scan start included.
-		- `nice` inside the image too, since `nice` on the docker client doesn't reach the container.
-		- check-push-gate's fake docker learns the new options.
-	- Progress log:
-		- 20261024: every `docker run` cicd.bash and ctr-image.bash make passes `--cpus` and `--cpu-shares 256`: the stages' run at the run's count, `fCtrRunSelf` at its script's, and the passwd, group and Zig trim reads at 1. analyze-c, soak-c and codeql-scan start theirs through `fCtrRunSelf`.
-		- 20261024: `fCtrRunSelf` runs its script under `nice -n 19` in the image. The stages' run is cicd.bash, which renices itself (2026102421025778).
-	- Swept: the 5 `docker run` sites under `cicd/` and the hook: cicd.bash's passwd, group and stages runs, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. `docker build` and `volume create` start no container. ci.yml runs `--no-container`.
-	- Verified: check-push-gate `EtgShUg` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container: `cpu.max` read `800000 100000` and `cpu.weight` 35.
-	- Needs local test suite run?: Y. The full run line, the first real run in the main image with the limits on. It should pass as before.
-	- Branch: `r1024c`
-	- Test case: check-push-gate `EtgShUg`.
+	- Held for the next push that moves main, which is the only thing left to watch.
 
 - CICD reset: keep-temp and list
 	- ID: 2026102515494634
@@ -258,6 +178,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261028: split into children 2026102813104060 (the backlog run flags), 2026102813104371 (the hosted workflow on `--merge-gate`, then `--gate` as another name for `--backlog-run-quick`) and 2026102813104377 (install-dev's gate lines and the docs-only sync to main), in that order. The hosted workflow runs `--gate` today, and would lose the slow checks if `--gate` changed first.
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
+	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
 
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
@@ -498,6 +419,93 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: backlog run flags
+	- ID: 2026102813104060
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: High
+	- Opened: 20261028-131040
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Requirements:
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
+		- `--backlog-run-quick` is partial, so it records no tree.
+		- The round settings' gate and full-run lines move to them.
+	- Decisions:
+		- me: `--backlog-run-quick` is `--gate` less what `--quick` leaves out: the format check, the debug build, lint and the tests less `QUICK_SKIP`, at the 20,000-input fuzz, and the cross checks. No leak checks, profiler calibration or release builds. It records no tree.
+		- me: with no areas named it also leaves out config.bash's `BACKLOG_SKIP`, today check-push-gate, which took 4 minutes of a 10.5-minute run at a load of 10 to 13.
+		- me: areas narrow only the tests stage, as in the floss engine, since the format check and lint are quick. `QUICK_SKIP` still applies inside an area, and an area brings back its `BACKLOG_SKIP` steps. They are `rust`, `go`, `python`, `c`, `cli` and `cicd`, in config.bash's `BACKLOG_AREAS`, matched as text like `QUICK_SKIP`.
+		- me: `--backlog-run-full` runs the merge gate's checks and records its tree, as `--merge-gate` does.
+		- me: one run mode per run. `--gate`, `--merge-gate` (`--ci`) and the 2 backlog runs refuse each other with exit 2, since nothing on the command line resolves last-wins. `--backlog-run-quick --long` is refused too. Before, `--gate --merge-gate` ran the merge gate.
+		- me: the help stays inside check-docs' 100-line header window, per 2026102108300000. `--gate`'s entry and 2 paragraphs got shorter.
+		- me: `--gate` keeps its meaning until 2026102813104371, since the hosted workflow runs it.
+	- Progress log:
+		- 20261028: done in cicd.bash and config.bash. Help, contributing.md and design.md say so.
+		- Verified: check-push-gate `Eu1ovZE` (the 2 runs, areas, `BACKLOG_SKIP`, no tree from the quick one, no dogfood or publish, the usage errors) and `Eu1ovZF` (every test step in an area, and the areas in `--help`) failed on the old engine and pass now. Also test-ids, shellcheck and markdownlint.
+		- Verified: the whole of check-push-gate, shell-regress and check-docs passed on this change before `BACKLOG_SKIP`. After it, this box's pwsh crashed on start with a `FileLoadException`, on any tree, so check-docs `EqKhPQP`, check-push-gate `EqGjDth` and shell-regress's install.ps1 rows failed with it. The rest of each passed.
+		- Verified: a real `cicd.bash --backlog-run-quick` in the main image, before `BACKLOG_SKIP`, passed its 5 steps in 10.5 minutes at a load of 10 to 13, recorded nothing and left no tracked file changed. Without check-push-gate that's about 6.5 minutes.
+		- Swept: every reader of the run mode (`mode_flag`, `gate_mode`, `merge_gate`, `quick`) in cicd.bash, the tests step's `TEST_CMD`-only guard, and check-push-gate's stub config.
+	- Test case: check-push-gate `Eu1ovZE` and `Eu1ovZF`.
+	- Closed: 20261028-1625
+	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, as the round's full run. EqKhPQP, EqGjDth and shell-regress passed there with pwsh working again. `--backlog-run-quick` with every area named took 12 min at load 13 to 27, and the worker timed it at 6.5 min with none named, so the 4-minute aim is still the parent's to meet.
+
+- CICD reset: hosted workflow on the merge gate, and --gate as a backlog run
+	- ID: 2026102813104371
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261028-131043
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Prereq IDs: 2026102813104060
+	- Requirements:
+		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
+		- Then `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- In this order, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+	- Progress log:
+		- 20261028: split. The hosted workflow is done here. `--gate` as a backlog run, with the contributing.md and install.md lines, is child 2026102814013272, free to start now that the hosted run doesn't use `--gate`.
+		- 20261028: ci.yml's halves run `--merge-gate --no-tests --no-release --no-remote` and `--merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash`, and the tests half installs qemu, busybox and cpio for the CPU floor check. cicd.bash takes `--skip TEXT`, which leaves out each step whose command holds TEXT, and the run records nothing. A TEXT that matches no step is exit 2. check-pins' job check wants `--merge-gate`, allows `--no-release` and `--no-remote`, and holds `--skip` to a leak check whose tool ci.yml leaves out. Help, the ci.yml comments, contributing.md and design.md say so.
+		- Verified: check-push-gate `Eu21ced` (both `--skip` forms, no record, the off line, the usage errors) went red with the record rule taken out, and passes. shell-regress `Eu21cec` (`--gate` in a job, the release nowhere, CodeQL run, another step skipped) went red with each check taken out of check-pins, and passes. The whole of check-push-gate, shell-regress, check-pins, check-docs and test-ids, shellcheck and markdownlint passed.
+		- Verified: `cicd.bash --backlog-run-quick cicd` in the main image passed its 5 steps in 6.5 minutes at a load of about 7, `Eu21ced`, `EsZzNCY` and `EtAC9of` included.
+		- Swept: every reader of the hosted job args (check-pins' `EsZzNCY`, `EtDCDE9`, `EtAC9of`, shell-regress `EsZzNEZ`, `EtDCDEA`), every `--gate` line in ci.yml and the design.md and contributing.md lines about the hosted run and what records a tree. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Decisions:
+		- me: the halves keep their split, and the tests half takes the native release, its checks and packages, and the fast leak checks. It was about 36 minutes, and the lint half about 44 with cppcheck.
+		- me: the runner leaves out the test boxes, which are on the LAN, CodeQL, whose bundle is about 700 MB and its run about 10 minutes more than the tests half has, and the cross targets, which would need a third job with wine, QEMU and FreeBSD's 640 MB image. The macOS, Linux arm64 and Windows jobs already build on their own runners, and the style guide asks for a small hosted workflow.
+		- me: CodeQL goes by a new `--skip TEXT` rather than `--no-leakcheck`, which would drop the sanitizer runs hosted already had. It is general, matched as text like `QUICK_SKIP`, and the run says what it left out.
+		- me: makensis stays unpinned in ci.yml, since the hosted run builds no Windows release and so no setup.
+	- Test case: check-push-gate `Eu21ced`, shell-regress `Eu21cec`, plus the changed rows of `EsZzNEZ`.
+		- 20261028: `EsZzNEZ`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
+	- Closed: 20261028-1625
+	- Verified: 2026-10-28, hosted ci.yml run 40779407541 on r1028 passed after the runner's kernel was made readable (commit after 9d0943c1). Lint half 12 min, tests half 50 min. The tests half built the release, booted it on Penryn and Phenom (EsaOGRX to EsaOGRb), built packages and passed the leak checks. CodeQL and the test boxes were off.
+
+- CICD reset: CPU and priority in containers
+	- ID: 2026102421025783
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-210257
+	- Opened by: 2026102416250040
+	- Parent ID: 2026102416250040
+	- Prereq IDs: 2026102421025778
+	- Requirements:
+		- `--cpus <jobs>` and `--cpu-shares 256` on each `docker run`, the ones analyze-c, soak-c and codeql-scan start included.
+		- `nice` inside the image too, since `nice` on the docker client doesn't reach the container.
+		- check-push-gate's fake docker learns the new options.
+	- Progress log:
+		- 20261024: every `docker run` cicd.bash and ctr-image.bash make passes `--cpus` and `--cpu-shares 256`: the stages' run at the run's count, `fCtrRunSelf` at its script's, and the passwd, group and Zig trim reads at 1. analyze-c, soak-c and codeql-scan start theirs through `fCtrRunSelf`.
+		- 20261024: `fCtrRunSelf` runs its script under `nice -n 19` in the image. The stages' run is cicd.bash, which renices itself (2026102421025778).
+	- Swept: the 5 `docker run` sites under `cicd/` and the hook: cicd.bash's passwd, group and stages runs, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. `docker build` and `volume create` start no container. ci.yml runs `--no-container`.
+	- Verified: check-push-gate `EtgShUg` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container: `cpu.max` read `800000 100000` and `cpu.weight` 35.
+	- Needs local test suite run?: No
+	- Branch: `r1024c`
+	- Test case: check-push-gate `EtgShUg`.
+	- Closed: 20261028-1625
+	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, in the main image with the CPU limits on.
 
 - Upgrade drops and folds blank lines, so every line after them moves
 	- ID: 2026102620591101
