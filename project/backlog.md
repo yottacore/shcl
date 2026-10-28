@@ -33,6 +33,63 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- CICD reset: backlog run flags
+	- ID: 2026102813104060
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd.bash --backlog-run-quick` timed at a load under half the cores, against the 4 minutes. If it's well over, more slow tests go in `BACKLOG_SKIP`. And `cicd.bash --backlog-run-full` as the round's last run, in place of the full-run line. Also check-docs `EqKhPQP`, check-push-gate `EqGjDth` and shell-regress again, once this box's pwsh starts.
+	- Priority: High
+	- Opened: 20261028-131040
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Requirements:
+		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
+		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
+		- `--backlog-run-quick` is partial, so it records no tree.
+		- The round settings' gate and full-run lines move to them.
+	- Decisions:
+		- me: `--backlog-run-quick` is `--gate` less what `--quick` leaves out: the format check, the debug build, lint and the tests less `QUICK_SKIP`, at the 20,000-input fuzz, and the cross checks. No leak checks, profiler calibration or release builds. It records no tree.
+		- me: with no areas named it also leaves out config.bash's `BACKLOG_SKIP`, today check-push-gate, which took 4 minutes of a 10.5-minute run at a load of 10 to 13.
+		- me: areas narrow only the tests stage, as in the floss engine, since the format check and lint are quick. `QUICK_SKIP` still applies inside an area, and an area brings back its `BACKLOG_SKIP` steps. They are `rust`, `go`, `python`, `c`, `cli` and `cicd`, in config.bash's `BACKLOG_AREAS`, matched as text like `QUICK_SKIP`.
+		- me: `--backlog-run-full` runs the merge gate's checks and records its tree, as `--merge-gate` does.
+		- me: one run mode per run. `--gate`, `--merge-gate` (`--ci`) and the 2 backlog runs refuse each other with exit 2, since nothing on the command line resolves last-wins. `--backlog-run-quick --long` is refused too. Before, `--gate --merge-gate` ran the merge gate.
+		- me: the help stays inside check-docs' 100-line header window, per 2026102108300000. `--gate`'s entry and 2 paragraphs got shorter.
+		- me: `--gate` keeps its meaning until 2026102813104371, since the hosted workflow runs it.
+	- Progress log:
+		- 20261028: done in cicd.bash and config.bash. Help, contributing.md and design.md say so.
+		- Verified: check-push-gate `Eu1ovZE` (the 2 runs, areas, `BACKLOG_SKIP`, no tree from the quick one, no dogfood or publish, the usage errors) and `Eu1ovZF` (every test step in an area, and the areas in `--help`) failed on the old engine and pass now. Also test-ids, shellcheck and markdownlint.
+		- Verified: the whole of check-push-gate, shell-regress and check-docs passed on this change before `BACKLOG_SKIP`. After it, this box's pwsh crashed on start with a `FileLoadException`, on any tree, so check-docs `EqKhPQP`, check-push-gate `EqGjDth` and shell-regress's install.ps1 rows failed with it. The rest of each passed.
+		- Verified: a real `cicd.bash --backlog-run-quick` in the main image, before `BACKLOG_SKIP`, passed its 5 steps in 10.5 minutes at a load of 10 to 13, recorded nothing and left no tracked file changed. Without check-push-gate that's about 6.5 minutes.
+		- Swept: every reader of the run mode (`mode_flag`, `gate_mode`, `merge_gate`, `quick`) in cicd.bash, the tests step's `TEST_CMD`-only guard, and check-push-gate's stub config.
+	- Test case: check-push-gate `Eu1ovZE` and `Eu1ovZF`.
+
+- CICD reset: hosted workflow on the merge gate, and --gate as a backlog run
+	- ID: 2026102813104371
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261028-131043
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Prereq IDs: 2026102813104060
+	- Requirements:
+		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
+		- Then `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- In this order, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+
+- CICD reset: install-dev's gate lines
+	- ID: 2026102813104377
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261028-131043
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Prereq IDs: 2026102813104371
+	- Requirements:
+		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
+
 - Upgrade drops and folds blank lines, so every line after them moves
 	- ID: 2026102620591101
 	- Type: Bug
@@ -306,7 +363,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: backlog runs
 	- ID: 2026102515494624
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -320,6 +377,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The hosted workflow moves from `--gate` to `--merge-gate`, as far as the runner can, with check-pins' job check and its shell-regress rows.
 		- `--gate` records the tree it tested today. As `--backlog-run-quick` it's partial, so it shouldn't.
 		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
+	- Progress log:
+		- 20261028: split into children 2026102813104060 (the backlog run flags), 2026102813104371 (the hosted workflow on `--merge-gate`, then `--gate` as another name for `--backlog-run-quick`) and 2026102813104377 (install-dev's gate lines and the docs-only sync to main), in that order. The hosted workflow runs `--gate` today, and would lose the slow checks if `--gate` changed first.
+		- 20261028: the backlog run flags are in (Waiting on automated testing).
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070

@@ -29,9 +29,11 @@
 ##	   --merge-gate, --ci  every check of a run with no flags, strict and hands-off,
 ##	                       with no format rewrite, sync, dogfood, gif or publish.
 ##	                       The pre-push hook runs it on a push to main
-##	   --gate              correctness gate only: format check (no rewrite), build,
-##	                       lint, tests, cross checks; strict, no release builds.
-##	                       What the GitHub workflow runs
+##	   --backlog-run-full  the same, for the end of a backlog round
+##	   --gate              format check, build, lint, tests and cross checks, strict
+##	   --backlog-run-quick [AREA...]  AREAs: rust go python c cli cicd
+##	                       --gate less --quick's cuts, in about 4 minutes,
+##	                       recording nothing. AREAs keep only their tests
 ##	   --quick             the fast loop: leaves out the slow steps, and the ones
 ##	                       that need another host, that config.bash lists in
 ##	                       QUICK_SKIP, plus the large-document gate, the slow
@@ -74,13 +76,11 @@
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
 ##	- A run that passes the tests and the cross checks records the tree it
-##	  tested (utility/green-tree.bash), and the pre-push hook lets a commit with
-##	  that tree through without running the gate again. --quick, --no-fmt,
-##	  --no-lint, --no-tests, --no-cross and a skipped tool each keep a run from
-##	  recording.
+##	  tested (utility/green-tree.bash), which the pre-push hook then lets through
+##	  without the gate. --quick, --no-fmt, --no-lint, --no-tests, --no-cross and
+##	  a skipped tool keep a run from recording.
 ##	- Each run works in a temp dir of its own, removed at the end even when it
-##	  fails or is stopped. A whole run also removes the pipeline's own stale
-##	  leftovers, and says what went in one line.
+##	  fails or is stopped. A whole run also sweeps the pipeline's stale leftovers.
 ##	- When docker (or SHCL_DOCKER) answers on x86_64, stages 1-6 run in the main
 ##	  image as if --container were given, the pre-push hook's gate included.
 ##	  Otherwise they run here, with a one-line note saying why. Sync, dogfood,
@@ -206,7 +206,7 @@ cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
-assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0; keep_temp=0; list_only=0
+assume_yes=0; quiet=0; gate_mode=0; merge_gate=0; backlog_quick=0; run_areas=(); quick=0; cli_message=""; sync_enable=1; gate_partial=0; no_tests=0; leakcheck_flag=0; no_leakcheck=0; long_run=0; keep_temp=0; list_only=0
 ## --container: which image, and the options the run inside it takes over.
 ctr_image=""; ctr_pass=(); no_container=0; no_freeze=0; no_remote=0
 ## Why each step may be off, by step id, for the list in the first section.
@@ -215,16 +215,25 @@ fOff(){   ## fOff STEP REASON
 	local w="${step_why[$1]:-}"
 	if [[ ", ${w}, " != *", $2, "* ]]; then step_why[$1]="${w:+${w}, }$2"; fi
 }
+## The run modes, one per run: --gate, --merge-gate (--ci), and the 2 backlog runs.
 mode_flag=""
+fRunMode(){   ## fRunMode FLAG
+	if [[ -n "${mode_flag}" && "${mode_flag}" != "$1" ]]; then echo "${mode_flag} and $1 can't go together (try --help)" >&2; exit 2; fi
+	mode_flag="$1"
+}
 fCtrPick(){
 	if [[ -z "$1" ]]; then echo "--container= names no image (try --help)" >&2; exit 2; fi
 	if [[ -n "${ctr_image}" && "${ctr_image}" != "$1" ]]; then echo "--container names 2 images, ${ctr_image} and $1 (try --help)" >&2; exit 2; fi
 	ctr_image="$1"
 }
 while (($#)); do case "$1" in
-	--gate)                   gate_mode=1; assume_yes=1; mode_flag="${mode_flag:-$1}"; ctr_pass+=("$1"); shift ;;
-	--merge-gate)             gate_mode=1; merge_gate=1; assume_yes=1; mode_flag=--merge-gate; ctr_pass+=("$1"); shift ;;
-	--ci)                     echo "--ci is another name for --merge-gate"; gate_mode=1; merge_gate=1; assume_yes=1; mode_flag=--merge-gate; ctr_pass+=(--merge-gate); shift ;;
+	--gate)                   gate_mode=1; assume_yes=1; fRunMode "$1"; ctr_pass+=("$1"); shift ;;
+	--merge-gate)             gate_mode=1; merge_gate=1; assume_yes=1; fRunMode "$1"; ctr_pass+=("$1"); shift ;;
+	--ci)                     echo "--ci is another name for --merge-gate"; gate_mode=1; merge_gate=1; assume_yes=1; fRunMode --merge-gate; ctr_pass+=(--merge-gate); shift ;;
+	## The words after it up to the next option are its areas.
+	--backlog-run-quick)      gate_mode=1; backlog_quick=1; assume_yes=1; fRunMode "$1"; ctr_pass+=("$1"); shift
+	                          while (($#)) && [[ "$1" != -* ]]; do run_areas+=("$1"); ctr_pass+=("$1"); shift; done ;;
+	--backlog-run-full)       gate_mode=1; merge_gate=1; assume_yes=1; fRunMode "$1"; ctr_pass+=("$1"); shift ;;
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
 	--leakcheck)              leakcheck_flag=1; ctr_pass+=("$1"); shift ;;
 	--no-leakcheck)           no_leakcheck=1; ctr_pass+=("$1"); shift ;;
@@ -257,6 +266,15 @@ while (($#)); do case "$1" in
 	*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
 esac; done
 ## Nothing on the command line resolves last-wins (design.md).
+for area in "${run_areas[@]}"; do
+	areaKnown=0
+	for def in "${BACKLOG_AREAS[@]}"; do if [[ "${def%%|*}" == "${area}" ]]; then areaKnown=1; fi; done
+	if ((! areaKnown)); then echo "unknown area: ${area} (try --help)" >&2; exit 2; fi
+done
+if ((backlog_quick && long_run)); then echo "--backlog-run-quick and --long can't go together (try --help)" >&2; exit 2; fi
+## The flag that made the run quick, for the lines that say what it left out.
+quick_flag=--quick
+if ((backlog_quick)); then quick=1; quick_flag=--backlog-run-quick; fi
 if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck can't go together (try --help)" >&2; exit 2; fi
 if ((quick && long_run)); then echo "--quick and --long can't go together (try --help)" >&2; exit 2; fi
 if [[ -n "${ctr_image}" ]] && ((no_container)); then echo "--container and --no-container can't go together (try --help)" >&2; exit 2; fi
@@ -281,8 +299,10 @@ if ((gate_mode)); then
 	fi
 	PROFILE_ENABLE=0
 	## The other hosted job runs the tests and the calibration. A local
-	## --no-tests run keeps it, since it still draws a graph.
-	if ((no_tests)); then PROFILE_CHECK=""; fi
+	## --no-tests run keeps it, since it still draws a graph. A backlog run's
+	## minutes go to the tests; the calibration's profiling build waits for
+	## the round's last run.
+	if ((no_tests || backlog_quick)); then PROFILE_CHECK=""; fi
 	DOGFOOD_FIXED_DESTS=()   ## no local install from the read-only gate (and no stale-binary risk)
 	GIF_ENABLE=0
 	GIT_PUBLISH=()
@@ -318,10 +338,46 @@ if ((quick)); then
 	PACKAGE_ENABLE=0   ## installers, not checks
 	PROFILE_ENABLE=0
 	GIF_ENABLE=0
-	fOff profile --quick; fOff gif --quick
+	fOff profile "${quick_flag}"; fOff gif "${quick_flag}"
 	((${#TEST_QUICK_CMD[@]})) && TEST_CMD=("${TEST_QUICK_CMD[@]}")
 	for list in LINT_EXTRA TEST_EXTRA CROSS_CHECKS CROSS_TARGETS RELEASE_CHECKS; do fQuickDrop "${list}"; done
 	if fQuickSkips crosscheck.bash; then xcheck_enable=0; fi
+fi
+## --backlog-run-quick AREA...: the tests stage keeps only the steps of the
+## areas named, each matched as text like QUICK_SKIP. The rest of the run is
+## the same, since the format check and lint are quick.
+if ((${#run_areas[@]})); then
+	fAreaHas(){   ## fAreaHas STEP -> 0 when a named area's text is in it
+		local area def pat
+		local -a pats=()
+		for area in "${run_areas[@]}"; do
+			for def in "${BACKLOG_AREAS[@]}"; do
+				if [[ "${def%%|*}" != "${area}" ]]; then continue; fi
+				IFS='|' read -r -a pats <<< "${def#*|}"
+				for pat in "${pats[@]}"; do
+					if [[ "$1" == *"${pat}"* ]]; then return 0; fi
+				done
+			done
+		done
+		return 1
+	}
+	areaKept=()
+	for step in "${TEST_EXTRA[@]}"; do
+		if fAreaHas "${step}"; then areaKept+=("${step}"); fi
+	done
+	TEST_EXTRA=("${areaKept[@]}")
+	if ((${#TEST_CMD[@]})) && ! fAreaHas "${TEST_CMD[*]}"; then TEST_CMD=(); fi
+	if ! fAreaHas crosscheck.bash; then xcheck_enable=0; fi
+elif ((backlog_quick)); then
+	## With no areas named, the tests that would keep it from 4 minutes go too.
+	areaKept=()
+	for step in "${TEST_EXTRA[@]}"; do
+		for pat in "${BACKLOG_SKIP[@]}"; do
+			if [[ "${step}" == *"${pat}"* ]]; then continue 2; fi
+		done
+		areaKept+=("${step}")
+	done
+	TEST_EXTRA=("${areaKept[@]}")
 fi
 ## The leak checks by length: the fast ones in --quick too, the slow ones in
 ## the default run, and the ones that take hours only under --long or
@@ -371,7 +427,7 @@ fStepWanted(){   ## fStepWanted ID -> 0 when this run's settings take the step
 		fmt)     if ((gate_mode)); then ((${#FMT_CHECK_CMD[@]})); else ((${#FMT_CMD[@]})); fi ;;
 		build)   ((${#BUILD_CMD[@]})) ;;
 		lint)    ((${#LINT_CMD[@]} + ${#SHELLCHECK_TARGETS[@]})) ;;
-		tests)   ((${#TEST_CMD[@]} + ${#BINDING_CLIS[@]} + ${#LEAKCHECK_STEPS[@]})) ;;
+		tests)   ((${#TEST_CMD[@]} + ${#TEST_EXTRA[@]} + ${#BINDING_CLIS[@]} + ${#LEAKCHECK_STEPS[@]})) ;;
 		profile) ((PROFILE_ENABLE)) || { ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); } ;;
 		release) ((${#CROSS_CHECKS[@]} + ${#RELEASE_NATIVE_CMD[@]})) ;;
 		boxes)   ((! no_remote && ! inner_run && ${#REMOTE_BOXES[@]} && ${#RELEASE_NATIVE_CMD[@]})) ;;
@@ -822,8 +878,14 @@ fStepOn(){
 }
 
 ## Preflight: show the plan, then capture the commit message so the rest runs unattended.
-run_title="${APP_NAME} $( ((merge_gate)) && echo 'merge gate' || { ((gate_mode)) && echo 'gate'; } || echo 'local CI/CD')"
-if ((quick)); then run_title+=", quick"; fi
+case "${mode_flag}" in
+	--backlog-run-quick) run_title="${APP_NAME} backlog run, quick"; if ((${#run_areas[@]})); then run_title+=": ${run_areas[*]}"; fi ;;
+	--backlog-run-full)  run_title="${APP_NAME} backlog run, full" ;;
+	--merge-gate)        run_title="${APP_NAME} merge gate" ;;
+	--gate)              run_title="${APP_NAME} gate" ;;
+	*)                   run_title="${APP_NAME} local CI/CD" ;;
+esac
+if ((quick && ! backlog_quick)); then run_title+=", quick"; fi
 ## The steps that are off, with the flag or reason for each.
 fStepsOff(){
 	local id
@@ -1101,13 +1163,14 @@ else
 	## Last comes the large-document gate - the same agreement plus time and memory
 	## ceilings, at a size no corpus case can reach.
 	if fStepOn tests; then fStepStart tests; fi
-	if ((${#TEST_CMD[@]})); then
-		fStep "${TEST_CMD[@]}"
+	## A backlog run's areas can leave the one or the other.
+	if ((${#TEST_CMD[@]} + ${#TEST_EXTRA[@]})); then
+		if ((${#TEST_CMD[@]})); then fStep "${TEST_CMD[@]}"; fi
 		fRunExtras "${TEST_EXTRA[@]}"
 		fEcho "OK: tests passed"
 	fi
 	if ((${#BINDING_CLIS[@]})) && ((! xcheck_enable)); then
-		fEcho_Clean "crosscheck skipped (--quick)"
+		fEcho_Clean "crosscheck skipped (${quick_flag})"
 	elif ((${#BINDING_CLIS[@]})); then
 		xcheck_extra=()
 		if ((${#BINDING_CLIS[@]} >= 2)) && [[ -n "${XCHECK_GEN:-}" ]]; then
@@ -1530,6 +1593,7 @@ exit 0
 ##		- 2026-10-25 JC: --long and --slow. The leak checks that take hours are only there and in --leakcheck, --quick keeps
 ##		  the fast ones, and --no-leakcheck drops the sanitizer runs too. Sizes printed are the files' own.
 ##		- 2026-10-25 JC: --merge-gate, every check of a run with no flags, for the pre-push hook. --ci is another name for it.
+##		- 2026-10-28 JC: --backlog-run-quick with areas, and --backlog-run-full. One run mode per run.
 ##		- 2026-10-25 JC: --keep-temp keeps the run's temp folder and containers. --list prints the steps and runs nothing.
 ##		- 2026-10-25 JC: Each step opens with a Starting line and closes with PASS or FAIL, as Step N of M with the time, under a
 ##		  79-wide rule. Steps that are off aren't counted, and the first section names them with the flag or reason.

@@ -873,6 +873,8 @@ The responsibility is split rather than duplicate the pipeline:
 
 - A run with no flags fits in about an hour. What takes hours, such as every Rust test under Miri, runs only under `--long` (or `--slow`) and `--leakcheck`. `--quick` keeps the fast leak checks and leaves out the slow ones.
 
+- A backlog round runs `--backlog-run-quick [AREA...]` before each commit and `--backlog-run-full` once at its end, so a round never dogfoods. The quick one is `--gate` less what `--quick` leaves out, in about 4 minutes, and records no tree, since it's partial. With no areas named it also leaves out `BACKLOG_SKIP`'s tests, such as the pre-push hook's own, which took 4 of a 10-minute run. Areas narrow only the tests, since the format check and lint are quick, and bring back their `BACKLOG_SKIP` steps. The full one runs the merge gate's checks. A run takes one run mode: `--gate`, `--merge-gate` and the 2 backlog runs can't be given together.
+
 - Both share one definition of "passing": the workflow runs `cicd.bash --gate` on Linux, split by stage flags, plus a Windows job for the binding runners. Per-language toolchain setup lives in the workflow YAML; what passing means lives in the engine, so the two cannot drift.
 
 - The formatter rewrites in place locally but is check-only (fail on diff) in CI.
