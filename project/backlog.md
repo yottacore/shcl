@@ -647,6 +647,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `Eu7ZvdD` fails with the check turned off and passes with it. It passes for windows under wine, with the link part skipped there as in the other POSIX link tests. Also `go vet` for linux, windows and darwin, `cicd.bash --backlog-run-quick go`, cli-regress over the Go CLI (629 rows), and lint-report `--check --no-mark`.
 	- Test case: `TestASaveOverAFileChangedSinceTheLoadIsRefused` (`Eu7ZvdD`).
 	- Branch: `r1029`
+	- Commit: `34536e68`
 	- Acceptance signoff: Self-closed: the new test failed with the check off and passes with it, and every gate run is green. The API shape follows Rust and Python, whose Check: entry stays open.
 	- Closed: 20261029-125838
 
