@@ -448,18 +448,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029`
 	- Commit: `e799b7c6`
 
-- Refuse a changed file's save, in Go
-	- ID: 2026102912203341
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261029-122033
-	- Opened by: 2026102910482342
-	- Parent ID: 2026102910482342
-	- Requirements:
-		- The parent's, in Go, as Rust and Python have them in 2026102912203339: the changed error kind, the check in every save call, the save options with `force`, and the twin of `Eu7RSm3`.
-	- Prereq on 2026102912203339 dropped: its Rust and Python code is in on r1029, and only its hosted Windows run is left, which doesn't hold up the Go port.
-
 - Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102912203343
 	- Type: Enhancement
@@ -637,6 +625,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Refuse a changed file's save, in Go
+	- ID: 2026102912203341
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Requirements:
+		- The parent's, in Go, as Rust and Python have them in 2026102912203339: the changed error kind, the check in every save call, the save options with `force`, and the twin of `Eu7RSm3`.
+	- Prereq on 2026102912203339 dropped: its Rust and Python code is in on r1029, and only its hosted Windows run is left, which doesn't hold up the Go port.
+	- Decisions:
+		- me, 20261029: Go returns `*SaveChanged{Path}`, its own error type beside `*SaveRefused` and `*WriteError`, so a caller tells them apart with `errors.As` as it already does. The message is the Rust one.
+		- me, 20261029: `SaveOptions{Lossy, KeepLines, Force}` and `SaveFileWith(path, SaveOptions) (bool, error)`. The options go by value, since the zero value is `SaveFile` and a nil pointer would be one more case to handle.
+		- me, 20261029: the receivers were already pointers, so no Go caller changes. A save now records what it wrote, so it's a write and isn't safe beside another call on the same document. Its doc comment says so.
+	- Progress log:
+		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. `SaveFile`, `SaveFileLossy` and `SaveFileKeepLines` go through `SaveFileWith`, which checks a save over that file before the write and records what it wrote.
+	- Swept: Go. Every load that reads a file goes through `loadFileAny`, for `LoadFile`, `LoadFileWith` and `LoadFileKeepLines`. `Parse`, `ParseKeepLines`, `LoadAndValidate` and `New` read no file. `Merge` changes the document in place, so it keeps the record. The Go CLI and `soak_test.go` save parsed documents or save elsewhere, so they save as before. `UpgradeFile` keeps its own check. Rust and Python are done in 2026102912203339, and C and the veneer are 2026102912203343.
+	- Verified: `Eu7ZvdD` fails with the check turned off and passes with it. It passes for windows under wine, with the link part skipped there as in the other POSIX link tests. Also `go vet` for linux, windows and darwin, `cicd.bash --backlog-run-quick go`, cli-regress over the Go CLI (629 rows), and lint-report `--check --no-mark`.
+	- Test case: `TestASaveOverAFileChangedSinceTheLoadIsRefused` (`Eu7ZvdD`).
+	- Branch: `r1029`
+	- Acceptance signoff: Self-closed: the new test failed with the check off and passes with it, and every gate run is green. The API shape follows Rust and Python, whose Check: entry stays open.
+	- Closed: 20261029-125838
 
 - `E004` and `E009` are retained
 	- ID: 2026102820320485

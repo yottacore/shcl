@@ -6893,3 +6893,117 @@ func TestFormatArrayIsTheSettersText(t *testing.T) {
 		}
 	}
 }
+
+// A save over the file a load read refuses when another program changed it
+// since, writes nothing, and writes with Force. A save elsewhere, and a
+// document from Parse, save as they always did (2026102910482342). Same
+// fixture in every runner.
+func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
+	defer testID(t, "Eu7ZvdD")
+	dir := t.TempDir()
+	at := func(name string) string { return filepath.Join(dir, name) }
+	write := func(p, s string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	has := func(p, want string) {
+		t.Helper()
+		if got, err := os.ReadFile(p); err != nil || string(got) != want {
+			t.Errorf("%s holds %q (%v), want %q", p, got, err, want)
+		}
+	}
+	changed := func(what string, err error, p string) {
+		t.Helper()
+		var c *SaveChanged
+		if !errors.As(err, &c) || c.Path != p {
+			t.Errorf("%s: got %v, want *SaveChanged for %s", what, err, p)
+		}
+	}
+	ok := func(what string, err error) {
+		t.Helper()
+		if err != nil {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	f := at("f.shcl")
+	write(f, "a: 1\n")
+	doc, _ := LoadFile(f)
+	doc.SetInt("a", 2)
+	write(f, "a: 9\n")
+	changed("save", doc.SaveFile(f), f)
+	changed("lossy save", doc.SaveFileLossy(f), f)
+	has(f, "a: 9\n")
+	if err := doc.SaveFile(f); err == nil || err.Error() != f+": refusing to save: the file changed since it was loaded; nothing written (force overrides)" {
+		t.Errorf("message: %v", err)
+	}
+	if k, err := doc.SaveFileWith(f, SaveOptions{Force: true}); err != nil || k {
+		t.Errorf("forced save: kept %v, err %v", k, err)
+	}
+	has(f, "a: 2\n")
+	// The next save is checked against what that one wrote.
+	doc.SetInt("a", 3)
+	ok("save after own save", doc.SaveFile(f))
+	has(f, "a: 3\n")
+	// The same bytes written again are no change.
+	write(f, "a: 3\n")
+	ok("save over the same bytes", doc.SaveFile(f))
+
+	// The line-keeping save, and a link to the file, are checked too.
+	write(f, "a: 1 # one\n")
+	kept, _, err := LoadFileKeepLines(f, Standard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept.SetInt("a", 2)
+	write(f, "a: 9 # nine\n")
+	_, err = kept.SaveFileKeepLines(f)
+	changed("keep save", err, f)
+	if runtime.GOOS != "windows" {
+		link := at("link.shcl")
+		if err := os.Symlink(f, link); err != nil {
+			t.Fatal(err)
+		}
+		_, err = kept.SaveFileKeepLines(link)
+		changed("keep save through a link", err, link)
+	}
+	has(f, "a: 9 # nine\n")
+	if k, err := kept.SaveFileWith(f, SaveOptions{KeepLines: true, Force: true}); err != nil || !k {
+		t.Errorf("forced keep save: kept %v, err %v", k, err)
+	}
+	has(f, "a: 2 # one\n")
+
+	// Gone since the load is a change. So is a file made where none was.
+	gone, _ := LoadFile(f)
+	if err := os.Remove(f); err != nil {
+		t.Fatal(err)
+	}
+	changed("save over a removed file", gone.SaveFile(f), f)
+	if _, err := os.Stat(f); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a refused save made %s", f)
+	}
+	n := at("new.shcl")
+	fresh, st := LoadFile(n)
+	if st != FileNotFound {
+		t.Errorf("status %v, want NotFound", st)
+	}
+	fresh.SetInt("a", 1)
+	write(n, "b: 2\n")
+	changed("save over a file made since", fresh.SaveFile(n), n)
+	has(n, "b: 2\n")
+	if err := os.Remove(n); err != nil {
+		t.Fatal(err)
+	}
+	ok("save where nothing is again", fresh.SaveFile(n))
+	has(n, "a: 1\n")
+
+	// Elsewhere is not checked, and the load's file still is.
+	other := at("other.shcl")
+	write(other, "z: 0\n")
+	ok("save elsewhere", gone.SaveFile(other))
+	changed("save over the load's file after one elsewhere", gone.SaveFile(f), f)
+	// A parse has no file behind it.
+	ok("save of a parse", Parse("a: 5\n").SaveFile(other))
+	has(other, "a: 5\n")
+}

@@ -986,6 +986,10 @@ type Document struct {
 	// its lines. A merge drops it: the layer's lines are not this text's. Nil
 	// when none was kept.
 	source *string
+	// The file a load read, which a save over it checks first. A merge keeps
+	// it, since the file under the merged document is still that one. A save
+	// there records what it wrote, so a save is a write like any edit.
+	file *loadedFile
 }
 
 // nameIndex is the first child of each (parent, name), chained on to the next
@@ -6658,14 +6662,7 @@ func (d *Document) ToTextKeepLines() (string, bool) {
 // dropped comes back as written when the lines are kept, so this refuses the
 // way SaveFile does only when it would write canonical.
 func (d *Document) SaveFileKeepLines(path string) (bool, error) {
-	text, kept := d.ToTextKeepLines()
-	if lost := d.LostCount(); !kept && lost > 0 {
-		return false, &SaveRefused{Path: path, Lost: lost}
-	}
-	if err := WriteFileAtomic(path, text); err != nil {
-		return false, err
-	}
-	return kept, nil
+	return d.SaveFileWith(path, SaveOptions{KeepLines: true})
 }
 
 func (d *Document) emitMarked() *emit {
@@ -9483,12 +9480,18 @@ func loadFileGated(path string, level Strictness, keep bool) (*Document, FileSta
 func loadFileAny(path string, level Strictness, keep bool) (*Document, FileStatus) {
 	text, st := ReadFile(path, 0)
 	if st != FileClean {
-		return newParser().parse("", level), st
+		doc := newParser().parse("", level)
+		// A file that could not be read gives a save nothing to compare.
+		if st == FileNotFound {
+			doc.file = loadedFileAt(path, nil)
+		}
+		return doc, st
 	}
 	doc := newParser().parse(text, level)
 	if keep {
 		doc.keepSource(text)
 	}
+	doc.file = loadedFileAt(path, &text)
 	if doc.ErrorCount() > 0 {
 		return doc, FileHadErrors
 	}
@@ -9512,24 +9515,120 @@ func (e *SaveRefused) Error() string {
 		"from the file (see diagnostics; SaveFileLossy overrides)", e.Path, e.Lost)
 }
 
+// SaveChanged is the error a save returns when the file the document was
+// loaded from no longer holds what the load read, or what this document's
+// last save there wrote. Nothing is written. Another program's edit is not
+// the caller's to undo by accident, so SaveOptions.Force is the override.
+type SaveChanged struct {
+	Path string
+}
+
+// Error names the file and the override.
+func (e *SaveChanged) Error() string {
+	return e.Path + ": refusing to save: the file changed since it was loaded; nothing written (force overrides)"
+}
+
+// SaveOptions is how SaveFileWith saves. The zero value is SaveFile.
+type SaveOptions struct {
+	// Lossy writes even when the save deletes content from the file, as
+	// SaveFileLossy does.
+	Lossy bool
+	// KeepLines keeps the lines no edit touched, as SaveFileKeepLines does.
+	KeepLines bool
+	// Force writes over the file the document was loaded from even when it
+	// changed since, for a caller that means to replace whatever is there.
+	Force bool
+}
+
+// loadedFile is the file a load read, for the save's changed check: where the
+// path resolved to, and its text, or nil when nothing was there.
+type loadedFile struct {
+	target string
+	text   *string
+}
+
+// loadedFileAt gives nil for a path that resolves to no target, a link cycle,
+// since that is a save's error already and gets no check.
+func loadedFileAt(path string, text *string) *loadedFile {
+	target, err := resolveTarget(path)
+	if err != nil {
+		return nil
+	}
+	return &loadedFile{target: target, text: text}
+}
+
+func (f *loadedFile) over(path string) bool {
+	target, err := resolveTarget(path)
+	return err == nil && target == f.target
+}
+
+// holds is true when the file at path still holds the text, byte for byte, or
+// is still not there. Content only, so a touch alone is no change. A read that
+// fails another way is left to the write, which fails the same way.
+func (f *loadedFile) holds(path string) bool {
+	now, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		return f.text != nil && *f.text == string(now)
+	case errors.Is(err, os.ErrNotExist):
+		return f.text == nil
+	}
+	return true
+}
+
 // SaveFile is the file tier's save half: write this document's canonical text
 // to path through WriteFileAtomic, so an interrupted save can never truncate
 // the config it rewrites - the same mechanics the CLI's `--write` uses.
 // Refuses when the write would delete content from the file (see
-// LostCount); SaveFileLossy writes anyway. A refusal comes back as
-// *SaveRefused, a write failure as WriteFileAtomic's *WriteError.
+// LostCount); SaveFileLossy writes anyway. Over the file a load read, refuses
+// when that file no longer holds what the load read, or what this document's
+// last save there wrote, so another program's edit is not lost;
+// SaveOptions.Force writes anyway. A refusal comes back as *SaveRefused,
+// another program's edit as *SaveChanged, a write failure as
+// WriteFileAtomic's *WriteError. A save records what it wrote, so it is a
+// write: not concurrent with another call on the document.
 func (d *Document) SaveFile(path string) error {
-	if lost := d.LostCount(); lost > 0 {
-		return &SaveRefused{Path: path, Lost: lost}
-	}
-	return WriteFileAtomic(path, d.ToCanonical())
+	_, err := d.SaveFileWith(path, SaveOptions{})
+	return err
 }
 
 // SaveFileLossy is SaveFile without the lost-content gate: writes even when
 // the write deletes content from the file. The caller owns that choice. It
-// never returns *SaveRefused - the gate is the one thing it skips.
+// never returns *SaveRefused - the gate is the one thing it skips. The changed
+// check still applies.
 func (d *Document) SaveFileLossy(path string) error {
-	return WriteFileAtomic(path, d.ToCanonical())
+	_, err := d.SaveFileWith(path, SaveOptions{Lossy: true})
+	return err
+}
+
+// SaveFileWith is the save the options describe: true when it kept the lines,
+// as SaveFileKeepLines says. All the save calls come here.
+func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
+	lost := d.LostCount()
+	var text string
+	kept := false
+	if opts.KeepLines {
+		text, kept = d.ToTextKeepLines()
+	} else {
+		text = d.ToCanonical()
+	}
+	if !opts.Lossy && !kept && lost > 0 {
+		return false, &SaveRefused{Path: path, Lost: lost}
+	}
+	// The file the load read has to be as the load or this document's last
+	// save there left it. That's a check and not a lock: an edit between it
+	// and the rename is still lost.
+	over := d.file != nil && d.file.over(path)
+	if over && !opts.Force && !d.file.holds(path) {
+		return false, &SaveChanged{Path: path}
+	}
+	if err := WriteFileAtomic(path, text); err != nil {
+		return false, err
+	}
+	if over {
+		d.file.text = &text
+	}
+	return kept, nil
 }
 
 // disavowedNames returns the leaf names of the schema entries pick accepts,
