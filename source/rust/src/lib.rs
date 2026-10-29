@@ -3908,6 +3908,13 @@ fn item_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 			true,
 		));
 	}
+	if tok
+		.elements
+		.first()
+		.is_some_and(|p| element_of(p, text).is_none())
+	{
+		return Some(Fault::new("E009", "empty list element", true));
+	}
 	match tok.elements.as_slice() {
 		[p] if p.quote == Quote::None && {
 			let raw = &text[p.start..p.end];
@@ -3974,7 +3981,9 @@ fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if let Some(f) = path_fault(tok, text) {
 		return Some(f);
 	}
-	tok.misspelled?;
+	if tok.misspelled.is_none() {
+		return wildcard_fault(tok, text);
+	}
 	if tok.sep.is_some() {
 		return Some(Fault::new(
 			"E014",
@@ -3983,11 +3992,14 @@ fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 		));
 	}
 	let s = text.as_bytes();
-	let blank = tok
+	let Some(blank) = tok
 		.segments
 		.iter()
 		.filter(|seg| seg.name.quote == Quote::None)
-		.find_map(|seg| (seg.name.start..seg.name.end).find(|&k| is_wsp_byte(s[k])))?;
+		.find_map(|seg| (seg.name.start..seg.name.end).find(|&k| is_wsp_byte(s[k])))
+	else {
+		return wildcard_fault(tok, text);
+	};
 	let mut f = Fault::new(
 		"E014",
 		"malformed line skipped: unexpected character after the path",
@@ -3995,6 +4007,16 @@ fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	);
 	f.at = (blank..s.len()).find(|&k| !is_wsp_byte(s[k]));
 	Some(f)
+}
+
+/// A wildcard selector on a line that would bind (`E004`). Wrong wherever
+/// the line sits, so it is kept and re-diagnoses the same on a reload.
+fn wildcard_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	tok.segments
+		.iter()
+		.filter_map(|seg| seg.selector.as_ref())
+		.any(|p| matches!(selector_of(p, text), Selector::Wildcard))
+		.then(|| Fault::new("E004", "wildcard selector is query-only", false))
 }
 
 /// The half of line_fault judged after the element cap: the value. A line
@@ -4048,11 +4070,11 @@ fn kept_for_place(text: &str) -> Option<bool> {
 		.then_some(true)
 }
 
-/// A stacked list item's line: `-` then a blank. The blank is what keeps
-/// `-x: y` a field line (`E014`) and `- -5` the item `-5`.
+/// A stacked list item's line: `-` then a blank or the end. The blank is
+/// what keeps `-x: y` a field line (`E014`) and `- -5` the item `-5`.
 fn is_item(text: &str) -> bool {
 	let b = text.as_bytes();
-	b.first() == Some(&b'-') && b.get(1).is_some_and(|&c| is_wsp_byte(c))
+	b.first() == Some(&b'-') && b.get(1).is_none_or(|&c| is_wsp_byte(c))
 }
 
 /// A line's text after its indent that is read as a field line: not a
@@ -5319,6 +5341,7 @@ impl<'a> Parser<'a> {
 						);
 					}
 				}
+				// name_fault() keeps a parsed line with one first (E004).
 				(Some(Selector::Wildcard), _) => {
 					self.refuse(
 						line,
@@ -5515,25 +5538,15 @@ impl<'a> Parser<'a> {
 		line: usize,
 		indent: &'a str,
 	) -> bool {
-		if parent == ROOT {
-			self.refuse(
-				line,
-				"E007",
-				"list element with no parent field",
-				Outcome::Dropped,
-				indent,
-			);
-			return false;
-		}
 		let piece = tok.elements[0];
+		// item_fault() kept an empty one (E009).
 		let Some(el) = element_of(&piece, text) else {
-			self.refuse(line, "E009", "empty list element", Outcome::Dropped, indent);
 			return false;
 		};
 		let clash = unit_clash(&self.arena[parent].name, &el.text);
 		// Element cap: each element line past it is refused on its own, the way
 		// any other bad element line is. Only a line that would join the list:
-		// under a field that already has a value it is E011, cap or not.
+		// the item arm kept one under a field with a value (E011), cap or not.
 		if self.list_full(parent) {
 			self.refuse_capped(line, indent);
 			return false;
@@ -5551,9 +5564,8 @@ impl<'a> Parser<'a> {
 			let k = merge_hash(&self.arena[parent].name, &self.arena[parent].value);
 			let d = disp_hash(&self.arena[parent].name, &self.arena[parent].value);
 			self.star_open = Some((parent, k, d));
-		} else if matches!(self.arena[parent].value, Value::Array(_))
-			&& self.arena[parent].star_list
-		{
+		} else {
+			// The item arm kept any other value's item (E011).
 			if !matches!(self.star_open, Some((n, _, _)) if n == parent) {
 				self.star_flush();
 				let old_key = merge_hash(&self.arena[parent].name, &self.arena[parent].value);
@@ -5563,15 +5575,6 @@ impl<'a> Parser<'a> {
 			if let Value::Array(els) = &mut self.arena[parent].value {
 				els.push(el);
 			}
-		} else {
-			self.refuse(
-				line,
-				"E011",
-				"field already has a value; list element ignored",
-				Outcome::Dropped,
-				indent,
-			);
-			return false;
 		}
 		if let Some(m) = clash {
 			self.diag(Diagnostic {
@@ -5846,18 +5849,11 @@ impl<'a> Parser<'a> {
 				i = next;
 				continue;
 			}
-			// Stacked-list item: `-` then a blank. A bare name starts with a
-			// letter, so no field line starts that way. A `-` alone after the
-			// trim is an empty item only when a blank followed it, and only the
-			// untrimmed line still knows; with none it is a field line (E014).
-			let item = rest.strip_prefix('-').is_some_and(|after| {
-				after.starts_with(is_wsp)
-					|| (after.is_empty()
-						&& lines[i]
-							.as_bytes()
-							.get(ilen + lead + 1)
-							.is_some_and(|&b| is_wsp_byte(b)))
-			});
+			// Stacked-list item: `-` then a blank or the end. A bare name
+			// starts with a letter, so no field line starts that way. A `-`
+			// alone is an empty item (E009), so a kept one, written back with
+			// its blank trimmed, reloads as the same line.
+			let item = is_item(rest);
 			if item || rest.starts_with('*') {
 				if item {
 					tokenize_value(rest, 1, Rules::Current, &mut tok);
@@ -5928,44 +5924,53 @@ impl<'a> Parser<'a> {
 						i += 1;
 						continue;
 					}
-					let comment = tok.comment.map(|c| &rest[c..]);
-					// Elements have no node of their own; trivia rides the field.
-					// At the root there is no field (E007), so the comment rides
-					// the document like any other pending one.
-					if parent != ROOT {
-						let mut comment = comment;
-						if self.add_star_element(parent, &tok, rest, lineno, indent) {
-							self.keep_among(parent, indent);
-							// A comment on an item stays on its item.
-							if let (Some(c), Value::Array(els)) =
-								(comment, &self.arena[parent].value)
-							{
-								let at = els.len() - 1;
-								self.arena[parent]
-									.triv_mut()
-									.notes
-									.push((at, c.to_string()));
-								comment = None;
-							}
-						}
-						let head = self.arena[parent].line;
-						match self.ends.last_mut() {
-							Some(e) if e.0 == head => e.1 = lineno,
-							_ => self.ends.push((head, lineno)),
-						}
-						self.attach_trivia(parent, indent, comment);
+					// No field above it, or one with a value already: kept the same
+					// way. Nothing the item says is wrong, so the emitter asks the
+					// reload before it writes one.
+					let homeless = if parent == ROOT {
+						Some(("E007", "list element with no parent field"))
 					} else {
-						if let Some(c) = comment {
-							self.pending.push(Pend {
-								text: c.to_string(),
-								indent,
+						let nd = &self.arena[parent];
+						let joins = nd.value.is_empty()
+							|| nd.star_list && matches!(nd.value, Value::Array(_));
+						(!joins)
+							.then_some(("E011", "field already has a value; list element ignored"))
+					};
+					if let Some((code, msg)) = homeless {
+						self.kept_any = true;
+						self.refuse(
+							lineno,
+							code,
+							msg,
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
 								blank_before: had_blank,
-								ceiling: indent.len(),
-								line: 0,
-							});
-						}
-						self.add_star_element(parent, &tok, rest, lineno, indent);
+							},
+							indent,
+						);
+						i += 1;
+						continue;
 					}
+					// Elements have no node of their own; trivia rides the field.
+					let mut comment = tok.comment.map(|c| &rest[c..]);
+					if self.add_star_element(parent, &tok, rest, lineno, indent) {
+						self.keep_among(parent, indent);
+						// A comment on an item stays on its item.
+						if let (Some(c), Value::Array(els)) = (comment, &self.arena[parent].value) {
+							let at = els.len() - 1;
+							self.arena[parent]
+								.triv_mut()
+								.notes
+								.push((at, c.to_string()));
+							comment = None;
+						}
+					}
+					let head = self.arena[parent].line;
+					match self.ends.last_mut() {
+						Some(e) if e.0 == head => e.1 = lineno,
+						_ => self.ends.push((head, lineno)),
+					}
+					self.attach_trivia(parent, indent, comment);
 					i += 1;
 					continue;
 				}
@@ -6903,6 +6908,9 @@ impl Document {
 		out.push(':');
 		e.bound(depth);
 		e.near(idx, pos);
+		if let Some(l) = e.lv.get_mut(depth) {
+			l.valued = !node.value.is_empty() && !stacks(node);
+		}
 		match &node.value {
 			Value::Empty => {
 				e.span(e.out.len());
@@ -7029,8 +7037,9 @@ struct Emit {
 	near: Vec<(usize, usize)>,
 	flushed: usize,
 	kept_near: Vec<(usize, usize)>,
-	// Per binding depth, whether that node has a `- ` item written yet and
-	// a field line under it, for a kept line refused only for where it sits.
+	// Per binding depth, whether that node has a `- ` item written yet, a
+	// field line under it, and a value an item cannot join, for a kept line
+	// refused only for where it sits.
 	lv: Vec<Lv>,
 	// to_text_keep_lines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
@@ -7146,6 +7155,7 @@ impl Emit {
 struct Lv {
 	items: bool,
 	fields: bool,
+	valued: bool,
 }
 
 /// Which trivia list a line sits in.
@@ -7597,10 +7607,11 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			// open for the lines under it when only its value was wrong.
 			let indent = "\t".repeat(pad);
 			let (parent, open, tail) = e.resolve(&indent);
-			// One kept only for where it sat, E001 or E008, reloads kept only
-			// under a list with an item written, or a field with a field
-			// line written, or as E001 under lines held open on such a list.
-			// Anywhere else it would bind: a comment then.
+			// One kept only for where it sat reloads kept only as E001 under a
+			// list with an item written, or under lines held open on one, and
+			// an item only as E008 under a field with a field line written,
+			// E011 under one with a value, or E007 at the root. Anywhere else
+			// it would bind: a comment then.
 			if let Some(field) = kept_for_place(&c.text) {
 				let up = (pad > 0 && tail.is_empty() && open == pad as isize - 1)
 					.then(|| e.lv.get(pad - 1))
@@ -7612,7 +7623,10 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 						.ok()
 						.and_then(|d| e.lv.get(d))
 						.is_some_and(|l| l.items);
-				let stays = held || up.is_some_and(|l| if field { l.items } else { l.fields });
+				let root = !field && parent == Some(ROOT) && open == -1 && tail.is_empty();
+				let stays = root
+					|| held || up
+					.is_some_and(|l| if field { l.items } else { l.fields || l.valued });
 				if !stays && !c.text.contains('\n') {
 					// A comment nests at most one level past the line before it,
 					// or a reload reads it shallower.

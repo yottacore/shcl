@@ -1,0 +1,8 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+port	int	80	Good
+host	string	x	Good
+list	string[]	a	Good
+	children	port|host|list	-

@@ -405,7 +405,7 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%SV% a schema naming a path the two-error file does not have,
 ##	%NV% two instance values holding a line break beside one plain value,
 ##	%K% a fresh copy of a file kept by hand, at the path %C% names, %KL% the
-##	same for a file whose load drops a line, %KE% one that drops an element
+##	same for a file whose load drops a line, %KE% one that keeps an element
 ##	under a field with a value, %KG% one that drops a line between two lines
 ##	of one block, %KF% one whose save cannot keep its lines, %KM%/%KN% ones
 ##	whose line ends are mostly CRLF and mostly LF, %KR% a CRLF raw block in an
@@ -655,8 +655,9 @@ rows=(
 	'EqzUbG5|set-write-fallback-refused|set --write %KL% --remove=window.margin|-|7|-|would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
 	## 20260926 item 1: a rewritten line took a dropped line with it at exit
 	## 0, an element under a field with a value or an E018 line between two
-	## lines of one block.
-	'Er7gigM|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|7|-|would delete 1 line|val: 1\n\t- e\nz: 2\n'
+	## lines of one block. The element is kept now (E011, 2026102821334870),
+	## so the rewrite keeps it too.
+	'Er7gigM|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|0|-|!would delete|val: 9\n\t- e\nz: 2\n'
 	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
 	## file said nothing.
 	'Er8Ivln|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
@@ -668,15 +669,15 @@ rows=(
 	## 2026100717500003: without --write, set printed the canonical text with
 	## the dropped line gone, at exit 0, where --write refused. The print now
 	## answers as --write does, so `set f ... > f.new && mv f.new f` is safe.
-	'Es8aXnv|set-print-refused-element|set %KE% --set=val=9|-|7||refusing to print: this result would delete 1 line|val: 1\n\t- e\nz: 2\n'
+	'Es8aXnv|set-print-refused-element|set %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n|!refusing|val: 1\n\t- e\nz: 2\n'
 	'Es8aXnw|set-print-fallback-refused|set %KL% --remove=window.margin|-|7||refusing to print: this result would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
-	'Es8aXnx|set-print-lossy|set --lossy %KE% --set=val=9|-|0|val: 9\nz: 2\n|printed in the canonical form|val: 1\n\t- e\nz: 2\n'
+	'Es8aXnx|set-print-lossy|set --lossy %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n|!canonical form|val: 1\n\t- e\nz: 2\n'
 	'Es8aXny|set-print-keeps-dropped|set %KL% --set=font.size=13|-|0|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n|!canonical|-'
 	'Es8aXnz|set-print-says-canonical|set %KF% --set=b=3|-|0|a:\n\tx: 1\n\ty: 1\nb: 3\n|printed in the canonical form|-'
 	## A layer under FILE is a merge, which keeps no lines, so a lost line
 	## anywhere refuses, and --lossy prints with no word about keeping them.
-	'Es8aXo0|set-print-layer-refused|set --set=q=1 --layer=%F% %KE%|-|7||refusing to print|-'
-	'Es8aXo1|set-print-layer-lossy|set --lossy --set=q=1 --layer=%F% %KE%|-|0|-|!canonical form|-'
+	'Es8aXo0|set-print-layer-refused|set --set=q=1 --layer=%F% %KL%|-|7||refusing to print|-'
+	'Es8aXo1|set-print-layer-lossy|set --lossy --set=q=1 --layer=%F% %KL%|-|0|-|!canonical form|-'
 	"Ep3OILN|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
@@ -1244,8 +1245,9 @@ rows=(
 	## 20260923 item 20: the help and man page say each line is read on its own,
 	## so a raw body line comes out as a field line.
 	## 20260923 item 12: a `*` with only a blank after it is an empty element
-	## to the parser (E009), and tokens called it a name fault.
-	'Er84S7X|tokens-star-trailing-blank|tokens -|a:\n\t- \n\t-\t\n\t-\n|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 item value=1-1 elem=1-1\n3:1 item value=1-1 elem=1-1\n4:1 name=0-1\n|-'
+	## to the parser (E009), and tokens called it a name fault. A `-` alone is
+	## one too since 2026102820320485.
+	'Er84S7X|tokens-star-trailing-blank|tokens -|a:\n\t- \n\t-\t\n\t-\n|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 item value=1-1 elem=1-1\n3:1 item value=1-1 elem=1-1\n4:1 item value=1-1 elem=1-1\n|-'
 	'EqjsQiv|tokens-raw-body|tokens %R%|-|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 fence value=0-3 elem=0-3\n3:1 name=0-8\n4:1 name=0-8\n5:1 fence value=0-3 elem=0-3\n|-'
 	## 20260830b item 18: a read below strict returned the value and said nothing
 	## about a line the load had dropped, so a damaged file read clean at exit 0.
@@ -2736,8 +2738,8 @@ diagExits=(
 	'EssOUuL|fmt-check|read|-|fmt --check f.shcl|6'
 	'EssOUuM|fmt-write-lost|lost|-|fmt --write f.shcl|7'
 	'EssOUuN|fmt-write-rodir|read|ro|fmt --write ro/f.shcl|8'
-	'EssOUuO|set-lost|lost|-|set --set=val=9 f.shcl|7'
-	'EssOUuP|set-write-lost|lost|-|set --write --set=val=9 f.shcl|7'
+	'EssOUuO|set-lost|lost|-|set --remove=val.m f.shcl|7'
+	'EssOUuP|set-write-lost|lost|-|set --write --remove=val.m f.shcl|7'
 	'EssOUuQ|set-write-rodir|read|ro|set --write --set=d=1 ro/f.shcl|8'
 	'EssOUuR|migrate-two-way|twoway|-|migrate f.shcl|7'
 	'EssOUuS|migrate-write-two-way|twoway|-|migrate --write f.shcl|7'
@@ -2754,7 +2756,7 @@ diagExits=(
 fDiagFixture(){   ## fDiagFixture NAME: sets diagText and the E014 line's number
 	case "$1" in
 		read)   diagText='a:  x\nc 3\nm: 1\nm: 2\ne:\n'; diagLine=2 ;;
-		lost)   diagText='val: 1\n\t- e\nc 3\n'; diagLine=3 ;;
+		lost)   diagText='val:\n\t\tm: 4\n\ts: 1\nc 3\n'; diagLine=4 ;;
 		twoway) diagText='tags: a,b\nc 3\n'; diagLine=2 ;;
 		old)    diagText='base:[Boston]\n\tlat: 42\nc 3\n'; diagLine=3 ;;
 		left)   diagText='a: 1\nc 3\n'; diagLine=2 ;;

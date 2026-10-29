@@ -207,6 +207,47 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
 
+- Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
+	- ID: 2026102307143758
+	- Type: Enhancement
+	- Status: Started
+	- Priority: Avg
+	- Opened: 20261023-071437
+	- Opened by: JC
+	- Parent ID: 2026102307035771
+	- Prereq IDs: 2026102307143752
+	- Requirements:
+		- The parent's second and third requirements: the one-sentence test for dropping in design.md above the Load outcomes table, and `E003`, `E004`, `E007`, `E009` and `E011` retained by it.
+		- Check `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line against the sentence, and say so here where one doesn't fit.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Estimated effort: High
+	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
+	- Progress log:
+		- 20261028: split in 2 to fit a round: 2026102820320485 (`E004`, `E009`), then 2026102820321403 (`E003`, `E007`, `E011` and the sentence). The first 2 are refused for their content, so they need no emitter check. The sentence goes in with the second child, so the table never disagrees with it.
+		- 20261028: checked against the sentence. `E006` fits, since its line is a fence, and `E016`, `E020` and `E021` fit as caps. 2 don't:
+			- `E002`'s dropped value isn't a line. The line binds, so it can't also be kept as written, and the value has nowhere to go. It stays value dropped, outside the sentence.
+			- A tab-only `E012` line is neither. It is dropped since a tab-only indent is one canonical output writes levels with, so written back it would bind, and a comment was turned down for it (the user, 2026-09-24, corpus `147`). A BOM-led `E014` line is the same kind, since the file-start strip would make it bind.
+	- Decisions:
+		- me, 20261028: the sentence names a third case for those 2, a line that would bind written back as it was, where no comment stands for it, rather than leave them as unstated exceptions. It goes in with 2026102820321403.
+
+- `E003`, `E007` and `E011` are retained, and dropping follows one test
+	- ID: 2026102820321403
+	- Type: Enhancement
+	- Status: Started
+	- Priority: Avg
+	- Opened: 20261028-203214
+	- Opened by: me
+	- Parent ID: 2026102307143758
+	- Prereq IDs: 2026102820320485
+	- Estimated effort: High
+	- Requirements:
+		- `E003`, `E007` and `E011` lines are retained. Each is refused only for where it sits, so the emitter asks the reload before it writes one, as it does for a clean `E001` or `E008` line, and writes it as a comment where it would bind.
+		- The one-sentence test for dropping goes in design.md above the Load outcomes table, once every code it names follows it.
+		- The sentence also names a tab-only `E012` and a BOM-led `E014`, per the Decisions on 2026102307143758.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Progress log:
+		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
+
 - CICD reset: --gate as a backlog run
 	- ID: 2026102814013272
 	- Type: Enhancement
@@ -331,21 +372,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
-- Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
-	- ID: 2026102307143758
+- `E003` is retained, and dropping follows one test
+	- ID: 2026102821334970
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
-	- Opened: 20261023-071437
-	- Opened by: JC
-	- Parent ID: 2026102307035771
-	- Prereq IDs: 2026102307143752
+	- Opened: 20261028-213349
+	- Opened by: me
+	- Parent ID: 2026102820321403
+	- Prereq IDs: 2026102821334870
 	- Requirements:
-		- The parent's second and third requirements: the one-sentence test for dropping in design.md above the Load outcomes table, and `E003`, `E004`, `E007`, `E009` and `E011` retained by it.
-		- Check `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line against the sentence, and say so here where one doesn't fit.
+		- A line whose index selects no instance (`E003`) is retained. The emitter asks the reload before it writes one, from the instances written before it, and writes it as a comment where the index would find one.
+		- The one-sentence test for dropping goes in design.md above the Load outcomes table, with the tab-only `E012` and the BOM-led `E014` named, per the parent.
 		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
 	- Estimated effort: High
-	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
@@ -405,6 +445,48 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
+- check-push-gate `EtlDIOQ` failed once under load and passed on a rerun
+	- ID: 2026102821264857
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261028-212648
+	- Opened by: me
+	- Estimated effort: Low
+	- Reproduced: 20261028, once, in `--backlog-run-quick rust go python c cli cicd` on `r1028b` at a load near 22. Its no-sync case said "exit 0, step 5 never closed", with `Starting Release builds` as the last line, and its alpine case counted no steps. A rerun of check-push-gate alone passed, at a load near 10.
+	- Possible cause: a stub run whose step 5 had not closed when it was read, so the test reads before the run ends, or a timeout in the stub that only a loaded box hits.
+
+- A merge writes a layer's kept line from inside a merged block at the root
+	- ID: 2026102821530643
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261028-215306
+	- Opened by: me
+	- Related IDs: 2026102821334870
+	- Estimated effort: Low
+	- Steps to reproduce:
+		- `shcl set --set=q=1 --layer=f.shcl f.shcl` on `val: 1` / `\ta: [1` / `z: 2`.
+	- Incorrect behavior: the layer's copy of `\ta: [1` comes out as `a: [1` at the root, above `val: 1`. It binds nothing and nothing is lost, but it left its block. A kept `E011` item under `val` does the same, and comes back as `E007`.
+	- Expected behavior: the layer's kept line stays in the merged block, or goes as a comment there, the way a kept `E008` item's copy does.
+	- Reproduced: 20261028, on `r1028b`, with `E019` and with `E011`. A comment in the same spot is folded into the base's copy.
+
+- A kept line under an `E028` array line moves out of its block when an `E011` item follows it
+	- ID: 2026102820592074
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261028-205920
+	- Opened by: me
+	- Related IDs: 2026102820320485
+	- Estimated effort: Low
+	- Steps to reproduce:
+		- `shcl fmt` on `srv.srv: 2` / `srv: [v1]` / `\t* 7` / `\t- 0` / `\tc: 1`.
+	- Incorrect behavior: `fmt` writes `* 7` at the root, above `srv: [v1]`. It still binds nothing and nothing more is lost, but it is no longer written back in place.
+	- Expected behavior: `* 7` stays under `srv`, as it does with the `- 0` line taken out.
+	- Reproduced: 20261028, on `r1028b`, with `E013` and with `E004` in the same spot.
+	- 2026-10-28: no longer reproduces at 050b4d38 (2026102821334870), where fmt keeps `* 7` under `srv`. Needs only a regression case to close.
+
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
 	- Type: Task
@@ -419,6 +501,69 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- `E004` and `E009` are retained
+	- ID: 2026102820320485
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: Avg
+	- Opened: 20261028-203204
+	- Opened by: me
+	- Parent ID: 2026102307143758
+	- Estimated effort: Avg
+	- Requirements:
+		- `E004` and `E009` lines are retained: kept as written, binding nothing, counting nothing lost. Both are refused for their content, so a reload refuses them the same way wherever they sit, and the emitter needs no check for them.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, and the goldens that change.
+	- Progress log:
+		- 20261028, all 4 bindings:
+			- A wildcard selector is a fault of the path now, judged in `name_fault` after the name's own faults and before the element cap. Its line is kept as written with any raw block it opens, and opens none of its path's fields. The emitter and setters see a faulted line, so none takes it for one refused only for where it sits.
+			- An empty item is an item fault, judged with the others before `E007`, `E008`, `E001` and `E011`, so it is kept among the items, and at the root. A `-` alone is an item, so a kept one reloads as `E009`. The CLI's tokens dump reads it the same way.
+			- Docs: design.md's 2 table rows, the refusal order and a paragraph with the reasons, spec.md's 2 code rows and the item marker, the changelog, the conformance README.
+			- Goldens: `057` (the wildcard line kept, lost 4), `060` (the empty item kept among the items, lost 2), `095` (kept, lost 4, and its comment on a lone `-`). New case `211`.
+			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (629 rows), crosscheck over the corpus plus a 2000-iteration dump (54282 comparisons), check-docs, check-abnf, check-migrate, shell-regress, clippy, rustfmt, go vet, staticcheck, gofmt, ruff, mypy, shellcheck, markdownlint, and a 2,000,000-iteration release fuzz. Case `211` fails on the old C library.
+			- Verified: `--backlog-run-quick rust go python c cli cicd` passed its format, build and lint steps, and its tests up to check-push-gate. That failed once under load (2026102821264857) and passed on a rerun alone, and check-locale, the step after it, passed alone.
+	- Decisions:
+		- me, 20261028: a `-` alone is an empty item, with or without a blank after it, so a kept one written back with its blank trimmed reloads as the same line, not as an `E014` name. Writing it back as `- ` was rejected, since canonical output has no trailing blanks and editors strip them. A `Check:` in questions.md.
+		- me, 20261028: `E004` is judged with the path, not while the path is walked, so it no longer waits on an earlier index finding its instance, and a raw block it opens is kept with it, as `E014`'s is.
+		- me, 20261028: an empty item past the element cap is still `E021`, as any faulted item is.
+	- Test case: corpus `Eu3cqRL` (`211-kept-wildcard-and-empty-item`) in all 4 runners, with `EoLwIlc` (`057`), `EoLwIlf` (`060`) and `Ep16w2C` (`095`). Fuzz `EpFAzfk` counts both codes as kept. cli-regress `Er84S7X`.
+		- 20261028: fuzz `EtXAOBZ`'s comment assert went from `\n\t# c: 1\n` to `\n\tc: 1\n`. The wildcard line it starts with is kept now, so the item after it is the lost line (`E011`), no list forms, and the field binds. Its lost count of 1 and its no-list-with-a-field check stay.
+		- 20261028: cli-regress `Er84S7X`'s line for a `-` alone went from `4:1 name=0-1` to `4:1 item value=1-1 elem=1-1`.
+		- Swept: the `E004` and `E009` arms, `is_item`, the parser's item test and the tokens dump in all 4 bindings and CLIs. `attach_path`'s wildcard arm stays, unreachable from a load, with a comment. Go, Python and C have no twin of the fuzz properties.
+	- Closed: 20261028-2345
+	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
+
+- `E007` and `E011` are retained
+	- ID: 2026102821334870
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: Avg
+	- Opened: 20261028-213348
+	- Opened by: me
+	- Parent ID: 2026102820321403
+	- Requirements:
+		- An item with no field above it (`E007`) and an item under a field that has a value (`E011`) are retained: kept as written, binding nothing, counting nothing lost. The emitter asks the reload before it writes one, and writes it as a comment where it would bind.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, and the goldens that change.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261028, all 4 bindings:
+			- The item arm judges both before it adds the item, beside `E008`, and keeps the line whole, its comment included. `add_star_element` no longer refuses either, and the root branch that filed the item's comment on its own is gone.
+			- The emitter's level model also knows whether each open binding line has a value an item cannot join. A clean kept item stays as written under such a line (`E011`) and at the root (`E007`), and is a comment anywhere else, so an edit that empties the field can't make it bind.
+			- Docs: design.md's 2 table rows, the emitter paragraph and a paragraph with the reasons, spec.md's 2 code rows, the changelog, the conformance README.
+			- Goldens: `060` (both kept, lost 0), `095` (kept, lost 3, its first comment), `104` (kept with its comment, lost 0), `160` (kept through the edit, lost 0, its comment). New case `212`.
+			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (629 rows), crosscheck over the corpus plus a 2000-iteration dump (54219 comparisons), check-docs, check-abnf, check-migrate, shell-regress, shellcheck, clippy, rustfmt, go vet, staticcheck, ruff, mypy, mdcheck, and a 2,000,000-iteration release fuzz.
+	- Decisions:
+		- me, 20261028: case `160` stays and now pins a kept `E007` line through an edit. Case `159` still pins a dropped line through one.
+		- me, 20261028: a kept item that a merge leaves at the root reloads as `E007` and stays as written there, since nothing binds it. Where a merge puts a layer's kept line is older, filed as 2026102821530643.
+	- Test case: corpus `Eu3rXZ5` (`212-kept-homeless-items`) in all 4 runners, with `EoLwIlf` (`060`), `Ep16w2C` (`095`), `Ep1EGVd` (`104`) and `Eqwdeun` (`160`). Fuzz `EpFAzfk` counts both codes as kept. cli-regress `Er7gigM`, `Es8aXnv`, `Es8aXnx`.
+		- 20261028: fuzz `EtXAOBZ`'s lost count went from 1 to 0, since its `E011` item is kept now. Its no-list and comment checks stay.
+		- 20261028: cli-regress `Er7gigM` went from exit 7 and the file unchanged to exit 0 and `val: 9` / `\t- e` / `z: 2`. `Es8aXnv` went from exit 7 and no output to exit 0 and the same text. `Es8aXnx`'s output went from `val: 9` / `z: 2` to the same text, with no canonical-form note.
+		- 20261028: cli-regress `Es8aXo0` and `Es8aXo1` read the `%KL%` file, which still loses a line, where `%KE%` no longer does. The diag-exit `lost` fixture is a tab-only line now, and `EssOUuO` and `EssOUuP` remove `val.m`, which makes the save fall back, where `--set=val=9` now keeps every line.
+		- Swept: the item arm, `add_star_element` and the emitter's kept-line check in all 4 bindings and the 4 CLIs' explain text. The fuzz outcome table and `REFUSING` list. No other site filed an `E007` or `E011`.
+	- Closed: 20261028-2345
+	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
 
 - CICD reset: backlog run flags
 	- ID: 2026102813104060

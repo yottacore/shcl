@@ -2677,10 +2677,8 @@ func doTokens(o *opts) int {
 			continue
 		}
 		// A list item and a fence line are value halves on their own. A `-` is
-		// an item when a blank follows it, trailing or not, which only the
-		// untrimmed line still shows (20260923 item 12).
-		after := ilen + lead + 1
-		item := strings.HasPrefix(body, "-") && after < len(line) && (line[after] == ' ' || line[after] == '\t' || line[after] == '\r')
+		// an item when a blank or the end follows it (20260923 item 12).
+		item := body == "-" || strings.HasPrefix(body, "- ") || strings.HasPrefix(body, "-\t") || strings.HasPrefix(body, "-\r")
 		fence := strings.HasPrefix(body, "```") || strings.HasPrefix(body, "~~~")
 		if item || fence {
 			from := lead

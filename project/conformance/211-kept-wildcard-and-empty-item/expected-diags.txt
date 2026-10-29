@@ -1,0 +1,9 @@
+line 3: Error: E004
+line 4: Error: E018
+line 5: Error: E004
+line 8: Error: E009
+line 9: Error: E009
+line 12: Error: E009
+line 14: Error: E014
+line 15: Error: E018
+failed: 8 diagnostic(s), 8 error(s)

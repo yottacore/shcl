@@ -4199,6 +4199,11 @@ func itemFault(tok *Tokens, text string) *fault {
 	if len(tok.Elements) > 1 {
 		return newFault("E026", "a comma then a space or the end in a list item; an item is one value, so quote the text", true)
 	}
+	if len(tok.Elements) > 0 {
+		if _, ok := elementOf(&tok.Elements[0], text); !ok {
+			return newFault("E009", "empty list element", true)
+		}
+	}
 	if len(tok.Elements) == 1 && tok.Elements[0].Quote == QuoteNone {
 		p := &tok.Elements[0]
 		raw := text[p.Start:p.End]
@@ -4261,7 +4266,7 @@ func nameFault(tok *Tokens, text string) *fault {
 		return f
 	}
 	if tok.Misspelled < 0 {
-		return nil
+		return wildcardFault(tok, text)
 	}
 	if tok.Sep >= 0 {
 		return newFault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'", true)
@@ -4283,7 +4288,7 @@ func nameFault(tok *Tokens, text string) *fault {
 		}
 	}
 	if blank < 0 {
-		return nil
+		return wildcardFault(tok, text)
 	}
 	f := newFault("E014", "malformed line skipped: unexpected character after the path", true)
 	for k := blank; k < len(text); k++ {
@@ -4293,6 +4298,18 @@ func nameFault(tok *Tokens, text string) *fault {
 		}
 	}
 	return f
+}
+
+// wildcardFault is a wildcard selector on a line that would bind (E004).
+// Wrong wherever the line sits, so it is kept and re-diagnoses the same on a
+// reload.
+func wildcardFault(tok *Tokens, text string) *fault {
+	for i := range tok.Segments {
+		if sel := tok.Segments[i].Selector; sel != nil && selectorOf(sel, text).kind == selWildcard {
+			return newFault("E004", "wildcard selector is query-only", false)
+		}
+	}
+	return nil
 }
 
 // valueSideFault is the half of lineFault judged after the element cap: the
@@ -4369,7 +4386,7 @@ func keptForPlace(text string) int {
 // isItem reports a stacked list item's line: `-` then a blank. The blank is
 // what keeps `-x: y` a field line (E014) and `- -5` the item `-5`.
 func isItem(text string) bool {
-	return len(text) > 1 && text[0] == '-' && isWspByte(text[1])
+	return text != "" && text[0] == '-' && (len(text) == 1 || isWspByte(text[1]))
 }
 
 // isFieldText reports a line's text after its indent that is read as a field
@@ -5533,6 +5550,7 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 				p.refuse(line, "E002", fmt.Sprintf("value after selector on '%s' ignored", diagName(seg.name)), outValueDropped, indent)
 			}
 		case seg.sel != nil:
+			// nameFault keeps a parsed line with one first (E004).
 			p.refuse(line, "E004", "wildcard selector is query-only", outDropped, indent)
 			return 0, false
 		case !isLast:
@@ -5669,20 +5687,16 @@ func (p *parser) refuseCapped(line int, indent string) {
 // addStarElement: one stacked-list item (`- scalar`) appends to the parent's
 // array.
 func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, indent string) bool {
-	if parent == root {
-		p.refuse(line, "E007", "list element with no parent field", outDropped, indent)
-		return false
-	}
 	piece := tok.Elements[0]
+	// itemFault kept an empty one (E009).
 	el, ok := elementOf(&piece, text)
 	if !ok {
-		p.refuse(line, "E009", "empty list element", outDropped, indent)
 		return false
 	}
 	clash, clashed := unitClash(p.arena[parent].name, el.text)
 	// Element cap: each element line past it is refused on its own, the way
 	// any other bad element line is. Only a line that would join the list:
-	// under a field that already has a value it is E011, cap or not.
+	// the item arm kept one under a field with a value (E011), cap or not.
 	if p.listFull(parent) {
 		p.refuseCapped(line, indent)
 		return false
@@ -5702,7 +5716,8 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 		p.starNode = parent
 		p.starKey = mergeHash(p.arena[parent].name, &p.arena[parent].value)
 		p.starDisp = dispHash(p.arena[parent].name, &p.arena[parent].value)
-	case p.arena[parent].value.kind == vArray && p.arena[parent].starList:
+	default:
+		// The item arm kept any other value's item (E011).
 		if !(p.starOpen && p.starNode == parent) {
 			p.starFlush()
 			p.starOpen = true
@@ -5711,9 +5726,6 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 			p.starDisp = dispHash(p.arena[parent].name, &p.arena[parent].value)
 		}
 		p.arena[parent].value.els = append(p.arena[parent].value.els, el)
-	default:
-		p.refuse(line, "E011", "field already has a value; list element ignored", outDropped, indent)
-		return false
 	}
 	if clashed {
 		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: clash, Code: "H005"})
@@ -6000,18 +6012,11 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				continue
 			}
 		}
-		// Stacked-list item: `-` then a blank. A bare name starts with a
-		// letter, so no field line starts that way. A `-` alone after the
-		// trim is an empty item only when a blank followed it, and only the
-		// untrimmed line still knows; with none it is a field line (E014).
-		item := false
-		if strings.HasPrefix(rest, "-") {
-			after := rest[1:]
-			item = after != "" && isWspByte(after[0])
-			if after == "" && len(lines[i]) > len(indent)+lead+1 {
-				item = isWspByte(lines[i][len(indent)+lead+1])
-			}
-		}
+		// Stacked-list item: `-` then a blank or the end. A bare name
+		// starts with a letter, so no field line starts that way. A `-`
+		// alone is an empty item (E009), so a kept one, written back with
+		// its blank trimmed, reloads as the same line.
+		item := isItem(rest)
 		if item || strings.HasPrefix(rest, "*") {
 			if item {
 				TokenizeValue(rest, 1, RulesCurrent, &tok)
@@ -6055,36 +6060,42 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					i++
 					continue
 				}
+				// No field above it, or one with a value already: kept the same
+				// way. Nothing the item says is wrong, so the emitter asks the
+				// reload before it writes one.
+				code, msg := "", ""
+				if parent == root {
+					code, msg = "E007", "list element with no parent field"
+				} else if nd := &p.arena[parent]; !nd.value.isEmpty() && !(nd.starList && nd.value.kind == vArray) {
+					code, msg = "E011", "field already has a value; list element ignored"
+				}
+				if code != "" {
+					p.keptAny = true
+					p.refuse(lineno, code, msg, outRetained(trimEndWS(rest), hadBlank), indent)
+					i++
+					continue
+				}
+				// Elements have no node of their own; trivia rides the field.
 				comment := ""
 				if tok.Comment >= 0 {
 					comment = rest[tok.Comment:]
 				}
-				// Elements have no node of their own; trivia rides the field. At the
-				// root there is no field (E007), so the comment rides the document like
-				// any other pending one.
-				if parent != root {
-					if p.addStarElement(parent, &tok, rest, lineno, indent) {
-						p.keepAmong(parent, indent)
-						// A comment on an item stays on its item.
-						if comment != "" && p.arena[parent].value.kind == vArray {
-							t := p.arena[parent].trivMut()
-							t.notes = append(t.notes, itemNote{at: len(p.arena[parent].value.els) - 1, text: comment})
-							comment = ""
-						}
+				if p.addStarElement(parent, &tok, rest, lineno, indent) {
+					p.keepAmong(parent, indent)
+					// A comment on an item stays on its item.
+					if comment != "" && p.arena[parent].value.kind == vArray {
+						t := p.arena[parent].trivMut()
+						t.notes = append(t.notes, itemNote{at: len(p.arena[parent].value.els) - 1, text: comment})
+						comment = ""
 					}
-					head := p.arena[parent].line
-					if n := len(p.ends); n > 0 && p.ends[n-1][0] == head {
-						p.ends[n-1][1] = lineno
-					} else {
-						p.ends = append(p.ends, [2]int{head, lineno})
-					}
-					p.attachTrivia(parent, indent, comment)
-				} else {
-					if comment != "" {
-						p.pending = append(p.pending, pend{text: comment, indent: indent, blankBefore: hadBlank, ceiling: len(indent)})
-					}
-					p.addStarElement(parent, &tok, rest, lineno, indent)
 				}
+				head := p.arena[parent].line
+				if n := len(p.ends); n > 0 && p.ends[n-1][0] == head {
+					p.ends[n-1][1] = lineno
+				} else {
+					p.ends = append(p.ends, [2]int{head, lineno})
+				}
+				p.attachTrivia(parent, indent, comment)
 				i++
 				continue
 			}
@@ -6902,8 +6913,9 @@ type emit struct {
 	nearBy   []nearNode
 	flushed  int
 	keptNear []nearNode
-	// Per binding depth, whether that node has a `- ` item written yet and a
-	// field line under it, for a kept line refused only for where it sits.
+	// Per binding depth, whether that node has a `- ` item written yet, a
+	// field line under it, and a value an item cannot join, for a kept line
+	// refused only for where it sits.
 	lv []lv
 	// ToTextKeepLines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
@@ -6918,6 +6930,7 @@ type emit struct {
 type lv struct {
 	items  bool
 	fields bool
+	valued bool
 }
 
 // nearNode is a node an emit passed through and its index in its parent's
@@ -7301,15 +7314,16 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			// open for the lines under it when only its value was wrong.
 			indent := strings.Repeat("\t", pad)
 			found, open, tail := e.resolve(indent)
-			// One kept only for where it sat, E001 or E008, reloads kept only
-			// under a list with an item written, or a field with a field line
-			// written, or as E001 under lines held open on such a list.
-			// Anywhere else it would bind: a comment then.
+			// One kept only for where it sat reloads kept only as E001 under a
+			// list with an item written, or under lines held open on one, and
+			// an item only as E008 under a field with a field line written,
+			// E011 under one with a value, or E007 at the root. Anywhere else
+			// it would bind: a comment then.
 			if kind := keptForPlace(c.text); kind != placeNone {
-				stays := false
+				stays := kind == placeItem && found.ok && found.parent == root && open == -1 && len(tail) == 0
 				if pad > 0 && len(tail) == 0 && open == pad-1 && pad-1 < len(e.lv) && found.ok && found.parent != dead && found.parent != unopened {
 					up := e.lv[pad-1]
-					stays = (kind == placeField && up.items) || (kind == placeItem && up.fields)
+					stays = (kind == placeField && up.items) || (kind == placeItem && (up.fields || up.valued))
 				}
 				if found.ok && found.parent == lazy && open >= 0 && open < len(e.lv) && e.lv[open].items {
 					held := true
@@ -8321,6 +8335,9 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 	out.WriteByte(':')
 	e.bound(depth)
 	e.near(idx, pos)
+	if depth < len(e.lv) {
+		e.lv[depth].valued = !node.value.isEmpty() && !stacks(node)
+	}
 	switch {
 	case node.value.kind == vEmpty:
 		e.span(out.Len())
