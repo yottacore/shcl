@@ -323,8 +323,16 @@ std::string_view spelling(SizeUnit u);
 enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
 // Not a bool: Refused is the lost-content gate, which save_file_lossy
 // overrides, and folding it into a failed write leaves the caller with an
-// override they cannot tell they need.
-enum class SaveResult { Ok, Refused, Failed };
+// override they cannot tell they need. Changed is the file the load read
+// changed since, by another program; nothing was written, and
+// SaveOptions::force overrides.
+enum class SaveResult { Ok, Refused, Failed, Changed };
+// How save_file_with saves. The default is save_file.
+struct SaveOptions {
+	bool lossy{};      // write even when the save deletes content, as save_file_lossy
+	bool keep_lines{}; // keep the lines no edit touched, as save_file_keep_lines
+	bool force{};      // write over the file the load read even when it changed since
+};
 // Why a write failed, so a program can tell a missing folder from no
 // permission or a full disk. NotFound and Unreadable are FileStatus's names.
 // Unreadable is upgrade_file's, for a file it could not read as UTF-8 text.
@@ -455,12 +463,19 @@ public:
 	// load_file_with, keeping the text for to_text_keep_lines().
 	static std::pair<Document, FileStatus> load_file_keep_lines(const std::string &path, Strictness s);
 	// Canonical text, written atomically: the CLI --write mechanics.
-	// *why (when given) gets why a Failed save failed, else Ok.
-	SaveResult save_file(const std::string &path, WriteStatus *why = nullptr) const;
-	SaveResult save_file_lossy(const std::string &path, WriteStatus *why = nullptr) const;
+	// *why (when given) gets why a Failed save failed, else Ok. Over the file
+	// a load read, Changed when that file no longer holds what the load read,
+	// or what this document's last save there wrote. A save records what it
+	// wrote, so it is a write: not concurrent with another call on the
+	// document.
+	SaveResult save_file(const std::string &path, WriteStatus *why = nullptr);
+	SaveResult save_file_lossy(const std::string &path, WriteStatus *why = nullptr);
 	// save_file with to_text_keep_lines(), and whether it kept the lines or
 	// wrote the canonical form instead. Refuses the way save_file does.
-	std::pair<SaveResult, bool> save_file_keep_lines(const std::string &path, WriteStatus *why = nullptr) const;
+	std::pair<SaveResult, bool> save_file_keep_lines(const std::string &path, WriteStatus *why = nullptr);
+	// The save the options describe, and whether it kept the lines, as
+	// save_file_keep_lines says. The other three come here.
+	std::pair<SaveResult, bool> save_file_with(const std::string &path, const SaveOptions &opts, WriteStatus *why = nullptr);
 #endif
 
 	// True when a strict load would fail: strict, and an error diagnostic exists.
@@ -780,7 +795,7 @@ static_assert(static_cast<int>(SizeUnit::Bytes) + 1 == SHCL_SIZE_BYTES && static
 static_assert(static_cast<int>(FileStatus::Clean) == SHCL_FILE_CLEAN && static_cast<int>(FileStatus::HadErrors) == SHCL_FILE_HAD_ERRORS
 	&& static_cast<int>(FileStatus::NotFound) == SHCL_FILE_NOT_FOUND && static_cast<int>(FileStatus::Unreadable) == SHCL_FILE_UNREADABLE, "FileStatus drifted from shcl_file_status");
 static_assert(static_cast<int>(SaveResult::Ok) == SHCL_SAVE_OK && static_cast<int>(SaveResult::Refused) == SHCL_SAVE_REFUSED
-	&& static_cast<int>(SaveResult::Failed) == SHCL_SAVE_FAILED, "SaveResult drifted from shcl_save_result");
+	&& static_cast<int>(SaveResult::Failed) == SHCL_SAVE_FAILED && static_cast<int>(SaveResult::Changed) == SHCL_SAVE_CHANGED, "SaveResult drifted from shcl_save_result");
 static_assert(static_cast<int>(WriteStatus::Ok) == SHCL_WRITE_OK && static_cast<int>(WriteStatus::NotFound) == SHCL_WRITE_NOT_FOUND
 	&& static_cast<int>(WriteStatus::Unreadable) == SHCL_WRITE_UNREADABLE && static_cast<int>(WriteStatus::PermissionDenied) == SHCL_WRITE_PERMISSION_DENIED
 	&& static_cast<int>(WriteStatus::DiskFull) == SHCL_WRITE_DISK_FULL && static_cast<int>(WriteStatus::ReadOnly) == SHCL_WRITE_READ_ONLY
@@ -1194,22 +1209,31 @@ std::pair<Document, FileStatus> Document::load_file_keep_lines(const std::string
 	Document d = Access::wrap(shcl_load_file_keep_lines(path.c_str(), static_cast<shcl_strictness>(s), &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
-SaveResult Document::save_file(const std::string &path, WriteStatus *why) const {
+SaveResult Document::save_file(const std::string &path, WriteStatus *why) {
 	shcl_write_status st = SHCL_WRITE_OK;
 	SaveResult r = static_cast<SaveResult>(shcl_save_file(detail::held(*this), path.c_str(), &st));
 	if (why) *why = static_cast<WriteStatus>(st);
 	return r;
 }
-SaveResult Document::save_file_lossy(const std::string &path, WriteStatus *why) const {
+SaveResult Document::save_file_lossy(const std::string &path, WriteStatus *why) {
 	shcl_write_status st = SHCL_WRITE_OK;
 	SaveResult r = static_cast<SaveResult>(shcl_save_file_lossy(detail::held(*this), path.c_str(), &st));
 	if (why) *why = static_cast<WriteStatus>(st);
 	return r;
 }
-std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &path, WriteStatus *why) const {
+std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &path, WriteStatus *why) {
 	int k = 0;
 	shcl_write_status st = SHCL_WRITE_OK;
 	SaveResult r = static_cast<SaveResult>(shcl_save_file_keep_lines(detail::held(*this), path.c_str(), &k, &st));
+	if (why) *why = static_cast<WriteStatus>(st);
+	return {r, k != 0};
+}
+std::pair<SaveResult, bool> Document::save_file_with(const std::string &path, const SaveOptions &opts, WriteStatus *why) {
+	shcl_save_options o{};
+	o.lossy = opts.lossy; o.keep_lines = opts.keep_lines; o.force = opts.force;
+	int k = 0;
+	shcl_write_status st = SHCL_WRITE_OK;
+	SaveResult r = static_cast<SaveResult>(shcl_save_file_with(detail::held(*this), path.c_str(), o, &k, &st));
 	if (why) *why = static_cast<WriteStatus>(st);
 	return {r, k != 0};
 }

@@ -133,13 +133,15 @@ static int reads_from_several_threads() {
 	for (const auto &p : one.paths()) queries.push_back(p);
 	for (const auto &p : one.instance_paths()) queries.push_back(p);
 
-	using Call = std::function<std::string(const D &, const D &)>;
+	// Not const, for the save: it records what it wrote, so it is a write, but
+	// it holds the lock all the same, and a parse has no file to record.
+	using Call = std::function<std::string(D &, const D &)>;
 	std::vector<Call> calls = {
 		[](const D &d, const D &) { return show(d.to_canonical(), d.to_text_keep_lines(), d.strict_failed(), d.strictness()); },
 		[](const D &d, const D &) { return show(d.paths(), d.instance_paths(), d.fields()); },
 		[](const D &d, const D &) { return show(d.diagnostics(), d.error_count(), d.lost_count()); },
 #ifndef SHCL_NO_FILE_IO
-		[](const D &d, const D &) {
+		[](D &d, const D &) {
 			std::string o;
 			const std::string savePath = save_path();
 			shcl::WriteStatus why{};
@@ -221,6 +223,92 @@ static int reads_from_several_threads() {
 	}
 	return test_id_end(fails);
 }
+
+#ifndef SHCL_NO_FILE_IO
+// A save over the file a load read refuses when another program changed
+// it since, writes nothing, and writes with force. A save elsewhere, and a
+// document from a parse, save as they always did (2026102910482342). The
+// C runner's fixture, through the veneer.
+static int a_save_over_a_file_changed_since_the_load_is_refused() {
+	test_id("Eu7cuVe", "a_save_over_a_file_changed_since_the_load_is_refused");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-changed-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	auto put_text = [](const std::string &p, const std::string &t) { CHECK(shcl::write_file_atomic(p, t) == shcl::WriteStatus::Ok); };
+	auto has = [](const std::string &p, const std::string &t) { return shcl::read_file(p) == std::make_pair(t, shcl::FileStatus::Clean); };
+	shcl::SaveOptions force;
+	force.force = true;
+	shcl::SaveOptions keepForce;
+	keepForce.keep_lines = keepForce.force = true;
+	const std::string f = dir + "/f.shcl", n = dir + "/new.shcl", other = dir + "/other.shcl";
+	put_text(f, "a: 1\n");
+	auto doc = shcl::Document::load_file(f).first;
+	CHECK(doc.set_int("a", 2) == shcl::SetStatus::Ok);
+	put_text(f, "a: 9\n");
+	shcl::WriteStatus why = shcl::WriteStatus::Other;
+	CHECK(doc.save_file(f, &why) == R::Changed && why == shcl::WriteStatus::Ok);
+	CHECK(doc.save_file_lossy(f) == R::Changed);
+	CHECK(has(f, "a: 9\n"));
+	CHECK(doc.save_file_with(f, force) == std::make_pair(R::Ok, false));
+	CHECK(has(f, "a: 2\n"));
+	// The next save is checked against what that one wrote.
+	CHECK(doc.set_int("a", 3) == shcl::SetStatus::Ok);
+	CHECK(doc.save_file(f) == R::Ok && has(f, "a: 3\n"));
+	// The same bytes written again are no change.
+	put_text(f, "a: 3\n");
+	CHECK(doc.save_file(f) == R::Ok);
+
+	// The line-keeping save, and a link to the file, are checked too.
+	put_text(f, "a: 1 # one\n");
+	auto kept = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard).first;
+	CHECK(kept.set_int("a", 2) == shcl::SetStatus::Ok);
+	put_text(f, "a: 9 # nine\n");
+	CHECK(kept.save_file_keep_lines(f).first == R::Changed);
+#ifndef _WIN32
+	const std::string link = dir + "/link.shcl";
+	CHECK(symlink(f.c_str(), link.c_str()) == 0);
+	CHECK(kept.save_file_keep_lines(link).first == R::Changed);
+#endif
+	CHECK(has(f, "a: 9 # nine\n"));
+	CHECK(kept.save_file_with(f, keepForce) == std::make_pair(R::Ok, true));
+	CHECK(has(f, "a: 2 # one\n"));
+
+	// Gone since the load is a change. So is a file made where none was.
+	auto gone = shcl::Document::load_file(f).first;
+	std::remove(f.c_str());
+	CHECK(gone.save_file(f) == R::Changed);
+	CHECK(shcl::read_file(f).second == shcl::FileStatus::NotFound);
+	auto [fresh, freshSt] = shcl::Document::load_file(n);
+	CHECK(freshSt == shcl::FileStatus::NotFound);
+	CHECK(fresh.set_int("a", 1) == shcl::SetStatus::Ok);
+	put_text(n, "b: 2\n");
+	CHECK(fresh.save_file(n) == R::Changed && has(n, "b: 2\n"));
+	std::remove(n.c_str());
+	CHECK(fresh.save_file(n) == R::Ok && has(n, "a: 1\n"));
+
+	// Elsewhere is not checked, and the load's file still is.
+	put_text(other, "z: 0\n");
+	CHECK(gone.save_file(other) == R::Ok);
+	CHECK(gone.save_file(f) == R::Changed);
+	// A parse has no file behind it.
+	auto parsed = shcl::Document::parse("a: 5\n");
+	CHECK(parsed.save_file(other) == R::Ok && has(other, "a: 5\n"));
+#ifndef _WIN32
+	std::remove(link.c_str());
+#endif
+	std::remove(n.c_str());
+	std::remove(other.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+#endif
 
 int main() {
 	test_id("EjtkR0S", "veneer_smoke");
@@ -980,5 +1068,11 @@ int main() {
 	else std::printf("veneer: ok\n");
 	const int smoke = test_id_end(fails);
 	fails = 0;
-	return reads_from_several_threads() | smoke;
+	const int threads = reads_from_several_threads();
+	fails = 0;
+#ifndef SHCL_NO_FILE_IO
+	return a_save_over_a_file_changed_since_the_load_is_refused() | threads | smoke;
+#else
+	return threads | smoke;
+#endif
 }

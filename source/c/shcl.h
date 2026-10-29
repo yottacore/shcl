@@ -321,14 +321,26 @@ typedef enum {
 } shcl_file_status;
 /* Save refuses when the write would delete content from the file
    (shcl_lost_count); shcl_save_file_lossy is the override, and is the only way
-   to write then. The two failures are separate values rather than one falsey
-   answer because they need different handling: a refusal is the caller's to
-   reverse, a write failure is the disk's answer with errno describing it. */
+   to write then. Over the file a load read, it also refuses when that file no
+   longer holds what the load read, or what this document's last save there
+   wrote, so another program's edit is not lost; the force option is the
+   override. The failures are separate values rather than one falsey answer
+   because they need different handling: a refusal is the caller's to
+   reverse, a write failure is the disk's answer with errno describing it.
+   CHANGED is the other bindings' "PATH: refusing to save: the file changed
+   since it was loaded; nothing written (force overrides)". */
 typedef enum {
 	SHCL_SAVE_OK,      /* written */
 	SHCL_SAVE_REFUSED, /* the lost-content gate fired; lossy overrides */
-	SHCL_SAVE_FAILED   /* the write itself failed; *why and errno say why */
+	SHCL_SAVE_FAILED,  /* the write itself failed; *why and errno say why */
+	SHCL_SAVE_CHANGED  /* the file changed since the load; nothing written, force overrides */
 } shcl_save_result;
+/* How shcl_save_file_with saves. All zero, as {0} gives, is shcl_save_file. */
+typedef struct {
+	int lossy;      /* write even when the save deletes content, as shcl_save_file_lossy */
+	int keep_lines; /* keep the lines no edit touched, as shcl_save_file_keep_lines */
+	int force;      /* write over the file the load read even when it changed since */
+} shcl_save_options;
 /* Why a write failed, so a program can tell a missing folder from no
    permission or a full disk without reading errno itself. NOT_FOUND and
    UNREADABLE are shcl_file_status's names. Every call that writes takes a
@@ -369,6 +381,10 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 // load dropped comes back as written when the lines are kept, so this refuses
 // the way shcl_save_file does only when it would write canonical.
 shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept, shcl_write_status *why);
+// The save the options describe, with *kept as shcl_save_file_keep_lines sets
+// it. The other three save calls come here. A save records what it wrote, so
+// it is a write: not concurrent with another call on the document.
+shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_options opts, int *kept, shcl_write_status *why);
 // What shcl_read_named_schema found. NOT_FOUND and EMPTY are
 // shcl_read_schema_ref's answers; the rest say why a named schema was not
 // read. New values go on the end; the other bindings number them in this
@@ -1738,6 +1754,12 @@ struct shcl_doc {
 	   then the one that keeps its lines. A merge drops it: the layer's lines
 	   are not this text's. */
 	int has_source; ShclStr source;
+	/* The file a load read, which a save over it checks first: where the path
+	   resolved to, and the text it read, NULL when nothing was there. A merge
+	   keeps it, since the file under the merged document is still that one.
+	   A save there puts what it wrote in its place. malloc'd, so that save can
+	   give the old text back; file_target is NULL when there is no file. */
+	char *file_target, *file_text; size_t file_len;
 };
 
 /* Point every allocation a document can make at one recovery point, or back at
@@ -11508,7 +11530,7 @@ shcl_doc *shcl_parse_with(const char *text, size_t len, shcl_strictness s) { ret
    arithmetic. A cap diagnostic is an error, so shcl_error_count answers
    whether a Strict load would have failed; the parsed part stays readable. */
 shcl_doc *shcl_parse_limited(const char *text, size_t len, shcl_strictness s, size_t max_nodes, size_t max_elements, size_t max_diags) { return do_parse(text, len, s, max_nodes, max_elements, max_diags, 0); }
-void shcl_free(shcl_doc *d) { if (!d) return; shcl_free(d->probe_doc); free(d->nodes.data); free(d->kept_near); arena_free(&d->arena); arena_free(&d->scratch); arena_free(&d->reads); arena_free(&d->index_arena); free(d); }
+void shcl_free(shcl_doc *d) { if (!d) return; shcl_free(d->probe_doc); free(d->nodes.data); free(d->kept_near); free(d->file_target); free(d->file_text); arena_free(&d->arena); arena_free(&d->scratch); arena_free(&d->reads); arena_free(&d->index_arena); free(d); }
 void shcl_reads_release(shcl_doc *d) { if (d) arena_reset(&d->reads); }
 void shcl_compact(shcl_doc *d) {
 	if (!d) return;
@@ -11564,7 +11586,10 @@ void shcl_compact(shcl_doc *d) {
 	settle_kept(n);
 	doc_guard(n, NULL);
 	doc_guard(d, NULL);
-	// Swap the rebuilt document in and give the old storage back.
+	// Swap the rebuilt document in and give the old storage back. The loaded
+	// file's record moves with it, past the last step that can fail, since the
+	// recovery above frees the copy.
+	n->file_target = d->file_target; n->file_text = d->file_text; n->file_len = d->file_len;
 	shcl_doc old = *d;
 	*d = *n;
 	free(n);
@@ -14163,27 +14188,44 @@ void shcl_named_schema_free(shcl_named_schema *ns) {
 	memset(ns, 0, sizeof *ns);
 }
 
+/* Where PATH resolves to for a save, malloc'd, or NULL with *oom set when
+   that was an allocation failure. Any other failure, a link cycle say, is the
+   save's own error already. */
+static char *s_save_target(const char *path, int *oom) {
+	errno = 0;
+	char *t = shcl_resolve_target(path);
+	*oom = !t && (errno == 0 || errno == ENOMEM);
+	return t;
+}
+
+/* Every load that reads a file comes here, as the reference's load_file_any:
+   read, parse, and note the file for a save's changed check. A file that could
+   not be read gives a save nothing to compare. */
+static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, shcl_file_status *status) {
+	size_t len = 0;
+	shcl_file_status st = SHCL_FILE_UNREADABLE;
+	char *buf = shcl_read_file(path, 0, &len, &st);
+	if (status) *status = st;
+	shcl_doc *d = !buf ? shcl_parse_with("", 0, s) : keep ? shcl_parse_keep_lines(buf, len, s) : shcl_parse_with(buf, len, s);
+	if (d && (buf || st == SHCL_FILE_NOT_FOUND)) {
+		int oom = 0;
+		d->file_target = s_save_target(path, &oom);
+		if (oom) { free(buf); shcl_free(d); return NULL; }
+		if (d->file_target) { d->file_text = buf; d->file_len = len; buf = NULL; }
+	}
+	free(buf);
+	if (!d || st != SHCL_FILE_CLEAN || !status) return d;
+	for (size_t i = 0; i < d->diags.len; i++)
+		if (d->diags.data[i].sev == SHCL_SEV_ERROR) { *status = SHCL_FILE_HAD_ERRORS; break; }
+	return d;
+}
+
 // File tier, load half: read and parse PATH. Never fails - the document
 // always comes back usable (empty when the file could not be read), and the
 // status out-param separates the four cases consumers otherwise confuse:
 // absent, present-but-unreadable, parsed with errors, clean.
 shcl_doc *shcl_load_file_with(const char *path, shcl_strictness s, shcl_file_status *status) {
-	size_t len = 0;
-	shcl_file_status st = SHCL_FILE_UNREADABLE;
-	char *buf = shcl_read_file(path, 0, &len, &st);
-	if (!buf) {
-		if (status) *status = st;
-		return shcl_parse_with("", 0, s);
-	}
-	shcl_doc *d = shcl_parse_with(buf, len, s);
-	free(buf);
-	if (!d) { if (status) *status = st; return NULL; }
-	if (status) {
-		*status = SHCL_FILE_CLEAN;
-		for (size_t i = 0; i < d->diags.len; i++)
-			if (d->diags.data[i].sev == SHCL_SEV_ERROR) { *status = SHCL_FILE_HAD_ERRORS; break; }
-	}
-	return d;
+	return s_load_file_any(path, s, 0, status);
 }
 
 const char *shcl_file_status_name(shcl_file_status s) {
@@ -14197,42 +14239,30 @@ shcl_doc *shcl_load_file(const char *path, shcl_file_status *status) {
 
 // shcl_load_file_with, keeping the text for shcl_to_text_keep_lines.
 shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_file_status *status) {
-	size_t len = 0;
-	shcl_file_status st = SHCL_FILE_UNREADABLE;
-	char *buf = shcl_read_file(path, 0, &len, &st);
-	if (!buf) {
-		if (status) *status = st;
-		return shcl_parse_with("", 0, s);
-	}
-	shcl_doc *d = shcl_parse_keep_lines(buf, len, s);
-	free(buf);
-	if (!d) { if (status) *status = st; return NULL; }
-	if (status) {
-		*status = SHCL_FILE_CLEAN;
-		for (size_t i = 0; i < d->diags.len; i++)
-			if (d->diags.data[i].sev == SHCL_SEV_ERROR) { *status = SHCL_FILE_HAD_ERRORS; break; }
-	}
-	return d;
+	return s_load_file_any(path, s, 1, status);
 }
 
 // File tier, save half: write the document's canonical text to PATH through
 // shcl_write_file_atomic. SHCL_SAVE_OK on success. Refuses when the write
 // would delete content from the file (shcl_lost_count) - that is
 // SHCL_SAVE_REFUSED, distinct from SHCL_SAVE_FAILED so the caller need not
-// guess which happened; shcl_save_file_lossy writes anyway.
+// guess which happened; shcl_save_file_lossy writes anyway. Over the file a
+// load read, refuses with SHCL_SAVE_CHANGED when that file no longer holds
+// what the load read, or what this document's last save there wrote, so
+// another program's edit is not lost; the force option writes anyway.
 shcl_save_result shcl_save_file(shcl_doc *d, const char *path, shcl_write_status *why) {
-	if (why) *why = SHCL_WRITE_OK;
-	if (shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
-	ShclStr c = emit_canonical(d);
-	return shcl_write_file_atomic(path, c.p, c.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	shcl_save_options o = {0};
+	return shcl_save_file_with(d, path, o, NULL, why);
 }
 
 // shcl_save_file without the lost-content gate: writes even when the
 // write deletes content from the file. The caller owns that choice. Never returns
-// SHCL_SAVE_REFUSED - the gate is the one thing it skips.
+// SHCL_SAVE_REFUSED - the gate is the one thing it skips. The changed check
+// still applies.
 shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path, shcl_write_status *why) {
-	ShclStr c = emit_canonical(d);
-	return shcl_write_file_atomic(path, c.p, c.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	shcl_save_options o = {0};
+	o.lossy = 1;
+	return shcl_save_file_with(d, path, o, NULL, why);
 }
 
 // shcl_save_file with shcl_to_text_keep_lines: *kept (when not NULL) is 1 when
@@ -14240,13 +14270,63 @@ shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path, shcl_write_
 // load dropped comes back as written when the lines are kept, so this refuses
 // the way shcl_save_file does only when it would write canonical.
 shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept, shcl_write_status *why) {
+	shcl_save_options o = {0};
+	o.keep_lines = 1;
+	return shcl_save_file_with(d, path, o, kept, why);
+}
+
+/* The file at PATH still holds the text the document recorded, byte for byte,
+   or is still not there. Content only, so a touch alone is no change. Text
+   that is no longer UTF-8 is a change; a read that fails another way is left
+   to the write, which fails the same way. */
+static int s_file_holds(const shcl_doc *d, const char *path) {
+	size_t n = 0;
+	shcl_file_status st = SHCL_FILE_UNREADABLE;
+	int err = 0;
+	char *now = s_read_file(path, 0, &n, &st, &err);
+	if (now) {
+		int same = d->file_text && n == d->file_len && (n == 0 || memcmp(now, d->file_text, n) == 0);
+		free(now);
+		return same;
+	}
+	if (st == SHCL_FILE_NOT_FOUND) return d->file_text == NULL;
+	if (err == ENOMEM) { SHCL_OOM(); abort(); }
+	return err != 0;
+}
+
+shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_options opts, int *kept, shcl_write_status *why) {
 	if (kept) *kept = 0;
 	if (why) *why = SHCL_WRITE_OK;
 	ShclStr t;
-	int k = keep_text(d, &t);
-	if (!k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
+	int k = 0;
+	if (opts.keep_lines) k = keep_text(d, &t);
+	else t = emit_canonical(d);
+	if (!opts.lossy && !k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
+	// The file the load read has to be as the load or this document's last
+	// save there left it. That's a check and not a lock: an edit between it
+	// and the rename is still lost.
+	int over = 0;
+	if (d->file_target) {
+		int oom = 0;
+		char *target = s_save_target(path, &oom);
+		if (oom) { SHCL_OOM(); abort(); }
+		over = target && strcmp(target, d->file_target) == 0;
+		free(target);
+	}
+	if (over && !opts.force && !s_file_holds(d, path)) return SHCL_SAVE_CHANGED;
+	// Taken before the write, so running out after it cannot leave the record
+	// naming text the file no longer holds.
+	char *wrote = over ? (char *)malloc(t.n + 1) : NULL;
+	if (over && !wrote) { SHCL_OOM(); abort(); }
 	if (kept) *kept = k;
-	return shcl_write_file_atomic(path, t.p, t.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	if (!shcl_write_file_atomic(path, t.p, t.n, why)) { free(wrote); return SHCL_SAVE_FAILED; }
+	if (over) {
+		if (t.n) memcpy(wrote, t.p, t.n);
+		wrote[t.n] = '\0';
+		free(d->file_text);
+		d->file_text = wrote; d->file_len = t.n;
+	}
+	return SHCL_SAVE_OK;
 }
 
 /* An upgrade's failure message, malloc'd into *out when the caller asked for

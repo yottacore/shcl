@@ -451,7 +451,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102912203343
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
+	- Needs external testing: the hosted windows job, for the veneer smoke's `Eu7cuVe`. `Eu7cuVd` passed for windows under wine.
 	- Priority: High
 	- Opened: 20261029-122033
 	- Opened by: 2026102910482342
@@ -460,6 +462,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
 		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
+	- Decisions:
+		- me, 20261029: C has `SHCL_SAVE_CHANGED` on the end of `shcl_save_result`, where new values go, and `shcl_save_file_with(d, path, shcl_save_options, *kept, *why)`, with `*kept` as the line-keeping save sets it. The options struct is `{ lossy, keep_lines, force }` and goes by value, as in Go, since all zero is `shcl_save_file`.
+		- me, 20261029: C's saves give no message, refused or failed, so the Rust message is in the enum's comment rather than in a new out-parameter.
+		- me, 20261029: the veneer has `SaveResult::Changed`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, opts, why)`, which gives the result and whether it kept the lines. Its 3 saves are no longer `const`, as Rust's take `&mut self`. They still hold the document's lock, so the threads test keeps its save, through a non-const reference.
+		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
+	- Progress log:
+		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
+	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
+	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
+	- Branch: `r1029`
 
 - Let a save create a new file only, and give a new file its mode
 	- ID: 2026102910482343

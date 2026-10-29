@@ -6711,6 +6711,92 @@ int main(int argc, char **argv) {
 		if (!dv || strcmp(dv, "[\"2026-07-12T14:30\"]")) fail("format_array", "datetime quoted");
 		free(dv);
 	}
+	test_id("Eu7cuVd", "a_save_over_a_file_changed_since_the_load_is_refused");
+	{
+		/* A save over the file a load read refuses when another program changed
+		   it since, writes nothing, and writes with force. A save elsewhere, and
+		   a document from a parse, save as they always did (2026102910482342).
+		   Same fixture in every runner. */
+		const char *at = "changed";
+		char cdir[256], f[320], n[320], other[320];
+		up_dir(cdir, sizeof cdir, "changed");
+		snprintf(f, sizeof f, "%s/f.shcl", cdir);
+		snprintf(n, sizeof n, "%s/new.shcl", cdir);
+		snprintf(other, sizeof other, "%s/other.shcl", cdir);
+		shcl_save_options force = {0}, keep_force = {0};
+		force.force = 1;
+		keep_force.keep_lines = keep_force.force = 1;
+		put_file(f, "a: 1\n");
+		shcl_doc *doc = shcl_load_file(f, NULL);
+		(void)shcl_set_int(doc, "a", 1, 2);
+		put_file(f, "a: 9\n");
+		shcl_write_status why = SHCL_WRITE_OTHER;
+		if (shcl_save_file(doc, f, &why) != SHCL_SAVE_CHANGED || why != SHCL_WRITE_OK) fail(at, "save");
+		if (shcl_save_file_lossy(doc, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "lossy save");
+		if (!file_is(f, "a: 9\n")) fail(at, "a refused save wrote");
+		int k = 1;
+		if (shcl_save_file_with(doc, f, force, &k, NULL) != SHCL_SAVE_OK || k) fail(at, "forced save");
+		if (!file_is(f, "a: 2\n")) fail(at, "forced save text");
+		/* The next save is checked against what that one wrote. */
+		(void)shcl_set_int(doc, "a", 1, 3);
+		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_OK) fail(at, "save after own save");
+		if (!file_is(f, "a: 3\n")) fail(at, "save after own save text");
+		/* The same bytes written again are no change. */
+		put_file(f, "a: 3\n");
+		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_OK) fail(at, "save over the same bytes");
+		shcl_free(doc);
+
+		/* The line-keeping save, and a link to the file, are checked too. */
+		put_file(f, "a: 1 # one\n");
+		shcl_doc *kept = shcl_load_file_keep_lines(f, SHCL_STANDARD, NULL);
+		(void)shcl_set_int(kept, "a", 1, 2);
+		put_file(f, "a: 9 # nine\n");
+		if (shcl_save_file_keep_lines(kept, f, NULL, NULL) != SHCL_SAVE_CHANGED) fail(at, "keep save");
+#ifndef _WIN32
+		char link[320];
+		snprintf(link, sizeof link, "%s/link.shcl", cdir);
+		if (symlink(f, link) != 0) fail(at, "symlink failed");
+		if (shcl_save_file_keep_lines(kept, link, NULL, NULL) != SHCL_SAVE_CHANGED) fail(at, "keep save through a link");
+#endif
+		if (!file_is(f, "a: 9 # nine\n")) fail(at, "a refused keep save wrote");
+		k = 0;
+		if (shcl_save_file_with(kept, f, keep_force, &k, NULL) != SHCL_SAVE_OK || !k) fail(at, "forced keep save");
+		if (!file_is(f, "a: 2 # one\n")) fail(at, "forced keep save text");
+		shcl_free(kept);
+
+		/* Gone since the load is a change. So is a file made where none was. */
+		shcl_doc *gone = shcl_load_file(f, NULL);
+		remove(f);
+		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a removed file");
+		shcl_file_status st = SHCL_FILE_CLEAN;
+		free(shcl_read_file(f, 0, NULL, &st));
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "a refused save made the file");
+		shcl_doc *fresh = shcl_load_file(n, &st);
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "status, want NotFound");
+		(void)shcl_set_int(fresh, "a", 1, 1);
+		put_file(n, "b: 2\n");
+		if (shcl_save_file(fresh, n, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a file made since");
+		if (!file_is(n, "b: 2\n")) fail(at, "a refused save over a file made since wrote");
+		remove(n);
+		if (shcl_save_file(fresh, n, NULL) != SHCL_SAVE_OK) fail(at, "save where nothing is again");
+		if (!file_is(n, "a: 1\n")) fail(at, "save where nothing is again text");
+		shcl_free(fresh);
+
+		/* Elsewhere is not checked, and the load's file still is. */
+		put_file(other, "z: 0\n");
+		if (shcl_save_file(gone, other, NULL) != SHCL_SAVE_OK) fail(at, "save elsewhere");
+		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after one elsewhere");
+		/* compact keeps the record. */
+		shcl_compact(gone);
+		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after a compact");
+		shcl_free(gone);
+		/* A parse has no file behind it. */
+		shcl_doc *parsed = shcl_parse("a: 5\n", 5);
+		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse");
+		if (!file_is(other, "a: 5\n")) fail(at, "save of a parse text");
+		shcl_free(parsed);
+		dir_clear(cdir);
+	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }
 	printf("conformance: %zu case(s) pass\n", nn);

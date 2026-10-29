@@ -88,6 +88,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Rust's `write_file_atomic` fails with a `WriteError`, and `SaveError::Io` and `UpgradeError::Io` hold one, where each held only the message. Go's `WriteFileAtomic` and a save's failed write give a `*WriteError`, and `UpgradeError.Err` is one for `UpgradeIO`. C's `shcl_write_file_atomic`, `shcl_save_file`, `shcl_save_file_lossy`, `shcl_save_file_keep_lines`, `shcl_write_backup` and `shcl_upgrade_file` take a last `shcl_write_status *why`, which may be NULL. C++'s `write_file_atomic` returns a `WriteStatus` in place of a bool.
 
+- A save over the file a load read refuses, and writes nothing, when another program changed that file since: Rust `SaveError::Changed`, Go `*SaveChanged`, Python `SaveChanged`, C `SHCL_SAVE_CHANGED` and C++ `SaveResult::Changed`. A save records what it wrote, so the next one is checked against that. Rust's saves take `&mut self`, and the C++ veneer's are not `const`. `force` in the save options writes anyway.
+
 - `shcl --version` prints `shcl v3.0.0`, plus a build number on a release binary. The words `version`, `about` and `donate` are gone: use `--version`, `--about` and `--donate`. Several of them in one run each print once, in order.
 
 - A dev build from the pipeline prints its date after the build number, in your own time zone, as in `shcl v3.0.0 build dd2f6 (2026-10-23)`. A release leaves the date off.
@@ -111,6 +113,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A prebuilt FreeBSD x86_64 binary. `install.bash` installs it, and names a release that has no binary for the platform it runs on.
 
 - `parse_keep_lines()`, `load_file_keep_lines()`, `to_text_keep_lines()` and `save_file_keep_lines()` in every binding save a file with the lines no edit touched left as they were, dropped lines included, and fall back to the canonical form when that would not load back the same.
+
+- `save_file_with()` in every binding takes the save options, `lossy`, `keep_lines` and `force`, and the other saves are its short forms. `force` writes over a file that changed since the load.
 
 - `instance_paths()` in every binding walks a file one instance at a time, with `(i)` on each repeated name.
 
