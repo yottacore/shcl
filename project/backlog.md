@@ -391,6 +391,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by:
 	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
 	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
+	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
 
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
