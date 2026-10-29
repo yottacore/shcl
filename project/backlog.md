@@ -9083,6 +9083,121 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: shclwrap does this in `Put` and `Commented()`.
 	- Note: with v4 (JC).
 
+- Replace a comment a program set before, and keep the user's own
+	- ID: 2026102911041657
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: `set_comment` adds another line above the key each time, so a reworded comment stacks. `clear_comments` takes the user's own notes with it.
+	- Requirements:
+		- A program can replace the comment it set before, and leave the other comments above the key alone.
+		- Needs better design: how shcl tells the program's comment from the user's.
+	- Note: moved from shclwrap 2026101513330022.
+	- Note: with v4 (me).
+
+- Keep a key's comments when it's removed and set again
+	- ID: 2026102911041658
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Related IDs: 2026102911041667
+	- Problem description: `remove` takes a key's comments with it, so putting a setting back to its default and setting it again loses them. One program edits the lines by hand to keep them.
+	- Note: moved from shclwrap 2026101513330023.
+	- Note: with v4 (me).
+
+- Mark which diagnostics come from the schema
+	- ID: 2026102911041659
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: a diagnostic about the schema has a line number in the schema file, not the config, and nothing in `Diagnostic` says which file it means. Programs split them out themselves.
+	- Note: moved from shclwrap 2026101513330027.
+	- Note: with v4 (me).
+
+- Let a program treat chosen hints as errors
+	- ID: 2026102911041660
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: `Strict` fails a load on any error, and no hint can be raised to one. A program that counts errors misses a mistyped table name that merges every entry, which is only `H002`, and `color: #fff` reading as nothing, which is only `H008`.
+	- Requirements:
+		- A load option names the hint codes that count as errors.
+	- Note: moved from shclwrap 2026101513330026.
+	- Note: with v4 (me).
+
+- Write and read a list of records
+	- ID: 2026102911041661
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: there's no call for a list of rows with named fields. Programs write numbered blocks, pack the fields into one flat array, or walk repeated blocks by index.
+	- Requirements:
+		- Write and read a list of rows with named fields. A write replaces the whole list.
+	- Note: moved from shclwrap 2026101513330029.
+	- Note: with v4 (me).
+
+- Save only what differs from the layers below
+	- ID: 2026102911041662
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: a program that keeps only changed values in the user's file has to work out the differences itself. One also deletes the user's file when nothing differs.
+	- Requirements:
+		- A save of a layered document can write only the values that differ from the layers under it.
+	- Note: v4's `underlay` goes the other way, adding what the user's file is missing.
+	- Note: moved from shclwrap 2026101513330030.
+	- Note: with v4 (me).
+
+- Int reads within a range
+	- ID: 2026102911041663
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: ints are 64-bit. Programs that keep a u32 or an int32 check the range themselves, and fall back when a value is out of it.
+	- Requirements:
+		- An int read that takes a range. A value outside it reads as a bad value, so the fallback read gives the fallback.
+	- Note: moved from shclwrap 2026101513330031.
+	- Note: with v4 (me).
+
+- Unsigned 64-bit ints
+	- ID: 2026102911041664
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: a value past the i64 limit can't be read or set as a number. One program keeps its seeds as base32 text for that.
+	- Note: moved from shclwrap 2026101513330032.
+	- Note: with v4 (me).
+
+- Let an upgrade keep a backtick value as 3.0 reads it
+	- ID: 2026102911041665
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: take a 2.x file with no Format line, a bare `a, b` list, and a backtick value such as `` sql: `select a, b from t` ``. With `from` 2 the upgrade turns the backtick value into a 2-element array. With `from` 0 the bare list stays as typed. A program that read that line raw under 2.x wants the list in brackets and the backtick value kept, and neither gives that.
+	- Requirements:
+		- An upgrade option for this. Maybe one that names the keys a program read raw, or one that takes 3.0's reading for backtick lines.
+	- Note: gitniblet swaps those lines out before the upgrade and puts them back after.
+	- Note: moved from shclwrap 2026102618065645.
+	- Note: with v4, which redoes upgrade (me).
+
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
 	- Type: Bug
@@ -9141,6 +9256,89 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Lookups by name and by value scale with the matches, not the siblings.
 	- Note: 20261008, 2026100717500019 folded in here (JC). Its timings from 20261007: `children_named` collects every same-named child before a `(k)` or `(value)` selector picks one. Reading `rep(i).v` for each of 20,000 instances took 4.8 s by index and 13 s by value in Rust; C and Go are close. 40,000 creating `set_int("rep(kI).v")` calls took 42 s. Wildcard reads and `instance_paths()` stay fast.
 	- Note: performance ideas wait until 3.0.0 is out. Reopen then, or when a user reports a file with thousands of instances.
+
+- Say which layer a value or diagnostic came from
+	- ID: 2026102911041666
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: on a merged document, a read's line and `lines()` give a line in some layer, with nothing to say which. A warning about a bad value can't name the file.
+	- Note: moved from shclwrap 2026102114101028.
+	- Note: with v4 (me).
+
+- Comment out a setting in place
+	- ID: 2026102911041667
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Related IDs: 2026102911041658
+	- Problem description: there's no call to turn a setting off by commenting its line. `remove` takes its comments with it, so one program comments the line by hand.
+	- Note: moved from shclwrap 2026101513330033.
+	- Note: with v4 (me).
+
+- Reorder repeated entries
+	- ID: 2026102911041668
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: changing the order of repeated blocks takes a remove and a rewrite of every block.
+	- Note: moved from shclwrap 2026101513330034.
+	- Note: with v4 (me).
+
+- Skip a save when nothing changed
+	- ID: 2026102911041669
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Related IDs: 2026102910482342
+	- Problem description: a save writes the file even when its text matches what's on disk. Programs compare the text first.
+	- Note: moved from shclwrap 2026101513330037.
+	- Note: with v4 (me).
+
+- Decimal reads
+	- ID: 2026102911041670
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Related IDs: 2026101309122877
+	- Problem description: money read as a float picks up binary rounding. One program reads it as text and parses it itself.
+	- Note: moved from shclwrap 2026101513330039.
+	- Note: with v4 (me).
+
+- List every folded copy of a block, next to each other or not
+	- ID: 2026102911041671
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: `H002` fires only when 2 copies of a block are apart. Copies next to each other fold with no word, and 3 programs lost a second copy that way. shclwrap finds them with a second parse in each language.
+	- Requirements:
+		- A call that lists each name shcl kept 1 copy of, with the line of every copy.
+	- Note: moved from shclwrap 2026102115285934.
+	- Note: with v4 (me).
+
+- Decode a block into a struct
+	- ID: 2026102911041672
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261029-110416
+	- Opened by: JC
+	- Problem description: programs map every field by hand, both ways.
+	- Note: the v4 draft has a `serde` feature for Rust under Deferred, and says it needs its own item. This is that item. Go could do the same with struct tags, and Python with dataclasses.
+	- Note: moved from shclwrap 2026101513330042.
+	- Note: with v4 (me).
 
 - A call in every language that takes one string of text commands
 	- ID: 2026101513262841
