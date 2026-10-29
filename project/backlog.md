@@ -9019,6 +9019,70 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
 
+- Refuse a save over a file that changed since the load
+	- ID: 2026102910482342
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482343
+	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
+	- Requirements:
+		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
+		- A caller that means to replace it can force the save.
+		- A document from `parse`, with no file behind it, saves as it does now.
+	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
+	- Note: with v4 (JC).
+
+- Let a save create a new file only, and give a new file its mode
+	- ID: 2026102910482343
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482342
+	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
+	- Requirements:
+		- A create-only save fails when the file is there, even with 2 programs saving it at once.
+		- A new file can be given a mode. A file that's already there keeps its own, as now.
+		- Both are save options, beside the force from 2026102910482342.
+	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
+	- Note: with v4 (JC).
+
+- Open a newer format's file read-only
+	- ID: 2026102910482344
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Problem description: a file written for a newer format loads with `H006`, and a save writes it back by this version's rules. Lines the newer format reads another way can change, with no error.
+	- Requirements:
+		- A document loaded from a newer format says so.
+		- A save over that file is refused with its own error kind. Reads work as now.
+	- Reason: v4 keeps Format 3, so no such file exists yet. The refusal has to be in readers before the first newer format is, though, or every older reader can damage those files.
+	- Note: shclwrap does this as `ReadOnly()` and `ErrTooNew`.
+	- Note: with v4 (JC).
+
+- Fill in a commented default line when its key is set
+	- ID: 2026102910482345
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Problem description: a file can list settings as commented defaults, like `# size: 17  ## Default`. Setting `size` adds a new line at the end of its block, and the commented line stays.
+	- Requirements:
+		- A set of a path that isn't set, where the file has a `## Default` line for it, fills in that line where it is. The `#` and the note come off, and the value is the set's.
+		- Only a line with that note is filled in. Other commented lines are left alone.
+		- Only where the save keeps the file's lines. A path that's already set is set where it is.
+		- A call lists those lines, each with the path it would set.
+	- Note: this is apart from `set_*_default`, which v4 renames `ensure_*`.
+	- Note: shclwrap does this in `Put` and `Commented()`.
+	- Note: with v4 (JC).
+
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
 	- Type: Bug
