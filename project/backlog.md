@@ -349,7 +349,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: CPU and priority on the test boxes
 	- ID: 2026102421025788
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: High
 	- Opened: 20261024-210257
 	- Opened by: 2026102416250040
@@ -360,6 +360,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
 	- Progress log:
 		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
+		- 20261029: the box half sets `ionice -c 3` before `nice -n 19` when the box has an ionice that takes the class, found by absolute path since `env -i` clears PATH. A box without one, such as FreeBSD, runs at nice only. The cap needs no code: one case at a time is the rule's floor.
+	- Decisions:
+		- The ionice is a prefix on the `env -i` line, not on the box's own `sh`, so the check doesn't need `$$` and the line still holds no single quote (me).
+	- Swept: the one `nice -n 19` in the box half. The host run in check-boxes.bash, and check-freebsd's run, are on this box and already under cicd.bash's ionice. The other 3 bindings have no box step.
+	- Verified: `private/claude_simple/tools/check-boxes-stub/ionice-probe.bash` runs the box half alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). `check-boxes-stub/run.bash` passes, skips and fails as before over the stand-in boxes (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
+	- Needs external testing: Y. `Etfwju5` in a full run with release builds, with vmFreeBSD through the real helper (no ionice there, so it takes the nice-only path). Linux-side ionice is covered by the probe.
+	- Test case: check-boxes `Etfwju5` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070

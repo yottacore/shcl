@@ -37,7 +37,8 @@ sshOpts=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30)
 
 ##	The box half, plain sh for FreeBSD's sh and macOS's bash 3.2. Makes
 ##	${HOST_TEMP:-${TMPDIR:-/tmp}}/shcl/<stamp>_<NNN>, unpacks stdin there, runs
-##	the cases at low priority, sends the outputs back, and removes the folder.
+##	the cases at low priority (nice, and ionice where the box has it), sends the
+##	outputs back, and removes the folder.
 fBoxScript(){ cat <<'EOF'
 base="${HOST_TEMP:-${TMPDIR:-/tmp}}"; base="${base%/}/shcl"
 mkdir -p "${base}" || exit 90
@@ -53,7 +54,9 @@ gone(){
 }
 trap gone EXIT
 cd "${w}" && tar -xf - && [ -f run.sh ] || exit 91
-env -i PATH=/usr/bin:/bin HOME=/ nice -n 19 sh run.sh > rc.lst 2> /dev/null
+io="$(command -v ionice 2>/dev/null)" || io=
+case "${io}" in /*) "${io}" -c 3 true 2>/dev/null && io="${io} -c 3" || io= ;; *) io= ;; esac
+env -i PATH=/usr/bin:/bin HOME=/ ${io} nice -n 19 sh run.sh > rc.lst 2> /dev/null
 tar -cf - rc.lst o
 EOF
 }
@@ -162,3 +165,4 @@ echo "check-boxes: OK"
 
 ##	History:
 ##		2026-10-24  Created, for 2026102419263412.
+##		2026-10-29  Box half takes ionice -c 3 where there is one, for 2026102421025788.
