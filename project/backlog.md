@@ -33,38 +33,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Hosted ci.yml tests half runs past its 60-minute timeout
-	- ID: 2026102915235852
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261029-152358
-	- Opened by:
-	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
-	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
-
-- The C runner's swap test leaves its folder behind on windows
-	- ID: 2026102915173442
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261029-151734
-	- Opened by: 2026102912203343
-	- Related IDs: 2026102912203343
-	- Target OS: Windows
-	- Steps to reproduce: run the C runner twice under wine, where the process id repeats.
-	- Incorrect behavior: the second run fails `Et6AmCW` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
-	- Expected behavior: each run removes its folders, and a run passes after another.
-	- Reproduced: 20261029, under wine on b23, twice in a row.
-	- Possible cause: `dir_clear` removes entries with `remove`, which takes no folder on windows, so the `d` that `backup_swapped` makes stays and so does its parent. On real windows it adds a folder to TEMP each run.
-	- Estimated effort: Low
-
 - Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102913213704
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: the hosted windows job, for `Eu7kRqj` and `Eu7kRqk` again after 2026102912203343's resolver fix. Both passed on ci.yml run 40953807354.
+	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261029-132137
 	- Opened by: 2026102910482343
@@ -77,53 +51,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: `s_write_file_atomic` takes the create and the mode, and says when create found something. `shcl_save_file_with` checks for anything at the target before the changed check, and calls it directly. design.md, spec.md, examples.md and the changelog say so for all 4.
 		- 20261029: codeql-scan flagged the C runner's race path as a stack address in a global (`cpp/stack-address-escape`), so it's static now. The Python twin's `chmod` of a fixture mode (`py/overly-permissive-file`, from 2026102913213663) is suppressed at its line, as the earlier ones are. Verified: codeql-scan alone passes, `EtAC9Zo` and `EtAC9fG` included, and the C and Python suites pass.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
 	- Swept: C and the veneer. `shcl_write_file_atomic` and `shcl_upgrade_file` pass no create and no mode, so they write as before. The 3 short saves pass `{0}`. Docs: design.md's Save outcomes table (the create row, the mode on the new-file row) and its two Saving a file bullets on mode and the new-file publish, spec.md's file tier (the mode, a create bullet, the options list, the separate-values bullet), examples.md, and the changelog's New.
 	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
 	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
 	- Branch: `r1029`
 	- Commit: `a618835c`, `276abbc8`
-
-- Create-only save and a new file's mode, in Go
-	- ID: 2026102913213683
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the hosted windows job, for `Eu7ju0H`.
-	- Priority: High
-	- Opened: 20261029-132136
-	- Opened by: 2026102910482343
-	- Parent ID: 2026102910482343
-	- Prereq IDs: 2026102913213663
-	- Requirements: the parent's, in Go, as Rust and Python have them in 2026102913213663, with the twin of its test.
-	- Decisions:
-		- me, 20261029: `*SaveExists{Path}`, beside `*SaveChanged`. `SaveOptions` gets `Create bool` and `Mode os.FileMode`, and only `Mode.Perm()` is used, so a zero value is still `SaveFile`.
-	- Progress log:
-		- 20261029: `WriteFileAtomic` wraps `writeFileHow`, which takes the create and the mode. `SaveFileWith` checks for anything at the target before the changed check.
-	- Swept: Go. `WriteFileAtomic` and `UpgradeFile` pass no create and no mode. No caller builds `SaveOptions` by position.
-	- Verified: `Eu7ju0H` fails with the create checks turned off, and with the mode turned off, and passes with both. Also `go vet` for linux, windows and darwin. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
-	- Test case: `TestACreateOnlySaveRefusesAFileAlreadyThere` (`Eu7ju0H`).
-	- Branch: `r1029`
-	- Commit: `a618835c`
-
-- Create-only save and a new file's mode, in Rust and Python
-	- ID: 2026102913213663
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the hosted windows job, for `Eu7hQCd` and `Eu7hQCe`.
-	- Priority: High
-	- Opened: 20261029-132136
-	- Opened by: 2026102910482343
-	- Parent ID: 2026102910482343
-	- Requirements: the parent's, in the Rust and Python libraries, by the parent's Decisions.
-	- Decisions:
-		- me, 20261029: Rust has `SaveError::Exists { path }`, and `SaveOptions` gets `create: bool` and `mode: u32`. Python raises `SaveExists` under `SaveError`, and `SaveOptions` gets `create=False, mode=0`. check-docs and the style guide name `SaveExists` as a Python-only class.
-		- me, 20261029: the mode is set best effort, as the copied mode of a file already there is. The temp is born `0600` when a mode is asked for, so a filesystem that can't set it leaves the file private rather than open.
-	- Progress log:
-		- 20261029: `write_file_atomic` wraps a private write that takes the create and the mode, and gives `Exists` when create finds something there or loses the publish. `save_file_with` checks for anything at the target before the changed check.
-	- Swept: Rust and Python. `write_file_atomic`, `upgrade_file` and the CLI's saves pass no create and no mode, so they write as before. The CLI matches `SaveError` with a catch-all arm. The 3 short saves go through `save_file_with`.
-	- Verified: `Eu7hQCd` and `Eu7hQCe` fail with the create checks turned off, and with the mode turned off, and pass with both. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
-	- Test case: `a_create_only_save_refuses_a_file_already_there` in Rust (`Eu7hQCd`) and Python (`Eu7hQCe`).
-	- Branch: `r1029`
-	- Commit: `a618835c`
 
 - CICD reset: --gate as a backlog run
 	- ID: 2026102814013272
@@ -169,57 +102,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: no new test. check-docs `EpHGoa0` (installers match main) covers the sync.
 	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
 
-- CICD reset: CPU and priority on the test boxes
-	- ID: 2026102421025788
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Priority: High
-	- Opened: 20261024-210257
-	- Opened by: 2026102416250040
-	- Parent ID: 2026102416250040
-	- Prereq IDs: 2026102421025778
-	- Requirements:
-		- check-boxes' box half works out its cap from that box's CPU count and load, by the same rule as this box.
-		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
-	- Progress log:
-		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
-		- 20261029: the box half sets `ionice -c 3` before `nice -n 19` when the box has an ionice that takes the class, found by absolute path since `env -i` clears PATH. A box without one, such as FreeBSD, runs at nice only. The cap needs no code: one case at a time is the rule's floor.
-	- Decisions:
-		- The ionice is a prefix on the `env -i` line, not on the box's own `sh`, so the check doesn't need `$$` and the line still holds no single quote (me).
-	- Swept: the one `nice -n 19` in the box half. The host run in check-boxes.bash, and check-freebsd's run, are on this box and already under cicd.bash's ionice. The other 3 bindings have no box step.
-	- Verified: `private/claude_simple/tools/check-boxes-stub/ionice-probe.bash` runs the box half alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). `check-boxes-stub/run.bash` passes, skips and fails as before over the stand-in boxes (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
-	- Needs external testing: Y. `Etfwju5` in a full run with release builds, with vmFreeBSD through the real helper (no ionice there, so it takes the nice-only path). Linux-side ionice is covered by the probe.
-	- Test case: check-boxes `Etfwju5` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
-
-- Refuse a changed file's save, in Rust and Python
-	- ID: 2026102912203339
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the hosted windows job, for `Eu7RSm4`. `Eu7RSm3` passed for windows under wine.
-	- Priority: High
-	- Opened: 20261029-122033
-	- Opened by: 2026102910482342
-	- Parent ID: 2026102910482342
-	- Requirements:
-		- The parent's, in the Rust and Python libraries, by the parent's Decisions.
-	- Decisions:
-		- me, 20261029: Python goes with Rust, since check-docs `EshYXXC` fails while the reference has a public item `shcl.py` lacks.
-		- me, 20261029: Rust has `SaveError::Changed { path }`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, &SaveOptions) -> Result<bool, SaveError>`, and the 3 save calls take `&mut self`. Python raises `SaveChanged` under `SaveError`, and has `SaveOptions(lossy=False, keep_lines=False, force=False)` and `save_file_with(path, opts)`. The message is `PATH: refusing to save: the file changed since it was loaded; nothing written (force overrides)`.
-		- me, 20261029: design.md's Save outcomes row, which says the library's save doesn't look, and spec.md wait for 2026102912203343, when all 4 have it.
-	- Progress log:
-		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. Every save call goes through `save_file_with`, which checks a save over that file before the write and records what it wrote. The CLI's `write_back` takes the document as `&mut`. check-docs and the style guide name `SaveChanged` as a Python-only class.
-	- Swept: Rust and Python. Every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with` and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate` and `new` read no file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it holds as `mut`. Go, C and the veneer are the other 2 children.
-	- Verified: `Eu7RSm3` and `Eu7RSm4` fail with the check turned off and pass with it. `Eu7RSm3` passes for windows under wine. Also `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark`.
-	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`Eu7RSm3`) and Python (`Eu7RSm4`).
-	- Branch: `r1029`
-	- Commit: `e799b7c6`
-
 - Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102912203343
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: the hosted windows job, for `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe`, which failed on ci.yml run 40953807354 and pass on b29w.
+	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261029-122033
 	- Opened by: 2026102910482342
@@ -239,6 +127,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified on b29w, from the mingw build: the old code fails `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe` the way the hosted job did with TEMP set to its short name, and the new code passes all 3 with TEMP short and long, the whole C runner (212) and the veneer smoke. The new short-name lines in `Eu7cuVd` fail on the old code with TEMP long too. Its new dangling-link lines fail with the link walk turned off. Also under wine, `cicd.bash --backlog-run-quick c`.
 			- Swept: `shcl_resolve_path`'s 3 callers (the read, the save, the check). Rust, Go and Python already read a link's text and canonicalize the parent, so only C had it.
 		- 20261029: the full run on `52d50363` failed codeql-scan's `EtAC9Zo`. The veneer's load and save calls are now `cpp/path-injection` findings, since the save reads the file first. They open the path the caller named, as `read_file` already says, so each is suppressed at its line with that reason. Verified: codeql-scan alone passes all 17 checks, `EtAC9Zo` and `EtAC9lw` included, and the C runner and veneer smoke pass.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
 	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
 	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
 	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
@@ -328,25 +217,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `b29w`, never `b29w-wif`. No script names either yet.
 	- Progress log:
 		- 20261024: split into 5 children, one per box plus the step they share: 2026102419263412 (first), 2026102419263417, 2026102419263422, 2026102419263427 and 2026102419263432. This one closes with the last of them.
-
-- CICD reset: CPU and priority
-	- ID: 2026102416250040
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per `Machine use` in the shared CICD rules. The half-the-cores cap is already worked out once and passed to each tool.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- A busy check at the start and before each step: with the 1-minute load over half the CPU count, the cap drops to a quarter.
-		- A quarter, busy or not, for the hard steps: leak checks, sanitizer builds, Miri, soak tests and the long fuzz.
-		- `nice -n 19`, plus `ionice -c 3`, over the whole run.
-		- `--cpus` and `--cpu-shares 256` on each `docker run`, and `nice` inside the image too.
-		- The same rules on other hosts, with that host's CPU count and load.
-	- Progress log:
-		- 20261024: split in 3. This box's cap and priority is 2026102421025778, the containers 2026102421025783, the test boxes 2026102421025788. This item closes with the last of them.
-		- 20261024: 2026102421025778 and 2026102421025783 are in on `r1024c`, waiting on the full run. 2026102421025788 is next.
 
 - CICD reset: standard flags
 	- ID: 2026102416250050
@@ -511,6 +381,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
 	- Progress log:
 		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
+
+- Hosted ci.yml tests half runs past its 60-minute timeout
+	- ID: 2026102915235852
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261029-152358
+	- Opened by:
+	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
+	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
 
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
@@ -685,6 +565,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
+- The C runner's swap test leaves its folder behind on windows
+	- ID: 2026102915173442
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261029-151734
+	- Opened by: 2026102912203343
+	- Related IDs: 2026102912203343
+	- Target OS: Windows
+	- Steps to reproduce: run the C runner twice under wine, where the process id repeats.
+	- Incorrect behavior: the second run fails `Et6AmCW` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
+	- Expected behavior: each run removes its folders, and a run passes after another.
+	- Reproduced: 20261029, under wine on b23, twice in a row.
+	- Possible cause: `dir_clear` removes entries with `remove`, which takes no folder on windows, so the `d` that `backup_swapped` makes stays and so does its parent. On real windows it adds a folder to TEMP each run.
+	- Estimated effort: Low
+
 - check-push-gate `EtlDIOQ` failed once under load and passed on a rerun
 	- ID: 2026102821264857
 	- Type: Bug
@@ -741,6 +637,128 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Create-only save and a new file's mode, in Go
+	- ID: 2026102913213683
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261029-132136
+	- Opened by: 2026102910482343
+	- Parent ID: 2026102910482343
+	- Prereq IDs: 2026102913213663
+	- Requirements: the parent's, in Go, as Rust and Python have them in 2026102913213663, with the twin of its test.
+	- Decisions:
+		- me, 20261029: `*SaveExists{Path}`, beside `*SaveChanged`. `SaveOptions` gets `Create bool` and `Mode os.FileMode`, and only `Mode.Perm()` is used, so a zero value is still `SaveFile`.
+	- Progress log:
+		- 20261029: `WriteFileAtomic` wraps `writeFileHow`, which takes the create and the mode. `SaveFileWith` checks for anything at the target before the changed check.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
+	- Swept: Go. `WriteFileAtomic` and `UpgradeFile` pass no create and no mode. No caller builds `SaveOptions` by position.
+	- Verified: `Eu7ju0H` fails with the create checks turned off, and with the mode turned off, and passes with both. Also `go vet` for linux, windows and darwin. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Test case: `TestACreateOnlySaveRefusesAFileAlreadyThere` (`Eu7ju0H`).
+	- Branch: `r1029`
+	- Commit: `a618835c`
+	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
+	- Closed: 20261029
+
+- Create-only save and a new file's mode, in Rust and Python
+	- ID: 2026102913213663
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261029-132136
+	- Opened by: 2026102910482343
+	- Parent ID: 2026102910482343
+	- Requirements: the parent's, in the Rust and Python libraries, by the parent's Decisions.
+	- Decisions:
+		- me, 20261029: Rust has `SaveError::Exists { path }`, and `SaveOptions` gets `create: bool` and `mode: u32`. Python raises `SaveExists` under `SaveError`, and `SaveOptions` gets `create=False, mode=0`. check-docs and the style guide name `SaveExists` as a Python-only class.
+		- me, 20261029: the mode is set best effort, as the copied mode of a file already there is. The temp is born `0600` when a mode is asked for, so a filesystem that can't set it leaves the file private rather than open.
+	- Progress log:
+		- 20261029: `write_file_atomic` wraps a private write that takes the create and the mode, and gives `Exists` when create finds something there or loses the publish. `save_file_with` checks for anything at the target before the changed check.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
+	- Swept: Rust and Python. `write_file_atomic`, `upgrade_file` and the CLI's saves pass no create and no mode, so they write as before. The CLI matches `SaveError` with a catch-all arm. The 3 short saves go through `save_file_with`.
+	- Verified: `Eu7hQCd` and `Eu7hQCe` fail with the create checks turned off, and with the mode turned off, and pass with both. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Test case: `a_create_only_save_refuses_a_file_already_there` in Rust (`Eu7hQCd`) and Python (`Eu7hQCe`).
+	- Branch: `r1029`
+	- Commit: `a618835c`
+	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
+	- Closed: 20261029
+
+- CICD reset: CPU and priority on the test boxes
+	- ID: 2026102421025788
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-210257
+	- Opened by: 2026102416250040
+	- Parent ID: 2026102416250040
+	- Prereq IDs: 2026102421025778
+	- Requirements:
+		- check-boxes' box half works out its cap from that box's CPU count and load, by the same rule as this box.
+		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
+	- Progress log:
+		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
+		- 20261029: the box half sets `ionice -c 3` before `nice -n 19` when the box has an ionice that takes the class, found by absolute path since `env -i` clears PATH. A box without one, such as FreeBSD, runs at nice only. The cap needs no code: one case at a time is the rule's floor.
+		- Verified: 20261029, cicd.bash --backlog-run-full --no-lint --no-tests on ee700b61: ok Etfwju5, PASS vmFreeBSD 4471 CLI runs.
+	- Decisions:
+		- The ionice is a prefix on the `env -i` line, not on the box's own `sh`, so the check doesn't need `$$` and the line still holds no single quote (me).
+	- Swept: the one `nice -n 19` in the box half. The host run in check-boxes.bash, and check-freebsd's run, are on this box and already under cicd.bash's ionice. The other 3 bindings have no box step.
+	- Verified: `private/claude_simple/tools/check-boxes-stub/ionice-probe.bash` runs the box half alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). `check-boxes-stub/run.bash` passes, skips and fails as before over the stand-in boxes (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
+	- Needs external testing: No
+	- Test case: check-boxes `Etfwju5` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
+	- Acceptance signoff: me, 20261029, Etfwju5 passed with vmFreeBSD in the full run
+	- Closed: 20261029
+
+- Refuse a changed file's save, in Rust and Python
+	- ID: 2026102912203339
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Requirements:
+		- The parent's, in the Rust and Python libraries, by the parent's Decisions.
+	- Decisions:
+		- me, 20261029: Python goes with Rust, since check-docs `EshYXXC` fails while the reference has a public item `shcl.py` lacks.
+		- me, 20261029: Rust has `SaveError::Changed { path }`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, &SaveOptions) -> Result<bool, SaveError>`, and the 3 save calls take `&mut self`. Python raises `SaveChanged` under `SaveError`, and has `SaveOptions(lossy=False, keep_lines=False, force=False)` and `save_file_with(path, opts)`. The message is `PATH: refusing to save: the file changed since it was loaded; nothing written (force overrides)`.
+		- me, 20261029: design.md's Save outcomes row, which says the library's save doesn't look, and spec.md wait for 2026102912203343, when all 4 have it.
+	- Progress log:
+		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. Every save call goes through `save_file_with`, which checks a save over that file before the write and records what it wrote. The CLI's `write_back` takes the document as `&mut`. check-docs and the style guide name `SaveChanged` as a Python-only class.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
+	- Swept: Rust and Python. Every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with` and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate` and `new` read no file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it holds as `mut`. Go, C and the veneer are the other 2 children.
+	- Verified: `Eu7RSm3` and `Eu7RSm4` fail with the check turned off and pass with it. `Eu7RSm3` passes for windows under wine. Also `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`Eu7RSm3`) and Python (`Eu7RSm4`).
+	- Branch: `r1029`
+	- Commit: `e799b7c6`
+	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
+	- Closed: 20261029
+
+- CICD reset: CPU and priority
+	- ID: 2026102416250040
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `Machine use` in the shared CICD rules. The half-the-cores cap is already worked out once and passed to each tool.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- A busy check at the start and before each step: with the 1-minute load over half the CPU count, the cap drops to a quarter.
+		- A quarter, busy or not, for the hard steps: leak checks, sanitizer builds, Miri, soak tests and the long fuzz.
+		- `nice -n 19`, plus `ionice -c 3`, over the whole run.
+		- `--cpus` and `--cpu-shares 256` on each `docker run`, and `nice` inside the image too.
+		- The same rules on other hosts, with that host's CPU count and load.
+	- Progress log:
+		- 20261024: split in 3. This box's cap and priority is 2026102421025778, the containers 2026102421025783, the test boxes 2026102421025788. This item closes with the last of them.
+		- 20261024: 2026102421025778 and 2026102421025783 are in on `r1024c`, waiting on the full run. 2026102421025788 is next.
+		- 20261029: 2026102421025788 closed on r1029, the last child.
+	- Test case: its children's tests: 2026102421025778, 2026102421025783, and Etfwju5 with ionice-probe.bash for 2026102421025788.
+	- Acceptance signoff: me, 20261029, all 3 children closed
+	- Closed: 20261029
 
 - Refuse a changed file's save, in Go
 	- ID: 2026102912203341
