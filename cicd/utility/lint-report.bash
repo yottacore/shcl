@@ -120,8 +120,10 @@ fi
 ##	python's `-W error::ResourceWarning` hit both scans (2026102019120000).
 ##	govulncheck wraps that note, so "vulnerabilities." can end it on a line of
 ##	its own; a real finding has its own lines. A git `hint:` is advice, and the
-##	default branch one says "warning" (2026102520122882).
-warns="$(grep -inE 'warning|rustsec-|vulnerab|unmaintained|yanked' "$log" 2>/dev/null \
+##	default branch one says "warning" (2026102520122882). Paths don't count, such
+##	as CodeQL's progress lines for its ExtractionWarnings.ql query.
+warns="$(awk '{ s = tolower($0); gsub(/[^[:space:]]*\/[^[:space:]]*/, "", s) }
+	s ~ /warning|rustsec-|vulnerab|unmaintained|yanked/ { print NR ":" $0 }' "$log" 2>/dev/null \
 	| grep -vE '^[0-9]+:(extra|hint): ' \
 	| grep -viE 'generated 0 warnings|: 0 warnings|no warnings|0 warnings emitted' \
 	| grep -viE 'no vulnerabilities found|affected by 0 vulnerabilities|this scan also found|appear to call|^[0-9]+:(these )?vulnerabilities\.$|enable=warning|-D warnings' || true)"
