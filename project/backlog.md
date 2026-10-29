@@ -372,6 +372,59 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
+- Refuse a save over a file that changed since the load
+	- ID: 2026102910482342
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482343
+	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
+	- Requirements:
+		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
+		- A caller that means to replace it can force the save.
+		- A document from `parse`, with no file behind it, saves as it does now.
+	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+
+- Let a save create a new file only, and give a new file its mode
+	- ID: 2026102910482343
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482342
+	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
+	- Requirements:
+		- A create-only save fails when the file is there, even with 2 programs saving it at once.
+		- A new file can be given a mode. A file that's already there keeps its own, as now.
+		- Both are save options, beside the force from 2026102910482342.
+	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+
+- Open a newer format's file read-only
+	- ID: 2026102910482344
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Problem description: a file written for a newer format loads with `H006`, and a save writes it back by this version's rules. Lines the newer format reads another way can change, with no error.
+	- Requirements:
+		- A document loaded from a newer format says so.
+		- A save over that file is refused with its own error kind. Reads work as now.
+	- Reason: v4 keeps Format 3, so no such file exists yet. The refusal has to be in readers before the first newer format is, though, or every older reader can damage those files.
+	- Note: shclwrap does this as `ReadOnly()` and `ErrTooNew`.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+
 - `E003` is retained, and dropping follows one test
 	- ID: 2026102821334970
 	- Type: Enhancement
@@ -9018,53 +9071,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. Filed as 2026092918110222.
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
-
-- Refuse a save over a file that changed since the load
-	- ID: 2026102910482342
-	- Type: Enhancement
-	- Status: Deferred
-	- Priority: Avg
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Related IDs: 2026102910482343
-	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
-	- Requirements:
-		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
-		- A caller that means to replace it can force the save.
-		- A document from `parse`, with no file behind it, saves as it does now.
-	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
-	- Note: with v4 (JC).
-
-- Let a save create a new file only, and give a new file its mode
-	- ID: 2026102910482343
-	- Type: Enhancement
-	- Status: Deferred
-	- Priority: Avg
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Related IDs: 2026102910482342
-	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
-	- Requirements:
-		- A create-only save fails when the file is there, even with 2 programs saving it at once.
-		- A new file can be given a mode. A file that's already there keeps its own, as now.
-		- Both are save options, beside the force from 2026102910482342.
-	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
-	- Note: with v4 (JC).
-
-- Open a newer format's file read-only
-	- ID: 2026102910482344
-	- Type: Enhancement
-	- Status: Deferred
-	- Priority: Avg
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Problem description: a file written for a newer format loads with `H006`, and a save writes it back by this version's rules. Lines the newer format reads another way can change, with no error.
-	- Requirements:
-		- A document loaded from a newer format says so.
-		- A save over that file is refused with its own error kind. Reads work as now.
-	- Reason: v4 keeps Format 3, so no such file exists yet. The refusal has to be in readers before the first newer format is, though, or every older reader can damage those files.
-	- Note: shclwrap does this as `ReadOnly()` and `ErrTooNew`.
-	- Note: with v4 (JC).
 
 - Fill in a commented default line when its key is set
 	- ID: 2026102910482345
