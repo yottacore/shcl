@@ -1200,6 +1200,7 @@ Document Document::load_and_validate_with(std::string_view text, const Document 
 #ifndef SHCL_NO_FILE_IO
 std::pair<Document, FileStatus> Document::load_file(const std::string &path) {
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	Document d = Access::wrap(shcl_load_file(path.c_str(), &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
@@ -1210,17 +1211,20 @@ std::pair<Document, FileStatus> Document::load_file_with(const std::string &path
 }
 std::pair<Document, FileStatus> Document::load_file_keep_lines(const std::string &path, Strictness s) {
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	Document d = Access::wrap(shcl_load_file_keep_lines(path.c_str(), static_cast<shcl_strictness>(s), &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
 SaveResult Document::save_file(const std::string &path, WriteStatus *why) {
 	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	SaveResult r = static_cast<SaveResult>(shcl_save_file(detail::held(*this), path.c_str(), &st));
 	if (why) *why = static_cast<WriteStatus>(st);
 	return r;
 }
 SaveResult Document::save_file_lossy(const std::string &path, WriteStatus *why) {
 	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	SaveResult r = static_cast<SaveResult>(shcl_save_file_lossy(detail::held(*this), path.c_str(), &st));
 	if (why) *why = static_cast<WriteStatus>(st);
 	return r;
@@ -1228,6 +1232,7 @@ SaveResult Document::save_file_lossy(const std::string &path, WriteStatus *why) 
 std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &path, WriteStatus *why) {
 	int k = 0;
 	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	SaveResult r = static_cast<SaveResult>(shcl_save_file_keep_lines(detail::held(*this), path.c_str(), &k, &st));
 	if (why) *why = static_cast<WriteStatus>(st);
 	return {r, k != 0};
@@ -1238,6 +1243,7 @@ std::pair<SaveResult, bool> Document::save_file_with(const std::string &path, co
 	o.create = opts.create; o.mode = opts.mode;
 	int k = 0;
 	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	SaveResult r = static_cast<SaveResult>(shcl_save_file_with(detail::held(*this), path.c_str(), o, &k, &st));
 	if (why) *why = static_cast<WriteStatus>(st);
 	return {r, k != 0};

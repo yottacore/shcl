@@ -6914,7 +6914,8 @@ int main(int argc, char **argv) {
 
 #ifndef _WIN32
 		/* Several saves at once: one makes the file and the rest are told it's there. */
-		char race[320];
+		/* static, since the threads read it through a global. */
+		static char race[320];
 		snprintf(race, sizeof race, "%s/race.shcl", xdir);
 		create_path = race;
 		pthread_t th[8];

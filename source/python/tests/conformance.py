@@ -5385,6 +5385,7 @@ def main():
 			xdoc.save_file_with(mp, shcl.SaveOptions(mode=0o4640))
 			xsame("m4 mode", oct(xmode(mp)), oct(0o640))
 			# A file already there keeps its own.
+			# codeql[py/overly-permissive-file] a fixture mode the test reads back
 			os.chmod(mp, 0o644)
 			xdoc.save_file_with(mp, shcl.SaveOptions(mode=0o600))
 			xsame("kept mode", oct(xmode(mp)), oct(0o644))
