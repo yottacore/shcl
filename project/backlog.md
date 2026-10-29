@@ -33,6 +33,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted ci.yml tests half runs past its 60-minute timeout
+	- ID: 2026102915235852
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261029-152358
+	- Opened by:
+	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
+	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
+
 - The C runner's swap test leaves its folder behind on windows
 	- ID: 2026102915173442
 	- Type: Bug
