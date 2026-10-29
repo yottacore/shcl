@@ -81,7 +81,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
 	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
 	- Branch: `r1029`
-	- Commit: `a618835c`
+	- Commit: `a618835c`, `276abbc8`
 
 - Create-only save and a new file's mode, in Go
 	- ID: 2026102913213683
@@ -243,7 +243,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
 	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
 	- Branch: `r1029`
-	- Commit: `c271967d`, `42a12d0d`
+	- Commit: `c271967d`, `42a12d0d`, `276abbc8`
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
