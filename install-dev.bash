@@ -26,7 +26,7 @@
 ##		          shellcheck, ruff, mypy, cppcheck, build, markdownlint-cli2,
 ##		          staticcheck, govulncheck, cargo-deny (all at the pinned versions),
 ##		          PSScriptAnalyzer (only if pwsh is present)
-##		the gate: cicd/cicd.bash --gate
+##		the gate: cicd/cicd.bash --merge-gate
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -78,7 +78,7 @@ What a full dev box needs (see contributing.md, "How to develop"):
              shellcheck, ruff, mypy, cppcheck, build, markdownlint-cli2,
              staticcheck, govulncheck, cargo-deny (all at the pinned versions),
              PSScriptAnalyzer (only if pwsh is present)
-  the gate:  cicd/cicd.bash --gate
+  the gate:  cicd/cicd.bash --merge-gate
 
 EOF
 }
@@ -329,7 +329,7 @@ fi
 [[ -e "${clone_dir}/.git" ]] && fSetupHooks
 
 echo
-echo "done. The gate is:  cicd/cicd.bash --gate"
+echo "done. The gate is:  cicd/cicd.bash --merge-gate"
 echo "(rust-toolchain.toml pins the toolchain; the first cargo run fetches it.)"
 (( ${#hints[@]} )) && echo "note: the hinted packages above are still missing."
 ## By element, with a trailing slash ignored on either side: the shell

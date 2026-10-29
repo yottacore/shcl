@@ -147,16 +147,24 @@ pub enum FileStatus {
 	Unreadable, // exists but could not be read (permissions, a directory, bad encoding, past a read_file cap)
 }
 
-/// Why a save did not happen. The two cases need different handling, so they
-/// are separate values rather than two spellings of one message: `Refused` is
+/// Why a save did not happen. The cases need different handling, so they
+/// are separate values rather than spellings of one message: `Refused` is
 /// the lost-content gate, which the caller can reverse with `save_file_lossy`,
-/// and `Io` is the disk's answer, which they cannot.
+/// `Changed` is another program's edit, which `SaveOptions::force` writes
+/// over, `Exists` is the file a create-only save found, and `Io` is the disk's
+/// answer, which they cannot reverse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveError {
 	/// This save would delete content from the file (see `lost_count`).
 	Refused { path: String, lost: usize },
 	/// The write itself failed: why, and the message.
 	Io(WriteError),
+	/// The file the document was loaded from no longer holds what the load
+	/// read, or what this document's last save there wrote. Nothing written.
+	Changed { path: String },
+	/// `SaveOptions::create` found a file already there, or another save made
+	/// it first. Nothing written.
+	Exists { path: String },
 }
 
 impl std::fmt::Display for SaveError {
@@ -168,6 +176,64 @@ impl std::fmt::Display for SaveError {
 				path, lost
 			),
 			SaveError::Io(e) => std::fmt::Display::fmt(e, f),
+			SaveError::Changed { path } => write!(
+				f,
+				"{}: refusing to save: the file changed since it was loaded; nothing written (force overrides)",
+				path
+			),
+			SaveError::Exists { path } => write!(
+				f,
+				"{}: refusing to save: the file is already there and create asks for a new one; nothing written",
+				path
+			),
+		}
+	}
+}
+
+/// How `save_file_with` saves. The default is `save_file`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SaveOptions {
+	/// Write even when the save deletes content from the file, as
+	/// `save_file_lossy` does.
+	pub lossy: bool,
+	/// Keep the lines no edit touched, as `save_file_keep_lines` does.
+	pub keep_lines: bool,
+	/// Write over the file the document was loaded from even when it changed
+	/// since, for a caller that means to replace whatever is there.
+	pub force: bool,
+	/// Only make a new file: refuse with `SaveError::Exists` when one is
+	/// there, even one another save makes at the same time.
+	pub create: bool,
+	/// The permission bits (`0o777`) a file this save makes gets, exactly,
+	/// whatever the umask. 0 is an ordinary create's. A file already there
+	/// keeps its own, and windows has no such bits.
+	pub mode: u32,
+}
+
+/// The file a load read, for the save's changed check: where the path
+/// resolved to, and its text, or None when nothing was there.
+#[derive(Debug, Clone)]
+struct LoadedFile {
+	target: std::path::PathBuf,
+	text: Option<String>,
+}
+
+impl LoadedFile {
+	/// A path that resolves to no target, a link cycle, is a save's error
+	/// already, so it gets no check.
+	fn at(path: &str, text: Option<String>) -> Option<Box<LoadedFile>> {
+		let target = resolve_target(path).ok()?;
+		Some(Box::new(LoadedFile { target, text }))
+	}
+
+	/// The file at PATH still holds the text, byte for byte, or is still
+	/// not there. Content only, so a touch alone is no change. A read that
+	/// fails another way is left to the write, which fails the same way.
+	fn holds(&self, path: &str) -> bool {
+		match std::fs::read(path) {
+			Ok(now) => self.text.as_deref().is_some_and(|t| t.as_bytes() == now),
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.text.is_none(),
+			Err(_) => true,
 		}
 	}
 }
@@ -871,6 +937,9 @@ pub struct Document {
 	// was already canonical, since the canonical form is then the one that
 	// keeps its lines. A merge drops it: the layer's lines are not this text's.
 	source: Option<String>,
+	// The file a load read, which a save over it checks first. A merge keeps
+	// it, since the file under the merged document is still that one.
+	file: Option<Box<LoadedFile>>,
 }
 
 /// The first child of each (parent, name), chained on to the next same-named
@@ -6298,6 +6367,7 @@ impl<'a> Parser<'a> {
 			ends: self.ends,
 			dropped: self.dropped,
 			source: None,
+			file: None,
 		};
 		doc.settle_kept();
 		doc
@@ -6525,7 +6595,14 @@ impl Document {
 	fn load_file_any(path: &str, level: Strictness, keep: bool) -> (Document, FileStatus) {
 		let text = match read_file(path, 0) {
 			Ok(t) => t,
-			Err(st) => return (Parser::new().parse("", level), st),
+			Err(st) => {
+				let mut doc = Parser::new().parse("", level);
+				// A file that could not be read gives a save nothing to compare.
+				if st == FileStatus::NotFound {
+					doc.file = LoadedFile::at(path, None);
+				}
+				return (doc, st);
+			}
 		};
 		let mut doc = Parser::new().parse(&text, level);
 		let st = if doc.error_count() > 0 {
@@ -6536,6 +6613,7 @@ impl Document {
 		if keep {
 			doc.keep_source(&text);
 		}
+		doc.file = LoadedFile::at(path, Some(text));
 		(doc, st)
 	}
 
@@ -6544,24 +6622,76 @@ impl Document {
 	/// interrupted save can never truncate the config it rewrites - the same
 	/// mechanics the CLI's `--write` uses. Refuses when the write would delete
 	/// content from the file (see lost_count); save_file_lossy writes
-	/// anyway. The Err tells the two apart without matching on prose:
-	/// SaveError::Refused is the gate, SaveError::Io is the write failing.
-	pub fn save_file(&self, path: &str) -> Result<(), SaveError> {
+	/// anyway. Over the file a load read, refuses when that file no longer
+	/// holds what the load read, or what this document's last save there
+	/// wrote, so another program's edit is not lost; `SaveOptions::force`
+	/// writes anyway. The Err tells them apart without matching on prose:
+	/// SaveError::Refused is the gate, SaveError::Changed the other program's
+	/// edit, SaveError::Io the write failing.
+	pub fn save_file(&mut self, path: &str) -> Result<(), SaveError> {
+		self.save_file_with(path, &SaveOptions::default())
+			.map(|_| ())
+	}
+
+	/// save_file without the lost-content gate: writes even when the
+	/// write deletes content from the file. The caller owns that choice. The
+	/// changed check still applies.
+	pub fn save_file_lossy(&mut self, path: &str) -> Result<(), SaveError> {
+		let opts = SaveOptions {
+			lossy: true,
+			..SaveOptions::default()
+		};
+		self.save_file_with(path, &opts).map(|_| ())
+	}
+
+	/// The save the options describe: Ok(true) when it kept the lines, as
+	/// save_file_keep_lines says. All the save calls come here.
+	pub fn save_file_with(&mut self, path: &str, opts: &SaveOptions) -> Result<bool, SaveError> {
 		let lost = self.lost_count();
-		if lost > 0 {
+		let (text, kept) = if opts.keep_lines {
+			self.to_text_keep_lines()
+		} else {
+			(self.to_canonical(), false)
+		};
+		if !opts.lossy && !kept && lost > 0 {
 			return Err(SaveError::Refused {
 				path: path.to_string(),
 				lost,
 			});
 		}
-		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)
-	}
-
-	/// save_file without the lost-content gate: writes even when the
-	/// write deletes content from the file. The caller owns that choice. Only ever
-	/// Errs with SaveError::Io - the gate is the one thing it skips.
-	pub fn save_file_lossy(&self, path: &str) -> Result<(), SaveError> {
-		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)
+		// The file the load read has to be as the load or this document's last
+		// save there left it. That's a check and not a lock: an edit between it
+		// and the rename is still lost.
+		let target = resolve_target(path).ok();
+		// Before the changed check, so a create that loses to another program
+		// is told the file is there.
+		if opts.create
+			&& target
+				.as_ref()
+				.is_some_and(|t| std::fs::symlink_metadata(t).is_ok())
+		{
+			return Err(SaveError::Exists {
+				path: path.to_string(),
+			});
+		}
+		let over = self
+			.file
+			.as_deref()
+			.filter(|f| target.as_ref().is_some_and(|t| *t == f.target));
+		if let Some(f) = over
+			&& !opts.force
+			&& !f.holds(path)
+		{
+			return Err(SaveError::Changed {
+				path: path.to_string(),
+			});
+		}
+		let over = over.is_some();
+		write_file_how(path, &text, opts.create, opts.mode)?;
+		if over && let Some(f) = self.file.as_deref_mut() {
+			f.text = Some(text);
+		}
+		Ok(kept)
 	}
 
 	/// Canonical form: block layout, tabs, insertion order, minimal quoting,
@@ -6630,17 +6760,12 @@ impl Document {
 	/// Ok(false) when it wrote the canonical form instead. A line the load
 	/// dropped comes back as written when the lines are kept, so this
 	/// refuses the way save_file does only when it would write canonical.
-	pub fn save_file_keep_lines(&self, path: &str) -> Result<bool, SaveError> {
-		let (text, kept) = self.to_text_keep_lines();
-		let lost = self.lost_count();
-		if !kept && lost > 0 {
-			return Err(SaveError::Refused {
-				path: path.to_string(),
-				lost,
-			});
-		}
-		write_file_atomic(path, &text).map_err(SaveError::Io)?;
-		Ok(kept)
+	pub fn save_file_keep_lines(&mut self, path: &str) -> Result<bool, SaveError> {
+		let opts = SaveOptions {
+			keep_lines: true,
+			..SaveOptions::default()
+		};
+		self.save_file_with(path, &opts)
 	}
 
 	fn emit_marked(&self) -> Emit {
@@ -8974,15 +9099,28 @@ fn read_schema_file(path: &str) -> Result<String, (SchemaStatus, String)> {
 /// (otherwise a 600 config comes back at whatever the umask allows). Other hard
 /// links to the old inode cannot survive a rename and keep the old content.
 pub fn write_file_atomic(file: &str, data: &str) -> Result<(), WriteError> {
+	write_file_how(file, data, false, 0).map_err(|e| match e {
+		SaveError::Io(w) => w,
+		e => WriteError::new(WriteStatus::Other, e.to_string()),
+	})
+}
+
+/// write_file_atomic, plus SaveOptions' create and mode. Only `Io` and
+/// `Exists` come back.
+fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(), SaveError> {
 	use std::io::Write;
+	let exists = || SaveError::Exists {
+		path: file.to_string(),
+	};
 	if names_a_directory(file) {
-		return Err(WriteError::new(
+		return Err(SaveError::Io(WriteError::new(
 			WriteStatus::IsDirectory,
 			format!("{}: Is a directory", file),
-		));
+		)));
 	}
 	let target = resolve_target(file)
-		.map_err(|(status, why)| WriteError::new(status, format!("{}: {}", file, why)))?;
+		.map_err(|(status, why)| WriteError::new(status, format!("{}: {}", file, why)))
+		.map_err(SaveError::Io)?;
 	let dir = match target.parent() {
 		Some(d) if !d.as_os_str().is_empty() => d,
 		_ => std::path::Path::new("."),
@@ -9011,27 +9149,34 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), WriteError> {
 	// and the real mode goes on below - the copy is never briefly readable to
 	// anyone the original was not. A file that does not exist yet has no mode to
 	// preserve, so it takes the one an ordinary create would: 0666 narrowed by
-	// the umask, like every other file the user's tools produce.
+	// the umask, like every other file the user's tools produce, unless the
+	// caller gave one.
 	let existing = std::fs::metadata(&target).ok();
+	if new_only && (existing.is_some() || std::fs::symlink_metadata(&target).is_ok()) {
+		return Err(exists());
+	}
+	let mode = mode & 0o777;
+	#[cfg(windows)]
+	let _ = mode;
 	// Only a regular file is replaced. A rename over a FIFO or a device node
 	// swaps it for a regular file at exit 0. Save outcomes in design.md is the
 	// rule for what a save does with each thing it can find at the path.
 	if let Some(m) = &existing
 		&& !m.is_file()
 	{
-		return Err(if m.is_dir() {
+		return Err(SaveError::Io(if m.is_dir() {
 			WriteError::new(
 				WriteStatus::IsDirectory,
 				format!("{}: Is a directory", file),
 			)
 		} else {
 			not_regular(file)
-		});
+		}));
 	}
 	// The test above cannot see a windows device name; see not_a_disk_file.
 	#[cfg(windows)]
 	if not_a_disk_file(&target) {
-		return Err(not_regular(file));
+		return Err(SaveError::Io(not_regular(file)));
 	}
 	// Windows: a read-only file cannot be replaced, and a read-only temp cannot
 	// be removed after a failure, so the attribute comes off the target for the
@@ -9061,7 +9206,11 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), WriteError> {
 		#[cfg(unix)]
 		{
 			use std::os::unix::fs::OpenOptionsExt;
-			opts.mode(if existing.is_some() { 0o600 } else { 0o666 });
+			opts.mode(if existing.is_some() || mode != 0 {
+				0o600
+			} else {
+				0o666
+			});
 		}
 		#[cfg(windows)]
 		let opened = if existing.is_some() {
@@ -9082,10 +9231,10 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), WriteError> {
 	let Some(mut f) = file_handle else {
 		let status = last.as_ref().map_or(WriteStatus::Other, write_status_of);
 		let why = last.map(|e| e.to_string()).unwrap_or_default();
-		return Err(WriteError::new(
+		return Err(SaveError::Io(WriteError::new(
 			status,
 			format!("{}: cannot create temporary file: {}", file, why),
-		));
+		)));
 	};
 	let res = (|| -> std::io::Result<()> {
 		f.write_all(data.as_bytes())?;
@@ -9106,11 +9255,16 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), WriteError> {
 			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
 			let _ = f.set_permissions(m.permissions());
 		}
+		#[cfg(unix)]
+		if existing.is_none() && mode != 0 {
+			use std::os::unix::fs::PermissionsExt;
+			let _ = f.set_permissions(std::fs::Permissions::from_mode(mode));
+		}
 		Ok(())
 	})();
 	if let Err(e) = res {
 		let _ = std::fs::remove_file(&tmp);
-		return Err(WriteError::io(file, &e));
+		return Err(SaveError::Io(WriteError::io(file, &e)));
 	}
 	drop(f);
 	#[cfg(windows)]
@@ -9135,7 +9289,13 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), WriteError> {
 	if read_only {
 		set_read_only(&target, true); // whether or not the publish went through
 	}
-	published.map_err(|e| WriteError::io(file, &e))?;
+	published.map_err(|e| {
+		if new_only && e.kind() == std::io::ErrorKind::AlreadyExists {
+			exists()
+		} else {
+			SaveError::Io(WriteError::io(file, &e))
+		}
+	})?;
 	sync_dir(dir);
 	Ok(())
 }

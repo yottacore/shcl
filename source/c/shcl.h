@@ -321,14 +321,31 @@ typedef enum {
 } shcl_file_status;
 /* Save refuses when the write would delete content from the file
    (shcl_lost_count); shcl_save_file_lossy is the override, and is the only way
-   to write then. The two failures are separate values rather than one falsey
-   answer because they need different handling: a refusal is the caller's to
-   reverse, a write failure is the disk's answer with errno describing it. */
+   to write then. Over the file a load read, it also refuses when that file no
+   longer holds what the load read, or what this document's last save there
+   wrote, so another program's edit is not lost; the force option is the
+   override. The failures are separate values rather than one falsey answer
+   because they need different handling: a refusal is the caller's to
+   reverse, a write failure is the disk's answer with errno describing it.
+   CHANGED is the other bindings' "PATH: refusing to save: the file changed
+   since it was loaded; nothing written (force overrides)", and EXISTS their
+   "PATH: refusing to save: the file is already there and create asks for a
+   new one; nothing written". */
 typedef enum {
 	SHCL_SAVE_OK,      /* written */
 	SHCL_SAVE_REFUSED, /* the lost-content gate fired; lossy overrides */
-	SHCL_SAVE_FAILED   /* the write itself failed; *why and errno say why */
+	SHCL_SAVE_FAILED,  /* the write itself failed; *why and errno say why */
+	SHCL_SAVE_CHANGED, /* the file changed since the load; nothing written, force overrides */
+	SHCL_SAVE_EXISTS   /* create found a file there, or another save made it first; nothing written */
 } shcl_save_result;
+/* How shcl_save_file_with saves. All zero, as {0} gives, is shcl_save_file. */
+typedef struct {
+	int lossy;      /* write even when the save deletes content, as shcl_save_file_lossy */
+	int keep_lines; /* keep the lines no edit touched, as shcl_save_file_keep_lines */
+	int force;      /* write over the file the load read even when it changed since */
+	int create;     /* only make a new file: SHCL_SAVE_EXISTS when one is there, even one another save makes at the same time */
+	unsigned mode;  /* the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits */
+} shcl_save_options;
 /* Why a write failed, so a program can tell a missing folder from no
    permission or a full disk without reading errno itself. NOT_FOUND and
    UNREADABLE are shcl_file_status's names. Every call that writes takes a
@@ -369,6 +386,10 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 // load dropped comes back as written when the lines are kept, so this refuses
 // the way shcl_save_file does only when it would write canonical.
 shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept, shcl_write_status *why);
+// The save the options describe, with *kept as shcl_save_file_keep_lines sets
+// it. The other three save calls come here. A save records what it wrote, so
+// it is a write: not concurrent with another call on the document.
+shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_options opts, int *kept, shcl_write_status *why);
 // What shcl_read_named_schema found. NOT_FOUND and EMPTY are
 // shcl_read_schema_ref's answers; the rest say why a named schema was not
 // read. New values go on the end; the other bindings number them in this
@@ -1738,6 +1759,12 @@ struct shcl_doc {
 	   then the one that keeps its lines. A merge drops it: the layer's lines
 	   are not this text's. */
 	int has_source; ShclStr source;
+	/* The file a load read, which a save over it checks first: where the path
+	   resolved to, and the text it read, NULL when nothing was there. A merge
+	   keeps it, since the file under the merged document is still that one.
+	   A save there puts what it wrote in its place. malloc'd, so that save can
+	   give the old text back; file_target is NULL when there is no file. */
+	char *file_target, *file_text; size_t file_len;
 };
 
 /* Point every allocation a document can make at one recovery point, or back at
@@ -11508,7 +11535,7 @@ shcl_doc *shcl_parse_with(const char *text, size_t len, shcl_strictness s) { ret
    arithmetic. A cap diagnostic is an error, so shcl_error_count answers
    whether a Strict load would have failed; the parsed part stays readable. */
 shcl_doc *shcl_parse_limited(const char *text, size_t len, shcl_strictness s, size_t max_nodes, size_t max_elements, size_t max_diags) { return do_parse(text, len, s, max_nodes, max_elements, max_diags, 0); }
-void shcl_free(shcl_doc *d) { if (!d) return; shcl_free(d->probe_doc); free(d->nodes.data); free(d->kept_near); arena_free(&d->arena); arena_free(&d->scratch); arena_free(&d->reads); arena_free(&d->index_arena); free(d); }
+void shcl_free(shcl_doc *d) { if (!d) return; shcl_free(d->probe_doc); free(d->nodes.data); free(d->kept_near); free(d->file_target); free(d->file_text); arena_free(&d->arena); arena_free(&d->scratch); arena_free(&d->reads); arena_free(&d->index_arena); free(d); }
 void shcl_reads_release(shcl_doc *d) { if (d) arena_reset(&d->reads); }
 void shcl_compact(shcl_doc *d) {
 	if (!d) return;
@@ -11564,7 +11591,10 @@ void shcl_compact(shcl_doc *d) {
 	settle_kept(n);
 	doc_guard(n, NULL);
 	doc_guard(d, NULL);
-	// Swap the rebuilt document in and give the old storage back.
+	// Swap the rebuilt document in and give the old storage back. The loaded
+	// file's record moves with it, past the last step that can fail, since the
+	// recovery above frees the copy.
+	n->file_target = d->file_target; n->file_text = d->file_text; n->file_len = d->file_len;
 	shcl_doc old = *d;
 	*d = *n;
 	free(n);
@@ -13487,15 +13517,106 @@ static int shcl_not_a_disk_file(const char *path) {
 	return n > 0 && n < MAX_PATH
 	       && full[0] == L'\\' && full[1] == L'\\' && full[2] == L'.' && full[3] == L'\\' && !drive;
 }
+#ifndef FSCTL_GET_REPARSE_POINT
+	#define FSCTL_GET_REPARSE_POINT 0x000900A8
+#endif
+// The full path a link's own text names, as the reference's read_link, with
+// nothing followed past it and nothing created. A relative link is taken from
+// the link's folder. malloc'd; NULL when W is no symlink or junction, or with
+// errno ENOMEM when that was an allocation failure.
+static wchar_t *s_win_read_link(const wchar_t *w) {
+	HANDLE h = CreateFileW(w, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                       NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+	if (h == INVALID_HANDLE_VALUE) return NULL;
+	enum { CAP = 16 * 1024 }; // MAXIMUM_REPARSE_DATA_BUFFER_SIZE
+	unsigned char *b = (unsigned char *)malloc(CAP);
+	DWORD got = 0;
+	BOOL ok = b && DeviceIoControl(h, FSCTL_GET_REPARSE_POINT, NULL, 0, b, CAP, &got, NULL);
+	CloseHandle(h);
+	if (!b) { errno = ENOMEM; return NULL; }
+	// The reparse buffer: tag, data length, reserved, then the substitute
+	// name's offset and length in bytes, the print name's, a symlink's flags,
+	// and the names.
+	DWORD tag = 0, flags = 0;
+	USHORT so = 0, sl = 0;
+	size_t names = 0;
+	if (ok && got >= 16) {
+		memcpy(&tag, b, 4); memcpy(&so, b + 8, 2); memcpy(&sl, b + 10, 2);
+		if (tag == IO_REPARSE_TAG_SYMLINK && got >= 20) { memcpy(&flags, b + 16, 4); names = 20; }
+		else if (tag == IO_REPARSE_TAG_MOUNT_POINT) names = 16;
+	}
+	if (!names || !sl || names + so + sl > got) { free(b); return NULL; }
+	size_t tn = sl / sizeof(wchar_t);
+	wchar_t *t = (wchar_t *)malloc((tn + 1) * sizeof *t);
+	if (!t) { free(b); errno = ENOMEM; return NULL; }
+	memcpy(t, b + names + so, tn * sizeof *t);
+	t[tn] = L'\0';
+	free(b);
+	// The NT spelling of an absolute target, \??\C:\x, is \\?\C:\x to Win32.
+	if (tn >= 4 && t[0] == L'\\' && t[1] == L'?' && t[2] == L'?' && t[3] == L'\\') t[1] = L'\\';
+	wchar_t *joined = t;
+	if (flags & 1) { // SYMLINK_FLAG_RELATIVE
+		const wchar_t *sep = wcsrchr(w, L'\\'), *fs = wcsrchr(w, L'/');
+		if (fs && (!sep || fs > sep)) sep = fs;
+		size_t dn = sep ? (size_t)(sep - w) + 1 : 0;
+		joined = (wchar_t *)malloc((dn + tn + 1) * sizeof *joined);
+		if (!joined) { free(t); errno = ENOMEM; return NULL; }
+		wmemcpy(joined, w, dn);
+		wmemcpy(joined + dn, t, tn + 1);
+		free(t);
+	}
+	DWORD need = GetFullPathNameW(joined, 0, NULL, NULL);
+	wchar_t *fp = need ? (wchar_t *)malloc((size_t)need * sizeof *fp) : NULL;
+	if (need && !fp) errno = ENOMEM;
+	if (fp && !GetFullPathNameW(joined, need, fp, NULL)) { free(fp); fp = NULL; }
+	free(joined);
+	return fp;
+}
+// A path with nothing at it, spelled as a file there would be: its folder's
+// final path plus the name, as the reference canonicalizes the parent. The
+// full path alone keeps a short name such as RUNNER~1, where a file that is
+// there comes back long, so one file had two names. FP is a full path.
+// malloc'd; NULL when the folder cannot be opened.
+static wchar_t *s_win_final_parent(const wchar_t *fp) {
+	const wchar_t *sep = wcsrchr(fp, L'\\');
+	if (!sep || !sep[1]) return NULL;
+	// A folder at a drive's root keeps its separator: C: alone is the drive's
+	// current folder, and \\?\C: the volume.
+	size_t dn = (size_t)(sep - fp);
+	if (dn > 0 && fp[dn - 1] == L':') dn++;
+	wchar_t *dir = (wchar_t *)malloc((dn + 1) * sizeof *dir);
+	if (!dir) return NULL;
+	wmemcpy(dir, fp, dn);
+	dir[dn] = L'\0';
+	HANDLE h = CreateFileW(dir, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                       NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	free(dir);
+	if (h == INVALID_HANDLE_VALUE) return NULL;
+	wchar_t *out = NULL;
+	DWORD need = GetFinalPathNameByHandleW(h, NULL, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+	size_t nn = wcslen(sep + 1);
+	if (need && (out = (wchar_t *)malloc(((size_t)need + nn + 2) * sizeof *out))) {
+		DWORD got = GetFinalPathNameByHandleW(h, out, need, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+		if (!got || got >= need) { free(out); out = NULL; }
+		else {
+			if (out[got - 1] != L'\\') out[got++] = L'\\';
+			wmemcpy(out + got, sep + 1, nn + 1);
+		}
+	}
+	CloseHandle(h);
+	return out;
+}
 // The path a save actually rewrites. A symlink or junction is followed, so a
 // save through a linked-in config replaces the file it points at rather than
 // the link - the same thing the POSIX side has always done. The answer comes
 // back \\?\-prefixed, which is also what takes a path past MAX_PATH, so the
 // prefix is kept only where the name would otherwise be too long for the temp
 // file beside it; a short path stays the plain name it was. A file that is not
-// there yet has no final path, so its full path is prefixed by hand. malloc'd
-// UTF-8; NULL with errno saying why. A read passes FOR_SAVE 0 and gets
-// ENOENT for a dangling link rather than the probe below.
+// there yet has no final path, so its folder's final path is used, or its full
+// path prefixed by hand. malloc'd UTF-8; NULL with errno saying why. A read
+// passes FOR_SAVE 0 and gets ENOENT for a dangling link rather than the probe
+// below. The changed check passes 2, and a dangling link is walked by its own
+// text instead, as the reference does, since a load has nothing to create.
 static char *shcl_resolve_path(const char *file, int for_save) {
 	wchar_t *w = shcl_widen(file);
 	if (!w) return NULL;
@@ -13529,6 +13650,18 @@ static char *shcl_resolve_path(const char *file, int for_save) {
 			FindClose(fh);
 		}
 		if (is_link && !for_save) { free(w); errno = ENOENT; return NULL; }
+		if (is_link && for_save == 2) {
+			errno = 0;
+			for (int hop = 0; hop < 40; hop++) {
+				wchar_t *next = s_win_read_link(w);
+				if (!next) break;
+				free(w); w = next;
+			}
+			wchar_t *more = errno == ENOMEM ? NULL : s_win_read_link(w);
+			if (more) { free(more); free(w); errno = ELOOP; return NULL; }
+			if (errno == ENOMEM) { free(w); return NULL; }
+			is_link = 0;
+		}
 		if (is_link) {
 			HANDLE ch = CreateFileW(w, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 			                        NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -13552,21 +13685,24 @@ static char *shcl_resolve_path(const char *file, int for_save) {
 				DWORD e = GetLastError();
 				free(fp); free(w); errno = shcl_errno_from_win32(e); return NULL;
 			}
-			// Already prefixed (`\\?\` or `\\.\`): it is the spelling a caller
-			// reaches for past MAX_PATH, and prefixing it again built
-			// `\\?\UNC\?\C:\...`, which no create can open. Under MAX_PATH the
-			// strip below happened to undo that, so it bit only long paths.
-			int pref = fp[0] == L'\\' && fp[1] == L'\\' && (fp[2] == L'?' || fp[2] == L'.') && fp[3] == L'\\';
-			int unc = !pref && fp[0] == L'\\' && fp[1] == L'\\';
-			size_t fn = wcslen(fp);
-			full = (wchar_t *)malloc((fn + 10) * sizeof *full);
-			if (!full) { free(fp); free(w); errno = ENOMEM; return NULL; }
-			if (pref) wmemcpy(full, fp, fn + 1);
-			else {
-				const wchar_t *head = unc ? L"\\\\?\\UNC" : L"\\\\?\\";
-				size_t hn = wcslen(head), skip = unc ? 1 : 0;
-				wmemcpy(full, head, hn);
-				wmemcpy(full + hn, fp + skip, fn - skip + 1);
+			full = s_win_final_parent(fp);
+			if (!full) {
+				// Already prefixed (`\\?\` or `\\.\`): it is the spelling a caller
+				// reaches for past MAX_PATH, and prefixing it again built
+				// `\\?\UNC\?\C:\...`, which no create can open. Under MAX_PATH the
+				// strip below happened to undo that, so it bit only long paths.
+				int pref = fp[0] == L'\\' && fp[1] == L'\\' && (fp[2] == L'?' || fp[2] == L'.') && fp[3] == L'\\';
+				int unc = !pref && fp[0] == L'\\' && fp[1] == L'\\';
+				size_t fn = wcslen(fp);
+				full = (wchar_t *)malloc((fn + 10) * sizeof *full);
+				if (!full) { free(fp); free(w); errno = ENOMEM; return NULL; }
+				if (pref) wmemcpy(full, fp, fn + 1);
+				else {
+					const wchar_t *head = unc ? L"\\\\?\\UNC" : L"\\\\?\\";
+					size_t hn = wcslen(head), skip = unc ? 1 : 0;
+					wmemcpy(full, head, hn);
+					wmemcpy(full + hn, fp + skip, fn - skip + 1);
+				}
 			}
 			free(fp);
 		}
@@ -13723,7 +13859,9 @@ static int shcl_names_a_directory(const char *path) {
 // hard links to the old inode keep the old content (inherent to rename).
 // Returns 1 on success, 0 on failure with errno left describing it, and
 // *not_regular set when that is why, since EINVAL could be anything.
-static int s_write_file_atomic(const char *path, const char *data, size_t n, int *not_regular) { // NOLINT(bugprone-easily-swappable-parameters): path, then data, as in shcl_write_file_atomic; see 2026101807501110
+// new_only and mode are shcl_save_options' create and mode, and *exists is set
+// when create found something there.
+static int s_write_file_atomic(const char *path, const char *data, size_t n, int new_only, unsigned mode, int *not_regular, int *exists) { // NOLINT(bugprone-easily-swappable-parameters): path, then data, as in shcl_write_file_atomic; see 2026101807501110
 	if (shcl_names_a_directory(path)) { errno = EISDIR; return 0; }
 #ifndef _WIN32
 	char *real = shcl_resolve_target(path);
@@ -13761,10 +13899,16 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	// and the real mode goes on below - the copy is never briefly readable to
 	// anyone the original was not. A file that does not exist yet has no mode to
 	// preserve, so it takes the one an ordinary create would: 0666 narrowed by
-	// the umask, like every other file the user's tools produce.
+	// the umask, like every other file the user's tools produce, unless the
+	// caller gave one.
+	mode &= 0777;
 #ifndef _WIN32
 	struct stat st;
 	int have_st = (stat(target, &st) == 0);
+	if (new_only && (have_st || lstat(target, &st) == 0)) {
+		errno = EEXIST; *exists = 1;
+		free(tmp); SHCL_FILE_CLEANUP(); return 0;
+	}
 	// Only a regular file is replaced. A rename over a FIFO or a device node
 	// swaps it for a regular file at exit 0. Save outcomes in design.md is the
 	// rule for what a save does with each thing it can find at the path. POSIX
@@ -13775,6 +13919,11 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
 	}
 #else
+	(void)mode;
+	if (new_only && attrs != INVALID_FILE_ATTRIBUTES) {
+		errno = EEXIST; *exists = 1;
+		free(tmp); SHCL_FILE_CLEANUP(); return 0;
+	}
 	if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
 		errno = EISDIR;
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
@@ -13799,7 +13948,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 			: _wopen(wtmp, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
 #else
 		// codeql[cpp/path-injection] opens the path its caller named, which is the job
-		fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, have_st ? 0600 : 0666);
+		fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, have_st || mode ? 0600 : 0666);
 #endif
 		if (fd >= 0) break;
 	}
@@ -13824,6 +13973,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	// (gcc 13 on the hosted runner refuses it, gcc 14 here does not).
 	if (ok && have_st) { int chown_rc = fchown(fileno(f), (uid_t)-1, st.st_gid); (void)chown_rc; }
 	if (ok && have_st) (void)fchmod(fileno(f), st.st_mode & 07777);
+	if (ok && !have_st && mode) (void)fchmod(fileno(f), (mode_t)mode); // best effort, and the temp was born private
 #endif
 	ok = (fclose(f) == 0) && ok;
 	// Nothing was at the path when the save started, so nothing that turns up
@@ -13835,6 +13985,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	if (ok) {
 		replacing = attrs != INVALID_FILE_ATTRIBUTES;
 		ok = replacing ? shcl_publish_file(wtmp, wtarget) : shcl_publish_new_file(wtmp, wtarget);
+		if (!ok && new_only && errno == EEXIST) *exists = 1;
 	}
 	if (read_only || carried) {
 		DWORD now = GetFileAttributesW(wtarget);
@@ -13846,6 +13997,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	if (ok) {
 		replacing = have_st;
 		ok = replacing ? shcl_publish_file(tmp, target) : shcl_publish_new_file(tmp, target);
+		if (!ok && new_only && errno == EEXIST) *exists = 1;
 	}
 	if (ok) shcl_sync_dir(target);
 #endif
@@ -13876,8 +14028,8 @@ static shcl_write_status s_write_status_of(int e) {
 }
 
 int shcl_write_file_atomic(const char *path, const char *data, size_t n, shcl_write_status *why) {
-	int not_regular = 0;
-	int ok = s_write_file_atomic(path, data, n, &not_regular);
+	int not_regular = 0, exists = 0;
+	int ok = s_write_file_atomic(path, data, n, 0, 0, &not_regular, &exists);
 	if (why) *why = ok ? SHCL_WRITE_OK : not_regular ? SHCL_WRITE_NOT_REGULAR : s_write_status_of(errno);
 	return ok;
 }
@@ -14163,27 +14315,64 @@ void shcl_named_schema_free(shcl_named_schema *ns) {
 	memset(ns, 0, sizeof *ns);
 }
 
+/* Where PATH resolves to for a save, malloc'd, or NULL with *oom set when
+   that was an allocation failure. Any other failure, a link cycle say, is the
+   save's own error already. On windows the save's own resolve creates a file
+   through a dangling link to learn where it points, and a load creates
+   nothing, so this walks the link's text instead. */
+static char *s_save_target(const char *path, int *oom) {
+	errno = 0;
+#ifdef _WIN32
+	char *t = shcl_resolve_path(path, 2);
+#else
+	char *t = shcl_resolve_target(path);
+#endif
+	*oom = !t && (errno == 0 || errno == ENOMEM);
+	return t;
+}
+
+// Anything at all at a resolved save target, a dangling link included.
+static int s_something_at(const char *target) {
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(target);
+	if (!w) { SHCL_OOM(); abort(); }
+	int there = GetFileAttributesW(w) != INVALID_FILE_ATTRIBUTES;
+	free(w);
+	return there;
+#else
+	struct stat st;
+	return lstat(target, &st) == 0;
+#endif
+}
+
+/* Every load that reads a file comes here, as the reference's load_file_any:
+   read, parse, and note the file for a save's changed check. A file that could
+   not be read gives a save nothing to compare. */
+static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, shcl_file_status *status) {
+	size_t len = 0;
+	shcl_file_status st = SHCL_FILE_UNREADABLE;
+	char *buf = shcl_read_file(path, 0, &len, &st);
+	if (status) *status = st;
+	shcl_doc *d = !buf ? shcl_parse_with("", 0, s) : keep ? shcl_parse_keep_lines(buf, len, s) : shcl_parse_with(buf, len, s);
+	if (d && (buf || st == SHCL_FILE_NOT_FOUND)) {
+		int oom = 0;
+		d->file_target = s_save_target(path, &oom);
+		if (oom) { free(buf); shcl_free(d); return NULL; }
+		if (d->file_target) { d->file_text = buf; d->file_len = len; buf = NULL; }
+	}
+	free(buf);
+	if (!d || st != SHCL_FILE_CLEAN || !status) return d;
+	for (size_t i = 0; i < d->diags.len; i++)
+		if (d->diags.data[i].sev == SHCL_SEV_ERROR) { *status = SHCL_FILE_HAD_ERRORS; break; }
+	return d;
+}
+
 // File tier, load half: read and parse PATH. Never fails - the document
 // always comes back usable (empty when the file could not be read), and the
 // status out-param separates the four cases consumers otherwise confuse:
 // absent, present-but-unreadable, parsed with errors, clean.
 shcl_doc *shcl_load_file_with(const char *path, shcl_strictness s, shcl_file_status *status) {
-	size_t len = 0;
-	shcl_file_status st = SHCL_FILE_UNREADABLE;
-	char *buf = shcl_read_file(path, 0, &len, &st);
-	if (!buf) {
-		if (status) *status = st;
-		return shcl_parse_with("", 0, s);
-	}
-	shcl_doc *d = shcl_parse_with(buf, len, s);
-	free(buf);
-	if (!d) { if (status) *status = st; return NULL; }
-	if (status) {
-		*status = SHCL_FILE_CLEAN;
-		for (size_t i = 0; i < d->diags.len; i++)
-			if (d->diags.data[i].sev == SHCL_SEV_ERROR) { *status = SHCL_FILE_HAD_ERRORS; break; }
-	}
-	return d;
+	return s_load_file_any(path, s, 0, status);
 }
 
 const char *shcl_file_status_name(shcl_file_status s) {
@@ -14197,42 +14386,30 @@ shcl_doc *shcl_load_file(const char *path, shcl_file_status *status) {
 
 // shcl_load_file_with, keeping the text for shcl_to_text_keep_lines.
 shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_file_status *status) {
-	size_t len = 0;
-	shcl_file_status st = SHCL_FILE_UNREADABLE;
-	char *buf = shcl_read_file(path, 0, &len, &st);
-	if (!buf) {
-		if (status) *status = st;
-		return shcl_parse_with("", 0, s);
-	}
-	shcl_doc *d = shcl_parse_keep_lines(buf, len, s);
-	free(buf);
-	if (!d) { if (status) *status = st; return NULL; }
-	if (status) {
-		*status = SHCL_FILE_CLEAN;
-		for (size_t i = 0; i < d->diags.len; i++)
-			if (d->diags.data[i].sev == SHCL_SEV_ERROR) { *status = SHCL_FILE_HAD_ERRORS; break; }
-	}
-	return d;
+	return s_load_file_any(path, s, 1, status);
 }
 
 // File tier, save half: write the document's canonical text to PATH through
 // shcl_write_file_atomic. SHCL_SAVE_OK on success. Refuses when the write
 // would delete content from the file (shcl_lost_count) - that is
 // SHCL_SAVE_REFUSED, distinct from SHCL_SAVE_FAILED so the caller need not
-// guess which happened; shcl_save_file_lossy writes anyway.
+// guess which happened; shcl_save_file_lossy writes anyway. Over the file a
+// load read, refuses with SHCL_SAVE_CHANGED when that file no longer holds
+// what the load read, or what this document's last save there wrote, so
+// another program's edit is not lost; the force option writes anyway.
 shcl_save_result shcl_save_file(shcl_doc *d, const char *path, shcl_write_status *why) {
-	if (why) *why = SHCL_WRITE_OK;
-	if (shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
-	ShclStr c = emit_canonical(d);
-	return shcl_write_file_atomic(path, c.p, c.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	shcl_save_options o = {0};
+	return shcl_save_file_with(d, path, o, NULL, why);
 }
 
 // shcl_save_file without the lost-content gate: writes even when the
 // write deletes content from the file. The caller owns that choice. Never returns
-// SHCL_SAVE_REFUSED - the gate is the one thing it skips.
+// SHCL_SAVE_REFUSED - the gate is the one thing it skips. The changed check
+// still applies.
 shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path, shcl_write_status *why) {
-	ShclStr c = emit_canonical(d);
-	return shcl_write_file_atomic(path, c.p, c.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	shcl_save_options o = {0};
+	o.lossy = 1;
+	return shcl_save_file_with(d, path, o, NULL, why);
 }
 
 // shcl_save_file with shcl_to_text_keep_lines: *kept (when not NULL) is 1 when
@@ -14240,13 +14417,72 @@ shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path, shcl_write_
 // load dropped comes back as written when the lines are kept, so this refuses
 // the way shcl_save_file does only when it would write canonical.
 shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept, shcl_write_status *why) {
+	shcl_save_options o = {0};
+	o.keep_lines = 1;
+	return shcl_save_file_with(d, path, o, kept, why);
+}
+
+/* The file at PATH still holds the text the document recorded, byte for byte,
+   or is still not there. Content only, so a touch alone is no change. Text
+   that is no longer UTF-8 is a change; a read that fails another way is left
+   to the write, which fails the same way. */
+static int s_file_holds(const shcl_doc *d, const char *path) {
+	size_t n = 0;
+	shcl_file_status st = SHCL_FILE_UNREADABLE;
+	int err = 0;
+	char *now = s_read_file(path, 0, &n, &st, &err);
+	if (now) {
+		int same = d->file_text && n == d->file_len && (n == 0 || memcmp(now, d->file_text, n) == 0);
+		free(now);
+		return same;
+	}
+	if (st == SHCL_FILE_NOT_FOUND) return d->file_text == NULL;
+	if (err == ENOMEM) { SHCL_OOM(); abort(); }
+	return err != 0;
+}
+
+shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_options opts, int *kept, shcl_write_status *why) {
 	if (kept) *kept = 0;
 	if (why) *why = SHCL_WRITE_OK;
 	ShclStr t;
-	int k = keep_text(d, &t);
-	if (!k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
+	int k = 0;
+	if (opts.keep_lines) k = keep_text(d, &t);
+	else t = emit_canonical(d);
+	if (!opts.lossy && !k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
+	int over = 0;
+	if (d->file_target || opts.create) {
+		int oom = 0;
+		char *target = s_save_target(path, &oom);
+		if (oom) { SHCL_OOM(); abort(); }
+		// Before the changed check, so a create that loses to another program
+		// is told the file is there.
+		if (opts.create && target && s_something_at(target)) { free(target); return SHCL_SAVE_EXISTS; }
+		// The file the load read has to be as the load or this document's last
+		// save there left it. That's a check and not a lock: an edit between it
+		// and the rename is still lost.
+		over = target && d->file_target && strcmp(target, d->file_target) == 0;
+		free(target);
+	}
+	if (over && !opts.force && !s_file_holds(d, path)) return SHCL_SAVE_CHANGED;
+	// Taken before the write, so running out after it cannot leave the record
+	// naming text the file no longer holds.
+	char *wrote = over ? (char *)malloc(t.n + 1) : NULL;
+	if (over && !wrote) { SHCL_OOM(); abort(); }
 	if (kept) *kept = k;
-	return shcl_write_file_atomic(path, t.p, t.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	int not_regular = 0, exists = 0;
+	if (!s_write_file_atomic(path, t.p, t.n, opts.create, opts.mode, &not_regular, &exists)) {
+		free(wrote);
+		if (exists) return SHCL_SAVE_EXISTS;
+		if (why) *why = not_regular ? SHCL_WRITE_NOT_REGULAR : s_write_status_of(errno);
+		return SHCL_SAVE_FAILED;
+	}
+	if (over) {
+		if (t.n) memcpy(wrote, t.p, t.n);
+		wrote[t.n] = '\0';
+		free(d->file_text);
+		d->file_text = wrote; d->file_len = t.n;
+	}
+	return SHCL_SAVE_OK;
 }
 
 /* An upgrade's failure message, malloc'd into *out when the caller asked for

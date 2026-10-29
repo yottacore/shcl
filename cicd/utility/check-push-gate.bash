@@ -451,10 +451,10 @@ else
 	fail "cannot clone ${root} for the installer drift check"
 fi
 
-fTest EqGl8mf only a full --gate run records its tree
+fTest EqGl8mf only a full --merge-gate run records its tree
 ## 20260918 item 24: the runs that must not record, through cicd.bash itself.
 ## A throwaway repository gets the real engine and config with every stage
-## stubbed at the end of the config. A --gate run records its tree; a --quick
+## stubbed at the end of the config. A --merge-gate run records its tree; a --quick
 ## run, a run with a stage left out, and a run whose gate noted a skip do not.
 ## Before this, taking out either hold-back failed nothing.
 eng="${work}/eng"
@@ -520,27 +520,27 @@ fEngine(){  ## fEngine [VAR=VALUE ...] -- ARGS... -> engRc, engRecorded
 	engRc=0; env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS SHCL_DOCKER="${work}/no-docker" "${envs[@]}" bash "${eng}/cicd/cicd.bash" "$@" > "${work}/eng.log" 2>&1 || engRc=$?
 	engRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${engTree}"; then engRecorded=1; fi
 }
-fEngine -- --gate
-((engRc == 0 && engRecorded == 1)) || fail "a stubbed --gate run: exit ${engRc}, recorded ${engRecorded}: $(tail -5 "${work}/eng.log")"
-fEngine -- --gate --quick
+fEngine -- --merge-gate
+((engRc == 0 && engRecorded == 1)) || fail "a stubbed --merge-gate run: exit ${engRc}, recorded ${engRecorded}: $(tail -5 "${work}/eng.log")"
+fEngine -- --merge-gate --quick
 ((engRc == 0 && engRecorded == 0)) || fail "a --quick run: exit ${engRc}, recorded ${engRecorded}"
-fEngine -- --gate --no-lint
+fEngine -- --merge-gate --no-lint
 ((engRc == 0 && engRecorded == 0)) || fail "a run with lint left out: exit ${engRc}, recorded ${engRecorded}"
-fEngine -- --gate --no-fmt
+fEngine -- --merge-gate --no-fmt
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the format check left out: exit ${engRc}, recorded ${engRecorded}"
 ## The hosted lint half. Its tests run in the other job, never here.
 rm -f "${work}/eng.notests"
-fEngine STUB_GITDIR="${work}/eng.notests" -- --gate --no-tests
+fEngine STUB_GITDIR="${work}/eng.notests" -- --merge-gate --no-tests
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the tests left out: exit ${engRc}, recorded ${engRecorded}"
 [[ ! -e "${work}/eng.notests" ]] || fail "a --no-tests run still ran the tests stage"
-fEngine STUB_SKIP=1 -- --gate
+fEngine STUB_SKIP=1 -- --merge-gate
 ((engRecorded == 0)) || fail "a run whose gate noted a skip recorded its tree"
 fTest EqjfWm8 a run failing or leaving out the cross checks records nothing
 ## 20260923 item 1: the cross checks are the last gate, so a run failing one
 ## records nothing, and a run leaving them out is partial.
-fEngine STUB_CROSS_FAIL=1 -- --gate
+fEngine STUB_CROSS_FAIL=1 -- --merge-gate
 ((engRc != 0 && engRecorded == 0)) || fail "a run failing a cross check: exit ${engRc}, recorded ${engRecorded}"
-fEngine -- --gate --no-cross
+fEngine -- --merge-gate --no-cross
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the cross checks left out: exit ${engRc}, recorded ${engRecorded}"
 fTest Et6Aueh --quick leaves out what QUICK_SKIP names and nothing else
 ## 2026101816034794: the fast loop drops the steps config names as slow. A
@@ -553,12 +553,12 @@ fQuick(){  ## fQuick ARGS... -> engRc, slowRan, xcheckRan, otherRan
 	if [[ -e "${work}/eng.xcheck" ]]; then xcheckRan=1; fi
 	if [[ -e "${work}/eng.other" ]]; then otherRan=1; fi
 }
-fQuick --gate --quick
+fQuick --merge-gate --quick
 ((engRc == 0 && slowRan == 0 && xcheckRan == 0 && otherRan == 1)) || fail "a --quick run: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}, another step ${otherRan}"
 fQuick -y --no-sync --quick
 ((engRc == 0 && slowRan == 0 && xcheckRan == 0 && otherRan == 1)) || fail "a local --quick run: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}, another step ${otherRan}"
-fQuick --gate
-((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a --gate run left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
+fQuick --merge-gate
+((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a --merge-gate run left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
 fQuick -y --no-sync
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a run with no flags left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
 fTest Et9t3dc --leakcheck adds the leak checks a run with no flags already has
@@ -614,7 +614,7 @@ fLeakLen(){  ## fLeakLen ARGS... -> engRc, leakRun as fast slow long test, 1 or 
 }
 for leakCase in '1101|-y --no-sync' '1001|-y --no-sync --quick' '1111|-y --no-sync --long' '1111|-y --no-sync --slow' \
 	'1111|-y --no-sync --leakcheck' '1111|-y --no-sync --quick --leakcheck' '0000|-y --no-sync --no-leakcheck' \
-	'0000|-y --no-sync --long --no-tests' '0001|--gate' '1111|--gate --long' '1101|--merge-gate' '1101|--ci'; do
+	'0000|-y --no-sync --long --no-tests' '0001|--gate' '1111|--merge-gate --long' '1101|--merge-gate' '1101|--ci'; do
 	read -r -a leakArgs <<< "${leakCase#*|}"
 	fLeakLen "${leakArgs[@]}"
 	if ((engRc != 0)) || [[ "${leakRun}" != "${leakCase%%|*}" ]]; then
@@ -677,7 +677,7 @@ fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --gate
 	|| fail "cicd.bash passed GIT_DIR on to its gates: $(cat "${work}/eng.gitdir" 2>/dev/null || true)"
 fTest EstM5WQ a local --no-tests run still checks the profiler
 ## 2026101514324714: --no-tests dropped the calibration on a local run too, so
-## the flame graph after it was drawn unchecked. Under --gate the calibration
+## the flame graph after it was drawn unchecked. Under --merge-gate the calibration
 ## goes with the tests, which the other hosted job runs.
 fCalibrated(){  ## fCalibrated ARGS... -> engRc, calibrated (1 if the calibration ran)
 	rm -f "${work}/eng.prof"
@@ -688,12 +688,12 @@ fCalibrated -y --no-sync --no-tests
 ((engRc == 0 && calibrated == 1)) || fail "a local --no-tests run drew the flame graph unchecked: exit ${engRc}, calibrated ${calibrated}: $(tail -3 "${work}/eng.log")"
 fCalibrated -y --no-sync
 ((engRc == 0 && calibrated == 1)) || fail "a local run drew the flame graph unchecked: exit ${engRc}, calibrated ${calibrated}"
-fCalibrated --gate
-((engRc == 0 && calibrated == 1)) || fail "a --gate run skipped the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
-fCalibrated --gate --no-tests
+fCalibrated --merge-gate
+((engRc == 0 && calibrated == 1)) || fail "a --merge-gate run skipped the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
+fCalibrated --merge-gate --no-tests
 ((engRc == 0 && calibrated == 0)) || fail "the hosted lint half ran the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
 fTest Eu1ovZE the backlog runs
-## 2026102813104060: --backlog-run-quick is --gate less what --quick leaves
+## 2026102813104060: --backlog-run-quick is the old --gate less what --quick leaves
 ## out, with no leak checks or profiler calibration, and records nothing,
 ## since it's partial. Areas keep only their tests. --backlog-run-full is the
 ## merge gate's checks. Neither dogfoods or publishes.
@@ -719,7 +719,7 @@ for leakCase in '0001|--backlog-run-quick' '1101|--backlog-run-full'; do
 	fi
 done
 ## BACKLOG_SKIP's steps go when no area is named, and come back with theirs.
-for bskipCase in '0|--backlog-run-quick' '1|--backlog-run-quick bskip' '0|--backlog-run-quick other' '1|--gate'; do
+for bskipCase in '0|--backlog-run-quick' '1|--backlog-run-quick bskip' '0|--backlog-run-quick other' '1|--merge-gate'; do
 	read -r -a bskipArgs <<< "${bskipCase#*|}"
 	rm -f "${work}/eng.bskip"
 	fEngine STUB_BSKIP="${work}/eng.bskip" -- "${bskipArgs[@]}"
@@ -750,6 +750,32 @@ for badCase in 'unknown area: nope|--backlog-run-quick nope' "can't go together|
 		fail "cicd.bash ${badCase#*|}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
 	fi
 done
+fTest Eu7Giqm --gate is another name for --backlog-run-quick
+## 2026102814013272: the hosted run takes the merge gate, so --gate is the
+## quick backlog run, areas too. It says so in one line, and records nothing.
+fQuick --gate
+if ((engRc != 0 || engRecorded != 0 || slowRan != 0 || xcheckRan != 0 || otherRan != 1)) \
+	|| ! grep -qxF -- '--gate is another name for --backlog-run-quick' "${work}/eng.log" || ! grep -qF 'shcl backlog run, quick' "${work}/eng.log"; then
+	fail "a --gate run: exit ${engRc}, recorded ${engRecorded}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}, another step ${otherRan}: $(tail -3 "${work}/eng.log")"
+fi
+fQuick --gate slow
+if ((engRc != 0 || slowRan != 0 || otherRan != 0)) || ! grep -qF 'shcl backlog run, quick: slow' "${work}/eng.log"; then
+	fail "--gate slow: exit ${engRc}, the named step ran ${slowRan}, another step ${otherRan}: $(tail -3 "${work}/eng.log")"
+fi
+rm -f "${work}/eng.bskip"
+fEngine STUB_BSKIP="${work}/eng.bskip" -- --gate
+((engRc == 0)) && [[ ! -e "${work}/eng.bskip" ]] || fail "--gate ran the step BACKLOG_SKIP names: exit ${engRc}"
+fCalibrated --gate
+((engRc == 0 && calibrated == 0)) || fail "--gate ran the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
+fEngine -- --gate --backlog-run-quick
+((engRc == 0)) || fail "--gate --backlog-run-quick, one run mode by 2 names: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+for badCase in '--gate --merge-gate' '--gate --long'; do
+	read -r -a badArgs <<< "${badCase}"
+	fEngine -- "${badArgs[@]}"
+	if ((engRc != 2 || engRecorded != 0)) || ! grep -qF "can't go together" "${work}/eng.log"; then
+		fail "cicd.bash ${badCase}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+	fi
+done
 fTest Eu1ovZF every test step is in a backlog area
 ## 2026102813104060: a test step in no area would never run in a backlog run
 ## that names areas, and nothing would say so.
@@ -768,7 +794,7 @@ noArea="$(
 	done
 )" || fail "cannot read config.bash's test steps"
 [[ -z "${noArea}" ]] || fail "a test step in no BACKLOG_AREAS area: ${noArea}"
-helpAreas="$(bash "${root}/cicd/cicd.bash" --help | sed -nE 's/.*--backlog-run-quick \[AREA\.\.\.\] +AREAs: //p')"
+helpAreas="$(bash "${root}/cicd/cicd.bash" --help | sed -nE 's/.*--backlog-run-quick(, --gate)? \[AREA\.\.\.\] +AREAs: //p')"
 cfgAreas="$( source "${root}/cicd/config.bash"; for def in "${BACKLOG_AREAS[@]}"; do printf '%s ' "${def%%|*}"; done )"
 [[ "${helpAreas}" == "${cfgAreas% }" ]] || fail "--help lists the areas as '${helpAreas}', and config.bash as '${cfgAreas% }'"
 ## A docker that answers unless STUB_DOCKER_DOWN is set, and writes down each
@@ -893,11 +919,11 @@ fCtr(){  ## fCtr [VAR=VALUE ...] -- ARGS... -> fEngine's, docker (its calls), ra
 fTest EtDCDE4 with no docker answering, stages 1-6 run here with a note
 ## 2026101920461174: no docker, one whose daemon doesn't answer, and a box the
 ## images can't run on all fall back to a local run, which still records.
-fCtr SHCL_DOCKER="${work}/no-docker" -- --gate
+fCtr SHCL_DOCKER="${work}/no-docker" -- --merge-gate
 if ((engRc != 0 || ran != 1 || noted != 1 || engRecorded != 1)) || ! grep -qF "there's no ${work}/no-docker here" "${work}/eng.log"; then
 	fail "a run with no docker: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
 fi
-fCtr STUB_DOCKER_DOWN=1 -- --gate
+fCtr STUB_DOCKER_DOWN=1 -- --merge-gate
 if ((engRc != 0 || ran != 1 || noted != 1 || engRecorded != 1)) || [[ "${docker}" != info ]] || ! grep -qF "fake-docker doesn't answer" "${work}/eng.log"; then
 	fail "a run with a docker that doesn't answer: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}, docker calls '${docker}': $(tail -3 "${work}/eng.log")"
 fi
@@ -906,7 +932,7 @@ if ((engRc != 0 || ran != 1 || noted != 1)) || [[ -n "${docker}" ]] || ! grep -q
 	fail "a run on aarch64: exit ${engRc}, ran ${ran}, ${noted} note(s), docker calls '${docker}': $(tail -3 "${work}/eng.log")"
 fi
 fTest EtDCDE5 --no-container runs here and asks no docker
-fCtr -- --gate --no-container
+fCtr -- --merge-gate --no-container
 ((engRc == 0 && ran == 1 && noted == 0 && engRecorded == 1)) && [[ -z "${docker}" ]] \
 	|| fail "--no-container: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}, docker calls '${docker}': $(tail -3 "${work}/eng.log")"
 fTest EtDCDE6 --container with --no-container, or with 2 images, is a usage error
@@ -1002,12 +1028,19 @@ cp -r "${root}/cicd/container" "${eng}/cicd/"
 mapfile -t ctrExtra < <(source "${root}/cicd/config.bash"; printf '%s\n' "${CTR_CONTEXT_EXTRA[@]}")
 for f in "${ctrExtra[@]}"; do cp "${root}/${f}" "${eng}/${f}"; done
 ctrTree="$("${eng}/cicd/utility/green-tree.bash" tree "${eng}")"
-fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- --gate
+fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- --merge-gate
 innerRuns="$(wc -l < "${work}/docker.exec" 2>/dev/null || echo 0)"
 ctrRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${ctrTree}"; then ctrRecorded=1; fi
 innerArgs="$(sed -n 's/^runs cicd\.bash //p' "${work}/eng.log")"
-if ((engRc != 0 || ran != 1 || noted != 0 || innerRuns != 1 || ctrRecorded != 1)) || [[ "${innerArgs}" != *--gate* || "${innerArgs}" == *container* ]]; then
+if ((engRc != 0 || ran != 1 || noted != 0 || innerRuns != 1 || ctrRecorded != 1)) || [[ "${innerArgs}" != *--merge-gate* || "${innerArgs}" == *container* ]]; then
 	fail "a run with docker answering: exit ${engRc}, ran ${ran}, ${noted} note(s), ${innerRuns} run(s) in the image, recorded ${ctrRecorded}, inner args '${innerArgs}': $(tail -3 "${work}/eng.log")"
+fi
+fTest Eu7Giqn --gate goes into the image as --backlog-run-quick
+## 2026102814013272: the run inside takes the name the flag stands for.
+fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- --gate
+innerArgs="$(sed -n 's/^runs cicd\.bash //p' "${work}/eng.log")"
+if ((engRc != 0 || ran != 1)) || [[ " ${innerArgs} " != *" --backlog-run-quick "* || " ${innerArgs} " == *" --gate "* ]]; then
+	fail "a --gate run in the image: exit ${engRc}, ran ${ran}, inner args '${innerArgs}': $(tail -3 "${work}/eng.log")"
 fi
 fTest EtDCDE8 --container with a silent docker fails rather than run here
 fCtr STUB_DOCKER_DOWN=1 -- -y --no-sync --container
@@ -1108,7 +1141,7 @@ fi
 fEngine -- --gate
 stepErr="$(fStepLines 5)"
 if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qE '^\[ [0-9.-]+: Step 1 of 5; Starting Format \(check only\) \]$' "${work}/eng.log" \
-	|| ! grep -qxF 'Off ............: Remote sync (--gate)' "${work}/eng.log"; then
+	|| ! grep -qxF 'Off ............: Remote sync (--backlog-run-quick)' "${work}/eng.log"; then
 	fail "a --gate run: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
 fi
 ## An extra image's own flags take out Format, Lint and the cross checks in
@@ -1342,3 +1375,4 @@ exit "${rc}"
 ##		- 2026-10-25 JC: --merge-gate and --ci, and the hook's call of each engine's gate.
 ##		- 2026-10-25 JC: A push to main of docs alone, and --keep-temp.
 ##		- 2026-10-28 JC: The backlog runs, their areas, and one run mode per run.
+##		- 2026-10-29 JC: --gate is another name for --backlog-run-quick, so the gate checks run --merge-gate.

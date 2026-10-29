@@ -2525,7 +2525,7 @@ fn file_tier_load_save() {
 	// POSIX-only fixture could ever have caught. Same fixture in every runner.
 	let fresh = dir.join("fresh.shcl");
 	let fresh_s = fresh.to_str().unwrap().to_string();
-	let fdoc = Document::parse("a: 1\n");
+	let mut fdoc = Document::parse("a: 1\n");
 	fdoc.save_file(&fresh_s).unwrap();
 	let (back, st) = Document::load_file(&fresh_s);
 	assert_eq!(st, FileStatus::Clean);
@@ -2661,7 +2661,7 @@ fn save_creates_the_file_behind_a_dangling_symlink() {
 	std::fs::create_dir_all(dir.join("real")).unwrap();
 	let link = dir.join("c.shcl");
 	std::os::unix::fs::symlink("real/c.shcl", &link).unwrap();
-	let doc = Document::parse("a: 1\n");
+	let mut doc = Document::parse("a: 1\n");
 	doc.save_file(link.to_str().unwrap()).unwrap();
 	assert!(
 		std::fs::symlink_metadata(&link)
@@ -2691,7 +2691,7 @@ fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
 	let (a, b) = (dir.join("a.shcl"), dir.join("b.shcl"));
 	std::os::unix::fs::symlink("b.shcl", &a).unwrap();
 	std::os::unix::fs::symlink("a.shcl", &b).unwrap();
-	let doc = Document::parse("a: 1\n");
+	let mut doc = Document::parse("a: 1\n");
 	assert!(doc.save_file(a.to_str().unwrap()).is_err());
 	for link in [&a, &b] {
 		assert!(
@@ -2720,7 +2720,7 @@ fn save_replaces_only_a_regular_file() {
 	let _ = std::fs::remove_dir_all(&dir);
 	std::fs::create_dir_all(dir.join("real/sub")).unwrap();
 	std::fs::create_dir_all(dir.join("top")).unwrap();
-	let doc = Document::parse("a: 1\n");
+	let mut doc = Document::parse("a: 1\n");
 	let fifo = dir.join("p.shcl");
 	assert!(
 		std::process::Command::new("mkfifo")
@@ -2768,7 +2768,7 @@ fn save_rewrites_a_read_only_file() {
 	let mut perms = std::fs::metadata(&f).unwrap().permissions();
 	perms.set_readonly(true);
 	std::fs::set_permissions(&f, perms).unwrap();
-	let doc = Document::parse("a: 2\n");
+	let mut doc = Document::parse("a: 2\n");
 	doc.save_file(f.to_str().unwrap()).unwrap();
 	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
 	assert!(std::fs::metadata(&f).unwrap().permissions().readonly());
@@ -2830,7 +2830,7 @@ fn save_refuses_a_directory_shaped_path() {
 	std::fs::create_dir_all(&dir).unwrap();
 	let f = dir.join("f.shcl");
 	std::fs::write(&f, "a: 1\n").unwrap();
-	let doc = Document::parse("a: 2\n");
+	let mut doc = Document::parse("a: 2\n");
 	for suffix in ["/", "/.", "/.."] {
 		let p = format!("{}{}", f.display(), suffix);
 		assert!(
@@ -2900,7 +2900,7 @@ fn write_status_names_each_failure() {
 	std::fs::create_dir_all(dir.join("sub")).unwrap();
 	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
 	let why = |r: Result<(), shcl::WriteError>| r.err().map(|e| e.status);
-	let doc = Document::parse("a: 1\n");
+	let mut doc = Document::parse("a: 1\n");
 	assert_eq!(why(write_file_atomic(&at("ok.shcl"), "a: 1\n")), None);
 	let missing = at("nope/t.shcl");
 	let e = write_file_atomic(&missing, "a: 1\n").unwrap_err();
@@ -3511,7 +3511,7 @@ fn lost_and_save_gate() {
 	// survives a save); position-dependent drops count as lost and make
 	// save_file refuse until the caller opts into save_file_lossy. Same
 	// fixture in every runner.
-	let kept = Document::parse("a: 1\nsquare-miles 300\nb: 2\n");
+	let mut kept = Document::parse("a: 1\nsquare-miles 300\nb: 2\n");
 	assert_eq!(kept.lost_count(), 0);
 	assert!(kept.to_canonical().contains("square-miles 300\n"));
 	// An indent matching no level is kept as written when it holds a space,
@@ -3519,7 +3519,7 @@ fn lost_and_save_gate() {
 	let spaced = Document::parse("a:\n\tb: 1\n  c: 2\n\td: 3\n");
 	assert_eq!(spaced.lost_count(), 0);
 	assert_eq!(spaced.to_canonical(), "a:\n\tb: 1\n  c: 2\n\td: 3\n");
-	let lost = Document::parse("a:\n\t\tb: 1\n\tc: 2\n");
+	let mut lost = Document::parse("a:\n\t\tb: 1\n\tc: 2\n");
 	assert_eq!(lost.lost_count(), 1);
 	let dir = std::env::temp_dir().join(format!("shcl-lostgate-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
@@ -5768,4 +5768,219 @@ fn format_array_is_the_setters_text() {
 		want(&[&dts])
 	);
 	assert_eq!(want(&[&dts]), "k: [\"2026-07-12T14:30\"]\n");
+}
+
+/// A save over the file a load read refuses when another program changed it
+/// since, writes nothing, and writes with force. A save elsewhere, and a
+/// document from parse, save as they always did (2026102910482342).
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn a_save_over_a_file_changed_since_the_load_is_refused() {
+	let _id = test_id("Eu7RSm3");
+	use shcl::{SaveError, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-changed-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let changed = |p: &str| SaveError::Changed {
+		path: p.to_string(),
+	};
+	let force = SaveOptions {
+		force: true,
+		..SaveOptions::default()
+	};
+	let f = at("f.shcl");
+	std::fs::write(&f, "a: 1\n").unwrap();
+	let (mut doc, _) = Document::load_file(&f);
+	let _ = doc.set_int("a", 2);
+	std::fs::write(&f, "a: 9\n").unwrap();
+	assert_eq!(doc.save_file(&f), Err(changed(&f)));
+	assert_eq!(doc.save_file_lossy(&f), Err(changed(&f)));
+	assert_eq!(read(&f), "a: 9\n");
+	assert_eq!(
+		doc.save_file(&f).unwrap_err().to_string(),
+		format!(
+			"{f}: refusing to save: the file changed since it was loaded; nothing written (force overrides)"
+		)
+	);
+	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
+	assert_eq!(read(&f), "a: 2\n");
+	// The next save is checked against what that one wrote.
+	let _ = doc.set_int("a", 3);
+	assert_eq!(doc.save_file(&f), Ok(()));
+	assert_eq!(read(&f), "a: 3\n");
+	// The same bytes written again are no change.
+	std::fs::write(&f, "a: 3\n").unwrap();
+	assert_eq!(doc.save_file(&f), Ok(()));
+
+	// The line-keeping save, and a link to the file, are checked too.
+	std::fs::write(&f, "a: 1 # one\n").unwrap();
+	let (mut kept, _) = Document::load_file_keep_lines(&f, Strictness::Standard).unwrap();
+	let _ = kept.set_int("a", 2);
+	std::fs::write(&f, "a: 9 # nine\n").unwrap();
+	assert_eq!(kept.save_file_keep_lines(&f), Err(changed(&f)));
+	#[cfg(unix)]
+	{
+		let link = at("link.shcl");
+		std::os::unix::fs::symlink(&f, &link).unwrap();
+		assert_eq!(kept.save_file_keep_lines(&link), Err(changed(&link)));
+	}
+	assert_eq!(read(&f), "a: 9 # nine\n");
+	let keep_force = SaveOptions {
+		keep_lines: true,
+		force: true,
+		..SaveOptions::default()
+	};
+	assert_eq!(kept.save_file_with(&f, &keep_force), Ok(true));
+	assert_eq!(read(&f), "a: 2 # one\n");
+
+	// Gone since the load is a change. So is a file made where none was.
+	let (mut gone, _) = Document::load_file(&f);
+	std::fs::remove_file(&f).unwrap();
+	assert_eq!(gone.save_file(&f), Err(changed(&f)));
+	assert!(!Path::new(&f).exists());
+	let n = at("new.shcl");
+	let (mut fresh, st) = Document::load_file(&n);
+	assert_eq!(st, shcl::FileStatus::NotFound);
+	let _ = fresh.set_int("a", 1);
+	std::fs::write(&n, "b: 2\n").unwrap();
+	assert_eq!(fresh.save_file(&n), Err(changed(&n)));
+	assert_eq!(read(&n), "b: 2\n");
+	std::fs::remove_file(&n).unwrap();
+	assert_eq!(fresh.save_file(&n), Ok(()));
+	assert_eq!(read(&n), "a: 1\n");
+
+	// Elsewhere is not checked, and the load's file still is.
+	let other = at("other.shcl");
+	std::fs::write(&other, "z: 0\n").unwrap();
+	assert_eq!(gone.save_file(&other), Ok(()));
+	assert_eq!(gone.save_file(&f), Err(changed(&f)));
+	// A parse has no file behind it.
+	let mut parsed = Document::parse("a: 5\n");
+	assert_eq!(parsed.save_file(&other), Ok(()));
+	assert_eq!(read(&other), "a: 5\n");
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A create-only save refuses a file that's there, and only one of several
+/// saves at once makes it. A new file takes the mode asked for, whatever the
+/// umask, and one already there keeps its own (2026102910482343).
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn a_create_only_save_refuses_a_file_already_there() {
+	let _id = test_id("Eu7hQCd");
+	use shcl::{SaveError, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-create-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let create = SaveOptions {
+		create: true,
+		..SaveOptions::default()
+	};
+	let f = at("f.shcl");
+	let mut doc = Document::parse("a: 1\n");
+	assert_eq!(doc.save_file_with(&f, &create), Ok(false));
+	assert_eq!(read(&f), "a: 1\n");
+	let _ = doc.set_int("a", 2);
+	let exists = SaveError::Exists { path: f.clone() };
+	assert_eq!(doc.save_file_with(&f, &create), Err(exists.clone()));
+	assert_eq!(
+		exists.to_string(),
+		format!(
+			"{f}: refusing to save: the file is already there and create asks for a new one; nothing written"
+		)
+	);
+	// force is the changed check's override, not this one's.
+	let forced = SaveOptions {
+		force: true,
+		..create
+	};
+	assert_eq!(doc.save_file_with(&f, &forced), Err(exists.clone()));
+	assert_eq!(read(&f), "a: 1\n");
+
+	// A load that found nothing, and another program made the file since.
+	let n = at("n.shcl");
+	let (mut fresh, _) = Document::load_file(&n);
+	let _ = fresh.set_int("a", 1);
+	std::fs::write(&n, "b: 2\n").unwrap();
+	assert_eq!(
+		fresh.save_file_with(&n, &create),
+		Err(SaveError::Exists { path: n.clone() })
+	);
+	assert_eq!(read(&n), "b: 2\n");
+	#[cfg(unix)]
+	{
+		// A link to nowhere makes the file where it points, so a link to a
+		// file is the file.
+		let link = at("link.shcl");
+		std::os::unix::fs::symlink(&n, &link).unwrap();
+		assert_eq!(
+			fresh.save_file_with(&link, &create),
+			Err(SaveError::Exists { path: link.clone() })
+		);
+	}
+
+	// Several saves at once: one makes the file and the rest are told it's there.
+	let race = at("race.shcl");
+	let gate = std::sync::Arc::new(std::sync::Barrier::new(8));
+	let saves: Vec<_> = (0..8)
+		.map(|i| {
+			let (gate, race) = (gate.clone(), race.clone());
+			std::thread::spawn(move || {
+				let mut d = Document::parse(&format!("n: {i}\n"));
+				gate.wait();
+				d.save_file_with(&race, &create)
+			})
+		})
+		.collect();
+	let saved: Vec<_> = saves.into_iter().map(|t| t.join().unwrap()).collect();
+	assert_eq!(saved.iter().filter(|r| r.is_ok()).count(), 1);
+	assert!(
+		saved
+			.iter()
+			.all(|r| r.is_ok() || *r == Err(SaveError::Exists { path: race.clone() }))
+	);
+	assert!(read(&race).starts_with("n: "));
+
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let mode = |p: &str| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+		for (name, want) in [("m1.shcl", 0o600), ("m2.shcl", 0o604), ("m3.shcl", 0o666)] {
+			let p = at(name);
+			let opts = SaveOptions {
+				create: true,
+				mode: want,
+				..SaveOptions::default()
+			};
+			assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+			assert_eq!(mode(&p), want, "{name}");
+		}
+		// Only the permission bits; a plain save takes them too.
+		let p = at("m4.shcl");
+		let opts = SaveOptions {
+			mode: 0o4640,
+			..SaveOptions::default()
+		};
+		assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+		assert_eq!(mode(&p), 0o640);
+		// A file already there keeps its own.
+		std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+		let opts = SaveOptions {
+			mode: 0o600,
+			..SaveOptions::default()
+		};
+		assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+		assert_eq!(mode(&p), 0o644);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
 }

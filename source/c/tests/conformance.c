@@ -1330,6 +1330,23 @@ static void up_dir(char *dir, size_t cap, const char *tag) {
 #endif
 }
 
+#ifndef _WIN32
+/* One of several create-only saves of the same new file at once. */
+static pthread_barrier_t create_gate;
+static const char *create_path;
+static void *create_once(void *arg) {
+	char text[16];
+	int len = snprintf(text, sizeof text, "n: %d\n", (int)(intptr_t)arg);
+	shcl_doc *d = shcl_parse(text, (size_t)len);
+	shcl_save_options o = {0};
+	o.create = 1;
+	pthread_barrier_wait(&create_gate);
+	shcl_save_result r = shcl_save_file_with(d, create_path, o, NULL, NULL);
+	shcl_free(d);
+	return (void *)(intptr_t)r;
+}
+#endif
+
 int main(int argc, char **argv) {
 	setlocale(LC_ALL, "C");
 	/* The library has to format and read floats the same whatever locale the
@@ -6710,6 +6727,236 @@ int main(int argc, char **argv) {
 		char *dv = shcl_format_array(dtt, &dbn, 1, NULL);
 		if (!dv || strcmp(dv, "[\"2026-07-12T14:30\"]")) fail("format_array", "datetime quoted");
 		free(dv);
+	}
+	test_id("Eu7cuVd", "a_save_over_a_file_changed_since_the_load_is_refused");
+	{
+		/* A save over the file a load read refuses when another program changed
+		   it since, writes nothing, and writes with force. A save elsewhere, and
+		   a document from a parse, save as they always did (2026102910482342).
+		   Same fixture in every runner. */
+		const char *at = "changed";
+		char cdir[256], f[320], n[320], other[320];
+		up_dir(cdir, sizeof cdir, "changed");
+		snprintf(f, sizeof f, "%s/f.shcl", cdir);
+		snprintf(n, sizeof n, "%s/new.shcl", cdir);
+		snprintf(other, sizeof other, "%s/other.shcl", cdir);
+		shcl_save_options force = {0}, keep_force = {0};
+		force.force = 1;
+		keep_force.keep_lines = keep_force.force = 1;
+		put_file(f, "a: 1\n");
+		shcl_doc *doc = shcl_load_file(f, NULL);
+		(void)shcl_set_int(doc, "a", 1, 2);
+		put_file(f, "a: 9\n");
+		shcl_write_status why = SHCL_WRITE_OTHER;
+		if (shcl_save_file(doc, f, &why) != SHCL_SAVE_CHANGED || why != SHCL_WRITE_OK) fail(at, "save");
+		if (shcl_save_file_lossy(doc, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "lossy save");
+		if (!file_is(f, "a: 9\n")) fail(at, "a refused save wrote");
+		int k = 1;
+		if (shcl_save_file_with(doc, f, force, &k, NULL) != SHCL_SAVE_OK || k) fail(at, "forced save");
+		if (!file_is(f, "a: 2\n")) fail(at, "forced save text");
+		/* The next save is checked against what that one wrote. */
+		(void)shcl_set_int(doc, "a", 1, 3);
+		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_OK) fail(at, "save after own save");
+		if (!file_is(f, "a: 3\n")) fail(at, "save after own save text");
+		/* The same bytes written again are no change. */
+		put_file(f, "a: 3\n");
+		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_OK) fail(at, "save over the same bytes");
+		shcl_free(doc);
+
+		/* The line-keeping save, and a link to the file, are checked too. */
+		put_file(f, "a: 1 # one\n");
+		shcl_doc *kept = shcl_load_file_keep_lines(f, SHCL_STANDARD, NULL);
+		(void)shcl_set_int(kept, "a", 1, 2);
+		put_file(f, "a: 9 # nine\n");
+		if (shcl_save_file_keep_lines(kept, f, NULL, NULL) != SHCL_SAVE_CHANGED) fail(at, "keep save");
+#ifndef _WIN32
+		char link[320];
+		snprintf(link, sizeof link, "%s/link.shcl", cdir);
+		if (symlink(f, link) != 0) fail(at, "symlink failed");
+		if (shcl_save_file_keep_lines(kept, link, NULL, NULL) != SHCL_SAVE_CHANGED) fail(at, "keep save through a link");
+#endif
+		if (!file_is(f, "a: 9 # nine\n")) fail(at, "a refused keep save wrote");
+		k = 0;
+		if (shcl_save_file_with(kept, f, keep_force, &k, NULL) != SHCL_SAVE_OK || !k) fail(at, "forced keep save");
+		if (!file_is(f, "a: 2 # one\n")) fail(at, "forced keep save text");
+		shcl_free(kept);
+
+		/* Gone since the load is a change. So is a file made where none was. */
+		shcl_doc *gone = shcl_load_file(f, NULL);
+		remove(f);
+		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a removed file");
+		shcl_file_status st = SHCL_FILE_CLEAN;
+		free(shcl_read_file(f, 0, NULL, &st));
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "a refused save made the file");
+		shcl_doc *fresh = shcl_load_file(n, &st);
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "status, want NotFound");
+		(void)shcl_set_int(fresh, "a", 1, 1);
+		put_file(n, "b: 2\n");
+		if (shcl_save_file(fresh, n, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a file made since");
+		if (!file_is(n, "b: 2\n")) fail(at, "a refused save over a file made since wrote");
+		remove(n);
+		if (shcl_save_file(fresh, n, NULL) != SHCL_SAVE_OK) fail(at, "save where nothing is again");
+		if (!file_is(n, "a: 1\n")) fail(at, "save where nothing is again text");
+		shcl_free(fresh);
+#ifdef _WIN32
+		/* A file that is there resolves to its long name, and one that is not
+		   once resolved through a short folder name such as RUNNER~1, so a
+		   removed or new file went unchecked when TEMP had one. Through the
+		   folder's short name both ways, whatever TEMP is. */
+		{
+			wchar_t *wl = shcl_widen(cdir), ws[600];
+			char sdir[1200];
+			DWORD sn = wl ? GetShortPathNameW(wl, ws, 600) : 0;
+			free(wl);
+			if (sn > 0 && sn < 600 && WideCharToMultiByte(CP_UTF8, 0, ws, -1, sdir, (int)sizeof sdir, NULL, NULL) > 0) {
+				char sf[1300], sn2[1300];
+				snprintf(sf, sizeof sf, "%s\\short.shcl", sdir);
+				snprintf(sn2, sizeof sn2, "%s\\shortnew.shcl", sdir);
+				put_file(sf, "a: 1\n");
+				shcl_doc *sg = shcl_load_file(sf, NULL);
+				remove(sf);
+				if (shcl_save_file(sg, sf, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a removed file, short name");
+				shcl_free(sg);
+				shcl_doc *snew = shcl_load_file(sn2, NULL);
+				put_file(sn2, "b: 2\n");
+				if (shcl_save_file(snew, sn2, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a file made since, short name");
+				if (!file_is(sn2, "b: 2\n")) fail(at, "a refused save over a file made since wrote, short name");
+				shcl_free(snew);
+				remove(sn2);
+			}
+		}
+		/* A load through a dangling link creates nothing, and still knows the
+		   file the link names, through the link or not. */
+		{
+			char dl[320], dt[320];
+			snprintf(dl, sizeof dl, "%s/dlink.shcl", cdir);
+			snprintf(dt, sizeof dt, "%s/dtarget.shcl", cdir);
+			wchar_t *wdl = shcl_widen(dl);
+			int made = wdl && CreateSymbolicLinkW(wdl, L"dtarget.shcl", 0x2 /* ALLOW_UNPRIVILEGED_CREATE */);
+			if (made) {
+				DWORD la = GetFileAttributesW(wdl);
+				made = la != INVALID_FILE_ATTRIBUTES && (la & FILE_ATTRIBUTE_REPARSE_POINT);
+				if (!made) remove(dl);
+			}
+			free(wdl);
+			if (made) {
+				shcl_file_status dst = SHCL_FILE_CLEAN;
+				shcl_doc *dd = shcl_load_file(dl, &dst);
+				if (dst != SHCL_FILE_NOT_FOUND) fail(at, "dangling link, want NotFound");
+				shcl_file_status tst = SHCL_FILE_CLEAN;
+				free(shcl_read_file(dt, 0, NULL, &tst));
+				if (tst != SHCL_FILE_NOT_FOUND) fail(at, "a load through a dangling link made the file");
+				(void)shcl_set_int(dd, "a", 1, 1);
+				put_file(dt, "b: 2\n");
+				if (shcl_save_file(dd, dl, NULL) != SHCL_SAVE_CHANGED) fail(at, "save through a dangling link, file made since");
+				if (shcl_save_file(dd, dt, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a dangling link's file, made since");
+				if (!file_is(dt, "b: 2\n")) fail(at, "a refused save through a link wrote");
+				shcl_free(dd);
+				remove(dt);
+				remove(dl);
+			}
+		}
+#endif
+
+		/* Elsewhere is not checked, and the load's file still is. */
+		put_file(other, "z: 0\n");
+		if (shcl_save_file(gone, other, NULL) != SHCL_SAVE_OK) fail(at, "save elsewhere");
+		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after one elsewhere");
+		/* compact keeps the record. */
+		shcl_compact(gone);
+		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after a compact");
+		shcl_free(gone);
+		/* A parse has no file behind it. */
+		shcl_doc *parsed = shcl_parse("a: 5\n", 5);
+		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse");
+		if (!file_is(other, "a: 5\n")) fail(at, "save of a parse text");
+		shcl_free(parsed);
+		dir_clear(cdir);
+	}
+	test_id("Eu7kRqj", "a_create_only_save_refuses_a_file_already_there");
+	{
+		/* A create-only save refuses a file that's there, and only one of
+		   several saves at once makes it. A new file takes the mode asked for,
+		   whatever the umask, and one already there keeps its own
+		   (2026102910482343). Same fixture in every runner. */
+		const char *at = "create";
+		char xdir[256], f[320], n[320];
+		up_dir(xdir, sizeof xdir, "create");
+		snprintf(f, sizeof f, "%s/f.shcl", xdir);
+		snprintf(n, sizeof n, "%s/n.shcl", xdir);
+		shcl_save_options create = {0}, forced = {0};
+		create.create = 1;
+		forced.create = forced.force = 1;
+		shcl_doc *doc = shcl_parse("a: 1\n", 5);
+		int k = 1;
+		if (shcl_save_file_with(doc, f, create, &k, NULL) != SHCL_SAVE_OK || k) fail(at, "create");
+		if (!file_is(f, "a: 1\n")) fail(at, "create text");
+		(void)shcl_set_int(doc, "a", 1, 2);
+		shcl_write_status why = SHCL_WRITE_OTHER;
+		if (shcl_save_file_with(doc, f, create, NULL, &why) != SHCL_SAVE_EXISTS || why != SHCL_WRITE_OK) fail(at, "create over a file");
+		/* force is the changed check's override, not this one's. */
+		if (shcl_save_file_with(doc, f, forced, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "forced create");
+		if (!file_is(f, "a: 1\n")) fail(at, "a refused create wrote");
+
+		/* A load that found nothing, and another program made the file since. */
+		shcl_doc *fresh = shcl_load_file(n, NULL);
+		(void)shcl_set_int(fresh, "a", 1, 1);
+		put_file(n, "b: 2\n");
+		if (shcl_save_file_with(fresh, n, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create over a file made since the load");
+		if (!file_is(n, "b: 2\n")) fail(at, "a refused create over a file made since wrote");
+#ifndef _WIN32
+		char link[320];
+		snprintf(link, sizeof link, "%s/link.shcl", xdir);
+		if (symlink(n, link) != 0) fail(at, "symlink failed");
+		if (shcl_save_file_with(fresh, link, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link");
+#endif
+		shcl_free(fresh);
+
+#ifndef _WIN32
+		/* Several saves at once: one makes the file and the rest are told it's there. */
+		/* static, since the threads read it through a global. */
+		static char race[320];
+		snprintf(race, sizeof race, "%s/race.shcl", xdir);
+		create_path = race;
+		pthread_t th[8];
+		int made = 0, there = 0;
+		if (pthread_barrier_init(&create_gate, NULL, 8) != 0) fail(at, "barrier");
+		for (int i = 0; i < 8; i++)
+			if (pthread_create(&th[i], NULL, create_once, (void *)(intptr_t)i) != 0) fail(at, "thread");
+		for (int i = 0; i < 8; i++) {
+			void *r = NULL;
+			pthread_join(th[i], &r);
+			made += (shcl_save_result)(intptr_t)r == SHCL_SAVE_OK;
+			there += (shcl_save_result)(intptr_t)r == SHCL_SAVE_EXISTS;
+		}
+		pthread_barrier_destroy(&create_gate);
+		if (made != 1 || there != 7) fail(at, "racing creates: want 1 made and 7 told it's there");
+
+		struct stat ms;
+		static const unsigned want[] = { 0600, 0604, 0666 };
+		for (int i = 0; i < 3; i++) {
+			char mp[320];
+			snprintf(mp, sizeof mp, "%s/m%d.shcl", xdir, i);
+			shcl_save_options o = {0};
+			o.create = 1; o.mode = want[i];
+			if (shcl_save_file_with(doc, mp, o, NULL, NULL) != SHCL_SAVE_OK) fail(at, "create with a mode");
+			if (stat(mp, &ms) != 0 || (ms.st_mode & 07777) != want[i]) fail(at, "a new file's mode");
+		}
+		/* Only the permission bits; a plain save takes them too. */
+		char mp[320];
+		snprintf(mp, sizeof mp, "%s/m4.shcl", xdir);
+		shcl_save_options o = {0};
+		o.mode = 04640;
+		if (shcl_save_file_with(doc, mp, o, NULL, NULL) != SHCL_SAVE_OK) fail(at, "save with a mode");
+		if (stat(mp, &ms) != 0 || (ms.st_mode & 07777) != 0640) fail(at, "only the permission bits");
+		/* A file already there keeps its own. */
+		chmod(mp, 0644);
+		o.mode = 0600;
+		if (shcl_save_file_with(doc, mp, o, NULL, NULL) != SHCL_SAVE_OK) fail(at, "save over a file with a mode");
+		if (stat(mp, &ms) != 0 || (ms.st_mode & 07777) != 0644) fail(at, "a file already there keeps its mode");
+#endif
+		shcl_free(doc);
+		dir_clear(xdir);
 	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }

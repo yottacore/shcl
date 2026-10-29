@@ -12,7 +12,7 @@
 ##	- Purpose: Local CI/CD pipeline. Generic engine, per-project settings live in config.bash.
 ##	- Stages (fail-fast, any error aborts before the next stage):
 ##	   0. remote sync (fast-forward from upstream before anything is built)
-##	   1. format (in place locally; check-only under --gate)
+##	   1. format (in place locally; check-only in the run modes below)
 ##	   2. build (debug - what the tests run against)
 ##	   3. lint (project lint + shellcheck of the cicd scripts themselves)
 ##	   4. tests (conformance corpus + fuzz smoke + cross-binding differential check)
@@ -30,9 +30,9 @@
 ##	                       with no format rewrite, sync, dogfood, gif or publish.
 ##	                       The pre-push hook runs it on a push to main
 ##	   --backlog-run-full  the same, for the end of a backlog round
-##	   --gate              format check, build, lint, tests and cross checks, strict
-##	   --backlog-run-quick [AREA...]  AREAs: rust go python c cli cicd
-##	                       --gate less --quick's cuts, in about 4 minutes,
+##	   --backlog-run-quick, --gate [AREA...]  AREAs: rust go python c cli cicd
+##	                       format check, build, lint, tests and cross checks,
+##	                       strict, less --quick's cuts, in about 4 minutes,
 ##	                       recording nothing. AREAs keep only their tests
 ##	   --quick             the fast loop: leaves out the slow steps, and the ones
 ##	                       that need another host, that config.bash lists in
@@ -52,7 +52,7 @@
 ##	   --no-fmt            skip the formatter stage
 ##	   --no-lint           skip the lint stage
 ##	   --no-tests          skip the tests stage (crosscheck and large document
-##	                       included) and, under --gate, the profiler calibration
+##	                       included) and the gates' profiler calibration
 ##	   --no-cross          skip the cross targets and checks; native release builds
 ##	   --no-package        skip building installer packages (.deb/.rpm/NSIS setup)
 ##	   --no-largedoc       skip the large-document gate in the tests stage
@@ -227,11 +227,12 @@ fCtrPick(){
 	ctr_image="$1"
 }
 while (($#)); do case "$1" in
-	--gate)                   gate_mode=1; assume_yes=1; fRunMode "$1"; ctr_pass+=("$1"); shift ;;
 	--merge-gate)             gate_mode=1; merge_gate=1; assume_yes=1; fRunMode "$1"; ctr_pass+=("$1"); shift ;;
 	--ci)                     echo "--ci is another name for --merge-gate"; gate_mode=1; merge_gate=1; assume_yes=1; fRunMode --merge-gate; ctr_pass+=(--merge-gate); shift ;;
 	## The words after it up to the next option are its areas.
-	--backlog-run-quick)      gate_mode=1; backlog_quick=1; assume_yes=1; fRunMode "$1"; ctr_pass+=("$1"); shift
+	--backlog-run-quick|--gate)
+	                          if [[ "$1" == --gate ]]; then echo "--gate is another name for --backlog-run-quick"; fi
+	                          gate_mode=1; backlog_quick=1; assume_yes=1; fRunMode --backlog-run-quick; ctr_pass+=(--backlog-run-quick); shift
 	                          while (($#)) && [[ "$1" != -* ]]; do run_areas+=("$1"); ctr_pass+=("$1"); shift; done ;;
 	--backlog-run-full)       gate_mode=1; merge_gate=1; assume_yes=1; fRunMode "$1"; ctr_pass+=("$1"); shift ;;
 	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
@@ -281,9 +282,9 @@ if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck
 if ((quick && long_run)); then echo "--quick and --long can't go together (try --help)" >&2; exit 2; fi
 if [[ -n "${ctr_image}" ]] && ((no_container)); then echo "--container and --no-container can't go together (try --help)" >&2; exit 2; fi
 
-## --gate: correctness only, deterministic, side-effect free. --merge-gate is
-## the same, with every check of a run with no flags: the release and cross
-## builds, their checks, the packages, the test boxes and the leak checks.
+## The run modes: correctness only, deterministic, side-effect free. --merge-gate
+## has every check of a run with no flags: the release and cross builds, their
+## checks, the packages, the test boxes and the leak checks.
 if ((gate_mode)); then
 	## A gate that quietly skips what it cannot run is a gate that stops
 	## checking when a runner loses a tool. The gates read this and fail on a
@@ -432,7 +433,7 @@ done
 ## A run at least as thorough as the pre-push hook's records the tree it tested
 ## once the tests and the cross checks pass, and the hook lets a commit with
 ## that tree through. A gate that skips a missing tool locally notes it in
-## SHCL_GATE_SKIPS. Under --gate the same skip is a failure, so a run with
+## SHCL_GATE_SKIPS. In a run mode the same skip is a failure, so a run with
 ## anything noted there records nothing.
 record_green=1
 if ((quick || gate_partial || skip_partial)); then record_green=0; fi
@@ -905,7 +906,6 @@ case "${mode_flag}" in
 	--backlog-run-quick) run_title="${APP_NAME} backlog run, quick"; if ((${#run_areas[@]})); then run_title+=": ${run_areas[*]}"; fi ;;
 	--backlog-run-full)  run_title="${APP_NAME} backlog run, full" ;;
 	--merge-gate)        run_title="${APP_NAME} merge gate" ;;
-	--gate)              run_title="${APP_NAME} gate" ;;
 	*)                   run_title="${APP_NAME} local CI/CD" ;;
 esac
 if ((quick && ! backlog_quick)); then run_title+=", quick"; fi
@@ -971,7 +971,7 @@ if ((! assume_yes)) && ((${#GIT_PUBLISH[@]})) && [[ -z "$publish_msg" ]]; then
 fi
 
 ## Tee the whole run to a rotated log so warnings can be reviewed later
-## (lint-report.bash reads the newest one). Skipped under --gate (read-only gate),
+## (lint-report.bash reads the newest one). Skipped in the run modes (read-only),
 ## and in the container, where the run outside already logs all of it.
 if ((! gate_mode)) && ((! inner_run)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
 	gfs_rotate "${root}/${LINT_LOG_DIR}" run log >/dev/null 2>&1 || true
@@ -1044,7 +1044,7 @@ if fStepOn sync; then
 	fStepEnd
 fi
 
-## Stage 1: format. In place locally; check-only (fail on diff) under --gate.
+## Stage 1: format. In place locally; check-only (fail on diff) in the run modes.
 ## The run on a frozen copy leaves it to the run that formatted the checkout.
 fStageFormat(){
 	fStepOn fmt || return 0
@@ -1140,7 +1140,7 @@ elif [[ -n "${ctr_image}" ]]; then
 	fRunContainer "${root}"
 	fCollectBuilt
 else
-	## Whatever the container needs before a run, such as crates the --gate
+	## Whatever the container needs before a run, such as crates the gate's
 	## profiler check reads offline.
 	if ((in_container)) && [[ -n "${CTR_PREP:-}" ]]; then eval "${CTR_PREP}"; fi
 	fStageFormat
@@ -1172,7 +1172,7 @@ else
 			shellcheck "${SHELLCHECK_TARGETS[@]}"
 			fEcho "OK: shellcheck clean (${#SHELLCHECK_TARGETS[@]} file(s))"
 		elif ((gate_mode)); then
-			fDie "shellcheck required under --gate but not found"
+			fDie "shellcheck required under ${mode_flag} but not found"
 		else
 			fEcho "WARNING: shellcheck not installed; skipped"
 			echo shellcheck >> "${SHCL_GATE_SKIPS}"
@@ -1272,7 +1272,7 @@ else
 		fi
 	else
 		## The calibration alone, on the config's cheaper build, since the graph's
-		## attribution is otherwise unchecked under --gate. It runs offline, and a
+		## attribution is otherwise unchecked under --merge-gate. It runs offline, and a
 		## cache without the sampler's crates is a noted skip rather than a fetch.
 		if ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); then
 			if "${PROFILE_CHECK_PROBE_CMD[@]}" >/dev/null 2>&1; then
@@ -1306,7 +1306,7 @@ else
 		fCpuStep "${c_cmd}"; eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
 		fEcho "OK: ${c_label}"
 	done
-	## The record waits for the cross checks, the last gate a --gate run has. It sat at
+	## The record waits for the cross checks, the last gate before the release. It sat at
 	## the end of stage 4 once they moved under the gate, so a run that then failed one
 	## had already let its tree through the hook.
 	if [[ -n "${green_tree}" ]]; then
@@ -1417,7 +1417,7 @@ fi
 ## existing+writable fixed dest, under EXE_NAME, so the copy launched by hand stays
 ## current. Each cross-built binary goes to its own per-os-arch dest where one is
 ## configured.
-## Skipped when no release binary was built (e.g. --gate) or the dest list is empty.
+## Skipped when no release binary was built (e.g. --backlog-run-quick) or the dest list is empty.
 ## No sudo: a non-writable dest is passed over with a warning, never force-installed.
 if fStepOn dogfood; then
 	fStepStart dogfood
@@ -1623,3 +1623,4 @@ exit 0
 ##		  79-wide rule. Steps that are off aren't counted, and the first section names them with the flag or reason.
 ##		- 2026-10-28 JC: The run in the image gets this box's zone, so its step lines are in local time too.
 ##		- 2026-10-28 JC: --skip TEXT leaves out each step that holds TEXT, and the run records nothing. The hosted run skips CodeQL.
+##		- 2026-10-29 JC: --gate is another name for --backlog-run-quick, so it records no tree.
