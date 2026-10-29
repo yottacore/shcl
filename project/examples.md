@@ -610,15 +610,6 @@ It also refuses to write over another program's edit. A document from `load_file
 
 The same options make a save that only creates. With `create` set, a save refuses when anything is already at the path, and writes nothing: `SaveError::Exists` in Rust, `*SaveExists` in Go, `SaveExists` in Python, `SHCL_SAVE_EXISTS` in C. Two programs that save the same new file at once get one file and one refusal, never one quietly over the other. `mode` gives a file the save makes its permission bits, exactly, so a file holding tokens can start out at `0600` whatever the umask is. A file that's already there keeps its own mode either way.
 
-~~~rust
-let opts = SaveOptions { create: true, mode: 0o600, ..SaveOptions::default() };
-match doc.save_file_with("tokens.shcl", &opts) {
-	Ok(_) => println!("tokens.shcl: created"),
-	Err(SaveError::Exists { .. }) => println!("tokens.shcl is already there, so it was left alone"),
-	Err(e) => return Err(e.into()),
-}
-~~~
-
 A save that fails says why as a value, beside its message: `NotFound` when the folder isn't there, `PermissionDenied`, `DiskFull`, `ReadOnly`, `IsDirectory` and a couple more, so a program can tell them apart without reading the text. The same goes for `write_file_atomic` and `upgrade_file`. In C it comes back through the last argument, which may be NULL.
 
 A setter returns a status, `Ok` when the write applied. Anything else means it wrote nothing at all, and names why. Either the path is the problem, or what the write would put there is, and when both are the path's reason is the one you get. Wildcards are the usual path reason (`Wildcard`), since those are query-only. Another is a path that matches more than one field (`Multiple`), such as `port` in a file with two `port` lines, since the read after the write would not know which one you meant either. `port(0)` or `site(1).root` picks one. A value reason names what was wrong with it: `NotFinite` for a NaN, `BadComment` for comment text with a line break, `NotOneValue` for `set_literal` text like `a, b`, and so on. `check_set_path(path)` checks the path alone, without writing. The whole list is in the [spec](spec.md), under the Writer.
