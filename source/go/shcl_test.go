@@ -7007,3 +7007,127 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	ok("save of a parse", Parse("a: 5\n").SaveFile(other))
 	has(other, "a: 5\n")
 }
+
+// A create-only save refuses a file that's there, and only one of several
+// saves at once makes it. A new file takes the mode asked for, whatever the
+// umask, and one already there keeps its own (2026102910482343). Same fixture
+// in every runner.
+func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
+	defer testID(t, "Eu7ju0H")
+	dir := t.TempDir()
+	at := func(name string) string { return filepath.Join(dir, name) }
+	has := func(p, want string) {
+		t.Helper()
+		if got, err := os.ReadFile(p); err != nil || string(got) != want {
+			t.Errorf("%s holds %q (%v), want %q", p, got, err, want)
+		}
+	}
+	exists := func(what string, err error, p string) {
+		t.Helper()
+		var e *SaveExists
+		if !errors.As(err, &e) || e.Path != p {
+			t.Errorf("%s: got %v, want *SaveExists for %s", what, err, p)
+		}
+	}
+	create := SaveOptions{Create: true}
+	f := at("f.shcl")
+	doc := Parse("a: 1\n")
+	if k, err := doc.SaveFileWith(f, create); err != nil || k {
+		t.Errorf("create: kept %v, err %v", k, err)
+	}
+	has(f, "a: 1\n")
+	doc.SetInt("a", 2)
+	_, err := doc.SaveFileWith(f, create)
+	exists("create over a file", err, f)
+	if err == nil || err.Error() != f+": refusing to save: the file is already there and create asks for a new one; nothing written" {
+		t.Errorf("message: %v", err)
+	}
+	// Force is the changed check's override, not this one's.
+	_, err = doc.SaveFileWith(f, SaveOptions{Create: true, Force: true})
+	exists("forced create", err, f)
+	has(f, "a: 1\n")
+
+	// A load that found nothing, and another program made the file since.
+	n := at("n.shcl")
+	fresh, _ := LoadFile(n)
+	fresh.SetInt("a", 1)
+	if err := os.WriteFile(n, []byte("b: 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = fresh.SaveFileWith(n, create)
+	exists("made since the load", err, n)
+	has(n, "b: 2\n")
+	if runtime.GOOS != "windows" {
+		link := at("link.shcl")
+		if err := os.Symlink(n, link); err != nil {
+			t.Fatal(err)
+		}
+		_, err = fresh.SaveFileWith(link, create)
+		exists("create through a link", err, link)
+	}
+
+	// Several saves at once: one makes the file and the rest are told it's there.
+	race := at("race.shcl")
+	var start, done sync.WaitGroup
+	start.Add(1)
+	errs := make([]error, 8)
+	for i := range errs {
+		done.Add(1)
+		go func(i int) {
+			defer done.Done()
+			d := Parse(fmt.Sprintf("n: %d\n", i))
+			start.Wait()
+			_, errs[i] = d.SaveFileWith(race, create)
+		}(i)
+	}
+	start.Done()
+	done.Wait()
+	made := 0
+	for _, err := range errs {
+		if err == nil {
+			made++
+		} else {
+			exists("racing create", err, race)
+		}
+	}
+	if made != 1 {
+		t.Errorf("%d racing creates made the file, want 1", made)
+	}
+
+	if runtime.GOOS != "windows" {
+		mode := func(p string) os.FileMode {
+			fi, err := os.Stat(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return fi.Mode() & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+		}
+		for i, want := range []os.FileMode{0o600, 0o604, 0o666} {
+			p := at(fmt.Sprintf("m%d.shcl", i))
+			if _, err := doc.SaveFileWith(p, SaveOptions{Create: true, Mode: want}); err != nil {
+				t.Fatal(err)
+			}
+			if got := mode(p); got != want {
+				t.Errorf("%s: mode %o, want %o", p, got, want)
+			}
+		}
+		// Only the permission bits; a plain save takes them too.
+		p := at("m4.shcl")
+		if _, err := doc.SaveFileWith(p, SaveOptions{Mode: 0o640 | os.ModeSetuid}); err != nil {
+			t.Fatal(err)
+		}
+		if got := mode(p); got != 0o640 {
+			t.Errorf("only the permission bits: mode %o, want 640", got)
+		}
+		// A file already there keeps its own.
+		if err := os.Chmod(p, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := doc.SaveFileWith(p, SaveOptions{Mode: 0o600}); err != nil {
+			t.Fatal(err)
+		}
+		if got := mode(p); got != 0o644 {
+			t.Errorf("a file already there: mode %o, want 644", got)
+		}
+	}
+}

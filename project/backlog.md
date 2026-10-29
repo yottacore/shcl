@@ -33,6 +33,68 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
+	- ID: 2026102913213704
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
+	- Needs external testing: the hosted windows job, for `Eu7kRqj` and `Eu7kRqk`.
+	- Priority: High
+	- Opened: 20261029-132137
+	- Opened by: 2026102910482343
+	- Parent ID: 2026102910482343
+	- Prereq IDs: 2026102913213663, 2026102913213683
+	- Requirements: the parent's, in C and the veneer, as Rust has them, with the twin of its test in the C runner and the veneer smoke. Once all 4 have it: design.md's Save outcomes, spec.md's file tier, examples.md's What saving does, and the changelog.
+	- Decisions:
+		- me, 20261029: C has `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, and `shcl_save_options` gets `int create` and `unsigned mode`, so `{0}` is still `shcl_save_file`. The Rust message is in the enum's comment, as `CHANGED`'s is. The veneer has `SaveResult::Exists`, and `SaveOptions` gets `create` and `mode`.
+		- me, 20261029: the C runner's race is under `#ifndef _WIN32`, with pthreads, as its small-stack fixture is. The veneer smoke has no race, since it wraps the same C save.
+	- Progress log:
+		- 20261029: `s_write_file_atomic` takes the create and the mode, and says when create found something. `shcl_save_file_with` checks for anything at the target before the changed check, and calls it directly. design.md, spec.md, examples.md and the changelog say so for all 4.
+	- Swept: C and the veneer. `shcl_write_file_atomic` and `shcl_upgrade_file` pass no create and no mode, so they write as before. The 3 short saves pass `{0}`. Docs: design.md's Save outcomes table (the create row, the mode on the new-file row) and its two Saving a file bullets on mode and the new-file publish, spec.md's file tier (the mode, a create bullet, the options list, the separate-values bullet), examples.md, and the changelog's New.
+	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also the C runner and the veneer smoke under `-Wall -Wextra -Wconversion -Werror`.
+	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
+	- Branch: `r1029`
+
+- Create-only save and a new file's mode, in Go
+	- ID: 2026102913213683
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs external testing: the hosted windows job, for `Eu7ju0H`.
+	- Priority: High
+	- Opened: 20261029-132136
+	- Opened by: 2026102910482343
+	- Parent ID: 2026102910482343
+	- Prereq IDs: 2026102913213663
+	- Requirements: the parent's, in Go, as Rust and Python have them in 2026102913213663, with the twin of its test.
+	- Decisions:
+		- me, 20261029: `*SaveExists{Path}`, beside `*SaveChanged`. `SaveOptions` gets `Create bool` and `Mode os.FileMode`, and only `Mode.Perm()` is used, so a zero value is still `SaveFile`.
+	- Progress log:
+		- 20261029: `WriteFileAtomic` wraps `writeFileHow`, which takes the create and the mode. `SaveFileWith` checks for anything at the target before the changed check.
+	- Swept: Go. `WriteFileAtomic` and `UpgradeFile` pass no create and no mode. No caller builds `SaveOptions` by position.
+	- Verified: `Eu7ju0H` fails with the create checks turned off, and with the mode turned off, and passes with both. Also `go vet` for linux, windows and darwin.
+	- Test case: `TestACreateOnlySaveRefusesAFileAlreadyThere` (`Eu7ju0H`).
+	- Branch: `r1029`
+
+- Create-only save and a new file's mode, in Rust and Python
+	- ID: 2026102913213663
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs external testing: the hosted windows job, for `Eu7hQCd` and `Eu7hQCe`.
+	- Priority: High
+	- Opened: 20261029-132136
+	- Opened by: 2026102910482343
+	- Parent ID: 2026102910482343
+	- Requirements: the parent's, in the Rust and Python libraries, by the parent's Decisions.
+	- Decisions:
+		- me, 20261029: Rust has `SaveError::Exists { path }`, and `SaveOptions` gets `create: bool` and `mode: u32`. Python raises `SaveExists` under `SaveError`, and `SaveOptions` gets `create=False, mode=0`. check-docs and the style guide name `SaveExists` as a Python-only class.
+		- me, 20261029: the mode is set best effort, as the copied mode of a file already there is. The temp is born `0600` when a mode is asked for, so a filesystem that can't set it leaves the file private rather than open.
+	- Progress log:
+		- 20261029: `write_file_atomic` wraps a private write that takes the create and the mode, and gives `Exists` when create finds something there or loses the publish. `save_file_with` checks for anything at the target before the changed check.
+	- Swept: Rust and Python. `write_file_atomic`, `upgrade_file` and the CLI's saves pass no create and no mode, so they write as before. The CLI matches `SaveError` with a catch-all arm. The 3 short saves go through `save_file_with`.
+	- Verified: `Eu7hQCd` and `Eu7hQCe` fail with the create checks turned off, and with the mode turned off, and pass with both. Also `cicd.bash --backlog-run-quick rust python cicd` format and lint.
+	- Test case: `a_create_only_save_refuses_a_file_already_there` in Rust (`Eu7hQCd`) and Python (`Eu7hQCe`).
+	- Branch: `r1029`
+
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -478,7 +540,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Let a save create a new file only, and give a new file its mode
 	- ID: 2026102910482343
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261029-104823
 	- Opened by: JC
@@ -492,6 +554,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: with v4 (JC).
 	- Decisions:
 		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: `create` and `mode` are fields of `SaveOptions`, beside `force`. A second create-only save call was canceled.
+		- me, 20261029: a create-only save that finds a file there is refused with its own kind, as the changed check is, and nothing is written: Rust `SaveError::Exists { path }`, Python `SaveExists`, Go `*SaveExists`, C `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, the veneer `SaveResult::Exists`. The message is `PATH: refusing to save: the file is already there and create asks for a new one; nothing written`. Losing the race to another create is the same refusal, since the publish of a new file already fails on anything at the path.
+		- me, 20261029: the lost-content gate goes first, then the create check, then the changed check. `force` doesn't override `create`.
+		- me, 20261029: `mode` is the permission bits, `0o777`, and 0 means the mode an ordinary create gives, so the zero value is still `save_file` in every binding. It's set exactly, on the handle, so the umask doesn't narrow it, and the temp file is born private first. A file already there keeps its own mode and the option is ignored. Windows has no POSIX modes, so it's ignored there.
+	- Progress log:
+		- 20261029: split by binding. Rust and Python are child 2026102913213663, Go 2026102913213683, and C, the C++ veneer and the docs 2026102913213704. All 3 are in on `r1029` and wait on the hosted windows job, and the C one on cppcheck.
 
 - Open a newer format's file read-only
 	- ID: 2026102910482344

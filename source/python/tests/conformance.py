@@ -5304,6 +5304,91 @@ def main():
 		shcl.Document.parse("a: 5\n").save_file(cother)
 		same("parsed", cread(cother), "a: 5\n")
 
+	test_id("Eu7hQCe", "a_create_only_save_refuses_a_file_already_there")
+	# A create-only save refuses a file that's there, and only one of several
+	# saves at once makes it. A new file takes the mode asked for, whatever the
+	# umask, and one already there keeps its own (2026102910482343).
+	with tempfile.TemporaryDirectory() as xd:
+		def xread(p):
+			with open(p, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def xsame(what, got, want):
+			if got != want:
+				raise SystemExit(f"{what}: {got!r}, want {want!r}")
+
+		def xrefused(what, call, p):
+			try:
+				call()
+			except shcl.SaveExists as e:
+				if e.path != p:
+					raise SystemExit(f"{what}: path {e.path!r}") from None
+				return str(e)
+			raise SystemExit(f"{what}: saved")
+
+		create = shcl.SaveOptions(create=True)
+		xf = os.path.join(xd, "f.shcl")
+		xdoc = shcl.Document.parse("a: 1\n")
+		xsame("made", xdoc.save_file_with(xf, create), False)
+		xsame("made text", xread(xf), "a: 1\n")
+		xdoc.set_int("a", 2)
+		xsame("message", xrefused("there", lambda: xdoc.save_file_with(xf, create), xf),
+			f"{xf}: refusing to save: the file is already there and create asks for a new one; nothing written")
+		# force is the changed check's override, not this one's.
+		xrefused("forced", lambda: xdoc.save_file_with(xf, shcl.SaveOptions(create=True, force=True)), xf)
+		xsame("left", xread(xf), "a: 1\n")
+
+		# A load that found nothing, and another program made the file since.
+		xn = os.path.join(xd, "n.shcl")
+		xfresh, _ = shcl.Document.load_file(xn)
+		xfresh.set_int("a", 1)
+		with open(xn, "w", encoding="utf-8", newline="") as fh:
+			fh.write("b: 2\n")
+		xrefused("made since", lambda: xfresh.save_file_with(xn, create), xn)
+		xsame("made since left", xread(xn), "b: 2\n")
+		if os.name != "nt":
+			xlink = os.path.join(xd, "link.shcl")
+			os.symlink(xn, xlink)
+			xrefused("link", lambda: xfresh.save_file_with(xlink, create), xlink)
+
+		# Several saves at once: one makes the file and the rest are told it's there.
+		import threading
+		xrace = os.path.join(xd, "race.shcl")
+		xgate = threading.Barrier(8)
+		xgot: list[str] = []
+
+		def xsave(i):
+			d = shcl.Document.parse(f"n: {i}\n")
+			xgate.wait()
+			try:
+				d.save_file_with(xrace, create)
+				xgot.append("ok")
+			except shcl.SaveExists:
+				xgot.append("exists")
+		xthreads = [threading.Thread(target=xsave, args=(i,)) for i in range(8)]
+		for t in xthreads:
+			t.start()
+		for t in xthreads:
+			t.join()
+		xsame("race", sorted(xgot), ["exists"] * 7 + ["ok"])
+		xsame("race text", xread(xrace).startswith("n: "), True)
+
+		if os.name != "nt":
+			def xmode(p):
+				return stat.S_IMODE(os.stat(p).st_mode)
+			for name, want in (("m1.shcl", 0o600), ("m2.shcl", 0o604), ("m3.shcl", 0o666)):
+				mp = os.path.join(xd, name)
+				xsame(name, xdoc.save_file_with(mp, shcl.SaveOptions(create=True, mode=want)), False)
+				xsame(name + " mode", oct(xmode(mp)), oct(want))
+			# Only the permission bits; a plain save takes them too.
+			mp = os.path.join(xd, "m4.shcl")
+			xdoc.save_file_with(mp, shcl.SaveOptions(mode=0o4640))
+			xsame("m4 mode", oct(xmode(mp)), oct(0o640))
+			# A file already there keeps its own.
+			os.chmod(mp, 0o644)
+			xdoc.save_file_with(mp, shcl.SaveOptions(mode=0o600))
+			xsame("kept mode", oct(xmode(mp)), oct(0o644))
+
 	test_id("EsJZko5", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
 	# as its type, and keeps a value it replaces above the field as a comment

@@ -310,6 +310,54 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 }
 #endif
 
+#ifndef SHCL_NO_FILE_IO
+// A create-only save refuses a file that's there, and a new file takes the
+// mode asked for while one already there keeps its own (2026102910482343).
+// The C runner's fixture, through the veneer.
+static int a_create_only_save_refuses_a_file_already_there() {
+	test_id("Eu7kRqk", "a_create_only_save_refuses_a_file_already_there");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-create-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	auto has = [](const std::string &p, const std::string &t) { return shcl::read_file(p) == std::make_pair(t, shcl::FileStatus::Clean); };
+	shcl::SaveOptions create;
+	create.create = true;
+	shcl::SaveOptions forced = create;
+	forced.force = true;
+	const std::string f = dir + "/f.shcl", m = dir + "/m.shcl";
+	auto doc = shcl::Document::parse("a: 1\n");
+	CHECK(doc.save_file_with(f, create) == std::make_pair(R::Ok, false));
+	CHECK(doc.set_int("a", 2) == shcl::SetStatus::Ok);
+	shcl::WriteStatus why = shcl::WriteStatus::Other;
+	CHECK(doc.save_file_with(f, create, &why).first == R::Exists && why == shcl::WriteStatus::Ok);
+	CHECK(doc.save_file_with(f, forced).first == R::Exists);
+	CHECK(has(f, "a: 1\n"));
+#ifndef _WIN32
+	shcl::SaveOptions mode = create;
+	mode.mode = 0604;
+	CHECK(doc.save_file_with(m, mode).first == R::Ok);
+	struct stat ms;
+	CHECK(stat(m.c_str(), &ms) == 0 && (ms.st_mode & 07777) == 0604);
+	// A file already there keeps its own.
+	mode.create = false;
+	mode.mode = 0600;
+	CHECK(doc.save_file_with(m, mode).first == R::Ok);
+	CHECK(stat(m.c_str(), &ms) == 0 && (ms.st_mode & 07777) == 0604);
+#endif
+	std::remove(f.c_str());
+	std::remove(m.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+#endif
+
 int main() {
 	test_id("EjtkR0S", "veneer_smoke");
 	// The clock every runner pins, as conformance.c does.
@@ -1071,7 +1119,9 @@ int main() {
 	const int threads = reads_from_several_threads();
 	fails = 0;
 #ifndef SHCL_NO_FILE_IO
-	return a_save_over_a_file_changed_since_the_load_is_refused() | threads | smoke;
+	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
+	fails = 0;
+	return changed | a_create_only_save_refuses_a_file_already_there() | threads | smoke;
 #else
 	return threads | smoke;
 #endif

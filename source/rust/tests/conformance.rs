@@ -5865,3 +5865,122 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(read(&other), "a: 5\n");
 	let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A create-only save refuses a file that's there, and only one of several
+/// saves at once makes it. A new file takes the mode asked for, whatever the
+/// umask, and one already there keeps its own (2026102910482343).
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn a_create_only_save_refuses_a_file_already_there() {
+	let _id = test_id("Eu7hQCd");
+	use shcl::{SaveError, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-create-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let create = SaveOptions {
+		create: true,
+		..SaveOptions::default()
+	};
+	let f = at("f.shcl");
+	let mut doc = Document::parse("a: 1\n");
+	assert_eq!(doc.save_file_with(&f, &create), Ok(false));
+	assert_eq!(read(&f), "a: 1\n");
+	let _ = doc.set_int("a", 2);
+	let exists = SaveError::Exists { path: f.clone() };
+	assert_eq!(doc.save_file_with(&f, &create), Err(exists.clone()));
+	assert_eq!(
+		exists.to_string(),
+		format!(
+			"{f}: refusing to save: the file is already there and create asks for a new one; nothing written"
+		)
+	);
+	// force is the changed check's override, not this one's.
+	let forced = SaveOptions {
+		force: true,
+		..create
+	};
+	assert_eq!(doc.save_file_with(&f, &forced), Err(exists.clone()));
+	assert_eq!(read(&f), "a: 1\n");
+
+	// A load that found nothing, and another program made the file since.
+	let n = at("n.shcl");
+	let (mut fresh, _) = Document::load_file(&n);
+	let _ = fresh.set_int("a", 1);
+	std::fs::write(&n, "b: 2\n").unwrap();
+	assert_eq!(
+		fresh.save_file_with(&n, &create),
+		Err(SaveError::Exists { path: n.clone() })
+	);
+	assert_eq!(read(&n), "b: 2\n");
+	#[cfg(unix)]
+	{
+		// A link to nowhere makes the file where it points, so a link to a
+		// file is the file.
+		let link = at("link.shcl");
+		std::os::unix::fs::symlink(&n, &link).unwrap();
+		assert_eq!(
+			fresh.save_file_with(&link, &create),
+			Err(SaveError::Exists { path: link.clone() })
+		);
+	}
+
+	// Several saves at once: one makes the file and the rest are told it's there.
+	let race = at("race.shcl");
+	let gate = std::sync::Arc::new(std::sync::Barrier::new(8));
+	let saves: Vec<_> = (0..8)
+		.map(|i| {
+			let (gate, race) = (gate.clone(), race.clone());
+			std::thread::spawn(move || {
+				let mut d = Document::parse(&format!("n: {i}\n"));
+				gate.wait();
+				d.save_file_with(&race, &create)
+			})
+		})
+		.collect();
+	let saved: Vec<_> = saves.into_iter().map(|t| t.join().unwrap()).collect();
+	assert_eq!(saved.iter().filter(|r| r.is_ok()).count(), 1);
+	assert!(
+		saved
+			.iter()
+			.all(|r| r.is_ok() || *r == Err(SaveError::Exists { path: race.clone() }))
+	);
+	assert!(read(&race).starts_with("n: "));
+
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let mode = |p: &str| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+		for (name, want) in [("m1.shcl", 0o600), ("m2.shcl", 0o604), ("m3.shcl", 0o666)] {
+			let p = at(name);
+			let opts = SaveOptions {
+				create: true,
+				mode: want,
+				..SaveOptions::default()
+			};
+			assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+			assert_eq!(mode(&p), want, "{name}");
+		}
+		// Only the permission bits; a plain save takes them too.
+		let p = at("m4.shcl");
+		let opts = SaveOptions {
+			mode: 0o4640,
+			..SaveOptions::default()
+		};
+		assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+		assert_eq!(mode(&p), 0o640);
+		// A file already there keeps its own.
+		std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+		let opts = SaveOptions {
+			mode: 0o600,
+			..SaveOptions::default()
+		};
+		assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+		assert_eq!(mode(&p), 0o644);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}

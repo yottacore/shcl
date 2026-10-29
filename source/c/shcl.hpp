@@ -325,13 +325,16 @@ enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
 // overrides, and folding it into a failed write leaves the caller with an
 // override they cannot tell they need. Changed is the file the load read
 // changed since, by another program; nothing was written, and
-// SaveOptions::force overrides.
-enum class SaveResult { Ok, Refused, Failed, Changed };
+// SaveOptions::force overrides. Exists is a file SaveOptions::create found
+// there, or another save made first; nothing was written.
+enum class SaveResult { Ok, Refused, Failed, Changed, Exists };
 // How save_file_with saves. The default is save_file.
 struct SaveOptions {
 	bool lossy{};      // write even when the save deletes content, as save_file_lossy
 	bool keep_lines{}; // keep the lines no edit touched, as save_file_keep_lines
 	bool force{};      // write over the file the load read even when it changed since
+	bool create{};     // only make a new file: Exists when one is there, even one another save makes at the same time
+	unsigned mode{};   // the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits
 };
 // Why a write failed, so a program can tell a missing folder from no
 // permission or a full disk. NotFound and Unreadable are FileStatus's names.
@@ -795,7 +798,8 @@ static_assert(static_cast<int>(SizeUnit::Bytes) + 1 == SHCL_SIZE_BYTES && static
 static_assert(static_cast<int>(FileStatus::Clean) == SHCL_FILE_CLEAN && static_cast<int>(FileStatus::HadErrors) == SHCL_FILE_HAD_ERRORS
 	&& static_cast<int>(FileStatus::NotFound) == SHCL_FILE_NOT_FOUND && static_cast<int>(FileStatus::Unreadable) == SHCL_FILE_UNREADABLE, "FileStatus drifted from shcl_file_status");
 static_assert(static_cast<int>(SaveResult::Ok) == SHCL_SAVE_OK && static_cast<int>(SaveResult::Refused) == SHCL_SAVE_REFUSED
-	&& static_cast<int>(SaveResult::Failed) == SHCL_SAVE_FAILED && static_cast<int>(SaveResult::Changed) == SHCL_SAVE_CHANGED, "SaveResult drifted from shcl_save_result");
+	&& static_cast<int>(SaveResult::Failed) == SHCL_SAVE_FAILED && static_cast<int>(SaveResult::Changed) == SHCL_SAVE_CHANGED
+	&& static_cast<int>(SaveResult::Exists) == SHCL_SAVE_EXISTS, "SaveResult drifted from shcl_save_result");
 static_assert(static_cast<int>(WriteStatus::Ok) == SHCL_WRITE_OK && static_cast<int>(WriteStatus::NotFound) == SHCL_WRITE_NOT_FOUND
 	&& static_cast<int>(WriteStatus::Unreadable) == SHCL_WRITE_UNREADABLE && static_cast<int>(WriteStatus::PermissionDenied) == SHCL_WRITE_PERMISSION_DENIED
 	&& static_cast<int>(WriteStatus::DiskFull) == SHCL_WRITE_DISK_FULL && static_cast<int>(WriteStatus::ReadOnly) == SHCL_WRITE_READ_ONLY
@@ -1231,6 +1235,7 @@ std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &pa
 std::pair<SaveResult, bool> Document::save_file_with(const std::string &path, const SaveOptions &opts, WriteStatus *why) {
 	shcl_save_options o{};
 	o.lossy = opts.lossy; o.keep_lines = opts.keep_lines; o.force = opts.force;
+	o.create = opts.create; o.mode = opts.mode;
 	int k = 0;
 	shcl_write_status st = SHCL_WRITE_OK;
 	SaveResult r = static_cast<SaveResult>(shcl_save_file_with(detail::held(*this), path.c_str(), o, &k, &st));

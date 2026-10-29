@@ -328,18 +328,23 @@ typedef enum {
    because they need different handling: a refusal is the caller's to
    reverse, a write failure is the disk's answer with errno describing it.
    CHANGED is the other bindings' "PATH: refusing to save: the file changed
-   since it was loaded; nothing written (force overrides)". */
+   since it was loaded; nothing written (force overrides)", and EXISTS their
+   "PATH: refusing to save: the file is already there and create asks for a
+   new one; nothing written". */
 typedef enum {
 	SHCL_SAVE_OK,      /* written */
 	SHCL_SAVE_REFUSED, /* the lost-content gate fired; lossy overrides */
 	SHCL_SAVE_FAILED,  /* the write itself failed; *why and errno say why */
-	SHCL_SAVE_CHANGED  /* the file changed since the load; nothing written, force overrides */
+	SHCL_SAVE_CHANGED, /* the file changed since the load; nothing written, force overrides */
+	SHCL_SAVE_EXISTS   /* create found a file there, or another save made it first; nothing written */
 } shcl_save_result;
 /* How shcl_save_file_with saves. All zero, as {0} gives, is shcl_save_file. */
 typedef struct {
 	int lossy;      /* write even when the save deletes content, as shcl_save_file_lossy */
 	int keep_lines; /* keep the lines no edit touched, as shcl_save_file_keep_lines */
 	int force;      /* write over the file the load read even when it changed since */
+	int create;     /* only make a new file: SHCL_SAVE_EXISTS when one is there, even one another save makes at the same time */
+	unsigned mode;  /* the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits */
 } shcl_save_options;
 /* Why a write failed, so a program can tell a missing folder from no
    permission or a full disk without reading errno itself. NOT_FOUND and
@@ -13748,7 +13753,9 @@ static int shcl_names_a_directory(const char *path) {
 // hard links to the old inode keep the old content (inherent to rename).
 // Returns 1 on success, 0 on failure with errno left describing it, and
 // *not_regular set when that is why, since EINVAL could be anything.
-static int s_write_file_atomic(const char *path, const char *data, size_t n, int *not_regular) { // NOLINT(bugprone-easily-swappable-parameters): path, then data, as in shcl_write_file_atomic; see 2026101807501110
+// new_only and mode are shcl_save_options' create and mode, and *exists is set
+// when create found something there.
+static int s_write_file_atomic(const char *path, const char *data, size_t n, int new_only, unsigned mode, int *not_regular, int *exists) { // NOLINT(bugprone-easily-swappable-parameters): path, then data, as in shcl_write_file_atomic; see 2026101807501110
 	if (shcl_names_a_directory(path)) { errno = EISDIR; return 0; }
 #ifndef _WIN32
 	char *real = shcl_resolve_target(path);
@@ -13786,10 +13793,16 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	// and the real mode goes on below - the copy is never briefly readable to
 	// anyone the original was not. A file that does not exist yet has no mode to
 	// preserve, so it takes the one an ordinary create would: 0666 narrowed by
-	// the umask, like every other file the user's tools produce.
+	// the umask, like every other file the user's tools produce, unless the
+	// caller gave one.
+	mode &= 0777;
 #ifndef _WIN32
 	struct stat st;
 	int have_st = (stat(target, &st) == 0);
+	if (new_only && (have_st || lstat(target, &st) == 0)) {
+		errno = EEXIST; *exists = 1;
+		free(tmp); SHCL_FILE_CLEANUP(); return 0;
+	}
 	// Only a regular file is replaced. A rename over a FIFO or a device node
 	// swaps it for a regular file at exit 0. Save outcomes in design.md is the
 	// rule for what a save does with each thing it can find at the path. POSIX
@@ -13800,6 +13813,11 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
 	}
 #else
+	(void)mode;
+	if (new_only && attrs != INVALID_FILE_ATTRIBUTES) {
+		errno = EEXIST; *exists = 1;
+		free(tmp); SHCL_FILE_CLEANUP(); return 0;
+	}
 	if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
 		errno = EISDIR;
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
@@ -13824,7 +13842,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 			: _wopen(wtmp, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
 #else
 		// codeql[cpp/path-injection] opens the path its caller named, which is the job
-		fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, have_st ? 0600 : 0666);
+		fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, have_st || mode ? 0600 : 0666);
 #endif
 		if (fd >= 0) break;
 	}
@@ -13849,6 +13867,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	// (gcc 13 on the hosted runner refuses it, gcc 14 here does not).
 	if (ok && have_st) { int chown_rc = fchown(fileno(f), (uid_t)-1, st.st_gid); (void)chown_rc; }
 	if (ok && have_st) (void)fchmod(fileno(f), st.st_mode & 07777);
+	if (ok && !have_st && mode) (void)fchmod(fileno(f), (mode_t)mode); // best effort, and the temp was born private
 #endif
 	ok = (fclose(f) == 0) && ok;
 	// Nothing was at the path when the save started, so nothing that turns up
@@ -13860,6 +13879,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	if (ok) {
 		replacing = attrs != INVALID_FILE_ATTRIBUTES;
 		ok = replacing ? shcl_publish_file(wtmp, wtarget) : shcl_publish_new_file(wtmp, wtarget);
+		if (!ok && new_only && errno == EEXIST) *exists = 1;
 	}
 	if (read_only || carried) {
 		DWORD now = GetFileAttributesW(wtarget);
@@ -13871,6 +13891,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	if (ok) {
 		replacing = have_st;
 		ok = replacing ? shcl_publish_file(tmp, target) : shcl_publish_new_file(tmp, target);
+		if (!ok && new_only && errno == EEXIST) *exists = 1;
 	}
 	if (ok) shcl_sync_dir(target);
 #endif
@@ -13901,8 +13922,8 @@ static shcl_write_status s_write_status_of(int e) {
 }
 
 int shcl_write_file_atomic(const char *path, const char *data, size_t n, shcl_write_status *why) {
-	int not_regular = 0;
-	int ok = s_write_file_atomic(path, data, n, &not_regular);
+	int not_regular = 0, exists = 0;
+	int ok = s_write_file_atomic(path, data, n, 0, 0, &not_regular, &exists);
 	if (why) *why = ok ? SHCL_WRITE_OK : not_regular ? SHCL_WRITE_NOT_REGULAR : s_write_status_of(errno);
 	return ok;
 }
@@ -14198,6 +14219,20 @@ static char *s_save_target(const char *path, int *oom) {
 	return t;
 }
 
+// Anything at all at a resolved save target, a dangling link included.
+static int s_something_at(const char *target) {
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(target);
+	if (!w) { SHCL_OOM(); abort(); }
+	int there = GetFileAttributesW(w) != INVALID_FILE_ATTRIBUTES;
+	free(w);
+	return there;
+#else
+	struct stat st;
+	return lstat(target, &st) == 0;
+#endif
+}
+
 /* Every load that reads a file comes here, as the reference's load_file_any:
    read, parse, and note the file for a save's changed check. A file that could
    not be read gives a save nothing to compare. */
@@ -14302,15 +14337,18 @@ shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_op
 	if (opts.keep_lines) k = keep_text(d, &t);
 	else t = emit_canonical(d);
 	if (!opts.lossy && !k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
-	// The file the load read has to be as the load or this document's last
-	// save there left it. That's a check and not a lock: an edit between it
-	// and the rename is still lost.
 	int over = 0;
-	if (d->file_target) {
+	if (d->file_target || opts.create) {
 		int oom = 0;
 		char *target = s_save_target(path, &oom);
 		if (oom) { SHCL_OOM(); abort(); }
-		over = target && strcmp(target, d->file_target) == 0;
+		// Before the changed check, so a create that loses to another program
+		// is told the file is there.
+		if (opts.create && target && s_something_at(target)) { free(target); return SHCL_SAVE_EXISTS; }
+		// The file the load read has to be as the load or this document's last
+		// save there left it. That's a check and not a lock: an edit between it
+		// and the rename is still lost.
+		over = target && d->file_target && strcmp(target, d->file_target) == 0;
 		free(target);
 	}
 	if (over && !opts.force && !s_file_holds(d, path)) return SHCL_SAVE_CHANGED;
@@ -14319,7 +14357,13 @@ shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_op
 	char *wrote = over ? (char *)malloc(t.n + 1) : NULL;
 	if (over && !wrote) { SHCL_OOM(); abort(); }
 	if (kept) *kept = k;
-	if (!shcl_write_file_atomic(path, t.p, t.n, why)) { free(wrote); return SHCL_SAVE_FAILED; }
+	int not_regular = 0, exists = 0;
+	if (!s_write_file_atomic(path, t.p, t.n, opts.create, opts.mode, &not_regular, &exists)) {
+		free(wrote);
+		if (exists) return SHCL_SAVE_EXISTS;
+		if (why) *why = not_regular ? SHCL_WRITE_NOT_REGULAR : s_write_status_of(errno);
+		return SHCL_SAVE_FAILED;
+	}
 	if (over) {
 		if (t.n) memcpy(wrote, t.p, t.n);
 		wrote[t.n] = '\0';

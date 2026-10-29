@@ -66,6 +66,7 @@ __all__ = [
 	"Rules",
 	"SCHEMA_LINE_HEAD",
 	"SaveChanged",
+	"SaveExists",
 	"SaveError",
 	"SaveFailed",
 	"SaveOptions",
@@ -377,18 +378,36 @@ class SaveChanged(SaveError):
 		super().__init__(f"{path}: refusing to save: the file changed since it was loaded; nothing written (force overrides)")
 
 
+class SaveExists(SaveError):
+	"""SaveOptions.create found a file already there, or another save made it
+	first. Nothing was written."""
+	path: str | os.PathLike[str]
+
+	def __init__(self, path: str | os.PathLike[str]):
+		self.path = path
+		super().__init__(f"{path}: refusing to save: the file is already there and create asks for a new one; nothing written")
+
+
 class SaveOptions:
 	"""How save_file_with saves. The default is save_file. lossy writes even
 	when the save deletes content from the file, as save_file_lossy does.
 	keep_lines keeps the lines no edit touched, as save_file_keep_lines does.
 	force writes over the file the document was loaded from even when it
-	changed since, for a caller that means to replace whatever is there."""
-	__slots__ = ("lossy", "keep_lines", "force")
+	changed since, for a caller that means to replace whatever is there.
+	create only makes a new file, and raises SaveExists when one is there, even
+	one another save makes at the same time. mode is the permission bits
+	(0o777) a file this save makes gets, exactly, whatever the umask; 0 is an
+	ordinary create's. A file already there keeps its own, and windows has no
+	such bits."""
+	__slots__ = ("lossy", "keep_lines", "force", "create", "mode")
 
-	def __init__(self, lossy: bool = False, keep_lines: bool = False, force: bool = False) -> None:
+	def __init__(self, lossy: bool = False, keep_lines: bool = False, force: bool = False,
+			create: bool = False, mode: int = 0) -> None:
 		self.lossy = lossy
 		self.keep_lines = keep_lines
 		self.force = force
+		self.create = create
+		self.mode = mode
 
 
 class _LoadedFile:
@@ -6394,11 +6413,15 @@ class Document:
 		# The file the load read has to be as the load or this document's last
 		# save there left it. That's a check and not a lock: an edit between it
 		# and the rename is still lost.
+		# Before the changed check, so a create that loses to another program
+		# is told the file is there.
+		if opts.create and _something_at(path):
+			raise SaveExists(path)
 		f = self._file
 		over = f is not None and f.over(path)
 		if f is not None and over and not opts.force and not f.holds(path):
 			raise SaveChanged(path)
-		_save_text(path, text)
+		_save_text(path, text, opts.create, opts.mode)
 		if f is not None and over:
 			f.text = text
 		return kept
@@ -9474,12 +9497,20 @@ def _failed(file, e: BaseException) -> WriteError:
 	return WriteError(f"{file}: {getattr(e, 'strerror', None) or e}", _write_status_of(e))
 
 
-def _save_text(path, text):
-	"""write_file_atomic for a save, which raises SaveFailed."""
+def _save_text(path, text, new_only=False, mode=0):
+	"""write_file_atomic for a save, which raises SaveFailed, or SaveExists for
+	create."""
 	try:
-		write_file_atomic(path, text)
+		_write_file_how(path, text, new_only, mode)
 	except WriteError as e:
 		raise SaveFailed(str(e), e.status) from None
+
+
+def _something_at(path) -> bool:
+	try:
+		return os.path.lexists(_resolve_target(os.fspath(path)))
+	except (OSError, ValueError):
+		return False
 
 
 # The attribute bits a publish will not keep by itself - hidden and
@@ -9952,6 +9983,12 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 	interrupted write can never truncate the config it rewrites. Raises
 	WriteError, whose status says why, as the saves raise: a returned message
 	would let the call on a line of its own report success."""
+	_write_file_how(file, data, False, 0)
+
+
+def _write_file_how(file, data, new_only, mode):
+	"""write_file_atomic, plus SaveOptions' create and mode. Raises SaveExists
+	only for create."""
 	# The data is synced before the rename so a crash cannot publish an empty
 	# file.
 	#
@@ -10004,11 +10041,15 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 	# and the real mode goes on below - the copy is never briefly readable to
 	# anyone the original was not. A file that does not exist yet has no mode to
 	# preserve, so it takes the one an ordinary create would: 0666 narrowed by
-	# the umask, like every other file the user's tools produce.
+	# the umask, like every other file the user's tools produce, unless the
+	# caller gave one.
 	try:
 		existing = os.stat(target)
 	except (OSError, ValueError):
 		existing = None
+	if new_only and (existing is not None or os.path.lexists(target)):
+		raise SaveExists(file)
+	mode &= 0o777
 	# Only a regular file is replaced. A rename over a FIFO or a device node
 	# swaps it for a regular file at exit 0. Save outcomes in design.md is the
 	# rule for what a save does with each thing it can find at the path.
@@ -10028,7 +10069,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 	# list does not include the basic attributes, and the os.replace fallback
 	# keeps nothing, so a hidden config came back visible.
 	carried = _carried_attrs(existing) if existing is not None else 0
-	born = 0o600 if existing is not None else 0o666
+	born = 0o600 if existing is not None or mode else 0o666
 	f = None
 	tmp = ""
 	last: OSError | ValueError | None = None
@@ -10079,6 +10120,12 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 				except OSError:
 					# Best effort, as above.
 					pass
+			if existing is None and mode and os.name != "nt" and hasattr(os, "fchmod"):
+				try:
+					os.fchmod(f.fileno(), mode)
+				except OSError:
+					# Best effort, and the temp was born private.
+					pass
 		finally:
 			f.close()
 	# ValueError alongside: text the encoder refuses (a lone surrogate) raises
@@ -10105,6 +10152,8 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 			_set_read_only(target, True)
 		if existing is None:
 			_remove_quietly(tmp)
+		if new_only and isinstance(e, FileExistsError):
+			raise SaveExists(file) from None
 		raise _failed(file, e) from None
 	if carried:
 		_restore_attrs(target, carried)

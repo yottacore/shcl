@@ -1330,6 +1330,23 @@ static void up_dir(char *dir, size_t cap, const char *tag) {
 #endif
 }
 
+#ifndef _WIN32
+/* One of several create-only saves of the same new file at once. */
+static pthread_barrier_t create_gate;
+static const char *create_path;
+static void *create_once(void *arg) {
+	char text[16];
+	int len = snprintf(text, sizeof text, "n: %d\n", (int)(intptr_t)arg);
+	shcl_doc *d = shcl_parse(text, (size_t)len);
+	shcl_save_options o = {0};
+	o.create = 1;
+	pthread_barrier_wait(&create_gate);
+	shcl_save_result r = shcl_save_file_with(d, create_path, o, NULL, NULL);
+	shcl_free(d);
+	return (void *)(intptr_t)r;
+}
+#endif
+
 int main(int argc, char **argv) {
 	setlocale(LC_ALL, "C");
 	/* The library has to format and read floats the same whatever locale the
@@ -6796,6 +6813,90 @@ int main(int argc, char **argv) {
 		if (!file_is(other, "a: 5\n")) fail(at, "save of a parse text");
 		shcl_free(parsed);
 		dir_clear(cdir);
+	}
+	test_id("Eu7kRqj", "a_create_only_save_refuses_a_file_already_there");
+	{
+		/* A create-only save refuses a file that's there, and only one of
+		   several saves at once makes it. A new file takes the mode asked for,
+		   whatever the umask, and one already there keeps its own
+		   (2026102910482343). Same fixture in every runner. */
+		const char *at = "create";
+		char xdir[256], f[320], n[320];
+		up_dir(xdir, sizeof xdir, "create");
+		snprintf(f, sizeof f, "%s/f.shcl", xdir);
+		snprintf(n, sizeof n, "%s/n.shcl", xdir);
+		shcl_save_options create = {0}, forced = {0};
+		create.create = 1;
+		forced.create = forced.force = 1;
+		shcl_doc *doc = shcl_parse("a: 1\n", 5);
+		int k = 1;
+		if (shcl_save_file_with(doc, f, create, &k, NULL) != SHCL_SAVE_OK || k) fail(at, "create");
+		if (!file_is(f, "a: 1\n")) fail(at, "create text");
+		(void)shcl_set_int(doc, "a", 1, 2);
+		shcl_write_status why = SHCL_WRITE_OTHER;
+		if (shcl_save_file_with(doc, f, create, NULL, &why) != SHCL_SAVE_EXISTS || why != SHCL_WRITE_OK) fail(at, "create over a file");
+		/* force is the changed check's override, not this one's. */
+		if (shcl_save_file_with(doc, f, forced, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "forced create");
+		if (!file_is(f, "a: 1\n")) fail(at, "a refused create wrote");
+
+		/* A load that found nothing, and another program made the file since. */
+		shcl_doc *fresh = shcl_load_file(n, NULL);
+		(void)shcl_set_int(fresh, "a", 1, 1);
+		put_file(n, "b: 2\n");
+		if (shcl_save_file_with(fresh, n, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create over a file made since the load");
+		if (!file_is(n, "b: 2\n")) fail(at, "a refused create over a file made since wrote");
+#ifndef _WIN32
+		char link[320];
+		snprintf(link, sizeof link, "%s/link.shcl", xdir);
+		if (symlink(n, link) != 0) fail(at, "symlink failed");
+		if (shcl_save_file_with(fresh, link, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link");
+#endif
+		shcl_free(fresh);
+
+#ifndef _WIN32
+		/* Several saves at once: one makes the file and the rest are told it's there. */
+		char race[320];
+		snprintf(race, sizeof race, "%s/race.shcl", xdir);
+		create_path = race;
+		pthread_t th[8];
+		int made = 0, there = 0;
+		if (pthread_barrier_init(&create_gate, NULL, 8) != 0) fail(at, "barrier");
+		for (int i = 0; i < 8; i++)
+			if (pthread_create(&th[i], NULL, create_once, (void *)(intptr_t)i) != 0) fail(at, "thread");
+		for (int i = 0; i < 8; i++) {
+			void *r = NULL;
+			pthread_join(th[i], &r);
+			made += (shcl_save_result)(intptr_t)r == SHCL_SAVE_OK;
+			there += (shcl_save_result)(intptr_t)r == SHCL_SAVE_EXISTS;
+		}
+		pthread_barrier_destroy(&create_gate);
+		if (made != 1 || there != 7) fail(at, "racing creates: want 1 made and 7 told it's there");
+
+		struct stat ms;
+		static const unsigned want[] = { 0600, 0604, 0666 };
+		for (int i = 0; i < 3; i++) {
+			char mp[320];
+			snprintf(mp, sizeof mp, "%s/m%d.shcl", xdir, i);
+			shcl_save_options o = {0};
+			o.create = 1; o.mode = want[i];
+			if (shcl_save_file_with(doc, mp, o, NULL, NULL) != SHCL_SAVE_OK) fail(at, "create with a mode");
+			if (stat(mp, &ms) != 0 || (ms.st_mode & 07777) != want[i]) fail(at, "a new file's mode");
+		}
+		/* Only the permission bits; a plain save takes them too. */
+		char mp[320];
+		snprintf(mp, sizeof mp, "%s/m4.shcl", xdir);
+		shcl_save_options o = {0};
+		o.mode = 04640;
+		if (shcl_save_file_with(doc, mp, o, NULL, NULL) != SHCL_SAVE_OK) fail(at, "save with a mode");
+		if (stat(mp, &ms) != 0 || (ms.st_mode & 07777) != 0640) fail(at, "only the permission bits");
+		/* A file already there keeps its own. */
+		chmod(mp, 0644);
+		o.mode = 0600;
+		if (shcl_save_file_with(doc, mp, o, NULL, NULL) != SHCL_SAVE_OK) fail(at, "save over a file with a mode");
+		if (stat(mp, &ms) != 0 || (ms.st_mode & 07777) != 0644) fail(at, "a file already there keeps its mode");
+#endif
+		shcl_free(doc);
+		dir_clear(xdir);
 	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }

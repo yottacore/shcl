@@ -8859,6 +8859,12 @@ func readSchemaFile(path string) (string, SchemaStatus, error) {
 // A failure is a *WriteError, whose Status says why. The i/o failures wrap
 // rather than flatten, so errors.Is still reaches the OS error.
 func WriteFileAtomic(file, data string) error {
+	return writeFileHow(file, data, false, 0)
+}
+
+// writeFileHow is WriteFileAtomic, plus SaveOptions' Create and Mode. Only
+// Create gives a *SaveExists.
+func writeFileHow(file, data string, newOnly bool, mode os.FileMode) error {
 	if namesADirectory(file) {
 		return &WriteError{Status: WriteIsDirectory, Err: fmt.Errorf("%s: is a directory", file)}
 	}
@@ -8890,8 +8896,15 @@ func WriteFileAtomic(file, data string) error {
 	// and the real mode goes on below - the copy is never briefly readable to
 	// anyone the original was not. A file that does not exist yet has no mode to
 	// preserve, so it takes the one an ordinary create would: 0666 narrowed by
-	// the umask, like every other file the user's tools produce.
+	// the umask, like every other file the user's tools produce, unless the
+	// caller gave one.
 	existing, existErr := os.Stat(target)
+	if newOnly {
+		if _, lerr := os.Lstat(target); existErr == nil || lerr == nil {
+			return &SaveExists{Path: file}
+		}
+	}
+	mode = mode.Perm()
 	// Only a regular file is replaced. A rename over a FIFO or a device node
 	// swaps it for a regular file at exit 0. Save outcomes in design.md is the
 	// rule for what a save does with each thing it can find at the path.
@@ -8907,7 +8920,7 @@ func WriteFileAtomic(file, data string) error {
 		return notRegular(file)
 	}
 	born := os.FileMode(0o600)
-	if existErr != nil {
+	if existErr != nil && mode == 0 {
 		born = 0o666
 	}
 	// Windows: a read-only file cannot be replaced, and a read-only temp cannot
@@ -8963,6 +8976,9 @@ func WriteFileAtomic(file, data string) error {
 		}
 		_ = f.Chmod(existing.Mode())
 	}
+	if err == nil && existErr != nil && mode != 0 && runtime.GOOS != "windows" {
+		_ = f.Chmod(mode) // best effort, and the temp was born private
+	}
 	// The sync above is what forces the data out, so a close error here is the
 	// unlikely tail of it - but a write error that only surfaces on close would
 	// otherwise publish a truncated temp file over the target.
@@ -8993,6 +9009,9 @@ func WriteFileAtomic(file, data string) error {
 	if rerr != nil {
 		if existErr != nil {
 			_ = os.Remove(tmp) // the publish error is the one to report
+		}
+		if newOnly && errors.Is(rerr, os.ErrExist) {
+			return &SaveExists{Path: file}
 		}
 		return writeFailed(rerr, "%s: %w", file, osReason(rerr))
 	}
@@ -9528,6 +9547,17 @@ func (e *SaveChanged) Error() string {
 	return e.Path + ": refusing to save: the file changed since it was loaded; nothing written (force overrides)"
 }
 
+// SaveExists is the error a save returns when SaveOptions.Create found a file
+// already there, or another save made it first. Nothing is written.
+type SaveExists struct {
+	Path string
+}
+
+// Error names the file and the option.
+func (e *SaveExists) Error() string {
+	return e.Path + ": refusing to save: the file is already there and create asks for a new one; nothing written"
+}
+
 // SaveOptions is how SaveFileWith saves. The zero value is SaveFile.
 type SaveOptions struct {
 	// Lossy writes even when the save deletes content from the file, as
@@ -9538,6 +9568,13 @@ type SaveOptions struct {
 	// Force writes over the file the document was loaded from even when it
 	// changed since, for a caller that means to replace whatever is there.
 	Force bool
+	// Create only makes a new file: *SaveExists when one is there, even one
+	// another save makes at the same time.
+	Create bool
+	// Mode is the permission bits (0o777) a file this save makes gets,
+	// exactly, whatever the umask. 0 is an ordinary create's. A file already
+	// there keeps its own, and windows has no such bits.
+	Mode os.FileMode
 }
 
 // loadedFile is the file a load read, for the save's changed check: where the
@@ -9618,11 +9655,20 @@ func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
 	// The file the load read has to be as the load or this document's last
 	// save there left it. That's a check and not a lock: an edit between it
 	// and the rename is still lost.
+	// Before the changed check, so a create that loses to another program is
+	// told the file is there.
+	if opts.Create {
+		if target, err := resolveTarget(path); err == nil {
+			if _, err := os.Lstat(target); err == nil {
+				return false, &SaveExists{Path: path}
+			}
+		}
+	}
 	over := d.file != nil && d.file.over(path)
 	if over && !opts.Force && !d.file.holds(path) {
 		return false, &SaveChanged{Path: path}
 	}
-	if err := WriteFileAtomic(path, text); err != nil {
+	if err := writeFileHow(path, text, opts.Create, opts.Mode); err != nil {
 		return false, err
 	}
 	if over {

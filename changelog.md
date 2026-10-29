@@ -116,6 +116,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `save_file_with()` in every binding takes the save options, `lossy`, `keep_lines` and `force`, and the other saves are its short forms. `force` writes over a file that changed since the load.
 
+- 2 more save options. `create` only makes a new file, and refuses when one is there, even one another save makes at the same time: Rust `SaveError::Exists`, Go `*SaveExists`, Python `SaveExists`, C `SHCL_SAVE_EXISTS` and C++ `SaveResult::Exists`. `mode` gives a new file those permission bits exactly, whatever the umask, such as `0600` for one holding tokens. A file already there keeps its own.
+
 - `instance_paths()` in every binding walks a file one instance at a time, with `(i)` on each repeated name.
 
 - `fields()`, `read_fields()` and `read_child_fields()` in every binding (Go `Fields`, C `shcl_fields`) give each field's path, name, value and line together, the path in the `instance_paths()` form.
