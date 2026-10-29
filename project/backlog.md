@@ -274,7 +274,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: the docs-only sync of install-dev.bash to main, after the round's merge into dev. check-docs `EpHGoa0` compares origin/main with origin/dev and goes red until main has the new text.
 	- Priority: High
 	- Opened: 20261028-131043
 	- Opened by: 2026102515494624
@@ -283,6 +284,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
 	- Prereq IDs now name 2026102814013272 too, since that split-off child changes --gate before install-dev's lines can follow.
+	- Progress log:
+		- 20261029: install-dev.bash's 3 `--gate` lines (header, `--help`, the closing echo) say `--merge-gate`, since a dev box needs the whole gate, and `--gate` is the quick run now. Done on the round branch.
+		- Verified: shellcheck, check-install-dev and check-docs pass. check-docs `EpHGoa0` compares origin/main with origin/dev, so it stays green until the merge reaches dev, then red until main gets the same text.
+	- Decisions:
+		- me: `--merge-gate`, not `--backlog-run-quick`, since the line says what a dev box is set up to run before a merge, as contributing.md's does.
+	- Test case: no new test. check-docs `EpHGoa0` (installers match main) covers the sync.
+	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
 
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
