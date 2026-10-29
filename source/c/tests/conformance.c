@@ -1311,7 +1311,11 @@ static void dir_clear(const char *dir) {
 	while (dd && (de = readdir(dd))) {
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
 		snprintf(p, sizeof p, "%s/%s", dir, de->d_name);
+#ifdef _WIN32
+		if (remove(p) != 0) _rmdir(p);  /* remove takes no folder there */
+#else
 		remove(p);
+#endif
 	}
 	if (dd) closedir(dd);
 #ifdef _WIN32
@@ -5925,6 +5929,8 @@ int main(int argc, char **argv) {
 		free(name); free(why);
 		if (dir_entries(udir) != 1) fail("backup_swapped", "entries after the directory");
 		dir_clear(udir);
+		DIR *left = opendir(udir);
+		if (left) { closedir(left); fail("backup_swapped", "its folder is left behind"); }
 	}
 	test_id("EsoQmUB", "from_v2_refuses_a_conversion_that_keeps_an_error");
 	{

@@ -573,22 +573,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
-- The C runner's swap test leaves its folder behind on windows
-	- ID: 2026102915173442
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261029-151734
-	- Opened by: 2026102912203343
-	- Related IDs: 2026102912203343
-	- Target OS: Windows
-	- Steps to reproduce: run the C runner twice under wine, where the process id repeats.
-	- Incorrect behavior: the second run fails `Et6AmCW` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
-	- Expected behavior: each run removes its folders, and a run passes after another.
-	- Reproduced: 20261029, under wine on b23, twice in a row.
-	- Possible cause: `dir_clear` removes entries with `remove`, which takes no folder on windows, so the `d` that `backup_swapped` makes stays and so does its parent. On real windows it adds a folder to TEMP each run.
-	- Estimated effort: Low
-
 - check-push-gate `EtlDIOQ` failed once under load and passed on a rerun
 	- ID: 2026102821264857
 	- Type: Bug
@@ -629,6 +613,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- The C runner's swap test leaves its folder behind on windows
+	- ID: 2026102915173442
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261029-151734
+	- Opened by: 2026102912203343
+	- Related IDs: 2026102912203343
+	- Target OS: Windows
+	- Steps to reproduce: run the C runner twice under wine, where the process id repeats.
+	- Incorrect behavior: the second run fails `Et6AmCW` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
+	- Expected behavior: each run removes its folders, and a run passes after another.
+	- Reproduced: 20261029, under wine on b23, twice in a row.
+	- Cause: `dir_clear` removes entries with `remove`, which takes no folder on windows, so the `d` that `backup_swapped` makes stays and so does its parent. On real windows it adds a folder to TEMP each run.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261029: on windows `dir_clear` takes a folder with `_rmdir` when `remove` refuses it. `Et6AmCW` now fails when its folder is still there after the clear.
+	- Swept: the C runner's other entry sweeps (the dacl and errno ones) clear plain files only, and every other folder there goes by `rmdir`. The veneer smoke removes files only. Rust, Go and Python remove their test folders whole.
+	- Verified: under wine, the old runner passes once and fails `Et6AmCW` the second time. With the fix it passes twice in a row. With the new check and the old `dir_clear` it fails "its folder is left behind" on the first run. The native C runner passes (212).
+	- Test case: C runner `Et6AmCW`.
+	- Branch: `r1029b`
+	- Acceptance signoff: me, 20261029, 2 runs in a row pass under wine
+	- Closed: 20261029
 
 - A kept line under an `E028` array line moves out of its block when an `E011` item follows it
 	- ID: 2026102820592074
