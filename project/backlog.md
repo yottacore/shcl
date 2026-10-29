@@ -33,12 +33,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The C runner's swap test leaves its folder behind on windows
+	- ID: 2026102915173442
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261029-151734
+	- Opened by: 2026102912203343
+	- Related IDs: 2026102912203343
+	- Target OS: Windows
+	- Steps to reproduce: run the C runner twice under wine, where the process id repeats.
+	- Incorrect behavior: the second run fails `Et6AmCW` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
+	- Expected behavior: each run removes its folders, and a run passes after another.
+	- Reproduced: 20261029, under wine on b23, twice in a row.
+	- Possible cause: `dir_clear` removes entries with `remove`, which takes no folder on windows, so the `d` that `backup_swapped` makes stays and so does its parent. On real windows it adds a folder to TEMP each run.
+	- Estimated effort: Low
+
 - Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102913213704
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: the hosted windows job, for `Eu7kRqj` and `Eu7kRqk`.
+	- Needs external testing: the hosted windows job, for `Eu7kRqj` and `Eu7kRqk` again after 2026102912203343's resolver fix. Both passed on ci.yml run 40953807354.
 	- Priority: High
 	- Opened: 20261029-132137
 	- Opened by: 2026102910482343
@@ -192,7 +208,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: the hosted windows job, for the veneer smoke's `Eu7cuVe`. `Eu7cuVd` passed for windows under wine.
+	- Needs external testing: the hosted windows job, for `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe`, which failed on ci.yml run 40953807354 and pass on b29w.
 	- Priority: High
 	- Opened: 20261029-122033
 	- Opened by: 2026102910482342
@@ -208,6 +224,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
 	- Progress log:
 		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
+		- 20261029: hosted ci.yml run 40953807354 failed `EqnwIkY` (windangle), `Eu7cuVd` and `Eu7cuVe` on windows, where wine passed them. The runner's TEMP has a short name, `RUNNER~1`. A file that's there resolved to its long name and one that isn't to the short one, so a removed or new file was never "over" the load's file. And a load through a dangling link ran the save's probe, which creates a file. Now a path with nothing at it takes its folder's final path, as Rust's canonicalize of the parent does, and the check walks a dangling link's own text, as the other 3 do, so a load creates nothing.
+			- Verified on b29w, from the mingw build: the old code fails `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe` the way the hosted job did with TEMP set to its short name, and the new code passes all 3 with TEMP short and long, the whole C runner (212) and the veneer smoke. The new short-name lines in `Eu7cuVd` fail on the old code with TEMP long too. Its new dangling-link lines fail with the link walk turned off. Also under wine, `cicd.bash --backlog-run-quick c`.
+			- Swept: `shcl_resolve_path`'s 3 callers (the read, the save, the check). Rust, Go and Python already read a link's text and canonicalize the parent, so only C had it.
 	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
 	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
 	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).

@@ -13517,15 +13517,106 @@ static int shcl_not_a_disk_file(const char *path) {
 	return n > 0 && n < MAX_PATH
 	       && full[0] == L'\\' && full[1] == L'\\' && full[2] == L'.' && full[3] == L'\\' && !drive;
 }
+#ifndef FSCTL_GET_REPARSE_POINT
+	#define FSCTL_GET_REPARSE_POINT 0x000900A8
+#endif
+// The full path a link's own text names, as the reference's read_link, with
+// nothing followed past it and nothing created. A relative link is taken from
+// the link's folder. malloc'd; NULL when W is no symlink or junction, or with
+// errno ENOMEM when that was an allocation failure.
+static wchar_t *s_win_read_link(const wchar_t *w) {
+	HANDLE h = CreateFileW(w, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                       NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+	if (h == INVALID_HANDLE_VALUE) return NULL;
+	enum { CAP = 16 * 1024 }; // MAXIMUM_REPARSE_DATA_BUFFER_SIZE
+	unsigned char *b = (unsigned char *)malloc(CAP);
+	DWORD got = 0;
+	BOOL ok = b && DeviceIoControl(h, FSCTL_GET_REPARSE_POINT, NULL, 0, b, CAP, &got, NULL);
+	CloseHandle(h);
+	if (!b) { errno = ENOMEM; return NULL; }
+	// The reparse buffer: tag, data length, reserved, then the substitute
+	// name's offset and length in bytes, the print name's, a symlink's flags,
+	// and the names.
+	DWORD tag = 0, flags = 0;
+	USHORT so = 0, sl = 0;
+	size_t names = 0;
+	if (ok && got >= 16) {
+		memcpy(&tag, b, 4); memcpy(&so, b + 8, 2); memcpy(&sl, b + 10, 2);
+		if (tag == IO_REPARSE_TAG_SYMLINK && got >= 20) { memcpy(&flags, b + 16, 4); names = 20; }
+		else if (tag == IO_REPARSE_TAG_MOUNT_POINT) names = 16;
+	}
+	if (!names || !sl || names + so + sl > got) { free(b); return NULL; }
+	size_t tn = sl / sizeof(wchar_t);
+	wchar_t *t = (wchar_t *)malloc((tn + 1) * sizeof *t);
+	if (!t) { free(b); errno = ENOMEM; return NULL; }
+	memcpy(t, b + names + so, tn * sizeof *t);
+	t[tn] = L'\0';
+	free(b);
+	// The NT spelling of an absolute target, \??\C:\x, is \\?\C:\x to Win32.
+	if (tn >= 4 && t[0] == L'\\' && t[1] == L'?' && t[2] == L'?' && t[3] == L'\\') t[1] = L'\\';
+	wchar_t *joined = t;
+	if (flags & 1) { // SYMLINK_FLAG_RELATIVE
+		const wchar_t *sep = wcsrchr(w, L'\\'), *fs = wcsrchr(w, L'/');
+		if (fs && (!sep || fs > sep)) sep = fs;
+		size_t dn = sep ? (size_t)(sep - w) + 1 : 0;
+		joined = (wchar_t *)malloc((dn + tn + 1) * sizeof *joined);
+		if (!joined) { free(t); errno = ENOMEM; return NULL; }
+		wmemcpy(joined, w, dn);
+		wmemcpy(joined + dn, t, tn + 1);
+		free(t);
+	}
+	DWORD need = GetFullPathNameW(joined, 0, NULL, NULL);
+	wchar_t *fp = need ? (wchar_t *)malloc((size_t)need * sizeof *fp) : NULL;
+	if (need && !fp) errno = ENOMEM;
+	if (fp && !GetFullPathNameW(joined, need, fp, NULL)) { free(fp); fp = NULL; }
+	free(joined);
+	return fp;
+}
+// A path with nothing at it, spelled as a file there would be: its folder's
+// final path plus the name, as the reference canonicalizes the parent. The
+// full path alone keeps a short name such as RUNNER~1, where a file that is
+// there comes back long, so one file had two names. FP is a full path.
+// malloc'd; NULL when the folder cannot be opened.
+static wchar_t *s_win_final_parent(const wchar_t *fp) {
+	const wchar_t *sep = wcsrchr(fp, L'\\');
+	if (!sep || !sep[1]) return NULL;
+	// A folder at a drive's root keeps its separator: C: alone is the drive's
+	// current folder, and \\?\C: the volume.
+	size_t dn = (size_t)(sep - fp);
+	if (dn > 0 && fp[dn - 1] == L':') dn++;
+	wchar_t *dir = (wchar_t *)malloc((dn + 1) * sizeof *dir);
+	if (!dir) return NULL;
+	wmemcpy(dir, fp, dn);
+	dir[dn] = L'\0';
+	HANDLE h = CreateFileW(dir, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                       NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	free(dir);
+	if (h == INVALID_HANDLE_VALUE) return NULL;
+	wchar_t *out = NULL;
+	DWORD need = GetFinalPathNameByHandleW(h, NULL, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+	size_t nn = wcslen(sep + 1);
+	if (need && (out = (wchar_t *)malloc(((size_t)need + nn + 2) * sizeof *out))) {
+		DWORD got = GetFinalPathNameByHandleW(h, out, need, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+		if (!got || got >= need) { free(out); out = NULL; }
+		else {
+			if (out[got - 1] != L'\\') out[got++] = L'\\';
+			wmemcpy(out + got, sep + 1, nn + 1);
+		}
+	}
+	CloseHandle(h);
+	return out;
+}
 // The path a save actually rewrites. A symlink or junction is followed, so a
 // save through a linked-in config replaces the file it points at rather than
 // the link - the same thing the POSIX side has always done. The answer comes
 // back \\?\-prefixed, which is also what takes a path past MAX_PATH, so the
 // prefix is kept only where the name would otherwise be too long for the temp
 // file beside it; a short path stays the plain name it was. A file that is not
-// there yet has no final path, so its full path is prefixed by hand. malloc'd
-// UTF-8; NULL with errno saying why. A read passes FOR_SAVE 0 and gets
-// ENOENT for a dangling link rather than the probe below.
+// there yet has no final path, so its folder's final path is used, or its full
+// path prefixed by hand. malloc'd UTF-8; NULL with errno saying why. A read
+// passes FOR_SAVE 0 and gets ENOENT for a dangling link rather than the probe
+// below. The changed check passes 2, and a dangling link is walked by its own
+// text instead, as the reference does, since a load has nothing to create.
 static char *shcl_resolve_path(const char *file, int for_save) {
 	wchar_t *w = shcl_widen(file);
 	if (!w) return NULL;
@@ -13559,6 +13650,18 @@ static char *shcl_resolve_path(const char *file, int for_save) {
 			FindClose(fh);
 		}
 		if (is_link && !for_save) { free(w); errno = ENOENT; return NULL; }
+		if (is_link && for_save == 2) {
+			errno = 0;
+			for (int hop = 0; hop < 40; hop++) {
+				wchar_t *next = s_win_read_link(w);
+				if (!next) break;
+				free(w); w = next;
+			}
+			wchar_t *more = errno == ENOMEM ? NULL : s_win_read_link(w);
+			if (more) { free(more); free(w); errno = ELOOP; return NULL; }
+			if (errno == ENOMEM) { free(w); return NULL; }
+			is_link = 0;
+		}
 		if (is_link) {
 			HANDLE ch = CreateFileW(w, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 			                        NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -13582,21 +13685,24 @@ static char *shcl_resolve_path(const char *file, int for_save) {
 				DWORD e = GetLastError();
 				free(fp); free(w); errno = shcl_errno_from_win32(e); return NULL;
 			}
-			// Already prefixed (`\\?\` or `\\.\`): it is the spelling a caller
-			// reaches for past MAX_PATH, and prefixing it again built
-			// `\\?\UNC\?\C:\...`, which no create can open. Under MAX_PATH the
-			// strip below happened to undo that, so it bit only long paths.
-			int pref = fp[0] == L'\\' && fp[1] == L'\\' && (fp[2] == L'?' || fp[2] == L'.') && fp[3] == L'\\';
-			int unc = !pref && fp[0] == L'\\' && fp[1] == L'\\';
-			size_t fn = wcslen(fp);
-			full = (wchar_t *)malloc((fn + 10) * sizeof *full);
-			if (!full) { free(fp); free(w); errno = ENOMEM; return NULL; }
-			if (pref) wmemcpy(full, fp, fn + 1);
-			else {
-				const wchar_t *head = unc ? L"\\\\?\\UNC" : L"\\\\?\\";
-				size_t hn = wcslen(head), skip = unc ? 1 : 0;
-				wmemcpy(full, head, hn);
-				wmemcpy(full + hn, fp + skip, fn - skip + 1);
+			full = s_win_final_parent(fp);
+			if (!full) {
+				// Already prefixed (`\\?\` or `\\.\`): it is the spelling a caller
+				// reaches for past MAX_PATH, and prefixing it again built
+				// `\\?\UNC\?\C:\...`, which no create can open. Under MAX_PATH the
+				// strip below happened to undo that, so it bit only long paths.
+				int pref = fp[0] == L'\\' && fp[1] == L'\\' && (fp[2] == L'?' || fp[2] == L'.') && fp[3] == L'\\';
+				int unc = !pref && fp[0] == L'\\' && fp[1] == L'\\';
+				size_t fn = wcslen(fp);
+				full = (wchar_t *)malloc((fn + 10) * sizeof *full);
+				if (!full) { free(fp); free(w); errno = ENOMEM; return NULL; }
+				if (pref) wmemcpy(full, fp, fn + 1);
+				else {
+					const wchar_t *head = unc ? L"\\\\?\\UNC" : L"\\\\?\\";
+					size_t hn = wcslen(head), skip = unc ? 1 : 0;
+					wmemcpy(full, head, hn);
+					wmemcpy(full + hn, fp + skip, fn - skip + 1);
+				}
 			}
 			free(fp);
 		}
@@ -14211,10 +14317,16 @@ void shcl_named_schema_free(shcl_named_schema *ns) {
 
 /* Where PATH resolves to for a save, malloc'd, or NULL with *oom set when
    that was an allocation failure. Any other failure, a link cycle say, is the
-   save's own error already. */
+   save's own error already. On windows the save's own resolve creates a file
+   through a dangling link to learn where it points, and a load creates
+   nothing, so this walks the link's text instead. */
 static char *s_save_target(const char *path, int *oom) {
 	errno = 0;
+#ifdef _WIN32
+	char *t = shcl_resolve_path(path, 2);
+#else
 	char *t = shcl_resolve_target(path);
+#endif
 	*oom = !t && (errno == 0 || errno == ENOMEM);
 	return t;
 }

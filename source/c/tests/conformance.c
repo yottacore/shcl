@@ -6798,6 +6798,65 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(fresh, n, NULL) != SHCL_SAVE_OK) fail(at, "save where nothing is again");
 		if (!file_is(n, "a: 1\n")) fail(at, "save where nothing is again text");
 		shcl_free(fresh);
+#ifdef _WIN32
+		/* A file that is there resolves to its long name, and one that is not
+		   once resolved through a short folder name such as RUNNER~1, so a
+		   removed or new file went unchecked when TEMP had one. Through the
+		   folder's short name both ways, whatever TEMP is. */
+		{
+			wchar_t *wl = shcl_widen(cdir), ws[600];
+			char sdir[1200];
+			DWORD sn = wl ? GetShortPathNameW(wl, ws, 600) : 0;
+			free(wl);
+			if (sn > 0 && sn < 600 && WideCharToMultiByte(CP_UTF8, 0, ws, -1, sdir, (int)sizeof sdir, NULL, NULL) > 0) {
+				char sf[1300], sn2[1300];
+				snprintf(sf, sizeof sf, "%s\\short.shcl", sdir);
+				snprintf(sn2, sizeof sn2, "%s\\shortnew.shcl", sdir);
+				put_file(sf, "a: 1\n");
+				shcl_doc *sg = shcl_load_file(sf, NULL);
+				remove(sf);
+				if (shcl_save_file(sg, sf, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a removed file, short name");
+				shcl_free(sg);
+				shcl_doc *snew = shcl_load_file(sn2, NULL);
+				put_file(sn2, "b: 2\n");
+				if (shcl_save_file(snew, sn2, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a file made since, short name");
+				if (!file_is(sn2, "b: 2\n")) fail(at, "a refused save over a file made since wrote, short name");
+				shcl_free(snew);
+				remove(sn2);
+			}
+		}
+		/* A load through a dangling link creates nothing, and still knows the
+		   file the link names, through the link or not. */
+		{
+			char dl[320], dt[320];
+			snprintf(dl, sizeof dl, "%s/dlink.shcl", cdir);
+			snprintf(dt, sizeof dt, "%s/dtarget.shcl", cdir);
+			wchar_t *wdl = shcl_widen(dl);
+			int made = wdl && CreateSymbolicLinkW(wdl, L"dtarget.shcl", 0x2 /* ALLOW_UNPRIVILEGED_CREATE */);
+			if (made) {
+				DWORD la = GetFileAttributesW(wdl);
+				made = la != INVALID_FILE_ATTRIBUTES && (la & FILE_ATTRIBUTE_REPARSE_POINT);
+				if (!made) remove(dl);
+			}
+			free(wdl);
+			if (made) {
+				shcl_file_status dst = SHCL_FILE_CLEAN;
+				shcl_doc *dd = shcl_load_file(dl, &dst);
+				if (dst != SHCL_FILE_NOT_FOUND) fail(at, "dangling link, want NotFound");
+				shcl_file_status tst = SHCL_FILE_CLEAN;
+				free(shcl_read_file(dt, 0, NULL, &tst));
+				if (tst != SHCL_FILE_NOT_FOUND) fail(at, "a load through a dangling link made the file");
+				(void)shcl_set_int(dd, "a", 1, 1);
+				put_file(dt, "b: 2\n");
+				if (shcl_save_file(dd, dl, NULL) != SHCL_SAVE_CHANGED) fail(at, "save through a dangling link, file made since");
+				if (shcl_save_file(dd, dt, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a dangling link's file, made since");
+				if (!file_is(dt, "b: 2\n")) fail(at, "a refused save through a link wrote");
+				shcl_free(dd);
+				remove(dt);
+				remove(dl);
+			}
+		}
+#endif
 
 		/* Elsewhere is not checked, and the load's file still is. */
 		put_file(other, "z: 0\n");
