@@ -98,6 +98,122 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029`
 	- Commit: `a618835c`
 
+- CICD reset: --gate as a backlog run
+	- ID: 2026102814013272
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: one `cicd/cicd.bash --container=ubuntu`, to see the image passes with its new `CTR_ARGS_ubuntu`.
+	- Priority: High
+	- Opened: 20261028-140132
+	- Opened by: 2026102813104371
+	- Parent ID: 2026102813104371
+	- Requirements:
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+	- Progress log:
+		- 20261029: `--gate` takes the `--backlog-run-quick` arm, areas included, prints `--gate is another name for --backlog-run-quick`, and goes into the image as `--backlog-run-quick`. So it records nothing. Help, contributing.md, install.md, design.md and the config.bash comments say so. contributing.md and install.md point at `--merge-gate` where they meant the whole gate.
+		- 20261029: check-push-gate's gate checks moved from `--gate` to `--merge-gate`: `EqGl8mf`, `EqjfWm8`, `Et6Aueh`, `EstM5WQ`'s calibration rows, `EtDCDE4`, `EtDCDE5`, `EtDCDE7`, and in `EtkuOxe` `1111|--gate --long` became `1111|--merge-gate --long`, in `Eu1ovZE` `1|--gate` became `1|--merge-gate`. A step-lines row now wants `Remote sync (--backlog-run-quick)`, and `Eu1ovZF` reads the areas from the help's `--backlog-run-quick, --gate [AREA...]` line. shell-regress `EqQUj04` drives the stub with `--merge-gate`.
+		- Verified: check-push-gate `Eu7Giqm` (the alias line, no record, `QUICK_SKIP` and `BACKLOG_SKIP` left out, an area, no calibration, `--gate --backlog-run-quick` taken, `--gate --merge-gate` and `--gate --long` refused) failed on the old engine and passes. `Eu7Giqn` (the run in the image gets `--backlog-run-quick`) failed with the engine passing `--gate` on, and passes. Also the whole of check-push-gate and shell-regress, check-pins, check-docs, test-ids, shellcheck and markdownlint.
+		- Swept: every `--gate` in cicd/, the hook, ci.yml, check-pins, check-push-gate, shell-regress, config.bash, the 2 Dockerfiles, contributing.md, install.md, design.md and the style guide. The hook's `--gate` fallback is for an engine from before `--merge-gate`, so it stays. install-dev.bash's lines are 2026102813104377. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Decisions:
+		- me: `--container=ubuntu` ran `--gate --no-lint`. It runs `--merge-gate --no-lint --no-release --no-remote --no-leakcheck` now, the same stages as before, so it keeps the 200,000-input fuzz and the cross checks rather than shrink to the quick run. `--no-leakcheck` also drops the sanitizer runs there, since the image has no heaptrack or CodeQL for the leak checks, and spelling out 4 `--skip`s would tie it to their names. The main image and the hosted tests half still run them.
+		- me: `--gate` in the help shares `--backlog-run-quick`'s entry, as `--ci` and `--slow` do, to stay inside check-docs' 100-line header window.
+	- Test case: check-push-gate `Eu7Giqm` and `Eu7Giqn`.
+
+- CICD reset: install-dev's gate lines
+	- ID: 2026102813104377
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs external testing: the docs-only sync of install-dev.bash to main, after the round's merge into dev. check-docs `EpHGoa0` compares origin/main with origin/dev and goes red until main has the new text.
+	- Priority: High
+	- Opened: 20261028-131043
+	- Opened by: 2026102515494624
+	- Parent ID: 2026102515494624
+	- Prereq IDs: 2026102813104371, 2026102814013272
+	- Requirements:
+		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
+	- Prereq IDs now name 2026102814013272 too, since that split-off child changes --gate before install-dev's lines can follow.
+	- Progress log:
+		- 20261029: install-dev.bash's 3 `--gate` lines (header, `--help`, the closing echo) say `--merge-gate`, since a dev box needs the whole gate, and `--gate` is the quick run now. Done on the round branch.
+		- Verified: shellcheck, check-install-dev and check-docs pass. check-docs `EpHGoa0` compares origin/main with origin/dev, so it stays green until the merge reaches dev, then red until main gets the same text.
+	- Decisions:
+		- me: `--merge-gate`, not `--backlog-run-quick`, since the line says what a dev box is set up to run before a merge, as contributing.md's does.
+	- Test case: no new test. check-docs `EpHGoa0` (installers match main) covers the sync.
+	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
+
+- CICD reset: CPU and priority on the test boxes
+	- ID: 2026102421025788
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Priority: High
+	- Opened: 20261024-210257
+	- Opened by: 2026102416250040
+	- Parent ID: 2026102416250040
+	- Prereq IDs: 2026102421025778
+	- Requirements:
+		- check-boxes' box half works out its cap from that box's CPU count and load, by the same rule as this box.
+		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
+	- Progress log:
+		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
+		- 20261029: the box half sets `ionice -c 3` before `nice -n 19` when the box has an ionice that takes the class, found by absolute path since `env -i` clears PATH. A box without one, such as FreeBSD, runs at nice only. The cap needs no code: one case at a time is the rule's floor.
+	- Decisions:
+		- The ionice is a prefix on the `env -i` line, not on the box's own `sh`, so the check doesn't need `$$` and the line still holds no single quote (me).
+	- Swept: the one `nice -n 19` in the box half. The host run in check-boxes.bash, and check-freebsd's run, are on this box and already under cicd.bash's ionice. The other 3 bindings have no box step.
+	- Verified: `private/claude_simple/tools/check-boxes-stub/ionice-probe.bash` runs the box half alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). `check-boxes-stub/run.bash` passes, skips and fails as before over the stand-in boxes (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
+	- Needs external testing: Y. `Etfwju5` in a full run with release builds, with vmFreeBSD through the real helper (no ionice there, so it takes the nice-only path). Linux-side ionice is covered by the probe.
+	- Test case: check-boxes `Etfwju5` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
+
+- Refuse a changed file's save, in Rust and Python
+	- ID: 2026102912203339
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs external testing: the hosted windows job, for `Eu7RSm4`. `Eu7RSm3` passed for windows under wine.
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Requirements:
+		- The parent's, in the Rust and Python libraries, by the parent's Decisions.
+	- Decisions:
+		- me, 20261029: Python goes with Rust, since check-docs `EshYXXC` fails while the reference has a public item `shcl.py` lacks.
+		- me, 20261029: Rust has `SaveError::Changed { path }`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, &SaveOptions) -> Result<bool, SaveError>`, and the 3 save calls take `&mut self`. Python raises `SaveChanged` under `SaveError`, and has `SaveOptions(lossy=False, keep_lines=False, force=False)` and `save_file_with(path, opts)`. The message is `PATH: refusing to save: the file changed since it was loaded; nothing written (force overrides)`.
+		- me, 20261029: design.md's Save outcomes row, which says the library's save doesn't look, and spec.md wait for 2026102912203343, when all 4 have it.
+	- Progress log:
+		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. Every save call goes through `save_file_with`, which checks a save over that file before the write and records what it wrote. The CLI's `write_back` takes the document as `&mut`. check-docs and the style guide name `SaveChanged` as a Python-only class.
+	- Swept: Rust and Python. Every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with` and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate` and `new` read no file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it holds as `mut`. Go, C and the veneer are the other 2 children.
+	- Verified: `Eu7RSm3` and `Eu7RSm4` fail with the check turned off and pass with it. `Eu7RSm3` passes for windows under wine. Also `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`Eu7RSm3`) and Python (`Eu7RSm4`).
+	- Branch: `r1029`
+	- Commit: `e799b7c6`
+
+- Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
+	- ID: 2026102912203343
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
+	- Needs external testing: the hosted windows job, for the veneer smoke's `Eu7cuVe`. `Eu7cuVd` passed for windows under wine.
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Prereq IDs: 2026102912203339, 2026102912203341
+	- Requirements:
+		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
+		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
+	- Decisions:
+		- me, 20261029: C has `SHCL_SAVE_CHANGED` on the end of `shcl_save_result`, where new values go, and `shcl_save_file_with(d, path, shcl_save_options, *kept, *why)`, with `*kept` as the line-keeping save sets it. The options struct is `{ lossy, keep_lines, force }` and goes by value, as in Go, since all zero is `shcl_save_file`.
+		- me, 20261029: C's saves give no message, refused or failed, so the Rust message is in the enum's comment rather than in a new out-parameter.
+		- me, 20261029: the veneer has `SaveResult::Changed`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, opts, why)`, which gives the result and whether it kept the lines. Its 3 saves are no longer `const`, as Rust's take `&mut self`. They still hold the document's lock, so the threads test keeps its save, through a non-const reference.
+		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
+	- Progress log:
+		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
+	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
+	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
+	- Branch: `r1029`
+	- Commit: `c271967d`
+
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -245,6 +361,58 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
 
+- Refuse a save over a file that changed since the load
+	- ID: 2026102910482342
+	- Type: Enhancement
+	- Status: Started
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482343
+	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
+	- Requirements:
+		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
+		- A caller that means to replace it can force the save.
+		- A document from `parse`, with no file behind it, saves as it does now.
+	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: the check is on content only, byte for byte against what the load read, as `upgrade_file` and shclwrap check. A touch alone is no change. The document keeps the text it read, about the file's size in memory.
+		- me, 20261029: after a good save over the file, the check is against what that save wrote, so a program that saves twice isn't refused by its own first save. In Rust the save calls take `&mut self` for it.
+		- me, 20261029: over the file means the path the load read, after links are followed, the way the save finds its target. Another hard link to it isn't seen. A save anywhere else isn't checked.
+		- me, 20261029: a load that found nothing expects nothing there at the save, and a file gone since the load is a change too. An `Unreadable` load has nothing to compare, so it saves as now.
+		- me, 20261029: the force is a save option, in a new `save_file_with(path, options)` that also holds `lossy` and `keep_lines`, so the create and the mode of 2026102910482343 go beside it rather than in more save calls. The 3 save calls stay, as its short forms.
+		- me, 20261029: `upgrade_file` keeps its own changed refusal, `Io` with `Other`, since it returns `UpgradeError`, not `SaveError`.
+		- me, 20261029: the CLI parses the text it read, so its saves have no file behind them and keep the CLI's own check.
+		- me, 20261029: it's a check and not a lock. An edit between the check and the rename is still lost, as in `upgrade_file`.
+	- Progress log:
+		- 20261029: split by binding. Rust and Python are child 2026102912203339, Go 2026102912203341, and C, the C++ veneer and the docs 2026102912203343.
+
+- Let a save create a new file only, and give a new file its mode
+	- ID: 2026102910482343
+	- Type: Enhancement
+	- Status: Started
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482342
+	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
+	- Requirements:
+		- A create-only save fails when the file is there, even with 2 programs saving it at once.
+		- A new file can be given a mode. A file that's already there keeps its own, as now.
+		- Both are save options, beside the force from 2026102910482342.
+	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: `create` and `mode` are fields of `SaveOptions`, beside `force`. A second create-only save call was canceled.
+		- me, 20261029: a create-only save that finds a file there is refused with its own kind, as the changed check is, and nothing is written: Rust `SaveError::Exists { path }`, Python `SaveExists`, Go `*SaveExists`, C `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, the veneer `SaveResult::Exists`. The message is `PATH: refusing to save: the file is already there and create asks for a new one; nothing written`. Losing the race to another create is the same refusal, since the publish of a new file already fails on anything at the path.
+		- me, 20261029: the lost-content gate goes first, then the create check, then the changed check. `force` doesn't override `create`.
+		- me, 20261029: `mode` is the permission bits, `0o777`, and 0 means the mode an ordinary create gives, so the zero value is still `save_file` in every binding. It's set exactly, on the handle, so the umask doesn't narrow it, and the temp file is born private first. A file already there keeps its own mode and the option is ignored. Windows has no POSIX modes, so it's ignored there.
+	- Progress log:
+		- 20261029: split by binding. Rust and Python are child 2026102913213663, Go 2026102913213683, and C, the C++ veneer and the docs 2026102913213704. All 3 are in on `r1029` and wait on the hosted windows job, and the C one on cppcheck.
+
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
@@ -313,50 +481,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
 
-- CICD reset: --gate as a backlog run
-	- ID: 2026102814013272
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: one `cicd/cicd.bash --container=ubuntu`, to see the image passes with its new `CTR_ARGS_ubuntu`.
-	- Priority: High
-	- Opened: 20261028-140132
-	- Opened by: 2026102813104371
-	- Parent ID: 2026102813104371
-	- Requirements:
-		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
-		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
-		- contributing.md's and install.md's `--gate` lines follow.
-	- Progress log:
-		- 20261029: `--gate` takes the `--backlog-run-quick` arm, areas included, prints `--gate is another name for --backlog-run-quick`, and goes into the image as `--backlog-run-quick`. So it records nothing. Help, contributing.md, install.md, design.md and the config.bash comments say so. contributing.md and install.md point at `--merge-gate` where they meant the whole gate.
-		- 20261029: check-push-gate's gate checks moved from `--gate` to `--merge-gate`: `EqGl8mf`, `EqjfWm8`, `Et6Aueh`, `EstM5WQ`'s calibration rows, `EtDCDE4`, `EtDCDE5`, `EtDCDE7`, and in `EtkuOxe` `1111|--gate --long` became `1111|--merge-gate --long`, in `Eu1ovZE` `1|--gate` became `1|--merge-gate`. A step-lines row now wants `Remote sync (--backlog-run-quick)`, and `Eu1ovZF` reads the areas from the help's `--backlog-run-quick, --gate [AREA...]` line. shell-regress `EqQUj04` drives the stub with `--merge-gate`.
-		- Verified: check-push-gate `Eu7Giqm` (the alias line, no record, `QUICK_SKIP` and `BACKLOG_SKIP` left out, an area, no calibration, `--gate --backlog-run-quick` taken, `--gate --merge-gate` and `--gate --long` refused) failed on the old engine and passes. `Eu7Giqn` (the run in the image gets `--backlog-run-quick`) failed with the engine passing `--gate` on, and passes. Also the whole of check-push-gate and shell-regress, check-pins, check-docs, test-ids, shellcheck and markdownlint.
-		- Swept: every `--gate` in cicd/, the hook, ci.yml, check-pins, check-push-gate, shell-regress, config.bash, the 2 Dockerfiles, contributing.md, install.md, design.md and the style guide. The hook's `--gate` fallback is for an engine from before `--merge-gate`, so it stays. install-dev.bash's lines are 2026102813104377. The other 3 bindings have no pipeline of their own, so no twin there.
-	- Decisions:
-		- me: `--container=ubuntu` ran `--gate --no-lint`. It runs `--merge-gate --no-lint --no-release --no-remote --no-leakcheck` now, the same stages as before, so it keeps the 200,000-input fuzz and the cross checks rather than shrink to the quick run. `--no-leakcheck` also drops the sanitizer runs there, since the image has no heaptrack or CodeQL for the leak checks, and spelling out 4 `--skip`s would tie it to their names. The main image and the hosted tests half still run them.
-		- me: `--gate` in the help shares `--backlog-run-quick`'s entry, as `--ci` and `--slow` do, to stay inside check-docs' 100-line header window.
-	- Test case: check-push-gate `Eu7Giqm` and `Eu7Giqn`.
-
-- CICD reset: install-dev's gate lines
-	- ID: 2026102813104377
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the docs-only sync of install-dev.bash to main, after the round's merge into dev. check-docs `EpHGoa0` compares origin/main with origin/dev and goes red until main has the new text.
-	- Priority: High
-	- Opened: 20261028-131043
-	- Opened by: 2026102515494624
-	- Parent ID: 2026102515494624
-	- Prereq IDs: 2026102813104371, 2026102814013272
-	- Requirements:
-		- install-dev.bash's `--gate` lines follow, with a docs-only sync to main, since check-docs compares it with main's copy.
-	- Prereq IDs now name 2026102814013272 too, since that split-off child changes --gate before install-dev's lines can follow.
-	- Progress log:
-		- 20261029: install-dev.bash's 3 `--gate` lines (header, `--help`, the closing echo) say `--merge-gate`, since a dev box needs the whole gate, and `--gate` is the quick run now. Done on the round branch.
-		- Verified: shellcheck, check-install-dev and check-docs pass. check-docs `EpHGoa0` compares origin/main with origin/dev, so it stays green until the merge reaches dev, then red until main gets the same text.
-	- Decisions:
-		- me: `--merge-gate`, not `--backlog-run-quick`, since the line says what a dev box is set up to run before a merge, as contributing.md's does.
-	- Test case: no new test. check-docs `EpHGoa0` (installers match main) covers the sync.
-	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
-
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
 	- Type: Enhancement
@@ -411,28 +535,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Anything timed, such as perf-gate, goes to vm925w.
 		- `b29w`, never `b29w-wif`.
 
-- CICD reset: CPU and priority on the test boxes
-	- ID: 2026102421025788
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Priority: High
-	- Opened: 20261024-210257
-	- Opened by: 2026102416250040
-	- Parent ID: 2026102416250040
-	- Prereq IDs: 2026102421025778
-	- Requirements:
-		- check-boxes' box half works out its cap from that box's CPU count and load, by the same rule as this box.
-		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
-	- Progress log:
-		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
-		- 20261029: the box half sets `ionice -c 3` before `nice -n 19` when the box has an ionice that takes the class, found by absolute path since `env -i` clears PATH. A box without one, such as FreeBSD, runs at nice only. The cap needs no code: one case at a time is the rule's floor.
-	- Decisions:
-		- The ionice is a prefix on the `env -i` line, not on the box's own `sh`, so the check doesn't need `$$` and the line still holds no single quote (me).
-	- Swept: the one `nice -n 19` in the box half. The host run in check-boxes.bash, and check-freebsd's run, are on this box and already under cicd.bash's ionice. The other 3 bindings have no box step.
-	- Verified: `private/claude_simple/tools/check-boxes-stub/ionice-probe.bash` runs the box half alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). `check-boxes-stub/run.bash` passes, skips and fails as before over the stand-in boxes (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
-	- Needs external testing: Y. `Etfwju5` in a full run with release builds, with vmFreeBSD through the real helper (no ionice there, so it takes the nice-only path). Linux-side ionice is covered by the probe.
-	- Test case: check-boxes `Etfwju5` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
-
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
 	- Type: Enhancement
@@ -461,108 +563,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
-
-- Refuse a save over a file that changed since the load
-	- ID: 2026102910482342
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Related IDs: 2026102910482343
-	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
-	- Requirements:
-		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
-		- A caller that means to replace it can force the save.
-		- A document from `parse`, with no file behind it, saves as it does now.
-	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
-	- Note: with v4 (JC).
-	- Decisions:
-		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
-		- me, 20261029: the check is on content only, byte for byte against what the load read, as `upgrade_file` and shclwrap check. A touch alone is no change. The document keeps the text it read, about the file's size in memory.
-		- me, 20261029: after a good save over the file, the check is against what that save wrote, so a program that saves twice isn't refused by its own first save. In Rust the save calls take `&mut self` for it.
-		- me, 20261029: over the file means the path the load read, after links are followed, the way the save finds its target. Another hard link to it isn't seen. A save anywhere else isn't checked.
-		- me, 20261029: a load that found nothing expects nothing there at the save, and a file gone since the load is a change too. An `Unreadable` load has nothing to compare, so it saves as now.
-		- me, 20261029: the force is a save option, in a new `save_file_with(path, options)` that also holds `lossy` and `keep_lines`, so the create and the mode of 2026102910482343 go beside it rather than in more save calls. The 3 save calls stay, as its short forms.
-		- me, 20261029: `upgrade_file` keeps its own changed refusal, `Io` with `Other`, since it returns `UpgradeError`, not `SaveError`.
-		- me, 20261029: the CLI parses the text it read, so its saves have no file behind them and keep the CLI's own check.
-		- me, 20261029: it's a check and not a lock. An edit between the check and the rename is still lost, as in `upgrade_file`.
-	- Progress log:
-		- 20261029: split by binding. Rust and Python are child 2026102912203339, Go 2026102912203341, and C, the C++ veneer and the docs 2026102912203343.
-
-- Refuse a changed file's save, in Rust and Python
-	- ID: 2026102912203339
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the hosted windows job, for `Eu7RSm4`. `Eu7RSm3` passed for windows under wine.
-	- Priority: High
-	- Opened: 20261029-122033
-	- Opened by: 2026102910482342
-	- Parent ID: 2026102910482342
-	- Requirements:
-		- The parent's, in the Rust and Python libraries, by the parent's Decisions.
-	- Decisions:
-		- me, 20261029: Python goes with Rust, since check-docs `EshYXXC` fails while the reference has a public item `shcl.py` lacks.
-		- me, 20261029: Rust has `SaveError::Changed { path }`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, &SaveOptions) -> Result<bool, SaveError>`, and the 3 save calls take `&mut self`. Python raises `SaveChanged` under `SaveError`, and has `SaveOptions(lossy=False, keep_lines=False, force=False)` and `save_file_with(path, opts)`. The message is `PATH: refusing to save: the file changed since it was loaded; nothing written (force overrides)`.
-		- me, 20261029: design.md's Save outcomes row, which says the library's save doesn't look, and spec.md wait for 2026102912203343, when all 4 have it.
-	- Progress log:
-		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. Every save call goes through `save_file_with`, which checks a save over that file before the write and records what it wrote. The CLI's `write_back` takes the document as `&mut`. check-docs and the style guide name `SaveChanged` as a Python-only class.
-	- Swept: Rust and Python. Every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with` and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate` and `new` read no file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it holds as `mut`. Go, C and the veneer are the other 2 children.
-	- Verified: `Eu7RSm3` and `Eu7RSm4` fail with the check turned off and pass with it. `Eu7RSm3` passes for windows under wine. Also `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark`.
-	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`Eu7RSm3`) and Python (`Eu7RSm4`).
-	- Branch: `r1029`
-	- Commit: `e799b7c6`
-
-- Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
-	- ID: 2026102912203343
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: the hosted windows job, for the veneer smoke's `Eu7cuVe`. `Eu7cuVd` passed for windows under wine.
-	- Priority: High
-	- Opened: 20261029-122033
-	- Opened by: 2026102910482342
-	- Parent ID: 2026102910482342
-	- Prereq IDs: 2026102912203339, 2026102912203341
-	- Requirements:
-		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
-		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
-	- Decisions:
-		- me, 20261029: C has `SHCL_SAVE_CHANGED` on the end of `shcl_save_result`, where new values go, and `shcl_save_file_with(d, path, shcl_save_options, *kept, *why)`, with `*kept` as the line-keeping save sets it. The options struct is `{ lossy, keep_lines, force }` and goes by value, as in Go, since all zero is `shcl_save_file`.
-		- me, 20261029: C's saves give no message, refused or failed, so the Rust message is in the enum's comment rather than in a new out-parameter.
-		- me, 20261029: the veneer has `SaveResult::Changed`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, opts, why)`, which gives the result and whether it kept the lines. Its 3 saves are no longer `const`, as Rust's take `&mut self`. They still hold the document's lock, so the threads test keeps its save, through a non-const reference.
-		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
-	- Progress log:
-		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
-	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
-	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
-	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
-	- Branch: `r1029`
-	- Commit: `c271967d`
-
-- Let a save create a new file only, and give a new file its mode
-	- ID: 2026102910482343
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Related IDs: 2026102910482342
-	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
-	- Requirements:
-		- A create-only save fails when the file is there, even with 2 programs saving it at once.
-		- A new file can be given a mode. A file that's already there keeps its own, as now.
-		- Both are save options, beside the force from 2026102910482342.
-	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
-	- Note: with v4 (JC).
-	- Decisions:
-		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
-		- me, 20261029: `create` and `mode` are fields of `SaveOptions`, beside `force`. A second create-only save call was canceled.
-		- me, 20261029: a create-only save that finds a file there is refused with its own kind, as the changed check is, and nothing is written: Rust `SaveError::Exists { path }`, Python `SaveExists`, Go `*SaveExists`, C `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, the veneer `SaveResult::Exists`. The message is `PATH: refusing to save: the file is already there and create asks for a new one; nothing written`. Losing the race to another create is the same refusal, since the publish of a new file already fails on anything at the path.
-		- me, 20261029: the lost-content gate goes first, then the create check, then the changed check. `force` doesn't override `create`.
-		- me, 20261029: `mode` is the permission bits, `0o777`, and 0 means the mode an ordinary create gives, so the zero value is still `save_file` in every binding. It's set exactly, on the handle, so the umask doesn't narrow it, and the temp file is born private first. A file already there keeps its own mode and the option is ignored. Windows has no POSIX modes, so it's ignored there.
-	- Progress log:
-		- 20261029: split by binding. Rust and Python are child 2026102913213663, Go 2026102913213683, and C, the C++ veneer and the docs 2026102913213704. All 3 are in on `r1029` and wait on the hosted windows job, and the C one on cppcheck.
 
 - Open a newer format's file read-only
 	- ID: 2026102910482344
