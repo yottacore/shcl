@@ -473,6 +473,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
 	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
 	- Branch: `r1029`
+	- Commit: `c271967d`
 
 - Let a save create a new file only, and give a new file its mode
 	- ID: 2026102910482343
