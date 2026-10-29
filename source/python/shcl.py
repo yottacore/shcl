@@ -4515,9 +4515,6 @@ class _Parser:
 	def _add_star_element(self, parent, tok, s, line, indent):
 		"""One stacked-list item (`- scalar`) appends to the parent's array.
 		True when it joined the list."""
-		if parent == _ROOT:
-			self._refuse(line, "E007", "list element with no parent field", _OUT_DROPPED, indent)
-			return False
 		piece = tok.elements[0]
 		# _item_fault kept an empty one (E009).
 		el = _element_of(piece, s)
@@ -4526,7 +4523,7 @@ class _Parser:
 		clash = _unit_clash(self.arena[parent].name, el.text)
 		# Element cap: each element line past it is refused on its own, the way
 		# any other bad element line is. Only a line that would join the list:
-		# under a field that already has a value it is E011, cap or not.
+		# the item arm kept one under a field with a value (E011), cap or not.
 		if self._list_full(parent):
 			self._refuse_capped(line, indent)
 			return False
@@ -4544,16 +4541,14 @@ class _Parser:
 			k = _merge_key(node.name, node.value)
 			d = (node.name, _disp_key(node.value))
 			self.star_open = (parent, k, d)
-		elif node.value.kind == "array" and node.star_list:
+		else:
+			# The item arm kept any other value's item (E011).
 			if self.star_open is None or self.star_open[0] != parent:
 				self._star_flush()
 				old_key = _merge_key(node.name, node.value)
 				old_disp = (node.name, _disp_key(node.value))
 				self.star_open = (parent, old_key, old_disp)
 			node.value.els.append(el)
-		else:
-			self._refuse(line, "E011", "field already has a value; list element ignored", _OUT_DROPPED, indent)
-			return False
 		if clash is not None:
 			self._diag(Diagnostic(line, Severity.Hint, clash, "H005"))
 		# A kept element holds its column as a dropped one does, with the field
@@ -4777,27 +4772,35 @@ class _Parser:
 						self._refuse(lineno, "E008", "list element mixed with field children", _out_retained(_trim_wsp_end(rest), had_blank), indent)
 						i += 1
 						continue
-					comment = tok.src[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
-					# Elements have no node of their own; trivia rides the field. At the
-					# root there is no field (E007), so the comment rides the document
-					# like any other pending one.
-					if parent != _ROOT:
-						if self._add_star_element(parent, tok, tok.src, lineno, indent):
-							self._keep_among(parent, indent)
-							# A comment on an item stays on its item.
-							if comment and self.arena[parent].value.kind == "array":
-								self.arena[parent]._triv().notes.append((len(self.arena[parent].value.els) - 1, comment))
-								comment = ""
-						head = self.arena[parent].line
-						if self.ends and self.ends[-1][0] == head:
-							self.ends[-1] = (head, lineno)
-						else:
-							self.ends.append((head, lineno))
-						self._attach_trivia(parent, indent, comment)
+					# No field above it, or one with a value already: kept the same
+					# way. Nothing the item says is wrong, so the emitter asks the
+					# reload before it writes one.
+					code = None
+					if parent == _ROOT:
+						code, msg = "E007", "list element with no parent field"
 					else:
-						if comment:
-							self.pending.append(_Pend(comment, indent, had_blank, 0))
-						self._add_star_element(parent, tok, tok.src, lineno, indent)
+						nd = self.arena[parent]
+						if nd.value.kind != "empty" and not (nd.star_list and nd.value.kind == "array"):
+							code, msg = "E011", "field already has a value; list element ignored"
+					if code is not None:
+						self.kept_any = True
+						self._refuse(lineno, code, msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
+						i += 1
+						continue
+					# Elements have no node of their own; trivia rides the field.
+					comment = tok.src[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
+					if self._add_star_element(parent, tok, tok.src, lineno, indent):
+						self._keep_among(parent, indent)
+						# A comment on an item stays on its item.
+						if comment and self.arena[parent].value.kind == "array":
+							self.arena[parent]._triv().notes.append((len(self.arena[parent].value.els) - 1, comment))
+							comment = ""
+					head = self.arena[parent].line
+					if self.ends and self.ends[-1][0] == head:
+						self.ends[-1] = (head, lineno)
+					else:
+						self.ends.append((head, lineno))
+					self._attach_trivia(parent, indent, comment)
 					i += 1
 					continue
 				parent = self._resolve_parent(indent, found)
@@ -5127,7 +5130,7 @@ class _Emit:
 		del self.lv[depth:]
 		if self.lv:
 			self.lv[-1][1] = True
-		self.lv.append([False, False])
+		self.lv.append([False, False, False])
 
 	def placed(self, indent):
 		"""A line a reload binds, such as a list element: it resolves, then
@@ -5402,15 +5405,17 @@ def _push_leads(e, leads, base, at):
 			# open for the lines under it when only its value was wrong.
 			indent = "\t" * pad
 			parent, open_, tail = e.resolve(indent)
-			# One kept only for where it sat, E001 or E008, reloads kept only
-			# under a list with an item written, or a field with a field line
-			# written, or as E001 under lines held open on such a list.
-			# Anywhere else it would bind: a comment then.
+			# One kept only for where it sat reloads kept only as E001 under a
+			# list with an item written, or under lines held open on one, and
+			# an item only as E008 under a field with a field line written,
+			# E011 under one with a value, or E007 at the root. Anywhere else
+			# it would bind: a comment then.
 			kind = _kept_for_place(text)
 			if kind is not None:
-				stays = False
+				stays = not kind and parent == _ROOT and open_ == -1 and not tail
 				if pad > 0 and not tail and open_ == pad - 1 and pad - 1 < len(e.lv) and parent is not None and parent not in (_DEAD, _UNOPENED):
-					stays = e.lv[pad - 1][0 if kind else 1]
+					up = e.lv[pad - 1]
+					stays = up[0] if kind else up[1] or up[2]
 				if parent == _LAZY and 0 <= open_ < len(e.lv) and e.lv[open_][0] and all(t[1] == _LAZY for t in tail):
 					stays = True
 				if not stays and "\n" not in text:
@@ -6692,6 +6697,8 @@ class Document:
 		if e.record:
 			e.near = [(idx, pos)]
 			e.flushed = 0
+		if depth < len(e.lv):
+			e.lv[depth][2] = v.kind != "empty" and not _stacks(node)
 		if v.kind == "empty":
 			e.span(len(out))
 			if trailing:

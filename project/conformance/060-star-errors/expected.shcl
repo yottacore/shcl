@@ -1,6 +1,8 @@
+- orphan
 list:
 	- a
 	- # just a comment
 	- b, c
 	- d
 val: 1
+	- e

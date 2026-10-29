@@ -700,7 +700,7 @@ fn lost_count_follows_the_outcome_table() {
 		for d in doc.diagnostics() {
 			let src = lines.get(d.line.wrapping_sub(1)).copied().unwrap_or("");
 			match d.code {
-				"E002" | "E003" | "E006" | "E007" | "E011" | "E016" | "E021" => want += 1,
+				"E002" | "E003" | "E006" | "E016" | "E021" => want += 1,
 				"E012" | "E018" if !kept.contains(&d.line) => want += 1,
 				"E012" | "E018" => {
 					kept_seen += 1;
@@ -733,8 +733,8 @@ fn lost_count_follows_the_outcome_table() {
 				{
 					want += 1
 				}
-				"E001" | "E004" | "E008" | "E009" | "E013" | "E014" | "E019" | "E026" | "E027"
-				| "E028" => {
+				"E001" | "E004" | "E007" | "E008" | "E009" | "E011" | "E013" | "E014" | "E019"
+				| "E026" | "E027" | "E028" => {
 					kept_seen += 1;
 					let kept = src.trim_matches([' ', '\t']);
 					// Or as the comment a settle makes of a line under a list
@@ -1317,14 +1317,14 @@ fn list_with_field(doc: &Document) -> bool {
 
 /// The text that built one before: a kept array line (E028) with a wildcard
 /// line under it, then items, then a field. The wildcard line is kept too
-/// now (E004), so the item after it is the lost line (E011), no list forms,
-/// and the field binds under the field the array line opened.
+/// now (E004), and so is the item after it (E011), so no list forms, nothing
+/// is lost, and the field binds under the field the array line opened.
 #[test]
 fn a_kept_array_line_builds_no_list_with_a_field() {
 	let _id = test_id("EtXAOBZ");
 	let doc = Document::parse("srv.srv: 2\nsrv: [v1]\n\tq(*): 7\n\t- 0\n\tc: 1\n");
 	assert!(!list_with_field(&doc), "{}", doc.to_canonical());
-	assert_eq!(doc.lost_count(), 1);
+	assert_eq!(doc.lost_count(), 0);
 	let once = doc.to_canonical();
 	assert!(once.contains("\n\tc: 1\n"), "{once}");
 	assert_eq!(Document::parse(&once).to_canonical(), once);

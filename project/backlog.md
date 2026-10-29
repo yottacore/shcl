@@ -63,6 +63,35 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: cli-regress `Er84S7X`'s line for a `-` alone went from `4:1 name=0-1` to `4:1 item value=1-1 elem=1-1`.
 		- Swept: the `E004` and `E009` arms, `is_item`, the parser's item test and the tokens dump in all 4 bindings and CLIs. `attach_path`'s wildcard arm stays, unreachable from a load, with a comment. Go, Python and C have no twin of the fuzz properties.
 
+- `E007` and `E011` are retained
+	- ID: 2026102821334870
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `--backlog-run-full`, for the C leak and sanitizer checks over the changed parser.
+	- Priority: Avg
+	- Opened: 20261028-213348
+	- Opened by: me
+	- Parent ID: 2026102820321403
+	- Requirements:
+		- An item with no field above it (`E007`) and an item under a field that has a value (`E011`) are retained: kept as written, binding nothing, counting nothing lost. The emitter asks the reload before it writes one, and writes it as a comment where it would bind.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, and the goldens that change.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261028, all 4 bindings:
+			- The item arm judges both before it adds the item, beside `E008`, and keeps the line whole, its comment included. `add_star_element` no longer refuses either, and the root branch that filed the item's comment on its own is gone.
+			- The emitter's level model also knows whether each open binding line has a value an item cannot join. A clean kept item stays as written under such a line (`E011`) and at the root (`E007`), and is a comment anywhere else, so an edit that empties the field can't make it bind.
+			- Docs: design.md's 2 table rows, the emitter paragraph and a paragraph with the reasons, spec.md's 2 code rows, the changelog, the conformance README.
+			- Goldens: `060` (both kept, lost 0), `095` (kept, lost 3, its first comment), `104` (kept with its comment, lost 0), `160` (kept through the edit, lost 0, its comment). New case `212`.
+			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (629 rows), crosscheck over the corpus plus a 2000-iteration dump (54219 comparisons), check-docs, check-abnf, check-migrate, shell-regress, shellcheck, clippy, rustfmt, go vet, staticcheck, ruff, mypy, mdcheck, and a 2,000,000-iteration release fuzz.
+	- Decisions:
+		- me, 20261028: case `160` stays and now pins a kept `E007` line through an edit. Case `159` still pins a dropped line through one.
+		- me, 20261028: a kept item that a merge leaves at the root reloads as `E007` and stays as written there, since nothing binds it. Where a merge puts a layer's kept line is older, filed as 2026102821530643.
+	- Test case: corpus `Eu3rXZ5` (`212-kept-homeless-items`) in all 4 runners, with `EoLwIlf` (`060`), `Ep16w2C` (`095`), `Ep1EGVd` (`104`) and `Eqwdeun` (`160`). Fuzz `EpFAzfk` counts both codes as kept. cli-regress `Er7gigM`, `Es8aXnv`, `Es8aXnx`.
+		- 20261028: fuzz `EtXAOBZ`'s lost count went from 1 to 0, since its `E011` item is kept now. Its no-list and comment checks stay.
+		- 20261028: cli-regress `Er7gigM` went from exit 7 and the file unchanged to exit 0 and `val: 9` / `\t- e` / `z: 2`. `Es8aXnv` went from exit 7 and no output to exit 0 and the same text. `Es8aXnx`'s output went from `val: 9` / `z: 2` to the same text, with no canonical-form note.
+		- 20261028: cli-regress `Es8aXo0` and `Es8aXo1` read the `%KL%` file, which still loses a line, where `%KE%` no longer does. The diag-exit `lost` fixture is a tab-only line now, and `EssOUuO` and `EssOUuP` remove `val.m`, which makes the save fall back, where `--set=val=9` now keeps every line.
+		- Swept: the item arm, `add_star_element` and the emitter's kept-line check in all 4 bindings and the 4 CLIs' explain text. The fuzz outcome table and `REFUSING` list. No other site filed an `E007` or `E011`.
+
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
@@ -260,6 +289,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261028: the sentence names a third case for those 2, a line that would bind written back as it was, where no comment stands for it, rather than leave them as unstated exceptions. It goes in with 2026102820321403.
 
+- `E003`, `E007` and `E011` are retained, and dropping follows one test
+	- ID: 2026102820321403
+	- Type: Enhancement
+	- Status: Started
+	- Priority: Avg
+	- Opened: 20261028-203214
+	- Opened by: me
+	- Parent ID: 2026102307143758
+	- Prereq IDs: 2026102820320485
+	- Estimated effort: High
+	- Requirements:
+		- `E003`, `E007` and `E011` lines are retained. Each is refused only for where it sits, so the emitter asks the reload before it writes one, as it does for a clean `E001` or `E008` line, and writes it as a comment where it would bind.
+		- The one-sentence test for dropping goes in design.md above the Load outcomes table, once every code it names follows it.
+		- The sentence also names a tab-only `E012` and a BOM-led `E014`, per the Decisions on 2026102307143758.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Progress log:
+		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
+
 - CICD reset: --gate as a backlog run
 	- ID: 2026102814013272
 	- Type: Enhancement
@@ -384,21 +431,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
-- `E003`, `E007` and `E011` are retained, and dropping follows one test
-	- ID: 2026102820321403
+- `E003` is retained, and dropping follows one test
+	- ID: 2026102821334970
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
-	- Opened: 20261028-203214
+	- Opened: 20261028-213349
 	- Opened by: me
-	- Parent ID: 2026102307143758
-	- Prereq IDs: 2026102820320485
-	- Estimated effort: High
+	- Parent ID: 2026102820321403
+	- Prereq IDs: 2026102821334870
 	- Requirements:
-		- `E003`, `E007` and `E011` lines are retained. Each is refused only for where it sits, so the emitter asks the reload before it writes one, as it does for a clean `E001` or `E008` line, and writes it as a comment where it would bind.
-		- The one-sentence test for dropping goes in design.md above the Load outcomes table, once every code it names follows it.
-		- The sentence also names a tab-only `E012` and a BOM-led `E014`, per the Decisions on 2026102307143758.
+		- A line whose index selects no instance (`E003`) is retained. The emitter asks the reload before it writes one, from the instances written before it, and writes it as a comment where the index would find one.
+		- The one-sentence test for dropping goes in design.md above the Load outcomes table, with the tab-only `E012` and the BOM-led `E014` named, per the parent.
 		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Estimated effort: High
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
@@ -468,6 +514,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Reproduced: 20261028, once, in `--backlog-run-quick rust go python c cli cicd` on `r1028b` at a load near 22. Its no-sync case said "exit 0, step 5 never closed", with `Starting Release builds` as the last line, and its alpine case counted no steps. A rerun of check-push-gate alone passed, at a load near 10.
 	- Possible cause: a stub run whose step 5 had not closed when it was read, so the test reads before the run ends, or a timeout in the stub that only a loaded box hits.
+
+- A merge writes a layer's kept line from inside a merged block at the root
+	- ID: 2026102821530643
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261028-215306
+	- Opened by: me
+	- Related IDs: 2026102821334870
+	- Estimated effort: Low
+	- Steps to reproduce:
+		- `shcl set --set=q=1 --layer=f.shcl f.shcl` on `val: 1` / `\ta: [1` / `z: 2`.
+	- Incorrect behavior: the layer's copy of `\ta: [1` comes out as `a: [1` at the root, above `val: 1`. It binds nothing and nothing is lost, but it left its block. A kept `E011` item under `val` does the same, and comes back as `E007`.
+	- Expected behavior: the layer's kept line stays in the merged block, or goes as a comment there, the way a kept `E008` item's copy does.
+	- Reproduced: 20261028, on `r1028b`, with `E019` and with `E011`. A comment in the same spot is folded into the base's copy.
 
 - A kept line under an `E028` array line moves out of its block when an `E011` item follows it
 	- ID: 2026102820592074

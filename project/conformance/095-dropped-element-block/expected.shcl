@@ -1,4 +1,4 @@
-# A dropped element holds its level: what is under it is skipped with it.
+# A refused element holds its level: what is under it is skipped with it.
 # An empty item is E009 with a space after the dash or without, and is kept.
 sizes:
 	k: 1
@@ -8,3 +8,4 @@ list:
 	- a
 	- b
 full: 1
+	- extra

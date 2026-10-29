@@ -6194,7 +6194,6 @@ static void refuse_capped(ShclParser *P, size_t line, ShclStr indent) {
 /* One stacked-list item (`- scalar`) appends to the parent's array. */
 static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok, ShclStr text, size_t line, ShclStr indent) {
 	ShclArena *a = &P->d->arena;
-	if (parent == ROOT) { p_refuse(P, line, "E007", s_lit("list element with no parent field"), out_kind(OUT_DROPPED), indent); return 0; }
 	ShclPiece piece = tok->elements[0];
 	ShclElement el;
 	if (!element_of(a, &piece, text, &el)) return 0; /* item_fault kept an empty one (E009) */
@@ -6202,7 +6201,7 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	int clashed = unit_clash(P->tmp, NODE(P->d, parent).name, el.text, &clash);
 	/* Element cap: each element line past it is refused on its own, the way
 	   any other bad element line is. Only a line that would join the list:
-	   under a field that already has a value it is E011, cap or not. */
+	   the item arm kept one under a field with a value (E011), cap or not. */
 	if (list_full(P, parent)) { refuse_capped(P, line, indent); return 0; }
 	ShclNode *node = &NODE(P->d, parent);
 	if (node->value.kind == V_EMPTY) {
@@ -6218,7 +6217,8 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 		   stays valid because nothing can look this node up until a non-star
 		   line binds (which flushes first). */
 		P->star_open = 1; P->star_node = parent; P->star_key = merge_hash(node->name, &node->value); P->star_disp = disp_hash(node->name, &node->value);
-	} else if (node->value.kind == V_ARRAY && node->star_list) {
+	} else {
+		/* The item arm kept any other value's item (E011). */
 		if (!P->star_open || P->star_node != parent) {
 			star_flush(P);
 			P->star_open = 1; P->star_node = parent; P->star_key = merge_hash(node->name, &node->value); P->star_disp = disp_hash(node->name, &node->value);
@@ -6230,9 +6230,6 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 			node->value.els = arr; node->value.cap_els = nc;
 		}
 		node->value.els[node->value.nels++] = el;
-	} else {
-		p_refuse(P, line, "E011", s_lit("field already has a value; list element ignored"), out_kind(OUT_DROPPED), indent);
-		return 0;
 	}
 	if (clashed) p_diag(P, line, SHCL_SEV_HINT, "H005", clash);
 	/* A kept element holds its column as a dropped one does, with the field as
@@ -6568,28 +6565,34 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 					p_refuse(&P, lineno, "E008", s_lit("list element mixed with field children"), out_retained(trim_wsp_end(rest), had_blank), indent);
 					i++; continue;
 				}
-				ShclStr ecomment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
-				/* Elements have no node of their own; trivia rides the field. At the
-				   root there is no field (E007), so the comment rides the document
-				   like any other pending one. */
-				if (parent != ROOT) {
-					if (add_star_element(&P, parent, &tok, rest, lineno, indent)) {
-						keep_among(&P, parent, indent);
-						/* A comment on an item stays on its item. */
-						if (ecomment.n && NODE(d, parent).value.kind == V_ARRAY) {
-							ShclNote nt; nt.at = NODE(d, parent).value.nels - 1; nt.text = ecomment;
-							ShclVecNote_push(a, &triv_mut(a, &NODE(d, parent))->notes, nt);
-							ecomment = s_empty();
-						}
-					}
-					size_t head = NODE(d, parent).line;
-					if (d->ends.len && d->ends.data[d->ends.len - 2] == head) d->ends.data[d->ends.len - 1] = lineno;
-					else { ShclVecSize_push(a, &d->ends, head); ShclVecSize_push(a, &d->ends, lineno); }
-					attach_trivia(&P, parent, indent, ecomment);
-				} else {
-					if (ecomment.n) { ShclPend pd; pd.text = ecomment; pd.indent = indent; pd.blank_before = had_blank; pd.ceiling = indent.n; pd.line = 0; ShclVecPend_push(P.tmp, &P.pending, pd); }
-					(void)add_star_element(&P, parent, &tok, rest, lineno, indent);
+				/* No field above it, or one with a value already: kept the same
+				   way. Nothing the item says is wrong, so the emitter asks the
+				   reload before it writes one. */
+				const char *hcode = NULL, *hmsg = NULL;
+				if (parent == ROOT) { hcode = "E007"; hmsg = "list element with no parent field"; }
+				else if (NODE(d, parent).value.kind != V_EMPTY && !(NODE(d, parent).star_list && NODE(d, parent).value.kind == V_ARRAY)) {
+					hcode = "E011"; hmsg = "field already has a value; list element ignored";
 				}
+				if (hcode) {
+					P.kept_any = 1;
+					p_refuse(&P, lineno, hcode, s_lit(hmsg), out_retained(trim_wsp_end(rest), had_blank), indent);
+					i++; continue;
+				}
+				/* Elements have no node of their own; trivia rides the field. */
+				ShclStr ecomment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
+				if (add_star_element(&P, parent, &tok, rest, lineno, indent)) {
+					keep_among(&P, parent, indent);
+					/* A comment on an item stays on its item. */
+					if (ecomment.n && NODE(d, parent).value.kind == V_ARRAY) {
+						ShclNote nt; nt.at = NODE(d, parent).value.nels - 1; nt.text = ecomment;
+						ShclVecNote_push(a, &triv_mut(a, &NODE(d, parent))->notes, nt);
+						ecomment = s_empty();
+					}
+				}
+				size_t head = NODE(d, parent).line;
+				if (d->ends.len && d->ends.data[d->ends.len - 2] == head) d->ends.data[d->ends.len - 1] = lineno;
+				else { ShclVecSize_push(a, &d->ends, head); ShclVecSize_push(a, &d->ends, lineno); }
+				attach_trivia(&P, parent, indent, ecomment);
 				i++; continue;
 			}
 			{
@@ -9597,9 +9600,10 @@ typedef struct {
 	   pairs. */
 	int record; ShclVecFell fell; size_t verbatim;
 	ShclVecSize near; size_t flushed; ShclVecSize kept_near;
-	/* Per binding depth, LV_ITEMS when that node has a `- ` item written
-	   and LV_FIELDS when it has a field line under it, for a kept line
-	   refused only for where it sits. */
+	/* Per binding depth, LV_ITEMS when that node has a `- ` item written,
+	   LV_FIELDS when it has a field line under it, and LV_VALUED when it
+	   has a value an item cannot join, for a kept line refused only for
+	   where it sits. */
 	ShclVecSize lv;
 	/* shcl_to_text_keep_lines only: where the lines from each source line
 	   start (offset, line; 0 for none), each raw body with the tabs its lines
@@ -9629,7 +9633,7 @@ static ShclStr emit_tabs(ShclEmit *e, size_t n) {
 	return t;
 }
 
-enum { LV_ITEMS = 1, LV_FIELDS = 2 };
+enum { LV_ITEMS = 1, LV_FIELDS = 2, LV_VALUED = 4 };
 
 /* A binding line at this depth: the stack is its levels and nothing else. */
 static void emit_bound(ShclEmit *e, size_t depth) {
@@ -10100,15 +10104,16 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			   open for the lines under it when only its value was wrong. */
 			ShclStr ind = emit_tabs(e, pad);
 			ShclTrial t = emit_resolve(e, ind);
-			/* One kept only for where it sat, E001 or E008, reloads kept only
-			   under a list with an item written, or a field with a field line
-			   written, or as E001 under lines held open on such a list.
-			   Anywhere else it would bind: a comment then. */
+			/* One kept only for where it sat reloads kept only as E001 under a
+			   list with an item written, or under lines held open on one, and
+			   an item only as E008 under a field with a field line written,
+			   E011 under one with a value, or E007 at the root. Anywhere else
+			   it would bind: a comment then. */
 			int kind = kept_for_place(a, c->text);
 			if (kind) {
-				int stays = 0;
+				int stays = kind == 2 && t.found && t.parent == ROOT && t.open == -1 && !t.ntail;
 				if (pad > 0 && !t.ntail && t.open == (ptrdiff_t)pad - 1 && pad - 1 < e->lv.len && t.found && t.parent != DEAD && t.parent != UNOPENED)
-					stays = (e->lv.data[pad - 1] & (kind == 1 ? LV_ITEMS : LV_FIELDS)) != 0;
+					stays = (e->lv.data[pad - 1] & (kind == 1 ? LV_ITEMS : (LV_FIELDS | LV_VALUED))) != 0;
 				if (t.found && t.parent == LAZY && t.open >= 0 && (size_t)t.open < e->lv.len && (e->lv.data[t.open] & LV_ITEMS)) {
 					int held = 1;
 					for (size_t k = 0; k < t.ntail; k++) held = held && t.tail[k].node == LAZY;
@@ -10214,6 +10219,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	sb_putc(a, out, ':');
 	emit_bound(e, depth);
 	emit_near(e, idx, pos);
+	if (depth < e->lv.len && v->kind != V_EMPTY && !stacks(node)) e->lv.data[depth] |= LV_VALUED;
 	if (v->kind == V_EMPTY) { emit_span(e, out->len); emit_trailing(a, out, trailing); sb_putc(a, out, '\n'); }
 	else if (v->kind == V_ARRAY && stacks(node)) {
 		/* Stacked, with the kept lines where they sat. */

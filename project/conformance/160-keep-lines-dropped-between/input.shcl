@@ -1,4 +1,4 @@
-# A list element with no parent field is dropped. An edit to the block
+# A list element with no parent field is kept. An edit to the block
 # after it keeps it as written.
 account: w
 	email: a@x

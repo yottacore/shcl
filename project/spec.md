@@ -618,10 +618,10 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 | `E004` | wildcard selector on a binding line (wildcards are query-only). The line is kept as written and binds nothing, none of its path's fields are opened, and what is written under it goes with it. A raw block it opens is kept with it
 | `E005` | unterminated raw block (closing fence never found)
 | `E006` | raw-block fence with no parent field to bind to
-| `E007` | stacked `- ` list item with no parent field
+| `E007` | stacked `- ` list item with no parent field. The line is kept as written and binds nothing
 | `E008` | stacked `- ` list item under a parent with field children. The line is kept as written and binds nothing, and what is written under it goes with it
 | `E009` | empty stacked `- ` list item: a `-` with nothing after it but blanks or a comment. The line is kept as written and binds nothing, and the other items still load
-| `E011` | stacked `- ` item for a field that already has a value (item ignored)
+| `E011` | stacked `- ` item for a field that already has a value. The line is kept as written and binds nothing
 | `E012` | indentation matches no open level; kept as written when the indent holds a space and the line opens no raw block, lost otherwise
 | `E013` | a line led by `*`, the old list item marker. A list item is written `- value`. The line is kept as written and binds nothing, the other items still load, and what is written under it goes with it
 | `E014` | a bare field name that breaks the spelling rule (`404: x`, `-x: y`, `Straße: x`), or a malformed line, with the reason named in the message. A name that can still be read is kept and holds its level open, so the lines under it load under that name. Any other malformed line is kept and the lines under it go with it. A line with no colon whose bare name has a blank in it (`square-miles 300`) is this code too. A raw block the line opens is kept with it
