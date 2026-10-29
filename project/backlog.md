@@ -443,9 +443,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. Every save call goes through `save_file_with`, which checks a save over that file before the write and records what it wrote. The CLI's `write_back` takes the document as `&mut`. check-docs and the style guide name `SaveChanged` as a Python-only class.
 	- Swept: Rust and Python. Every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with` and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate` and `new` read no file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it holds as `mut`. Go, C and the veneer are the other 2 children.
-	- Verified: `Eu7RSm3` and `Eu7RSm4` fail with the check turned off and pass with it. `Eu7RSm3` passes for windows under wine. Also cargo test, cargo fmt, clippy for linux and the windows target, the Python conformance suite, ruff and mypy.
+	- Verified: `Eu7RSm3` and `Eu7RSm4` fail with the check turned off and pass with it. `Eu7RSm3` passes for windows under wine. Also `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark`.
 	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`Eu7RSm3`) and Python (`Eu7RSm4`).
 	- Branch: `r1029`
+	- Commit: `e799b7c6`
 
 - Refuse a changed file's save, in Go
 	- ID: 2026102912203341
