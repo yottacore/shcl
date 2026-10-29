@@ -147,16 +147,20 @@ pub enum FileStatus {
 	Unreadable, // exists but could not be read (permissions, a directory, bad encoding, past a read_file cap)
 }
 
-/// Why a save did not happen. The two cases need different handling, so they
-/// are separate values rather than two spellings of one message: `Refused` is
+/// Why a save did not happen. The cases need different handling, so they
+/// are separate values rather than spellings of one message: `Refused` is
 /// the lost-content gate, which the caller can reverse with `save_file_lossy`,
-/// and `Io` is the disk's answer, which they cannot.
+/// `Changed` is another program's edit, which `SaveOptions::force` writes
+/// over, and `Io` is the disk's answer, which they cannot reverse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveError {
 	/// This save would delete content from the file (see `lost_count`).
 	Refused { path: String, lost: usize },
 	/// The write itself failed: why, and the message.
 	Io(WriteError),
+	/// The file the document was loaded from no longer holds what the load
+	/// read, or what this document's last save there wrote. Nothing written.
+	Changed { path: String },
 }
 
 impl std::fmt::Display for SaveError {
@@ -168,6 +172,52 @@ impl std::fmt::Display for SaveError {
 				path, lost
 			),
 			SaveError::Io(e) => std::fmt::Display::fmt(e, f),
+			SaveError::Changed { path } => write!(
+				f,
+				"{}: refusing to save: the file changed since it was loaded; nothing written (force overrides)",
+				path
+			),
+		}
+	}
+}
+
+/// How `save_file_with` saves. The default is `save_file`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SaveOptions {
+	/// Write even when the save deletes content from the file, as
+	/// `save_file_lossy` does.
+	pub lossy: bool,
+	/// Keep the lines no edit touched, as `save_file_keep_lines` does.
+	pub keep_lines: bool,
+	/// Write over the file the document was loaded from even when it changed
+	/// since, for a caller that means to replace whatever is there.
+	pub force: bool,
+}
+
+/// The file a load read, for the save's changed check: where the path
+/// resolved to, and its text, or None when nothing was there.
+#[derive(Debug, Clone)]
+struct LoadedFile {
+	target: std::path::PathBuf,
+	text: Option<String>,
+}
+
+impl LoadedFile {
+	/// A path that resolves to no target, a link cycle, is a save's error
+	/// already, so it gets no check.
+	fn at(path: &str, text: Option<String>) -> Option<Box<LoadedFile>> {
+		let target = resolve_target(path).ok()?;
+		Some(Box::new(LoadedFile { target, text }))
+	}
+
+	/// The file at PATH still holds the text, byte for byte, or is still
+	/// not there. Content only, so a touch alone is no change. A read that
+	/// fails another way is left to the write, which fails the same way.
+	fn holds(&self, path: &str) -> bool {
+		match std::fs::read(path) {
+			Ok(now) => self.text.as_deref().is_some_and(|t| t.as_bytes() == now),
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.text.is_none(),
+			Err(_) => true,
 		}
 	}
 }
@@ -871,6 +921,9 @@ pub struct Document {
 	// was already canonical, since the canonical form is then the one that
 	// keeps its lines. A merge drops it: the layer's lines are not this text's.
 	source: Option<String>,
+	// The file a load read, which a save over it checks first. A merge keeps
+	// it, since the file under the merged document is still that one.
+	file: Option<Box<LoadedFile>>,
 }
 
 /// The first child of each (parent, name), chained on to the next same-named
@@ -6298,6 +6351,7 @@ impl<'a> Parser<'a> {
 			ends: self.ends,
 			dropped: self.dropped,
 			source: None,
+			file: None,
 		};
 		doc.settle_kept();
 		doc
@@ -6525,7 +6579,14 @@ impl Document {
 	fn load_file_any(path: &str, level: Strictness, keep: bool) -> (Document, FileStatus) {
 		let text = match read_file(path, 0) {
 			Ok(t) => t,
-			Err(st) => return (Parser::new().parse("", level), st),
+			Err(st) => {
+				let mut doc = Parser::new().parse("", level);
+				// A file that could not be read gives a save nothing to compare.
+				if st == FileStatus::NotFound {
+					doc.file = LoadedFile::at(path, None);
+				}
+				return (doc, st);
+			}
 		};
 		let mut doc = Parser::new().parse(&text, level);
 		let st = if doc.error_count() > 0 {
@@ -6536,6 +6597,7 @@ impl Document {
 		if keep {
 			doc.keep_source(&text);
 		}
+		doc.file = LoadedFile::at(path, Some(text));
 		(doc, st)
 	}
 
@@ -6544,24 +6606,64 @@ impl Document {
 	/// interrupted save can never truncate the config it rewrites - the same
 	/// mechanics the CLI's `--write` uses. Refuses when the write would delete
 	/// content from the file (see lost_count); save_file_lossy writes
-	/// anyway. The Err tells the two apart without matching on prose:
-	/// SaveError::Refused is the gate, SaveError::Io is the write failing.
-	pub fn save_file(&self, path: &str) -> Result<(), SaveError> {
+	/// anyway. Over the file a load read, refuses when that file no longer
+	/// holds what the load read, or what this document's last save there
+	/// wrote, so another program's edit is not lost; `SaveOptions::force`
+	/// writes anyway. The Err tells them apart without matching on prose:
+	/// SaveError::Refused is the gate, SaveError::Changed the other program's
+	/// edit, SaveError::Io the write failing.
+	pub fn save_file(&mut self, path: &str) -> Result<(), SaveError> {
+		self.save_file_with(path, &SaveOptions::default())
+			.map(|_| ())
+	}
+
+	/// save_file without the lost-content gate: writes even when the
+	/// write deletes content from the file. The caller owns that choice. The
+	/// changed check still applies.
+	pub fn save_file_lossy(&mut self, path: &str) -> Result<(), SaveError> {
+		let opts = SaveOptions {
+			lossy: true,
+			..SaveOptions::default()
+		};
+		self.save_file_with(path, &opts).map(|_| ())
+	}
+
+	/// The save the options describe: Ok(true) when it kept the lines, as
+	/// save_file_keep_lines says. All the save calls come here.
+	pub fn save_file_with(&mut self, path: &str, opts: &SaveOptions) -> Result<bool, SaveError> {
 		let lost = self.lost_count();
-		if lost > 0 {
+		let (text, kept) = if opts.keep_lines {
+			self.to_text_keep_lines()
+		} else {
+			(self.to_canonical(), false)
+		};
+		if !opts.lossy && !kept && lost > 0 {
 			return Err(SaveError::Refused {
 				path: path.to_string(),
 				lost,
 			});
 		}
-		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)
-	}
-
-	/// save_file without the lost-content gate: writes even when the
-	/// write deletes content from the file. The caller owns that choice. Only ever
-	/// Errs with SaveError::Io - the gate is the one thing it skips.
-	pub fn save_file_lossy(&self, path: &str) -> Result<(), SaveError> {
-		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)
+		// The file the load read has to be as the load or this document's last
+		// save there left it. That's a check and not a lock: an edit between it
+		// and the rename is still lost.
+		let over = self
+			.file
+			.as_deref()
+			.filter(|f| resolve_target(path).is_ok_and(|t| t == f.target));
+		if let Some(f) = over
+			&& !opts.force
+			&& !f.holds(path)
+		{
+			return Err(SaveError::Changed {
+				path: path.to_string(),
+			});
+		}
+		let over = over.is_some();
+		write_file_atomic(path, &text).map_err(SaveError::Io)?;
+		if over && let Some(f) = self.file.as_deref_mut() {
+			f.text = Some(text);
+		}
+		Ok(kept)
 	}
 
 	/// Canonical form: block layout, tabs, insertion order, minimal quoting,
@@ -6630,17 +6732,12 @@ impl Document {
 	/// Ok(false) when it wrote the canonical form instead. A line the load
 	/// dropped comes back as written when the lines are kept, so this
 	/// refuses the way save_file does only when it would write canonical.
-	pub fn save_file_keep_lines(&self, path: &str) -> Result<bool, SaveError> {
-		let (text, kept) = self.to_text_keep_lines();
-		let lost = self.lost_count();
-		if !kept && lost > 0 {
-			return Err(SaveError::Refused {
-				path: path.to_string(),
-				lost,
-			});
-		}
-		write_file_atomic(path, &text).map_err(SaveError::Io)?;
-		Ok(kept)
+	pub fn save_file_keep_lines(&mut self, path: &str) -> Result<bool, SaveError> {
+		let opts = SaveOptions {
+			keep_lines: true,
+			..SaveOptions::default()
+		};
+		self.save_file_with(path, &opts)
 	}
 
 	fn emit_marked(&self) -> Emit {

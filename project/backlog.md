@@ -400,7 +400,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Refuse a save over a file that changed since the load
 	- ID: 2026102910482342
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261029-104823
 	- Opened by: JC
@@ -414,6 +414,63 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: with v4 (JC).
 	- Decisions:
 		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: the check is on content only, byte for byte against what the load read, as `upgrade_file` and shclwrap check. A touch alone is no change. The document keeps the text it read, about the file's size in memory.
+		- me, 20261029: after a good save over the file, the check is against what that save wrote, so a program that saves twice isn't refused by its own first save. In Rust the save calls take `&mut self` for it.
+		- me, 20261029: over the file means the path the load read, after links are followed, the way the save finds its target. Another hard link to it isn't seen. A save anywhere else isn't checked.
+		- me, 20261029: a load that found nothing expects nothing there at the save, and a file gone since the load is a change too. An `Unreadable` load has nothing to compare, so it saves as now.
+		- me, 20261029: the force is a save option, in a new `save_file_with(path, options)` that also holds `lossy` and `keep_lines`, so the create and the mode of 2026102910482343 go beside it rather than in more save calls. The 3 save calls stay, as its short forms.
+		- me, 20261029: `upgrade_file` keeps its own changed refusal, `Io` with `Other`, since it returns `UpgradeError`, not `SaveError`.
+		- me, 20261029: the CLI parses the text it read, so its saves have no file behind them and keep the CLI's own check.
+		- me, 20261029: it's a check and not a lock. An edit between the check and the rename is still lost, as in `upgrade_file`.
+	- Progress log:
+		- 20261029: split by binding. Rust and Python are child 2026102912203339, Go 2026102912203341, and C, the C++ veneer and the docs 2026102912203343.
+
+- Refuse a changed file's save, in Rust and Python
+	- ID: 2026102912203339
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs external testing: the hosted windows job, for `Eu7RSm4`. `Eu7RSm3` passed for windows under wine.
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Requirements:
+		- The parent's, in the Rust and Python libraries, by the parent's Decisions.
+	- Decisions:
+		- me, 20261029: Python goes with Rust, since check-docs `EshYXXC` fails while the reference has a public item `shcl.py` lacks.
+		- me, 20261029: Rust has `SaveError::Changed { path }`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, &SaveOptions) -> Result<bool, SaveError>`, and the 3 save calls take `&mut self`. Python raises `SaveChanged` under `SaveError`, and has `SaveOptions(lossy=False, keep_lines=False, force=False)` and `save_file_with(path, opts)`. The message is `PATH: refusing to save: the file changed since it was loaded; nothing written (force overrides)`.
+		- me, 20261029: design.md's Save outcomes row, which says the library's save doesn't look, and spec.md wait for 2026102912203343, when all 4 have it.
+	- Progress log:
+		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. Every save call goes through `save_file_with`, which checks a save over that file before the write and records what it wrote. The CLI's `write_back` takes the document as `&mut`. check-docs and the style guide name `SaveChanged` as a Python-only class.
+	- Swept: Rust and Python. Every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with` and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate` and `new` read no file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it holds as `mut`. Go, C and the veneer are the other 2 children.
+	- Verified: `Eu7RSm3` and `Eu7RSm4` fail with the check turned off and pass with it. `Eu7RSm3` passes for windows under wine. Also cargo test, cargo fmt, clippy for linux and the windows target, the Python conformance suite, ruff and mypy.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`Eu7RSm3`) and Python (`Eu7RSm4`).
+	- Branch: `r1029`
+
+- Refuse a changed file's save, in Go
+	- ID: 2026102912203341
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Prereq IDs: 2026102912203339
+	- Requirements:
+		- The parent's, in Go, as Rust and Python have them in 2026102912203339: the changed error kind, the check in every save call, the save options with `force`, and the twin of `Eu7RSm3`.
+
+- Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
+	- ID: 2026102912203343
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Prereq IDs: 2026102912203339, 2026102912203341
+	- Requirements:
+		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
+		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
 
 - Let a save create a new file only, and give a new file its mode
 	- ID: 2026102910482343

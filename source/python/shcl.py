@@ -65,8 +65,10 @@ __all__ = [
 	"Read",
 	"Rules",
 	"SCHEMA_LINE_HEAD",
+	"SaveChanged",
 	"SaveError",
 	"SaveFailed",
+	"SaveOptions",
 	"SaveRefused",
 	"SchemaStatus",
 	"SegTok",
@@ -336,9 +338,10 @@ class LoadError(Exception):
 
 
 class SaveError(Exception):
-	"""Base for the two ways a save does not happen. They are separate classes
+	"""Base for the ways a save does not happen. They are separate classes
 	so a caller can tell them apart with `except` rather than by matching on the
-	message: a refusal is theirs to reverse, a write failure is not."""
+	message: a refusal or another program's edit is theirs to reverse, a write
+	failure is not."""
 
 
 class SaveRefused(SaveError):
@@ -361,6 +364,69 @@ class SaveFailed(SaveError):
 	def __init__(self, message: str, status: WriteStatus):
 		self.status = status
 		super().__init__(message)
+
+
+class SaveChanged(SaveError):
+	"""The file the document was loaded from no longer holds what the load
+	read, or what this document's last save there wrote. Nothing was written;
+	SaveOptions.force is the override."""
+	path: str | os.PathLike[str]
+
+	def __init__(self, path: str | os.PathLike[str]):
+		self.path = path
+		super().__init__(f"{path}: refusing to save: the file changed since it was loaded; nothing written (force overrides)")
+
+
+class SaveOptions:
+	"""How save_file_with saves. The default is save_file. lossy writes even
+	when the save deletes content from the file, as save_file_lossy does.
+	keep_lines keeps the lines no edit touched, as save_file_keep_lines does.
+	force writes over the file the document was loaded from even when it
+	changed since, for a caller that means to replace whatever is there."""
+	__slots__ = ("lossy", "keep_lines", "force")
+
+	def __init__(self, lossy: bool = False, keep_lines: bool = False, force: bool = False) -> None:
+		self.lossy = lossy
+		self.keep_lines = keep_lines
+		self.force = force
+
+
+class _LoadedFile:
+	"""The file a load read, for the save's changed check: where the path
+	resolved to, and its text, or None when nothing was there."""
+	__slots__ = ("target", "text")
+
+	def __init__(self, target: str, text: str | None) -> None:
+		self.target = target
+		self.text = text
+
+	@staticmethod
+	def at(path: str | os.PathLike[str], text: str | None) -> _LoadedFile | None:
+		# A path that resolves to no target, a link cycle, is a save's error
+		# already, so it gets no check.
+		try:
+			return _LoadedFile(_resolve_target(os.fspath(path)), text)
+		except (OSError, ValueError):
+			return None
+
+	def over(self, path: str | os.PathLike[str]) -> bool:
+		try:
+			return _resolve_target(os.fspath(path)) == self.target
+		except (OSError, ValueError):
+			return False
+
+	def holds(self, path: str | os.PathLike[str]) -> bool:
+		"""The file at path still holds the text, byte for byte, or is still
+		not there. Content only, so a touch alone is no change. A read that
+		fails another way is left to the write, which fails the same way."""
+		try:
+			with open(os.fspath(path), "rb") as f:
+				now = f.read()
+		except FileNotFoundError:
+			return self.text is None
+		except (OSError, ValueError):
+			return True
+		return self.text is not None and self.text.encode("utf-8") == now
 
 
 class ShclDateTime:
@@ -6136,7 +6202,7 @@ def _errors_within(d, of):
 
 class Document:
 	"""A parsed SHCL document: the tree, its diagnostics, and its strictness level."""
-	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_arrays", "_bracketed", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source")
+	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_arrays", "_bracketed", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source", "_file")
 
 	def __init__(
 		self,
@@ -6197,6 +6263,9 @@ class Document:
 		# that keeps its lines. A merge drops it: the layer's lines are not
 		# this text's.
 		self._source: str | None = None
+		# The file a load read, which a save over it checks first. A merge
+		# keeps it, since the file under the merged document is still that one.
+		self._file: _LoadedFile | None = None
 
 	@staticmethod
 	def parse(text: str) -> Document:
@@ -6277,10 +6346,15 @@ class Document:
 	) -> tuple[Document, FileStatus]:
 		text, st = read_file(path, 0)
 		if text is None:
-			return _Parser().parse("", strictness), st
+			doc = _Parser().parse("", strictness)
+			# A file that could not be read gives a save nothing to compare.
+			if st == FileStatus.NotFound:
+				doc._file = _LoadedFile.at(path, None)
+			return doc, st
 		doc = _Parser().parse(text, strictness)
 		if keep:
 			doc._keep_source(text)
+		doc._file = _LoadedFile.at(path, text)
 		if doc.error_count() > 0:
 			return doc, FileStatus.HadErrors
 		return doc, FileStatus.Clean
@@ -6291,19 +6365,43 @@ class Document:
 		interrupted save can never truncate the config it rewrites - the same
 		mechanics the CLI's --write uses. Refuses when the write would delete
 		content from the file (see lost_count); save_file_lossy writes
-		anyway. Raises SaveRefused for the gate and SaveFailed for a failed
-		write: returning the message instead would let the obvious spelling -
-		the call on a line of its own - report success while doing nothing."""
-		lost = self.lost_count()
-		if lost > 0:
-			raise SaveRefused(path, lost)
-		_save_text(path, self.to_canonical())
+		anyway. Over the file a load read, refuses when that file no longer
+		holds what the load read, or what this document's last save there
+		wrote, so another program's edit is not lost; SaveOptions.force writes
+		anyway. Raises SaveRefused for the gate, SaveChanged for the other
+		program's edit and SaveFailed for a failed write: returning the message
+		instead would let the obvious spelling - the call on a line of its own -
+		report success while doing nothing."""
+		self.save_file_with(path, SaveOptions())
 
 	def save_file_lossy(self, path: str | os.PathLike[str]) -> None:
 		"""save_file without the lost-content gate: writes even when the
 		write deletes content from the file. The caller owns that choice. Never
-		raises SaveRefused - the gate is the one thing it skips."""
-		_save_text(path, self.to_canonical())
+		raises SaveRefused - the gate is the one thing it skips. The changed
+		check still applies."""
+		self.save_file_with(path, SaveOptions(lossy=True))
+
+	def save_file_with(self, path: str | os.PathLike[str], opts: SaveOptions) -> bool:
+		"""The save the options describe: True when it kept the lines, as
+		save_file_keep_lines says. All the save calls come here."""
+		lost = self.lost_count()
+		if opts.keep_lines:
+			text, kept = self.to_text_keep_lines()
+		else:
+			text, kept = self.to_canonical(), False
+		if not opts.lossy and not kept and lost > 0:
+			raise SaveRefused(path, lost)
+		# The file the load read has to be as the load or this document's last
+		# save there left it. That's a check and not a lock: an edit between it
+		# and the rename is still lost.
+		f = self._file
+		over = f is not None and f.over(path)
+		if f is not None and over and not opts.force and not f.holds(path):
+			raise SaveChanged(path)
+		_save_text(path, text)
+		if f is not None and over:
+			f.text = text
+		return kept
 
 	def diagnostics(self) -> list[Diagnostic]:
 		# A copy: the reference hands out a borrowed view nobody can append to,
@@ -6456,12 +6554,7 @@ class Document:
 		False when it wrote the canonical form instead. A line the load dropped
 		comes back as written when the lines are kept, so this refuses the way
 		save_file does only when it would write canonical."""
-		text, kept = self.to_text_keep_lines()
-		lost = self.lost_count()
-		if not kept and lost > 0:
-			raise SaveRefused(path, lost)
-		_save_text(path, text)
-		return kept
+		return self.save_file_with(path, SaveOptions(keep_lines=True))
 
 	def _emit_marked(self):
 		e = _Emit(False)

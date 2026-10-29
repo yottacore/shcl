@@ -5219,6 +5219,91 @@ def main():
 		if os.listdir(ud) != ["d"]:
 			raise SystemExit(f"directory: left {os.listdir(ud)}")
 
+	test_id("Eu7RSm4", "a_save_over_a_file_changed_since_the_load_is_refused")
+	# A save over the file a load read refuses when another program changed it
+	# since, writes nothing, and writes with force. A save elsewhere, and a
+	# document from parse, save as they always did (2026102910482342).
+	with tempfile.TemporaryDirectory() as cd:
+		def cread(p):
+			with open(p, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def cwrite(p, t):
+			with open(p, "w", encoding="utf-8", newline="") as fh:
+				fh.write(t)
+
+		def refused(what, call, p):
+			try:
+				call()
+			except shcl.SaveChanged as e:
+				if e.path != p:
+					raise SystemExit(f"{what}: path {e.path!r}") from None
+				return str(e)
+			raise SystemExit(f"{what}: saved")
+
+		def same(what, got, want):
+			if got != want:
+				raise SystemExit(f"{what}: {got!r}, want {want!r}")
+
+		force = shcl.SaveOptions(force=True)
+		cf = os.path.join(cd, "f.shcl")
+		cwrite(cf, "a: 1\n")
+		cdoc, _ = shcl.Document.load_file(cf)
+		cdoc.set_int("a", 2)
+		cwrite(cf, "a: 9\n")
+		refused("plain", lambda: cdoc.save_file(cf), cf)
+		refused("lossy", lambda: cdoc.save_file_lossy(cf), cf)
+		same("left", cread(cf), "a: 9\n")
+		same("message", refused("plain", lambda: cdoc.save_file(cf), cf), f"{cf}: refusing to save: the file changed since it was loaded; nothing written (force overrides)")
+		same("force", cdoc.save_file_with(cf, force), False)
+		same("forced", cread(cf), "a: 2\n")
+		# The next save is checked against what that one wrote.
+		cdoc.set_int("a", 3)
+		cdoc.save_file(cf)
+		same("next", cread(cf), "a: 3\n")
+		# The same bytes written again are no change.
+		cwrite(cf, "a: 3\n")
+		cdoc.save_file(cf)
+
+		# The line-keeping save, and a link to the file, are checked too.
+		cwrite(cf, "a: 1 # one\n")
+		ckept, _ = shcl.Document.load_file_keep_lines(cf, shcl.Strictness.Standard)
+		ckept.set_int("a", 2)
+		cwrite(cf, "a: 9 # nine\n")
+		refused("kept", lambda: ckept.save_file_keep_lines(cf), cf)
+		if os.name != "nt":
+			clink = os.path.join(cd, "link.shcl")
+			os.symlink(cf, clink)
+			refused("link", lambda: ckept.save_file_keep_lines(clink), clink)
+		same("kept left", cread(cf), "a: 9 # nine\n")
+		same("kept force", ckept.save_file_with(cf, shcl.SaveOptions(keep_lines=True, force=True)), True)
+		same("kept forced", cread(cf), "a: 2 # one\n")
+
+		# Gone since the load is a change. So is a file made where none was.
+		cgone, _ = shcl.Document.load_file(cf)
+		os.remove(cf)
+		refused("gone", lambda: cgone.save_file(cf), cf)
+		same("gone left", os.path.exists(cf), False)
+		cn = os.path.join(cd, "new.shcl")
+		cfresh, cst = shcl.Document.load_file(cn)
+		same("new status", cst, shcl.FileStatus.NotFound)
+		cfresh.set_int("a", 1)
+		cwrite(cn, "b: 2\n")
+		refused("made", lambda: cfresh.save_file(cn), cn)
+		same("made left", cread(cn), "b: 2\n")
+		os.remove(cn)
+		cfresh.save_file(cn)
+		same("created", cread(cn), "a: 1\n")
+
+		# Elsewhere is not checked, and the load's file still is.
+		cother = os.path.join(cd, "other.shcl")
+		cwrite(cother, "z: 0\n")
+		cgone.save_file(cother)
+		refused("still", lambda: cgone.save_file(cf), cf)
+		# A parse has no file behind it.
+		shcl.Document.parse("a: 5\n").save_file(cother)
+		same("parsed", cread(cother), "a: 5\n")
+
 	test_id("EsJZko5", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
 	# as its type, and keeps a value it replaces above the field as a comment

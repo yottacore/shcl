@@ -1823,7 +1823,7 @@ fn load_layered_from(
 /// command succeeded, and the save runs through the library's own gate rather
 /// than a second copy of the rule - the CLI and a consumer program cannot then
 /// disagree about which rewrites are safe.
-fn write_back(doc: &Document, file: &str, o: &Opts, read: Option<&str>, keep: bool) -> u8 {
+fn write_back(doc: &mut Document, file: &str, o: &Opts, read: Option<&str>, keep: bool) -> u8 {
 	// `read` is the bytes FILE held when the command read it, and None when
 	// this write is creating FILE.
 	if let Some(before) = read
@@ -2356,7 +2356,7 @@ fn do_fmt(o: &Opts) -> u8 {
 	if o.write && !write_target_ok(file) {
 		return EXIT_IO;
 	}
-	let (doc, read) = match load_layered_from(o, file, None, false) {
+	let (mut doc, read) = match load_layered_from(o, file, None, false) {
 		Ok(loaded) => loaded,
 		Err(code) => return code,
 	};
@@ -2381,7 +2381,7 @@ fn do_fmt(o: &Opts) -> u8 {
 		return 6;
 	}
 	if o.write {
-		return write_back(&doc, file, o, Some(&read), false);
+		return write_back(&mut doc, file, o, Some(&read), false);
 	}
 	out!("{}", doc.to_canonical());
 	0
@@ -3213,7 +3213,7 @@ fn do_set(o: &Opts) -> u8 {
 		}
 		// A file that was there is read again first, for the same wait.
 		return write_back(
-			&doc,
+			&mut doc,
 			file,
 			o,
 			(!creating).then_some(read.as_str()),

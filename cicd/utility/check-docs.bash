@@ -276,7 +276,7 @@ rs = open(f"{root}/source/rust/src/lib.rs", encoding="utf-8").read()
 guide = open(f"{root}/project/style-guide_code.md", encoding="utf-8").read()
 # Python raises one exception class per variant of the reference's error
 # enums, and StatusError where get_* returns Err. Zone is a tuple in Python.
-python_only = {"SaveRefused", "SaveFailed", "UpgradeNotFound", "UpgradeAmbiguous", "UpgradeBackupTaken", "UpgradeFailed", "UpgradeErrorsLeft", "StatusError"}
+python_only = {"SaveRefused", "SaveFailed", "SaveChanged", "UpgradeNotFound", "UpgradeAmbiguous", "UpgradeBackupTaken", "UpgradeFailed", "UpgradeErrorsLeft", "StatusError"}
 rust_only = {"Zone"}
 def bound(body):
 	for st in body:
