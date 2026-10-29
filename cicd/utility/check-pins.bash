@@ -217,6 +217,10 @@ for runArgs in "${gateRuns[@]}"; do
 	if [[ " ${runArgs} " != *" --no-lint "* && " ${runArgs} " != *" --no-tests "* ]]; then
 		echo "check-pins: a hosted job runs both lint and tests, which as one job ran out of time:${runArgs}" >&2; nBad=$((nBad + 1))
 	fi
+	## Tests then the release ran out the hour too (2026102915235852).
+	if [[ " ${runArgs} " != *" --no-tests "* && " ${runArgs} " != *" --no-release "* ]]; then
+		echo "check-pins: a hosted job runs both tests and the release, which as one job ran out of time:${runArgs}" >&2; nBad=$((nBad + 1))
+	fi
 	for f in "${stageFlags[@]}"; do
 		if [[ " ${runArgs} " != *" ${f} "* ]]; then flagMissingSomewhere["${f}"]=1; fi
 	done

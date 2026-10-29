@@ -385,13 +385,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted ci.yml tests half runs past its 60-minute timeout
 	- ID: 2026102915235852
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: one hosted ci.yml run, where the release part ends well inside its timeout and the tests part does too.
 	- Severity: High
 	- Opened: 20261029-152358
 	- Opened by:
 	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
 	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
 	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
+	- Progress log:
+		- 20261029: the release has a hosted part of its own, `--merge-gate --no-lint --no-tests --no-cross --no-remote`, and the tests part adds `--no-release`. timeout-minutes is 80, since the tests stage alone took 48. check-pins fails a hosted job that runs both tests and the release, as it does lint and tests.
+		- Verified: check-pins passes on the new ci.yml and fails with the release part folded back into tests. shell-regress `Eu8X2fW` passes, and passes check-pins with the new rule taken out. `cicd.bash --list` shows the release part runs the release builds, CPU floor and packages, and the tests part none of them.
+	- Swept: every `--merge-gate` line in ci.yml, check-pins' other job rules, and shell-regress' check-pins rows, which still each edit a line that's there (the release-left-out row now adds `--no-release` to the release part). No doc names the 2 halves. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Test case: shell-regress `Eu8X2fW`.
+	- Branch: `r1029b`
 
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
