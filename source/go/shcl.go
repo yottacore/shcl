@@ -4199,6 +4199,11 @@ func itemFault(tok *Tokens, text string) *fault {
 	if len(tok.Elements) > 1 {
 		return newFault("E026", "a comma then a space or the end in a list item; an item is one value, so quote the text", true)
 	}
+	if len(tok.Elements) > 0 {
+		if _, ok := elementOf(&tok.Elements[0], text); !ok {
+			return newFault("E009", "empty list element", true)
+		}
+	}
 	if len(tok.Elements) == 1 && tok.Elements[0].Quote == QuoteNone {
 		p := &tok.Elements[0]
 		raw := text[p.Start:p.End]
@@ -4261,7 +4266,7 @@ func nameFault(tok *Tokens, text string) *fault {
 		return f
 	}
 	if tok.Misspelled < 0 {
-		return nil
+		return wildcardFault(tok, text)
 	}
 	if tok.Sep >= 0 {
 		return newFault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'", true)
@@ -4283,7 +4288,7 @@ func nameFault(tok *Tokens, text string) *fault {
 		}
 	}
 	if blank < 0 {
-		return nil
+		return wildcardFault(tok, text)
 	}
 	f := newFault("E014", "malformed line skipped: unexpected character after the path", true)
 	for k := blank; k < len(text); k++ {
@@ -4293,6 +4298,18 @@ func nameFault(tok *Tokens, text string) *fault {
 		}
 	}
 	return f
+}
+
+// wildcardFault is a wildcard selector on a line that would bind (E004).
+// Wrong wherever the line sits, so it is kept and re-diagnoses the same on a
+// reload.
+func wildcardFault(tok *Tokens, text string) *fault {
+	for i := range tok.Segments {
+		if sel := tok.Segments[i].Selector; sel != nil && selectorOf(sel, text).kind == selWildcard {
+			return newFault("E004", "wildcard selector is query-only", false)
+		}
+	}
+	return nil
 }
 
 // valueSideFault is the half of lineFault judged after the element cap: the
@@ -4369,7 +4386,7 @@ func keptForPlace(text string) int {
 // isItem reports a stacked list item's line: `-` then a blank. The blank is
 // what keeps `-x: y` a field line (E014) and `- -5` the item `-5`.
 func isItem(text string) bool {
-	return len(text) > 1 && text[0] == '-' && isWspByte(text[1])
+	return text != "" && text[0] == '-' && (len(text) == 1 || isWspByte(text[1]))
 }
 
 // isFieldText reports a line's text after its indent that is read as a field
@@ -5533,6 +5550,7 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 				p.refuse(line, "E002", fmt.Sprintf("value after selector on '%s' ignored", diagName(seg.name)), outValueDropped, indent)
 			}
 		case seg.sel != nil:
+			// nameFault keeps a parsed line with one first (E004).
 			p.refuse(line, "E004", "wildcard selector is query-only", outDropped, indent)
 			return 0, false
 		case !isLast:
@@ -5674,9 +5692,9 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 		return false
 	}
 	piece := tok.Elements[0]
+	// itemFault kept an empty one (E009).
 	el, ok := elementOf(&piece, text)
 	if !ok {
-		p.refuse(line, "E009", "empty list element", outDropped, indent)
 		return false
 	}
 	clash, clashed := unitClash(p.arena[parent].name, el.text)
@@ -6000,18 +6018,11 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				continue
 			}
 		}
-		// Stacked-list item: `-` then a blank. A bare name starts with a
-		// letter, so no field line starts that way. A `-` alone after the
-		// trim is an empty item only when a blank followed it, and only the
-		// untrimmed line still knows; with none it is a field line (E014).
-		item := false
-		if strings.HasPrefix(rest, "-") {
-			after := rest[1:]
-			item = after != "" && isWspByte(after[0])
-			if after == "" && len(lines[i]) > len(indent)+lead+1 {
-				item = isWspByte(lines[i][len(indent)+lead+1])
-			}
-		}
+		// Stacked-list item: `-` then a blank or the end. A bare name
+		// starts with a letter, so no field line starts that way. A `-`
+		// alone is an empty item (E009), so a kept one, written back with
+		// its blank trimmed, reloads as the same line.
+		item := isItem(rest)
 		if item || strings.HasPrefix(rest, "*") {
 			if item {
 				TokenizeValue(rest, 1, RulesCurrent, &tok)

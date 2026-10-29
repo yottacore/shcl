@@ -1,5 +1,6 @@
-list:  # just a comment
+list:
 	- a
+	- # just a comment
 	- b, c
 	- d
 val: 1

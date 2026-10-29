@@ -2987,6 +2987,8 @@ static int item_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault 
 		if (piece_fault(a, &tok->elements[i], s, BARE_ITEM, &code, &msg)) return fault_set(f, code, msg, 1);
 	}
 	if (tok->nelem > 1) return fault_set(f, "E026", s_lit("a comma then a space or the end in a list item; an item is one value, so quote the text"), 1);
+	ShclElement el;
+	if (tok->nelem && !element_of(a, &tok->elements[0], s, &el)) return fault_set(f, "E009", s_lit("empty list element"), 1);
 	if (tok->nelem == 1 && tok->elements[0].quote == SHCL_QUOTE_NONE) {
 		ShclStr raw = s_slice(s, tok->elements[0].start, tok->elements[0].end);
 		for (size_t i = 0; i < raw.n; i++)
@@ -3022,6 +3024,7 @@ static int path_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault 
    brackets comes first, since it is what most often makes the rest look
    wrong. Its line is kept, and holds its level open as the path it would read
    as in parens, when that reads. */
+static int wildcard_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f);
 static int name_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
 	if (tok->has_bracket_selector) {
 		ShclFault pf;
@@ -3031,7 +3034,7 @@ static int name_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault 
 		return 1;
 	}
 	if (path_fault(a, tok, s, f)) return 1;
-	if (!tok->has_misspelled) return 0;
+	if (!tok->has_misspelled) return wildcard_fault(a, tok, s, f);
 	if (tok->has_sep) return fault_set(f, "E014", s_lit("field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'"), 1);
 	size_t blank = 0; int found = 0;
 	for (size_t i = 0; i < tok->nseg && !found; i++) {
@@ -3039,7 +3042,7 @@ static int name_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault 
 		if (nm->quote != SHCL_QUOTE_NONE) continue;
 		for (size_t k = nm->start; k < nm->end; k++) if (is_wsp((unsigned char)s.p[k])) { blank = k; found = 1; break; }
 	}
-	if (!found) return 0;
+	if (!found) return wildcard_fault(a, tok, s, f);
 	fault_set(f, "E014", s_lit("malformed line skipped: unexpected character after the path"), 1);
 	size_t k = blank;
 	while (k < s.n && is_wsp((unsigned char)s.p[k])) k++;
@@ -3047,9 +3050,9 @@ static int name_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault 
 	return 1;
 }
 
-/* A stacked list item's line: `-` then a blank. The blank is what keeps
-   `-x: y` a field line (E014) and `- -5` the item `-5`. */
-static int is_item(ShclStr text) { return text.n > 1 && text.p[0] == '-' && is_wsp((unsigned char)text.p[1]); }
+/* A stacked list item's line: `-` then a blank or the end. The blank is what
+   keeps `-x: y` a field line (E014) and `- -5` the item `-5`. */
+static int is_item(ShclStr text) { return text.n && text.p[0] == '-' && (text.n == 1 || is_wsp((unsigned char)text.p[1])); }
 
 /* A line's text after its indent that is read as a field line: not a comment,
    a list item, or an old `*` item (E013). */
@@ -5804,7 +5807,7 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 			}
 			break;
 		}
-		case SEL_WILDCARD:
+		case SEL_WILDCARD: /* name_fault keeps a parsed line with one first (E004) */
 			p_refuse(P, line, "E004", s_lit("wildcard selector is query-only"), out_kind(OUT_DROPPED), indent); return 0;
 		case SEL_NONE: {
 			size_t seg_parent = cur;
@@ -5904,6 +5907,15 @@ static ShclValue consume_raw(ShclParser *P, const ShclStr *lines, size_t nlines,
 	v.raw->content = sb_S(&out); v.raw->info = info; v.raw->fence_char = ch; v.raw->fence_len = len;
 	*next = i;
 	return v;
+}
+
+/* A wildcard selector on a line that would bind (E004). Wrong wherever the
+   line sits, so it is kept and re-diagnoses the same on a reload. */
+static int wildcard_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
+	for (size_t i = 0; i < tok->nseg; i++)
+		if (tok->segments[i].has_selector && selector_of(a, &tok->segments[i].selector, s).tag == SEL_WILDCARD)
+			return fault_set(f, "E004", s_lit("wildcard selector is query-only"), 0);
+	return 0;
 }
 
 /* The half of line_fault judged after the element cap: the value. A line
@@ -6185,7 +6197,7 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	if (parent == ROOT) { p_refuse(P, line, "E007", s_lit("list element with no parent field"), out_kind(OUT_DROPPED), indent); return 0; }
 	ShclPiece piece = tok->elements[0];
 	ShclElement el;
-	if (!element_of(a, &piece, text, &el)) { p_refuse(P, line, "E009", s_lit("empty list element"), out_kind(OUT_DROPPED), indent); return 0; }
+	if (!element_of(a, &piece, text, &el)) return 0; /* item_fault kept an empty one (E009) */
 	ShclStr clash;
 	int clashed = unit_clash(P->tmp, NODE(P->d, parent).name, el.text, &clash);
 	/* Element cap: each element line past it is refused on its own, the way
@@ -6521,16 +6533,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			}
 			i = next; continue;
 		}
-		/* Stacked-list item: `-` then a blank. A bare name starts with a
-		   letter, so no field line starts that way. A `-` alone after the trim
-		   is an empty item only when a blank followed it, and only the
-		   untrimmed line still knows; with none it is a field line (E014). */
-		int item = 0;
-		if (rest.p[0] == '-') {
-			ShclStr after = s_slice(rest, 1, rest.n);
-			item = after.n >= 1 && is_wsp((unsigned char)after.p[0]);
-			if (after.n == 0 && lines.data[i].n > indent.n + lead + 1) item = is_wsp((unsigned char)lines.data[i].p[indent.n + lead + 1]);
-		}
+		/* Stacked-list item: `-` then a blank or the end. A bare name starts
+		   with a letter, so no field line starts that way. A `-` alone is an
+		   empty item (E009), so a kept one, written back with its blank
+		   trimmed, reloads as the same line. */
+		int item = is_item(rest);
 		if (item || rest.p[0] == '*') {
 			if (item) {
 				tokenize_value(P.tmp, rest, 1, SHCL_RULES_CURRENT, &tok);

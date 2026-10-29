@@ -1,0 +1,9 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+top	count	0	NotFound
+srv	count	0	NotFound
+list	string[]	a|b	Good
+last	int	5	Good
+-	paths	list|last	-
+-	lost	2	-

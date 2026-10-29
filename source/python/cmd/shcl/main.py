@@ -1997,10 +1997,8 @@ def do_tokens(o):
 			out.append(" comment\n")
 			continue
 		# A list item and a fence line are value halves on their own. A `-` is
-		# an item when a blank follows it, trailing or not, which only the
-		# untrimmed line still shows (20260923 item 12).
-		after = ilen + lead + 1
-		item = body.startswith("-") and line[after:after + 1] in (" ", "\t", "\r")
+		# an item when a blank or the end follows it (20260923 item 12).
+		item = body[:1] == "-" and body[1:2] in ("", " ", "\t", "\r")
 		fence = body.startswith("```") or body.startswith("~~~")
 		if item or fence:
 			shcl.tokenize_value(rest, lead + int(item), shcl.Rules.Current, tok)

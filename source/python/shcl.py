@@ -3446,6 +3446,8 @@ def _item_fault(tok, s):
 			return _Fault(f[0], f[1], True)
 	if len(tok.elements) > 1:
 		return _Fault("E026", "a comma then a space or the end in a list item; an item is one value, so quote the text", True)
+	if tok.elements and _element_of(tok.elements[0], s) is None:
+		return _Fault("E009", "empty list element", True)
 	if len(tok.elements) == 1 and tok.elements[0].quote is Quote.None_:
 		p = tok.elements[0]
 		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
@@ -3501,7 +3503,7 @@ def _name_fault(tok):
 	if f is not None:
 		return f
 	if tok.misspelled is None:
-		return None
+		return _wildcard_fault(tok, s)
 	if tok.sep is not None:
 		return _Fault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'", True)
 	blank = None
@@ -3512,10 +3514,18 @@ def _name_fault(tok):
 		if blank is not None:
 			break
 	if blank is None:
-		return None
+		return _wildcard_fault(tok, s)
 	f = _Fault("E014", "malformed line skipped: unexpected character after the path", True)
 	f.at = next((k for k in range(blank, len(s)) if not _is_wsp_byte(s[k])), None)
 	return f
+
+
+def _wildcard_fault(tok, s):
+	"""A wildcard selector on a line that would bind (E004). Wrong wherever
+	the line sits, so it is kept and re-diagnoses the same on a reload."""
+	if any(seg.selector is not None and _selector_of(seg.selector, s)[0] == "wild" for seg in tok.segments):
+		return _Fault("E004", "wildcard selector is query-only", False)
+	return None
 
 
 def _value_side_fault(tok):
@@ -3574,9 +3584,9 @@ def _kept_for_place(text):
 
 
 def _is_item(text):
-	"""A stacked list item's line: `-` then a blank. The blank is what keeps
-	`-x: y` a field line (E014) and `- -5` the item `-5`."""
-	return len(text) > 1 and text[0] == "-" and text[1] in _WSP
+	"""A stacked list item's line: `-` then a blank or the end. The blank is
+	what keeps `-x: y` a field line (E014) and `- -5` the item `-5`."""
+	return text[:1] == "-" and (len(text) == 1 or text[1] in _WSP)
 
 
 def _is_field_text(text):
@@ -4396,6 +4406,7 @@ class _Parser:
 					# so a trailing value has nowhere to bind.
 					self._refuse(line, "E002", f"value after selector on '{_diag_name(seg.name)}' ignored", _OUT_VALUE_DROPPED, indent)
 			elif sel is not None and sel[0] == "wild":
+				# _name_fault keeps a parsed line with one first (E004).
 				self._refuse(line, "E004", "wildcard selector is query-only", _OUT_DROPPED, indent)
 				return None
 			elif not is_last:
@@ -4508,9 +4519,9 @@ class _Parser:
 			self._refuse(line, "E007", "list element with no parent field", _OUT_DROPPED, indent)
 			return False
 		piece = tok.elements[0]
+		# _item_fault kept an empty one (E009).
 		el = _element_of(piece, s)
 		if el is None:
-			self._refuse(line, "E009", "empty list element", _OUT_DROPPED, indent)
 			return False
 		clash = _unit_clash(self.arena[parent].name, el.text)
 		# Element cap: each element line past it is refused on its own, the way
@@ -4723,17 +4734,11 @@ class _Parser:
 						self._attach_trivia(node, indent, comment)
 				i = nxt
 				continue
-			# Stacked-list item: `-` then a blank. A bare name starts with a
-			# letter, so no field line starts that way. A `-` alone after the
-			# trim is an empty item only when a blank followed it, and only the
-			# untrimmed line still knows; with none it is a field line (E014).
-			item = False
-			if rest.startswith("-"):
-				after = rest[1:]
-				item = after.startswith((" ", "\t", "\r"))
-				if not after:
-					at = len(indent) + lead + 1
-					item = lines[i][at:at + 1] in (" ", "\t", "\r")
+			# Stacked-list item: `-` then a blank or the end. A bare name
+			# starts with a letter, so no field line starts that way. A `-`
+			# alone is an empty item (E009), so a kept one, written back with
+			# its blank trimmed, reloads as the same line.
+			item = _is_item(rest)
 			if item or rest.startswith("*"):
 				if item:
 					tokenize_value(rest, 1, Rules.Current, tok)

@@ -1,0 +1,14 @@
+# A wildcard selector and an empty item are wrong wherever they sit, so
+# each is kept as written and binds nothing.
+top.x(*).y: 1
+srv(*).cmd: ```
+		body: 1
+	```
+-
+-
+list:
+	- a
+	-
+	- b
+404(*).c: 3
+last: 5

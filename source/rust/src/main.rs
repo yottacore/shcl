@@ -2851,13 +2851,10 @@ fn do_tokens(o: &Opts) -> u8 {
 			Quote::Open => "?",
 		};
 		// A list item and a fence line are value halves on their own. A `-` is
-		// an item when a blank follows it, trailing or not, which only the
-		// untrimmed line still shows (20260923 item 12).
-		let item = body.starts_with('-')
-			&& line
-				.as_bytes()
-				.get(ilen + lead + 1)
-				.is_some_and(|&b| b == b' ' || b == b'\t' || b == b'\r');
+		// an item when a blank or the end follows it (20260923 item 12).
+		let item = body
+			.strip_prefix('-')
+			.is_some_and(|a| a.is_empty() || a.starts_with([' ', '\t', '\r']));
 		let fence = body.starts_with("```") || body.starts_with("~~~");
 		if item || fence {
 			shcl::tokenize_value(rest, lead + usize::from(item), Rules::Current, &mut tok);

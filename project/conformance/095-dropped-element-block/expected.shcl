@@ -1,9 +1,10 @@
 # A dropped element holds its level: what is under it is skipped with it.
-# An empty item spelled with a space after the dash is E009, not E014.
+# An empty item is E009 with a space after the dash or without, and is kept.
 sizes:
 	k: 1
 	- small
 list:
+	-
 	- a
 	- b
 full: 1

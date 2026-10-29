@@ -1611,10 +1611,8 @@ static int do_tokens(const Opts *o) {
 		size_t lead = rest.n - body.n;
 		if (body.n && body.p[0] == '#') { printf(" comment\n"); continue; }
 		// A list item and a fence line are value halves on their own. A `-` is
-		// an item when a blank follows it, trailing or not, which only the
-		// untrimmed line still shows (20260923 item 12).
-		size_t after = ilen + lead + 1;
-		int item = body.n && body.p[0] == '-' && after < line.n && (line.p[after] == ' ' || line.p[after] == '\t' || line.p[after] == '\r');
+		// an item when a blank or the end follows it (20260923 item 12).
+		int item = body.n && body.p[0] == '-' && (body.n == 1 || body.p[1] == ' ' || body.p[1] == '\t' || body.p[1] == '\r');
 		int fence = s_starts(body, "```") || s_starts(body, "~~~");
 		if (item || fence) {
 			tokenize_value(&a, rest, lead + (item ? 1 : 0), SHCL_RULES_CURRENT, &tok);

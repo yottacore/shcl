@@ -1244,8 +1244,9 @@ rows=(
 	## 20260923 item 20: the help and man page say each line is read on its own,
 	## so a raw body line comes out as a field line.
 	## 20260923 item 12: a `*` with only a blank after it is an empty element
-	## to the parser (E009), and tokens called it a name fault.
-	'Er84S7X|tokens-star-trailing-blank|tokens -|a:\n\t- \n\t-\t\n\t-\n|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 item value=1-1 elem=1-1\n3:1 item value=1-1 elem=1-1\n4:1 name=0-1\n|-'
+	## to the parser (E009), and tokens called it a name fault. A `-` alone is
+	## one too since 2026102820320485.
+	'Er84S7X|tokens-star-trailing-blank|tokens -|a:\n\t- \n\t-\t\n\t-\n|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 item value=1-1 elem=1-1\n3:1 item value=1-1 elem=1-1\n4:1 item value=1-1 elem=1-1\n|-'
 	'EqjsQiv|tokens-raw-body|tokens %R%|-|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 fence value=0-3 elem=0-3\n3:1 name=0-8\n4:1 name=0-8\n5:1 fence value=0-3 elem=0-3\n|-'
 	## 20260830b item 18: a read below strict returned the value and said nothing
 	## about a line the load had dropped, so a damaged file read clean at exit 0.

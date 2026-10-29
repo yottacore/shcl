@@ -700,9 +700,7 @@ fn lost_count_follows_the_outcome_table() {
 		for d in doc.diagnostics() {
 			let src = lines.get(d.line.wrapping_sub(1)).copied().unwrap_or("");
 			match d.code {
-				"E002" | "E003" | "E004" | "E006" | "E007" | "E009" | "E011" | "E016" | "E021" => {
-					want += 1
-				}
+				"E002" | "E003" | "E006" | "E007" | "E011" | "E016" | "E021" => want += 1,
 				"E012" | "E018" if !kept.contains(&d.line) => want += 1,
 				"E012" | "E018" => {
 					kept_seen += 1;
@@ -735,7 +733,8 @@ fn lost_count_follows_the_outcome_table() {
 				{
 					want += 1
 				}
-				"E001" | "E008" | "E013" | "E014" | "E019" | "E026" | "E027" | "E028" => {
+				"E001" | "E004" | "E008" | "E009" | "E013" | "E014" | "E019" | "E026" | "E027"
+				| "E028" => {
 					kept_seen += 1;
 					let kept = src.trim_matches([' ', '\t']);
 					// Or as the comment a settle makes of a line under a list
@@ -1317,9 +1316,9 @@ fn list_with_field(doc: &Document) -> bool {
 // }
 
 /// The text that built one before: a kept array line (E028) with a wildcard
-/// line under it, then items, then a field. The field line is kept, and only
-/// the wildcard line is lost. The list goes in brackets after the empty
-/// binding of its name, so the kept line is written as a comment.
+/// line under it, then items, then a field. The wildcard line is kept too
+/// now (E004), so the item after it is the lost line (E011), no list forms,
+/// and the field binds under the field the array line opened.
 #[test]
 fn a_kept_array_line_builds_no_list_with_a_field() {
 	let _id = test_id("EtXAOBZ");
@@ -1327,7 +1326,7 @@ fn a_kept_array_line_builds_no_list_with_a_field() {
 	assert!(!list_with_field(&doc), "{}", doc.to_canonical());
 	assert_eq!(doc.lost_count(), 1);
 	let once = doc.to_canonical();
-	assert!(once.contains("\n\t# c: 1\n"), "{once}");
+	assert!(once.contains("\n\tc: 1\n"), "{once}");
 	assert_eq!(Document::parse(&once).to_canonical(), once);
 }
 
@@ -2487,7 +2486,8 @@ fn kept_text(text: &str) -> KeptText {
 		let bare = src.trim_start_matches([' ', '\t']);
 		let kept = match d.code {
 			"E014" => !bare.starts_with('\u{feff}'),
-			"E013" | "E017" | "E019" | "E023" | "E025" | "E026" | "E027" | "E028" => true,
+			"E004" | "E009" | "E013" | "E017" | "E019" | "E023" | "E025" | "E026" | "E027"
+			| "E028" => true,
 			"E012" | "E018" => misplaced.contains(&d.line),
 			_ => false,
 		};

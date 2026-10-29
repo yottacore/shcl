@@ -140,13 +140,13 @@ Case `055` pins a raw block whose body is whitespace only: each line loses just 
 
 Case `056` pins the merge rule for an empty binding: a raw block in the higher layer fills a same-named empty binding below (`blk`), exactly as a fence line fills one inside a single file, while a valued binding still appends beside it (`two`). The merged golden is what parsing the two layers run together produces, which is what makes it a formatter fixpoint.
 
-Case `057` pins that a skipped binding line keeps its indent level (`E018`): the lines written under it are skipped with it instead of attaching one level up, the next line at its own indent still binds where it should, and a malformed line that cannot be read, retained as trivia, loses its block the same way. The strict load fails.
+Case `057` pins that a skipped binding line keeps its indent level (`E018`): the lines written under it are skipped with it instead of attaching one level up, the next line at its own indent still binds where it should, and a malformed line that cannot be read, retained as trivia, loses its block the same way. The strict load fails. The `E004` wildcard line is kept as written too.
 
 Case `058` pins raw-block nesting: the closing fence's indent is what comes off each body line, so a body whose lines all sit past the fence keeps that shared indent, a line flush left keeps nothing, and the write op stores an info-string trimmed the way a fence line reads it.
 
 Case `059` pins the two raw-block errors: a fence with no parent field (`E006`, the block is dropped) and a block that never closes (`E005`, the content runs to the end of the file and the block still binds).
 
-Case `060` pins the stacked-list errors: an item with no parent field (`E007`), an empty item (`E009`, a `-` followed only by a comment), a bare comma in an item (`E026`, kept among the items), and an item under a field that already holds a value (`E011`). The survivors still read as the list.
+Case `060` pins the stacked-list errors: an item with no parent field (`E007`), an empty item (`E009`, a `-` followed only by a comment, kept among the items), a bare comma in an item (`E026`, kept among the items), and an item under a field that already holds a value (`E011`). The survivors still read as the list.
 
 Case `061` pins `E012`: a dedent to a column that matches no open level is skipped and written back as it was, and the next line at a real level binds where it belongs.
 
@@ -216,7 +216,7 @@ Case `093` pins `allowed` on a datetime with an offset: the same instant written
 
 Case `094` pins what trimming takes off a bare piece: a space, a tab and a carriage return. A no-break space, a line separator, a vertical tab or a form feed left at an edge is whitespace inside the piece, so the line is `E025` and kept as written.
 
-Case `095` pins that a refused item holds its level: what is written under an `E008`, `E009` or `E011` item is `E018` and lost with it. The `E008` item itself is kept.
+Case `095` pins that a refused item holds its level: what is written under an `E008`, `E009` or `E011` item is `E018` and lost with it. The `E008` and `E009` items themselves are kept.
 
 Cases `096` and `097` pin a raw block that never closes, with and without a final newline: `E005`, and the block reads `body` either way.
 
@@ -443,6 +443,8 @@ Case `208` pins `H008` on lines that are refused anyway: an array element, a pie
 Case `209` pins an apostrophe inside a word as text in a bare value and a stacked item, `O'Brien`, `Jim's Server` and `rock'n'roll` included, with the writer quoting each. One next to a space or at the end, a double quote or backtick mid-word, and an apostrophe in an array element or a selector body are `E025`. A quote first in a value still opens a piece, so `'O'Brien` is `E017`. The setters quote a value holding one, and a literal `Brien'` or `[O'Brien]` is refused.
 
 Case `210` pins how `migrate` reads a quote in the middle of a 2.x value piece. 2.0 read it as text, but a comma or a `#` before its close did not end the piece, so `title="a, b"` is one element and `title="c # d"` keeps its `#`. The piece is quoted whole, `'title="a, b"'`. A quote that never closes is text, so `don't, stop` is still two elements.
+
+Case `211` pins the two codes kept for their content wherever they sit. A wildcard selector on a binding line (`E004`) is kept, opens none of its path's fields, and keeps the raw block it opens. A `-` alone is an empty item (`E009`) with or without a blank after it, kept at the root before the `E007` it used to get, and kept among a list's items. A bare name that breaks the spelling rule is still `E014` with a wildcard after it, and the lines under it go with it.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

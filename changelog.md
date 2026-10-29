@@ -232,6 +232,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A `- ` with nothing after it is an empty item (`E009`).
 
+- An empty item is kept as written and counts nothing lost, and a `-` alone is one too, where it was an `E014` name.
+
+- A line with a wildcard selector (`E004`) is kept as written, with any raw block it opens, and counts nothing lost. It no longer opens the fields of its path before the wildcard.
+
 - A trailing comment on a top-level `- ` line is kept.
 
 - A comment or malformed line under a stacked list that folds into an earlier instance is no longer dropped.

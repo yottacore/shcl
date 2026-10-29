@@ -409,7 +409,7 @@ sizes:
 
 is exactly `sizes: [small, "extra large", "Bond, James"]`. The rules that keep it unambiguous:
 
-- The marker is `-` then a blank, a space or a tab, and the blank is required. That is what separates `- small` from `-x: y`, which is `E014`, since a bare name starts with a letter. `- -5` is the item `-5`.
+- The marker is `-` then a blank, a space or a tab, and the blank is required. That is what separates `- small` from `-x: y`, which is `E014`, since a bare name starts with a letter. `- -5` is the item `-5`. A `-` alone is an empty item (`E009`), with or without a blank after it.
 
 - Each item is one value and follows the value rules, so `- extra large` is fine and `- a, b` is `E026`. Such a line is kept among the items, and the other items still load.
 
@@ -615,12 +615,12 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 | `E001` | field line under a parent already holding stacked `- ` list items. The line is kept as written and binds nothing, the other items still load, and what is written under it goes with it. One that opens a raw block is dropped with the block. A dotted line that reaches the items through an index, such as a `srv(0).tls` line after items under `srv`, is a field line there too
 | `E002` | value after a last-segment selector (`a.b(X): v`) - the value is ignored
 | `E003` | selector names an instance that does not exist: `a(5).b` where there is one `a`. An index selects an existing instance by position and never creates one, which is why a binding line should select by value. On a write path the same situation comes back as the `NoSuchIndex` set-path check rather than as a diagnostic
-| `E004` | wildcard selector on a binding line (wildcards are query-only)
+| `E004` | wildcard selector on a binding line (wildcards are query-only). The line is kept as written and binds nothing, none of its path's fields are opened, and what is written under it goes with it. A raw block it opens is kept with it
 | `E005` | unterminated raw block (closing fence never found)
 | `E006` | raw-block fence with no parent field to bind to
 | `E007` | stacked `- ` list item with no parent field
 | `E008` | stacked `- ` list item under a parent with field children. The line is kept as written and binds nothing, and what is written under it goes with it
-| `E009` | empty stacked `- ` list item
+| `E009` | empty stacked `- ` list item: a `-` with nothing after it but blanks or a comment. The line is kept as written and binds nothing, and the other items still load
 | `E011` | stacked `- ` item for a field that already has a value (item ignored)
 | `E012` | indentation matches no open level; kept as written when the indent holds a space and the line opens no raw block, lost otherwise
 | `E013` | a line led by `*`, the old list item marker. A list item is written `- value`. The line is kept as written and binds nothing, the other items still load, and what is written under it goes with it

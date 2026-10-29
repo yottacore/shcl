@@ -3908,6 +3908,13 @@ fn item_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 			true,
 		));
 	}
+	if tok
+		.elements
+		.first()
+		.is_some_and(|p| element_of(p, text).is_none())
+	{
+		return Some(Fault::new("E009", "empty list element", true));
+	}
 	match tok.elements.as_slice() {
 		[p] if p.quote == Quote::None && {
 			let raw = &text[p.start..p.end];
@@ -3974,7 +3981,9 @@ fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if let Some(f) = path_fault(tok, text) {
 		return Some(f);
 	}
-	tok.misspelled?;
+	if tok.misspelled.is_none() {
+		return wildcard_fault(tok, text);
+	}
 	if tok.sep.is_some() {
 		return Some(Fault::new(
 			"E014",
@@ -3983,11 +3992,14 @@ fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 		));
 	}
 	let s = text.as_bytes();
-	let blank = tok
+	let Some(blank) = tok
 		.segments
 		.iter()
 		.filter(|seg| seg.name.quote == Quote::None)
-		.find_map(|seg| (seg.name.start..seg.name.end).find(|&k| is_wsp_byte(s[k])))?;
+		.find_map(|seg| (seg.name.start..seg.name.end).find(|&k| is_wsp_byte(s[k])))
+	else {
+		return wildcard_fault(tok, text);
+	};
 	let mut f = Fault::new(
 		"E014",
 		"malformed line skipped: unexpected character after the path",
@@ -3995,6 +4007,16 @@ fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	);
 	f.at = (blank..s.len()).find(|&k| !is_wsp_byte(s[k]));
 	Some(f)
+}
+
+/// A wildcard selector on a line that would bind (`E004`). Wrong wherever
+/// the line sits, so it is kept and re-diagnoses the same on a reload.
+fn wildcard_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	tok.segments
+		.iter()
+		.filter_map(|seg| seg.selector.as_ref())
+		.any(|p| matches!(selector_of(p, text), Selector::Wildcard))
+		.then(|| Fault::new("E004", "wildcard selector is query-only", false))
 }
 
 /// The half of line_fault judged after the element cap: the value. A line
@@ -4048,11 +4070,11 @@ fn kept_for_place(text: &str) -> Option<bool> {
 		.then_some(true)
 }
 
-/// A stacked list item's line: `-` then a blank. The blank is what keeps
-/// `-x: y` a field line (`E014`) and `- -5` the item `-5`.
+/// A stacked list item's line: `-` then a blank or the end. The blank is
+/// what keeps `-x: y` a field line (`E014`) and `- -5` the item `-5`.
 fn is_item(text: &str) -> bool {
 	let b = text.as_bytes();
-	b.first() == Some(&b'-') && b.get(1).is_some_and(|&c| is_wsp_byte(c))
+	b.first() == Some(&b'-') && b.get(1).is_none_or(|&c| is_wsp_byte(c))
 }
 
 /// A line's text after its indent that is read as a field line: not a
@@ -5319,6 +5341,7 @@ impl<'a> Parser<'a> {
 						);
 					}
 				}
+				// name_fault() keeps a parsed line with one first (E004).
 				(Some(Selector::Wildcard), _) => {
 					self.refuse(
 						line,
@@ -5526,8 +5549,8 @@ impl<'a> Parser<'a> {
 			return false;
 		}
 		let piece = tok.elements[0];
+		// item_fault() kept an empty one (E009).
 		let Some(el) = element_of(&piece, text) else {
-			self.refuse(line, "E009", "empty list element", Outcome::Dropped, indent);
 			return false;
 		};
 		let clash = unit_clash(&self.arena[parent].name, &el.text);
@@ -5846,18 +5869,11 @@ impl<'a> Parser<'a> {
 				i = next;
 				continue;
 			}
-			// Stacked-list item: `-` then a blank. A bare name starts with a
-			// letter, so no field line starts that way. A `-` alone after the
-			// trim is an empty item only when a blank followed it, and only the
-			// untrimmed line still knows; with none it is a field line (E014).
-			let item = rest.strip_prefix('-').is_some_and(|after| {
-				after.starts_with(is_wsp)
-					|| (after.is_empty()
-						&& lines[i]
-							.as_bytes()
-							.get(ilen + lead + 1)
-							.is_some_and(|&b| is_wsp_byte(b)))
-			});
+			// Stacked-list item: `-` then a blank or the end. A bare name
+			// starts with a letter, so no field line starts that way. A `-`
+			// alone is an empty item (E009), so a kept one, written back with
+			// its blank trimmed, reloads as the same line.
+			let item = is_item(rest);
 			if item || rest.starts_with('*') {
 				if item {
 					tokenize_value(rest, 1, Rules::Current, &mut tok);

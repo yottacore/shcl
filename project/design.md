@@ -535,12 +535,12 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `E001` | error         | retained, unless the line opens a raw block, then dropped with it; a line refused for its content keeps its own code
 | `E002` | error         | value dropped
 | `E003` | error         | dropped
-| `E004` | error         | dropped
+| `E004` | error         | retained, with any raw block it opens; judged with the path, so it opens none of the path's fields
 | `E005` | error         | bound
 | `E006` | error         | dropped
 | `E007` | error         | dropped
 | `E008` | error         | retained
-| `E009` | error         | dropped
+| `E009` | error         | retained; stays among the items
 | `E010` | error         | retired: a bare comma in a `- ` item is `E026`
 | `E011` | error         | dropped
 | `E012` | error         | kept as written when the indent holds a space and the line opens no raw block; dropped otherwise
@@ -568,7 +568,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 
 - `spec.md` has what each code means, and [the value syntax design](design_docs/20261002-132445_value-syntax.md) why `E013`, `E014`, `E017`, `E019`, `E023` and `E025` to `E028` work as they do. Format 3 moved `E017` from bound to retained, since reading an open quote as bare text would break the quote rule.
 
-- A line that qualifies for more than one refusal takes the first that applies, in this order: where it sits (`E012`, `E018`), then its path and its name (`E014`, and `E017`, `E023` or `E025` in a selector or a quoted name), then the element cap (`E021`), and only then its value (`E017`, `E019`, `E023`, `E025` to `E027`). A line gets one diagnostic. A cap refuses a line past it whatever its value, so a broken array past the cap is `E021` and dropped, where within the cap it is kept (answered 2026-10-05). An item under a field that already has a value is still `E011`. The fuzz property `a_cap_refuses_only_a_line_that_would_bind` holds the order.
+- A line that qualifies for more than one refusal takes the first that applies, in this order: where it sits (`E012`, `E018`), then its path and its name (`E014`, and `E017`, `E023` or `E025` in a selector or a quoted name, then a wildcard selector, `E004`), then the element cap (`E021`), and only then its value (`E009`, `E017`, `E019`, `E023`, `E025` to `E027`). A line gets one diagnostic. A cap refuses a line past it whatever its value, so a broken array past the cap is `E021` and dropped, where within the cap it is kept (answered 2026-10-05). An item under a field that already has a value is still `E011`. The fuzz property `a_cap_refuses_only_a_line_that_would_bind` holds the order.
 
 - A kept list item holds its column, with its field as the level's node, the way a dropped one holds its own. Without that no level was open at the element's column, so the list's next sibling - a field or another element - was `E012`, "matches no open level", two lines under the level that opened it. One mistake cost every later line of the list. Dropped elements were settled first, and kept ones later.
 
@@ -593,6 +593,8 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 - `migrate` refuses a rewrite that leaves a misplaced line, even kept. 2.x placed some such lines by a looser rule and read them, so the migration would lose a binding at exit 0.
 
 - A field line after a list's items (`E001`) and an item after a field line (`E008`) are both retained, so no list has a field under it. Before, the first bound and the second was dropped, so swapping the 2 lines decided whether data was lost, and the bound case built a list no text loaded back (2026100511210900). Retaining both was chosen over binding the bracket spelling too (`E028`), which would have spread the exception into the writer and the schema (JC, 2026-10-23). A field line that opens a raw block is dropped with it instead, since moved where it binds it could not be written as a comment. An index can select a list, so a dotted line through one, such as `srv(0).tls: on`, gets what the same field gets on the line under `srv(0):`: `E028` on an array line, and `E001` after items. Before, it put the field under the list (2026102322270349).
+
+- A wildcard selector on a binding line (`E004`) and an empty item (`E009`) are retained. Each is wrong wherever its line sits, so a reload refuses it the same way and no edit can make it bind. Before, both were dropped, so one stray `-` stopped every later save of the file (2026102820320485). A `-` alone is an empty item too, with or without a blank after it, so a kept one written back with its blank trimmed reloads as the same line, not as an `E014` name. Writing it back as `- `, blank included, was rejected: canonical output has no trailing blanks, and an editor strips them. `E004` is judged with the path, so a wildcard line opens none of its path's fields, and a raw block it opens is kept with it, as `E014`'s is.
 
 - A malformed or misplaced line kept among a stacked list's elements stays where it sat, and keeps the list in the stacked spelling. It used to ride the field line like a comment, so a fix typed into it ended up outside the list (the SilkTerm report). Comments among the elements still ride the field line. A setter that replaces the list's value moves the kept lines above it, and so does a list after an empty binding of its name, whose bare header would merge into that binding on a reload.
 
