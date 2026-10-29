@@ -170,9 +170,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install-
 The pipeline runs on Linux. macOS is untested for it, and some checks need Linux. On Windows, use WSL, since the pipeline is bash. Then, from the clone:
 
 ~~~sh
-cicd/cicd.bash --gate
+cicd/cicd.bash --merge-gate --no-remote
 ~~~
 
-`--gate` is the whole gate: format check, build, lint, tests, and the cross-binding differential. It is the same thing GitHub runs on Linux. GitHub also runs a Windows job that `--gate` does not.
+`--merge-gate` is the whole gate: format check, build, lint, tests, the cross-binding differential, the release builds and the leak checks. `--no-remote` leaves out the test boxes on the maintainer's network. GitHub runs the same on Linux, less CodeQL and the cross targets, and also runs a Windows job. `--gate` is a check of about 4 minutes that leaves out the slow steps.
 
 [`contributing.md`](../contributing.md) has the full list - every toolchain and linter with its install command, the per-binding test commands, the extra tools a full cross-and-package run wants, and how to add a conformance case.

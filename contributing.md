@@ -135,7 +135,7 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/yottac
 
 ## How to develop
 
-Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/cicd.bash --gate` run locally is the same gate GitHub CI runs on Linux. GitHub also runs a Windows job that `--gate` does not.
+Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/cicd.bash --merge-gate` run locally covers what GitHub CI runs on Linux. GitHub also runs a Windows job that it does not.
 
 The pipeline fast-forwards from the remote before it builds anything, so what it tests is what you would push. It stops and says so if your branch and its upstream have both moved. `--no-sync` skips that.
 
@@ -170,15 +170,15 @@ A run without `--gate` also wants the cross and packaging tools. `--quick` build
 
 - `nfpm` for `.deb`/`.rpm`, and `makensis` for the Windows setup. Either one missing just warns and skips its own packages.
 
-None of this is needed for `--gate`, which is the gate that matters for a pull request.
+None of this is needed for `--gate`.
 
-With docker you may not need any of it. When docker answers on an x86_64 box, `cicd/cicd.bash` runs stages 1 to 6 in a Debian image with every tool at its pinned version, and builds the image from `cicd/container/` the first time. Without it they run on your box, with a one-line note saying why. `--no-container` keeps them on your box anyway, and `--container` fails rather than run without the image. The sync, dogfood, demo gif and publish stages always run on your box. The stage flags pass through, so `cicd/cicd.bash --gate` is the gate in the image, and so is the pre-push hook's. Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points. Zig's cache is the exception: it's a docker volume of its own, `shcl-zig-cache`, and a run empties it at the end once it's over 2 GB or another Zig version filled it. Your own `~/.cache/zig` is never touched. What a run starts in docker is labeled `dev.project=shcl`, plus `dev.run` with the name of the run's temp folder, and the run's containers go when it ends, failed or stopped too. `--keep-temp` keeps the run's temp folder and its containers, and says where they are. `--list` prints the steps the other flags would run, by stage, and runs nothing. A run in the image also removes our image tags but the current one and the one before it, then runs `docker builder prune -f --filter until=168h`, which drops build cache older than a week for every project on the box.
+With docker you may not need any of it. When docker answers on an x86_64 box, `cicd/cicd.bash` runs stages 1 to 6 in a Debian image with every tool at its pinned version, and builds the image from `cicd/container/` the first time. Without it they run on your box, with a one-line note saying why. `--no-container` keeps them on your box anyway, and `--container` fails rather than run without the image. The sync, dogfood, demo gif and publish stages always run on your box. The stage flags pass through, so `cicd/cicd.bash --merge-gate` is the merge gate in the image, and so is the pre-push hook's. Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points. Zig's cache is the exception: it's a docker volume of its own, `shcl-zig-cache`, and a run empties it at the end once it's over 2 GB or another Zig version filled it. Your own `~/.cache/zig` is never touched. What a run starts in docker is labeled `dev.project=shcl`, plus `dev.run` with the name of the run's temp folder, and the run's containers go when it ends, failed or stopped too. `--keep-temp` keeps the run's temp folder and its containers, and says where they are. `--list` prints the steps the other flags would run, by stage, and runs nothing. A run in the image also removes our image tags but the current one and the one before it, then runs `docker builder prune -f --filter until=168h`, which drops build cache older than a week for every project on the box.
 
 Stages 2 to 6 run from a copy of the tree taken after the format stage, with your uncommitted edits and any new file git does not ignore in it, so you can keep editing, merging and switching branches while a run goes. The run lists what it copied. `--no-freeze` runs them in the checkout instead.
 
 Two more images are there for now and then:
 
-- `--container=ubuntu` is Ubuntu 24.04 and its gcc 13, like the hosted runner, for a red that only shows up there. It runs the format check, build, tests and cross checks, strict like `--gate`.
+- `--container=ubuntu` is Ubuntu 24.04 and its gcc 13, like the hosted runner, for a red that only shows up there. It runs the format check, build, tests and cross checks, strict like `--merge-gate`, with no release builds, test boxes or leak checks.
 
 - `--container=alpine` builds on musl and runs the binding suites and the CLI checks.
 
@@ -191,15 +191,15 @@ Two more images are there for now and then:
 	- Python: `python3 -X dev -W error::ResourceWarning source/python/tests/conformance.py`, so a file left open fails. `tests/soak.py` runs the same way.
 	- C: compile and run `source/c/tests/conformance.c` with `-Isource/c`, passing `project/conformance` as the corpus dir.
 
-- Everything at once: `cicd/cicd.bash --gate` - format check, build, lint, tests, and the cross-binding crosscheck. Every binding must match the reference byte for byte on stdout and exit codes; stderr text is not part of the contract.
+- Everything at once: `cicd/cicd.bash --merge-gate` - format check, build, lint, tests, the cross-binding crosscheck, the release builds and the leak checks. Every binding must match the reference byte for byte on stdout and exit codes; stderr text is not part of the contract.
 
 - In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. A quick run never counts as a pass for the hook.
 
-- Before a commit in a backlog round: `cicd/cicd.bash --backlog-run-quick` is `--gate` less what `--quick` leaves out, with no leak checks or profiler calibration, in about 4 minutes. It also leaves out the slow tests `BACKLOG_SKIP` in `cicd/config.bash` lists, and records no tree. Area names after it, such as `--backlog-run-quick go cli`, keep only those areas' tests, `BACKLOG_SKIP`'s included. `--help` lists them, and `BACKLOG_AREAS` says which steps each holds. `--backlog-run-full`, for the round's last run, runs the merge gate's checks. Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts.
+- Before a commit in a backlog round: `cicd/cicd.bash --backlog-run-quick` runs the format check, build, lint, tests and cross checks, less what `--quick` leaves out, with no leak checks or profiler calibration, in about 4 minutes. `--gate` is another name for it. It also leaves out the slow tests `BACKLOG_SKIP` in `cicd/config.bash` lists, and records no tree. Area names after it, such as `--backlog-run-quick go cli`, keep only those areas' tests, `BACKLOG_SKIP`'s included. `--help` lists them, and `BACKLOG_AREAS` says which steps each holds. `--backlog-run-full`, for the round's last run, runs the merge gate's checks. Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts.
 
 - `--skip TEXT` leaves out each lint, test, leak check, cross or release check step whose command holds `TEXT`, and the run records nothing. The hosted workflow runs the merge gate with `--skip=codeql-scan.bash`, since it doesn't install CodeQL.
 
-- The leak and memory checks, by how long they take. `--quick` ends its tests with the fast ones, a run with no flags with the slow ones too, and `--long` (or `--slow`) adds the ones that take hours, so a run with no flags stays near an hour. `--gate` leaves them out. `--leakcheck` adds every one, so `cicd/cicd.bash --gate --leakcheck` is the gate plus all of them. `--no-leakcheck` drops every one, the sanitizer runs in the tests too, and can't be given with `--leakcheck`. `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG` in `cicd/config.bash` list them. Every Rust test under Miri is a long one, and takes hours. It needs the dated nightly in `rust-toolchain.toml`, and skips without it. The C analyzer, the C soak and CodeQL run in the build image when their tools aren't on your box and docker answers.
+- The leak and memory checks, by how long they take. `--quick` ends its tests with the fast ones, a run with no flags with the slow ones too, and `--long` (or `--slow`) adds the ones that take hours, so a run with no flags stays near an hour. `--backlog-run-quick` leaves them out. `--leakcheck` adds every one, so `cicd/cicd.bash --merge-gate --leakcheck` is the merge gate plus the ones that take hours. `--no-leakcheck` drops every one, the sanitizer runs in the tests too, and can't be given with `--leakcheck`. `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG` in `cicd/config.bash` list them. Every Rust test under Miri is a long one, and takes hours. It needs the dated nightly in `rust-toolchain.toml`, and skips without it. The C analyzer, the C soak and CodeQL run in the build image when their tools aren't on your box and docker answers.
 
 - CodeQL runs each language's security-and-quality suite over all 5, and any finding fails it. Fix it, or put a `codeql[QUERY-ID]` comment with the reason alone on the line above it, `// ...` or `# ...`, and `/* ... */` above commented-out C. A real bug gets a backlog item, and its ID goes in the reason. The databases and SARIF go in `cicd/artifacts/codeql/`.
 
@@ -226,7 +226,7 @@ Behavior changes come with a corpus case, or they are not pinned.
 
 - Generate the golden files from the Rust reference and eyeball them. Never hand-edit a golden to make a test pass.
 
-- All four runners pick up a new case automatically. Run `cicd/cicd.bash --gate`; every binding must agree on it before it is released.
+- All four runners pick up a new case automatically. Run `cicd/cicd.bash --merge-gate`; every binding must agree on it before it is released.
 
 Behavior the corpus cannot see, because it is not stdout, belongs in `cicd/utility/crosscheck.bash` instead. In-place writes are the current example: the check there compares the file tree a write leaves behind, so all four bindings are held to the same mode, symlink and content outcome.
 

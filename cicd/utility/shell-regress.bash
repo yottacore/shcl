@@ -2279,23 +2279,23 @@ EOF
 export SHCL_STUB_MARKER="${stubDir}/marker"
 ##	The gate run has to compile them.
 rm -f "${SHCL_STUB_MARKER}"
-if ( cd "${stubDir}" && bash cicd/cicd.bash --gate --no-container ) > "${tmpDir}/stub-ci.log" 2>&1; then
-	[[ -f "${SHCL_STUB_MARKER}" ]] || fBad "cicd.bash --gate ran no cross check"
+if ( cd "${stubDir}" && bash cicd/cicd.bash --merge-gate --no-container ) > "${tmpDir}/stub-ci.log" 2>&1; then
+	[[ -f "${SHCL_STUB_MARKER}" ]] || fBad "cicd.bash --merge-gate ran no cross check"
 else
-	fBad "cicd.bash --gate failed on the stub repo: $(tail -n 3 "${tmpDir}/stub-ci.log")"
+	fBad "cicd.bash --merge-gate failed on the stub repo: $(tail -n 3 "${tmpDir}/stub-ci.log")"
 fi
 ##	And a failing one has to stop the run, or running them buys nothing.
 rm -f "${SHCL_STUB_MARKER}"
-if ( export SHCL_STUB_FAIL=1; cd "${stubDir}" && bash cicd/cicd.bash --gate --no-container ) > "${tmpDir}/stub-fail.log" 2>&1; then
-	fBad "cicd.bash --gate passed with a failing cross check"
+if ( export SHCL_STUB_FAIL=1; cd "${stubDir}" && bash cicd/cicd.bash --merge-gate --no-container ) > "${tmpDir}/stub-fail.log" 2>&1; then
+	fBad "cicd.bash --merge-gate passed with a failing cross check"
 fi
 grep -q 'cross check failed: marker' "${tmpDir}/stub-fail.log" \
 	|| fBad "cicd.bash did not name the cross check that failed"
 ##	--no-cross drops the checks with the targets: it is what a box without the
 ##	cross toolchains passes, and mingw is one of them.
 rm -f "${SHCL_STUB_MARKER}"
-( cd "${stubDir}" && bash cicd/cicd.bash --gate --no-cross --no-container ) > "${tmpDir}/stub-nocross.log" 2>&1 \
-	|| fBad "cicd.bash --gate --no-cross failed on the stub repo"
+( cd "${stubDir}" && bash cicd/cicd.bash --merge-gate --no-cross --no-container ) > "${tmpDir}/stub-nocross.log" 2>&1 \
+	|| fBad "cicd.bash --merge-gate --no-cross failed on the stub repo"
 if [[ -f "${SHCL_STUB_MARKER}" ]]; then fBad "--no-cross ran a cross check anyway"; fi
 unset SHCL_STUB_MARKER
 
