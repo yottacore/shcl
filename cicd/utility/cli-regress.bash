@@ -658,6 +658,9 @@ rows=(
 	## lines of one block. The element is kept now (E011, 2026102821334870),
 	## so the rewrite keeps it too.
 	'Er7gigM|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|0|-|!would delete|val: 9\n\t- e\nz: 2\n'
+	## 2026102820592074: an E011 item after a kept line under an E028 array line
+	## moved that line to the root, above the array line.
+	'Eu8XwjS|fmt-keeps-line-under-array-line|fmt -|srv.srv: 2\nsrv: [v1]\n\t* 7\n\t- 0\n\tc: 1\n|0|srv: [v1]\n\tsrv: 2\n\t* 7\n\t- 0\n\tc: 1\n|E028'
 	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
 	## file said nothing.
 	'Er8Ivln|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'

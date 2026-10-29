@@ -33,6 +33,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted ci.yml tests half runs past its 60-minute timeout
+	- ID: 2026102915235852
+	- Type: Bug
+	- Status: Waiting on automated testing
+	- Needs external testing: one hosted ci.yml run, where the release part ends well inside its timeout and the tests part does too.
+	- Severity: High
+	- Opened: 20261029-152358
+	- Opened by:
+	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
+	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
+	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
+	- Progress log:
+		- 20261029: the release has a hosted part of its own, `--merge-gate --no-lint --no-tests --no-cross --no-remote`, and the tests part adds `--no-release`. timeout-minutes is 80, since the tests stage alone took 48. check-pins fails a hosted job that runs both tests and the release, as it does lint and tests.
+		- Verified: check-pins passes on the new ci.yml and fails with the release part folded back into tests. shell-regress `Eu8X2fW` passes, and passes check-pins with the new rule taken out. `cicd.bash --list` shows the release part runs the release builds, CPU floor and packages, and the tests part none of them.
+	- Swept: every `--merge-gate` line in ci.yml, check-pins' other job rules, and shell-regress' check-pins rows, which still each edit a line that's there (the release-left-out row now adds `--no-release` to the release part). No doc names the 2 halves. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Test case: shell-regress `Eu8X2fW`.
+	- Branch: `r1029b`
+
 - Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102913213704
 	- Type: Enhancement
@@ -382,24 +400,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
 
-- Hosted ci.yml tests half runs past its 60-minute timeout
-	- ID: 2026102915235852
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: one hosted ci.yml run, where the release part ends well inside its timeout and the tests part does too.
-	- Severity: High
-	- Opened: 20261029-152358
-	- Opened by:
-	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
-	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
-	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
-	- Progress log:
-		- 20261029: the release has a hosted part of its own, `--merge-gate --no-lint --no-tests --no-cross --no-remote`, and the tests part adds `--no-release`. timeout-minutes is 80, since the tests stage alone took 48. check-pins fails a hosted job that runs both tests and the release, as it does lint and tests.
-		- Verified: check-pins passes on the new ci.yml and fails with the release part folded back into tests. shell-regress `Eu8X2fW` passes, and passes check-pins with the new rule taken out. `cicd.bash --list` shows the release part runs the release builds, CPU floor and packages, and the tests part none of them.
-	- Swept: every `--merge-gate` line in ci.yml, check-pins' other job rules, and shell-regress' check-pins rows, which still each edit a line that's there (the release-left-out row now adds `--no-release` to the release part). No doc names the 2 halves. The other 3 bindings have no pipeline of their own, so no twin there.
-	- Test case: shell-regress `Eu8X2fW`.
-	- Branch: `r1029b`
-
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
 	- Type: Enhancement
@@ -615,22 +615,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the layer's kept line stays in the merged block, or goes as a comment there, the way a kept `E008` item's copy does.
 	- Reproduced: 20261028, on `r1028b`, with `E019` and with `E011`. A comment in the same spot is folded into the base's copy.
 
-- A kept line under an `E028` array line moves out of its block when an `E011` item follows it
-	- ID: 2026102820592074
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261028-205920
-	- Opened by: me
-	- Related IDs: 2026102820320485
-	- Estimated effort: Low
-	- Steps to reproduce:
-		- `shcl fmt` on `srv.srv: 2` / `srv: [v1]` / `\t* 7` / `\t- 0` / `\tc: 1`.
-	- Incorrect behavior: `fmt` writes `* 7` at the root, above `srv: [v1]`. It still binds nothing and nothing more is lost, but it is no longer written back in place.
-	- Expected behavior: `* 7` stays under `srv`, as it does with the `- 0` line taken out.
-	- Reproduced: 20261028, on `r1028b`, with `E013` and with `E004` in the same spot.
-	- 2026-10-28: no longer reproduces at 050b4d38 (2026102821334870), where fmt keeps `* 7` under `srv`. Needs only a regression case to close.
-
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
 	- Type: Task
@@ -645,6 +629,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- A kept line under an `E028` array line moves out of its block when an `E011` item follows it
+	- ID: 2026102820592074
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261028-205920
+	- Opened by: me
+	- Related IDs: 2026102820320485
+	- Estimated effort: Low
+	- Steps to reproduce:
+		- `shcl fmt` on `srv.srv: 2` / `srv: [v1]` / `\t* 7` / `\t- 0` / `\tc: 1`.
+	- Incorrect behavior: `fmt` writes `* 7` at the root, above `srv: [v1]`. It still binds nothing and nothing more is lost, but it is no longer written back in place.
+	- Expected behavior: `* 7` stays under `srv`, as it does with the `- 0` line taken out.
+	- Reproduced: 20261028, on `r1028b`, with `E013` and with `E004` in the same spot.
+	- 2026-10-28: no longer reproduces at 050b4d38 (2026102821334870), where fmt keeps `* 7` under `srv`. Needs only a regression case to close.
+	- Progress log:
+		- 20261029: fixed by 050b4d38, where the `E011` item is kept. cli-regress has the case now.
+	- Swept: the 4 CLIs give the same `fmt` output for the case, for the `E004` line in the same spot (`a.*: 7`), and with the `- 0` line taken out.
+	- Verified: `Eu8XwjS` fails on the Rust CLI built from 050b4d38's parent and passes on all 4 now, with the rest of cli-regress (630 rows).
+	- Test case: cli-regress `Eu8XwjS`.
+	- Branch: `r1029b`
+	- Acceptance signoff: me, 20261029, the case keeps `* 7` under `srv` in all 4
+	- Closed: 20261029
 
 - Create-only save and a new file's mode, in Go
 	- ID: 2026102913213683
