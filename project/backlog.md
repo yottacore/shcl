@@ -544,6 +544,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `fmt` writes `* 7` at the root, above `srv: [v1]`. It still binds nothing and nothing more is lost, but it is no longer written back in place.
 	- Expected behavior: `* 7` stays under `srv`, as it does with the `- 0` line taken out.
 	- Reproduced: 20261028, on `r1028b`, with `E013` and with `E004` in the same spot.
+	- 2026-10-28: no longer reproduces at 050b4d38 (2026102821334870), where fmt keeps `* 7` under `srv`. Needs only a regression case to close.
 
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
