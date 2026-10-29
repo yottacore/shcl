@@ -51,9 +51,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: `s_write_file_atomic` takes the create and the mode, and says when create found something. `shcl_save_file_with` checks for anything at the target before the changed check, and calls it directly. design.md, spec.md, examples.md and the changelog say so for all 4.
 	- Swept: C and the veneer. `shcl_write_file_atomic` and `shcl_upgrade_file` pass no create and no mode, so they write as before. The 3 short saves pass `{0}`. Docs: design.md's Save outcomes table (the create row, the mode on the new-file row) and its two Saving a file bullets on mode and the new-file publish, spec.md's file tier (the mode, a create bullet, the options list, the separate-values bullet), examples.md, and the changelog's New.
-	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also the C runner and the veneer smoke under `-Wall -Wextra -Wconversion -Werror`.
+	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
 	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
 	- Branch: `r1029`
+	- Commit: `a618835c`
 
 - Create-only save and a new file's mode, in Go
 	- ID: 2026102913213683
@@ -71,9 +72,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: `WriteFileAtomic` wraps `writeFileHow`, which takes the create and the mode. `SaveFileWith` checks for anything at the target before the changed check.
 	- Swept: Go. `WriteFileAtomic` and `UpgradeFile` pass no create and no mode. No caller builds `SaveOptions` by position.
-	- Verified: `Eu7ju0H` fails with the create checks turned off, and with the mode turned off, and passes with both. Also `go vet` for linux, windows and darwin.
+	- Verified: `Eu7ju0H` fails with the create checks turned off, and with the mode turned off, and passes with both. Also `go vet` for linux, windows and darwin. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
 	- Test case: `TestACreateOnlySaveRefusesAFileAlreadyThere` (`Eu7ju0H`).
 	- Branch: `r1029`
+	- Commit: `a618835c`
 
 - Create-only save and a new file's mode, in Rust and Python
 	- ID: 2026102913213663
@@ -91,9 +93,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: `write_file_atomic` wraps a private write that takes the create and the mode, and gives `Exists` when create finds something there or loses the publish. `save_file_with` checks for anything at the target before the changed check.
 	- Swept: Rust and Python. `write_file_atomic`, `upgrade_file` and the CLI's saves pass no create and no mode, so they write as before. The CLI matches `SaveError` with a catch-all arm. The 3 short saves go through `save_file_with`.
-	- Verified: `Eu7hQCd` and `Eu7hQCe` fail with the create checks turned off, and with the mode turned off, and pass with both. Also `cicd.bash --backlog-run-quick rust python cicd` format and lint.
+	- Verified: `Eu7hQCd` and `Eu7hQCe` fail with the create checks turned off, and with the mode turned off, and pass with both. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
 	- Test case: `a_create_only_save_refuses_a_file_already_there` in Rust (`Eu7hQCd`) and Python (`Eu7hQCe`).
 	- Branch: `r1029`
+	- Commit: `a618835c`
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
