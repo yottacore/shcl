@@ -456,9 +456,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20261029-122033
 	- Opened by: 2026102910482342
 	- Parent ID: 2026102910482342
-	- Prereq IDs: 2026102912203339
 	- Requirements:
 		- The parent's, in Go, as Rust and Python have them in 2026102912203339: the changed error kind, the check in every save call, the save options with `force`, and the twin of `Eu7RSm3`.
+	- Prereq on 2026102912203339 dropped: its Rust and Python code is in on r1029, and only its hosted Windows run is left, which doesn't hold up the Go port.
 
 - Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102912203343
