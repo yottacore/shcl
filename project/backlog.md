@@ -33,30 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- The profiler attribution check fails every run since its status word became PASS
-	- ID: 2026103011015050
-	- Type: Bug
-	- Status: Done
-	- Severity: High
-	- Opened: 20261030-110150
-	- Opened by: found while working 2026102515494634
-	- Related IDs: 2026102416250080
-	- Steps to reproduce: run the Profiler step, as a default run, `--merge-gate` or `--backlog-run-full` do.
-	- Incorrect behavior: `PROFILE_CHECK` in cicd/config.bash sets `s=PASS` and ends with `[[ "${s}" == ok ]]`, so it returns 1 when the check passes, and the run stops with "profiler attribution check failed".
-	- Expected behavior: it returns 0 when the check passes.
-	- Reproduced: 20261030, the line's last test with `s=PASS` returns 1. No profiler run.
-	- Possible cause: `817ea2e1` changed `s=ok` to `s=PASS` and left the compare. check-push-gate's stub engine replaces `PROFILE_CHECK`, so no test runs the real one.
-	- Requirements:
-		- The compare reads `PASS`.
-		- A test runs config.bash's own `PROFILE_CHECK` with a stand-in binary that exits 0 and then 1.
-	- Estimated effort: Low
-	- Actual cause: confirmed. `817ea2e1` changed the status word to `PASS` and left the compare on `ok`.
-	- Actual fix: the compare reads `PASS`.
-	- Swept: config.bash and cicd/ for other compares against the old status words (`ok`, `FAIL` as a returned word). None left. check-readme's `ok (0 diagnostic(s))` is a tool's output, not a status line.
-	- Verified: shell-regress `demx9` runs config.bash's own `PROFILE_CHECK` with a stand-in that exits 0 and then 1, and checks exit code and status line. It fails with the compare on `ok` (exit 1 on the pass) and passes with the fix. Also the whole of shell-regress, `test-ids.py check` and shellcheck.
-	- Test case: shell-regress `demx9`.
-	- Closed: 20261030-112322
-
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
@@ -122,38 +98,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `de61k` (no docker, a silent one, or aarch64: local with a note, and it records), `de61m` (`--no-container` asks no docker), `de61n` (the refused pairs exit 2), `de61p` (docker answering: one run in the main image, which records), `de61q` (`--container` with a silent docker fails). check-pins `de61r`, shell-regress `de61s` and `de61t`.
 	- Held for the next push that moves main, which is the only thing left to watch.
 
-- CICD reset: keep-temp and list
-	- ID: 2026102515494634
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Opened: 20261025-154946
-	- Opened by: 2026102416250050
-	- Parent ID: 2026102416250050
-	- Prereq IDs: 2026102416250080
-	- Requirements:
-		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
-		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
-	- Decisions:
-		- me: a step lists the tests it runs itself: its own script's, the test programs it builds, and for a binding's runner, that binding's tests and the corpus. So the corpus IDs show under all 4 runners, and the plain and `-race` Go runs list the same tests. A wrapper that reruns another suite, such as sanitize-c or check-c-compilers, lists only its own, since the whole suite again under it would hide what it adds.
-		- me: an ID line is `ID  file:line`, the form `test-ids.py find` prints, not the test's name, which test-ids.py doesn't read for every marker kind. A corpus case gives its folder.
-		- me: the rules for which step runs which tests sit in test-ids.py, beside its tables of where tests are, so a new kind of test place and its step rule change in one file.
-		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
-	- Progress log:
-		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
-		- Verified: check-push-gate `dee5k` failed on the old engine and passes now, with `de633`, `ded0y` and `ded2j` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
-		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
-		- Verified: check-push-gate `dee5y` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
-		- 20261030: test IDs are in (2026102416250080), so the hold is over.
-		- 20261030: `--list` puts the test IDs each step runs under it, one `ID  file:line` per line. `test-ids.py list` reads the step list and matches each step to the files whose tests it runs. A step whose label isn't its command, such as a release check or a test box, hands its command over for the match, and only the label prints. When test-ids.py can't read the IDs, the steps print alone, with a line saying so. A default run lists 2014 of the 2059 IDs. The other 45 run only in the hosted windows job: win-runners.bash, winpath-regress.ps1, check-win-setup.bash and `shcl_windows_test.go`. Help and contributing.md say so.
-		- 20261030: test-ids.py reports a missing corpus folder or rows file as a problem, where it stopped with a traceback.
-		- Verified: check-push-gate `demwg` (a test script's ID under its step, none under a step that only names it, no hidden command printed) failed on the old engine and passes now. The rest of check-push-gate, shell-regress, `cicd.bash --skip=check-docs.bash --backlog-run-quick cicd` (all 5 steps), check-docs (red only on `dcbc2`, the known installer sync), `test-ids.py check` (2059 tests), shellcheck over the lint targets, ruff, mypy and markdownlint pass.
-	- Swept: every step `--list` prints, by stage. Each one that runs tests lists them, and the hosted windows tests are the only IDs no local step lists. The only reader of the list is check-push-gate `dee5y`. Not a binding change, so the four bindings don't apply.
-	- Test case: check-push-gate `dee5k` (`--keep-temp`), `dee5y` (`--list`'s steps) and `demwg` (`--list`'s test IDs).
-	- Branch: `r1030`
-	- Acceptance signoff: Self-closed: each requirement has a test that failed before and passes now.
-	- Closed: 20261030-111559
-
 - CICD reset: other hosts and VMs
 	- ID: 2026102416250010
 	- Type: Enhancement
@@ -217,62 +161,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
 
-- Other hosts: the 4 suites on vmFreeBSD
-	- ID: 2026102419263417
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- Build the 4 bindings on vmFreeBSD and run their conformance suites and cli-regress there, through the box step.
-		- Say whether `check-freebsd.bash`'s qemu boot stays once vmFreeBSD runs the release.
-	- Needs local test suite run?: Y, `--backlog-run-full`: its `Test boxes` step passes `decyk` and `demxj` to `demxp` for vmFreeBSD.
+- Hosted macos job fails: the macos-14 runner image is retired on 2026-11-02
+	- ID: 2026103014303616
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261030-143036
+	- Opened by:
+	- Related IDs: 2026102416250110
 	- Progress log:
-		- 20261030: a `REMOTE_BOXES` row that ends in `|suites` also sends the tracked `source/` and `project/` files to the box, in the same visit as the CLI cases. There `cicd/utility/box-suites.bash` builds the 4 bindings and runs their suites, then cli-regress over the compiled CLIs that built. vmFreeBSD's row has it. A suite whose tool the box lacks is a `SKIP`. Each suite's result comes back as its own test line.
-		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and freebsd-x86_64 release builds, on the real vmFreeBSD through the host lock, from paused: `decyk` and `demxj` to `demxp` passed. Rust 48 s, Go 10 s, Python 77 s, C 19 s, cli-regress over all 4 CLIs 289 s. The VM ended paused, as found.
-		- Verified: with one line added to `002-stacked-array`'s `expected.shcl` in a scratch copy, the Rust, Go, Python and C rows each failed on the box, naming that case, and the run exited 1.
-		- Verified: with the Python CLI left out of cli-regress there, the same run passed all 6 rows: cli-regress over the 3 compiled CLIs took 15 s, and the box 175 s in all, so the step adds about 3 minutes to a full run.
-		- shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed (check-docs is red on dev for `dcbc2`).
-		- Not run: the step inside a whole run with release builds.
-	- Decisions:
-		- `check-freebsd.bash`'s qemu boot stays (me). It runs a pinned stock 15.1 image with no network, in the container and in a `--no-remote` run, in about 18 s. vmFreeBSD is a lived-in box whose toolchains change with `pkg`, and is a `SKIP` when held or off. Dropping the boot would also drop 3 tests.
-		- Suites are a fourth row field, so vmDebARM64 can take them with one word, and the Macs stay CLI-only (me).
-		- Each run builds cold in the box's work folder, cargo's crates included, so nothing is left on the box (me).
-		- cli-regress on the box leaves out the Python CLI (me). It held about 270 s of cli-regress's 289 s there, which put the step over 5 minutes of every full run. Running the 4 bindings side by side saved only 10 s. Python's conformance suite still runs there.
-		- The suites are the conformance suites as asked: no Go `-race`, Python soak, or the C veneer, OOM and bounds tests (me).
-	- Swept: `REMOTE_BOXES` readers: cicd.bash's step (passes the field on), `--list` (reads the name only), check-push-gate (empties it), and the stand-in rows in the stub tools (3 fields, still valid).
-	- Test case: check-boxes `demxj` (Rust), `demxk` (Go), `demxm` (Python), `demxn` (C), `demxp` (cli-regress), beside `decyk`.
-
-- Other hosts: Linux arm64 on vmDebARM64
-	- ID: 2026102419263422
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: Y, `--backlog-run-full`: its `Test boxes` step passes `decyk` with `PASS vmDebARM64`, CLI cases only.
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
-		- It runs under TCG, so keep its share of the run short.
-	- Progress log:
-		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its fourth field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
-		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
-		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
-		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
-		- check-docs' two header checks read 120 lines, not 100, since the `--long` help line pushed cicd.bash's SPDX line to line 102 (`dcv6f`).
-		- shellcheck -x on the changed scripts passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed, and without the skip only `dcbc2` was red, as on dev.
-		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
-	- Decisions:
-		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
-		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
-		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
-	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
-	- Test case: check-boxes `decyk` for vmDebARM64; `demxk` to `demxp` under `--long`; shell-regress `demzb` for the row mapping.
+		- 20261030: hosted ci.yml run 41120869306 on r1030 cancelled the macos job in 1 s, with the annotation that a scheduled macOS 14 runner image brownout failed it. ci.yml line 310 says runs-on: macos-14. Every other job passed. From 2026-11-02 the job can't run at all.
+		- Fix: move the job to a supported arm64 macOS label and check the macOS 13 floor still holds, since the universal binary targets macOS 13.
 
 - Other hosts: macOS on b26 and vmKt6m
 	- ID: 2026102419263427
@@ -315,35 +214,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
 		- A Done item that says none where a test could exist and would make sense gets one.
-
-- CICD reset: test IDs
-	- ID: 2026102416250080
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the hosted ci.yml windows job, for the status lines of win-runners.bash and winpath-regress.ps1, which run only there.
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints a line when it runs.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides the private notes' `Test IDs` rule of 2026-09-27.
-		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
-		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
-		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
-	- Progress log:
-		- 20261030: every one of the 2057 test IDs is now 5 characters of lowercase Crockford base 32 minutes since 2000, from the time its old ID gave. Ties went to the next free minute, oldest first. The 97 IDs of commented-out tests and retired rows were converted the same way, after the live ones. Each old ID was replaced wherever it stood: tests, corpus `test-id` files, cicd scripts and this backlog, `Test case:` rows included.
-		- 20261030: `test-ids.py` reads and writes the new form. `new` takes the current minute or the next free one, `when` prints the minute in UTC, and `check` also fails a marker still holding an old base 62 ID, which would otherwise run unlisted.
-		- 20261030: the status line is `PASS`, `FAIL` or `SKIP`, then the ID, then the name, in all 4 bindings' runners, the C test programs, the bash include, win-runners.bash, winpath-regress.ps1 and the profiler check. The filters that drop passing lines (crosscheck's fuzz dump, soak-c, check-locale, sanitize-c, sanitize-rust) and a corpus case's missing-ID dashes follow.
-		- Verified: shell-regress `demvq` (`when decp8`, the form `new` gives, an old ID refused) fails on the old tool and passes. The fixtures `dd86w` and `de115` moved to the new form, and the status-line fixtures of the skip block (`dd86p`), crosscheck (`dd51c`, `ddg86`) and check-docs' feeds (`ddzwm`) want `PASS` and `SKIP`. Also the whole of shell-regress, the Python, C, Go and Rust suites, the C test programs and veneer smoke, check-abnf, `test-ids.py check` (2058 tests), shellcheck over the lint targets, ruff, mypy and check-docs (red only on `dcbc2`, the known installer sync).
-	- Decisions:
-		- me: the name in the status line keeps its leading binding or script word, as in `PASS d9s1g go corpus/001-messy-cities`, since the same test name runs in 4 runners and a reader of a merged log needs to tell them apart.
-		- me: IDs are padded to 5 characters, which hold every minute until 2063, so they sort by age as text.
-		- me: the old IDs in this backlog's progress logs were rewritten too, not only the `Test case:` rows, so a search for a test's ID still finds its history.
-		- me: commented-out tests and retired rows got new IDs too. Put back, they pass the check as they stand.
-	- Swept: every marker kind `test-ids.py` reads (Rust, Go, Python, C and C++, bash, PowerShell, win-runners, the cli-regress and perf-gate rows, config.bash, corpus `test-id` files), every status-line printer (`%-4s` and the PowerShell format) and every reader of the status words or the 7-character width in cicd/ and the tests. design.md, contributing.md and the style guide don't describe the ID form. The comparison crate's tests stay outside, as before.
-	- Test case: shell-regress `demvq`, and `dd86p` for the status words.
-	- Commit: `817ea2e1`
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
@@ -441,6 +311,157 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- The profiler attribution check fails every run since its status word became PASS
+	- ID: 2026103011015050
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261030-110150
+	- Opened by: found while working 2026102515494634
+	- Related IDs: 2026102416250080
+	- Steps to reproduce: run the Profiler step, as a default run, `--merge-gate` or `--backlog-run-full` do.
+	- Incorrect behavior: `PROFILE_CHECK` in cicd/config.bash sets `s=PASS` and ends with `[[ "${s}" == ok ]]`, so it returns 1 when the check passes, and the run stops with "profiler attribution check failed".
+	- Expected behavior: it returns 0 when the check passes.
+	- Reproduced: 20261030, the line's last test with `s=PASS` returns 1. No profiler run.
+	- Possible cause: `817ea2e1` changed `s=ok` to `s=PASS` and left the compare. check-push-gate's stub engine replaces `PROFILE_CHECK`, so no test runs the real one.
+	- Requirements:
+		- The compare reads `PASS`.
+		- A test runs config.bash's own `PROFILE_CHECK` with a stand-in binary that exits 0 and then 1.
+	- Estimated effort: Low
+	- Actual cause: confirmed. `817ea2e1` changed the status word to `PASS` and left the compare on `ok`.
+	- Actual fix: the compare reads `PASS`.
+	- Swept: config.bash and cicd/ for other compares against the old status words (`ok`, `FAIL` as a returned word). None left. check-readme's `ok (0 diagnostic(s))` is a tool's output, not a status line.
+	- Verified: shell-regress `demx9` runs config.bash's own `PROFILE_CHECK` with a stand-in that exits 0 and then 1, and checks exit code and status line. It fails with the compare on `ok` (exit 1 on the pass) and passes with the fix. Also the whole of shell-regress, `test-ids.py check` and shellcheck.
+	- Test case: shell-regress `demx9`.
+	- Closed: 20261030-112322
+
+- CICD reset: keep-temp and list
+	- ID: 2026102515494634
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102416250080
+	- Requirements:
+		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
+		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
+	- Decisions:
+		- me: a step lists the tests it runs itself: its own script's, the test programs it builds, and for a binding's runner, that binding's tests and the corpus. So the corpus IDs show under all 4 runners, and the plain and `-race` Go runs list the same tests. A wrapper that reruns another suite, such as sanitize-c or check-c-compilers, lists only its own, since the whole suite again under it would hide what it adds.
+		- me: an ID line is `ID  file:line`, the form `test-ids.py find` prints, not the test's name, which test-ids.py doesn't read for every marker kind. A corpus case gives its folder.
+		- me: the rules for which step runs which tests sit in test-ids.py, beside its tables of where tests are, so a new kind of test place and its step rule change in one file.
+		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
+	- Progress log:
+		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
+		- Verified: check-push-gate `dee5k` failed on the old engine and passes now, with `de633`, `ded0y` and `ded2j` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
+		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
+		- Verified: check-push-gate `dee5y` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
+		- 20261030: test IDs are in (2026102416250080), so the hold is over.
+		- 20261030: `--list` puts the test IDs each step runs under it, one `ID  file:line` per line. `test-ids.py list` reads the step list and matches each step to the files whose tests it runs. A step whose label isn't its command, such as a release check or a test box, hands its command over for the match, and only the label prints. When test-ids.py can't read the IDs, the steps print alone, with a line saying so. A default run lists 2014 of the 2059 IDs. The other 45 run only in the hosted windows job: win-runners.bash, winpath-regress.ps1, check-win-setup.bash and `shcl_windows_test.go`. Help and contributing.md say so.
+		- 20261030: test-ids.py reports a missing corpus folder or rows file as a problem, where it stopped with a traceback.
+		- Verified: check-push-gate `demwg` (a test script's ID under its step, none under a step that only names it, no hidden command printed) failed on the old engine and passes now. The rest of check-push-gate, shell-regress, `cicd.bash --skip=check-docs.bash --backlog-run-quick cicd` (all 5 steps), check-docs (red only on `dcbc2`, the known installer sync), `test-ids.py check` (2059 tests), shellcheck over the lint targets, ruff, mypy and markdownlint pass.
+	- Swept: every step `--list` prints, by stage. Each one that runs tests lists them, and the hosted windows tests are the only IDs no local step lists. The only reader of the list is check-push-gate `dee5y`. Not a binding change, so the four bindings don't apply.
+	- Test case: check-push-gate `dee5k` (`--keep-temp`), `dee5y` (`--list`'s steps) and `demwg` (`--list`'s test IDs).
+	- Branch: `r1030`
+	- Acceptance signoff: Self-closed: each requirement has a test that failed before and passes now.
+	- Closed: 20261030-111559
+
+- Other hosts: the 4 suites on vmFreeBSD
+	- ID: 2026102419263417
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- Build the 4 bindings on vmFreeBSD and run their conformance suites and cli-regress there, through the box step.
+		- Say whether `check-freebsd.bash`'s qemu boot stays once vmFreeBSD runs the release.
+	- Needs local test suite run?: No
+	- Progress log:
+		- 20261030: a `REMOTE_BOXES` row that ends in `|suites` also sends the tracked `source/` and `project/` files to the box, in the same visit as the CLI cases. There `cicd/utility/box-suites.bash` builds the 4 bindings and runs their suites, then cli-regress over the compiled CLIs that built. vmFreeBSD's row has it. A suite whose tool the box lacks is a `SKIP`. Each suite's result comes back as its own test line.
+		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and freebsd-x86_64 release builds, on the real vmFreeBSD through the host lock, from paused: `decyk` and `demxj` to `demxp` passed. Rust 48 s, Go 10 s, Python 77 s, C 19 s, cli-regress over all 4 CLIs 289 s. The VM ended paused, as found.
+		- Verified: with one line added to `002-stacked-array`'s `expected.shcl` in a scratch copy, the Rust, Go, Python and C rows each failed on the box, naming that case, and the run exited 1.
+		- Verified: with the Python CLI left out of cli-regress there, the same run passed all 6 rows: cli-regress over the 3 compiled CLIs took 15 s, and the box 175 s in all, so the step adds about 3 minutes to a full run.
+		- shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed (check-docs is red on dev for `dcbc2`).
+		- Not run: the step inside a whole run with release builds.
+		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk and demxj to demxp, vmFreeBSD 176 s with the suites.
+	- Decisions:
+		- `check-freebsd.bash`'s qemu boot stays (me). It runs a pinned stock 15.1 image with no network, in the container and in a `--no-remote` run, in about 18 s. vmFreeBSD is a lived-in box whose toolchains change with `pkg`, and is a `SKIP` when held or off. Dropping the boot would also drop 3 tests.
+		- Suites are a fourth row field, so vmDebARM64 can take them with one word, and the Macs stay CLI-only (me).
+		- Each run builds cold in the box's work folder, cargo's crates included, so nothing is left on the box (me).
+		- cli-regress on the box leaves out the Python CLI (me). It held about 270 s of cli-regress's 289 s there, which put the step over 5 minutes of every full run. Running the 4 bindings side by side saved only 10 s. Python's conformance suite still runs there.
+		- The suites are the conformance suites as asked: no Go `-race`, Python soak, or the C veneer, OOM and bounds tests (me).
+	- Swept: `REMOTE_BOXES` readers: cicd.bash's step (passes the field on), `--list` (reads the name only), check-push-gate (empties it), and the stand-in rows in the stub tools (3 fields, still valid).
+	- Test case: check-boxes `demxj` (Rust), `demxk` (Go), `demxm` (Python), `demxn` (C), `demxp` (cli-regress), beside `decyk`.
+	- Acceptance signoff: Self-closed: the box step passed inside a whole full run, and each suite was seen to fail on a broken golden.
+	- Closed: 20261030-143026
+
+- Other hosts: Linux arm64 on vmDebARM64
+	- ID: 2026102419263422
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
+		- It runs under TCG, so keep its share of the run short.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its fourth field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
+		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
+		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
+		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
+		- check-docs' two header checks read 120 lines, not 100, since the `--long` help line pushed cicd.bash's SPDX line to line 102 (`dcv6f`).
+		- shellcheck -x on the changed scripts passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed, and without the skip only `dcbc2` was red, as on dev.
+		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
+		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk with PASS vmDebARM64, 4471 CLI runs in 79 s.
+	- Decisions:
+		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
+		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
+		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
+	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
+	- Test case: check-boxes `decyk` for vmDebARM64; `demxk` to `demxp` under `--long`; shell-regress `demzb` for the row mapping.
+	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault.
+	- Closed: 20261030-143026
+
+- CICD reset: test IDs
+	- ID: 2026102416250080
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints a line when it runs.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides the private notes' `Test IDs` rule of 2026-09-27.
+		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
+		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
+		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
+	- Progress log:
+		- 20261030: every one of the 2057 test IDs is now 5 characters of lowercase Crockford base 32 minutes since 2000, from the time its old ID gave. Ties went to the next free minute, oldest first. The 97 IDs of commented-out tests and retired rows were converted the same way, after the live ones. Each old ID was replaced wherever it stood: tests, corpus `test-id` files, cicd scripts and this backlog, `Test case:` rows included.
+		- 20261030: `test-ids.py` reads and writes the new form. `new` takes the current minute or the next free one, `when` prints the minute in UTC, and `check` also fails a marker still holding an old base 62 ID, which would otherwise run unlisted.
+		- 20261030: the status line is `PASS`, `FAIL` or `SKIP`, then the ID, then the name, in all 4 bindings' runners, the C test programs, the bash include, win-runners.bash, winpath-regress.ps1 and the profiler check. The filters that drop passing lines (crosscheck's fuzz dump, soak-c, check-locale, sanitize-c, sanitize-rust) and a corpus case's missing-ID dashes follow.
+		- Verified: shell-regress `demvq` (`when decp8`, the form `new` gives, an old ID refused) fails on the old tool and passes. The fixtures `dd86w` and `de115` moved to the new form, and the status-line fixtures of the skip block (`dd86p`), crosscheck (`dd51c`, `ddg86`) and check-docs' feeds (`ddzwm`) want `PASS` and `SKIP`. Also the whole of shell-regress, the Python, C, Go and Rust suites, the C test programs and veneer smoke, check-abnf, `test-ids.py check` (2058 tests), shellcheck over the lint targets, ruff, mypy and check-docs (red only on `dcbc2`, the known installer sync).
+		- Verified: 20261030 hosted ci.yml run 41120869306 on r1030: the windows job passed, with 12 PASS lines from win-runners and 26 from winpath-regress in the new form, no FAIL, and no line in the old form. The full run on ec3afe1c passed all 7 steps.
+	- Decisions:
+		- me: the name in the status line keeps its leading binding or script word, as in `PASS d9s1g go corpus/001-messy-cities`, since the same test name runs in 4 runners and a reader of a merged log needs to tell them apart.
+		- me: IDs are padded to 5 characters, which hold every minute until 2063, so they sort by age as text.
+		- me: the old IDs in this backlog's progress logs were rewritten too, not only the `Test case:` rows, so a search for a test's ID still finds its history.
+		- me: commented-out tests and retired rows got new IDs too. Put back, they pass the check as they stand.
+	- Swept: every marker kind `test-ids.py` reads (Rust, Go, Python, C and C++, bash, PowerShell, win-runners, the cli-regress and perf-gate rows, config.bash, corpus `test-id` files), every status-line printer (`%-4s` and the PowerShell format) and every reader of the status words or the 7-character width in cicd/ and the tests. design.md, contributing.md and the style guide don't describe the ID form. The comparison crate's tests stay outside, as before.
+	- Test case: shell-regress `demvq`, and `dd86p` for the status words.
+	- Commit: `817ea2e1`
+	- Acceptance signoff: Self-closed: every runner prints the new line, and demvq failed against the old tool.
+	- Closed: 20261030-143035
 
 - CICD reset: --gate as a backlog run
 	- ID: 2026102814013272
