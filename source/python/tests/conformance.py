@@ -4585,7 +4585,6 @@ def main():
 		raise SystemExit("srv.tls binds")
 	# The emitter walks the index now, so the line stays as written, where a
 	# reload keeps it again (2026102821334970, an_index_with_no_instance_stays_kept).
-	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 	# fu_check(ix_doc, "srv:\n\t- a\n# srv(0).tls: on\n")
 	# The 2M merge fuzz's case: the layer brought the list and the field.
 	ix_doc = shcl.Document.parse("m: 1\n")
