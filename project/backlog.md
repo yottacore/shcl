@@ -412,6 +412,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
 		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
 		- 20261029: both children are Done.
+	- Test case: the children's, 2026102307143752 and 2026102307143758.
 	- Acceptance signoff: me, 20261029, both children are Done
 	- Closed: 20261029
 
@@ -438,6 +439,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261029: both children are Done, and the sentence is in design.md.
 	- Decisions:
 		- me, 20261028: the sentence names a third case for those 2, a line that would bind written back as it was, where no comment stands for it, rather than leave them as unstated exceptions. It goes in with 2026102820321403.
+	- Test case: the children's, 2026102820320485 and 2026102820321403.
 	- Acceptance signoff: me, 20261029, both children are Done
 	- Closed: 20261029
 
@@ -459,6 +461,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
 		- 20261029: both children are Done.
+	- Test case: the children's, 2026102821334870 and 2026102821334970.
 	- Acceptance signoff: me, 20261029, both children are Done
 	- Closed: 20261029
 
@@ -486,6 +489,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Goldens: `086` and `103` (kept, lost 0). No input changed. `095` has no `E003` line, so it doesn't change.
 			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (640 rows), crosscheck over the corpus plus a 2000-iteration dump (54174 comparisons), check-docs (red only on `EpHGoa0`), check-abnf, test-ids, rustfmt, clippy `-D warnings`, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `90870748` (31 properties, 480 s).
 			- Verified: each new test fails on the old library, and the `walked` part of each fails with the settle skip put back.
+			- Verified: `cicd.bash --backlog-run-quick rust go python c cli --skip=check-docs.bash` passed all 5 steps on `7d437f4c`.
 	- Decisions:
 		- me, 20261029: `E003` is judged before the path opens anything, as `E004` is, so `x.a(0).b: 1` leaves no empty `x`. It comes after `E001` and the value faults, and before the value is read, so a line with no colon gets `E003` alone, not `E015` too.
 		- me, 20261029: a refused line under an array line no longer makes that line `E028`, as no other refused line does.
@@ -521,6 +525,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: those from inside its block go inside the replacement's, in all 4. The rest go as before.
 	- Progress log:
 		- 20261029: Verified: the repro and its `E011` twin come out with both copies in the block, and reload the same. Corpus `091`'s merged golden changes the same way: its `*` line stays under the field that replaced the one it sat under. The 4 conformance suites, the whole Rust and Go suites, cli-regress (641 rows), crosscheck (54174 comparisons), check-docs (red only on `EpHGoa0`), rustfmt, clippy, go vet, staticcheck, ruff, mypy, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `dffd891d` (31 properties). Each new test fails on the old library.
+		- Verified: `cicd.bash --backlog-run-quick rust go python c cli --skip=check-docs.bash` passed all 5 steps on `7d437f4c`.
 	- Decisions:
 		- me, 20261029: a comment inside the replaced leaf's block still goes with the leaf, as the 2026-09-28 rule has it. Only kept lines move.
 	- Test case: conformance `a_replaced_leaf_keeps_the_lines_kept_in_its_block` (`Eu96oVF` Rust, `Eu96oVG` Go, `Eu96oVH` Python, `Eu96oVI` C); corpus `Ep0xKIj` (`091`); cli-regress `Eu96oVJ`.
