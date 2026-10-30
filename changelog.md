@@ -118,6 +118,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - 2 more save options. `create` only makes a new file, and refuses when one is there, even one another save makes at the same time: Rust `SaveError::Exists`, Go `*SaveExists`, Python `SaveExists`, C `SHCL_SAVE_EXISTS` and C++ `SaveResult::Exists`. `mode` gives a new file those permission bits exactly, whatever the umask, such as `0600` for one holding tokens. A file already there keeps its own.
 
+- A document whose Format line names a newer format reads as usual and is never saved, since a save would write its lines by these rules. `newer_format()` in every binding says so, and every save refuses: Rust `SaveError::TooNew`, Go `*SaveTooNew`, Python `SaveTooNew`, C `SHCL_SAVE_TOO_NEW` and C++ `SaveResult::TooNew`. `shcl fmt --write`, `fmt --check` and `set` refuse such a file at exit 7.
+
 - `instance_paths()` in every binding walks a file one instance at a time, with `(i)` on each repeated name.
 
 - `fields()`, `read_fields()` and `read_child_fields()` in every binding (Go `Fields`, C `shcl_fields`) give each field's path, name, value and line together, the path in the `instance_paths()` form.

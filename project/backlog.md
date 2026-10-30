@@ -483,23 +483,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
-- Open a newer format's file read-only
-	- ID: 2026102910482344
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Problem description: a file written for a newer format loads with `H006`, and a save writes it back by this version's rules. Lines the newer format reads another way can change, with no error.
-	- Requirements:
-		- A document loaded from a newer format says so.
-		- A save over that file is refused with its own error kind. Reads work as now.
-	- Reason: v4 keeps Format 3, so no such file exists yet. The refusal has to be in readers before the first newer format is, though, or every older reader can damage those files.
-	- Note: shclwrap does this as `ReadOnly()` and `ErrTooNew`.
-	- Note: with v4 (JC).
-	- Decisions:
-		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
-
 - `E003` is retained, and dropping follows one test
 	- ID: 2026102821334970
 	- Type: Enhancement
@@ -613,6 +596,41 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Open a newer format's file read-only
+	- ID: 2026102910482344
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
+	- Needs external testing: the hosted ci.yml windows job, for the new tests' saves there.
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Problem description: a file written for a newer format loads with `H006`, and a save writes it back by this version's rules. Lines the newer format reads another way can change, with no error.
+	- Requirements:
+		- A document loaded from a newer format says so.
+		- A save over that file is refused with its own error kind. Reads work as now.
+	- Reason: v4 keeps Format 3, so no such file exists yet. The refusal has to be in readers before the first newer format is, though, or every older reader can damage those files.
+	- Note: shclwrap does this as `ReadOnly()` and `ErrTooNew`.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: newer is the reading `H006` comes from, a Format line naming a major above this one, for a load and a parse alike. A merge takes a newer layer's, as it takes its lost count, since the layer's lines are the document's then.
+		- me, 20261029: the accessor is `newer_format()` (Go `NewerFormat`, C `shcl_newer_format`), beside `lost_count`.
+		- me, 20261029: every save of such a document is refused, wherever it goes, with nothing written: Rust `SaveError::TooNew { path }`, Python `SaveTooNew`, Go `*SaveTooNew`, C `SHCL_SAVE_TOO_NEW` on the end of `shcl_save_result`, the veneer `SaveResult::TooNew`. It's checked first, before the lost-content, create and changed checks, and no option overrides it. The message is `PATH: refusing to save: the document holds lines from a newer format than this reader's; nothing written`.
+		- me, 20261029: setters work in memory. `write_file_atomic` writes what it's given, and `upgrade_file` and `migrate` already leave such a file alone.
+		- me, 20261029: the CLI's `fmt --write` and `set --write` refuse at exit 7, first, so before the changed-since-read and nothing-to-write checks. `set`'s print refuses at 7 too, since it answers as `--write` would (2026100717500003), and `fmt --check` does, since it asks the save gate. `fmt` to stdout still prints. `--lossy` doesn't override. `--write` takes no `--layer`, so a newer layer refuses only the print. The help gets a sentence and the exit 7 line, and `explain H006` says a save is refused.
+		- Decided against: shclwrap's `ReadOnly` as the name, since `ReadOnly` is already a write status, for a read-only filesystem. Refusing only a save over the file the load read, since the lines are this reader's guess wherever they go. Letting `set` print, as the print mirrors `--write`.
+	- Progress log:
+		- 20261029: all 4 bindings and the veneer. The parse notes a newer format from the reading the hint uses, a merge ORs it in, and C's compact copies it. `save_file_with` checks it first. The 4 CLIs refuse in `write_back`, `fmt --check` and `set`'s print. crosscheck wants 7 and the file untouched for a corpus case with `H006` (`204-format-newer-hint`), as for one with a lost line. cli-regress `EsEtTdZ` has the new `explain H006` text. Docs: design.md (a bullet under the `H006` one, and a Save outcomes row), spec.md (the `H006` row, the CLI bullet, a file tier bullet, the separate-values bullet, the Format paragraph), examples.md, the changelog's New, the Rust README, the style guide and check-docs' Python-only names.
+		- 20261029: the quick run failed the Python soak (`Et01jhM`), which caught only `SaveFailed` and so stopped on the newer corpus case. It takes `SaveTooNew` too now. Go's soak checks for nil, and Rust's and C's ignore the result.
+		- Verified: the 5 library tests and the 6 refusal rows fail with the parse's newer forced off and pass with it. `fmt-print-newer` passes both ways, as it pins that `fmt` still prints. Also cargo test, go test in both modules, the Python, C and veneer suites, check-veneer, cli-regress (637 rows), crosscheck (22938), check-docs (only `EpHGoa0`, the known installer sync), test-ids, shellcheck, shell-regress, markdownlint, rustfmt, gofmt, clippy and ruff. Then `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, since `EpHGoa0` stops it otherwise.
+	- Swept: every save in all 4 and the veneer goes through `save_file_with`, and no library code saves otherwise. Every parse entry, the loads, `load_and_validate` and `new` go through the one parser. Merge in all 4, C's compact; no other copy of a document. `write_file_atomic`, `upgrade_file` (leaves a newer file, exit 0) and `migrate` (nothing to migrate) unchanged. CLIs: `write_back` (fmt and set `--write`), `fmt --check` and `set`'s print in all 4; `migrate --write` and `upgrade --write` leave the file; `set`'s create makes a new file. The 4 runners have no save op. The 4 soak tests save every corpus case: Python's caught only `SaveFailed`, fixed. `cicd/utility/comparison` saves a document it built.
+	- Test case: `a_newer_format_document_saves_nowhere` in Rust (`Eu8h5g4`), Python (`Eu8h5g5`), Go `TestANewerFormatDocumentSavesNowhere` (`Eu8h5g6`), the C runner (`Eu8h5g7`) and the veneer smoke (`Eu8h5g8`). cli-regress `Eu8h5g9`, `Eu8h5gA`, `Eu8h5gB`, `Eu8h5gC`, `Eu8h5gD`, `Eu8h5gE`, `Eu8h5gF`.
+	- Branch: `r1029b-ro`
+	- Commit: `7f2aa27c`, `ddfe3333`
+	- Acceptance signoff: me, 20261029, every save of a newer doc is refused in all 4, and each new test failed with it off
+	- Closed: 20261029
 
 - The C runner's swap test leaves its folder behind on windows
 	- ID: 2026102915173442

@@ -417,7 +417,11 @@ fCase(){
 		fSplitTabs "$lrow"
 		[[ -z "${cols[4]:-}" || "${cols[4]}" == standard ]] && lost="${cols[2]}"
 	done < "${caseDir}reads.tsv"
-	if [[ "$lost" != 0 ]]; then wantRc=7; wantFile="$input"; else wantRc=0; wantFile="${caseDir}expected.shcl"; fi
+	# A file naming a newer format, the case's H006, is never written either
+	# (2026102910482344).
+	local newer=0
+	grep -q ': H006$' "${caseDir}expected-diags.txt" 2>/dev/null && newer=1
+	if [[ "$lost" != 0 || "$newer" == 1 ]]; then wantRc=7; wantFile="$input"; else wantRc=0; wantFile="${caseDir}expected.shcl"; fi
 	[[ -f "$wantFile" ]] || wantFile=""
 	caseSrc="$input"; fCompareWrite "fmt --write ${caseName}" fFixCase fmt --write
 	wantRc=""; wantFile=""

@@ -6964,6 +6964,81 @@ int main(int argc, char **argv) {
 		shcl_free(doc);
 		dir_clear(xdir);
 	}
+	test_id("Eu8h5g7", "a_newer_format_document_saves_nowhere");
+	{
+		/* A document from a newer format reads and edits as usual, and every
+		   save of it is refused with nothing written, whatever the options,
+		   before any other check. The same reading as H006 decides, and a merge
+		   takes a newer layer's (2026102910482344). Same fixture in every
+		   runner. */
+		const char *at = "newer";
+		const char *newer = "a: 1\n\n##    Format   4\n";
+		char ndir[256], f[320], other[320];
+		up_dir(ndir, sizeof ndir, "newer");
+		snprintf(f, sizeof f, "%s/f.shcl", ndir);
+		snprintf(other, sizeof other, "%s/other.shcl", ndir);
+		put_file(f, newer);
+		shcl_doc *doc = shcl_load_file(f, NULL);
+		if (!shcl_newer_format(doc)) fail(at, "a load: not newer");
+		int hint = 0;
+		for (size_t i = 0; i < shcl_diag_count(doc); i++) hint |= strcmp(shcl_diag_code(doc, i), "H006") == 0;
+		if (!hint) fail(at, "no H006");
+		if (shcl_get_int_or(doc, "a", 1, -1) != 1) fail(at, "read");
+		if (shcl_set_int(doc, "a", 1, 2) != SHCL_SET_OK) fail(at, "set");
+		if (shcl_get_int_or(doc, "a", 1, -1) != 2) fail(at, "read after the set");
+		int k = 1;
+		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "save");
+		if (shcl_save_file_lossy(doc, f, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "lossy");
+		if (shcl_save_file_keep_lines(doc, f, &k, NULL) != SHCL_SAVE_TOO_NEW || k) fail(at, "keep lines");
+		/* No option overrides it, and it comes before create's check. */
+		shcl_save_options all = {0};
+		all.lossy = all.keep_lines = all.force = all.create = 1;
+		all.mode = 0600;
+		if (shcl_save_file_with(doc, f, all, NULL, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "every option");
+		if (!file_is(f, newer)) fail(at, "written");
+		/* Anywhere else too, and nothing is made there. */
+		if (shcl_save_file(doc, other, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "elsewhere");
+		shcl_file_status ost = SHCL_FILE_CLEAN;
+		free(shcl_read_file(other, 0, NULL, &ost));
+		if (ost != SHCL_FILE_NOT_FOUND) fail(at, "made elsewhere");
+		/* compact keeps it. */
+		shcl_compact(doc);
+		if (!shcl_newer_format(doc)) fail(at, "a compact: not newer");
+		shcl_free(doc);
+
+		/* A parse reads the text the same way. */
+		shcl_doc *parsed = shcl_parse(newer, strlen(newer));
+		if (!shcl_newer_format(parsed)) fail(at, "a parse: not newer");
+		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "parse");
+		shcl_free(parsed);
+		/* This format, an older one, none, a damaged line, and one in a raw
+		   body save as before. */
+		const char *texts[] = {
+			"a: 1\n##    Format   3\n",
+			"a: 1\n##    Format   2\n",
+			"a: 1\n",
+			"a: 1\n##    Format   4x\n",
+			"note:\n\t```\n##    Format   4\n\t```\n",
+		};
+		for (size_t i = 0; i < sizeof texts / sizeof *texts; i++) {
+			shcl_doc *d = shcl_parse(texts[i], strlen(texts[i]));
+			if (shcl_newer_format(d)) fail(at, texts[i]);
+			if (shcl_save_file(d, other, NULL) != SHCL_SAVE_OK) fail(at, texts[i]);
+			shcl_free(d);
+		}
+		/* A merged layer's lines are the document's now. */
+		shcl_doc *base = shcl_parse("b: 2\n", 5), *lay = shcl_parse(newer, strlen(newer));
+		shcl_merge(base, lay);
+		if (!shcl_newer_format(base)) fail(at, "a merge over a newer layer: not newer");
+		if (shcl_save_file(base, other, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "merged");
+		shcl_doc *cur = shcl_parse("b: 2\n", 5);
+		shcl_merge(lay, cur);
+		if (!shcl_newer_format(lay)) fail(at, "a merge onto a newer document: not newer");
+		shcl_free(cur);
+		shcl_free(lay);
+		shcl_free(base);
+		dir_clear(ndir);
+	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }
 	printf("conformance: %zu case(s) pass\n", nn);

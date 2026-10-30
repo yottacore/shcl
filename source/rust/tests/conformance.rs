@@ -5984,3 +5984,81 @@ fn a_create_only_save_refuses_a_file_already_there() {
 	}
 	let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A document from a newer format reads and edits as usual, and every save
+/// of it is refused with nothing written, whatever the options, before any
+/// other check. The same reading as H006 decides, and a merge takes a newer
+/// layer's (2026102910482344).
+#[cfg_attr(miri, ignore = "saves to disk")]
+#[test]
+fn a_newer_format_document_saves_nowhere() {
+	let _id = test_id("Eu8h5g4");
+	use shcl::{SaveError, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-newer-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let newer = "a: 1\n\n##    Format   4\n";
+	let f = at("f.shcl");
+	std::fs::write(&f, newer).unwrap();
+	let (mut doc, _) = Document::load_file(&f);
+	assert!(doc.newer_format());
+	assert!(doc.diagnostics().iter().any(|d| d.code == "H006"));
+	assert_eq!(doc.get_int("a"), Ok(1));
+	assert_eq!(doc.set_int("a", 2), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_int("a"), Ok(2));
+	let too_new = |p: &str| SaveError::TooNew {
+		path: p.to_string(),
+	};
+	assert_eq!(doc.save_file(&f), Err(too_new(&f)));
+	assert_eq!(
+		too_new(&f).to_string(),
+		format!(
+			"{f}: refusing to save: the document holds lines from a newer format than this reader's; nothing written"
+		)
+	);
+	assert_eq!(doc.save_file_lossy(&f), Err(too_new(&f)));
+	assert_eq!(doc.save_file_keep_lines(&f), Err(too_new(&f)));
+	// No option overrides it, and it comes before create's check.
+	let all = SaveOptions {
+		lossy: true,
+		keep_lines: true,
+		force: true,
+		create: true,
+		mode: 0o600,
+	};
+	assert_eq!(doc.save_file_with(&f, &all), Err(too_new(&f)));
+	assert_eq!(read(&f), newer);
+	// Anywhere else too, and nothing is made there.
+	let other = at("other.shcl");
+	assert_eq!(doc.save_file(&other), Err(too_new(&other)));
+	assert!(!Path::new(&other).exists());
+
+	// A parse reads the text the same way.
+	let mut parsed = Document::parse(newer);
+	assert!(parsed.newer_format());
+	assert_eq!(parsed.save_file(&other), Err(too_new(&other)));
+	// This format, an older one, none, a damaged line, and one in a raw body
+	// save as before.
+	for text in [
+		"a: 1\n##    Format   3\n",
+		"a: 1\n##    Format   2\n",
+		"a: 1\n",
+		"a: 1\n##    Format   4x\n",
+		"note:\n\t```\n##    Format   4\n\t```\n",
+	] {
+		let mut d = Document::parse(text);
+		assert!(!d.newer_format(), "{text:?}");
+		assert_eq!(d.save_file(&other), Ok(()), "{text:?}");
+	}
+	// A merged layer's lines are the document's now.
+	let mut base = Document::parse("b: 2\n");
+	base.merge(&Document::parse(newer));
+	assert!(base.newer_format());
+	assert_eq!(base.save_file(&other), Err(too_new(&other)));
+	let mut under = Document::parse(newer);
+	under.merge(&Document::parse("b: 2\n"));
+	assert!(under.newer_format());
+	let _ = std::fs::remove_dir_all(&dir);
+}
