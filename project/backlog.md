@@ -239,7 +239,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Not run: the step inside a whole run with release builds.
 	- Decisions:
 		- `check-freebsd.bash`'s qemu boot stays (me). It runs a pinned stock 15.1 image with no network, in the container and in a `--no-remote` run, in about 18 s. vmFreeBSD is a lived-in box whose toolchains change with `pkg`, and is a `SKIP` when held or off. Dropping the boot would also drop 3 tests.
-		- Suites are a 4th row field, so vmDebARM64 can take them with one word, and the Macs stay CLI-only (me).
+		- Suites are a fourth row field, so vmDebARM64 can take them with one word, and the Macs stay CLI-only (me).
 		- Each run builds cold in the box's work folder, cargo's crates included, so nothing is left on the box (me).
 		- cli-regress on the box leaves out the Python CLI (me). It held about 270 s of cli-regress's 289 s there, which put the step over 5 minutes of every full run. Running the 4 bindings side by side saved only 10 s. Python's conformance suite still runs there.
 		- The suites are the conformance suites as asked: no Go `-race`, Python soak, or the C veneer, OOM and bounds tests (me).
@@ -260,7 +260,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
 		- It runs under TCG, so keep its share of the run short.
 	- Progress log:
-		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its 4th field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
+		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its fourth field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
 		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
 		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
 		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
