@@ -73,9 +73,10 @@ def soak_round(r: int, cases: list[tuple[str, str, str]], save_to: str, counts: 
 			doc.read_string(p)
 		doc.set_int("soak.round", r)
 		doc.set_string("soak.case", f"{r} {inp}")
+		# The case naming a newer format saves nowhere (SaveTooNew).
 		try:
 			doc.save_file_lossy(save_to)
-		except shcl.SaveFailed:
+		except (shcl.SaveFailed, shcl.SaveTooNew):
 			pass
 		else:
 			counts["saved"] += 1
