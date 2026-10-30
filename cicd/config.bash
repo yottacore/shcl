@@ -422,7 +422,7 @@ PROFILE_WORKLOAD_GEN='source cicd/utility/include/largedoc-gen.bash; largedoc_ge
 ## Two inlined loops of known cost ratio, sampled the same way; exit 1 when
 ## the graph would split them wrong. It prints a status line like every test.
 PROFILE_CHECK_ID=dczst
-PROFILE_CHECK='s=PASS; SHCL_PROFILE_CHECK=1 "${PROFILE_BIN}" || s=FAIL; printf "%-4s %s profiler attribution-calibration\n" "${s}" "${PROFILE_CHECK_ID}"; [[ "${s}" == ok ]]'
+PROFILE_CHECK='s=PASS; SHCL_PROFILE_CHECK=1 "${PROFILE_BIN}" || s=FAIL; printf "%-4s %s profiler attribution-calibration\n" "${s}" "${PROFILE_CHECK_ID}"; [[ "${s}" == PASS ]]'
 ## The calibration is the one pin on the sampler's attribution fix, and
 ## --merge-gate turns the profiler off, so it builds for it alone. No LTO: the loops are
 ## inlined into one function without it, and the check still fails with the

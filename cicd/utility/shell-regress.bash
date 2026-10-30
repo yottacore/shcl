@@ -4028,6 +4028,21 @@ fTest dee4s 2026102421543041-sizes-printed-are-apparent
 duPlain="$(grep -nE 'du -h( |$)' "${repoDir}/cicd/cicd.bash" "${repoDir}/cicd/utility/package.bash" | grep -vF -e '--apparent-size' || true)"
 [[ -z "${duPlain}" ]] || fBad "a file size printed from allocated blocks: ${duPlain}"
 
+fTest demx9 2026103011015050-profile-check-reads-its-own-status
+##	PROFILE_CHECK printed PASS and then compared against the old word, so a
+##	passing calibration returned 1. check-push-gate's stand-in engine replaces
+##	PROFILE_CHECK, so this runs config.bash's own string.
+# shellcheck disable=SC2016  ## the inner shell's own variables
+pcRun='set +u; source "$1"; PROFILE_BIN="$2"; eval "${PROFILE_CHECK}"'
+mkdir -p "${tmpDir}/profcheck"
+printf '#!/bin/sh\nexit 0\n' > "${tmpDir}/profcheck/pass.sh"
+printf '#!/bin/sh\nexit 1\n' > "${tmpDir}/profcheck/fail.sh"
+chmod +x "${tmpDir}/profcheck/pass.sh" "${tmpDir}/profcheck/fail.sh"
+pcRc=0; pcOut="$("${BASH}" -c "${pcRun}" _ "${repoDir}/cicd/config.bash" "${tmpDir}/profcheck/pass.sh" 2>&1)" || pcRc=$?
+[[ "${pcRc}" == 0 && "${pcOut}" == "PASS dczst profiler attribution-calibration" ]] || fBad "PROFILE_CHECK on a passing profiler: exit ${pcRc}, ${pcOut@Q}"
+pcRc=0; pcOut="$("${BASH}" -c "${pcRun}" _ "${repoDir}/cicd/config.bash" "${tmpDir}/profcheck/fail.sh" 2>&1)" || pcRc=$?
+[[ "${pcRc}" == 1 && "${pcOut}" == "FAIL dczst profiler attribution-calibration" ]] || fBad "PROFILE_CHECK on a failing profiler: exit ${pcRc}, ${pcOut@Q}"
+
 fTestEnd
 
 if ((nBad)); then

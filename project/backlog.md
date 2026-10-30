@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The profiler attribution check fails every run since its status word became PASS
 	- ID: 2026103011015050
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261030-110150
 	- Opened by: found while working 2026102515494634
@@ -50,6 +50,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The compare reads `PASS`.
 		- A test runs config.bash's own `PROFILE_CHECK` with a stand-in binary that exits 0 and then 1.
 	- Estimated effort: Low
+	- Actual cause: confirmed. `817ea2e1` changed the status word to `PASS` and left the compare on `ok`.
+	- Actual fix: the compare reads `PASS`.
+	- Swept: config.bash and cicd/ for other compares against the old status words (`ok`, `FAIL` as a returned word). None left. check-readme's `ok (0 diagnostic(s))` is a tool's output, not a status line.
+	- Verified: shell-regress `demx9` runs config.bash's own `PROFILE_CHECK` with a stand-in that exits 0 and then 1, and checks exit code and status line. It fails with the compare on `ok` (exit 1 on the pass) and passes with the fix. Also the whole of shell-regress, `test-ids.py check` and shellcheck.
+	- Test case: shell-regress `demx9`.
+	- Closed: 20261030-112322
 
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
