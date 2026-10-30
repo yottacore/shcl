@@ -101,7 +101,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: keep-temp and list
 	- ID: 2026102515494634
 	- Type: Enhancement
-	- Status: Stalled
+	- Status: Queued
 		- Held for 2026102416250080, for the test IDs `--list` prints. `--keep-temp` and the steps `--list` prints are in.
 	- Priority: High
 	- Opened: 20261025-154946
@@ -118,6 +118,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: check-push-gate `dee5k` failed on the old engine and passes now, with `de633`, `ded0y` and `ded2j` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
 		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
 		- Verified: check-push-gate `dee5y` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
+		- 20261030: test IDs are in (2026102416250080), so the hold is over.
 	- Test case: check-push-gate `dee5k` (`--keep-temp`) and `dee5y` (`--list`).
 
 - CICD reset: other hosts and VMs
