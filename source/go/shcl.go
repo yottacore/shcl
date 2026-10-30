@@ -12714,7 +12714,7 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 				// Off the index, not a scan of every base child: N leaves
 				// overridden by the same N names made this quadratic
 				// (20260918b item 58).
-				var kept []lead
+				var kept, inside []lead
 				for _, b := range byName[name] {
 					nd := &d.arena[b]
 					// The leaf's own comments are the ones a remove would
@@ -12743,10 +12743,16 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 					for _, a := range nd.among() {
 						among = append(among, a.lead)
 					}
-					for _, list := range [][]lead{leading[above:], among, nd.inside(), after[:below]} {
+					// A line kept inside its block stays there, as when a
+					// setter changes the leaf in place.
+					for li, list := range [][]lead{leading[above:], among, nd.inside(), after[:below]} {
 						for _, l := range list {
 							if !strings.HasPrefix(l.text, "#") {
-								kept = append(kept, l)
+								if li == 2 {
+									inside = append(inside, l)
+								} else {
+									kept = append(kept, l)
+								}
 							} else if l.kept {
 								// A settled one goes with the leaf's comments
 								// (decided 2026-09-28), so it is no longer owed.
@@ -12763,6 +12769,11 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 					t.leading = append(kept, t.leading...)
 					// Comments from two sources now share one run.
 					restep(t.leading)
+				}
+				if len(inside) > 0 {
+					t := d.arena[clones[0]].trivMut()
+					t.inside = append(inside, t.inside...)
+					restep(t.inside)
 				}
 				replace[name] = clones
 			} else {

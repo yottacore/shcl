@@ -690,6 +690,9 @@ rows=(
 	## anywhere refuses, and --lossy prints with no word about keeping them.
 	'Es8aXo0|set-print-layer-refused|set --set=q=1 --layer=%F% %KL%|-|7||refusing to print|-'
 	'Es8aXo1|set-print-layer-lossy|set --lossy --set=q=1 --layer=%F% %KL%|-|0|-|!canonical form|-'
+	## 2026102821530643: the layer's kept item stays in the block it sat in,
+	## where it went to the root, above the field.
+	'Eu96oVJ|set-layer-keeps-kept-line-in-block|set --set=q=1 --layer=%KE% %KE%|-|0|val: 1\n\t- e\n\t- e\nz: 2\n\nq: 1\n|-'
 	"Ep3OILN|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.

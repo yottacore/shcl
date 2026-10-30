@@ -8746,6 +8746,7 @@ class Document:
 					# overridden by the same N names made this quadratic
 					# (20260918b item 58).
 					kept: list[_Lead] = []
+					inside: list[_Lead] = []
 					for b in by_name.get(name, ()):
 						nd = self.arena[b]
 						# The leaf's own comments are the ones a remove would
@@ -8758,8 +8759,12 @@ class Document:
 						after = nd.after()
 						below = next((k for k, c in enumerate(after) if not c.text.startswith("#")), len(after))
 						kept.extend(_Lead(c.text, c.blank_before, c.depth, c.line, c.kept) for c in leading[:above])
-						lines = [*leading[above:], *(a[1] for a in nd.among()), *nd.inside(), *after[:below]]
+						lines = [*leading[above:], *(a[1] for a in nd.among()), *after[:below]]
 						kept.extend(_Lead(lead.text, lead.blank_before, lead.depth) for lead in lines if not lead.text.startswith("#"))
+						# A line kept inside its block stays there, as when a
+						# setter changes the leaf in place.
+						inside.extend(_Lead(lead.text, lead.blank_before, lead.depth) for lead in nd.inside() if not lead.text.startswith("#"))
+						lines.extend(nd.inside())
 						# A settled one goes with the leaf's comments (decided
 						# 2026-09-28), so it is no longer owed.
 						settled = sum(1 for lead in lines if lead.kept and lead.text.startswith("#"))
@@ -8770,6 +8775,10 @@ class Document:
 						t.leading = kept + t.leading
 						# Comments from two sources now share one run.
 						_restep(t.leading)
+					if inside:
+						t = self.arena[clones[0][1]]._triv()
+						t.inside = inside + t.inside
+						_restep(t.inside)
 					replace[name] = [c for _, c in clones]
 				else:
 					appended.extend(clones)

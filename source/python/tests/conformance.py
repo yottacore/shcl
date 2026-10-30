@@ -4644,6 +4644,26 @@ def main():
 		raise SystemExit("set back refused")
 	nx_check(nx_doc, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
 
+	test_id("Eu96oVH", "a_replaced_leaf_keeps_the_lines_kept_in_its_block")
+	# A line kept in a leaf's block stays in the merged block when the other
+	# layer replaces the leaf, as it does when a setter changes the leaf in
+	# place. It went to the root, above the field, where an item reloaded as
+	# E007. Same fixture in every runner.
+	for rl_src, rl_want, rl_code in (
+		("val: 1\n\ta: [1\nz: 2\n", "val: 1\n\ta: [1\n\ta: [1\nz: 2\n", "E019"),
+		("val: 1\n\t- e\nz: 2\n", "val: 1\n\t- e\n\t- e\nz: 2\n", "E011"),
+	):
+		rl_doc = shcl.Document.parse(rl_src)
+		rl_doc.merge(shcl.Document.parse(rl_src))
+		rl_text = rl_doc.to_canonical()
+		if rl_text != rl_want:
+			raise SystemExit(f"canonical {rl_text!r}, want {rl_want!r}")
+		rl_back = shcl.Document.parse(rl_text)
+		if rl_back.to_canonical() != rl_text or rl_back.lost_count() != 0:
+			raise SystemExit(f"reload differs or loses: {rl_text!r}")
+		if [(d.line, d.code) for d in rl_back.diagnostics()] != [(2, rl_code), (3, rl_code)]:
+			raise SystemExit(f"reload diagnostics {rl_back.diagnostics()!r}")
+
 	test_id("ErylLpf", "a_setter_keeps_fields_and_arrays_apart")
 	# A field with lines under it takes one plain value or none (E028), so a
 	# setter puts no field under an array and no array over fields. Each used

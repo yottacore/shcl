@@ -13156,6 +13156,7 @@ impl Document {
 					// onto the replacement. A comment starts with `#`, a
 					// retained line never does.
 					let mut kept: Vec<Lead> = Vec::new();
+					let mut inside: Vec<Lead> = Vec::new();
 					// Off the index, not a scan of every base child: N leaves
 					// overridden by the same N names made this quadratic
 					// (20260918b item 58).
@@ -13178,14 +13179,21 @@ impl Document {
 							.unwrap_or(after.len());
 						kept.extend_from_slice(&leading[..above]);
 						let among = nd.among().iter().map(|a| &a.1);
-						for l in leading[above..]
+						// A line kept inside its block stays there, as when a
+						// setter changes the leaf in place.
+						let lines = leading[above..]
 							.iter()
 							.chain(among)
-							.chain(nd.inside())
-							.chain(&after[..below])
-						{
+							.map(|l| (l, false))
+							.chain(nd.inside().iter().map(|l| (l, true)))
+							.chain(after[..below].iter().map(|l| (l, false)));
+						for (l, within) in lines {
 							if !l.text.starts_with('#') {
-								kept.push(l.clone());
+								if within {
+									inside.push(l.clone());
+								} else {
+									kept.push(l.clone());
+								}
 							} else if l.kept {
 								// A settled one goes with the leaf's comments
 								// (decided 2026-09-28), so it is no longer owed.
@@ -13200,6 +13208,12 @@ impl Document {
 						t.leading = kept;
 						// Comments from two sources now share one run.
 						restep(&mut t.leading);
+					}
+					if !inside.is_empty() {
+						let t = self.arena[clones[0].1].triv_mut();
+						inside.append(&mut t.inside);
+						t.inside = inside;
+						restep(&mut t.inside);
 					}
 					replace.insert(name, clones.into_iter().map(|(_, c)| c).collect());
 				} else {

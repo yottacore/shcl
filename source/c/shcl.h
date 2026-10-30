@@ -8966,7 +8966,7 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 				   the parser promised to keep, so those move onto the
 				   replacement. A comment starts with `#`, a retained line
 				   never does. The texts already live in the document arena. */
-				ShclVecLead kept = {0};
+				ShclVecLead kept = {0}, inside = {0};
 				for (size_t i = 0; i < named[bni].len; i++) {
 					size_t b = named[bni].data[i];
 					const ShclTrivia *bt = NODE(d, b).trivia;
@@ -8984,9 +8984,11 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 					for (size_t k = 0; k < above; k++) ShclVecLead_push(t, &kept, bt->leading.data[k]);
 					const ShclVecLead *lists[3] = { &bt->leading, &bt->inside, &bt->after };
 					size_t from[3] = { above, 0, 0 }, to[3] = { bt->leading.len, bt->inside.len, below };
+					/* A line kept inside its block stays there, as when a setter
+					   changes the leaf in place. */
 					for (size_t li = 0; li < 3; li++) {
 						for (size_t k = from[li]; k < to[li]; k++) {
-							if (!(lists[li]->data[k].text.n && lists[li]->data[k].text.p[0] == '#')) ShclVecLead_push(t, &kept, lists[li]->data[k]);
+							if (!(lists[li]->data[k].text.n && lists[li]->data[k].text.p[0] == '#')) ShclVecLead_push(t, li == 1 ? &inside : &kept, lists[li]->data[k]);
 							/* A settled one goes with the leaf's comments
 							   (decided 2026-09-28), so it is no longer owed. */
 							else if (lists[li]->data[k].kept && d->kept_owed > 0) d->kept_owed--;
@@ -9009,6 +9011,14 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 					ct->leading = lead;
 					/* Comments from two sources now share one run. */
 					restep(&ct->leading);
+				}
+				if (inside.len) {
+					ShclTrivia *ct = triv_mut(a, &NODE(d, rep[gi].data[0]));
+					ShclVecLead ins = {0};
+					for (size_t k = 0; k < inside.len; k++) ShclVecLead_push(a, &ins, inside.data[k]);
+					for (size_t k = 0; k < ct->inside.len; k++) ShclVecLead_push(a, &ins, ct->inside.data[k]);
+					ct->inside = ins;
+					restep(&ct->inside);
 				}
 			}
 		} else {

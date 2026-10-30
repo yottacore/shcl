@@ -6259,6 +6259,36 @@ func TestAnIndexWithNoInstanceStaysKept(t *testing.T) {
 	check(doc, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
 }
 
+// A line kept in a leaf's block stays in the merged block when the other layer
+// replaces the leaf, as it does when a setter changes the leaf in place. It
+// went to the root, above the field, where an item reloaded as E007. Same
+// fixture in every runner.
+func TestAReplacedLeafKeepsTheLinesKeptInItsBlock(t *testing.T) {
+	defer testID(t, "Eu96oVG")
+	for _, c := range []struct{ src, want, code string }{
+		{"val: 1\n\ta: [1\nz: 2\n", "val: 1\n\ta: [1\n\ta: [1\nz: 2\n", "E019"},
+		{"val: 1\n\t- e\nz: 2\n", "val: 1\n\t- e\n\t- e\nz: 2\n", "E011"},
+	} {
+		doc := Parse(c.src)
+		doc.Merge(Parse(c.src))
+		text := doc.ToCanonical()
+		if text != c.want {
+			t.Fatalf("canonical %q, want %q", text, c.want)
+		}
+		back := Parse(text)
+		if back.ToCanonical() != text || back.LostCount() != 0 {
+			t.Fatalf("reload differs or loses: %q", text)
+		}
+		var codes []string
+		for _, d := range back.Diagnostics() {
+			codes = append(codes, fmt.Sprintf("%d %s", d.Line, d.Code))
+		}
+		if !reflect.DeepEqual(codes, []string{"2 " + c.code, "3 " + c.code}) {
+			t.Fatalf("reload diagnostics %v", codes)
+		}
+	}
+}
+
 // A field with lines under it takes one plain value or none (E028), so a
 // setter puts no field under an array and no array over fields. Each used to
 // write text that reloads as E028.

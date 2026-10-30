@@ -3562,6 +3562,41 @@ fn an_index_with_no_instance_stays_kept() {
 	);
 }
 
+/// A line kept in a leaf's block stays in the merged block when the other
+/// layer replaces the leaf, as it does when a setter changes the leaf in
+/// place. It went to the root, above the field, where an item reloaded as
+/// E007. Same fixture in every runner.
+#[test]
+fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
+	let _id = test_id("Eu96oVF");
+	for (src, want, code) in [
+		(
+			"val: 1\n\ta: [1\nz: 2\n",
+			"val: 1\n\ta: [1\n\ta: [1\nz: 2\n",
+			"E019",
+		),
+		(
+			"val: 1\n\t- e\nz: 2\n",
+			"val: 1\n\t- e\n\t- e\nz: 2\n",
+			"E011",
+		),
+	] {
+		let mut doc = Document::parse(src);
+		doc.merge(&Document::parse(src));
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+		let codes: Vec<(usize, &str)> = back
+			.diagnostics()
+			.iter()
+			.map(|d| (d.line, d.code))
+			.collect();
+		assert_eq!(codes, [(2, code), (3, code)]);
+	}
+}
+
 #[cfg_attr(
 	miri,
 	ignore = "saves to disk, and Miri has no fchown or directory fsync"

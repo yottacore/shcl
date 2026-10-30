@@ -5334,6 +5334,31 @@ int main(int argc, char **argv) {
 			shcl_free(cb); shcl_free(cd);
 		}
 	}
+	test_id("Eu96oVI", "a_replaced_leaf_keeps_the_lines_kept_in_its_block");
+	/* A line kept in a leaf's block stays in the merged block when the other
+	   layer replaces the leaf, as it does when a setter changes the leaf in
+	   place. It went to the root, above the field, where an item reloaded as
+	   E007. Same fixture in every runner. */
+	{
+		struct { const char *src, *want, *code; } rc[] = {
+			{"val: 1\n\ta: [1\nz: 2\n", "val: 1\n\ta: [1\n\ta: [1\nz: 2\n", "E019"},
+			{"val: 1\n\t- e\nz: 2\n", "val: 1\n\t- e\n\t- e\nz: 2\n", "E011"},
+		};
+		for (size_t k = 0; k < sizeof rc / sizeof rc[0]; k++) {
+			shcl_doc *cd = shcl_parse(rc[k].src, strlen(rc[k].src));
+			shcl_doc *lo = shcl_parse(rc[k].src, strlen(rc[k].src));
+			shcl_merge(cd, lo);
+			shcl_free(lo);
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, rc[k].want)) { fail("replaced_leaf", rc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || shcl_lost_count(cb) != 0) fail("replaced_leaf", "reload differs or loses");
+			if (shcl_diag_count(cb) != 2 || shcl_diag_line(cb, 0) != 2 || strcmp(shcl_diag_code(cb, 0), rc[k].code) != 0
+				|| shcl_diag_line(cb, 1) != 3 || strcmp(shcl_diag_code(cb, 1), rc[k].code) != 0) fail("replaced_leaf", "reload diagnostics");
+			shcl_free(cb); shcl_free(cd);
+		}
+	}
 	test_id("Es1gWRx", "a_setter_keeps_fields_and_arrays_apart");
 	/* A field with lines under it takes one plain value or none (E028), so a
 	   setter puts no field under an array and no array over fields. Each used

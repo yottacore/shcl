@@ -338,6 +338,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A merge no longer deletes a malformed line kept above or under a leaf.
 
+- A line kept in a leaf's block stays in the block when a merge replaces the leaf, where it went above the leaf, a level up.
+
 ### Schema and init
 
 - `V005` and `V006` name the bound and the value that broke it.
