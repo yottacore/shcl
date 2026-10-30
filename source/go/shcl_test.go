@@ -7131,3 +7131,101 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 		}
 	}
 }
+
+// A document from a newer format reads and edits as usual, and every save of
+// it is refused with nothing written, whatever the options, before any other
+// check. The same reading as H006 decides, and a merge takes a newer layer's
+// (2026102910482344). Same fixture in every runner.
+func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
+	defer testID(t, "Eu8h5g6")
+	dir := t.TempDir()
+	at := func(name string) string { return filepath.Join(dir, name) }
+	tooNew := func(what string, err error, p string) {
+		t.Helper()
+		var e *SaveTooNew
+		if !errors.As(err, &e) || e.Path != p {
+			t.Errorf("%s: got %v, want *SaveTooNew for %s", what, err, p)
+		}
+	}
+	newer := "a: 1\n\n##    Format   4\n"
+	f := at("f.shcl")
+	if err := os.WriteFile(f, []byte(newer), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := LoadFile(f)
+	if !doc.NewerFormat() {
+		t.Errorf("a load: not newer")
+	}
+	hint := false
+	for _, d := range doc.Diagnostics() {
+		hint = hint || d.Code == "H006"
+	}
+	if !hint {
+		t.Errorf("no H006")
+	}
+	if v, st := doc.GetInt("a"); st != Good || v != 1 {
+		t.Errorf("read: %d %v", v, st)
+	}
+	if st := doc.SetInt("a", 2); st != SetOk {
+		t.Errorf("set: %v", st)
+	}
+	if v, _ := doc.GetInt("a"); v != 2 {
+		t.Errorf("read after the set: %d", v)
+	}
+	err := doc.SaveFile(f)
+	tooNew("save", err, f)
+	if err == nil || err.Error() != f+": refusing to save: the document holds lines from a newer format than this reader's; nothing written" {
+		t.Errorf("message: %v", err)
+	}
+	tooNew("lossy", doc.SaveFileLossy(f), f)
+	_, err = doc.SaveFileKeepLines(f)
+	tooNew("keep lines", err, f)
+	// No option overrides it, and it comes before create's check.
+	_, err = doc.SaveFileWith(f, SaveOptions{Lossy: true, KeepLines: true, Force: true, Create: true, Mode: 0o600})
+	tooNew("every option", err, f)
+	if got, _ := os.ReadFile(f); string(got) != newer {
+		t.Errorf("written: %q", got)
+	}
+	// Anywhere else too, and nothing is made there.
+	other := at("other.shcl")
+	tooNew("elsewhere", doc.SaveFile(other), other)
+	if _, err := os.Lstat(other); err == nil {
+		t.Errorf("made %s", other)
+	}
+
+	// A parse reads the text the same way.
+	parsed := Parse(newer)
+	if !parsed.NewerFormat() {
+		t.Errorf("a parse: not newer")
+	}
+	tooNew("parse", parsed.SaveFile(other), other)
+	// This format, an older one, none, a damaged line, and one in a raw body
+	// save as before.
+	for _, text := range []string{
+		"a: 1\n##    Format   3\n",
+		"a: 1\n##    Format   2\n",
+		"a: 1\n",
+		"a: 1\n##    Format   4x\n",
+		"note:\n\t```\n##    Format   4\n\t```\n",
+	} {
+		d := Parse(text)
+		if d.NewerFormat() {
+			t.Errorf("%q: newer", text)
+		}
+		if err := d.SaveFile(other); err != nil {
+			t.Errorf("%q: %v", text, err)
+		}
+	}
+	// A merged layer's lines are the document's now.
+	base := Parse("b: 2\n")
+	base.Merge(Parse(newer))
+	if !base.NewerFormat() {
+		t.Errorf("a merge over a newer layer: not newer")
+	}
+	tooNew("merged", base.SaveFile(other), other)
+	under := Parse(newer)
+	under.Merge(Parse("b: 2\n"))
+	if !under.NewerFormat() {
+		t.Errorf("a merge onto a newer document: not newer")
+	}
+}

@@ -990,6 +990,9 @@ type Document struct {
 	// it, since the file under the merged document is still that one. A save
 	// there records what it wrote, so a save is a write like any edit.
 	file *loadedFile
+	// newer: the text named a newer format than this one (H006), so its lines
+	// may read differently there, and a save refuses. A merge takes a layer's.
+	newer bool
 }
 
 // nameIndex is the first child of each (parent, name), chained on to the next
@@ -5887,7 +5890,9 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		lines = lines[:len(lines)-1]
 	}
 	p.src = lines
-	if d, ok := stampHint(formatLineRead(text)); ok {
+	stamp := formatLineRead(text)
+	newer := stamp.Status == Good && stamp.Value > FormatMajor
+	if d, ok := stampHint(stamp); ok {
 		p.diag(d)
 	}
 	// Growing the arena by append cost about an eighth of fmt on a large
@@ -6342,7 +6347,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	if 2*len(p.arena) < cap(p.arena) {
 		p.arena = append([]nodeData(nil), p.arena...)
 	}
-	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, keptOwed: p.keptOwed, kept: p.keptAny, arrays: p.keptArrays, ends: p.ends, dropped: p.dropped}
+	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, keptOwed: p.keptOwed, kept: p.keptAny, arrays: p.keptArrays, ends: p.ends, dropped: p.dropped, newer: newer}
 	doc.settleKept()
 	return doc
 }
@@ -6418,6 +6423,14 @@ func (d *Document) Diagnostics() []Diagnostic {
 // kept-lines table does not let it take.
 func (d *Document) LostCount() int {
 	return d.lost + d.keptShortfall()
+}
+
+// NewerFormat is whether the text named a newer format than this reader's,
+// the one H006 hints at, from a load or a parse, or a merged layer's did.
+// Reads work as usual, and so do edits, but every save refuses with
+// *SaveTooNew, since it would write the lines by these rules.
+func (d *Document) NewerFormat() bool {
+	return d.newer
 }
 
 // keptShortfall is the kept lines the document owes and no longer holds. Free
@@ -9558,6 +9571,18 @@ func (e *SaveExists) Error() string {
 	return e.Path + ": refusing to save: the file is already there and create asks for a new one; nothing written"
 }
 
+// SaveTooNew is the error every save returns for a document read from a newer
+// format (see NewerFormat), since it would write the lines by these rules.
+// Nothing is written, and no option overrides it.
+type SaveTooNew struct {
+	Path string
+}
+
+// Error names the file and the reason.
+func (e *SaveTooNew) Error() string {
+	return e.Path + ": refusing to save: the document holds lines from a newer format than this reader's; nothing written"
+}
+
 // SaveOptions is how SaveFileWith saves. The zero value is SaveFile.
 type SaveOptions struct {
 	// Lossy writes even when the save deletes content from the file, as
@@ -9621,7 +9646,8 @@ func (f *loadedFile) holds(path string) bool {
 // when that file no longer holds what the load read, or what this document's
 // last save there wrote, so another program's edit is not lost;
 // SaveOptions.Force writes anyway. A refusal comes back as *SaveRefused,
-// another program's edit as *SaveChanged, a write failure as
+// another program's edit as *SaveChanged, a document from a newer format as
+// *SaveTooNew (see NewerFormat), a write failure as
 // WriteFileAtomic's *WriteError. A save records what it wrote, so it is a
 // write: not concurrent with another call on the document.
 func (d *Document) SaveFile(path string) error {
@@ -9641,6 +9667,11 @@ func (d *Document) SaveFileLossy(path string) error {
 // SaveFileWith is the save the options describe: true when it kept the lines,
 // as SaveFileKeepLines says. All the save calls come here.
 func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
+	// First, and no option overrides it: whatever else is true, the save would
+	// write a newer format's lines by these rules.
+	if d.newer {
+		return false, &SaveTooNew{Path: path}
+	}
 	lost := d.LostCount()
 	var text string
 	kept := false
@@ -12240,6 +12271,8 @@ func (d *Document) Merge(over *Document) {
 	d.index.Store(nil)
 	d.source = nil
 	d.lost += over.lost
+	// The layer's lines are in the document now, read by these rules.
+	d.newer = d.newer || over.newer
 	d.keptOwed += over.keptOwed
 	// The layer's own kept lines were modeled against its own tree.
 	fresh := over.kept

@@ -151,8 +151,9 @@ pub enum FileStatus {
 /// are separate values rather than spellings of one message: `Refused` is
 /// the lost-content gate, which the caller can reverse with `save_file_lossy`,
 /// `Changed` is another program's edit, which `SaveOptions::force` writes
-/// over, `Exists` is the file a create-only save found, and `Io` is the disk's
-/// answer, which they cannot reverse.
+/// over, `Exists` is the file a create-only save found, `TooNew` a document
+/// read from a newer format, and `Io` is the disk's answer, which they cannot
+/// reverse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveError {
 	/// This save would delete content from the file (see `lost_count`).
@@ -165,6 +166,10 @@ pub enum SaveError {
 	/// `SaveOptions::create` found a file already there, or another save made
 	/// it first. Nothing written.
 	Exists { path: String },
+	/// The document was read from a newer format than this one (see
+	/// `newer_format`), so a save would write its lines by these rules.
+	/// Nothing written, and no option overrides it.
+	TooNew { path: String },
 }
 
 impl std::fmt::Display for SaveError {
@@ -184,6 +189,11 @@ impl std::fmt::Display for SaveError {
 			SaveError::Exists { path } => write!(
 				f,
 				"{}: refusing to save: the file is already there and create asks for a new one; nothing written",
+				path
+			),
+			SaveError::TooNew { path } => write!(
+				f,
+				"{}: refusing to save: the document holds lines from a newer format than this reader's; nothing written",
 				path
 			),
 		}
@@ -940,6 +950,9 @@ pub struct Document {
 	// The file a load read, which a save over it checks first. A merge keeps
 	// it, since the file under the merged document is still that one.
 	file: Option<Box<LoadedFile>>,
+	// The text named a newer format than this one (H006), so its lines may
+	// read differently there, and a save refuses. A merge takes a layer's.
+	newer: bool,
 }
 
 /// The first child of each (parent, name), chained on to the next same-named
@@ -5767,7 +5780,9 @@ impl<'a> Parser<'a> {
 			lines.pop();
 		}
 		self.src = lines.clone();
-		if let Some(d) = stamp_hint(&format_line_read(text)) {
+		let stamp = format_line_read(text);
+		let newer = stamp.status == Status::Good && stamp.value > FORMAT_MAJOR;
+		if let Some(d) = stamp_hint(&stamp) {
 			self.diag(d);
 		}
 		let mut i = 0usize;
@@ -6368,6 +6383,7 @@ impl<'a> Parser<'a> {
 			dropped: self.dropped,
 			source: None,
 			file: None,
+			newer,
 		};
 		doc.settle_kept();
 		doc
@@ -6453,6 +6469,14 @@ impl Document {
 	/// kept-lines table does not let it take.
 	pub fn lost_count(&self) -> usize {
 		self.lost + self.kept_shortfall()
+	}
+
+	/// The text named a newer format than this reader's, the one `H006` hints
+	/// at, from a load or a parse, or a merged layer's did. Reads work as
+	/// usual, and so do edits, but every save refuses with
+	/// `SaveError::TooNew`, since it would write the lines by these rules.
+	pub fn newer_format(&self) -> bool {
+		self.newer
 	}
 
 	/// Kept lines the document owes and no longer holds. Free on a document
@@ -6627,7 +6651,8 @@ impl Document {
 	/// wrote, so another program's edit is not lost; `SaveOptions::force`
 	/// writes anyway. The Err tells them apart without matching on prose:
 	/// SaveError::Refused is the gate, SaveError::Changed the other program's
-	/// edit, SaveError::Io the write failing.
+	/// edit, SaveError::TooNew a document from a newer format (see
+	/// newer_format), SaveError::Io the write failing.
 	pub fn save_file(&mut self, path: &str) -> Result<(), SaveError> {
 		self.save_file_with(path, &SaveOptions::default())
 			.map(|_| ())
@@ -6647,6 +6672,13 @@ impl Document {
 	/// The save the options describe: Ok(true) when it kept the lines, as
 	/// save_file_keep_lines says. All the save calls come here.
 	pub fn save_file_with(&mut self, path: &str, opts: &SaveOptions) -> Result<bool, SaveError> {
+		// First, and no option overrides it: whatever else is true, the save
+		// would write a newer format's lines by these rules.
+		if self.newer {
+			return Err(SaveError::TooNew {
+				path: path.to_string(),
+			});
+		}
 		let lost = self.lost_count();
 		let (text, kept) = if opts.keep_lines {
 			self.to_text_keep_lines()
@@ -12719,6 +12751,8 @@ impl Document {
 		self.index.take();
 		self.source = None;
 		self.lost += over.lost;
+		// The layer's lines are in the document now, read by these rules.
+		self.newer |= over.newer;
 		self.kept_owed += over.kept_owed;
 		// The layer's own kept lines were modeled against its own tree.
 		let fresh = over.kept;

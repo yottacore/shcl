@@ -222,6 +222,8 @@ printf 'ports: [80, 443]\n' > "${tmpDir}/brsrc.shcl"
 ## A file that says which rules wrote it, which is the whole answer: there is
 ## nothing to migrate and a second run must not touch it.
 printf 'p: 1\n##    Format   3\n' > "${tmpDir}/stamped.shcl"
+## A file that names a newer format, which nothing may write back.
+printf 'a: 1\n\n##    Format   4\n' > "${tmpDir}/newer.shcl"
 ## A Format line inside a raw body is that block's content. Taken as the
 ## file's, the first made a current file look like 2.x and rewrote it at exit
 ## 0, and the second made any file look current.
@@ -422,7 +424,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%UC% one that loads clean and reads as an array under 2.x,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	holding a backslash 2.x read as an escape, %BW% a fresh copy of
-##	the bracket array, %V3% a file that already names its format,
+##	the bracket array, %V3% a file that already names its format, %NW% one
+##	naming a newer format, %NWW% a fresh copy of it at the path %C% names,
 ##	%V3B% the same behind a BOM, %V03% an older Format line and then the
 ##	current one, %BN% an info block with the file's own comments under it, %FB% a Format line of five thousand digits, %RF2%/%RF3% a raw body holding a Format line, %RFQ% one opened by a name ending in a backslash,
 ##	%ML% a 2.x file migrate rewrites whose migrated text still drops a line,
@@ -1052,8 +1055,19 @@ rows=(
 	"EssAxd9|stamp-hint-long-number|check -|##    Format   1$(printf '%0200d' 0)\n|0|line 1: Hint: H006\nok (1 diagnostic(s))\n|^line 1: Hint: H006 the file names format 10{99}[.]{3}0{100} [(]201 chars[)], newer"
 	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
-	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual. A shcl made\n  for that format reads it as written.\n\n|-"
+	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual, and a save\n  is refused, since it would write each line by these rules. A shcl made\n  for that format reads it as written.\n\n|-"
 	"EsEtTda|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now: p: a,b was an array in 2.x\n  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites\n  the file for these rules and keeps the original beside it. A file with\n  nothing else to change gets this format on its Format line.\n\n|-"
+	## 2026102910482344: a file naming a newer format reads as usual, and
+	## nothing writes it back. --write and set's print refuse at 7, --lossy
+	## or not, and fmt --check says so. fmt still prints. A newer layer under
+	## FILE refuses the print too, since the merge holds its lines.
+	'Eu8h5g9|set-write-newer-refused|set --write %NWW% --set=a=2|-|7|-|refusing to rewrite: the document holds lines from a newer format|a: 1\n\n##    Format   4\n'
+	'Eu8h5gA|fmt-write-newer-refused|fmt --write %NWW%|-|7|-|refusing to rewrite: the document holds lines from a newer format|a: 1\n\n##    Format   4\n'
+	'Eu8h5gF|set-write-newer-lossy-refused|set --write --lossy %NWW% --set=a=2|-|7|-|refusing to rewrite|a: 1\n\n##    Format   4\n'
+	'Eu8h5gE|set-print-newer-layer-refused|set --set=q=1 --layer=%NW% %F%|-|7||refusing to print: the document holds lines from a newer format'
+	'Eu8h5gB|set-print-newer-refused|set --set=a=2 -|a: 1\n##    Format   4\n|7||refusing to print: the document holds lines from a newer format'
+	'Eu8h5gC|fmt-check-newer-refused|fmt --check -|a: 1\n##    Format   4\n|7||fmt --write would refuse: the document holds lines from a newer format'
+	'Eu8h5gD|fmt-print-newer|fmt -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|!refus'
 	## 2026102307035776: a '#' against text opens a comment as any other does,
 	## and the load hints H008 so the cut is not silent. A blank before it gets
 	## none, and Strict still passes. The prose is the same in all four.
@@ -1794,6 +1808,7 @@ for row in "${rows[@]}"; do
 	## %W% and %L% are rewritten in place, so each binding gets its own fresh
 	## copy below.
 	argv="${argv//%V3%/${tmpDir}/stamped.shcl}"
+	argv="${argv//%NW%/${tmpDir}/newer.shcl}"
 	argv="${argv//%V3I%/${tmpDir}/indstamped.shcl}"
 	argv="${argv//%V3B%/${tmpDir}/bomstamped.shcl}"
 	argv="${argv//%V03%/${tmpDir}/twostamps.shcl}"
@@ -1908,6 +1923,9 @@ for row in "${rows[@]}"; do
 	elif [[ "${argv}" == *%UAW%* ]]; then
 		freshMigSrc=upgamb
 		argv="${argv//%UAW%/${tmpDir}/created.shcl}"
+	elif [[ "${argv}" == *%NWW%* ]]; then
+		freshMigSrc=newer
+		argv="${argv//%NWW%/${tmpDir}/created.shcl}"
 	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then

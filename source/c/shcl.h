@@ -226,6 +226,11 @@ const char *shcl_diag_code(const shcl_doc *d, size_t i);
 // lines the load kept as written that an edit took and design.md's kept-lines
 // table does not let it take.
 size_t shcl_lost_count(const shcl_doc *d);
+// 1 when the text named a newer format than this reader's, the one H006 hints
+// at, from a load or a parse, or a merged layer's did. Reads work as usual,
+// and so do edits, but every save refuses with SHCL_SAVE_TOO_NEW, since it
+// would write the lines by these rules.
+int shcl_newer_format(const shcl_doc *d);
 // How many error-severity diagnostics the document has - the "did this
 // file have errors?" predicate, so recover-and-continue can't read as success
 // by accident. Counts whatever the shcl_diag_* accessors hold (after
@@ -328,15 +333,18 @@ typedef enum {
    because they need different handling: a refusal is the caller's to
    reverse, a write failure is the disk's answer with errno describing it.
    CHANGED is the other bindings' "PATH: refusing to save: the file changed
-   since it was loaded; nothing written (force overrides)", and EXISTS their
+   since it was loaded; nothing written (force overrides)", EXISTS their
    "PATH: refusing to save: the file is already there and create asks for a
-   new one; nothing written". */
+   new one; nothing written", and TOO_NEW their "PATH: refusing to save: the
+   document holds lines from a newer format than this reader's; nothing
+   written". */
 typedef enum {
 	SHCL_SAVE_OK,      /* written */
 	SHCL_SAVE_REFUSED, /* the lost-content gate fired; lossy overrides */
 	SHCL_SAVE_FAILED,  /* the write itself failed; *why and errno say why */
 	SHCL_SAVE_CHANGED, /* the file changed since the load; nothing written, force overrides */
-	SHCL_SAVE_EXISTS   /* create found a file there, or another save made it first; nothing written */
+	SHCL_SAVE_EXISTS,  /* create found a file there, or another save made it first; nothing written */
+	SHCL_SAVE_TOO_NEW  /* the document is from a newer format (shcl_newer_format); nothing written, and nothing overrides it */
 } shcl_save_result;
 /* How shcl_save_file_with saves. All zero, as {0} gives, is shcl_save_file. */
 typedef struct {
@@ -1765,6 +1773,9 @@ struct shcl_doc {
 	   A save there puts what it wrote in its place. malloc'd, so that save can
 	   give the old text back; file_target is NULL when there is no file. */
 	char *file_target, *file_text; size_t file_len;
+	/* The text named a newer format than this one (H006), so its lines may
+	   read differently there, and a save refuses. A merge takes a layer's. */
+	int newer;
 };
 
 /* Point every allocation a document can make at one recovery point, or back at
@@ -6333,6 +6344,8 @@ static void diags_by_line(ShclArena *tmp, ShclVecDiag *v) {
    free before the first line. */
 static void stamp_hint(ShclParser *P, ShclStr text) {
 	ShclStamp st = format_line_read(P->line, P->hints, text);
+	/* Read here, so the save's refusal and the hint come from one reading. */
+	P->d->newer = st.status == SHCL_GOOD && st.value > SHCL_FORMAT_MAJOR;
 	if (st.status == SHCL_GOOD && st.value != SHCL_FORMAT_MAJOR) {
 		int newer = st.value > SHCL_FORMAT_MAJOR;
 		ShclSB m = {0};
@@ -9002,6 +9015,8 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	index_drop(d);
 	d->has_source = 0;
 	d->lost += over->lost;
+	/* The layer's lines are in the document now, read by these rules. */
+	d->newer |= over->newer;
 	d->kept_owed += over->kept_owed;
 	/* The layer's own kept lines were modeled against its own tree. */
 	int fresh = over->kept;
@@ -11580,6 +11595,7 @@ void shcl_compact(shcl_doc *d) {
 	if (d->has_source) n->source = s_dup(a, d->source);
 	n->strictness = d->strictness;
 	n->lost = d->lost;
+	n->newer = d->newer;
 	n->kept_owed = d->kept_owed;
 	n->kept = d->kept;
 	n->arrays = d->arrays;
@@ -13161,6 +13177,7 @@ static size_t kept_taken(shcl_doc *d, size_t node) {
 }
 
 size_t shcl_lost_count(const shcl_doc *d) { return d->lost + kept_shortfall(d); }
+int shcl_newer_format(const shcl_doc *d) { return d->newer; }
 
 size_t shcl_error_count(const shcl_doc *d) {
 	size_t n = 0;
@@ -14396,7 +14413,8 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 // guess which happened; shcl_save_file_lossy writes anyway. Over the file a
 // load read, refuses with SHCL_SAVE_CHANGED when that file no longer holds
 // what the load read, or what this document's last save there wrote, so
-// another program's edit is not lost; the force option writes anyway.
+// another program's edit is not lost; the force option writes anyway. A
+// document from a newer format is SHCL_SAVE_TOO_NEW (shcl_newer_format).
 shcl_save_result shcl_save_file(shcl_doc *d, const char *path, shcl_write_status *why) {
 	shcl_save_options o = {0};
 	return shcl_save_file_with(d, path, o, NULL, why);
@@ -14444,6 +14462,9 @@ static int s_file_holds(const shcl_doc *d, const char *path) {
 shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_options opts, int *kept, shcl_write_status *why) {
 	if (kept) *kept = 0;
 	if (why) *why = SHCL_WRITE_OK;
+	// First, and no option overrides it: whatever else is true, the save
+	// would write a newer format's lines by these rules.
+	if (d->newer) return SHCL_SAVE_TOO_NEW;
 	ShclStr t;
 	int k = 0;
 	if (opts.keep_lines) k = keep_text(d, &t);

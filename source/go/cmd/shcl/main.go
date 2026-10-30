@@ -293,10 +293,11 @@ Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the rewrite would delete lines or values
 from the file (--lossy overrides), and set and migrate without --write exit 7
-where it would. migrate refuses a file that does not say which rules it was
-written for, when the two readings differ (--from-2x says it is 2.x), and
-reports a 2.x binding it cannot convert. With --write, migrate
-and upgrade keep the original beside FILE as
+where it would. fmt --write and set refuse a file that names a newer format
+(H006) the same way, with no override. migrate refuses a file that does not
+say which rules it was written for, when the two readings differ (--from-2x
+says it is 2.x), and reports a 2.x binding it cannot convert. With --write,
+migrate and upgrade keep the original beside FILE as
 NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format
 it was written for, and write nothing at exit 8 when that name is taken.
 An upgrade writes even when the fresh file drops lines or values, since the
@@ -308,9 +309,9 @@ layers prints the merged canonical document.
 Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,
 5 multiple instances, 6 check failed, strict load failed, init's schema has
 faults, or --check found a rewrite to make, 7 a result refused for deleting
-lines or values (--lossy overrides), migrate left something behind, or
-upgrade refused a file that reads two ways or would keep an error, 8 a file
-or stream could not be read or written.
+lines or values (--lossy overrides) or for a newer format, migrate left
+something behind, or upgrade refused a file that reads two ways or would keep
+an error, 8 a file or stream could not be read or written.
 `
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
@@ -476,7 +477,8 @@ H005|hint|a value in another unit than its field name ends in
 H006|hint|the file names a newer format than this reader
   The info block's Format line names a format past the one this shcl reads,
   so the file may use rules it does not know, and a line can read
-  differently than its author meant. The load goes on as usual. A shcl made
+  differently than its author meant. The load goes on as usual, and a save
+  is refused, since it would write each line by these rules. A shcl made
   for that format reads it as written.
 H007|hint|the file names an older format than this reader
   The info block's Format line names a format before the one this shcl
@@ -1789,6 +1791,13 @@ func loadDocFrom(file, text string, strictness shcl.Strictness, keep bool) (*shc
 // read is the bytes FILE held when the command read it, and nil when this
 // write is creating FILE.
 func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool) int {
+	// A newer format's lines would go back by these rules whatever the bytes
+	// say, so this refusal comes first, as in the library's save.
+	if doc.NewerFormat() {
+		fmt.Fprintf(os.Stderr, "%s: refusing to rewrite: the document holds lines from a newer format "+
+			"than this reader's (see H006)\n", file)
+		return 7
+	}
 	if read != nil && !unchangedSinceRead(file, *read) {
 		return exitIO
 	}
@@ -2240,6 +2249,11 @@ func doFmt(o *opts) int {
 	if o.check {
 		// The save gate --write goes through is asked first, so 6 never
 		// promises a rewrite the same command would refuse to make.
+		if doc.NewerFormat() {
+			fmt.Fprintf(os.Stderr, "%s: fmt --write would refuse: the document holds lines from a newer format "+
+				"than this reader's (see H006)\n", file)
+			return 7
+		}
 		if !o.lossy && doc.LostCount() != 0 {
 			fmt.Fprintf(os.Stderr, "%s: fmt --write would refuse: it would delete %d line(s)/value(s) "+
 				"from the file (--lossy overrides)\n", file, doc.LostCount())
@@ -3279,6 +3293,11 @@ func doSet(o *opts) int {
 	// answers the way --write would: the same refusal, and the same word when
 	// the lines could not be kept. Only a print with no layers tried to keep
 	// them (2026100717500003).
+	if doc.NewerFormat() {
+		fmt.Fprintf(os.Stderr, "%s: refusing to print: the document holds lines from a newer format "+
+			"than this reader's (see H006)\n", file)
+		return 7
+	}
 	text, kept := doc.ToTextKeepLines()
 	if !kept && !o.lossy && doc.LostCount() > 0 {
 		fmt.Fprintf(os.Stderr, "%s: refusing to print: this result would delete %d line(s)/value(s) "+

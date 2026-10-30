@@ -5390,6 +5390,72 @@ def main():
 			xdoc.save_file_with(mp, shcl.SaveOptions(mode=0o600))
 			xsame("kept mode", oct(xmode(mp)), oct(0o644))
 
+	test_id("Eu8h5g5", "a_newer_format_document_saves_nowhere")
+	# A document from a newer format reads and edits as usual, and every save
+	# of it is refused with nothing written, whatever the options, before any
+	# other check. The same reading as H006 decides, and a merge takes a newer
+	# layer's (2026102910482344).
+	with tempfile.TemporaryDirectory() as nd:
+		def nread(p):
+			with open(p, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def nsame(what, got, want):
+			if got != want:
+				raise SystemExit(f"{what}: {got!r}, want {want!r}")
+
+		def nrefused(what, call, p):
+			try:
+				call()
+			except shcl.SaveTooNew as e:
+				if e.path != p:
+					raise SystemExit(f"{what}: path {e.path!r}") from None
+				return str(e)
+			raise SystemExit(f"{what}: saved")
+
+		newer = "a: 1\n\n##    Format   4\n"
+		nf = os.path.join(nd, "f.shcl")
+		with open(nf, "w", encoding="utf-8", newline="") as fh:
+			fh.write(newer)
+		ndoc, _ = shcl.Document.load_file(nf)
+		nsame("newer", ndoc.newer_format(), True)
+		nsame("hint", any(d.code == "H006" for d in ndoc.diagnostics()), True)
+		nsame("read", ndoc.get_int("a"), 1)
+		nsame("set", ndoc.set_int("a", 2), shcl.SetStatus.Ok)
+		nsame("read after", ndoc.get_int("a"), 2)
+		nsame("message", nrefused("save", lambda: ndoc.save_file(nf), nf),
+			f"{nf}: refusing to save: the document holds lines from a newer format than this reader's; nothing written")
+		nrefused("lossy", lambda: ndoc.save_file_lossy(nf), nf)
+		nrefused("keep", lambda: ndoc.save_file_keep_lines(nf), nf)
+		# No option overrides it, and it comes before create's check.
+		nall = shcl.SaveOptions(lossy=True, keep_lines=True, force=True, create=True, mode=0o600)
+		nrefused("all", lambda: ndoc.save_file_with(nf, nall), nf)
+		nsame("left", nread(nf), newer)
+		# Anywhere else too, and nothing is made there.
+		nother = os.path.join(nd, "other.shcl")
+		nrefused("other", lambda: ndoc.save_file(nother), nother)
+		nsame("none made", os.path.exists(nother), False)
+
+		# A parse reads the text the same way.
+		nparsed = shcl.Document.parse(newer)
+		nsame("parsed", nparsed.newer_format(), True)
+		nrefused("parsed save", lambda: nparsed.save_file(nother), nother)
+		# This format, an older one, none, a damaged line, and one in a raw
+		# body save as before.
+		for text in ("a: 1\n##    Format   3\n", "a: 1\n##    Format   2\n", "a: 1\n",
+				"a: 1\n##    Format   4x\n", "note:\n\t```\n##    Format   4\n\t```\n"):
+			d = shcl.Document.parse(text)
+			nsame(repr(text), d.newer_format(), False)
+			d.save_file(nother)
+		# A merged layer's lines are the document's now.
+		nbase = shcl.Document.parse("b: 2\n")
+		nbase.merge(shcl.Document.parse(newer))
+		nsame("merged", nbase.newer_format(), True)
+		nrefused("merged save", lambda: nbase.save_file(nother), nother)
+		nunder = shcl.Document.parse(newer)
+		nunder.merge(shcl.Document.parse("b: 2\n"))
+		nsame("merged under", nunder.newer_format(), True)
+
 	test_id("EsJZko5", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
 	# as its type, and keeps a value it replaces above the field as a comment

@@ -71,6 +71,7 @@ __all__ = [
 	"SaveFailed",
 	"SaveOptions",
 	"SaveRefused",
+	"SaveTooNew",
 	"SchemaStatus",
 	"SegTok",
 	"SetStatus",
@@ -386,6 +387,17 @@ class SaveExists(SaveError):
 	def __init__(self, path: str | os.PathLike[str]):
 		self.path = path
 		super().__init__(f"{path}: refusing to save: the file is already there and create asks for a new one; nothing written")
+
+
+class SaveTooNew(SaveError):
+	"""The document was read from a newer format (see newer_format), so a save
+	would write its lines by these rules. Nothing was written, and no option
+	overrides it."""
+	path: str | os.PathLike[str]
+
+	def __init__(self, path: str | os.PathLike[str]):
+		self.path = path
+		super().__init__(f"{path}: refusing to save: the document holds lines from a newer format than this reader's; nothing written")
 
 
 class SaveOptions:
@@ -4716,7 +4728,9 @@ class _Parser:
 		if text.endswith("\n"):
 			lines.pop()
 		self.src = lines
-		hint = _stamp_hint(_format_line_read(text))
+		stamp = _format_line_read(text)
+		newer = stamp.status == Status.Good and stamp.value > FORMAT_MAJOR
+		hint = _stamp_hint(stamp)
 		if hint is not None:
 			self._diag(hint)
 		i = 0
@@ -5078,6 +5092,7 @@ class _Parser:
 		doc._kept = self.kept_any
 		doc._arrays = self.kept_arrays
 		doc._kept_owed = self.kept_owed
+		doc._newer = newer
 		doc._settle_kept()
 		return doc
 
@@ -6221,7 +6236,7 @@ def _errors_within(d, of):
 
 class Document:
 	"""A parsed SHCL document: the tree, its diagnostics, and its strictness level."""
-	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_arrays", "_bracketed", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source", "_file")
+	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_arrays", "_bracketed", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source", "_file", "_newer")
 
 	def __init__(
 		self,
@@ -6285,6 +6300,9 @@ class Document:
 		# The file a load read, which a save over it checks first. A merge
 		# keeps it, since the file under the merged document is still that one.
 		self._file: _LoadedFile | None = None
+		# The text named a newer format than this one (H006), so its lines may
+		# read differently there, and a save refuses. A merge takes a layer's.
+		self._newer = False
 
 	@staticmethod
 	def parse(text: str) -> Document:
@@ -6388,7 +6406,8 @@ class Document:
 		holds what the load read, or what this document's last save there
 		wrote, so another program's edit is not lost; SaveOptions.force writes
 		anyway. Raises SaveRefused for the gate, SaveChanged for the other
-		program's edit and SaveFailed for a failed write: returning the message
+		program's edit, SaveTooNew for a document from a newer format (see
+		newer_format) and SaveFailed for a failed write: returning the message
 		instead would let the obvious spelling - the call on a line of its own -
 		report success while doing nothing."""
 		self.save_file_with(path, SaveOptions())
@@ -6403,6 +6422,10 @@ class Document:
 	def save_file_with(self, path: str | os.PathLike[str], opts: SaveOptions) -> bool:
 		"""The save the options describe: True when it kept the lines, as
 		save_file_keep_lines says. All the save calls come here."""
+		# First, and no option overrides it: whatever else is true, the save
+		# would write a newer format's lines by these rules.
+		if self._newer:
+			raise SaveTooNew(path)
 		lost = self.lost_count()
 		if opts.keep_lines:
 			text, kept = self.to_text_keep_lines()
@@ -6442,6 +6465,13 @@ class Document:
 		lines the load kept as written that an edit took and design.md's
 		kept-lines table does not let it take."""
 		return self._lost + self._kept_shortfall()
+
+	def newer_format(self) -> bool:
+		"""The text named a newer format than this reader's, the one H006
+		hints at, from a load or a parse, or a merged layer's did. Reads work
+		as usual, and so do edits, but every save raises SaveTooNew, since it
+		would write the lines by these rules."""
+		return self._newer
 
 	def _kept_shortfall(self) -> int:
 		"""Kept lines the document owes and no longer holds. Free on a
@@ -8384,6 +8414,8 @@ class Document:
 		self._index = None
 		self._source = None
 		self._lost += over._lost
+		# The layer's lines are in the document now, read by these rules.
+		self._newer = self._newer or over._newer
 		self._kept_owed += over._kept_owed
 		# The layer's own kept lines were modeled against its own tree.
 		fresh = over._kept

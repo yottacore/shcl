@@ -326,8 +326,10 @@ enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
 // override they cannot tell they need. Changed is the file the load read
 // changed since, by another program; nothing was written, and
 // SaveOptions::force overrides. Exists is a file SaveOptions::create found
-// there, or another save made first; nothing was written.
-enum class SaveResult { Ok, Refused, Failed, Changed, Exists };
+// there, or another save made first; nothing was written. TooNew is a document
+// from a newer format (newer_format); nothing was written, and nothing
+// overrides it.
+enum class SaveResult { Ok, Refused, Failed, Changed, Exists, TooNew };
 // How save_file_with saves. The default is save_file.
 struct SaveOptions {
 	bool lossy{};      // write even when the save deletes content, as save_file_lossy
@@ -500,6 +502,10 @@ public:
 	// re-emit. Content-malformed lines do NOT count - those survive a save.
 	// Nonzero is why save_file refuses; save_file_lossy is the override.
 	std::size_t lost_count() const;
+	// The text named a newer format than this reader's, the one H006 hints
+	// at, or a merged layer's did. Reads and edits work, but every save is
+	// SaveResult::TooNew.
+	bool newer_format() const;
 
 	// Schema validation (spec.md "Schema validation"): empty result = conforms.
 	// A schema with a load error of its own gives a lone V099 and checks
@@ -799,7 +805,8 @@ static_assert(static_cast<int>(FileStatus::Clean) == SHCL_FILE_CLEAN && static_c
 	&& static_cast<int>(FileStatus::NotFound) == SHCL_FILE_NOT_FOUND && static_cast<int>(FileStatus::Unreadable) == SHCL_FILE_UNREADABLE, "FileStatus drifted from shcl_file_status");
 static_assert(static_cast<int>(SaveResult::Ok) == SHCL_SAVE_OK && static_cast<int>(SaveResult::Refused) == SHCL_SAVE_REFUSED
 	&& static_cast<int>(SaveResult::Failed) == SHCL_SAVE_FAILED && static_cast<int>(SaveResult::Changed) == SHCL_SAVE_CHANGED
-	&& static_cast<int>(SaveResult::Exists) == SHCL_SAVE_EXISTS, "SaveResult drifted from shcl_save_result");
+	&& static_cast<int>(SaveResult::Exists) == SHCL_SAVE_EXISTS && static_cast<int>(SaveResult::TooNew) == SHCL_SAVE_TOO_NEW,
+	"SaveResult drifted from shcl_save_result");
 static_assert(static_cast<int>(WriteStatus::Ok) == SHCL_WRITE_OK && static_cast<int>(WriteStatus::NotFound) == SHCL_WRITE_NOT_FOUND
 	&& static_cast<int>(WriteStatus::Unreadable) == SHCL_WRITE_UNREADABLE && static_cast<int>(WriteStatus::PermissionDenied) == SHCL_WRITE_PERMISSION_DENIED
 	&& static_cast<int>(WriteStatus::DiskFull) == SHCL_WRITE_DISK_FULL && static_cast<int>(WriteStatus::ReadOnly) == SHCL_WRITE_READ_ONLY
@@ -1267,6 +1274,7 @@ std::vector<Diagnostic> Document::diagnostics() const {
 }
 std::size_t Document::error_count() const { return shcl_error_count(detail::held(*this)); }
 std::size_t Document::lost_count() const { return shcl_lost_count(detail::held(*this)); }
+bool Document::newer_format() const { return shcl_newer_format(detail::held(*this)) != 0; }
 
 std::vector<Diagnostic> Document::validate(const Document &schema) const {
 	std::vector<Diagnostic> v;
