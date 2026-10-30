@@ -40,9 +40,9 @@
 ##	                       leak checks, packages, profiler and demo gif. Tests
 ##	                       run at the shorter fuzz depth when the config has
 ##	                       TEST_QUICK_CMD
-##	   --long, --slow      also the leak checks that take hours, and the suites on
-##	                       a box whose REMOTE_BOXES row says suites-long. Not
-##	                       with --quick
+##	   --long, --slow      also the leak checks that take hours, and the suites a
+##	                       REMOTE_BOXES row names with suites-long. Not with
+##	                       --quick
 ##	   --leakcheck         every leak check config.bash lists, at the end of the
 ##	                       tests stage, the ones that take hours included
 ##	   --no-leakcheck      no leak check or sanitizer run. Not with --leakcheck
@@ -154,7 +154,7 @@ FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); 
 LEAKCHECK_FAST=(); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=(); LEAKCHECK_TESTS=()
 FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
-REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites|suites-long]" test boxes, after the release builds
+REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIST]]" test boxes, after the release builds
 ## A job of a GitHub workflow, started first and waited for last, when the run
 ## builds the cross target it tests.
 HOSTED_WORKFLOW=""; HOSTED_JOB=""; HOSTED_TARGET=""
@@ -1499,13 +1499,26 @@ fi
 ## the ssh keys are on this box (2026102419263412). A box that isn't there is a
 ## SKIP, and the run goes on; the summary at the end names it again.
 ## fBoxRow ROW: a REMOTE_BOXES row as check-boxes.bash takes it, the os-arch
-## swapped for its build. suites-long is suites under --long and nothing
-## otherwise, for a box too slow to run its suites every run (2026102419263422).
+## swapped for its build and its suites words made one: suites for all of them,
+## or suites=LIST. suites-long[=LIST] counts only under --long, for a box too
+## slow to run them all every run (2026102419263422). A word it doesn't know
+## goes on as it is, for check-boxes.bash to refuse.
 fBoxRow(){
-	local box target osarch suites
-	IFS='|' read -r box target osarch suites <<< "$1"
-	if [[ "${suites}" == suites-long ]]; then if ((long_run)); then suites=suites; else suites=""; fi; fi
-	printf '%s\n' "${box}|${target}|$(fArtOf "${osarch}")${suites:+|${suites}}"
+	local box target osarch rest w n all=0 list="" other=""
+	local -a words=() names=()
+	IFS='|' read -r box target osarch rest <<< "$1"
+	IFS='|' read -ra words <<< "${rest}"
+	for w in "${words[@]}"; do
+		case "${w}" in suites-long|suites-long=*) if ((long_run)); then w="suites${w#suites-long}"; else continue; fi ;; esac
+		case "${w}" in
+			suites) all=1 ;;
+			suites=?*) IFS=',' read -ra names <<< "${w#suites=}"
+				for n in "${names[@]}"; do [[ ",${list}," == *",${n},"* ]] || list+="${list:+,}${n}"; done ;;
+			*) other+="|${w}" ;;
+		esac
+	done
+	if ((all)); then list=suites; elif [[ -n "${list}" ]]; then list="suites=${list}"; fi
+	printf '%s\n' "${box}|${target}|$(fArtOf "${osarch}")${list:+|${list}}${other}"
 }
 if fStepOn boxes; then
 	fStepStart boxes
@@ -1781,4 +1794,5 @@ exit 0
 ##		- 2026-10-29 JC: --gate is another name for --backlog-run-quick, so it records no tree.
 ##		- 2026-10-30 JC: --list prints the test IDs each step runs under it.
 ##		- 2026-10-30 JC: A REMOTE_BOXES row's suites-long runs that box's suites only under --long.
+##		- 2026-10-30 JC: suites=LIST and suites-long=LIST name some of a box's suites, so vmDebARM64 runs Go every run.
 ##		- 2026-10-30 JC: A run with no flags, --long and the full run modes start HOSTED_JOB on GitHub first and wait for it last.

@@ -580,15 +580,21 @@ BACKLOG_AREAS=(
 
 ## Test boxes, after the release builds, on this box rather than in the image,
 ## since the host lock and the ssh keys are here (2026102419263412). One row per
-## box: "BOX|SSH_TARGET|os-arch[|suites|suites-long]", the os-arch naming the
-## release build it runs. "suites" also builds the 4 bindings there and runs
-## their conformance suites and cli-regress (2026102419263417); "suites-long"
-## does that only under --long, for a box too slow to do it every run, such as
-## vmDebARM64 under TCG (2026102419263422).
+## box: "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIST]]", the
+## os-arch naming the release build it runs. "suites" also builds the 4
+## bindings there and runs their conformance suites and cli-regress
+## (2026102419263417); "suites-long" does that only under --long, for a box too
+## slow to do it every run. LIST names some of them, out of rust, go, python, c
+## and cli. vmDebARM64 runs under TCG, so it runs Go every run, about 3 minutes,
+## and the rest under --long (2026102419263422). The Macs are Intel, so they run
+## the x86_64 half of the universal build, and the hosted macos job the arm64
+## half (2026102419263427).
 ## --no-remote leaves them out, and a box that isn't there is a SKIP.
 REMOTE_BOXES=(
 	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64|suites"
-	"vmDebARM64|tester@vmDebARM64|linux-arm64|suites-long"
+	"vmDebARM64|tester@vmDebARM64|linux-arm64|suites=go|suites-long"
+	"vmKt6m|mactest@vmKt6m|macos-universal"
+	"b26|mactest@b26|macos-universal"
 )
 
 ## ci.yml's macos job, on GitHub's free arm64 Mac runner: it builds the
@@ -743,3 +749,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-25 JC: Backup excludes moved to cicd/rar-excludes.conf, so a standalone backup leaves out the CodeQL databases too.
 ##		- 2026-10-25 JC: The leak checks split by length: LEAKCHECK_FAST for --quick too, LEAKCHECK_STEPS, LEAKCHECK_LONG for --long, and LEAKCHECK_TESTS.
 ##		- 2026-10-30 JC: HOSTED_WORKFLOW, HOSTED_JOB and HOSTED_TARGET, the hosted macos job a full run starts.
+##		- 2026-10-30 JC: REMOTE_BOXES: vmDebARM64 runs the Go suite every run, and vmKt6m and b26 run the macOS build.

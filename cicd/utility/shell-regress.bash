@@ -4045,21 +4045,35 @@ pcRc=0; pcOut="$("${BASH}" -c "${pcRun}" _ "${repoDir}/cicd/config.bash" "${tmpD
 
 fTest demzb 2026102419263422-box-rows-suites-long
 ##	vmDebARM64 runs under TCG, where its suites took far longer than a full run
-##	can give, so its row says suites-long: the suites go only with --long.
+##	can give, so its row says suites=go|suites-long: Go every run, about 3
+##	minutes, and the rest only with --long. fBoxRow makes the words one, which
+##	check-boxes.bash's own pattern has to take, and passes on a word it doesn't
+##	know for check-boxes.bash to refuse.
 # shellcheck disable=SC2016  ## the inner shell's own variables
-brOut="$("${BASH}" -c 'set -Eeuo pipefail; eval "$1"
+brOut="$("${BASH}" -c 'set -Eeuo pipefail; eval "$1"; eval "$2"
 	built_arts=("linux-arm64|/r/arm" "freebsd-x86_64|/r/bsd")
 	fArtOf(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == "$1" ]]; then printf "%s\n" "${a#*|}"; fi; done; }
 	for long_run in 0 1; do
-		for r in "a|u@a|linux-arm64|suites-long" "b|u@b|freebsd-x86_64|suites" "c|u@c|linux-arm64"; do printf "%s " "$(fBoxRow "${r}")"; done
-	done' _ "$(sed -n '/^fBoxRow()/,/^}/p' "${repoDir}/cicd/cicd.bash")" 2>&1 || true)"
-[[ "${brOut}" == "a|u@a|/r/arm b|u@b|/r/bsd|suites c|u@c|/r/arm a|u@a|/r/arm|suites b|u@b|/r/bsd|suites c|u@c|/r/arm " ]] || fBad "cicd.bash's REMOTE_BOXES rows: ${brOut@Q}"
-## Every row's 4th field is one check-boxes.bash or fBoxRow takes, and the
-## TCG box keeps its suites out of the default run.
+		for r in "a|u@a|linux-arm64|suites-long" "b|u@b|freebsd-x86_64|suites" "c|u@c|linux-arm64" "d|u@d|linux-arm64|suites=go|suites-long" \
+			"e|u@e|freebsd-x86_64|suites-long=c,go|suites=go" "f|u@f|linux-arm64|suites-long=go"; do
+			o="$(fBoxRow "${r}")"; printf "%s " "${o}"
+			IFS="|" read -r _ _ _ s <<< "${o}"; [[ -z "${s}" || "${s}" =~ ${suitesRe} ]] || printf "(refused) "
+		done
+		printf "%s " "$(fBoxRow "g|u@g|linux-arm64|suites=go|bogus")"
+	done' _ "$(sed -n '/^fBoxRow()/,/^}/p' "${repoDir}/cicd/cicd.bash")" "$(grep '^suitesRe=' "${repoDir}/cicd/utility/check-boxes.bash")" 2>&1 || true)"
+brWant="a|u@a|/r/arm b|u@b|/r/bsd|suites c|u@c|/r/arm d|u@d|/r/arm|suites=go e|u@e|/r/bsd|suites=go f|u@f|/r/arm g|u@g|/r/arm|suites=go|bogus "
+brWant+="a|u@a|/r/arm|suites b|u@b|/r/bsd|suites c|u@c|/r/arm d|u@d|/r/arm|suites e|u@e|/r/bsd|suites=c,go f|u@f|/r/arm|suites=go g|u@g|/r/arm|suites=go|bogus "
+[[ "${brOut}" == "${brWant}" ]] || fBad "cicd.bash's REMOTE_BOXES rows: ${brOut@Q}"
+## check-boxes.bash refuses a suite it has no name for.
+brRc=0; "${repoDir}/cicd/utility/check-boxes.bash" /bin/true "x|u@x||suites=go,perl" > /dev/null 2>&1 || brRc=$?
+[[ "${brRc}" == 2 ]] || fBad "check-boxes.bash took suites=go,perl: exit ${brRc}"
+## Every row's words are ones fBoxRow takes, and the TCG box runs only Go in a
+## run without --long.
 # shellcheck disable=SC2016  ## the inner shell's own variables
-brOut="$("${BASH}" -c 'set +u; source "$1"
-	for r in "${REMOTE_BOXES[@]}"; do IFS="|" read -r b _ _ s <<< "${r}"; case "${s}" in ""|suites|suites-long) ;; *) echo "${b}: ${s}" ;; esac; done
-	for r in "${REMOTE_BOXES[@]}"; do case "${r}" in vmDebARM64\|*) [[ "${r}" == *"|suites-long" ]] || echo "vmDebARM64 not suites-long: ${r}" ;; esac; done; true' _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
+brOut="$("${BASH}" -c 'set +u; source "$1"; l="(rust|go|python|c|cli)(,(rust|go|python|c|cli))*"
+	for r in "${REMOTE_BOXES[@]}"; do IFS="|" read -r b _ _ s <<< "${r}"; IFS="|" read -ra ws <<< "${s}"
+		for w in "${ws[@]}"; do [[ "${w}" =~ ^suites(-long)?(=${l})?$ ]] || echo "${b}: ${w}"; done; done
+	for r in "${REMOTE_BOXES[@]}"; do case "${r}" in vmDebARM64\|*) [[ "${r}" == *"|suites=go|suites-long" ]] || echo "vmDebARM64 not suites=go|suites-long: ${r}" ;; esac; done; true' _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
 [[ -z "${brOut}" ]] || fBad "config.bash's REMOTE_BOXES: ${brOut@Q}"
 
 fTestEnd
@@ -4092,3 +4106,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-24  The pyworker, uninstall, flame-report and check-completions rows fail by name when their file is gone.
 ##		2026-10-28  The hosted job rows read --merge-gate, and the release and the skipped leak check are held.
 ##		2026-10-30  A REMOTE_BOXES row's suites-long runs its suites only under --long.
+##		2026-10-30  suites=LIST rows, and check-boxes.bash's pattern takes what fBoxRow makes.

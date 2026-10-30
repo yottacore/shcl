@@ -7,18 +7,20 @@
 ##		same source (2026102419263412).
 ##		A row that ends in |suites also builds the 4 bindings there from a
 ##		copy of the tracked source, and runs their conformance suites and
-##		cli-regress through box-suites.bash (2026102419263417).
+##		cli-regress through box-suites.bash (2026102419263417). |suites=LIST
+##		runs only those, such as the Go suite on a slow box (2026102419263422).
 ##		Each box is held through the VM state helper's wrap, which takes the
 ##		shared host lock and puts a VM back the way it was found. The box gets
 ##		a work folder of its own under its temp root, removed after.
 ##		A box that isn't there, or no helper, is a SKIP, and the rest go on.
 ##	Syntax:
-##		check-boxes.bash LINUX_BIN BOX|SSH_TARGET|BIN[|suites]...
+##		check-boxes.bash LINUX_BIN BOX|SSH_TARGET|BIN[|suites[=LIST]]...
 ##		  LINUX_BIN         the native release build, run here for the answers
 ##		  BOX               the box's name in the host lock
 ##		  SSH_TARGET        user@host for ssh
 ##		  BIN               the release build that box runs; empty when none
 ##		  suites            also run the suites there
+##		  LIST              a comma list of rust, go, python, c and cli
 ##		  SHCL_VM_STATE     the VM state helper (default claude_vm-state.bash in
 ##		                    the synced util tree, then on PATH)
 ##		  SHCL_BOX_WAIT     seconds to wait for a box another session holds
@@ -43,8 +45,8 @@ sshOpts=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30)
 ##	${HOST_TEMP:-${TMPDIR:-/tmp}}/shcl/<stamp>_<NNN>, unpacks stdin there, runs
 ##	the cases at low priority (nice, and ionice where the box has it), sends the
 ##	outputs back, and removes the folder. With a source tree in src/, it runs
-##	box-suites.bash there too, with /usr/local/bin on PATH for the toolchains a
-##	BSD box keeps there.
+##	box-suites.bash there too, over the suites named in want, with
+##	/usr/local/bin on PATH for the toolchains a BSD box keeps there.
 fBoxScript(){ cat <<'EOF'
 base="${HOST_TEMP:-${TMPDIR:-/tmp}}"; base="${base%/}/shcl"
 mkdir -p "${base}" || exit 90
@@ -66,11 +68,15 @@ env -i PATH=/usr/bin:/bin HOME=/ ${io} nice -n 19 sh run.sh > rc.lst 2> /dev/nul
 set --
 if [ -d src ]; then
 	set -- s; p=/usr/local/bin:/usr/bin:/bin
+	want="$(cat want 2>/dev/null)" || want=
+	[ -n "${want}" ] || want=all
 	bsh="$(PATH="${p}" command -v bash 2>/dev/null)" || bsh=
 	if [ -n "${bsh}" ]; then
-		(cd src && env -i PATH="${p}" HOME="${w}" ${io} nice -n 19 "${bsh}" cicd/utility/box-suites.bash "${w}/s") > /dev/null 2>&1
+		(cd src && env -i PATH="${p}" HOME="${w}" ${io} nice -n 19 "${bsh}" cicd/utility/box-suites.bash "${w}/s" "${want}") > /dev/null 2>&1
 	else
-		mkdir -p s; for x in rust go python c cli; do echo "skip ${x} no bash on the box"; done > s/suites.lst
+		mkdir -p s; for x in rust go python c cli; do
+			case ",${want}," in ,all,|*,${x},*) echo "skip ${x} no bash on the box" ;; esac
+		done > s/suites.lst
 	fi
 fi
 tar -cf - rc.lst o "$@"
@@ -114,6 +120,10 @@ source "${meDir}/include/test-id.bash"
 source "${meDir}/include/corpus-cases.bash"
 
 fBad(){ echo "check-boxes: $1" >&2; nBad+=1 ;}
+suiteNames=(rust go python c cli)
+suitesRe='^suites(=(rust|go|python|c|cli)(,(rust|go|python|c|cli))*)?$'
+##	fWants LIST NAME: whether a box's suite list, all or a comma list, has NAME.
+fWants(){ [[ "$1" == all || ",$1," == *",$2,"* ]] ;}
 ##	The tracked files of source/ and project/, as they are in the tree, plus
 ##	what box-suites.bash and cli-regress need from cicd/.
 fSrcTree(){
@@ -142,7 +152,7 @@ linBin="$(realpath -- "$1")"; shift
 [[ -f "${linBin}" ]] || { echo "check-boxes: no such file: ${linBin}" >&2; exit 2 ;}
 for row in "$@"; do
 	IFS='|' read -r box target bin suites <<< "${row}"
-	[[ "${box}" =~ ^[A-Za-z0-9._-]+$ && -n "${target}" && ( -z "${suites}" || "${suites}" == suites ) ]] || { echo "check-boxes: not BOX|SSH_TARGET|BIN[|suites]: ${row}" >&2; exit 2 ;}
+	[[ "${box}" =~ ^[A-Za-z0-9._-]+$ && -n "${target}" && ( -z "${suites}" || "${suites}" =~ ${suitesRe} ) ]] || { echo "check-boxes: not BOX|SSH_TARGET|BIN[|suites[=LIST]]: ${row}" >&2; exit 2 ;}
 done
 
 vmState="${SHCL_VM_STATE:-${HOME}/synced/0-0/common/exec/util/linux/bash/claude_vm-state.bash}"
@@ -165,12 +175,13 @@ cp "${linBin}" h/shcl
 fTest decyk each test box runs its release build like the Linux one
 for row in "$@"; do
 	IFS='|' read -r box target bin suites <<< "${row}"
+	want=""; case "${suites}" in suites) want=all ;; suites=*) want="${suites#suites=}" ;; esac
 	[[ -z "${bin}" || "${bin}" == /* ]] || bin="${startDir}/${bin}"
 	b="b_${box}"; mkdir -p "${b}/g" "${b}/back"
 	if [[ ! -f "${bin}" ]]; then echo "SKIP ${box}: no release build for it"; continue; fi
 	if [[ -z "${vmState}" ]]; then echo "SKIP ${box}: no claude_vm-state.bash, so no host lock"; continue; fi
 	cp -r g/. "${b}/g/"; cp "${bin}" "${b}/g/shcl"
-	if [[ "${suites}" == suites ]]; then fSrcTree "${b}/g/src"; fi
+	if [[ -n "${want}" ]]; then fSrcTree "${b}/g/src"; echo "${want}" > "${b}/g/want"; fi
 	tar -C "${b}/g" --format=pax -cf "${b}/in.tar" .
 	SECONDS=0; wrapRc=0
 	"${vmState}" wrap "${box}" --wait "${boxWait}" -- "${self}" --on-box "${target}" "${work}/${b}/in.tar" "${work}/${b}" < /dev/null > "${b}/wrap.out" 2>&1 || wrapRc=$?
@@ -192,9 +203,9 @@ for row in "$@"; do
 	awk -F'\t' 'NR == FNR { bad[$1] = 1; next } ($1 in bad) && shown++ < 5 { $1 = "    differs: " $1; print }' OFS=' ' - g/cases.tsv <<< "${diffIds}" >&2
 	if ((nDiff)); then fBad "${box}: ${nDiff} of ${nCases} CLI runs differ from the Linux build"
 	else echo "PASS ${box}: ${nCases} CLI runs, same bytes and exit codes as the Linux build (${SECONDS} s${suites:+ with the suites})"; fi
-	if [[ "${suites}" != suites ]]; then :
+	if [[ -z "${want}" ]]; then :
 	elif [[ -f "${b}/back/s/suites.lst" ]]; then sed "s/^/${box} /" "${b}/back/s/suites.lst" >> suites.all
-	else for s in rust go python c cli; do echo "${box} fail ${s} nothing came back"; done >> suites.all; fi
+	else for s in "${suiteNames[@]}"; do if fWants "${want}" "${s}"; then echo "${box} fail ${s} nothing came back"; fi; done >> suites.all; fi
 done
 if ((nRan == 0 && nBad == 0)); then fTestSkip; fi
 
@@ -220,3 +231,4 @@ echo "check-boxes: OK"
 ##		2026-10-24  Created, for 2026102419263412.
 ##		2026-10-29  Box half takes ionice -c 3 where there is one, for 2026102421025788.
 ##		2026-10-30  A |suites row runs the 4 bindings' suites and cli-regress there, for 2026102419263417.
+##		2026-10-30  |suites=LIST runs only those suites, for 2026102419263422.

@@ -184,7 +184,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Other hosts: macOS on b26 and vmKt6m
 	- ID: 2026102419263427
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261024-192634
 	- Opened by: 2026102416250010
@@ -194,6 +194,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The macos-universal release over the CLI cases, as `mactest`, through the box step. Both Macs are Intel, so only the x86_64 slice runs. The hosted macOS job stays for arm64.
 		- A non-interactive ssh there has the stock bash 3.2 and a bare PATH, so the box half is plain sh.
 		- The outputs come back as a tar on ssh's stdout, so anything a login file prints there breaks it, as `collierjr`'s `.bashrc` on b26 does. Check `mactest`'s.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has rows for vmKt6m and b26, as `mactest`, on the macos-universal release, CLI cases only. The box half needed no change: it was plain sh already, and on both Macs it works under the `TMPDIR` sshd sets, in `/var/folders/.../T/shcl`.
+		- Verified: a non-interactive ssh as `mactest` prints 0 bytes on stdout on both Macs, through the host lock. b26's login shell is zsh, vmKt6m's is bash.
+		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and macos-universal release builds (build `den0r`), through the real host lock: `decyk` passed, 4471 CLI runs on each, vmKt6m in 51 s from paused and b26 in 24 s. vmKt6m ended paused, as found, and both work folders were gone.
+		- Verified: with the linux-x86_64 build sent to b26 in place of the macOS one, all 4471 runs differed and `decyk` failed, at exit 1.
+		- Verified: shellcheck -x on the changed scripts, shell-regress `demzb`, and `check-boxes-stub/run.bash`, which passes, skips and fails over the stand-in boxes as before.
+		- Not run: the step inside a whole run. The round's full run shows a `PASS vmKt6m` and a `PASS b26` line there.
+	- Decisions:
+		- Both Macs, every run (me). They add about 75 s to a full run, and b26 is the one real Mac. A box that's asleep or held is a `SKIP`.
+		- CLI cases only, no suites, as 2026102419263417 decided for the Macs (me). The hosted `macos` job runs the Rust tests, crosscheck and cli-regress on arm64.
+		- No guard against a login file's output in the box half (me). Neither `mactest` prints anything, and a broken tar is already a loud `nothing came back` failure.
+	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`, `fArtOf` for macos-universal), `--list` (name only), check-push-gate (empties it), and the stub rows.
+	- Test case: check-boxes `decyk` for vmKt6m and b26.
+	- Acceptance signoff: Self-closed: both Macs passed through the real host lock, and a wrong build on b26 was seen to fail.
+	- Closed: 20261030-163100
 
 - Other hosts: Windows on b29w, timed work on vm925w
 	- ID: 2026102419263432
@@ -226,7 +241,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Other hosts: Linux arm64 on vmDebARM64
 	- ID: 2026102419263422
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Needs local test suite run?: No
 	- Priority: High
 	- Opened: 20261024-192634
@@ -246,13 +261,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
 		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk with PASS vmDebARM64, 4471 CLI runs in 79 s.
 		- 20261030: JC: the Go suite runs on every run, about 3 minutes more; Python, C and cli-regress stay under `--long`. Reopened for that change, since the row sends the CLI cases only today.
+		- 20261030: a row's suites words take a list, `suites=LIST` and `suites-long=LIST`, out of rust, go, python, c and cli. vmDebARM64's row is `suites=go|suites-long`. `fBoxRow` makes the words one for check-boxes.bash, `suites` or `suites=LIST`, and check-boxes.bash sends the list to box-suites.bash, which runs only those.
+		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with `suites=go`: `decyk` and `demxk` passed, and Python, C and cli-regress gave no line. 278 s in all, Go 174 s, against 92 s for the CLI cases alone. The VM ended paused, and its work folder was gone.
+		- Verified: the same over a stand-in box with `suites=go,c` ran only those two.
+		- Verified: shell-regress `demzb` passes, and fails with cicd.bash's old `fBoxRow`, with check-boxes.bash's old row check, and with config.bash's old vmDebARM64 row.
 	- Decisions:
 		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
 		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
+		- 20261030: JC moved Go into every run, so the row lists it (`suites=go`) and keeps `suites-long` for the rest. A list beside the two words, not a third word such as `suites-go`, so any box can name any of the 5 (me).
 		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
 	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
-	- Test case: check-boxes `decyk` for vmDebARM64; `demxk` to `demxp` under `--long`; shell-regress `demzb` for the row mapping.
-	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault.
+		- 20261030: each use of the suites field in check-boxes.bash (row check, source copy, the no-bash and nothing-came-back lines) and box-suites.bash (each suite, cli-regress), `suites-fault.bash`'s `|suites` (still valid), cicd.bash's help and comment, config.bash's comment, and design.md's `--long` line.
+	- Test case: check-boxes `decyk` and `demxk` for vmDebARM64; `demxm` to `demxp` under `--long`; shell-regress `demzb` for the row mapping and check-boxes.bash's row check.
+		- 20261030: `demzb`'s config check wanted vmDebARM64's row to end in `|suites-long`, and now wants `|suites=go|suites-long`.
+	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault. 20261030: the Go row passed on the real box, and demzb was seen to fail with each old file.
+	- Closed: 20261030-163100
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
