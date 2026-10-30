@@ -4043,6 +4043,25 @@ pcRc=0; pcOut="$("${BASH}" -c "${pcRun}" _ "${repoDir}/cicd/config.bash" "${tmpD
 pcRc=0; pcOut="$("${BASH}" -c "${pcRun}" _ "${repoDir}/cicd/config.bash" "${tmpDir}/profcheck/fail.sh" 2>&1)" || pcRc=$?
 [[ "${pcRc}" == 1 && "${pcOut}" == "FAIL dczst profiler attribution-calibration" ]] || fBad "PROFILE_CHECK on a failing profiler: exit ${pcRc}, ${pcOut@Q}"
 
+fTest demzb 2026102419263422-box-rows-suites-long
+##	vmDebARM64 runs under TCG, where its suites took far longer than a full run
+##	can give, so its row says suites-long: the suites go only with --long.
+# shellcheck disable=SC2016  ## the inner shell's own variables
+brOut="$("${BASH}" -c 'set -Eeuo pipefail; eval "$1"
+	built_arts=("linux-arm64|/r/arm" "freebsd-x86_64|/r/bsd")
+	fArtOf(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == "$1" ]]; then printf "%s\n" "${a#*|}"; fi; done; }
+	for long_run in 0 1; do
+		for r in "a|u@a|linux-arm64|suites-long" "b|u@b|freebsd-x86_64|suites" "c|u@c|linux-arm64"; do printf "%s " "$(fBoxRow "${r}")"; done
+	done' _ "$(sed -n '/^fBoxRow()/,/^}/p' "${repoDir}/cicd/cicd.bash")" 2>&1 || true)"
+[[ "${brOut}" == "a|u@a|/r/arm b|u@b|/r/bsd|suites c|u@c|/r/arm a|u@a|/r/arm|suites b|u@b|/r/bsd|suites c|u@c|/r/arm " ]] || fBad "cicd.bash's REMOTE_BOXES rows: ${brOut@Q}"
+## Every row's 4th field is one check-boxes.bash or fBoxRow takes, and the
+## TCG box keeps its suites out of the default run.
+# shellcheck disable=SC2016  ## the inner shell's own variables
+brOut="$("${BASH}" -c 'set +u; source "$1"
+	for r in "${REMOTE_BOXES[@]}"; do IFS="|" read -r b _ _ s <<< "${r}"; case "${s}" in ""|suites|suites-long) ;; *) echo "${b}: ${s}" ;; esac; done
+	for r in "${REMOTE_BOXES[@]}"; do case "${r}" in vmDebARM64\|*) [[ "${r}" == *"|suites-long" ]] || echo "vmDebARM64 not suites-long: ${r}" ;; esac; done; true' _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
+[[ -z "${brOut}" ]] || fBad "config.bash's REMOTE_BOXES: ${brOut@Q}"
+
 fTestEnd
 
 if ((nBad)); then
@@ -4072,3 +4091,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-23  check-migrate counts errors past a Schema line naming a missing file.
 ##		2026-10-24  The pyworker, uninstall, flame-report and check-completions rows fail by name when their file is gone.
 ##		2026-10-28  The hosted job rows read --merge-gate, and the release and the skipped leak check are held.
+##		2026-10-30  A REMOTE_BOXES row's suites-long runs its suites only under --long.

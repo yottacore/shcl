@@ -40,7 +40,9 @@
 ##	                       leak checks, packages, profiler and demo gif. Tests
 ##	                       run at the shorter fuzz depth when the config has
 ##	                       TEST_QUICK_CMD
-##	   --long, --slow      also the leak checks that take hours. Not with --quick
+##	   --long, --slow      also the leak checks that take hours, and the suites on
+##	                       a box whose REMOTE_BOXES row says suites-long. Not
+##	                       with --quick
 ##	   --leakcheck         every leak check config.bash lists, at the end of the
 ##	                       tests stage, the ones that take hours included
 ##	   --no-leakcheck      no leak check or sanitizer run. Not with --leakcheck
@@ -144,7 +146,7 @@ FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); 
 LEAKCHECK_FAST=(); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=(); LEAKCHECK_TESTS=()
 FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
-REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites]" test boxes, after the release builds
+REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites|suites-long]" test boxes, after the release builds
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
@@ -1401,6 +1403,15 @@ fi
 ## The test boxes, here whichever way stages 1-6 ran, since the host lock and
 ## the ssh keys are on this box (2026102419263412). A box that isn't there is a
 ## SKIP, and the run goes on; the summary at the end names it again.
+## fBoxRow ROW: a REMOTE_BOXES row as check-boxes.bash takes it, the os-arch
+## swapped for its build. suites-long is suites under --long and nothing
+## otherwise, for a box too slow to run its suites every run (2026102419263422).
+fBoxRow(){
+	local box target osarch suites
+	IFS='|' read -r box target osarch suites <<< "$1"
+	if [[ "${suites}" == suites-long ]]; then if ((long_run)); then suites=suites; else suites=""; fi; fi
+	printf '%s\n' "${box}|${target}|$(fArtOf "${osarch}")${suites:+|${suites}}"
+}
 remote_skips=()
 if fStepOn boxes; then
 	fStepStart boxes
@@ -1409,10 +1420,7 @@ if fStepOn boxes; then
 		printf '%s\n' "${remote_skips[@]}"
 	else
 		box_rows=()
-		for r in "${REMOTE_BOXES[@]}"; do
-			IFS='|' read -r r_box r_target r_osarch r_suites <<< "${r}"
-			box_rows+=("${r_box}|${r_target}|$(fArtOf "${r_osarch}")${r_suites:+|${r_suites}}")
-		done
+		for r in "${REMOTE_BOXES[@]}"; do box_rows+=("$(fBoxRow "${r}")"); done
 		box_rc=0; fCpuStep check-boxes.bash
 		"${here}/utility/check-boxes.bash" "${RELEASE_NATIVE_BIN}" "${box_rows[@]}" 2>&1 | tee "${run_tmp}/boxes.out" || box_rc=$?
 		mapfile -t remote_skips < <(grep '^SKIP ' "${run_tmp}/boxes.out" || true)
@@ -1634,3 +1642,4 @@ exit 0
 ##		- 2026-10-28 JC: --skip TEXT leaves out each step that holds TEXT, and the run records nothing. The hosted run skips CodeQL.
 ##		- 2026-10-29 JC: --gate is another name for --backlog-run-quick, so it records no tree.
 ##		- 2026-10-30 JC: --list prints the test IDs each step runs under it.
+##		- 2026-10-30 JC: A REMOTE_BOXES row's suites-long runs that box's suites only under --long.

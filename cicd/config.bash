@@ -580,12 +580,15 @@ BACKLOG_AREAS=(
 
 ## Test boxes, after the release builds, on this box rather than in the image,
 ## since the host lock and the ssh keys are here (2026102419263412). One row per
-## box: "BOX|SSH_TARGET|os-arch[|suites]", the os-arch naming the release build
-## it runs. "suites" also builds the 4 bindings there and runs their
-## conformance suites and cli-regress (2026102419263417).
+## box: "BOX|SSH_TARGET|os-arch[|suites|suites-long]", the os-arch naming the
+## release build it runs. "suites" also builds the 4 bindings there and runs
+## their conformance suites and cli-regress (2026102419263417); "suites-long"
+## does that only under --long, for a box too slow to do it every run, such as
+## vmDebARM64 under TCG (2026102419263422).
 ## --no-remote leaves them out, and a box that isn't there is a SKIP.
 REMOTE_BOXES=(
 	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64|suites"
+	"vmDebARM64|tester@vmDebARM64|linux-arm64|suites-long"
 )
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored

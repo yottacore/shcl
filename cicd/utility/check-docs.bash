@@ -555,7 +555,7 @@ fTest dcv6f spdx-and-copyright-headers
 ##	The style guide says every source file starts with the SPDX line and the
 ##	copyright, and files added later kept arriving without them. "Starts with"
 ##	means the header block, which in a script comes after the purpose text, so
-##	the first 100 lines are searched. cicd.bash's help alone runs past 80. One
+##	the first 120 lines are searched. cicd.bash's help alone runs past 95. One
 ##	awk over every file, since a head and a grep per file were most of this
 ##	script's time. An empty file never reaches awk's first line, so it is
 ##	caught before.
@@ -572,7 +572,7 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		hits="$(LC_ALL=C awk '
 			function report() { if (!spdx) print name "\tSPDX"; if (!copy) print name "\tcopyright" }
 			FNR == 1 { if (name != "") report(); name = FILENAME; spdx = 0; copy = 0 }
-			FNR > 100 { nextfile }
+			FNR > 120 { nextfile }
 			/SPDX-License-Identifier/ { spdx = 1 }
 			/Copyright/ { copy = 1 }
 			END { if (name != "") report() }' "${hdrFiles[@]}")" || fFeedBad $?
@@ -599,12 +599,12 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		[[ "${f}" == *.ps1 || "${f}" == "source/rust/build.rs" ]] && continue
 		mkFiles+=("${repoDir}/${f}")
 	done <<<"${hits}"
-	##	The first marker line in each file's first 100, the header window
+	##	The first marker line in each file's first 120, the header window
 	##	above, as a head and a grep -m1 per file found it.
 	hits=""
 	if ((${#mkFiles[@]})); then
 		hits="$(LC_ALL=C awk '
-			FNR > 100 { nextfile }
+			FNR > 120 { nextfile }
 			/Copyright.*ID:/ { print FILENAME "\t" $0; nextfile }' "${mkFiles[@]}")" || fFeedBad $?
 	fi
 	while IFS=$'\t' read -r f line; do
@@ -1517,3 +1517,4 @@ echo "check-docs: OK"
 ##		2026-10-19  The header checks read 100 lines, since cicd.bash's help grew past 80.
 ##		2026-10-19  Its scratch files go in one dir, removed on any exit.
 ##		2026-10-24  A missing install.ps1 fails by name, not silently.
+##		2026-10-30  The header checks read 120 lines, since cicd.bash's help grew past 95.

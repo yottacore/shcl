@@ -249,7 +249,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Other hosts: Linux arm64 on vmDebARM64
 	- ID: 2026102419263422
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Y, `--backlog-run-full`: its `Test boxes` step passes `decyk` with `PASS vmDebARM64`, CLI cases only.
 	- Priority: High
 	- Opened: 20261024-192634
 	- Opened by: 2026102416250010
@@ -258,6 +259,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
 		- It runs under TCG, so keep its share of the run short.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its 4th field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
+		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
+		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
+		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
+		- check-docs' two header checks read 120 lines, not 100, since the `--long` help line pushed cicd.bash's SPDX line to line 102 (`dcv6f`).
+		- shellcheck -x on the changed scripts passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed, and without the skip only `dcbc2` was red, as on dev.
+		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
+	- Decisions:
+		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
+		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
+		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
+	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
+	- Test case: check-boxes `decyk` for vmDebARM64; `demxk` to `demxp` under `--long`; shell-regress `demzb` for the row mapping.
 
 - Other hosts: macOS on b26 and vmKt6m
 	- ID: 2026102419263427
