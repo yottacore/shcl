@@ -165,7 +165,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026103014303616
 	- Type: Bug
 	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml on r1030b, run in full: the `macos` job passes on `macos-15`, its floor lines say macOS 13.0 for x86_64 and arm64, and every other job still runs.
+	- Needs external testing: hosted ci.yml on r1030b, run in full: every other job still runs and passes.
 	- Severity: High
 	- Opened: 20261030-143036
 	- Opened by:
@@ -174,6 +174,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261030: hosted ci.yml run 41120869306 on r1030 cancelled the macos job in 1 s, with the annotation that a scheduled macOS 14 runner image brownout failed it. ci.yml line 310 says runs-on: macos-14. Every other job passed. From 2026-11-02 the job can't run at all.
 		- Fix: move the job to a supported arm64 macOS label and check the macOS 13 floor still holds, since the universal binary targets macOS 13.
 		- 20261030: the job runs on `macos-15`. After `lipo`, it reads each half's floor with `vtool -show-build` and fails unless both say `MACOS_FLOOR` from config.bash, 13.0. The floor comes from the zig build's own `-target`, so the runner can't move it, but nothing checked it before.
+		- Verified: 20261030 hosted ci.yml 41143471789 on r1030b, job=macos: the job passed on image macos-15-arm64 and printed x86_64 and arm64 macOS 13.0 and up.
 	- Decisions:
 		- me: `macos-15`, the supported arm64 runner nearest the 13.0 floor, as zuid's macos workflow chose. `macos-latest` moves to a new macOS with no commit here, and `macos-26` is further from the floor. `macos-15` is GitHub's older supported image, so it is the next one retired.
 	- Actual fix: ci.yml's `macos` job on `macos-15`, with a floor check of both halves.
