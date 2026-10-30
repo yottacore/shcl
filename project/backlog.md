@@ -278,6 +278,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: commented-out tests and retired rows got new IDs too. Put back, they pass the check as they stand.
 	- Swept: every marker kind `test-ids.py` reads (Rust, Go, Python, C and C++, bash, PowerShell, win-runners, the cli-regress and perf-gate rows, config.bash, corpus `test-id` files), every status-line printer (`%-4s` and the PowerShell format) and every reader of the status words or the 7-character width in cicd/ and the tests. design.md, contributing.md and the style guide don't describe the ID form. The comparison crate's tests stay outside, as before.
 	- Test case: shell-regress `demvq`, and `dd86p` for the status words.
+	- Commit: `817ea2e1`
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
