@@ -215,6 +215,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
 		- A Done item that says none where a test could exist and would make sense gets one.
 
+- Other hosts: Linux arm64 on vmDebARM64
+	- ID: 2026102419263422
+	- Type: Enhancement
+	- Status: Queued
+	- Needs local test suite run?: No
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
+		- It runs under TCG, so keep its share of the run short.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its fourth field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
+		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
+		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
+		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
+		- check-docs' two header checks read 120 lines, not 100, since the `--long` help line pushed cicd.bash's SPDX line to line 102 (`dcv6f`).
+		- shellcheck -x on the changed scripts passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed, and without the skip only `dcbc2` was red, as on dev.
+		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
+		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk with PASS vmDebARM64, 4471 CLI runs in 79 s.
+		- 20261030: JC: the Go suite runs on every run, about 3 minutes more; Python, C and cli-regress stay under `--long`. Reopened for that change, since the row sends the CLI cases only today.
+	- Decisions:
+		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
+		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
+		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
+	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
+	- Test case: check-boxes `decyk` for vmDebARM64; `demxk` to `demxp` under `--long`; shell-regress `demzb` for the row mapping.
+	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault.
+
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
 	- Type: Enhancement
@@ -398,37 +429,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: `REMOTE_BOXES` readers: cicd.bash's step (passes the field on), `--list` (reads the name only), check-push-gate (empties it), and the stand-in rows in the stub tools (3 fields, still valid).
 	- Test case: check-boxes `demxj` (Rust), `demxk` (Go), `demxm` (Python), `demxn` (C), `demxp` (cli-regress), beside `decyk`.
 	- Acceptance signoff: Self-closed: the box step passed inside a whole full run, and each suite was seen to fail on a broken golden.
-	- Closed: 20261030-143026
-
-- Other hosts: Linux arm64 on vmDebARM64
-	- ID: 2026102419263422
-	- Type: Enhancement
-	- Status: Done
-	- Needs local test suite run?: No
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
-		- It runs under TCG, so keep its share of the run short.
-	- Progress log:
-		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its fourth field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
-		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
-		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
-		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
-		- check-docs' two header checks read 120 lines, not 100, since the `--long` help line pushed cicd.bash's SPDX line to line 102 (`dcv6f`).
-		- shellcheck -x on the changed scripts passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed, and without the skip only `dcbc2` was red, as on dev.
-		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
-		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk with PASS vmDebARM64, 4471 CLI runs in 79 s.
-	- Decisions:
-		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
-		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
-		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
-	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
-	- Test case: check-boxes `decyk` for vmDebARM64; `demxk` to `demxp` under `--long`; shell-regress `demzb` for the row mapping.
-	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault.
 	- Closed: 20261030-143026
 
 - CICD reset: test IDs
@@ -1035,6 +1035,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261028: a `-` alone is an empty item, with or without a blank after it, so a kept one written back with its blank trimmed reloads as the same line, not as an `E014` name. Writing it back as `- ` was rejected, since canonical output has no trailing blanks and editors strip them. A `Check:` in questions.md.
 		- me, 20261028: `E004` is judged with the path, not while the path is walked, so it no longer waits on an earlier index finding its instance, and a raw block it opens is kept with it, as `E014`'s is.
 		- me, 20261028: an empty item past the element cap is still `E021`, as any faulted item is.
+		- 20261030: JC left the Check to me (questions.md), so the empty-item reading stands.
 	- Test case: corpus `dejmt` (`211-kept-wildcard-and-empty-item`) in all 4 runners, with `dbxjv` (`057`), `dbxjy` (`060`) and `dc7fq` (`095`). Fuzz `dcavy` counts both codes as kept. cli-regress `dd6zj`.
 		- 20261028: fuzz `deav0`'s comment assert went from `\n\t# c: 1\n` to `\n\tc: 1\n`. The wildcard line it starts with is kept now, so the item after it is the lost line (`E011`), no list forms, and the field binds. Its lost count of 1 and its no-list-with-a-field check stay.
 		- 20261028: cli-regress `dd6zj`'s line for a `-` alone went from `4:1 name=0-1` to `4:1 item value=1-1 elem=1-1`.
@@ -1179,6 +1180,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The whole layout is kept, not only blank lines, as `migrate` keeps it. The other way, a `fmt` that keeps blank-line runs, would still move every line after a raw block, and needs a new emitter mode in all 4 (me).
 		- The `fmt` fallback keeps upgrades that load clean only through `fmt`'s repair loading clean, as `debk5` shows. Without it that file would be refused with `--from-2x` (me).
 		- Departs from the item: it does more than keep blank lines. Indent, quoting and layout come through as `migrate` wrote them, where they used to come out in `fmt`'s form. spec.md, the man page, examples.md, the help text in the 4 CLIs and the doc comments say so.
+		- 20261030: JC left the Check to me (questions.md), so keeping the whole layout stands.
 	- Swept: `upgrade` in the 4 libraries, the one place the fresh text is made. `upgrade_file`, the CLIs and the C++ `upgrade` go through it. `migrate` already kept lines. The help text is the same in the 4 CLIs.
 	- Verified: the new tests fail on the old code in all 4 and pass on the fix. `debk5` failed with the lines always kept, which is why the fallback is there. `cargo test`, `go test`, the Python and C conformance suites, the Python soak, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, cli-regress (629 rows, 4 bindings), crosscheck (22758 comparisons), check-migrate (647 documents), the 2,000,000 release fuzz (31 tests), check-docs, check-doc-examples, check-completions, test-ids check, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and the C CLI under gcc 15 and clang pass.
 	- Branch: `r1028`
@@ -1295,6 +1297,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Departs from the wording: the local timestamp holds only on the host until that bug is fixed.
 	- Decisions:
 		- me: closed here, with the image's UTC stamps left to Bug 2026102520122877, so the one defect left has one open item.
+		- 20261030: JC left the `--list` labels to me: they stay `N/9`. `--list` shows the stages a flag can turn on, while a run numbers only the steps left on, so the two counts mean different things.
 	- Swept: cicd.bash's other sections and `fDie`. No other cicd script prints a rule or a step header. shell-regress's lift of the sync stage and the check-boxes stand-in moved to the step helpers. `--list` still prints `N/9` labels (Check in questions). Not a binding change, so the four bindings don't apply.
 	- Test case: check-push-gate `dee74`: a default run, a failing cross check, `--gate` and an alpine image run.
 		- 20261025: `dee4w` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
