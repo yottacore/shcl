@@ -53,6 +53,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: `--merge-gate`, not `--backlog-run-quick`, since the line says what a dev box is set up to run before a merge, as contributing.md's does.
 	- Test case: no new test. check-docs `EpHGoa0` (installers match main) covers the sync.
 	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
+	- 20261029: the round is on dev (`93ac745a`), so check-docs `EpHGoa0` is red there until main has the new text. The sync commit is ready on a local branch, `installsync` at `58231025`, off origin/main.
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
