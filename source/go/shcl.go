@@ -975,6 +975,10 @@ type Document struct {
 	// line left: the next check costs the same, and nothing is wrong.
 	keptNear []nearNode
 	keptSum  uint64
+	// walked: a kept line with an index in its path was judged by the
+	// instances written before it, which can sit anywhere above it, so every
+	// edit settles while one is held.
+	walked bool
 	// The parse's multi-line bindings, from the binding line to the last line
 	// each took. Edits leave it alone; only a reparse reads it.
 	ends [][2]int
@@ -4390,6 +4394,30 @@ func keptForPlace(text string) int {
 	return placeNone
 }
 
+// indexedPath is the path of a kept field line that reads clean and has an
+// index in it, array or not. A reload walks it over the instances written
+// before it.
+func indexedPath(text string) ([]segment, bool) {
+	if !isFieldText(text) {
+		return nil, false
+	}
+	var tok Tokens
+	Tokenize(text, ':', false, RulesCurrent, &tok)
+	if lineFault(&tok, text) != nil {
+		return nil, false
+	}
+	scan, err := pathOf(&tok, text)
+	if err != nil {
+		return nil, false
+	}
+	for _, seg := range scan.segments {
+		if byIndex(seg) {
+			return scan.segments, true
+		}
+	}
+	return nil, false
+}
+
 // isItem reports a stacked list item's line: `-` then a blank. The blank is
 // what keeps `-x: y` a field line (E014) and `- -5` the item `-5`.
 func isItem(text string) bool {
@@ -5299,25 +5327,9 @@ func (p *parser) throughItems(parent int, segs []segment) bool {
 	if !indexed {
 		return false
 	}
-	node := parent
-	if parent == lazy {
-		from := len(p.stack) - 1
-		for from > 1 && p.stack[from-1].node == lazy {
-			from--
-		}
-		node = p.stack[from-1].node
-		for _, l := range p.lazies {
-			if l.at < from {
-				continue
-			}
-			for _, seg := range l.segs {
-				c, ok := p.foundStep(node, seg)
-				if !ok {
-					return false
-				}
-				node = c
-			}
-		}
+	node, ok := p.heldNode(parent)
+	if !ok {
+		return false
 	}
 	for _, seg := range steps {
 		c, ok := p.foundStep(node, seg)
@@ -5332,6 +5344,88 @@ func (p *parser) throughItems(parent int, segs []segment) bool {
 	return false
 }
 
+// heldNode is the node a line binds under, found without opening it: a lazy
+// level, and any lazy one it sits under, as openLazy would open them. False
+// when that would create one.
+func (p *parser) heldNode(parent int) (int, bool) {
+	if parent != lazy {
+		return parent, true
+	}
+	from := len(p.stack) - 1
+	for from > 1 && p.stack[from-1].node == lazy {
+		from--
+	}
+	node := p.stack[from-1].node
+	for _, l := range p.lazies {
+		if l.at < from {
+			continue
+		}
+		for _, seg := range l.segs {
+			c, ok := p.foundStep(node, seg)
+			if !ok {
+				return 0, false
+			}
+			node = c
+		}
+	}
+	return node, true
+}
+
+// indexMiss is the index segment of a line's path that selects no instance
+// among those bound before it (E003), walked as attachPath will walk it,
+// creating nothing. A step that would create a field leaves every index
+// after it nothing to select. Judged before anything opens, so a kept line
+// opens none of its path's fields.
+func (p *parser) indexMiss(parent int, segs []segment) (uint64, string, bool) {
+	indexed := false
+	for _, s := range segs {
+		indexed = indexed || byIndex(s)
+	}
+	if !indexed {
+		return 0, "", false
+	}
+	node, ok := p.heldNode(parent)
+	if ok {
+		node, ok = p.arrayOpens(node)
+	}
+	for i, seg := range segs {
+		found, hit := 0, false
+		if ok {
+			found, hit = p.foundStep(node, seg)
+		}
+		if !byIndex(seg) {
+			node, ok = found, hit
+			continue
+		}
+		if !hit {
+			return seg.sel.index, seg.name, true
+		}
+		node, ok = found, true
+		if i+1 < len(segs) {
+			node, ok = p.arrayOpens(found)
+		}
+	}
+	return 0, "", false
+}
+
+// arrayOpens is the node arrayUnder leaves a field under node to bind in,
+// found without moving anything. False when it would create one.
+func (p *parser) arrayOpens(node int) (int, bool) {
+	nd := &p.arena[node]
+	if node == root || nd.starList || nd.value.kind != vArray {
+		return node, true
+	}
+	if m, ok := p.arrayLines[node]; ok && m.line != nd.line && m.line >= 1 && m.line <= len(p.src) {
+		return p.emptyChild(nd.parent, nd.name)
+	}
+	return node, true
+}
+
+// byIndex is true for a path segment with an index selector.
+func byIndex(seg segment) bool {
+	return seg.sel != nil && seg.sel.kind == selByIndex
+}
+
 // foundStep is the child one path step selects under cur without creating it.
 func (p *parser) foundStep(cur int, seg segment) (int, bool) {
 	if cur < 0 || cur >= len(p.arena) {
@@ -5339,10 +5433,7 @@ func (p *parser) foundStep(cur int, seg segment) (int, bool) {
 	}
 	switch {
 	case seg.sel == nil:
-		empty := value{}
-		return slotFirstMatch(p.childMap[cur], mergeHash(seg.name, &empty), func(c int) bool {
-			return mergeEq(p.arena[c].name, &p.arena[c].value, seg.name, &empty)
-		})
+		return p.emptyChild(cur, seg.name)
 	case seg.sel.kind == selByValue:
 		return p.findByValue(cur, seg.name, seg.sel.value)
 	case seg.sel.kind == selByIndex:
@@ -5358,6 +5449,15 @@ func (p *parser) foundStep(cur int, seg segment) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// emptyChild is the child named name with no value that selectOrCreate would
+// select for a path step, without creating it.
+func (p *parser) emptyChild(cur int, name string) (int, bool) {
+	empty := value{}
+	return slotFirstMatch(p.childMap[cur], mergeHash(name, &empty), func(c int) bool {
+		return mergeEq(p.arena[c].name, &p.arena[c].value, name, &empty)
+	})
 }
 
 // headOf is the node a path's first segment bound, from the one its last did.
@@ -5548,6 +5648,7 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 					cur = p.arrayUnder(cur)
 				}
 			} else {
+				// indexMiss keeps a parsed line with one first (E003).
 				p.refuse(line, "E003", fmt.Sprintf("no instance %d of '%s'", seg.sel.index, diagName(seg.name)), outDropped, indent)
 				return 0, false
 			}
@@ -6221,6 +6322,20 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			i++
 			continue
 		}
+		// An index that selects no instance bound before it: kept the same
+		// way, since an instance written above it later would make it bind.
+		if k, name, miss := p.indexMiss(parent, scan.segments); miss {
+			msg := fmt.Sprintf("no instance %d of '%s'", k, diagName(name))
+			if _, _, _, raw := lineFence(&tok, rest); raw {
+				p.refuse(lineno, "E003", msg, outDropped, indent)
+				i = p.skipFieldLine(lines, i, indent, &tok, rest)
+				continue
+			}
+			p.keptAny = true
+			p.refuse(lineno, "E003", msg, outRetained(trimEndWS(rest), hadBlank), indent)
+			i++
+			continue
+		}
 		// The verbatim value span, kept for reads' Raw (only the plain
 		// scalar/inline-array case has a one-line source spelling).
 		srcText, haveSrc := "", false
@@ -6685,11 +6800,119 @@ func (d *Document) emitMarked() *emit {
 	return e
 }
 
+// indexRefuses is true when a reload keeps a clean field line with an index
+// in its path where the emit model stands, after its resolve found a live
+// parent: an index selects none of the instances written before it (E003),
+// or one reaches stacked items before the last segment (E001). Lines held
+// open since the last binding line are walked first, as the reload opens
+// them.
+func (d *Document) indexRefuses(e *emit, open int, tail []stackEnt, segs []segment) bool {
+	for _, t := range tail {
+		if t.node != lazy {
+			return false
+		}
+	}
+	node := root
+	if open >= 0 {
+		if open >= len(e.lv) {
+			return false
+		}
+		node = e.lv[open].node
+	}
+	// Of the first node's children, only those written so far.
+	upto := 0
+	if open+1 < len(e.lv) {
+		upto = e.lv[open+1].pos + 1
+	}
+	var held []segment
+	for _, t := range tail {
+		text, ok := "", false
+		for k := len(e.lazies) - 1; k >= 0 && !ok; k-- {
+			text, ok = e.lazies[k][1], e.lazies[k][0] == t.indent
+		}
+		if !ok {
+			return false
+		}
+		var tok Tokens
+		Tokenize(text, ':', false, RulesCurrent, &tok)
+		scan, err := pathOf(&tok, text)
+		if err != nil {
+			return false
+		}
+		held = append(held, scan.segments...)
+	}
+	for _, seg := range held {
+		c, ok := d.writtenStep(node, upto, seg)
+		if !ok {
+			// Opening it creates a field, with no instance under it.
+			return true
+		}
+		node, upto = c, -1
+	}
+	through := false
+	for _, seg := range segs[:len(segs)-1] {
+		through = through || byIndex(seg)
+	}
+	for i, seg := range segs {
+		c, ok := d.writtenStep(node, upto, seg)
+		upto = -1
+		switch {
+		case ok && through && i+1 < len(segs) && stacks(&d.arena[c]):
+			return true
+		case ok:
+			node = c
+		case byIndex(seg):
+			return true
+		default:
+			// Created, so every index after it selects nothing.
+			for _, s := range segs[i+1:] {
+				if byIndex(s) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
+// writtenStep is the child a reload's path step selects under cur among its
+// first upto children (all of them for -1), as the parser's foundStep does.
+func (d *Document) writtenStep(cur, upto int, seg segment) (int, bool) {
+	kids := d.arena[cur].children
+	if upto >= 0 && upto < len(kids) {
+		kids = kids[:upto]
+	}
+	var nth uint64
+	for _, c := range kids {
+		nd := &d.arena[c]
+		if nd.name != seg.name {
+			continue
+		}
+		switch {
+		case seg.sel == nil:
+			if nd.value.kind == vEmpty {
+				return c, true
+			}
+		case seg.sel.kind == selByValue:
+			if nd.value.kind == vCell && nd.value.els[0].text == seg.sel.value {
+				return c, true
+			}
+		case seg.sel.kind == selByIndex:
+			if nth == seg.sel.index {
+				return c, true
+			}
+			nth++
+		}
+	}
+	return 0, false
+}
+
 func (d *Document) emitAll(e *emit) {
 	d.emitChildren(d.arena[root].children, 0, e)
 	// Comments that never found a following line re-emit at the end.
 	e.near(root, 0)
-	pushLeads(e, d.orphans, 0, root, siteOrphans, 0)
+	pushLeads(d, e, d.orphans, 0, root, siteOrphans, 0)
 }
 
 // settleKept makes a misplaced line kept as written into the comment the
@@ -6766,7 +6989,7 @@ func (d *Document) settleArrays() {
 // nodes those came from cannot move it, and the whole-document emit is
 // skipped (20260924d item 2).
 func (d *Document) resettleKept() {
-	if d.kept && d.nearSum() != d.keptSum {
+	if d.kept && (d.walked || d.nearSum() != d.keptSum) {
 		d.settleKept()
 	} else {
 		d.settleArrays()
@@ -6843,6 +7066,7 @@ func (d *Document) settleKeptOnce() bool {
 	e := newEmit(0, true)
 	d.emitAll(e)
 	d.kept = e.verbatim > 0
+	d.walked = e.walked
 	d.keptNear = e.keptNear
 	var among []fell
 	for _, f := range e.fell {
@@ -6925,8 +7149,13 @@ type emit struct {
 	keptNear []nearNode
 	// Per binding depth, whether that node has a `- ` item written yet, a
 	// field line under it, and a value an item cannot join, for a kept line
-	// refused only for where it sits.
-	lv []lv
+	// refused only for where it sits, and the node with its place in its
+	// parent's list. Then the text of each kept line held open since the
+	// last binding line, by its indent, and whether a kept line was asked
+	// about the instances written before it.
+	lv     []lv
+	lazies [][2]string
+	walked bool
 	// ToTextKeepLines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
 	// and where each value is written on its binding line.
@@ -6941,6 +7170,8 @@ type lv struct {
 	items  bool
 	fields bool
 	valued bool
+	node   int
+	pos    int
 }
 
 // nearNode is a node an emit passed through and its index in its parent's
@@ -6991,16 +7222,17 @@ func (e *emit) span(at int) {
 
 // bound: a binding line at this depth, so the stack is its levels and
 // nothing else.
-func (e *emit) bound(depth int) {
+func (e *emit) bound(depth, node, pos int) {
 	if len(e.lv) > depth {
 		e.lv = e.lv[:depth]
 	}
 	if len(e.lv) > 0 {
 		e.lv[len(e.lv)-1].fields = true
 	}
-	e.lv = append(e.lv, lv{})
+	e.lv = append(e.lv, lv{node: node, pos: pos})
 	e.open = depth
 	e.tail = e.tail[:0]
+	e.lazies = e.lazies[:0]
 	e.held = false
 	e.nearBy = e.nearBy[:0]
 	e.flushed = 0
@@ -7136,8 +7368,16 @@ func arrayKept(text string) bool {
 	if tok.Array < 0 {
 		return false
 	}
-	if _, err := pathOf(&tok, text); err != nil {
+	// One with an index in its path is the emitter's, which asks the
+	// instances written before it.
+	scan, err := pathOf(&tok, text)
+	if err != nil {
 		return false
+	}
+	for _, seg := range scan.segments {
+		if byIndex(seg) {
+			return false
+		}
 	}
 	return lineFault(&tok, text) == nil
 }
@@ -7271,7 +7511,7 @@ func localClock() (string, int, string) {
 // an edit can leave it where it would bind, and there it is written as a
 // comment, which reads the same. node, at and from name the list and the
 // index of its first line, for settleKept().
-func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
+func pushLeads(d *Document, e *emit, leads []lead, base, node int, at site, from int) {
 	lastComment := 0
 	for i, c := range leads {
 		if c.blankBefore && e.out.Len() > 0 {
@@ -7329,7 +7569,12 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			// an item only as E008 under a field with a field line written,
 			// E011 under one with a value, or E007 at the root. Anywhere else
 			// it would bind: a comment then.
-			if kind := keptForPlace(c.text); kind != placeNone {
+			segs, indexed := indexedPath(c.text)
+			kind := keptForPlace(c.text)
+			if kind == placeNone && indexed {
+				kind = placeField
+			}
+			if kind != placeNone {
 				stays := kind == placeItem && found.ok && found.parent == root && open == -1 && len(tail) == 0
 				if pad > 0 && len(tail) == 0 && open == pad-1 && pad-1 < len(e.lv) && found.ok && found.parent != dead && found.parent != unopened {
 					up := e.lv[pad-1]
@@ -7341,6 +7586,13 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 						held = held && t.node == lazy
 					}
 					stays = stays || held
+				}
+				// One with an index in its path is kept too where the index
+				// selects none of the instances written before it (E003), or
+				// reaches stacked items through one (E001).
+				if indexed && !stays && found.ok && found.parent != dead && found.parent != unopened {
+					stays = d.indexRefuses(e, open, tail, segs)
+					e.walked = e.walked || stays
 				}
 				if !stays && !strings.Contains(c.text, "\n") {
 					// A comment nests at most one level past the line before it,
@@ -7367,6 +7619,7 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			e.held = false
 			if found.ok && found.parent != dead && opensLater(c.text) {
 				e.open = open
+				e.lazies = append(e.lazies, [2]string{indent, c.text})
 				e.tail = append(tail, stackEnt{indent: indent, node: lazy})
 			} else {
 				e.refused(indent, open, tail)
@@ -8309,9 +8562,9 @@ func (d *Document) emitNode(idx, pos, depth int, wouldMerge bool, e *emit) {
 	d.emitChildren(d.arena[idx].children, depth+1, e)
 	e.near(idx, pos)
 	// Comments this block owns with no child to take them, one deeper.
-	pushLeads(e, d.arena[idx].inside(), depth+1, idx, siteInside, 0)
+	pushLeads(d, e, d.arena[idx].inside(), depth+1, idx, siteInside, 0)
 	// Comments that hung on this block after its last child.
-	pushLeads(e, d.arena[idx].after(), depth, idx, siteAfter, 0)
+	pushLeads(d, e, d.arena[idx].after(), depth, idx, siteAfter, 0)
 }
 
 func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
@@ -8324,10 +8577,10 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 	// comment joins the leading lines instead; the flag comes from the parent's
 	// walk. Each blank rides its own comment (or the binding line), never as
 	// the first output line.
-	pushLeads(e, node.leading(), depth, idx, siteLeading, 0)
+	pushLeads(d, e, node.leading(), depth, idx, siteLeading, 0)
 	// The kept line just written opens this block on a reload.
 	if headsBlock(node) {
-		e.bound(depth)
+		e.bound(depth, idx, pos)
 		e.near(idx, pos)
 		return
 	}
@@ -8343,7 +8596,7 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 	out.WriteString(pad)
 	out.WriteString(emitName(node.name))
 	out.WriteByte(':')
-	e.bound(depth)
+	e.bound(depth, idx, pos)
 	e.near(idx, pos)
 	if depth < len(e.lv) {
 		e.lv[depth].valued = !node.value.isEmpty() && !stacks(node)
@@ -8365,7 +8618,7 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 				next++
 			}
 			for j := from; j < next; j++ {
-				pushLeads(e, []lead{among[j].lead}, depth+1, idx, siteAmong, j)
+				pushLeads(d, e, []lead{among[j].lead}, depth+1, idx, siteAmong, j)
 			}
 			column := pad + "\t"
 			out.WriteString(column)
@@ -8383,7 +8636,7 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 			}
 		}
 		for j := next; j < len(among); j++ {
-			pushLeads(e, []lead{among[j].lead}, depth+1, idx, siteAmong, j)
+			pushLeads(d, e, []lead{among[j].lead}, depth+1, idx, siteAmong, j)
 		}
 	case node.value.kind == vCell:
 		at := out.Len()

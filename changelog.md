@@ -242,6 +242,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An item with no field above it (`E007`) and an item under a field that already has a value (`E011`) are kept as written and count nothing lost. An edit that empties the field writes its item as a comment.
 
+- A line whose index selects no instance (`E003`) is kept as written and counts nothing lost, unless it opens a raw block. It no longer opens the fields of its path before the index. Where a merge or an edit puts the instance above it, it is written as a comment. A line that reaches `- ` items through an index (`E001`) stays as written too, where it went out as a comment.
+
 - An empty item is kept as written and counts nothing lost, and a `-` alone is one too, where it was an `E014` name.
 
 - A line with a wildcard selector (`E004`) is kept as written, with any raw block it opens, and counts nothing lost. It no longer opens the fields of its path before the wildcard.

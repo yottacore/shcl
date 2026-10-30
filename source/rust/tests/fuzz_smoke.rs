@@ -700,7 +700,7 @@ fn lost_count_follows_the_outcome_table() {
 		for d in doc.diagnostics() {
 			let src = lines.get(d.line.wrapping_sub(1)).copied().unwrap_or("");
 			match d.code {
-				"E002" | "E003" | "E006" | "E016" | "E021" => want += 1,
+				"E002" | "E006" | "E016" | "E021" => want += 1,
 				"E012" | "E018" if !kept.contains(&d.line) => want += 1,
 				"E012" | "E018" => {
 					kept_seen += 1;
@@ -722,7 +722,7 @@ fn lost_count_follows_the_outcome_table() {
 				"E014" if src.trim_start_matches([' ', '\t']).starts_with('\u{feff}') => want += 1,
 				// One that opens a raw block goes with it, a bare fence line
 				// included.
-				"E001"
+				"E001" | "E003"
 					if {
 						let fence = |s: &str| {
 							let s = s.trim_start_matches([' ', '\t']);
@@ -733,8 +733,8 @@ fn lost_count_follows_the_outcome_table() {
 				{
 					want += 1
 				}
-				"E001" | "E004" | "E007" | "E008" | "E009" | "E011" | "E013" | "E014" | "E019"
-				| "E026" | "E027" | "E028" => {
+				"E001" | "E003" | "E004" | "E007" | "E008" | "E009" | "E011" | "E013" | "E014"
+				| "E019" | "E026" | "E027" | "E028" => {
 					kept_seen += 1;
 					let kept = src.trim_matches([' ', '\t']);
 					// Or as the comment a settle makes of a line under a list

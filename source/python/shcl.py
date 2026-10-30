@@ -3680,6 +3680,27 @@ def _kept_for_place(text):
 	return True if _line_fault(tok) is None else None
 
 
+def _indexed_path(text):
+	"""The path of a kept field line that reads clean and has an index in it,
+	array or not, else None. A reload walks it over the instances written
+	before it."""
+	if not _is_field_text(text):
+		return None
+	tok = Tokens()
+	tokenize(text, ":", False, Rules.Current, tok)
+	if _line_fault(tok) is not None:
+		return None
+	try:
+		segments, _ = _path_of(tok, tok.src)
+	except _PathError:
+		return None
+	return segments if any(_by_index(g) for g in segments) else None
+
+
+def _by_index(seg):
+	return seg.selector is not None and seg.selector[0] == "idx"
+
+
 def _is_item(text):
 	"""A stacked list item's line: `-` then a blank or the end. The blank is
 	what keeps `-x: y` a field line (E014) and `- -5` the item `-5`."""
@@ -4334,19 +4355,9 @@ class _Parser:
 		steps = segs[:-1]
 		if not any(s.selector is not None and s.selector[0] == "idx" for s in steps):
 			return False
-		node = parent
-		if parent == _LAZY:
-			start = len(self.stack) - 1
-			while start > 1 and self.stack[start - 1][1] == _LAZY:
-				start -= 1
-			node = self.stack[start - 1][1]
-			for lz in self.lazies:
-				if lz[0] < start:
-					continue
-				for seg in lz[1]:
-					node = self._found_step(node, seg)
-					if node is None:
-						return False
+		node = self._held_node(parent)
+		if node is None:
+			return False
 		for seg in steps:
 			node = self._found_step(node, seg)
 			if node is None:
@@ -4355,14 +4366,64 @@ class _Parser:
 				return True
 		return False
 
+	def _held_node(self, parent):
+		"""The node a line binds under, found without opening it: a _LAZY level,
+		and any _LAZY one it sits under, as _open_lazy() would open them. None
+		when that would create one."""
+		if parent != _LAZY:
+			return parent
+		start = len(self.stack) - 1
+		while start > 1 and self.stack[start - 1][1] == _LAZY:
+			start -= 1
+		node = self.stack[start - 1][1]
+		for lz in self.lazies:
+			if lz[0] < start:
+				continue
+			for seg in lz[1]:
+				node = self._found_step(node, seg)
+				if node is None:
+					return None
+		return node
+
+	def _index_miss(self, parent, segs):
+		"""The index segment of a line's path that selects no instance among
+		those bound before it (E003), walked as _attach_path() will walk it,
+		creating nothing, as (index, name). A step that would create a field
+		leaves every index after it nothing to select. Judged before anything
+		opens, so a kept line opens none of its path's fields."""
+		if not any(_by_index(s) for s in segs):
+			return None
+		node = self._held_node(parent)
+		if node is not None:
+			node = self._array_opens(node)
+		for i, seg in enumerate(segs):
+			found = None if node is None else self._found_step(node, seg)
+			if not _by_index(seg):
+				node = found
+				continue
+			if found is None:
+				return (seg.selector[1], seg.name)
+			node = self._array_opens(found) if i + 1 < len(segs) else found
+		return None
+
+	def _array_opens(self, node):
+		"""The node _array_under() leaves a field under `node` to bind in, found
+		without moving anything. None when it would create one."""
+		nd = self.arena[node]
+		if node == _ROOT or nd.star_list or nd.value.kind != "array":
+			return node
+		mark = self.array_lines.get(node)
+		if mark is not None and mark[0] != nd.line and 1 <= mark[0] <= len(self.src):
+			return self._empty_child(nd.parent, nd.name)
+		return node
+
 	def _found_step(self, cur, seg):
 		"""The child one path step selects under `cur` without creating it."""
 		if not 0 <= cur < len(self.arena):
 			return None
 		sel = seg.selector
 		if sel is None:
-			cmap = self.child_map[cur]
-			return cmap.get(_merge_key(seg.name, _empty())) if cmap is not None else None
+			return self._empty_child(cur, seg.name)
 		if sel[0] == "val":
 			return self._find_by_value(cur, seg.name, sel[1])
 		if sel[0] == "idx":
@@ -4373,6 +4434,12 @@ class _Parser:
 						return c
 					seen += 1
 		return None
+
+	def _empty_child(self, cur, name):
+		"""The child named `name` with no value that _select_or_create() would
+		select for a path step, without creating it."""
+		cmap = self.child_map[cur]
+		return cmap.get(_merge_key(name, _empty())) if cmap is not None else None
 
 	def _head_of(self, node, nsegs):
 		"""The node a path's first segment bound, from the one its last did."""
@@ -4496,6 +4563,7 @@ class _Parser:
 					if not is_last and not self.arena[cur].star_list and self.arena[cur].value.kind == "array":
 						cur = self._array_under(cur)
 				else:
+					# _index_miss() keeps a parsed line with one first (E003).
 					self._refuse(line, "E003", f"no instance {k} of '{_diag_name(seg.name)}'", _OUT_DROPPED, indent)
 					return None
 				if is_last and not value.is_empty():
@@ -4993,6 +5061,19 @@ class _Parser:
 				self._refuse(lineno, "E001", "field mixed with list elements", _out_retained(_trim_wsp_end(rest), had_blank), indent)
 				i += 1
 				continue
+			# An index that selects no instance bound before it: kept the same
+			# way, since an instance written above it later would make it bind.
+			miss = self._index_miss(parent, segments)
+			if miss is not None:
+				msg = f"no instance {miss[0]} of '{_diag_name(miss[1])}'"
+				if _line_fence(tok) is not None:
+					self._refuse(lineno, "E003", msg, _OUT_DROPPED, indent)
+					i = self._skip_field_line(lines, i, indent, tok)
+					continue
+				self.kept_any = True
+				self._refuse(lineno, "E003", msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				i += 1
+				continue
 			# The verbatim value span, kept for reads' `raw` (only the plain
 			# scalar/inline-array case has a one-line source spelling).
 			src_text = None
@@ -5162,7 +5243,7 @@ class _Emit:
 	`open`, which the last binding line leaves, then what the lines refused
 	since then pushed, and the indent of a kept misplaced line that the lines
 	under it are kept with."""
-	__slots__ = ("out", "open", "tail", "hold", "record", "fell", "verbatim", "near", "flushed", "kept_near", "lv", "lines", "marks", "bodies", "spans")
+	__slots__ = ("out", "open", "tail", "hold", "record", "fell", "verbatim", "near", "flushed", "kept_near", "lv", "lazies", "walked", "lines", "marks", "bodies", "spans")
 
 	def __init__(self, record):
 		self.out: list[str] = []
@@ -5179,10 +5260,15 @@ class _Emit:
 		self.near: list[tuple[int, int]] = []
 		self.flushed = 0
 		self.kept_near: list[tuple[int, int]] = []
-		# Per binding depth, whether that node has a `- ` item written yet
-		# and a field line under it, for a kept line refused only for where
-		# it sits.
-		self.lv: list[list[bool]] = []
+		# Per binding depth, whether that node has a `- ` item written yet, a
+		# field line under it, and a value an item cannot join, for a kept
+		# line refused only for where it sits, and the node with its place in
+		# its parent's list. Then the text of each kept line held open since
+		# the last binding line, by its indent, and whether a kept line was
+		# asked about the instances written before it.
+		self.lv: list[list] = []
+		self.lazies: list[tuple[str, str]] = []
+		self.walked = False
 		# to_text_keep_lines() only: where the lines from each source line
 		# start (0 for none), each raw body with the tabs its lines are padded
 		# with, and where each value is written on its binding line. Positions
@@ -5224,13 +5310,14 @@ class _Emit:
 		if not (tail and tail[-1] == (indent, _UNOPENED)):
 			tail.append((indent, _DEAD))
 
-	def bound(self, depth):
+	def bound(self, depth, node, pos):
 		"""A binding line at this depth: the levels under it are gone, and its
 		parent has a field line written under it."""
 		del self.lv[depth:]
 		if self.lv:
 			self.lv[-1][1] = True
-		self.lv.append([False, False, False])
+		self.lv.append([False, False, False, node, pos])
+		self.lazies.clear()
 
 	def placed(self, indent):
 		"""A line a reload binds, such as a list element: it resolves, then
@@ -5349,8 +5436,12 @@ def _array_kept(text):
 	if tok.array is None:
 		return False
 	try:
-		_path_of(tok, tok.src)
+		segments, _ = _path_of(tok, tok.src)
 	except _PathError:
+		return False
+	# One with an index in its path is the emitter's, which asks the
+	# instances written before it.
+	if any(_by_index(g) for g in segments):
 		return False
 	return _line_fault(tok) is None
 
@@ -5449,7 +5540,7 @@ def _local_clock():
 	return (time.strftime("%Y-%m-%d %H:%M:%S", now), int((now.tm_gmtoff or 0) / 60), name)
 
 
-def _push_leads(e, leads, base, at):
+def _push_leads(d, e, leads, base, at):
 	"""Write a run of comments and kept lines, `base` levels deep. A misplaced
 	line kept as written (its text has its own indent, a comment's never
 	does) goes back as it was only where a reload keeps it again, which the
@@ -5510,7 +5601,10 @@ def _push_leads(e, leads, base, at):
 			# an item only as E008 under a field with a field line written,
 			# E011 under one with a value, or E007 at the root. Anywhere else
 			# it would bind: a comment then.
+			segs = _indexed_path(text)
 			kind = _kept_for_place(text)
+			if kind is None and segs is not None:
+				kind = True
 			if kind is not None:
 				stays = not kind and parent == _ROOT and open_ == -1 and not tail
 				if pad > 0 and not tail and open_ == pad - 1 and pad - 1 < len(e.lv) and parent is not None and parent not in (_DEAD, _UNOPENED):
@@ -5518,6 +5612,12 @@ def _push_leads(e, leads, base, at):
 					stays = up[0] if kind else up[1] or up[2]
 				if parent == _LAZY and 0 <= open_ < len(e.lv) and e.lv[open_][0] and all(t[1] == _LAZY for t in tail):
 					stays = True
+				# One with an index in its path is kept too where the index
+				# selects none of the instances written before it (E003), or
+				# reaches stacked items through one (E001).
+				if segs is not None and not stays and parent is not None and parent not in (_DEAD, _UNOPENED):
+					stays = d._index_refuses(e, open_, tail, segs)
+					e.walked = e.walked or stays
 				if not stays and "\n" not in text:
 					# A comment nests at most one level past the line before it,
 					# or a reload reads it shallower.
@@ -5537,6 +5637,7 @@ def _push_leads(e, leads, base, at):
 			if parent is not None and parent != _DEAD and _opens_later(text):
 				e.open = open_
 				e.tail = tail
+				e.lazies.append((indent, text))
 				tail.append((indent, _LAZY))
 			else:
 				e.refused(indent, open_, tail)
@@ -6236,7 +6337,7 @@ def _errors_within(d, of):
 
 class Document:
 	"""A parsed SHCL document: the tree, its diagnostics, and its strictness level."""
-	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_arrays", "_bracketed", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source", "_file", "_newer")
+	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_arrays", "_bracketed", "_kept_near", "_kept_sum", "_walked", "_ends", "_dropped", "_source", "_file", "_newer")
 
 	def __init__(
 		self,
@@ -6286,6 +6387,10 @@ class Document:
 		# such line left: the next check costs the same, and nothing is wrong.
 		self._kept_near: list[tuple[int, int]] = []
 		self._kept_sum: tuple = ()
+		# A kept line with an index in its path was judged by the instances
+		# written before it, which can sit anywhere above it, so every edit
+		# settles while one is held.
+		self._walked = False
 		# The parse's multi-line bindings, from the binding line to the last
 		# line each took. Edits leave it alone; only a reparse reads it.
 		self._ends: list[tuple[int, int]] = []
@@ -6624,6 +6729,81 @@ class Document:
 			[(offs[a], offs[b]) for a, b in e.spans],
 		)
 
+	def _index_refuses(self, e, open_, tail, segs):
+		"""True when a reload keeps a clean field line with an index in its
+		path where the emit model stands, after its resolve found a live
+		parent: an index selects none of the instances written before it
+		(E003), or one reaches stacked items before the last segment (E001).
+		Lines held open since the last binding line are walked first, as the
+		reload opens them."""
+		if any(t[1] != _LAZY for t in tail):
+			return False
+		if open_ < 0:
+			node = _ROOT
+		elif open_ < len(e.lv):
+			node = e.lv[open_][3]
+		else:
+			return False
+		# Of the first node's children, only those written so far.
+		upto = e.lv[open_ + 1][4] + 1 if open_ + 1 < len(e.lv) else 0
+		held = []
+		for indent, _ in tail:
+			text = next((lz[1] for lz in reversed(e.lazies) if lz[0] == indent), None)
+			if text is None:
+				return False
+			tok = Tokens()
+			tokenize(text, ":", False, Rules.Current, tok)
+			try:
+				segments, _ = _path_of(tok, tok.src)
+			except _PathError:
+				return False
+			held.extend(segments)
+		for seg in held:
+			node = self._written_step(node, upto, seg)
+			if node is None:
+				# Opening it creates a field, with no instance under it.
+				return True
+			upto = -1
+		through = any(_by_index(g) for g in segs[:-1])
+		for i, seg in enumerate(segs):
+			found = self._written_step(node, upto, seg)
+			upto = -1
+			if found is not None:
+				if through and i + 1 < len(segs) and _stacks(self.arena[found]):
+					return True
+				node = found
+			elif _by_index(seg):
+				return True
+			else:
+				# Created, so every index after it selects nothing.
+				return any(_by_index(g) for g in segs[i + 1:])
+		return False
+
+	def _written_step(self, cur, upto, seg):
+		"""The child a reload's path step selects under `cur` among its first
+		`upto` children (all of them for -1), as the parser's _found_step()
+		does."""
+		kids = self.arena[cur].children
+		if upto >= 0:
+			kids = kids[:upto]
+		sel = seg.selector
+		nth = 0
+		for c in kids:
+			nd = self.arena[c]
+			if nd.name != seg.name:
+				continue
+			if sel is None:
+				if nd.value.kind == "empty":
+					return c
+			elif sel[0] == "val":
+				if nd.value.kind == "cell" and nd.value.els[0].text == sel[1]:
+					return c
+			elif sel[0] == "idx":
+				if nth == sel[1]:
+					return c
+				nth += 1
+		return None
+
 	def _emit_all(self, e):
 		# Explicit stack, children pushed in reverse: the reference handles depths
 		# far past Python's recursion limit, so emit must not recurse.
@@ -6638,8 +6818,8 @@ class Document:
 				nd = self.arena[idx]
 				if e.record:
 					e.near.append((idx, pos))
-				_push_leads(e, nd.inside(), depth + 1, (idx, "inside", 0))
-				_push_leads(e, nd.after(), depth, (idx, "after", 0))
+				_push_leads(self, e, nd.inside(), depth + 1, (idx, "inside", 0))
+				_push_leads(self, e, nd.after(), depth, (idx, "after", 0))
 				continue
 			self._emit_line(idx, pos, depth, would_merge, e)
 			if e.record or self.arena[idx].after() or self.arena[idx].inside():
@@ -6649,7 +6829,7 @@ class Document:
 		# Comments that never found a following line re-emit at the end.
 		if e.record:
 			e.near.append((_ROOT, 0))
-		_push_leads(e, self.orphans, 0, (_ROOT, "orphans", 0))
+		_push_leads(self, e, self.orphans, 0, (_ROOT, "orphans", 0))
 
 	def _settle_kept(self):
 		"""Make a misplaced line kept as written into the comment the emitter
@@ -6709,7 +6889,7 @@ class Document:
 		the binding line above, so an edit that changed none of the nodes those
 		came from cannot move it, and the whole-document emit is skipped
 		(20260924d item 2)."""
-		if self._kept and self._near_sum() != self._kept_sum:
+		if self._kept and (self._walked or self._near_sum() != self._kept_sum):
 			self._settle_kept()
 		else:
 			self._settle_arrays()
@@ -6744,6 +6924,7 @@ class Document:
 		e = _Emit(True)
 		self._emit_all(e)
 		self._kept = e.verbatim > 0
+		self._walked = e.walked
 		self._kept_near = e.kept_near
 		among = []
 		for node, site, i, depth in e.fell:
@@ -6812,11 +6993,11 @@ class Document:
 		trailing = node.trailing()
 		leading = node.leading()
 		if leading:
-			_push_leads(e, leading, depth, (idx, "leading", 0))
+			_push_leads(self, e, leading, depth, (idx, "leading", 0))
 		out = e.out
 		# The kept line just written opens this block on a reload.
 		if _heads_block(node):
-			e.bound(depth)
+			e.bound(depth, idx, pos)
 			e.open = depth
 			e.tail = []
 			e.hold = None
@@ -6835,7 +7016,7 @@ class Document:
 		out.append(_emit_name(node.name))
 		out.append(":")
 		# A binding line: a reload's stack is its levels and nothing else.
-		e.bound(depth)
+		e.bound(depth, idx, pos)
 		e.open = depth
 		if e.tail:
 			e.tail = []
@@ -6863,7 +7044,7 @@ class Document:
 			nxt = 0
 			for i, el in enumerate(v.els):
 				while nxt < len(among) and among[nxt][0] <= i:
-					_push_leads(e, (among[nxt][1],), depth + 1, (idx, "among", nxt))
+					_push_leads(self, e, (among[nxt][1],), depth + 1, (idx, "among", nxt))
 					nxt += 1
 				out.append(column)
 				out.append("- ")
@@ -6877,7 +7058,7 @@ class Document:
 				if depth < len(e.lv):
 					e.lv[depth][0] = True
 			while nxt < len(among):
-				_push_leads(e, (among[nxt][1],), depth + 1, (idx, "among", nxt))
+				_push_leads(self, e, (among[nxt][1],), depth + 1, (idx, "among", nxt))
 				nxt += 1
 		elif v.kind == "cell":
 			at = len(out)

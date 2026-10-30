@@ -3,4 +3,4 @@ query	type	expected	status
 a(99999999999999999999)	int	-	NotFound
 a(99999999999999999999)	int	-	NotFound
 c	string	x	Good
--	lost	1	-
+-	lost	0	-
