@@ -1365,9 +1365,12 @@ fTest Eu21cec 2026102813104371-hosted-jobs-run-the-merge-gate
 ##	The native release runs in one of them, and the leak check whose tool ci.yml
 ##	leaves out is skipped by name, and nothing else is.
 fPinsRun 's/args: --merge-gate --no-lint/args: --gate --no-lint/' && fBad "check-pins.bash passed a hosted job run with --gate"
-fPinsRun 's/--no-cross --no-remote --skip/--no-cross --no-release --no-remote --skip/' && fBad "check-pins.bash passed hosted jobs that all leave the release out"
+fPinsRun 's/--no-tests --no-cross --no-remote$/--no-tests --no-cross --no-release --no-remote/' && fBad "check-pins.bash passed hosted jobs that all leave the release out"
 fPinsRun 's/ --skip=codeql-scan\.bash//' && fBad "check-pins.bash passed a hosted job that runs CodeQL, which ci.yml doesn't install"
 fPinsRun 's/--skip=codeql-scan\.bash/--skip=codeql-scan.bash --skip=cli-regress.bash/' && fBad "check-pins.bash passed a hosted job that skips a step it can run"
+fTest Eu8X2fW 2026102915235852-hosted-tests-and-release-apart
+##	2026102915235852: tests then the release in one hosted job ran out its hour.
+fPinsRun '/^[[:space:]]*- part: release$/,/args:/d; s/--no-lint --no-release --no-cross/--no-lint --no-cross/' && fBad "check-pins.bash passed a hosted job running tests and the release together"
 fTest Esbq6Ie 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to

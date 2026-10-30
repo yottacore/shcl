@@ -4583,7 +4583,9 @@ def main():
 		raise SystemExit(f"srv: {ix_doc.get_string_array('srv')!r}")
 	if ix_doc.read_string("srv.tls").status is shcl.Status.Good:
 		raise SystemExit("srv.tls binds")
-	fu_check(ix_doc, "srv:\n\t- a\n# srv(0).tls: on\n")
+	# The emitter walks the index now, so the line stays as written, where a
+	# reload keeps it again (2026102821334970, an_index_with_no_instance_stays_kept).
+	# fu_check(ix_doc, "srv:\n\t- a\n# srv(0).tls: on\n")
 	# The 2M merge fuzz's case: the layer brought the list and the field.
 	ix_doc = shcl.Document.parse("m: 1\n")
 	ix_doc.merge(shcl.Document.parse("srv: [a]\nsrv(0).tls: on\n"))
@@ -4591,6 +4593,75 @@ def main():
 	ix_doc = shcl.Document.parse("m: 1\n")
 	ix_doc.merge(shcl.Document.parse("srv:\n\t- a\nsrv(0).tls: on\n"))
 	fu_check(ix_doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n")
+
+	test_id("Eu8yPCJ", "an_index_with_no_instance_stays_kept")
+	# An index that selects no instance bound before it is kept (E003): the
+	# line binds nothing, opens none of its path's fields, and nothing is lost.
+	# Where a merge or an edit puts an instance above it, it is written as a
+	# comment. One that opens a raw block is dropped with it. Same fixture in
+	# every runner.
+
+	def nx_check(doc, want):
+		text = doc.to_canonical()
+		if text != want:
+			raise SystemExit(f"canonical {text!r}, want {want!r}")
+		back = shcl.Document.parse(text)
+		if back.to_canonical() != text or doc.paths() != back.paths():
+			raise SystemExit(f"reload differs: {text!r}")
+		if back.lost_count() != 0:
+			raise SystemExit(f"reload lost {back.lost_count()}: {text!r}")
+
+	def nx_codes(doc):
+		return [(d.line, d.code) for d in doc.diagnostics()]
+
+	nx_src = "a: 1\na(5).b: 2  # c\nx.a(0).b: 1\nh: \"open\n\tb(0).c: 1\na(3).d: [1, 2]\nz: 1\n"
+	nx_doc = shcl.Document.parse(nx_src)
+	if nx_codes(nx_doc) != [(2, "E003"), (3, "E003"), (4, "E017"), (5, "E003"), (6, "E003")]:
+		raise SystemExit(f"diagnostics {nx_codes(nx_doc)!r}")
+	if nx_doc.lost_count() != 0 or nx_doc.paths() != ["a", "z"]:
+		raise SystemExit(f"lost {nx_doc.lost_count()}, paths {nx_doc.paths()!r}")
+	nx_check(nx_doc, nx_src)
+	nx_doc = shcl.Document.parse("a: 1\na(5).b: ```\n\tbody: 1\n```\nz: 1\n")
+	if nx_codes(nx_doc) != [(2, "E003")] or nx_doc.lost_count() != 1:
+		raise SystemExit(f"raw: diagnostics {nx_codes(nx_doc)!r}, lost {nx_doc.lost_count()}")
+	# A dotted line onto stacked items through an index stays as written.
+	nx_src = "srv:\n\t- a\nsrv(0).tls: on\n"
+	nx_check(shcl.Document.parse(nx_src), nx_src)
+	# A merge brings the instance above it.
+	nx_doc = shcl.Document.parse("a: 1\na(1).b: 2\nz: 1\n")
+	nx_doc.merge(shcl.Document.parse("a: 1\na: 2\n"))
+	nx_check(nx_doc, "a: 1\na: 2\n# a(1).b: 2\nz: 1\n")
+	# An edit far above it gives the index one, and the document settles.
+	nx_doc = shcl.Document.parse("p:\n\tx: bar\n\t\ty: 1\nw: 1\np.x(foo).y(0).z: 1\nq: 1\n")
+	if nx_codes(nx_doc) != [(5, "E003")]:
+		raise SystemExit(f"edit: diagnostics {nx_codes(nx_doc)!r}")
+	if not nx_doc.set_string("p.x", "foo"):
+		raise SystemExit("set refused")
+	nx_check(nx_doc, "p:\n\tx: foo\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
+	# It settled to the comment, as a save and a reload would have.
+	if not nx_doc.set_string("p.x", "bar"):
+		raise SystemExit("set back refused")
+	nx_check(nx_doc, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
+
+	test_id("Eu96oVH", "a_replaced_leaf_keeps_the_lines_kept_in_its_block")
+	# A line kept in a leaf's block stays in the merged block when the other
+	# layer replaces the leaf, as it does when a setter changes the leaf in
+	# place. It went to the root, above the field, where an item reloaded as
+	# E007. Same fixture in every runner.
+	for rl_src, rl_want, rl_code in (
+		("val: 1\n\ta: [1\nz: 2\n", "val: 1\n\ta: [1\n\ta: [1\nz: 2\n", "E019"),
+		("val: 1\n\t- e\nz: 2\n", "val: 1\n\t- e\n\t- e\nz: 2\n", "E011"),
+	):
+		rl_doc = shcl.Document.parse(rl_src)
+		rl_doc.merge(shcl.Document.parse(rl_src))
+		rl_text = rl_doc.to_canonical()
+		if rl_text != rl_want:
+			raise SystemExit(f"canonical {rl_text!r}, want {rl_want!r}")
+		rl_back = shcl.Document.parse(rl_text)
+		if rl_back.to_canonical() != rl_text or rl_back.lost_count() != 0:
+			raise SystemExit(f"reload differs or loses: {rl_text!r}")
+		if [(d.line, d.code) for d in rl_back.diagnostics()] != [(2, rl_code), (3, rl_code)]:
+			raise SystemExit(f"reload diagnostics {rl_back.diagnostics()!r}")
 
 	test_id("ErylLpf", "a_setter_keeps_fields_and_arrays_apart")
 	# A field with lines under it takes one plain value or none (E028), so a
@@ -5389,6 +5460,72 @@ def main():
 			os.chmod(mp, 0o644)
 			xdoc.save_file_with(mp, shcl.SaveOptions(mode=0o600))
 			xsame("kept mode", oct(xmode(mp)), oct(0o644))
+
+	test_id("Eu8h5g5", "a_newer_format_document_saves_nowhere")
+	# A document from a newer format reads and edits as usual, and every save
+	# of it is refused with nothing written, whatever the options, before any
+	# other check. The same reading as H006 decides, and a merge takes a newer
+	# layer's (2026102910482344).
+	with tempfile.TemporaryDirectory() as nd:
+		def nread(p):
+			with open(p, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def nsame(what, got, want):
+			if got != want:
+				raise SystemExit(f"{what}: {got!r}, want {want!r}")
+
+		def nrefused(what, call, p):
+			try:
+				call()
+			except shcl.SaveTooNew as e:
+				if e.path != p:
+					raise SystemExit(f"{what}: path {e.path!r}") from None
+				return str(e)
+			raise SystemExit(f"{what}: saved")
+
+		newer = "a: 1\n\n##    Format   4\n"
+		nf = os.path.join(nd, "f.shcl")
+		with open(nf, "w", encoding="utf-8", newline="") as fh:
+			fh.write(newer)
+		ndoc, _ = shcl.Document.load_file(nf)
+		nsame("newer", ndoc.newer_format(), True)
+		nsame("hint", any(d.code == "H006" for d in ndoc.diagnostics()), True)
+		nsame("read", ndoc.get_int("a"), 1)
+		nsame("set", ndoc.set_int("a", 2), shcl.SetStatus.Ok)
+		nsame("read after", ndoc.get_int("a"), 2)
+		nsame("message", nrefused("save", lambda: ndoc.save_file(nf), nf),
+			f"{nf}: refusing to save: the document holds lines from a newer format than this reader's; nothing written")
+		nrefused("lossy", lambda: ndoc.save_file_lossy(nf), nf)
+		nrefused("keep", lambda: ndoc.save_file_keep_lines(nf), nf)
+		# No option overrides it, and it comes before create's check.
+		nall = shcl.SaveOptions(lossy=True, keep_lines=True, force=True, create=True, mode=0o600)
+		nrefused("all", lambda: ndoc.save_file_with(nf, nall), nf)
+		nsame("left", nread(nf), newer)
+		# Anywhere else too, and nothing is made there.
+		nother = os.path.join(nd, "other.shcl")
+		nrefused("other", lambda: ndoc.save_file(nother), nother)
+		nsame("none made", os.path.exists(nother), False)
+
+		# A parse reads the text the same way.
+		nparsed = shcl.Document.parse(newer)
+		nsame("parsed", nparsed.newer_format(), True)
+		nrefused("parsed save", lambda: nparsed.save_file(nother), nother)
+		# This format, an older one, none, a damaged line, and one in a raw
+		# body save as before.
+		for text in ("a: 1\n##    Format   3\n", "a: 1\n##    Format   2\n", "a: 1\n",
+				"a: 1\n##    Format   4x\n", "note:\n\t```\n##    Format   4\n\t```\n"):
+			d = shcl.Document.parse(text)
+			nsame(repr(text), d.newer_format(), False)
+			d.save_file(nother)
+		# A merged layer's lines are the document's now.
+		nbase = shcl.Document.parse("b: 2\n")
+		nbase.merge(shcl.Document.parse(newer))
+		nsame("merged", nbase.newer_format(), True)
+		nrefused("merged save", lambda: nbase.save_file(nother), nother)
+		nunder = shcl.Document.parse(newer)
+		nunder.merge(shcl.Document.parse("b: 2\n"))
+		nsame("merged under", nunder.newer_format(), True)
 
 	test_id("EsJZko5", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read

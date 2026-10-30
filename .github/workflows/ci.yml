@@ -22,34 +22,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ## Two parallel halves of the one merge gate. As one job it ran 31 to 50
+  ## Three parallel parts of the one merge gate. As one job it ran 31 to 50
   ## minutes and then over the 60-minute limit: lint was 3 minutes plus
   ## cppcheck's exhaustive pass, 16 to 26 more whenever shcl.h changed, and the
-  ## tests stage with crosscheck and the large document was 20 to 29. Each half
+  ## tests stage with crosscheck and the large document was 20 to 29. By
+  ## 2026-10-29 tests alone was 48, and the release step after it ran out the
+  ## hour (2026102915235852), so the release has its own part. Each part
   ## runs the engine with stage flags, so what passing means stays in cicd.bash,
-  ## and check-pins.bash fails when the halves stop covering everything the
-  ## merge gate runs here. Both install every tool, so a strict skip can't
-  ## come from a tool one half forgot.
+  ## and check-pins.bash fails when the parts stop covering everything the
+  ## merge gate runs here. All install every tool, so a strict skip can't
+  ## come from a tool one part forgot.
   ##
   ## What the runner can't: the test boxes are on the LAN (--no-remote), and
-  ## CodeQL's bundle is about 700 MB and 10 minutes more than the tests half
-  ## has (--skip). The cross targets would take a third job of their own; the
+  ## CodeQL's bundle is about 700 MB and 10 minutes more than the tests part
+  ## has (--skip). The cross targets would take another job of their own; the
   ## macos, linux-arm and windows jobs below build on their own runners instead.
   ci:
     name: ci (${{ matrix.part }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 80
     strategy:
       fail-fast: false
       matrix:
         include:
-          ## The cross checks take half a minute. Lint is the shorter half
-          ## unless the C header changed. The tests half takes the native
-          ## release, its checks and packages, and the leak checks.
+          ## The cross checks take half a minute. Lint is the shortest part
+          ## unless the C header changed. The tests part takes the leak checks,
+          ## and the release part the native release, its checks and packages.
           - part: lint
             args: --merge-gate --no-tests --no-release --no-remote
           - part: tests
-            args: --merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash
+            args: --merge-gate --no-lint --no-release --no-cross --no-remote --skip=codeql-scan.bash
+          - part: release
+            args: --merge-gate --no-lint --no-tests --no-cross --no-remote
     steps:
       ## Actions by commit SHA (tag in the comment), so a moved tag cannot
       ## silently change what runs.
@@ -114,7 +118,7 @@ jobs:
           ## gcc's major, since clang takes the C++ headers of the newest gcc
           ## it finds and fails without them. clang-tools and heaptrack are for
           ## the fast leak checks the merge gate runs. CodeQL isn't, since its
-          ## bundle is about 700 MB for the step the tests half skips, and
+          ## bundle is about 700 MB for the step the tests part skips, and
           ## check-pins fails if a step this workflow runs ever names it.
           ## qemu, busybox and cpio boot the native release on the old CPUs
           ## for the CPU floor check, which boots the runner's own kernel. That
@@ -164,8 +168,8 @@ jobs:
           comps="$(sed -n '/^\[nightly\]/,/^\[/s/^components = \[\(.*\)\]/\1/p' rust-toolchain.toml | tr -d '" ')"
           rustup toolchain install "${nightly}" --profile minimal --component "${comps}"
           cargo "+${nightly}" miri setup
-      ## One per half, since each builds different targets. A first run of a
-      ## half starts from whatever Linux target dir there is.
+      ## One per part, since each builds different targets. A first run of a
+      ## part starts from whatever Linux target dir there is.
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |

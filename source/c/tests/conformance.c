@@ -1311,7 +1311,11 @@ static void dir_clear(const char *dir) {
 	while (dd && (de = readdir(dd))) {
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
 		snprintf(p, sizeof p, "%s/%s", dir, de->d_name);
+#ifdef _WIN32
+		if (remove(p) != 0) _rmdir(p);  /* remove takes no folder there */
+#else
 		remove(p);
+#endif
 	}
 	if (dd) closedir(dd);
 #ifdef _WIN32
@@ -5253,7 +5257,10 @@ int main(int argc, char **argv) {
 		   list and the field. */
 		struct { const char *src, *want; int merge; } ic[] = {
 			{"srv: [a]\nsrv(0).tls: on\n", "srv: [a]\n\ttls: on\n", 0},
-			{"srv:\n\t- a\nsrv(0).tls: on\n", "srv:\n\t- a\n# srv(0).tls: on\n", 0},
+			/* The emitter walks the index now, so the line stays as written,
+			   where a reload keeps it again (2026102821334970,
+			   an_index_with_no_instance_stays_kept). */
+			// {"srv:\n\t- a\nsrv(0).tls: on\n", "srv:\n\t- a\n# srv(0).tls: on\n", 0},
 			{"srv: [a]\nsrv(0).tls: on\n", "m: 1\nsrv: [a]\n\ttls: on\n", 1},
 			{"srv:\n\t- a\nsrv(0).tls: on\n", "m: 1\nsrv: [a]\n# srv(0).tls: on\n", 1},
 		};
@@ -5273,6 +5280,82 @@ int main(int argc, char **argv) {
 			shcl_str cbt = shcl_to_canonical(cb);
 			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("index_onto_list", "reload differs");
 			if (shcl_lost_count(cd) != 0 || shcl_lost_count(cb) != 0) fail("index_onto_list", "lost");
+			shcl_free(cb); shcl_free(cd);
+		}
+	}
+	test_id("Eu8yPCK", "an_index_with_no_instance_stays_kept");
+	/* An index that selects no instance bound before it is kept (E003): the
+	   line binds nothing, opens none of its path's fields, and nothing is
+	   lost. Where a merge or an edit puts an instance above it, it is written
+	   as a comment. One that opens a raw block is dropped with it. Same
+	   fixture in every runner. */
+	{
+		const char *nsrc = "a: 1\na(5).b: 2  # c\nx.a(0).b: 1\nh: \"open\n\tb(0).c: 1\na(3).d: [1, 2]\nz: 1\n";
+		shcl_doc *nd = shcl_parse(nsrc, strlen(nsrc));
+		static const struct { size_t line; const char *code; } want[] = {{2, "E003"}, {3, "E003"}, {4, "E017"}, {5, "E003"}, {6, "E003"}};
+		int same = shcl_diag_count(nd) == 5;
+		for (size_t k = 0; same && k < 5; k++) same = shcl_diag_line(nd, k) == want[k].line && strcmp(shcl_diag_code(nd, k), want[k].code) == 0;
+		if (!same) fail("index_no_instance", "diagnostics");
+		shcl_str *np;
+		size_t npaths = shcl_paths(nd, &np);
+		if (shcl_lost_count(nd) != 0 || npaths != 2 || !str_is(np[0], "a") || !str_is(np[1], "z")) fail("index_no_instance", "lost or paths");
+		shcl_free(nd);
+		const char *rsrc = "a: 1\na(5).b: ```\n\tbody: 1\n```\nz: 1\n";
+		nd = shcl_parse(rsrc, strlen(rsrc));
+		if (shcl_diag_count(nd) != 1 || shcl_diag_line(nd, 0) != 2 || strcmp(shcl_diag_code(nd, 0), "E003") != 0 || shcl_lost_count(nd) != 1) fail("index_no_instance", "raw");
+		shcl_free(nd);
+		/* A dotted line onto stacked items through an index stays as written.
+		   A merge brings the instance above it. An edit far above it gives the
+		   index one, and the document settles, so the edit back leaves the
+		   comment, as a save and a reload would have. */
+		const char *esrc = "p:\n\tx: bar\n\t\ty: 1\nw: 1\np.x(foo).y(0).z: 1\nq: 1\n";
+		struct { const char *src, *layer; int sets; const char *want; } nc[] = {
+			{nsrc, NULL, 0, nsrc},
+			{"srv:\n\t- a\nsrv(0).tls: on\n", NULL, 0, "srv:\n\t- a\nsrv(0).tls: on\n"},
+			{"a: 1\na(1).b: 2\nz: 1\n", "a: 1\na: 2\n", 0, "a: 1\na: 2\n# a(1).b: 2\nz: 1\n"},
+			{esrc, NULL, 1, "p:\n\tx: foo\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n"},
+			{esrc, NULL, 2, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n"},
+		};
+		for (size_t k = 0; k < sizeof nc / sizeof nc[0]; k++) {
+			shcl_doc *cd = shcl_parse(nc[k].src, strlen(nc[k].src));
+			if (nc[k].layer) {
+				shcl_doc *lo = shcl_parse(nc[k].layer, strlen(nc[k].layer));
+				shcl_merge(cd, lo);
+				shcl_free(lo);
+			}
+			if (nc[k].sets > 0 && shcl_set_string(cd, "p.x", 3, "foo", 3) != SHCL_SET_OK) fail("index_no_instance", "set");
+			if (nc[k].sets > 1 && shcl_set_string(cd, "p.x", 3, "bar", 3) != SHCL_SET_OK) fail("index_no_instance", "set back");
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, nc[k].want)) { fail("index_no_instance", nc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("index_no_instance", "reload differs");
+			if (shcl_lost_count(cb) != 0) fail("index_no_instance", "reload lost");
+			shcl_free(cb); shcl_free(cd);
+		}
+	}
+	test_id("Eu96oVI", "a_replaced_leaf_keeps_the_lines_kept_in_its_block");
+	/* A line kept in a leaf's block stays in the merged block when the other
+	   layer replaces the leaf, as it does when a setter changes the leaf in
+	   place. It went to the root, above the field, where an item reloaded as
+	   E007. Same fixture in every runner. */
+	{
+		struct { const char *src, *want, *code; } rc[] = {
+			{"val: 1\n\ta: [1\nz: 2\n", "val: 1\n\ta: [1\n\ta: [1\nz: 2\n", "E019"},
+			{"val: 1\n\t- e\nz: 2\n", "val: 1\n\t- e\n\t- e\nz: 2\n", "E011"},
+		};
+		for (size_t k = 0; k < sizeof rc / sizeof rc[0]; k++) {
+			shcl_doc *cd = shcl_parse(rc[k].src, strlen(rc[k].src));
+			shcl_doc *lo = shcl_parse(rc[k].src, strlen(rc[k].src));
+			shcl_merge(cd, lo);
+			shcl_free(lo);
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, rc[k].want)) { fail("replaced_leaf", rc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || shcl_lost_count(cb) != 0) fail("replaced_leaf", "reload differs or loses");
+			if (shcl_diag_count(cb) != 2 || shcl_diag_line(cb, 0) != 2 || strcmp(shcl_diag_code(cb, 0), rc[k].code) != 0
+				|| shcl_diag_line(cb, 1) != 3 || strcmp(shcl_diag_code(cb, 1), rc[k].code) != 0) fail("replaced_leaf", "reload diagnostics");
 			shcl_free(cb); shcl_free(cd);
 		}
 	}
@@ -5925,6 +6008,8 @@ int main(int argc, char **argv) {
 		free(name); free(why);
 		if (dir_entries(udir) != 1) fail("backup_swapped", "entries after the directory");
 		dir_clear(udir);
+		DIR *left = opendir(udir);
+		if (left) { closedir(left); fail("backup_swapped", "its folder is left behind"); }
 	}
 	test_id("EsoQmUB", "from_v2_refuses_a_conversion_that_keeps_an_error");
 	{
@@ -6957,6 +7042,81 @@ int main(int argc, char **argv) {
 #endif
 		shcl_free(doc);
 		dir_clear(xdir);
+	}
+	test_id("Eu8h5g7", "a_newer_format_document_saves_nowhere");
+	{
+		/* A document from a newer format reads and edits as usual, and every
+		   save of it is refused with nothing written, whatever the options,
+		   before any other check. The same reading as H006 decides, and a merge
+		   takes a newer layer's (2026102910482344). Same fixture in every
+		   runner. */
+		const char *at = "newer";
+		const char *newer = "a: 1\n\n##    Format   4\n";
+		char ndir[256], f[320], other[320];
+		up_dir(ndir, sizeof ndir, "newer");
+		snprintf(f, sizeof f, "%s/f.shcl", ndir);
+		snprintf(other, sizeof other, "%s/other.shcl", ndir);
+		put_file(f, newer);
+		shcl_doc *doc = shcl_load_file(f, NULL);
+		if (!shcl_newer_format(doc)) fail(at, "a load: not newer");
+		int hint = 0;
+		for (size_t i = 0; i < shcl_diag_count(doc); i++) hint |= strcmp(shcl_diag_code(doc, i), "H006") == 0;
+		if (!hint) fail(at, "no H006");
+		if (shcl_get_int_or(doc, "a", 1, -1) != 1) fail(at, "read");
+		if (shcl_set_int(doc, "a", 1, 2) != SHCL_SET_OK) fail(at, "set");
+		if (shcl_get_int_or(doc, "a", 1, -1) != 2) fail(at, "read after the set");
+		int k = 1;
+		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "save");
+		if (shcl_save_file_lossy(doc, f, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "lossy");
+		if (shcl_save_file_keep_lines(doc, f, &k, NULL) != SHCL_SAVE_TOO_NEW || k) fail(at, "keep lines");
+		/* No option overrides it, and it comes before create's check. */
+		shcl_save_options all = {0};
+		all.lossy = all.keep_lines = all.force = all.create = 1;
+		all.mode = 0600;
+		if (shcl_save_file_with(doc, f, all, NULL, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "every option");
+		if (!file_is(f, newer)) fail(at, "written");
+		/* Anywhere else too, and nothing is made there. */
+		if (shcl_save_file(doc, other, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "elsewhere");
+		shcl_file_status ost = SHCL_FILE_CLEAN;
+		free(shcl_read_file(other, 0, NULL, &ost));
+		if (ost != SHCL_FILE_NOT_FOUND) fail(at, "made elsewhere");
+		/* compact keeps it. */
+		shcl_compact(doc);
+		if (!shcl_newer_format(doc)) fail(at, "a compact: not newer");
+		shcl_free(doc);
+
+		/* A parse reads the text the same way. */
+		shcl_doc *parsed = shcl_parse(newer, strlen(newer));
+		if (!shcl_newer_format(parsed)) fail(at, "a parse: not newer");
+		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "parse");
+		shcl_free(parsed);
+		/* This format, an older one, none, a damaged line, and one in a raw
+		   body save as before. */
+		const char *texts[] = {
+			"a: 1\n##    Format   3\n",
+			"a: 1\n##    Format   2\n",
+			"a: 1\n",
+			"a: 1\n##    Format   4x\n",
+			"note:\n\t```\n##    Format   4\n\t```\n",
+		};
+		for (size_t i = 0; i < sizeof texts / sizeof *texts; i++) {
+			shcl_doc *d = shcl_parse(texts[i], strlen(texts[i]));
+			if (shcl_newer_format(d)) fail(at, texts[i]);
+			if (shcl_save_file(d, other, NULL) != SHCL_SAVE_OK) fail(at, texts[i]);
+			shcl_free(d);
+		}
+		/* A merged layer's lines are the document's now. */
+		shcl_doc *base = shcl_parse("b: 2\n", 5), *lay = shcl_parse(newer, strlen(newer));
+		shcl_merge(base, lay);
+		if (!shcl_newer_format(base)) fail(at, "a merge over a newer layer: not newer");
+		if (shcl_save_file(base, other, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "merged");
+		shcl_doc *cur = shcl_parse("b: 2\n", 5);
+		shcl_merge(lay, cur);
+		if (!shcl_newer_format(lay)) fail(at, "a merge onto a newer document: not newer");
+		shcl_free(cur);
+		shcl_free(lay);
+		shcl_free(base);
+		dir_clear(ndir);
 	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }

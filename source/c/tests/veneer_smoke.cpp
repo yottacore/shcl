@@ -358,6 +358,60 @@ static int a_create_only_save_refuses_a_file_already_there() {
 }
 #endif
 
+#ifndef SHCL_NO_FILE_IO
+// A document from a newer format reads and edits as usual, and every save of
+// it is refused with nothing written, whatever the options. The same reading
+// as H006 decides, and a merge takes a newer layer's (2026102910482344). The C
+// runner's fixture, through the veneer.
+static int a_newer_format_document_saves_nowhere() {
+	test_id("Eu8h5g8", "a_newer_format_document_saves_nowhere");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-newer-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	const std::string newer = "a: 1\n\n##    Format   4\n";
+	const std::string f = dir + "/f.shcl", other = dir + "/other.shcl";
+	CHECK(shcl::write_file_atomic(f, newer) == shcl::WriteStatus::Ok);
+	auto loaded = shcl::Document::load_file(f);
+	auto &doc = loaded.first;
+	CHECK(doc.newer_format());
+	bool hint = false;
+	for (const auto &d : doc.diagnostics()) hint = hint || d.code == "H006";
+	CHECK(hint);
+	CHECK(doc.read_int("a").value == 1);
+	CHECK(doc.set_int("a", 2) == shcl::SetStatus::Ok);
+	CHECK(doc.read_int("a").value == 2);
+	shcl::WriteStatus why = shcl::WriteStatus::Other;
+	CHECK(doc.save_file(f, &why) == R::TooNew && why == shcl::WriteStatus::Ok);
+	CHECK(doc.save_file_lossy(f) == R::TooNew);
+	CHECK(doc.save_file_keep_lines(f) == std::make_pair(R::TooNew, false));
+	shcl::SaveOptions all;
+	all.lossy = all.keep_lines = all.force = all.create = true;
+	all.mode = 0600;
+	CHECK(doc.save_file_with(f, all).first == R::TooNew);
+	CHECK(shcl::read_file(f) == std::make_pair(newer, shcl::FileStatus::Clean));
+	CHECK(doc.save_file(other) == R::TooNew);
+	CHECK(shcl::read_file(other).second == shcl::FileStatus::NotFound);
+	auto parsed = shcl::Document::parse(newer);
+	CHECK(parsed.newer_format() && parsed.save_file(other) == R::TooNew);
+	auto current = shcl::Document::parse("a: 1\n##    Format   3\n");
+	CHECK(!current.newer_format() && current.save_file(other) == R::Ok);
+	auto base = shcl::Document::parse("b: 2\n");
+	base.merge(parsed);
+	CHECK(base.newer_format() && base.save_file(other) == R::TooNew);
+	std::remove(f.c_str());
+	std::remove(other.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+#endif
+
 int main() {
 	test_id("EjtkR0S", "veneer_smoke");
 	// The clock every runner pins, as conformance.c does.
@@ -1121,7 +1175,9 @@ int main() {
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
-	return changed | a_create_only_save_refuses_a_file_already_there() | threads | smoke;
+	const int created = a_create_only_save_refuses_a_file_already_there();
+	fails = 0;
+	return changed | created | a_newer_format_document_saves_nowhere() | threads | smoke;
 #else
 	return threads | smoke;
 #endif

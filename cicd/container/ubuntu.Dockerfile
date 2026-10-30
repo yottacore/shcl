@@ -34,6 +34,9 @@ ARG GO_VER=1.26.9
 ARG GO_SHA256=42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d
 ARG PWSH_VER=7.6.6
 ARG PWSH_SHA256=ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc
+# zig for check-c-compilers' musl build, as the runner installs it.
+ARG ZIG_VER=0.16.0
+ARG ZIG_SHA256=70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 # The runner's Python comes from setup-python at 3.13, not Ubuntu's 3.12.
 ARG PYTHON_VER=3.13.16
 ARG PYTHON_BUILD=20261009
@@ -43,6 +46,9 @@ WORKDIR /tmp/dl
 RUN curl -fsSLo go.tgz "https://go.dev/dl/go${GO_VER}.linux-amd64.tar.gz" \
 	&& echo "${GO_SHA256}  go.tgz" | sha256sum -c - \
 	&& tar -C /opt -xzf go.tgz \
+	&& curl -fsSLo zig.txz "https://ziglang.org/download/${ZIG_VER}/zig-x86_64-linux-${ZIG_VER}.tar.xz" \
+	&& echo "${ZIG_SHA256}  zig.txz" | sha256sum -c - \
+	&& mkdir /opt/zig && tar -C /opt/zig --strip-components=1 -xJf zig.txz \
 	&& curl -fsSLo pwsh.tgz "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VER}/powershell-${PWSH_VER}-linux-x64.tar.gz" \
 	&& echo "${PWSH_SHA256}  pwsh.tgz" | sha256sum -c - \
 	&& mkdir /opt/pwsh && tar -C /opt/pwsh -xzf pwsh.tgz && chmod +x /opt/pwsh/pwsh \
@@ -87,13 +93,16 @@ COPY requirements.txt /opt/py-pin/
 RUN grep -A1 '^pillow==' /opt/py-pin/requirements.txt > /opt/py-pin/pillow.txt \
 	&& /opt/python/bin/python3 -m pip install --no-cache-dir --no-deps --require-hashes -r /opt/py-pin/pillow.txt
 
+# Zig's cache goes in the run's /tmp, since only the main image gets a volume
+# for it, and this one runs now and then.
 RUN mkdir -m 1777 /cache
-ENV PATH=/opt/python/bin:/opt/cargo/bin:/opt/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+ENV PATH=/opt/python/bin:/opt/cargo/bin:/opt/go/bin:/opt/zig:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 	HOME=/cache/home \
 	CARGO_HOME=/cache/cargo \
 	GOPATH=/cache/go \
 	GOCACHE=/cache/go/build \
 	GOMODCACHE=/cache/go/mod \
+	ZIG_GLOBAL_CACHE_DIR=/tmp/zig-cache \
 	GOTOOLCHAIN=local \
 	LANG=C.UTF-8 \
 	POWERSHELL_TELEMETRY_OPTOUT=1 \

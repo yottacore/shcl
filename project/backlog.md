@@ -33,54 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
-	- ID: 2026102913213704
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: No
-	- Priority: High
-	- Opened: 20261029-132137
-	- Opened by: 2026102910482343
-	- Parent ID: 2026102910482343
-	- Prereq IDs: 2026102913213663, 2026102913213683
-	- Requirements: the parent's, in C and the veneer, as Rust has them, with the twin of its test in the C runner and the veneer smoke. Once all 4 have it: design.md's Save outcomes, spec.md's file tier, examples.md's What saving does, and the changelog.
-	- Decisions:
-		- me, 20261029: C has `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, and `shcl_save_options` gets `int create` and `unsigned mode`, so `{0}` is still `shcl_save_file`. The Rust message is in the enum's comment, as `CHANGED`'s is. The veneer has `SaveResult::Exists`, and `SaveOptions` gets `create` and `mode`.
-		- me, 20261029: the C runner's race is under `#ifndef _WIN32`, with pthreads, as its small-stack fixture is. The veneer smoke has no race, since it wraps the same C save.
-	- Progress log:
-		- 20261029: `s_write_file_atomic` takes the create and the mode, and says when create found something. `shcl_save_file_with` checks for anything at the target before the changed check, and calls it directly. design.md, spec.md, examples.md and the changelog say so for all 4.
-		- 20261029: codeql-scan flagged the C runner's race path as a stack address in a global (`cpp/stack-address-escape`), so it's static now. The Python twin's `chmod` of a fixture mode (`py/overly-permissive-file`, from 2026102913213663) is suppressed at its line, as the earlier ones are. Verified: codeql-scan alone passes, `EtAC9Zo` and `EtAC9fG` included, and the C and Python suites pass.
-		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
-	- Swept: C and the veneer. `shcl_write_file_atomic` and `shcl_upgrade_file` pass no create and no mode, so they write as before. The 3 short saves pass `{0}`. Docs: design.md's Save outcomes table (the create row, the mode on the new-file row) and its two Saving a file bullets on mode and the new-file publish, spec.md's file tier (the mode, a create bullet, the options list, the separate-values bullet), examples.md, and the changelog's New.
-	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
-	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
-	- Branch: `r1029`
-	- Commit: `a618835c`, `276abbc8`
-
-- CICD reset: --gate as a backlog run
-	- ID: 2026102814013272
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: one `cicd/cicd.bash --container=ubuntu`, to see the image passes with its new `CTR_ARGS_ubuntu`.
-	- Priority: High
-	- Opened: 20261028-140132
-	- Opened by: 2026102813104371
-	- Parent ID: 2026102813104371
-	- Requirements:
-		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
-		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
-		- contributing.md's and install.md's `--gate` lines follow.
-	- Progress log:
-		- 20261029: `--gate` takes the `--backlog-run-quick` arm, areas included, prints `--gate is another name for --backlog-run-quick`, and goes into the image as `--backlog-run-quick`. So it records nothing. Help, contributing.md, install.md, design.md and the config.bash comments say so. contributing.md and install.md point at `--merge-gate` where they meant the whole gate.
-		- 20261029: check-push-gate's gate checks moved from `--gate` to `--merge-gate`: `EqGl8mf`, `EqjfWm8`, `Et6Aueh`, `EstM5WQ`'s calibration rows, `EtDCDE4`, `EtDCDE5`, `EtDCDE7`, and in `EtkuOxe` `1111|--gate --long` became `1111|--merge-gate --long`, in `Eu1ovZE` `1|--gate` became `1|--merge-gate`. A step-lines row now wants `Remote sync (--backlog-run-quick)`, and `Eu1ovZF` reads the areas from the help's `--backlog-run-quick, --gate [AREA...]` line. shell-regress `EqQUj04` drives the stub with `--merge-gate`.
-		- Verified: check-push-gate `Eu7Giqm` (the alias line, no record, `QUICK_SKIP` and `BACKLOG_SKIP` left out, an area, no calibration, `--gate --backlog-run-quick` taken, `--gate --merge-gate` and `--gate --long` refused) failed on the old engine and passes. `Eu7Giqn` (the run in the image gets `--backlog-run-quick`) failed with the engine passing `--gate` on, and passes. Also the whole of check-push-gate and shell-regress, check-pins, check-docs, test-ids, shellcheck and markdownlint.
-		- Swept: every `--gate` in cicd/, the hook, ci.yml, check-pins, check-push-gate, shell-regress, config.bash, the 2 Dockerfiles, contributing.md, install.md, design.md and the style guide. The hook's `--gate` fallback is for an engine from before `--merge-gate`, so it stays. install-dev.bash's lines are 2026102813104377. The other 3 bindings have no pipeline of their own, so no twin there.
-	- Decisions:
-		- me: `--container=ubuntu` ran `--gate --no-lint`. It runs `--merge-gate --no-lint --no-release --no-remote --no-leakcheck` now, the same stages as before, so it keeps the 200,000-input fuzz and the cross checks rather than shrink to the quick run. `--no-leakcheck` also drops the sanitizer runs there, since the image has no heaptrack or CodeQL for the leak checks, and spelling out 4 `--skip`s would tie it to their names. The main image and the hosted tests half still run them.
-		- me: `--gate` in the help shares `--backlog-run-quick`'s entry, as `--ci` and `--slow` do, to stay inside check-docs' 100-line header window.
-	- Test case: check-push-gate `Eu7Giqm` and `Eu7Giqn`.
-
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
@@ -101,38 +53,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: `--merge-gate`, not `--backlog-run-quick`, since the line says what a dev box is set up to run before a merge, as contributing.md's does.
 	- Test case: no new test. check-docs `EpHGoa0` (installers match main) covers the sync.
 	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
-
-- Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
-	- ID: 2026102912203343
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: No
-	- Priority: High
-	- Opened: 20261029-122033
-	- Opened by: 2026102910482342
-	- Parent ID: 2026102910482342
-	- Prereq IDs: 2026102912203339, 2026102912203341
-	- Requirements:
-		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
-		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
-	- Decisions:
-		- me, 20261029: C has `SHCL_SAVE_CHANGED` on the end of `shcl_save_result`, where new values go, and `shcl_save_file_with(d, path, shcl_save_options, *kept, *why)`, with `*kept` as the line-keeping save sets it. The options struct is `{ lossy, keep_lines, force }` and goes by value, as in Go, since all zero is `shcl_save_file`.
-		- me, 20261029: C's saves give no message, refused or failed, so the Rust message is in the enum's comment rather than in a new out-parameter.
-		- me, 20261029: the veneer has `SaveResult::Changed`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, opts, why)`, which gives the result and whether it kept the lines. Its 3 saves are no longer `const`, as Rust's take `&mut self`. They still hold the document's lock, so the threads test keeps its save, through a non-const reference.
-		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
-	- Progress log:
-		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
-		- 20261029: hosted ci.yml run 40953807354 failed `EqnwIkY` (windangle), `Eu7cuVd` and `Eu7cuVe` on windows, where wine passed them. The runner's TEMP has a short name, `RUNNER~1`. A file that's there resolved to its long name and one that isn't to the short one, so a removed or new file was never "over" the load's file. And a load through a dangling link ran the save's probe, which creates a file. Now a path with nothing at it takes its folder's final path, as Rust's canonicalize of the parent does, and the check walks a dangling link's own text, as the other 3 do, so a load creates nothing.
-			- Verified on b29w, from the mingw build: the old code fails `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe` the way the hosted job did with TEMP set to its short name, and the new code passes all 3 with TEMP short and long, the whole C runner (212) and the veneer smoke. The new short-name lines in `Eu7cuVd` fail on the old code with TEMP long too. Its new dangling-link lines fail with the link walk turned off. Also under wine, `cicd.bash --backlog-run-quick c`.
-			- Swept: `shcl_resolve_path`'s 3 callers (the read, the save, the check). Rust, Go and Python already read a link's text and canonicalize the parent, so only C had it.
-		- 20261029: the full run on `52d50363` failed codeql-scan's `EtAC9Zo`. The veneer's load and save calls are now `cpp/path-injection` findings, since the save reads the file first. They open the path the caller named, as `read_file` already says, so each is suppressed at its line with that reason. Verified: codeql-scan alone passes all 17 checks, `EtAC9Zo` and `EtAC9lw` included, and the C runner and veneer smoke pass.
-		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
-	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
-	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
-	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
-	- Branch: `r1029`
-	- Commit: `c271967d`, `42a12d0d`, `276abbc8`
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
@@ -262,137 +182,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
 
-- Refuse a save over a file that changed since the load
-	- ID: 2026102910482342
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Related IDs: 2026102910482343
-	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
-	- Requirements:
-		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
-		- A caller that means to replace it can force the save.
-		- A document from `parse`, with no file behind it, saves as it does now.
-	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
-	- Note: with v4 (JC).
-	- Decisions:
-		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
-		- me, 20261029: the check is on content only, byte for byte against what the load read, as `upgrade_file` and shclwrap check. A touch alone is no change. The document keeps the text it read, about the file's size in memory.
-		- me, 20261029: after a good save over the file, the check is against what that save wrote, so a program that saves twice isn't refused by its own first save. In Rust the save calls take `&mut self` for it.
-		- me, 20261029: over the file means the path the load read, after links are followed, the way the save finds its target. Another hard link to it isn't seen. A save anywhere else isn't checked.
-		- me, 20261029: a load that found nothing expects nothing there at the save, and a file gone since the load is a change too. An `Unreadable` load has nothing to compare, so it saves as now.
-		- me, 20261029: the force is a save option, in a new `save_file_with(path, options)` that also holds `lossy` and `keep_lines`, so the create and the mode of 2026102910482343 go beside it rather than in more save calls. The 3 save calls stay, as its short forms.
-		- me, 20261029: `upgrade_file` keeps its own changed refusal, `Io` with `Other`, since it returns `UpgradeError`, not `SaveError`.
-		- me, 20261029: the CLI parses the text it read, so its saves have no file behind them and keep the CLI's own check.
-		- me, 20261029: it's a check and not a lock. An edit between the check and the rename is still lost, as in `upgrade_file`.
-	- Progress log:
-		- 20261029: split by binding. Rust and Python are child 2026102912203339, Go 2026102912203341, and C, the C++ veneer and the docs 2026102912203343.
-
-- Let a save create a new file only, and give a new file its mode
-	- ID: 2026102910482343
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Related IDs: 2026102910482342
-	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
-	- Requirements:
-		- A create-only save fails when the file is there, even with 2 programs saving it at once.
-		- A new file can be given a mode. A file that's already there keeps its own, as now.
-		- Both are save options, beside the force from 2026102910482342.
-	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
-	- Note: with v4 (JC).
-	- Decisions:
-		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
-		- me, 20261029: `create` and `mode` are fields of `SaveOptions`, beside `force`. A second create-only save call was canceled.
-		- me, 20261029: a create-only save that finds a file there is refused with its own kind, as the changed check is, and nothing is written: Rust `SaveError::Exists { path }`, Python `SaveExists`, Go `*SaveExists`, C `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, the veneer `SaveResult::Exists`. The message is `PATH: refusing to save: the file is already there and create asks for a new one; nothing written`. Losing the race to another create is the same refusal, since the publish of a new file already fails on anything at the path.
-		- me, 20261029: the lost-content gate goes first, then the create check, then the changed check. `force` doesn't override `create`.
-		- me, 20261029: `mode` is the permission bits, `0o777`, and 0 means the mode an ordinary create gives, so the zero value is still `save_file` in every binding. It's set exactly, on the handle, so the umask doesn't narrow it, and the temp file is born private first. A file already there keeps its own mode and the option is ignored. Windows has no POSIX modes, so it's ignored there.
-	- Progress log:
-		- 20261029: split by binding. Rust and Python are child 2026102913213663, Go 2026102913213683, and C, the C++ veneer and the docs 2026102913213704. All 3 are in on `r1029` and wait on the hosted windows job, and the C one on cppcheck.
-
-- A stacked list and a field under one parent load 3 different ways
-	- ID: 2026102307035771
-	- Type: Enhancement
-	- Status: Started
-		- Its first child, 2026102307143752, goes on with option A (JC).
-	- Priority: Avg
-	- Opened: 20261023-070357
-	- Opened by: JC
-	- Related IDs: 2026100511210900, 2026102307035786
-	- Estimated effort: High
-	- Problem description:
-		- Items then a field under one parent bind both (`E001`, bound). A field then items drops the items as lost, so the save refuses (`E008`, dropped). The bracket spelling of the same tree is refused (`E028`, retained). Swapping 2 lines changes whether data is lost.
-		- The `E001` tree then needs its own exceptions: the merge keeps it stacked (spec.md near line 430), it's a case no text loads back (value-syntax.md near line 453), and the save refusal filed as 2026100511210900.
-		- Several dropped codes fail design.md's stated test for dropping, "re-emitted it could bind somewhere else". The emitter already asks the reload before it writes a kept line, and writes it as a comment where it would bind (design.md, the paragraph starting "The emitter asks the reload"), so that case is covered for every retained line.
-	- Requirements:
-		- `E001` and `E008` are both retained: the line is kept as written, binds nothing, counts nothing lost, and what is indented under it goes with it as `E018`. A list with a field under it then can't be built, and the 3 exceptions above go.
-		- New test for dropping, as one sentence in design.md above the Load outcomes table: a line is dropped only when, re-emitted, it could feed a raw block, or when its refusal comes from a caller cap or the depth cap, which the next load may set differently.
-		- By that test `E003`, `E004`, `E007`, `E009` and `E011` become retained too. `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line stay as they are. Check each against the sentence and say so on the item where one doesn't fit.
-		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the corpus goldens for the cases that change. Strict fails either way, so strict outcomes don't change.
-	- Decisions:
-		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
-		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
-		- JC, 20261023: option A for the emitter, with the stop rule on 2026102307143752.
-	- Progress log:
-		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
-		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
-
-- Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
-	- ID: 2026102307143758
-	- Type: Enhancement
-	- Status: Started
-	- Priority: Avg
-	- Opened: 20261023-071437
-	- Opened by: JC
-	- Parent ID: 2026102307035771
-	- Prereq IDs: 2026102307143752
-	- Requirements:
-		- The parent's second and third requirements: the one-sentence test for dropping in design.md above the Load outcomes table, and `E003`, `E004`, `E007`, `E009` and `E011` retained by it.
-		- Check `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line against the sentence, and say so here where one doesn't fit.
-		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
-	- Estimated effort: High
-	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
-	- Progress log:
-		- 20261028: split in 2 to fit a round: 2026102820320485 (`E004`, `E009`), then 2026102820321403 (`E003`, `E007`, `E011` and the sentence). The first 2 are refused for their content, so they need no emitter check. The sentence goes in with the second child, so the table never disagrees with it.
-		- 20261028: checked against the sentence. `E006` fits, since its line is a fence, and `E016`, `E020` and `E021` fit as caps. 2 don't:
-			- `E002`'s dropped value isn't a line. The line binds, so it can't also be kept as written, and the value has nowhere to go. It stays value dropped, outside the sentence.
-			- A tab-only `E012` line is neither. It is dropped since a tab-only indent is one canonical output writes levels with, so written back it would bind, and a comment was turned down for it (the user, 2026-09-24, corpus `147`). A BOM-led `E014` line is the same kind, since the file-start strip would make it bind.
-	- Decisions:
-		- me, 20261028: the sentence names a third case for those 2, a line that would bind written back as it was, where no comment stands for it, rather than leave them as unstated exceptions. It goes in with 2026102820321403.
-
-- `E003`, `E007` and `E011` are retained, and dropping follows one test
-	- ID: 2026102820321403
-	- Type: Enhancement
-	- Status: Started
-	- Priority: Avg
-	- Opened: 20261028-203214
-	- Opened by: me
-	- Parent ID: 2026102307143758
-	- Prereq IDs: 2026102820320485
-	- Estimated effort: High
-	- Requirements:
-		- `E003`, `E007` and `E011` lines are retained. Each is refused only for where it sits, so the emitter asks the reload before it writes one, as it does for a clean `E001` or `E008` line, and writes it as a comment where it would bind.
-		- The one-sentence test for dropping goes in design.md above the Load outcomes table, once every code it names follows it.
-		- The sentence also names a tab-only `E012` and a BOM-led `E014`, per the Decisions on 2026102307143758.
-		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
-	- Progress log:
-		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
-
-- Hosted ci.yml tests half runs past its 60-minute timeout
-	- ID: 2026102915235852
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261029-152358
-	- Opened by:
-	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
-	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
-	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
-
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
 	- Type: Enhancement
@@ -476,38 +265,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
-- Open a newer format's file read-only
-	- ID: 2026102910482344
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Problem description: a file written for a newer format loads with `H006`, and a save writes it back by this version's rules. Lines the newer format reads another way can change, with no error.
-	- Requirements:
-		- A document loaded from a newer format says so.
-		- A save over that file is refused with its own error kind. Reads work as now.
-	- Reason: v4 keeps Format 3, so no such file exists yet. The refusal has to be in readers before the first newer format is, though, or every older reader can damage those files.
-	- Note: shclwrap does this as `ReadOnly()` and `ErrTooNew`.
-	- Note: with v4 (JC).
-	- Decisions:
-		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
-
-- `E003` is retained, and dropping follows one test
-	- ID: 2026102821334970
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261028-213349
-	- Opened by: me
-	- Parent ID: 2026102820321403
-	- Prereq IDs: 2026102821334870
-	- Requirements:
-		- A line whose index selects no instance (`E003`) is retained. The emitter asks the reload before it writes one, from the instances written before it, and writes it as a comment where the index would find one.
-		- The one-sentence test for dropping goes in design.md above the Load outcomes table, with the tab-only `E012` and the BOM-led `E014` named, per the parent.
-		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
-	- Estimated effort: High
-
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
 	- Type: Enhancement
@@ -566,22 +323,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
-- The C runner's swap test leaves its folder behind on windows
-	- ID: 2026102915173442
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261029-151734
-	- Opened by: 2026102912203343
-	- Related IDs: 2026102912203343
-	- Target OS: Windows
-	- Steps to reproduce: run the C runner twice under wine, where the process id repeats.
-	- Incorrect behavior: the second run fails `Et6AmCW` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
-	- Expected behavior: each run removes its folders, and a run passes after another.
-	- Reproduced: 20261029, under wine on b23, twice in a row.
-	- Possible cause: `dir_clear` removes entries with `remove`, which takes no folder on windows, so the `d` that `backup_swapped` makes stays and so does its parent. On real windows it adds a folder to TEMP each run.
-	- Estimated effort: Low
-
 - check-push-gate `EtlDIOQ` failed once under load and passed on a rerun
 	- ID: 2026102821264857
 	- Type: Bug
@@ -593,36 +334,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261028, once, in `--backlog-run-quick rust go python c cli cicd` on `r1028b` at a load near 22. Its no-sync case said "exit 0, step 5 never closed", with `Starting Release builds` as the last line, and its alpine case counted no steps. A rerun of check-push-gate alone passed, at a load near 10.
 	- Possible cause: a stub run whose step 5 had not closed when it was read, so the test reads before the run ends, or a timeout in the stub that only a loaded box hits.
 
-- A merge writes a layer's kept line from inside a merged block at the root
-	- ID: 2026102821530643
+- `shcl explain E008` says the item is dropped
+	- ID: 2026102919222300
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Opened: 20261028-215306
-	- Opened by: me
-	- Related IDs: 2026102821334870
+	- Opened: 20261029-192223
+	- Opened by: 2026102821334970's sweep
+	- Related IDs: 2026102307143752
+	- Steps to reproduce: `shcl explain E008`, in each of the 4 CLIs.
+	- Incorrect behavior: "The parent already holds named children, so the item is dropped." `E008` is kept as written since 2026102307143752.
+	- Expected behavior: the text says the item is kept and binds nothing, byte for byte in all 4, with cli-regress's explain row to match. `E011`'s "the item is ignored" could say the same.
 	- Estimated effort: Low
-	- Steps to reproduce:
-		- `shcl set --set=q=1 --layer=f.shcl f.shcl` on `val: 1` / `\ta: [1` / `z: 2`.
-	- Incorrect behavior: the layer's copy of `\ta: [1` comes out as `a: [1` at the root, above `val: 1`. It binds nothing and nothing is lost, but it left its block. A kept `E011` item under `val` does the same, and comes back as `E007`.
-	- Expected behavior: the layer's kept line stays in the merged block, or goes as a comment there, the way a kept `E008` item's copy does.
-	- Reproduced: 20261028, on `r1028b`, with `E019` and with `E011`. A comment in the same spot is folded into the base's copy.
-
-- A kept line under an `E028` array line moves out of its block when an `E011` item follows it
-	- ID: 2026102820592074
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261028-205920
-	- Opened by: me
-	- Related IDs: 2026102820320485
-	- Estimated effort: Low
-	- Steps to reproduce:
-		- `shcl fmt` on `srv.srv: 2` / `srv: [v1]` / `\t* 7` / `\t- 0` / `\tc: 1`.
-	- Incorrect behavior: `fmt` writes `* 7` at the root, above `srv: [v1]`. It still binds nothing and nothing more is lost, but it is no longer written back in place.
-	- Expected behavior: `* 7` stays under `srv`, as it does with the `- 0` line taken out.
-	- Reproduced: 20261028, on `r1028b`, with `E013` and with `E004` in the same spot.
-	- 2026-10-28: no longer reproduces at 050b4d38 (2026102821334870), where fmt keeps `* 7` under `srv`. Needs only a regression case to close.
 
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
@@ -638,6 +361,406 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: --gate as a backlog run
+	- ID: 2026102814013272
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261028-140132
+	- Opened by: 2026102813104371
+	- Parent ID: 2026102813104371
+	- Requirements:
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+	- Progress log:
+		- 20261029: `--gate` takes the `--backlog-run-quick` arm, areas included, prints `--gate is another name for --backlog-run-quick`, and goes into the image as `--backlog-run-quick`. So it records nothing. Help, contributing.md, install.md, design.md and the config.bash comments say so. contributing.md and install.md point at `--merge-gate` where they meant the whole gate.
+		- 20261029: check-push-gate's gate checks moved from `--gate` to `--merge-gate`: `EqGl8mf`, `EqjfWm8`, `Et6Aueh`, `EstM5WQ`'s calibration rows, `EtDCDE4`, `EtDCDE5`, `EtDCDE7`, and in `EtkuOxe` `1111|--gate --long` became `1111|--merge-gate --long`, in `Eu1ovZE` `1|--gate` became `1|--merge-gate`. A step-lines row now wants `Remote sync (--backlog-run-quick)`, and `Eu1ovZF` reads the areas from the help's `--backlog-run-quick, --gate [AREA...]` line. shell-regress `EqQUj04` drives the stub with `--merge-gate`.
+		- Verified: check-push-gate `Eu7Giqm` (the alias line, no record, `QUICK_SKIP` and `BACKLOG_SKIP` left out, an area, no calibration, `--gate --backlog-run-quick` taken, `--gate --merge-gate` and `--gate --long` refused) failed on the old engine and passes. `Eu7Giqn` (the run in the image gets `--backlog-run-quick`) failed with the engine passing `--gate` on, and passes. Also the whole of check-push-gate and shell-regress, check-pins, check-docs, test-ids, shellcheck and markdownlint.
+		- Swept: every `--gate` in cicd/, the hook, ci.yml, check-pins, check-push-gate, shell-regress, config.bash, the 2 Dockerfiles, contributing.md, install.md, design.md and the style guide. The hook's `--gate` fallback is for an engine from before `--merge-gate`, so it stays. install-dev.bash's lines are 2026102813104377. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Decisions:
+		- me: `--container=ubuntu` ran `--gate --no-lint`. It runs `--merge-gate --no-lint --no-release --no-remote --no-leakcheck` now, the same stages as before, so it keeps the 200,000-input fuzz and the cross checks rather than shrink to the quick run. `--no-leakcheck` also drops the sanitizer runs there, since the image has no heaptrack or CodeQL for the leak checks, and spelling out 4 `--skip`s would tie it to their names. The main image and the hosted tests half still run them.
+		- me: `--gate` in the help shares `--backlog-run-quick`'s entry, as `--ci` and `--slow` do, to stay inside check-docs' 100-line header window.
+	- Test case: check-push-gate `Eu7Giqm` and `Eu7Giqn`.
+	- Verified: 20261029, `cicd.bash --container=ubuntu` on `r1029b` at `d67cc4fd` passed all 7 steps, the tests stage in 20 minutes. The first try failed check-c-compilers' musl row (`EstZ5TC`) in strict mode, since the ubuntu image had no zig while the hosted runner installs it. The image installs the pinned zig now, with its cache in the run's `/tmp`, and check-pins passes.
+	- Acceptance signoff: me, 20261029, the ubuntu image passes with its new arguments
+	- Closed: 20261029
+
+- A stacked list and a field under one parent load 3 different ways
+	- ID: 2026102307035771
+	- Type: Enhancement
+	- Status: Done
+		- Its first child, 2026102307143752, goes on with option A (JC).
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026100511210900, 2026102307035786
+	- Estimated effort: High
+	- Problem description:
+		- Items then a field under one parent bind both (`E001`, bound). A field then items drops the items as lost, so the save refuses (`E008`, dropped). The bracket spelling of the same tree is refused (`E028`, retained). Swapping 2 lines changes whether data is lost.
+		- The `E001` tree then needs its own exceptions: the merge keeps it stacked (spec.md near line 430), it's a case no text loads back (value-syntax.md near line 453), and the save refusal filed as 2026100511210900.
+		- Several dropped codes fail design.md's stated test for dropping, "re-emitted it could bind somewhere else". The emitter already asks the reload before it writes a kept line, and writes it as a comment where it would bind (design.md, the paragraph starting "The emitter asks the reload"), so that case is covered for every retained line.
+	- Requirements:
+		- `E001` and `E008` are both retained: the line is kept as written, binds nothing, counts nothing lost, and what is indented under it goes with it as `E018`. A list with a field under it then can't be built, and the 3 exceptions above go.
+		- New test for dropping, as one sentence in design.md above the Load outcomes table: a line is dropped only when, re-emitted, it could feed a raw block, or when its refusal comes from a caller cap or the depth cap, which the next load may set differently.
+		- By that test `E003`, `E004`, `E007`, `E009` and `E011` become retained too. `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line stay as they are. Check each against the sentence and say so on the item where one doesn't fit.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the corpus goldens for the cases that change. Strict fails either way, so strict outcomes don't change.
+	- Decisions:
+		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
+		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
+		- JC, 20261023: option A for the emitter, with the stop rule on 2026102307143752.
+	- Progress log:
+		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
+		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
+		- 20261029: both children are Done.
+	- Test case: the children's, 2026102307143752 and 2026102307143758.
+	- Acceptance signoff: me, 20261029, both children are Done
+	- Closed: 20261029
+
+- Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
+	- ID: 2026102307143758
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-071437
+	- Opened by: JC
+	- Parent ID: 2026102307035771
+	- Prereq IDs: 2026102307143752
+	- Requirements:
+		- The parent's second and third requirements: the one-sentence test for dropping in design.md above the Load outcomes table, and `E003`, `E004`, `E007`, `E009` and `E011` retained by it.
+		- Check `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line against the sentence, and say so here where one doesn't fit.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Estimated effort: High
+	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
+	- Progress log:
+		- 20261028: split in 2 to fit a round: 2026102820320485 (`E004`, `E009`), then 2026102820321403 (`E003`, `E007`, `E011` and the sentence). The first 2 are refused for their content, so they need no emitter check. The sentence goes in with the second child, so the table never disagrees with it.
+		- 20261028: checked against the sentence. `E006` fits, since its line is a fence, and `E016`, `E020` and `E021` fit as caps. 2 don't:
+			- `E002`'s dropped value isn't a line. The line binds, so it can't also be kept as written, and the value has nowhere to go. It stays value dropped, outside the sentence.
+			- A tab-only `E012` line is neither. It is dropped since a tab-only indent is one canonical output writes levels with, so written back it would bind, and a comment was turned down for it (the user, 2026-09-24, corpus `147`). A BOM-led `E014` line is the same kind, since the file-start strip would make it bind.
+		- 20261029: both children are Done, and the sentence is in design.md.
+	- Decisions:
+		- me, 20261028: the sentence names a third case for those 2, a line that would bind written back as it was, where no comment stands for it, rather than leave them as unstated exceptions. It goes in with 2026102820321403.
+	- Test case: the children's, 2026102820320485 and 2026102820321403.
+	- Acceptance signoff: me, 20261029, both children are Done
+	- Closed: 20261029
+
+- `E003`, `E007` and `E011` are retained, and dropping follows one test
+	- ID: 2026102820321403
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261028-203214
+	- Opened by: me
+	- Parent ID: 2026102307143758
+	- Prereq IDs: 2026102820320485
+	- Estimated effort: High
+	- Requirements:
+		- `E003`, `E007` and `E011` lines are retained. Each is refused only for where it sits, so the emitter asks the reload before it writes one, as it does for a clean `E001` or `E008` line, and writes it as a comment where it would bind.
+		- The one-sentence test for dropping goes in design.md above the Load outcomes table, once every code it names follows it.
+		- The sentence also names a tab-only `E012` and a BOM-led `E014`, per the Decisions on 2026102307143758.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Progress log:
+		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
+		- 20261029: both children are Done.
+	- Test case: the children's, 2026102821334870 and 2026102821334970.
+	- Acceptance signoff: me, 20261029, both children are Done
+	- Closed: 20261029
+
+- `E003` is retained, and dropping follows one test
+	- ID: 2026102821334970
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: Avg
+	- Opened: 20261028-213349
+	- Opened by: me
+	- Parent ID: 2026102820321403
+	- Prereq IDs: 2026102821334870
+	- Requirements:
+		- A line whose index selects no instance (`E003`) is retained. The emitter asks the reload before it writes one, from the instances written before it, and writes it as a comment where the index would find one.
+		- The one-sentence test for dropping goes in design.md above the Load outcomes table, with the tab-only `E012` and the BOM-led `E014` named, per the parent.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Estimated effort: High
+	- Progress log:
+		- 20261029, all 4 bindings:
+			- The field arm asks `index_miss` after `E001` and before the value is read. It walks the path as `attach_path` will, through the lines held open (`held_node`) and an array line's open field (`array_opens`), creating nothing. A miss keeps the line whole, its comment included. One that opens a raw block is dropped with it. `attach_path`'s `E003` arm stays, unreachable from a load, with a comment.
+			- The emitter's level model records each binding line's node and its place, and the text of each line held open since. A clean kept line with an index (`indexed_path`) is walked over the instances written before it (`index_refuses`), and stays as written where an index finds none or a step reaches stacked items (`E001`). Anywhere else it's a comment. `array_kept` leaves index lines to that walk, so `settle_arrays` doesn't comment them out at load.
+			- While the document holds such a line, every edit settles (`walked`), since its instances can sit anywhere above it.
+			- Docs: the one-sentence test above design.md's Load outcomes table, the Dropped bullet, the `E003` row, the refusal order, the emitter paragraph, a paragraph with the reasons, a note on the 2026-09 decision record. spec.md's `E003` row and its paragraph on lines it can't apply. A bullet under value-syntax.md's Selectors. The changelog and the conformance README (`086`, `103`).
+			- Goldens: `086` and `103` (kept, lost 0). No input changed. `095` has no `E003` line, so it doesn't change.
+			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (640 rows), crosscheck over the corpus plus a 2000-iteration dump (54174 comparisons), check-docs (red only on `EpHGoa0`), check-abnf, test-ids, rustfmt, clippy `-D warnings`, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `90870748` (31 properties, 480 s).
+			- Verified: each new test fails on the old library, and the `walked` part of each fails with the settle skip put back.
+			- Verified: `cicd.bash --backlog-run-quick rust go python c cli --skip=check-docs.bash` passed all 5 steps on `7d437f4c`.
+	- Decisions:
+		- me, 20261029: `E003` is judged before the path opens anything, as `E004` is, so `x.a(0).b: 1` leaves no empty `x`. It comes after `E001` and the value faults, and before the value is read, so a line with no colon gets `E003` alone, not `E015` too.
+		- me, 20261029: a refused line under an array line no longer makes that line `E028`, as no other refused line does.
+		- me, 20261029: an `E003` line that opens a raw block is dropped with it, as an `E001` one is: where it would bind it can't be a comment.
+		- me, 20261029: every edit settles while a kept index line is held, rather than add every instance above it to the near sum. Only a document with such a line pays.
+		- me, 20261029: the walk also keeps a dotted line onto stacked items through an index (`E001`) as written, where it went out as a comment. `EtdPVpd`'s pin of that comment is commented out in all 4 runners (`EtdPW8G`, `EtdPWQz`, `EtdPWjj`), and the new test pins the line as written.
+		- me, 20261029: the sentence reads "A line is dropped only when, written back, it could feed a raw block or bind where no comment stands for it, as a tab-only misplaced line (`E012`) or one led by a BOM (`E014`) would, or when a caller's cap or the depth cap refused it, which the next load may set differently."
+		- Checked against it: `E001` and `E003` with a raw block, `E006`, `E012` and `E018` that open one, the tab-only `E012` and BOM-led `E014`, and `E016`, `E020` and `E021` fit. `E018` otherwise fits the second case: its parent can move or turn into a comment, and then it binds. `E002`'s value is no line, as the parent says.
+	- Test case: conformance `an_index_with_no_instance_stays_kept` (`Eu8yPCH` Rust, `Eu8yPCI` Go, `Eu8yPCJ` Python, `Eu8yPCK` C); corpus `EonNaTY` (`086`), `Ep1EGVc` (`103`); fuzz `EpFAzfk` counts `E003` as kept; cli-regress `Eu8yPCL`, `Eu8yPCM`, `Eu8yPCN`.
+	- Swept: `E003` in the 4 parsers, `through_items` and `open_lazy` (held paths have no index), the emitter's kept-line check, `array_kept` and `settle_arrays`, `near_sum` and the resettle, the merge's settle, the keep-lines save (same emitter), the `tokens` dump (no `E003`), the 4 CLIs' explain text (names no outcome), check-migrate (2.x dropped it too), the fuzz outcome table and `REFUSING` list.
+	- Still to run: the full run (cppcheck, analyze-c, the C leak and sanitizer checks, Miri, codeql) and the test boxes.
+	- Branch: `r1029b-e003`
+	- Commit: `90870748`
+	- Acceptance signoff: me, 20261029, each new test failed on the old library, and the 2,000,000 fuzz and the quick run passed
+	- Closed: 20261029
+
+- A merge writes a layer's kept line from inside a merged block at the root
+	- ID: 2026102821530643
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: No
+	- Severity: Low
+	- Opened: 20261028-215306
+	- Opened by: me
+	- Related IDs: 2026102821334870
+	- Estimated effort: Low
+	- Steps to reproduce:
+		- `shcl set --set=q=1 --layer=f.shcl f.shcl` on `val: 1` / `\ta: [1` / `z: 2`.
+	- Incorrect behavior: the layer's copy of `\ta: [1` comes out as `a: [1` at the root, above `val: 1`. It binds nothing and nothing is lost, but it left its block. A kept `E011` item under `val` does the same, and comes back as `E007`.
+	- Expected behavior: the layer's kept line stays in the merged block, or goes as a comment there, the way a kept `E008` item's copy does.
+	- Reproduced: 20261028, on `r1028b`, with `E019` and with `E011`. A comment in the same spot is folded into the base's copy.
+	- Actual cause: a leaf the other layer replaces gives its kept lines to the replacement's leading lines, those from inside its block too, so they went a level up, above it.
+	- Actual fix: those from inside its block go inside the replacement's, in all 4. The rest go as before.
+	- Progress log:
+		- 20261029: Verified: the repro and its `E011` twin come out with both copies in the block, and reload the same. Corpus `091`'s merged golden changes the same way: its `*` line stays under the field that replaced the one it sat under. The 4 conformance suites, the whole Rust and Go suites, cli-regress (641 rows), crosscheck (54174 comparisons), check-docs (red only on `EpHGoa0`), rustfmt, clippy, go vet, staticcheck, ruff, mypy, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `dffd891d` (31 properties). Each new test fails on the old library.
+		- Verified: `cicd.bash --backlog-run-quick rust go python c cli --skip=check-docs.bash` passed all 5 steps on `7d437f4c`.
+	- Decisions:
+		- me, 20261029: a comment inside the replaced leaf's block still goes with the leaf, as the 2026-09-28 rule has it. Only kept lines move.
+	- Test case: conformance `a_replaced_leaf_keeps_the_lines_kept_in_its_block` (`Eu96oVF` Rust, `Eu96oVG` Go, `Eu96oVH` Python, `Eu96oVI` C); corpus `Ep0xKIj` (`091`); cli-regress `Eu96oVJ`.
+	- Swept: the leaf-replace path of the merge in all 4. The instance merge (`adopt_trivia`) already puts a layer's lines inside the block. A setter changes a leaf in place, so its block keeps them. A remove takes what the kept-lines table says. Docs: spec.md's merge paragraph, the changelog, the conformance README.
+	- Still to run: the full run and the test boxes.
+	- Branch: `r1029b-e003`
+	- Commit: `dffd891d`
+	- Acceptance signoff: me, 20261029, the repro and corpus 091 keep the line in its block, and each new test failed on the old library
+	- Closed: 20261029
+
+- Hosted ci.yml tests half runs past its 60-minute timeout
+	- ID: 2026102915235852
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261029-152358
+	- Opened by:
+	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
+	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
+	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
+	- Progress log:
+		- 20261029: the release has a hosted part of its own, `--merge-gate --no-lint --no-tests --no-cross --no-remote`, and the tests part adds `--no-release`. timeout-minutes is 80, since the tests stage alone took 48. check-pins fails a hosted job that runs both tests and the release, as it does lint and tests.
+		- Verified: check-pins passes on the new ci.yml and fails with the release part folded back into tests. shell-regress `Eu8X2fW` passes, and passes check-pins with the new rule taken out. `cicd.bash --list` shows the release part runs the release builds, CPU floor and packages, and the tests part none of them.
+	- Swept: every `--merge-gate` line in ci.yml, check-pins' other job rules, and shell-regress' check-pins rows, which still each edit a line that's there (the release-left-out row now adds `--no-release` to the release part). No doc names the 2 halves. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Verified: 20261029, hosted ci.yml run 40976604414 on `r1029b` passed every job. The release part took 12.5 minutes, tests 52 and lint 49 (a cold cppcheck), all inside 80.
+	- Test case: shell-regress `Eu8X2fW`.
+	- Branch: `r1029b`
+	- Acceptance signoff: me, 20261029, the hosted run passed with room to spare
+	- Closed: 20261029
+
+- Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
+	- ID: 2026102913213704
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261029-132137
+	- Opened by: 2026102910482343
+	- Parent ID: 2026102910482343
+	- Prereq IDs: 2026102913213663, 2026102913213683
+	- Requirements: the parent's, in C and the veneer, as Rust has them, with the twin of its test in the C runner and the veneer smoke. Once all 4 have it: design.md's Save outcomes, spec.md's file tier, examples.md's What saving does, and the changelog.
+	- Decisions:
+		- me, 20261029: C has `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, and `shcl_save_options` gets `int create` and `unsigned mode`, so `{0}` is still `shcl_save_file`. The Rust message is in the enum's comment, as `CHANGED`'s is. The veneer has `SaveResult::Exists`, and `SaveOptions` gets `create` and `mode`.
+		- me, 20261029: the C runner's race is under `#ifndef _WIN32`, with pthreads, as its small-stack fixture is. The veneer smoke has no race, since it wraps the same C save.
+	- Progress log:
+		- 20261029: `s_write_file_atomic` takes the create and the mode, and says when create found something. `shcl_save_file_with` checks for anything at the target before the changed check, and calls it directly. design.md, spec.md, examples.md and the changelog say so for all 4.
+		- 20261029: codeql-scan flagged the C runner's race path as a stack address in a global (`cpp/stack-address-escape`), so it's static now. The Python twin's `chmod` of a fixture mode (`py/overly-permissive-file`, from 2026102913213663) is suppressed at its line, as the earlier ones are. Verified: codeql-scan alone passes, `EtAC9Zo` and `EtAC9fG` included, and the C and Python suites pass.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
+	- Swept: C and the veneer. `shcl_write_file_atomic` and `shcl_upgrade_file` pass no create and no mode, so they write as before. The 3 short saves pass `{0}`. Docs: design.md's Save outcomes table (the create row, the mode on the new-file row) and its two Saving a file bullets on mode and the new-file publish, spec.md's file tier (the mode, a create bullet, the options list, the separate-values bullet), examples.md, and the changelog's New.
+	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
+	- Branch: `r1029`
+	- Commit: `a618835c`, `276abbc8`
+	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
+	- Acceptance signoff: me, 20261029, cppcheck and the hosted Windows job pass
+	- Closed: 20261029
+
+- Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
+	- ID: 2026102912203343
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Prereq IDs: 2026102912203339, 2026102912203341
+	- Requirements:
+		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
+		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
+	- Decisions:
+		- me, 20261029: C has `SHCL_SAVE_CHANGED` on the end of `shcl_save_result`, where new values go, and `shcl_save_file_with(d, path, shcl_save_options, *kept, *why)`, with `*kept` as the line-keeping save sets it. The options struct is `{ lossy, keep_lines, force }` and goes by value, as in Go, since all zero is `shcl_save_file`.
+		- me, 20261029: C's saves give no message, refused or failed, so the Rust message is in the enum's comment rather than in a new out-parameter.
+		- me, 20261029: the veneer has `SaveResult::Changed`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, opts, why)`, which gives the result and whether it kept the lines. Its 3 saves are no longer `const`, as Rust's take `&mut self`. They still hold the document's lock, so the threads test keeps its save, through a non-const reference.
+		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
+	- Progress log:
+		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
+		- 20261029: hosted ci.yml run 40953807354 failed `EqnwIkY` (windangle), `Eu7cuVd` and `Eu7cuVe` on windows, where wine passed them. The runner's TEMP has a short name, `RUNNER~1`. A file that's there resolved to its long name and one that isn't to the short one, so a removed or new file was never "over" the load's file. And a load through a dangling link ran the save's probe, which creates a file. Now a path with nothing at it takes its folder's final path, as Rust's canonicalize of the parent does, and the check walks a dangling link's own text, as the other 3 do, so a load creates nothing.
+			- Verified on b29w, from the mingw build: the old code fails `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe` the way the hosted job did with TEMP set to its short name, and the new code passes all 3 with TEMP short and long, the whole C runner (212) and the veneer smoke. The new short-name lines in `Eu7cuVd` fail on the old code with TEMP long too. Its new dangling-link lines fail with the link walk turned off. Also under wine, `cicd.bash --backlog-run-quick c`.
+			- Swept: `shcl_resolve_path`'s 3 callers (the read, the save, the check). Rust, Go and Python already read a link's text and canonicalize the parent, so only C had it.
+		- 20261029: the full run on `52d50363` failed codeql-scan's `EtAC9Zo`. The veneer's load and save calls are now `cpp/path-injection` findings, since the save reads the file first. They open the path the caller named, as `read_file` already says, so each is suppressed at its line with that reason. Verified: codeql-scan alone passes all 17 checks, `EtAC9Zo` and `EtAC9lw` included, and the C runner and veneer smoke pass.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
+	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
+	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
+	- Branch: `r1029`
+	- Commit: `c271967d`, `42a12d0d`, `276abbc8`
+	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
+	- Acceptance signoff: me, 20261029, cppcheck and the hosted Windows job pass
+	- Closed: 20261029
+
+- Refuse a save over a file that changed since the load
+	- ID: 2026102910482342
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482343
+	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
+	- Requirements:
+		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
+		- A caller that means to replace it can force the save.
+		- A document from `parse`, with no file behind it, saves as it does now.
+	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: the check is on content only, byte for byte against what the load read, as `upgrade_file` and shclwrap check. A touch alone is no change. The document keeps the text it read, about the file's size in memory.
+		- me, 20261029: after a good save over the file, the check is against what that save wrote, so a program that saves twice isn't refused by its own first save. In Rust the save calls take `&mut self` for it.
+		- me, 20261029: over the file means the path the load read, after links are followed, the way the save finds its target. Another hard link to it isn't seen. A save anywhere else isn't checked.
+		- me, 20261029: a load that found nothing expects nothing there at the save, and a file gone since the load is a change too. An `Unreadable` load has nothing to compare, so it saves as now.
+		- me, 20261029: the force is a save option, in a new `save_file_with(path, options)` that also holds `lossy` and `keep_lines`, so the create and the mode of 2026102910482343 go beside it rather than in more save calls. The 3 save calls stay, as its short forms.
+		- me, 20261029: `upgrade_file` keeps its own changed refusal, `Io` with `Other`, since it returns `UpgradeError`, not `SaveError`.
+		- me, 20261029: the CLI parses the text it read, so its saves have no file behind them and keep the CLI's own check.
+		- me, 20261029: it's a check and not a lock. An edit between the check and the rename is still lost, as in `upgrade_file`.
+	- Progress log:
+		- 20261029: split by binding. Rust and Python are child 2026102912203339, Go 2026102912203341, and C, the C++ veneer and the docs 2026102912203343.
+		- 20261029: all 3 children are Done (2026102912203339, 2026102912203341 and 2026102912203343).
+	- Test case: the children's, one per binding.
+	- Acceptance signoff: me, 20261029, every child is Done
+	- Closed: 20261029
+
+- Let a save create a new file only, and give a new file its mode
+	- ID: 2026102910482343
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482342
+	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
+	- Requirements:
+		- A create-only save fails when the file is there, even with 2 programs saving it at once.
+		- A new file can be given a mode. A file that's already there keeps its own, as now.
+		- Both are save options, beside the force from 2026102910482342.
+	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: `create` and `mode` are fields of `SaveOptions`, beside `force`. A second create-only save call was canceled.
+		- me, 20261029: a create-only save that finds a file there is refused with its own kind, as the changed check is, and nothing is written: Rust `SaveError::Exists { path }`, Python `SaveExists`, Go `*SaveExists`, C `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, the veneer `SaveResult::Exists`. The message is `PATH: refusing to save: the file is already there and create asks for a new one; nothing written`. Losing the race to another create is the same refusal, since the publish of a new file already fails on anything at the path.
+		- me, 20261029: the lost-content gate goes first, then the create check, then the changed check. `force` doesn't override `create`.
+		- me, 20261029: `mode` is the permission bits, `0o777`, and 0 means the mode an ordinary create gives, so the zero value is still `save_file` in every binding. It's set exactly, on the handle, so the umask doesn't narrow it, and the temp file is born private first. A file already there keeps its own mode and the option is ignored. Windows has no POSIX modes, so it's ignored there.
+	- Progress log:
+		- 20261029: split by binding. Rust and Python are child 2026102913213663, Go 2026102913213683, and C, the C++ veneer and the docs 2026102913213704. All 3 are in on `r1029` and wait on the hosted windows job, and the C one on cppcheck.
+		- 20261029: all 3 children are Done (2026102913213663, 2026102913213683 and 2026102913213704).
+	- Test case: the children's, one per binding.
+	- Acceptance signoff: me, 20261029, every child is Done
+	- Closed: 20261029
+
+- Open a newer format's file read-only
+	- ID: 2026102910482344
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
+	- Needs external testing: the hosted ci.yml windows job, for the new tests' saves there.
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Problem description: a file written for a newer format loads with `H006`, and a save writes it back by this version's rules. Lines the newer format reads another way can change, with no error.
+	- Requirements:
+		- A document loaded from a newer format says so.
+		- A save over that file is refused with its own error kind. Reads work as now.
+	- Reason: v4 keeps Format 3, so no such file exists yet. The refusal has to be in readers before the first newer format is, though, or every older reader can damage those files.
+	- Note: shclwrap does this as `ReadOnly()` and `ErrTooNew`.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: newer is the reading `H006` comes from, a Format line naming a major above this one, for a load and a parse alike. A merge takes a newer layer's, as it takes its lost count, since the layer's lines are the document's then.
+		- me, 20261029: the accessor is `newer_format()` (Go `NewerFormat`, C `shcl_newer_format`), beside `lost_count`.
+		- me, 20261029: every save of such a document is refused, wherever it goes, with nothing written: Rust `SaveError::TooNew { path }`, Python `SaveTooNew`, Go `*SaveTooNew`, C `SHCL_SAVE_TOO_NEW` on the end of `shcl_save_result`, the veneer `SaveResult::TooNew`. It's checked first, before the lost-content, create and changed checks, and no option overrides it. The message is `PATH: refusing to save: the document holds lines from a newer format than this reader's; nothing written`.
+		- me, 20261029: setters work in memory. `write_file_atomic` writes what it's given, and `upgrade_file` and `migrate` already leave such a file alone.
+		- me, 20261029: the CLI's `fmt --write` and `set --write` refuse at exit 7, first, so before the changed-since-read and nothing-to-write checks. `set`'s print refuses at 7 too, since it answers as `--write` would (2026100717500003), and `fmt --check` does, since it asks the save gate. `fmt` to stdout still prints. `--lossy` doesn't override. `--write` takes no `--layer`, so a newer layer refuses only the print. The help gets a sentence and the exit 7 line, and `explain H006` says a save is refused.
+		- Decided against: shclwrap's `ReadOnly` as the name, since `ReadOnly` is already a write status, for a read-only filesystem. Refusing only a save over the file the load read, since the lines are this reader's guess wherever they go. Letting `set` print, as the print mirrors `--write`.
+	- Progress log:
+		- 20261029: all 4 bindings and the veneer. The parse notes a newer format from the reading the hint uses, a merge ORs it in, and C's compact copies it. `save_file_with` checks it first. The 4 CLIs refuse in `write_back`, `fmt --check` and `set`'s print. crosscheck wants 7 and the file untouched for a corpus case with `H006` (`204-format-newer-hint`), as for one with a lost line. cli-regress `EsEtTdZ` has the new `explain H006` text. Docs: design.md (a bullet under the `H006` one, and a Save outcomes row), spec.md (the `H006` row, the CLI bullet, a file tier bullet, the separate-values bullet, the Format paragraph), examples.md, the changelog's New, the Rust README, the style guide and check-docs' Python-only names.
+		- 20261029: the quick run failed the Python soak (`Et01jhM`), which caught only `SaveFailed` and so stopped on the newer corpus case. It takes `SaveTooNew` too now. Go's soak checks for nil, and Rust's and C's ignore the result.
+		- Verified: the 5 library tests and the 6 refusal rows fail with the parse's newer forced off and pass with it. `fmt-print-newer` passes both ways, as it pins that `fmt` still prints. Also cargo test, go test in both modules, the Python, C and veneer suites, check-veneer, cli-regress (637 rows), crosscheck (22938), check-docs (only `EpHGoa0`, the known installer sync), test-ids, shellcheck, shell-regress, markdownlint, rustfmt, gofmt, clippy and ruff. Then `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, since `EpHGoa0` stops it otherwise.
+	- Swept: every save in all 4 and the veneer goes through `save_file_with`, and no library code saves otherwise. Every parse entry, the loads, `load_and_validate` and `new` go through the one parser. Merge in all 4, C's compact; no other copy of a document. `write_file_atomic`, `upgrade_file` (leaves a newer file, exit 0) and `migrate` (nothing to migrate) unchanged. CLIs: `write_back` (fmt and set `--write`), `fmt --check` and `set`'s print in all 4; `migrate --write` and `upgrade --write` leave the file; `set`'s create makes a new file. The 4 runners have no save op. The 4 soak tests save every corpus case: Python's caught only `SaveFailed`, fixed. `cicd/utility/comparison` saves a document it built.
+	- Test case: `a_newer_format_document_saves_nowhere` in Rust (`Eu8h5g4`), Python (`Eu8h5g5`), Go `TestANewerFormatDocumentSavesNowhere` (`Eu8h5g6`), the C runner (`Eu8h5g7`) and the veneer smoke (`Eu8h5g8`). cli-regress `Eu8h5g9`, `Eu8h5gA`, `Eu8h5gB`, `Eu8h5gC`, `Eu8h5gD`, `Eu8h5gE`, `Eu8h5gF`.
+	- Branch: `r1029b-ro`
+	- Commit: `7f2aa27c`, `ddfe3333`
+	- Acceptance signoff: me, 20261029, every save of a newer doc is refused in all 4, and each new test failed with it off
+	- Closed: 20261029
+
+- The C runner's swap test leaves its folder behind on windows
+	- ID: 2026102915173442
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261029-151734
+	- Opened by: 2026102912203343
+	- Related IDs: 2026102912203343
+	- Target OS: Windows
+	- Steps to reproduce: run the C runner twice under wine, where the process id repeats.
+	- Incorrect behavior: the second run fails `Et6AmCW` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
+	- Expected behavior: each run removes its folders, and a run passes after another.
+	- Reproduced: 20261029, under wine on b23, twice in a row.
+	- Cause: `dir_clear` removes entries with `remove`, which takes no folder on windows, so the `d` that `backup_swapped` makes stays and so does its parent. On real windows it adds a folder to TEMP each run.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261029: on windows `dir_clear` takes a folder with `_rmdir` when `remove` refuses it. `Et6AmCW` now fails when its folder is still there after the clear.
+	- Swept: the C runner's other entry sweeps (the dacl and errno ones) clear plain files only, and every other folder there goes by `rmdir`. The veneer smoke removes files only. Rust, Go and Python remove their test folders whole.
+	- Verified: under wine, the old runner passes once and fails `Et6AmCW` the second time. With the fix it passes twice in a row. With the new check and the old `dir_clear` it fails "its folder is left behind" on the first run. The native C runner passes (212).
+	- Test case: C runner `Et6AmCW`.
+	- Branch: `r1029b`
+	- Acceptance signoff: me, 20261029, 2 runs in a row pass under wine
+	- Closed: 20261029
+
+- A kept line under an `E028` array line moves out of its block when an `E011` item follows it
+	- ID: 2026102820592074
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261028-205920
+	- Opened by: me
+	- Related IDs: 2026102820320485
+	- Estimated effort: Low
+	- Steps to reproduce:
+		- `shcl fmt` on `srv.srv: 2` / `srv: [v1]` / `\t* 7` / `\t- 0` / `\tc: 1`.
+	- Incorrect behavior: `fmt` writes `* 7` at the root, above `srv: [v1]`. It still binds nothing and nothing more is lost, but it is no longer written back in place.
+	- Expected behavior: `* 7` stays under `srv`, as it does with the `- 0` line taken out.
+	- Reproduced: 20261028, on `r1028b`, with `E013` and with `E004` in the same spot.
+	- 2026-10-28: no longer reproduces at 050b4d38 (2026102821334870), where fmt keeps `* 7` under `srv`. Needs only a regression case to close.
+	- Progress log:
+		- 20261029: fixed by 050b4d38, where the `E011` item is kept. cli-regress has the case now.
+	- Swept: the 4 CLIs give the same `fmt` output for the case, for the `E004` line in the same spot (`a.*: 7`), and with the `- 0` line taken out.
+	- Verified: `Eu8XwjS` fails on the Rust CLI built from 050b4d38's parent and passes on all 4 now, with the rest of cli-regress (630 rows).
+	- Test case: cli-regress `Eu8XwjS`.
+	- Branch: `r1029b`
+	- Acceptance signoff: me, 20261029, the case keeps `* 7` under `srv` in all 4
+	- Closed: 20261029
 
 - Create-only save and a new file's mode, in Go
 	- ID: 2026102913213683

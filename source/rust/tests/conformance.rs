@@ -3490,7 +3490,9 @@ fn an_index_onto_a_list_takes_no_field() {
 	assert_eq!(codes(&doc), [(3, "E001")]);
 	assert_eq!(doc.get_string_array("srv"), Ok(vec!["a".to_string()]));
 	assert!(doc.get_string("srv.tls").is_err());
-	check(&doc, "srv:\n\t- a\n# srv(0).tls: on\n");
+	// The emitter walks the index now, so the line stays as written, where a
+	// reload keeps it again (2026102821334970, an_index_with_no_instance_stays_kept).
+	// check(&doc, "srv:\n\t- a\n# srv(0).tls: on\n");
 	// The 2M merge fuzz's case: the layer brought the list and the field.
 	let mut doc = Document::parse("m: 1\n");
 	doc.merge(&Document::parse("srv: [a]\nsrv(0).tls: on\n"));
@@ -3498,6 +3500,101 @@ fn an_index_onto_a_list_takes_no_field() {
 	let mut doc = Document::parse("m: 1\n");
 	doc.merge(&Document::parse("srv:\n\t- a\nsrv(0).tls: on\n"));
 	check(&doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n");
+}
+
+/// An index that selects no instance bound before it is kept (E003): the
+/// line binds nothing, opens none of its path's fields, and nothing is lost.
+/// Where a merge or an edit puts an instance above it, it is written as a
+/// comment. One that opens a raw block is dropped with it. Same fixture in
+/// every runner.
+#[test]
+fn an_index_with_no_instance_stays_kept() {
+	let _id = test_id("Eu8yPCH");
+	let codes = |doc: &Document| -> Vec<(usize, &'static str)> {
+		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect()
+	};
+	let check = |doc: &Document, want: &str| {
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(doc.paths(), back.paths(), "{text:?}");
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+	};
+	let src = "a: 1\na(5).b: 2  # c\nx.a(0).b: 1\nh: \"open\n\tb(0).c: 1\na(3).d: [1, 2]\nz: 1\n";
+	let doc = Document::parse(src);
+	assert_eq!(
+		codes(&doc),
+		[
+			(2, "E003"),
+			(3, "E003"),
+			(4, "E017"),
+			(5, "E003"),
+			(6, "E003")
+		]
+	);
+	assert_eq!(doc.lost_count(), 0);
+	assert_eq!(doc.paths(), ["a", "z"]);
+	check(&doc, src);
+	let doc = Document::parse("a: 1\na(5).b: ```\n\tbody: 1\n```\nz: 1\n");
+	assert_eq!(codes(&doc), [(2, "E003")]);
+	assert_eq!(doc.lost_count(), 1);
+	// A dotted line onto stacked items through an index stays as written.
+	let src = "srv:\n\t- a\nsrv(0).tls: on\n";
+	check(&Document::parse(src), src);
+	// A merge brings the instance above it.
+	let mut doc = Document::parse("a: 1\na(1).b: 2\nz: 1\n");
+	doc.merge(&Document::parse("a: 1\na: 2\n"));
+	check(&doc, "a: 1\na: 2\n# a(1).b: 2\nz: 1\n");
+	// An edit far above it gives the index one, and the document settles.
+	let mut doc = Document::parse("p:\n\tx: bar\n\t\ty: 1\nw: 1\np.x(foo).y(0).z: 1\nq: 1\n");
+	assert_eq!(codes(&doc), [(5, "E003")]);
+	assert_eq!(doc.set_string("p.x", "foo"), shcl::SetStatus::Ok);
+	check(
+		&doc,
+		"p:\n\tx: foo\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n",
+	);
+	// It settled to the comment, as a save and a reload would have.
+	assert_eq!(doc.set_string("p.x", "bar"), shcl::SetStatus::Ok);
+	check(
+		&doc,
+		"p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n",
+	);
+}
+
+/// A line kept in a leaf's block stays in the merged block when the other
+/// layer replaces the leaf, as it does when a setter changes the leaf in
+/// place. It went to the root, above the field, where an item reloaded as
+/// E007. Same fixture in every runner.
+#[test]
+fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
+	let _id = test_id("Eu96oVF");
+	for (src, want, code) in [
+		(
+			"val: 1\n\ta: [1\nz: 2\n",
+			"val: 1\n\ta: [1\n\ta: [1\nz: 2\n",
+			"E019",
+		),
+		(
+			"val: 1\n\t- e\nz: 2\n",
+			"val: 1\n\t- e\n\t- e\nz: 2\n",
+			"E011",
+		),
+	] {
+		let mut doc = Document::parse(src);
+		doc.merge(&Document::parse(src));
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+		let codes: Vec<(usize, &str)> = back
+			.diagnostics()
+			.iter()
+			.map(|d| (d.line, d.code))
+			.collect();
+		assert_eq!(codes, [(2, code), (3, code)]);
+	}
 }
 
 #[cfg_attr(
@@ -5982,5 +6079,83 @@ fn a_create_only_save_refuses_a_file_already_there() {
 		assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
 		assert_eq!(mode(&p), 0o644);
 	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A document from a newer format reads and edits as usual, and every save
+/// of it is refused with nothing written, whatever the options, before any
+/// other check. The same reading as H006 decides, and a merge takes a newer
+/// layer's (2026102910482344).
+#[cfg_attr(miri, ignore = "saves to disk")]
+#[test]
+fn a_newer_format_document_saves_nowhere() {
+	let _id = test_id("Eu8h5g4");
+	use shcl::{SaveError, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-newer-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let newer = "a: 1\n\n##    Format   4\n";
+	let f = at("f.shcl");
+	std::fs::write(&f, newer).unwrap();
+	let (mut doc, _) = Document::load_file(&f);
+	assert!(doc.newer_format());
+	assert!(doc.diagnostics().iter().any(|d| d.code == "H006"));
+	assert_eq!(doc.get_int("a"), Ok(1));
+	assert_eq!(doc.set_int("a", 2), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_int("a"), Ok(2));
+	let too_new = |p: &str| SaveError::TooNew {
+		path: p.to_string(),
+	};
+	assert_eq!(doc.save_file(&f), Err(too_new(&f)));
+	assert_eq!(
+		too_new(&f).to_string(),
+		format!(
+			"{f}: refusing to save: the document holds lines from a newer format than this reader's; nothing written"
+		)
+	);
+	assert_eq!(doc.save_file_lossy(&f), Err(too_new(&f)));
+	assert_eq!(doc.save_file_keep_lines(&f), Err(too_new(&f)));
+	// No option overrides it, and it comes before create's check.
+	let all = SaveOptions {
+		lossy: true,
+		keep_lines: true,
+		force: true,
+		create: true,
+		mode: 0o600,
+	};
+	assert_eq!(doc.save_file_with(&f, &all), Err(too_new(&f)));
+	assert_eq!(read(&f), newer);
+	// Anywhere else too, and nothing is made there.
+	let other = at("other.shcl");
+	assert_eq!(doc.save_file(&other), Err(too_new(&other)));
+	assert!(!Path::new(&other).exists());
+
+	// A parse reads the text the same way.
+	let mut parsed = Document::parse(newer);
+	assert!(parsed.newer_format());
+	assert_eq!(parsed.save_file(&other), Err(too_new(&other)));
+	// This format, an older one, none, a damaged line, and one in a raw body
+	// save as before.
+	for text in [
+		"a: 1\n##    Format   3\n",
+		"a: 1\n##    Format   2\n",
+		"a: 1\n",
+		"a: 1\n##    Format   4x\n",
+		"note:\n\t```\n##    Format   4\n\t```\n",
+	] {
+		let mut d = Document::parse(text);
+		assert!(!d.newer_format(), "{text:?}");
+		assert_eq!(d.save_file(&other), Ok(()), "{text:?}");
+	}
+	// A merged layer's lines are the document's now.
+	let mut base = Document::parse("b: 2\n");
+	base.merge(&Document::parse(newer));
+	assert!(base.newer_format());
+	assert_eq!(base.save_file(&other), Err(too_new(&other)));
+	let mut under = Document::parse(newer);
+	under.merge(&Document::parse("b: 2\n"));
+	assert!(under.newer_format());
 	let _ = std::fs::remove_dir_all(&dir);
 }

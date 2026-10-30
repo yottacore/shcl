@@ -266,10 +266,11 @@ static const char *HELP =
 	"once per run; 'shcl explain CODE' gives the rule behind one of their codes. An\n"
 	"in-place write also refuses when the rewrite would delete lines or values\n"
 	"from the file (--lossy overrides), and set and migrate without --write exit 7\n"
-	"where it would. migrate refuses a file that does not say which rules it was\n"
-	"written for, when the two readings differ (--from-2x says it is 2.x), and\n"
-	"reports a 2.x binding it cannot convert. With --write, migrate\n"
-	"and upgrade keep the original beside FILE as\n"
+	"where it would. fmt --write and set refuse a file that names a newer format\n"
+	"(H006) the same way, with no override. migrate refuses a file that does not\n"
+	"say which rules it was written for, when the two readings differ (--from-2x\n"
+	"says it is 2.x), and reports a 2.x binding it cannot convert. With --write,\n"
+	"migrate and upgrade keep the original beside FILE as\n"
 	"NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format\n"
 	"it was written for, and write nothing at exit 8 when that name is taken.\n"
 	"An upgrade writes even when the fresh file drops lines or values, since the\n"
@@ -281,9 +282,9 @@ static const char *HELP =
 	"Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,\n"
 	"5 multiple instances, 6 check failed, strict load failed, init's schema has\n"
 	"faults, or --check found a rewrite to make, 7 a result refused for deleting\n"
-	"lines or values (--lossy overrides), migrate left something behind, or\n"
-	"upgrade refused a file that reads two ways or would keep an error, 8 a file\n"
-	"or stream could not be read or written.\n";
+	"lines or values (--lossy overrides) or for a newer format, migrate left\n"
+	"something behind, or upgrade refused a file that reads two ways or would keep\n"
+	"an error, 8 a file or stream could not be read or written.\n";
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
@@ -503,7 +504,8 @@ static const char *CODES =
 	"H006|hint|the file names a newer format than this reader\n"
 	"  The info block's Format line names a format past the one this shcl reads,\n"
 	"  so the file may use rules it does not know, and a line can read\n"
-	"  differently than its author meant. The load goes on as usual. A shcl made\n"
+	"  differently than its author meant. The load goes on as usual, and a save\n"
+	"  is refused, since it would write each line by these rules. A shcl made\n"
 	"  for that format reads it as written.\n"
 	"H007|hint|the file names an older format than this reader\n"
 	"  The info block's Format line names a format before the one this shcl\n"
@@ -1261,6 +1263,12 @@ static int unchanged_since_read(const char *file, const char *before, size_t n) 
 // read is the bytes FILE held when the command read it, and NULL when this
 // write is creating FILE.
 static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, size_t read_len, int keep) {
+	// A newer format's lines would go back by these rules whatever the bytes
+	// say, so this refusal comes first, as in the library's save.
+	if (shcl_newer_format(d)) {
+		fprintf(stderr, "%s: refusing to rewrite: the document holds lines from a newer format than this reader's (see H006)\n", file);
+		return 7;
+	}
 	if (read && !unchanged_since_read(file, read, read_len)) return EXIT_IO;
 	// Nothing to write: what the save would publish is already on disk. A
 	// rewrite would give the file a new inode and mtime for nothing, so an
@@ -1324,7 +1332,10 @@ static int do_fmt(Opts *o) {
 	if (o->check) {
 		// The save gate --write goes through is asked first, so 6 never
 		// promises a rewrite the same command would refuse to make.
-		if (!o->lossy && shcl_lost_count(L.doc) != 0) {
+		if (shcl_newer_format(L.doc)) {
+			fprintf(stderr, "%s: fmt --write would refuse: the document holds lines from a newer format than this reader's (see H006)\n", file);
+			rc = 7;
+		} else if (!o->lossy && shcl_lost_count(L.doc) != 0) {
 			fprintf(stderr, "%s: fmt --write would refuse: it would delete %zu line(s)/value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(L.doc));
 			rc = 7;
 		} else {
@@ -1996,7 +2007,10 @@ static int do_set(Opts *o) {
 			// layers tried to keep them (2026100717500003).
 			int kept = 0;
 			shcl_str c = shcl_to_text_keep_lines(d, &kept);
-			if (!kept && !o->lossy && shcl_lost_count(d) > 0) {
+			if (shcl_newer_format(d)) {
+				fprintf(stderr, "%s: refusing to print: the document holds lines from a newer format than this reader's (see H006)\n", file);
+				rc = 7;
+			} else if (!kept && !o->lossy && shcl_lost_count(d) > 0) {
 				fprintf(stderr, "%s: refusing to print: this result would delete %zu line(s)/value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(d));
 				rc = 7;
 			} else {

@@ -118,6 +118,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - 2 more save options. `create` only makes a new file, and refuses when one is there, even one another save makes at the same time: Rust `SaveError::Exists`, Go `*SaveExists`, Python `SaveExists`, C `SHCL_SAVE_EXISTS` and C++ `SaveResult::Exists`. `mode` gives a new file those permission bits exactly, whatever the umask, such as `0600` for one holding tokens. A file already there keeps its own.
 
+- A document whose Format line names a newer format reads as usual and is never saved, since a save would write its lines by these rules. `newer_format()` in every binding says so, and every save refuses: Rust `SaveError::TooNew`, Go `*SaveTooNew`, Python `SaveTooNew`, C `SHCL_SAVE_TOO_NEW` and C++ `SaveResult::TooNew`. `shcl fmt --write`, `fmt --check` and `set` refuse such a file at exit 7.
+
 - `instance_paths()` in every binding walks a file one instance at a time, with `(i)` on each repeated name.
 
 - `fields()`, `read_fields()` and `read_child_fields()` in every binding (Go `Fields`, C `shcl_fields`) give each field's path, name, value and line together, the path in the `instance_paths()` form.
@@ -240,6 +242,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An item with no field above it (`E007`) and an item under a field that already has a value (`E011`) are kept as written and count nothing lost. An edit that empties the field writes its item as a comment.
 
+- A line whose index selects no instance (`E003`) is kept as written and counts nothing lost, unless it opens a raw block. It no longer opens the fields of its path before the index. Where a merge or an edit puts the instance above it, it is written as a comment. A line that reaches `- ` items through an index (`E001`) stays as written too, where it went out as a comment.
+
 - An empty item is kept as written and counts nothing lost, and a `-` alone is one too, where it was an `E014` name.
 
 - A line with a wildcard selector (`E004`) is kept as written, with any raw block it opens, and counts nothing lost. It no longer opens the fields of its path before the wildcard.
@@ -333,6 +337,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A merge keeps a layer's own order and a footer comment it repeats. Merging onto an empty document changes nothing.
 
 - A merge no longer deletes a malformed line kept above or under a leaf.
+
+- A line kept in a leaf's block stays in the block when a merge replaces the leaf, where it went above the leaf, a level up.
 
 ### Schema and init
 

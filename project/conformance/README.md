@@ -198,7 +198,7 @@ Case `084` pins value identity across spellings: `"q◉DOUBLE_QUOTE◉uote"` and
 
 Case `085` pins `allowed` on a time: `Z`, `+00:00` and `-00:00` are all the moment `12:00:00Z`, a zero fraction matches the same clock without one, and a time with no offset is not the `Z` moment (`V004`).
 
-Case `086` pins a bare index on a binding line that names no instance: `a(5).b` is `E003`, dropped and counted lost, while `c(1).d` reaches the second `c`.
+Case `086` pins a bare index on a binding line that names no instance: `a(5).b` is `E003`, kept as written, and nothing is lost, while `c(1).d` reaches the second `c`.
 
 Case `087` pins where a merge puts a layer holding only a comment: above the base's trailing comment, after the field. The field is written without a colon (`E015`) and still binds.
 
@@ -208,7 +208,7 @@ Case `089` pins that a colon before the field's own colon does not hide a bracke
 
 Case `090` pins a crossed range (`min` above `max`): `V092` at its schema line, while the other constraints still apply and the unknown-field sweep still names `bogus` and `other`.
 
-Case `091` pins a leaf override in a merge: the base leaf's value goes, but a retained bad line above it and a bad `*` line under an overridden field stay in the merged file.
+Case `091` pins a leaf override in a merge: the base leaf's value goes, but a retained bad line above it and a bad `*` line under an overridden field stay in the merged file, the `*` line under the field that replaced it (2026102821530643).
 
 Case `092` pins that a default form refuses a wildcard path whether or not its slots resolve, while the same default on a named instance writes only what is missing.
 
@@ -230,7 +230,7 @@ Case `101` pins an empty name: two `""` leaves are a repeated leaf (`H001`), and
 
 Case `102` pins one field written twice in a schema (`w` and `w(*)`): `init` writes one line.
 
-Case `103` pins an all-digit selector past the u64 range: an index naming no instance, so the binding line is `E003` and lost, a read is `NotFound`, and a write through it is refused.
+Case `103` pins an all-digit selector past the u64 range: an index naming no instance, so the binding line is `E003` and kept as written, a read is `NotFound`, and a write through it is refused.
 
 Case `104` pins an item with no parent field at the top of a file (`E007`): it is kept as written, its trailing comment with it.
 
