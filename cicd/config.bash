@@ -591,6 +591,13 @@ REMOTE_BOXES=(
 	"vmDebARM64|tester@vmDebARM64|linux-arm64|suites-long"
 )
 
+## ci.yml's macos job, on GitHub's free arm64 Mac runner: it builds the
+## macos-universal target, runs the Rust tests, and runs crosscheck and
+## cli-regress on the arm64 half (2026102416250110). About 3 minutes, so a run
+## with no flags and the longer ones start it first and wait for it last, and
+## the quick ones leave it out. It runs the branch as pushed.
+HOSTED_WORKFLOW="ci.yml"; HOSTED_JOB="macos"; HOSTED_TARGET="macos-universal"
+
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored
 
 ## Stage 6b: installer packages over the artifact dir (utility/package.bash):
@@ -735,3 +742,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-24 JC: HARD_STEPS; the plain arrays name no CPU count, since the engine exports it per step.
 ##		- 2026-10-25 JC: Backup excludes moved to cicd/rar-excludes.conf, so a standalone backup leaves out the CodeQL databases too.
 ##		- 2026-10-25 JC: The leak checks split by length: LEAKCHECK_FAST for --quick too, LEAKCHECK_STEPS, LEAKCHECK_LONG for --long, and LEAKCHECK_TESTS.
+##		- 2026-10-30 JC: HOSTED_WORKFLOW, HOSTED_JOB and HOSTED_TARGET, the hosted macos job a full run starts.

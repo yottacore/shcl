@@ -164,7 +164,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted macos job fails: the macos-14 runner image is retired on 2026-11-02
 	- ID: 2026103014303616
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml on r1030b, run in full: the `macos` job passes on `macos-15`, its floor lines say macOS 13.0 for x86_64 and arm64, and every other job still runs.
 	- Severity: High
 	- Opened: 20261030-143036
 	- Opened by:
@@ -172,6 +173,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261030: hosted ci.yml run 41120869306 on r1030 cancelled the macos job in 1 s, with the annotation that a scheduled macOS 14 runner image brownout failed it. ci.yml line 310 says runs-on: macos-14. Every other job passed. From 2026-11-02 the job can't run at all.
 		- Fix: move the job to a supported arm64 macOS label and check the macOS 13 floor still holds, since the universal binary targets macOS 13.
+		- 20261030: the job runs on `macos-15`. After `lipo`, it reads each half's floor with `vtool -show-build` and fails unless both say `MACOS_FLOOR` from config.bash, 13.0. The floor comes from the zig build's own `-target`, so the runner can't move it, but nothing checked it before.
+	- Decisions:
+		- me: `macos-15`, the supported arm64 runner nearest the 13.0 floor, as zuid's macos workflow chose. `macos-latest` moves to a new macOS with no commit here, and `macos-26` is further from the floor. `macos-15` is GitHub's older supported image, so it is the next one retired.
+	- Actual fix: ci.yml's `macos` job on `macos-15`, with a floor check of both halves.
+	- Test case: ci.yml's `macos` job, its floor check included. Its rows can only run on GitHub's Mac runner.
+	- Swept: every `macos-14` in the tree, which was only ci.yml's runs-on and old backlog notes.
+	- Verified: both halves of the last local `macos-universal` build carry `LC_BUILD_VERSION` with `minos 13.0`, the field the check reads. check-pins, shellcheck and check-docs pass on the job, less `dcbc2`, which is red on dev until the installer sync to main.
 
 - Other hosts: macOS on b26 and vmKt6m
 	- ID: 2026102419263427
@@ -281,7 +289,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: macOS runner
 	- ID: 2026102416250110
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: with r1030b pushed, `gitsby raw gh workflow run ci.yml --ref r1030b -f job=macos` runs the `macos` job alone and every other job shows as skipped. A run with no `-f` runs every job.
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -289,6 +298,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Per `macOS builds on GitHub` in the shared CICD rules. The hosted `macos` job already builds, runs the tests and checks the CLI on the arm64 runner.
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 		- Pick which cicd.bash flags start that job, by how long it takes, and have them start it.
+	- Progress log:
+		- 20261030: the hosted `macos` job took 2 to 3 minutes in runs 40779407541 and 40993114853.
+		- 20261030: a run with no flags, `--long`, `--merge-gate` and `--backlog-run-full` start the job first, right after the sync, through ci.yml's new `job` input, and wait for it after the test boxes. A failed job fails the run. A branch the remote doesn't have at HEAD, no gh, or a canceled job is a SKIP with the reason, named again at the end, like a test box. `--quick`, `--backlog-run-quick`, `--no-remote`, `--no-cross`, `--no-release`, a `--skip` that takes out the macOS target, and the pre-push hook's run leave it out, each with an Off line. `--list` shows it.
+		- 20261030: ci.yml's `job` input runs one job alone. Every other job has `if: ${{ !inputs.job }}`, and the concurrency group takes the input, so a run of the job alone and a full run on one branch don't cancel each other.
+	- Decisions:
+		- me: the job by length is about 3 minutes plus GitHub's queue, which a run with no flags or a longer one hides by starting it first. The quick runs test edits in progress, which GitHub can't see, so they leave it out, as zuid's quick runs do.
+		- me: a `job` input on ci.yml, not a workflow of its own, so `check-pins.bash` keeps reading every pin from one file.
+		- me: the hook's run leaves it out, since the push it gates runs ci.yml, the `macos` job included, and its frozen copy has no branch.
+		- me: config.bash names the job in `HOSTED_WORKFLOW`, `HOSTED_JOB` and `HOSTED_TARGET`, so the engine stays generic. `SHCL_GH` names a gh in place of gitsby's, for the test.
+	- Test case: check-push-gate `den5e`.
+		- 20261030: `dee74` counts the Off lines of a run with no sync. The GitHub job's one line took it from 6 to 7.
+	- Verified: check-push-gate `den5e` passes, and fails against the cicd.bash from before. The whole of check-push-gate and shell-regress pass, and `--backlog-run-quick cicd --skip=check-docs.bash` passed format, build and lint. check-docs fails only `dcbc2`, which is red on dev until the installer sync to main.
+	- Swept: every flag that takes out the release, the cross targets or the remote hosts (`--no-release`, `--no-cross`, `--skip`, `--no-remote`), the run modes, `--list`, the container and frozen-copy runs, which never start it, and the end summary's SKIP lines, which the test boxes step now adds to rather than replaces.
 
 - CICD reset: CICD process gaps
 	- ID: 2026102416250120

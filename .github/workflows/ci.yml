@@ -13,12 +13,19 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    ## cicd.bash starts the macos job alone this way, for its branch as pushed.
+    inputs:
+      job:
+        description: "Run only this job (macos); empty runs them all"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  ## A run of the macos job alone doesn't cancel a whole run, or one of it.
+  group: ci-${{ github.ref }}-${{ inputs.job }}
   cancel-in-progress: true
 
 jobs:
@@ -38,6 +45,7 @@ jobs:
   ## has (--skip). The cross targets would take another job of their own; the
   ## macos, linux-arm and windows jobs below build on their own runners instead.
   ci:
+    if: ${{ !inputs.job }}
     name: ci (${{ matrix.part }})
     runs-on: ubuntu-latest
     timeout-minutes: 80
@@ -206,6 +214,7 @@ jobs:
   ## that is newer than the directive. So the library's own tests, and vet over
   ## both modules, on the exact release go.mod names.
   go-floor:
+    if: ${{ !inputs.job }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -234,6 +243,7 @@ jobs:
   ## and MSVC has no <dirent.h> for the C runner to walk the corpus with, so gcc
   ## is the compiler; win-runners.bash names the tool if the image ever drops it.
   windows:
+    if: ${{ !inputs.job }}
     runs-on: windows-latest
     timeout-minutes: 25
     ## Git Bash. The runner script is the same one a person runs by hand there.
@@ -263,6 +273,7 @@ jobs:
   ## target and its setup with stage 6's own package.bash, and the job below
   ## installs it, runs it from the machine PATH and uninstalls it.
   setup-build:
+    if: ${{ !inputs.job }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -306,8 +317,14 @@ jobs:
   ## coreutils go first on PATH, since the gate scripts use timeout and
   ## stat -c. cargo-zigbuild is installed without its ziglang dependency, which
   ## it would take over the pinned zig below.
+  ##
+  ## A cicd.bash run with no flags, --long, --merge-gate and --backlog-run-full
+  ## starts this job alone, through the job input, for its branch as pushed.
   macos:
-    runs-on: macos-14
+    if: ${{ !inputs.job || inputs.job == 'macos' }}
+    ## The free arm64 runner nearest the release's macOS 13.0 floor. GitHub
+    ## retires macos-14 on 2026-11-02 (2026103014303616).
+    runs-on: macos-15
     timeout-minutes: 30
     defaults:
       run:
@@ -351,6 +368,13 @@ jobs:
           done
           [[ -n "${art}" && -f "${art}" ]] || { echo "no macOS binary built: ${art}" >&2; exit 1; }
           lipo -archs "${art}"
+          ## The floor is the build's, not the runner's, so a newer runner can't
+          ## hide a moved one.
+          for arch in x86_64 arm64; do
+            minos="$(vtool -arch "${arch}" -show-build "${art}" | awk '$1 == "minos" && !n++ { print $2 }')"
+            [[ "${minos}" == "${MACOS_FLOOR}" ]] || { echo "the ${arch} half needs macOS ${minos:-unknown}, not ${MACOS_FLOOR}" >&2; exit 1; }
+            echo "${arch}: macOS ${minos} and up"
+          done
           bash cicd/utility/crosscheck.bash --corpus project/conformance "rust|source/rust/target/debug/shcl" "macos|${art}"
           bash cicd/utility/cli-regress.bash "macos|${art}"
 
@@ -359,6 +383,7 @@ jobs:
   ## command on an arm runner, then crosscheck and cli-regress. No cache, since
   ## its key would match the x86_64 jobs' target dir.
   linux-arm:
+    if: ${{ !inputs.job }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
@@ -394,6 +419,7 @@ jobs:
   ## command, as it is released, and the job below runs cli-regress on it on
   ## an arm runner.
   winarm-build:
+    if: ${{ !inputs.job }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
