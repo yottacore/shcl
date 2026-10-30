@@ -33,29 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- CICD reset: --gate as a backlog run
-	- ID: 2026102814013272
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: one `cicd/cicd.bash --container=ubuntu`, to see the image passes with its new `CTR_ARGS_ubuntu`.
-	- Priority: High
-	- Opened: 20261028-140132
-	- Opened by: 2026102813104371
-	- Parent ID: 2026102813104371
-	- Requirements:
-		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
-		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
-		- contributing.md's and install.md's `--gate` lines follow.
-	- Progress log:
-		- 20261029: `--gate` takes the `--backlog-run-quick` arm, areas included, prints `--gate is another name for --backlog-run-quick`, and goes into the image as `--backlog-run-quick`. So it records nothing. Help, contributing.md, install.md, design.md and the config.bash comments say so. contributing.md and install.md point at `--merge-gate` where they meant the whole gate.
-		- 20261029: check-push-gate's gate checks moved from `--gate` to `--merge-gate`: `EqGl8mf`, `EqjfWm8`, `Et6Aueh`, `EstM5WQ`'s calibration rows, `EtDCDE4`, `EtDCDE5`, `EtDCDE7`, and in `EtkuOxe` `1111|--gate --long` became `1111|--merge-gate --long`, in `Eu1ovZE` `1|--gate` became `1|--merge-gate`. A step-lines row now wants `Remote sync (--backlog-run-quick)`, and `Eu1ovZF` reads the areas from the help's `--backlog-run-quick, --gate [AREA...]` line. shell-regress `EqQUj04` drives the stub with `--merge-gate`.
-		- Verified: check-push-gate `Eu7Giqm` (the alias line, no record, `QUICK_SKIP` and `BACKLOG_SKIP` left out, an area, no calibration, `--gate --backlog-run-quick` taken, `--gate --merge-gate` and `--gate --long` refused) failed on the old engine and passes. `Eu7Giqn` (the run in the image gets `--backlog-run-quick`) failed with the engine passing `--gate` on, and passes. Also the whole of check-push-gate and shell-regress, check-pins, check-docs, test-ids, shellcheck and markdownlint.
-		- Swept: every `--gate` in cicd/, the hook, ci.yml, check-pins, check-push-gate, shell-regress, config.bash, the 2 Dockerfiles, contributing.md, install.md, design.md and the style guide. The hook's `--gate` fallback is for an engine from before `--merge-gate`, so it stays. install-dev.bash's lines are 2026102813104377. The other 3 bindings have no pipeline of their own, so no twin there.
-	- Decisions:
-		- me: `--container=ubuntu` ran `--gate --no-lint`. It runs `--merge-gate --no-lint --no-release --no-remote --no-leakcheck` now, the same stages as before, so it keeps the 200,000-input fuzz and the cross checks rather than shrink to the quick run. `--no-leakcheck` also drops the sanitizer runs there, since the image has no heaptrack or CodeQL for the leak checks, and spelling out 4 `--skip`s would tie it to their names. The main image and the hosted tests half still run them.
-		- me: `--gate` in the help shares `--backlog-run-quick`'s entry, as `--ci` and `--slow` do, to stay inside check-docs' 100-line header window.
-	- Test case: check-push-gate `Eu7Giqm` and `Eu7Giqn`.
-
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
@@ -384,6 +361,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: --gate as a backlog run
+	- ID: 2026102814013272
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261028-140132
+	- Opened by: 2026102813104371
+	- Parent ID: 2026102813104371
+	- Requirements:
+		- `--gate` is another name for `--backlog-run-quick`, and says so in one line. It no longer records the tree it tested.
+		- Only once the hosted workflow runs `--merge-gate`, so the hosted run never runs the shorter `--gate`.
+		- contributing.md's and install.md's `--gate` lines follow.
+	- Progress log:
+		- 20261029: `--gate` takes the `--backlog-run-quick` arm, areas included, prints `--gate is another name for --backlog-run-quick`, and goes into the image as `--backlog-run-quick`. So it records nothing. Help, contributing.md, install.md, design.md and the config.bash comments say so. contributing.md and install.md point at `--merge-gate` where they meant the whole gate.
+		- 20261029: check-push-gate's gate checks moved from `--gate` to `--merge-gate`: `EqGl8mf`, `EqjfWm8`, `Et6Aueh`, `EstM5WQ`'s calibration rows, `EtDCDE4`, `EtDCDE5`, `EtDCDE7`, and in `EtkuOxe` `1111|--gate --long` became `1111|--merge-gate --long`, in `Eu1ovZE` `1|--gate` became `1|--merge-gate`. A step-lines row now wants `Remote sync (--backlog-run-quick)`, and `Eu1ovZF` reads the areas from the help's `--backlog-run-quick, --gate [AREA...]` line. shell-regress `EqQUj04` drives the stub with `--merge-gate`.
+		- Verified: check-push-gate `Eu7Giqm` (the alias line, no record, `QUICK_SKIP` and `BACKLOG_SKIP` left out, an area, no calibration, `--gate --backlog-run-quick` taken, `--gate --merge-gate` and `--gate --long` refused) failed on the old engine and passes. `Eu7Giqn` (the run in the image gets `--backlog-run-quick`) failed with the engine passing `--gate` on, and passes. Also the whole of check-push-gate and shell-regress, check-pins, check-docs, test-ids, shellcheck and markdownlint.
+		- Swept: every `--gate` in cicd/, the hook, ci.yml, check-pins, check-push-gate, shell-regress, config.bash, the 2 Dockerfiles, contributing.md, install.md, design.md and the style guide. The hook's `--gate` fallback is for an engine from before `--merge-gate`, so it stays. install-dev.bash's lines are 2026102813104377. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Decisions:
+		- me: `--container=ubuntu` ran `--gate --no-lint`. It runs `--merge-gate --no-lint --no-release --no-remote --no-leakcheck` now, the same stages as before, so it keeps the 200,000-input fuzz and the cross checks rather than shrink to the quick run. `--no-leakcheck` also drops the sanitizer runs there, since the image has no heaptrack or CodeQL for the leak checks, and spelling out 4 `--skip`s would tie it to their names. The main image and the hosted tests half still run them.
+		- me: `--gate` in the help shares `--backlog-run-quick`'s entry, as `--ci` and `--slow` do, to stay inside check-docs' 100-line header window.
+	- Test case: check-push-gate `Eu7Giqm` and `Eu7Giqn`.
+	- Verified: 20261029, `cicd.bash --container=ubuntu` on `r1029b` at `d67cc4fd` passed all 7 steps, the tests stage in 20 minutes. The first try failed check-c-compilers' musl row (`EstZ5TC`) in strict mode, since the ubuntu image had no zig while the hosted runner installs it. The image installs the pinned zig now, with its cache in the run's `/tmp`, and check-pins passes.
+	- Acceptance signoff: me, 20261029, the ubuntu image passes with its new arguments
+	- Closed: 20261029
 
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
