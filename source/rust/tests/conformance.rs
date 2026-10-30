@@ -259,7 +259,7 @@ fn load_cases() -> Vec<Case> {
 			.collect();
 		cases.push(Case {
 			name: path.file_name().unwrap().to_string_lossy().into_owned(),
-			id: read_opt("test-id").map_or_else(|| "-------".to_string(), |s| s.trim().to_string()),
+			id: read_opt("test-id").map_or_else(|| "-----".to_string(), |s| s.trim().to_string()),
 			input: std::fs::read_to_string(&input).unwrap(),
 			expected_fmt: std::fs::read_to_string(path.join("expected.shcl")).unwrap(),
 			reads: std::fs::read_to_string(path.join("reads.tsv")).unwrap(),
@@ -323,7 +323,7 @@ fn each_case(check: impl Fn(&Case)) {
 			let status = if tally.failed.contains(&case.name) {
 				"FAIL"
 			} else {
-				"ok"
+				"PASS"
 			};
 			common::status_line(status, &case.id, &format!("corpus/{}", case.name));
 		}
@@ -363,7 +363,7 @@ fn doc_for(case: &Case, level: Strictness) -> Document {
 // second came a second later (2026101912125490). Same check in every runner.
 #[test]
 fn the_clock_is_pinned_for_every_test() {
-	let _id = test_id("EtAxcPq");
+	let _id = test_id("de5g4");
 	let mut doc = Document::parse("a: x\n");
 	assert_eq!(doc.set_int_default("a", 1), shcl::SetStatus::Ok);
 	assert_eq!(
@@ -384,7 +384,7 @@ fn the_clock_is_pinned_for_every_test() {
 )]
 #[test]
 fn canonical_format_matches_expected() {
-	let _id = test_id("Ejri0IT");
+	let _id = test_id("d9tnm");
 	each_case(|case| {
 		let got = Document::parse(&case.input).to_canonical();
 		assert_eq!(
@@ -429,7 +429,7 @@ fn diag_text(text: &str) -> String {
 )]
 #[test]
 fn diagnostics_match_expected() {
-	let _id = test_id("EkoN15s");
+	let _id = test_id("da8s1");
 	// Pins count, line, severity, and stable code per case - the same shape
 	// `check` prints to stdout at Standard (its cross-binding contract).
 	each_case(|case| {
@@ -448,7 +448,7 @@ fn diagnostics_match_expected() {
 )]
 #[test]
 fn validation_matches_expected() {
-	let _id = test_id("EkstvaW");
+	let _id = test_id("da9w1");
 	// Schema dimension: golden = the exact `check --schema` stdout at Standard
 	// (doc parse diags, then validation diags, then the summary). A schema that
 	// does not load cleanly is a single V099, mirroring the CLI. It comes from
@@ -513,7 +513,7 @@ fn validation_matches_expected() {
 
 #[test]
 fn convenience_tier_falls_back_only_on_good() {
-	let _id = test_id("EkgmpQe");
+	let _id = test_id("da6yp");
 	// The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	// back to the call-site default, so a real zero can't be faked. This pins the
 	// semantic every port's *Or/get_*(default=) mirrors.
@@ -554,7 +554,7 @@ fn convenience_tier_falls_back_only_on_good() {
 )]
 #[test]
 fn reads_match_expected() {
-	let _id = test_id("Ejri0IU");
+	let _id = test_id("d9tnn");
 	each_case(|case| {
 		for (n, line) in case.reads.lines().enumerate() {
 			if n == 0 || line.trim().is_empty() {
@@ -800,7 +800,7 @@ fn reads_match_expected() {
 )]
 #[test]
 fn write_ops_match_expected() {
-	let _id = test_id("EkfphiV");
+	let _id = test_id("da6qe");
 	each_case(|case| {
 		let (ops, want, keep) = match (&case.write_ops, &case.expected_write, &case.expected_keep) {
 			(Some(o), Some(w), Some(k)) => (o, w, k),
@@ -863,7 +863,7 @@ fn write_ops_match_expected() {
 )]
 #[test]
 fn keeping_lines_without_edits_writes_the_input() {
-	let _id = test_id("EqutO7H");
+	let _id = test_id("dd3t8");
 	each_case(|case| {
 		let doc = Document::parse_keep_lines(&case.input, Strictness::Standard)
 			.unwrap_or_else(|e| e.document);
@@ -881,7 +881,7 @@ fn keeping_lines_without_edits_writes_the_input() {
 )]
 #[test]
 fn layered_merge_matches_expected() {
-	let _id = test_id("EkyV757");
+	let _id = test_id("dab71");
 	// Layered-load dimension: fold the layer files (lowest first) and input.shcl
 	// (highest file layer) via the library `merge`, apply the `path=value`
 	// overrides as the top layer, and match the golden merged canonical.
@@ -974,7 +974,7 @@ fn layered_merge_matches_expected() {
 )]
 #[test]
 fn migrate_matches_expected() {
-	let _id = test_id("Ept4WPh");
+	let _id = test_id("dcmf1");
 	// Migration dimension: `migrate` on the input must reproduce the golden
 	// byte for byte, and the golden's load diagnostics are pinned beside it,
 	// so a rewrite that no longer loads cannot pass. A fmt fixpoint is not
@@ -1010,7 +1010,7 @@ fn migrate_matches_expected() {
 )]
 #[test]
 fn migrate_is_a_fixpoint() {
-	let _id = test_id("EpyXoJW");
+	let _id = test_id("dcns5");
 	each_case(|case| {
 		let once = migrate(&case.input, true).text;
 		assert_eq!(
@@ -1052,7 +1052,7 @@ fn stamped_in_place(text: &str, line: usize) -> Option<String> {
 )]
 #[test]
 fn migrate_unstamped_is_migrate_without_the_stamp() {
-	let _id = test_id("Eqps7zO");
+	let _id = test_id("dd2kj");
 	// Over every input, not only the migrate cases: the stamp is the one
 	// difference, and a file is current exactly when its Format line says so.
 	each_case(|case| {
@@ -1121,7 +1121,7 @@ fn migrate_unstamped_is_migrate_without_the_stamp() {
 )]
 #[test]
 fn init_generation_matches_expected() {
-	let _id = test_id("EkyZiCX");
+	let _id = test_id("dab7m");
 	// Generation dimension: `generate` on the schema must reproduce the golden
 	// starter config, and that output must itself load cleanly.
 	each_case(|case| {
@@ -1184,7 +1184,7 @@ fn init_generation_matches_expected() {
 )]
 #[test]
 fn depth_cap_boundary_and_writer() {
-	let _id = test_id("El5Aber");
+	let _id = test_id("dactc");
 	// Exactly at the cap: loads clean, formats, and round-trips.
 	let segs: Vec<String> = (0..shcl::MAX_DEPTH).map(|i| format!("a{}", i)).collect();
 	let at_cap = format!("{}: 1", segs.join("."));
@@ -1216,7 +1216,7 @@ fn depth_cap_boundary_and_writer() {
 
 #[test]
 fn parse_limited_caps() {
-	let _id = test_id("Eoe5NRw");
+	let _id = test_id("dc1yg");
 	// The caps exist because a document amplifies to many times its byte size
 	// in memory, so read_file's byte cap alone cannot bound a load. Same
 	// fixture in every runner.
@@ -1410,7 +1410,7 @@ fn parse_limited_caps() {
 /// still kept. Same fixture in every runner.
 #[test]
 fn a_cap_wins_over_a_broken_value() {
-	let _id = test_id("Ers2oCr");
+	let _id = test_id("ddj1c");
 	use shcl::Strictness;
 	let codes = |text: &str, cap: usize| {
 		let doc = Document::parse_limited(text, Strictness::Standard, 0, cap, 0).unwrap();
@@ -1457,7 +1457,7 @@ fn a_cap_wins_over_a_broken_value() {
 
 #[test]
 fn no_colon_repair_stays_narrow() {
-	let _id = test_id("ErsrQZC");
+	let _id = test_id("ddj7n");
 	// Only one clean name or path with no colon is repaired (E015), a bad
 	// bare name like 404 included. Anything with a blank in a bare name could
 	// be a name or a name and a value, so it is E014 and kept as written.
@@ -1503,7 +1503,7 @@ fn no_colon_repair_stays_narrow() {
 )]
 #[test]
 fn write_bad_ops_are_rejected() {
-	let _id = test_id("El5Gcy6");
+	let _id = test_id("dacv9");
 	// Bad-op dimension: each write-bad.ops line, applied alone to the case
 	// input, must be rejected (bad value, bad datetime, or unusable path) and
 	// leave the document unchanged.
@@ -1561,7 +1561,7 @@ fn write_bad_ops_are_rejected() {
 
 #[test]
 fn one_shot_load_and_validate() {
-	let _id = test_id("Elp3cOg");
+	let _id = test_id("daqvh");
 	// One combined diagnostics list (parse first, then validation) and an
 	// error predicate, so recover-and-continue can't read as success by
 	// accident. Same fixture in every runner.
@@ -1586,7 +1586,7 @@ fn one_shot_load_and_validate() {
 
 #[test]
 fn strict_fails_the_same_from_every_entry_point() {
-	let _id = test_id("Es9mP2o");
+	let _id = test_id("ddp9w");
 	// Strict fails the load on any error diagnostic, from every entry point,
 	// with the document inside the error. The file tier and the one-shot gave
 	// a plain document where parse_with failed. Same fixture in every runner.
@@ -1680,7 +1680,7 @@ fn strict_fails_the_same_from_every_entry_point() {
 )]
 #[test]
 fn load_and_validate_with_matches_the_text_form() {
-	let _id = test_id("Eshi8hz");
+	let _id = test_id("ddyf0");
 	// The parsed-schema form gives what the text form gives: the same
 	// combined list and the same strict answer, over every corpus schema at
 	// every level, with one schema document reused across the loads. Same
@@ -1752,7 +1752,7 @@ fn load_and_validate_with_matches_the_text_form() {
 
 #[test]
 fn check_set_path_names_the_failure() {
-	let _id = test_id("ElouJ8K");
+	let _id = test_id("daqta");
 	// The path's half of a setter's status. Same fixture in every runner.
 	let doc = Document::parse("a:\n\tb: 1\n");
 	use shcl::SetStatus::*;
@@ -1785,7 +1785,7 @@ fn check_set_path_names_the_failure() {
 // runner. setter_status_names_each_refusal has the status each one gives.
 #[test]
 fn refused_values_pass_the_path_check() {
-	let _id = test_id("Es9S4kJ");
+	let _id = test_id("ddp7b");
 	let text = "ports: [80, 443]\nsec:\n\tx: 1\n";
 	let month13 = shcl::ShclDateTime {
 		date: Some((2026, 13, 1)),
@@ -1883,7 +1883,7 @@ fn refused_values_pass_the_path_check() {
 // other three print the same names. Same fixture in every runner.
 #[test]
 fn setter_status_values_in_order() {
-	let _id = test_id("EsDRhHg");
+	let _id = test_id("ddq65");
 	use shcl::SetStatus::*;
 	let all = [
 		Ok,
@@ -1949,7 +1949,7 @@ fn setter_status_values_in_order() {
 )]
 #[test]
 fn setter_status_names_each_refusal() {
-	let _id = test_id("EsDRhFU");
+	let _id = test_id("ddq64");
 	use shcl::SetStatus::*;
 	let text = "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n";
 	let month13 = shcl::ShclDateTime {
@@ -2113,7 +2113,7 @@ fn setter_status_names_each_refusal() {
 )]
 #[test]
 fn repeated_path_refuses_a_setter() {
-	let _id = test_id("Es9aZSF");
+	let _id = test_id("ddp8e");
 	let text = "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n";
 	type Set = Box<dyn Fn(&mut Document) -> shcl::SetStatus>;
 	let cases: Vec<(&str, Set)> = vec![
@@ -2166,7 +2166,7 @@ fn repeated_path_refuses_a_setter() {
 
 #[test]
 fn setters_refuse_a_value_the_reader_refuses() {
-	let _id = test_id("Eof29pY");
+	let _id = test_id("dc25t");
 	// Each setter is the inverse of its read, so a value with no spelling the
 	// reader accepts fails the write and leaves the document alone. Same
 	// fixture in every runner.
@@ -2273,7 +2273,7 @@ fn setters_refuse_a_value_the_reader_refuses() {
 // text fits in them, and the writer picks quotes when it does not.
 #[test]
 fn a_backtick_value_reads_raw_with_its_flag() {
-	let _id = test_id("ErpVwnh");
+	let _id = test_id("ddhe0");
 	let mut doc = Document::parse("c: `#FF8800`\nq: \"x\"\nb: x\na: [`1`, b]\nn: `7`\n");
 	let r = doc.read_string("c");
 	assert_eq!(
@@ -2297,7 +2297,7 @@ fn a_backtick_value_reads_raw_with_its_flag() {
 
 #[test]
 fn a_line_break_in_a_path_writes_and_reads_back() {
-	let _id = test_id("EpGigIK");
+	let _id = test_id("dcb7v");
 	// Both halves of a path can contain one and write it `◉NEWLINE◉`: a name through the
 	// name escaper, a selector value through the value emitter. The selector
 	// was refused while elements were stored in their source spelling and the
@@ -2316,7 +2316,7 @@ fn a_line_break_in_a_path_writes_and_reads_back() {
 
 #[test]
 fn raw_block_line_endings_normalize_and_round_trip() {
-	let _id = test_id("EnLyQsU");
+	let _id = test_id("dbep1");
 	// A raw body is the only content kept untrimmed, so it is the only place a
 	// trailing CR survives the load - and one written back becomes CRLF, which
 	// reads as neither. The whole trailing run comes off instead; a CR inside a
@@ -2330,7 +2330,7 @@ fn raw_block_line_endings_normalize_and_round_trip() {
 
 #[test]
 fn children_and_instance_paths_walk_a_repeated_key() {
-	let _id = test_id("Eqps7zP");
+	let _id = test_id("dd2kk");
 	// gitsby's report: children() on a repeated key answered nothing, and a
 	// walk had to know to index each instance.
 	let doc =
@@ -2355,7 +2355,7 @@ fn children_and_instance_paths_walk_a_repeated_key() {
 
 #[test]
 fn fields_give_each_instance_its_own_path() {
-	let _id = test_id("EsEsFl8");
+	let _id = test_id("ddqh3");
 	// The --json listings: each instance, a repeated one included, gets
 	// a path that reads that one, with its name, value and line beside it.
 	let doc = Document::parse("shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n");
@@ -2407,7 +2407,7 @@ fn fields_give_each_instance_its_own_path() {
 
 #[test]
 fn read_surface_line_quoted_children() {
-	let _id = test_id("ElorUZk");
+	let _id = test_id("daqsz");
 	// line/quoted on the read result, line(path), children(path). Same
 	// fixture in every runner (C pins the same answers on shcl_quoted and
 	// shcl_line; its read structs stay value+status).
@@ -2471,7 +2471,7 @@ fn read_surface_line_quoted_children() {
 )]
 #[test]
 fn file_tier_load_save() {
-	let _id = test_id("EnEYHTs");
+	let _id = test_id("dbcwv");
 	// load_file/save_file: the status separates absent / unreadable / parsed
 	// with errors / clean, and a save round-trips through the atomic write.
 	// Same fixture in every runner.
@@ -2587,7 +2587,7 @@ fn file_tier_load_save() {
 
 #[test]
 fn read_file_at_the_largest_cap() {
-	let _id = test_id("EoLwIlh");
+	let _id = test_id("dbxk0");
 	// A cap given as the type maximum used to overflow the over-cap probe and
 	// read nothing. Same fixture in every runner.
 	let dir = std::env::temp_dir().join(format!("shcl-readcap-{}", std::process::id()));
@@ -2604,7 +2604,7 @@ fn read_file_at_the_largest_cap() {
 
 #[test]
 fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
-	let _id = test_id("EoLwIli");
+	let _id = test_id("dbxk1");
 	// The body's shared indent survives a reload (the closing fence's indent is
 	// what comes off), the info-string is stored as a fence line reads it
 	// back, and an info with a line break or a `#` has no spelling and fails
@@ -2653,7 +2653,7 @@ fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
 )]
 #[test]
 fn save_creates_the_file_behind_a_dangling_symlink() {
-	let _id = test_id("EoLwIlj");
+	let _id = test_id("dbxk2");
 	// A link to a file that is not there yet is written through like any other
 	// link: the file appears where the link points and the link stays a link.
 	// Same fixture in every POSIX runner.
@@ -2682,7 +2682,7 @@ fn save_creates_the_file_behind_a_dangling_symlink() {
 #[cfg(unix)]
 #[test]
 fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
-	let _id = test_id("EoUxXlQ");
+	let _id = test_id("dbzr9");
 	// Two links pointing at each other resolve to nothing, so the save fails
 	// and says why. It must not "fix" the cycle by dropping a regular file over
 	// one of the links. Same fixture in every POSIX runner.
@@ -2711,7 +2711,7 @@ fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
 #[cfg_attr(miri, ignore = "starts a process")]
 #[test]
 fn save_replaces_only_a_regular_file() {
-	let _id = test_id("EqLbKe8");
+	let _id = test_id("dcvaj");
 	// Save outcomes in design.md, the rows the CLI's own check hides. A FIFO
 	// was swapped for a regular file at exit 0, a link whose text names a
 	// directory made a file of that name, and Go cleaned `lnk/..` as text where
@@ -2758,7 +2758,7 @@ fn save_replaces_only_a_regular_file() {
 #[cfg(windows)]
 #[test]
 fn save_rewrites_a_read_only_file() {
-	let _id = test_id("EoLwIlk");
+	let _id = test_id("dbxk3");
 	// A read-only target is rewritten, as it is on POSIX, and comes back
 	// read-only; no temp file is left behind. Same fixture in every runner.
 	let dir = std::env::temp_dir().join(format!("shcl-readonly-{}", std::process::id()));
@@ -2825,7 +2825,7 @@ fn set_attrs(path: &std::path::Path, attrs: u32) {
 )]
 #[test]
 fn save_refuses_a_directory_shaped_path() {
-	let _id = test_id("EomvfCq");
+	let _id = test_id("dc42j");
 	let dir = std::env::temp_dir().join(format!("shcl-dirpath-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
 	let f = dir.join("f.shcl");
@@ -2850,7 +2850,7 @@ fn save_refuses_a_directory_shaped_path() {
 // other three print the same names. Same fixture in every runner.
 #[test]
 fn write_status_values_in_order() {
-	let _id = test_id("EsEhCFx");
+	let _id = test_id("ddqfq");
 	use shcl::WriteStatus::*;
 	let all = [
 		Ok,
@@ -2893,7 +2893,7 @@ fn write_status_values_in_order() {
 )]
 #[test]
 fn write_status_names_each_failure() {
-	let _id = test_id("EsEhCFy");
+	let _id = test_id("ddqfr");
 	use shcl::{SaveError, UpgradeError, WriteStatus, upgrade_file, write_file_atomic};
 	let dir = std::env::temp_dir().join(format!("shcl-wrstat-{}", std::process::id()));
 	let _ = std::fs::remove_dir_all(&dir);
@@ -3014,7 +3014,7 @@ fn write_status_names_each_failure() {
 /// fixture in every runner.
 #[test]
 fn written_spelling_matches_its_reload() {
-	let _id = test_id("EommtF2");
+	let _id = test_id("dc41f");
 	let mut d = Document::parse("x: 1\n");
 	assert_eq!(d.set_string("k", "q\"q'"), shcl::SetStatus::Ok);
 	let back = Document::parse(&d.to_canonical());
@@ -3033,7 +3033,7 @@ fn written_spelling_matches_its_reload() {
 )]
 #[test]
 fn index_rebuild_ignores_removed_nodes() {
-	let _id = test_id("EomjcaW");
+	let _id = test_id("dc412");
 	let mut ms = [0.0f64; 2];
 	for (churned, slot) in ms.iter_mut().enumerate() {
 		let mut d = Document::parse("g:\n\tk: 1\n");
@@ -3090,7 +3090,7 @@ fn index_rebuild_ignores_removed_nodes() {
 )]
 #[test]
 fn merge_settles_only_what_it_touched() {
-	let _id = test_id("EqoaM6C");
+	let _id = test_id("dd29m");
 	let mut ms = [0.0f64; 2];
 	for (big, slot) in ms.iter_mut().enumerate() {
 		let mut text = String::from("g:\n\tk: 1\n");
@@ -3135,7 +3135,7 @@ fn merge_settles_only_what_it_touched() {
 )]
 #[test]
 fn a_far_kept_line_costs_an_edit_nothing() {
-	let _id = test_id("EqqmFxQ");
+	let _id = test_id("dd2tf");
 	let mut ms = [0.0f64; 2];
 	for (kept, slot) in ms.iter_mut().enumerate() {
 		let mut text = String::from("g:\n\tk: 1\nbig:\n");
@@ -3176,7 +3176,7 @@ fn a_far_kept_line_costs_an_edit_nothing() {
 
 #[test]
 fn standard_trait_surface() {
-	let _id = test_id("EnLJ3Jw");
+	let _id = test_id("dbegt");
 	// Rust-only: the traits a rust user reaches for before reading any docs.
 	// Nothing here is new behavior, so there is no cross-binding fixture - the
 	// other three already export the same capabilities under their own names.
@@ -3215,7 +3215,7 @@ fn standard_trait_surface() {
 // )]
 // #[test]
 // fn a_list_no_text_loads_back_refuses_to_save() {
-// 	let _id = test_id("Ers2oF1");
+// 	let _id = test_id("ddj1h");
 // 	let src = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
 // 	let mut doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
 // 	assert_eq!(doc.lost_count(), 0);
@@ -3267,7 +3267,7 @@ fn standard_trait_surface() {
 // /// built, and the fields that moved still have to be found through it.
 // #[test]
 // fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
-// 	let _id = test_id("ErsETML");
+// 	let _id = test_id("ddj2w");
 // 	for (src, path, field, want) in [
 // 		("b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
 // 		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
@@ -3288,7 +3288,7 @@ fn standard_trait_surface() {
 // /// held the join off, though a reload joins the two (2026100520243961).
 // #[test]
 // fn a_merged_list_joins_an_empty_field_past_a_comment() {
-// 	let _id = test_id("Ert70BF");
+// 	let _id = test_id("ddj9k");
 // 	let layer = Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n");
 // 	for base in [
 // 		"p:\n\ts:\n\t# c\n",
@@ -3314,7 +3314,7 @@ fn standard_trait_surface() {
 // /// kept line among the items, and a reload after it (2026100914525821).
 // #[test]
 // fn a_joined_list_files_the_bindings_lines_like_a_reload() {
-// 	let _id = test_id("EsFs76t");
+// 	let _id = test_id("ddqs1");
 // 	let mut doc = Document::parse("srv:\n\t[\n");
 // 	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
 // 	let text = doc.to_canonical();
@@ -3340,7 +3340,7 @@ fn standard_trait_surface() {
 // /// reload reads each.
 // #[test]
 // fn a_remove_settles_a_list_after_an_empty_field() {
-// 	let _id = test_id("Ert70DM");
+// 	let _id = test_id("ddj9m");
 // 	for (path, want) in [
 // 		("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
 // 		("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
@@ -3368,7 +3368,7 @@ fn standard_trait_surface() {
 // )]
 // #[test]
 // fn a_list_the_source_loads_back_keeps_its_lines() {
-// 	let _id = test_id("ErsWiow");
+// 	let _id = test_id("ddj53");
 // 	let src = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n";
 // 	let doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
 // 	assert_eq!(doc.lost_count(), 2, "the wildcard line and the item");
@@ -3393,7 +3393,7 @@ fn standard_trait_surface() {
 /// every runner.
 #[test]
 fn a_field_under_items_stays_kept() {
-	let _id = test_id("EtXAjYU");
+	let _id = test_id("deav2");
 	let check = |doc: &Document, want: &str| {
 		let text = doc.to_canonical();
 		assert_eq!(text, want);
@@ -3463,7 +3463,7 @@ fn a_field_under_items_stays_kept() {
 /// runner.
 #[test]
 fn an_index_onto_a_list_takes_no_field() {
-	let _id = test_id("EtdPVpd");
+	let _id = test_id("decb2");
 	let check = |doc: &Document, want: &str| {
 		let text = doc.to_canonical();
 		assert_eq!(text, want);
@@ -3509,7 +3509,7 @@ fn an_index_onto_a_list_takes_no_field() {
 /// every runner.
 #[test]
 fn an_index_with_no_instance_stays_kept() {
-	let _id = test_id("Eu8yPCH");
+	let _id = test_id("dekxz");
 	let codes = |doc: &Document| -> Vec<(usize, &'static str)> {
 		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect()
 	};
@@ -3568,7 +3568,7 @@ fn an_index_with_no_instance_stays_kept() {
 /// E007. Same fixture in every runner.
 #[test]
 fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
-	let _id = test_id("Eu96oVF");
+	let _id = test_id("dekz1");
 	for (src, want, code) in [
 		(
 			"val: 1\n\ta: [1\nz: 2\n",
@@ -3603,7 +3603,7 @@ fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
 )]
 #[test]
 fn lost_and_save_gate() {
-	let _id = test_id("EnEclpx");
+	let _id = test_id("dbcxe");
 	// Content-malformed lines are retained as trivia (lost_count 0, the line
 	// survives a save); position-dependent drops count as lost and make
 	// save_file refuse until the caller opts into save_file_lossy. Same
@@ -3659,7 +3659,7 @@ fn lost_and_save_gate() {
 
 #[test]
 fn strict_failure_carries_document() {
-	let _id = test_id("Elop5Fg");
+	let _id = test_id("daqsp");
 	// A failed strict load hands back the document and names the first
 	// failures in the message - the diagnostics are the point.
 	let e = Document::parse_with("ok: 1\n: nope\n", Strictness::Strict).unwrap_err();
@@ -3671,7 +3671,7 @@ fn strict_failure_carries_document() {
 
 #[test]
 fn raw_is_source_text() {
-	let _id = test_id("ElonRnN");
+	let _id = test_id("daqsg");
 	// raw: the verbatim value span from the source line, quotes and all - not
 	// the canonical form, which rewrites `[a,  "b c"]` to `[a, "b c"]`. Same
 	// fixture in every runner whose read result exposes raw (the C read
@@ -3700,7 +3700,7 @@ fn raw_is_source_text() {
 
 #[test]
 fn paths_enumeration_shape() {
-	let _id = test_id("El5WdwW");
+	let _id = test_id("dacx2");
 	// paths(): file order, deduplicated, non-bare segments quoted so every
 	// path resolves. Same fixture is pinned in every runner.
 	let doc = Document::parse("a: 1\na.b: 2\n\"q n\": 3\nx:\n\tb: 4\nx.b: 5\n");
@@ -3722,7 +3722,7 @@ fn paths_enumeration_shape() {
 )]
 #[test]
 fn generation_bounds_a_multiplying_schema() {
-	let _id = test_id("ElupzhR");
+	let _id = test_id("das80");
 	// A chain longer than the nesting cap would outrun the stack if it were
 	// followed all the way down; it is noted like a re-entering mount instead.
 	// Too big for a golden, so it is pinned here (like the depth-cap case).
@@ -3763,7 +3763,7 @@ fn generation_bounds_a_multiplying_schema() {
 
 #[test]
 fn one_shot_load_reports_a_broken_schema() {
-	let _id = test_id("Eluygyu");
+	let _id = test_id("das92");
 	// A schema that does not load would otherwise drop the constraints on its
 	// broken lines, or report every field as unknown - blaming the document.
 	// Same fixture in every runner.
@@ -3784,7 +3784,7 @@ fn one_shot_load_reports_a_broken_schema() {
 
 #[test]
 fn validate_and_generate_report_a_broken_schema() {
-	let _id = test_id("Es8Oq5B");
+	let _id = test_id("ddnz8");
 	// The quote never closes, so the max line is lost and a parse then
 	// validate passed 99999 with no word. Same fixture in every runner.
 	let schema = Document::parse("field: port\n\ttype: int\n\tmax: \"65535\n");
@@ -3806,7 +3806,7 @@ fn validate_and_generate_report_a_broken_schema() {
 
 #[test]
 fn quote_segment_backslash_round_trips() {
-	let _id = test_id("Elv59bc");
+	let _id = test_id("das9v");
 	// A name ending in a backslash: the quoted spelling must not let the
 	// closing quote be read as an escape pair.
 	let mut doc = Document::new();
@@ -3844,7 +3844,7 @@ fn quote_segment_backslash_round_trips() {
 
 #[test]
 fn repeat_suppression_uses_parsed_leaf() {
-	let _id = test_id("Elv59bd");
+	let _id = test_id("das9w");
 	// A quoted last segment with a dot must not disavow an unrelated field
 	// that happens to have the split-off text.
 	let schema = Document::parse("field: 'a.\"b.c\"'\n\trepeat: [0, 5]\nfield: c\n");
@@ -3871,7 +3871,7 @@ fn repeat_suppression_uses_parsed_leaf() {
 // default. Same fixture in every runner.
 #[test]
 fn bad_path_reads_say_bad_path() {
-	let _id = test_id("Es9JVrX");
+	let _id = test_id("ddp69");
 	use shcl::Status::{BadPath, Good, Multiple, NotFound};
 	let doc = Document::parse("site: a\n\tport: 1\n");
 	assert_eq!(doc.read_int("site(0).port").status, Good);
@@ -3931,7 +3931,7 @@ fn bad_path_reads_say_bad_path() {
 // plain call gives. Same fixture in every runner.
 #[test]
 fn list_reads_say_bad_path() {
-	let _id = test_id("EsDQqYd");
+	let _id = test_id("ddq60");
 	use shcl::Status::{BadPath, Good, NotFound};
 	let doc = Document::parse("site: a\n\tport: 1\nsite: b\n");
 	let c = doc.read_count("site");
@@ -3993,7 +3993,7 @@ fn list_reads_say_bad_path() {
 // call meets several. Same fixture in every runner.
 #[test]
 fn path_twins_say_bad_path() {
-	let _id = test_id("EsJ3y7I");
+	let _id = test_id("ddrha");
 	use shcl::Status::{BadPath, Good, Multiple, NotFound};
 	let text = "# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n";
 	let mut doc = Document::parse(text);
@@ -4078,7 +4078,7 @@ fn path_twins_say_bad_path() {
 
 #[test]
 fn huge_selector_index_is_not_found() {
-	let _id = test_id("Elv59be");
+	let _id = test_id("das9x");
 	// An index at or past 2^32 must report not-found on every target width,
 	// never wrap into a live element (pins the contract; 64-bit passes either way).
 	let doc = Document::parse("a: 1\na: 2\n");
@@ -4104,7 +4104,7 @@ fn huge_selector_index_is_not_found() {
 // too. Same fixture in every runner.
 #[test]
 fn bracket_selectors_are_the_old_spelling() {
-	let _id = test_id("Erxfmqa");
+	let _id = test_id("ddkd4");
 	let mut doc = Document::parse("srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n");
 	let d = doc.diagnostics();
 	assert_eq!((d.len(), d[0].code, d[0].line), (1, "E029", 3), "{d:?}");
@@ -4146,7 +4146,7 @@ fn bracket_selectors_are_the_old_spelling() {
 // than write a child that makes another instance.
 #[test]
 fn init_refuses_a_child_of_an_array_parent() {
-	let _id = test_id("Erxfmqb");
+	let _id = test_id("ddkd5");
 	let schema = Document::parse(
 		"field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n",
 	);
@@ -4160,7 +4160,7 @@ fn init_refuses_a_child_of_an_array_parent() {
 
 #[test]
 fn nul_name_does_not_satisfy_a_dotted_schema_path() {
-	let _id = test_id("ElvEcEa");
+	let _id = test_id("dasb1");
 	// The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	// field whose name literally contains a NUL must not impersonate the
 	// two-segment path x.y. Same fixture in every runner.
@@ -4199,7 +4199,7 @@ fn soup_inputs() -> Vec<String> {
 /// every binding (20260926 item 9, 2026101514324705).
 #[test]
 fn format_version_caps_at_32_bits() {
-	let _id = test_id("Er7vwHi");
+	let _id = test_id("dd6yh");
 	assert_eq!(
 		format_version("##    Format   4294967295\na: 1\n"),
 		Some(4294967295)
@@ -4222,7 +4222,7 @@ fn format_version_caps_at_32_bits() {
 /// same rows are in every binding's runner.
 #[test]
 fn stamp_reads_say_why() {
-	let _id = test_id("EsEtTdP");
+	let _id = test_id("ddqh8");
 	use shcl::Status::{BadType, Empty, Good, NotFound};
 	let formats = [
 		("a: 1\n", 0, NotFound, 0, ""),
@@ -4317,7 +4317,7 @@ fn stamp_reads_say_why() {
 /// any value in a message is (2026101514324705). Same rows in every runner.
 #[test]
 fn stamp_hints_quote_digits() {
-	let _id = test_id("EssAxdA");
+	let _id = test_id("de0zn");
 	let zeros = |n: usize| "0".repeat(n);
 	let rows = [
 		(
@@ -4402,7 +4402,7 @@ fn stamp_hints_quote_digits() {
 )]
 #[test]
 fn setters_write_only_what_reads_back() {
-	let _id = test_id("EpGRxM0");
+	let _id = test_id("dcb5r");
 	let mut all = Document::parse("");
 	let mut slot = 0;
 	for s in soup_inputs() {
@@ -4549,7 +4549,7 @@ fn setters_write_only_what_reads_back() {
 // 20261006). 2.x split on every comma, which migrate still reads.
 #[test]
 fn a_comma_splits_a_bare_value_only_before_a_blank() {
-	let _id = test_id("Ervn567");
+	let _id = test_id("ddjy7");
 	let mut tok = Tokens::default();
 	for (line, pieces) in [
 		("x: rw,noatime", 1),
@@ -4574,7 +4574,7 @@ fn a_comma_splits_a_bare_value_only_before_a_blank() {
 // message says what to do.
 #[test]
 fn bare_spaces_colons_and_commas() {
-	let _id = test_id("Ervn568");
+	let _id = test_id("ddjy8");
 	for (text, code, fix) in [
 		(
 			"x: host: a.com port: 80\n",
@@ -4638,7 +4638,7 @@ fn bare_spaces_colons_and_commas() {
 // its quote kind, a quoted number included.
 #[test]
 fn the_writer_quotes_a_colon_or_comma() {
-	let _id = test_id("Ervn569");
+	let _id = test_id("ddjy9");
 	let mut doc = Document::new();
 	assert_eq!(doc.set_string("opts", "rw,noatime"), shcl::SetStatus::Ok);
 	assert_eq!(doc.set_string("display", ":0"), shcl::SetStatus::Ok);
@@ -4698,7 +4698,7 @@ fn the_writer_quotes_a_colon_or_comma() {
 // // answer before and after the writer quotes it (2026101010054746).
 // #[test]
 // fn a_thousands_comma_reads_the_same_after_a_save() {
-// 	let _id = test_id("EsZikJi");
+// 	let _id = test_id("ddwhp");
 // 	let mut doc = Document::parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n");
 // 	assert_eq!(doc.set_string("s", "1,000"), shcl::SetStatus::Ok);
 // 	let out = doc.to_canonical();
@@ -4734,7 +4734,7 @@ fn the_writer_quotes_a_colon_or_comma() {
 )]
 #[test]
 fn loose_reads_a_quoted_thousands_number() {
-	let _id = test_id("EsbaIWJ");
+	let _id = test_id("ddwzw");
 	let text = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\ni: \"1,2000\"\nj: \"1234,567\"\nk: \"$ 1,200\"\nm: \".1,200\"\nn: \"1,200%\"\nl:\n\t- 80,443\n";
 	let loose = Document::parse_with(text, Strictness::Loose).unwrap();
 	for (path, want) in [
@@ -4839,7 +4839,7 @@ fn loose_reads_a_quoted_thousands_number() {
 )]
 #[test]
 fn loose_reads_a_quoted_thousands_number_with_a_trailing_dot() {
-	let _id = test_id("EsdUlxj");
+	let _id = test_id("ddxej");
 	let text = "a: \"1,200.\"\nb: \"$1,200.\"\nc: \"1,200.%\"\nd: 1,200.\ne: \".1,200\"\nf: \"1,200 .\"\ng: \"1,200..\"\nh: '-1,200.'\nl:\n\t- 9,000.\n";
 	let loose = Document::parse_with(text, Strictness::Loose).unwrap();
 	for (path, want) in [
@@ -4920,7 +4920,7 @@ fn loose_reads_a_quoted_thousands_number_with_a_trailing_dot() {
 // value these rules refuse is quoted.
 #[test]
 fn migrate_brackets_a_2x_comma_list() {
-	let _id = test_id("Ervn56A");
+	let _id = test_id("ddjya");
 	let m = migrate(
 		"x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n",
 		true,
@@ -4945,7 +4945,7 @@ fn migrate_brackets_a_2x_comma_list() {
 // would be two, and `[s]` reads as that string too.
 #[test]
 fn migrate_writes_a_lone_2x_element_plain() {
-	let _id = test_id("EsIx4WI");
+	let _id = test_id("ddrgf");
 	let m = migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true);
 	assert_eq!((m.ambiguous, m.lost), (0, 0));
 	assert!(
@@ -4963,7 +4963,7 @@ fn migrate_writes_a_lone_2x_element_plain() {
 // something else is quoted, such as one that looks like `- name: value`.
 #[test]
 fn migrate_writes_star_items_as_dashes() {
-	let _id = test_id("Erwed4A");
+	let _id = test_id("ddk4w");
 	let m = migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true);
 	assert!(
 		m.text
@@ -4983,7 +4983,7 @@ fn migrate_writes_star_items_as_dashes() {
 // fields rather than reading as list items, and `404` stays a name.
 #[test]
 fn migrate_quotes_a_name_not_led_by_a_letter() {
-	let _id = test_id("Erwed4B");
+	let _id = test_id("ddk4x");
 	let m = migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true);
 	assert!(
 		m.text
@@ -5002,7 +5002,7 @@ fn migrate_quotes_a_name_not_led_by_a_letter() {
 // one get the escape for a real mark, so they still read as that text.
 #[test]
 fn migrate_escapes_a_real_mark() {
-	let _id = test_id("Erwed4C");
+	let _id = test_id("ddk4y");
 	let m = migrate(
 		"\"a\u{25C9}q\u{25C9}\": 1\nbare: My\u{25C9}SPACE\u{25C9}App\ns[x\u{25C9}y].p: 2\n",
 		true,
@@ -5035,7 +5035,7 @@ fn migrate_escapes_a_real_mark() {
 // as one with a quote or a space, is quoted, so its block still loads.
 #[test]
 fn migrate_quotes_a_bare_selector_these_rules_refuse() {
-	let _id = test_id("Erwed4D");
+	let _id = test_id("ddk4z");
 	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true);
 	assert!(
 		m.text
@@ -5054,7 +5054,7 @@ fn migrate_quotes_a_bare_selector_these_rules_refuse() {
 // 2.x gets the same rewrite, with nothing counted.
 #[test]
 fn migrate_writes_selectors_in_parens() {
-	let _id = test_id("ErxqQLy");
+	let _id = test_id("ddke1");
 	let text = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n";
 	let want = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n";
 	for from_v2 in [true, false] {
@@ -5076,7 +5076,7 @@ fn migrate_writes_selectors_in_parens() {
 // read as empty, is an empty value.
 #[test]
 fn migrate_counts_what_nothing_spells() {
-	let _id = test_id("Erwed4E");
+	let _id = test_id("ddk50");
 	let m = migrate("a[x, y].b: 1\n", true);
 	assert_eq!(m.lost, 1);
 	let m = migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true);
@@ -5096,7 +5096,7 @@ fn migrate_counts_what_nothing_spells() {
 // brackets is `E029` now, so its line is rewritten the 2.x way.
 #[test]
 fn migrate_leaves_what_reads_clean_now() {
-	let _id = test_id("Erwed4F");
+	let _id = test_id("ddk51");
 	let text = "x: \"a\u{25C9}TAB\u{25C9}b\"\n\"n\u{25C9}TAB\u{25C9}\": 1\nl:\n\t- :0\ns[\"\u{25C9}TAB\u{25C9}\"].p: 1\nb: `abc`\nc: [a]\n";
 	let m = migrate(text, false);
 	assert_eq!(m.ambiguous, 5, "{}", m.text);
@@ -5115,7 +5115,7 @@ fn migrate_leaves_what_reads_clean_now() {
 // 2.x read (2026101911300000). Any other backslash was text in 2.x too.
 #[test]
 fn migrate_writes_the_text_2x_read() {
-	let _id = test_id("EtD5PtP");
+	let _id = test_id("de60f");
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n";
 	let m = migrate(text, true);
 	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
@@ -5157,7 +5157,7 @@ fn migrate_writes_the_text_2x_read() {
 // either way, and converts, and a file that names format 2 converts whole.
 #[test]
 fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {
-	let _id = test_id("EtD5PtQ");
+	let _id = test_id("de60g");
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n";
 	let m = migrate(text, false);
 	assert_eq!((m.ambiguous, m.lost), (2, 0), "{}", m.text);
@@ -5181,7 +5181,7 @@ fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {
 // converts. Any other backslash in a name was text under both.
 #[test]
 fn migrate_counts_a_quoted_name_with_a_backslash_pair_lost() {
-	let _id = test_id("EtD5PtR");
+	let _id = test_id("de60h");
 	let text = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n";
 	for from_v2 in [true, false] {
 		let m = migrate(text, from_v2);
@@ -5211,7 +5211,7 @@ const DEFAULT_TEXT: &str = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80
 // text is a fixpoint. Same table in every runner.
 #[test]
 fn default_fills_what_does_not_read() {
-	let _id = test_id("EsJZko3");
+	let _id = test_id("ddrnb");
 	let note = |line: &str, path: &str, what: &str| {
 		format!(
 			"# {line}  ## replaced by shcl when setting a default for {path}, 2026-10-04 00:15:00 PDT: not {what}"
@@ -5344,7 +5344,7 @@ fn default_fills_what_does_not_read() {
 // text writes nothing. Same fixture in every runner.
 #[test]
 fn default_replace_round_trips() {
-	let _id = test_id("EsJZko7");
+	let _id = test_id("ddrnf");
 	let text = "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n";
 	let ops = [
 		"int-default\tsrv.port\t9",
@@ -5386,7 +5386,7 @@ fn default_replace_round_trips() {
 #[cfg_attr(miri, ignore = "opens with O_NONBLOCK, which Miri can't")]
 #[test]
 fn read_named_schema_follows_check_rules() {
-	let _id = test_id("EsJZ105");
+	let _id = test_id("ddrn7");
 	use shcl::{SchemaStatus as S, read_named_schema};
 	let dir = std::env::temp_dir().join(format!("shcl-namedschema-{}", std::process::id()));
 	let _ = std::fs::remove_dir_all(&dir);
@@ -5485,7 +5485,7 @@ fn read_named_schema_follows_check_rules() {
 // with the status read_line() gives. Same fixture in every runner.
 #[test]
 fn kind_reads_say_what_is_there() {
-	let _id = test_id("EsJYNe1");
+	let _id = test_id("ddrn3");
 	use shcl::Status::{BadPath, Good, Multiple, NotFound};
 	use shcl::ValueKind::{Array, Empty, Raw, Scalar};
 	let text = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n";
@@ -5564,7 +5564,7 @@ fn kind_reads_say_what_is_there() {
 /// Same fixture in every runner; the prose is each binding's own.
 #[test]
 fn format_diagnostic_is_the_cli_line() {
-	let _id = test_id("EshdmF9");
+	let _id = test_id("ddyef");
 	use shcl::{Diagnostic, Severity, format_diagnostic};
 	let doc = shcl::Document::parse("a: 1\nb: [x\n");
 	let d = &doc.diagnostics()[0];
@@ -5639,7 +5639,7 @@ fn format_diagnostic_is_the_cli_line() {
 )]
 #[test]
 fn format_value_is_the_setters_text() {
-	let _id = test_id("EshnBvV");
+	let _id = test_id("ddyfm");
 	use shcl::{SetStatus, format_float, format_value};
 	let mut inputs = soup_inputs();
 	for s in FORMAT_VALUE_EXTRA {
@@ -5692,7 +5692,7 @@ fn format_value_is_the_setters_text() {
 /// once. A field that isn't stops this compiling (2026101514324720).
 #[test]
 fn document_is_send_and_sync() {
-	let _id = test_id("EstLlpO");
+	let _id = test_id("de18r");
 	fn shared<T: Send + Sync>() {}
 	shared::<Document>();
 }
@@ -5708,7 +5708,7 @@ fn document_is_send_and_sync() {
 )]
 #[test]
 fn quote_segment_selects_a_held_value() {
-	let _id = test_id("EstLlpK");
+	let _id = test_id("de18m");
 	use shcl::format_value;
 	let mut values: Vec<String> = [
 		"first",
@@ -5793,7 +5793,7 @@ const FORMAT_VALUE_EXTRA: &[&str] = &[
 )]
 #[test]
 fn format_array_is_the_setters_text() {
-	let _id = test_id("EsiL1FW");
+	let _id = test_id("ddykv");
 	use shcl::{SetStatus, format_array, format_float, format_value};
 	let mut texts = soup_inputs();
 	for s in FORMAT_VALUE_EXTRA {
@@ -5876,7 +5876,7 @@ fn format_array_is_the_setters_text() {
 )]
 #[test]
 fn a_save_over_a_file_changed_since_the_load_is_refused() {
-	let _id = test_id("Eu7RSm3");
+	let _id = test_id("dekj6");
 	use shcl::{SaveError, SaveOptions};
 	let dir = std::env::temp_dir().join(format!("shcl-changed-{}", std::process::id()));
 	let _ = std::fs::remove_dir_all(&dir);
@@ -5972,7 +5972,7 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 )]
 #[test]
 fn a_create_only_save_refuses_a_file_already_there() {
-	let _id = test_id("Eu7hQCd");
+	let _id = test_id("dekm5");
 	use shcl::{SaveError, SaveOptions};
 	let dir = std::env::temp_dir().join(format!("shcl-create-{}", std::process::id()));
 	let _ = std::fs::remove_dir_all(&dir);
@@ -6089,7 +6089,7 @@ fn a_create_only_save_refuses_a_file_already_there() {
 #[cfg_attr(miri, ignore = "saves to disk")]
 #[test]
 fn a_newer_format_document_saves_nowhere() {
-	let _id = test_id("Eu8h5g4");
+	let _id = test_id("dekvt");
 	use shcl::{SaveError, SaveOptions};
 	let dir = std::env::temp_dir().join(format!("shcl-newer-{}", std::process::id()));
 	let _ = std::fs::remove_dir_all(&dir);

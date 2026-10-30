@@ -101,7 +101,7 @@ def main() -> int:
 	sys.unraisablehook = _unraisable
 	# The clock every runner pins, as conformance.py does.
 	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
-	test_id("Et01jhM", "soak_heap_settles")
+	test_id("de2w1", "soak_heap_settles")
 	cases = soak_cases()
 	counts = {"saved": 0, "validated": 0}
 	snaps = []
@@ -145,5 +145,5 @@ if __name__ == "__main__":
 	except BaseException:
 		test_id_end("FAIL")
 		raise
-	test_id_end("FAIL" if rc else "ok")
+	test_id_end("FAIL" if rc else "PASS")
 	sys.exit(rc)

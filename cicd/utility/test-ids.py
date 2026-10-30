@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 ##	Purpose: Test IDs. Every test the pipeline runs has one, and prints it
-##		on its status line. An ID is the test's creation time in milliseconds
-##		since 2000-01-01 00:00 UTC, in base 62 (0-9, A-Z, a-z), padded to seven
-##		characters, so IDs sort by age.
+##		on its status line. An ID is the test's creation time in whole minutes
+##		since 2000-01-01 00:00 UTC, in lowercase Crockford base 32, padded to
+##		five characters, so IDs sort by age. When two tests fall on one minute
+##		the newer takes the next free one. An ID never changes once given.
 ##	Syntax:
 ##		test-ids.py new [COUNT]   print COUNT fresh IDs (default 1)
 ##		test-ids.py when ID ...   print the time each ID stands for
@@ -28,32 +29,35 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+DIGITS = "0123456789abcdefghjkmnpqrstvwxyz"
 EPOCH_2000 = 946684800
-WIDTH = 7
-ID = r"[0-9A-Za-z]{7}"
+WIDTH = 5
+ID = r"[0-9a-hjkmnp-tv-z]{5}"
 repo = Path(__file__).resolve().parents[2]
 
 
-def encode(ms: int) -> str:
+def encode(minutes: int) -> str:
 	out = ""
-	while ms:
-		ms, digit = divmod(ms, 62)
+	while minutes:
+		minutes, digit = divmod(minutes, 32)
 		out = DIGITS[digit] + out
 	return out.rjust(WIDTH, "0")
 
 
 def decode(tid: str) -> int:
-	ms = 0
+	minutes = 0
 	for ch in tid:
-		ms = ms * 62 + DIGITS.index(ch)
-	return ms
+		minutes = minutes * 32 + DIGITS.index(ch)
+	return minutes
+
+
+def fNow() -> int:
+	return int(time.time() - EPOCH_2000) // 60
 
 
 def fWhen(tid: str) -> str:
-	secs, ms = divmod(decode(tid), 1000)
-	stamp = datetime.fromtimestamp(EPOCH_2000 + secs, tz=timezone.utc)
-	return stamp.strftime("%Y-%m-%d %H:%M:%S.") + f"{ms:03d} UTC"
+	stamp = datetime.fromtimestamp(EPOCH_2000 + decode(tid) * 60, tz=timezone.utc)
+	return stamp.strftime("%Y-%m-%d %H:%M UTC")
 
 
 ##	Where tests are defined. A "need" pattern finds each test, and the ID
@@ -77,6 +81,10 @@ COLLECT: list[tuple[str, str]] = [
 	("cicd/utility/*.ps1", rf"\bTest-Check -Id '({ID})' "),
 	("cicd/config.bash", rf"^PROFILE_CHECK_ID=({ID})$"),
 ]
+##	A marker still holding a base 62 ID from before 2026-10-30 matches none of
+##	the above, so it would run unlisted. These find it.
+OLD = r"[0-9A-Za-z]{7}"
+OLD_COLLECT = [(glob, pattern.replace(ID, OLD)) for glob, pattern in COLLECT]
 ##	Every test a language's own runner finds, in any tracked file. One outside
 ##	the NEED table's files, or written so its pattern misses it, would run with
 ##	no ID and nothing here saying so. TestMain runs the tests and is none. The
@@ -173,7 +181,7 @@ def fScan() -> tuple[list[tuple[str, str, int]], list[str]]:
 				if re.match(pattern, line) and not any(f == rel and re.match(need, line) for f, need in placed):
 					bad.append(f"{rel}:{n + 1}: a test in a place the tables here do not know")
 
-	for glob, pattern in COLLECT:
+	for (glob, pattern), (_, old) in zip(COLLECT, OLD_COLLECT):
 		for path in sorted(repo.glob(glob)):
 			if path.name == Path(__file__).name:
 				continue
@@ -181,6 +189,8 @@ def fScan() -> tuple[list[tuple[str, str, int]], list[str]]:
 			for n, line in enumerate(fLiveLines(path)):
 				for hit in re.finditer(pattern, line):
 					found.append((hit.group(1), rel, n + 1))
+				for hit in re.finditer(old, line):
+					bad.append(f"{rel}:{n + 1}: an ID in the old base 62 form: {hit.group(1)}")
 
 	for file, name in ROWS:
 		lines = (repo / file).read_text(encoding="utf-8").splitlines()
@@ -204,7 +214,7 @@ def fScan() -> tuple[list[tuple[str, str, int]], list[str]]:
 
 def fCheck() -> int:
 	found, bad = fScan()
-	now = (time.time() - EPOCH_2000) * 1000 + 86400000
+	soon = fNow() + 1440
 	first: dict[str, str] = {}
 	for tid, file, line in found:
 		at = f"{file}:{line}"
@@ -212,8 +222,9 @@ def fCheck() -> int:
 			bad.append(f"{at}: ID {tid} is already used at {first[tid]}")
 			continue
 		first[tid] = at
-		## Nothing here is older than the repo, and nothing is from the future.
-		if not 20 * 365 * 86400000 < decode(tid) < now:
+		## Nothing here is older than the repo, and nothing is from the future,
+		## less the day a run of new IDs on a busy minute can push ahead.
+		if not 20 * 365 * 1440 < decode(tid) < soon:
 			bad.append(f"{at}: ID {tid} stands for {fWhen(tid)}")
 	for problem in bad:
 		print(f"test-ids: {problem}", file=sys.stderr)
@@ -226,10 +237,10 @@ def fCheck() -> int:
 
 def fNew(count: int) -> int:
 	used = {tid for tid, _, _ in fScan()[0]}
-	ms = int((time.time() - EPOCH_2000) * 1000)
+	minute = fNow()
 	while count:
-		tid = encode(ms)
-		ms += 1
+		tid = encode(minute)
+		minute += 1
 		if tid in used:
 			continue
 		print(tid)
@@ -277,3 +288,5 @@ if __name__ == "__main__":
 ##	History:
 ##		2026-09-27  Created.
 ##		2026-10-16  A commented-out marker is no test.
+##		2026-10-30  Crockford base 32 minutes, per the shared CICD rules. Every
+##		            base 62 millisecond ID converted once, from its own time.

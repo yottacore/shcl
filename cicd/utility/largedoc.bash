@@ -283,9 +283,9 @@ for entry in "${bindings[@]}"; do
 	printf '%-8s %8s %10s   %s\n' "${name}" "${runSecs}" "${runRssMib}" "${note}"
 done
 echo
-fTest EnPl0qG bindings agree on the large document
+fTest dbfk3 bindings agree on the large document
 nBad+=agreeBad
-fTest Eqbhfd2 bindings within their time and memory limits
+fTest dcz6f bindings within their time and memory limits
 nBad+=limitBad
 
 ## Reference-only invariants at this scale, from the reads above. Formatting has
@@ -301,15 +301,15 @@ else
 	## Empty output agrees with empty output, so every binding would pass above.
 	echo "largedoc: FAILED: the reference wrote nothing, so no invariant could be checked" >&2; rc=1
 fi
-fTest EnPl0qH fmt is a fixpoint on the large document
+fTest dbfk4 fmt is a fixpoint on the large document
 if [[ "${fixpoint}" != yes ]]; then
 	echo "largedoc: FAILED: fmt is not a fixpoint at ${actualMib} MiB" >&2; rc=1; nBad+=1
 fi
-fTest Eojtm8u the generated document loads with no diagnostics
+fTest dc3b8 the generated document loads with no diagnostics
 if [[ "${summary}" != "ok (0 diagnostic(s))" ]]; then
 	echo "largedoc: FAILED: the generated document does not load clean: ${summary}" >&2; rc=1; nBad+=1
 fi
-fTest EnPl0qI a long array reads back whole
+fTest dbfk5 a long array reads back whole
 if [[ "${wideCount}" != 20000 ]]; then
 	echo "largedoc: FAILED: long array read back ${wideCount} of 20000 elements" >&2; rc=1; nBad+=1
 fi

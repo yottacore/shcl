@@ -578,12 +578,12 @@ def test_id_end(status: str | None = None) -> None:
 
 def test_id(tid: str, name: str) -> None:
 	test_id_end()
-	_open.update(tid=tid, name=name, status="ok", fails=FAILS[0])
+	_open.update(tid=tid, name=name, status="PASS", fails=FAILS[0])
 
 
 def test_skip() -> None:
 	if _open:
-		_open["status"] = "skip"
+		_open["status"] = "SKIP"
 
 
 def main() -> int:
@@ -597,7 +597,7 @@ def main() -> int:
 		print(f"check-abnf: {msg}", file=sys.stderr)
 		FAILS[0] += 1
 
-	test_id("EqL32jg", "grammar-is-abnf")
+	test_id("dcv6b", "grammar-is-abnf")
 	rules: dict[str, Node] = {}
 	lines: dict[str, int] = {}
 	try:
@@ -634,7 +634,7 @@ def main() -> int:
 		test_id_end()
 		print(f"check-abnf: {FAILS[0]} problem(s)", file=sys.stderr)
 		return 1
-	test_id("EqL32jh", "samples-derive")
+	test_id("dcv6c", "samples-derive")
 	for rule, text, want in SAMPLES:
 		if rule not in rules:
 			fBad(f"no rule {rule} to check {text!r} against")
@@ -647,7 +647,7 @@ def main() -> int:
 		print(f"check-abnf: {FAILS[0]} problem(s)", file=sys.stderr)
 		return 1
 
-	test_id("EqWax3I", "samples-read-alike-by-the-cli")
+	test_id("dcxz5", "samples-read-alike-by-the-cli")
 	cli = fCli()
 	if cli is None:
 		if os.environ.get("SHCL_GATE_STRICT"):

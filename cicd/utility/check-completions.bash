@@ -119,7 +119,7 @@ fZshTop() {
 	tr ' ' '\n' <<<"${subs} ${extra}" | sed '/^$/d' | sort -u | paste -sd' '
 }
 
-fTest EnPQRbk option-tables-agree
+fTest dbfgh option-tables-agree
 rustTable="$(fRustTable)"
 [[ -n "${rustTable}" ]] || { echo "check-completions: no option table found in ${mainRs}" >&2; exit 1; }
 
@@ -132,7 +132,7 @@ for cf in "${compFiles[@]}"; do
 	fi
 done
 
-fTest EoShutc top-level-offers-agree
+fTest dbz6y top-level-offers-agree
 rustTop="$(fRustTop)"
 [[ -n "${rustTop}" ]] || { echo "check-completions: no top-level offer found in ${mainRs}" >&2; exit 1; }
 
@@ -149,7 +149,7 @@ for cf in "${compFiles[@]}"; do
 	fi
 done
 
-fTest Ep11mJc value-options-agree
+fTest dc7f2 value-options-agree
 ## The value-option lists: an option that takes a value and is missing here
 ## has its value counted as a positional, which eats the FILE slot.
 rustVal="$(fRustValOpts)"
@@ -164,7 +164,7 @@ for cf in "${compFiles[@]}"; do
 	fi
 done
 
-fTest EoXNcum every-command-dispatches
+fTest dc0ax every-command-dispatches
 ## Every command the CLI accepts must have a dispatch arm of its own. One
 ## without used to fall through to whichever command the catch-all named - no
 ## compile error, no message.
@@ -177,7 +177,7 @@ if [[ "${rustCmds}" != "${rustArms}" ]]; then
 	nBad=$((nBad + 1))
 fi
 
-fTest ErlbzxH zsh-summaries-match-help
+fTest ddgfw zsh-summaries-match-help
 ## Each zsh summary's longer words must be in that subcommand's help entry. The
 ## set summary said "canonical form" for months after set stopped printing one.
 ## Words under five letters are skipped, so "the help text" and the like pass.

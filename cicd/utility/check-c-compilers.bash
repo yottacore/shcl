@@ -222,23 +222,23 @@ for ((i = 1; i <= nRun; i++)); do
 	fi
 done
 declare -i nKindBad=0
-fTest EoXhawq main.c builds on every compiler
+fTest dc0dc main.c builds on every compiler
 nKindBad+=${kindBad[main.c]:-0}
-fTest EoXhawr conformance.c builds on every compiler
+fTest dc0dd conformance.c builds on every compiler
 nKindBad+=${kindBad[conformance.c]:-0}
-fTest EoezJiE mem_bounds.c builds on every compiler
+fTest dc25g mem_bounds.c builds on every compiler
 nKindBad+=${kindBad[mem_bounds.c]:-0}
-fTest Eptzmsi main.c builds with _GNU_SOURCE
+fTest dcmp3 main.c builds with _GNU_SOURCE
 nKindBad+=${kindBad[gnu]:-0}
-fTest EqNHTSi main.c builds with _FORTIFY_SOURCE
+fTest dcvqf main.c builds with _FORTIFY_SOURCE
 nKindBad+=${kindBad[fortify]:-0}
-fTest EqAMPEG the header after a system header is refused by name
+fTest dcrm1 the header after a system header is refused by name
 nKindBad+=${kindBad[order]:-0}
-fTest EoaFuVM oom_hook.c builds at every optimization level
+fTest dc111 oom_hook.c builds at every optimization level
 nKindBad+=${kindBad[oom_hook.c]:-0}
-fTest EoaFuVN oom_recover.c builds at every optimization level
+fTest dc112 oom_recover.c builds at every optimization level
 nKindBad+=${kindBad[oom_recover.c]:-0}
-fTest EstZ5TC the C CLI built against musl passes cli-regress
+fTest de1aa the C CLI built against musl passes cli-regress
 if ((muslRun)); then nKindBad+=${kindBad[musl]:-0}; else fTestSkip; fi
 fTestEnd
 

@@ -81,7 +81,7 @@ fn iter_count(floor: usize) -> usize {
 
 #[test]
 fn the_iteration_count_refuses_a_value_that_is_not_one() {
-	let _id = test_id("EqMEflw");
+	let _id = test_id("dcvfj");
 	assert_eq!(iter_count_from(None, 1), 300);
 	assert_eq!(iter_count_from(Some("20000"), 1), 20000);
 	assert_eq!(
@@ -272,7 +272,7 @@ fn seed_texts() -> Vec<String> {
 )]
 #[test]
 fn mutated_inputs_never_panic_and_format_is_fixpoint() {
-	let _id = test_id("Ejri0IV");
+	let _id = test_id("d9tnp");
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_CAFE_F00D_0001);
@@ -390,7 +390,7 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 /// comes with a path that checks Ok, and a refusal writes nothing.
 #[test]
 fn setter_status_agrees_with_the_path_check() {
-	let _id = test_id("EsDRhJo");
+	let _id = test_id("ddq66");
 	use shcl::SetStatus::*;
 	let path_reasons = [
 		BadPath,
@@ -487,7 +487,7 @@ fn setter_status_agrees_with_the_path_check() {
 )]
 #[test]
 fn writes_on_structural_soup_stay_fixpoint() {
-	let _id = test_id("Eof6zmK");
+	let _id = test_id("dc26d");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_57A7_1C00_0002);
 	for i in 0..iters {
@@ -554,7 +554,7 @@ fn writes_on_structural_soup_stay_fixpoint() {
 /// holding it has to end with it.
 #[test]
 fn comments_behind_selectors_stay_comments() {
-	let _id = test_id("Ep3OILJ");
+	let _id = test_id("dc819");
 	// The four selector shapes on their own first. In the soup a line can be
 	// dropped by what sits above it, and a dropped line never reaches the loop
 	// below - so the floor there was met by the two shapes that always bind,
@@ -673,7 +673,7 @@ fn kept_misplaced(
 )]
 #[test]
 fn lost_count_follows_the_outcome_table() {
-	let _id = test_id("EpFAzfk");
+	let _id = test_id("dcavy");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_57A7_1C00_0004);
 	let (mut lost_seen, mut kept_seen) = (0usize, 0usize);
@@ -790,7 +790,7 @@ fn lost_count_follows_the_outcome_table() {
 )]
 #[test]
 fn a_cap_refuses_only_a_line_that_would_bind() {
-	let _id = test_id("EqKhPQO");
+	let _id = test_id("dcv3k");
 	let iters = iter_count(1);
 	const REFUSING: &[&str] = &[
 		"E003", "E004", "E006", "E007", "E008", "E009", "E011", "E013", "E014", "E016",
@@ -957,7 +957,7 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 // A `*` line opens no block, with a file-start BOM in front of it too.
 #[test]
 fn a_bom_hides_no_star_from_the_raw_spans() {
-	let _id = test_id("ErsMtSw");
+	let _id = test_id("ddj3w");
 	let base = "\u{feff}*aw: ```sql\nbody\n";
 	assert!(raw_spans(base).is_empty());
 	assert!(kept_text(base).spans.is_empty());
@@ -968,7 +968,7 @@ fn a_bom_hides_no_star_from_the_raw_spans() {
 // load reads it. A trailing run is still trimmed.
 #[test]
 fn a_cr_after_the_indent_closes_no_raw_span() {
-	let _id = test_id("ErsrQev");
+	let _id = test_id("ddj7r");
 	let base = "a: ~~~\n\t\r~~~\nb\n~~~\n";
 	assert_eq!(raw_spans(base), [(1, 4)]);
 	assert!(Document::parse(base).diagnostics().is_empty());
@@ -979,7 +979,7 @@ fn a_cr_after_the_indent_closes_no_raw_span() {
 // after it still opens a block, as the load reads it.
 #[test]
 fn a_cr_in_the_indent_still_opens_a_raw_span() {
-	let _id = test_id("EssPQ7b");
+	let _id = test_id("de122");
 	let base = "a:\n\t\r~~~\n\tb: 1\n\t~~~\nc: 2\n";
 	assert_eq!(raw_spans(base), [(2, 4)]);
 	assert!(Document::parse(base).diagnostics().is_empty());
@@ -999,7 +999,7 @@ fn a_cr_in_the_indent_still_opens_a_raw_span() {
 )]
 #[test]
 fn raw_bodies_stay_content() {
-	let _id = test_id("EqGWdij");
+	let _id = test_id("dct3h");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_57A7_1C00_0008);
 	let (mut seen, mut skipped, mut read_back) = (0usize, 0usize, 0usize);
@@ -1093,7 +1093,7 @@ fn raw_bodies_stay_content() {
 /// from what the parser kept.
 #[test]
 fn schema_and_format_lines_follow_the_parser() {
-	let _id = test_id("ErfuRfE");
+	let _id = test_id("ddf41");
 	const NAMES: &[&str] = &[
 		"a",
 		"b",
@@ -1179,7 +1179,7 @@ fn schema_and_format_lines_follow_the_parser() {
 )]
 #[test]
 fn upgrade_leaves_its_own_output_alone() {
-	let _id = test_id("EssNzSi");
+	let _id = test_id("de116");
 	// About 4 in 100 runs make over a file naming this format, so at Miri's
 	// 100 the guard below rode on 1 or 2 hits and a seed move broke it
 	// (2026102413172941). At 300 it needs 4 of about 11.
@@ -1309,7 +1309,7 @@ fn list_with_field(doc: &Document) -> bool {
 // /// under it builds a list no text loads back, and the save refuses it.
 // #[test]
 // fn a_kept_array_line_can_build_the_list_no_text_loads_back() {
-// 	let _id = test_id("Erxfmqc");
+// 	let _id = test_id("ddkd8");
 // 	let doc = Document::parse("srv.srv: 2\nsrv: [v1]\n\tq(*): 7\n\t- 0\n\tc: 1\n");
 // 	assert!(list_after_empty(&doc), "{}", doc.to_canonical());
 // 	assert!(doc.lost_count() > 0);
@@ -1321,7 +1321,7 @@ fn list_with_field(doc: &Document) -> bool {
 /// is lost, and the field binds under the field the array line opened.
 #[test]
 fn a_kept_array_line_builds_no_list_with_a_field() {
-	let _id = test_id("EtXAOBZ");
+	let _id = test_id("deav0");
 	let doc = Document::parse("srv.srv: 2\nsrv: [v1]\n\tq(*): 7\n\t- 0\n\tc: 1\n");
 	assert!(!list_with_field(&doc), "{}", doc.to_canonical());
 	assert_eq!(doc.lost_count(), 0);
@@ -1352,7 +1352,7 @@ fn too_deep_for_miri(docs: &[&Document]) -> bool {
 )]
 #[test]
 fn merge_never_panics_and_stays_fixpoint() {
-	let _id = test_id("EkyV758");
+	let _id = test_id("dab72");
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_CAFE_F00D_0007);
@@ -1490,7 +1490,7 @@ fn merge_never_panics_and_stays_fixpoint() {
 )]
 #[test]
 fn writer_roundtrips_and_stays_fixpoint() {
-	let _id = test_id("Ekfzh7g");
+	let _id = test_id("da6rk");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_0000_1234_ABCD);
 	let mut thousands = 0usize;
@@ -1721,7 +1721,7 @@ fn read_drift(a: &Document, b: &Document, p: &str) -> Option<String> {
 )]
 #[test]
 fn typed_reads_survive_a_save() {
-	let _id = test_id("EsZikJr");
+	let _id = test_id("ddwhn");
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_1010_1005_4746);
@@ -1828,7 +1828,7 @@ fn thousands_by_spec(t: &str) -> Option<f64> {
 )]
 #[test]
 fn quoted_thousands_read_by_the_rule() {
-	let _id = test_id("EsoRGsu");
+	let _id = test_id("de032");
 	let iters = iter_count(200);
 	let mut rng = Rng(0x5EED_1015_1432_4703);
 	let (mut numbers, mut texts) = (0usize, 0usize);
@@ -1923,7 +1923,7 @@ fn quoted_thousands_read_by_the_rule() {
 )]
 #[test]
 fn edits_and_merges_match_a_reload() {
-	let _id = test_id("Eqk24nZ");
+	let _id = test_id("dd16k");
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_0923_C0DE_0003);
@@ -2031,7 +2031,7 @@ fn reload_took_only_comments(live: &str, back: &str) -> bool {
 /// comment and takes it with the field.
 #[test]
 fn a_remove_keeps_a_settled_line_below_it() {
-	let _id = test_id("ErpmA09");
+	let _id = test_id("ddhfy");
 	let mut live = Document::parse("a: [1\n\t\t\": \n\t d-: 2\n\te: 3\n");
 	assert_eq!(live.clear_comments("a.d"), 0);
 	assert_eq!(live.set_empty("a.c"), shcl::SetStatus::Ok);
@@ -2096,7 +2096,7 @@ fn tidy(rng: &mut Rng) -> String {
 )]
 #[test]
 fn keeping_lines_reloads_as_the_document() {
-	let _id = test_id("EqutO7I");
+	let _id = test_id("dd3t9");
 	let iters = iter_count(300);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_0925_4B33_0001);
@@ -2352,7 +2352,7 @@ fn kept_soup(rng: &mut Rng) -> String {
 )]
 #[test]
 fn kept_lines_keep_their_path() {
-	let _id = test_id("ErZx5Et");
+	let _id = test_id("dddp5");
 	let iters = iter_count(300);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_1002_1320_0001);
@@ -3230,7 +3230,7 @@ fn footer_piled(before: &str, layer: &str, merged: &str, skipped: &[String]) -> 
 // line the dedup skipped.
 #[test]
 fn a_misplaced_tail_line_is_no_skipped_copy() {
-	let _id = test_id("ErsPRww");
+	let _id = test_id("ddj46");
 	let (base, layer) = ("a: 1\n- name:\n", "q:\n\t- 5\n    - name:\n- name:\n");
 	let mut doc = Document::parse(base);
 	let before = doc.to_canonical();
@@ -3248,7 +3248,7 @@ fn a_misplaced_tail_line_is_no_skipped_copy() {
 // leaf under a repeated parent counts.
 #[test]
 fn merge_exceptions_go_by_position() {
-	let _id = test_id("ErpR2rr");
+	let _id = test_id("ddhda");
 	let mut doc = Document::parse("s: u\n\tb: 1\ns: v\n\tx: 0\n\t\tc: 2\n\t  a: 5\n\tb: 1\n");
 	assert_eq!(doc.remove("s(v).x.c"), 1);
 	let before = doc.to_canonical();
@@ -3304,7 +3304,7 @@ fn merge_exceptions_go_by_position() {
 // which a count by text passes.
 #[test]
 fn remove_and_setter_exceptions_go_by_position() {
-	let _id = test_id("ErqSBCw");
+	let _id = test_id("ddhn5");
 	let base = "x: 0\na: [1\ny: 1\na: [1\n\tb: 2\nz: 3\n";
 	let mut doc =
 		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
@@ -3352,7 +3352,7 @@ fn remove_and_setter_exceptions_go_by_position() {
 // of the field's own line too. It still finds one that went up or is gone.
 #[test]
 fn a_misplaced_copy_moves_down() {
-	let _id = test_id("ErsETOT");
+	let _id = test_id("ddj2v");
 	let base = "k:\n\tj: 1\n  a:\n\tb: [8] x\n\t\ta:\n";
 	let mut doc =
 		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
@@ -3385,7 +3385,7 @@ fn a_misplaced_copy_moves_down() {
 )]
 #[test]
 fn kept_lines_survive_edits() {
-	let _id = test_id("EreT6dh");
+	let _id = test_id("dderx");
 	let iters = iter_count(300);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_1003_0731_0001);
@@ -3756,7 +3756,7 @@ fn one<'a>(hits: &[&(&str, &'a str)], majority: &'a str) -> Option<&'a str> {
 )]
 #[test]
 fn keeping_lines_ends_each_line_by_the_rule() {
-	let _id = test_id("ErTmDwQ");
+	let _id = test_id("ddc6m");
 	let iters = iter_count(300);
 	let mut rng = Rng(0x5EED_1001_E01F_0001);
 	// Kept and changed lines whose ending is not the majority one, new lines,
@@ -3913,7 +3913,7 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 )]
 #[test]
 fn tokens_follow_the_grammar() {
-	let _id = test_id("EpFkZy4");
+	let _id = test_id("dcb0c");
 	let iters = iter_count(2000);
 	let mut rng = Rng(0x5EED_70CE_0000_0005);
 	let mut tok = Tokens::default();
@@ -4248,7 +4248,7 @@ fn generate_checked(schema_text: &str) -> Option<String> {
 )]
 #[test]
 fn generated_starters_load_and_validate_clean() {
-	let _id = test_id("EptVfIO");
+	let _id = test_id("dcmjb");
 	let iters = iter_count(1);
 	const PATHS: &[&str] = &[
 		"a",
@@ -4410,7 +4410,7 @@ fn new_notes<'t>(before: &str, after: &'t str) -> Vec<&'t str> {
 )]
 #[test]
 fn a_default_leaves_a_value_of_its_type() {
-	let _id = test_id("EsJZkoB");
+	let _id = test_id("ddrnk");
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_D0FA_0017_0020);

@@ -780,20 +780,20 @@ for k in "${!pids[@]}"; do
 		echo "crosscheck: worker ${k} ended at exit ${wrc} without finishing" >&2
 	fi
 done
-fTest EjsGuy8 usage and option behavior
+fTest d9tsx usage and option behavior
 nKindBad+=badUsage
-fTest EjsGuy9 corpus cases agree
+fTest d9tsy corpus cases agree
 nKindBad+=badCase
 ## The comparison floor is this test's too, or its line read ok on a run that
 ## then refused for comparing too little.
 if ((nCompared < minCompared)); then nKindBad+=1; fi
-fTest EjsGuyA fuzz inputs agree
+fTest d9tsz fuzz inputs agree
 nKindBad+=badExtra
 [[ -n "$extra" ]] || fTestSkip
-fTest ErUF4nK mixed line-ending keep saves agree
+fTest ddca7 mixed line-ending keep saves agree
 nKindBad+=badEol
 [[ -n "$extra" && -d "${extra}/eol" ]] || fTestSkip
-fTest EreXO4J kept lines under edits agree
+fTest ddesf kept lines under edits agree
 nKindBad+=badKept
 [[ -n "$extra" && -d "${extra}/kept" ]] || fTestSkip
 fTestEnd

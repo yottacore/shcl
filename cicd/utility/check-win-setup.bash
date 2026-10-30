@@ -58,20 +58,20 @@ fUninstall(){ fPs "exit (Start-Process -FilePath '${dirWin}\uninstall.exe' -Argu
 ## A failed run still takes the install off the box.
 trap '[[ -f "${dirU}/uninstall.exe" ]] && fUninstall || true' EXIT
 
-fTest EtIkYkb the setup installs silently and puts its folder on the machine PATH
+fTest de7c2 the setup installs silently and puts its folder on the machine PATH
 rc=0; "${setup}" /S || rc=$?
 ((rc == 0)) || fBad "setup /S exited ${rc}"
 [[ -f "${dirU}/shcl.exe" && -f "${dirU}/uninstall.exe" ]] || fBad "${dirWin} is missing shcl.exe or uninstall.exe"
 fOnPath "${dirWin}" || fBad "${dirWin} isn't on the machine PATH"
 fHasKey || fBad "no ${regKey}, in either view"
 
-fTest EtIkYnd shcl from the machine PATH is the installed one and runs
+fTest de7c3 shcl from the machine PATH is the installed one and runs
 want="$("${dirU}/shcl.exe" --version 2>&1 | tr -d '\r' || true)"
 got="$(fPs "\$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine'); (Get-Command shcl).Source; shcl --version" 2>&1 || true)"
 [[ "${got,,}" == "${dirWin,,}\\shcl.exe"$'\n'"${want,,}" && "${want}" == "shcl v"* ]] \
 	|| fBad "shcl from the machine PATH gave ${got@Q}, the installed one ${want@Q}"
 
-fTest EtIkYqY the uninstaller takes off the PATH entry, the files and the uninstall key
+fTest de7c4 the uninstaller takes off the PATH entry, the files and the uninstall key
 ## With _?= it runs in place and waits, so it can't delete itself or the folder.
 rc=0; fUninstall || rc=$?
 ((rc == 0)) || fBad "uninstall.exe /S exited ${rc}"

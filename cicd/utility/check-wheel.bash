@@ -77,7 +77,7 @@ done
 ## than a sed pipe: one less fork, and shellcheck prefers it.
 fIndent(){ printf '  %s\n' "${1//$'\n'/$'\n'  }"; }
 
-fTest EqM6SvY backend-is-the-pinned-one
+fTest dcved backend-is-the-pinned-one
 ## What actually built the wheel. setuptools writes itself into the metadata as
 ## `Generator: setuptools (X)`, so this reads the pin off the artifact rather
 ## than off the command line that asked for it.
@@ -94,7 +94,7 @@ if [[ "${gotBackend}" != "${wantBackend}" ]]; then
 	nBad=$((nBad + 1))
 fi
 
-fTest EnUSdUG wheel-is-the-library-alone
+fTest dbgq9 wheel-is-the-library-alone
 ## The wheel's payload is everything outside the .dist-info metadata directory.
 ## Exactly one file belongs there.
 wheelPayload="$(python3 - "${outDir}" <<'PY'
@@ -109,7 +109,7 @@ if [[ "${wheelPayload}" != "shcl.py" ]]; then
 	nBad=$((nBad + 1))
 fi
 
-fTest EnUSdUH wheel-installs-no-command
+fTest dbgqa wheel-installs-no-command
 ## An entry point would put a `shcl` command on PATH from a pip install, which
 ## is the thing this whole arrangement exists to prevent.
 if python3 - "${outDir}" <<'PY'
@@ -122,7 +122,7 @@ then
 	nBad=$((nBad + 1))
 fi
 
-fTest EnUSdUI sdist-has-no-cli-or-tests
+fTest dbgqb sdist-has-no-cli-or-tests
 ## The sdist is looser by nature - it has the project files - but the CLI
 ## and the tests still have no business in it.
 strays="$(tar tzf "${outDir}"/*.tar.gz | grep -E '/(cmd|tests)/' || true)"

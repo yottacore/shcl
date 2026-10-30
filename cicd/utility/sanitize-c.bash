@@ -117,7 +117,7 @@ fJobsWait(){
 	nLive=0
 	failed=()
 	for ((i = $1; i <= nJobs; i++)); do
-		grep -vE '^(ok|skip) +[0-9A-Za-z-]{7} c(\+\+)? ' "${work}/${i}.log" || true
+		grep -vE '^(PASS|SKIP) [0-9a-z-]{5} c(\+\+)? ' "${work}/${i}.log" || true
 		jrc=""
 		if [[ -f "${work}/${i}.rc" ]]; then read -r jrc <"${work}/${i}.rc"; fi
 		if [[ -z "${jrc}" ]]; then failed+=("${jobNames[i]}: ended without a result"); jobFailed[${jobNames[i]}]=1
@@ -146,9 +146,9 @@ if ((debugStl)); then
 	fJob "veneer_smoke in debug mode" "${dsDir}/veneer_smoke"
 	fJobsWait "${firstRun}"
 	declare -i nJobBad=0
-	fTest Et9t3Wv libstdc++ debug mode stops a planted iterator past the end
+	fTest de580 libstdc++ debug mode stops a planted iterator past the end
 	if [[ -n "${jobFailed[debug-mode bait]:-}" ]]; then nJobBad+=1; fi
-	fTest Et9t3ab veneer_smoke under libstdc++ debug mode, ASan and UBSan
+	fTest de581 veneer_smoke under libstdc++ debug mode, ASan and UBSan
 	if [[ -n "${jobFailed[veneer_smoke in debug mode]:-}" ]]; then nJobBad+=1; fi
 	fTestEnd
 	if ((${#failed[@]})); then printf 'sanitize-c: %s\n' "${failed[@]}" >&2; exit 1; fi
@@ -371,21 +371,21 @@ declare -i nJobBad=0 cliBad=0
 for ((k = 0; k < cap; k++)); do
 	if [[ -n "${jobFailed[CLI pass ${k}]:-}" ]]; then cliBad+=1; fi
 done
-fTest EoLqLse the corpus runner under ASan and UBSan
+fTest dbxj4 the corpus runner under ASan and UBSan
 if [[ -n "${jobFailed[conformance runner]:-}" ]]; then nJobBad+=1; fi
-fTest EoLqLsf oom_hook under ASan and UBSan
+fTest dbxj5 oom_hook under ASan and UBSan
 if [[ -n "${jobFailed[oom_hook]:-}" ]]; then nJobBad+=1; fi
-fTest EoaFuVO oom_recover under ASan and UBSan
+fTest dc113 oom_recover under ASan and UBSan
 if [[ -n "${jobFailed[oom_recover]:-}" ]]; then nJobBad+=1; fi
-fTest EoezJiF mem_bounds under ASan and UBSan
+fTest dc25h mem_bounds under ASan and UBSan
 if [[ -n "${jobFailed[mem_bounds]:-}" ]]; then nJobBad+=1; fi
-fTest EoSE8Nl veneer_smoke under ASan and UBSan
+fTest dbz39 veneer_smoke under ASan and UBSan
 if [[ -n "${jobFailed[veneer_smoke]:-}" ]]; then nJobBad+=1; fi
-fTest EstYPCw veneer_smoke under TSan
+fTest de1a6 veneer_smoke under TSan
 if [[ -n "${jobFailed[veneer_tsan]:-}" ]]; then nJobBad+=1; fi
-fTest Et09atr LSan reports a planted leak with the suppressions loaded
+fTest de2wy LSan reports a planted leak with the suppressions loaded
 if [[ -n "${jobFailed[leak bait]:-}" ]]; then nJobBad+=1; fi
-fTest EoSE8Nm every corpus CLI run under ASan and UBSan
+fTest dbz3a every corpus CLI run under ASan and UBSan
 nJobBad=$((nJobBad + cliBad + nBad))
 fTestEnd
 if ((nBad)); then

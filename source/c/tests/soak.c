@@ -146,7 +146,7 @@ static void test_id_end(const char *status) {
 }
 
 int main(int argc, char **argv) {
-	test_id("Et9t3AU", "soak_heap_settles");
+	test_id("de57v", "soak_heap_settles");
 	// The clock every runner pins, as conformance.c does.
 #ifdef _WIN32
 	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
 #ifdef SOAK_NO_MALLINFO
 	(void)argc; (void)argv;
 	fprintf(stderr, "soak: needs glibc's heap stats, which an ASan build or another libc hides\n");
-	test_id_end("skip");
+	test_id_end("SKIP");
 	return 0;
 #else
 	const char *root = argc > 1 ? argv[1] : "project/conformance";
@@ -206,7 +206,7 @@ int main(int argc, char **argv) {
 		test_id_end("FAIL");
 		return 1;
 	}
-	test_id_end("ok");
+	test_id_end("PASS");
 	return 0;
 #endif
 }

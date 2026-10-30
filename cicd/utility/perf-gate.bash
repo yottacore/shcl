@@ -275,16 +275,16 @@ fTimeMs(){
 printf '#!/bin/sh\necho x\nexit 1\n' > "${tmpDir}/bait-rc"
 printf '#!/bin/sh\nexit 0\n' > "${tmpDir}/bait-quiet"
 chmod +x "${tmpDir}/bait-rc" "${tmpDir}/bait-quiet"
-fTest EpHGoa1 self-test-exit-code
+fTest dcbc3 self-test-exit-code
 got="$(fTimeMs "${tmpDir}/bait-rc" "${tmpDir}/base.ops" set 1 2>/dev/null)"
 [[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI exiting 1 was timed as ${got} ms, not refused" >&2; nBad+=1; }
-fTest EqMEejQ self-test-quiet
+fTest dcvfe self-test-quiet
 got="$(fTimeMs "${tmpDir}/bait-quiet" "${tmpDir}/base.ops" set 1 2>/dev/null)"
 [[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI printing nothing was timed as ${got} ms, not refused" >&2; nBad+=1; }
 ## The cap comes down for the hang, since nobody is waiting out the real one.
 ## It prints its line and exits 0 eventually, so the other two guards have
 ## nothing to say about it and only the cap can refuse it.
-fTest EqMEejR self-test-hang
+fTest dcvff self-test-hang
 printf '#!/bin/sh\nsleep 30\necho x\n' > "${tmpDir}/bait-hang"
 chmod +x "${tmpDir}/bait-hang"
 declare -i capWas="${runSecs}"
@@ -295,12 +295,12 @@ runSecs="${capWas}"
 ## The clock is CPU time (2026101914014130). A second spent waiting off the
 ## CPU is what a busy core looks like to a wall clock, so it must count for
 ## next to nothing, and half a second of the CLI's own work must count in full.
-fTest EtD6yAt self-test-off-cpu-wait
+fTest de60v self-test-off-cpu-wait
 printf '#!/bin/sh\nsleep 1\necho x\n' > "${tmpDir}/bait-wait"
 chmod +x "${tmpDir}/bait-wait"
 got="$(fTimeMs "${tmpDir}/bait-wait" "${tmpDir}/base.ops" set 1 2>/dev/null)"
 ((got >= 0 && got < 500)) || { echo "perf-gate: self-test: a CLI that slept 1 s was timed as ${got} ms" >&2; nBad+=1; }
-fTest EtD6yE6 self-test-cpu-counted
+fTest de60w self-test-cpu-counted
 ## Burns until its own user time reads 500 ms, however busy the box is.
 cat > "${tmpDir}/bait-burn" <<'EOF'
 #!/usr/bin/env bash
@@ -322,7 +322,7 @@ if ((nBad)); then fTestEnd; exit 1; fi
 ##	Every `set` run prints the whole document, so the line count is the key
 ##	count; `check` prints one line per diagnostic plus a summary. A binding
 ##	whose baseline would not run has no budget, and sits out the workloads.
-fTest Er6H1r6 baseline
+fTest dd6hr baseline
 declare -A baseOf=() budgetOf=()
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
@@ -338,22 +338,22 @@ done
 
 ## One test per workload, run by every binding before its line goes out.
 workloads=(
-	'EoTIbbt|writes'
-	'EqvA7Zp|keeps'
-	'EoTIbbu|defaults'
-	'EoUsQuG|reads'
-	'EoewZ3Y|badlines'
-	'EojmbYO|suggest'
-	'Ep3Shkv|recurse'
-	'EpHDKev|frags'
-	'EqAMPEH|stars'
-	'EqAMPEI|mounts'
-	'EqLlDoG|selectors'
-	'EqLprWy|unknowns'
-	'EqMO8fB|merge'
-	'EqR8jEH|removes'
-	'Er207Yg|raws'
-	'EstMfyF|fills'
+	'dbzbq|writes'
+	'dd3w8|keeps'
+	'dbzbr|defaults'
+	'dbzqm|reads'
+	'dc253|badlines'
+	'dc3ab|suggest'
+	'dc81v|recurse'
+	'dcbbn|frags'
+	'dcrm2|stars'
+	'dcrm3|mounts'
+	'dcvbs|selectors'
+	'dcvcb|unknowns'
+	'dcvgv|merge'
+	'dcwn7|removes'
+	'dd5h7|raws'
+	'de18z|fills'
 )
 for row in "${workloads[@]}"; do
 	IFS='|' read -r tid w <<<"${row}"
@@ -428,7 +428,7 @@ done
 ##	straight to it made eleven per diagnostic, which put badlines at up to seven
 ##	times its baseline on the hosted runner and failed the gate there now and
 ##	then.
-fTest EqomByC write-counts
+fTest dd2b3 write-counts
 if command -v strace >/dev/null 2>&1; then
 	counts=""
 	for b in "${bindings[@]}"; do

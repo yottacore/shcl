@@ -379,7 +379,7 @@ BINDING_CLIS=(
 	"python|source/python/cmd/shcl/main.py"
 	"c|source/c/shcl"
 )
-XCHECK_GEN='env SHCL_FUZZ_DUMP="${XCHECK_DUMP_DIR}" SHCL_FUZZ_ITERS=2000 SHCL_FUZZ_DUMP_MAX=500 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path '"${MANIFEST}"' --test fuzz_smoke --quiet 2> >(sed -E "/^ok   [0-9A-Za-z]{7} rust /d" >&2)'
+XCHECK_GEN='env SHCL_FUZZ_DUMP="${XCHECK_DUMP_DIR}" SHCL_FUZZ_ITERS=2000 SHCL_FUZZ_DUMP_MAX=500 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path '"${MANIFEST}"' --test fuzz_smoke --quiet 2> >(sed -E "/^PASS [0-9a-z]{5} rust /d" >&2)'
 
 
 ## Stage 4c: large document. The corpus cases are a few hundred bytes each and
@@ -421,8 +421,8 @@ PROFILE_OUT_DIR="cicd/artifacts/profiling"   ## relative to repo root; gitignore
 PROFILE_WORKLOAD_GEN='source cicd/utility/include/largedoc-gen.bash; largedoc_gen 4 > "${PROFILE_WORKLOAD}"'
 ## Two inlined loops of known cost ratio, sampled the same way; exit 1 when
 ## the graph would split them wrong. It prints a status line like every test.
-PROFILE_CHECK_ID=EqeDCi1
-PROFILE_CHECK='s=ok; SHCL_PROFILE_CHECK=1 "${PROFILE_BIN}" || s=FAIL; printf "%-4s %s profiler attribution-calibration\n" "${s}" "${PROFILE_CHECK_ID}"; [[ "${s}" == ok ]]'
+PROFILE_CHECK_ID=dczst
+PROFILE_CHECK='s=PASS; SHCL_PROFILE_CHECK=1 "${PROFILE_BIN}" || s=FAIL; printf "%-4s %s profiler attribution-calibration\n" "${s}" "${PROFILE_CHECK_ID}"; [[ "${s}" == ok ]]'
 ## The calibration is the one pin on the sampler's attribution fix, and
 ## --merge-gate turns the profiler off, so it builds for it alone. No LTO: the loops are
 ## inlined into one function without it, and the check still fails with the

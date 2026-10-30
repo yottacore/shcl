@@ -41,7 +41,7 @@ $failures = 0
 function Test-Check {
 	[CmdletBinding()]
 	param([string]$Id, [bool]$Ok, [string]$Name)
-	$status = 'ok'
+	$status = 'PASS'
 	if (-not $Ok) { $status = 'FAIL'; $script:failures++ }
 	Write-Output ('{0,-4} {1} winpath-regress {2}' -f $status, $Id, $Name)
 }
@@ -87,29 +87,29 @@ try {
 	$seed = '%USERPROFILE%\bin;C:\seeded'
 	$cu.SetValue('Path', $seed, [Microsoft.Win32.RegistryValueKind]::ExpandString)
 	$dir = 'C:\shcl-pathtest'
-	Test-Check -Id 'EoeB8tI' (Update-ShclPath -Scope User -Dir $dir) 'user add reports a write'
-	Test-Check -Id 'EoeB8tJ' ((Get-RawPath $cu) -eq "$seed;$dir") 'user add appends, references unexpanded'
-	Test-Check -Id 'EoeB8tK' ((Get-PathKind $cu) -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) 'user add keeps REG_EXPAND_SZ'
-	Test-Check -Id 'EoeB8tL' (-not (Update-ShclPath -Scope User -Dir $dir)) 'user add is idempotent'
-	Test-Check -Id 'EoeB8tM' ((Get-RawPath $cu) -eq "$seed;$dir") 'idempotent add leaves the value alone'
+	Test-Check -Id 'dc1zb' (Update-ShclPath -Scope User -Dir $dir) 'user add reports a write'
+	Test-Check -Id 'dc1zc' ((Get-RawPath $cu) -eq "$seed;$dir") 'user add appends, references unexpanded'
+	Test-Check -Id 'dc1zd' ((Get-PathKind $cu) -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) 'user add keeps REG_EXPAND_SZ'
+	Test-Check -Id 'dc1ze' (-not (Update-ShclPath -Scope User -Dir $dir)) 'user add is idempotent'
+	Test-Check -Id 'dc1zf' ((Get-RawPath $cu) -eq "$seed;$dir") 'idempotent add leaves the value alone'
 	## Whole segments: a dir containing the other's name is not "already there".
-	Test-Check -Id 'EoeB8tN' (Update-ShclPath -Scope User -Dir "${dir}2") 'a superstring dir still appends'
-	Test-Check -Id 'EoeB8tO' ((Get-RawPath $cu) -eq "$seed;$dir;${dir}2") 'both segments present'
-	Test-Check -Id 'EoeB8tP' (Update-ShclPath -Scope User -Dir $dir -Remove) 'user remove reports a write'
-	Test-Check -Id 'EoeB8tQ' ((Get-RawPath $cu) -eq "$seed;${dir}2") 'remove takes its segment alone'
-	Test-Check -Id 'EoeB8tR' ((Get-PathKind $cu) -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) 'remove keeps REG_EXPAND_SZ'
-	Test-Check -Id 'EoeB8tS' (-not (Update-ShclPath -Scope User -Dir 'C:\never-there' -Remove)) 'removing an absent segment writes nothing'
+	Test-Check -Id 'dc1zg' (Update-ShclPath -Scope User -Dir "${dir}2") 'a superstring dir still appends'
+	Test-Check -Id 'dc1zh' ((Get-RawPath $cu) -eq "$seed;$dir;${dir}2") 'both segments present'
+	Test-Check -Id 'dc1zj' (Update-ShclPath -Scope User -Dir $dir -Remove) 'user remove reports a write'
+	Test-Check -Id 'dc1zk' ((Get-RawPath $cu) -eq "$seed;${dir}2") 'remove takes its segment alone'
+	Test-Check -Id 'dc1zm' ((Get-PathKind $cu) -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) 'remove keeps REG_EXPAND_SZ'
+	Test-Check -Id 'dc1zn' (-not (Update-ShclPath -Scope User -Dir 'C:\never-there' -Remove)) 'removing an absent segment writes nothing'
 	## A user PATH ending in ';' is common enough to pin. The add must not double
 	## it, and the remove drops it, which is a rewrite of a segment nobody owns.
 	$cu.SetValue('Path', "$seed;", [Microsoft.Win32.RegistryValueKind]::ExpandString)
-	Test-Check -Id 'Eor6nHc' (Update-ShclPath -Scope User -Dir $dir) 'add onto a trailing semicolon reports a write'
-	Test-Check -Id 'Eor6nHd' ((Get-RawPath $cu) -eq "$seed;$dir") 'add onto a trailing semicolon does not double it'
-	Test-Check -Id 'Eor6nHe' (Update-ShclPath -Scope User -Dir $dir -Remove) 'remove from a trailing semicolon reports a write'
-	Test-Check -Id 'Eor6nHf' ((Get-RawPath $cu) -eq $seed) 'remove drops the trailing semicolon'
+	Test-Check -Id 'dc52q' (Update-ShclPath -Scope User -Dir $dir) 'add onto a trailing semicolon reports a write'
+	Test-Check -Id 'dc52r' ((Get-RawPath $cu) -eq "$seed;$dir") 'add onto a trailing semicolon does not double it'
+	Test-Check -Id 'dc52s' (Update-ShclPath -Scope User -Dir $dir -Remove) 'remove from a trailing semicolon reports a write'
+	Test-Check -Id 'dc52t' ((Get-RawPath $cu) -eq $seed) 'remove drops the trailing semicolon'
 	## A fresh profile has no user PATH at all.
 	$cu.SetValue('Path', '', [Microsoft.Win32.RegistryValueKind]::ExpandString)
-	Test-Check -Id 'Eor6nHg' (Update-ShclPath -Scope User -Dir $dir) 'add onto an empty PATH reports a write'
-	Test-Check -Id 'Eor6nHh' ((Get-RawPath $cu) -eq $dir) 'add onto an empty PATH leaves no leading semicolon'
+	Test-Check -Id 'dc52v' (Update-ShclPath -Scope User -Dir $dir) 'add onto an empty PATH reports a write'
+	Test-Check -Id 'dc52w' ((Get-RawPath $cu) -eq $dir) 'add onto an empty PATH leaves no leading semicolon'
 } finally {
 	Restore-PathValue -Key $cu -Value $savedCu -Kind $savedCuKind
 	$cu.Close()
@@ -126,15 +126,15 @@ $dir = 'C:\shcl-nsistest'
 try {
 	$before = @($savedLm -split ';' | Where-Object { $_ -ne '' })
 	& powershell -NoProfile -ExecutionPolicy Bypass -File $script -Dir $dir
-	Test-Check -Id 'EoeB8tT' ($LASTEXITCODE -eq 0) 'setup add exits 0'
+	Test-Check -Id 'dc1zp' ($LASTEXITCODE -eq 0) 'setup add exits 0'
 	$after = @((Get-RawPath $lm) -split ';' | Where-Object { $_ -ne '' })
-	Test-Check -Id 'EoeB8tU' (($after -join ';') -eq (($before + $dir) -join ';')) 'setup add appends one segment, the rest byte-identical'
-	Test-Check -Id 'EoeB8tV' ((Get-PathKind $lm) -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) 'setup add keeps REG_EXPAND_SZ'
+	Test-Check -Id 'dc1zq' (($after -join ';') -eq (($before + $dir) -join ';')) 'setup add appends one segment, the rest byte-identical'
+	Test-Check -Id 'dc1zr' ((Get-PathKind $lm) -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) 'setup add keeps REG_EXPAND_SZ'
 	& powershell -NoProfile -ExecutionPolicy Bypass -File $script -Dir $dir
-	Test-Check -Id 'EoeB8tW' ((Get-RawPath $lm) -eq ($after -join ';')) 'setup add is idempotent'
+	Test-Check -Id 'dc1zs' ((Get-RawPath $lm) -eq ($after -join ';')) 'setup add is idempotent'
 	& powershell -NoProfile -ExecutionPolicy Bypass -File $script -Dir $dir -Remove
-	Test-Check -Id 'EoeB8tX' ($LASTEXITCODE -eq 0) 'setup remove exits 0'
-	Test-Check -Id 'EoeB8tY' ((Get-RawPath $lm) -eq ($before -join ';')) 'setup remove restores the segments'
+	Test-Check -Id 'dc1zt' ($LASTEXITCODE -eq 0) 'setup remove exits 0'
+	Test-Check -Id 'dc1zv' ((Get-RawPath $lm) -eq ($before -join ';')) 'setup remove restores the segments'
 	## The setup tells the user to fix PATH by hand only on a nonzero exit, and
 	## the script used to exit 0 on any failure. Two copies that must fail: one
 	## naming a key that is not there, and one opening the real key read-only so
@@ -148,12 +148,12 @@ try {
 		$noKey = Join-Path -Path $broken -ChildPath 'nokey.ps1'
 		[IO.File]::WriteAllText($noKey, $shipped.Replace($keyText, "'SOFTWARE\shcl-winpath-regress-missing', `$true)"), [Text.UTF8Encoding]::new($true))
 		& powershell -NoProfile -ExecutionPolicy Bypass -File $noKey -Dir $dir
-		Test-Check -Id 'Eq8WEvT' ($LASTEXITCODE -ne 0) 'setup add fails on a missing key'
+		Test-Check -Id 'dcr5z' ($LASTEXITCODE -ne 0) 'setup add fails on a missing key'
 		$readOnly = Join-Path -Path $broken -ChildPath 'readonly.ps1'
 		[IO.File]::WriteAllText($readOnly, $shipped.Replace($keyText, $keyText.Replace('$true', '$false')), [Text.UTF8Encoding]::new($true))
 		& powershell -NoProfile -ExecutionPolicy Bypass -File $readOnly -Dir $dir
-		Test-Check -Id 'Eq8WEvU' ($LASTEXITCODE -ne 0) 'setup add fails when the write throws'
-		Test-Check -Id 'Eq8WEvV' ((Get-RawPath $lm) -eq ($before -join ';')) 'a failed setup add changes nothing'
+		Test-Check -Id 'dcr60' ($LASTEXITCODE -ne 0) 'setup add fails when the write throws'
+		Test-Check -Id 'dcr61' ((Get-RawPath $lm) -eq ($before -join ';')) 'a failed setup add changes nothing'
 	} finally {
 		Remove-Item -Recurse -Force -LiteralPath $broken -ErrorAction SilentlyContinue
 	}

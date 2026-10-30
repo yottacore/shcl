@@ -83,7 +83,7 @@ chmod +x "${repo}/cicd/cicd.bash" "${repo}/cicd/hooks/pre-push" "${repo}/cicd/ut
 { git -C "${repo}" add --all && git -C "${repo}" commit -q -m base; } || { echo "check-push-gate: first commit failed" >&2; exit 2; }
 helper="${repo}/cicd/utility/green-tree.bash"
 
-fTest EpsjpdQ the tree matches a commit of the working copy
+fTest dcmcd the tree matches a commit of the working copy
 ## Every kind of change a commit of the working copy picks up: an edit, a new
 ## file, a deletion, a mode, and an ignored file that must stay out. a.txt is
 ## staged and then edited again, so the index and the disk disagree.
@@ -101,7 +101,7 @@ git -C "${repo}" add --all && git -C "${repo}" commit -q -m work
 head="$(git -C "${repo}" rev-parse 'HEAD^{tree}')"
 [[ "${tree}" == "${head}" ]] || fail "tree gave ${tree}, and a commit of the same working copy got ${head}"
 
-fTest EpsjpdR a target link in a worktree leaves the tree, and records reach it
+fTest dcmce a target link in a worktree leaves the tree, and records reach it
 ## The hook gates inside a worktree with a target link of its own added. The
 ## tree there has to be the commit's, or the run it starts can never record.
 git -C "${repo}" worktree add -q --detach "${work}/wt" HEAD
@@ -114,7 +114,7 @@ if "${helper}" passed "${repo}" "${head}"; then fail "a tree nothing recorded pa
 "${helper}" passed "${work}/wt" "${head}" || fail "a worktree does not see its clone's recorded trees"
 git -C "${repo}" worktree remove --force "${work}/wt"
 
-fTest EpsjpdS a tree that moved mid-run is not recorded
+fTest dcmcf a tree that moved mid-run is not recorded
 ## Files that change between the start of a run and its end: nothing recorded.
 printf 'four\n' > "${repo}/a.txt"
 moved="$("${helper}" tree "${repo}")"
@@ -123,7 +123,7 @@ if "${helper}" record "${repo}" "${moved}" 2>/dev/null; then fail "recorded a tr
 if "${helper}" passed "${repo}" "${moved}"; then fail "a tree refused at record time passed anyway"; fi
 git -C "${repo}" checkout -q -- a.txt
 
-fTest EpsjpdT passed refuses what is not a tree hash
+fTest dcmcg passed refuses what is not a tree hash
 ## Not a tree hash, so it never reaches the pattern: '.*' would match any line.
 prc=0; "${helper}" passed "${repo}" '.*' 2>/dev/null || prc=$?
 ((prc == 2)) || fail "passed took '.*' as a tree (exit ${prc})"
@@ -142,18 +142,18 @@ printf 'six\n' > "${repo}/d.txt"
 git -C "${repo}" add d.txt && git -C "${repo}" commit -q -m six
 sha="$(git -C "${repo}" rev-parse HEAD)"
 
-fTest Eq31fgG a push to main runs the gate
+fTest dcpvk a push to main runs the gate
 fPush main "${sha}"
 ((hookRc == 0 && ran == 1)) || fail "a commit nothing recorded, pushed to main: exit ${hookRc}, gate ran ${ran} time(s)"
-fTest EqGjDtg the hook tells the gate it stands in for main
+fTest dct59 the hook tells the gate it stands in for main
 ## 20260918 item 6: the installer drift check judges the tree as main only
 ## when the gate is told that is what it stands in for.
 grep -qx 'ran main' "${STUB_LOG}" || fail "the hook did not tell the gate it stands in for main: $(cat "${STUB_LOG}")"
-fTest EqGl8me the hook calls the full gate
+fTest dct5c the hook calls the full gate
 ## 20260918 item 24: the stub ran whatever it was asked to, so the hook could
 ## have called a quick or partial gate and passed here all the same.
 [[ "$(cat "${STUB_LOG}.args")" == "--merge-gate" ]] || fail "the hook called the gate as: $(cat "${STUB_LOG}.args")"
-fTest EtkuOxf an engine from before --merge-gate is called with --gate
+fTest dee4v an engine from before --merge-gate is called with --gate
 ## 2026102515494619: the hook's gate is --merge-gate, every check of a run with
 ## no flags. An engine without it gets the gate it knew.
 sed -i '/^## --merge-gate) /d' "${repo}/cicd/cicd.bash"
@@ -161,7 +161,7 @@ git -C "${repo}" commit -q -am gateengine
 fPush main "$(git -C "${repo}" rev-parse HEAD)"
 ((hookRc == 0 && ran == 1)) && [[ "$(cat "${STUB_LOG}.args")" == "--gate --no-largedoc" ]] \
 	|| fail "the hook called an engine from before --merge-gate as: $(cat "${STUB_LOG}.args"), exit ${hookRc}"
-fTest Et6Ak52 an engine from before --gate is called with --ci
+fTest de4b9 an engine from before --gate is called with --ci
 ## 2026101816034794: main's tree keeps an engine that knows only --ci until
 ## the next cut, and a docs-only merge to main gates that tree.
 sed -i '/^## --gate) /d' "${repo}/cicd/cicd.bash"
@@ -170,7 +170,7 @@ fPush main "$(git -C "${repo}" rev-parse HEAD)"
 ((hookRc == 0 && ran == 1)) && [[ "$(cat "${STUB_LOG}.args")" == "--ci --no-largedoc" ]] \
 	|| fail "the hook called an engine from before --gate as: $(cat "${STUB_LOG}.args"), exit ${hookRc}"
 git -C "${repo}" reset -q --hard "${sha}"
-fTest Etl0lIx a push to main of docs alone skips the gate
+fTest dee5j a push to main of docs alone skips the gate
 ## 2026102515494629: judged against the remote's main, by the hook's one list.
 ## Anything else in the push, the corpus under project/, a remote main the
 ## clone doesn't have, or a new main runs it.
@@ -192,27 +192,27 @@ for docsCase in "${sha}|notes.md a.sh" "${sha}|project/conformance/999/input.shc
 	((hookRc == 0 && ran == 1)) || fail "a push to main of ${docsCase#*|} from ${docsCase%%|*}: exit ${hookRc}, gate ran ${ran} time(s)"
 done
 git -C "${repo}" reset -q --hard "${sha}"
-fTest EqzwPFC the gate builds into target-gate
+fTest dd51f the gate builds into target-gate
 ## 20260830 item 5: the gate's worktree got the checkout's own target dir, so
 ## its build baked the worktree's path into the checkout's test binaries.
 [[ "$(cat "${STUB_LOG}.target")" == */source/rust/target-gate ]] \
 	|| fail "the hook linked the gate's target dir to $(cat "${STUB_LOG}.target"), not the checkout's target-gate"
-fTest EpsjpdU a red gate refuses the push
+fTest dcmch a red gate refuses the push
 export STUB_RC=1; fPush main "${sha}"; unset STUB_RC
 ((hookRc == 1)) || fail "a red gate did not refuse the push (exit ${hookRc})"
-fTest EpsjpdV a feature or dev push runs no gate
+fTest dcmcj a feature or dev push runs no gate
 fPush feature "${sha}"
 ((hookRc == 0 && ran == 0)) || fail "a feature branch push: exit ${hookRc}, gate ran ${ran} time(s)"
 fPush dev "${sha}"
 ((hookRc == 0 && ran == 0)) || fail "a commit nothing recorded, pushed to dev: exit ${hookRc}, gate ran ${ran} time(s)"
-fTest EqzwPFD a multi-ref push gates the main commit once
+fTest dd51g a multi-ref push gates the main commit once
 ## 20260830 item 6: only the last ref of a multi-ref push was gated. Main
 ## first and a feature ref after it: the gate runs once, on main's commit.
 fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s\nrefs/heads/y %s refs/heads/feature %s\n' "${sha}" "${zeros}" "$(git -C "${repo}" rev-parse HEAD~1)" "${zeros}")"$'\n'
 ((hookRc == 0 && ran == 1)) && [[ "$(cat "${STUB_LOG}.head")" == "${sha}" ]] \
 	|| fail "a push of main and a feature ref: exit ${hookRc}, gate ran ${ran} time(s), on $(tr '\n' ' ' < "${STUB_LOG}.head")"
 
-fTest EpsjpdW a recorded tree skips the gate unless asked to rerun
+fTest dcmck a recorded tree skips the gate unless asked to rerun
 "${helper}" record "${repo}" "$(git -C "${repo}" rev-parse 'HEAD^{tree}')" || fail "record refused a clean checkout"
 fPush main "${sha}"
 ((hookRc == 0 && ran == 0)) || fail "a recorded tree, pushed to main: exit ${hookRc}, gate ran ${ran} time(s)"
@@ -220,7 +220,7 @@ fPush main "${sha}"
 export SHCL_GATE_RERUN=1; fPush main "${sha}"; unset SHCL_GATE_RERUN
 ((hookRc == 0 && ran == 1)) || fail "SHCL_GATE_RERUN=1 on a recorded tree: exit ${hookRc}, gate ran ${ran} time(s)"
 
-fTest Er839pf a recorded tree whose installers differ from dev is gated on main
+fTest dd6zd a recorded tree whose installers differ from dev is gated on main
 ## 20260926 item 13: a run that recorded the tree may have compared the
 ## installers for another ref. Pushed to main, a tree that differs from dev's
 ## installers runs the gate, recorded or not.
@@ -238,14 +238,14 @@ git -C "${repo}" update-ref -d refs/remotes/origin/dev
 fPush main "${sha}"
 ((hookRc == 0 && ran == 0)) || fail "a recorded tree with no origin/dev, pushed to main: exit ${hookRc}, gate ran ${ran} time(s)"
 
-fTest EpsjpdX a missing helper reads as not passed
+fTest dcmcm a missing helper reads as not passed
 ## A checkout from before the helper existed has none, which reads as not passed.
 mv "${helper}" "${helper}.off"
 fPush main "${sha}"
 mv "${helper}.off" "${helper}"
 ((hookRc == 0 && ran == 1)) || fail "with the helper missing: exit ${hookRc}, gate ran ${ran} time(s)"
 
-fTest EpsjpdY a merge of a branch that passed skips the gate
+fTest dcmcn a merge of a branch that passed skips the gate
 ## A --no-ff merge of a branch that passed, onto a branch that has not moved
 ## since, has the branch's tree.
 git -C "${repo}" checkout -q -b topic
@@ -257,7 +257,7 @@ git -C "${repo}" merge -q --no-ff -m "Merge topic" topic
 fPush main "$(git -C "${repo}" rev-parse HEAD)"
 ((hookRc == 0 && ran == 0)) || fail "a merge of a branch that passed: exit ${hookRc}, gate ran ${ran} time(s)"
 
-fTest EpsjpdZ a new tree after a recorded merge is gated on main only
+fTest dcmcp a new tree after a recorded merge is gated on main only
 ## One more commit: a tree nobody ran, so main gates it and dev does not.
 printf 'eight\n' > "${repo}/d.txt"
 git -C "${repo}" commit -q -am eight
@@ -266,7 +266,7 @@ fPush main "$(git -C "${repo}" rev-parse HEAD)"
 fPush dev "$(git -C "${repo}" rev-parse HEAD)"
 ((hookRc == 0 && ran == 0)) || fail "a new tree pushed to dev: exit ${hookRc}, gate ran ${ran} time(s)"
 
-fTest Eq2y5mC a merge nobody ran is gated on main only
+fTest dcpv5 a merge nobody ran is gated on main only
 ## A merge nobody ran, the everyday case: dev takes it, main gates it.
 git -C "${repo}" checkout -q -b topic2
 printf 'nine\n' > "${repo}/d.txt"
@@ -279,7 +279,7 @@ fPush dev "${merged}"
 fPush main "${merged}"
 ((hookRc == 0 && ran == 1)) || fail "a merge pushed to main: exit ${hookRc}, gate ran ${ran} time(s)"
 
-fTest EqL1d4C GIT_DIR from a linked worktree does not reach the gate
+fTest dcv64 GIT_DIR from a linked worktree does not reach the gate
 ## 20260918b item 2: a push from a linked worktree hands the hook GIT_DIR, and
 ## passed on to the gate it pointed every scratch repo the gate built at this
 ## one. This push goes through real git, since that is what sets it.
@@ -329,27 +329,27 @@ git -C "${repo}" push -q --no-verify "${work}/have.git" "refs/tags/${bannerTag}"
 git -C "${repo}" push -q --no-verify "${work}/odd.git" "refs/tags/${bannerTag}:refs/tags/x/${bannerTag}"
 fTagLine(){ printf 'refs/tags/%s %s refs/tags/%s %s\n' "$1" "$2" "${bannerTag}" "${zeros}" ;}  ## fTagLine LOCALTAG SHA
 
-fTest ErUaPZV a cut pushed to main without the banner tag is refused
+fTest ddccv a cut pushed to main without the banner tag is refused
 hookRemote=("${work}/none.git"); fPush main "${cut}"
 ((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"has no such tag"* ]] \
 	|| fail "a cut at the banner's version, pushed to main with no tag anywhere: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
-fTest ErUaPbL a cut pushed to main with the banner tag goes through
+fTest ddccw a cut pushed to main with the banner tag goes through
 fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s\n' "${cut}" "${zeros}")"$'\n'"$(fTagLine "${bannerTag}" "${cutTag}")"$'\n'
 ((hookRc == 0 && ran == 1)) || fail "a cut pushed to main with its tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
-fTest ErUaPd9 a recorded cut still needs the tag, and a tag on the remote counts
+fTest ddccx a recorded cut still needs the tag, and a tag on the remote counts
 "${helper}" record "${repo}" "$(git -C "${repo}" rev-parse 'HEAD^{tree}')" || fail "record refused the cut"
 fPush main "${cut}"
 ((hookRc == 1 && ran == 0)) || fail "a recorded cut pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s)"
 hookRemote=("${work}/have.git"); fPush main "${cut}"
 ((hookRc == 0 && ran == 0)) || fail "a recorded cut whose tag is on the remote: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
-fTest ErUaPf2 a tree below the banner version needs no tag
+fTest ddccy a tree below the banner version needs no tag
 hookRemote=("${work}/none.git"); fPush main "${before}"
 ((hookRc == 0 && ran == 1)) || fail "a tree at 2.0.0 pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
-fTest ErUawc7 the final release after a beta tag still needs that tag
+fTest ddcd2 the final release after a beta tag still needs that tag
 ## sort -V alone ranks 3.0.0 below 3.0.0-beta1, which would wave this through.
 fPush main "${final}"
 ((hookRc == 1 && ran == 0)) || fail "a tree at 3.0.0 pushed to main with no ${bannerTag} tag: exit ${hookRc}, gate ran ${ran} time(s)"
-fTest ErUaPgt a push that deletes the tag, or sends one with no spec, is refused
+fTest ddccz a push that deletes the tag, or sends one with no spec, is refused
 hookRemote=("${work}/have.git")
 fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s\n(delete) %s refs/tags/%s %s\n' "${cut}" "${zeros}" "${zeros}" "${bannerTag}" "${cutTag}")"$'\n'
 ((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"this push deletes ${bannerTag}"* ]] \
@@ -358,15 +358,15 @@ hookRemote=("${work}/none.git")
 fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s\n' "${cut}" "${zeros}")"$'\n'"$(fTagLine nospec "$(git -C "${repo}" rev-parse refs/tags/nospec)")"$'\n'
 ((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"has no project/spec.md"* ]] \
 	|| fail "a main push sending the banner tag on a tree with no spec: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
-fTest ErUaPj3 a tag that only ends in the banner tag name does not count
+fTest ddcd0 a tag that only ends in the banner tag name does not count
 hookRemote=("${work}/odd.git"); fPush main "${cut}"
 ((hookRc == 1 && ran == 0)) || fail "a remote holding only refs/tags/x/${bannerTag}: exit ${hookRc}, gate ran ${ran} time(s)"
-fTest ErUaPkx a remote that cannot be read refuses the cut
+fTest ddcd1 a remote that cannot be read refuses the cut
 hookRemote=("${work}/missing.git"); fPush main "${cut}"
 ((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"cannot list the tags"* ]] \
 	|| fail "an unreadable remote: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
 
-fTest Erkafqf a cut whose banner Syntax line cannot be read is refused
+fTest ddg81 a cut whose banner Syntax line cannot be read is refused
 ## 2026100307163910: a Syntax line the pattern no longer matched read as a
 ## banner naming no tag, and the cut went through with none.
 hookRemote=("${work}/none.git")
@@ -376,11 +376,11 @@ for libText in "##    Syntax:  ${syntaxUrl}" "##    Syntax   ${syntaxUrl/\/blob\
 	((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"cannot read the tag"* ]] \
 		|| fail "a cut whose lib.rs is '${libText}', pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
 done
-fTest ErkafuD a tree below the first tagged release needs no tag in its banner
+fTest ddg82 a tree below the first tagged release needs no tag in its banner
 old="$(fBannerCommit 2.0.0 spec '#    Syntax   https://github.com/yottacore/shcl/blob/main/project/spec.md')"
 fPush main "${old}"
 ((hookRc == 0 && ran == 1)) || fail "a 2.x tree whose banner links main: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
-fTest Erkafx3 the check reads the banner in the real lib.rs
+fTest ddg83 the check reads the banner in the real lib.rs
 ## Every other case writes a one-line lib.rs, so only this one sees the real
 ## banner move away from the check's pattern.
 real="$(fBannerCommit "${bannerTag#v}" spec real)"
@@ -388,7 +388,7 @@ fPush main "${real}"
 ((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"past ${bannerTag}, which the banner's Syntax link names,"* ]] \
 	|| fail "a cut with this checkout's lib.rs, pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
 
-fTest Erkafzp a banner tag on a commit at another version is refused
+fTest ddg84 a banner tag on a commit at another version is refused
 ## 2026100307163918: any commit with a spec passed as the tag, sent in the push
 ## or already on the remote.
 git -C "${repo}" tag -a -m old oldcut "${before}"
@@ -400,7 +400,7 @@ git -C "${repo}" push -q --no-verify "${work}/stale.git" "refs/tags/oldcut:refs/
 hookRemote=("${work}/stale.git"); fPush main "${cut}"
 ((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"at version 2.0.0"* ]] \
 	|| fail "a remote whose banner tag is on a 2.0.0 commit: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
-fTest Erkag2h a banner tag on the remote that this clone does not have is refused
+fTest ddg85 a banner tag on the remote that this clone does not have is refused
 if ! { git init -q -b dev "${work}/foreign" && printf 'x\n' > "${work}/foreign/x" \
 	&& git -C "${work}/foreign" add x && git -C "${work}/foreign" commit -q -m foreign \
 	&& git init -q --bare "${work}/foreign.git" \
@@ -413,7 +413,7 @@ hookRemote=("${work}/foreign.git"); fPush main "${cut}"
 hookRemote=()
 git -C "${repo}" checkout -q dev
 
-fTest EqGjDth the installer drift check judges the pushed tree as main
+fTest dct5a the installer drift check judges the pushed tree as main
 ## 20260918 item 6: the installer drift check, on a clone of this repository
 ## with the refs as they stand between a dev push that changes an installer and
 ## the main push that follows it. The hook runs before git moves origin/main,
@@ -451,7 +451,7 @@ else
 	fail "cannot clone ${root} for the installer drift check"
 fi
 
-fTest EqGl8mf only a full --merge-gate run records its tree
+fTest dct5d only a full --merge-gate run records its tree
 ## 20260918 item 24: the runs that must not record, through cicd.bash itself.
 ## A throwaway repository gets the real engine and config with every stage
 ## stubbed at the end of the config. A --merge-gate run records its tree; a --quick
@@ -535,14 +535,14 @@ fEngine STUB_GITDIR="${work}/eng.notests" -- --merge-gate --no-tests
 [[ ! -e "${work}/eng.notests" ]] || fail "a --no-tests run still ran the tests stage"
 fEngine STUB_SKIP=1 -- --merge-gate
 ((engRecorded == 0)) || fail "a run whose gate noted a skip recorded its tree"
-fTest EqjfWm8 a run failing or leaving out the cross checks records nothing
+fTest dd13s a run failing or leaving out the cross checks records nothing
 ## 20260923 item 1: the cross checks are the last gate, so a run failing one
 ## records nothing, and a run leaving them out is partial.
 fEngine STUB_CROSS_FAIL=1 -- --merge-gate
 ((engRc != 0 && engRecorded == 0)) || fail "a run failing a cross check: exit ${engRc}, recorded ${engRecorded}"
 fEngine -- --merge-gate --no-cross
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the cross checks left out: exit ${engRc}, recorded ${engRecorded}"
-fTest Et6Aueh --quick leaves out what QUICK_SKIP names and nothing else
+fTest de4be --quick leaves out what QUICK_SKIP names and nothing else
 ## 2026101816034794: the fast loop drops the steps config names as slow. A
 ## bare run and the gate keep them.
 fQuick(){  ## fQuick ARGS... -> engRc, slowRan, xcheckRan, otherRan
@@ -561,7 +561,7 @@ fQuick --merge-gate
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a --merge-gate run left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
 fQuick -y --no-sync
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a run with no flags left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
-fTest Et9t3dc --leakcheck adds the leak checks a run with no flags already has
+fTest de582 --leakcheck adds the leak checks a run with no flags already has
 ## 2026101707582803: JC, 2026-10-18, a run with no flags does everything.
 ## --gate and --quick leave the slow leak checks out, --leakcheck adds them
 ## back, and --no-tests takes them with the rest of the tests.
@@ -589,7 +589,7 @@ fLeak --gate --no-leakcheck
 ((engRc == 0 && leakRan == 0)) || fail "--gate --no-leakcheck ran the leak checks: exit ${engRc}, ran ${leakRan}"
 fLeak -y --no-sync --quick --no-leakcheck
 ((engRc == 0 && leakRan == 0)) || fail "--quick --no-leakcheck ran the leak checks: exit ${engRc}, ran ${leakRan}"
-fTest EtD3jdR --leakcheck and --no-leakcheck together are a usage error
+fTest de609 --leakcheck and --no-leakcheck together are a usage error
 ## 2026101920461167: nothing on the command line resolves last-wins, so the
 ## pair is refused before anything runs, in either order.
 for leakFirst in --leakcheck --no-leakcheck; do
@@ -599,7 +599,7 @@ for leakFirst in --leakcheck --no-leakcheck; do
 		fail "cicd.bash took ${leakFirst} ${leakSecond}: exit ${engRc}, ran ${leakRan}: $(tail -2 "${work}/eng.log")"
 	fi
 done
-fTest EtkuOxe the leak checks by length, and --long
+fTest dee4t the leak checks by length, and --long
 ## 2026102515494614: the default run fits in about an hour, so what takes hours
 ## is only in --long, --slow and --leakcheck. --quick keeps the fast ones, and
 ## --no-leakcheck drops every one, the test steps that are leak checks too.
@@ -625,7 +625,7 @@ fLeakLen -y --no-sync --quick --long
 if ((engRc != 2)) || [[ "${leakRun}" != 0000 ]] || ! grep -qF "can't go together" "${work}/eng.log"; then
 	fail "cicd.bash took --quick --long: exit ${engRc}, ran ${leakRun}: $(tail -2 "${work}/eng.log")"
 fi
-fTest Eu21ced --skip leaves out each step that holds its text, and the run records nothing
+fTest dej8h --skip leaves out each step that holds its text, and the run records nothing
 ## 2026102813104371: the hosted run skips the leak check whose tool it can't
 ## install. A text that matches no step this run takes is a usage error.
 fLeakLen --merge-gate
@@ -651,12 +651,12 @@ fSkipBad(){  ## fSkipBad MESSAGE ARGS...: a usage error before anything runs
 fSkipBad 'matches no step' --merge-gate --skip=nope
 fSkipBad 'matches no step' --merge-gate --no-tests --skip='echo leak'
 fSkipBad 'names no step' --merge-gate --skip=
-fTest Et6Aum5 --ci is another name for --merge-gate
+fTest de4bf --ci is another name for --merge-gate
 ## 2026101816034794 made --ci unknown; 2026102515494619 brings it back as
 ## another name for --merge-gate, which says so in one line.
 fEngine -- --ci
 if ((engRc != 0)) || ! grep -qxF -- '--ci is another name for --merge-gate' "${work}/eng.log"; then fail "cicd.bash --ci: exit ${engRc}: $(tail -2 "${work}/eng.log")"; fi
-fTest EtkuOxg --merge-gate runs every check of a run with no flags
+fTest dee4w --merge-gate runs every check of a run with no flags
 ## 2026102515494619: the release builds and the default run's leak checks,
 ## which --gate leaves out, and the tree is recorded. No dogfood or publish.
 rm -f "${work}/eng.release"
@@ -670,12 +670,12 @@ fi
 rm -f "${work}/eng.release"
 fEngine STUB_RELEASE="${work}/eng.release" -- --gate
 [[ ! -e "${work}/eng.release" ]] || fail "a --gate run built the release"
-fTest EqL1d4D cicd.bash clears GIT_DIR before its gates
+fTest dcv65 cicd.bash clears GIT_DIR before its gates
 ## 20260918b item 2: a direct run with GIT_DIR exported clears it too.
 fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --gate
 [[ "$(cat "${work}/eng.gitdir" 2>/dev/null || true)" == unset ]] \
 	|| fail "cicd.bash passed GIT_DIR on to its gates: $(cat "${work}/eng.gitdir" 2>/dev/null || true)"
-fTest EstM5WQ a local --no-tests run still checks the profiler
+fTest de18v a local --no-tests run still checks the profiler
 ## 2026101514324714: --no-tests dropped the calibration on a local run too, so
 ## the flame graph after it was drawn unchecked. Under --merge-gate the calibration
 ## goes with the tests, which the other hosted job runs.
@@ -692,7 +692,7 @@ fCalibrated --merge-gate
 ((engRc == 0 && calibrated == 1)) || fail "a --merge-gate run skipped the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
 fCalibrated --merge-gate --no-tests
 ((engRc == 0 && calibrated == 0)) || fail "the hosted lint half ran the profiler calibration: exit ${engRc}, calibrated ${calibrated}"
-fTest Eu1ovZE the backlog runs
+fTest dej6y the backlog runs
 ## 2026102813104060: --backlog-run-quick is the old --gate less what --quick leaves
 ## out, with no leak checks or profiler calibration, and records nothing,
 ## since it's partial. Areas keep only their tests. --backlog-run-full is the
@@ -750,7 +750,7 @@ for badCase in 'unknown area: nope|--backlog-run-quick nope' "can't go together|
 		fail "cicd.bash ${badCase#*|}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
 	fi
 done
-fTest Eu7Giqm --gate is another name for --backlog-run-quick
+fTest dekgv --gate is another name for --backlog-run-quick
 ## 2026102814013272: the hosted run takes the merge gate, so --gate is the
 ## quick backlog run, areas too. It says so in one line, and records nothing.
 fQuick --gate
@@ -776,7 +776,7 @@ for badCase in '--gate --merge-gate' '--gate --long'; do
 		fail "cicd.bash ${badCase}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
 	fi
 done
-fTest Eu1ovZF every test step is in a backlog area
+fTest dej6z every test step is in a backlog area
 ## 2026102813104060: a test step in no area would never run in a backlog run
 ## that names areas, and nothing would say so.
 noArea="$(
@@ -916,7 +916,7 @@ fCtr(){  ## fCtr [VAR=VALUE ...] -- ARGS... -> fEngine's, docker (its calls), ra
 	ran=0; if [[ -e "${work}/eng.ran" ]]; then ran=1; fi
 	noted="$(grep -c '^note: stages 1-6 run on this box' "${work}/eng.log" || true)"
 }
-fTest EtDCDE4 with no docker answering, stages 1-6 run here with a note
+fTest de61k with no docker answering, stages 1-6 run here with a note
 ## 2026101920461174: no docker, one whose daemon doesn't answer, and a box the
 ## images can't run on all fall back to a local run, which still records.
 fCtr SHCL_DOCKER="${work}/no-docker" -- --merge-gate
@@ -931,11 +931,11 @@ fCtr PATH="${work}/aarch64:${PATH}" -- -y --no-sync
 if ((engRc != 0 || ran != 1 || noted != 1)) || [[ -n "${docker}" ]] || ! grep -qF "x86_64 only" "${work}/eng.log"; then
 	fail "a run on aarch64: exit ${engRc}, ran ${ran}, ${noted} note(s), docker calls '${docker}': $(tail -3 "${work}/eng.log")"
 fi
-fTest EtDCDE5 --no-container runs here and asks no docker
+fTest de61m --no-container runs here and asks no docker
 fCtr -- --merge-gate --no-container
 ((engRc == 0 && ran == 1 && noted == 0 && engRecorded == 1)) && [[ -z "${docker}" ]] \
 	|| fail "--no-container: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}, docker calls '${docker}': $(tail -3 "${work}/eng.log")"
-fTest EtDCDE6 --container with --no-container, or with 2 images, is a usage error
+fTest de61n --container with --no-container, or with 2 images, is a usage error
 ## Nothing on the command line resolves last-wins, so each is refused before
 ## anything runs.
 for ctrArgs in "--container --no-container" "--no-container --container" "--container=alpine --no-container" "--container --container=alpine" "--container="; do
@@ -945,7 +945,7 @@ for ctrArgs in "--container --no-container" "--no-container --container" "--cont
 		fail "cicd.bash took ${ctrArgs}: exit ${engRc}, ran ${ran}, docker calls '${docker}': $(tail -2 "${work}/eng.log")"
 	fi
 done
-fTest EstM5os an extra image builds into its own copies and leaves this tree as it was
+fTest de18w an extra image builds into its own copies and leaves this tree as it was
 ## 2026101514324713: an alpine run left a root-owned target dir where there had
 ## been none, built into a gate worktree's target-gate, and swapped this box's C
 ## CLI for a musl one that won't run here. Docker makes a missing mount point as
@@ -1021,7 +1021,7 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 else
 	fTestSkipBlock
 fi
-fTest EtDCDE7 with docker answering, a run goes to the main image, which records and starts no other
+fTest de61p with docker answering, a run goes to the main image, which records and starts no other
 ## 2026101920461174: the run inside is told where it is, so it doesn't ask
 ## docker again. The tree it records is the one on disk, recipes included.
 cp -r "${root}/cicd/container" "${eng}/cicd/"
@@ -1035,19 +1035,19 @@ innerArgs="$(sed -n 's/^runs cicd\.bash //p' "${work}/eng.log")"
 if ((engRc != 0 || ran != 1 || noted != 0 || innerRuns != 1 || ctrRecorded != 1)) || [[ "${innerArgs}" != *--merge-gate* || "${innerArgs}" == *container* ]]; then
 	fail "a run with docker answering: exit ${engRc}, ran ${ran}, ${noted} note(s), ${innerRuns} run(s) in the image, recorded ${ctrRecorded}, inner args '${innerArgs}': $(tail -3 "${work}/eng.log")"
 fi
-fTest Eu7Giqn --gate goes into the image as --backlog-run-quick
+fTest dekgw --gate goes into the image as --backlog-run-quick
 ## 2026102814013272: the run inside takes the name the flag stands for.
 fCtr STUB_DOCKER_EXEC="${work}/docker.exec" -- --gate
 innerArgs="$(sed -n 's/^runs cicd\.bash //p' "${work}/eng.log")"
 if ((engRc != 0 || ran != 1)) || [[ " ${innerArgs} " != *" --backlog-run-quick "* || " ${innerArgs} " == *" --gate "* ]]; then
 	fail "a --gate run in the image: exit ${engRc}, ran ${ran}, inner args '${innerArgs}': $(tail -3 "${work}/eng.log")"
 fi
-fTest EtDCDE8 --container with a silent docker fails rather than run here
+fTest de61q --container with a silent docker fails rather than run here
 fCtr STUB_DOCKER_DOWN=1 -- -y --no-sync --container
 if ((engRc != 1 || ran != 0)) || ! grep -qF "can't run: ${work}/fake-docker doesn't answer" "${work}/eng.log"; then
 	fail "--container with docker down: exit ${engRc}, ran ${ran}: $(tail -3 "${work}/eng.log")"
 fi
-fTest EtDQOIx a run removes its temp dir, failed or stopped too
+fTest de633 a run removes its temp dir, failed or stopped too
 ## 2026101920461153: a gate or test that fails or is killed leaves its scratch
 ## in TMPDIR. A run points TMPDIR at a dir of its own and removes it on any
 ## exit. The rest of TMPDIR, which here is work, stays.
@@ -1064,7 +1064,7 @@ for tmpCase in "whole run|0|" "failed run|1|STUB_CROSS_FAIL=1" "stopped run|143|
 	fi
 done
 [[ -e "${work}/keep.me" ]] || fail "a run removed a file in TMPDIR that isn't its own"
-fTest Etl0lIy --keep-temp keeps the temp folder and containers of a run, and says where
+fTest dee5k --keep-temp keeps the temp folder and containers of a run, and says where
 ## 2026102515494634: a whole, failed or stopped run keeps its folder, and the
 ## run in the image starts its containers without --rm and leaves them.
 for tmpCase in "whole run|0|" "failed run|1|STUB_CROSS_FAIL=1" "stopped run|143|STUB_STOP=1"; do
@@ -1087,7 +1087,7 @@ keepRuns="$(grep -cE -- '--name shcl-[^ ]+-(build|fmt) ' "${work}/keep-args.txt"
 if ((engRc != 0 || keepRuns < 2 || keepRm != 0)) || ! grep -qF 'and its containers: docker ps -a --filter label=dev.run=shcl-run.' "${work}/eng.log"; then
 	fail "--keep-temp in the image: exit ${engRc}, ${keepRuns} step run(s), ${keepRm} with --rm: $(tail -3 "${work}/eng.log")"
 fi
-fTest Etl3oti --list prints the steps the other flags would run and runs none
+fTest dee5y --list prints the steps the other flags would run and runs none
 ## 2026102515494634: the leak checks by length show it, and nothing runs, is
 ## recorded or is left in TMPDIR.
 for listCase in '-y --no-sync --list|echo leak' '-y --no-sync --quick --list|echo fast' '--gate --list|Format (check only)'; do
@@ -1101,7 +1101,7 @@ for listCase in '-y --no-sync --list|echo leak' '-y --no-sync --quick --list|ech
 		fail "cicd.bash ${listCase%%|*}: exit ${engRc}, recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
 	fi
 done
-fTest EtlDIOQ each step opens and closes with a numbered, timed line under a rule
+fTest dee74 each step opens and closes with a numbered, timed line under a rule
 ## 2026102416250060: Starting, then PASS or FAIL, as Step N of M, with only
 ## the steps that run counted, the same numbers in the frozen copy's run, and
 ## the first section naming each step that's off with its flag or reason.
@@ -1154,7 +1154,7 @@ if [[ -d "${eng}/cicd/container" ]]; then
 		fail "an alpine run: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
 	fi
 fi
-fTest EtDQOMF a whole run removes a profiler sample file whose graph is gone
+fTest de634 a whole run removes a profiler sample file whose graph is gone
 ## 2026101920461153: the rotation prunes a graph and leaves the sample count
 ## beside it. One whose graph is still there stays, whatever its role now.
 profDir="${eng}/cicd/artifacts/profiling"
@@ -1167,7 +1167,7 @@ if ((engRc != 0)) || [[ -e "${profDir}/flame_20200101-000000_frequent.svg.sample
 	fail "the profiler's sample files after a run: exit ${engRc}, $(cd "${profDir}" && ls -m): $(tail -3 "${work}/eng.log")"
 fi
 grep -qF "1 profiler sample file(s) whose graph is gone" "${work}/eng.log" || fail "the cleanup line doesn't count the sample file: $(grep -F cleanup: "${work}/eng.log" || true)"
-fTest EtDQOPc a run in the image removes our stale images and containers, and nothing else
+fTest de635 a run in the image removes our stale images and containers, and nothing else
 ## 2026101920461153: a tag of ours the tree's recipe no longer hashes to, every
 ## tag of a name with no recipe, and a dangling image or stopped container
 ## with our label. Another project's image, even one named like ours, stays.
@@ -1208,7 +1208,7 @@ grep -qF "shcl-cicd:000000000000" <(grep -F 'cleanup: removed' "${work}/eng.log"
 [[ "$(cat "${work}/prune.txt" 2>/dev/null)" == "builder prune -f --filter until=168h" ]] || fail "the build cache prune after the sweep: '$(cat "${work}/prune.txt" 2>/dev/null)'"
 grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "; docker images 2GB -> 1GB, containers 0B -> 0B, volumes 119MB -> 119MB, build cache 5GB -> 5GB" \
 	|| fail "the cleanup line doesn't compare docker system df before and after: $(grep -F 'cleanup:' "${work}/eng.log" || true)"
-fTest EtDQOSv a gate that builds the image removes the tags it replaces
+fTest de636 a gate that builds the image removes the tags it replaces
 ## 2026101920461153: the leak checks build the image when it's missing, and
 ## that build left the old tag behind. Only the name it built is touched.
 rm -f "${work}/gone.txt"
@@ -1216,7 +1216,7 @@ selfOut="$(SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_I
 	STUB_MOUNTS="${work}/self.tsv" PATH="${work}/x86_64:${PATH}" bash "${work}/ctr-image-on.bash" "${eng}" self "${work}/self" 2>&1)" || true
 selfGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
 [[ "${selfGot}" == "rmi shcl-cicd:000000000000" ]] || fail "a gate's build of the image removed '${selfGot}', want the oldest main tag only, since the one before stays: ${selfOut}"
-fTest Etg0eIJ a run in the main image empties the Zig cache volume over 2 GB or filled by another Zig, and keeps it otherwise
+fTest decz2 a run in the main image empties the Zig cache volume over 2 GB or filled by another Zig, and keeps it otherwise
 ## 2026102416250020: Zig's cache is a labeled volume of the main image's own,
 ## and it goes whole, never part of it.
 for zigCase in "over the cap|2097153\t0.16.0\t0.16.0|volume rm shcl-zig-cache" "another Zig|512\t0.15.2\t0.16.0|volume rm shcl-zig-cache" \
@@ -1236,7 +1236,7 @@ for zigCase in "over the cap|2097153\t0.16.0\t0.16.0|volume rm shcl-zig-cache" "
 	[[ "$(cat "${work}/vols.txt" 2>/dev/null)" =~ ^"volume create --label dev.project=shcl --label dev.run=shcl-run."[A-Za-z0-9]+" shcl-zig-cache"$ ]] \
 		|| fail "Zig's cache volume, ${zigLabel}: made as '$(cat "${work}/vols.txt" 2>/dev/null)', want our label on it before the run"
 done
-fTest EtgFdOY what a run makes in docker carries its labels, and each container its name
+fTest ded0y what a run makes in docker carries its labels, and each container its name
 ## 2026102416250030: dev.project and dev.run, the run folder's name, on each
 ## container, image and volume, and containers named shcl-RUN-STEP.
 rm -f "${work}/args.txt"
@@ -1250,7 +1250,7 @@ if ((engRc != 0 || lblBuilds < 1 || lblVols < 1)) || [[ ! "${lblRun}" =~ ^shcl-r
 	fail "the labels on what a run makes: exit ${engRc}, run '${lblRun}', ${lblBuilds} build(s), ${lblVols} volume(s), without both labels: ${lblBad:-none}: $(tail -2 "${work}/eng.log")"
 fi
 [[ "$(printf '%s\n' "${lblNames[@]}" | paste -sd' ')" == "${lblWant}" ]] || fail "the containers' names: '${lblNames[*]}', want '${lblWant}'"
-fTest EtgShUg every container a run starts has a CPU quota and a low share
+fTest ded2j every container a run starts has a CPU quota and a low share
 ## 2026102421025783: nice on the docker client doesn't reach the container.
 cpuRuns="$(grep -c '^run ' "${work}/args.txt" || true)"
 cpuBad="$(grep '^run ' "${work}/args.txt" | grep -vE -- ' --cpus [1-9][0-9]* --cpu-shares 256 ' || true)"
@@ -1260,7 +1260,7 @@ fi
 ## The scripts a gate runs in the image, which this stub doesn't start.
 # shellcheck disable=SC2016  ## ctr-image.bash's own text, matched literally
 grep -qF '"${tag}" nice -n 19 bash "$@"' "${root}/cicd/utility/include/ctr-image.bash" || fail "fCtrRunSelf no longer runs its script under nice in the image"
-fTest Eu1i7hL a run in the image keeps the local time of the box it runs on
+fTest dej63 a run in the image keeps the local time of the box it runs on
 ## 2026102520122877: the image has no zone, so its step lines read UTC. The
 ## zone file goes in as its /etc/localtime, and a TZ rule with no file as is.
 fZoneRuns(){  ## fZoneRuns LABEL WANT [VAR=VALUE ...]: each run of cicd.bash or a gate in the image has WANT
@@ -1293,7 +1293,7 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 else
 	fTestSkipBlock
 fi
-fTest EtgFdh7 a run that fails stops and removes its containers by its run label
+fTest ded0z a run that fails stops and removes its containers by its run label
 ## 2026102416250030: on any exit, not only a whole run, and only this run's.
 rm -f "${work}/gone.txt"
 fCtr STUB_DOCKER_RUNFAIL=1 STUB_DOCKER_RUNNING=r1r1 STUB_DOCKER_GONE="${work}/gone.txt" -- --gate
@@ -1317,7 +1317,7 @@ fStopRun(){  ## fStopRun PIDFILE [VAR=VALUE ...] -- ARGS... -> stopRc, stopPid, 
 	stopLeft=0
 	if [[ -n "${stopPid}" ]] && kill -0 "${stopPid}" 2>/dev/null; then stopLeft=1; kill -KILL "${stopPid}" 2>/dev/null || true; fi
 }
-fTest EtNhygG a stopped run takes down the run in the frozen copy and what it started
+fTest de8j7 a stopped run takes down the run in the frozen copy and what it started
 ## 2026101920461153: a TERM to the run's PID ended the run and left its
 ## children going, over a frozen copy and a temp dir already gone.
 fStopRun "${work}/hang.pid" STUB_HANG="${work}/hang.pid" -- --gate --no-container
@@ -1326,7 +1326,7 @@ stopTrees="$(git -C "${eng}" worktree list --porcelain | grep -c '^worktree ' ||
 if ((stopRc != 143 || stopLeft || stopTrees != 1)) || [[ -z "${stopPid}" || -z "${stopTmp}" || -e "${stopTmp}" ]] || ! grep -qF "cleanup: stopped" "${work}/stop.log"; then
 	fail "a stopped local run: exit ${stopRc}, its test's child $( ((stopLeft)) && echo 'outlived it' || echo "'${stopPid}' went"), ${stopTrees} worktree(s), the copy's TMPDIR '${stopTmp}': $(tail -3 "${work}/stop.log")"
 fi
-fTest EtNhz0U a stopped run in the image kills a container whose client will not stop
+fTest de8j8 a stopped run in the image kills a container whose client will not stop
 ## 2026101920461153: docker passes a TERM to the container and waits for it.
 ## A client that doesn't is KILLed after the wait, which would leave the
 ## container up, so the run kills it by the ID docker wrote down.

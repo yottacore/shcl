@@ -287,39 +287,39 @@ fJudge(){
 	if ((skipping)); then fTestSkip; return 0; fi
 	if [[ "$1" != 1 ]]; then nBad=$((nBad + 1)); fi
 }
-fTest EtAC9AA reports the planted C finding
+fTest de5a7 reports the planted C finding
 fJudge "${baitSeen[c/tests/codeql_bait.c]:-0}"
-fTest EtAC9Cx reports the planted C++ finding
+fTest de5a8 reports the planted C++ finding
 fJudge "${baitSeen[c/tests/codeql_bait.cpp]:-0}"
-fTest EtAC9FX reports the planted Go finding
+fTest de5a9 reports the planted Go finding
 fJudge "${baitSeen[go/codeql_bait.go]:-0}"
-fTest EtBmwWo reports the planted Go finding in a windows-only file
+fTest de5pg reports the planted Go finding in a windows-only file
 fJudge "${baitSeen[go/codeql_bait_windows.go]:-0}"
-fTest EtAC9IG reports the planted Python finding
+fTest de5aa reports the planted Python finding
 fJudge "${baitSeen[python/codeql_bait.py]:-0}"
-fTest EtAC9L2 reports the planted Rust finding
+fTest de5ab reports the planted Rust finding
 fJudge "${baitSeen[rust/tests/codeql_bait.rs]:-0}"
-fTest EtAC9O4 the C and C++ database has every C and C++ file
+fTest de5ac the C and C++ database has every C and C++ file
 fJudge "${dbFull[cpp]:-0}"
-fTest EtAC9Qz the Go database has every Go file, tests included
+fTest de5ad the Go database has every Go file, tests included
 fJudge "${dbFull[go]:-0}"
-fTest EtBmwbF the windows Go database has every Go file the windows build takes
+fTest de5ph the windows Go database has every Go file the windows build takes
 fJudge "${dbFull[go-win]:-0}"
-fTest EtAC9UO the Python database has every Python file
+fTest de5ae the Python database has every Python file
 fJudge "${dbFull[python]:-0}"
-fTest EtAC9XH the Rust database has every Rust file, with its workspace loaded
+fTest de5af the Rust database has every Rust file, with its workspace loaded
 fJudge "${dbFull[rust]:-0}"
-fTest EtAC9Zo nothing found in the C and C++ code
+fTest de5ag nothing found in the C and C++ code
 fJudge "${langClean[cpp]:-0}"
-fTest EtAC9cY nothing found in the Go code
+fTest de5ah nothing found in the Go code
 fJudge "${langClean[go]:-0}"
-fTest EtBmwfq nothing found in the windows-only Go files
+fTest de5pj nothing found in the windows-only Go files
 fJudge "${langClean[go-win]:-0}"
-fTest EtAC9fG nothing found in the Python code
+fTest de5aj nothing found in the Python code
 fJudge "${langClean[python]:-0}"
-fTest EtAC9ie nothing found in the Rust code
+fTest de5ak nothing found in the Rust code
 fJudge "${langClean[rust]:-0}"
-fTest EtAC9lw every suppression gives its reason and covers a finding
+fTest de5am every suppression gives its reason and covers a finding
 fJudge "${suppressOk}"
 fTestEnd
 if ((nBad)); then exit 1; fi

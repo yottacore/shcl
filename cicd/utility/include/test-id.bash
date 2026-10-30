@@ -3,6 +3,7 @@
 ##	Purpose:
 ##		One status line per test, with its test ID, for the pipeline's console:
 ##			STATUS ID WHERE NAME
+##		STATUS is PASS, FAIL or SKIP.
 ##		Source this, set testWhere to the script's name and testCounter to the
 ##		name of its failure counter, then call:
 ##			fTest ID NAME...   close the open test and open the next
@@ -28,9 +29,9 @@ fTestLine(){ printf '%-4s %s %s %s\n' "$1" "$2" "${testWhere}" "$3"; }
 
 fTestEnd(){
 	[[ -n "${testOpen}" ]] || return 0
-	local status=ok
+	local status=PASS
 	if [[ "${!testCounter}" != "${testFrom}" ]]; then status=FAIL
-	elif [[ "${testSkipped}" == 1 ]]; then status=skip; fi
+	elif [[ "${testSkipped}" == 1 ]]; then status=SKIP; fi
 	fTestLine "${status}" "${testOpen}" "${testName}"
 	testOpen=""
 }
@@ -50,7 +51,7 @@ fTestSkipBlock(){
 	testSkipped=1
 	fTestEnd
 	while IFS=$'\t' read -r id name; do
-		fTestLine skip "${id}" "${name}"
+		fTestLine SKIP "${id}" "${name}"
 	done < <(awk -v at="${at}" '
 		{ line[NR] = $0 }
 		NR == at { exit }
@@ -75,3 +76,4 @@ fTestSkipBlock(){
 ##	History:
 ##		- 2026-09-27 JC: Created.
 ##		- 2026-09-28 JC: fTestSkipBlock, so a skipped block names the tests in it.
+##		- 2026-10-30 JC: PASS, FAIL and SKIP, per the shared CICD rules.

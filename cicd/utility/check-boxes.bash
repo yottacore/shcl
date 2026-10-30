@@ -124,7 +124,7 @@ cp -r g h
 cp "${linBin}" h/shcl
 ( cd h && env -i PATH=/usr/bin:/bin HOME=/ sh run.sh > rc.lst 2> /dev/null ) || fBad "the host run of the CLI cases failed"
 
-fTest Etfwju5 each test box runs its release build like the Linux one
+fTest decyk each test box runs its release build like the Linux one
 for row in "$@"; do
 	IFS='|' read -r box target bin <<< "${row}"
 	[[ -z "${bin}" || "${bin}" == /* ]] || bin="${startDir}/${bin}"

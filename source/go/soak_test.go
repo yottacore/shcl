@@ -56,7 +56,7 @@ func soakHeap() uint64 {
 // after round. Round N to 2N is what's judged: the first rounds grow pools
 // and caches that then stay put.
 func TestSoakHeapSettles(t *testing.T) {
-	defer testID(t, "Et01j4C")
+	defer testID(t, "de2w0")
 	if raceOn {
 		t.Skip("the plain run soaks; -race only slows it")
 	}

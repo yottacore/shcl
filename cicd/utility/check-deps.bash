@@ -93,7 +93,7 @@ done
 
 ## Optional crates count when a feature the release turns on reaches them, so
 ## the release commands' feature flags are read too.
-fTest EtDJq3P rust-release-has-no-crates
+fTest de629 rust-release-has-no-crates
 relFeatures=""
 for cmd in "${RELEASE_NATIVE_CMD[*]}" "${CROSS_TARGETS[@]}"; do
 	[[ "${cmd}" == *--all-features* ]] && relFeatures+=" *"
@@ -153,7 +153,7 @@ fi
 ## builds. A package inside our own modules is ours; the file check below
 ## catches a copy put there. cgo would link C, and a user's build may have it
 ## on, so it's on here for every OS.
-fTest EtDJq3Q go-modules-are-stdlib-only
+fTest de62a go-modules-are-stdlib-only
 goLib="$(go -C "${repoDir}/source/go" list -m 2>/dev/null)" || { fBad "go cannot read source/go/go.mod"; goLib="?"; }
 goCmd="$(go -C "${repoDir}/source/go/cmd" list -m 2>/dev/null)" || { fBad "go cannot read source/go/cmd/go.mod"; goCmd="?"; }
 for mod in source/go source/go/cmd; do
@@ -186,7 +186,7 @@ done
 
 ## Every import, function-level ones included, and anything imported by name
 ## at run time, which can't be judged.
-fTest EtDJq3R python-imports-are-stdlib-only
+fTest de62b python-imports-are-stdlib-only
 if ! pyOut="$(cd "${repoDir}" && python3 -c '
 import ast, sys
 ok = set(sys.argv[1].split())
@@ -223,7 +223,7 @@ while IFS= read -r line; do
 done <<<"${pyOut}"
 [[ "${pyOut}" == *$'\n'=* || "${pyOut}" == =* ]] || fBad "the Python import scan stopped early: ${pyOut}"
 
-fTest EtDJq3S c-includes-are-system-only
+fTest de62c c-includes-are-system-only
 nInc=0
 for f in "${cFiles[@]}"; do
 	while IFS=: read -r ln inc; do
@@ -249,7 +249,7 @@ done
 ## A library named in code: Rust link attributes and build-script link lines,
 ## Go and Python DLL loads, C pragmas and run-time loads. A name that isn't a
 ## literal can't be judged, so it fails too.
-fTest EtDJq3T libraries-named-in-code-are-system-only
+fTest de62d libraries-named-in-code-are-system-only
 ## $3 is the name as written, quoted unless $4 says it's bare.
 fLibName(){
 	local f="$1" ln="$2" raw="$3" bare="${4:-0}" name
@@ -291,7 +291,7 @@ while IFS= read -r hit; do
 done < <(cd "${repoDir}" && git ls-files -z -- '.cargo/config*' '*/.cargo/config*' | xargs -0 -r grep -HnE -- '(^|[" ])-l[[:space:]=]*[A-Za-z]|link-arg=-l|rustc-link-lib' || true)
 
 ## The CLIs the build stage made, by what the loader will pull in.
-fTest EtDJq3U built-clis-link-system-libraries-only
+fTest de62e built-clis-link-system-libraries-only
 nElf=0
 if command -v readelf >/dev/null 2>&1; then
 	for bin in source/rust/target/debug/shcl source/c/shcl source/go/shcl; do
@@ -308,7 +308,7 @@ fi
 ## Copied-in code. A path named like a vendor tree, a submodule, or a cargo
 ## config that swaps the crate source. Anywhere in the tree, since a build can
 ## pick a vendor folder up on its own.
-fTest EtDJq3V no-vendored-trees
+fTest de62f no-vendored-trees
 for f in "${tracked[@]}"; do
 	if [[ "${f,,}" =~ (^|/)(vendor|vendored|third[_-]?party|thirdparty|3rd[_-]?party|external|extern|_deps|contrib)(/|$) ]]; then
 		fBad "${f} looks vendored"
@@ -323,7 +323,7 @@ done < <(cd "${repoDir}" && git ls-files -z -- '.cargo/config*' '*/.cargo/config
 
 ## Every shipped code file is ours: an MIT SPDX line and our copyright near
 ## the top. A copied-in file fails here even when it imports nothing.
-fTest EtDJq3W shipped-files-are-ours
+fTest de62g shipped-files-are-ours
 for f in "${shipped[@]}"; do
 	case "${f}" in
 		*.md|*.toml|*.lock|*.mod|*.sum|*.conf|*.txt|*.json|*.yaml|*.yml|*.1) continue ;;

@@ -28,7 +28,7 @@ tags: a, b
 `
 
 func TestUpgradeLeavesACleanOrStampedFile(t *testing.T) {
-	defer testID(t, "Es2fwnG")
+	defer testID(t, "ddmk7")
 	// a,b is one string now and an array under 2.x, but it loads clean, and
 	// nothing says the file is 2.x.
 	clean := "a: 1\nb: x,y\n"
@@ -50,7 +50,7 @@ func TestUpgradeLeavesACleanOrStampedFile(t *testing.T) {
 }
 
 func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
-	defer testID(t, "EsgoTha")
+	defer testID(t, "ddy84")
 	// The caller says a 2.x build wrote it, as a beta of 3.0 could have
 	// (2026101407100010). The backup name keeps the format the line names.
 	beta := "tags: a, b\n\n" + GenBanner
@@ -98,7 +98,7 @@ func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
 }
 
 func TestFromV2RefusesAConversionThatKeepsAnError(t *testing.T) {
-	defer testID(t, "EsoQmU9")
+	defer testID(t, "de02v")
 	// The next run with fromV2 would read the fresh text by 2.x rules again,
 	// and the 2.x escape on line 1 would grow each time (2026101515372401).
 	// So nothing is made, with a Format line or not.
@@ -155,7 +155,7 @@ func TestFromV2RefusesAConversionThatKeepsAnError(t *testing.T) {
 }
 
 func TestABlockKeptAtTheTopNamesThisFormatToo(t *testing.T) {
-	defer testID(t, "EtaIse6")
+	defer testID(t, "debk6")
 	// The lone stamp comes off, and the block kept above the first field's
 	// child named another format, which the fresh text then read as its own
 	// (2026102309053667).
@@ -182,7 +182,7 @@ func TestABlockKeptAtTheTopNamesThisFormatToo(t *testing.T) {
 }
 
 func TestUpgradeKeepsEachLineWhereItWas(t *testing.T) {
-	defer testID(t, "Eu1bOv3")
+	defer testID(t, "dej59")
 	// Blank lines and a raw block on its field's line stay put, so a line
 	// number in the old file names the same line in the fresh one
 	// (2026102620591101).
@@ -202,7 +202,7 @@ func TestUpgradeKeepsEachLineWhereItWas(t *testing.T) {
 }
 
 func TestUpgradeFromV2RewritesACleanFileThatReadsDifferently(t *testing.T) {
-	defer testID(t, "Es2fwpc")
+	defer testID(t, "ddmk8")
 	// The caller says it is 2.x, where a,b was an array.
 	up := Upgrade("p: a,b\n", true)
 	if up.Current || up.Lost != 0 || len(up.Diagnostics) != 0 {
@@ -219,7 +219,7 @@ func TestUpgradeFromV2RewritesACleanFileThatReadsDifferently(t *testing.T) {
 }
 
 func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
-	defer testID(t, "EsFrOVP")
+	defer testID(t, "ddqrq")
 	// Nothing else changes, so only the stamp does, and only with fromV2
 	// (2026100717500017).
 	old := "port: 80\n##    Format   2\n"
@@ -258,7 +258,7 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 }
 
 func TestAFormatLineAtTheTopGoesWhenTheBlockGoesOn(t *testing.T) {
-	defer testID(t, "Esgj35P")
+	defer testID(t, "ddy7t")
 	// The block names the format, so the file names one (2026101407100001).
 	if got, want := Upgrade("##    Format   2\nname: x\nq: a,b\n", true).Text, "name: x\nq: [a, b]\n\n"+GenBanner; got != want {
 		t.Fatalf("upgrade: got %q, want %q", got, want)
@@ -281,7 +281,7 @@ func TestAFormatLineAtTheTopGoesWhenTheBlockGoesOn(t *testing.T) {
 }
 
 func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
-	defer testID(t, "Es2fws2")
+	defer testID(t, "ddmk9")
 	up := Upgrade(upgradeV2File, false)
 	if up.Current || up.Ambiguous != 0 || up.Lost != 0 || up.Format != 2 {
 		t.Fatalf("2.x file: %+v", up)
@@ -307,7 +307,7 @@ func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 }
 
 func TestUpgradeRefusesTextThatReadsTwoWays(t *testing.T) {
-	defer testID(t, "Es2fwuQ")
+	defer testID(t, "ddmka")
 	text := "a: x,y\nb: \"q\n"
 	if up := Upgrade(text, false); up.Current || up.Ambiguous != 1 || up.Text != text {
 		t.Fatalf("unsaid: %+v", up)
@@ -318,7 +318,7 @@ func TestUpgradeRefusesTextThatReadsTwoWays(t *testing.T) {
 }
 
 func TestBackupNamePutsTheTagBeforeTheExtension(t *testing.T) {
-	defer testID(t, "Es2fwwd")
+	defer testID(t, "ddmkb")
 	tag := "_backup_20261004-001500_format-v2"
 	for _, c := range []struct {
 		file   string
@@ -338,7 +338,7 @@ func TestBackupNamePutsTheTagBeforeTheExtension(t *testing.T) {
 }
 
 func TestUpgradeFileBacksUpThenRewrites(t *testing.T) {
-	defer testID(t, "Es2fwyv")
+	defer testID(t, "ddmkc")
 	dir := t.TempDir()
 	file := filepath.Join(dir, "f.shcl")
 	if err := os.WriteFile(file, []byte(upgradeV2File), 0o600); err != nil {
@@ -383,7 +383,7 @@ func TestUpgradeFileBacksUpThenRewrites(t *testing.T) {
 }
 
 func TestUpgradeFileNeverWritesOverABackup(t *testing.T) {
-	defer testID(t, "Es2fx19")
+	defer testID(t, "ddmkd")
 	dir := t.TempDir()
 	file := filepath.Join(dir, "f.shcl")
 	if err := os.WriteFile(file, []byte(upgradeV2File), 0o600); err != nil {
@@ -425,7 +425,7 @@ func TestUpgradeFileNeverWritesOverABackup(t *testing.T) {
 // The file and its text are both strings, and swapped they wrote a backup
 // named after the text and returned its name (2026101807501110).
 func TestWriteBackupRefusesASwappedFileAndText(t *testing.T) {
-	defer testID(t, "Et6Am5j")
+	defer testID(t, "de4bb")
 	dir := t.TempDir()
 	file := filepath.Join(dir, "f.shcl")
 	// Read as a path the text names a spot in dir, so a backup made of it

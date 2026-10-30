@@ -102,7 +102,7 @@ NF >= 2 && $1 ~ /^ *[0-9a-f]+:$/ {
 END { for (e in hits) if (index(" " allow " ", " " e " ") == 0) printf "    %s: %d, first at %s\n", e, hits[e], first[e] }
 '
 
-fTest EsaOGRX no instruction past x86-64-v1 in any build
+fTest ddwpp no instruction past x86-64-v1 in any build
 if ! command -v objdump >/dev/null 2>&1; then
 	if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then fBad "objdump is missing, and the gate requires it"; fi
 	echo "check-cpu-floor: skipping the scan (no objdump)"
@@ -240,7 +240,7 @@ if [[ -n "${runBin}" ]]; then
 	for t in qemu-system-x86_64 busybox cc cpio gzip ldd; do command -v "${t}" >/dev/null 2>&1 || missing+=" ${t}"; done
 	[[ -r "${kernel}" ]] || missing+=" readable ${kernel}"
 	if [[ -z "${missing}" ]]; then
-		fTest EsaOGRY Penryn traps on what it lacks
+		fTest ddwpq Penryn traps on what it lacks
 		ir="${work}/ir"
 		mkdir -p "${ir}/bin" "${ir}/proc" "${ir}/dev" "${ir}/c"
 		: > "${work}/libdirs"
@@ -284,12 +284,12 @@ EOF
 
 		fBoot Penryn
 		fControls Penryn "${penrynTraps}" "${penrynRuns}"
-		fTest EsaOGRZ Penryn runs the CLI cases like this host
+		fTest ddwpr Penryn runs the CLI cases like this host
 		fCompare Penryn
-		fTest EsaOGRa Phenom traps on what it lacks
+		fTest ddwps Phenom traps on what it lacks
 		fBoot phenom
 		fControls phenom "${phenomTraps}" "${phenomRuns}"
-		fTest EsaOGRb Phenom runs the CLI cases like this host
+		fTest ddwpt Phenom runs the CLI cases like this host
 		fCompare phenom
 	else
 		if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then fBad "the emulated boot needs${missing}, and the gate requires it"; fi
