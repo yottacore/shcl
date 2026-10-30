@@ -21,7 +21,7 @@ use std::process::{Command, Stdio};
 #[cfg_attr(miri, ignore = "starts a process")]
 #[test]
 fn early_closed_stdout_is_quiet() {
-	let _id = test_id("EojoRUu");
+	let _id = test_id("dc3aj");
 	let dir = std::env::temp_dir().join(format!("shcl-pipe-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
 	let file = dir.join("big.shcl");

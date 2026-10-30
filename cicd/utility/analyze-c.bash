@@ -339,9 +339,9 @@ fJudge(){
 	if [[ -n "${jobFailed[$1]:-}" ]]; then nBad=$((nBad + 1)); fi
 }
 if ((ctu)); then
-	fTest Et9t3Ll the cross-file clang analyzer reports a planted leak and null dereference only it sees
+	fTest de57y the cross-file clang analyzer reports a planted leak and null dereference only it sees
 	fJudge "ctu bait"
-	fTest Et9t3PQ the cross-file clang analyzer over the C test programs that split
+	fTest de57z the cross-file clang analyzer over the C test programs that split
 	fJudge ctu
 	fTestEnd
 	if ((nBad)); then exit 1; fi
@@ -350,17 +350,17 @@ if ((ctu)); then
 	fi
 	exit 0
 fi
-fTest Et09ats gcc -fanalyzer reports a planted leak and null dereference
+fTest de2wz gcc -fanalyzer reports a planted leak and null dereference
 fJudge "gcc bait"
-fTest Et09att the clang analyzer reports a planted leak and null dereference
+fTest de2x0 the clang analyzer reports a planted leak and null dereference
 fJudge "clang bait"
-fTest Et09atu clang-tidy reports planted bugs in a header the filter names
+fTest de2x1 clang-tidy reports planted bugs in a header the filter names
 fJudge "tidy bait"
-fTest Et09atv gcc -fanalyzer over the C CLI and the C test programs
+fTest de2x2 gcc -fanalyzer over the C CLI and the C test programs
 fJudge gcc
-fTest Et09atw the clang analyzer over the C CLI and the C test programs
+fTest de2x3 the clang analyzer over the C CLI and the C test programs
 fJudge clang
-fTest Et09atx clang-tidy over the C++ veneer smoke
+fTest de2x4 clang-tidy over the C++ veneer smoke
 fJudge tidy
 fTestEnd
 if ((nBad)); then exit 1; fi

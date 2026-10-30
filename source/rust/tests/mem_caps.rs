@@ -84,7 +84,7 @@ fn allocs_during(_turn: &Turn, mut f: impl FnMut()) -> usize {
 // every test here opens on its ID and then its turn, before anything else.
 #[test]
 fn every_test_takes_its_turn_first() {
-	let _id = test_id("EstZ5TB");
+	let _id = test_id("de1a9");
 	let _turn = my_turn();
 	let src = include_str!("mem_caps.rs");
 	let mut tests = 0;
@@ -119,7 +119,7 @@ fn every_test_takes_its_turn_first() {
 )]
 #[test]
 fn a_plain_name_costs_the_scan_nothing() {
-	let _id = test_id("EoneEzg");
+	let _id = test_id("dc483");
 	let turn = my_turn();
 	use shcl::{Document, Strictness};
 	// Same document twice over, once with one segment a line and once with
@@ -162,7 +162,7 @@ fn peak_during(_turn: &Turn, f: impl FnOnce()) -> usize {
 )]
 #[test]
 fn element_cap_bounds_the_parse() {
-	let _id = test_id("EoezJiC");
+	let _id = test_id("dc25e");
 	let turn = my_turn();
 	use shcl::{Document, Strictness};
 	let text = format!("arr: [{}1]\nok: 5\n", "1, ".repeat(200_000));
@@ -186,7 +186,7 @@ fn element_cap_bounds_the_parse() {
 )]
 #[test]
 fn diagnostic_cap_bounds_the_parse() {
-	let _id = test_id("EofAXrU");
+	let _id = test_id("dc26v");
 	let turn = my_turn();
 	use shcl::{Document, Strictness};
 	// The stacked spelling refuses each element line past the cap on its own,

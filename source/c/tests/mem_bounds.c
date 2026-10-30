@@ -86,7 +86,7 @@ static void fail(const char *what) { fprintf(stderr, "FAIL mem_bounds: %s\n", wh
 static const char *open_id, *open_name;
 static int open_base = 0;
 static int test_id_end(int failed) {
-	printf("%-4s %s c %s\n", failed ? "FAIL" : "ok", open_id, open_name);
+	printf("%-4s %s c %s\n", failed ? "FAIL" : "PASS", open_id, open_name);
 	fflush(stdout);
 	return failed ? 1 : 0;
 }
@@ -96,7 +96,7 @@ static void test_id(const char *id, const char *name) {
 }
 
 int main(void) {
-	test_id("EoezJiG", "mem_bounds");
+	test_id("dc25j", "mem_bounds");
 	// The clock every runner pins, as conformance.c does.
 #ifdef _WIN32
 	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
@@ -567,7 +567,7 @@ int main(void) {
 	// opened back to the system, so the next call opened another. A default
 	// form on a present path does that every call, on its empty probe, and
 	// musl maps and unmaps each one: the reads gate ran 4x its glibc time.
-	test_id("EsdfEvu", "mem_bounds_mark_at_block_end");
+	test_id("ddxfw", "mem_bounds_mark_at_block_end");
 	{
 		size_t keys = 2000, cap = keys * 24 + 16, tl = 0;
 		char *txt = (char *)malloc(cap);

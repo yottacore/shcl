@@ -119,7 +119,7 @@ func loadCases(t *testing.T) []corpusCase {
 		if err != nil {
 			t.Fatalf("%s: %v", entry.Name(), err)
 		}
-		id := "-------"
+		id := "-----"
 		if b, err := os.ReadFile(filepath.Join(caseDir, "test-id")); err == nil {
 			id = strings.TrimSpace(string(b))
 		}
@@ -203,7 +203,7 @@ func loadCases(t *testing.T) []corpusCase {
 // A fixture compared two notes made on the real clock, and failed when the
 // second came a second later (2026101912125490). Same check in every runner.
 func TestTheClockIsPinnedForEveryTest(t *testing.T) {
-	defer testID(t, "EtAxcPr")
+	defer testID(t, "de5g5")
 	doc := Parse("a: x\n")
 	took := doc.SetIntDefault("a", 1)
 	if got := os.Getenv("SHCL_TEST_CLOCK"); got != pinnedClock || took != SetOk || !strings.Contains(doc.ToCanonical(), ", 2026-10-04 00:15:00 PDT: not an int\n") {
@@ -215,11 +215,11 @@ func TestTheClockIsPinnedForEveryTest(t *testing.T) {
 // first thing, so it runs last and sees a failure, a skip or a panic.
 func testID(t *testing.T, id string) {
 	r := recover()
-	status := "ok"
+	status := "PASS"
 	if r != nil || t.Failed() {
 		status = "FAIL"
 	} else if t.Skipped() {
-		status = "skip"
+		status = "SKIP"
 	}
 	statusLine(status, id, t.Name())
 	if r != nil {
@@ -269,18 +269,18 @@ func TestMain(m *testing.M) {
 	before := runtime.NumGoroutine()
 	code := m.Run()
 	for _, c := range corpusRan {
-		status := "ok"
+		status := "PASS"
 		if corpusFailed[c.name] {
 			status = "FAIL"
 		}
 		statusLine(status, c.id, "corpus/"+c.name)
 	}
-	status := "ok"
+	status := "PASS"
 	if !goroutinesSettle(before) {
 		status = "FAIL"
 		code = 1
 	}
-	statusLine(status, "Et01j1m", "goroutines_settle")
+	statusLine(status, "de2vz", "goroutines_settle")
 	os.Exit(code)
 }
 
@@ -319,7 +319,7 @@ func docFor(t *testing.T, c *corpusCase, level Strictness) *Document {
 }
 
 func TestCanonicalFormatMatchesExpected(t *testing.T) {
-	defer testID(t, "EjsS8bA")
+	defer testID(t, "d9tva")
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		got := Parse(c.input).ToCanonical()
 		if got != c.expectedFmt {
@@ -759,7 +759,7 @@ func diagText(text string) string {
 }
 
 func TestDiagnosticsMatchExpected(t *testing.T) {
-	defer testID(t, "EkoN15t")
+	defer testID(t, "da8s2")
 	// Pins count, line, severity, and stable code per case - the same shape
 	// `check` prints to stdout at Standard (its cross-binding contract).
 	eachCase(t, func(t *testing.T, c corpusCase) {
@@ -771,7 +771,7 @@ func TestDiagnosticsMatchExpected(t *testing.T) {
 }
 
 func TestMigrateMatchesExpected(t *testing.T) {
-	defer testID(t, "Ept4WPi")
+	defer testID(t, "dcmf2")
 	// Migration dimension: Migrate on the input must reproduce the golden byte
 	// for byte, and the golden's load diagnostics are pinned beside it, so a
 	// rewrite that no longer loads cannot pass. A fmt fixpoint is not required,
@@ -792,7 +792,7 @@ func TestMigrateMatchesExpected(t *testing.T) {
 }
 
 func TestMigrateIsAFixpoint(t *testing.T) {
-	defer testID(t, "EpyXoJX")
+	defer testID(t, "dcns6")
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		once := Migrate(c.input, true).Text
 		if again := Migrate(once, true).Text; again != once {
@@ -823,7 +823,7 @@ func stampedInPlace(text string, line int) (string, bool) {
 }
 
 func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
-	defer testID(t, "Eqpzw7U")
+	defer testID(t, "dd2mg")
 	// Over every input, not only the migrate cases: the stamp is the one
 	// difference, and a file is current exactly when its Format line says so.
 	eachCase(t, func(t *testing.T, c corpusCase) {
@@ -872,7 +872,7 @@ func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 }
 
 func TestValidationMatchesExpected(t *testing.T) {
-	defer testID(t, "Eksumuu")
+	defer testID(t, "da9w2")
 	// Schema dimension: golden = the exact `check --schema` stdout at Standard
 	// (doc parse diags, then validation diags, then the summary). A schema that
 	// does not load cleanly is a single V099, mirroring the CLI. It comes from
@@ -923,7 +923,7 @@ func TestValidationMatchesExpected(t *testing.T) {
 }
 
 func TestWriteOpsMatchExpected(t *testing.T) {
-	defer testID(t, "Ekfzh7h")
+	defer testID(t, "da6rm")
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		if !c.hasWrite {
 			return
@@ -967,7 +967,7 @@ func TestWriteOpsMatchExpected(t *testing.T) {
 // TestKeepingLinesWithoutEditsWritesTheInput: loaded to keep its lines and
 // saved with no edits, every input is its own text again, byte for byte.
 func TestKeepingLinesWithoutEditsWritesTheInput(t *testing.T) {
-	defer testID(t, "EqvA7Zo")
+	defer testID(t, "dd3w7")
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		doc, _ := ParseKeepLines(c.input, Standard)
 		if text, kept := doc.ToTextKeepLines(); text != c.input || !kept {
@@ -977,7 +977,7 @@ func TestKeepingLinesWithoutEditsWritesTheInput(t *testing.T) {
 }
 
 func TestWriteBadOpsAreRejected(t *testing.T) {
-	defer testID(t, "El5Gcy7")
+	defer testID(t, "dacva")
 	// Bad-op dimension: each write-bad.ops line, applied alone to the case
 	// input, must be rejected (bad value, bad datetime, or unusable path) and
 	// leave the document unchanged.
@@ -1027,7 +1027,7 @@ func lvStandard(t *testing.T, text, schema string) *Document {
 }
 
 func TestOneShotLoadAndValidate(t *testing.T) {
-	defer testID(t, "Elp3cOh")
+	defer testID(t, "daqvj")
 	// One combined diagnostics list (parse first, then validation) and an
 	// error predicate, so recover-and-continue can't read as success by
 	// accident. Same fixture in every runner.
@@ -1066,7 +1066,7 @@ func TestOneShotLoadAndValidate(t *testing.T) {
 }
 
 func TestStrictFailsTheSameFromEveryEntryPoint(t *testing.T) {
-	defer testID(t, "Es9mP4v")
+	defer testID(t, "ddp9x")
 	// Strict fails the load on any error diagnostic, from every entry point,
 	// with the document beside the error. The file tier and the one-shot gave
 	// a plain document where ParseWith failed. Same fixture in every runner.
@@ -1148,7 +1148,7 @@ func TestStrictFailsTheSameFromEveryEntryPoint(t *testing.T) {
 }
 
 func TestLoadAndValidateWithMatchesTheTextForm(t *testing.T) {
-	defer testID(t, "Eshi8i0")
+	defer testID(t, "ddyf1")
 	// The parsed-schema form gives what the text form gives: the same
 	// combined list and the same strict answer, over every corpus schema at
 	// every level, with one schema document reused across the loads. Same
@@ -1204,7 +1204,7 @@ func TestLoadAndValidateWithMatchesTheTextForm(t *testing.T) {
 }
 
 func TestOneShotLoadReportsABrokenSchema(t *testing.T) {
-	defer testID(t, "Eqzz38W")
+	defer testID(t, "dd520")
 	// A schema that does not load would otherwise drop the constraints on its
 	// broken lines, or report every field as unknown - blaming the document.
 	// Same fixture in every runner.
@@ -1231,7 +1231,7 @@ func TestOneShotLoadReportsABrokenSchema(t *testing.T) {
 }
 
 func TestValidateAndGenerateReportABrokenSchema(t *testing.T) {
-	defer testID(t, "Es8Oq5C")
+	defer testID(t, "ddnz9")
 	// The quote never closes, so the max line is lost and a parse then
 	// validate passed 99999 with no word. Same fixture in every runner.
 	schema := Parse("field: port\n\ttype: int\n\tmax: \"65535\n")
@@ -1255,7 +1255,7 @@ func TestValidateAndGenerateReportABrokenSchema(t *testing.T) {
 }
 
 func TestNulNameDoesNotSatisfyADottedSchemaPath(t *testing.T) {
-	defer testID(t, "Eqzz38X")
+	defer testID(t, "dd521")
 	// The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	// field whose name literally contains a NUL must not impersonate the
 	// two-segment path x.y. Same fixture in every runner.
@@ -1282,7 +1282,7 @@ func TestNulNameDoesNotSatisfyADottedSchemaPath(t *testing.T) {
 // NotFound. The no-status calls give their empty answer and Or its default.
 // Same fixture in every runner.
 func TestBadPathReadsSayBadPath(t *testing.T) {
-	defer testID(t, "Es9JVrY")
+	defer testID(t, "ddp6a")
 	doc := Parse("site: a\n\tport: 1\n")
 	if st := doc.ReadInt("site(0).port").Status; st != Good {
 		t.Fatalf("site(0).port: %v", st)
@@ -1343,7 +1343,7 @@ func TestBadPathReadsSayBadPath(t *testing.T) {
 // NotFound for one that matches nothing, Good otherwise, with the value the
 // plain call gives. Same fixture in every runner.
 func TestListReadsSayBadPath(t *testing.T) {
-	defer testID(t, "EsDQqYe")
+	defer testID(t, "ddq61")
 	doc := Parse("site: a\n\tport: 1\nsite: b\n")
 	if c := doc.ReadCount("site"); c.Value != 2 || c.Status != Good || c.Line != 0 {
 		t.Errorf("ReadCount(site) = %d %v %d", c.Value, c.Status, c.Line)
@@ -1400,7 +1400,7 @@ func TestListReadsSayBadPath(t *testing.T) {
 // read, NotFound for one that reaches nothing, Multiple where a single-node
 // call meets several. Same fixture in every runner.
 func TestPathTwinsSayBadPath(t *testing.T) {
-	defer testID(t, "EsJ3y9X")
+	defer testID(t, "ddrhb")
 	text := "# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n"
 	doc := Parse(text)
 	if l := doc.ReadLine("site(0)"); l.Value != 2 || l.Status != Good || l.Line != 2 {
@@ -1515,7 +1515,7 @@ func TestPathTwinsSayBadPath(t *testing.T) {
 }
 
 func TestCheckSetPathNamesTheFailure(t *testing.T) {
-	defer testID(t, "ElouJ8L")
+	defer testID(t, "daqtb")
 	// The path's half of a setter's status. Same fixture in every runner.
 	doc := Parse("a:\n\tb: 1\n")
 	if got := doc.CheckSetPath("a.b"); got != SetOk {
@@ -1575,7 +1575,7 @@ func TestCheckSetPathNamesTheFailure(t *testing.T) {
 // runner, plus Go's own: text that is not valid UTF-8.
 // TestSetterStatusNamesEachRefusal has the status each one gives.
 func TestRefusedValuesPassThePathCheck(t *testing.T) {
-	defer testID(t, "Es9S4kK")
+	defer testID(t, "ddp7c")
 	text := "ports: [80, 443]\nsec:\n\tx: 1\n"
 	month13 := DateTime{HasDate: true, Year: 2026, Month: 13, Day: 1}
 	cases := []struct {
@@ -1620,7 +1620,7 @@ func TestRefusedValuesPassThePathCheck(t *testing.T) {
 // Every status a setter gives, in the order every binding numbers them. The
 // other three print the same names. Same fixture in every runner.
 func TestSetterStatusValuesInOrder(t *testing.T) {
-	defer testID(t, "EsDeJ9a")
+	defer testID(t, "ddq7n")
 	all := []SetStatus{
 		SetOk,
 		SetBadPath,
@@ -1685,7 +1685,7 @@ func TestSetterStatusValuesInOrder(t *testing.T) {
 // is not UTF-8. OutOfRange and NoReadBack have no case: an int64 is in range,
 // and no other value is known that fails to read back.
 func TestSetterStatusNamesEachRefusal(t *testing.T) {
-	defer testID(t, "EsDeJBi")
+	defer testID(t, "ddq7p")
 	text := "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n"
 	month13 := DateTime{HasDate: true, Year: 2026, Month: 13, Day: 1}
 	deep := strings.TrimSuffix(strings.Repeat("d.", 513), ".")
@@ -1781,7 +1781,7 @@ func TestSetterStatusNamesEachRefusal(t *testing.T) {
 // read after it would say Multiple. An index or value selector picks one.
 // Same fixture in every runner.
 func TestRepeatedPathRefusesASetter(t *testing.T) {
-	defer testID(t, "Es9aZSG")
+	defer testID(t, "ddp8f")
 	text := "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n"
 	cases := []struct {
 		path string
@@ -1832,7 +1832,7 @@ func TestRepeatedPathRefusesASetter(t *testing.T) {
 }
 
 func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
-	defer testID(t, "Eof29pZ")
+	defer testID(t, "dc25v")
 	// Each setter is the inverse of its read, so a value with no spelling the
 	// reader accepts fails the write and leaves the document alone. Same
 	// fixture in every runner.
@@ -1894,7 +1894,7 @@ func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
 // with its own flag beside Quoted. A setter keeps the backticks when the new
 // text can be written that way. Same fixture in every runner.
 func TestABacktickValueReadsRawWithItsFlag(t *testing.T) {
-	defer testID(t, "Ery85QE")
+	defer testID(t, "ddkg9")
 	doc := Parse("c: `#FF8800`\nq: \"x\"\nb: x\na: [`1`, b]\nn: `7`\n")
 	if r := doc.ReadString("c"); r.Value != "#FF8800" || !r.Quoted || !r.Backtick {
 		t.Fatalf("c: %q %v %v", r.Value, r.Quoted, r.Backtick)
@@ -1923,7 +1923,7 @@ func TestABacktickValueReadsRawWithItsFlag(t *testing.T) {
 }
 
 func TestRawBlockLineEndingsNormalizeAndRoundTrip(t *testing.T) {
-	defer testID(t, "EnLyQsV")
+	defer testID(t, "dbep2")
 	// A raw body is the only content kept untrimmed, so it is the only place a
 	// trailing CR survives the load - and one written back becomes CRLF, which
 	// reads as neither. The whole trailing run comes off instead; a CR inside a
@@ -1940,7 +1940,7 @@ func TestRawBlockLineEndingsNormalizeAndRoundTrip(t *testing.T) {
 }
 
 func TestChildrenAndInstancePathsWalkARepeatedKey(t *testing.T) {
-	defer testID(t, "Eqpzw7V")
+	defer testID(t, "dd2mh")
 	// gitsby's report: Children() on a repeated key answered nothing, and a
 	// walk had to know to index each instance.
 	doc := Parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n")
@@ -1960,7 +1960,7 @@ func TestChildrenAndInstancePathsWalkARepeatedKey(t *testing.T) {
 }
 
 func TestFieldsGiveEachInstanceItsOwnPath(t *testing.T) {
-	defer testID(t, "EsEsFnM")
+	defer testID(t, "ddqh4")
 	// The --json listings: each instance, a repeated one included, gets a
 	// path that reads that one, with its name, value and line beside it.
 	doc := Parse("shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n")
@@ -2020,7 +2020,7 @@ func TestFieldsGiveEachInstanceItsOwnPath(t *testing.T) {
 }
 
 func TestReadSurfaceLineQuotedChildren(t *testing.T) {
-	defer testID(t, "ElorUZl")
+	defer testID(t, "daqt0")
 	// Line/Quoted on the read result, Line(path), Children(path). Same
 	// fixture in every runner (C pins the same answers on shcl_quoted and
 	// shcl_line; its read structs stay value+status).
@@ -2133,7 +2133,7 @@ func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 }
 
 func TestFileTierLoadSave(t *testing.T) {
-	defer testID(t, "EnEYHTt")
+	defer testID(t, "dbcww")
 	// LoadFile/SaveFile: the status separates absent / unreadable / parsed
 	// with errors / clean, and a save round-trips through the atomic write.
 	// Same fixture in every runner.
@@ -2287,7 +2287,7 @@ func TestFileTierLoadSave(t *testing.T) {
 }
 
 func TestSaveFileErrorWrapsTheCause(t *testing.T) {
-	defer testID(t, "Eqzz38Y")
+	defer testID(t, "dd522")
 	// A caller tells a missing directory from a full disk with errors.Is, not
 	// by matching the message, so the save wraps the i/o error.
 	err := Parse("a: 1\n").SaveFile(filepath.Join(t.TempDir(), "missing", "t.shcl"))
@@ -2302,7 +2302,7 @@ func TestSaveFileErrorWrapsTheCause(t *testing.T) {
 // Every reason a write gives, in the order every binding numbers them. The
 // other three print the same names. Same fixture in every runner.
 func TestWriteStatusValuesInOrder(t *testing.T) {
-	defer testID(t, "EsEhCG0")
+	defer testID(t, "ddqft")
 	all := []WriteStatus{
 		WriteOk,
 		WriteNotFound,
@@ -2340,7 +2340,7 @@ func writeStatusIn(t *testing.T, err error) WriteStatus {
 // read-only filesystem can't be made here without root; TestWriteStatusOf
 // maps those. Same fixture in every runner.
 func TestWriteStatusNamesEachFailure(t *testing.T) {
-	defer testID(t, "EsEhCG1")
+	defer testID(t, "ddqfv")
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2429,7 +2429,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 // The table from an OS error to a write's reason. Most rows can't be made to
 // happen on a test box: a full disk, a read-only mount, a file held open.
 func TestWriteStatusOf(t *testing.T) {
-	defer testID(t, "EsEhCG2")
+	defer testID(t, "ddqfw")
 	rows := []struct {
 		err  error
 		want WriteStatus
@@ -2483,7 +2483,7 @@ func TestWriteStatusOf(t *testing.T) {
 // and link errors named the call and the temp file again (2026100719122102),
 // so the errors here carry a windows path on every platform.
 func TestWriteFailureNamesNoTempFile(t *testing.T) {
-	defer testID(t, "EsaBeHl")
+	defer testID(t, "ddwn4")
 	target := filepath.Join(t.TempDir(), "reason.shcl")
 	tmp := `C:\Users\x\.reason.shcl.tmp1.0`
 	oldCreate, oldPublish := createTemp, publishFile
@@ -2509,7 +2509,7 @@ func TestWriteFailureNamesNoTempFile(t *testing.T) {
 }
 
 func TestReadFileAtTheLargestCap(t *testing.T) {
-	defer testID(t, "EoLznCy")
+	defer testID(t, "dbxk9")
 	// A cap given as the type maximum used to overflow the over-cap probe and
 	// read nothing. Same fixture in every runner.
 	f := filepath.Join(t.TempDir(), "t.shcl")
@@ -2522,7 +2522,7 @@ func TestReadFileAtTheLargestCap(t *testing.T) {
 }
 
 func TestSetRawKeepsASharedIndentAndTrimsTheInfo(t *testing.T) {
-	defer testID(t, "EoLznCz")
+	defer testID(t, "dbxka")
 	// The body's shared indent survives a reload (the closing fence's indent is
 	// what comes off), the info-string is stored as a fence line reads it
 	// back, and an info with a line break or a `#` has no spelling and fails
@@ -2585,7 +2585,7 @@ func TestSetRawKeepsASharedIndentAndTrimsTheInfo(t *testing.T) {
 }
 
 func TestSaveCreatesTheFileBehindADanglingSymlink(t *testing.T) {
-	defer testID(t, "EoLznD0")
+	defer testID(t, "dbxkb")
 	// A link to a file that is not there yet is written through like any other
 	// link: the file appears where the link points and the link stays a link.
 	// Same fixture in every POSIX runner.
@@ -2612,7 +2612,7 @@ func TestSaveCreatesTheFileBehindADanglingSymlink(t *testing.T) {
 }
 
 func TestSaveReportsASymlinkCycleInsteadOfReplacingIt(t *testing.T) {
-	defer testID(t, "EoUxXlR")
+	defer testID(t, "dbzra")
 	// Two links pointing at each other resolve to nothing, so the save fails
 	// and says why. It must not "fix" the cycle by dropping a regular file over
 	// one of the links. Same fixture in every POSIX runner.
@@ -2638,7 +2638,7 @@ func TestSaveReportsASymlinkCycleInsteadOfReplacingIt(t *testing.T) {
 }
 
 func TestTokenizeValueTakesANegativeOffsetAsZero(t *testing.T) {
-	defer testID(t, "EqLxvWy")
+	defer testID(t, "dcvdb")
 	// The reference's offset is unsigned, so a negative one has nothing else
 	// it can mean. Go panicked inside skipWsp and Python read it as an offset
 	// from the end (20260918b item 31). Same fixture in the Python runner.
@@ -2651,7 +2651,7 @@ func TestTokenizeValueTakesANegativeOffsetAsZero(t *testing.T) {
 }
 
 func TestABadUTF8ByteKeepsItsClosingQuote(t *testing.T) {
-	defer testID(t, "ErryPpd")
+	defer testID(t, "ddj0v")
 	// A stray continuation byte or a cut-short sequence stepped over the
 	// closing quote, so the line was E017 (2026100511212359). The value comes
 	// back with the byte in it. Same fixture in the C runner.
@@ -2677,7 +2677,7 @@ func TestABadUTF8ByteKeepsItsClosingQuote(t *testing.T) {
 }
 
 func TestMergeOntoItselfLeavesItAlone(t *testing.T) {
-	defer testID(t, "EqLqxgm")
+	defer testID(t, "dcvcg")
 	// A document merged onto itself is left as it is (20260918b item 19). The
 	// walk read over while it wrote d, so Go doubled a retained line, Python
 	// grew without end and C ran out of memory. Every corpus input, and the
@@ -2697,7 +2697,7 @@ func TestMergeOntoItselfLeavesItAlone(t *testing.T) {
 }
 
 func TestSaveReplacesOnlyARegularFile(t *testing.T) {
-	defer testID(t, "EqLbKe9")
+	defer testID(t, "dcvak")
 	// Save outcomes in design.md, the rows the CLI's own check hides. A FIFO
 	// was swapped for a regular file at exit 0, a link whose text names a
 	// directory made a file of that name, and Go cleaned `lnk/..` as text where
@@ -2750,7 +2750,7 @@ func TestSaveReplacesOnlyARegularFile(t *testing.T) {
 }
 
 func TestSaveRewritesAReadOnlyFile(t *testing.T) {
-	defer testID(t, "EoLznD1")
+	defer testID(t, "dbxkc")
 	// A read-only target is rewritten, as it is on POSIX, and comes back
 	// read-only; no temp file is left behind. Same fixture in every runner.
 	if runtime.GOOS != "windows" {
@@ -2786,7 +2786,7 @@ func TestSaveRewritesAReadOnlyFile(t *testing.T) {
 // separator first, so a save through `f/.` used to rewrite `f`. Same fixture in
 // every runner.
 func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
-	defer testID(t, "EomvfCr")
+	defer testID(t, "dc42k")
 	dir := t.TempDir()
 	f := filepath.Join(dir, "f.shcl")
 	if err := os.WriteFile(f, []byte("a: 1\n"), 0o644); err != nil {
@@ -2815,7 +2815,7 @@ func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
 // was refused while elements were stored in their source spelling and the
 // emitter had nothing to escape with. Same fixture in every runner.
 func TestALineBreakInAPathWritesAndReadsBack(t *testing.T) {
-	defer testID(t, "EpGigIL")
+	defer testID(t, "dcb7w")
 	doc := Parse("z: 0\n")
 	if doc.SetInt("x(\"p\nq\").c", 1) != SetOk || doc.SetInt("\"a\nb\".c", 1) != SetOk {
 		t.Fatal("a line break in a path was refused")
@@ -2836,7 +2836,7 @@ func TestALineBreakInAPathWritesAndReadsBack(t *testing.T) {
 }
 
 func TestSetStringRefusesInvalidUTF8(t *testing.T) {
-	defer testID(t, "EomvfCs")
+	defer testID(t, "dc42m")
 	d := Parse("a: 1\n")
 	bad := string([]byte{0x61, 0xff, 0x62})
 	if got := d.SetString("k", bad); got != SetNotUtf8 {
@@ -2880,7 +2880,7 @@ func TestSetStringRefusesInvalidUTF8(t *testing.T) {
 // emitter escapes the double quotes; the writer used to keep them bare. Same
 // fixture in every runner.
 func TestWrittenSpellingMatchesItsReload(t *testing.T) {
-	defer testID(t, "EommtF3")
+	defer testID(t, "dc41g")
 	d := Parse("x: 1\n")
 	if d.SetString("k", "q\"q'") != SetOk {
 		t.Fatal("set_string refused")
@@ -2900,7 +2900,7 @@ func TestWrittenSpellingMatchesItsReload(t *testing.T) {
 // document with no dead nodes; the ratio is what matters, since an absolute
 // figure would be a machine constant. Same fixture in every runner.
 func TestIndexRebuildIgnoresRemovedNodes(t *testing.T) {
-	defer testID(t, "EomjcaX")
+	defer testID(t, "dc413")
 	var ms [2]float64
 	for churned := 0; churned < 2; churned++ {
 		d := Parse("g:\n\tk: 1\n")
@@ -2959,7 +2959,7 @@ func TestIndexRebuildIgnoresRemovedNodes(t *testing.T) {
 // folding many layers onto a big one paid it every time. Timed against the same
 // merges with the big block left out. Same fixture in every runner.
 func TestMergeSettlesOnlyWhatItTouched(t *testing.T) {
-	defer testID(t, "EqoaM6D")
+	defer testID(t, "dd29n")
 	var ms [2]float64
 	for big := 0; big < 2; big++ {
 		var text strings.Builder
@@ -2999,7 +2999,7 @@ func TestMergeSettlesOnlyWhatItTouched(t *testing.T) {
 // document to settle it, even one far from the line. Timed against the same
 // steps on the same document without the line. Same fixture in every runner.
 func TestAFarKeptLineCostsAnEditNothing(t *testing.T) {
-	defer testID(t, "EqqmFxR")
+	defer testID(t, "dd2tg")
 	var ms [2]float64
 	for kept := 0; kept < 2; kept++ {
 		var text strings.Builder
@@ -3044,7 +3044,7 @@ func TestAFarKeptLineCostsAnEditNothing(t *testing.T) {
 }
 
 func TestLostAndSaveGate(t *testing.T) {
-	defer testID(t, "EnEclpy")
+	defer testID(t, "dbcxf")
 	// Content-malformed lines are retained as trivia (LostCount 0, the line
 	// survives a save); position-dependent drops count as lost and make
 	// SaveFile refuse until the caller opts into SaveFileLossy. Same fixture
@@ -3119,7 +3119,7 @@ func TestLostAndSaveGate(t *testing.T) {
 }
 
 func TestStrictFailureCarriesDocument(t *testing.T) {
-	defer testID(t, "Elop5Fh")
+	defer testID(t, "daqsq")
 	// A failed strict load hands back the document (non-nil, and on the
 	// error too) and names the first failures in the message.
 	doc, err := ParseWith("ok: 1\n: nope\n", Strict)
@@ -3139,7 +3139,7 @@ func TestStrictFailureCarriesDocument(t *testing.T) {
 }
 
 func TestParseLimitedCaps(t *testing.T) {
-	defer testID(t, "Eoe5NRx")
+	defer testID(t, "dc1yh")
 	// The caps exist because a document amplifies to many times its byte size
 	// in memory, so ReadFile's byte cap alone cannot bound a load. Same
 	// fixture in every runner.
@@ -3369,7 +3369,7 @@ func TestParseLimitedCaps(t *testing.T) {
 // path or the name still comes first, and a broken item within the cap is
 // still kept. Same fixture in every runner.
 func TestACapWinsOverABrokenValue(t *testing.T) {
-	defer testID(t, "Ery85QC")
+	defer testID(t, "ddkg7")
 	codes := func(text string, capAt int) (string, int, string) {
 		doc, _ := ParseLimited(text, Standard, 0, capAt, 0)
 		got := ""
@@ -3425,7 +3425,7 @@ func TestACapWinsOverABrokenValue(t *testing.T) {
 }
 
 func TestNoColonRepairStaysNarrow(t *testing.T) {
-	defer testID(t, "Ery85QD")
+	defer testID(t, "ddkg8")
 	// Only one clean name or path with no colon is repaired (E015), a bad
 	// bare name like 404 included. Anything with a blank in a bare name could
 	// be a name or a name and a value, so it is E014 and kept as written.
@@ -3472,7 +3472,7 @@ func TestNoColonRepairStaysNarrow(t *testing.T) {
 }
 
 func TestRawIsSourceText(t *testing.T) {
-	defer testID(t, "ElonRnO")
+	defer testID(t, "daqsh")
 	// Raw: the verbatim value span from the source line - not the display
 	// join, which rewrites `{2,3}` to `{2, 3}`. Same fixture in every runner
 	// whose read result exposes raw (the C read structs deliberately do not).
@@ -3502,7 +3502,7 @@ func TestRawIsSourceText(t *testing.T) {
 }
 
 func TestLayeredMergeMatchesExpected(t *testing.T) {
-	defer testID(t, "EkyV759")
+	defer testID(t, "dab73")
 	// Layered-load dimension: fold the layer files (lowest first) and input.shcl
 	// (highest file layer) via the library Merge, apply the path=value overrides
 	// as the top layer, and match the golden merged canonical.
@@ -3564,7 +3564,7 @@ func TestLayeredMergeMatchesExpected(t *testing.T) {
 }
 
 func TestInitGenerationMatchesExpected(t *testing.T) {
-	defer testID(t, "EkyZiCY")
+	defer testID(t, "dab7n")
 	// Generation dimension: Generate on the schema must reproduce the golden
 	// starter config, and that output must itself load cleanly.
 	eachCase(t, func(t *testing.T, c corpusCase) {
@@ -3614,7 +3614,7 @@ func TestInitGenerationMatchesExpected(t *testing.T) {
 // Asserted as an allocation count rather than a time, since a constant-factor
 // win has no wall-clock threshold that both fires and does not flake.
 func TestAsciiLowerDoesNotCopyAFoldedName(t *testing.T) {
-	defer testID(t, "EoXMm6a")
+	defer testID(t, "dc0as")
 	var sink string
 	folded := strings.Repeat("server-config-name-", 40)
 	if n := testing.AllocsPerRun(200, func() { sink = asciiLower(folded) }); n != 0 {
@@ -3630,7 +3630,7 @@ func TestAsciiLowerDoesNotCopyAFoldedName(t *testing.T) {
 }
 
 func TestSuppressLeavesTheCallersDiagnosticsAlone(t *testing.T) {
-	defer testID(t, "EoaIuFU")
+	defer testID(t, "dc11d")
 	// It returns a new list, which reads as a copy, so filtering the caller's
 	// slice in place left the document's own diagnostics shuffled and
 	// duplicated. The reference takes its list by reference, so the mutation is
@@ -3682,7 +3682,7 @@ func TestSuppressLeavesTheCallersDiagnosticsAlone(t *testing.T) {
 }
 
 func TestConvenienceTierFallsBackOnlyOnGood(t *testing.T) {
-	defer testID(t, "EkgmpQf")
+	defer testID(t, "da6yq")
 	// Mirror of the reference: the *Or value survives only on Good; Empty,
 	// BadType, and NotFound all yield the call-site fallback.
 	d := Parse("a: 42\nb: not-a-number\ne:\narr: [1, 2, 3]\nblk:\n\t```html\n\thi\n\t```\n")
@@ -3731,7 +3731,7 @@ func TestConvenienceTierFallsBackOnlyOnGood(t *testing.T) {
 }
 
 func TestReadsMatchExpected(t *testing.T) {
-	defer testID(t, "EjsS8bB")
+	defer testID(t, "d9tvb")
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		for n, line := range strings.Split(c.reads, "\n") {
 			if n == 0 || strings.TrimSpace(line) == "" {
@@ -3949,7 +3949,7 @@ func TestReadsMatchExpected(t *testing.T) {
 }
 
 func TestPathsEnumerationShape(t *testing.T) {
-	defer testID(t, "El5WdwX")
+	defer testID(t, "dacx3")
 	// Paths(): file order, deduplicated, non-bare segments quoted so every
 	// path resolves. Same fixture is pinned in every runner.
 	doc := Parse("a: 1\na.b: 2\n\"q n\": 3\nx:\n\tb: 4\nx.b: 5\n")
@@ -3983,7 +3983,7 @@ func TestPathsEnumerationShape(t *testing.T) {
 // goroutine got. The gate runs this one under -race too (2026101514324720),
 // which sees an index put in place before it's whole.
 func TestReadsFromSeveralGoroutines(t *testing.T) {
-	defer testID(t, "EstLlpJ")
+	defer testID(t, "de18k")
 	type readCall func(d *Document) string
 	for _, c := range loadCases(t) {
 		one := Parse(c.input)
@@ -4116,7 +4116,7 @@ func soupInputs() []string {
 // Digits past 32 bits read as the largest 32-bit number, a newer format, in
 // every binding (20260926 item 9, 2026101514324705).
 func TestFormatVersionCapsAt32Bits(t *testing.T) {
-	defer testID(t, "Er7vwJ6")
+	defer testID(t, "dd6yj")
 	if v, ok := FormatVersion("##    Format   4294967295\na: 1\n"); !ok || v != 4294967295 {
 		t.Errorf("4294967295 read as %d", v)
 	}
@@ -4135,7 +4135,7 @@ func TestFormatVersionCapsAt32Bits(t *testing.T) {
 // hints say the same as the Format read on every row. Rust's
 // stamp_reads_say_why has the same rows.
 func TestStampReadsSayWhy(t *testing.T) {
-	defer testID(t, "EsEtTdQ")
+	defer testID(t, "ddqh9")
 	formats := []struct {
 		text   string
 		value  int
@@ -4215,7 +4215,7 @@ func TestStampReadsSayWhy(t *testing.T) {
 // long one is cut the way any value in a message is (2026101514324705). Rust's
 // stamp_hints_quote_digits has the same rows.
 func TestStampHintsQuoteDigits(t *testing.T) {
-	defer testID(t, "EssAxdB")
+	defer testID(t, "de0zp")
 	zeros := func(n int) string { return strings.Repeat("0", n) }
 	rows := []struct {
 		text  string
@@ -4263,7 +4263,7 @@ func TestStampHintsQuoteDigits(t *testing.T) {
 // took bytes the save wrote and the next load refused. Same fixture in every
 // runner.
 func TestSettersWriteOnlyWhatReadsBack(t *testing.T) {
-	defer testID(t, "EpGigIM")
+	defer testID(t, "dcb7x")
 	all := Parse("")
 	slot := 0
 	for _, s := range soupInputs() {
@@ -4373,10 +4373,10 @@ func TestSettersWriteOnlyWhatReadsBack(t *testing.T) {
 // A setter's status agrees with CheckSetPath over the setter soup: a path
 // reason is what CheckSetPath gives for that path, a value reason comes with a
 // path that checks Ok, and a refusal writes nothing. Rust runs the same
-// property over its structural fuzz soup (EsDRhJo); Go has no fuzz harness,
+// property over its structural fuzz soup (ddq66); Go has no fuzz harness,
 // so the soup is the setter alphabet, through the value and the path both.
 func TestSetterStatusAgreesWithThePathCheck(t *testing.T) {
-	defer testID(t, "EsDemw3")
+	defer testID(t, "ddq7v")
 	text := "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n"
 	pathReasons := map[SetStatus]bool{
 		SetBadPath:     true,
@@ -4570,7 +4570,7 @@ func keepsEveryLine(base string) bool {
 // in three days, and the text fixpoint cannot see it, since both placements
 // are fixpoints. Same fixture in every runner.
 func TestEditsAndMergesMatchAReload(t *testing.T) {
-	defer testID(t, "Eqk24na")
+	defer testID(t, "dd16m")
 	g := seqGen{s: 0x5EED0923C0DE0003}
 	for i := 0; i < 3000; i++ {
 		base := g.doc()
@@ -4706,7 +4706,7 @@ func reloadTookOnlyComments(live, back string) bool {
 // below it. The remove leaves it there. The reload reads a plain comment and
 // takes it with the field.
 func TestARemoveKeepsASettledLineBelowIt(t *testing.T) {
-	defer testID(t, "ErpmA2G")
+	defer testID(t, "ddhfz")
 	live := Parse("a: [1\n\t\t\": \n\t d-: 2\n\te: 3\n")
 	if n := live.ClearComments("a.d"); n != 0 {
 		t.Fatalf("cleared %d", n)
@@ -4744,7 +4744,7 @@ func childNamed(d *Document, name string) int {
 }
 
 func TestAKeptLineGoneFromTheTreeRefusesTheSave(t *testing.T) {
-	defer testID(t, "EreUzvf")
+	defer testID(t, "ddes4")
 	doc, err := ParseKeepLines(keptGateBase, Standard)
 	if err != nil {
 		t.Fatal(err)
@@ -4786,7 +4786,7 @@ func TestAKeptLineGoneFromTheTreeRefusesTheSave(t *testing.T) {
 // design.md's table: a remove takes the kept line written as the field's own
 // line, and nothing beside it.
 func TestARemoveTakesTheKeptLineHeadingItsField(t *testing.T) {
-	defer testID(t, "EreUzxY")
+	defer testID(t, "ddes5")
 	doc := Parse("a: [1\n\tb: 2\ny: 3\n")
 	if n := doc.Remove("a"); n != 1 {
 		t.Fatalf("removed %d", n)
@@ -4824,7 +4824,7 @@ func checkRemoves(t *testing.T, cases []removeCase) {
 // design.md's table: a remove leaves the kept lines beside its target, above
 // or below it, with the comments above them (2026100307163901).
 func TestARemoveLeavesTheKeptLinesBesideIt(t *testing.T) {
-	defer testID(t, "ErgTocq")
+	defer testID(t, "ddf8e")
 	checkRemoves(t, []removeCase{
 		{keptGateBase, "y", "x: 1\nr: [1, 2\n"},
 		{"x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"},
@@ -4838,7 +4838,7 @@ func TestARemoveLeavesTheKeptLinesBesideIt(t *testing.T) {
 // A field opened only by the lines under it goes with the last of them, and
 // its kept line stays (escblock; 2026100307163907).
 func TestAFieldOpenedByAKeptLineGoesWithItsLastLine(t *testing.T) {
-	defer testID(t, "ErgToef")
+	defer testID(t, "ddf8f")
 	checkRemoves(t, []removeCase{
 		{"a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"},
 		{"a: [1\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1\n\tc: 3\ny: 3\n"},
@@ -4851,7 +4851,7 @@ func TestAFieldOpenedByAKeptLineGoesWithItsLastLine(t *testing.T) {
 // A setter on a field a kept line opened writes that line as a comment with
 // a note, so the file has one line for the field (2026100307163907).
 func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
-	defer testID(t, "Erlf124")
+	defer testID(t, "ddgg8")
 	for _, c := range []struct{ text, path, want string }{
 		{"a: [1\n\tb: 2\ny: 3\n", "a",
 			"# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 5\n\tb: 2\ny: 3\n"},
@@ -4900,7 +4900,7 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 // noted comment, and a field it creates goes right under the first of them,
 // so a later hand fix never gives Multiple (2026100307163907).
 func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
-	defer testID(t, "ErmXhpm")
+	defer testID(t, "ddgq2")
 	note := func(path string) string {
 		return "  ## commented out by shcl when setting " + path + ", 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line"
 	}
@@ -4964,7 +4964,7 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 
 // The zone's short name, else its offset; and the test clock's form.
 func TestANoteNamesTheZoneOrItsOffset(t *testing.T) {
-	defer testID(t, "Erlf14o")
+	defer testID(t, "ddgg9")
 	for _, c := range []struct {
 		offset     int
 		name, want string
@@ -5000,7 +5000,7 @@ func TestANoteNamesTheZoneOrItsOffset(t *testing.T) {
 }
 
 func TestAMergedLayerOwesItsKeptLines(t *testing.T) {
-	defer testID(t, "EreUzzO")
+	defer testID(t, "ddes6")
 	doc := Parse("a: 1\n")
 	doc.Merge(Parse(keptGateBase))
 	if n := doc.LostCount(); n != 0 {
@@ -5020,7 +5020,7 @@ func TestAMergedLayerOwesItsKeptLines(t *testing.T) {
 // design.md's table: a settled kept line on a leaf the layer replaces goes
 // with the leaf's comments, so it is no longer owed.
 func TestAReplacedLeafTakesItsSettledKeptLine(t *testing.T) {
-	defer testID(t, "ErfGoMK")
+	defer testID(t, "ddez4")
 	doc := Parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n")
 	if n := doc.Remove("x.c"); n != 1 {
 		t.Fatalf("removed %d", n)
@@ -5040,7 +5040,7 @@ func TestAReplacedLeafTakesItsSettledKeptLine(t *testing.T) {
 // design.md's table: the footer dedup skips a layer's kept line the base
 // already has, so that copy is not owed.
 func TestAFooterLineTheBaseHasIsNotOwedTwice(t *testing.T) {
-	defer testID(t, "ErfGoML")
+	defer testID(t, "ddez5")
 	doc := Parse("bad name: 1\n")
 	doc.Merge(Parse("bad name: 1\n"))
 	if got := doc.ToCanonical(); got != "bad name: 1\n" {
@@ -5055,7 +5055,7 @@ func TestAFooterLineTheBaseHasIsNotOwedTwice(t *testing.T) {
 // remove would take. A settled line or a comment past a kept line beside it
 // stays with that line.
 func TestAReplacedLeafLeavesTheLinesBesideIt(t *testing.T) {
-	defer testID(t, "ErkSyFW")
+	defer testID(t, "ddg73")
 	doc := Parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n")
 	if got := doc.ToCanonical(); got != "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n" {
 		t.Fatalf("loaded %q", got)
@@ -5081,7 +5081,7 @@ func TestAReplacedLeafLeavesTheLinesBesideIt(t *testing.T) {
 // the end after it; inside brackets every one does (value-syntax.md,
 // 20261006). 2.x split on every comma, which migrate still reads.
 func TestACommaSplitsABareValueOnlyBeforeABlank(t *testing.T) {
-	defer testID(t, "Ery85QF")
+	defer testID(t, "ddkga")
 	var tok Tokens
 	for _, c := range []struct {
 		line   string
@@ -5112,7 +5112,7 @@ func TestACommaSplitsABareValueOnlyBeforeABlank(t *testing.T) {
 // colon or comma with a blank or the end after it is one error, and its
 // message says what to do.
 func TestBareSpacesColonsAndCommas(t *testing.T) {
-	defer testID(t, "Ery85QG")
+	defer testID(t, "ddkgb")
 	for _, c := range []struct{ text, code, fix string }{
 		{"x: host: a.com port: 80\n", "E025", "put each field on its own line"},
 		{"x: done:\n", "E025", "quote it"},
@@ -5164,7 +5164,7 @@ func TestBareSpacesColonsAndCommas(t *testing.T) {
 // nobody has to know the reader's rules. A quoted value keeps its quotes and
 // its quote kind, a quoted number included.
 func TestTheWriterQuotesAColonOrComma(t *testing.T) {
-	defer testID(t, "Ery85QH")
+	defer testID(t, "ddkgc")
 	doc := New()
 	if doc.SetString("opts", "rw,noatime") != SetOk || doc.SetString("display", ":0") != SetOk || doc.SetString("end", "a,") != SetOk ||
 		doc.SetString("title", "My App") != SetOk || doc.SetStringArray("tags", []string{"rw,noatime", "b"}) != SetOk ||
@@ -5227,7 +5227,7 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 // // A thousands comma is text quoted or bare, so a typed read gives the same
 // // answer before and after the writer quotes it (2026101010054746).
 // func TestAThousandsCommaReadsTheSameAfterASave(t *testing.T) {
-// 	defer testID(t, "EsZikJj")
+// 	defer testID(t, "ddwhq")
 // 	doc := Parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
 // 	if st := doc.SetString("s", "1,000"); st != SetOk {
 // 		t.Fatalf("set: %v", st)
@@ -5275,7 +5275,7 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 // at every level, Standard and Strict refuse it, and the writer keeps a bare
 // one bare, so a typed read is the same after a save (2026101309122757).
 func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
-	defer testID(t, "EsbaIYt")
+	defer testID(t, "ddwzx")
 	text := "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\ni: \"1,2000\"\nj: \"1234,567\"\nk: \"$ 1,200\"\nm: \".1,200\"\nn: \"1,200%\"\nl:\n\t- 80,443\n"
 	loose, err := ParseWith(text, Loose)
 	if err != nil {
@@ -5416,7 +5416,7 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 // A trailing `.` is fine on a quoted thousands number, as on a plain one. A
 // leading one is not, and a bare one stays bare (2026101318521195).
 func TestLooseReadsAQuotedThousandsNumberWithATrailingDot(t *testing.T) {
-	defer testID(t, "EsdUlxk")
+	defer testID(t, "ddxek")
 	text := "a: \"1,200.\"\nb: \"$1,200.\"\nc: \"1,200.%\"\nd: 1,200.\ne: \".1,200\"\nf: \"1,200 .\"\ng: \"1,200..\"\nh: '-1,200.'\nl:\n\t- 9,000.\n"
 	loose, err := ParseWith(text, Loose)
 	if err != nil {
@@ -5520,7 +5520,7 @@ func TestLooseReadsAQuotedThousandsNumberWithATrailingDot(t *testing.T) {
 // counted; `a, b` is an error here, so it converts either way. A lone bare
 // value these rules refuse is quoted.
 func TestMigrateBracketsA2xCommaList(t *testing.T) {
-	defer testID(t, "ErykhtD")
+	defer testID(t, "ddkn0")
 	m := Migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", true)
 	if m.Ambiguous != 0 {
 		t.Fatalf("ambiguous %d", m.Ambiguous)
@@ -5544,7 +5544,7 @@ func TestMigrateBracketsA2xCommaList(t *testing.T) {
 // plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
 // would be two, and `[s]` reads as that string too.
 func TestMigrateWritesALone2xElementPlain(t *testing.T) {
-	defer testID(t, "EsIx4YP")
+	defer testID(t, "ddrgg")
 	m := Migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true)
 	if m.Ambiguous != 0 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d, lost %d", m.Ambiguous, m.Lost)
@@ -5567,7 +5567,7 @@ func TestMigrateWritesALone2xElementPlain(t *testing.T) {
 // A 2.x `*` item becomes `- `, and an item these rules would read as
 // something else is quoted, such as one that looks like `- name: value`.
 func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
-	defer testID(t, "ErykhtE")
+	defer testID(t, "ddkn1")
 	m := Migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true)
 	if !strings.HasPrefix(m.Text, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n") {
 		t.Fatalf("%q", m.Text)
@@ -5584,7 +5584,7 @@ func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
 // A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0` stay
 // fields rather than reading as list items, and `404` stays a name.
 func TestMigrateQuotesANameNotLedByALetter(t *testing.T) {
-	defer testID(t, "ErykhtF")
+	defer testID(t, "ddkn2")
 	m := Migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true)
 	if !strings.HasPrefix(m.Text, "\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n") {
 		t.Fatalf("%q", m.Text)
@@ -5607,7 +5607,7 @@ func TestMigrateQuotesANameNotLedByALetter(t *testing.T) {
 // 2.x read a `◉` as text. A name, a bare value and a selector body holding
 // one get the escape for a real mark, so they still read as that text.
 func TestMigrateEscapesARealMark(t *testing.T) {
-	defer testID(t, "ErykhtG")
+	defer testID(t, "ddkn3")
 	m := Migrate("\"a\u25C9q\u25C9\": 1\nbare: My\u25C9SPACE\u25C9App\ns[x\u25C9y].p: 2\n", true)
 	back := Parse(m.Text)
 	if d := back.Diagnostics(); len(d) != 0 {
@@ -5630,7 +5630,7 @@ func TestMigrateEscapesARealMark(t *testing.T) {
 // A 2.x selector goes in parens, and a bare body these rules refuse, such
 // as one with a quote or a space, is quoted, so its block still loads.
 func TestMigrateQuotesABareSelectorTheseRulesRefuse(t *testing.T) {
-	defer testID(t, "ErykhtH")
+	defer testID(t, "ddkn4")
 	m := Migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true)
 	if !strings.HasPrefix(m.Text, "srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n") {
 		t.Fatalf("%q", m.Text)
@@ -5649,7 +5649,7 @@ func TestMigrateQuotesABareSelectorTheseRulesRefuse(t *testing.T) {
 // in brackets is E029 under these rules, so a file that does not say it is
 // 2.x gets the same rewrite, with nothing counted.
 func TestMigrateWritesSelectorsInParens(t *testing.T) {
-	defer testID(t, "ErykhtI")
+	defer testID(t, "ddkn5")
 	text := "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n"
 	want := "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n"
 	for _, fromV2 := range []bool{true, false} {
@@ -5677,7 +5677,7 @@ func TestMigrateWritesSelectorsInParens(t *testing.T) {
 // a comma list with lines under it. A list of only empty slots, which 2.x
 // read as empty, is an empty value.
 func TestMigrateCountsWhatNothingSpells(t *testing.T) {
-	defer testID(t, "ErykhtJ")
+	defer testID(t, "ddkn6")
 	if m := Migrate("a[x, y].b: 1\n", true); m.Lost != 1 {
 		t.Fatalf("lost %d", m.Lost)
 	}
@@ -5706,7 +5706,7 @@ func TestMigrateCountsWhatNothingSpells(t *testing.T) {
 // --from-2x rather than changing a correct file at exit 0. A selector in
 // brackets is E029 now, so its line is rewritten the 2.x way.
 func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
-	defer testID(t, "ErykhtK")
+	defer testID(t, "ddkn7")
 	text := "x: \"a\u25C9TAB\u25C9b\"\n\"n\u25C9TAB\u25C9\": 1\nl:\n\t- :0\ns[\"\u25C9TAB\u25C9\"].p: 1\nb: `abc`\nc: [a]\n"
 	m := Migrate(text, false)
 	if m.Ambiguous != 5 {
@@ -5725,7 +5725,7 @@ func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 // selector body and the sugar, bare or quoted, so migrate writes the text
 // 2.x read (2026101911300000). Any other backslash was text in 2.x too.
 func TestMigrateWritesTheText2xRead(t *testing.T) {
-	defer testID(t, "EtDC3Ca")
+	defer testID(t, "de61a")
 	text := "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n"
 	m := Migrate(text, true)
 	if m.Ambiguous != 0 || m.Lost != 0 {
@@ -5775,7 +5775,7 @@ func TestMigrateWritesTheText2xRead(t *testing.T) {
 // counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
 // either way, and converts, and a file that names format 2 converts whole.
 func TestMigrateCountsABackslashPairInAnUnstampedFile(t *testing.T) {
-	defer testID(t, "EtDC3FC")
+	defer testID(t, "de61b")
 	text := "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
 	m := Migrate(text, false)
 	if m.Ambiguous != 2 || m.Lost != 0 {
@@ -5798,7 +5798,7 @@ func TestMigrateCountsABackslashPairInAnUnstampedFile(t *testing.T) {
 // as lost, with fromV2 or without, and the rest of its line still
 // converts. Any other backslash in a name was text under both.
 func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
-	defer testID(t, "EtDC3Hr")
+	defer testID(t, "de61c")
 	text := "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
 	for _, fromV2 := range []bool{true, false} {
 		m := Migrate(text, fromV2)
@@ -5828,7 +5828,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 // // is; a save that would write it refuses (2026100511210900). An edit and a
 // // merge can each leave one. Same fixture in every runner.
 // func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
-// 	defer testID(t, "EryDfqr")
+// 	defer testID(t, "ddkgy")
 // 	src := "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
 // 	doc, _ := ParseKeepLines(src, Standard)
 // 	if doc.LostCount() != 0 {
@@ -5887,7 +5887,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 // // all, as a reload would. A read made before the write has the lookup built,
 // // and the fields that moved still have to be found through it.
 // func TestAListJoiningAnEmptiedFieldKeepsItsFieldsFound(t *testing.T) {
-// 	defer testID(t, "EryDfsy")
+// 	defer testID(t, "ddkgz")
 // 	for _, c := range []struct{ src, path, field, want string }{
 // 		{"b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
 // 		{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
@@ -5918,7 +5918,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 // // so that save refuses. The source text does, so with no edits the save that
 // // keeps lines writes it as it was.
 // func TestAListTheSourceLoadsBackKeepsItsLines(t *testing.T) {
-// 	defer testID(t, "EryDfv3")
+// 	defer testID(t, "ddkh0")
 // 	src := "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
 // 	doc, _ := ParseKeepLines(src, Standard)
 // 	if doc.LostCount() != 2 {
@@ -5947,7 +5947,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 // // binding of its name. A comment or kept line left after the binding held the
 // // join off, though a reload joins the two (2026100520243961).
 // func TestAMergedListJoinsAnEmptyFieldPastAComment(t *testing.T) {
-// 	defer testID(t, "EryDfx5")
+// 	defer testID(t, "ddkh1")
 // 	layer := Parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n")
 // 	for _, base := range []string{
 // 		"p:\n\ts:\n\t# c\n",
@@ -5981,7 +5981,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 // // filed inside the block, so a remove of the last field wrote it before the
 // // kept line among the items, and a reload after it (2026100914525821).
 // func TestAJoinedListFilesTheBindingsLinesLikeAReload(t *testing.T) {
-// 	defer testID(t, "EsFs7xv")
+// 	defer testID(t, "ddqs2")
 // 	layer := Parse("srv:\n\t- 1\n\t*\n\tb: 1\n")
 // 	doc := Parse("srv:\n\t[\n")
 // 	doc.Merge(layer)
@@ -6019,7 +6019,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 // // the list, and one that takes the list's field puts it in brackets, as a
 // // reload reads each.
 // func TestARemoveSettlesAListAfterAnEmptyField(t *testing.T) {
-// 	defer testID(t, "EryDfzB")
+// 	defer testID(t, "ddkh8")
 // 	for _, c := range []struct{ path, want string }{
 // 		{"p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"},
 // 		{"p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"},
@@ -6051,7 +6051,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 // a reload would bind, it is written as a comment. Same fixture in every
 // runner.
 func TestAFieldUnderItemsStaysKept(t *testing.T) {
-	defer testID(t, "EtXCOeu")
+	defer testID(t, "deav8")
 	check := func(doc *Document, want string) {
 		t.Helper()
 		text := doc.ToCanonical()
@@ -6141,7 +6141,7 @@ func TestAFieldUnderItemsStaysKept(t *testing.T) {
 // field (E028), and a field after stacked items is kept (E001). So no load or
 // merge builds a list with a field under it. Same fixture in every runner.
 func TestAnIndexOntoAListTakesNoField(t *testing.T) {
-	defer testID(t, "EtdPW8G")
+	defer testID(t, "decb3")
 	check := func(doc *Document, want string) {
 		t.Helper()
 		text := doc.ToCanonical()
@@ -6201,7 +6201,7 @@ func TestAnIndexOntoAListTakesNoField(t *testing.T) {
 // merge or an edit puts an instance above it, it is written as a comment. One
 // that opens a raw block is dropped with it. Same fixture in every runner.
 func TestAnIndexWithNoInstanceStaysKept(t *testing.T) {
-	defer testID(t, "Eu8yPCI")
+	defer testID(t, "deky0")
 	check := func(doc *Document, want string) {
 		t.Helper()
 		text := doc.ToCanonical()
@@ -6264,7 +6264,7 @@ func TestAnIndexWithNoInstanceStaysKept(t *testing.T) {
 // went to the root, above the field, where an item reloaded as E007. Same
 // fixture in every runner.
 func TestAReplacedLeafKeepsTheLinesKeptInItsBlock(t *testing.T) {
-	defer testID(t, "Eu96oVG")
+	defer testID(t, "dekz2")
 	for _, c := range []struct{ src, want, code string }{
 		{"val: 1\n\ta: [1\nz: 2\n", "val: 1\n\ta: [1\n\ta: [1\nz: 2\n", "E019"},
 		{"val: 1\n\t- e\nz: 2\n", "val: 1\n\t- e\n\t- e\nz: 2\n", "E011"},
@@ -6293,7 +6293,7 @@ func TestAReplacedLeafKeepsTheLinesKeptInItsBlock(t *testing.T) {
 // setter puts no field under an array and no array over fields. Each used to
 // write text that reloads as E028.
 func TestASetterKeepsFieldsAndArraysApart(t *testing.T) {
-	defer testID(t, "EryDg1D")
+	defer testID(t, "ddkgx")
 	src := "l: [a]\nc: 1\n\tk: 2\n"
 	doc := Parse(src)
 	if doc.SetInt("l.c", 1) == SetOk {
@@ -6321,7 +6321,7 @@ func TestASetterKeepsFieldsAndArraysApart(t *testing.T) {
 // brackets is refused. A body starting with `#`, the old index, is refused
 // too. Same fixture in every runner.
 func TestBracketSelectorsAreTheOldSpelling(t *testing.T) {
-	defer testID(t, "Eryg0ZB")
+	defer testID(t, "ddkme")
 	doc := Parse("srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n")
 	d := doc.Diagnostics()
 	if len(d) != 1 || d[0].Code != "E029" || d[0].Line != 3 {
@@ -6385,7 +6385,7 @@ func TestBracketSelectorsAreTheOldSpelling(t *testing.T) {
 // since a selector matches one plain value. Generation refuses it rather
 // than write a child that makes another instance.
 func TestInitRefusesAChildOfAnArrayParent(t *testing.T) {
-	defer testID(t, "Eryg0bK")
+	defer testID(t, "ddkmf")
 	schema := Parse("field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n")
 	text, faults := Generate(schema, true)
 	found := false
@@ -6409,7 +6409,7 @@ const defaultText = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\
 // int only when loose. A second call writes nothing, and the canonical text
 // is a fixpoint. Same table in every runner.
 func TestDefaultFillsWhatDoesNotRead(t *testing.T) {
-	defer testID(t, "EsJZko4")
+	defer testID(t, "ddrnc")
 	note := func(line, path, what string) string {
 		return "# " + line + "  ## replaced by shcl when setting a default for " + path + ", 2026-10-04 00:15:00 PDT: not " + what
 	}
@@ -6490,7 +6490,7 @@ func TestDefaultFillsWhatDoesNotRead(t *testing.T) {
 // `fmt` and a reload unchanged, and a run of the same defaults on the saved
 // text writes nothing. Same fixture in every runner.
 func TestDefaultReplaceRoundTrips(t *testing.T) {
-	defer testID(t, "EsJZko8")
+	defer testID(t, "ddrng")
 	text := "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n"
 	ops := []string{"int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"}
 	want := "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n"
@@ -6536,7 +6536,7 @@ func TestDefaultReplaceRoundTrips(t *testing.T) {
 // CLI's check is this call, so its rows in cli-regress pin the same rules.
 // Same fixture in every runner.
 func TestReadNamedSchemaFollowsCheckRules(t *testing.T) {
-	defer testID(t, "EsJZ106")
+	defer testID(t, "ddrn8")
 	d := t.TempDir()
 	cfg := d + "/cfg.shcl"
 	must := func(err error) {
@@ -6625,7 +6625,7 @@ func TestReadNamedSchemaFollowsCheckRules(t *testing.T) {
 // What the value at a path is, through Kind and ReadKind, from the stored
 // form, with the status ReadLine gives. Same fixture in every runner.
 func TestKindReadsSayWhatIsThere(t *testing.T) {
-	defer testID(t, "EsJYNe2")
+	defer testID(t, "ddrn4")
 	text := "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n"
 	doc := Parse(text)
 	if k := doc.ReadKind("name"); k.Value != KindScalar || k.Status != Good || k.Line != 1 {
@@ -6728,7 +6728,7 @@ func TestKindReadsSayWhatIsThere(t *testing.T) {
 // The CLI's stderr line comes from FormatDiagnostic, and String is the same.
 // Same fixture in every runner; the prose is each binding's own.
 func TestFormatDiagnosticIsTheCLILine(t *testing.T) {
-	defer testID(t, "EshdmI8")
+	defer testID(t, "ddyeg")
 	doc := Parse("a: 1\nb: [x\n")
 	d := doc.Diagnostics()[0]
 	if got := FormatDiagnostic(d); got != "line 2: Error: E019 "+d.Message || d.Message == "" {
@@ -6767,7 +6767,7 @@ func TestFormatDiagnosticIsTheCLILine(t *testing.T) {
 // Over the setter soup, the review's examples and the typed setters' texts.
 // Same fixture in every runner.
 func TestFormatValueIsTheSettersText(t *testing.T) {
-	defer testID(t, "EshnBxd")
+	defer testID(t, "ddyfn")
 	inputs := append(soupInputs(), formatValueExtra...)
 	for _, s := range inputs {
 		doc := New()
@@ -6833,7 +6833,7 @@ func TestFormatValueIsTheSettersText(t *testing.T) {
 // spec's examples and the setter soup, each value written with FormatValue
 // under one name (2026101514324720). Same fixture in every runner.
 func TestQuoteSegmentSelectsAHeldValue(t *testing.T) {
-	defer testID(t, "EstLlpL")
+	defer testID(t, "de18n")
 	values := append([]string{"first", "0", "2020", "@null", "a.b", "1,200", "-x", "a b", "x)", "(y", "a=b", "*", "true", "1.5", "2026-07-12"}, soupInputs()...)
 	var text strings.Builder
 	var held []string
@@ -6897,7 +6897,7 @@ var formatValueExtra = []string{
 // but for a thousands number, which brackets quote; and the typed array
 // setters' texts. Same fixture in every runner.
 func TestFormatArrayIsTheSettersText(t *testing.T) {
-	defer testID(t, "EsiL1IE")
+	defer testID(t, "ddykw")
 	texts := append(soupInputs(), formatValueExtra...)
 	var arrays [][]string
 	for _, s := range texts {
@@ -6994,7 +6994,7 @@ func TestFormatArrayIsTheSettersText(t *testing.T) {
 // document from Parse, save as they always did (2026102910482342). Same
 // fixture in every runner.
 func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
-	defer testID(t, "Eu7ZvdD")
+	defer testID(t, "dekk8")
 	dir := t.TempDir()
 	at := func(name string) string { return filepath.Join(dir, name) }
 	write := func(p, s string) {
@@ -7108,7 +7108,7 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 // umask, and one already there keeps its own (2026102910482343). Same fixture
 // in every runner.
 func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
-	defer testID(t, "Eu7ju0H")
+	defer testID(t, "dekmf")
 	dir := t.TempDir()
 	at := func(name string) string { return filepath.Join(dir, name) }
 	has := func(p, want string) {
@@ -7232,7 +7232,7 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 // check. The same reading as H006 decides, and a merge takes a newer layer's
 // (2026102910482344). Same fixture in every runner.
 func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
-	defer testID(t, "Eu8h5g6")
+	defer testID(t, "dekvw")
 	dir := t.TempDir()
 	at := func(name string) string { return filepath.Join(dir, name) }
 	tooNew := func(what string, err error, p string) {

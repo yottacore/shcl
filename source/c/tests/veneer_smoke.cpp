@@ -31,7 +31,7 @@ static int fails = 0;
 static const char *open_id, *open_name;
 static void test_id(const char *id, const char *name) { open_id = id; open_name = name; } // NOLINT(bugprone-easily-swappable-parameters): the ID first, as in every runner's test_id
 static int test_id_end(int failed) {
-	std::printf("%-4s %s c++ %s\n", failed ? "FAIL" : "ok", open_id, open_name);
+	std::printf("%-4s %s c++ %s\n", failed ? "FAIL" : "PASS", open_id, open_name);
 	std::fflush(stdout);
 	return failed ? 1 : 0;
 }
@@ -93,7 +93,7 @@ static std::string save_base() {
 // member holds the document's lock. A member that skips it races, which
 // sanitize-c.bash's -fsanitize=thread build of this file reports.
 static int reads_from_several_threads() {
-	test_id("EstYOue", "reads_from_several_threads");
+	test_id("de1a5", "reads_from_several_threads");
 	using D = shcl::Document;
 #ifndef SHCL_NO_FILE_IO
 	saveBase = save_base();
@@ -230,7 +230,7 @@ static int reads_from_several_threads() {
 // document from a parse, save as they always did (2026102910482342). The
 // C runner's fixture, through the veneer.
 static int a_save_over_a_file_changed_since_the_load_is_refused() {
-	test_id("Eu7cuVe", "a_save_over_a_file_changed_since_the_load_is_refused");
+	test_id("dekkn", "a_save_over_a_file_changed_since_the_load_is_refused");
 	const char *tmp = std::getenv("TMPDIR");
 	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
 	if (!tmp || !*tmp) tmp = std::getenv("TMP");
@@ -315,7 +315,7 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 // mode asked for while one already there keeps its own (2026102910482343).
 // The C runner's fixture, through the veneer.
 static int a_create_only_save_refuses_a_file_already_there() {
-	test_id("Eu7kRqk", "a_create_only_save_refuses_a_file_already_there");
+	test_id("dekmk", "a_create_only_save_refuses_a_file_already_there");
 	const char *tmp = std::getenv("TMPDIR");
 	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
 	if (!tmp || !*tmp) tmp = std::getenv("TMP");
@@ -364,7 +364,7 @@ static int a_create_only_save_refuses_a_file_already_there() {
 // as H006 decides, and a merge takes a newer layer's (2026102910482344). The C
 // runner's fixture, through the veneer.
 static int a_newer_format_document_saves_nowhere() {
-	test_id("Eu8h5g8", "a_newer_format_document_saves_nowhere");
+	test_id("dekvy", "a_newer_format_document_saves_nowhere");
 	const char *tmp = std::getenv("TMPDIR");
 	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
 	if (!tmp || !*tmp) tmp = std::getenv("TMP");
@@ -413,7 +413,7 @@ static int a_newer_format_document_saves_nowhere() {
 #endif
 
 int main() {
-	test_id("EjtkR0S", "veneer_smoke");
+	test_id("d9v59", "veneer_smoke");
 	// The clock every runner pins, as conformance.c does.
 #ifdef _WIN32
 	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");

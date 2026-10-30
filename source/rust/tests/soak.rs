@@ -72,7 +72,7 @@ fn artifacts() -> PathBuf {
 #[cfg_attr(miri, ignore = "dhat's backtrace per allocation is far too slow there")]
 #[test]
 fn heap_holds_steady_over_rounds() {
-	let _id = test_id("EszDssm");
+	let _id = test_id("de2ns");
 	let rounds: usize = std::env::var("SHCL_SOAK_ROUNDS")
 		.ok()
 		.and_then(|v| v.parse().ok())

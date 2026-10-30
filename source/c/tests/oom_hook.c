@@ -162,13 +162,13 @@ static shcl_doc *wide_doc(size_t n) {
 static const char *open_id, *open_name;
 static void test_id(const char *id, const char *name) { open_id = id; open_name = name; }
 static int test_id_end(int failed) {
-	printf("%-4s %s c %s\n", failed ? "FAIL" : "ok", open_id, open_name);
+	printf("%-4s %s c %s\n", failed ? "FAIL" : "PASS", open_id, open_name);
 	fflush(stdout);
 	return failed ? 1 : 0;
 }
 
 int main(void) {
-	test_id("EoH8aeO", "oom_hook");
+	test_id("dbwdx", "oom_hook");
 	// The clock every runner pins, as conformance.c does.
 #ifdef _WIN32
 	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");

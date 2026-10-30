@@ -467,108 +467,108 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 rowSecs=60
 rows=(
 	## 20260830 item 15: a second '-' read an empty document that looked like an answer.
-	'EoTHA7U|dup-stdin-schema|check --schema=- -|a: 1\n|1||named only once'
-	'EoTHA7V|dup-stdin-layer|get --layer=- - a|a: 1\n|1||named only once'
+	'dbzbc|dup-stdin-schema|check --schema=- -|a: 1\n|1||named only once'
+	'dbzbd|dup-stdin-layer|get --layer=- - a|a: 1\n|1||named only once'
 	## 20260830 item 10: the reference kept a trailing CR on an ops line, the ports stripped it.
-	'EoTHA7W|ops-line-cr|set %F%|int\tx\t1\r|0|a: 1\n\nx: 1\n|-'
-	'EoTHA7X|ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n|-'
+	'dbzbe|ops-line-cr|set %F%|int\tx\t1\r|0|a: 1\n\nx: 1\n|-'
+	'dbzbf|ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n|-'
 	## 20260908: one CR comes off an ops line, not two - the second is the value's.
-	'EpGigIR|ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\xe2\x97\x89CR\xe2\x97\x89"\n|-'
+	'dcb82|ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\xe2\x97\x89CR\xe2\x97\x89"\n|-'
 	## 20260924 item 7: Windows PowerShell 5.1 puts a BOM, or more than one, in
 	## front of text it pipes to a program, and the first op read as unknown.
-	'Er83b6G|ops-leading-bom|set %F%|\xef\xbb\xbf\xef\xbb\xbfint\tx\t1\n|0|a: 1\n\nx: 1\n|-'
+	'dd6zf|ops-leading-bom|set %F%|\xef\xbb\xbf\xef\xbb\xbfint\tx\t1\n|0|a: 1\n\nx: 1\n|-'
 	## 20260830 item 14: Python raised a traceback, C exited nonzero. POSIX-only:
 	## the row closes fd 0, and windows has no equivalent a shell can set up.
-	'EoTHA7Y|closed-stdin|fmt -|@closedin|0||^$'
-	'EoTHA7Z|closed-stdout|fmt %F%|@closedout|0|-|^$'
+	'dbzbg|closed-stdin|fmt -|@closedin|0||^$'
+	'dbzbh|closed-stdout|fmt %F%|@closedout|0|-|^$'
 	## 2026101514324710: an ops script on a stdin that isn't attached is empty,
 	## as a document there is. Go and Python exited 8 on a write-only one, and
 	## Python named it stdout.
-	'Essd9Mg|ops-closed-stdin|set %F%|@closedin|0|a: 1\n|='
-	'Essd9Mh|ops-write-only-stdin|set %F%|@wronlyin|0|a: 1\n|='
+	'de132|ops-closed-stdin|set %F%|@closedin|0|a: 1\n|='
+	'de133|ops-write-only-stdin|set %F%|@wronlyin|0|a: 1\n|='
 	## 2026101514324710: bad UTF-8 on stdin is the same message in all 4. Go and
 	## Python said `invalid UTF-8` for an ops script and named a document `-`.
-	'Essd9Mi|ops-stdin-not-utf8|set %F%|int\tx\t\xff\n|8||=stdin: stream did not contain valid UTF-8\n'
-	'Essd9Mj|doc-stdin-not-utf8|get - a|a: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
-	'Essd9Mk|layer-stdin-not-utf8|get --layer=- %F% a|a: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
-	'Essd9Ml|schema-stdin-not-utf8|check --schema=- %F%|field: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
+	'de134|ops-stdin-not-utf8|set %F%|int\tx\t\xff\n|8||=stdin: stream did not contain valid UTF-8\n'
+	'de135|doc-stdin-not-utf8|get - a|a: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
+	'de136|layer-stdin-not-utf8|get --layer=- %F% a|a: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
+	'de137|schema-stdin-not-utf8|check --schema=- %F%|field: \xff\n|8||=stdin: stream did not contain valid UTF-8\n'
 	## 20260830 item 16: C dropped the line number and the offending op.
-	'EoTHA7a|bad-op-unknown|set %F%|bogus\ta\t1\n|1|-|op line 1: unknown op: bogus'
+	'dbzbj|bad-op-unknown|set %F%|bogus\ta\t1\n|1|-|op line 1: unknown op: bogus'
 	## 20260925: the banner op takes on or off where other ops take a path.
-	'Equbm1a|banner-on-off|set %F%|banner\ton\nbanner\toff\n|0|a: 1\n|-'
-	'Equbm1b|banner-bad-value|set %F%|banner\tmaybe\n|1|-|op line 1: bad banner: maybe \(on or off\) \(see --help\)$'
+	'dd3r1|banner-on-off|set %F%|banner\ton\nbanner\toff\n|0|a: 1\n|-'
+	'dd3r2|banner-bad-value|set %F%|banner\tmaybe\n|1|-|op line 1: bad banner: maybe \(on or off\) \(see --help\)$'
 	## 2026100307163904: banner took the file's own comments written against
 	## the block with it, at exit 0.
-	'Erg8DKv|banner-off-keeps-own-comments|set %BN%|banner\toff\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n|-'
-	'Erg8DKw|banner-on-keeps-own-comments|set %BN%|banner\ton\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|-'
-	'Equbm1c|clear-comments-extra-field|set %F%|clear-comments\ta\tx\n|1|-|clear-comments takes 2 tab-separated field'
+	'ddf5r|banner-off-keeps-own-comments|set %BN%|banner\toff\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n|-'
+	'ddf5s|banner-on-keeps-own-comments|set %BN%|banner\ton\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|-'
+	'dd3r3|clear-comments-extra-field|set %F%|clear-comments\ta\tx\n|1|-|clear-comments takes 2 tab-separated field'
 	## 20260830 item 18: C answered a directory with a bare "read error". Exit 8
 	## since 20260830b item 22 split I/O out of the usage code. The wording is
 	## the CLIs' own, from a stat ahead of the read, so the row can expect one
 	## spelling rather than four platforms' worth (20260901b item 32).
-	'EoTHA7b|read-dir-names-error|fmt %D%|-|8|-|^[^ ]*adir: Is a directory$'
+	'dbzbk|read-dir-names-error|fmt %D%|-|8|-|^[^ ]*adir: Is a directory$'
 	## 20260830 item 17: C printed a bare count instead of naming the diagnostics.
-	'EoTHA7c|strict-load-list|fmt --strictness=strict %B%|-|6|-|strict load failed: 2 error diagnostic'
+	'dbzbm|strict-load-list|fmt --strictness=strict %B%|-|6|-|strict load failed: 2 error diagnostic'
 	## 20260918 item 21: the spec named two summary spellings for check and a
 	## strict one prints a third.
-	'EqGg9jN|check-strict-summary|check --strictness=strict %B%|-|6|line 2: Error: E015\nline 3: Error: E014\nstrict load failed: 2 diagnostic(s)\n|-'
+	'dct50|check-strict-summary|check --strictness=strict %B%|-|6|line 2: Error: E015\nline 3: Error: E014\nstrict load failed: 2 diagnostic(s)\n|-'
 	## 20260920b item 7: a strict load still hands back the document it
 	## recovered, so check --schema validates it. Without this the V-codes were
 	## dropped and a user got less out of check at strict than at standard.
-	'EqT42DA|check-strict-schema-validates|check --strictness=strict --schema=%SV% %B%|-|6|line 2: Error: E015\nline 3: Error: E014\nline 0: Error: V002\nline 1: Error: V001\nstrict load failed: 4 diagnostic(s)\n|-'
+	'dcx40|check-strict-schema-validates|check --strictness=strict --schema=%SV% %B%|-|6|line 2: Error: E015\nline 3: Error: E014\nline 0: Error: V002\nline 1: Error: V001\nstrict load failed: 4 diagnostic(s)\n|-'
 	## 20260830 round: an unknown command is judged before its options.
-	'EoTHA7d|unknown-cmd-before-opts|bogus --nope %F%|-|1|-|unknown command: bogus'
+	'dbzbn|unknown-cmd-before-opts|bogus --nope %F%|-|1|-|unknown command: bogus'
 	## 20260909 item 59: a real option in front of the subcommand was called
 	## unknown and then handed its own spelling back as a suggestion, and a value
 	## option in space form that ate the filename got only the usage line.
-	'EqBBQ52|opt-before-cmd|--schema=x check %F%|-|1||^option --schema goes after the subcommand'
-	'EqBBQ53|unknown-opt-before-cmd|--nope check %F%|-|1||^unknown option: --nope'
-	'EqBBQ54|opt-space-ate-file|check --schema %F%|-|1||took .* as its value, so no FILE is left'
+	'dcrtc|opt-before-cmd|--schema=x check %F%|-|1||^option --schema goes after the subcommand'
+	'dcrtd|unknown-opt-before-cmd|--nope check %F%|-|1||^unknown option: --nope'
+	'dcrte|opt-space-ate-file|check --schema %F%|-|1||took .* as its value, so no FILE is left'
 	## 20260918b item 33: `--schema=` is a path the command line gave, so every
 	## binding reads it and fails; Go read the empty string as "no schema".
-	'EqM10jo|schema-empty-value|check --schema= %F%|-|8|-|-'
-	'EqM10jp|init-schema-empty-value|init --schema=|-|8|-|-'
+	'dcvdr|schema-empty-value|check --schema= %F%|-|8|-|-'
+	'dcvds|init-schema-empty-value|init --schema=|-|8|-|-'
 	## init takes no FILE, so the space form has to keep working there.
-	'EqBBQ55|opt-space-init-ok|init --no-banner --schema %S2%|-|0|-|^$'
+	'dcrtf|opt-space-init-ok|init --no-banner --schema %S2%|-|0|-|^$'
 	## 20260829 item 10: Python recursed a frame per level in three places.
-	'EoTJum8|deep-nesting|fmt %P%|-|0|-|^$'
+	'dbzbv|deep-nesting|fmt %P%|-|0|-|^$'
 	## 20260830b item 4: init emitted a config that fails the schema that made it.
-	'EoTgCvg|init-bad-default|init --schema=%S%|-|6||V097 generated value fails the schema'
+	'dbzed|init-bad-default|init --schema=%S%|-|6||V097 generated value fails the schema'
 	## 20260901 item 5: the self-check waved every V007 through, so a repeat
 	## lower bound of 1 - a must-exist path - went out as a config that fails
 	## its own schema at exit 0.
-	'Eof5nNR|init-star-repeat1|init --schema=%S1%|-|6||V097 required path cannot be generated: \* \(a \* name segment has no name to write\)'
-	'Eof5nNS|init-star-repeat2|init --schema=%S2%|-|0|-|^$'
+	'dc269|init-star-repeat1|init --schema=%S1%|-|6||V097 required path cannot be generated: \* \(a \* name segment has no name to write\)'
+	'dc26a|init-star-repeat2|init --schema=%S2%|-|0|-|^$'
 	## 20260902 item 19: an index selector or a path past the cap got the
 	## self-check's "required path missing", which points at the config rather
 	## than at the schema line nothing can generate.
-	'Eolv8m8|init-index-required|init --schema=%S4%|-|6||V097 required path cannot be generated: srv\(1\).port \(an index selector needs an instance'
+	'dc3tt|init-index-required|init --schema=%S4%|-|6||V097 required path cannot be generated: srv\(1\).port \(an index selector needs an instance'
 	## 20260909 item 49: one unwritable path took the whole schema with it and
 	## the message said only which path, so the reason and the other blockers
 	## were both left to guesswork.
-	'EqAwaj2|init-blocked-first|init --schema=%SF%|-|6||V097 required path cannot be generated: srv\(1\).port \(an index selector needs an instance'
-	'EqAwaj3|init-blocked-second|init --schema=%SF%|-|6||V097 required path cannot be generated: \* \(a \* name segment has no name to write\)'
+	'dcrrh|init-blocked-first|init --schema=%SF%|-|6||V097 required path cannot be generated: srv\(1\).port \(an index selector needs an instance'
+	'dcrrj|init-blocked-second|init --schema=%SF%|-|6||V097 required path cannot be generated: \* \(a \* name segment has no name to write\)'
 	## 20260902 item 20: V096 fired at exactly the ceiling, on a schema with no
 	## fragments, saying the schema expands past it.
-	'EolvZ3A|init-cap-at-limit|init --no-banner --schema=%S5%|-|0|-|^$'
-	'EolvZ3B|init-cap-over|init --no-banner --schema=%S6%|-|6||V096 schema expands past 10000 fields'
+	'dc3tv|init-cap-at-limit|init --no-banner --schema=%S5%|-|0|-|^$'
+	'dc3tw|init-cap-over|init --no-banner --schema=%S6%|-|6||V096 schema expands past 10000 fields'
 	## 20260902 item 43: a raw default was dropped or misreported, a desc with a
 	## comma produced no comment, and V096/V097 named a schema line space they
 	## are not in.
-	'Eon2Qoy|init-raw-default|init --schema=%S8%|-|6||schema line 3: Error: V092'
-	'Eon2Qoz|init-comma-desc|init --no-banner --schema=%S9%|-|0|## one, two\n## any, required\na:\n|-'
-	'Eon2Qp0|init-genfault-line-space|init --schema=%S4%|-|6||^line 0: Error: V097'
-	'Eof5nNT|init-build-fault|init --schema=%S3%|-|6||V091 unknown schema type'
-	'Eof5nNU|init-build-fault-only|init --schema=%S3%|-|6||!V002'
+	'dc43d|init-raw-default|init --schema=%S8%|-|6||schema line 3: Error: V092'
+	'dc43e|init-comma-desc|init --no-banner --schema=%S9%|-|0|## one, two\n## any, required\na:\n|-'
+	'dc43f|init-genfault-line-space|init --schema=%S4%|-|6||^line 0: Error: V097'
+	'dc26b|init-build-fault|init --schema=%S3%|-|6||V091 unknown schema type'
+	'dc26c|init-build-fault-only|init --schema=%S3%|-|6||!V002'
 	## 20260909 item 5: a value after a last-segment selector is ignored, so a
 	## default there generated a line that failed check at exit 6.
-	'EptVfIP|init-selector-default-contradicts|init --schema=%SB%|-|6||V097 generated value fails the schema that produced it: required path missing: a\(b\)'
-	'EptVfIQ|init-selector-default-consistent|init --no-banner --schema=%SC%|-|0|## any, required\na: b\n|-'
+	'dcmjc|init-selector-default-contradicts|init --schema=%SB%|-|6||V097 generated value fails the schema that produced it: required path missing: a\(b\)'
+	'dcmjd|init-selector-default-consistent|init --no-banner --schema=%SC%|-|0|## any, required\na: b\n|-'
 	## Loose bug from 20260909 item 5: an optional field's bad default went out
 	## commented at exit 0.
-	'EpxsEn2|init-optional-bad-default|init --schema=%SD%|-|6||V097 generated value fails the schema that produced it: value above max 10 at .port.: 99'
+	'dcnky|init-optional-bad-default|init --schema=%SD%|-|6||V097 generated value fails the schema that produced it: value above max 10 at .port.: 99'
 	## 20260918 item 4: the same for a default that names another instance.
-	'EqGXrwW|init-optional-selector-default|init --schema=%SH%|-|6||V097 generated value fails the schema that produced it: default does not name the instance its path selects: env\(prod\)$'
+	'dct3m|init-optional-selector-default|init --schema=%SH%|-|6||V097 generated value fails the schema that produced it: default does not name the instance its path selects: env\(prod\)$'
 	## Retired 2026-09-17: a commented child of a commented valued parent now
 	## selects the parent's default, so the dotted `srv.port` this row expected
 	## became two instances once both lines were uncommented. The row below is
@@ -579,326 +579,326 @@ rows=(
 	## that fails generation for an optional field too. The row below is the
 	## same schema with the default naming `b`.
 	# 'init-optional-defaults-ok|init --no-banner --schema=%SE%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv[web].port: 80\n\n## any\n# a: c\n|-'
-	'EqGXrwX|init-optional-defaults-ok-named|init --no-banner --schema=%SI%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv(web).port: 80\n\n## any\n# a: b\n|-'
+	'dct3n|init-optional-defaults-ok-named|init --no-banner --schema=%SI%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv(web).port: 80\n\n## any\n# a: b\n|-'
 	## 20260918b item 26: every commented line is read back, not only one
 	## with a default. Item 27: no selector spelling is a refusal, not a
 	## child under another instance.
-	'EqLiw1w|init-optional-no-default-read-back|init --schema=%SJ%|-|6||V097 generated value fails the schema that produced it: wrong type at .flag\(on\).'
-	'EqLiw1x|init-no-selector-spelling|init --schema=%SK%|-|6||V097 required path cannot be generated: tags.x \(its parent.s value has no selector spelling\)'
+	'dcvbg|init-optional-no-default-read-back|init --schema=%SJ%|-|6||V097 generated value fails the schema that produced it: wrong type at .flag\(on\).'
+	'dcvbh|init-no-selector-spelling|init --schema=%SK%|-|6||V097 required path cannot be generated: tags.x \(its parent.s value has no selector spelling\)'
 	## 20260918 item 9: an empty topic is an unknown command, as in the
 	## reference; the ports read it as no topic and printed the help at exit 0.
-	'EqGfSo4|help-empty-topic|help %E%|-|1||^unknown command:  \(see --help\)$'
-	'EqGfSo5|empty-cmd-help|%E% --help|-|1||^unknown command:  \(see --help\)$'
+	'dct4k|help-empty-topic|help %E%|-|1||^unknown command:  \(see --help\)$'
+	'dct4m|empty-cmd-help|%E% --help|-|1||^unknown command:  \(see --help\)$'
 	## 20260918 item 10: a help flag after `help` was taken for the topic.
-	'EqGfSo6|help-help-flag|help --help|-|0|-|^$'
-	'EqGfSo7|help-h-flag|help -h|-|0|-|^$'
-	'EqGfSo8|help-cmd-help-flag|help get --help|-|0|-|^$'
+	'dct4n|help-help-flag|help --help|-|0|-|^$'
+	'dct4p|help-h-flag|help -h|-|0|-|^$'
+	'dct4q|help-cmd-help-flag|help get --help|-|0|-|^$'
 	## 20260918 item 16: the "no FILE is left" refusal came before the option
 	## check, so it named the wrong fault and a fix that did not work.
-	'EqGfas4|explain-opt-refused-first|explain --layer E001|-|1||^option --layer not valid for explain'
-	'EqGfas5|migrate-opt-refused-first|migrate --layer x|-|1||^option --layer not valid for migrate'
+	'dct4r|explain-opt-refused-first|explain --layer E001|-|1||^option --layer not valid for explain'
+	'dct4s|migrate-opt-refused-first|migrate --layer x|-|1||^option --layer not valid for migrate'
 	## 20260918 item 17: Go and Python folded a non-ASCII code by Unicode rules
 	## and suggested a code for it.
-	'EqGfmq0|explain-non-ascii-no-suggestion|explain %LS%001|-|1||!did you mean'
+	'dct4t|explain-non-ascii-no-suggestion|explain %LS%001|-|1||!did you mean'
 	## 20260918 item 22: two real options still called unknown.
-	'EqGgJM8|short-write-before-cmd|-w fmt %F%|-|1||^option -w goes after the subcommand \(see --help\)$'
-	'EqGgJM9|flag-given-value|fmt --write=yes %F%|-|1||^option --write takes no value \(see --help\)$'
-	'EqGgJMA|type-flag-given-value|get --int=5 %F% a|-|1||^option --int takes no value \(see --help\)$'
+	'dct51|short-write-before-cmd|-w fmt %F%|-|1||^option -w goes after the subcommand \(see --help\)$'
+	'dct52|flag-given-value|fmt --write=yes %F%|-|1||^option --write takes no value \(see --help\)$'
+	'dct53|type-flag-given-value|get --int=5 %F% a|-|1||^option --int takes no value \(see --help\)$'
 	## 20260918 item 23: three usage errors that neither said the fix nor
 	## pointed at the help.
-	'EqGgRwO|raw-array-see-help|get --raw --array %F% a|-|1||has no --array form \(see --help\)$'
-	'EqGgRwP|layer-stdin-set-see-help|set --layer=- %F%|-|1||^--layer=- is not valid for set: .*\(see --help\)$'
-	'EqGgRwQ|init-strictness-see-help|init --strictness=1 --schema=%S2%|-|1||^option --strictness not valid for init: .*\(see --help\)$'
+	'dct54|raw-array-see-help|get --raw --array %F% a|-|1||has no --array form \(see --help\)$'
+	'dct55|layer-stdin-set-see-help|set --layer=- %F%|-|1||^--layer=- is not valid for set: .*\(see --help\)$'
+	'dct56|init-strictness-see-help|init --strictness=1 --schema=%S2%|-|1||^option --strictness not valid for init: .*\(see --help\)$'
 	## 20260918 items 19 and 20: explain gave a file spelling that is a comment,
 	## and left out the V097 a user meets most.
-	'EqGfmq1|explain-e003|explain E003|-|0|\nE003  error       selector names an instance that does not exist\n  a(5).b where there is one a. An index selects an existing instance by\n  position and never creates one, so a binding line should select by value\n  instead.\n\n|-'
-	'EqGfmq2|explain-v097|explain V097|-|0|\nV097  error       generated output does not load, or fails its own schema\n  init checks its own output before returning it, so a starter config that\n  would fail its first check is a fault instead. A default outside its\n  field'"'"'s constraints is one cause. A required path nothing can generate is\n  the other, such as one with an index selector, a(0), or a * name. Line 0.\n\n|-'
+	'dct4v|explain-e003|explain E003|-|0|\nE003  error       selector names an instance that does not exist\n  a(5).b where there is one a. An index selects an existing instance by\n  position and never creates one, so a binding line should select by value\n  instead.\n\n|-'
+	'dct4w|explain-v097|explain V097|-|0|\nV097  error       generated output does not load, or fails its own schema\n  init checks its own output before returning it, so a starter config that\n  would fail its first check is a fault instead. A default outside its\n  field'"'"'s constraints is one cause. A required path nothing can generate is\n  the other, such as one with an index selector, a(0), or a * name. Line 0.\n\n|-'
 	## 20260830 item 35: -h and --help after FILE were an unknown option, though
 	## every other option is read there.
-	'EoUxXlV|help-after-file|get %F% -h|-|0|-|-'
-	'EoUxXlW|help-after-file-long|get %F% --help|-|0|-|-'
+	'dbzrd|help-after-file|get %F% -h|-|0|-|-'
+	'dbzre|help-after-file-long|get %F% --help|-|0|-|-'
 	## 20260830 item 47: at the default strictness a recovered-from typo was
 	## silent unless --write was passed, so stdout had the repair with
 	## nothing said about it.
-	'EoUxXlX|fmt-diags-without-write|fmt %B%|-|0|-|E015 missing colon'
-	'EoUxXlY|set-diags-without-write|set --set=a=2 %B%|-|0|-|E015 missing colon'
+	'dbzrf|fmt-diags-without-write|fmt %B%|-|0|-|E015 missing colon'
+	'dbzrg|set-diags-without-write|set --set=a=2 %B%|-|0|-|E015 missing colon'
 	## 20260804: given a --set, set takes its edits from the options and leaves
 	## stdin alone, or a set run from a terminal would sit waiting on it.
-	'Er1zoZE|set-option-skips-stdin|set --set=a=2 %F%|int\tx\t7\n|0|a: 2\n|-'
+	'dd5gy|set-option-skips-stdin|set --set=a=2 %F%|int\tx\t7\n|0|a: 2\n|-'
 	## 20260829 item 6: --set split PATH from VALUE at the first '=' anywhere, so
 	## a selector holding one could not be addressed at all.
-	'EoUxXlZ|set-eq-in-selector|set --set=x(a=b).c=1 %X%|-|0|x(a=b):\n\tc: 1\n|-'
+	'dbzrh|set-eq-in-selector|set --set=x(a=b).c=1 %X%|-|0|x(a=b):\n\tc: 1\n|-'
 	## 20260905 item 3: a quote anywhere in the path was read as opening a quoted
 	## piece, so an apostrophe in a bare selector left every later '=' looking
 	## quoted and the option was refused while get on the same path worked.
 	## A quote in a bare selector body is E025 now (2026100207032800), so these
 	## two are refused; the quoted rows below take their place.
-	#"Ep3OILK|set-quote-in-selector|set --set=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
-	#"Ep3OILL|set-default-quote-in-selector|set --set-default=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
-	"ErrQs1W|set-quoted-quote-in-selector|set --set=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 9\n|-"
-	"ErrQs1X|set-default-quoted-quote-in-selector|set --set-default=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 0\n|-"
-	"ErrQs1Y|set-bare-quote-in-selector-refused|set --set=srv(O'Brien).port=9 %Q%|-|1||not a usable path"
-	"Ep3OILM|set-quoted-selector-eq|set --set=x(\"k)=v\").d=2 %X%|-|0|x(a=b):\n\tc: 0\n\nx: \"k)=v\"\n\td: 2\n|-"
+	#"dc81c|set-quote-in-selector|set --set=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
+	#"dc81d|set-default-quote-in-selector|set --set-default=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
+	"ddhwp|set-quoted-quote-in-selector|set --set=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 9\n|-"
+	"ddhwq|set-default-quoted-quote-in-selector|set --set-default=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 0\n|-"
+	"ddhwr|set-bare-quote-in-selector-refused|set --set=srv(O'Brien).port=9 %Q%|-|1||not a usable path"
+	"dc81a|set-quoted-selector-eq|set --set=x(\"k)=v\").d=2 %X%|-|0|x(a=b):\n\tc: 0\n\nx: \"k)=v\"\n\td: 2\n|-"
 	## set writes back the lines its edits leave alone, printing or in place,
 	## where fmt writes the canonical form.
-	'EqutO7J|set-keeps-lines|set %K% --set=block.a=2|-|0|# note\nName:   "x"   # c\nblock:\n    a: 2\n|-'
-	'EqutO7K|set-write-keeps-lines|set --write %K% --set=block.b=3|-|0|-|-|# note\nName:   "x"   # c\nblock:\n    a: 1\n    b: 3\n'
-	'EqutO7L|fmt-write-rewrites-all|fmt --write %K%|-|0|-|-|# note\nname: "x"  # c\nblock:\n\ta: 1\n'
+	'dd3ta|set-keeps-lines|set %K% --set=block.a=2|-|0|# note\nName:   "x"   # c\nblock:\n    a: 2\n|-'
+	'dd3tb|set-write-keeps-lines|set --write %K% --set=block.b=3|-|0|-|-|# note\nName:   "x"   # c\nblock:\n    a: 1\n    b: 3\n'
+	'dd3tc|fmt-write-rewrites-all|fmt --write %K%|-|0|-|-|# note\nname: "x"  # c\nblock:\n\ta: 1\n'
 	## A new line ends the way most of the file's lines do, not its first.
-	'ErPO61B|set-write-eol-mostly-crlf|set --write %KM% --set=d=4|-|0|-|-|a: 1\nb: 2\r\nc: 3\r\n\r\nd: 4\r\n'
-	'ErPO633|set-write-eol-mostly-lf|set --write %KN% --set=d=4|-|0|-|-|a: 1\r\nb: 2\nc: 3\n\nd: 4\n'
+	'ddb4v|set-write-eol-mostly-crlf|set --write %KM% --set=d=4|-|0|-|-|a: 1\nb: 2\r\nc: 3\r\n\r\nd: 4\r\n'
+	'ddb4w|set-write-eol-mostly-lf|set --write %KN% --set=d=4|-|0|-|-|a: 1\r\nb: 2\nc: 3\n\nd: 4\n'
 	## A changed line keeps its own, a raw block turned scalar too.
-	'ErTecqB|set-write-eol-raw-to-scalar|set --write %KR% --set=r=9|-|0|-|-|x: 1\ny: 2\nr: 9\r\nz: 3\n'
+	'ddc5p|set-write-eol-raw-to-scalar|set --write %KR% --set=r=9|-|0|-|-|x: 1\ny: 2\nr: 9\r\nz: 3\n'
 	## No final newline stays none, whichever way the new last line ended.
-	'ErTecqC|set-write-eol-no-final-crlf|set --write %KT% --remove=z|-|0|-|-|a: 1\r\nb: 2\nc: 3\nx: 0'
-	'ErTecqD|set-write-eol-no-final-lf|set --write %KU% --remove=z|-|0|-|-|a: 1\r\nb: 2\r\nc: 3\r\nx: 0'
+	'ddc5q|set-write-eol-no-final-crlf|set --write %KT% --remove=z|-|0|-|-|a: 1\r\nb: 2\nc: 3\nx: 0'
+	'ddc5r|set-write-eol-no-final-lf|set --write %KU% --remove=z|-|0|-|-|a: 1\r\nb: 2\r\nc: 3\r\nx: 0'
 	## A dropped line refuses the write only when the save falls back to
 	## canonical. Removing margin would put stray under window, so that one does.
-	'EqzUbG4|set-write-keeps-dropped|set --write %KL% --set=font.size=13|-|0|-|E012|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
-	'EqzUbG5|set-write-fallback-refused|set --write %KL% --remove=window.margin|-|7|-|would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
+	'dd4xj|set-write-keeps-dropped|set --write %KL% --set=font.size=13|-|0|-|E012|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
+	'dd4xk|set-write-fallback-refused|set --write %KL% --remove=window.margin|-|7|-|would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
 	## 20260926 item 1: a rewritten line took a dropped line with it at exit
 	## 0, an element under a field with a value or an E018 line between two
 	## lines of one block. The element is kept now (E011, 2026102821334870),
 	## so the rewrite keeps it too.
-	'Er7gigM|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|0|-|!would delete|val: 9\n\t- e\nz: 2\n'
+	'dd6wm|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|0|-|!would delete|val: 9\n\t- e\nz: 2\n'
 	## 2026102820592074: an E011 item after a kept line under an E028 array line
 	## moved that line to the root, above the array line.
-	'Eu8XwjS|fmt-keeps-line-under-array-line|fmt -|srv.srv: 2\nsrv: [v1]\n\t* 7\n\t- 0\n\tc: 1\n|0|srv: [v1]\n\tsrv: 2\n\t* 7\n\t- 0\n\tc: 1\n|E028'
+	'dektp|fmt-keeps-line-under-array-line|fmt -|srv.srv: 2\nsrv: [v1]\n\t* 7\n\t- 0\n\tc: 1\n|0|srv: [v1]\n\tsrv: 2\n\t* 7\n\t- 0\n\tc: 1\n|E028'
 	## 2026102821334970: an index that selects no instance is kept (E003), so a
 	## save loses nothing. A dotted line onto items through an index stays as
 	## written, where it used to go out as a comment.
-	'Eu8yPCL|fmt-keeps-index-no-instance|fmt -|a: 1\na(5).b: 2\nz: 1\n|0|a: 1\na(5).b: 2\nz: 1\n|E003'
-	'Eu8yPCM|fmt-check-keeps-index-no-instance|fmt --check -|a: 1\na(5).b: 2\nz: 1\n|0||!would refuse'
-	'Eu8yPCN|fmt-keeps-dotted-line-onto-items|fmt -|srv:\n\t- a\nsrv(0).tls: on\n|0|srv:\n\t- a\nsrv(0).tls: on\n|E001'
+	'deky3|fmt-keeps-index-no-instance|fmt -|a: 1\na(5).b: 2\nz: 1\n|0|a: 1\na(5).b: 2\nz: 1\n|E003'
+	'deky4|fmt-check-keeps-index-no-instance|fmt --check -|a: 1\na(5).b: 2\nz: 1\n|0||!would refuse'
+	'deky5|fmt-keeps-dotted-line-onto-items|fmt -|srv:\n\t- a\nsrv(0).tls: on\n|0|srv:\n\t- a\nsrv(0).tls: on\n|E001'
 	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
 	## file said nothing.
-	'Er8Ivln|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
+	'dd71c|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
 	## The kept line before a dotted line now sits level with its first name
 	## (2026100213205957), so this save keeps its lines, the dropped one too.
-	#'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|would delete 1 line|x[*]: [1, 2\n x:\nx.a: 2\n'
-	'EraAIXa|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x(*): [1, 2\n x:\nx: v\n a: 2\n'
-	'EraAIXb|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|would delete 1 line|x(*): [1, 2\n x:\nx.a: 2\n'
+	#'dd6wn|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|would delete 1 line|x[*]: [1, 2\n x:\nx.a: 2\n'
+	'dddqs|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x(*): [1, 2\n x:\nx: v\n a: 2\n'
+	'dddqt|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|would delete 1 line|x(*): [1, 2\n x:\nx.a: 2\n'
 	## 2026100717500003: without --write, set printed the canonical text with
 	## the dropped line gone, at exit 0, where --write refused. The print now
 	## answers as --write does, so `set f ... > f.new && mv f.new f` is safe.
-	'Es8aXnv|set-print-refused-element|set %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n|!refusing|val: 1\n\t- e\nz: 2\n'
-	'Es8aXnw|set-print-fallback-refused|set %KL% --remove=window.margin|-|7||refusing to print: this result would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
-	'Es8aXnx|set-print-lossy|set --lossy %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n|!canonical form|val: 1\n\t- e\nz: 2\n'
-	'Es8aXny|set-print-keeps-dropped|set %KL% --set=font.size=13|-|0|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n|!canonical|-'
-	'Es8aXnz|set-print-says-canonical|set %KF% --set=b=3|-|0|a:\n\tx: 1\n\ty: 1\nb: 3\n|printed in the canonical form|-'
+	'ddp0q|set-print-refused-element|set %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n|!refusing|val: 1\n\t- e\nz: 2\n'
+	'ddp0r|set-print-fallback-refused|set %KL% --remove=window.margin|-|7||refusing to print: this result would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
+	'ddp0s|set-print-lossy|set --lossy %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n|!canonical form|val: 1\n\t- e\nz: 2\n'
+	'ddp0t|set-print-keeps-dropped|set %KL% --set=font.size=13|-|0|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n|!canonical|-'
+	'ddp0v|set-print-says-canonical|set %KF% --set=b=3|-|0|a:\n\tx: 1\n\ty: 1\nb: 3\n|printed in the canonical form|-'
 	## A layer under FILE is a merge, which keeps no lines, so a lost line
 	## anywhere refuses, and --lossy prints with no word about keeping them.
-	'Es8aXo0|set-print-layer-refused|set --set=q=1 --layer=%F% %KL%|-|7||refusing to print|-'
-	'Es8aXo1|set-print-layer-lossy|set --lossy --set=q=1 --layer=%F% %KL%|-|0|-|!canonical form|-'
+	'ddp0w|set-print-layer-refused|set --set=q=1 --layer=%F% %KL%|-|7||refusing to print|-'
+	'ddp0x|set-print-layer-lossy|set --lossy --set=q=1 --layer=%F% %KL%|-|0|-|!canonical form|-'
 	## 2026102821530643: the layer's kept item stays in the block it sat in,
 	## where it went to the root, above the field.
-	'Eu96oVJ|set-layer-keeps-kept-line-in-block|set --set=q=1 --layer=%KE% %KE%|-|0|val: 1\n\t- e\n\t- e\nz: 2\n\nq: 1\n|-'
-	"Ep3OILN|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
+	'dekz5|set-layer-keeps-kept-line-in-block|set --set=q=1 --layer=%KE% %KE%|-|0|val: 1\n\t- e\n\t- e\nz: 2\n\nq: 1\n|-'
+	"dc81b|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
 	## 2026101010054746: a quoted thousands number is text now, so these read
 	## BadType before a save and after one, like the bare form.
-	# 'EpykNRw|set-quoted-thousands|get --int --set=a=1,000 %F% a|-|0|1000\n|-'
-	# "EpykNRx|set-selector-thousands|get --int --set=x(\"1,000\").y=1 %F% x|-|0|1000\n|-"
-	# 'EpykNRy|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
-	'EsZikJn|set-quoted-thousands-text|get --int --set=a=1,000 %F% a|-|4|0\n|not a valid int'
-	"EsZikJo|set-selector-thousands-text|get --int --set=x(\"1,000\").y=1 %F% x|-|4|0\n|not a valid int"
-	'EsZikJp|selector-thousands-text|get --int %SQ% srv|-|4|0\n|not a valid int'
+	# 'dcntn|set-quoted-thousands|get --int --set=a=1,000 %F% a|-|0|1000\n|-'
+	# "dcntp|set-selector-thousands|get --int --set=x(\"1,000\").y=1 %F% x|-|0|1000\n|-"
+	# 'dcntq|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
+	'ddwhj|set-quoted-thousands-text|get --int --set=a=1,000 %F% a|-|4|0\n|not a valid int'
+	"ddwhk|set-selector-thousands-text|get --int --set=x(\"1,000\").y=1 %F% x|-|4|0\n|not a valid int"
+	'ddwhm|selector-thousands-text|get --int %SQ% srv|-|4|0\n|not a valid int'
 	## A quoted one is still not a number at Standard.
-	'EsZikJm|quoted-thousands-int|get --int - p|p: "80,443"\n|4|0\n|not a valid int'
+	'ddwhh|quoted-thousands-int|get --int - p|p: "80,443"\n|4|0\n|not a valid int'
 	## 2026101309122757: Loose reads a quoted thousands number again.
-	# "EsZikJq|quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|4|0\n|not a valid float"
-	"EsbaIgH|loose-quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|0|1000\n|-"
-	"EsbaIia|loose-quoted-money-int|get --int --strictness=loose - p|p: \"\$1,200.50\"\n|0|1201\n|-"
-	'EsbaIkt|loose-bare-thousands-text|get --int --strictness=loose - p|p: 1,200\n|4|0\n|not a valid int'
-	'EsbaInW|strict-quoted-thousands-text|get --int --strictness=strict - p|p: "1,200"\n|4|0\n|not a valid int'
+	# "ddwht|quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|4|0\n|not a valid float"
+	"ddx00|loose-quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|0|1000\n|-"
+	"ddx01|loose-quoted-money-int|get --int --strictness=loose - p|p: \"\$1,200.50\"\n|0|1201\n|-"
+	'ddx02|loose-bare-thousands-text|get --int --strictness=loose - p|p: 1,200\n|4|0\n|not a valid int'
+	'ddx03|strict-quoted-thousands-text|get --int --strictness=strict - p|p: "1,200"\n|4|0\n|not a valid int'
 	## A bare one stays bare through fmt and a setter, so it reads as text after a save too.
-	"EsbaIq7|fmt-keeps-bare-thousands|fmt -|p: 80,443\nq: \$1,200.50\n|0|p: 80,443\nq: \$1,200.50\n|-"
-	'EsbaIsU|set-keeps-bare-thousands|set --set=p=1,200 -|a: 1\n|0|a: 1\n\np: 1,200\n|-'
-	'EsbaIx6|loose-set-thousands-text|get --int --strictness=loose --set=a=1,000 %F% a|-|4|0\n|not a valid int'
+	"ddx04|fmt-keeps-bare-thousands|fmt -|p: 80,443\nq: \$1,200.50\n|0|p: 80,443\nq: \$1,200.50\n|-"
+	'ddx05|set-keeps-bare-thousands|set --set=p=1,200 -|a: 1\n|0|a: 1\n\np: 1,200\n|-'
+	'ddx07|loose-set-thousands-text|get --int --strictness=loose --set=a=1,000 %F% a|-|4|0\n|not a valid int'
 	## 2026101514324702: over a quoted value too, whatever its quote kind.
-	"EsoRGvI|set-thousands-over-quoted|set --set=p=1,200 --set=q=\$1,200 -|p: \"x\"\nq: \`x\`\n|0|p: 1,200\nq: \$1,200\n|-"
-	'EsoRGxW|loose-set-thousands-over-quoted|get --int --strictness=loose --set=p=1,200 - p|p: "x"\n|4|0\n|not a valid int'
+	"de033|set-thousands-over-quoted|set --set=p=1,200 --set=q=\$1,200 -|p: \"x\"\nq: \`x\`\n|0|p: 1,200\nq: \$1,200\n|-"
+	'de034|loose-set-thousands-over-quoted|get --int --strictness=loose --set=p=1,200 - p|p: "x"\n|4|0\n|not a valid int'
 	## 2026101318521195: a trailing `.` is fine on one, a leading one is not.
-	'EsdUlxn|loose-quoted-thousands-dot-int|get --int --strictness=loose - p|p: "1,200."\n|0|1200\n|-'
-	"EsdUlxo|loose-quoted-money-dot-pct|get --float --strictness=loose - p|p: \"\$1,200.%\"\n|0|12\n|-"
-	'EsdUlxp|fmt-keeps-bare-thousands-dot|fmt -|p: 1,200.\n|0|p: 1,200.\n|-'
-	'EsdUlxq|standard-quoted-thousands-dot|get --float - p|p: "1,200."\n|4|0\n|not a valid float'
-	'EsdUlxr|loose-leading-dot-thousands-text|get --float --strictness=loose - p|p: ".1,200"\n|4|0\n|not a valid float'
+	'ddxep|loose-quoted-thousands-dot-int|get --int --strictness=loose - p|p: "1,200."\n|0|1200\n|-'
+	"ddxeq|loose-quoted-money-dot-pct|get --float --strictness=loose - p|p: \"\$1,200.%\"\n|0|12\n|-"
+	'ddxer|fmt-keeps-bare-thousands-dot|fmt -|p: 1,200.\n|0|p: 1,200.\n|-'
+	'ddxes|standard-quoted-thousands-dot|get --float - p|p: "1,200."\n|4|0\n|not a valid float'
+	'ddxet|loose-leading-dot-thousands-text|get --float --strictness=loose - p|p: ".1,200"\n|4|0\n|not a valid float'
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
 	## 2.x selector sugar is that shape now too, and migrate is what brings
 	## a file written with it across.
 	## One diagnostic is one line, and a name is printed the way the emitter
 	## would write it. A line break in a name used to split one hint across
 	## three stderr lines, and a flat `x.y` printed the same as `x` nesting `y`.
-	'Eq4AfLV|diag-name-line-break|check %NB%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 ."a\\nb". repeats'
+	'dcq4e|diag-name-line-break|check %NB%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 ."a\\nb". repeats'
 	## The value half of the same rule: the H001 hint splices the repeated
 	## values into its suggestion, and a value with a line break used to go
 	## in raw, so the hint arrived as four stderr lines.
-	'EqTPxzc|diag-value-line-break|check %NV%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 .srv. repeats as a bare leaf - did you mean .srv: \["a◉NEWLINE◉b", "c◉NEWLINE◉d"\].\?$'
-	'Eq4AfLW|diag-name-dotted|check --schema=%SN% %DN%|-|6|line 1: Error: V001\nfailed: 1 diagnostic(s), 1 error(s)\n|unknown field ."x\.y".'
+	'dcx6q|diag-value-line-break|check %NV%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 .srv. repeats as a bare leaf - did you mean .srv: \["a◉NEWLINE◉b", "c◉NEWLINE◉d"\].\?$'
+	'dcq4f|diag-name-dotted|check --schema=%SN% %DN%|-|6|line 1: Error: V001\nfailed: 1 diagnostic(s), 1 error(s)\n|unknown field ."x\.y".'
 	## 20260918 item 14: the same for schema text, which every code below printed raw.
-	'EqGaO1w|schema-text-v002|check --schema=%SL% %DL%|-|6|-|V002 required path missing: a\."x◉NEWLINE◉y"$'
-	'EqGaO1x|schema-text-v003|check --schema=%SL% %DL%|-|6|-|V003 wrong type at .c\."x◉NEWLINE◉y".: value is not a valid bool$'
-	'EqGaO1y|schema-text-v004|check --schema=%SL% %DL%|-|6|-|V004 value not allowed at .b\."x◉NEWLINE◉y".: 9$'
-	'EqGaO1z|schema-text-v005|check --schema=%SL% %DL%|-|6|-|V005 value below min 5 at .b\."x◉NEWLINE◉y".: 1$'
-	'EqGaO20|schema-text-v006|check --schema=%SL% %DL%|-|6|-|V006 value above max 6 at .b\."x◉NEWLINE◉y".: 9$'
-	'EqGaO21|schema-text-v007|check --schema=%SL% %DL%|-|6|-|V007 instance count out of bounds at .b\."x◉NEWLINE◉y".: 2 not in 3\.\.3$'
-	'EqGaO22|schema-text-v091|check --schema=%SM% %DL%|-|6|-|V091 unknown schema type .in◉NEWLINE◉t.$'
-	'EqGaO23|schema-text-v093|check --schema=%SM% %DL%|-|6|-|V093 bad schema path: d\."x◉NEWLINE◉y"\.$'
+	'dct3y|schema-text-v002|check --schema=%SL% %DL%|-|6|-|V002 required path missing: a\."x◉NEWLINE◉y"$'
+	'dct3z|schema-text-v003|check --schema=%SL% %DL%|-|6|-|V003 wrong type at .c\."x◉NEWLINE◉y".: value is not a valid bool$'
+	'dct40|schema-text-v004|check --schema=%SL% %DL%|-|6|-|V004 value not allowed at .b\."x◉NEWLINE◉y".: 9$'
+	'dct41|schema-text-v005|check --schema=%SL% %DL%|-|6|-|V005 value below min 5 at .b\."x◉NEWLINE◉y".: 1$'
+	'dct42|schema-text-v006|check --schema=%SL% %DL%|-|6|-|V006 value above max 6 at .b\."x◉NEWLINE◉y".: 9$'
+	'dct43|schema-text-v007|check --schema=%SL% %DL%|-|6|-|V007 instance count out of bounds at .b\."x◉NEWLINE◉y".: 2 not in 3\.\.3$'
+	'dct44|schema-text-v091|check --schema=%SM% %DL%|-|6|-|V091 unknown schema type .in◉NEWLINE◉t.$'
+	'dct45|schema-text-v093|check --schema=%SM% %DL%|-|6|-|V093 bad schema path: d\."x◉NEWLINE◉y"\.$'
 	## A bracket array is the array spelling now, not E019 (2026100207032800).
-	'Ep3QaNl|bracket-array-check|check %BA%|-|0|ok (0 diagnostic(s))\n|-'
-	'EpFkZy7|bracket-array-write-kept|fmt --write %BA%|-|0||-'
+	'dc81j|bracket-array-check|check %BA%|-|0|ok (0 diagnostic(s))\n|-'
+	'dcb0f|bracket-array-write-kept|fmt --write %BA%|-|0||-'
 	## The line under bracket text loads now (2026100115403384), so these two
 	## no longer hold: no E018, nothing lost, and the write goes through.
-	#'Ep3QaNm|sugar-check|check %W%|-|6|line 1: Error: E019\nline 2: Error: E018\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
+	#'dc81m|sugar-check|check %W%|-|6|line 1: Error: E019\nline 2: Error: E018\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
 	## The sugar is an array on a field with a line under it now (E028): the
 	## line is kept, and the line under it loads under the field with no value.
-	'Ep3QaNn|sugar-check-strict|check --strictness=strict %W%|-|6|-|-'
-	#'EpFkZy8|sugar-write-refused|fmt --write %W%|-|7|-|would delete 1 line'
-	'ErUmRRa|sugar-check-block|check %W%|-|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
-	'ErUmRRb|sugar-block-read|get %W% base.lat|-|0|42\n|-'
-	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
-	'Era9kPy|kept-under-kept-fmt|fmt -|a: [1\n\tb: [2\n|0|a: [1\n\tb: [2\n|-'
-	'Era9kPz|kept-before-dotted-fmt|fmt -|k: [3\nm.n: 2\n|0|k: [3\nm:\n\tn: 2\n|-'
+	'dc81k|sugar-check-strict|check --strictness=strict %W%|-|6|-|-'
+	#'dcb0n|sugar-write-refused|fmt --write %W%|-|7|-|would delete 1 line'
+	'ddceb|sugar-check-block|check %W%|-|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
+	'ddcec|sugar-block-read|get %W% base.lat|-|0|42\n|-'
+	'ddced|sugar-write-kept|fmt --write %W%|-|0||-'
+	'dddqq|kept-under-kept-fmt|fmt -|a: [1\n\tb: [2\n|0|a: [1\n\tb: [2\n|-'
+	'dddqr|kept-before-dotted-fmt|fmt -|k: [3\nm.n: 2\n|0|k: [3\nm:\n\tn: 2\n|-'
 	## A comment between nested kept lines nests with them (2026100218185700).
-	'Erls2v2|comment-under-kept-fmt|fmt -|a: [1\n\t# note\n\tb: [2\n|0|a: [1\n\t# note\n\tb: [2\n|-'
-	'Erls2v3|comment-under-kept-in-block-fmt|fmt -|x:\n  a: [1\n    # note\n    b: [2\n  c: 1\n|0|x:\n\ta: [1\n\t\t# note\n\t\tb: [2\n\tc: 1\n|-'
+	'ddgj2|comment-under-kept-fmt|fmt -|a: [1\n\t# note\n\tb: [2\n|0|a: [1\n\t# note\n\tb: [2\n|-'
+	'ddgj3|comment-under-kept-in-block-fmt|fmt -|x:\n  a: [1\n    # note\n    b: [2\n  c: 1\n|0|x:\n\ta: [1\n\t\t# note\n\t\tb: [2\n\tc: 1\n|-'
 	## A new field at the end of a block goes after the kept lines that end it,
 	## not above them (2026100117214802).
-	'Erls2uw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1\n# end\n|0|x: 1\na:   [1\n\nb: 1\n# end\n|-'
-	'Erls2ux|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1\n    # c\n|0|s:\n    a:   [1\n    b: 1\n    # c\n|-'
+	'ddghw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1\n# end\n|0|x: 1\na:   [1\n\nb: 1\n# end\n|-'
+	'ddghx|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1\n    # c\n|0|s:\n    a:   [1\n    b: 1\n    # c\n|-'
 	## Arrays are written in brackets, and a list item is `- ` then one value
 	## (2026100207032800). Each error names what is wrong.
-	'ErqYSbF|array-e019-text-after|check -|log: [INFO] started\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, text after .\].; quote the value if it is text$'
-	'ErqYSbG|array-e019-nested|check -|n: [[1, 2], 3]\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, a .\[. inside an array; quote the value if it is text$'
-	'ErqYSbH|array-e019-empty-element|check -|g: [a,, b]\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, an empty element; quote the value if it is text$'
-	'ErqYSbI|array-e019-unclosed|check -|o: [a, b\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, no closing .\]. on the line; quote the value if it is text$'
-	'ErqYSbJ|array-e026-bare-comma|check -|ports: 80, 443\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value; write an array in brackets, \[a, b\], or quote the text$'
-	'ErqYSbK|list-e013-old-marker|check -|a:\n\t* x\n|6|line 2: Error: E013\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E013 a list item is written .- . now, not .\*.$'
-	'ErqYSbL|list-e027-name|check -|a:\n\t- name:\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text$'
-	'ErqYSbM|list-e019-nested|check -|a:\n\t- [x]\n|6|line 2: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E019 a list item is one value, and arrays do not nest; quote the item if it is text$'
-	'ErqYSbQ|h001-suggests-brackets|check -|x: a\nx: b\n|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|did you mean .x: \[a, b\].\?$'
-	'ErqYSbR|fmt-keeps-stacked|fmt -|a:\n  - x\n  - "y z"\nb: [1,2]\n|0|a:\n\t- x\n\t- "y z"\nb: [1, 2]\n|-'
+	'ddhny|array-e019-text-after|check -|log: [INFO] started\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, text after .\].; quote the value if it is text$'
+	'ddhnz|array-e019-nested|check -|n: [[1, 2], 3]\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, a .\[. inside an array; quote the value if it is text$'
+	'ddhp0|array-e019-empty-element|check -|g: [a,, b]\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, an empty element; quote the value if it is text$'
+	'ddhp1|array-e019-unclosed|check -|o: [a, b\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, no closing .\]. on the line; quote the value if it is text$'
+	'ddhp2|array-e026-bare-comma|check -|ports: 80, 443\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value; write an array in brackets, \[a, b\], or quote the text$'
+	'ddhp3|list-e013-old-marker|check -|a:\n\t* x\n|6|line 2: Error: E013\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E013 a list item is written .- . now, not .\*.$'
+	'ddhp4|list-e027-name|check -|a:\n\t- name:\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text$'
+	'ddhp5|list-e019-nested|check -|a:\n\t- [x]\n|6|line 2: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E019 a list item is one value, and arrays do not nest; quote the item if it is text$'
+	'ddhp9|h001-suggests-brackets|check -|x: a\nx: b\n|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|did you mean .x: \[a, b\].\?$'
+	'ddhpa|fmt-keeps-stacked|fmt -|a:\n  - x\n  - "y z"\nb: [1,2]\n|0|a:\n\t- x\n\t- "y z"\nb: [1, 2]\n|-'
 	## An array on a field with fields under it is E028: the line is kept and
 	## written in place of the field's, and the fields under it load under the
 	## field with no value. One that joined an earlier binding of its value
 	## leaves that one its value.
-	'ErrQs1b|array-e028-check|check -|route: [GET, POST]\n\tpath: /x\n|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
-	'ErrQs1c|array-e028-read-under|get - route.path|route: [GET, POST]\n\tpath: /x\n|0|/x\n|-'
-	'ErrQs1d|array-e028-read-field|get - route|route: [GET, POST]\n\tpath: /x\n|2|\n|-'
-	'ErrQs1e|array-e028-fmt-kept|fmt -|route:   [GET, POST]\n  path: /x\n|0|route:   [GET, POST]\n\tpath: /x\n|-'
-	'ErrQs1f|array-e028-joined-binding|fmt -|c: [v2]\nc:[v2]\n\tq: 1\n|0|c: [v2]\nc:[v2]\n\tq: 1\n|^line 2: Error: E028'
+	'ddhwv|array-e028-check|check -|route: [GET, POST]\n\tpath: /x\n|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
+	'ddhww|array-e028-read-under|get - route.path|route: [GET, POST]\n\tpath: /x\n|0|/x\n|-'
+	'ddhwx|array-e028-read-field|get - route|route: [GET, POST]\n\tpath: /x\n|2|\n|-'
+	'ddhwy|array-e028-fmt-kept|fmt -|route:   [GET, POST]\n  path: /x\n|0|route:   [GET, POST]\n\tpath: /x\n|-'
+	'ddhwz|array-e028-joined-binding|fmt -|c: [v2]\nc:[v2]\n\tq: 1\n|0|c: [v2]\nc:[v2]\n\tq: 1\n|^line 2: Error: E028'
 	## A list item with a bare comma is E026, kept among the items (it was
 	## E010 and dropped).
-	'ErrQs1g|list-e026-item-check|check -|a:\n\t- x, y\n\t- z\n|6|line 2: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E026 a comma then a space or the end in a list item; an item is one value, so quote the text$'
-	'ErrQs1h|list-e026-item-kept|fmt -|a:\n\t- x, y\n\t- z\n|0|a:\n\t- x, y\n\t- z\n|-'
+	'ddhx0|list-e026-item-check|check -|a:\n\t- x, y\n\t- z\n|6|line 2: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E026 a comma then a space or the end in a list item; an item is one value, so quote the text$'
+	'ddhx1|list-e026-item-kept|fmt -|a:\n\t- x, y\n\t- z\n|0|a:\n\t- x, y\n\t- z\n|-'
 	## A bare value or list item may hold spaces, and a colon or comma with
 	## text right after it is text. One with a blank or the end after it is an
 	## error that says what to do (2026100207032800, 20261006).
-	'ErvnzpS|bare-spaces-read|get - t|t: My  App  # c\n|0|My  App\n|-'
-	'ErvnzpT|bare-spaces-fmt|fmt -|t: My  App\nl:\n\t- New York\n|0|t: "My  App"\nl:\n\t- "New York"\n|-'
-	'ErvnzpU|bare-comma-text-read|get - o|o: rw,noatime\n|0|rw,noatime\n|-'
-	'ErvnzpV|bare-colon-text-fmt|fmt -|d: :0\nu: http://h:80/p\n|0|d: ":0"\nu: "http://h:80/p"\n|-'
-	'ErvnzpW|e025-loose-colon-check|check -|host: a.com port: 80\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon then a space in a bare value; put each field on its own line, or quote the value$'
-	'ErvnzpX|e025-tab-check|check -|t: a\tb\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a tab in a bare value; quote it$'
-	'ErvnzpY|e026-trailing-comma-check|check -|x: a,\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value'
-	'ErvnzpZ|e027-name-value-check|check -|a:\n\t- name: value\n\t- b\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end'
-	'Ervnzpa|e025-selector-colon-check|check -|srv(a:b).p: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon in a bare selector; quote it$'
+	'ddjyc|bare-spaces-read|get - t|t: My  App  # c\n|0|My  App\n|-'
+	'ddjyd|bare-spaces-fmt|fmt -|t: My  App\nl:\n\t- New York\n|0|t: "My  App"\nl:\n\t- "New York"\n|-'
+	'ddjye|bare-comma-text-read|get - o|o: rw,noatime\n|0|rw,noatime\n|-'
+	'ddjyf|bare-colon-text-fmt|fmt -|d: :0\nu: http://h:80/p\n|0|d: ":0"\nu: "http://h:80/p"\n|-'
+	'ddjyg|e025-loose-colon-check|check -|host: a.com port: 80\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon then a space in a bare value; put each field on its own line, or quote the value$'
+	'ddjyh|e025-tab-check|check -|t: a\tb\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a tab in a bare value; quote it$'
+	'ddjyj|e026-trailing-comma-check|check -|x: a,\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value'
+	'ddjyk|e027-name-value-check|check -|a:\n\t- name: value\n\t- b\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end'
+	'ddjym|e025-selector-colon-check|check -|srv(a:b).p: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon in a bare selector; quote it$'
 	## An apostrophe with text on both sides is text in a bare value or item,
 	## and still E025 next to a blank or in an element (2026102307035781).
-	'EtahgWm|apostrophe-in-word-read|get - n|n: O\x27Brien\n|0|O\x27Brien\n|-'
-	'EtahhXs|apostrophe-in-word-fmt|fmt -|t: Jim\x27s Server\nl:\n\t- rock\x27n\x27roll\n|0|t: "Jim\x27s Server"\nl:\n\t- "rock\x27n\x27roll"\n|-'
-	'EtahhXt|e025-apostrophe-blank-check|check -|n: O\x27 Brien\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a quote in a bare value; quote it$'
-	'EtahhXu|e025-apostrophe-element-check|check -|a: [O\x27Brien]\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a quote in a bare array element; quote it$'
-	'Ervnzpb|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n|-'
-	'Ervnzpc|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n|-'
-	'Ervnzpd|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'Ervnzpe|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
+	'debp8|apostrophe-in-word-read|get - n|n: O\x27Brien\n|0|O\x27Brien\n|-'
+	'debp9|apostrophe-in-word-fmt|fmt -|t: Jim\x27s Server\nl:\n\t- rock\x27n\x27roll\n|0|t: "Jim\x27s Server"\nl:\n\t- "rock\x27n\x27roll"\n|-'
+	'debpa|e025-apostrophe-blank-check|check -|n: O\x27 Brien\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a quote in a bare value; quote it$'
+	'debpb|e025-apostrophe-element-check|check -|a: [O\x27Brien]\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a quote in a bare array element; quote it$'
+	'ddjyn|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n|-'
+	'ddjyp|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n|-'
+	'ddjyq|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddjyr|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
 	## 2.x read `k: s,` as `k: s`, one field with the line after it.
-	'EsIx4ev|migrate-lone-element|migrate --from-2x -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddrgk|migrate-lone-element|migrate --from-2x -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
-	'ErrQs1i|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n|-'
+	'ddhx2|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n|-'
 	## An array setter keeps a stacked list stacked, as an overwrite keeps
 	## quotes, and a backtick value goes in through --set-literal.
-	'ErrQs1j|set-stacked-stays-stacked|set --set-literal=l=[1,2] -|l:\n\t- a\n|0|l:\n\t- 1\n\t- 2\n|-'
-	"ErrQs1k|set-literal-backtick|set --set-literal=c=\`#FF8800\` -|c: 1\n|0|c: \`#FF8800\`\n|-"
-	"ErrQs1l|set-keeps-backtick-kind|set --set=c=y -|c: \`x\`\n|0|c: \`y\`\n|-"
+	'ddhx3|set-stacked-stays-stacked|set --set-literal=l=[1,2] -|l:\n\t- a\n|0|l:\n\t- 1\n\t- 2\n|-'
+	"ddhx4|set-literal-backtick|set --set-literal=c=\`#FF8800\` -|c: 1\n|0|c: \`#FF8800\`\n|-"
+	"ddhx5|set-keeps-backtick-kind|set --set=c=y -|c: \`x\`\n|0|c: \`y\`\n|-"
 	## A setter that would put a field under an array, or an array over
 	## fields, is refused (E028 on a reload).
-	'ErrQs1m|set-field-under-array-refused|set --set=l.c=1 -|l: [a]\n|1||^--set: cannot write l.c: an array takes no lines under it \(see --help\)$'
-	'ErrQs1n|set-array-over-fields-refused|set --set-literal=c=[1,2] -|c: 1\n\tk: 2\n|1||^--set-literal: cannot write c: a field with lines under it takes one plain value or none \(see --help\)$'
+	'ddhx6|set-field-under-array-refused|set --set=l.c=1 -|l: [a]\n|1||^--set: cannot write l.c: an array takes no lines under it \(see --help\)$'
+	'ddhx7|set-array-over-fields-refused|set --set-literal=c=[1,2] -|c: 1\n\tk: 2\n|1||^--set-literal: cannot write c: a field with lines under it takes one plain value or none \(see --help\)$'
 	## A selector matches one plain value. A bare body with a space or a quote
 	## is E025 in a lookup too, and an array value is never selected.
-	'ErrQs1o|get-bare-space-selector|get - base(New◉SPACE◉York).lat|base: "New York"\n\tlat: 1\n|0|1\n|-'
-	'ErrQs1p|count-selector-skips-array|count - x(a)|x: [a]\nx: a\n|0|1\n|-'
+	'ddhx8|get-bare-space-selector|get - base(New◉SPACE◉York).lat|base: "New York"\n\tlat: 1\n|0|1\n|-'
+	'ddhx9|count-selector-skips-array|count - x(a)|x: [a]\nx: a\n|0|1\n|-'
 	## A read's PATH that cannot parse is a usage error since 2026100717500001,
-	## so this one is exit 1 now; Es8PcO0 below takes its place.
-	#"ErrQs1q|get-bare-quote-selector-refused|get %Q% srv(O'Brien).port|-|3|\n|no value at that path"
+	## so this one is exit 1 now; ddnzg below takes its place.
+	#"ddhxc|get-bare-quote-selector-refused|get %Q% srv(O'Brien).port|-|3|\n|no value at that path"
 	## 2026100610073400: a selector is written in parens. One in brackets is
 	## E029, kept as written, and a path in brackets is refused with a reason.
-	'ErxfmqM|e029-check|check -|a[x].b: 1\n|6|line 1: Error: E029\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E029 selector in brackets; write it in parens, name\(value\), since brackets are only for arrays, at column 2$'
-	'ErxfmqN|e029-lines-under-load|get - srv(web).host|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|h\n|E029'
-	'ErxfmqO|e029-fmt-keeps-line|fmt -|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|srv[web]:\nsrv: web\n\tport: 80\n\thost: h\n|E029'
-	## Exit 1 since 2026100717500001, with the same reason; Es8PcNw below.
-	#'ErxfmqP|get-bracket-path-named|get %F% a[0]|-|3|\n|a selector is written in parens now, name\(value\)'
-	'ErxfmqQ|set-bracket-path-named|set --set=a[0].b=1 %F%|-|1||^--set: cannot write a\[0\]\.b: a selector is written in parens now, name\(value\) \(see --help\)$'
-	'ErxfmqR|remove-bracket-path-named|set --remove=a[0] %F2%|-|1||^bad --remove value \(a selector is written in parens now, name\(value\)\): a\[0\] \(see --help\)$'
-	'ErxfmqS|ops-remove-bracket-path-named|set %F2%|remove\ta[0]\n|1||^op line 1: cannot remove a\[0\]: a selector is written in parens now, name\(value\) \(see --help\)$'
-	'ErxfmqT|schema-bracket-path-named|check --schema=- %F%|field: "a[*].b"\n|6|line 1: Error: V093\nfailed: 1 diagnostic(s), 1 error(s)\n|V093 bad schema path: a\[\*\]\.b; selector in brackets; write it in parens'
-	## Exit 1 since 2026100717500001; Es8PcNz below.
-	#'ErxfmqU|get-hash-index-refused|get %F% a(#0)|-|3|\n|no value at that path'
-	'ErxfmqZ|set-hash-index-refused|set --set=a(#0)=2 %F%|-|1||not a usable path'
-	'ErxfmqV|get-paren-index|get %F% a(0)|-|0|1\n|-'
-	'ErxfmqW|e025-paren-in-selector|check -|a(x(y).b: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a paren in a bare selector; quote it$'
-	'ErxfmqX|get-quoted-paren-selector|get - a("x)y")|a: "x)y"\n|0|x)y\n|-'
-	'ErxfmqY|explain-e029|explain E029|-|0|\nE029  error       a selector in brackets, the old spelling\n  Selectors are written in parens: person(Bucky).city, person("New York"),\n  person(0) and person(*). Brackets are only for arrays. The line is kept\n  as written and binds nothing. When it selects by value, the lines under\n  it still load, under the instance it names. On a command line, quote the\n  path, since a bare ( is a syntax error in most shells.\n\n|-'
+	'ddkcr|e029-check|check -|a[x].b: 1\n|6|line 1: Error: E029\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E029 selector in brackets; write it in parens, name\(value\), since brackets are only for arrays, at column 2$'
+	'ddkcs|e029-lines-under-load|get - srv(web).host|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|h\n|E029'
+	'ddkct|e029-fmt-keeps-line|fmt -|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|srv[web]:\nsrv: web\n\tport: 80\n\thost: h\n|E029'
+	## Exit 1 since 2026100717500001, with the same reason; ddnzc below.
+	#'ddkd6|get-bracket-path-named|get %F% a[0]|-|3|\n|a selector is written in parens now, name\(value\)'
+	'ddkcv|set-bracket-path-named|set --set=a[0].b=1 %F%|-|1||^--set: cannot write a\[0\]\.b: a selector is written in parens now, name\(value\) \(see --help\)$'
+	'ddkcw|remove-bracket-path-named|set --remove=a[0] %F2%|-|1||^bad --remove value \(a selector is written in parens now, name\(value\)\): a\[0\] \(see --help\)$'
+	'ddkcx|ops-remove-bracket-path-named|set %F2%|remove\ta[0]\n|1||^op line 1: cannot remove a\[0\]: a selector is written in parens now, name\(value\) \(see --help\)$'
+	'ddkcy|schema-bracket-path-named|check --schema=- %F%|field: "a[*].b"\n|6|line 1: Error: V093\nfailed: 1 diagnostic(s), 1 error(s)\n|V093 bad schema path: a\[\*\]\.b; selector in brackets; write it in parens'
+	## Exit 1 since 2026100717500001; ddnzf below.
+	#'ddkd7|get-hash-index-refused|get %F% a(#0)|-|3|\n|no value at that path'
+	'ddkd3|set-hash-index-refused|set --set=a(#0)=2 %F%|-|1||not a usable path'
+	'ddkcz|get-paren-index|get %F% a(0)|-|0|1\n|-'
+	'ddkd0|e025-paren-in-selector|check -|a(x(y).b: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a paren in a bare selector; quote it$'
+	'ddkd1|get-quoted-paren-selector|get - a("x)y")|a: "x)y"\n|0|x)y\n|-'
+	'ddkd2|explain-e029|explain E029|-|0|\nE029  error       a selector in brackets, the old spelling\n  Selectors are written in parens: person(Bucky).city, person("New York"),\n  person(0) and person(*). Brackets are only for arrays. The line is kept\n  as written and binds nothing. When it selects by value, the lines under\n  it still load, under the instance it names. On a command line, quote the\n  path, since a bare ( is a syntax error in most shells.\n\n|-'
 	## 2026100717500001: a read took a PATH that cannot parse as not found, so
 	## get --default printed the default at exit 0 and count printed 0. Every
 	## read's PATH is refused at 1 now, as --remove's is, before the load. A
 	## missing path still reads as not found, and children takes the empty
 	## path as the top level.
-	'Es8PcNw|get-bracket-path-usage|get %F% a[0]|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0] (see --help)\n'
-	'Es8PcNx|get-default-bad-path|get --int --default=8 %F% a[0].port|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0].port (see --help)\n'
-	'Es8PcNy|get-default-unparsable|get --default=8 %F% a..b|-|1||=bad PATH (not a usable path): a..b (see --help)\n'
-	'Es8PcNz|get-hash-index-usage|get %F% a(#0)|-|1||=bad PATH (not a usable path): a(#0) (see --help)\n'
-	"Es8PcO0|get-bare-quote-selector-usage|get %Q% srv(O'Brien).port|-|1||=bad PATH (not a usable path): srv(O'Brien).port (see --help)\n"
-	'Es8PcO1|get-empty-path-usage|get --default=8 %F% %E%|-|1||=bad PATH (not a usable path):  (see --help)\n'
-	'Es8PcO2|get-value-in-path-usage|get --on-bad=error %F% a:1|-|1||=bad PATH (not a usable path): a:1 (see --help)\n'
-	'Es8PcO3|count-bad-path-usage|count %F% a[0]|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0] (see --help)\n'
-	'Es8PcO4|instances-bad-path-usage|instances %F% a(|-|1||=bad PATH (not a usable path): a( (see --help)\n'
-	'Es8PcO5|children-bad-path-usage|children %F% .a|-|1||=bad PATH (not a usable path): .a (see --help)\n'
-	'Es8PcO6|children-empty-path-top|children %F2% %E%|-|0|a\nb\n|^$'
-	'Es8PcO7|get-default-missing-path|get --default=8 %F% nope|-|0|8\n|^$'
-	'ErqYSbS|tokens-array|tokens -|p: [a, b] # c\nq: [x\n- y\n|0|1:0 name=0-1 sep=1 value=3-9 array=3 elem=4-5 elem=7-8 comment=10\n2:0 name=0-1 sep=1 value=3-5 array=3 array-fault=3:no closing \x27]\x27 on the line elem=4-5\n3:0 item value=2-3 elem=2-3\n|-'
-	'ErqYWEx|get-one-element-string|get - p|p: [80]\n|0|[80]\n|-'
-	'ErqYWEy|get-one-element-int|get --int - p|p: [80]\n|0|80\n|-'
-	'ErqYWEz|get-empty-array-good|get --array - p|p: []\n|0||-'
+	'ddnzc|get-bracket-path-usage|get %F% a[0]|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0] (see --help)\n'
+	'ddnzd|get-default-bad-path|get --int --default=8 %F% a[0].port|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0].port (see --help)\n'
+	'ddnze|get-default-unparsable|get --default=8 %F% a..b|-|1||=bad PATH (not a usable path): a..b (see --help)\n'
+	'ddnzf|get-hash-index-usage|get %F% a(#0)|-|1||=bad PATH (not a usable path): a(#0) (see --help)\n'
+	"ddnzg|get-bare-quote-selector-usage|get %Q% srv(O'Brien).port|-|1||=bad PATH (not a usable path): srv(O'Brien).port (see --help)\n"
+	'ddnzh|get-empty-path-usage|get --default=8 %F% %E%|-|1||=bad PATH (not a usable path):  (see --help)\n'
+	'ddnzj|get-value-in-path-usage|get --on-bad=error %F% a:1|-|1||=bad PATH (not a usable path): a:1 (see --help)\n'
+	'ddnzk|count-bad-path-usage|count %F% a[0]|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0] (see --help)\n'
+	'ddnzm|instances-bad-path-usage|instances %F% a(|-|1||=bad PATH (not a usable path): a( (see --help)\n'
+	'ddnzn|children-bad-path-usage|children %F% .a|-|1||=bad PATH (not a usable path): .a (see --help)\n'
+	'ddnzp|children-empty-path-top|children %F2% %E%|-|0|a\nb\n|^$'
+	'ddnzq|get-default-missing-path|get --default=8 %F% nope|-|0|8\n|^$'
+	'ddhpb|tokens-array|tokens -|p: [a, b] # c\nq: [x\n- y\n|0|1:0 name=0-1 sep=1 value=3-9 array=3 elem=4-5 elem=7-8 comment=10\n2:0 name=0-1 sep=1 value=3-5 array=3 array-fault=3:no closing \x27]\x27 on the line elem=4-5\n3:0 item value=2-3 elem=2-3\n|-'
+	'ddhpe|get-one-element-string|get - p|p: [80]\n|0|[80]\n|-'
+	'ddhpf|get-one-element-int|get --int - p|p: [80]\n|0|80\n|-'
+	'ddhpg|get-empty-array-good|get --array - p|p: []\n|0||-'
 	## A repeat header the load folded away goes with the last line under it,
 	## blank line and all, and stays with its blank line while anything under
 	## it does (2026100115323232).
-	'Erls2uy|remove-emptied-repeat-header|set --remove=account(0).name -|account: w\n\temail: a@x\n\naccount: w\n\tname: W\n\nz: 1\n|0|account: w\n\temail: a@x\n\nz: 1\n|-'
-	'Erls2uz|set-keeps-blank-above-repeat|set --set=s.a=5 -|s:\n\ta: 1\n\ns:\n\tb: 2\n|0|s:\n\ta: 5\n\ns:\n\tb: 2\n|-'
+	'ddghy|remove-emptied-repeat-header|set --remove=account(0).name -|account: w\n\temail: a@x\n\naccount: w\n\tname: W\n\nz: 1\n|0|account: w\n\temail: a@x\n\nz: 1\n|-'
+	'ddghz|set-keeps-blank-above-repeat|set --set=s.a=5 -|s:\n\ta: 1\n\ns:\n\tb: 2\n|0|s:\n\ta: 5\n\ns:\n\tb: 2\n|-'
 	## New lines take the indent step most blocks use, not the first block's
 	## (2026100115403386).
-	'Erls2v0|set-new-block-majority-step|set --set=shell.list.bash.command=bash -|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n|0|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n\nshell:\n\tlist:\n\t\tbash:\n\t\t\tcommand: bash\n|-'
-	'Erls2v1|set-new-block-space-step|set --set=d.e.f=1 -|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n|0|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n\nd:\n    e:\n        f: 1\n|-'
-	'EpFkZy9|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'EpFkZyA|sugar-migrate-write|migrate --write %W%|-|0||-'
+	'ddgj0|set-new-block-majority-step|set --set=shell.list.bash.command=bash -|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n|0|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n\nshell:\n\tlist:\n\t\tbash:\n\t\t\tcommand: bash\n|-'
+	'ddgj1|set-new-block-space-step|set --set=d.e.f=1 -|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n|0|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n\nd:\n    e:\n        f: 1\n|-'
+	'dcb0g|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'dcb0h|sugar-migrate-write|migrate --write %W%|-|0||-'
 	## An unknown escape in double quotes was refused and kept as written, not
 	## read with the pair kept after its `\n` already turned into a newline. A
 	## backslash is text since 2026100207032800, so these three read clean and
 	## the rows after them pin the escape mark instead.
-	#'Er1adAn|escape-unknown-check|check -|a: "C:\\work\\new"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .\\w. in double quotes; write a backslash as .\\\\. or use single quotes$'
-	#'Er1adAo|escape-unknown-read|get - a|a: "C:\\work"\n|3|\n|no value at that path'
-	#'Er1adAp|escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
-	'ErpZsUX|escape-mark-unknown-check|check -|a: "say \xe2\x97\x89HELLO\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape'
-	'ErpZsUY|escape-mark-unknown-read|get - a|a: "\xe2\x97\x89NOPE\xe2\x97\x89"\n|3|\n|no value at that path'
-	'ErpZsUZ|escape-mark-unknown-literal|set %F2%|literal\tx\t"\xe2\x97\x89NOPE\xe2\x97\x89"\n|1||^op line 1: cannot write x'
-	'ErpZsUa|backslash-is-text-read|get - a|a: "C:\\work\\new"\n|0|C:\\work\\new\n|-'
-	'Er1adAq|escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
-	'Er1adAr|escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
+	#'dd5ds|escape-unknown-check|check -|a: "C:\\work\\new"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .\\w. in double quotes; write a backslash as .\\\\. or use single quotes$'
+	#'dd5dt|escape-unknown-read|get - a|a: "C:\\work"\n|3|\n|no value at that path'
+	#'dd5dv|escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
+	'ddhed|escape-mark-unknown-check|check -|a: "say \xe2\x97\x89HELLO\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape'
+	'ddhee|escape-mark-unknown-read|get - a|a: "\xe2\x97\x89NOPE\xe2\x97\x89"\n|3|\n|no value at that path'
+	'ddhef|escape-mark-unknown-literal|set %F2%|literal\tx\t"\xe2\x97\x89NOPE\xe2\x97\x89"\n|1||^op line 1: cannot write x'
+	'ddheg|backslash-is-text-read|get - a|a: "C:\\work\\new"\n|0|C:\\work\\new\n|-'
+	'dd5dq|escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
+	'dd5dr|escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
 	## \u and \U named a character by its code point, and one that named none
 	## was E023. 2.x kept the pair as written, so migrate needed to be told
 	## which rules wrote the file. Since 2026100207032800 a backslash is text,
@@ -907,794 +907,794 @@ rows=(
 	## a code point escape.
 	## Raw UTF-8 bytes rather than \u in the printf text: msys bash leaves a \u
 	## as written under the windows runner's locale.
-	#'Er2qNPd|escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
-	#'Er2qNPe|escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
-	'Er2qNPf|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\xe2\x97\x89U+200B\xe2\x97\x89y"\n|-'
-	#'Er2qNPg|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
-	#'Er2qNPh|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
-	#'Er2qNPi|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'ErpZsUb|escape-mark-code-read|get - a|a: "caf\xe2\x97\x89U+00E9\xe2\x97\x89 \xe2\x97\x89u+1f600\xe2\x97\x89"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
-	'ErpZsUc|escape-mark-surrogate|check -|a: "\xe2\x97\x89U+D800\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 escape .* names no Unicode character'
-	'ErpZsUd|escape-mark-code-name|paths -|"a\xe2\x97\x89U+202E\xe2\x97\x89b": 1\n|0|"a\xe2\x97\x89U+202E\xe2\x97\x89b"\n|-'
-	'ErpZsUe|backslash-u-migrate|migrate -|q: "\\u0041"\n|0|q: "\\u0041"\n##    Format   3\n|-'
+	#'dd5qd|escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
+	#'dd5qe|escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
+	'dd5qc|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\xe2\x97\x89U+200B\xe2\x97\x89y"\n|-'
+	#'dd5qf|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
+	#'dd5qg|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
+	#'dd5qh|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddheh|escape-mark-code-read|get - a|a: "caf\xe2\x97\x89U+00E9\xe2\x97\x89 \xe2\x97\x89u+1f600\xe2\x97\x89"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
+	'ddhej|escape-mark-surrogate|check -|a: "\xe2\x97\x89U+D800\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 escape .* names no Unicode character'
+	'ddhek|escape-mark-code-name|paths -|"a\xe2\x97\x89U+202E\xe2\x97\x89b": 1\n|0|"a\xe2\x97\x89U+202E\xe2\x97\x89b"\n|-'
+	'ddhem|backslash-u-migrate|migrate -|q: "\\u0041"\n|0|q: "\\u0041"\n##    Format   3\n|-'
 	## Every default-ignorable character is escaped, by its code point with at
 	## least four digits. A variation selector after a visible character
 	## stays, and so do a subdivision flag's tags.
-	'ErEBHU3|escape-ignorable-fmt|fmt -|a: soft\xc2\xadhyphen\n|0|a: "soft\xe2\x97\x89U+00AD\xe2\x97\x89hyphen"\n|-'
-	'ErEBHU4|escape-tags-fmt|fmt -|a: ok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n|-'
-	'ErEBHU5|escape-tags-set|set -|string\ta\tok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n|-'
-	'ErEBHU6|escape-flag-kept|fmt -|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|0|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|-'
-	'ErEBHU7|escape-selector-kept|fmt -|a: \xe2\x9d\xa4\xef\xb8\x8f\n|0|a: \xe2\x9d\xa4\xef\xb8\x8f\n|-'
-	'ErEBHU8|escape-selector-run|fmt -|a: x\xef\xb8\x8f\xef\xb8\x8f\n|0|a: "x\xef\xb8\x8f\xe2\x97\x89U+FE0F\xe2\x97\x89"\n|-'
+	'dd8ek|escape-ignorable-fmt|fmt -|a: soft\xc2\xadhyphen\n|0|a: "soft\xe2\x97\x89U+00AD\xe2\x97\x89hyphen"\n|-'
+	'dd8em|escape-tags-fmt|fmt -|a: ok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n|-'
+	'dd8en|escape-tags-set|set -|string\ta\tok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n|-'
+	'dd8ep|escape-flag-kept|fmt -|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|0|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|-'
+	'dd8eq|escape-selector-kept|fmt -|a: \xe2\x9d\xa4\xef\xb8\x8f\n|0|a: \xe2\x9d\xa4\xef\xb8\x8f\n|-'
+	'dd8er|escape-selector-run|fmt -|a: x\xef\xb8\x8f\xef\xb8\x8f\n|0|a: "x\xef\xb8\x8f\xe2\x97\x89U+FE0F\xe2\x97\x89"\n|-'
 	## A path in double quotes with a \t or \n escape was a hint, H004, and
 	## reads, loads strict and saves as written. It is E024 now
 	## (2026100115323227), so these three no longer hold.
-	#'Er1iG7N|path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'
-	#'Er1iG7O|path-hint-strict|check --strictness=strict -|a: "C:\\temp"\n|0|line 1: Hint: H004\nok (1 diagnostic(s))\n|-'
-	#'Er1iG7P|path-hint-set|set - --set b=1|a: "C:\\temp"\n|0|a: "C:\\temp"\n\nb: 1\n|-'
+	#'dd5ep|path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'
+	#'dd5eq|path-hint-strict|check --strictness=strict -|a: "C:\\temp"\n|0|line 1: Hint: H004\nok (1 diagnostic(s))\n|-'
+	#'dd5er|path-hint-set|set - --set b=1|a: "C:\\temp"\n|0|a: "C:\\temp"\n\nb: 1\n|-'
 	## It was refused like E023: kept as written, read as nothing, and the
 	## lines under it still load. A tab or line break a setter wrote into such
 	## a value went out as a \u escape, and SetLiteral text holding one was
 	## refused. E024 is retired since 2026100207032800: the path is text, and
 	## a tab goes out as the TAB escape.
-	#'ErUmRRd|path-escape-read|get - a|a: "C:\\temp"\n|3|\n|E024 value starts like a Windows path'
-	#'ErUmRRe|path-escape-strict|check -|a: "C:\\temp"\n|6|line 1: Error: E024\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
-	'ErUmRRf|path-escape-block|get - a.b|a: "C:\\temp"\n\tb: 1\n|0|1\n|-'
-	#'ErUmRRg|path-escape-set|set -|string\ta\tC:\\temp\n|0|a: "C:\\u0009emp"\n|-'
-	#'ErUmRRh|path-escape-literal|set %F2%|literal\tx\t"C:\\temp"\n|1||^op line 1: cannot write x'
-	#'ErUmRRi|path-escape-migrate-lost|migrate -|q: "\\\\\\\\srv\\new"\n|7|-|line break in a Windows path'
-	#'Er1adAs|escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'ErpZsUf|path-text-read|get - a|a: "C:\\temp"\n|0|C:\\temp\n|-'
+	#'ddcej|path-escape-read|get - a|a: "C:\\temp"\n|3|\n|E024 value starts like a Windows path'
+	#'ddcek|path-escape-strict|check -|a: "C:\\temp"\n|6|line 1: Error: E024\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'ddcee|path-escape-block|get - a.b|a: "C:\\temp"\n\tb: 1\n|0|1\n|-'
+	#'ddcem|path-escape-set|set -|string\ta\tC:\\temp\n|0|a: "C:\\u0009emp"\n|-'
+	#'ddcen|path-escape-literal|set %F2%|literal\tx\t"C:\\temp"\n|1||^op line 1: cannot write x'
+	#'ddcep|path-escape-migrate-lost|migrate -|q: "\\\\\\\\srv\\new"\n|7|-|line break in a Windows path'
+	#'dd5dw|escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddhen|path-text-read|get - a|a: "C:\\temp"\n|0|C:\\temp\n|-'
 	## The ops script kept 2.x's \n, \t and \\ in a string value until
 	## 2026100717500002, so a Windows path lost its \t there alone. Op values
 	## read the file's escape names now, and a backslash is text.
-	#'ErpZsUg|path-tab-set|set -|string\ta\tC:\\temp\n|0|a: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n|-'
-	'ErpZsUh|path-text-literal|set -|literal\tx\t"C:\\temp"\n|0|x: "C:\\temp"\n|-'
-	'ErpZsUi|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3\n|-'
+	#'ddhev|path-tab-set|set -|string\ta\tC:\\temp\n|0|a: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n|-'
+	'ddhep|path-text-literal|set -|literal\tx\t"C:\\temp"\n|0|x: "C:\\temp"\n|-'
+	'ddheq|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3\n|-'
 	## 2026101911300000: a backslash pair 2.x resolved, in a file that doesn't
 	## say it is 2.x, is left and asked about.
-	'EtD6lso|backslash-migrate-ambiguous|migrate -|q: "C:\\\\work"\n|7|q: "C:\\\\work"\n|does not say which it was written for'
+	'de60r|backslash-migrate-ambiguous|migrate -|q: "C:\\\\work"\n|7|q: "C:\\\\work"\n|does not say which it was written for'
 	## 2026102016593100: a value ending in a backslash is written as \" before
 	## the closing quote. The backslash is text, so it reads back as written.
-	'EtIRb6R|backslash-before-quote-migrate|migrate --from-2x -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'EtIRbAz|backslash-before-quote-read|get - a|a: "C:\\temp\\"\n|0|C:\\temp\\\n|-'
-	'EtIRbEZ|backslash-before-quote-fmt|fmt -|a: "C:\\temp\\"\n|0|a: "C:\\temp\\"\n|-'
+	'de79q|backslash-before-quote-migrate|migrate --from-2x -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'de79r|backslash-before-quote-read|get - a|a: "C:\\temp\\"\n|0|C:\\temp\\\n|-'
+	'de79s|backslash-before-quote-fmt|fmt -|a: "C:\\temp\\"\n|0|a: "C:\\temp\\"\n|-'
 	## 2026100717500002: an op value reads the file's escape names, a tab or a
 	## line break included, and a backslash pair is text, the same as in --set.
-	'Es8bB4z|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: "C:\\temp\\new"\n|-'
-	'Es8bB50|ops-escape-names|set -|string\ta\tx\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z"\n|-'
-	'Es8bB51|ops-raw-line-break|set -|raw\tr\tsh\techo hi\xe2\x97\x89NEWLINE\xe2\x97\x89echo bye\n|0|r:\n\t\x60\x60\x60sh\n\techo hi\n\techo bye\n\t\x60\x60\x60\n|-'
-	'Es8bB52|ops-array-escapes|set -|string-array\ta\tC:\\new\tx\xe2\x97\x89TAB\xe2\x97\x89y\n|0|a: ["C:\\new", "x\xe2\x97\x89TAB\xe2\x97\x89y"]\n|-'
-	'Es8bB53|ops-comment-escape|set -|comment\ta\tC:\\new \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89\nstring\ta\tv\n|0|# C:\\new \xe2\x97\x89\na: v\n|-'
-	'Es8bB57|ops-default-escape|set -|string-default\ta\tx\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89"\n|-'
+	'ddp12|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: "C:\\temp\\new"\n|-'
+	'ddp13|ops-escape-names|set -|string\ta\tx\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z"\n|-'
+	'ddp14|ops-raw-line-break|set -|raw\tr\tsh\techo hi\xe2\x97\x89NEWLINE\xe2\x97\x89echo bye\n|0|r:\n\t\x60\x60\x60sh\n\techo hi\n\techo bye\n\t\x60\x60\x60\n|-'
+	'ddp15|ops-array-escapes|set -|string-array\ta\tC:\\new\tx\xe2\x97\x89TAB\xe2\x97\x89y\n|0|a: ["C:\\new", "x\xe2\x97\x89TAB\xe2\x97\x89y"]\n|-'
+	'ddp16|ops-comment-escape|set -|comment\ta\tC:\\new \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89\nstring\ta\tv\n|0|# C:\\new \xe2\x97\x89\na: v\n|-'
+	'ddp1a|ops-default-escape|set -|string-default\ta\tx\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89"\n|-'
 	## The value is read in quotes, so a quote in it stays text whichever kind.
-	'Es8bB56|ops-escape-quotes|set -|string\ta\tsay "hi" it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok\nstring\tb\tsay "hi"\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "say \xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89hi\xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89 it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok"\n\nb: \x27say "hi"\xe2\x97\x89TAB\xe2\x97\x89\x27\n|-'
-	'Es8bB54|ops-escape-unknown|set -|string\ta\tx\xe2\x97\x89NOPE\xe2\x97\x89\n|1||^op line 1: cannot write a: .*NOPE'
+	'ddp19|ops-escape-quotes|set -|string\ta\tsay "hi" it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok\nstring\tb\tsay "hi"\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "say \xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89hi\xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89 it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok"\n\nb: \x27say "hi"\xe2\x97\x89TAB\xe2\x97\x89\x27\n|-'
+	'ddp17|ops-escape-unknown|set -|string\ta\tx\xe2\x97\x89NOPE\xe2\x97\x89\n|1||^op line 1: cannot write a: .*NOPE'
 	## 2026100307163914: a field line kept for its value alone reads NotFound with
 	## nothing under it and Empty once a line under it loads, and explain says so.
-	'Erlr8eZ|kept-value-e019-empty|get - a|a: [1\n\tb: 1\n|2|\n|E019'
-	'Erlr8gU|kept-value-e023-empty|get - a|a: "x\xe2\x97\x89Q\xe2\x97\x89"\n\tb: 1\n|2|\n|E023'
+	'ddghs|kept-value-e019-empty|get - a|a: [1\n\tb: 1\n|2|\n|E019'
+	'ddght|kept-value-e023-empty|get - a|a: "x\xe2\x97\x89Q\xe2\x97\x89"\n\tb: 1\n|2|\n|E023'
 	## E024 is retired; a bare value with a space is the common case now.
-	#Erlr8iQ|kept-value-e024-empty|get - a|a: "C:\\temp"\n\tb: 1\n|2|\n|E024'
+	#ddgj5|kept-value-e024-empty|get - a|a: "C:\\temp"\n\tb: 1\n|2|\n|E024'
 	## A bare value may hold spaces since 20261006, so this line binds now.
-	#ErpZsUj|kept-value-e025-empty|get - a|a: My App\n\tb: 1\n|2|\n|E025'
-	'ErvnzpR|kept-value-e025-colon-empty|get - a|a: host: a.com port: 80\n\tb: 1\n|2|\n|E025'
-	'Erlr21T|explain-e019-read|explain E019|-|0|\nE019  error       a bracket array that is not well formed\n  An array is one line, ports: [80, 443], and [] is the empty array. Text\n  after the closing \x27]\x27, a bare \x27[\x27 or \x27]\x27 inside, an empty element, or no\n  closing \x27]\x27 on the line is malformed. Quote the value if it is text:\n  log: "[INFO] started". A list item that is an array is E019 too, since\n  arrays do not nest. The line is kept verbatim: it binds nothing and\n  nothing counts as lost. The lines under it still load, under the field\n  with no value, so a read on the field is Empty when one of them loads and\n  NotFound when none does.\n\n|-'
-	'ErqYSbN|explain-e013|explain E013|-|0|\nE013  error       a line starting with \x27*\x27, the old list item marker\n  A list item is written \x27- value\x27 now. The line is kept as written and\n  binds nothing, and the other items still load. What is written under it\n  goes with it.\n\n|-'
-	'ErqYSbO|explain-e026|explain E026|-|0|\nE026  error       a bare comma with a space or the end after it\n  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n  or quote text that has a comma. A comma with text right after it is text,\n  so opts: rw,noatime is one string. The line is kept verbatim and binds\n  nothing. The lines under it still load, under the field with no value. A\n  list item with a bare comma, - a, b, is kept the same way, and the other\n  items still load.\n\n|-'
-	'ErrQs1Z|explain-e028|explain E028|-|0|\nE028  error       an array on a field with lines under it\n  A field with fields under it takes one plain value or none, so\n  route: [GET, POST] with lines under it is an error. Give the field one\n  value and put the list in a field under it: methods: [GET, POST]. The line\n  is kept verbatim, and the lines under it load under the field with no\n  value.\n\n|-'
-	'ErrQs1a|explain-e010-retired|explain E010|-|0|\nE010  retired     error, replaced by E026\n  Loads no longer report E010. \x27shcl explain E026\x27 has the rule now.\n\n|-'
-	'ErqYSbP|explain-e027|explain E027|-|0|\nE027  error       a list item like - name: or - name: value\n  A colon with a space or the end after it is how YAML starts an object in\n  a list, and SHCL writes one as an instance. A colon with text after it is\n  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".\n  The line is kept as written, and the other items still load.\n\n|-'
-	'Ervo6BP|explain-e025|explain E025|-|0|\nE025  error       a tab, a quote, a bracket or a loose colon in bare text\n  A bare value or list item may hold spaces, kept as typed. A tab or other\n  whitespace, a quote, a bracket, or a colon with a space or the end after\n  it is an error: host: a.com port: 80 is two fields on one line. Put each\n  field on its own line, or quote the value. An apostrophe inside a word,\n  as in O\x27Brien, is text. An array element or a selector body takes no\n  whitespace or quote, and a selector body no colon, comma or paren either.\n  Whitespace at either end is trimmed first. The line is kept verbatim and\n  binds nothing. In a value, the lines under it still load, under the field\n  with no value.\n\n|-'
+	#ddhew|kept-value-e025-empty|get - a|a: My App\n\tb: 1\n|2|\n|E025'
+	'ddjyb|kept-value-e025-colon-empty|get - a|a: host: a.com port: 80\n\tb: 1\n|2|\n|E025'
+	'ddghr|explain-e019-read|explain E019|-|0|\nE019  error       a bracket array that is not well formed\n  An array is one line, ports: [80, 443], and [] is the empty array. Text\n  after the closing \x27]\x27, a bare \x27[\x27 or \x27]\x27 inside, an empty element, or no\n  closing \x27]\x27 on the line is malformed. Quote the value if it is text:\n  log: "[INFO] started". A list item that is an array is E019 too, since\n  arrays do not nest. The line is kept verbatim: it binds nothing and\n  nothing counts as lost. The lines under it still load, under the field\n  with no value, so a read on the field is Empty when one of them loads and\n  NotFound when none does.\n\n|-'
+	'ddhp6|explain-e013|explain E013|-|0|\nE013  error       a line starting with \x27*\x27, the old list item marker\n  A list item is written \x27- value\x27 now. The line is kept as written and\n  binds nothing, and the other items still load. What is written under it\n  goes with it.\n\n|-'
+	'ddhp7|explain-e026|explain E026|-|0|\nE026  error       a bare comma with a space or the end after it\n  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n  or quote text that has a comma. A comma with text right after it is text,\n  so opts: rw,noatime is one string. The line is kept verbatim and binds\n  nothing. The lines under it still load, under the field with no value. A\n  list item with a bare comma, - a, b, is kept the same way, and the other\n  items still load.\n\n|-'
+	'ddhws|explain-e028|explain E028|-|0|\nE028  error       an array on a field with lines under it\n  A field with fields under it takes one plain value or none, so\n  route: [GET, POST] with lines under it is an error. Give the field one\n  value and put the list in a field under it: methods: [GET, POST]. The line\n  is kept verbatim, and the lines under it load under the field with no\n  value.\n\n|-'
+	'ddhwt|explain-e010-retired|explain E010|-|0|\nE010  retired     error, replaced by E026\n  Loads no longer report E010. \x27shcl explain E026\x27 has the rule now.\n\n|-'
+	'ddhp8|explain-e027|explain E027|-|0|\nE027  error       a list item like - name: or - name: value\n  A colon with a space or the end after it is how YAML starts an object in\n  a list, and SHCL writes one as an instance. A colon with text after it is\n  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".\n  The line is kept as written, and the other items still load.\n\n|-'
+	'ddjys|explain-e025|explain E025|-|0|\nE025  error       a tab, a quote, a bracket or a loose colon in bare text\n  A bare value or list item may hold spaces, kept as typed. A tab or other\n  whitespace, a quote, a bracket, or a colon with a space or the end after\n  it is an error: host: a.com port: 80 is two fields on one line. Put each\n  field on its own line, or quote the value. An apostrophe inside a word,\n  as in O\x27Brien, is text. An array element or a selector body takes no\n  whitespace or quote, and a selector body no colon, comma or paren either.\n  Whitespace at either end is trimmed first. The line is kept verbatim and\n  binds nothing. In a value, the lines under it still load, under the field\n  with no value.\n\n|-'
 	## 2026-10-05: explain E023 prints the mark itself, not the text U+25C9.
-	#'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
-	'Ers2pOq|explain-e023-mark|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two \xe2\x97\x89 marks, such as\n  \xe2\x97\x89TAB\xe2\x97\x89, \xe2\x97\x89NEWLINE\xe2\x97\x89 or \xe2\x97\x89U+200B\xe2\x97\x89, and a real \xe2\x97\x89 is written \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89.\n  Anything else between two marks is an error, and so is a mark with no\n  partner. A backslash is plain text. The line is kept verbatim: it binds\n  nothing and a read on it is NotFound. When only the value is wrong, the\n  lines under it still load, under the field with no value, and a read on the\n  field is Empty once one of them loads. When the name is, a raw block the\n  line opens is kept with it.\n\n|-'
+	#'ddghv|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
+	'ddj1d|explain-e023-mark|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two \xe2\x97\x89 marks, such as\n  \xe2\x97\x89TAB\xe2\x97\x89, \xe2\x97\x89NEWLINE\xe2\x97\x89 or \xe2\x97\x89U+200B\xe2\x97\x89, and a real \xe2\x97\x89 is written \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89.\n  Anything else between two marks is an error, and so is a mark with no\n  partner. A backslash is plain text. The line is kept verbatim: it binds\n  nothing and a read on it is NotFound. When only the value is wrong, the\n  lines under it still load, under the field with no value, and a read on the\n  field is Empty once one of them loads. When the name is, a raw block the\n  line opens is kept with it.\n\n|-'
 	## E024 is retired (2026100207032800), so explain says so.
-	#'Erlr25Z|explain-e024-read|explain E024|-|0|\nE024  error       a Windows path in double quotes with a \\t or \\n escape\n  "C:\\temp" would read as C:, a tab, then emp, which a path almost never\n  means. The line is kept verbatim like E023: it binds nothing, and the\n  lines under it still load. A read on the field is Empty when one of them\n  loads and NotFound when none does. Use single quotes or no quotes, or\n  double each backslash.\n\n|-'
-	'ErpaTy1|explain-e024-retired|explain E024|-|0|\nE024  retired     error, with no replacement\n  Loads no longer report E024, and no other code took its rule.\n\n|-'
-	'ErpaTy2|explain-h003-retired|explain H003|-|0|\nH003  retired     hint, with no replacement\n  Loads no longer report H003, and no other code took its rule.\n\n|-'
+	#'ddgj4|explain-e024-read|explain E024|-|0|\nE024  error       a Windows path in double quotes with a \\t or \\n escape\n  "C:\\temp" would read as C:, a tab, then emp, which a path almost never\n  means. The line is kept verbatim like E023: it binds nothing, and the\n  lines under it still load. A read on the field is Empty when one of them\n  loads and NotFound when none does. Use single quotes or no quotes, or\n  double each backslash.\n\n|-'
+	'ddher|explain-e024-retired|explain E024|-|0|\nE024  retired     error, with no replacement\n  Loads no longer report E024, and no other code took its rule.\n\n|-'
+	'ddhes|explain-h003-retired|explain H003|-|0|\nH003  retired     hint, with no replacement\n  Loads no longer report H003, and no other code took its rule.\n\n|-'
 	## 20260909 item 4: a 3.0 file writes a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
 	## file has to say which rules wrote it, or the caller has to.
 	## Durations and sizes print whole milliseconds and bytes. --unit gives a bare
 	## number its unit, --decimal makes KB to TB powers of 1000, and each is
 	## refused where it cannot mean anything.
-	'Er35Y6E|duration-read|get --duration - t|t: "1h 30m"\n|0|5400000\n|-'
-	'Er35Y6F|duration-name-unit|get --duration - wait-ms|wait-ms: 250\n|0|250\n|-'
-	'Er35Y6G|duration-bare|get --duration - t|t: 90\n|4|0\n|not a valid duration'
-	'Er35Y6H|duration-unit|get --duration --unit=s - t|t: 90\n|0|90000\n|-'
-	'Er35Y6I|size-decimal|get --size --decimal - c|c: 2MB\n|0|2000000\n|-'
-	'Er35Y6J|size-unit-space|get --size --unit KiB - c|c: 64\n|0|65536\n|-'
-	'Er35Y6K|unit-needs-type|get --unit=s - t|t: 1\n|1||^--unit needs --duration or --size'
-	'Er35Y6L|decimal-needs-size|get --duration --decimal - t|t: 1s\n|1||^--decimal needs --size'
-	'Er35Y6M|unit-bad|get --size --unit=Mb - c|c: 1\n|1||^bad --unit value for --size: Mb'
-	'Er35Y6N|unit-clash|get --duration --unit=s --unit=m - t|t: 1\n|1||^--unit=s cannot be combined with --unit=m'
-	'Er35Y6O|duration-no-array|get --duration --array - t|t: 1s\n|1||^--duration has no --array form'
-	'Er35Y6P|unit-hint|check -|t-ms: 5s\n|0|line 1: Hint: H005\nok (1 diagnostic(s))\n|H005 value is in s and the name says ms'
+	'dd5s9|duration-read|get --duration - t|t: "1h 30m"\n|0|5400000\n|-'
+	'dd5sa|duration-name-unit|get --duration - wait-ms|wait-ms: 250\n|0|250\n|-'
+	'dd5sb|duration-bare|get --duration - t|t: 90\n|4|0\n|not a valid duration'
+	'dd5sc|duration-unit|get --duration --unit=s - t|t: 90\n|0|90000\n|-'
+	'dd5sd|size-decimal|get --size --decimal - c|c: 2MB\n|0|2000000\n|-'
+	'dd5se|size-unit-space|get --size --unit KiB - c|c: 64\n|0|65536\n|-'
+	'dd5sf|unit-needs-type|get --unit=s - t|t: 1\n|1||^--unit needs --duration or --size'
+	'dd5sg|decimal-needs-size|get --duration --decimal - t|t: 1s\n|1||^--decimal needs --size'
+	'dd5sh|unit-bad|get --size --unit=Mb - c|c: 1\n|1||^bad --unit value for --size: Mb'
+	'dd5sj|unit-clash|get --duration --unit=s --unit=m - t|t: 1\n|1||^--unit=s cannot be combined with --unit=m'
+	'dd5sk|duration-no-array|get --duration --array - t|t: 1s\n|1||^--duration has no --array form'
+	'dd5sm|unit-hint|check -|t-ms: 5s\n|0|line 1: Hint: H005\nok (1 diagnostic(s))\n|H005 value is in s and the name says ms'
 	## 2026100717500017: a Format line naming another major than this one gets
 	## a hint, H006 newer and H007 older, on every loading command. A hint
 	## changes no outcome, so Strict still passes. A line whose number does
 	## not read gets none (2026100912352401 gives it a status instead).
-	"EsEtTdV|stamp-newer-hint|check -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 4, newer than this reader's format 3, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
-	'EsEtTdW|stamp-older-hint|get - p|p: a,b\n##    Format   2\n|0|a,b\n|^line 2: Hint: H007 .*; shcl upgrade --from-2x rewrites it$'
+	"ddqhe|stamp-newer-hint|check -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 4, newer than this reader's format 3, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
+	'ddqhf|stamp-older-hint|get - p|p: a,b\n##    Format   2\n|0|a,b\n|^line 2: Hint: H007 .*; shcl upgrade --from-2x rewrites it$'
 	## 2026100717500017: with --from-2x, a file whose only change is its stamp
 	## gets this format on that line, so H007's advice does something. Without
 	## it nothing changes. 2026100916475300: migrate writes its stamp there too.
-	'EsFrOVT|upgrade-restamp|upgrade --from-2x -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   3\n|!nothing to upgrade'
-	'EsFrOVU|upgrade-restamp-unsaid|upgrade -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   2\n|nothing to upgrade'
-	'EsFrOVS|migrate-restamp|migrate -|port: 80\n##    Format   2\n|0|port: 80\n##    Format   3\n|-'
-	'EsFrOVX|migrate-restamp-changed|migrate -|x: a,b\n##    Format   2\ny: 1\n|0|x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n|-'
+	'ddqrv|upgrade-restamp|upgrade --from-2x -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   3\n|!nothing to upgrade'
+	'ddqrw|upgrade-restamp-unsaid|upgrade -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   2\n|nothing to upgrade'
+	'ddqrt|migrate-restamp|migrate -|port: 80\n##    Format   2\n|0|port: 80\n##    Format   3\n|-'
+	'ddqrz|migrate-restamp-changed|migrate -|x: a,b\n##    Format   2\ny: 1\n|0|x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026101407100010: a file naming this format is taken as 2.x only by an
 	## upgrade told --from-2x, and only when it loads with an error. migrate
 	## leaves it, since its text can keep such a line and a second run would
 	## convert it again.
-	'EsgoThd|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to upgrade'
-	'EsgoThe|migrate-beta-left|migrate --from-2x -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to migrate'
+	'ddy87|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to upgrade'
+	'ddy88|migrate-beta-left|migrate --from-2x -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to migrate'
 	## 2026101419280005: a file upgrade leaves alone was still loaded, so its
 	## diagnostics are printed once, with or without --from-2x, and for a file
 	## naming a newer format.
-	'Esnb9iN|upgrade-left-diags|upgrade -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
+	'ddzwd|upgrade-left-diags|upgrade -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
 	## Wrong since 2026101515372401: with --from-2x a fresh text that keeps an
-	## error is refused at 7, not left at 0. EsoQmUF has the new rule. Don't
+	## error is refused at 7, not left at 0. de031 has the new rule. Don't
 	## uncomment.
-	# 'Esnb9kl|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
-	'EsoQmUF|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
+	# 'ddzwf|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
+	'de031|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
 	## 2026101515372401: --from-2x converts a file with no Format line only
 	## when the fresh text loads clean, as for a beta file, so a later run
 	## never reads its own output by 2.x rules.
-	'EsoQmUC|upgrade-from-2x-left|upgrade --from-2x -|a: 1\nb 2\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
-	'Esnb9n8|upgrade-newer-diags|upgrade -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|=line 2: Hint: H006 the file names format 4, newer than this reader\x27s format 3, so some lines may read differently than written\n-: nothing to upgrade, left as is\n'
+	'de02y|upgrade-from-2x-left|upgrade --from-2x -|a: 1\nb 2\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
+	'ddzwe|upgrade-newer-diags|upgrade -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|=line 2: Hint: H006 the file names format 4, newer than this reader\x27s format 3, so some lines may read differently than written\n-: nothing to upgrade, left as is\n'
 	## 2026101514324701: a refused line led by a tilde or backtick still takes
 	## its raw block, so the Format and Schema reads find the lines after the
 	## block, and none inside it. The block's closing fence opened one that ran
 	## to the end, and upgrade --write made a backup every run.
-	'EsoQOx2|upgrade-odd-name-block|upgrade -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|0|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|=line 1: Error: E014 field name needs quotes; a bare name is a letter, then letters, digits, \x27-\x27 and \x27_\x27\n-: nothing to upgrade, left as is\n'
-	'EsoQOx3|check-odd-name-newer|check -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   4\n|6|line 1: Error: E014\nline 4: Hint: H006\nfailed: 2 diagnostic(s), 1 error(s)\n|-'
-	'EsoQOx4|check-backtick-schema-body|check -|\x60y: \x60\x60\x60\n\t##    Schema   mark.shcl\n\t\x60\x60\x60\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'de02p|upgrade-odd-name-block|upgrade -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|0|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|=line 1: Error: E014 field name needs quotes; a bare name is a letter, then letters, digits, \x27-\x27 and \x27_\x27\n-: nothing to upgrade, left as is\n'
+	'de02q|check-odd-name-newer|check -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   4\n|6|line 1: Error: E014\nline 4: Hint: H006\nfailed: 2 diagnostic(s), 1 error(s)\n|-'
+	'de02r|check-backtick-schema-body|check -|\x60y: \x60\x60\x60\n\t##    Schema   mark.shcl\n\t\x60\x60\x60\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## 2026101514324705: a Format number too big for 32 bits names a newer
 	## format, not this one, so --from-2x doesn't take it for a beta file.
 	## Wrong since JC's signoff on 2026-10-16: the hint quotes the digits as
-	## written, not the 32-bit cap the read gives. EssAxd7 has the new text.
+	## written, not the 32-bit cap the read gives. de0zj has the new text.
 	## Don't uncomment.
-	# 'EsoQOx5|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 4294967295, newer'
-	'EssAxd7|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 99999999999, newer'
+	# 'de035|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 4294967295, newer'
+	'de0zj|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 99999999999, newer'
 	## H006 and H007 quote the number as written, leading zeros too, and cut a
 	## long one the way any value in a message is cut.
-	'EssAxd8|stamp-hint-leading-zeros|check -|a: 1\n##    Format   0002\n|0|line 2: Hint: H007\nok (1 diagnostic(s))\n|^line 2: Hint: H007 the file names format 0002, older'
-	"EssAxd9|stamp-hint-long-number|check -|##    Format   1$(printf '%0200d' 0)\n|0|line 1: Hint: H006\nok (1 diagnostic(s))\n|^line 1: Hint: H006 the file names format 10{99}[.]{3}0{100} [(]201 chars[)], newer"
-	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
-	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
-	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual, and a save\n  is refused, since it would write each line by these rules. A shcl made\n  for that format reads it as written.\n\n|-"
-	"EsEtTda|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now: p: a,b was an array in 2.x\n  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites\n  the file for these rules and keeps the original beside it. A file with\n  nothing else to change gets this format on its Format line.\n\n|-"
+	'de0zk|stamp-hint-leading-zeros|check -|a: 1\n##    Format   0002\n|0|line 2: Hint: H007\nok (1 diagnostic(s))\n|^line 2: Hint: H007 the file names format 0002, older'
+	"de0zm|stamp-hint-long-number|check -|##    Format   1$(printf '%0200d' 0)\n|0|line 1: Hint: H006\nok (1 diagnostic(s))\n|^line 1: Hint: H006 the file names format 10{99}[.]{3}0{100} [(]201 chars[)], newer"
+	'ddqhg|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
+	'ddqhh|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
+	"ddqhj|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual, and a save\n  is refused, since it would write each line by these rules. A shcl made\n  for that format reads it as written.\n\n|-"
+	"ddqhk|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now: p: a,b was an array in 2.x\n  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites\n  the file for these rules and keeps the original beside it. A file with\n  nothing else to change gets this format on its Format line.\n\n|-"
 	## 2026102910482344: a file naming a newer format reads as usual, and
 	## nothing writes it back. --write and set's print refuse at 7, --lossy
 	## or not, and fmt --check says so. fmt still prints. A newer layer under
 	## FILE refuses the print too, since the merge holds its lines.
-	'Eu8h5g9|set-write-newer-refused|set --write %NWW% --set=a=2|-|7|-|refusing to rewrite: the document holds lines from a newer format|a: 1\n\n##    Format   4\n'
-	'Eu8h5gA|fmt-write-newer-refused|fmt --write %NWW%|-|7|-|refusing to rewrite: the document holds lines from a newer format|a: 1\n\n##    Format   4\n'
-	'Eu8h5gF|set-write-newer-lossy-refused|set --write --lossy %NWW% --set=a=2|-|7|-|refusing to rewrite|a: 1\n\n##    Format   4\n'
-	'Eu8h5gE|set-print-newer-layer-refused|set --set=q=1 --layer=%NW% %F%|-|7||refusing to print: the document holds lines from a newer format'
-	'Eu8h5gB|set-print-newer-refused|set --set=a=2 -|a: 1\n##    Format   4\n|7||refusing to print: the document holds lines from a newer format'
-	'Eu8h5gC|fmt-check-newer-refused|fmt --check -|a: 1\n##    Format   4\n|7||fmt --write would refuse: the document holds lines from a newer format'
-	'Eu8h5gD|fmt-print-newer|fmt -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|!refus'
+	'dekvz|set-write-newer-refused|set --write %NWW% --set=a=2|-|7|-|refusing to rewrite: the document holds lines from a newer format|a: 1\n\n##    Format   4\n'
+	'dekw0|fmt-write-newer-refused|fmt --write %NWW%|-|7|-|refusing to rewrite: the document holds lines from a newer format|a: 1\n\n##    Format   4\n'
+	'dekw5|set-write-newer-lossy-refused|set --write --lossy %NWW% --set=a=2|-|7|-|refusing to rewrite|a: 1\n\n##    Format   4\n'
+	'dekw4|set-print-newer-layer-refused|set --set=q=1 --layer=%NW% %F%|-|7||refusing to print: the document holds lines from a newer format'
+	'dekw1|set-print-newer-refused|set --set=a=2 -|a: 1\n##    Format   4\n|7||refusing to print: the document holds lines from a newer format'
+	'dekw2|fmt-check-newer-refused|fmt --check -|a: 1\n##    Format   4\n|7||fmt --write would refuse: the document holds lines from a newer format'
+	'dekw3|fmt-print-newer|fmt -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|!refus'
 	## 2026102307035776: a '#' against text opens a comment as any other does,
 	## and the load hints H008 so the cut is not silent. A blank before it gets
 	## none, and Strict still passes. The prose is the same in all four.
-	"EtXOTsa|glued-hash-hint|check -|url: http://h/#frag\ncolor: #fff\nport: 80   # main\n|0|line 1: Hint: H008\nline 2: Hint: H008\nok (2 diagnostic(s))\n|=line 1: Hint: H008 a '#' against text opens a comment; quote the value if the '#' is part of it\nline 2: Hint: H008 a '#' against text opens a comment; quote the value if the '#' is part of it\n(run 'shcl explain CODE' for the rule behind a code)\n"
-	'EtXOTxq|glued-hash-strict-passes|check --strictness=strict -|tags:\n\t- c#\n|0|line 2: Hint: H008\nok (1 diagnostic(s))\n|-'
-	"EtXOTvD|explain-h008|explain H008|-|0|\nH008  hint        a '#' against text opens a comment\n  A '#' outside quotes opens a comment wherever it sits, so\n  url: http://h/#frag reads http://h/, color: #fff reads nothing and\n  lang: c# reads c. Quote the value to keep the '#': color: \"#fff\". The\n  hint comes when text sits right before the '#' in a bare value, an array\n  element, a selector body or a fence label, or right after it where that\n  piece is empty. A blank before it, as in port: 80  # main, makes a plain\n  comment. A fence label can't hold a '#'.\n\n|-"
+	"deawt|glued-hash-hint|check -|url: http://h/#frag\ncolor: #fff\nport: 80   # main\n|0|line 1: Hint: H008\nline 2: Hint: H008\nok (2 diagnostic(s))\n|=line 1: Hint: H008 a '#' against text opens a comment; quote the value if the '#' is part of it\nline 2: Hint: H008 a '#' against text opens a comment; quote the value if the '#' is part of it\n(run 'shcl explain CODE' for the rule behind a code)\n"
+	'deaww|glued-hash-strict-passes|check --strictness=strict -|tags:\n\t- c#\n|0|line 2: Hint: H008\nok (1 diagnostic(s))\n|-'
+	"deawv|explain-h008|explain H008|-|0|\nH008  hint        a '#' against text opens a comment\n  A '#' outside quotes opens a comment wherever it sits, so\n  url: http://h/#frag reads http://h/, color: #fff reads nothing and\n  lang: c# reads c. Quote the value to keep the '#': color: \"#fff\". The\n  hint comes when text sits right before the '#' in a bare value, an array\n  element, a selector body or a fence label, or right after it where that\n  piece is empty. A blank before it, as in port: 80  # main, makes a plain\n  comment. A fence label can't hold a '#'.\n\n|-"
 	## 20260928 idea 4: a hint found after the parse's pass, here a late fold,
 	## was listed after every other diagnostic. The prose is the same in all
 	## four, so stderr is pinned whole.
-	"ErJK4ni|diag-line-order|check -|a: [1, 2]\nb: 0\na:\n\t- 1\n\t- 2\nc: [x\n|6|line 3: Hint: H002\nline 6: Error: E019\nfailed: 2 diagnostic(s), 1 error(s)\n|=line 3: Hint: H002 merged with 'a' at line 1 (same name and value combine)\nline 6: Error: E019 malformed array, no closing ']' on the line; quote the value if it is text\n(run 'shcl explain CODE' for the rule behind a code)\n"
+	"dd9p5|diag-line-order|check -|a: [1, 2]\nb: 0\na:\n\t- 1\n\t- 2\nc: [x\n|6|line 3: Hint: H002\nline 6: Error: E019\nfailed: 2 diagnostic(s), 1 error(s)\n|=line 3: Hint: H002 merged with 'a' at line 1 (same name and value combine)\nline 6: Error: E019 malformed array, no closing ']' on the line; quote the value if it is text\n(run 'shcl explain CODE' for the rule behind a code)\n"
 	## A Schema line names the schema check uses when --schema is not given,
 	## read from the config file's directory. A URL is left to editors.
-	'Er2thhx|schema-line-check|check %SP%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
-	'Er2thhy|schema-line-url|check %SPU%|-|0|ok (0 diagnostic(s))\n|does not fetch'
-	'Er2thhz|schema-line-gone|check %SPG%|-|8||gone\.schema\.shcl'
-	'Er2thi0|schema-line-overridden|check --schema=%SPS% %SPU%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'dd5qs|schema-line-check|check %SP%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'dd5qt|schema-line-url|check %SPU%|-|0|ok (0 diagnostic(s))\n|does not fetch'
+	'dd5qv|schema-line-gone|check %SPG%|-|8||gone\.schema\.shcl'
+	'dd5qw|schema-line-overridden|check --schema=%SPS% %SPU%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## An indented line counts, or fmt would turn the check off. Only a regular
 	## file is read, and a backslash in the file name is part of the name.
-	'ErCkXme|schema-line-indented|check %SPI%|-|6|line 4: Error: V003\nline 1: Error: V001\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
-	'ErCkXo8|schema-line-device|check %SPZ%|-|8||not a regular file'
-	'ErCkXpb|schema-line-fifo|check %SPF%|-|8||not a regular file'
-	'ErCkXr4|schema-line-nul|check %SPN%|-|8||-'
-	'ErCkXsU|schema-line-backslash-name|check %SPB%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
-	'ErCkoh2|schema-line-share|check %SPW%|-|8||network or device path'
+	'dd83k|schema-line-indented|check %SPI%|-|6|line 4: Error: V003\nline 1: Error: V001\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
+	'dd83m|schema-line-device|check %SPZ%|-|8||not a regular file'
+	'dd83n|schema-line-fifo|check %SPF%|-|8||not a regular file'
+	'dd83p|schema-line-nul|check %SPN%|-|8||-'
+	'dd83q|schema-line-backslash-name|check %SPB%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'dd83s|schema-line-share|check %SPW%|-|8||network or device path'
 	## 20260930 item 3: a regular file can still read without end.
-	'ErTZaL2|schema-line-pagemap|check %SPM%|@memcap|8||too large for a schema'
-	'ErTZaL3|schema-line-at-cap|check %SPC%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
-	'ErTZaL4|schema-line-over-cap|check %SPO%|-|8||too large for a schema'
+	'ddc52|schema-line-pagemap|check %SPM%|@memcap|8||too large for a schema'
+	'ddc53|schema-line-at-cap|check %SPC%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'ddc54|schema-line-over-cap|check %SPO%|-|8||too large for a schema'
 	## 20261003 item 3: the walk read raw blocks the 2.x way.
-	'ErfuRh7|schema-line-raw-after-backslash|check %SPR%|-|6|line 5: Error: V003\nline 1: Error: V001\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
+	'ddf42|schema-line-raw-after-backslash|check %SPR%|-|6|line 5: Error: V003\nline 1: Error: V001\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
 	## 2026-10-05: migrate leaves a 2.x backslash as written, and it reads as
 	## text under these rules, so this file reads one way and nothing is left
 	## to refuse over.
 	## Back since 2026101911300000: migrate writes the text 2.x read, so the
 	## file reads two ways again.
-	'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
-	"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
-	'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
+	'dcq6h|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
+	"dcq6j|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
+	'dcq6k|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
 	## Wrong since 2026101911300000, as above. Don't uncomment.
-	#'Ers2pOu|migrate-backslash-as-text|migrate %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|!.'
-	#'Ers2pOv|migrate-backslash-write|migrate --write %BS%|-|0|-|migrated, 0 line\(s\) rewritten'
-	#'Ers2pOw|migrate-backslash-pairs|migrate -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\\\work"\nb: \x27say \\"hi\\"\x27\nc: C:\\new\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'EtD6lsn|migrate-backslash-pairs-2x|migrate --from-2x -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\work"\nb: \x27say "hi"\x27\nc: "C:\xe2\x97\x89NEWLINE\xe2\x97\x89ew"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	#'ddj1m|migrate-backslash-as-text|migrate %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|!.'
+	#'ddj1n|migrate-backslash-write|migrate --write %BS%|-|0|-|migrated, 0 line\(s\) rewritten'
+	#'ddj1p|migrate-backslash-pairs|migrate -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\\\work"\nb: \x27say \\"hi\\"\x27\nc: C:\\new\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'de60q|migrate-backslash-pairs-2x|migrate --from-2x -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\work"\nb: \x27say "hi"\x27\nc: "C:\xe2\x97\x89NEWLINE\xe2\x97\x89ew"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026101911300000: the two lines of the report, as 2.x read them, and the
 	## same file refused without --from-2x, since it could be a 3.0 one.
-	'EtD6lsl|migrate-2x-read|migrate --from-2x -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'EtD6lsm|upgrade-2x-read-ambiguous|upgrade -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|7||2 value\(s\) read one way under 2\.x'
+	'de60n|migrate-2x-read|migrate --from-2x -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'de60p|upgrade-2x-read-ambiguous|upgrade -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|7||2 value\(s\) read one way under 2\.x'
 	## A quoted name with a backslash pair read as typed under 1.2 and resolved
 	## under 2.0, so it is kept and counted lost, and the rest still converts.
-	'EtD6lsp|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|7|"n\\ty": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|1 line\(s\) bound a value under 2\.x.*quoted name'
-	'EtD6lsq|migrate-lost-quoted-name-lossy|migrate --from-2x --lossy -|"n\\ty": 1\n|0|"n\\ty": 1\n##    Format   3\n|bound a value under 2\.x'
+	'de60s|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|7|"n\\ty": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|1 line\(s\) bound a value under 2\.x.*quoted name'
+	'de60t|migrate-lost-quoted-name-lossy|migrate --from-2x --lossy -|"n\\ty": 1\n|0|"n\\ty": 1\n##    Format   3\n|bound a value under 2\.x'
 	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
 	## It is the TAB escape since 2026100207032800.
-	#'Eq4Rkv5|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	#'dcq6r|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026-10-05: the backslash stays, and reads as text.
 	## Back since 2026101911300000: the tab 2.x read is written.
-	'ErUn2Bt|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddcef|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## Wrong since 2026101911300000. Don't uncomment.
-	#'Ers2pOx|migrate-from-2x-backslash|migrate --from-2x %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|-'
+	#'ddj1q|migrate-from-2x-backslash|migrate --from-2x %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|-'
 	## A file that names its format has nothing to migrate, which is what stops
 	## the second run from rewriting the first run's output.
-	'Eq4Rkv6|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
-	"ErCkXtw|migrate-indented-stamp-noop|migrate %V3I%|-|0|p: 'C:\\\\temp'\nsrv:\n\t##    Format   3\n\tx: 1\n|nothing to migrate"
+	'dcq6m|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
+	"dd83r|migrate-indented-stamp-noop|migrate %V3I%|-|0|p: 'C:\\\\temp'\nsrv:\n\t##    Format   3\n\tx: 1\n|nothing to migrate"
 	## 20260918 item 1: the version scan read raw bodies the rewrite skips.
-	'EqGUXeC|migrate-format-in-raw-old|migrate %RF2%|-|7|-|does not say which it was written for'
+	'dct37|migrate-format-in-raw-old|migrate %RF2%|-|7|-|does not say which it was written for'
 	## The value beside it is no longer read two ways (2026-10-05), so this
-	## pins the scan by the stamp migrate adds; ErfuRj5 holds the refusal.
+	## pins the scan by the stamp migrate adds; ddf43 holds the refusal.
 	## Back since 2026101911300000: the value reads two ways again. The stamp
 	## row below is wrong since then. Don't uncomment it.
-	'EqGUXeD|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
-	#'Ers2pOy|migrate-format-in-raw-stamps|migrate %RF3%|-|0|p: \x27C:\\temp\x27\nnote:\n\t\x60\x60\x60\n##    Format   3\n\t\x60\x60\x60\n##    Format   3\n|!nothing to migrate'
-	'ErfuRj5|migrate-format-in-raw-after-backslash|migrate %RFQ%|-|7|-|does not say which it was written for'
+	'dct38|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
+	#'ddj1r|migrate-format-in-raw-stamps|migrate %RF3%|-|0|p: \x27C:\\temp\x27\nnote:\n\t\x60\x60\x60\n##    Format   3\n\t\x60\x60\x60\n##    Format   3\n|!nothing to migrate'
+	'ddf43|migrate-format-in-raw-after-backslash|migrate %RFQ%|-|7|-|does not say which it was written for'
 	## 20260918 item 2: C looked for the version line before taking off a BOM.
-	'EqGUXeE|migrate-bom-stamped|migrate %V3B%|-|0|-|nothing to migrate'
-	'EqGUXeF|migrate-bom-stamped-from-2x|migrate --from-2x %V3B%|-|0|-|nothing to migrate'
+	'dct39|migrate-bom-stamped|migrate %V3B%|-|0|-|nothing to migrate'
+	'dct3a|migrate-bom-stamped-from-2x|migrate --from-2x %V3B%|-|0|-|nothing to migrate'
 	## Found by the fuzz in the 20260918 fix round: the first Format line decided,
 	## so a file naming an older format was stamped again on every run.
-	'EqGWgK0|migrate-two-stamps|migrate %V03%|-|0|-|nothing to migrate'
+	'dct3j|migrate-two-stamps|migrate %V03%|-|0|-|nothing to migrate'
 	## 20260918b item 30: Python raised on a Format line past 4300 digits.
-	'EqLxvX0|migrate-huge-format|migrate %FB%|-|0|-|nothing to migrate'
+	'dcvdd|migrate-huge-format|migrate %FB%|-|0|-|nothing to migrate'
 	## 20260909 item 10: 2.x bound the bracket array and nothing binds it now.
 	## Leaving the line is the decision; exiting 0 was the defect, since a
 	## scripted migration could not tell "migrated" from "gave up".
-	'Eq4Rkv7|migrate-lost-binding|migrate %BA%|-|7|-|bound a value under 2.x that nothing binds now'
-	'Eq4Rkv8|migrate-lost-write-refused|migrate --write %BW%|-|7|-|refusing to rewrite'
-	'Eq4Rkv9|migrate-lost-write-lossy|migrate --write --lossy %BW%|-|0|-|bound a value under 2.x'
+	'dcq6n|migrate-lost-binding|migrate %BA%|-|7|-|bound a value under 2.x that nothing binds now'
+	'dcq6p|migrate-lost-write-refused|migrate --write %BW%|-|7|-|refusing to rewrite'
+	'dcq6q|migrate-lost-write-lossy|migrate --write --lossy %BW%|-|0|-|bound a value under 2.x'
 	## 2026100410055748: the count was values, so this said 3 line(s).
 	## A line break in a Windows path has a spelling since 2026100207032800, so
 	## only the bracket line is lost and the count can no longer tell lines
 	## from values.
-	#'Erkljp5|migrate-lost-counts-lines|migrate --from-2x %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
-	'ErpaTy3|migrate-lost-one-line|migrate --from-2x %MV%|-|7|-|: 1 line\(s\) bound a value under 2\.x'
+	#'ddg9e|migrate-lost-counts-lines|migrate --from-2x %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
+	'ddhet|migrate-lost-one-line|migrate --from-2x %MV%|-|7|-|: 1 line\(s\) bound a value under 2\.x'
 	## 2026100207032800: 2.x matched a selector with a comma against an array
 	## value, and let a comma list head lines of its own. Neither has a
 	## spelling now, so both are lost, not rewritten at exit 0.
-	'Erwf3oC|migrate-lost-array-selector|migrate --from-2x -|a[x, y].b: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
-	'Erwf3oD|migrate-lost-list-over-lines|migrate --from-2x -|a: 1, 2\n\tb: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
+	'ddk52|migrate-lost-array-selector|migrate --from-2x -|a[x, y].b: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
+	'ddk53|migrate-lost-list-over-lines|migrate --from-2x -|a: 1, 2\n\tb: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
 	## 2026100610073400: a selector goes in parens. One in brackets is E029, so
 	## the line is rewritten without --from-2x too.
-	'Erxvsaw|migrate-selector-parens|migrate -|a[x].k: 1\nb[New York].k: 2\n|0|a(x).k: 1\nb("New York").k: 2\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddkep|migrate-selector-parens|migrate -|a[x].k: 1\nb[New York].k: 2\n|0|a(x).k: 1\nb("New York").k: 2\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 20260909 item 41: telling a file that needs migrating from one that does
 	## not took a diff of the output, and --write said nothing either way.
-	'Eq4wD3Y|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'
+	'dcqaa|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'
 	## 20260918b item 54: fmt --check, migrate --check's sibling.
-	'EqMO8f3|fmt-check-noncanonical|fmt --check %NC%|-|6||noncanon\.shcl: not canonical; fmt --write would rewrite it'
-	'EqMO8f4|fmt-check-canonical|fmt --check %F%|-|0||!.'
-	'EqMO8f5|fmt-check-write|fmt --check --write %NC%|-|1|-|--check cannot be combined with --write'
+	'dcvgm|fmt-check-noncanonical|fmt --check %NC%|-|6||noncanon\.shcl: not canonical; fmt --write would rewrite it'
+	'dcvgn|fmt-check-canonical|fmt --check %F%|-|0||!.'
+	'dcvgp|fmt-check-write|fmt --check --write %NC%|-|1|-|--check cannot be combined with --write'
 	## 2026101407100002: with a layer or an edit, fmt --check said "would
 	## rewrite" every time, since the merge is never FILE. A usage error now.
-	'EshMywd|fmt-check-layer|fmt --check --layer=%F% %F%|-|1||=--check cannot be combined with --layer (see --help)\n'
-	'EshMywe|fmt-check-set|fmt --check --set=a=1 %F%|-|1||=--check cannot be combined with --set (see --help)\n'
-	'EshMywf|fmt-check-remove|fmt --check --remove=a %F%|-|1||=--check cannot be combined with --remove (see --help)\n'
+	'ddycd|fmt-check-layer|fmt --check --layer=%F% %F%|-|1||=--check cannot be combined with --layer (see --help)\n'
+	'ddyce|fmt-check-set|fmt --check --set=a=1 %F%|-|1||=--check cannot be combined with --set (see --help)\n'
+	'ddycf|fmt-check-remove|fmt --check --remove=a %F%|-|1||=--check cannot be combined with --remove (see --help)\n'
 	## 20260920 item 1: --check promised a rewrite --write then refused. The
 	## sugar file's --write row two dozen lines up is the other half of the pair.
 	## The sugar file loses nothing now (2026100115403384), so the pair moved
 	## to a file whose load drops a line.
-	#'EqQSqyX|fmt-check-refused|fmt --check %W%|-|7||fmt --write would refuse: it would delete 1 line'
-	'ErUn2Bu|fmt-check-refused-dropped|fmt --check %KL%|-|7||fmt --write would refuse: it would delete 1 line'
-	'EqQSqyY|migrate-check-refused|migrate --check %ML%|-|7||migrate --write would refuse: the migrated text drops 1 line'
-	'EqQSqyZ|migrate-write-refused-lost|migrate --write %ML%|-|7|-|refusing to rewrite: the migrated text drops 1 line'
+	#'dcwg1|fmt-check-refused|fmt --check %W%|-|7||fmt --write would refuse: it would delete 1 line'
+	'ddceg|fmt-check-refused-dropped|fmt --check %KL%|-|7||fmt --write would refuse: it would delete 1 line'
+	'dcwfz|migrate-check-refused|migrate --check %ML%|-|7||migrate --write would refuse: the migrated text drops 1 line'
+	'dcwg0|migrate-write-refused-lost|migrate --write %ML%|-|7|-|refusing to rewrite: the migrated text drops 1 line'
 	## 2026100717500003: printed, the same file exited 0. The text still
 	## prints, since it keeps every line; the exit is what --write gives.
 	## --lossy works without --write on migrate and set now, not on fmt.
-	'Es8aXo2|migrate-print-refused-lost|migrate %ML%|-|7|list: ["a\\,b", c]\nwin:\n\t\tm: 4\n\tstray: 1\n##    Format   3\n##    Migrated from SHCL 2.x.\n|migrate --write would refuse: the migrated text drops 1 line'
-	'Es8aXo3|migrate-print-lossy|migrate --lossy %ML%|-|0|-|!would refuse'
-	'Es8aXo4|migrate-check-lossy|migrate --check --lossy %ML%|-|6||mlost\.shcl:1: migrate would rewrite this line'
-	'Es8aXo5|fmt-lossy-without-write|fmt --lossy %F%|-|1||only meaningful with --write'
+	'ddp0y|migrate-print-refused-lost|migrate %ML%|-|7|list: ["a\\,b", c]\nwin:\n\t\tm: 4\n\tstray: 1\n##    Format   3\n##    Migrated from SHCL 2.x.\n|migrate --write would refuse: the migrated text drops 1 line'
+	'ddp0z|migrate-print-lossy|migrate --lossy %ML%|-|0|-|!would refuse'
+	'ddp10|migrate-check-lossy|migrate --check --lossy %ML%|-|6||mlost\.shcl:1: migrate would rewrite this line'
+	'ddp11|fmt-lossy-without-write|fmt --lossy %F%|-|1||only meaningful with --write'
 	## 20260918b item 55: a created file says so, since nothing else does.
-	'EqMO8f6|create-says|set --write --no-banner %C% --set=a=1|-|0|-|created\.shcl: created|a: 1\n'
+	'dcvgq|create-says|set --write --no-banner %C% --set=a=1|-|0|-|created\.shcl: created|a: 1\n'
 	## The sugar file's write goes through now (2026100115403384).
-	#'EqMO8f7|write-existing-quiet|fmt --write %W%|-|7|-|!created'
-	'ErUn2Bv|write-existing-quiet-kept|fmt --write %W%|-|0|-|!created'
-	'Eq4wD3Z|migrate-check-clean|migrate --check %F%|-|0||!.'
-	'Eq4wD3a|migrate-check-stamped|migrate --check %V3%|-|0||nothing to migrate'
+	#'dcvgw|write-existing-quiet|fmt --write %W%|-|7|-|!created'
+	'ddceh|write-existing-quiet-kept|fmt --write %W%|-|0|-|!created'
+	'dcqab|migrate-check-clean|migrate --check %F%|-|0||!.'
+	'dcqac|migrate-check-stamped|migrate --check %V3%|-|0||nothing to migrate'
 	## 2026-10-05: nothing in the backslash file is rewritten now.
 	## Back since 2026101911300000: the tab 2.x read is written. The row after
 	## them is wrong since then. Don't uncomment it.
-	'Eq4wD3b|migrate-check-ambiguous|migrate --check %BS%|-|7||does not say which it was written for'
-	'Eq4wD3c|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
-	#'Ers2pOz|migrate-check-backslash|migrate --check --from-2x %BS%|-|0||!.'
-	'Eq4wD3d|migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
-	'Eq4wD3e|migrate-write-says|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten'
+	'dcqad|migrate-check-ambiguous|migrate --check %BS%|-|7||does not say which it was written for'
+	'dcqae|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
+	#'ddj1s|migrate-check-backslash|migrate --check --from-2x %BS%|-|0||!.'
+	'dcqaf|migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
+	'dcqag|migrate-write-says|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten'
 	## The Format and Migrated lines end the way most of the file's lines do.
-	'ErTecqE|migrate-write-eol-crlf|migrate --write %MC%|-|0||-|base: Boston\r\n\tlat: 42\r\n##    Format   3\r\n##    Migrated from SHCL 2.x.\r\n'
-	'ErTecqF|migrate-eol-tie-lf|migrate %MT%|-|0|base: Boston\r\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddc5s|migrate-write-eol-crlf|migrate --write %MC%|-|0||-|base: Boston\r\n\tlat: 42\r\n##    Format   3\r\n##    Migrated from SHCL 2.x.\r\n'
+	'ddc5t|migrate-eol-tie-lf|migrate %MT%|-|0|base: Boston\r\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 20261003 item 6: an unterminated last line compared unequal to itself
 	## once the stamp ended it, so --check said 6 and --write kept a copy.
-	'ErkalBd|migrate-check-no-final-crlf|migrate --check %MN%|-|0||!.'
-	'ErkalBe|migrate-write-no-final-crlf|migrate --write %MNW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\r\nb: 2\r\nc: 3\r\n##    Format   3\r\n'
-	'ErkalBf|migrate-check-lone-cr-lf|migrate --check %MX%|-|0||!.'
-	'ErkalBg|migrate-write-lone-cr-lf|migrate --write %MXW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\nb: 2\r\n##    Format   3\n'
-	'ErkalBh|migrate-check-lone-cr-crlf|migrate --check %MY%|-|0||!.'
+	'ddg89|migrate-check-no-final-crlf|migrate --check %MN%|-|0||!.'
+	'ddg8a|migrate-write-no-final-crlf|migrate --write %MNW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\r\nb: 2\r\nc: 3\r\n##    Format   3\r\n'
+	'ddg8b|migrate-check-lone-cr-lf|migrate --check %MX%|-|0||!.'
+	'ddg8c|migrate-write-lone-cr-lf|migrate --write %MXW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\nb: 2\r\n##    Format   3\n'
+	'ddg8d|migrate-check-lone-cr-crlf|migrate --check %MY%|-|0||!.'
 	## 2026100316275800: a raw block that never closes left the file
 	## unstamped at exit 0, so the next run could not tell it was migrated.
-	'ErkalBb|migrate-check-raw-open|migrate --check --from-2x %MR%|-|7||nowhere to put the Format line'
-	"ErkalBc|migrate-write-raw-open|migrate --write --from-2x %MRW%|-|7|-|nowhere to put the Format line|a: 'x\\\\ty'\nb: ~~~\n\tline\n"
+	'ddg87|migrate-check-raw-open|migrate --check --from-2x %MR%|-|7||nowhere to put the Format line'
+	"ddg88|migrate-write-raw-open|migrate --write --from-2x %MRW%|-|7|-|nowhere to put the Format line|a: 'x\\\\ty'\nb: ~~~\n\tline\n"
 	## The kept original, named. The save cases below check the file itself,
 	## but they are POSIX fixtures, so this is the one windows runs.
-	'Er5qICu|migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_backup_20261004-001500_format-v2\.shcl$'
+	'dd6ee|migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_backup_20261004-001500_format-v2\.shcl$'
 	## 2026100313461649: upgrade makes over a file that does not load clean,
 	## keeps the original under the timestamped name, and leaves a clean one
 	## alone. Text that reads two ways is refused at 7 with nothing written.
-	'Es2Rg1E|upgrade-print|upgrade %U2%|-|0|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
-	'Es2Rg1F|upgrade-write|upgrade --write %U2W%|-|0|-|upgraded; the original is .*created_backup_20261004-001500_format-v2\.shcl$|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
-	'Es2Rg1G|upgrade-write-ambiguous|upgrade --write %UAW%|-|7|-|read one way under 2\.x and another.*--from-2x|a: x,y\nb: "q\n'
-	'Es2Rg1H|upgrade-clean|upgrade --write %NC%|-|0|-|nothing to upgrade'
-	'Es2Rg1I|upgrade-usage-line|upgrade|-|1||^usage: shcl upgrade \[options\] FILE \(see --help\)$'
-	'Es2Rg1J|upgrade-stdin-write|upgrade --write -|-|1||cannot rewrite stdin'
-	'Es2Rg1K|upgrade-check-refused|upgrade --check %UA%|-|1||--check'
+	'ddmhh|upgrade-print|upgrade %U2%|-|0|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
+	'ddmhj|upgrade-write|upgrade --write %U2W%|-|0|-|upgraded; the original is .*created_backup_20261004-001500_format-v2\.shcl$|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
+	'ddmhk|upgrade-write-ambiguous|upgrade --write %UAW%|-|7|-|read one way under 2\.x and another.*--from-2x|a: x,y\nb: "q\n'
+	'ddmhm|upgrade-clean|upgrade --write %NC%|-|0|-|nothing to upgrade'
+	'ddmhn|upgrade-usage-line|upgrade|-|1||^usage: shcl upgrade \[options\] FILE \(see --help\)$'
+	'ddmhp|upgrade-stdin-write|upgrade --write -|-|1||cannot rewrite stdin'
+	'ddmhq|upgrade-check-refused|upgrade --check %UA%|-|1||--check'
 	## With --from-2x a clean file that reads differently once migrated is
 	## made over too; without it, it is left alone.
-	'Es2a1Ju|upgrade-from-2x-clean|upgrade --from-2x %UC%|-|0|p: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|!.'
-	'Es2a1Jv|upgrade-clean-unsaid|upgrade %UC%|-|0|p: a,b\n|nothing to upgrade'
+	'ddmjg|upgrade-from-2x-clean|upgrade --from-2x %UC%|-|0|p: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|!.'
+	'ddmjh|upgrade-clean-unsaid|upgrade %UC%|-|0|p: a,b\n|nothing to upgrade'
 	## 20260918 item 18: the usage line said [--write|-w] where the help line
 	## says [options].
-	'EqGfz44|migrate-usage-line|migrate|-|1||^usage: shcl migrate \[options\] FILE \(see --help\)$'
+	'dct4x|migrate-usage-line|migrate|-|1||^usage: shcl migrate \[options\] FILE \(see --help\)$'
 	## 20260904 item 47: the temp beside a long-named file ran past the name limit.
-	'EpHEEKW|long-name-write|fmt --write %L%|-|0||-'
+	'dcbbr|long-name-write|fmt --write %L%|-|0||-'
 	## 20260909 item 16.
-	'Epyq1rk|wide-name-write|fmt --write %LW%|-|0||-'
-	'EpFkZyB|sugar-migrate-write-stdin|migrate --write -|-|1|-|cannot rewrite stdin'
+	'dcnvc|wide-name-write|fmt --write %LW%|-|0||-'
+	'dcb0j|sugar-migrate-write-stdin|migrate --write -|-|1|-|cannot rewrite stdin'
 	## 20260918b item 34: the same refusal on the other two, which the help's
 	## "Also refused" list now names.
-	'EqM10jq|write-stdin-fmt|fmt --write -|-|1|-|cannot rewrite stdin'
-	'EqM10jr|write-stdin-set|set --write -|-|1|-|cannot rewrite stdin'
+	'dcvdt|write-stdin-fmt|fmt --write -|-|1|-|cannot rewrite stdin'
+	'dcvdv|write-stdin-set|set --write -|-|1|-|cannot rewrite stdin'
 	## 20260802 item 11: --write with a lower layer wrote the merge into FILE, so
 	## the layer's lines stayed there for good. The file is left as it was.
-	'Er1zoZF|write-layer-fmt|fmt --write --layer=%F% %K%|-|1||^--write cannot be combined with --layer \(see --help\)$|# note\nName:   "x"   # c\nblock:\n    a: 1\n'
-	'Er1zoZG|write-layer-set|set --write --layer=%F% --set=b=2 %K%|-|1||^--write cannot be combined with --layer \(see --help\)$|# note\nName:   "x"   # c\nblock:\n    a: 1\n'
-	'EpFkZyC|tokens-line|tokens %F%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n|-'
-	'EpFkZyD|tokens-fault|tokens %B%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n2:2 name=0-3\n3:0 name=0-3\n|-'
+	'dd5gz|write-layer-fmt|fmt --write --layer=%F% %K%|-|1||^--write cannot be combined with --layer \(see --help\)$|# note\nName:   "x"   # c\nblock:\n    a: 1\n'
+	'dd5h0|write-layer-set|set --write --layer=%F% --set=b=2 %K%|-|1||^--write cannot be combined with --layer \(see --help\)$|# note\nName:   "x"   # c\nblock:\n    a: 1\n'
+	'dcb0k|tokens-line|tokens %F%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n|-'
+	'dcb0m|tokens-fault|tokens %B%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n2:2 name=0-3\n3:0 name=0-3\n|-'
 	## 20260923 item 20: the help and man page say each line is read on its own,
 	## so a raw body line comes out as a field line.
 	## 20260923 item 12: a `*` with only a blank after it is an empty element
 	## to the parser (E009), and tokens called it a name fault. A `-` alone is
 	## one too since 2026102820320485.
-	'Er84S7X|tokens-star-trailing-blank|tokens -|a:\n\t- \n\t-\t\n\t-\n|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 item value=1-1 elem=1-1\n3:1 item value=1-1 elem=1-1\n4:1 item value=1-1 elem=1-1\n|-'
-	'EqjsQiv|tokens-raw-body|tokens %R%|-|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 fence value=0-3 elem=0-3\n3:1 name=0-8\n4:1 name=0-8\n5:1 fence value=0-3 elem=0-3\n|-'
+	'dd6zj|tokens-star-trailing-blank|tokens -|a:\n\t- \n\t-\t\n\t-\n|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 item value=1-1 elem=1-1\n3:1 item value=1-1 elem=1-1\n4:1 item value=1-1 elem=1-1\n|-'
+	'dd15d|tokens-raw-body|tokens %R%|-|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 fence value=0-3 elem=0-3\n3:1 name=0-8\n4:1 name=0-8\n5:1 fence value=0-3 elem=0-3\n|-'
 	## 20260830b item 18: a read below strict returned the value and said nothing
 	## about a line the load had dropped, so a damaged file read clean at exit 0.
-	'EoXBb4q|get-diags|get %B% a|-|0|1\n|E015 missing colon'
-	'EoXBb4r|count-diags|count %B% a|-|0|1\n|E015 missing colon'
-	'EoXBb4s|instances-diags|instances %B% a|-|0|1\n|E015 missing colon'
+	'dc09d|get-diags|get %B% a|-|0|1\n|E015 missing colon'
+	'dc09e|count-diags|count %B% a|-|0|1\n|E015 missing colon'
+	'dc09f|instances-diags|instances %B% a|-|0|1\n|E015 missing colon'
 	## 20260920b item 26: a value holding a line break printed across two lines,
 	## so `instances` gave four lines where `count` said two. Only such a value
 	## is escaped; a plain one with a dot in it comes out as written.
 	## The escaped form was 2.x's `\n` until 2026100717500006. It is the
 	## writer's now, as `init` writes it, so the rows that pinned `\n` give way
 	## to the ones after them.
-	#'EqT42DB|instances-one-per-line|instances %NV% srv|-|0|"a\\nb"\n"c\\nd"\n|-'
-	'Es8bB58|instances-one-per-line-mark|instances %NV% srv|-|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\n"c\xe2\x97\x89NEWLINE\xe2\x97\x89d"\n|-'
-	'EqT42DC|instances-plain-unescaped|instances %NV% plain|-|0|x.y\n|-'
+	#'dcx42|instances-one-per-line|instances %NV% srv|-|0|"a\\nb"\n"c\\nd"\n|-'
+	'ddp1b|instances-one-per-line-mark|instances %NV% srv|-|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\n"c\xe2\x97\x89NEWLINE\xe2\x97\x89d"\n|-'
+	'dcx41|instances-plain-unescaped|instances %NV% plain|-|0|x.y\n|-'
 	## 20260923 item 4: the same for get's array and slot listings, one line per
 	## element. A plain scalar read is the whole output, so it stays as it is.
-	#'EqnwIkU|get-array-one-per-line|get --array %NV% arr|-|0|"a\\nb"\nc\n|-'
-	#'EqnwIkV|get-slots-one-per-line|get --array --slots %NV% arr|-|0|Good\t"a\\nb"\nGood\tc\n|-'
-	#'EqnwIkW|get-slots-scalar-escaped|get --slots %NV% one|-|0|Good\t"x\\ny"\n|-'
-	'Es8bB59|get-array-one-per-line-mark|get --array %NV% arr|-|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\nc\n|-'
-	'Es8bB5A|get-slots-one-per-line-mark|get --array --slots %NV% arr|-|0|Good\t"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\nGood\tc\n|-'
-	'Es8bB5B|get-slots-scalar-mark|get --slots %NV% one|-|0|Good\t"x\xe2\x97\x89NEWLINE\xe2\x97\x89y"\n|-'
-	'EqnwIkX|get-scalar-unescaped|get %NV% one|-|0|x\ny\n|-'
-	#'EqoRWES|get-array-default-missing|get --array %DB% %NV% nope|-|0|"q\\nr"\n|-'
-	#'EqoRWET|get-array-default-slots|get --array --int %DB% %NV% arr|-|0|"q\\nr"\n"q\\nr"\n|-'
-	'Es8bB5C|get-array-default-missing-mark|get --array %DB% %NV% nope|-|0|"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n|-'
-	'Es8bB5D|get-array-default-slots-mark|get --array --int %DB% %NV% arr|-|0|"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n|-'
+	#'dd24r|get-array-one-per-line|get --array %NV% arr|-|0|"a\\nb"\nc\n|-'
+	#'dd24s|get-slots-one-per-line|get --array --slots %NV% arr|-|0|Good\t"a\\nb"\nGood\tc\n|-'
+	#'dd24t|get-slots-scalar-escaped|get --slots %NV% one|-|0|Good\t"x\\ny"\n|-'
+	'ddp1c|get-array-one-per-line-mark|get --array %NV% arr|-|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\nc\n|-'
+	'ddp1d|get-slots-one-per-line-mark|get --array --slots %NV% arr|-|0|Good\t"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\nGood\tc\n|-'
+	'ddp1e|get-slots-scalar-mark|get --slots %NV% one|-|0|Good\t"x\xe2\x97\x89NEWLINE\xe2\x97\x89y"\n|-'
+	'dd24p|get-scalar-unescaped|get %NV% one|-|0|x\ny\n|-'
+	#'dd28j|get-array-default-missing|get --array %DB% %NV% nope|-|0|"q\\nr"\n|-'
+	#'dd28k|get-array-default-slots|get --array --int %DB% %NV% arr|-|0|"q\\nr"\n"q\\nr"\n|-'
+	'ddp1f|get-array-default-missing-mark|get --array %DB% %NV% nope|-|0|"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n|-'
+	'ddp1g|get-array-default-slots-mark|get --array --int %DB% %NV% arr|-|0|"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n|-'
 	## A backslash pair is text, so it is printed as written beside a real line
 	## break, and a lone carriage return takes its own name.
-	'Es8bB5E|get-array-backslash-text|get --array - x|x: ["a\xe2\x97\x89NEWLINE\xe2\x97\x89b", \x27a\\nb\x27]\n|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\na\\nb\n|-'
-	'Es8bB5F|instances-lone-cr|instances - x|x: "a\xe2\x97\x89CR\xe2\x97\x89b"\n|0|"a\xe2\x97\x89CR\xe2\x97\x89b"\n|-'
-	'EqoRWEU|get-scalar-default-missing|get %DB% %NV% nope|-|0|q\nr\n|-'
+	'ddp1h|get-array-backslash-text|get --array - x|x: ["a\xe2\x97\x89NEWLINE\xe2\x97\x89b", \x27a\\nb\x27]\n|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\na\\nb\n|-'
+	'ddp1j|instances-lone-cr|instances - x|x: "a\xe2\x97\x89CR\xe2\x97\x89b"\n|0|"a\xe2\x97\x89CR\xe2\x97\x89b"\n|-'
+	'dd28h|get-scalar-default-missing|get %DB% %NV% nope|-|0|q\nr\n|-'
 	## 2026100717500016 and 2026100814455655: a value is not a selector, since
 	## a number in parens is an index, so --paths prints the path that reads
 	## each instance. --json prints one object per line: path, name on children,
 	## value as a string, line, and status on get --slots. The path is "" where a
 	## wildcard slot or a get reached no field.
-	'EsEvmKv|instances-paths|instances --paths - shard|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|0|shard(0)\nshard(1)\n|-'
-	'EsEvmKw|instances-json|instances --json - shard|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|0|{"path":"shard(0)","value":"1","line":1}\n{"path":"shard(1)","value":"0","line":3}\n|-'
-	'EsEvmKx|instances-paths-slot-miss|instances --paths - a(*).b|a: x\n\tb: 1\na: y\n|0|a(0).b\n\n|-'
-	'EsEvmKy|instances-json-slot-miss|instances --json - a(*).b|a: x\n\tb: 1\na: y\n|0|{"path":"a(0).b","value":"1","line":2}\n{"path":"","value":"","line":0}\n|-'
-	'EsEvmKz|instances-paths-shared-value|instances --paths - a.b|a: x\n\tb: 1\na: y\n\tb: 1\n|0|a(0).b\na(1).b\n|-'
-	'EsEvmL0|paths-json-every-field|paths --json -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"k(0)","value":"1","line":1}\n{"path":"k(1)","value":"2","line":2}\n{"path":"hdr","value":"","line":3}\n{"path":"hdr.q","value":"say \\"hi\\" \\\\","line":4}\n{"path":"r","value":"a\\nb","line":5}\n{"path":"arr","value":"[1, 2]","line":10}\n{"path":"\\"a.b\\"","value":"x","line":11}\n|-'
-	'EsEvmL1|paths-plain-once-each|paths -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|k\nhdr\nhdr.q\nr\narr\n"a.b"\n|-'
-	'EsEvmL2|children-json|children --json -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"k(0)","name":"k","value":"1","line":1}\n{"path":"k(1)","name":"k","value":"2","line":2}\n{"path":"hdr","name":"hdr","value":"","line":3}\n{"path":"r","name":"r","value":"a\\nb","line":5}\n{"path":"arr","name":"arr","value":"[1, 2]","line":10}\n{"path":"\\"a.b\\"","name":"a.b","value":"x","line":11}\n|-'
-	'EsEvmL3|children-json-raw-block|children --json - r|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0||-'
-	'EsEvmL4|get-json-escapes|get --json - t|t: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89U+0001\xe2\x97\x89\xe2\x97\x89U+007F\xe2\x97\x89\xc3\xa9"\n|0|{"path":"t","value":"x\\ty\\u0001\\u007f\xc3\xa9","line":1}\n|-'
-	'EsEvmL5|get-json-raw|get --json --raw - r|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"r","value":"a\\nb","line":5}\n|-'
-	'EsEvmL6|get-array-json|get --array --json --int - arr|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"arr","value":"1","line":10}\n{"path":"arr","value":"2","line":10}\n|-'
-	'EsEvmL7|get-array-json-slots-default|get --array --json --slots --default=q - a(*).b|a: x\n\tb: 1\na: y\n|0|{"path":"a(0).b","value":"1","line":2,"status":"Good"}\n{"path":"","value":"q","line":0,"status":"NotFound"}\n|-'
-	'EsEvmL8|get-json-not-found|get --json - nope|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|3|{"path":"","value":"","line":0}\n|-'
-	'EsEvmL9|get-json-default-bad-type|get --json --int --default=7 - t|t: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89U+0001\xe2\x97\x89\xe2\x97\x89U+007F\xe2\x97\x89\xc3\xa9"\n|0|{"path":"t","value":"7","line":1}\n|-'
-	'EsEvmLA|json-edit-line-zero|paths --json --set=n=1 -|a: 1\n|0|{"path":"a","value":"1","line":1}\n{"path":"n","value":"1","line":0}\n|-'
-	'EsEvmLB|paths-with-json-refused|instances --paths --json - a|a: 1\n|1||^--paths cannot be combined with --json \(see --help\)$'
-	'EsEvmLC|json-not-on-count|count --json - a|a: 1\n|1||^option --json not valid for count \(see --help\)$'
-	'EsEvmLD|paths-not-on-children|children --paths -|a: 1\n|1||^option --paths not valid for children \(see --help\)$'
+	'ddqhm|instances-paths|instances --paths - shard|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|0|shard(0)\nshard(1)\n|-'
+	'ddqhn|instances-json|instances --json - shard|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|0|{"path":"shard(0)","value":"1","line":1}\n{"path":"shard(1)","value":"0","line":3}\n|-'
+	'ddqhp|instances-paths-slot-miss|instances --paths - a(*).b|a: x\n\tb: 1\na: y\n|0|a(0).b\n\n|-'
+	'ddqhq|instances-json-slot-miss|instances --json - a(*).b|a: x\n\tb: 1\na: y\n|0|{"path":"a(0).b","value":"1","line":2}\n{"path":"","value":"","line":0}\n|-'
+	'ddqhr|instances-paths-shared-value|instances --paths - a.b|a: x\n\tb: 1\na: y\n\tb: 1\n|0|a(0).b\na(1).b\n|-'
+	'ddqhs|paths-json-every-field|paths --json -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"k(0)","value":"1","line":1}\n{"path":"k(1)","value":"2","line":2}\n{"path":"hdr","value":"","line":3}\n{"path":"hdr.q","value":"say \\"hi\\" \\\\","line":4}\n{"path":"r","value":"a\\nb","line":5}\n{"path":"arr","value":"[1, 2]","line":10}\n{"path":"\\"a.b\\"","value":"x","line":11}\n|-'
+	'ddqht|paths-plain-once-each|paths -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|k\nhdr\nhdr.q\nr\narr\n"a.b"\n|-'
+	'ddqhv|children-json|children --json -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"k(0)","name":"k","value":"1","line":1}\n{"path":"k(1)","name":"k","value":"2","line":2}\n{"path":"hdr","name":"hdr","value":"","line":3}\n{"path":"r","name":"r","value":"a\\nb","line":5}\n{"path":"arr","name":"arr","value":"[1, 2]","line":10}\n{"path":"\\"a.b\\"","name":"a.b","value":"x","line":11}\n|-'
+	'ddqhw|children-json-raw-block|children --json - r|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0||-'
+	'ddqhx|get-json-escapes|get --json - t|t: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89U+0001\xe2\x97\x89\xe2\x97\x89U+007F\xe2\x97\x89\xc3\xa9"\n|0|{"path":"t","value":"x\\ty\\u0001\\u007f\xc3\xa9","line":1}\n|-'
+	'ddqhy|get-json-raw|get --json --raw - r|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"r","value":"a\\nb","line":5}\n|-'
+	'ddqhz|get-array-json|get --array --json --int - arr|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"arr","value":"1","line":10}\n{"path":"arr","value":"2","line":10}\n|-'
+	'ddqj0|get-array-json-slots-default|get --array --json --slots --default=q - a(*).b|a: x\n\tb: 1\na: y\n|0|{"path":"a(0).b","value":"1","line":2,"status":"Good"}\n{"path":"","value":"q","line":0,"status":"NotFound"}\n|-'
+	'ddqj1|get-json-not-found|get --json - nope|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|3|{"path":"","value":"","line":0}\n|-'
+	'ddqj2|get-json-default-bad-type|get --json --int --default=7 - t|t: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89U+0001\xe2\x97\x89\xe2\x97\x89U+007F\xe2\x97\x89\xc3\xa9"\n|0|{"path":"t","value":"7","line":1}\n|-'
+	'ddqj3|json-edit-line-zero|paths --json --set=n=1 -|a: 1\n|0|{"path":"a","value":"1","line":1}\n{"path":"n","value":"1","line":0}\n|-'
+	'ddqj4|paths-with-json-refused|instances --paths --json - a|a: 1\n|1||^--paths cannot be combined with --json \(see --help\)$'
+	'ddqj5|json-not-on-count|count --json - a|a: 1\n|1||^option --json not valid for count \(see --help\)$'
+	'ddqj6|paths-not-on-children|children --paths -|a: 1\n|1||^option --paths not valid for children \(see --help\)$'
 	## 20260830b item 22: usage and I/O shared exit 1, so a script could not
 	## tell "the command line is wrong" from "that file is not there".
-	'EoXIc2a|io-missing-file|get %M% a|-|8|-|-'
+	'dc0ac|io-missing-file|get %M% a|-|8|-|-'
 	## 20260923 item 16: the UI guide's form is FILE: and the system's own
 	## message, "No such file" here or "The system cannot find" on windows. Go
 	## named the call and the path again, Python printed [Errno 2].
-	'Er84wbv|io-missing-file-form|get %M% a|-|8|-|^[^ ]*not-there\.shcl: [NnT][a-z]'
-	'EoXIc2b|io-missing-layer|fmt --layer=%M% %F%|-|8|-|-'
-	'EoXIc2c|io-missing-check|check %M%|-|8|-|-'
-	'EoXIc2d|io-missing-schema|init --schema=%M%|-|8|-|-'
-	'EoXIc2e|usage-unknown-option|get --nope %F% a|-|1|-|unknown option'
-	'EoXIc2f|usage-bad-write-path|set --set=a(*)=1 %F%|-|1|-|wildcard path cannot be written'
+	'dd6zm|io-missing-file-form|get %M% a|-|8|-|^[^ ]*not-there\.shcl: [NnT][a-z]'
+	'dc0ad|io-missing-layer|fmt --layer=%M% %F%|-|8|-|-'
+	'dc0ae|io-missing-check|check %M%|-|8|-|-'
+	'dc0af|io-missing-schema|init --schema=%M%|-|8|-|-'
+	'dc0ag|usage-unknown-option|get --nope %F% a|-|1|-|unknown option'
+	'dc0ah|usage-bad-write-path|set --set=a(*)=1 %F%|-|1|-|wildcard path cannot be written'
 	## 20260830b item 21: removal and the set-if-absent family had no option
 	## form, so a one-key edit meant a printf with a literal tab piped into set.
 	## The five spellings share one ordered list, so the last one on a path wins.
-	'EoXHUqG|remove-option|set --remove=b %F2%|-|0|a: 1\n|-'
-	'EoXHUqH|set-default-absent|set --set-default=c=3 %F2%|-|0|a: 1\nb: 2\n\nc: 3\n|-'
-	'EoXHUqI|set-default-present|set --set-default=a=9 %F2%|-|0|a: 1\nb: 2\n|-'
-	'EoXHUqJ|set-literal-default|set --set-literal-default=p=[1,2] %F2%|-|0|a: 1\nb: 2\n\np: [1, 2]\n|-'
-	'EoXHUqK|set-family-order|set --set=a=5 --remove=a %F2%|-|0|b: 2\n|-'
-	'EoXHUqL|remove-ephemeral|get --remove=a %F2% a|-|3|-|-'
-	'EoXHUqM|remove-write-refused|fmt --write --remove=a %F2%|-|1|-|cannot be combined with --remove'
-	'EoXHUqN|remove-empty-path|set --remove= %F2%|-|1|-|bad --remove value'
+	'dc0a4|remove-option|set --remove=b %F2%|-|0|a: 1\n|-'
+	'dc0a5|set-default-absent|set --set-default=c=3 %F2%|-|0|a: 1\nb: 2\n\nc: 3\n|-'
+	'dc0a6|set-default-present|set --set-default=a=9 %F2%|-|0|a: 1\nb: 2\n|-'
+	'dc0a7|set-literal-default|set --set-literal-default=p=[1,2] %F2%|-|0|a: 1\nb: 2\n\np: [1, 2]\n|-'
+	'dc0a8|set-family-order|set --set=a=5 --remove=a %F2%|-|0|b: 2\n|-'
+	'dc0a9|remove-ephemeral|get --remove=a %F2% a|-|3|-|-'
+	'dc0aa|remove-write-refused|fmt --write --remove=a %F2%|-|1|-|cannot be combined with --remove'
+	'dc0ab|remove-empty-path|set --remove= %F2%|-|1|-|bad --remove value'
 	##	20260923 idea 2: a path that can never parse was taken as a miss and
 	##	exited 0. It is refused now, while a missing path or a wildcard still
 	##	removes nothing at exit 0. The ops script's remove and clear-comments
 	##	refuse the same way.
-	'EqvZOh6|remove-bad-path|set --remove=b( %F2%|-|1||^bad --remove value \(not a usable path\): b\( \(see --help\)$'
-	'EqvZOh7|remove-value-in-path|set --remove=a:1 %F2%|-|1||^bad --remove value \(not a usable path\): a:1 \(see --help\)$'
-	'EqvZOh8|remove-bad-path-on-get|get --remove=a..b %F2% a|-|1||^bad --remove value \(not a usable path\)'
-	'EqvZOh9|remove-missing-ok|set --remove=nope %F2%|-|0|a: 1\nb: 2\n|-'
-	'EqvZOhA|remove-wildcard-ok|set --remove=a.* %F2%|-|0|a: 1\nb: 2\n|-'
-	'EqvZOhB|ops-remove-bad-path|set %F2%|remove\tb(|1||^op line 1: cannot remove b\(: not a usable path \(see --help\)$'
-	'EqvZOhC|ops-clear-comments-bad-path|set %F2%|clear-comments\ta..b|1||^op line 1: cannot clear-comments a\.\.b: not a usable path \(see --help\)$'
+	'dd3zd|remove-bad-path|set --remove=b( %F2%|-|1||^bad --remove value \(not a usable path\): b\( \(see --help\)$'
+	'dd3ze|remove-value-in-path|set --remove=a:1 %F2%|-|1||^bad --remove value \(not a usable path\): a:1 \(see --help\)$'
+	'dd3zf|remove-bad-path-on-get|get --remove=a..b %F2% a|-|1||^bad --remove value \(not a usable path\)'
+	'dd3zg|remove-missing-ok|set --remove=nope %F2%|-|0|a: 1\nb: 2\n|-'
+	'dd3zh|remove-wildcard-ok|set --remove=a.* %F2%|-|0|a: 1\nb: 2\n|-'
+	'dd3zj|ops-remove-bad-path|set %F2%|remove\tb(|1||^op line 1: cannot remove b\(: not a usable path \(see --help\)$'
+	'dd3zk|ops-clear-comments-bad-path|set %F2%|clear-comments\ta..b|1||^op line 1: cannot clear-comments a\.\.b: not a usable path \(see --help\)$'
 	## 2026100717500010: a setter on a path that matches more than one field
 	## wrote the first and said yes, and the read after it said Multiple. It is
 	## a usage error now, the default forms and ops lines too. An index or a
 	## value picks one, and a remove still takes every instance.
-	'Es9aZSL|set-repeated-path|set --set=p=9 %FD%|-|1||^--set: cannot write p: the path matches multiple instances; name\(0\) picks one \(see --help\)$'
-	'Es9aZSM|set-repeated-parent|set --set=s.r=z %FD%|-|1||^--set: cannot write s\.r: the path matches multiple instances'
-	'Es9aZSN|get-set-repeated-path|get --set=p=9 %FD% p(0)|-|1||^--set: cannot write p: the path matches multiple instances'
-	'Es9aZSO|set-default-repeated-path|set --set-literal-default=p=9 %FD%|-|1||^--set-literal-default: cannot write p: the path matches multiple instances'
-	'Es9aZSP|ops-set-repeated-path|set %FD%|int\tp\t9\n|1||^op line 1: cannot write p: the path matches multiple instances; name\(0\) picks one \(see --help\)$'
-	'Es9aZSQ|set-index-picks-one|set --set=p(1)=9 --set=s(b).r=z %FD%|-|0|p: 1\np: 9\ns: a\n\tr: x\ns: b\n\tr: z\n|-'
-	'Es9cyaF|remove-repeated-takes-all|set --remove=p %FD%|-|0|s: a\n\tr: x\ns: b\n\tr: y\n|-'
+	'ddp8m|set-repeated-path|set --set=p=9 %FD%|-|1||^--set: cannot write p: the path matches multiple instances; name\(0\) picks one \(see --help\)$'
+	'ddp8n|set-repeated-parent|set --set=s.r=z %FD%|-|1||^--set: cannot write s\.r: the path matches multiple instances'
+	'ddp8p|get-set-repeated-path|get --set=p=9 %FD% p(0)|-|1||^--set: cannot write p: the path matches multiple instances'
+	'ddp8q|set-default-repeated-path|set --set-literal-default=p=9 %FD%|-|1||^--set-literal-default: cannot write p: the path matches multiple instances'
+	'ddp8r|ops-set-repeated-path|set %FD%|int\tp\t9\n|1||^op line 1: cannot write p: the path matches multiple instances; name\(0\) picks one \(see --help\)$'
+	'ddp8s|set-index-picks-one|set --set=p(1)=9 --set=s(b).r=z %FD%|-|0|p: 1\np: 9\ns: a\n\tr: x\ns: b\n\tr: z\n|-'
+	'ddp8t|remove-repeated-takes-all|set --remove=p %FD%|-|0|s: a\n\tr: x\ns: b\n\tr: y\n|-'
 	## 2026101407100006: and so does a wildcard, as the help says now.
-	'EshU86R|remove-wildcard-takes-all|set --remove=s(*).r %FD%|-|0|p: 1\np: 2\ns: a\ns: b\n|-'
-	'EshU88j|ops-remove-wildcard-takes-all|set %FD%|remove\ts(*)\n|0|p: 1\np: 2\n|-'
+	'ddyd9|remove-wildcard-takes-all|set --remove=s(*).r %FD%|-|0|p: 1\np: 2\ns: a\ns: b\n|-'
+	'ddyda|ops-remove-wildcard-takes-all|set %FD%|remove\ts(*)\n|0|p: 1\np: 2\n|-'
 	## 2026100907362300: a setter says why it wrote nothing, and the CLI
 	## prints the reason from that. Same text in all four.
-	'EsDRhLy|set-no-such-index|set --set=a(5).b=1 %F%|-|1||^--set: cannot write a\(5\)\.b: no instance at that index \(see --help\)$'
-	"EsDRhOB|set-too-deep|set --set=$(printf 'd.%.0s' {1..512})d=1 %F%|-|1||: deeper than the nesting cap \\(see --help\\)\$"
-	'EsDRhQM|ops-value-in-path|set %F%|int\ta: 2\t1\n|1||^op line 1: cannot write a: 2: a path with a value part cannot be written \(see --help\)$'
-	'EsDRhSf|ops-comment-not-one-line|set %F%|comment\ta\tx\xe2\x97\x89NEWLINE\xe2\x97\x89y\n|1||^op line 1: cannot write a: the comment text is not one line \(see --help\)$'
-	'EsDRhUp|ops-literal-not-one-value|set %F%|literal\ta\tx, y\n|1||^op line 1: cannot write a: the value text is not one value \(see --help\)$'
-	'EsDTA92|ops-comment-under-array|set %F%|literal\ta\t[1, 2]\ncomment\ta.x\tc\n|1||^op line 2: cannot write a\.x: an array takes no lines under it \(see --help\)$'
-	'EsDTA93|ops-raw-bad-info-whole|set %F%|raw\tk\tc#x\tbody\n|1||^op line 1: cannot write k: the info string has no spelling that reads back: a .#. in it opens a comment, and a line break has no inline spelling \(see --help\)$'
+	'ddq67|set-no-such-index|set --set=a(5).b=1 %F%|-|1||^--set: cannot write a\(5\)\.b: no instance at that index \(see --help\)$'
+	"ddq68|set-too-deep|set --set=$(printf 'd.%.0s' {1..512})d=1 %F%|-|1||: deeper than the nesting cap \\(see --help\\)\$"
+	'ddq69|ops-value-in-path|set %F%|int\ta: 2\t1\n|1||^op line 1: cannot write a: 2: a path with a value part cannot be written \(see --help\)$'
+	'ddq6a|ops-comment-not-one-line|set %F%|comment\ta\tx\xe2\x97\x89NEWLINE\xe2\x97\x89y\n|1||^op line 1: cannot write a: the comment text is not one line \(see --help\)$'
+	'ddq6b|ops-literal-not-one-value|set %F%|literal\ta\tx, y\n|1||^op line 1: cannot write a: the value text is not one value \(see --help\)$'
+	'ddq6c|ops-comment-under-array|set %F%|literal\ta\t[1, 2]\ncomment\ta.x\tc\n|1||^op line 2: cannot write a\.x: an array takes no lines under it \(see --help\)$'
+	'ddq6d|ops-raw-bad-info-whole|set %F%|raw\tk\tc#x\tbody\n|1||^op line 1: cannot write k: the info string has no spelling that reads back: a .#. in it opens a comment, and a line break has no inline spelling \(see --help\)$'
 	## 2026101407100006: the content reads escapes and the info is taken as
 	## written, since a fence label has none.
-	'EshU8B1|ops-raw-info-as-written|set %F%|raw\tn\tmd\xe2\x97\x89NEWLINE\xe2\x97\x89x\tl1\xe2\x97\x89NEWLINE\xe2\x97\x89l2\n|0|a: 1\n\nn:\n\t\x60\x60\x60md\xe2\x97\x89NEWLINE\xe2\x97\x89x\n\tl1\n\tl2\n\t\x60\x60\x60\n|-'
+	'ddydb|ops-raw-info-as-written|set %F%|raw\tn\tmd\xe2\x97\x89NEWLINE\xe2\x97\x89x\tl1\xe2\x97\x89NEWLINE\xe2\x97\x89l2\n|0|a: 1\n\nn:\n\t\x60\x60\x60md\xe2\x97\x89NEWLINE\xe2\x97\x89x\n\tl1\n\tl2\n\t\x60\x60\x60\n|-'
 	## Flag mode, the default, prints the type's zero where there is no value.
-	'EshU8DJ|flag-zero-missing-int|get --int %F% nope|-|3|0\n|no value at that path'
-	'EshU8Fc|flag-zero-missing-bool|get --bool %F% nope|-|3|false\n|no value at that path'
+	'ddydc|flag-zero-missing-int|get --int %F% nope|-|3|0\n|no value at that path'
+	'ddydd|flag-zero-missing-bool|get --bool %F% nope|-|3|false\n|no value at that path'
 	## 20260830b item 19: a script could read an open section's values but never
 	## learn its keys, so the only route was parsing fmt output in shell. A name
 	## needing quotes comes back path-ready, or enumerating it buys nothing.
-	'EoXDpDN|children-top|children %T%|-|0|db\nweb\n|-'
-	'EoXDpDO|children-quoted|children %T% db|-|0|host\n"odd.key"\n|-'
-	'EoXDpDP|children-missing|children %T% nope|-|0||-'
-	'EoXDpDQ|paths-all|paths %T%|-|0|db\ndb.host\ndb."odd.key"\nweb\nweb.port\n|-'
+	'dc09q|children-top|children %T%|-|0|db\nweb\n|-'
+	'dc09r|children-quoted|children %T% db|-|0|host\n"odd.key"\n|-'
+	'dc09s|children-missing|children %T% nope|-|0||-'
+	'dc09t|paths-all|paths %T%|-|0|db\ndb.host\ndb."odd.key"\nweb\nweb.port\n|-'
 	## 20260901b item 28: a value with newlines in it stays on one line.
-	'EonKleq|diag-value-one-line|check --schema=%SA% %R%|-|6|-|not allowed at .b.: line one◉NEWLINE◉line two$'
+	'dc45p|diag-value-one-line|check --schema=%SA% %R%|-|6|-|not allowed at .b.: line one◉NEWLINE◉line two$'
 	## 20260901b item 24: two layers with a bad line 2 printed the same thing
 	## twice, with nothing to say which file each came from.
-	'Eon9YY4|layer-diags-named|fmt --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
+	'dc449|layer-diags-named|fmt --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
 	## 20260918b item 14: `set` kept its own copy of the fold and missed it.
-	'EqLcx3w|layer-diags-named-set|set --set=q=1 --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
+	'dcvb2|layer-diags-named-set|set --set=q=1 --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
 	## 2026100511210900: emptying an instance left a list after it that the
 	## reload drops, and the write went through at exit 0. Since
 	## 2026102307143752 the field under the items is kept, binds nothing
 	## (E001), and goes out as a comment once the list is in brackets, so the
 	## save writes and nothing is lost.
-	'Ers2pP0|list-after-empty-refused|set --write %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n'
-	'Ers2pP1|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n'
-	'Eon9YY5|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E014'
+	'ddj1f|list-after-empty-refused|set --write %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n'
+	'ddj1g|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n'
+	'dc44a|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E014'
 	## 2026-10-05: a line with no colon that is one name is E015 whatever its
 	## name, and binds the name it reads as. With a colon, the name rule still
 	## holds.
 	## A blank in the name is E014 again, kept as written (2026-10-05), so the
-	## user name line in these two moved to ErsrQb6 and ErsrQd5.
-	#'Ers2pOr|no-colon-bad-name-e015|check -|404\n-x\nuser name\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E015\nfailed: 3 diagnostic(s), 3 error(s)\n|-'
-	#'Ers2pOs|no-colon-bad-name-repaired|fmt -|404\n-x\nuser name\n|0|"404":\n"-x":\n"user name":\n|-'
-	'ErsrQb6|no-colon-bad-name-narrow|check -|404\n-x\nuser name\nsquare-miles 300\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E014\nline 4: Error: E014\nfailed: 4 diagnostic(s), 4 error(s)\n|-'
-	'ErsrQd5|no-colon-bad-name-narrow-fmt|fmt -|404\n-x\nuser name\nsquare-miles 300\n|0|"404":\n"-x":\nuser name\nsquare-miles 300\n|-'
-	'Ers2pOt|colon-bad-name-e014|check -|404: x\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	## user name line in these two moved to ddj7p and ddj7q.
+	#'ddj1j|no-colon-bad-name-e015|check -|404\n-x\nuser name\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E015\nfailed: 3 diagnostic(s), 3 error(s)\n|-'
+	#'ddj1k|no-colon-bad-name-repaired|fmt -|404\n-x\nuser name\n|0|"404":\n"-x":\n"user name":\n|-'
+	'ddj7p|no-colon-bad-name-narrow|check -|404\n-x\nuser name\nsquare-miles 300\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E014\nline 4: Error: E014\nfailed: 4 diagnostic(s), 4 error(s)\n|-'
+	'ddj7q|no-colon-bad-name-narrow-fmt|fmt -|404\n-x\nuser name\nsquare-miles 300\n|0|"404":\n"-x":\nuser name\nsquare-miles 300\n|-'
+	'ddj1e|colon-bad-name-e014|check -|404: x\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## 20260909 item 34: E014 says where on the line the path went wrong, as
 	## a byte column, which the tokenizer computed and the message dropped.
-	'Eq8GC80|e014-column|check -|a: 1\n  bad\nab]\n|6|-|^line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 3$'
-	'Eq8GC81|e014-column-bytes|check %CB%|-|6|-|^line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 7$'
+	'dcr3w|e014-column|check -|a: 1\n  bad\nab]\n|6|-|^line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 3$'
+	'dcr3x|e014-column-bytes|check %CB%|-|6|-|^line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 7$'
 	## 20260918 item 15: the blank run between the indent and the text counts.
-	'EqGawtE|e014-column-cr-lead|check %CR%|-|6|-|E014 .*, at column 5$'
+	'dct46|e014-column-cr-lead|check %CR%|-|6|-|E014 .*, at column 5$'
 	## 20260901b item 26: a strict failure in a lower layer ends the fold there,
 	## and says which layer it was.
-	'EonFb9s|layer-strict-names-the-layer|fmt --strictness=strict --layer=%B% %B2%|-|6|-|bad.shcl line 2: Error: E015'
-	'EqLcx3x|layer-strict-names-the-layer-set|set --set=q=1 --strictness=strict --layer=%B% %B2%|-|6|-|bad.shcl line 2: Error: E015'
+	'dc451|layer-strict-names-the-layer|fmt --strictness=strict --layer=%B% %B2%|-|6|-|bad.shcl line 2: Error: E015'
+	'dcvb3|layer-strict-names-the-layer-set|set --set=q=1 --strictness=strict --layer=%B% %B2%|-|6|-|bad.shcl line 2: Error: E015'
 	## 20261003 item 13: every file is read before any is loaded, so a missing
 	## layer above a strict failure is 8, not 6. C read and loaded in turn.
-	'Erlbzz0|layer-strict-then-missing|paths --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
-	'Erlc00p|layer-strict-then-missing-set|set --set=q=1 --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
+	'ddgfx|layer-strict-then-missing|paths --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
+	'ddgfy|layer-strict-then-missing-set|set --set=q=1 --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
 	## 20260902 item 44: the failing phase is named, not guessed.
-	'Eon514S|write-names-the-phase|set --write --set=a=2 %N%|-|8|-|cannot create temporary file'
+	'dc43q|write-names-the-phase|set --write --set=a=2 %N%|-|8|-|cannot create temporary file'
 	## FILE: and the system's own message, without the temp file's name. Python
 	## printed that name as a repr, which doubles every backslash on windows,
 	## and Go named the call and the name again (2026100719122102).
-	'EsaAH2V|write-temp-reason-only|set --write --set=a=2 %N%|-|8|-|^[^ ]*nowrite.f\.shcl: cannot create temporary file: [^/\\]+$'
-	'EsaAW1o|write-temp-reason-no-dir|set --write --set=a=2 %D%/gone/f.shcl|-|8|-|^[^ ]*gone.f\.shcl: cannot create temporary file: [^/\\]+$'
+	'ddwmy|write-temp-reason-only|set --write --set=a=2 %N%|-|8|-|^[^ ]*nowrite.f\.shcl: cannot create temporary file: [^/\\]+$'
+	'ddwmz|write-temp-reason-no-dir|set --write --set=a=2 %D%/gone/f.shcl|-|8|-|^[^ ]*gone.f\.shcl: cannot create temporary file: [^/\\]+$'
 	## 20260902 item 41: the schema's own diagnostics were never printed, so the
 	## hint that explains a schema fault could not be seen.
-	'EomzUym|schema-own-hints|check --schema=%S7% %F%|-|6|-|schema line 4: Hint: H001'
+	'dc431|schema-own-hints|check --schema=%S7% %F%|-|6|-|schema line 4: Hint: H001'
 	## 20260902 item 41: extra tab-separated fields were dropped, so a raw whose
 	## content held a literal tab lost everything after it at exit 0.
-	'EomzUyn|ops-extra-fields-raw|set %F%|raw\tk\t\tbody\twith\ttabs\n|1|-|raw takes 4 tab-separated'
+	'dc432|ops-extra-fields-raw|set %F%|raw\tk\t\tbody\twith\ttabs\n|1|-|raw takes 4 tab-separated'
 	## 20260909 item 60: one message covered four causes across both halves of
 	## the op, so a refusal never said which half to look at.
-	'EqBBQ56|ops-raw-bad-info|set %F%|raw\tk\tc#x\tbody\n|1|-|the info string has no spelling that reads back'
+	'dcrtg|ops-raw-bad-info|set %F%|raw\tk\tc#x\tbody\n|1|-|the info string has no spelling that reads back'
 	## The body's line break was \n until 2026100717500002; a backslash is text
 	## now, so that body has a mid-line CR, which reads back.
-	#'EqBBQ57|ops-raw-bad-body|set %F%|raw\tk\tc\tbody\r\\nmore\n|1|-|the block body has no spelling that reads back'
-	'Es8bB55|ops-raw-bad-body-mark|set %F%|raw\tk\tc\tbody\r\xe2\x97\x89NEWLINE\xe2\x97\x89more\n|1|-|the block body has no spelling that reads back'
-	'EomzUyo|ops-extra-fields-int|set %F%|int\tk\t1\textra\n|1|-|int takes 3 tab-separated'
-	'EomzUyp|ops-array-takes-any|set %F%|int-array\tk\t1\t2\t3\n|0|a: 1\n\nk: [1, 2, 3]\n|-'
+	#'dcrth|ops-raw-bad-body|set %F%|raw\tk\tc\tbody\r\\nmore\n|1|-|the block body has no spelling that reads back'
+	'ddp18|ops-raw-bad-body-mark|set %F%|raw\tk\tc\tbody\r\xe2\x97\x89NEWLINE\xe2\x97\x89more\n|1|-|the block body has no spelling that reads back'
+	'dc433|ops-extra-fields-int|set %F%|int\tk\t1\textra\n|1|-|int takes 3 tab-separated'
+	'dc434|ops-array-takes-any|set %F%|int-array\tk\t1\t2\t3\n|0|a: 1\n\nk: [1, 2, 3]\n|-'
 	## An array setter writes brackets whatever the length (2026100207032800).
-	'ErqYWEv|ops-array-one-keeps-brackets|set %F%|int-array\tk\t80\n|0|a: 1\n\nk: [80]\n|-'
-	'ErqYWEw|ops-array-none-is-empty-brackets|set %F%|int-array\tk\n|0|a: 1\n\nk: []\n|-'
+	'ddhpc|ops-array-one-keeps-brackets|set %F%|int-array\tk\t80\n|0|a: 1\n\nk: [80]\n|-'
+	'ddhpd|ops-array-none-is-empty-brackets|set %F%|int-array\tk\n|0|a: 1\n\nk: []\n|-'
 	## 2026101407100003: too few fields read as empty, so a raw op with no
 	## content wrote an empty block at exit 0. Refused like too many, per shape.
-	'Esgiz1x|ops-too-few-scalar|set %F%|string\tk\n|1||=op line 1: string takes 3 tab-separated field(s), got 2 (see --help)\n'
-	'Esgiz1y|ops-too-few-raw|set %F%|raw\tk\tinfo\n|1||=op line 1: raw takes 4 tab-separated field(s), got 3 (see --help)\n'
-	'Esgiz1z|ops-too-few-default|set %F%|raw-default\tk\n|1||=op line 1: raw-default takes 4 tab-separated field(s), got 2 (see --help)\n'
-	'Esgiz20|ops-too-few-op-alone|set %F%|int\n|1||=op line 1: int takes 3 tab-separated field(s), got 1 (see --help)\n'
-	'Esgiz21|ops-too-few-remove|set %F%|remove\n|1||=op line 1: remove takes 2 tab-separated field(s), got 1 (see --help)\n'
-	'Esgiz22|ops-too-few-empty|set %F%|empty\n|1||=op line 1: empty takes 2 tab-separated field(s), got 1 (see --help)\n'
-	'Esgiz23|ops-too-few-clear-comments|set %F%|clear-comments\n|1||=op line 1: clear-comments takes 2 tab-separated field(s), got 1 (see --help)\n'
-	'Esgiz24|ops-too-few-banner|set %F%|banner\n|1||=op line 1: banner takes 2 tab-separated field(s), got 1 (see --help)\n'
-	'Esgiz25|ops-too-few-array|set %F%|int-array\n|1||=op line 1: int-array takes at least 2 tab-separated field(s), got 1 (see --help)\n'
-	'Esgiz26|ops-too-few-later-line|set %F%|int\tx\t1\ncomment\tx\n|1||=op line 2: comment takes 3 tab-separated field(s), got 2 (see --help)\n'
+	'ddy7d|ops-too-few-scalar|set %F%|string\tk\n|1||=op line 1: string takes 3 tab-separated field(s), got 2 (see --help)\n'
+	'ddy7e|ops-too-few-raw|set %F%|raw\tk\tinfo\n|1||=op line 1: raw takes 4 tab-separated field(s), got 3 (see --help)\n'
+	'ddy7f|ops-too-few-default|set %F%|raw-default\tk\n|1||=op line 1: raw-default takes 4 tab-separated field(s), got 2 (see --help)\n'
+	'ddy7g|ops-too-few-op-alone|set %F%|int\n|1||=op line 1: int takes 3 tab-separated field(s), got 1 (see --help)\n'
+	'ddy7h|ops-too-few-remove|set %F%|remove\n|1||=op line 1: remove takes 2 tab-separated field(s), got 1 (see --help)\n'
+	'ddy7j|ops-too-few-empty|set %F%|empty\n|1||=op line 1: empty takes 2 tab-separated field(s), got 1 (see --help)\n'
+	'ddy7k|ops-too-few-clear-comments|set %F%|clear-comments\n|1||=op line 1: clear-comments takes 2 tab-separated field(s), got 1 (see --help)\n'
+	'ddy7m|ops-too-few-banner|set %F%|banner\n|1||=op line 1: banner takes 2 tab-separated field(s), got 1 (see --help)\n'
+	'ddy7n|ops-too-few-array|set %F%|int-array\n|1||=op line 1: int-array takes at least 2 tab-separated field(s), got 1 (see --help)\n'
+	'ddy7p|ops-too-few-later-line|set %F%|int\tx\t1\ncomment\tx\n|1||=op line 2: comment takes 3 tab-separated field(s), got 2 (see --help)\n'
 	## 2026101407100005: a line of blanks was an op with no name.
-	'Esgiz27|ops-tab-only-line|set %F%|\t\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
-	'Esgiz28|ops-blanks-only-line|set %F%|int\tx\t1\n  \t \r\r\n \n|0|a: 1\n\nx: 1\n|='
+	'ddy7q|ops-tab-only-line|set %F%|\t\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
+	'ddy7r|ops-blanks-only-line|set %F%|int\tx\t1\n  \t \r\r\n \n|0|a: 1\n\nx: 1\n|='
 	## 2026101419280004: blanks before a `#` still make a comment. An indented op
 	## is still unknown.
-	'Esnb9bC|ops-indented-comment|set %F%|  # set x\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
-	'Esnb9db|ops-tab-indented-comment|set %F%|\t# set x\nint\tx\t1\n\t \t# again\n|0|a: 1\n\nx: 1\n|='
-	'Esnb9g2|ops-indented-op-unknown|set %F%|  int\tx\t1\n|1||=op line 1: unknown op:   int (see --help)\n'
+	'ddzwa|ops-indented-comment|set %F%|  # set x\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
+	'ddzwb|ops-tab-indented-comment|set %F%|\t# set x\nint\tx\t1\n\t \t# again\n|0|a: 1\n\nx: 1\n|='
+	'ddzwc|ops-indented-op-unknown|set %F%|  int\tx\t1\n|1||=op line 1: unknown op:   int (see --help)\n'
 	## 2026101514324709: indented with a tab, the op before it is empty, and the
 	## message named nothing.
-	'EssaXoE|ops-tab-indented-op-unknown|set %F%|\tint\tx\t1\n|1||=op line 1: unknown op: none before the first tab (see --help)\n'
-	'EssaXqa|ops-blank-tab-indented-op-unknown|set %F%|int\tx\t1\n  \r\tint\ty\t2\n|1||=op line 2: unknown op: none before the first tab (see --help)\n'
+	'de12q|ops-tab-indented-op-unknown|set %F%|\tint\tx\t1\n|1||=op line 1: unknown op: none before the first tab (see --help)\n'
+	'de12r|ops-blank-tab-indented-op-unknown|set %F%|int\tx\t1\n  \r\tint\ty\t2\n|1||=op line 2: unknown op: none before the first tab (see --help)\n'
 	## 20260902 item 41: --default and --on-bad=error each overwrote the other's
 	## mode, so which one applied depended on which was typed last.
-	'EomzUyq|default-vs-onbad|get --int --default=7 --on-bad=error %F% nope|-|1|-|--default cannot be combined with --on-bad=error'
-	'EomzUyr|onbad-vs-default|get --int --on-bad=error --default=7 %F% nope|-|1|-|--default cannot be combined with --on-bad=error'
-	'EomzUys|default-with-onbad-default|get --int --default=7 --on-bad=default %F% nope|-|0|7\n|-'
-	'Eon0wTA|default-alone|get --int --default=7 %F% nope|-|0|7\n|-'
+	'dc435|default-vs-onbad|get --int --default=7 --on-bad=error %F% nope|-|1|-|--default cannot be combined with --on-bad=error'
+	'dc436|onbad-vs-default|get --int --on-bad=error --default=7 %F% nope|-|1|-|--default cannot be combined with --on-bad=error'
+	'dc437|default-with-onbad-default|get --int --default=7 --on-bad=default %F% nope|-|0|7\n|-'
+	'dc439|default-alone|get --int --default=7 %F% nope|-|0|7\n|-'
 	## 2026101407100004: --on-bad=default with no --default printed an empty
 	## line at exit 0. Refused whatever the read would give.
-	'EshMywg|onbad-default-needs-default|get --int --on-bad=default %F% nope|-|1||=--on-bad=default needs --default (see --help)\n'
-	'EshMywh|onbad-default-needs-default-good|get --int --on-bad=default %F% a|-|1||=--on-bad=default needs --default (see --help)\n'
+	'ddycg|onbad-default-needs-default|get --int --on-bad=default %F% nope|-|1||=--on-bad=default needs --default (see --help)\n'
+	'ddych|onbad-default-needs-default-good|get --int --on-bad=default %F% a|-|1||=--on-bad=default needs --default (see --help)\n'
 	## 20260920 idea 2, the same disease one step wider: two options asking for
 	## different answers resolved last-wins and said nothing, so the answer
 	## depended on typing order. Both orders refuse, and a repeat with the same
 	## value still goes through.
-	'EqSNyFc|type-clash|get --int --raw %F% a|-|1|-|^--int cannot be combined with --raw \(see --help\)$'
-	'EqSNyFd|type-clash-other-order|get --raw --int %F% a|-|1|-|^--raw cannot be combined with --int \(see --help\)$'
-	'EqSNyFe|type-clash-first-pair-named|get --float --float --bool %F% a|-|1|-|^--float cannot be combined with --bool \(see --help\)$'
-	'EqSNyFf|type-repeat-ok|get --int --int %F% a|-|0|1\n|-'
-	'EqSNyFg|type-clash-after-cmd-refusal|check --int --raw %F%|-|1|-|^type options are not valid for check \(see --help\)$'
+	'dcwyr|type-clash|get --int --raw %F% a|-|1|-|^--int cannot be combined with --raw \(see --help\)$'
+	'dcwys|type-clash-other-order|get --raw --int %F% a|-|1|-|^--raw cannot be combined with --int \(see --help\)$'
+	'dcwyt|type-clash-first-pair-named|get --float --float --bool %F% a|-|1|-|^--float cannot be combined with --bool \(see --help\)$'
+	'dcwyv|type-repeat-ok|get --int --int %F% a|-|0|1\n|-'
+	'dcwyw|type-clash-after-cmd-refusal|check --int --raw %F%|-|1|-|^type options are not valid for check \(see --help\)$'
 	##	20260923 idea 1: every edit option that shares --set's list gets the
 	##	pipeline hint on check, not only the first three.
-	'EqvY6JE|check-layer-hint|check --layer %F% %F%|-|1|-|^option --layer not valid for check: .*Pipe instead: shcl fmt --layer \.\.\. FILE '
-	'EqvY6JF|check-set-hint|check --set a=1 %F%|-|1|-|^option --set not valid for check: .*Pipe instead: shcl fmt --set '
-	'EqvY6JG|check-set-literal-hint|check --set-literal a=1 %F%|-|1|-|^option --set-literal not valid for check: .*Pipe instead: shcl fmt --set-literal '
-	'EqvY6JH|check-set-default-hint|check --set-default a=1 %F%|-|1|-|^option --set-default not valid for check: .*Pipe instead: shcl fmt --set-default '
-	'EqvY6JI|check-set-literal-default-hint|check --set-literal-default a=1 %F%|-|1|-|^option --set-literal-default not valid for check: .*Pipe instead: shcl fmt --set-literal-default '
-	'EqvY6JJ|check-remove-hint|check --remove a %F%|-|1|-|^option --remove not valid for check: .*Pipe instead: shcl fmt --remove '
-	'EqSNyFh|strictness-clash|get --int --strictness=1 --strictness=3 %F% a|-|1|-|^--strictness=1 cannot be combined with --strictness=3 \(see --help\)$'
-	'EqSNyFi|strictness-same-level-ok|get --int --strictness=1 --strictness=loose %F% a|-|0|1\n|-'
-	'EqSNyFj|onbad-clash|get --int --on-bad=error --on-bad=flag %F% nope|-|1|-|^--on-bad=error cannot be combined with --on-bad=flag \(see --help\)$'
-	'EqSNyFk|onbad-same-mode-ok|get --int --on-bad=ERROR --on-bad=error %F% nope|-|3|-|no value at that path'
+	'dd3z7|check-layer-hint|check --layer %F% %F%|-|1|-|^option --layer not valid for check: .*Pipe instead: shcl fmt --layer \.\.\. FILE '
+	'dd3z8|check-set-hint|check --set a=1 %F%|-|1|-|^option --set not valid for check: .*Pipe instead: shcl fmt --set '
+	'dd3z9|check-set-literal-hint|check --set-literal a=1 %F%|-|1|-|^option --set-literal not valid for check: .*Pipe instead: shcl fmt --set-literal '
+	'dd3za|check-set-default-hint|check --set-default a=1 %F%|-|1|-|^option --set-default not valid for check: .*Pipe instead: shcl fmt --set-default '
+	'dd3zb|check-set-literal-default-hint|check --set-literal-default a=1 %F%|-|1|-|^option --set-literal-default not valid for check: .*Pipe instead: shcl fmt --set-literal-default '
+	'dd3zc|check-remove-hint|check --remove a %F%|-|1|-|^option --remove not valid for check: .*Pipe instead: shcl fmt --remove '
+	'dcwyx|strictness-clash|get --int --strictness=1 --strictness=3 %F% a|-|1|-|^--strictness=1 cannot be combined with --strictness=3 \(see --help\)$'
+	'dcwyy|strictness-same-level-ok|get --int --strictness=1 --strictness=loose %F% a|-|0|1\n|-'
+	'dcwyz|onbad-clash|get --int --on-bad=error --on-bad=flag %F% nope|-|1|-|^--on-bad=error cannot be combined with --on-bad=flag \(see --help\)$'
+	'dcwz0|onbad-same-mode-ok|get --int --on-bad=ERROR --on-bad=error %F% nope|-|3|-|no value at that path'
 	## 20260716 item 22: the error mode printed a bare BadType, with no value, type
 	## or file. 20260830 item 34: C printed a raw body as it stood, so the one
 	## line ran over three, and the four CLIs each quoted the value their own way.
-	'Er1zoZH|onbad-error-names-value|get --int --on-bad=error - a|a: 12cats\n|4||^cannot read a as int: value "12cats" is not a valid int \(in -\)$'
-	'Er1zoZI|bad-int-raw-one-line|get --int %R% b|-|4|0\n|^cannot read b as int: value "line one◉NEWLINE◉line two" is not a valid int \(in [^)]*rawval\.shcl\)$'
+	'dd5h1|onbad-error-names-value|get --int --on-bad=error - a|a: 12cats\n|4||^cannot read a as int: value "12cats" is not a valid int \(in -\)$'
+	'dd5h2|bad-int-raw-one-line|get --int %R% b|-|4|0\n|^cannot read b as int: value "line one◉NEWLINE◉line two" is not a valid int \(in [^)]*rawval\.shcl\)$'
 	## 2026100812323841: a message showed value text with 2.x backslash escapes,
 	## so C:\temp read as two backslashes. A line break, carriage return or tab
 	## shows by its escape name, another control as a code point, a real mark
 	## as itself with its code.
-	'EsEhCcw|msg-backslash-as-text|get --int --on-bad=error - a|a: C:\\temp\n|4||=cannot read a as int: value "C:\\temp" is not a valid int (in -)\n'
-	'EsEhCcx|msg-escape-unknown-backslash|check -|a: "◉C:\\x◉"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .◉C:\\x◉.; an escape'
-	"EsEhCcy|msg-controls-and-mark|get --int --on-bad=error - a|a: 'say \"hi\" x◉TAB◉y◉BEL◉z◉ESCAPE_CHAR◉◉CR◉'\n|4||=cannot read a as int: value \"say \"hi\" x◉TAB◉y◉BEL◉z◉ (U+25C9)◉CR◉\" is not a valid int (in -)\n"
-	'EsEhCcz|msg-library-mark-tab|check --schema=%SA% %MK%|-|6|-|V004 value not allowed at .b.: x◉ \(U\+25C9\)y◉TAB◉z$'
+	'ddqg6|msg-backslash-as-text|get --int --on-bad=error - a|a: C:\\temp\n|4||=cannot read a as int: value "C:\\temp" is not a valid int (in -)\n'
+	'ddqg7|msg-escape-unknown-backslash|check -|a: "◉C:\\x◉"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .◉C:\\x◉.; an escape'
+	"ddqg8|msg-controls-and-mark|get --int --on-bad=error - a|a: 'say \"hi\" x◉TAB◉y◉BEL◉z◉ESCAPE_CHAR◉◉CR◉'\n|4||=cannot read a as int: value \"say \"hi\" x◉TAB◉y◉BEL◉z◉ (U+25C9)◉CR◉\" is not a valid int (in -)\n"
+	'ddqg9|msg-library-mark-tab|check --schema=%SA% %MK%|-|6|-|V004 value not allowed at .b.: x◉ \(U\+25C9\)y◉TAB◉z$'
 	## 2026100812323841 rework: a message shows a character the way fmt writes
 	## it, so a named control is not a code point, and a C1 control, a
 	## zero-width space or a direction override does not print raw.
-	'EsJDGCI|msg-get-hidden-chars|get --int --on-bad=error - a|a: "x◉BEL◉y◉U+0085◉z◉U+200B◉w◉U+202E◉v"\n|4||=cannot read a as int: value "x◉BEL◉y◉U+0085◉z◉U+200B◉w◉U+202E◉v" is not a valid int (in -)\n'
-	'EsJDGCJ|msg-get-named-controls|get --int --on-bad=error - a|a: "◉NUL◉◉ESC◉◉DEL◉◉CRLF◉"\n|4||=cannot read a as int: value "◉NUL◉◉ESC◉◉DEL◉◉CRLF◉" is not a valid int (in -)\n'
-	'EsJDGCK|msg-escape-hidden-chars|check -|a: "◉x\x07y\xc2\x85z\xe2\x80\x8bw\xe2\x80\xaev◉"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .◉x◉BEL◉y◉U\+0085◉z◉U\+200B◉w◉U\+202E◉v◉.; an escape'
-	'EsJDGCL|msg-schema-path-hidden-chars|check --schema=%SZ% %F%|-|6|-|V002 required path missing: a\."x◉U\+200B◉y◉TAB◉z◉CR◉w"$'
+	'ddrjf|msg-get-hidden-chars|get --int --on-bad=error - a|a: "x◉BEL◉y◉U+0085◉z◉U+200B◉w◉U+202E◉v"\n|4||=cannot read a as int: value "x◉BEL◉y◉U+0085◉z◉U+200B◉w◉U+202E◉v" is not a valid int (in -)\n'
+	'ddrjg|msg-get-named-controls|get --int --on-bad=error - a|a: "◉NUL◉◉ESC◉◉DEL◉◉CRLF◉"\n|4||=cannot read a as int: value "◉NUL◉◉ESC◉◉DEL◉◉CRLF◉" is not a valid int (in -)\n'
+	'ddrjh|msg-escape-hidden-chars|check -|a: "◉x\x07y\xc2\x85z\xe2\x80\x8bw\xe2\x80\xaev◉"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .◉x◉BEL◉y◉U\+0085◉z◉U\+200B◉w◉U\+202E◉v◉.; an escape'
+	'ddrjj|msg-schema-path-hidden-chars|check --schema=%SZ% %F%|-|6|-|V002 required path missing: a\."x◉U\+200B◉y◉TAB◉z◉CR◉w"$'
 	## 2026100818251400: a long value made a message as long as the value. Past
 	## 200 characters the middle is cut and the length follows.
-	'EsEhCd0|msg-long-value-get|get --int --on-bad=error %LV% b|-|4||^cannot read b as int: value "(é){100}\.\.\.(😀){100}" \(300 chars\) is not a valid int \(in [^)]*longval\.shcl\)$'
-	'EsEhCd1|msg-long-value-edge|get --int --on-bad=error %LE% b|-|4||^cannot read b as int: value "x{200}" is not a valid int '
-	'EsEhCd2|msg-long-value-edge-cut|get --int --on-bad=error %LE% c|-|4||^cannot read c as int: value "x{100}\.\.\.x{100}" \(201 chars\) is not a valid int '
-	'EsEhCd3|msg-long-value-schema|check --schema=%SA% %LV%|-|6|-|V004 value not allowed at .b.: (é){100}\.\.\.(😀){100} \(300 chars\)$'
-	'EsEhCd4|msg-long-escape|check %LS%|-|6|-|E023 unknown escape .◉(é){100}\.\.\.(😀){100}◉. \(300 chars\); an escape'
-	'EsEhCd5|msg-long-hint|check %LR%|-|0|-|H001 .b. repeats as a bare leaf - did you mean .b: \[1, x{100}\.\.\.x{100} \(300 chars\)\].\?$'
+	'ddqga|msg-long-value-get|get --int --on-bad=error %LV% b|-|4||^cannot read b as int: value "(é){100}\.\.\.(😀){100}" \(300 chars\) is not a valid int \(in [^)]*longval\.shcl\)$'
+	'ddqgb|msg-long-value-edge|get --int --on-bad=error %LE% b|-|4||^cannot read b as int: value "x{200}" is not a valid int '
+	'ddqgc|msg-long-value-edge-cut|get --int --on-bad=error %LE% c|-|4||^cannot read c as int: value "x{100}\.\.\.x{100}" \(201 chars\) is not a valid int '
+	'ddqgd|msg-long-value-schema|check --schema=%SA% %LV%|-|6|-|V004 value not allowed at .b.: (é){100}\.\.\.(😀){100} \(300 chars\)$'
+	'ddqge|msg-long-escape|check %LS%|-|6|-|E023 unknown escape .◉(é){100}\.\.\.(😀){100}◉. \(300 chars\); an escape'
+	'ddqgf|msg-long-hint|check %LR%|-|0|-|H001 .b. repeats as a bare leaf - did you mean .b: \[1, x{100}\.\.\.x{100} \(300 chars\)\].\?$'
 	## A setter's note named a path with a line break as \n. A path with a real
 	## line break in a quoted name now shows it by its escape name.
-	'EsEix5w|msg-note-path-line-break|set - %NLSET%|"x◉NEWLINE◉y": "◉NOPE◉"\n|0|# "x◉NEWLINE◉y": "◉NOPE◉"  ## commented out by shcl when setting "x◉NEWLINE◉y", 2026-10-04 00:15:00 PDT: E023 unknown escape \x27◉NOPE◉\x27\n"x◉NEWLINE◉y": 5\n|-'
-	'EqSNyFl|default-clash|get --int --default=7 --default=8 %F% nope|-|1|-|^--default=7 cannot be combined with --default=8 \(see --help\)$'
-	'EqSNyFm|default-repeat-ok|get --int --default=7 --default=7 %F% nope|-|0|7\n|-'
-	'EqSNyFn|schema-clash|check --schema=%S% --schema=%S2% %F%|-|1|-|^--schema=.* cannot be combined with --schema=.* \(see --help\)$'
-	'EqSNyFo|layer-repeats|get --int --layer=%F% --layer=%F% %F% a|-|0|1\n|-'
-	'EqSNyFp|set-repeats-last-wins|get --int --set=a=1 --set=a=2 %F% a|-|0|2\n|-'
+	'ddqgg|msg-note-path-line-break|set - %NLSET%|"x◉NEWLINE◉y": "◉NOPE◉"\n|0|# "x◉NEWLINE◉y": "◉NOPE◉"  ## commented out by shcl when setting "x◉NEWLINE◉y", 2026-10-04 00:15:00 PDT: E023 unknown escape \x27◉NOPE◉\x27\n"x◉NEWLINE◉y": 5\n|-'
+	'dcwz1|default-clash|get --int --default=7 --default=8 %F% nope|-|1|-|^--default=7 cannot be combined with --default=8 \(see --help\)$'
+	'dcwz2|default-repeat-ok|get --int --default=7 --default=7 %F% nope|-|0|7\n|-'
+	'dcwz3|schema-clash|check --schema=%S% --schema=%S2% %F%|-|1|-|^--schema=.* cannot be combined with --schema=.* \(see --help\)$'
+	'dcwz4|layer-repeats|get --int --layer=%F% --layer=%F% %F% a|-|0|1\n|-'
+	'dcwz5|set-repeats-last-wins|get --int --set=a=1 --set=a=2 %F% a|-|0|2\n|-'
 	## 20260902 item 15: a refused edit returned before the load's diagnostics
 	## were printed, so a damaged file said nothing about the damage.
-	'EoloRK4|refused-set-still-reports|get --set=a(*)=1 %B% a|-|1|-|E015 missing colon'
-	'EoloRK5|refused-op-still-reports|set %B%|int\ta(*)\t1\n|1|-|E015 missing colon'
+	'dc3sz|refused-set-still-reports|get --set=a(*)=1 %B% a|-|1|-|E015 missing colon'
+	'dc3t0|refused-op-still-reports|set %B%|int\ta(*)\t1\n|1|-|E015 missing colon'
 	## 20260902 item 14: Go read a non-UTF-8 ops script as a usage error.
-	'EolmgK0|ops-not-utf8|set %F%|\xff\n|8|-|-'
+	'dc3sr|ops-not-utf8|set %F%|\xff\n|8|-|-'
 	## 20260902 items 8 and 9: a stdout that could not be written was reported
 	## as success by three CLIs, and a stderr that could not be written aborted
 	## the reference with nothing on stdout at all.
-	'Eolhrw0|full-stdout-fmt|fmt %F%|@fullout|8|-|[Nn]o space left'
-	'Eolhrw1|full-stdout-check|check %F%|@fullout|8|-|-'
-	'Eolhrw2|full-stdout-get|get %F% a|@fullout|8|-|-'
-	'Eolhrw3|full-stdout-set|set --set=a=2 %F%|@fullout|8|-|-'
-	'Eolhrw4|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\nb 2\n|-'
+	'dc3s5|full-stdout-fmt|fmt %F%|@fullout|8|-|[Nn]o space left'
+	'dc3s6|full-stdout-check|check %F%|@fullout|8|-|-'
+	'dc3s7|full-stdout-get|get %F% a|@fullout|8|-|-'
+	'dc3s8|full-stdout-set|set --set=a=2 %F%|@fullout|8|-|-'
+	'dc3s9|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\nb 2\n|-'
 	## Found working 20260830b item 18: a merge does not keep diagnostics, so
 	## reading them off the merged doc reported the lowest layer and stayed
 	## silent about FILE - the one file the caller actually named.
-	'EoXB1RA|layer-base-diags|fmt --layer=%F% %B%|-|0|-|E015 missing colon'
-	'EoXB1RB|layer-base-diags-set|set --set=q=1 --layer=%F% %B%|-|0|-|E015 missing colon'
+	'dc09b|layer-base-diags|fmt --layer=%F% %B%|-|0|-|E015 missing colon'
+	'dc09c|layer-base-diags-set|set --set=q=1 --layer=%F% %B%|-|0|-|E015 missing colon'
 	## A created file says what format it is. The block goes at the bottom, the
 	## edits above it, and --no-banner leaves it out. A file that is already
 	## there is never given one. 20260909 item 56: the blank line above the
 	## block, which init's output has and this one used to be missing.
-	'EpL8Odc|create-info-block|set --write %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
-	'EpL8Odd|create-no-banner|set --write --no-banner %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n'
+	'dcc9t|create-info-block|set --write %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
+	'dcc9v|create-no-banner|set --write --no-banner %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n'
 	## 20260909 item 35: set without --write took --no-banner and did nothing with
 	## it, where --lossy in the same spot was refused.
-	'Eq5lvLs|no-banner-without-write|set --no-banner --set=a=2 %F%|-|1|-|only meaningful with --write'
+	'dcqgq|no-banner-without-write|set --no-banner --set=a=2 %F%|-|1|-|only meaningful with --write'
 	## 20260909 item 33: the help put migrate and tokens among the subcommands
 	## that take --strictness, --layer and --set. They refuse all three.
-	'Eq5lvLt|migrate-no-strictness|migrate --strictness=strict %F%|-|1|-|not valid for migrate'
-	'Eq5lvLu|tokens-no-layer|tokens --layer=%F% %F%|-|1|-|not valid for tokens'
-	'Eq5lvLv|migrate-no-set|migrate --set=a=2 %F%|-|1|-|not valid for migrate'
+	'dcqgr|migrate-no-strictness|migrate --strictness=strict %F%|-|1|-|not valid for migrate'
+	'dcqgs|tokens-no-layer|tokens --layer=%F% %F%|-|1|-|not valid for tokens'
+	'dcqgt|migrate-no-set|migrate --set=a=2 %F%|-|1|-|not valid for migrate'
 	## 20260909 item 6: the create was decided before the wait on stdin, so a
 	## file made during the wait was replaced by the edits at exit 0.
-	'EpyBxDM|create-appeared|set --write %C%|@appear|8|-|exists|b: 2\n'
+	'dcnpd|create-appeared|set --write %C%|@appear|8|-|exists|b: 2\n'
 	## 20260918b item 16: the same wait on a file that was there. Another edit
 	## made meanwhile was reverted at exit 0.
-	'EqLeNlw|write-changed-during-wait|set --write %C%|@change|8|-|changed since it was read|a: 1\nb: 2\n'
+	'dcvb4|write-changed-during-wait|set --write %C%|@change|8|-|changed since it was read|a: 1\nb: 2\n'
 	## Literal text is read the way a file line is, so a # opens a comment
 	## there too and only what comes before it is written.
-	'EpUIoZf|literal-hash|set --write --no-banner %C% --set-literal=color=red#ff0000|-|0|-|-|color: red\n'
+	'dcegf|literal-hash|set --write --no-banner %C% --set-literal=color=red#ff0000|-|0|-|-|color: red\n'
 	## 20260909 item 42: explain. A code is looked up whatever its case, an
 	## unknown one is a usage error that says where the list is, and the
 	## subcommand takes no options and no second code.
-	'Eq9yPCC|explain-code|explain E019|-|0|-|-'
-	'Eq9yPCD|explain-lower|explain e019|-|0|-|-'
-	'Eq9yPCE|explain-unknown|explain E999|-|1|-|unknown diagnostic code: E999'
-	'Eq9yPCF|explain-two|explain E019 E020|-|1|-|usage: shcl explain'
-	'Eq9yPCG|explain-no-options|explain --strictness=strict E019|-|1|-|not valid for explain'
+	'dcrh2|explain-code|explain E019|-|0|-|-'
+	'dcrh3|explain-lower|explain e019|-|0|-|-'
+	'dcrh4|explain-unknown|explain E999|-|1|-|unknown diagnostic code: E999'
+	'dcrh5|explain-two|explain E019 E020|-|1|-|usage: shcl explain'
+	'dcrh6|explain-no-options|explain --strictness=strict E019|-|1|-|not valid for explain'
 	## Review 20261003 idea 1: a retired code was an unknown one, and H004
 	## suggested the unrelated E004. It says it was retired and what replaced
 	## it, at exit 0 on stdout like any code explain knows. E024, which had
 	## replaced it, is retired too since 2026100207032800.
-	'Ern4qLa|explain-retired|explain H004|-|0|\nH004  retired     hint, with no replacement\n  Loads no longer report H004, and no other code took its rule.\n\n|='
-	'Ern4qOc|explain-retired-lower|explain h004|-|0|\nH004  retired     hint, with no replacement\n  Loads no longer report H004, and no other code took its rule.\n\n|-'
+	'ddgv5|explain-retired|explain H004|-|0|\nH004  retired     hint, with no replacement\n  Loads no longer report H004, and no other code took its rule.\n\n|='
+	'ddgv6|explain-retired-lower|explain h004|-|0|\nH004  retired     hint, with no replacement\n  Loads no longer report H004, and no other code took its rule.\n\n|-'
 	## 20260909 item 43: a near miss on a command, an option or a code says what
 	## was probably meant. A word nothing is near says nothing.
-	'Eq9yPCH|suggest-command|frmt %F%|-|1|-|did you mean .fmt.'
-	'Eq9yPCI|suggest-option|get --stricness=1 %F% a|-|1|-|did you mean .--strictness.'
-	'Eq9yPCJ|suggest-option-space|get --slot %F% a|-|1|-|did you mean .--slots.'
-	'Eq9yPCK|suggest-code|explain E19|-|1|-|did you mean .E019.'
-	'Eq9yPCL|suggest-none|zzzzzzzz %F%|-|1|-|!did you mean'
+	'dcrh7|suggest-command|frmt %F%|-|1|-|did you mean .fmt.'
+	'dcrh8|suggest-option|get --stricness=1 %F% a|-|1|-|did you mean .--strictness.'
+	'dcrh9|suggest-option-space|get --slot %F% a|-|1|-|did you mean .--slots.'
+	'dcrha|suggest-code|explain E19|-|1|-|did you mean .E019.'
+	'dcrhb|suggest-none|zzzzzzzz %F%|-|1|-|!did you mean'
 	## An unknown option and a bad option value end with the help pointer, like
 	## the other usage errors that do not name their own fix.
-	'EqBvhE8|help-ptr-unknown-option|get --nope %F% a|-|1|-|^unknown option: --nope \(see --help\)$'
-	'EqBvhE9|help-ptr-suggest-option|get --stricness=1 %F% a|-|1|-|did you mean .--strictness..? \(see --help\)$'
-	'EqBvhEA|help-ptr-on-bad|get --on-bad=zz %F% a|-|1|-|^bad --on-bad value: zz \(see --help\)$'
-	'EqBvhEB|help-ptr-strictness|get --strictness=9 %F% a|-|1|-|^bad --strictness value: 9 \(see --help\)$'
-	'EqBvhEC|help-ptr-remove|set --remove= %F2%|-|1|-|^bad --remove value \(want PATH\) \(see --help\)$'
-	'EqBvhED|help-ptr-set|set --set==1 %F2%|-|1|-|^bad --set value .*: =1 \(see --help\)$'
+	'dcs04|help-ptr-unknown-option|get --nope %F% a|-|1|-|^unknown option: --nope \(see --help\)$'
+	'dcs05|help-ptr-suggest-option|get --stricness=1 %F% a|-|1|-|did you mean .--strictness..? \(see --help\)$'
+	'dcs06|help-ptr-on-bad|get --on-bad=zz %F% a|-|1|-|^bad --on-bad value: zz \(see --help\)$'
+	'dcs07|help-ptr-strictness|get --strictness=9 %F% a|-|1|-|^bad --strictness value: 9 \(see --help\)$'
+	'dcs08|help-ptr-remove|set --remove= %F2%|-|1|-|^bad --remove value \(want PATH\) \(see --help\)$'
+	'dcs09|help-ptr-set|set --set==1 %F2%|-|1|-|^bad --set value .*: =1 \(see --help\)$'
 	## 20260909 item 44: help narrows to one subcommand, by name or by the flag
 	## after it, and refuses a name that is not one.
-	'Eq9yPCM|help-subcommand|help get|-|0|-|-'
-	'Eq9yPCN|help-subcommand-flag|fmt --help|-|0|-|-'
-	'Eq9yPCO|help-subcommand-unknown|help frmt|-|1|-|unknown command: frmt'
-	'Eq9yPCP|help-too-many|help get set|-|1|-|usage: shcl help'
+	'dcrhc|help-subcommand|help get|-|0|-|-'
+	'dcrhd|help-subcommand-flag|fmt --help|-|0|-|-'
+	'dcrhe|help-subcommand-unknown|help frmt|-|1|-|unknown command: frmt'
+	'dcrhf|help-too-many|help get set|-|1|-|usage: shcl help'
 	## 20260909 item 48: V005 and V006 named the field alone, so a long report
 	## made you open the schema for every range failure. The int row also pins
 	## that the element named is the one that broke the bound, not the first;
 	## the float row pins that the bound is printed the way the annotation line
 	## writes it, so `min: 1.0` reads as 1.
-	'EqAaU1B|range-max-names-value|check --schema=%SG% %DG%|-|6|line 1: Error: V006\nline 2: Error: V005\nfailed: 2 diagnostic(s), 2 error(s)\n|V006 value above max 10 at .ns.: 20$'
-	'EqAaU1C|range-min-names-bound|check --schema=%SG% %DG%|-|6|-|V005 value below min 1 at .fs.: 0\.5$'
+	'dcrnt|range-max-names-value|check --schema=%SG% %DG%|-|6|line 1: Error: V006\nline 2: Error: V005\nfailed: 2 diagnostic(s), 2 error(s)\n|V006 value above max 10 at .ns.: 20$'
+	'dcrnv|range-min-names-bound|check --schema=%SG% %DG%|-|6|-|V005 value below min 1 at .fs.: 0\.5$'
 	## 20260802 item 12: the whole command line was scanned for help and version
 	## flags, so a value written like one printed the help at exit 0.
-	'EqzuLVo|help-flag-as-default|get --default -h %F% nope|-|0|-h\n|-'
-	'EqzuLVp|version-flag-as-default|get --default --version %F% nope|-|0|--version\n|-'
+	'dd50r|help-flag-as-default|get --default -h %F% nope|-|0|-h\n|-'
+	'dd50s|version-flag-as-default|get --default --version %F% nope|-|0|--version\n|-'
 	## 20260923 item 17: the word forms ignored whatever came after them. An
 	## option a command does not use is a usage error; the flags still work
 	## anywhere. The word forms went on 2026-09-28 (item 9 of that review, a
 	## decision), so these three no longer apply and the four rows below them
 	## take their place.
-	# 'Er863PI|version-word-refuses-extra|version --int|-|1||^usage: shcl version '
-	# 'Er863Qj|about-word-refuses-extra|about extra|-|1||^usage: shcl about '
-	# 'Er863S3|donate-word-refuses-extra|donate --int|-|1||^usage: shcl donate '
+	# 'dd6zs|version-word-refuses-extra|version --int|-|1||^usage: shcl version '
+	# 'dd6zt|about-word-refuses-extra|about extra|-|1||^usage: shcl about '
+	# 'dd6zv|donate-word-refuses-extra|donate --int|-|1||^usage: shcl donate '
 	## 20260928 item 9: a word left over from 2.x is an unknown command, and the
 	## hint names its flag. help takes one topic and the informational flags.
-	"ErCvyWK|version-word-gone|version|-|1||^unknown command: version; did you mean '--version'\\? \\(see --help\\)$"
-	"ErCvyXy|about-word-gone|about extra|-|1||^unknown command: about; did you mean '--about'\\?"
-	"ErCvyZZ|donate-word-gone|donate --int|-|1||^unknown command: donate; did you mean '--donate'\\?"
-	"ErCvye5|help-topic-version-word|help version|-|1||^unknown command: version; did you mean '--version'\\?"
+	"dd850|version-word-gone|version|-|1||^unknown command: version; did you mean '--version'\\? \\(see --help\\)$"
+	"dd851|about-word-gone|about extra|-|1||^unknown command: about; did you mean '--about'\\?"
+	"dd852|donate-word-gone|donate --int|-|1||^unknown command: donate; did you mean '--donate'\\?"
+	"dd855|help-topic-version-word|help version|-|1||^unknown command: version; did you mean '--version'\\?"
 	## 20260802 item 25: `--` ends the options, so a FILE and a PATH that start
 	## with a dash are data, and init refuses a FILE.
-	'EqzuLVq|double-dash-ends-options|get -- %DD% -h|-|0|7\n|-'
-	'EqzuLVr|init-extra-arg|init --schema=%S2% extra|-|1||^init takes no file argument \(see --help\)$'
+	'dd50t|double-dash-ends-options|get -- %DD% -h|-|0|7\n|-'
+	'dd50v|init-extra-arg|init --schema=%S2% extra|-|1||^init takes no file argument \(see --help\)$'
 	## 20260725 item 14: past 64 of either, the C CLI exited 1 with nothing on
 	## stdout.
-	"EqzuLVs|many-layers|get --int ${manyLayers}%F% a|-|0|1\n|-"
-	"EqzuLVt|many-sets|get --int ${manySets}%F% k69|-|0|69\n|-"
+	"dd50w|many-layers|get --int ${manyLayers}%F% a|-|0|1\n|-"
+	"dd50x|many-sets|get --int ${manySets}%F% k69|-|0|69\n|-"
 	## 20260725 item 17: check --schema numbered a schema fault as a document
 	## line. stderr names the schema; stdout keeps the one form.
-	'EqzuLVu|check-schema-line-v090|check --schema=%SU% %F%|-|6|line 2: Error: V090\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 2: Error: V090 unknown schema key .bogus.$'
-	'EqzuLVv|check-schema-line-v091|check --schema=%S3% %F%|-|6|line 5: Error: V091\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 5: Error: V091 unknown schema type .nope.$'
-	'EqzuLVw|check-schema-line-v092|check --schema=%S8% %F%|-|6|-|^schema line 3: Error: V092 bad schema constraint .default.$'
-	'EqzuLVx|check-schema-line-v093|check --schema=%SM% %F%|-|6|-|^schema line 3: Error: V093 bad schema path'
+	'dd50y|check-schema-line-v090|check --schema=%SU% %F%|-|6|line 2: Error: V090\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 2: Error: V090 unknown schema key .bogus.$'
+	'dd50z|check-schema-line-v091|check --schema=%S3% %F%|-|6|line 5: Error: V091\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 5: Error: V091 unknown schema type .nope.$'
+	'dd510|check-schema-line-v092|check --schema=%S8% %F%|-|6|-|^schema line 3: Error: V092 bad schema constraint .default.$'
+	'dd511|check-schema-line-v093|check --schema=%SM% %F%|-|6|-|^schema line 3: Error: V093 bad schema path'
 	## 2026101514324711: V094 and V095 count schema lines too.
-	'EssfCWy|check-schema-line-v094|check --schema=- %F%|field: a\nfragment:\n\tfield: y\n|6|line 2: Error: V094\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 2: Error: V094 bad schema fragment$'
-	'EssfCWz|check-schema-line-v095|check --schema=- %F%|field: a\nfield: x\n\tinherits: nosuch\n|6|line 3: Error: V095\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 3: Error: V095 unknown schema fragment .nosuch.$'
+	'de13a|check-schema-line-v094|check --schema=- %F%|field: a\nfragment:\n\tfield: y\n|6|line 2: Error: V094\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 2: Error: V094 bad schema fragment$'
+	'de13b|check-schema-line-v095|check --schema=- %F%|field: a\nfield: x\n\tinherits: nosuch\n|6|line 3: Error: V095\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 3: Error: V095 unknown schema fragment .nosuch.$'
 	## 20260716 item 24: an argument that is not UTF-8 panicked the reference at
 	## 134 while the ports exited 3. POSIX-only: windows hands a program UTF-16.
-	'EqzuLVy|argv-not-utf8|get %F% %XF%|-|1||^invalid argument encoding \(expected UTF-8\)$'
-	'EqzuLVz|argv-not-utf8-value|get --default=a%XF% %F% nope|-|1||^invalid argument encoding \(expected UTF-8\)$'
+	'dd512|argv-not-utf8|get %F% %XF%|-|1||^invalid argument encoding \(expected UTF-8\)$'
+	'dd513|argv-not-utf8-value|get --default=a%XF% %F% nope|-|1||^invalid argument encoding \(expected UTF-8\)$'
 	## 20260830 item 12: Python wrote stdout in the locale's encoding, which
 	## raised on a non-ASCII value wherever that was not UTF-8.
-	'EqzuLW0|ascii-locale-get|get %NA% n|@asciilocale|0|caf\xc3\xa9 \xe2\x82\xac\n|^$'
-	'EqzuLW1|ascii-locale-fmt|fmt %NA%|@asciilocale|0|n: "caf\xc3\xa9 \xe2\x82\xac"\n|^$'
+	'dd514|ascii-locale-get|get %NA% n|@asciilocale|0|caf\xc3\xa9 \xe2\x82\xac\n|^$'
+	'dd515|ascii-locale-fmt|fmt %NA%|@asciilocale|0|n: "caf\xc3\xa9 \xe2\x82\xac"\n|^$'
 	## 2026100717500020: a default op replaces a value that does not read as
 	## its type and keeps the old line as a comment, refuses over a raw block,
 	## and the data options fill only a missing or empty field.
-	'EsJZkoC|default-op-replaces|set -|string\tport\tabc\nint-default\tport\t9\n|0|# port: abc  ## replaced by shcl when setting a default for port, 2026-10-04 00:15:00 PDT: not an int\nport: 9\n|-'
-	'EsJZkoD|default-op-raw-block|set -|raw\tscript\tsh\techo hi\nint-default\tscript\t1\n|1||^op line 2: cannot write script: a raw block is there, and a default of another type would lose its body \(see --help\)$'
-	'EsJZkoE|set-default-fills-empty|set --set-default=e=3 -|e:\n|0|e: 3\n|-'
-	'EsJZkoF|set-default-keeps-any-value|set --set-default=p=9 -|p: abc\n|0|p: abc\n|-'
-	'EsaLLI5|set-literal-default-keeps-any-value|set --set-literal-default=p=9 -|p: abc\n|0|p: abc\n|-'
+	'ddrnm|default-op-replaces|set -|string\tport\tabc\nint-default\tport\t9\n|0|# port: abc  ## replaced by shcl when setting a default for port, 2026-10-04 00:15:00 PDT: not an int\nport: 9\n|-'
+	'ddrnn|default-op-raw-block|set -|raw\tscript\tsh\techo hi\nint-default\tscript\t1\n|1||^op line 2: cannot write script: a raw block is there, and a default of another type would lose its body \(see --help\)$'
+	'ddrnp|set-default-fills-empty|set --set-default=e=3 -|e:\n|0|e: 3\n|-'
+	'ddrnq|set-default-keeps-any-value|set --set-default=p=9 -|p: abc\n|0|p: abc\n|-'
+	'ddwpa|set-literal-default-keeps-any-value|set --set-literal-default=p=9 -|p: abc\n|0|p: abc\n|-'
 	## 2026101514324721: a default equal to another instance folds the two,
 	## and the note goes on whichever one stays, earlier or later.
-	'EstMftv|default-op-folds-into-earlier|set -|int\tsite("9").host\t1\nint\tsite("abc").port\t2\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\thost: 1\n\tport: 2\n|-'
-	'EstMfw7|default-op-folds-later-in|set -|int\tsite("abc").port\t2\nint\tsite("9").host\t1\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\tport: 2\n\thost: 1\n|-'
+	'de18x|default-op-folds-into-earlier|set -|int\tsite("9").host\t1\nint\tsite("abc").port\t2\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\thost: 1\n\tport: 2\n|-'
+	'de18y|default-op-folds-later-in|set -|int\tsite("abc").port\t2\nint\tsite("9").host\t1\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\tport: 2\n\thost: 1\n|-'
 )
 
 declare -i nRun=0 nBad=0 n2x=0 nUsage=0
@@ -2124,7 +2124,7 @@ done
 ## stdout and stderr, whatever the row itself checks.
 ## Rows a platform cannot judge are skipped before they run, so the floor is
 ## half the rows rather than all of them.
-fTest EsJLUK1 output-no-2x-escapes
+fTest ddrkm output-no-2x-escapes
 if ((n2x * 2 < ${#rows[@]})); then
 	echo "cli-regress: output-no-2x-escapes: only ${n2x} row run(s) scanned for ${#rows[@]} row(s)" >&2; nBad+=1
 fi
@@ -2135,7 +2135,7 @@ if [[ -s "${tmpDir}/esc2x-out" ]]; then
 fi
 
 ## Review 20261014 item 7, over the rows above.
-fTest EshMywc usage-errors-name-a-fix
+fTest ddycc usage-errors-name-a-fix
 if ((nUsage == 0)); then
 	echo "cli-regress: usage-errors-name-a-fix: no row exited 1" >&2; nBad+=1
 fi
@@ -2151,7 +2151,7 @@ fi
 ## help's "Also refused" list naming them all. Two type options, or one option
 ## given two values, are the general sentence after the list. The five edit
 ## options share one list, which the entries call --set.
-fTest EshU8Hz help-lists-refusals
+fTest ddyde help-lists-refusals
 typeOpts=' --int --float --bool --datetime --string --raw --rawinfo --duration --size '
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
@@ -2189,7 +2189,7 @@ done
 ## 2026101407100006: what the help says these do, each run by a row:
 ## remove-wildcard-takes-all, ops-raw-info-as-written, migrate-taken,
 ## set-print-says-canonical and flag-zero-missing-int.
-fTest EshU8KI help-says
+fTest ddydf help-says
 helpSays=(
 	'--remove=PATH (same) delete every field the path reaches'
 	"A raw op's INFO is taken as written"
@@ -2210,7 +2210,7 @@ done
 ## while -V worked, and set sat on stdin saying nothing. Checked against help
 ## and -V rather than a spelling, since the version moves every release. The
 ## stdin notice is checked after these.
-fTest Er1zoZJ bare-and-short-v
+fTest dd5h3 bare-and-short-v
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	for pair in "|help" "-v|-V"; do
@@ -2228,7 +2228,7 @@ done
 ## first one used to win and the rest were dropped. --about opens with the
 ## version line, so it covers --version, and a repeat prints once. Built from
 ## each flag's own output, since the version moves every release.
-fTest ErCvyb6 info-flags-in-order
+fTest dd853 info-flags-in-order
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	"${cli}" --version >"${tmpDir}/v" 2>/dev/null </dev/null || true
@@ -2248,7 +2248,7 @@ for b in "${bindings[@]}"; do
 		fi
 	done
 done
-fTest ErCvycb info-about-covers-version
+fTest dd854 info-about-covers-version
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	"${cli}" --about >"${tmpDir}/a" 2>/dev/null </dev/null || true
@@ -2265,7 +2265,7 @@ for b in "${bindings[@]}"; do
 done
 ## The notice went out whatever stdin was until 2026100717500018, so a script
 ## piping ops in got it on every run. Only a terminal gets it now.
-#fTest EqzuLW2 set-stdin-notice
+#fTest dd52a set-stdin-notice
 #for b in "${bindings[@]}"; do
 #	name="${b%%|*}"; cli="${b#*|}"
 #	rc=0; "${cli}" set "${tmpDir}/ok.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
@@ -2275,7 +2275,7 @@ done
 #		echo "cli-regress: set-stdin-notice [${name}]: exit ${rc}, stderr ${gotErr@Q}" >&2; nBad+=1
 #	fi
 #done
-fTest Es8bB5G set-stdin-no-notice
+fTest ddp1k set-stdin-no-notice
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	for how in null pipe; do
@@ -2290,7 +2290,7 @@ for b in "${bindings[@]}"; do
 done
 ## At a terminal the notice is what keeps the wait from reading as a hang. The
 ## terminal gets EOF before the command starts, so the ops script is empty.
-fTest Es8bB5H set-stdin-notice-terminal
+fTest ddp1m set-stdin-notice-terminal
 if [[ "${onWindows}" == 1 ]] || ! command -v python3 >/dev/null 2>&1; then
 	echo "cli-regress: skipping set-stdin-notice-terminal (needs python3 and a POSIX terminal)"
 	fTestSkip
@@ -2327,7 +2327,7 @@ pipeDfl=()
 if env --default-signal=PIPE true 2>/dev/null; then pipeDfl=(env --default-signal=PIPE)
 elif command -v perl >/dev/null 2>&1; then pipeDfl=(perl -e '$SIG{PIPE} = "DEFAULT"; exec { $ARGV[0] } @ARGV or exit 127')
 else yesRc="$( { { yes 2>/dev/null; echo "$?" >&3; } | head -c1 >/dev/null; } 3>&1 || true)"; fi
-fTest EqzuLW3 broken-pipe
+fTest dd516 broken-pipe
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping broken-pipe (POSIX signal; not judged on windows)"
 	fTestSkip
@@ -2351,7 +2351,7 @@ fi
 ## 20260926 item 8: a new file named through a volume path, \\.\C:\dir\new,
 ## was refused as not a regular file: with nothing there to open, the check fell
 ## to the full path, and any \\.\ there read as a device.
-fTest Er8M01L windows-volume-path-create
+fTest dd71r windows-volume-path-create
 if [[ "${onWindows}" == 1 ]]; then
 	winTmp="$(cygpath -w "${tmpDir}")"
 	for b in "${bindings[@]}"; do
@@ -2374,7 +2374,7 @@ fi
 fDacl(){
 	MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "(Get-Acl -LiteralPath '$1').GetSecurityDescriptorSddlForm('Access')" 2>/dev/null | tr -d '\r' || true
 }
-fTest ErMwKp1 windows-migrate-acl
+fTest ddaj0 windows-migrate-acl
 if [[ "${onWindows}" == 1 ]]; then
 	aclDir="${tmpDir}/migacl"
 	for b in "${bindings[@]}"; do
@@ -2399,7 +2399,7 @@ fi
 ## 20260928 item 12: Python 3.13 and later has os.fchmod on windows, which put
 ## the read-only bit on the copy of a read-only file. A failed save could not
 ## remove that copy, and the next run refused the taken name.
-fTest ErMwwHF windows-migrate-readonly
+fTest ddaj3 windows-migrate-readonly
 if [[ "${onWindows}" == 1 ]]; then
 	roDir="${tmpDir}/migro"
 	for b in "${bindings[@]}"; do
@@ -2424,7 +2424,7 @@ fi
 ## copy of C:.shclrc is C:.shclrc_backup_..., not C:_backup_....shclrc. The drive is
 ## the fixture's own, whose current directory is the fixture. Only that argument
 ## is kept from path conversion, since the python wrapper's own path needs it.
-fTest ErMwwZ1 windows-migrate-drive-relative
+fTest ddaj4 windows-migrate-drive-relative
 if [[ "${onWindows}" == 1 ]]; then
 	drelDir="${tmpDir}/migdrel"
 	for b in "${bindings[@]}"; do
@@ -2470,9 +2470,9 @@ if [[ "${onWindows}" == 1 ]]; then
 else
 	truncate -s 64M "${tmpDir}/huge.shcl"
 fi
-fTest EqzuLW4 out-of-memory-huge
+fTest dd517 out-of-memory-huge
 if [[ "${onWindows}" == 1 ]]; then fTestSkip; else fOom huge; fi
-fTest EqzuLW5 out-of-memory-big
+fTest dd518 out-of-memory-big
 if [[ "${onWindows}" == 1 ]]; then fTestSkip; else fOom big; fi
 
 ## The deepest legal document inside the stack windows gives a main thread,
@@ -2498,9 +2498,9 @@ if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping small-stack (POSIX fixture; the windows stack is the deep-nesting row)"
 fi
 deepPath="n0"; for i in {1..510}; do deepPath+=".n${i}"; done; deepPath+=".leaf"
-fTest Er0CdE8 small-stack-fmt
+fTest dd531 small-stack-fmt
 if [[ "${onWindows}" == 1 ]]; then fTestSkip; else fSmallStack fmt; fi
-fTest Er0CdE9 small-stack-set
+fTest dd532 small-stack-set
 if [[ "${onWindows}" == 1 ]]; then fTestSkip; else fSmallStack set; fi
 
 ## 20261003 item 11: a Schema line's file swapped for a FIFO after the stat and
@@ -2544,7 +2544,7 @@ fSchemaSwap(){
 		fi
 	done
 }
-fTest Erlf8t9 schema-line-fifo-swap
+fTest ddggf schema-line-fifo-swap
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping schema-line-fifo-swap (POSIX fixture; windows has no FIFO at a path)"
 	fTestSkip
@@ -2620,92 +2620,92 @@ fSaveSetup() {
 ## The last field is eval'd after the run, so its substitutions stay unexpanded.
 # shellcheck disable=SC2016
 saveCases=(
-	'EqLbKeA|regular|set --write --set b=2 f.shcl|0|[[ -f f.shcl && ! -L f.shcl ]] && grep -qx "b: 2" f.shcl'
-	'EqLbKeB|nothing|set --write --set b=2 f.shcl|0|[[ -f f.shcl && ! -L f.shcl ]] && grep -qx "b: 2" f.shcl'
-	'EqLbKeC|link|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" real.shcl'
-	'EqLbKeD|dangling|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" sub/x.shcl'
+	'dcvam|regular|set --write --set b=2 f.shcl|0|[[ -f f.shcl && ! -L f.shcl ]] && grep -qx "b: 2" f.shcl'
+	'dcvan|nothing|set --write --set b=2 f.shcl|0|[[ -f f.shcl && ! -L f.shcl ]] && grep -qx "b: 2" f.shcl'
+	'dcvap|link|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" real.shcl'
+	'dcvaq|dangling|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" sub/x.shcl'
 	## 2026101514324710: into a folder that isn't there, the temp create is what
 	## failed. C asked the link's folder, which takes one, and left the phase out.
-	'Essd9Mm|dangling-nodir|set --write --set b=2 f.shcl|8|[[ -L f.shcl && ! -e sub ]] && grep -qE "^f\.shcl: cannot create temporary file: [^/]+$" "${tmpDir}/err"'
-	'EqLbKeE|dotdot|set --write --set b=2 top/lnkdir/f.shcl|0|[[ -L real/sub/f.shcl && ! -e top/x.shcl ]] && grep -qx "b: 2" real/x.shcl'
+	'de138|dangling-nodir|set --write --set b=2 f.shcl|8|[[ -L f.shcl && ! -e sub ]] && grep -qE "^f\.shcl: cannot create temporary file: [^/]+$" "${tmpDir}/err"'
+	'dcvar|dotdot|set --write --set b=2 top/lnkdir/f.shcl|0|[[ -L real/sub/f.shcl && ! -e top/x.shcl ]] && grep -qx "b: 2" real/x.shcl'
 	## 20260830 item 32: Python cleaned the `..` against a directory that is not
 	## there and created f.shcl here at exit 0. The kernel refuses the path.
-	'Er1zoZK|missdir|set --write --set b=2 nodir/../f.shcl|8|[[ -z "$(ls -A)" ]]'
-	'EqLbKeF|linkdir|set --write --set b=2 f.shcl|8|[[ -L f.shcl && ! -e d ]]'
-	'EqLbKeG|cycle|set --write --set b=2 f.shcl|8|[[ -L f.shcl && -L g.shcl ]]'
-	'EqLbKeH|slash|set --write --set b=2 f.shcl/|8|[[ -f f.shcl ]] && ! grep -q b f.shcl'
-	'EqLbKeI|dir|set --write --set b=2 f.shcl|8|[[ -d f.shcl ]]'
-	'EqLbKeJ|fifo|set --write --set b=2 f.shcl|8|[[ -p f.shcl ]]'
-	'EqLbKeK|fifo-fmt|fmt --write f.shcl|8|[[ -p f.shcl ]]'
-	'EqLbKeL|device|set --write --set b=2 f.shcl|8|[[ -L f.shcl && -c /dev/null ]]'
+	'dd5h4|missdir|set --write --set b=2 nodir/../f.shcl|8|[[ -z "$(ls -A)" ]]'
+	'dcvas|linkdir|set --write --set b=2 f.shcl|8|[[ -L f.shcl && ! -e d ]]'
+	'dcvat|cycle|set --write --set b=2 f.shcl|8|[[ -L f.shcl && -L g.shcl ]]'
+	'dcvav|slash|set --write --set b=2 f.shcl/|8|[[ -f f.shcl ]] && ! grep -q b f.shcl'
+	'dcvaw|dir|set --write --set b=2 f.shcl|8|[[ -d f.shcl ]]'
+	'dcvax|fifo|set --write --set b=2 f.shcl|8|[[ -p f.shcl ]]'
+	'dcvay|fifo-fmt|fmt --write f.shcl|8|[[ -p f.shcl ]]'
+	'dcvaz|device|set --write --set b=2 f.shcl|8|[[ -L f.shcl && -c /dev/null ]]'
 	## 20260918b item 56: a write with nothing to write leaves the file alone,
 	## inode and all, and one with something to write still replaces it.
-	'EqMO8f8|same|fmt --write f.shcl|0|[[ "$(fStat i f.shcl)" == "$(cat ino)" ]]'
-	'EqMO8f9|differs|fmt --write f.shcl|0|[[ "$(fStat i f.shcl)" != "$(cat ino)" ]] && grep -qx "a: 1" f.shcl'
+	'dcvgr|same|fmt --write f.shcl|0|[[ "$(fStat i f.shcl)" == "$(cat ino)" ]]'
+	'dcvgs|differs|fmt --write f.shcl|0|[[ "$(fStat i f.shcl)" != "$(cat ino)" ]] && grep -qx "a: 1" f.shcl'
 	## 20260918b item 57: the group comes over with the mode, so a config a
 	## service reads by group keeps that read.
-	'EqMO8fA|group|fmt --write f.shcl|0|[[ "$(fStat G f.shcl)" == "${altGroup}" && "$(fStat a f.shcl)" == 640 ]]'
+	'dcvgt|group|fmt --write f.shcl|0|[[ "$(fStat G f.shcl)" == "${altGroup}" && "$(fStat a f.shcl)" == 640 ]]'
 	## migrate --write ends with the new file and the original beside it, at the
 	## original's mode. An earlier copy is never written over, and a file that
 	## only gains the Format line gets no copy.
-	'Er5ivua|migrate|migrate --write f.shcl|0|grep -qx "base: Boston" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 ]]'
-	'Er5ivub|migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_backup_20261004-001500_format-v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
-	'Er5ivuc|migrate-stamp|migrate --write f.shcl|0|[[ "$(ls -A)" == f.shcl ]]'
-	'Er5ivud|migrate-dotname|migrate --write .f|0|[[ -f .f_backup_20261004-001500_format-v2 ]]'
-	'Er5ivue|migrate-dotdir|migrate --write d.x/f|0|[[ -f d.x/f_backup_20261004-001500_format-v2 ]]'
+	'dd6dg|migrate|migrate --write f.shcl|0|grep -qx "base: Boston" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 ]]'
+	'dd6dh|migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_backup_20261004-001500_format-v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'dd6dj|migrate-stamp|migrate --write f.shcl|0|[[ "$(ls -A)" == f.shcl ]]'
+	'dd6dk|migrate-dotname|migrate --write .f|0|[[ -f .f_backup_20261004-001500_format-v2 ]]'
+	'dd6dm|migrate-dotdir|migrate --write d.x/f|0|[[ -f d.x/f_backup_20261004-001500_format-v2 ]]'
 	## Through a link: the target gets the new text, and the copy sits beside
 	## the link as a plain file.
-	'Er5qICv|migrate-link|migrate --write f.shcl|0|[[ -L f.shcl && -f f_backup_20261004-001500_format-v2.shcl && ! -L f_backup_20261004-001500_format-v2.shcl && ! -e real/c_backup_20261004-001500_format-v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_backup_20261004-001500_format-v2.shcl'
+	'dd6ef|migrate-link|migrate --write f.shcl|0|[[ -L f.shcl && -f f_backup_20261004-001500_format-v2.shcl && ! -L f_backup_20261004-001500_format-v2.shcl && ! -e real/c_backup_20261004-001500_format-v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_backup_20261004-001500_format-v2.shcl'
 	## 20260928 items 3, 6 and 11: in a setgid directory the copy takes the
 	## original's group, not the directory's. Setuid, setgid and sticky come
 	## over too. A copy that cannot be made names its path once.
-	'ErCrqxU|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(fStat G sg/f_backup_20261004-001500_format-v2.shcl)" == "$(id -gn)" && "$(fStat a sg/f_backup_20261004-001500_format-v2.shcl)" == 640 ]]'
-	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 6755 ]]'
+	'dd84g|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(fStat G sg/f_backup_20261004-001500_format-v2.shcl)" == "$(id -gn)" && "$(fStat a sg/f_backup_20261004-001500_format-v2.shcl)" == 640 ]]'
+	'dd84h|migrate-setid|migrate --write f.shcl|0|[[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 6755 ]]'
 	## A remove leaves the kept line beside its target (2026100307163901). Until
 	## that fix the save gate refused this at 7 and left the file alone.
-	'EreYYXK|kept-remove|set --write --remove y f.shcl|0|cmp -s f.shcl <(printf "x: 1\nr: [1, 2\n") && ! grep -q "refusing" "${tmpDir}/err"'
+	'ddesk|kept-remove|set --write --remove y f.shcl|0|cmp -s f.shcl <(printf "x: 1\nr: [1, 2\n") && ! grep -q "refusing" "${tmpDir}/err"'
 	## A field opened only by the line under it goes with that line, and its own
 	## kept line stays, with no bare `a:` left behind (2026100307163907).
-	'ErgTonu|kept-lazy|set --write --remove a.b f.shcl|0|cmp -s f.shcl <(printf "a: [1\ny: 3\n")'
+	'ddf8j|kept-lazy|set --write --remove a.b f.shcl|0|cmp -s f.shcl <(printf "a: [1\ny: 3\n")'
 	## A setter on that field writes its kept line as a comment with a note, so
 	## the file has one `a` (2026100307163907).
-	'Erlf1Is|kept-set|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\n\tb: 2\ny: 3\n")'
+	'ddgge|kept-set|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\n\tb: 2\ny: 3\n")'
 	## A setter making `a` writes every kept `a` in the block as that comment
 	## and puts the new line under the first (2026100307163907).
-	'ErmXhyt|kept-create|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "x: 1\n# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\ny: 3\n# a: [2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\n")'
+	'ddgq5|kept-create|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "x: 1\n# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\ny: 3\n# a: [2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\n")'
 	## upgrade --write backs up and writes the same way (2026100313461649).
-	'Es2Rg1L|upgrade|upgrade --write f.shcl|0|grep -qx "base: Boston" f.shcl && grep -qx "##    Format   3" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
-	'Es2Rg1M|upgrade-taken|upgrade --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_backup_20261004-001500_format-v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
-	'Es2Rg1N|upgrade-link|upgrade --write f.shcl|0|[[ -L f.shcl && -f f_backup_20261004-001500_format-v2.shcl && ! -L f_backup_20261004-001500_format-v2.shcl && ! -e real/c_backup_20261004-001500_format-v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_backup_20261004-001500_format-v2.shcl'
-	'Es2Rg1O|fifo-upgrade|upgrade --write f.shcl|8|[[ -p f.shcl ]]'
-	'Es2Rg1P|upgrade-rodir|upgrade --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err"'
+	'ddmhr|upgrade|upgrade --write f.shcl|0|grep -qx "base: Boston" f.shcl && grep -qx "##    Format   3" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddmhs|upgrade-taken|upgrade --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_backup_20261004-001500_format-v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddmht|upgrade-link|upgrade --write f.shcl|0|[[ -L f.shcl && -f f_backup_20261004-001500_format-v2.shcl && ! -L f_backup_20261004-001500_format-v2.shcl && ! -e real/c_backup_20261004-001500_format-v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_backup_20261004-001500_format-v2.shcl'
+	'ddmhv|fifo-upgrade|upgrade --write f.shcl|8|[[ -p f.shcl ]]'
+	'ddmhw|upgrade-rodir|upgrade --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err"'
 	## An older Format line becomes this one, backed up like any upgrade
 	## (2026100717500017) and any migrate that rewrites a line (2026100916475300).
-	'EsFrOVV|upgrade-restamp|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddqrx|upgrade-restamp|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## The fresh file names one format, and the old line goes even from the top
 	## of the file (2026101407100001).
-	'Esgj35S|upgrade-top-format|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "##    Format   3" f.shcl && grep -qx "q: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "##    Format   2\nname: x\nq: a,b\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddy7x|upgrade-top-format|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "##    Format   3" f.shcl && grep -qx "q: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "##    Format   2\nname: x\nq: a,b\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## A file naming this format that loads with an error is taken as 2.x when
 	## the caller says so, backed up under the format it names, and a second
 	## run leaves the fresh file alone (2026101407100010).
-	'EsgoThf|upgrade-beta|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "tags: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v3.shcl <(printf "tags: a, b\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]] && cp f.shcl ../beta-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../beta-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddy89|upgrade-beta|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "tags: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v3.shcl <(printf "tags: a, b\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]] && cp f.shcl ../beta-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../beta-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## A file it leaves alone still has its load's diagnostics said once, and
 	## nothing is written (2026101419280005).
 	## Wrong since 2026101515372401: a fresh text that keeps an error is
-	## refused at 7, not left at 0. EsoQmUE has the new rule. Don't uncomment.
-	# 'Esnb9pV|upgrade-beta-left|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && cmp -s "${tmpDir}/err" <(printf "line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\nf.shcl: nothing to upgrade, left as is\n")'
+	## refused at 7, not left at 0. de030 has the new rule. Don't uncomment.
+	# 'ddzwg|upgrade-beta-left|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && cmp -s "${tmpDir}/err" <(printf "line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\nf.shcl: nothing to upgrade, left as is\n")'
 	## With --from-2x a fresh text that would keep an error is refused, for a
 	## file with no Format line as for a beta file, and nothing is written. The
 	## 2.x escape on line 1 grew on each run before (2026101515372401). With
 	## line 5 quoted it converts, and the next run leaves it alone.
-	'EsoQmUE|upgrade-beta-left|upgrade --write --from-2x f.shcl|7|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 2 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err"'
-	'EsoQmUD|upgrade-from-2x-left|upgrade --write --from-2x f.shcl|7|cmp -s f.shcl ../left.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 5 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err" && sed "s/^port: \(.*\)\$/port: \"\1\"/" ../left.shcl > f.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && "${cli}" check f.shcl >/dev/null 2>&1 && cp f.shcl ../left-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../left-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'de030|upgrade-beta-left|upgrade --write --from-2x f.shcl|7|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 2 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err"'
+	'de02z|upgrade-from-2x-left|upgrade --write --from-2x f.shcl|7|cmp -s f.shcl ../left.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 5 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err" && sed "s/^port: \(.*\)\$/port: \"\1\"/" ../left.shcl > f.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && "${cli}" check f.shcl >/dev/null 2>&1 && cp f.shcl ../left-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../left-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## The Format line after the block of a refused line led by a tilde is
 	## found, so upgrade leaves the file alone rather than back it up again on
 	## every run (2026101514324701).
-	'EsoQOx6|upgrade-odd-name|upgrade --write f.shcl|0|cmp -s f.shcl <(printf "~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && "${cli}" upgrade --write f.shcl 2>/dev/null && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]]'
-	'EsFrOVW|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
-	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
+	'de02s|upgrade-odd-name|upgrade --write f.shcl|0|cmp -s f.shcl <(printf "~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && "${cli}" upgrade --write f.shcl 2>/dev/null && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]]'
+	'ddqry|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'dd84j|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping the save-target cases (POSIX fixtures; not judged on windows)"
@@ -2755,33 +2755,33 @@ done
 ## or when the backup or the save failed after the load. Each row's file has
 ## one E014 line, and it has to show up exactly once.
 diagExits=(
-	'EssOUuB|get-not-found|read|-|get f.shcl nope|3'
-	'EssOUuC|get-bad-type|read|-|get --int f.shcl a|4'
-	'EssOUuD|get-empty|read|-|get f.shcl e|2'
-	'EssOUuE|get-multiple|read|-|get f.shcl m|5'
-	'EssOUuF|get-strict|read|-|get --strictness=strict f.shcl a|6'
-	'EssOUuG|count-strict|read|-|count --strictness=strict f.shcl m|6'
-	'EssOUuH|instances-strict|read|-|instances --strictness=strict f.shcl m|6'
-	'EssOUuI|children-strict|read|-|children --strictness=strict f.shcl|6'
-	'EssOUuJ|paths-strict|read|-|paths --strictness=strict f.shcl|6'
-	'EssOUuK|check|read|-|check f.shcl|6'
-	'EssOUuL|fmt-check|read|-|fmt --check f.shcl|6'
-	'EssOUuM|fmt-write-lost|lost|-|fmt --write f.shcl|7'
-	'EssOUuN|fmt-write-rodir|read|ro|fmt --write ro/f.shcl|8'
-	'EssOUuO|set-lost|lost|-|set --remove=val.m f.shcl|7'
-	'EssOUuP|set-write-lost|lost|-|set --write --remove=val.m f.shcl|7'
-	'EssOUuQ|set-write-rodir|read|ro|set --write --set=d=1 ro/f.shcl|8'
-	'EssOUuR|migrate-two-way|twoway|-|migrate f.shcl|7'
-	'EssOUuS|migrate-write-two-way|twoway|-|migrate --write f.shcl|7'
-	'EssOUuT|migrate-check-lost|lost|-|migrate --check f.shcl|7'
-	'EssOUuU|migrate-write-taken|old|taken|migrate --write --from-2x f.shcl|8'
-	'EssOUuV|migrate-write-rodir|old|ro|migrate --write --from-2x ro/f.shcl|8'
-	'EssOUuW|upgrade-two-way|twoway|-|upgrade f.shcl|7'
-	'EssOUuX|upgrade-write-two-way|twoway|-|upgrade --write f.shcl|7'
-	'EssOUuY|upgrade-errors-left|left|-|upgrade --from-2x f.shcl|7'
-	'EssOUuZ|upgrade-write-errors-left|left|-|upgrade --write --from-2x f.shcl|7'
-	'EssOUua|upgrade-write-taken|old|taken|upgrade --write f.shcl|8'
-	'EssOUub|upgrade-write-rodir|old|ro|upgrade --write ro/f.shcl|8'
+	'de117|get-not-found|read|-|get f.shcl nope|3'
+	'de118|get-bad-type|read|-|get --int f.shcl a|4'
+	'de119|get-empty|read|-|get f.shcl e|2'
+	'de11a|get-multiple|read|-|get f.shcl m|5'
+	'de11b|get-strict|read|-|get --strictness=strict f.shcl a|6'
+	'de11c|count-strict|read|-|count --strictness=strict f.shcl m|6'
+	'de11d|instances-strict|read|-|instances --strictness=strict f.shcl m|6'
+	'de11e|children-strict|read|-|children --strictness=strict f.shcl|6'
+	'de11f|paths-strict|read|-|paths --strictness=strict f.shcl|6'
+	'de11g|check|read|-|check f.shcl|6'
+	'de11h|fmt-check|read|-|fmt --check f.shcl|6'
+	'de11j|fmt-write-lost|lost|-|fmt --write f.shcl|7'
+	'de11k|fmt-write-rodir|read|ro|fmt --write ro/f.shcl|8'
+	'de11m|set-lost|lost|-|set --remove=val.m f.shcl|7'
+	'de11n|set-write-lost|lost|-|set --write --remove=val.m f.shcl|7'
+	'de11p|set-write-rodir|read|ro|set --write --set=d=1 ro/f.shcl|8'
+	'de11q|migrate-two-way|twoway|-|migrate f.shcl|7'
+	'de11r|migrate-write-two-way|twoway|-|migrate --write f.shcl|7'
+	'de11s|migrate-check-lost|lost|-|migrate --check f.shcl|7'
+	'de11t|migrate-write-taken|old|taken|migrate --write --from-2x f.shcl|8'
+	'de11v|migrate-write-rodir|old|ro|migrate --write --from-2x ro/f.shcl|8'
+	'de11w|upgrade-two-way|twoway|-|upgrade f.shcl|7'
+	'de11x|upgrade-write-two-way|twoway|-|upgrade --write f.shcl|7'
+	'de11y|upgrade-errors-left|left|-|upgrade --from-2x f.shcl|7'
+	'de11z|upgrade-write-errors-left|left|-|upgrade --write --from-2x f.shcl|7'
+	'de120|upgrade-write-taken|old|taken|upgrade --write f.shcl|8'
+	'de121|upgrade-write-rodir|old|ro|upgrade --write ro/f.shcl|8'
 )
 fDiagFixture(){   ## fDiagFixture NAME: sets diagText and the E014 line's number
 	case "$1" in
@@ -2828,7 +2828,7 @@ done
 ## without it.
 infoBlock="$(printf '%b' '##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n')"
 banDir="${tmpDir}/banner"
-for bc in 'Erg8DKx|stamp|p: 1\n## Owner: ops team\n' 'Erg8DKy|stamp-note|base:[Boston]\n## Owner: ops team\n'; do
+for bc in 'ddf5t|stamp|p: 1\n## Owner: ops team\n' 'ddf5v|stamp-note|base:[Boston]\n## Owner: ops team\n'; do
 	IFS='|' read -r tid id text <<<"${bc}"
 	fTest "${tid}" "migrate-then-banner-${id}"
 	want="$(printf '%b' "${text}" | sed 's/:\[Boston\]/: Boston/')"
@@ -2855,7 +2855,7 @@ done
 ## The copy fits under a 1 KiB file-size cap and the migrated text, two stamp
 ## lines longer, does not, so the temp file's write fails with EFBIG. SIGXFSZ
 ## is ignored so it is an error and not a kill. POSIX only.
-fTest Er5qICw migrate-failed-save
+fTest dd6eg migrate-failed-save
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping migrate-failed-save (POSIX file-size limit)"
 	fTestSkip
@@ -2881,7 +2881,7 @@ fi
 
 ## The same for upgrade --write, whose fresh text, the info block added, is
 ## further over the cap (2026100313461649).
-fTest Es2RuBA upgrade-failed-save
+fTest ddmhx upgrade-failed-save
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping upgrade-failed-save (POSIX file-size limit)"
 	fTestSkip
@@ -2905,7 +2905,7 @@ fi
 ## (20261007 item 13). The H001 hint on a field repeated over 400,000 lines was
 ## one 3.4 MB stderr line, every run. V004 on an array read as a string printed
 ## the whole array the same way.
-fTest Es9aIMN diag-list-cap
+fTest ddp8d diag-list-cap
 awk 'BEGIN{ for (i = 0; i < 20000; i++) printf "item: v%d\n", i }' > "${tmpDir}/rep20k.shcl"
 printf 'field: x\n\ttype: string\n\tallowed: [a]\n' > "${tmpDir}/allowa.shcl"
 printf 'x: [p, q, r, s, t]\n' > "${tmpDir}/arr5.shcl"
@@ -2948,7 +2948,7 @@ done
 ##	before 7.5 has no -DateKind and turns a value that looks like a date into
 ##	a DateTime, so there only the path and line are compared. A newer pwsh runs
 ##	that way too, so the 7.4 path gets checked on any host (2026101905321200).
-fTest EsEvmLE json-reads-back
+fTest ddqj7 json-reads-back
 if command -v jq >/dev/null 2>&1; then
 	jsonCtl=""
 	for code in $(seq 1 31) 127; do jsonCtl+="$(printf '\xe2\x97\x89U+%04X\xe2\x97\x89' "${code}")"; done
@@ -3054,7 +3054,7 @@ fHelpTexts(){   ## fHelpTexts CLI: every help and code text, one command line ea
 		if [[ -n "${code}" ]]; then echo "explain ${code}"; fi
 	done < <(sed -n '/^const RETIRED: &str = "/,/^";$/p' "${repoDir}/source/rust/src/main.rs" | { grep -oE '^[EHV][0-9]+' || true ;})
 }
-fTest Eq9yPCQ help-width
+fTest dcrhg help-width
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	mapfile -t checks < <(fHelpTexts "${cli}")
@@ -3087,7 +3087,7 @@ done
 ## is asked of the CLI itself, since an option it does not use is refused as
 ## "not valid for CMD", and the parentheses have to name exactly that set.
 ## "(same)", or no parentheses at all, repeats the entry above.
-fTest EqM10js option-entries
+fTest dcvdw option-entries
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	helpText="$("${cli}" help 2>/dev/null </dev/null)"
@@ -3105,7 +3105,7 @@ for b in "${bindings[@]}"; do
 		}
 	done
 done
-fTest EqGfz45 option-scopes
+fTest dct4y option-scopes
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	helpText="$("${cli}" help 2>/dev/null </dev/null)"
@@ -3175,7 +3175,7 @@ done
 ## line in a narrowed help has to come from a paragraph opening with that
 ## command, and every such paragraph has to be there whole. The usage, type and
 ## option blocks are cut by their own rules and checked above.
-fTest Es9aIKE help-own-paragraphs
+fTest ddp8c help-own-paragraphs
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	"${cli}" help </dev/null >"${tmpDir}/fullhelp" 2>/dev/null || true
@@ -3219,7 +3219,7 @@ manPage="${repoDir}/source/man/shcl.1"
 if [[ "$(man --version 2>/dev/null || true)" == "man "[0-9]* ]]; then manCmd=(env MANWIDTH=80 MAN_KEEP_FORMATTING='' man --nh --nj -l)
 elif command -v mandoc >/dev/null 2>&1; then manCmd=(mandoc -T ascii -O width=80)
 else manCmd=(); fi
-fTest EpHH7ZQ man-width
+fTest dcbc4 man-width
 if [[ -f "${manPage}" ]] && ((${#manCmd[@]})); then
 	rendered="$("${manCmd[@]}" "${manPage}" 2>/dev/null | sed $'s/.\b//g' || true)"
 	nRun+=1
@@ -3244,7 +3244,7 @@ fi
 
 ## Review 20261007: 2.x escape forms in the help, the code texts, the about
 ## text and the man page as rendered above, which no row prints whole.
-fTest EsJLUK0 help-no-2x-escapes
+fTest ddrkk help-no-2x-escapes
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	mapfile -t checks < <(fHelpTexts "${cli}")

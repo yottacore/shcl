@@ -34,7 +34,7 @@ impl Drop for TestId {
 		let status = if std::thread::panicking() {
 			"FAIL"
 		} else {
-			"ok"
+			"PASS"
 		};
 		// libtest names each test's thread after the test.
 		let thread = std::thread::current();

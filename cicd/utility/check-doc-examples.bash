@@ -61,14 +61,14 @@ tmpDir="$(mktemp -d)"; trap fOnExit EXIT
 ##	The floors sit a little under what each doc has now, so a reader that stops
 ##	matching its table, or a table that loses its rows, fails rather than
 ##	checking less.
-fTest EsJLUJx value-syntax-tables
+fTest ddrkg value-syntax-tables
 python3 "${repoDir}/cicd/utility/doc-tables.py" "${repoDir}/project/design_docs/20261002-132445_value-syntax.md" 50 "${bindings[@]}" || nBad=$((nBad + 1))
-fTest EsJLUJy spec-tables
+fTest ddrkh spec-tables
 python3 "${repoDir}/cicd/utility/doc-tables.py" "${repoDir}/project/spec.md" 28 "${bindings[@]}" || nBad=$((nBad + 1))
 
 ##	The man page shows its examples in .nf blocks. Every block is either under
 ##	EXAMPLES, and runs, or under a section listed here as not shell.
-fTest EsJLUJz man-examples
+fTest ddrkj man-examples
 declare -A notShell=(["WRITE OPS"]="the ops script's grammar, one op per line")
 blkDir="${tmpDir}/man"; mkdir -p "${blkDir}"
 nBlk="$(awk -v dir="${blkDir}" '

@@ -85,13 +85,13 @@ static char *schema(size_t *len) {
 static const char *open_id, *open_name;
 static void test_id(const char *id, const char *name) { open_id = id; open_name = name; }
 static int test_id_end(int failed) {
-	printf("%-4s %s c %s\n", failed ? "FAIL" : "ok", open_id, open_name);
+	printf("%-4s %s c %s\n", failed ? "FAIL" : "PASS", open_id, open_name);
 	fflush(stdout);
 	return failed ? 1 : 0;
 }
 
 int main(void) {
-	test_id("EoaFuVP", "oom_recover");
+	test_id("dc114", "oom_recover");
 	size_t len; char *text = sample(&len);
 
 	// Every budget short of the whole parse must come back NULL, and the ones

@@ -83,7 +83,7 @@ static void test_line(const char *status, const char *id, const char *name) {
 	fflush(stdout);
 }
 static void test_id_end(void) {
-	if (open_id) test_line(nfail > open_fails ? "FAIL" : open_skipped ? "skip" : "ok", open_id, open_name);
+	if (open_id) test_line(nfail > open_fails ? "FAIL" : open_skipped ? "SKIP" : "PASS", open_id, open_name);
 	open_id = NULL;
 }
 static void test_id(const char *id, const char *name) {
@@ -1384,7 +1384,7 @@ int main(int argc, char **argv) {
 
 	// A fixture compared two notes made on the real clock, and failed when the
 	// second came a second later (2026101912125490). Same check in every runner.
-	test_id("EtAxcPt", "the_clock_is_pinned_for_every_test");
+	test_id("de5g7", "the_clock_is_pinned_for_every_test");
 	{
 		const char *pin = getenv("SHCL_TEST_CLOCK");
 		shcl_doc *pd = shcl_parse("a: x\n", 5);
@@ -1397,7 +1397,7 @@ int main(int argc, char **argv) {
 
 	// The bad-ops loop's names-no-op check is only worth something while a
 	// misspelled op still comes back told apart from an ordinary refusal.
-	test_id("Er207Ye", "a_misspelled_op_is_told_apart");
+	test_id("dd5h5", "a_misspelled_op_is_told_apart");
 	{
 		shcl_doc *pd = shcl_parse("a: 1\n", 5);
 		char misspelled[] = "itn\ta\t1", refused[] = "int\ta\tx";
@@ -1410,7 +1410,7 @@ int main(int argc, char **argv) {
 	// A stray continuation byte or a cut-short sequence stepped over the
 	// closing quote, so the line was E017 (2026100511212359). Same fixture in
 	// the Go tests.
-	test_id("ErryPsK", "a_bad_utf8_byte_keeps_its_closing_quote");
+	test_id("ddj0w", "a_bad_utf8_byte_keeps_its_closing_quote");
 	{
 		static const char *const vals[] = {"a b \x80 c", "\x80", "a\x80 b", "a b \xff c", "x\xe9", "\xf0\x9f\x98", "\xc3", "\xc3\xa9"};
 		static const char *const bare[] = {"x\xf0", "x\xe9\x80", "\xdf"};
@@ -1943,7 +1943,7 @@ int main(int argc, char **argv) {
 		free(input); free(expected); free(reads);
 		/* The case's test ID, or dashes: a corpus built for a test of this
 		   runner need not have one. */
-		char id[16] = "-------";
+		char id[16] = "-----";
 		snprintf(path, sizeof path, "%s/%s/test-id", corpus, names[ci]); size_t tlen; char *tid = read_file(path, &tlen);
 		if (tid) {
 			while (tlen && (tid[tlen - 1] == '\n' || tid[tlen - 1] == '\r' || tid[tlen - 1] == ' ')) tlen--;
@@ -1951,13 +1951,13 @@ int main(int argc, char **argv) {
 			free(tid);
 		}
 		char cname[4200]; snprintf(cname, sizeof cname, "corpus/%s", names[ci]);
-		test_line(nfail > case_fails ? "FAIL" : "ok", id, cname);
+		test_line(nfail > case_fails ? "FAIL" : "PASS", id, cname);
 	}
 	// The parsed-schema form gives what the text form gives: the same combined
 	// list and the same strict answer, over every corpus schema at every level,
 	// with one schema document reused across the loads. Same fixture in every
 	// runner.
-	test_id("Eshi8i2", "load_and_validate_with_matches_the_text_form");
+	test_id("ddyf3", "load_and_validate_with_matches_the_text_form");
 	{
 		const shcl_strictness levels[3] = {SHCL_LOOSE, SHCL_STANDARD, SHCL_STRICT};
 		size_t compared = 0;
@@ -2007,7 +2007,7 @@ int main(int argc, char **argv) {
 	free(names);
 	// paths(): file order, deduplicated, non-bare segments quoted so every
 	// path resolves. Same fixture is pinned in every runner.
-	test_id("EloioKm", "paths_enumeration_shape");
+	test_id("daqrx", "paths_enumeration_shape");
 	{
 		const char *pt = "a: 1\na.b: 2\n\"q n\": 3\nx:\n\tb: 4\nx.b: 5\n";
 		shcl_doc *pd = shcl_parse(pt, strlen(pt));
@@ -2028,7 +2028,7 @@ int main(int argc, char **argv) {
 	// reads as neither. The whole trailing run comes off instead; a CR inside a
 	// line is content and stays. Same fixture in every runner: a golden would be
 	// rewritten by any platform's line-ending translation.
-	test_id("EnLyQsW", "raw_block_line_endings_normalize_and_round_trip");
+	test_id("dbep3", "raw_block_line_endings_normalize_and_round_trip");
 	{
 		const char *rt = "r:\n\t~~~\n\tone\r\r\n\ta\rb\n\t~~~\n";
 		shcl_doc *rd = shcl_parse(rt, strlen(rt));
@@ -2044,7 +2044,7 @@ int main(int argc, char **argv) {
 	// line()/quoted()/children(): read-surface accessors. Same fixture in every
 	// runner - the other three have line and quoted on the read result, C
 	// keeps its read structs value+status and answers with these instead.
-	test_id("ElorUZm", "read_surface_line_quoted_children");
+	test_id("daqt1", "read_surface_line_quoted_children");
 	{
 		const char *lt = "a: @null\nb: \"@null\"\ncode:\n\thook: 1\n\thook: 2\n\tdone: 3\n";
 		shcl_doc *ld = shcl_parse(lt, strlen(lt));
@@ -2082,7 +2082,7 @@ int main(int argc, char **argv) {
 	}
 	// gitsby's report: children on a repeated key answered nothing, and a walk
 	// had to know to index each instance. Same fixture in every runner.
-	test_id("Eqpzw7W", "children_and_instance_paths_walk_a_repeated_key");
+	test_id("dd2mj", "children_and_instance_paths_walk_a_repeated_key");
 	{
 		const char *gt = "account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n";
 		shcl_doc *gd = shcl_parse(gt, strlen(gt));
@@ -2101,7 +2101,7 @@ int main(int argc, char **argv) {
 	// The --json listings: each instance, a repeated one included, gets a path
 	// that reads that one, with its name, value and line beside it. Same
 	// fixture in every runner.
-	test_id("EsEsFrh", "fields_give_each_instance_its_own_path");
+	test_id("ddqh6", "fields_give_each_instance_its_own_path");
 	{
 		const char *ft = "shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n";
 		shcl_doc *fd = shcl_parse(ft, strlen(ft));
@@ -2140,7 +2140,7 @@ int main(int argc, char **argv) {
 	// authored_name: the author's spelling, unfolded; merged instances keep the
 	// first binding's; unresolved or Multiple is empty; writer-built keeps the
 	// setter path's spelling. Same fixture in every runner.
-	test_id("EnLH7OS", "authored_name");
+	test_id("dbegk", "authored_name");
 	{
 		const char *nt = "SYMBOLS: 3\nCode:\n\tx: 1\ncode:\n\ty: 2\n";
 		shcl_doc *nd = shcl_parse(nt, strlen(nt));
@@ -2176,7 +2176,7 @@ int main(int argc, char **argv) {
 	// comment off. A value with no one line behind it - a raw block, a stacked
 	// list, a setter's - reads as its display form. Answers are the other 3
 	// bindings' `raw` on the same fixture.
-	test_id("EsurKR1", "raw_text");
+	test_id("de1m6", "raw_text");
 	{
 		const char *rt =
 			"port: \"8080\"\nsize: 0x10   # hex\nname: hello\nsingle: 'it'\nlist: [1, \"two\", 3]\nre: `a\\d+`\n"
@@ -2229,7 +2229,7 @@ int main(int argc, char **argv) {
 	// cross-binding spelling for it, so a routine ported between two bindings
 	// cannot keep the call name while changing which tier it uses. Same
 	// fixture in every runner (C's convenience tier is the value types only).
-	test_id("EnLD4c4", "convenience_tier_falls_back_only_on_good");
+	test_id("dbeg3", "convenience_tier_falls_back_only_on_good");
 	{
 		const char *ct = "a: 42\nb: not-a-number\ne:\nblk:\n\t```html\n\thi\n\t```\n";
 		shcl_doc *cd = shcl_parse(ct, strlen(ct));
@@ -2254,7 +2254,7 @@ int main(int argc, char **argv) {
 	// parse_limited: the caps exist because a document amplifies to many times
 	// its byte size in memory, so shcl_read_file's byte cap alone cannot bound
 	// a load. Same fixture in every runner.
-	test_id("Eoe5NRy", "parse_limited_caps");
+	test_id("dc1yj", "parse_limited_caps");
 	{
 		const char *lt = "a: 1\nb: 2\nc: 3\nd: 4\n";
 		shcl_doc *ld = shcl_parse_limited(lt, strlen(lt), SHCL_STANDARD, 2, 0, 0);
@@ -2415,7 +2415,7 @@ int main(int argc, char **argv) {
 		if (shcl_get_int_or(ld, "a", 1, 0) != 1) fail("parse_limited", "failed strict doc unusable");
 		shcl_free(ld);
 	}
-	test_id("EryvVSn", "a_cap_wins_over_a_broken_value");
+	test_id("ddkpc", "a_cap_wins_over_a_broken_value");
 	{
 		// An item or a line past the caller's element cap is E021 and dropped,
 		// even when its value is broken: the cap wins over a value fault. A
@@ -2453,7 +2453,7 @@ int main(int argc, char **argv) {
 		cap_codes("404: [a, b, c]\n", 1, got, sizeof got, &lost, out, sizeof out);
 		if (strcmp(got, "1:E014") != 0) fail("cap_wins", "a bad name past the cap");
 	}
-	test_id("EryvVUp", "no_colon_repair_stays_narrow");
+	test_id("ddkpd", "no_colon_repair_stays_narrow");
 	{
 		// Only one clean name or path with no colon is repaired (E015), a bad
 		// bare name like 404 included. Anything with a blank in a bare name
@@ -2500,7 +2500,7 @@ int main(int argc, char **argv) {
 	// load_file/save_file: the status separates absent / unreadable / parsed
 	// with errors / clean, and a save round-trips through the atomic write.
 	// Same fixture in every runner.
-	test_id("Er207Yf", "file_tier_load_save");
+	test_id("dd5h6", "file_tier_load_save");
 	{
 		char tdir[256], tfile[288];
 		snprintf(tdir, sizeof tdir, "%s/shcl-filetier-%ld", tmp_root(), (long)getpid());
@@ -2737,7 +2737,7 @@ int main(int argc, char **argv) {
 	// The save gate on kept lines, from inside: once the edits that lose one are
 	// fixed, no public call reaches the gate, so these take a line out by hand.
 	// Same fixture in every runner.
-	test_id("EreWlg6", "a_kept_line_gone_from_the_tree_refuses_the_save");
+	test_id("ddesc", "a_kept_line_gone_from_the_tree_refuses_the_save");
 	{
 		const char *kbase = "x: 1\nr: [1, 2\ny: 3\n";
 		shcl_doc *kd = shcl_parse_keep_lines(kbase, strlen(kbase), SHCL_STANDARD);
@@ -2773,7 +2773,7 @@ int main(int argc, char **argv) {
 	}
 	// A compaction rebuilds the document, so it carries the kept-line count
 	// with the lost count, or a compacted document never refuses. C only.
-	test_id("EreZ0ar", "compact_keeps_the_kept_line_count");
+	test_id("ddesm", "compact_keeps_the_kept_line_count");
 	{
 		const char *kbase = "x: 1\nr: [1, 2\ny: 3\n";
 		shcl_doc *cd = shcl_parse(kbase, strlen(kbase));
@@ -2786,7 +2786,7 @@ int main(int argc, char **argv) {
 	}
 	// design.md's table: a remove takes the kept line written as the field's own
 	// line, and nothing beside it.
-	test_id("EreWli7", "a_remove_takes_the_kept_line_heading_its_field");
+	test_id("ddesd", "a_remove_takes_the_kept_line_heading_its_field");
 	{
 		const char *ht = "a: [1\n\tb: 2\ny: 3\n";
 		shcl_doc *hd = shcl_parse(ht, strlen(ht));
@@ -2802,13 +2802,13 @@ int main(int argc, char **argv) {
 		// Then a field opened only by the lines under it goes with the last of
 		// them, and its kept line stays (escblock; 2026100307163907).
 		static const struct { const char *id, *name, *text, *path, *want; } rc[] = {
-			{"ErgTokB", "a_remove_leaves_the_kept_lines_beside_it", "x: 1\nr: [1, 2\ny: 3\n", "y", "x: 1\nr: [1, 2\n"},
+			{"ddf8k", "a_remove_leaves_the_kept_lines_beside_it", "x: 1\nr: [1, 2\ny: 3\n", "y", "x: 1\nr: [1, 2\n"},
 			{NULL, NULL, "x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"},
 			{NULL, NULL, "j:\n\tr: [1\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"},
 			{NULL, NULL, "j:\n\tq: 1\n\tr: [1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"},
 			{NULL, NULL, "j:\n\tq: 1\n\tr: [1\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1\n\tw: 3\nz: 2\n"},
 			{NULL, NULL, "# on r\nr: [1\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1\nz: 1\n"},
-			{"ErgTom6", "a_field_opened_by_a_kept_line_goes_with_its_last_line", "a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"},
+			{"ddf8m", "a_field_opened_by_a_kept_line_goes_with_its_last_line", "a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"},
 			{NULL, NULL, "a: [1\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1\n\tc: 3\ny: 3\n"},
 			{NULL, NULL, "a: [1\n\tb: 2\n\tr: [3\ny: 3\n", "a.b", "a: [1\n\tr: [3\ny: 3\n"},
 			{NULL, NULL, "o: [9\n\ta: [1\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9\n\ta: [1\ny: 3\n"},
@@ -2830,7 +2830,7 @@ int main(int argc, char **argv) {
 			shcl_free(rd);
 		}
 	}
-	test_id("Erlf1DT", "a_setter_comments_out_the_kept_line_heading_its_target");
+	test_id("ddggc", "a_setter_comments_out_the_kept_line_heading_its_target");
 	{
 		// A setter on a field a kept line opened writes that line as a comment
 		// with a note, so the file has one line for the field (2026100307163907).
@@ -2878,7 +2878,7 @@ int main(int argc, char **argv) {
 			shcl_free(bd);
 		}
 	}
-	test_id("ErmXhwI", "a_setter_comments_out_every_kept_line_of_its_name");
+	test_id("ddgq4", "a_setter_comments_out_every_kept_line_of_its_name");
 	{
 		// A setter writing `a` writes every kept line named `a` in that block
 		// as the noted comment, and a field it creates goes right under the
@@ -2942,7 +2942,7 @@ int main(int argc, char **argv) {
 		if (!took || out.n != strlen(cwant) || memcmp(out.p, cwant, out.n) != 0) fail("kept_gate", "set_comment beside a kept line");
 		shcl_free(cd);
 	}
-	test_id("Erlf1GC", "a_note_names_the_zone_or_its_offset");
+	test_id("ddggd", "a_note_names_the_zone_or_its_offset");
 	{
 		// The zone's short name, else its offset; and the test clock's form.
 		static const struct { int offset; const char *name, *want; } zc[] = {
@@ -2970,7 +2970,7 @@ int main(int argc, char **argv) {
 		}
 		if (!shape || (strncmp(label, "UTC+", 4) != 0 && strncmp(label, "UTC-", 4) != 0 && strcmp(label, name) != 0)) fail("note_clock", when);
 	}
-	test_id("EreWlk5", "a_merged_layer_owes_its_kept_lines");
+	test_id("ddese", "a_merged_layer_owes_its_kept_lines");
 	{
 		const char *kbase = "x: 1\nr: [1, 2\ny: 3\n";
 		shcl_doc *md = shcl_parse("a: 1\n", 5);
@@ -2987,7 +2987,7 @@ int main(int argc, char **argv) {
 	}
 	// design.md's table: a settled kept line on a leaf the layer replaces goes
 	// with the leaf's comments, so it is no longer owed.
-	test_id("ErfGoMO", "a_replaced_leaf_takes_its_settled_kept_line");
+	test_id("ddez8", "a_replaced_leaf_takes_its_settled_kept_line");
 	{
 		const char *rt = "x: 0\n\tc: 2\n  a: 5\nb: 1\n";
 		shcl_doc *rd = shcl_parse(rt, strlen(rt));
@@ -3005,7 +3005,7 @@ int main(int argc, char **argv) {
 	}
 	// design.md's table: the footer dedup skips a layer's kept line the base
 	// already has, so that copy is not owed.
-	test_id("ErfGoMP", "a_footer_line_the_base_has_is_not_owed_twice");
+	test_id("ddez9", "a_footer_line_the_base_has_is_not_owed_twice");
 	{
 		const char *ft = "bad name: 1\n";
 		shcl_doc *fd = shcl_parse(ft, strlen(ft));
@@ -3019,7 +3019,7 @@ int main(int argc, char **argv) {
 	// design.md's table: a replaced leaf takes only its own comments, the ones
 	// a remove would take. A settled line or a comment past a kept line beside
 	// it stays with that line.
-	test_id("ErkSySr", "a_replaced_leaf_leaves_the_lines_beside_it");
+	test_id("ddg75", "a_replaced_leaf_leaves_the_lines_beside_it");
 	{
 		const char *bt = "    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n";
 		shcl_doc *bd = shcl_parse(bt, strlen(bt));
@@ -3048,7 +3048,7 @@ int main(int argc, char **argv) {
 	// indent is what comes off), the info-string is stored as a fence line
 	// reads it back, and an info with a line break or a `#` has no spelling and
 	// fails the write. Same fixture in every runner.
-	test_id("EoM5gS8", "set_raw_keeps_a_shared_indent_and_trims_the_info");
+	test_id("dbxm0", "set_raw_keeps_a_shared_indent_and_trims_the_info");
 	{
 		shcl_doc *sd = shcl_new();
 		if (shcl_set_raw(sd, "q", 1, "  a\n  b", 7, " sql ", 5) != SHCL_SET_OK) fail("set_raw", "set_raw failed");
@@ -3098,7 +3098,7 @@ int main(int argc, char **argv) {
 	// other link: the file appears where the link points and the link stays a
 	// link. Same fixture in every POSIX runner.
 #ifndef _WIN32
-	test_id("EoM5gS9", "save_creates_the_file_behind_a_dangling_symlink");
+	test_id("dbxm1", "save_creates_the_file_behind_a_dangling_symlink");
 	{
 		char ddir[256], dreal[288], dlink[288], dtarget[320];
 		snprintf(ddir, sizeof ddir, "%s/shcl-dangling-%ld", tmp_root(), (long)getpid());
@@ -3119,7 +3119,7 @@ int main(int argc, char **argv) {
 	// Two links pointing at each other resolve to nothing, so the save fails
 	// and says why. It must not "fix" the cycle by dropping a regular file over
 	// one of the links. Same fixture in every POSIX runner.
-	test_id("EoUxXlS", "save_reports_a_symlink_cycle_instead_of_replacing_it");
+	test_id("dbzrb", "save_reports_a_symlink_cycle_instead_of_replacing_it");
 	{
 		char cdir[256], ca[288], cb[288];
 		snprintf(cdir, sizeof cdir, "%s/shcl-cycle-%ld", tmp_root(), (long)getpid());
@@ -3139,7 +3139,7 @@ int main(int argc, char **argv) {
 	// was swapped for a regular file at exit 0, a link whose text names a
 	// directory made a file of that name, and Go cleaned `lnk/..` as text where
 	// the kernel follows lnk first. Same fixture in every POSIX runner.
-	test_id("EqLbKeM", "save_replaces_only_a_regular_file");
+	test_id("dcvb0", "save_replaces_only_a_regular_file");
 	{
 		char tdir[256], tp[320], tq[320], tr[320];
 		snprintf(tdir, sizeof tdir, "%s/shcl-targets-%ld", tmp_root(), (long)getpid());
@@ -3180,7 +3180,7 @@ int main(int argc, char **argv) {
 	// A read-only target is rewritten, as it is on POSIX, and comes back
 	// read-only; no temp file is left behind. Same fixture in every runner.
 #ifdef _WIN32
-	test_id("EoM5gSA", "save_rewrites_a_read_only_file");
+	test_id("dbxm2", "save_rewrites_a_read_only_file");
 	{
 		char rdir[256], rfile[288];
 		snprintf(rdir, sizeof rdir, "%s/shcl-readonly-%ld", tmp_root(), (long)getpid());
@@ -3226,7 +3226,7 @@ int main(int argc, char **argv) {
 	// through GetLastError and used to leave errno at 0, so the CLI printed
 	// "Success" beside exit 8. A target held open without delete sharing
 	// fails the replace; a device name fails the move.
-	test_id("EojrwSW", "a_failed_publish_sets_errno");
+	test_id("dc3b0", "a_failed_publish_sets_errno");
 	{
 		char hdir[256], hfile[288];
 		snprintf(hdir, sizeof hdir, "%s/shcl-held-%ld", tmp_root(), (long)getpid());
@@ -3252,16 +3252,16 @@ int main(int argc, char **argv) {
 		if (hdd) closedir(hdd);
 		rmdir(hdir);
 	}
-	test_id("EoM5gSB", "publish_failures");
+	test_id("dbxm3", "publish_failures");
 	publish_failures();
-	test_id("ErO2NoF", "temp_takes_the_targets_dacl");
+	test_id("ddatg", "temp_takes_the_targets_dacl");
 	temp_takes_the_targets_dacl();
 #endif
 	// Reads and saves must not retain: a read of a plain field hands back a
 	// slice of the retained input (a million reads once grew a document by
 	// 32 MB), and a save emits into scratch (200 saves of 79 KB once grew it by
 	// 17 MB). The bound is one arena block, well under either regression.
-	test_id("EoM5gSC", "reads_and_saves_do_not_retain");
+	test_id("dbxm4", "reads_and_saves_do_not_retain");
 	{
 		char gdir[256], gfile[288];
 		snprintf(gdir, sizeof gdir, "%s/shcl-retain-%ld", tmp_root(), (long)getpid());
@@ -3290,7 +3290,7 @@ int main(int argc, char **argv) {
 	// Array reads must not grow the document arena, and the release call has to
 	// give back what they do allocate. C-only: the other three hand back owned
 	// collections their runtime reclaims, so there is nothing to mirror.
-	test_id("EoTeOXw", "array_reads_do_not_grow_the_arena");
+	test_id("dbze6", "array_reads_do_not_grow_the_arena");
 	{
 		const char *at = "ports: [80, 443, 8080]\n";
 		shcl_doc *ad = shcl_parse(at, strlen(at));
@@ -3313,7 +3313,7 @@ int main(int argc, char **argv) {
 	// The copy-out reads leave the read arena as they found it, so a caller
 	// that never releases still stays flat. Short buffers get what fits and
 	// the whole count. C-only, for the same reason as above.
-	test_id("Equbm1d", "copy_out_reads_leave_the_arena");
+	test_id("dd3r4", "copy_out_reads_leave_the_arena");
 	{
 		const char *at = "ports: [80, 443, 8080]\nnames: [a, \"b c\"]\nwhen: [2026-01-02T03:04:05.25Z, 2027-01-01]\nflags: [true, false]\nf: [1.5, 2]\n";
 		shcl_doc *ad = shcl_parse(at, strlen(at));
@@ -3339,7 +3339,7 @@ int main(int argc, char **argv) {
 	// values the parser never produces - a negative year, epoch seconds in sec,
 	// a frac of any length. The buffer it documents is fixed, so the render has
 	// to clamp. C-only: nothing to mirror where the caller cannot supply them.
-	test_id("EoaHtYO", "datetime_render_clamps");
+	test_id("dc119", "datetime_render_clamps");
 	{
 		shcl_datetime worst;
 		memset(&worst, 0, sizeof worst);
@@ -3363,7 +3363,7 @@ int main(int argc, char **argv) {
 		if (shcl_exists(dd, "when", 4)) fail("dt_clamp", "a refused datetime left a node behind");
 		shcl_free(dd);
 	}
-	test_id("Es9JVra", "bad_path_reads_say_bad_path");
+	test_id("ddp6c", "bad_path_reads_say_bad_path");
 	// A path the scanner refuses, or one with a value part, is BadPath on every
 	// read with a status, where a path that parses and finds nothing stays
 	// NotFound. The no-status calls give their empty answer and _or its
@@ -3406,7 +3406,7 @@ int main(int argc, char **argv) {
 		if (SHCL_BAD_PATH <= SHCL_MULTIPLE || strcmp(shcl_status_name(SHCL_BAD_PATH), "BadPath") || shcl_status_code(SHCL_BAD_PATH) != 1) fail("bad_path", "order, name or code");
 		shcl_free(bd);
 	}
-	test_id("EsDQqYg", "list_reads_say_bad_path");
+	test_id("ddq63", "list_reads_say_bad_path");
 	// The list reads' status twins: BadPath for a path that cannot be read,
 	// NotFound for one that matches nothing, Good otherwise, with the value the
 	// plain call gives. Same fixture in every runner.
@@ -3447,7 +3447,7 @@ int main(int argc, char **argv) {
 		}
 		shcl_free(ld);
 	}
-	test_id("EsJ3yE5", "path_twins_say_bad_path");
+	test_id("ddrhd", "path_twins_say_bad_path");
 	// The other path calls' status twins: BadPath for a path that cannot be
 	// read, NotFound for one that reaches nothing, Multiple where a single-node
 	// call meets several. Same fixture in every runner.
@@ -3532,7 +3532,7 @@ int main(int argc, char **argv) {
 	}
 	// check_set_path: the path's half of a setter's status. Same fixture in
 	// every runner.
-	test_id("ElouJ8M", "check_set_path_names_the_failure");
+	test_id("daqtc", "check_set_path_names_the_failure");
 	{
 		const char *wt = "a:\n\tb: 1\n";
 		shcl_doc *wd = shcl_parse(wt, strlen(wt));
@@ -3566,7 +3566,7 @@ int main(int argc, char **argv) {
 	// one here is refused, writes nothing, and the path checks OK. Same fixture
 	// in every runner. setter_status_names_each_refusal has the status each one
 	// gives.
-	test_id("Es9S4kM", "refused_values_pass_the_path_check");
+	test_id("ddp7e", "refused_values_pass_the_path_check");
 	{
 		const char *rt = "ports: [80, 443]\nsec:\n\tx: 1\n";
 		shcl_doc *base = shcl_parse(rt, strlen(rt));
@@ -3626,7 +3626,7 @@ int main(int argc, char **argv) {
 	// whole. Every setter that takes text refuses it, as Go's do: it gives
 	// SHCL_SET_NOT_UTF8, writes nothing, and the path checks OK. The same cases
 	// are in the Python runner, with a lone surrogate.
-	test_id("Es9aZSK", "setters_refuse_text_that_is_not_utf8");
+	test_id("ddp8k", "setters_refuse_text_that_is_not_utf8");
 	{
 		const char *ut = "sec:\n\tx: 1\nsrv: a\n";
 		shcl_doc *base = shcl_parse(ut, strlen(ut));
@@ -3685,7 +3685,7 @@ int main(int argc, char **argv) {
 	// nothing and the path checks MULTIPLE, so a write never says OK where the
 	// read after it would say Multiple. An index or value selector picks one.
 	// Same fixture in every runner.
-	test_id("Es9aZSI", "repeated_path_refuses_a_setter");
+	test_id("ddp8h", "repeated_path_refuses_a_setter");
 	{
 		const char *mt = "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n";
 		shcl_doc *base = shcl_parse(mt, strlen(mt));
@@ -3741,7 +3741,7 @@ int main(int argc, char **argv) {
 	}
 	// Every status a setter gives, in the order every binding numbers them,
 	// and the names the other three print. Same fixture in every runner.
-	test_id("EsDjstE", "setter_status_values_in_order");
+	test_id("ddq8b", "setter_status_values_in_order");
 	{
 		static const shcl_set_status all[] = {
 			SHCL_SET_OK, SHCL_SET_BAD_PATH, SHCL_SET_VALUE_IN_PATH, SHCL_SET_WILDCARD, SHCL_SET_NO_SUCH_INDEX,
@@ -3769,7 +3769,7 @@ int main(int argc, char **argv) {
 	// the other value reasons, and SHCL_SET_BAD_PATH for a path that is not
 	// UTF-8. OUT_OF_RANGE and NO_READ_BACK have no case: an int64_t is in
 	// range, and no other value is known that fails to read back.
-	test_id("EsDjsvT", "setter_status_names_each_refusal");
+	test_id("ddq8c", "setter_status_names_each_refusal");
 	{
 		const char *st = "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n";
 		shcl_datetime month13;
@@ -3881,13 +3881,13 @@ int main(int argc, char **argv) {
 			shcl_free(sd);
 		}
 	}
-	test_id("EsDjsxk", "setter_status_agrees_with_the_path_check");
+	test_id("ddq8d", "setter_status_agrees_with_the_path_check");
 	setter_status_agrees_with_the_path_check();
 	// Both halves of a path can contain a line break and write it \n: a name
 	// through the name escaper, a selector value through the value emitter. The
 	// selector was refused while elements were stored in their source spelling
 	// and the emitter had nothing to escape with. Same fixture in every runner.
-	test_id("EpGigIO", "a_line_break_in_a_path_writes_and_reads_back");
+	test_id("dcb7z", "a_line_break_in_a_path_writes_and_reads_back");
 	{
 		shcl_doc *nd = shcl_parse("z: 0\n", 5);
 		if (shcl_set_int(nd, "x(\"p\nq\").c", sizeof "x(\"p\nq\").c" - 1, 1) != SHCL_SET_OK
@@ -3914,7 +3914,7 @@ int main(int argc, char **argv) {
 	// Each setter is the inverse of its read, so a value with no spelling the
 	// reader accepts fails the write and leaves the document alone. Same
 	// fixture in every runner.
-	test_id("Eof29pa", "setters_refuse_a_value_the_reader_refuses");
+	test_id("dc25w", "setters_refuse_a_value_the_reader_refuses");
 	{
 		shcl_doc *sd = shcl_parse("z: 0\n", 5);
 		double nonfinite[3]; nonfinite[0] = INFINITY; nonfinite[1] = -INFINITY; nonfinite[2] = NAN;
@@ -3958,7 +3958,7 @@ int main(int argc, char **argv) {
 		if (canon.n != strlen(want) || memcmp(canon.p, want, canon.n) != 0) fail("setters_refuse", "document after the refusals differs");
 		shcl_free(sd);
 	}
-	test_id("EryvVQj", "a_backtick_value_reads_raw_with_its_flag");
+	test_id("ddkpb", "a_backtick_value_reads_raw_with_its_flag");
 	{
 		// A backtick value is raw text the program decodes itself: read as
 		// written, with its own flag beside shcl_quoted. A setter keeps the
@@ -3983,7 +3983,7 @@ int main(int argc, char **argv) {
 	// One combined diagnostics list (parse first, then validation) and an
 	// error predicate, so recover-and-continue can't read as success by
 	// accident. Same fixture in every runner.
-	test_id("Elp3cOi", "one_shot_load_and_validate");
+	test_id("daqvk", "one_shot_load_and_validate");
 	{
 		const char *ot = ": nope\nport: x\n";
 		const char *os = "field: port\n\ttype: int\n";
@@ -4007,7 +4007,7 @@ int main(int argc, char **argv) {
 	// Strict fails the load on any error diagnostic, from every entry point.
 	// In C that is shcl_strict_failed on the document each one hands back;
 	// the file status stays HadErrors. Same fixture in every runner.
-	test_id("Es9mP97", "strict_fails_the_same_from_every_entry_point");
+	test_id("ddp9z", "strict_fails_the_same_from_every_entry_point");
 	{
 		char sdir[256], sfile[288], snone[288];
 		snprintf(sdir, sizeof sdir, "%s/shcl-strictsame-%ld", tmp_root(), (long)getpid());
@@ -4065,7 +4065,7 @@ int main(int argc, char **argv) {
 	// A schema that does not load would otherwise drop the constraints on its
 	// broken lines, or report every field as unknown - blaming the document.
 	// Same fixture in every runner.
-	test_id("Eqzz38a", "one_shot_load_reports_a_broken_schema");
+	test_id("dd524", "one_shot_load_reports_a_broken_schema");
 	{
 		const char *bt = "host: example\n";
 		const char *bs = "field: apikey\n\ttype: string\n  required: true\n";
@@ -4085,7 +4085,7 @@ int main(int argc, char **argv) {
 	}
 	// The quote never closes, so the max line is lost and a parse then
 	// validate passed 99999 with no word. Same fixture in every runner.
-	test_id("Es8Oq5E", "validate_and_generate_report_a_broken_schema");
+	test_id("ddnzb", "validate_and_generate_report_a_broken_schema");
 	{
 		const char *qs = "field: port\n\ttype: int\n\tmax: \"65535\n";
 		shcl_doc *qschema = shcl_parse(qs, strlen(qs));
@@ -4122,7 +4122,7 @@ int main(int argc, char **argv) {
 	// The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	// field whose name literally contains a NUL must not impersonate the
 	// two-segment path x.y. Same fixture in every runner.
-	test_id("Eqzz38b", "nul_name_does_not_satisfy_a_dotted_schema_path");
+	test_id("dd525", "nul_name_does_not_satisfy_a_dotted_schema_path");
 	{
 		static const char nt[] = "\"x\0y\": 1\n";
 		shcl_doc *ns = shcl_parse("field: x.y\n", 11);
@@ -4148,7 +4148,7 @@ int main(int argc, char **argv) {
 	// (NULL, 0) is the usual C spelling of "no text", and a fast path that
 	// hands it to memchr breaks glibc's nonnull contract. Only the sanitized
 	// build of this runner can see that.
-	test_id("EpHDKeu", "a_null_span_is_no_text");
+	test_id("dcbbm", "a_null_span_is_no_text");
 	{
 		shcl_doc *zd = shcl_parse("", 0);
 		if (shcl_set_literal(zd, "l", 1, NULL, 0) != SHCL_SET_OK) fail("null_span", "set_literal refused (NULL, 0)");
@@ -4164,7 +4164,7 @@ int main(int argc, char **argv) {
 	// or the guard still names a frame that has gone. The suggestion scratch is
 	// armed down inside the unknown-field sweep, so the sweep has to run: the
 	// document has a field the schema does not declare.
-	test_id("EoXPDVg", "validate_disarms_every_guard");
+	test_id("dc0b3", "validate_disarms_every_guard");
 	{
 		const char *vt = "port: 1\nprot: 2\n";
 		const char *vs = "field: port\n\ttype: int\n";
@@ -4185,7 +4185,7 @@ int main(int argc, char **argv) {
 	// stack - 16 KB, which is nothing on a main thread and past the whole stack
 	// of a small worker. The platform's smallest allowed thread stack is the
 	// assertion: it is under the array the old code wanted on it.
-	test_id("EoXPDVh", "validate_fits_a_small_stack");
+	test_id("dc0b4", "validate_fits_a_small_stack");
 	{
 		pthread_attr_t at;
 		pthread_t th;
@@ -4210,7 +4210,7 @@ int main(int argc, char **argv) {
 	   component is `.` or `..` - is not a document. A path cleanup drops the
 	   trailing separator first, so a save through `f/.` used to rewrite `f` in
 	   some bindings. Same fixture in every runner. */
-	test_id("EomvfCt", "save_refuses_a_directory_shaped_path");
+	test_id("dc42n", "save_refuses_a_directory_shaped_path");
 	{
 		char ddir[256], dfile[320], dpath[336];
 		snprintf(ddir, sizeof ddir, "%s/shcl-dirpath-%ld", tmp_root(), (long)getpid());
@@ -4239,7 +4239,7 @@ int main(int argc, char **argv) {
 
 	/* Every reason a write gives, in the order every binding numbers them,
 	   and the names the other three print. Same fixture in every runner. */
-	test_id("EsEhCG9", "write_status_values_in_order");
+	test_id("ddqg3", "write_status_values_in_order");
 	{
 		static const shcl_write_status all[] = {
 			SHCL_WRITE_OK, SHCL_WRITE_NOT_FOUND, SHCL_WRITE_UNREADABLE, SHCL_WRITE_PERMISSION_DENIED,
@@ -4258,7 +4258,7 @@ int main(int argc, char **argv) {
 	   shcl_write_file_atomic, a save, shcl_write_backup and shcl_upgrade_file.
 	   A full disk and a read-only filesystem can't be made here without root;
 	   the table test below maps those. Same fixture in every runner. */
-	test_id("EsEhCGA", "write_status_names_each_failure");
+	test_id("ddqg4", "write_status_names_each_failure");
 	{
 		char wdir[256], wp[400], wmissing[400];
 		snprintf(wdir, sizeof wdir, "%s/shcl-wrstat-%ld", tmp_root(), (long)getpid());
@@ -4371,7 +4371,7 @@ int main(int argc, char **argv) {
 	/* The table from errno to a write's reason, and on windows from the
 	   system's code through shcl_errno_from_win32. Most rows can't be made to
 	   happen on a test box: a full disk, a read-only mount, a file held open. */
-	test_id("EsEhCGB", "write_status_of_errno");
+	test_id("ddqg5", "write_status_of_errno");
 	{
 		static const struct { int e; shcl_write_status want; } rows[] = {
 			{ ENOENT, SHCL_WRITE_NOT_FOUND }, { ENOTDIR, SHCL_WRITE_NOT_FOUND },
@@ -4402,7 +4402,7 @@ int main(int argc, char **argv) {
 	   reload stores it, so shcl_instances and a read's raw text agree across a
 	   save. The emitter escapes the double quotes; the writer used to keep them
 	   bare. Same fixture in every runner. */
-	test_id("EommtF4", "written_spelling_matches_its_reload");
+	test_id("dc41h", "written_spelling_matches_its_reload");
 	{
 		shcl_doc *wd = shcl_parse("x: 1\n", 5);
 		if (shcl_set_string(wd, "k", 1, "q\"q'", 4) != SHCL_SET_OK) fail("written_spelling", "set_string refused");
@@ -4433,7 +4433,7 @@ int main(int argc, char **argv) {
 	   at the end, since the file tier checks what an in-memory reload does
 	   not: a setter once took bytes the save wrote and the next load refused.
 	   Same fixture in every runner. */
-	test_id("EpGigIP", "setters_write_only_what_reads_back");
+	test_id("dcb80", "setters_write_only_what_reads_back");
 	{
 		shcl_doc *every = shcl_parse("", 0);
 		size_t slot = 0;
@@ -4542,7 +4542,7 @@ int main(int argc, char **argv) {
 		}
 		shcl_free(every);
 	}
-	test_id("Er7vwLo", "format_version_caps_at_32_bits");
+	test_id("dd6ym", "format_version_caps_at_32_bits");
 	/* Digits past 32 bits read as the largest 32-bit number, a newer format,
 	   in every binding (20260926 item 9, 2026101514324705). */
 	{
@@ -4553,7 +4553,7 @@ int main(int argc, char **argv) {
 		if (shcl_format_version(b, strlen(b)) != SHCL_FORMAT_MAJOR) fail("format_version_caps_at_32_bits", "4294967296 did not read as the current major"); */
 		if (shcl_format_version(b, strlen(b)) != (int64_t)UINT32_MAX) fail("format_version_caps_at_32_bits", "4294967296 did not read as the 32-bit cap");
 	}
-	test_id("EsEtTdS", "stamp_reads_say_why");
+	test_id("ddqhb", "stamp_reads_say_why");
 	/* The Format and Schema lines read with a status, so an unstamped file and
 	   a damaged stamp read apart, and the load's H006 and H007 hints say the
 	   same as the Format read on every row. Rust's stamp_reads_say_why has the
@@ -4613,7 +4613,7 @@ int main(int argc, char **argv) {
 			if ((plain != NULL) != (st[k].status == SHCL_GOOD) || rn != (plain ? strlen(st[k].ref) : 0)) fail("stamp_reads_say_why", st[k].text);
 		}
 	}
-	test_id("EssAxdD", "stamp_hints_quote_digits");
+	test_id("de0zr", "stamp_hints_quote_digits");
 	/* The H006 and H007 hints quote the Format number as written, leading
 	   zeros and all, while the read keeps its 32-bit cap. A long one is cut
 	   the way any value in a message is (2026101514324705). Rust's
@@ -4649,7 +4649,7 @@ int main(int argc, char **argv) {
 			shcl_free(hd);
 		}
 	}
-	test_id("EryvVWx", "a_comma_splits_a_bare_value_only_before_a_blank");
+	test_id("ddkpe", "a_comma_splits_a_bare_value_only_before_a_blank");
 	/* A comma splits a value outside brackets only with a blank, a comment or
 	   the end after it; inside brackets every one does (value-syntax.md,
 	   20261006). 2.x split on every comma, which migrate still reads. */
@@ -4668,7 +4668,7 @@ int main(int argc, char **argv) {
 		if (ctok.nelem != 2) fail("comma_split", "2.x");
 		shcl_free(cd);
 	}
-	test_id("EryvVZ4", "bare_spaces_colons_and_commas");
+	test_id("ddkpf", "bare_spaces_colons_and_commas");
 	/* Spaces in a bare value or item are fine. A tab, a bracket, a quote, or a
 	   colon or comma with a blank or the end after it is one error, and its
 	   message says what to do. */
@@ -4717,7 +4717,7 @@ int main(int argc, char **argv) {
 		if (shcl_read_int(nd, "x", 1).status == SHCL_GOOD) fail("bare_text", "80,443 read as a number");
 		shcl_free(nd);
 	}
-	test_id("EryvVbF", "the_writer_quotes_a_colon_or_comma");
+	test_id("ddkpg", "the_writer_quotes_a_colon_or_comma");
 	/* The reader takes a colon or comma bare where it is text, but the writer
 	   quotes any whitespace, colon, comma, paren or bracket wherever it sits,
 	   so nobody has to know the reader's rules. A quoted value keeps its
@@ -4771,7 +4771,7 @@ int main(int argc, char **argv) {
 	/* 2026101309122757: Loose reads a quoted thousands number again, and the
 	   writer keeps a bare one bare, so this pins what no longer holds. */
 	/* codeql[cpp/commented-out-code] a test commented out with its reason above, since old tests aren't deleted */
-	// test_id("EsZikJl", "a_thousands_comma_reads_the_same_after_a_save");
+	// test_id("ddwhs", "a_thousands_comma_reads_the_same_after_a_save");
 	// /* A thousands comma is text quoted or bare, so a typed read gives the same
 	//    answer before and after the writer quotes it (2026101010054746). */
 	// {
@@ -4807,7 +4807,7 @@ int main(int argc, char **argv) {
 	// 		shcl_free(tl);
 	// 	}
 	// }
-	test_id("EsbaIe1", "loose_reads_a_quoted_thousands_number");
+	test_id("ddwzz", "loose_reads_a_quoted_thousands_number");
 	/* Loose reads a quoted thousands number, exact grouping only. Bare stays
 	   text at every level, Standard and Strict refuse it, and the writer keeps
 	   a bare one bare, so a typed read is the same after a save
@@ -4895,7 +4895,7 @@ int main(int argc, char **argv) {
 		shcl_free(ls);
 		shcl_free(ll);
 	}
-	test_id("EsdUlxm", "loose_reads_a_quoted_thousands_number_with_a_trailing_dot");
+	test_id("ddxen", "loose_reads_a_quoted_thousands_number_with_a_trailing_dot");
 	/* A trailing `.` is fine on a quoted thousands number, as on a plain one.
 	   A leading one is not, and a bare one stays bare (2026101318521195). */
 	{
@@ -4963,7 +4963,7 @@ int main(int argc, char **argv) {
 	   (E001, 2026102307143752). a_field_under_items_stays_kept pins what each
 	   case does now. */
 #if 0
-	test_id("Es1gWRs", "a_list_no_text_loads_back_refuses_to_save");
+	test_id("ddmbk", "a_list_no_text_loads_back_refuses_to_save");
 	/* A list with a field under it (E001) after an empty binding of its name
 	   that has fields: no text loads it back, since a reload joins the list's
 	   header to that binding and drops its items (E008). The load is left as
@@ -5014,7 +5014,7 @@ int main(int argc, char **argv) {
 			shcl_free(od);
 		}
 	}
-	test_id("Es1gWRt", "a_list_joining_an_emptied_field_keeps_its_fields_found");
+	test_id("ddmbm", "a_list_joining_an_emptied_field_keeps_its_fields_found");
 	/* A setter that empties a field joins the stacked list after it, fields
 	   and all, as a reload would. A read made before the write has the lookup
 	   built, and the fields that moved still have to be found through it. */
@@ -5039,7 +5039,7 @@ int main(int argc, char **argv) {
 			shcl_free(jb); shcl_free(jd);
 		}
 	}
-	test_id("Es1gWRu", "a_list_the_source_loads_back_keeps_its_lines");
+	test_id("ddmbn", "a_list_the_source_loads_back_keeps_its_lines");
 	/* A load can build that list too, under a kept array line (E028). The
 	   canonical text writes the line as a comment and cannot load the list
 	   back, so that save refuses. The source text does, so with no edits the
@@ -5067,7 +5067,7 @@ int main(int argc, char **argv) {
 		remove(kfile); rmdir(kdir);
 		shcl_free(kd);
 	}
-	test_id("Es1gWRv", "a_merged_list_joins_an_empty_field_past_a_comment");
+	test_id("ddmbp", "a_merged_list_joins_an_empty_field_past_a_comment");
 	/* A merge adds a list with a field under it as a new instance after an
 	   empty binding of its name. A comment or kept line left after the
 	   binding held the join off, though a reload joins the two
@@ -5099,7 +5099,7 @@ int main(int argc, char **argv) {
 			shcl_free(mb); shcl_free(md);
 		}
 	}
-	test_id("EsFs7xx", "a_joined_list_files_the_bindings_lines_like_a_reload");
+	test_id("ddqs0", "a_joined_list_files_the_bindings_lines_like_a_reload");
 	/* A list that joins an empty binding brings its fields, and the binding's
 	   own kept line inside its block is written after them. A merge left it
 	   filed inside the block, so a remove of the last field wrote it before
@@ -5126,7 +5126,7 @@ int main(int argc, char **argv) {
 			shcl_free(jb); shcl_free(jd);
 		}
 	}
-	test_id("Es1gWRw", "a_remove_settles_a_list_after_an_empty_field");
+	test_id("ddmbq", "a_remove_settles_a_list_after_an_empty_field");
 	/* The remove twin: the merge without the gap builds the list no text loads
 	   back, after a binding with a field. A remove that takes that field joins
 	   the list, and one that takes the list's field puts it in brackets, as a
@@ -5153,7 +5153,7 @@ int main(int argc, char **argv) {
 		}
 	}
 #endif
-	test_id("EtXCOkG", "a_field_under_items_stays_kept");
+	test_id("deava", "a_field_under_items_stays_kept");
 	/* A field line under stacked items is kept and binds nothing (E001), and
 	   so is an item after a field line (E008). Where an edit or a merge leaves
 	   one that a reload would bind, it is written as a comment. Same fixture
@@ -5229,7 +5229,7 @@ int main(int argc, char **argv) {
 		if (ha.status != SHCL_GOOD || ha.n != 1 || !str_is(ha.values[0], "0")) fail("field_under_items", "held open a");
 		shcl_free(hd);
 	}
-	test_id("EtdPWjj", "an_index_onto_a_list_takes_no_field");
+	test_id("decb5", "an_index_onto_a_list_takes_no_field");
 	/* An index can select a list, and a dotted line through it does what the
 	   same field on the line under `srv(0):` does: an array line is kept for
 	   the field (E028), and a field after stacked items is kept (E001). So no
@@ -5283,7 +5283,7 @@ int main(int argc, char **argv) {
 			shcl_free(cb); shcl_free(cd);
 		}
 	}
-	test_id("Eu8yPCK", "an_index_with_no_instance_stays_kept");
+	test_id("deky2", "an_index_with_no_instance_stays_kept");
 	/* An index that selects no instance bound before it is kept (E003): the
 	   line binds nothing, opens none of its path's fields, and nothing is
 	   lost. Where a merge or an edit puts an instance above it, it is written
@@ -5334,7 +5334,7 @@ int main(int argc, char **argv) {
 			shcl_free(cb); shcl_free(cd);
 		}
 	}
-	test_id("Eu96oVI", "a_replaced_leaf_keeps_the_lines_kept_in_its_block");
+	test_id("dekz4", "a_replaced_leaf_keeps_the_lines_kept_in_its_block");
 	/* A line kept in a leaf's block stays in the merged block when the other
 	   layer replaces the leaf, as it does when a setter changes the leaf in
 	   place. It went to the root, above the field, where an item reloaded as
@@ -5359,7 +5359,7 @@ int main(int argc, char **argv) {
 			shcl_free(cb); shcl_free(cd);
 		}
 	}
-	test_id("Es1gWRx", "a_setter_keeps_fields_and_arrays_apart");
+	test_id("ddmbr", "a_setter_keeps_fields_and_arrays_apart");
 	/* A field with lines under it takes one plain value or none (E028), so a
 	   setter puts no field under an array and no array over fields. Each used
 	   to write text that reloads as E028. */
@@ -5381,9 +5381,9 @@ int main(int argc, char **argv) {
 		if (!str_is(shcl_to_canonical(ad), "l: [b, c]\nz:\n\t- x\n")) fail("setter_apart", "stacked");
 		shcl_free(ad);
 	}
-	test_id("EonWXt2", "edits_and_merges_match_a_reload");
+	test_id("dc474", "edits_and_merges_match_a_reload");
 	edits_and_merges_match_a_reload();
-	test_id("ErpmA6K", "a_remove_keeps_a_settled_line_below_it");
+	test_id("ddhg1", "a_remove_keeps_a_settled_line_below_it");
 	/* The issue's steps, which the fuzz reached with the value syntax: the
 	   setter comments out `a: [1` and makes `a` with the lines under it, and
 	   the new `c` goes between the kept line and the settled one, so the
@@ -5407,7 +5407,7 @@ int main(int argc, char **argv) {
 		free(sa.p); free(sr.p);
 		shcl_free(sl); shcl_free(sb);
 	}
-	test_id("Er7o9rQ", "compact_keeps_generation_faults");
+	test_id("dd6xj", "compact_keeps_generation_faults");
 	{
 		/* shcl_generate drops the faults of an earlier call first, and it tells
 		   them by a flag the compaction copy used to clear, so two calls and a
@@ -5423,7 +5423,7 @@ int main(int argc, char **argv) {
 		if (before == 0 || shcl_diag_count(s) != before) fail("compact_keeps_generation_faults", "a generation fault outlived the next shcl_generate");
 		shcl_free(s);
 	}
-	test_id("Es1qzv8", "bracket_selectors_are_the_old_spelling");
+	test_id("ddmcw", "bracket_selectors_are_the_old_spelling");
 	/* A selector is written in parens. One in brackets is the old spelling: a
 	   file line is E029 and kept, and a lookup, a setter or a schema path in
 	   brackets is refused. A body starting with `#`, the old index, is refused
@@ -5466,7 +5466,7 @@ int main(int argc, char **argv) {
 		shcl_validation_free(ov);
 		shcl_free(odoc); shcl_free(os);
 	}
-	test_id("Es1qzxJ", "init_refuses_a_child_of_an_array_parent");
+	test_id("ddmcx", "init_refuses_a_child_of_an_array_parent");
 	/* A parent whose default is an array has no selector a child line can use,
 	   since a selector matches one plain value. Generation refuses it rather
 	   than write a child that makes another instance. */
@@ -5483,7 +5483,7 @@ int main(int argc, char **argv) {
 		if (ok || !refused) fail("init_array_parent", "a child of an array parent generated");
 		shcl_free(as);
 	}
-	test_id("Es1ySon", "migrate_brackets_a_2x_comma_list");
+	test_id("ddmdt", "migrate_brackets_a_2x_comma_list");
 	/* migrate writes a 2.x comma list in brackets, with or without a blank
 	   after the comma, since 2.x read both as arrays. In a file that does not
 	   say it is 2.x, `a,b` is a string under these rules, so it is left and
@@ -5502,7 +5502,7 @@ int main(int argc, char **argv) {
 		if (!mig_starts(&mm, "x: [a, b]\ny: a,b\n")) fail("migrate_comma_list", mm.text);
 		free(mm.text);
 	}
-	test_id("EsIx4cm", "migrate_writes_a_lone_2x_element_plain");
+	test_id("ddrgj", "migrate_writes_a_lone_2x_element_plain");
 	/* A 2.x comma list with one element left once the empty slots go was the
 	   plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
 	   would be two, and `[s]` reads as that string too. */
@@ -5517,7 +5517,7 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		free(mm.text);
 	}
-	test_id("Es1ySoo", "migrate_writes_star_items_as_dashes");
+	test_id("ddmdv", "migrate_writes_star_items_as_dashes");
 	/* A 2.x `*` item becomes `- `, and an item these rules would read as
 	   something else is quoted, such as one that looks like `- name: value`. */
 	{
@@ -5531,7 +5531,7 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		free(mm.text);
 	}
-	test_id("Es1ySop", "migrate_quotes_a_name_not_led_by_a_letter");
+	test_id("ddmdw", "migrate_quotes_a_name_not_led_by_a_letter");
 	/* A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0`
 	   stay fields rather than reading as list items, and `404` stays a name. */
 	{
@@ -5548,7 +5548,7 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		free(mm.text);
 	}
-	test_id("Es1ySoq", "migrate_escapes_a_real_mark");
+	test_id("ddmdx", "migrate_escapes_a_real_mark");
 	/* 2.x read a `◉` as text. A name, a bare value and a selector body
 	   holding one get the escape for a real mark, so they still read as that
 	   text. */
@@ -5567,7 +5567,7 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		free(mm.text);
 	}
-	test_id("Es1ySor", "migrate_quotes_a_bare_selector_these_rules_refuse");
+	test_id("ddmdy", "migrate_quotes_a_bare_selector_these_rules_refuse");
 	/* A 2.x selector goes in parens, and a bare body these rules refuse, such
 	   as one with a quote or a space, is quoted, so its block still loads. */
 	{
@@ -5579,7 +5579,7 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		free(mm.text);
 	}
-	test_id("Es1ySos", "migrate_writes_selectors_in_parens");
+	test_id("ddmdz", "migrate_writes_selectors_in_parens");
 	/* Every 2.x selector goes in parens: an index, a value, the sugar on a
 	   segment before the last, and a body with a paren in it, quoted. A
 	   selector in brackets is E029 under these rules, so a file that does not
@@ -5605,7 +5605,7 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		free(mm.text);
 	}
-	test_id("Es1ySot", "migrate_counts_what_nothing_spells");
+	test_id("ddme0", "migrate_counts_what_nothing_spells");
 	/* What 2.x bound and nothing spells now is counted lost, so the CLI
 	   refuses at 7: a selector with a comma, which matched an array value, and
 	   a comma list with lines under it. A list of only empty slots, which 2.x
@@ -5628,7 +5628,7 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		free(mm.text);
 	}
-	test_id("Es1ySou", "migrate_leaves_what_reads_clean_now");
+	test_id("ddme1", "migrate_leaves_what_reads_clean_now");
 	/* A file that does not say it is 2.x could be a 3.0 one. A piece that
 	   reads clean under these rules too, such as an escape, a backtick value,
 	   `[a]` or a `- ` item, is left as written and counted, so the CLI asks
@@ -5647,7 +5647,7 @@ int main(int argc, char **argv) {
 		#undef MK
 	}
 	#define MK "\xe2\x97\x89"
-	test_id("EtDC3SS", "migrate_writes_the_text_2x_read");
+	test_id("de61g", "migrate_writes_the_text_2x_read");
 	/* 2.x resolved a backslash pair in a value, an element, a `*` item, a
 	   selector body and the sugar, bare or quoted, so migrate writes the text
 	   2.x read (2026101911300000). Any other backslash was text in 2.x too. */
@@ -5684,7 +5684,7 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		shcl_upgraded_free(&up);
 	}
-	test_id("EtDC3V8", "migrate_counts_a_backslash_pair_in_an_unstamped_file");
+	test_id("de61h", "migrate_counts_a_backslash_pair_in_an_unstamped_file");
 	/* A file that does not say it is 2.x could be a 3.0 one, where a
 	   backslash is text. A piece that reads clean under these rules too is
 	   left and counted, so the CLI asks for --from-2x. A line these rules
@@ -5705,7 +5705,7 @@ int main(int argc, char **argv) {
 		if (!mig_starts(&mm, "p: \"C:\\new\"\nt: \"C:" MK "TAB" MK "emp\"\n")) fail("migrate_unstamped_pair", mm.text);
 		free(mm.text);
 	}
-	test_id("EtDC3Xn", "migrate_counts_a_quoted_name_with_a_backslash_pair_lost");
+	test_id("de61j", "migrate_counts_a_quoted_name_with_a_backslash_pair_lost");
 	/* 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs,
 	   so a name with one reads two ways across 2.x. It stays as written and
 	   counts as lost, with from_v2 or without, and the rest of its line still
@@ -5732,7 +5732,7 @@ int main(int argc, char **argv) {
 	   the clock that main pins. */
 #define UP_V2 "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config file format is SHCL.\n# \"Simple Hierarchical Config Language\"\n#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.\n#\n"
 #define UP_TAG "_backup_20261004-001500_format-v2"
-	test_id("Es2qPd0", "upgrade_leaves_a_clean_or_stamped_file");
+	test_id("ddmmg", "upgrade_leaves_a_clean_or_stamped_file");
 	{
 		/* a,b is one string now and an array under 2.x, but it loads clean,
 		   and nothing says the file is 2.x. */
@@ -5756,7 +5756,7 @@ int main(int argc, char **argv) {
 		if (!up.current || !up_is(&up, beta) || up.format != 3) fail("upgrade_clean", "beta");
 		shcl_upgraded_free(&up); */
 	}
-	test_id("EsgoThc", "with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x");
+	test_id("ddy86", "with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x");
 	{
 		/* The caller says a 2.x build wrote it, as a beta of 3.0 could have
 		   (2026101407100010). The backup name keeps the format the line
@@ -5802,7 +5802,7 @@ int main(int argc, char **argv) {
 		if (!m.current || m.len != strlen(beta) || memcmp(m.text, beta, m.len) != 0) fail("upgrade_beta", "migrate");
 		free(m.text);
 	}
-	test_id("Es2qPd1", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently");
+	test_id("ddmmh", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently");
 	{
 		/* The caller says it is 2.x, where a,b was an array. */
 		shcl_upgraded up = shcl_upgrade("p: a,b\n", 7, 1);
@@ -5815,7 +5815,7 @@ int main(int argc, char **argv) {
 		if (!up.current || !up_is(&up, same)) fail("upgrade_from_v2", "same");
 		shcl_upgraded_free(&up);
 	}
-	test_id("EsFrOVR", "an_older_format_line_becomes_this_one_in_place");
+	test_id("ddqrs", "an_older_format_line_becomes_this_one_in_place");
 	{
 		/* Nothing else changes, so only the stamp does, and only with from_v2
 		   (2026100717500017). */
@@ -5850,7 +5850,7 @@ int main(int argc, char **argv) {
 			free(m.text);
 		}
 	}
-	test_id("Esgj35R", "a_format_line_at_the_top_goes_when_the_block_goes_on");
+	test_id("ddy7w", "a_format_line_at_the_top_goes_when_the_block_goes_on");
 	{
 		/* The block names the format, so the file names one (2026101407100001). */
 		const char *top = "##    Format   2\nname: x\nq: a,b\n";
@@ -5872,7 +5872,7 @@ int main(int argc, char **argv) {
 			shcl_free(d);
 		}
 	}
-	test_id("Es2qPd2", "upgrade_writes_a_fresh_file_with_the_info_block");
+	test_id("ddmmj", "upgrade_writes_a_fresh_file_with_the_info_block");
 	{
 		shcl_upgraded up = shcl_upgrade(UP_V2, strlen(UP_V2), 0);
 		if (up.current || up.ambiguous != 0 || up.lost != 0 || up.format != 2) fail("upgrade_fresh", "counts");
@@ -5890,7 +5890,7 @@ int main(int argc, char **argv) {
 		shcl_upgraded_free(&again);
 		shcl_upgraded_free(&up);
 	}
-	test_id("Es2qPd3", "upgrade_refuses_text_that_reads_two_ways");
+	test_id("ddmmk", "upgrade_refuses_text_that_reads_two_ways");
 	{
 		const char *amb = "a: x,y\nb: \"q\n";
 		shcl_upgraded up = shcl_upgrade(amb, strlen(amb), 0);
@@ -5901,7 +5901,7 @@ int main(int argc, char **argv) {
 		if (up.ambiguous != 0 || up.len < strlen(head) || memcmp(up.text, head, strlen(head)) != 0) fail("upgrade_ambiguous", up.text);
 		shcl_upgraded_free(&up);
 	}
-	test_id("Es2qPd4", "backup_name_puts_the_tag_before_the_extension");
+	test_id("ddmmm", "backup_name_puts_the_tag_before_the_extension");
 	{
 		static const struct { const char *file; uint32_t format; const char *want; } bn[] = {
 			{"f.shcl", 2, "f" UP_TAG ".shcl"},
@@ -5916,7 +5916,7 @@ int main(int argc, char **argv) {
 			free(got);
 		}
 	}
-	test_id("Es2qPd5", "upgrade_file_backs_up_then_rewrites");
+	test_id("ddmmn", "upgrade_file_backs_up_then_rewrites");
 	{
 		char udir[256], file[320], backup[320];
 		up_dir(udir, sizeof udir, "write");
@@ -5946,7 +5946,7 @@ int main(int argc, char **argv) {
 		if (dir_entries(udir) != 2) fail("upgrade_file", "entries");
 		dir_clear(udir);
 	}
-	test_id("Es2qPd6", "upgrade_file_never_writes_over_a_backup");
+	test_id("ddmmp", "upgrade_file_never_writes_over_a_backup");
 	{
 		char udir[256], file[320], backup[320], none[320], amb[320];
 		up_dir(udir, sizeof udir, "taken");
@@ -5971,7 +5971,7 @@ int main(int argc, char **argv) {
 		if (dir_entries(udir) != 3) fail("upgrade_taken", "entries");
 		dir_clear(udir);
 	}
-	test_id("Et6AmCW", "write_backup_refuses_a_swapped_file_and_text");
+	test_id("de4bd", "write_backup_refuses_a_swapped_file_and_text");
 	{
 		/* The file and its text are both strings, and swapped they wrote a
 		   backup named after the text, read the text's length from the path,
@@ -6011,7 +6011,7 @@ int main(int argc, char **argv) {
 		DIR *left = opendir(udir);
 		if (left) { closedir(left); fail("backup_swapped", "its folder is left behind"); }
 	}
-	test_id("EsoQmUB", "from_v2_refuses_a_conversion_that_keeps_an_error");
+	test_id("de02x", "from_v2_refuses_a_conversion_that_keeps_an_error");
 	{
 		/* The next run with from_v2 would read the fresh text by 2.x rules
 		   again, and the 2.x escape on line 1 would grow each time
@@ -6059,7 +6059,7 @@ int main(int argc, char **argv) {
 		if (dir_entries(udir) != 1) fail("upgrade_left", "entries");
 		dir_clear(udir);
 	}
-	test_id("EtaIsjz", "a_block_kept_at_the_top_names_this_format_too");
+	test_id("debk8", "a_block_kept_at_the_top_names_this_format_too");
 	{
 		/* The lone stamp comes off, and the block kept above the first field's
 		   child named another format, which the fresh text then read as its
@@ -6084,7 +6084,7 @@ int main(int argc, char **argv) {
 			shcl_free(d);
 		}
 	}
-	test_id("Eu1bOv5", "upgrade_keeps_each_line_where_it_was");
+	test_id("dej5b", "upgrade_keeps_each_line_where_it_was");
 	{
 		/* Blank lines and a raw block on its field's line stay put, so a line
 		   number in the old file names the same line in the fresh one
@@ -6110,7 +6110,7 @@ int main(int argc, char **argv) {
 	/* Windows-only, and wine cannot show either one: it maps onto a filesystem
 	   with no MAX_PATH and follows a unix symlink before the API ever sees it.
 	   The hosted windows job is where these are judged. */
-	test_id("EonWXt3", "save_through_a_long_path");
+	test_id("dc475", "save_through_a_long_path");
 	{
 		/* A path past MAX_PATH. The narrow and wide file calls both refuse one
 		   unless it has the \\?\ prefix, so a save through a deep tree used
@@ -6155,7 +6155,7 @@ int main(int argc, char **argv) {
 			if (ln > lbase) ln--;
 		}
 	}
-	test_id("EonWXt4", "winlink");
+	test_id("dc476", "winlink");
 	{
 		/* A save through a link replaces what the link points at, not the link.
 		   An unprivileged symlink needs developer mode, so a runner without it
@@ -6191,7 +6191,7 @@ int main(int argc, char **argv) {
 		free(wl); free(wr);
 		remove(real); _rmdir(sdir);
 	}
-	test_id("EqnwIkY", "windangle");
+	test_id("dd24q", "windangle");
 	{
 		/* 20260923 item 8: a read through a dangling link created a file where
 		   the link pointed and deleted it again, the save side's probe. If the
@@ -6233,7 +6233,7 @@ int main(int argc, char **argv) {
 		free(wl); free(wd);
 		_rmdir(sdir);
 	}
-	test_id("Eqzz38c", "windsave");
+	test_id("dd526", "windsave");
 	{
 		/* A save through a dangling link creates the file it points at and
 		   keeps the link, as on POSIX. The windows resolve could not open the
@@ -6277,7 +6277,7 @@ int main(int argc, char **argv) {
 	// judged first. The typed read decides, at the document's strictness, so
 	// `$5` is an int only when loose. A second call writes nothing, and the
 	// canonical text is a fixpoint. Same table in every runner.
-	test_id("EsJZko6", "default_fills_what_does_not_read");
+	test_id("ddrne", "default_fills_what_does_not_read");
 	{
 		static const char dtext[] = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
 #define DNOTE(line, path, what) "# " line "  ## replaced by shcl when setting a default for " path ", 2026-10-04 00:15:00 PDT: not " what
@@ -6344,7 +6344,7 @@ int main(int argc, char **argv) {
 	// A replaced line kept as a comment goes through the save that keeps
 	// lines, `fmt` and a reload unchanged, and a run of the same defaults on
 	// the saved text writes nothing. Same fixture in every runner.
-	test_id("EsJZkoA", "default_replace_round_trips");
+	test_id("ddrnj", "default_replace_round_trips");
 	{
 		static const char rtext[] = "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n";
 		static const char *const rops[] = {"int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"};
@@ -6376,7 +6376,7 @@ int main(int argc, char **argv) {
 	   URL is never fetched; only a regular file is read, and none over 16 MiB.
 	   The CLI's check is this call, so its rows in cli-regress pin the same
 	   rules. Same fixture in every runner. */
-	test_id("EsJZ108", "read_named_schema_follows_check_rules");
+	test_id("ddrna", "read_named_schema_follows_check_rules");
 	{
 		char nd[256], ncfg[300], np[400], nline[600];
 		snprintf(nd, sizeof nd, "%s/shcl-namedschema-%ld", tmp_root(), (long)getpid());
@@ -6477,7 +6477,7 @@ int main(int argc, char **argv) {
 #endif
 	}
 
-	test_id("EsJYNe4", "kind_reads_say_what_is_there");
+	test_id("ddrn6", "kind_reads_say_what_is_there");
 	// shcl_kind and shcl_read_kind: what the value at a path is, from the
 	// stored form, with the status shcl_read_line gives. Same fixture in every
 	// runner.
@@ -6541,7 +6541,7 @@ int main(int argc, char **argv) {
 		if (shcl_read_line(kd, "built", 5).value != 0) fail("kind_reads", "line(built)");
 		shcl_free(kd);
 	}
-	test_id("EshdmOB", "format_diagnostic_is_the_cli_line");
+	test_id("ddyej", "format_diagnostic_is_the_cli_line");
 	// shcl_format_diagnostic gives the CLI's stderr line. Same fixture in
 	// every runner; the prose is each binding's own.
 	{
@@ -6583,7 +6583,7 @@ int main(int argc, char **argv) {
 		if (strcmp(shcl_severity_name(SHCL_SEV_ERROR), "Error") || strcmp(shcl_severity_name(SHCL_SEV_HINT), "Hint"))
 			fail("format_diagnostic", "shcl_severity_name");
 	}
-	test_id("EshnD0s", "format_value_is_the_setters_text");
+	test_id("ddyfq", "format_value_is_the_setters_text");
 	/* shcl_format_value is the text shcl_set_string writes after `k: ` in a
 	   fresh document, NULL exactly where shcl_set_string refuses, and it reads
 	   back as the text it was handed. Over the setter soup, the review's
@@ -6648,7 +6648,7 @@ int main(int argc, char **argv) {
 		if (!dv || strcmp(dv, "\"2026-07-12T14:30\"")) fail("format_value", "datetime quoted");
 		free(dv);
 	}
-	test_id("EstLlpN", "quote_segment_selects_a_held_value");
+	test_id("de18q", "quote_segment_selects_a_held_value");
 	/* spec.md: `name(` + shcl_quote_segment(value) + `)` picks the instance
 	   holding that value, numbers included, where site(0) is the first
 	   instance. Over the spec's examples and the setter soup, each value
@@ -6712,7 +6712,7 @@ int main(int argc, char **argv) {
 			free(text);
 		}
 	}
-	test_id("EsiL1NB", "format_array_is_the_setters_text");
+	test_id("ddyky", "format_array_is_the_setters_text");
 	/* shcl_format_array is the text shcl_set_string_array writes after `k: `
 	   in a fresh document, NULL exactly where shcl_set_string_array refuses,
 	   and it reads back as the texts it was handed. Each text of the
@@ -6813,7 +6813,7 @@ int main(int argc, char **argv) {
 		if (!dv || strcmp(dv, "[\"2026-07-12T14:30\"]")) fail("format_array", "datetime quoted");
 		free(dv);
 	}
-	test_id("Eu7cuVd", "a_save_over_a_file_changed_since_the_load_is_refused");
+	test_id("dekkm", "a_save_over_a_file_changed_since_the_load_is_refused");
 	{
 		/* A save over the file a load read refuses when another program changed
 		   it since, writes nothing, and writes with force. A save elsewhere, and
@@ -6958,7 +6958,7 @@ int main(int argc, char **argv) {
 		shcl_free(parsed);
 		dir_clear(cdir);
 	}
-	test_id("Eu7kRqj", "a_create_only_save_refuses_a_file_already_there");
+	test_id("dekmj", "a_create_only_save_refuses_a_file_already_there");
 	{
 		/* A create-only save refuses a file that's there, and only one of
 		   several saves at once makes it. A new file takes the mode asked for,
@@ -7043,7 +7043,7 @@ int main(int argc, char **argv) {
 		shcl_free(doc);
 		dir_clear(xdir);
 	}
-	test_id("Eu8h5g7", "a_newer_format_document_saves_nowhere");
+	test_id("dekvx", "a_newer_format_document_saves_nowhere");
 	{
 		/* A document from a newer format reads and edits as usual, and every
 		   save of it is refused with nothing written, whatever the options,

@@ -80,7 +80,7 @@ fRunExample(){   ## fRunExample NAME DIR CMD...
 	fi
 }
 
-fTest EpHHs8W c-example
+fTest dcbc6 c-example
 ##	The C example is the fenced ~~~c block; the file has exactly one.
 awk '/^~~~+c$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/block.c"
 [[ -s "${tmpDir}/block.c" ]] || { echo "check-readme: no c example found in ${docNames}" >&2; exit 2 ;}
@@ -111,7 +111,7 @@ fRunExample C "${tmpDir}" ./example
 ##	statements go in a main() from its first comment on. The two files build
 ##	apart with the line the doc gives, which is the point: the example's
 ##	file sees no C.
-fTest Er1ohBI cpp-example
+fTest dd5fe cpp-example
 mkdir -p "${tmpDir}/cppex"
 cp "${header}" "${repoDir}/source/c/shcl.hpp" "${tmpDir}/cppex/"
 awk '/^~~~+cpp$/ { n++; inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock { print > (dir "/block" n ".cpp") }' dir="${tmpDir}/cppex" "${docs[@]}"
@@ -134,7 +134,7 @@ fRunExample C++ "${tmpDir}/cppex" ./ex
 ##	reader adds a package clause, a main() and the two standard imports the
 ##	body calls. The module resolves the library from the tree rather than the
 ##	proxy, so this needs no network.
-fTest EpHHs8X go-example
+fTest dcbc7 go-example
 awk '/^~~~+go$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/block.go"
 [[ -s "${tmpDir}/block.go" ]] || { echo "check-readme: no go example found in ${docNames}" >&2; exit 2 ;}
 mkdir -p "${tmpDir}/goex"
@@ -170,7 +170,7 @@ fRunExample Go "${tmpDir}/goex" ./goex
 ##	Python. The block is a whole script already, so the only thing a reader adds
 ##	is the module on the import path - which for the published package is what
 ##	pip put there, and here is the tree's own copy.
-fTest EqRTWFf python-example
+fTest dcwqv python-example
 mkdir -p "${tmpDir}/pyex"
 awk '/^~~~+python$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/pyex/example.py"
 [[ -s "${tmpDir}/pyex/example.py" ]] || { echo "check-readme: no python example found in ${docNames}" >&2; exit 2 ;}
@@ -182,7 +182,7 @@ fRunExample Python "${tmpDir}/pyex" python3 example.py
 ##	The dependency is a path rather than the doc's `shcl = "2"`, since the
 ##	gate must not need crates.io - what is being checked is the code, and the
 ##	crate it resolves to is this tree's.
-fTest EqRTWFg rust-example
+fTest dcwqw rust-example
 mkdir -p "${tmpDir}/rsex/src"
 awk '/^~~~+rust$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/block.rs"
 [[ -s "${tmpDir}/block.rs" ]] || { echo "check-readme: no rust example found in ${docNames}" >&2; exit 2 ;}
@@ -218,7 +218,7 @@ fRunExample Rust "${tmpDir}/rsex" "${tmpDir}/rstarget/debug/readme-example"
 ##	go in a main(); everything else is verbatim, including the two-line impl.c
 ##	and the build line the doc prints beside it. Skipped out loud where
 ##	there is no zig - it is not a build dependency of anything shipped.
-fTest EpHHs8Y zig-example
+fTest dcbc8 zig-example
 if command -v zig >/dev/null 2>&1; then
 	awk '/^~~~+zig$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${docs[@]}" > "${tmpDir}/block.zig"
 	[[ -s "${tmpDir}/block.zig" ]] || { echo "check-readme: no zig example found in ${docNames}" >&2; exit 2 ;}
@@ -252,7 +252,7 @@ fi
 ##	server.shcl with the colon knocked off line 3, for the block that starts
 ##	with `shcl check server.shcl`, and an app.shcl whose line 2 has the
 ##	misspelled key its schema block reports.
-fTest EqGg9jM console-transcripts
+fTest dct4z console-transcripts
 cli="${SHCL_CLI:-${repoDir}/source/rust/target/debug/shcl}"
 [[ -x "${cli}" ]] || { echo "check-readme: no built CLI at ${cli} to run the transcripts with" >&2; exit 2 ;}
 tx="${tmpDir}/tx"
@@ -304,7 +304,7 @@ fTestEnd
 echo "check-readme: the ${nCases} transcript command(s) print what the examples doc shows"
 
 ##	The Escapes sample went in with a bad escape that nothing read.
-fTest Es3cEBF escapes-sample
+fTest ddmte escapes-sample
 awk '/^## Escapes/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${docs[@]}" > "${tmpDir}/escapes.shcl"
 [[ -s "${tmpDir}/escapes.shcl" ]] || { echo "check-readme: the Escapes sample is gone from ${docNames}" >&2; exit 1 ;}
 escOut="$("${cli}" check "${tmpDir}/escapes.shcl" 2>&1 || true)"
@@ -363,7 +363,7 @@ fRunBashSection(){   ## fRunBashSection HEADING LANG
 	fSectionLoadsClean "${2} '${1}'" "${dir}"
 	echo "check-readme: the ${n} ${2} block(s) under '${1}' run"
 }
-fTest Es9JhMP shell-blocks
+fTest ddp6d shell-blocks
 fRunBashSection '## Using the CLI' sh
 fRunBashSection '### Bash' bash
 fTestEnd
@@ -371,7 +371,7 @@ fTestEnd
 ##	PowerShell has no errexit for a native exit code, so the blocks are parsed
 ##	and run one top-level statement at a time, dot-sourced so each sees what the
 ##	last one set, and a nonzero LASTEXITCODE after any of them fails the run.
-fTest Es9JhOf powershell-blocks
+fTest ddp6e powershell-blocks
 if command -v pwsh >/dev/null 2>&1; then
 	psDir="${tmpDir}/ps"
 	nPs="$(fSectionBlocks '### PowerShell' powershell "${psDir}")"
@@ -417,7 +417,7 @@ fTestEnd
 ##	The prose under the Bash block says what each of the two set options makes
 ##	of one piece of text: --set one string, --set-literal a two-element array.
 ##	It said so of comma text after 3.0 made that an error.
-fTest Es9JhQu set-spellings
+fTest ddp6f set-spellings
 # shellcheck disable=SC2016  ## the backticks are markdown, not expansions
 setText="$(awk '/^The two spellings differ/' "${docs[@]}" | grep -oE '`[a-z.-]+=[^`]*,[^`]*`' | head -n1 | tr -d '`' || true)"
 [[ -n "${setText}" ]] || { echo "check-readme: the paragraph on --set and --set-literal no longer shows its comma text" >&2; exit 1 ;}
@@ -440,7 +440,7 @@ fTestEnd
 ##	The paragraph on 2.x files names a comma value and a backslash value that
 ##	each need --from-2x, and what the second becomes with it. It went stale
 ##	twice already, on backslashes.
-fTest Es9KiYw migrate-claims
+fTest ddp6g migrate-claims
 migPara="$(awk '/^If you have files written for 2.x/' "${docs[@]}")"
 # shellcheck disable=SC2016  ## the backticks are markdown, not expansions
 migComma="$(grep -oE '`[a-z]+: [^`]*,[^`]*`' <<< "${migPara}" | head -n1 | tr -d '`' || true)"

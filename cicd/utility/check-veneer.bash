@@ -46,7 +46,7 @@ declare -A covered=(
 	[shcl_read_string_array_to]="every veneer read releases first and copies into a std container"
 )
 
-fTest Eq4sdfk every-c-call-is-wrapped
+fTest dcq9w every-c-call-is-wrapped
 ## Declarations start at column 0 with their return type; everything above the
 ## implementation guard is the public half. A floor on the count, since a
 ## pattern that stopped matching would otherwise pass with nothing to check.
@@ -78,7 +78,7 @@ for name in "${!covered[@]}"; do
 	fi
 done
 
-fTest Es9li9x c-get-calls-take-the-or-name
+fTest ddp9s c-get-calls-take-the-or-name
 ## A C read with a fallback is spelled _or, as in every binding, since a plain
 ## get_* elsewhere is the status read. C's plain three were fallback reads with
 ## an _or twin beside them, so a ported routine kept its name and changed tier.
@@ -88,7 +88,7 @@ for name in "${declared[@]}"; do
 	fi
 done
 
-fTest Eqzz38Z get-refuses-an-unsupported-type
+fTest dd523 get-refuses-an-unsupported-type
 ## get<T> with a T it has no read for has to stop at compile time with the
 ## static_assert's text. Without the assert it was a bare undefined-symbol link
 ## error. The same snippet must compile with a supported T, or a broken snippet
@@ -108,7 +108,7 @@ elif ! grep -qF 'T must be exactly int64_t' "${work}/bad.err"; then
 	echo "check-veneer: get<int> fails without the static_assert's message:" >&2; head -5 "${work}/bad.err" >&2; nBad=$((nBad + 1))
 fi
 
-fTest Er1ohBJ public-half-names-no-c
+fTest dd5ff public-half-names-no-c
 ## A C++ caller sees none of the C interface. Above the implementation section
 ## the header names only its own guard and the two knobs, and the C include
 ## sits inside an SHCL_IMPLEMENTATION block of its own.
@@ -121,13 +121,13 @@ done < <(sed -E 's#//.*$##' "${veneer}" | awk '
 
 ## The same thing, as a compiler sees it: a consumer file has no C header, and
 ## the consumer and implementation files, compiled apart, link and run.
-fTest Er1ohBK consumer-cannot-call-c
+fTest dd5fg consumer-cannot-call-c
 fFlags=(-std=c++17 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -I"${srcDir}")
 printf '#include "shcl.hpp"\nint main() { return shcl_parse("", 0) != 0; }\n' >"${work}/sees.cpp"
 if "${cxx}" "${fFlags[@]}" -fsyntax-only "${work}/sees.cpp" 2>/dev/null; then
 	echo "check-veneer: a file including only shcl.hpp can call shcl_parse" >&2; nBad=$((nBad + 1))
 fi
-fTest Er1ohBL split-build-links-and-runs
+fTest dd5fh split-build-links-and-runs
 printf '#define SHCL_IMPLEMENTATION\n#include "shcl.hpp"\n' >"${work}/impl.cpp"
 cat >"${work}/user.cpp" <<'EOF'
 #include "shcl.hpp"
@@ -156,7 +156,7 @@ fi
 ## 20260926 item 7: const members raced on the arenas behind the document, so
 ## two threads reading one const Document were a data race. Const reads of
 ## every kind from two threads at once, under ThreadSanitizer.
-fTest Er8oiHp const-reads-share-across-threads
+fTest dd75a const-reads-share-across-threads
 cat >"${work}/threads.cpp" <<'EOF'
 #define SHCL_IMPLEMENTATION
 #include "shcl.hpp"

@@ -84,11 +84,11 @@ work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
 ## The suite's own status lines were shown by the tests stage, so only a FAIL
 ## line comes through here, then whatever a sanitizer or Miri said.
 fShow(){
-	grep -vE '^(ok|skip) +[0-9A-Za-z]{7} rust |^test .+ \.\.\. (ok|ignored)$' "$1" || true
+	grep -vE '^(PASS|SKIP) [0-9a-z]{5} rust |^test .+ \.\.\. (ok|ignored)$' "$1" || true
 }
 
 if ((doAsan)); then
-	fTest EszIPWj rust-suite-under-asan-and-lsan
+	fTest de2pb rust-suite-under-asan-and-lsan
 	## LLVM's runtime prints bare addresses unless it finds a symbolizer, and
 	## distributions add the version to the name.
 	if [[ -z "${ASAN_SYMBOLIZER_PATH:-}" ]]; then
@@ -113,8 +113,8 @@ if ((doAsan)); then
 fi
 
 if ((doMiri)); then
-	if ((miriAll)); then fTest EszIPWl rust-suite-under-miri-all
-	else fTest EszIPWk rust-suite-under-miri; fi
+	if ((miriAll)); then fTest de2pd rust-suite-under-miri-all
+	else fTest de2pc rust-suite-under-miri; fi
 	## Isolation off, since the tests read the corpus. Miri ignores opt-level
 	## and warns that it does; 0 says nothing. --cfg shcl_miri_all lets in the
 	## slow tests. The pinned clock keeps a setter's note off tzset, which

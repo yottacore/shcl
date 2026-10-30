@@ -67,7 +67,7 @@ notInCi+=("${leakOnly[@]}")
 ## version, and nothing digit-like after.
 fNamesAt(){ grep -qE -- "(^|[^A-Za-z0-9_-])${1}(==|=|@|-|/|-version: \"| -RequiredVersion )v?${2//./\\.}([^0-9]|$)" "${ciFile}"; }
 
-fTest EoSE8Nk tool-pins-match-ci
+fTest dbz38 tool-pins-match-ci
 for pin in "${TOOL_PINS[@]}"; do
 	name="${pin%%|*}"; rest="${pin#*|}"; ver="${rest%%|*}"
 	skip=0
@@ -95,7 +95,7 @@ done
 ## Only one spelling can be followed to its check: `curl ... -o /absolute/path`.
 ## Any other fetch fails here rather than passing unseen, and so does a check
 ## that is commented out.
-fTest Eq5jgxE downloads-are-hashed
+fTest dcqge downloads-are-hashed
 liveLines="$(grep -vE -- '^[[:space:]]*#' "${ciFile}" || true)"
 while IFS= read -r fetchLine; do
 	[[ -n "${fetchLine}" ]] || continue
@@ -130,7 +130,7 @@ done < <(uniq -d <<<"${fetchTargets}")
 ## errexit and pipefail, so the first that matched nothing ended the group and
 ## the rest were never read; a process substitution's status is never seen, so
 ## nothing said so.
-fTest EqL4rto installs-are-pinned
+fTest dcv6n installs-are-pinned
 ## pip and npm: name==version, name@version.
 pipNames="$(grep -oE -- 'pip install[^|;]*' "${ciFile}" \
 	| grep -oE -- '[A-Za-z][A-Za-z0-9_.-]*(==|@)[0-9]' | sed -E 's/(==|@)[0-9]$//' || true)"
@@ -173,7 +173,7 @@ done < <(printf '%s\n%s\n%s\n%s\n' "${pipNames}" "${npmNames}" "${goNames}" "${p
 ## through. --no-cross and --no-release share the cross targets, which the
 ## halves leave to the jobs that build on their own runners (2026102813104371).
 ## --no-remote is the LAN boxes, and --skip is held to the leak check below.
-fTest EsZzNCY hosted-jobs-cover-the-gate
+fTest ddwkk hosted-jobs-cover-the-gate
 stageFlags=(--no-fmt --no-lint --no-tests --no-cross --no-release)
 gateRuns=()
 matrixRe='\$\{\{ *matrix\.([A-Za-z0-9_-]+) *\}\}'
@@ -231,7 +231,7 @@ done
 
 ## A runner has docker, so a run there without --no-container builds the whole
 ## build image before anything else, and the job runs out of time (2026101920461174).
-fTest EtDCDE9 hosted-jobs-skip-the-image
+fTest de61r hosted-jobs-skip-the-image
 for runArgs in "${inImage[@]}"; do
 	echo "check-pins: ci.yml runs the gate without --no-container, so it would build the image first:${runArgs}" >&2; nBad=$((nBad + 1))
 done
@@ -239,7 +239,7 @@ done
 ## A leak check's tool ci.yml leaves out is skipped by name in every hosted job
 ## that runs the leak checks, the ones without --no-tests, and no other step
 ## names it. A --skip of anything else leaves out a step the runner can run.
-fTest EtAC9of leakcheck-only-tools-stay-out-of-the-gate
+fTest de5an leakcheck-only-tools-stay-out-of-the-gate
 for tool in "${leakOnly[@]}"; do
 	toolRe="(^|[^A-Za-z0-9_-])${tool}([^A-Za-z0-9_]|$)"
 	for step in "${FMT_CHECK_CMD[*]:-}" "${FMT_CHECK_EXTRA[@]}" "${BUILD_CMD[*]:-}" "${BUILD_EXTRA[@]}" "${LINT_CMD[*]:-}" "${LINT_EXTRA[@]}" \
@@ -280,7 +280,7 @@ done
 ## case and - as _. Any recipe's ARG for a pinned tool has to match it too, so
 ## an extra image can't drift on its own, and so does a version written straight
 ## into a RUN line.
-fTest Esbpsph container-pins-match
+fTest ddx1t container-pins-match
 ctrDir="${cicdDir}/container"
 mainFiles=("${ctrDir}/Dockerfile" "${ctrDir}/requirements.txt" "${ctrDir}/package.json")
 recipes=()
@@ -338,7 +338,7 @@ fi
 ## inside a RUN. A fetch is curl or wget with an option or a URL, or run as a
 ## command; the package lists name both bare. A base image is pinned by digest.
 ## pip installs only by hash, and npm only from the lock file.
-fTest Esbpt85 container-downloads-are-hashed
+fTest ddx1v container-downloads-are-hashed
 fetchRe='(^|[^A-Za-z0-9_-])(curl|wget)[[:space:]]+-|(^|[^A-Za-z0-9_-])(curl|wget)[[:space:]].*://|(^RUN|&&|\||;|\$\()[[:space:]]*(curl|wget|git[[:space:]]+clone)([[:space:]]|$)|^ADD[[:space:]]'
 fetchWordRe='(^|[^A-Za-z0-9_-])(curl|wget)([^A-Za-z0-9_-]|$)'
 checkRe='^&&[[:space:]]+echo "\$\{([A-Z0-9_]+)\}  ([^"]+)" \| sha256sum -c -( \\)?$'

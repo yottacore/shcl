@@ -639,7 +639,7 @@ fUpgradeCheck(){
 }
 
 declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0 nNamed3=0
-fTest Eq5YPgP corpus and fuzz documents migrate to the tree 2.x read
+fTest dcqf3 corpus and fuzz documents migrate to the tree 2.x read
 for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	[[ -f "${f}" ]] || continue
 	name="${f%/input.shcl}"; name="${name##*/}"; name="${name%.shcl}"
@@ -728,7 +728,7 @@ done
 ##	for comparing too little. The exit below still says which floor.
 if ((nCompared < minCompared || nCorpus < minCorpus || nCompared - nCorpus < minFuzz)); then nBad+=1; fi
 
-fTest Es34DZj compared documents upgrade to a fresh file beside a backup of the original
+fTest ddmp7 compared documents upgrade to a fresh file beside a backup of the original
 nBad+=nUpBad
 ##	Each way through fUpgradeCheck has to be taken by some document, or one of
 ##	its branches checked nothing.
@@ -742,7 +742,7 @@ fi
 ##	(2026101407100010). The first file here would keep `b 2`, so it is
 ##	refused at 7 and stays (2026101515372401); the other 2 are a beta's comma
 ##	list, bare and under the info block the betas wrote.
-fTest Es34DZk a file naming format 3 is upgraded only when --from-2x vouches for it
+fTest ddmp8 a file naming format 3 is upgraded only when --from-2x vouches for it
 printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
 printf 'tags: a, b\n##    Format   3\n' > "${tmpDir}/format3-beta.shcl"
 printf 'tags: a, b\n\n##\n## This config file format is SHCL.\n##    Format   3\n##\n' > "${tmpDir}/format3-beta-block.shcl"
@@ -761,36 +761,36 @@ nBad+=nUpBad
 ((nUpFormat3Left > 0)) || { echo "check-migrate: no file naming format 3 that --from-2x should refuse at 7" >&2; nBad+=1; }
 
 ##	Each named case has to keep its shape, or the exception is stale.
-fTest EpUIoZd 068 still has a fence label holding a hash
+fTest dcegd 068 still has a fence label holding a hash
 fInfoHashLabel "${corpus}/068-info-hash-spellings/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 068-info-hash-spellings no longer has a fence label holding a #" >&2; nBad+=1; }
 ## 2026-10-05: migrate leaves a 2.x backslash as written, so a path that held
 ## a line break under 2.x reads as the path now and is no longer lost. The
 ## exception these two kept from rotting is gone, and fPathBreak with it.
 ## Kept as a record. Don't uncomment: nothing defines fPathBreak now.
-# fTest ErUuq8D 170 still has a path that held a line break
+# fTest ddcfc 170 still has a path that held a line break
 # [[ -n "$(fPathBreak "${corpus}/170-unknown-escape/input.shcl")" ]] \
 # 	|| { echo "check-migrate: 170-unknown-escape no longer has a path that held a line break" >&2; nBad+=1; }
-# fTest ErkiUcu the paths that held a line break in 171 are found in its 2.x text
+# fTest ddg90 the paths that held a line break in 171 are found in its 2.x text
 # ## A drive, a share, and a list element 2.x read as `E:`, a line
 # ## break and `ew`, which double quotes write as `"E:\new"`.
 # breaks171="$(fPathBreak "${corpus}/171-windows-path-escape/input.shcl" | paste -sd ' ')"
 # [[ "${breaks171}" == "3 4 11" ]] \
 # 	|| { echo "check-migrate: 171-windows-path-escape has paths that held a line break on lines '${breaks171}', not '3 4 11'" >&2; nBad+=1; }
-fTest Erklujb 096 is refused for the raw block 2.x read to the end
+fTest ddg9d 096 is refused for the raw block 2.x read to the end
 rawRc=0; "${newCli}" migrate --from-2x "${corpus}/096-raw-unterminated-eof/input.shcl" >/dev/null 2>"${tmpDir}/migrate.err" || rawRc=$?
 { fRawOpen2x "${corpus}/096-raw-unterminated-eof/input.shcl" && ((rawRc == 7)) && grep -q 'nowhere to put the Format line' "${tmpDir}/migrate.err"; } \
 	|| { echo "check-migrate: 096-raw-unterminated-eof is no longer an open raw block under 2.x that migrate refuses (exit ${rawRc})" >&2; nBad+=1; }
-fTest EpUIoZe 094 still has a mid-line carriage return
+fTest dcege 094 still has a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 094-unicode-space no longer has a mid-line carriage return" >&2; nBad+=1; }
-fTest Eu1VP9o 210 still has a quote in a piece that closes past a comma and a hash
+fTest dej4h 210 still has a quote in a piece that closes past a comma and a hash
 [[ "$(fMidQuote2x "${corpus}/210-migrate-mid-quote-comma/input.shcl" | paste -sd ' ')" == "1 2 3 4 5" ]] \
 	|| { echo "check-migrate: 210-migrate-mid-quote-comma no longer has a quote in a piece closing past a comma or a # on lines 1 to 5" >&2; nBad+=1; }
-fTest EsIx4hA 149 names format 3 and is passed over as current
+fTest ddrgm 149 names format 3 and is passed over as current
 fNamesFormat3 "${corpus}/149-banner/input.shcl" \
 	|| { echo "check-migrate: 149-banner no longer names format 3 in a way migrate passes over" >&2; nBad+=1; }
-fTest EsIx4jK a 2.x document is not taken for format 3
+fTest ddrgn a 2.x document is not taken for format 3
 printf 'a: 1\n## Format 3 is in a comment here\n' > "${tmpDir}/not3.shcl"
 ! fNamesFormat3 "${tmpDir}/not3.shcl" \
 	|| { echo "check-migrate: a 2.x document with no Format line was taken for format 3" >&2; nBad+=1; }
@@ -799,13 +799,13 @@ printf 'a: 1\n## Format 3 is in a comment here\n' > "${tmpDir}/not3.shcl"
 ##	reads both elements, the current parser places only the first, and the write
 ##	half refuses rather than dropping the second quietly.
 printf 'list:\n\t* one\n \t* two\n' > "${tmpDir}/indent.shcl"
-fTest EqRiIDw the loose-indent exception fires on a space before a tab
+fTest dcwsk the loose-indent exception fires on a space before a tab
 [[ "$(fUnplaced "${tmpDir}/indent.shcl")" == 3 ]] \
 	|| { echo "check-migrate: the loose-indent exception no longer fires on a space before a tab" >&2; nBad+=1; }
-fTest EqRiIDx 2.x reads both elements of the loose-indent document
+fTest dcwsm 2.x reads both elements of the loose-indent document
 [[ "$("${oldCli}" get --string --array "${tmpDir}/indent.shcl" list 2>/dev/null | wc -l | tr -d " ")" == 2 ]] \
 	|| { echo "check-migrate: 2.x no longer reads both elements of the loose-indent document" >&2; nBad+=1; }
-fTest EqRiIDy a rewrite of the loose-indent document is refused at 7
+fTest dcwsn a rewrite of the loose-indent document is refused at 7
 indentRc=0
 "${newCli}" migrate --from-2x --write "${tmpDir}/indent.shcl" >/dev/null 2>&1 || indentRc=$?
 ((indentRc == 7)) \

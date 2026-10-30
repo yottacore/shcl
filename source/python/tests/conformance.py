@@ -58,12 +58,12 @@ def test_id_end(status: Optional[str] = None) -> None:
 
 def test_id(tid: str, name: str) -> None:
 	test_id_end()
-	_open.update(tid=tid, name=name, status="ok", fails=len(FAILS))
+	_open.update(tid=tid, name=name, status="PASS", fails=len(FAILS))
 
 
 def test_skip() -> None:
 	if _open:
-		_open["status"] = "skip"
+		_open["status"] = "SKIP"
 
 
 ## A ResourceWarning goes off in a destructor, where no exception can get out,
@@ -83,7 +83,7 @@ def corpus_lines(abort: str = "") -> None:
 	for case in cases:
 		bad = any(f.startswith(case["name"] + ": ") for f in named)
 		if bad or not abort:
-			test_line("FAIL" if bad else "ok", case["id"], "corpus/" + case["name"])
+			test_line("FAIL" if bad else "PASS", case["id"], "corpus/" + case["name"])
 
 
 def tsv_escape(s):
@@ -116,7 +116,7 @@ def load_cases():
 		tid = _text_or_none(os.path.join(d, "test-id"))
 		case = {
 			"name": name,
-			"id": tid.strip() if tid else "-------",
+			"id": tid.strip() if tid else "-----",
 			"input": _read(inp),
 			"expected": _read(os.path.join(d, "expected.shcl")),
 			"reads": _read(os.path.join(d, "reads.tsv")),
@@ -535,9 +535,9 @@ def _text_or_none(path):
 def windows_publish_failures(td):
 	# A save always puts its temp file beside the target, so these call the
 	# publish directly.
-	test_id("EqYZV7w", "a_failed_publish_loses_neither_file")
+	test_id("dcyec", "a_failed_publish_loses_neither_file")
 	_failed_publish_loses_neither_file(td)
-	test_id("EqYZV7x", "a_brief_hold_is_waited_out")
+	test_id("dcyed", "a_brief_hold_is_waited_out")
 	_brief_hold_is_waited_out(td)
 	test_id_end()
 
@@ -1184,7 +1184,7 @@ def main():
 	os.environ["SHCL_TEST_CLOCK"] = TEST_CLOCK
 	cases = load_cases()
 
-	test_id("EtAxcPs", "the_clock_is_pinned_for_every_test")
+	test_id("de5g6", "the_clock_is_pinned_for_every_test")
 	# A fixture compared two notes made on the real clock, and failed when the
 	# second came a second later (2026101912125490). Same check in every runner.
 	pdoc = shcl.Document.parse("a: x\n")
@@ -1192,7 +1192,7 @@ def main():
 	if os.environ.get("SHCL_TEST_CLOCK") != TEST_CLOCK or not ptook or ", 2026-10-04 00:15:00 PDT: not an int\n" not in pdoc.to_canonical():
 		fails.append(f"pinned clock: SHCL_TEST_CLOCK is {os.environ.get('SHCL_TEST_CLOCK')!r} and a note reads {pdoc.to_canonical()!r}")
 
-	test_id("EqLrWHw", "surrogate_parses_and_fails_the_save")
+	test_id("dcvcj", "surrogate_parses_and_fails_the_save")
 	# A lone surrogate, which os.listdir, sys.argv and os.environ hand out, is
 	# one more character to the parse and to a lookup path, as it was before
 	# the tokenizer read bytes (20260918b item 20). A strict encode made parse
@@ -1220,7 +1220,7 @@ def main():
 			# Refused, as it should be.
 			pass
 
-	test_id("EqLxvWz", "tokenize_value_takes_a_negative_offset_as_zero")
+	test_id("dcvdc", "tokenize_value_takes_a_negative_offset_as_zero")
 	# The reference's tokenizer offset is unsigned, so a negative one has
 	# nothing else it can mean. Go panicked and Python read it as an offset
 	# from the end (20260918b item 31). Same fixture in the Go test.
@@ -1231,7 +1231,7 @@ def main():
 			or neg.value != zero.value or neg.comment != zero.comment:
 		fails.append("a negative tokenizer offset did not read as zero")
 
-	test_id("EqLqxgn", "merge_onto_itself_leaves_it_alone")
+	test_id("dcvch", "merge_onto_itself_leaves_it_alone")
 	# A document merged onto itself is left as it is (20260918b item 19). The
 	# walk read over while it wrote self, so Go doubled a retained line, Python
 	# grew without end and C ran out of memory. Every corpus input, and the
@@ -1284,7 +1284,7 @@ def main():
 	# Bad-op dimension: each write-bad.ops line, applied alone to the case
 	# input, must be rejected (bad value, bad datetime, or unusable path) and
 	# leave the document unchanged.
-	test_id("Er207Yh", "a_misspelled_op_is_told_apart_from_a_refusal")
+	test_id("dd5h8", "a_misspelled_op_is_told_apart_from_a_refusal")
 	# The names-no-op guard below is only worth something while a misspelled
 	# op still comes back told apart from an ordinary refusal.
 	opdoc = shcl.Document.parse("a: 1\n")
@@ -1585,7 +1585,7 @@ def main():
 			sys.stderr.write("FAIL " + f + "\n")
 		sys.stderr.write(f"conformance: {len(fails)} failure(s)\n")
 		return 1
-	test_id("EloioKn", "paths_enumeration_shape")
+	test_id("daqry", "paths_enumeration_shape")
 	# paths(): file order, deduplicated, non-bare segments quoted so every
 	# path resolves. Same fixture is pinned in every runner.
 	pdoc = shcl.Document.parse('a: 1\na.b: 2\n"q n": 3\nx:\n\tb: 4\nx.b: 5\n')
@@ -1600,7 +1600,7 @@ def main():
 	qr = pdoc.read_int(shcl.quote_segment("q n"))
 	if (qr.value, qr.status) != (3, shcl.Status.Good):
 		raise SystemExit("quoted segment read failed")
-	test_id("Elp3cOj", "one_shot_load_and_validate")
+	test_id("daqvm", "one_shot_load_and_validate")
 	# One combined diagnostics list (parse first, then validation) and an
 	# error predicate, so recover-and-continue can't read as success by
 	# accident. Same fixture in every runner.
@@ -1630,7 +1630,7 @@ def main():
 	oplain = shcl.Document.load_and_validate("a: 1\n", "", shcl.Strictness.Standard)
 	if (oplain.error_count(), len(oplain.diagnostics())) != (0, 0):
 		raise SystemExit("empty-schema load_and_validate not clean")
-	test_id("Es9mP70", "strict_fails_the_same_from_every_entry_point")
+	test_id("ddp9y", "strict_fails_the_same_from_every_entry_point")
 	# Strict fails the load on any error diagnostic, from every entry point,
 	# with the document inside the error. The file tier and the one-shot gave
 	# a plain document where parse_with raised. Same fixture in every runner.
@@ -1686,7 +1686,7 @@ def main():
 			raise SystemExit("load_file_with on a missing file")
 		if D.load_file_keep_lines(snone, strict)[1] != shcl.FileStatus.NotFound:
 			raise SystemExit("load_file_keep_lines on a missing file")
-	test_id("Eshi8i1", "load_and_validate_with_matches_the_text_form")
+	test_id("ddyf2", "load_and_validate_with_matches_the_text_form")
 	# The parsed-schema form gives what the text form gives: the same
 	# combined list and the same strict answer, over every corpus schema at
 	# every level, with one schema document reused across the loads. Same
@@ -1735,7 +1735,7 @@ def main():
 	lvw_empty = shcl.Document.load_and_validate_with("a: 1\n", shcl.Document.parse(""), shcl.Strictness.Standard)
 	if [d.code for d in lvw_empty.diagnostics()] != ["V001"]:
 		raise SystemExit(f"empty schema document: {[d.code for d in lvw_empty.diagnostics()]}")
-	test_id("Eqzz38d", "one_shot_load_reports_a_broken_schema")
+	test_id("dd527", "one_shot_load_reports_a_broken_schema")
 	# A schema that does not load would otherwise drop the constraints on its
 	# broken lines, or report every field as unknown - blaming the document.
 	# Same fixture in every runner.
@@ -1752,7 +1752,7 @@ def main():
 	# An empty schema still means "skip validation", not "everything unknown".
 	if shcl.Document.load_and_validate("host: example\n", "", shcl.Strictness.Standard).error_count() != 0:
 		raise SystemExit("empty schema: load_and_validate not clean")
-	test_id("Es8Oq5D", "validate_and_generate_report_a_broken_schema")
+	test_id("ddnza", "validate_and_generate_report_a_broken_schema")
 	# The quote never closes, so the max line is lost and a parse then
 	# validate passed 99999 with no word. Same fixture in every runner.
 	qschema = shcl.Document.parse('field: port\n\ttype: int\n\tmax: "65535\n')
@@ -1769,7 +1769,7 @@ def main():
 		raise SystemExit("checked schema: want V001 first")
 	if shcl.Document.parse("port: 1\n").validate(qchecked):
 		raise SystemExit("checked schema as a schema: validate not clean")
-	test_id("Eqzz38e", "nul_name_does_not_satisfy_a_dotted_schema_path")
+	test_id("dd528", "nul_name_does_not_satisfy_a_dotted_schema_path")
 	# The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	# field whose name literally contains a NUL must not impersonate the
 	# two-segment path x.y. Same fixture in every runner.
@@ -1782,7 +1782,7 @@ def main():
 	# The genuinely two-segment spelling still validates clean.
 	if shcl.Document.parse("x:\n\ty: 1\n").validate(nschema) != []:
 		raise SystemExit("x.y did not validate clean")
-	test_id("Eqzz38f", "docstrings_come_first")
+	test_id("dd529", "docstrings_come_first")
 	# A docstring below the first statement is an inert expression, and the
 	# method has no documentation. merge lost its own that way, and no linter
 	# says so.
@@ -1795,7 +1795,7 @@ def main():
 			for sst in snode.body[1:]:
 				if isinstance(sst, ast.Expr) and isinstance(sst.value, ast.Constant) and isinstance(sst.value.value, str):
 					raise SystemExit(f"shcl.py:{sst.lineno}: a string statement below the first one documents nothing")
-	test_id("Es9JVrZ", "bad_path_reads_say_bad_path")
+	test_id("ddp6b", "bad_path_reads_say_bad_path")
 	# A path the scanner refuses, or one with a value part, is BadPath on every
 	# read with a status, where a path that parses and finds nothing stays
 	# NotFound. The no-status calls give their empty answer and _or its
@@ -1841,7 +1841,7 @@ def main():
 	# the CLI's usage exit.
 	if list(shcl.Status)[-1] is not shcl.Status.BadPath or shcl.Status.BadPath.value != 1:
 		raise SystemExit(f"BadPath order or value {list(shcl.Status)}")
-	test_id("EsDQqYf", "list_reads_say_bad_path")
+	test_id("ddq62", "list_reads_say_bad_path")
 	# The list reads' status twins: BadPath for a path that cannot be read,
 	# NotFound for one that matches nothing, Good otherwise, with the value the
 	# plain call gives. Same fixture in every runner.
@@ -1890,7 +1890,7 @@ def main():
 		lk = ldoc.read_children(lpath)
 		if lpath and (lk.value, lk.status) != ([], shcl.Status.BadPath):
 			raise SystemExit(f"read_children({lpath!r}) {lk!r}")
-	test_id("EsJ3yBo", "path_twins_say_bad_path")
+	test_id("ddrhc", "path_twins_say_bad_path")
 	# The other path calls' status twins: BadPath for a path that cannot be
 	# read, NotFound for one that reaches nothing, Multiple where a single-node
 	# call meets several. Same fixture in every runner.
@@ -1993,7 +1993,7 @@ def main():
 	pr = pdoc.try_remove("site")
 	if (pr.value, pr.status) != (2, pgood):
 		raise SystemExit(f"try_remove(site) {pr!r}")
-	test_id("ElouJ8N", "check_set_path_names_the_failure")
+	test_id("daqtd", "check_set_path_names_the_failure")
 	# The path's half of a setter's status. Same fixture in every runner.
 	wdoc = shcl.Document.parse("a:\n\tb: 1\n")
 	for wpath, wwant in (
@@ -2024,7 +2024,7 @@ def main():
 		raise SystemExit("check_set_path probe created an instance")
 	if wdoc.paths() != ["a", "a.b"]:
 		raise SystemExit(f"check_set_path probe changed paths: {wdoc.paths()}")
-	test_id("Es9S4kL", "refused_values_pass_the_path_check")
+	test_id("ddp7d", "refused_values_pass_the_path_check")
 	# The values a setter refuses on a path check_set_path passes. Each one
 	# here is refused, writes nothing, and the path checks Ok. Same fixture in
 	# every runner, plus Python's own: an int outside the 64-bit range.
@@ -2059,7 +2059,7 @@ def main():
 			raise SystemExit(f"{rwhat}: check_set_path = {rdoc.check_set_path(rpath)}")
 		if rdoc.to_canonical() != rwant:
 			raise SystemExit(f"{rwhat}: wrote {rdoc.to_canonical()!r}")
-	test_id("EsDeik0", "setter_status_values_in_order")
+	test_id("ddq7q", "setter_status_values_in_order")
 	# Every status a setter gives, in the order every binding numbers them.
 	# The other three print the same names. Same fixture in every runner.
 	snames = [st.name for st in shcl.SetStatus]
@@ -2071,7 +2071,7 @@ def main():
 		raise SystemExit(f"SetStatus names {snames}")
 	if [st.value for st in shcl.SetStatus] != list(range(len(snames))):
 		raise SystemExit(f"SetStatus values {[st.value for st in shcl.SetStatus]}")
-	test_id("EsDeiqL", "setter_status_only_ok_is_true")
+	test_id("ddq7t", "setter_status_only_ok_is_true")
 	# Python-only: only Ok is true, so a caller's `if not doc.set_int(...)`
 	# from when setters gave a bool still means refused. A plain IntEnum would
 	# make Ok, the 0, the false one.
@@ -2083,7 +2083,7 @@ def main():
 	tdoc = shcl.Document.parse("p: 1\np: 2\n")
 	if tdoc.set_int("p", 3) or not tdoc.set_int("q", 3):
 		raise SystemExit(f"a setter's truth value: {tdoc.to_canonical()!r}")
-	test_id("EsDeim8", "setter_status_names_each_refusal")
+	test_id("ddq7r", "setter_status_names_each_refusal")
 	# A setter's status names why it wrote nothing. A path reason is the one
 	# check_set_path gives, and wins over a value reason when both apply, since
 	# the path is what to fix first; a value reason comes with a path that
@@ -2163,9 +2163,9 @@ def main():
 			raise SystemExit(f"{spath!r}: check_set_path = {schecked}")
 		if sgot is not S.Ok and sdoc.to_canonical() != sbefore:
 			raise SystemExit(f"{spath!r}: wrote {sdoc.to_canonical()!r}")
-	test_id("EsDeioE", "setter_status_agrees_with_the_path_check")
+	test_id("ddq7s", "setter_status_agrees_with_the_path_check")
 	setter_status_agrees_with_the_path_check()
-	test_id("Es9aZSH", "repeated_path_refuses_a_setter")
+	test_id("ddp8g", "repeated_path_refuses_a_setter")
 	# A setter on a path that matches more than one field at any step writes
 	# nothing and the path checks Multiple, so a write never says Ok where the
 	# read after it would say Multiple. An index or value selector picks
@@ -2206,7 +2206,7 @@ def main():
 	# A remove takes every instance it matches, as a read sees them.
 	if mdoc.remove("port") != 2 or mdoc.check_set_path("port") is not shcl.SetStatus.Ok:
 		raise SystemExit("remove on a repeated path")
-	test_id("Es9aZSJ", "setters_refuse_text_that_is_not_utf8")
+	test_id("ddp8j", "setters_refuse_text_that_is_not_utf8")
 	# A lone surrogate has no UTF-8 spelling, so no save could write it. Every
 	# setter that takes text refuses it, as Go's refuse bytes that are not
 	# UTF-8: it gives NotUtf8, writes nothing, and the path checks Ok. The same
@@ -2244,7 +2244,7 @@ def main():
 			raise SystemExit(f"{upath!r}: check_set_path = {udoc.check_set_path(upath)}")
 		if udoc.to_canonical() != uwant:
 			raise SystemExit(f"{upath!r}: wrote {udoc.to_canonical()!r}")
-	test_id("Eof29pb", "setters_refuse_a_value_the_reader_refuses")
+	test_id("dc25x", "setters_refuse_a_value_the_reader_refuses")
 	# Each setter is the inverse of its read, so a value with no spelling the
 	# reader accepts fails the write and leaves the document alone. Same
 	# fixture in every runner.
@@ -2285,7 +2285,7 @@ def main():
 		raise SystemExit("a valid datetime was refused or read back differently")
 	if sdoc.to_canonical() != 'z: 0\n\nf: 2.5\n\nd: "2026-01-02T03:04:05.60-01:30"\n':
 		raise SystemExit(f"document after the refusals: {sdoc.to_canonical()!r}")
-	test_id("EryEqlx", "a_backtick_value_reads_raw_with_its_flag")
+	test_id("ddkh2", "a_backtick_value_reads_raw_with_its_flag")
 	# A backtick value is raw text the program decodes itself: read as
 	# written, with its own flag beside .quoted. A setter keeps the backticks
 	# when the new text fits in them, and the writer picks quotes when it does
@@ -2312,7 +2312,7 @@ def main():
 		raise SystemExit("a backtick value holding a backtick")
 	if not bdoc.to_canonical().startswith('c: "a`b"\n'):
 		raise SystemExit(f"backtick fixture wrote {bdoc.to_canonical()!r}")
-	test_id("EnLyQsX", "raw_block_line_endings_normalize_and_round_trip")
+	test_id("dbep4", "raw_block_line_endings_normalize_and_round_trip")
 	# A raw body is the only content kept untrimmed, so it is the only place a
 	# trailing CR survives the load - and one written back becomes CRLF, which
 	# reads as neither. The whole trailing run comes off instead; a CR inside a
@@ -2324,7 +2324,7 @@ def main():
 	rcanon = rdoc.to_canonical()
 	if shcl.Document.parse(rcanon).to_canonical() != rcanon:
 		raise SystemExit("raw block with CR is not a formatter fixpoint")
-	test_id("Eqpzw7X", "children_and_instance_paths_walk_a_repeated_key")
+	test_id("dd2mk", "children_and_instance_paths_walk_a_repeated_key")
 	# gitsby's report: children() on a repeated key answered nothing, and a
 	# walk had to know to index each instance.
 	gdoc = shcl.Document.parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n")
@@ -2343,7 +2343,7 @@ def main():
 		raise SystemExit(f"instance_paths() got {gdoc.instance_paths()}")
 	if gdoc.get_string("account.email(1).sshkey") != "k2":
 		raise SystemExit("an instance path did not read its node")
-	test_id("EsEsFpX", "fields_give_each_instance_its_own_path")
+	test_id("ddqh5", "fields_give_each_instance_its_own_path")
 	# The --json listings: each instance, a repeated one included, gets a path
 	# that reads that one, with its name, value and line beside it.
 	fdoc = shcl.Document.parse("shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n")
@@ -2383,7 +2383,7 @@ def main():
 		raise SystemExit(f"read_child_fields shard(1) got {fr.value} {fr.line}")
 	if fdoc.read_child_fields("nope").status != shcl.Status.NotFound or fdoc.read_child_fields("a..b").status != shcl.Status.BadPath:
 		raise SystemExit("read_child_fields status")
-	test_id("EoM2uEi", "read_surface_line_quoted_children")
+	test_id("dbxkn", "read_surface_line_quoted_children")
 	# line/quoted on the read result, line(path), children(path). Same
 	# fixture in every runner (C pins the same answers on shcl_quoted and
 	# shcl_line; its read structs stay value+status).
@@ -2466,7 +2466,7 @@ def main():
 		raise SystemExit("a one-element bare cell reads quoted as an array")
 	if shcl.Document.parse('m: ["x", "y"]\n').read_string_array("m").quoted:
 		raise SystemExit("a two-element cell reported a single element's quoting")
-	test_id("EomvfCu", "save_refuses_a_directory_shaped_path")
+	test_id("dc42p", "save_refuses_a_directory_shaped_path")
 	# A path that names a directory - it ends in a separator, or its last
 	# component is `.` or `..` - is not a document. A path cleanup drops the
 	# trailing separator first, so a save through `f/.` used to rewrite `f` in
@@ -2487,7 +2487,7 @@ def main():
 		ddoc.save_file(dfile)
 		if _read(dfile) != "a: 2\n":
 			raise SystemExit("the plain path did not save")
-	test_id("EomsV3Y", "typed_array_setters_take_a_list")
+	test_id("dc425", "typed_array_setters_take_a_list")
 	# A typed array setter takes a list of its type, not any iterable: a str is a
 	# sequence of one-character strings, so set_string_array("abc") wrote three
 	# elements, and a generator was consumed by the type check before the setter
@@ -2510,7 +2510,7 @@ def main():
 	gen = (x for x in [1, 2, 3])   # not a list on purpose: that is the fixture
 	if not gdoc.set_int_array("k", gen) or gdoc.to_canonical() != "k: [1, 2, 3]\n":  # type: ignore[arg-type]
 		raise SystemExit(f"a generator wrote {gdoc.to_canonical()!r}")
-	test_id("EommtF5", "written_spelling_matches_its_reload")
+	test_id("dc41j", "written_spelling_matches_its_reload")
 	# A written value with both quote kinds is stored the way its own reload
 	# stores it, so instances() and a read's raw text agree across a save. The
 	# emitter escapes the double quotes; the writer used to keep them bare. Same
@@ -2523,7 +2523,7 @@ def main():
 		raise SystemExit(f"instances after a reload {wback.instances('k')}, written {wdoc.instances('k')}")
 	if wdoc.get_string_or("k", "") != "q\"q'":
 		raise SystemExit("written value did not read back")
-	test_id("EomjcaY", "index_rebuild_ignores_removed_nodes")
+	test_id("dc414", "index_rebuild_ignores_removed_nodes")
 	# The name index used to be rebuilt by walking the arena, which still holds
 	# every node a set-and-remove cycle ever made - so the first read after a
 	# merge grew with the number of edits, not with the document. Timed against
@@ -2560,7 +2560,7 @@ def main():
 	bound = 3000.0 if ms[0] <= 0 else ms[0] * 25 + 1000
 	if ms[1] > bound:
 		raise SystemExit(f"index rebuild after churn {ms[1]:.1f} ms against {ms[0]:.1f} ms fresh (bound {bound:.1f} ms)")
-	test_id("EqoaM6E", "merge_settles_only_what_it_touched")
+	test_id("dd29p", "merge_settles_only_what_it_touched")
 	# A merge settles the comments of the blocks it visited, not of the whole
 	# tree: a whole-tree pass made each small merge cost the document, and a
 	# caller folding many layers onto a big one paid it every time. Timed
@@ -2582,7 +2582,7 @@ def main():
 	bound = 3000.0 if ms[0] <= 0 else ms[0] * 25 + 1000
 	if ms[1] > bound:
 		raise SystemExit(f"200 merges beside a big block {ms[1]:.1f} ms against {ms[0]:.1f} ms without it (bound {bound:.1f} ms) - the merge settles blocks it never touched")
-	test_id("EqqmFxS", "a_far_kept_line_costs_an_edit_nothing")
+	test_id("dd2th", "a_far_kept_line_costs_an_edit_nothing")
 	# A misplaced line kept as written made every edit and merge re-emit the
 	# whole document to settle it, even one far from the line. Timed against the
 	# same steps on the same document without the line. Same fixture in every
@@ -2610,7 +2610,7 @@ def main():
 	bound = 3000.0 if ms[0] <= 0 else ms[0] * 25 + 1000
 	if ms[1] > bound:
 		raise SystemExit(f"50 edits and merges beside a kept line {ms[1]:.1f} ms against {ms[0]:.1f} ms without it (bound {bound:.1f} ms) - each one settles the whole document")
-	test_id("EreVRei", "a_kept_line_gone_from_the_tree_refuses_the_save")
+	test_id("ddes7", "a_kept_line_gone_from_the_tree_refuses_the_save")
 	# The save gate on kept lines, from inside: once the edits that lose one
 	# are fixed, no public call reaches the gate, so this takes a line out by
 	# hand. Same fixture in every runner.
@@ -2646,7 +2646,7 @@ def main():
 			if kf.read() != kbase:
 				fails.append("kept gate: the file changed")
 
-	test_id("EreVRgk", "a_remove_takes_the_kept_line_heading_its_field")
+	test_id("ddes8", "a_remove_takes_the_kept_line_heading_its_field")
 	# design.md's table: a remove takes the kept line written as the field's
 	# own line, and nothing beside it.
 	kdoc = shcl.Document.parse("a: [1\n\tb: 2\ny: 3\n")
@@ -2663,7 +2663,7 @@ def main():
 			elif shcl.Document.parse(out).to_canonical() != out:
 				fails.append(f"kept gate: removing {path} from {text!r} wrote text that reloads otherwise")
 
-	test_id("ErgTogT", "a_remove_leaves_the_kept_lines_beside_it")
+	test_id("ddf8g", "a_remove_leaves_the_kept_lines_beside_it")
 	# design.md's table: a remove leaves the kept lines beside its target,
 	# above or below it, with the comments above them (2026100307163901).
 	check_removes([
@@ -2675,7 +2675,7 @@ def main():
 		("# on r\nr: [1\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1\nz: 1\n"),
 	])
 
-	test_id("ErgToiG", "a_field_opened_by_a_kept_line_goes_with_its_last_line")
+	test_id("ddf8h", "a_field_opened_by_a_kept_line_goes_with_its_last_line")
 	# A field opened only by the lines under it goes with the last of them,
 	# and its kept line stays (escblock; 2026100307163907).
 	check_removes([
@@ -2686,7 +2686,7 @@ def main():
 		("o:\n\ta: [1\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1\n"),
 	])
 
-	test_id("Erlf17j", "a_setter_comments_out_the_kept_line_heading_its_target")
+	test_id("ddgga", "a_setter_comments_out_the_kept_line_heading_its_target")
 	# A setter on a field a kept line opened writes that line as a comment
 	# with a note, so the file has one line for the field (2026100307163907).
 	for text, set_path, set_want in [
@@ -2719,7 +2719,7 @@ def main():
 		if not kdoc.set_int(set_path, 5) or kdoc.to_canonical() != set_want:
 			fails.append(f"kept gate: setting {set_path} beside a kept line wrote {kdoc.to_canonical()!r}")
 
-	test_id("ErmXhtL", "a_setter_comments_out_every_kept_line_of_its_name")
+	test_id("ddgq3", "a_setter_comments_out_every_kept_line_of_its_name")
 	# A setter writing `a` writes every kept line named `a` in that block as
 	# the noted comment, and a field it creates goes right under the first of
 	# them, so a later hand fix never gives Multiple (2026100307163907).
@@ -2764,7 +2764,7 @@ def main():
 	if not kdoc.set_comment("a", "n") or kdoc.to_canonical() != "a: [1\ny: 3\n\n# n\na:\n":
 		fails.append(f"kept gate: set_comment beside a kept line wrote {kdoc.to_canonical()!r}")
 
-	test_id("Erlf1AN", "a_note_names_the_zone_or_its_offset")
+	test_id("ddggb", "a_note_names_the_zone_or_its_offset")
 	# The zone's short name, else its offset; and the test clock's form.
 	for offset, name, want in [
 		(-420, "PDT", "PDT"), (-420, "", "UTC-07:00"), (240, "+04", "UTC+04:00"), (330, "IST", "IST"),
@@ -2785,7 +2785,7 @@ def main():
 	if not re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ([A-Za-z]+|UTC[+-]\d\d:\d\d)", label) or abs(offset) > 14 * 60:
 		fails.append(f"note clock: the local clock gave {label!r} ({offset})")
 
-	test_id("EreVRis", "a_merged_layer_owes_its_kept_lines")
+	test_id("ddes9", "a_merged_layer_owes_its_kept_lines")
 	kdoc = shcl.Document.parse("a: 1\n")
 	kdoc.merge(shcl.Document.parse(kbase))
 	if kdoc.lost_count() != 0 or "r: [1, 2\n" not in kdoc.to_canonical():
@@ -2795,7 +2795,7 @@ def main():
 	if kdoc.lost_count() != 1:
 		fails.append(f"kept gate: a merged kept line taken out gave lost_count {kdoc.lost_count()}, want 1")
 
-	test_id("ErfGoMM", "a_replaced_leaf_takes_its_settled_kept_line")
+	test_id("ddez6", "a_replaced_leaf_takes_its_settled_kept_line")
 	# design.md's table: a settled kept line on a leaf the layer replaces goes
 	# with the leaf's comments, so it is no longer owed.
 	kdoc = shcl.Document.parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n")
@@ -2805,7 +2805,7 @@ def main():
 	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "x: 0\nb: 9\n":
 		fails.append(f"kept gate: a replaced leaf's settled line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 
-	test_id("ErfGoMN", "a_footer_line_the_base_has_is_not_owed_twice")
+	test_id("ddez7", "a_footer_line_the_base_has_is_not_owed_twice")
 	# design.md's table: the footer dedup skips a layer's kept line the base
 	# already has, so that copy is not owed.
 	kdoc = shcl.Document.parse("bad name: 1\n")
@@ -2813,7 +2813,7 @@ def main():
 	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "bad name: 1\n":
 		fails.append(f"kept gate: a deduped footer line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 
-	test_id("ErkSyPf", "a_replaced_leaf_leaves_the_lines_beside_it")
+	test_id("ddg74", "a_replaced_leaf_leaves_the_lines_beside_it")
 	# design.md's table: a replaced leaf takes only its own comments, the ones
 	# a remove would take. A settled line or a comment past a kept line beside
 	# it stays with that line.
@@ -2831,7 +2831,7 @@ def main():
 	if fails:
 		test_id_end()
 		raise SystemExit("\n".join(f"FAIL {f}" for f in fails))
-	test_id("EolmVOa", "diagnostics_hand_out_a_copy")
+	test_id("dc3sq", "diagnostics_hand_out_a_copy")
 	# What a read hands out must not be the document's own list: a caller
 	# clearing it used to take the document's diagnostics with it, and a failed
 	# strict load handed out the same list again. Same fixture in Go.
@@ -2849,7 +2849,7 @@ def main():
 		e.diagnostics.clear()
 		if e.document is not None and not e.document.diagnostics():
 			raise SystemExit("LoadError shares the document's diagnostics list") from None
-	test_id("EofAXrW", "parse_limited_caps")
+	test_id("dc26x", "parse_limited_caps")
 	# parse_limited: the caps exist because a document amplifies to many times
 	# its byte size in memory, so read_file's byte cap alone cannot bound a
 	# load. Same fixture in every runner.
@@ -2994,7 +2994,7 @@ def main():
 	except shcl.LoadError as ex:
 		if ex.document is None or ex.document.get_int("a") != 1:
 			raise SystemExit("failed strict doc must stay readable") from None
-	test_id("EryEqnz", "a_cap_wins_over_a_broken_value")
+	test_id("ddkh3", "a_cap_wins_over_a_broken_value")
 	# An item or a line past the caller's element cap is E021 and dropped,
 	# even when its value is broken: the cap wins over a value fault. A fault
 	# in the path or the name still comes first, and a broken item within the
@@ -3040,7 +3040,7 @@ def main():
 	if cap_codes("404: [a, b, c]\n", 1)[0] != [(1, "E014")]:
 		raise SystemExit(f"a bad name past the cap: {cap_codes('404: [a, b, c]', 1)[0]}")
 
-	test_id("EryEqq5", "no_colon_repair_stays_narrow")
+	test_id("ddkh4", "no_colon_repair_stays_narrow")
 	# Only one clean name or path with no colon is repaired (E015), a bad bare
 	# name like 404 included. Anything with a blank in a bare name could be a
 	# name or a name and a value, so it is E014 and kept as written.
@@ -3070,7 +3070,7 @@ def main():
 			raise SystemExit(f"{nline!r}: {ndoc.diagnostics()}")
 		if ndoc.to_canonical() != f"{nout}\n":
 			raise SystemExit(f"{nline!r} wrote {ndoc.to_canonical()!r}")
-	test_id("EnKYjpg", "set_int_refuses_past_64_bits")
+	test_id("dbeb2", "set_int_refuses_past_64_bits")
 	# Also python-only: an int outside the 64-bit range the other three
 	# bindings use writes text every reader calls bad-type, so the setter
 	# refuses instead. The edges themselves still write.
@@ -3083,7 +3083,7 @@ def main():
 		raise SystemExit("set_int refused an in-range edge")
 	if rdoc.to_canonical() != "a: 1\n\nd: 9223372036854775807\n\ne: -9223372036854775808\n":
 		raise SystemExit(f"set_int range check left the wrong document: {rdoc.to_canonical()!r}")
-	test_id("EnKYjph", "deep_documents_from_a_deep_caller")
+	test_id("dbeb3", "deep_documents_from_a_deep_caller")
 	# Also python-only: the frame budget is small, so a document at the
 	# documented depth cap has to survive every walk from an already-deep
 	# caller. Merge and clone were the two still recursing.
@@ -3124,7 +3124,7 @@ def main():
 	gtext, gfaults = _at_depth(600, lambda: shcl.generate(gschema))
 	if gfaults or gtext != shcl.generate(gschema)[0] or gtext.count("\n#") < 512:
 		raise SystemExit("deep generate through mounts from a deep caller")
-	test_id("Er6DIqW", "file_tier_load_save")
+	test_id("dd6h9", "file_tier_load_save")
 	# load_file/save_file: the status separates absent / unreadable / parsed
 	# with errors / clean, and a save round-trips through the atomic write.
 	# Same fixture in every runner.
@@ -3207,7 +3207,7 @@ def main():
 		if bst != shcl.FileStatus.Clean or back.to_canonical() != "a: 1\n":
 			raise SystemExit("overwritten file did not round-trip")
 
-		test_id("ErOTliS", "save_writes_lf_bytes")
+		test_id("ddaxv", "save_writes_lf_bytes")
 		# A load reads a CR as a blank, so only the bytes show a text-mode fd on
 		# windows. Python-only: the other three write through binary handles.
 		lfdoc = shcl.Document.parse("a: 1\nb:\n\tc: 2\n")
@@ -3218,7 +3218,7 @@ def main():
 			if written != b"a: 1\nb:\n\tc: 2\n":
 				raise SystemExit(f"{how} wrote {written!r}")
 
-		test_id("EnWwo1I", "save_keeps_the_file_mode")
+		test_id("dbhad", "save_keeps_the_file_mode")
 		# A new file ends up where an ordinary create puts one - 0666 narrowed by the
 		# umask - and an existing one keeps the mode it had. Neither is visible
 		# on stdout, so no corpus case can see either, and neither is a windows
@@ -3238,7 +3238,7 @@ def main():
 			mode = os.stat(born).st_mode & 0o777
 			if mode != 0o640:
 				raise SystemExit(f"existing file mode {mode:o}, want 640")
-			test_id("EoTHZsG", "save_keeps_set_id_bits")
+			test_id("dbzbp", "save_keeps_set_id_bits")
 			# setuid and setgid come over too: applying the mode before the
 			# data lets the kernel clear them on the write.
 			# BSD gives a new file the directory's group, and refuses setgid on
@@ -3261,7 +3261,7 @@ def main():
 				got = os.stat(born).st_mode & 0o7777
 				print(f"conformance: skipping the set-id fixture (mode came back {got:o}, want 6750)")
 				test_skip()
-			test_id("EoM2uEj", "save_creates_the_file_behind_a_dangling_symlink")
+			test_id("dbxkp", "save_creates_the_file_behind_a_dangling_symlink")
 			# A link to a file that is not there yet is written through like any
 			# other link: the file appears where the link points and the link
 			# stays a link. Same fixture in every POSIX runner.
@@ -3273,7 +3273,7 @@ def main():
 				raise SystemExit("save replaced the dangling link")
 			if _read(os.path.join(td, "real", "c.shcl")) != "a: 1\n":
 				raise SystemExit("save did not create the file behind the link")
-			test_id("EqGYvEu", "save_takes_a_name_with_no_early_character_start")
+			test_id("dct3s", "save_takes_a_name_with_no_early_character_start")
 			# A name whose first 64 bytes hold no character start: the cut backs
 			# off to nothing, and the temp name used to fall back to the whole
 			# path, directory and all, so the save failed. Python-only: the
@@ -3299,7 +3299,7 @@ def main():
 				if _read(odd) != "a: 1\n":
 					raise SystemExit("save of a name with no early character start wrote the wrong text")
 		if os.name != "nt":
-			test_id("EoUxXlT", "save_reports_a_symlink_cycle_instead_of_replacing_it")
+			test_id("dbzrc", "save_reports_a_symlink_cycle_instead_of_replacing_it")
 			# Two links pointing at each other resolve to nothing, so the save
 			# fails and says why. It must not "fix" the cycle by dropping a
 			# regular file over one of the links. Same fixture in every POSIX
@@ -3316,7 +3316,7 @@ def main():
 			for link in (cyc_a, cyc_b):
 				if not os.path.islink(link):
 					raise SystemExit("a symlink cycle was replaced by a regular file")
-			test_id("EqLbKeN", "save_replaces_only_a_regular_file")
+			test_id("dcvb1", "save_replaces_only_a_regular_file")
 			# Save outcomes in design.md, the rows the CLI's own check hides. A
 			# FIFO was swapped for a regular file at exit 0, a link whose text
 			# names a directory made a file of that name, and Go cleaned `lnk/..`
@@ -3351,7 +3351,7 @@ def main():
 			if os.path.lexists(os.path.join(td, "tgt", "top", "x.shcl")):
 				raise SystemExit("lnk/.. was cleaned as text")
 		if os.name == "nt":
-			test_id("EoM2uEk", "save_rewrites_a_read_only_file")
+			test_id("dbxkq", "save_rewrites_a_read_only_file")
 			# A read-only target is rewritten, as it is on POSIX, and comes back
 			# read-only; no temp file is left behind. Same fixture in every runner.
 			ro = os.path.join(td, "ro.shcl")
@@ -3366,7 +3366,7 @@ def main():
 			if [n for n in os.listdir(td) if ".tmp" in n]:
 				raise SystemExit("read-only rewrite left a temp file")
 			os.chmod(ro, stat.S_IREAD | stat.S_IWRITE)
-			test_id("Eom3Uj3", "save_keeps_hidden_and_system")
+			test_id("dc3vw", "save_keeps_hidden_and_system")
 			# Hidden and system come back too: ReplaceFile's preserve list does
 			# not include the basic attributes and the os.replace fallback
 			# keeps none, so a hidden config used to come back visible.
@@ -3384,9 +3384,9 @@ def main():
 				raise SystemExit("file did not come back system")
 			k32.SetFileAttributesW(ro, 0x80)
 			windows_publish_failures(td)
-			test_id("ErO2NoG", "temp_takes_the_targets_dacl")
+			test_id("ddath", "temp_takes_the_targets_dacl")
 			_temp_takes_the_targets_dacl(td)
-		test_id("EoM2uEl", "a_surrogate_save_leaves_no_temp_file")
+		test_id("dbxkr", "a_surrogate_save_leaves_no_temp_file")
 		# A document holding a lone surrogate has no UTF-8 spelling; the save
 		# fails like any other failed write, and leaves no temp file behind.
 		# A setter put the surrogate in until setters refused text with no UTF-8
@@ -3404,7 +3404,7 @@ def main():
 			pass
 		if [n for n in os.listdir(td) if ".tmp" in n]:
 			raise SystemExit("failed save left a temp file")
-		test_id("EsEhCG3", "write_status_values_in_order")
+		test_id("ddqfx", "write_status_values_in_order")
 		# Every reason a write gives, in the order every binding numbers them.
 		# The other three print the same names. Same fixture in every runner.
 		wnames = [st.name for st in shcl.WriteStatus]
@@ -3412,12 +3412,12 @@ def main():
 			raise SystemExit(f"WriteStatus names {wnames}")
 		if [st.value for st in shcl.WriteStatus] != list(range(len(wnames))):
 			raise SystemExit(f"WriteStatus values {[st.value for st in shcl.WriteStatus]}")
-		test_id("EsEhCG6", "write_status_only_ok_is_true")
+		test_id("ddqg0", "write_status_only_ok_is_true")
 		# Python-only, as with SetStatus.
 		for wst in shcl.WriteStatus:
 			if bool(wst) != (wst is shcl.WriteStatus.Ok):
 				raise SystemExit(f"bool({wst}) is {bool(wst)}")
-		test_id("EsEhCG7", "write_file_atomic_raises")
+		test_id("ddqg1", "write_file_atomic_raises")
 		# A failed write raises, as the saves do, where it used to return the
 		# message: a bare call read as success. Same message as before.
 		wdir = os.path.join(td, "wrstat")
@@ -3430,7 +3430,7 @@ def main():
 		except shcl.WriteError as wfail:
 			if not str(wfail).startswith(wmissing + ": ") or wfail.status is not shcl.WriteStatus.NotFound:
 				raise SystemExit(f"a write into a missing folder: {wfail!r} {wfail.status}") from None
-		test_id("EsaBeHk", "write_failure_names_no_temp_file")
+		test_id("ddwn3", "write_failure_names_no_temp_file")
 		# FILE: and the system's own message, as the other three say it. The OS
 		# error's own text names the temp file as a repr, which doubled a
 		# windows path's backslashes (2026100719122102), so the errors here
@@ -3460,7 +3460,7 @@ def main():
 					wgot = str(wfail)
 			if wgot != wwant:
 				raise SystemExit(f"a failed {wwhat} says {wgot!r}, want {wwant!r}")
-		test_id("EsEhCG4", "write_status_names_each_failure")
+		test_id("ddqfy", "write_status_names_each_failure")
 		# A failed write says why as a value, beside the message it always
 		# had: from write_file_atomic, a save, write_backup and upgrade_file. A
 		# full disk and a read-only filesystem can't be made here without root;
@@ -3544,7 +3544,7 @@ def main():
 							raise SystemExit(f"upgrade of a file it may not read: {lfail.status} {lfail}") from None
 			finally:
 				os.chmod(shut, 0o700)
-		test_id("EsEhCG5", "write_status_of_os_errors")
+		test_id("ddqfz", "write_status_of_os_errors")
 		# The table from an OS error to a write's reason. Most rows can't be
 		# made to happen on a test box: a full disk, a read-only mount, a file
 		# held open.
@@ -3575,7 +3575,7 @@ def main():
 			got = shcl._write_status_of(exc)
 			if got is not want:
 				raise SystemExit(f"{exc!r} {getattr(exc, 'winerror', None)}: {got}, want {want}")
-		test_id("EsEhCG8", "document_constructor_is_empty")
+		test_id("ddqg2", "document_constructor_is_empty")
 		# Document() is an empty document, as Document.new() is and as the
 		# other three's plain constructors are. It raised TypeError over the
 		# parser's own arguments.
@@ -3586,7 +3586,7 @@ def main():
 			raise SystemExit(f"Document() then a setter: {edoc.to_canonical()!r}")
 		if edoc.strictness() is not shcl.Strictness.Standard:
 			raise SystemExit(f"Document() strictness {edoc.strictness()}")
-		test_id("EoM2uEm", "an_int_is_not_a_path")
+		test_id("dbxks", "an_int_is_not_a_path")
 		# A path is a str or a PathLike, never a descriptor: read_file(0) used
 		# to read stdin and close it.
 		bad_path: Any = 0
@@ -3601,7 +3601,7 @@ def main():
 			except TypeError:
 				pass
 		os.fstat(0)  # raises if the read closed stdin
-		test_id("EnKwdMW", "lost_and_save_gate")
+		test_id("dbee1", "lost_and_save_gate")
 		# Content-malformed lines are retained as trivia (lost_count 0, the
 		# line survives a save); position-dependent drops count as lost and
 		# make save_file refuse until the caller opts into save_file_lossy.
@@ -3668,7 +3668,7 @@ def main():
 		except shcl.SaveRefused as e:
 			if e.lost != 1:
 				raise SystemExit(f"SaveRefused lost got {e.lost}") from None
-	test_id("Elop5Fi", "strict_failure_carries_document")
+	test_id("daqsr", "strict_failure_carries_document")
 	# A failed strict load hands back the document and names the first
 	# failures in the message - the diagnostics are the point.
 	try:
@@ -3679,7 +3679,7 @@ def main():
 			raise SystemExit("LoadError does not include a usable document") from None
 		if "; line " not in str(le):
 			raise SystemExit("LoadError message lacks diagnostics: " + str(le)) from None
-	test_id("ElonRnP", "raw_is_source_text")
+	test_id("daqsj", "raw_is_source_text")
 	# raw: the verbatim value span from the source line, quotes and all - not
 	# the canonical form, which rewrites `[a,  "b c"]` to `[a, "b c"]`. Same
 	# fixture in every runner whose read result exposes raw (the C read
@@ -3701,7 +3701,7 @@ def main():
 		raise SystemExit("escaped selector read failed")
 	if rr.raw != "5":
 		raise SystemExit(f"written raw mismatch: {rr.raw!r}")
-	test_id("EnLD4c5", "convenience_tier_falls_back_only_on_good")
+	test_id("dbeg4", "convenience_tier_falls_back_only_on_good")
 	# The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	# back to the call-site default, so a real zero can't be faked. `_or` is the
 	# cross-binding spelling for it, so a routine ported between two bindings
@@ -3741,7 +3741,7 @@ def main():
 		raise SystemExit("an emptied field is not ok()")
 	if cdoc.read_int("missing").ok():
 		raise SystemExit("a missing field is ok()")
-	test_id("EoM2uEn", "set_raw_keeps_a_shared_indent_and_trims_the_info")
+	test_id("dbxkt", "set_raw_keeps_a_shared_indent_and_trims_the_info")
 	# The body's shared indent survives a reload (the closing fence's indent
 	# is what comes off), the info-string is stored as a fence line reads it
 	# back, and an info with a line break or a `#` has no spelling and fails
@@ -3785,7 +3785,7 @@ def main():
 	rawback = shcl.Document.parse(rawdoc.to_canonical())
 	if rawback.get_raw("q") != "a\rb":
 		raise SystemExit(f"set_raw mid-line CR got {rawback.get_raw('q')!r}")
-	test_id("EoM2uEo", "typed_setters_take_exactly_their_type")
+	test_id("dbxkv", "typed_setters_take_exactly_their_type")
 	# Typed setters take exactly their type and raise a TypeError naming the
 	# setter for anything else, rather than writing text the reader of that
 	# type would call bad-type (set_int of 3.5 wrote `3.5`). bool is an int
@@ -3828,7 +3828,7 @@ def main():
 		raise SystemExit("set_float refused an int")
 	if not tdoc.set_float_array_default("g", [1, 2.5]) or tdoc.read_float_array("g").value != [1.0, 2.5]:
 		raise SystemExit("set_float_array_default refused an int element")
-	test_id("EoSTzzc", "set_float_writes_an_int_as_its_f64")
+	test_id("dbz57", "set_float_writes_an_int_as_its_f64")
 	# Python-only: an int is written as the float it converts to, the f64 a
 	# caller of the other bindings would hold - not its exact digits. One past
 	# the float range has no f64 but inf, which the reader refuses, so it
@@ -3838,14 +3838,14 @@ def main():
 	if tdoc.set_float_array("i", [10 ** 400, -(10 ** 400)]) or tdoc.exists("i"):
 		raise SystemExit("set_float_array past the float range bound a value")
 
-	test_id("EpGigIQ", "setters_write_only_what_reads_back")
+	test_id("dcb81", "setters_write_only_what_reads_back")
 	setters_write_only_what_reads_back()
-	test_id("Eqk24nb", "edits_and_merges_match_a_reload")
+	test_id("dd16n", "edits_and_merges_match_a_reload")
 	edits_and_merges_match_a_reload()
-	test_id("ErpmA4L", "a_remove_keeps_a_settled_line_below_it")
+	test_id("ddhg0", "a_remove_keeps_a_settled_line_below_it")
 	a_remove_keeps_a_settled_line_below_it()
 
-	test_id("EqAaU1A", "repr_names_the_fields")
+	test_id("dcrns", "repr_names_the_fields")
 	# Python-only: Diagnostic and Read used to print as object addresses, where
 	# the other three print their fields. Printing a value is how Python gets
 	# debugged, so the repr has to name them.
@@ -3857,7 +3857,7 @@ def main():
 	if "value=1" not in rtext or "Status.Good" not in rtext or "0x" in rtext:
 		raise SystemExit(f"Read repr is not readable: {rtext}")
 
-	test_id("EqMO8f2", "datetimes_compare_by_field")
+	test_id("dcvgk", "datetimes_compare_by_field")
 	# Python-only, and the same class as the two above: two parses of one
 	# datetime compared unequal, since nothing but identity said otherwise.
 	# The other three compare field by field. Same-moment is a separate
@@ -3874,7 +3874,7 @@ def main():
 	if "2026" not in dtxt or "zone=" not in dtxt or "0x" in dtxt:
 		raise SystemExit(f"ShclDateTime repr is not readable: {dtxt}")
 
-	test_id("EpGigIS", "a_line_break_in_a_path_writes_and_reads_back")
+	test_id("dcb83", "a_line_break_in_a_path_writes_and_reads_back")
 	# Both halves of a path can contain a line break and write it \n: a name
 	# through the name escaper, a selector value through the value emitter. The
 	# selector was refused while elements were stored in their source spelling
@@ -3892,7 +3892,7 @@ def main():
 		if nlback.read_int(nlpath).value != 1:
 			raise SystemExit(f"read {nlpath!r} got {nlback.read_int(nlpath).value}")
 
-	test_id("EoXKdQm", "hot_path_shortcuts_hold")
+	test_id("dc0aj", "hot_path_shortcuts_hold")
 	# Three hot-path shortcuts this binding has because it is the slow one.
 	# Each is asserted structurally, by what the code does rather than by a
 	# clock: a wall-time threshold on a constant-factor win either flakes or
@@ -3933,7 +3933,7 @@ def main():
 	if key_calls[0]:
 		raise SystemExit(f"the source-attach guard built {key_calls[0]} value key(s) on 200 plain lines")
 
-	test_id("Eq4AfLU", "value_fast_path_matches_the_byte_loop")
+	test_id("dcq4d", "value_fast_path_matches_the_byte_loop")
 	# The value fast path has to answer exactly what the byte loop does, at any
 	# offset public tokenize_value takes - including one mid-character, where
 	# the loop strides past a comma that bytes.find would have split on. U+00E9
@@ -3954,7 +3954,7 @@ def main():
 		if fspans != lspans or ftok.value != ltok.value:
 			raise SystemExit(f"{fv!r}: the fast path gave {fspans} {ftok.value}, the loop {lspans} {ltok.value}")
 
-	test_id("Er7vwKQ", "format_version_caps_at_32_bits")
+	test_id("dd6yk", "format_version_caps_at_32_bits")
 	# Digits past 32 bits read as the largest 32-bit number, a newer format,
 	# in every binding (20260926 item 9, 2026101514324705).
 	if shcl.format_version("##    Format   4294967295\na: 1\n") != 4294967295:
@@ -3967,7 +3967,7 @@ def main():
 	if shcl.format_version("##    Format   4294967296\na: 1\n") != 0xFFFFFFFF:
 		raise SystemExit("format_version: 4294967296 did not read as the 32-bit cap")
 
-	test_id("EsEtTdR", "stamp_reads_say_why")
+	test_id("ddqha", "stamp_reads_say_why")
 	# The Format and Schema lines read with a status, so an unstamped file and
 	# a damaged stamp read apart, and the load's H006 and H007 hints say the
 	# same as the Format read on every row. Rust's stamp_reads_say_why has the
@@ -4017,7 +4017,7 @@ def main():
 		if shcl.schema_ref(stext) != (sref if sstatus is G else None):
 			raise SystemExit(f"schema_ref {stext!r}: {shcl.schema_ref(stext)}")
 
-	test_id("EssAxdC", "stamp_hints_quote_digits")
+	test_id("de0zq", "stamp_hints_quote_digits")
 	# The H006 and H007 hints quote the Format number as written, leading
 	# zeros and all, while the read keeps its 32-bit cap. A long one is cut the
 	# way any value in a message is (2026101514324705). Rust's
@@ -4039,7 +4039,7 @@ def main():
 				or not quoted_hints[0].message.startswith(hwant):
 			raise SystemExit(f"hints {htext!r}: {quoted_hints}")
 
-	test_id("EpFxQH3", "tokenizer_helpers_are_module_level")
+	test_id("dcb20", "tokenizer_helpers_are_module_level")
 	# The tokenizer's helpers are module level. Defined inside it they would
 	# be rebuilt, with a fresh cell each, once per document line.
 	for fn in (shcl.tokenize, shcl.tokenize_value, shcl._scan_piece):
@@ -4047,7 +4047,7 @@ def main():
 		if inner:
 			raise SystemExit(f"{fn.__name__} rebuilds {inner} on every call")
 
-	test_id("EryEqsA", "a_comma_splits_a_bare_value_only_before_a_blank")
+	test_id("ddkh5", "a_comma_splits_a_bare_value_only_before_a_blank")
 	# A comma splits a value outside brackets only with a blank, a comment or
 	# the end after it; inside brackets every one does (value-syntax.md,
 	# 20261006). 2.x split on every comma, which migrate still reads.
@@ -4070,7 +4070,7 @@ def main():
 	if len(ctok.elements) != 2:
 		raise SystemExit(f"2.x: {len(ctok.elements)} pieces")
 
-	test_id("EryEquE", "bare_spaces_colons_and_commas")
+	test_id("ddkh6", "bare_spaces_colons_and_commas")
 	# Spaces in a bare value or item are fine. A tab, a bracket, a quote, or a
 	# colon or comma with a blank or the end after it is one error, and its
 	# message says what to do.
@@ -4113,7 +4113,7 @@ def main():
 	if shcl.Document.parse("x: 80,443\n").read_int("x").status == shcl.Status.Good:
 		raise SystemExit("80,443 read as a number")
 
-	test_id("EryEqwF", "the_writer_quotes_a_colon_or_comma")
+	test_id("ddkh7", "the_writer_quotes_a_colon_or_comma")
 	# The reader takes a colon or comma bare where it is text, but the writer
 	# quotes any whitespace, colon, comma, paren or bracket wherever it sits, so
 	# nobody has to know the reader's rules. A quoted value keeps its quotes and
@@ -4158,7 +4158,7 @@ def main():
 
 	# 2026101309122757: Loose reads a quoted thousands number again, and the
 	# writer keeps a bare one bare, so this pins what no longer holds.
-	# test_id("EsZikJk", "a_thousands_comma_reads_the_same_after_a_save")
+	# test_id("ddwhr", "a_thousands_comma_reads_the_same_after_a_save")
 	# # A thousands comma is text quoted or bare, so a typed read gives the same
 	# # answer before and after the writer quotes it (2026101010054746).
 	# tcdoc = shcl.Document.parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
@@ -4187,7 +4187,7 @@ def main():
 	# if tcloose.read_int("q").status != shcl.Status.BadType or tcloose.read_int("c").status != shcl.Status.BadType:
 	# 	raise SystemExit(f"loose: {tcloose.read_int('q')!r} {tcloose.read_int('c')!r}")
 
-	test_id("EsbaIba", "loose_reads_a_quoted_thousands_number")
+	test_id("ddwzy", "loose_reads_a_quoted_thousands_number")
 	# Loose reads a quoted thousands number, exact grouping only. Bare stays
 	# text at every level, Standard and Strict refuse it, and the writer keeps
 	# a bare one bare, so a typed read is the same after a save
@@ -4258,7 +4258,7 @@ def main():
 			if lt_doc.read_string(lt_path).quoted != lt_back.read_string(lt_path).quoted:
 				raise SystemExit(f"{lt_path} quoted")
 
-	test_id("EsdUlxl", "loose_reads_a_quoted_thousands_number_with_a_trailing_dot")
+	test_id("ddxem", "loose_reads_a_quoted_thousands_number_with_a_trailing_dot")
 	# A trailing `.` is fine on a quoted thousands number, as on a plain one.
 	# A leading one is not, and a bare one stays bare (2026101318521195).
 	td_text = "a: \"1,200.\"\nb: \"$1,200.\"\nc: \"1,200.%\"\nd: 1,200.\ne: \".1,200\"\nf: \"1,200 .\"\ng: \"1,200..\"\nh: '-1,200.'\nl:\n\t- 9,000.\n"
@@ -4308,7 +4308,7 @@ def main():
 	# edit or merge builds now: the field line is kept and binds nothing
 	# (E001, 2026102307143752). a_field_under_items_stays_kept pins what each
 	# case does now.
-	# test_id("ErylLpa", "a_list_no_text_loads_back_refuses_to_save")
+	# test_id("ddkn9", "a_list_no_text_loads_back_refuses_to_save")
 	# # A list with a field under it (E001) after an empty binding of its name
 	# # that has fields: no text loads it back, since a reload joins the list's
 	# # header to that binding and drops its items (E008). The load is left as
@@ -4357,7 +4357,7 @@ def main():
 	# 	if not ldoc.set_empty("x(v)") or ldoc.lost_count() != 0:
 	# 		raise SystemExit(f"{lsrc!r}: lost {ldoc.lost_count()}: {ldoc.to_canonical()!r}")
 	#
-	# test_id("ErylLpb", "a_list_joining_an_emptied_field_keeps_its_fields_found")
+	# test_id("ddkna", "a_list_joining_an_emptied_field_keeps_its_fields_found")
 	# # A setter that empties a field joins the stacked list after it, fields
 	# # and all, as a reload would. A read made before the write has the lookup
 	# # built, and the fields that moved still have to be found through it.
@@ -4381,7 +4381,7 @@ def main():
 	# 	if jdoc.paths() != jback.paths():
 	# 		raise SystemExit(f"{jsrc!r}: paths {jdoc.paths()} vs {jback.paths()}")
 	#
-	# test_id("ErylLpc", "a_list_the_source_loads_back_keeps_its_lines")
+	# test_id("ddknb", "a_list_the_source_loads_back_keeps_its_lines")
 	# # A load can build that list too, under a kept array line (E028). The
 	# # canonical text writes the line as a comment and cannot load the list
 	# # back, so that save refuses. The source text does, so with no edits the
@@ -4407,7 +4407,7 @@ def main():
 	# 	if Path(kpath).read_bytes() != ksrc.encode():
 	# 		raise SystemExit(f"file changed: {Path(kpath).read_bytes()!r}")
 	#
-	# test_id("ErylLpd", "a_merged_list_joins_an_empty_field_past_a_comment")
+	# test_id("ddknc", "a_merged_list_joins_an_empty_field_past_a_comment")
 	# # A merge adds a list with a field under it as a new instance after an
 	# # empty binding of its name. A comment or kept line left after the
 	# # binding held the join off, though a reload joins the two
@@ -4434,7 +4434,7 @@ def main():
 	# 	if len(mdoc.instances("p.s")) != 1:
 	# 		raise SystemExit(f"{mbase!r}: {len(mdoc.instances('p.s'))} instances")
 	#
-	# test_id("EsFs7xw", "a_joined_list_files_the_bindings_lines_like_a_reload")
+	# test_id("ddqs3", "a_joined_list_files_the_bindings_lines_like_a_reload")
 	# # A list that joins an empty binding brings its fields, and the binding's
 	# # own kept line inside its block is written after them. A merge left it
 	# # filed inside the block, so a remove of the last field wrote it before
@@ -4467,7 +4467,7 @@ def main():
 	# if yback.to_canonical() != ydoc.to_canonical():
 	# 	raise SystemExit(f"joined list after the join: reload {yback.to_canonical()!r}, document {ydoc.to_canonical()!r}")
 	#
-	# test_id("ErylLpe", "a_remove_settles_a_list_after_an_empty_field")
+	# test_id("ddknd", "a_remove_settles_a_list_after_an_empty_field")
 	# # The remove twin: the merge without the gap builds the list no text loads
 	# # back, after a binding with a field. A remove that takes that field joins
 	# # the list, and one that takes the list's field puts it in brackets, as a
@@ -4494,7 +4494,7 @@ def main():
 	# 	if rdoc.lost_count() != 0:
 	# 		raise SystemExit(f"{rpath}: lost {rdoc.lost_count()}")
 
-	test_id("EtXCOhX", "a_field_under_items_stays_kept")
+	test_id("deav9", "a_field_under_items_stays_kept")
 	# A field line under stacked items is kept and binds nothing (E001), and
 	# so is an item after a field line (E008). Where an edit or a merge leaves
 	# one that a reload would bind, it is written as a comment. Same fixture
@@ -4560,7 +4560,7 @@ def main():
 	fu_doc.merge(shcl.Document.parse("z: 1\n"))
 	fu_check(fu_doc, "a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n")
 
-	test_id("EtdPWQz", "an_index_onto_a_list_takes_no_field")
+	test_id("decb4", "an_index_onto_a_list_takes_no_field")
 	# An index can select a list, and a dotted line through it does what the
 	# same field on the line under `srv(0):` does: an array line is kept for
 	# the field (E028), and a field after stacked items is kept (E001). So no
@@ -4594,7 +4594,7 @@ def main():
 	ix_doc.merge(shcl.Document.parse("srv:\n\t- a\nsrv(0).tls: on\n"))
 	fu_check(ix_doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n")
 
-	test_id("Eu8yPCJ", "an_index_with_no_instance_stays_kept")
+	test_id("deky1", "an_index_with_no_instance_stays_kept")
 	# An index that selects no instance bound before it is kept (E003): the
 	# line binds nothing, opens none of its path's fields, and nothing is lost.
 	# Where a merge or an edit puts an instance above it, it is written as a
@@ -4643,7 +4643,7 @@ def main():
 		raise SystemExit("set back refused")
 	nx_check(nx_doc, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
 
-	test_id("Eu96oVH", "a_replaced_leaf_keeps_the_lines_kept_in_its_block")
+	test_id("dekz3", "a_replaced_leaf_keeps_the_lines_kept_in_its_block")
 	# A line kept in a leaf's block stays in the merged block when the other
 	# layer replaces the leaf, as it does when a setter changes the leaf in
 	# place. It went to the root, above the field, where an item reloaded as
@@ -4663,7 +4663,7 @@ def main():
 		if [(d.line, d.code) for d in rl_back.diagnostics()] != [(2, rl_code), (3, rl_code)]:
 			raise SystemExit(f"reload diagnostics {rl_back.diagnostics()!r}")
 
-	test_id("ErylLpf", "a_setter_keeps_fields_and_arrays_apart")
+	test_id("ddkn8", "a_setter_keeps_fields_and_arrays_apart")
 	# A field with lines under it takes one plain value or none (E028), so a
 	# setter puts no field under an array and no array over fields. Each used
 	# to write text that reloads as E028.
@@ -4683,7 +4683,7 @@ def main():
 	if adoc.to_canonical() != "l: [b, c]\nz:\n\t- x\n":
 		raise SystemExit(f"got {adoc.to_canonical()!r}")
 
-	test_id("ErysKPJ", "bracket_selectors_are_the_old_spelling")
+	test_id("ddknz", "bracket_selectors_are_the_old_spelling")
 	# A selector is written in parens. One in brackets is the old spelling: a
 	# file line is E029 and kept, and a lookup, a setter or a schema path in
 	# brackets is refused. A body starting with `#`, the old index, is refused
@@ -4730,7 +4730,7 @@ def main():
 	if not any(v.code == "V093" and "parens" in v.message for v in shcl.Document.parse("srv: a\n").validate(oschema)):
 		raise SystemExit("no V093 naming parens")
 
-	test_id("ErysKS0", "init_refuses_a_child_of_an_array_parent")
+	test_id("ddkp0", "init_refuses_a_child_of_an_array_parent")
 	# A parent whose default is an array has no selector a child line can use,
 	# since a selector matches one plain value. Generation refuses it rather
 	# than write a child that makes another instance.
@@ -4739,7 +4739,7 @@ def main():
 	if not any(d.code == "V097" and "no selector spelling" in d.message for d in afaults):
 		raise SystemExit(f"a child of an array parent generated: {atext!r} {afaults}")
 
-	test_id("Es1eIOp", "migrate_brackets_a_2x_comma_list")
+	test_id("ddmba", "migrate_brackets_a_2x_comma_list")
 	# migrate writes a 2.x comma list in brackets, with or without a blank
 	# after the comma, since 2.x read both as arrays. In a file that does not
 	# say it is 2.x, `a,b` is a string under these rules, so it is left and
@@ -4758,7 +4758,7 @@ def main():
 	if not mm.text.startswith("x: [a, b]\ny: a,b\n"):
 		raise SystemExit(repr(mm.text))
 
-	test_id("EsIx4ac", "migrate_writes_a_lone_2x_element_plain")
+	test_id("ddrgh", "migrate_writes_a_lone_2x_element_plain")
 	# A 2.x comma list with one element left once the empty slots go was the
 	# plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
 	# would be two, and `[s]` reads as that string too.
@@ -4771,7 +4771,7 @@ def main():
 	if lone.diagnostics() or lone.count("k") != 1 or lone.get_string("k") != "s":
 		raise SystemExit(f"{lone.diagnostics()} {lone.count('k')} {lone.get_string('k')!r}")
 
-	test_id("Es1eIOq", "migrate_writes_star_items_as_dashes")
+	test_id("ddmbb", "migrate_writes_star_items_as_dashes")
 	# A 2.x `*` item becomes `- `, and an item these rules would read as
 	# something else is quoted, such as one that looks like `- name: value`.
 	mm = shcl.migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", True)
@@ -4784,7 +4784,7 @@ def main():
 	if mread.status != shcl.Status.Good or mread.value != ["a", "key: value", "c", "O'Brien"]:
 		raise SystemExit(f"list: {mread.value!r} {mread.status}")
 
-	test_id("Es1eIOr", "migrate_quotes_a_name_not_led_by_a_letter")
+	test_id("ddmbc", "migrate_quotes_a_name_not_led_by_a_letter")
 	# A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0`
 	# stay fields rather than reading as list items, and `404` stays a name.
 	mm = shcl.migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", True)
@@ -4801,7 +4801,7 @@ def main():
 	if mint.status != shcl.Status.Good or mint.value != 2:
 		raise SystemExit(f"a.9b: {mint.value!r} {mint.status}")
 
-	test_id("Es1eIOs", "migrate_escapes_a_real_mark")
+	test_id("ddmbd", "migrate_escapes_a_real_mark")
 	# 2.x read a `◉` as text. A name, a bare value and a selector body
 	# holding one get the escape for a real mark, so they still read as that
 	# text.
@@ -4821,7 +4821,7 @@ def main():
 	if mread.status != shcl.Status.Good or mread.value != "x\u25c9y":
 		raise SystemExit(f"s(0): {mread.value!r} {mread.status}")
 
-	test_id("Es1eIOt", "migrate_quotes_a_bare_selector_these_rules_refuse")
+	test_id("ddmbe", "migrate_quotes_a_bare_selector_these_rules_refuse")
 	# A 2.x selector goes in parens, and a bare body these rules refuse, such
 	# as one with a quote or a space, is quoted, so its block still loads.
 	mm = shcl.migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", True)
@@ -4833,7 +4833,7 @@ def main():
 	if mback.count("srv") != 2:
 		raise SystemExit(f"count srv {mback.count('srv')}")
 
-	test_id("Es1eIOu", "migrate_writes_selectors_in_parens")
+	test_id("ddmbf", "migrate_writes_selectors_in_parens")
 	# Every 2.x selector goes in parens: an index, a value, the sugar on a
 	# segment before the last, and a body with a paren in it, quoted. A
 	# selector in brackets is E029 under these rules, so a file that does not
@@ -4854,7 +4854,7 @@ def main():
 		if mint.status != shcl.Status.Good or mint.value != mwant_int:
 			raise SystemExit(f"{mpath}: {mint.value!r} {mint.status}")
 
-	test_id("Es1eIOv", "migrate_counts_what_nothing_spells")
+	test_id("ddmbg", "migrate_counts_what_nothing_spells")
 	# What 2.x bound and nothing spells now is counted lost, so the CLI
 	# refuses at 7: a selector with a comma, which matched an array value, and
 	# a comma list with lines under it. A list of only empty slots, which 2.x
@@ -4876,7 +4876,7 @@ def main():
 	if mback.read_string("e").status != shcl.Status.Empty:
 		raise SystemExit(f"e: {mback.read_string('e').status}")
 
-	test_id("Es1eIOw", "migrate_leaves_what_reads_clean_now")
+	test_id("ddmbh", "migrate_leaves_what_reads_clean_now")
 	# A file that does not say it is 2.x could be a 3.0 one. A piece that
 	# reads clean under these rules too, such as an escape, a backtick value,
 	# `[a]` or a `- ` item, is left as written and counted, so the CLI asks
@@ -4892,7 +4892,7 @@ def main():
 	if "ESCAPE_CHAR" not in shcl.migrate(mtext, True).text:
 		raise SystemExit("no ESCAPE_CHAR with from_v2")
 
-	test_id("EtDC3KV", "migrate_writes_the_text_2x_read")
+	test_id("de61d", "migrate_writes_the_text_2x_read")
 	# 2.x resolved a backslash pair in a value, an element, a `*` item, a
 	# selector body and the sugar, bare or quoted, so migrate writes the text
 	# 2.x read (2026101911300000). Any other backslash was text in 2.x too.
@@ -4926,7 +4926,7 @@ def main():
 	if mback.get_string("p") != "C:\\new" or mback.get_string("t") != "C:\temp":
 		raise SystemExit(repr(mup.text))
 
-	test_id("EtDC3N7", "migrate_counts_a_backslash_pair_in_an_unstamped_file")
+	test_id("de61e", "migrate_counts_a_backslash_pair_in_an_unstamped_file")
 	# A file that does not say it is 2.x could be a 3.0 one, where a backslash
 	# is text. A piece that reads clean under these rules too is left and
 	# counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
@@ -4944,7 +4944,7 @@ def main():
 	if not mm.text.startswith("p: \"C:\\new\"\nt: \"C:\u25c9TAB\u25c9emp\"\n"):
 		raise SystemExit(repr(mm.text))
 
-	test_id("EtDC3Po", "migrate_counts_a_quoted_name_with_a_backslash_pair_lost")
+	test_id("de61f", "migrate_counts_a_quoted_name_with_a_backslash_pair_lost")
 	# 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
 	# a name with one reads two ways across 2.x. It stays as written and counts
 	# as lost, with from_v2 or without, and the rest of its line still
@@ -4967,7 +4967,7 @@ def main():
 	up_v2 = "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config file format is SHCL.\n# \"Simple Hierarchical Config Language\"\n#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.\n#\n"
 	up_tag = "_backup_20261004-001500_format-v2"
 
-	test_id("Es2k1AZ", "upgrade_leaves_a_clean_or_stamped_file")
+	test_id("ddmkq", "upgrade_leaves_a_clean_or_stamped_file")
 	# a,b is one string now and an array under 2.x, but it loads clean, and
 	# nothing says the file is 2.x.
 	up = shcl.upgrade("a: 1\nb: x,y\n", False)
@@ -4985,7 +4985,7 @@ def main():
 	# if not up.current or up.text != up_beta or up.format != 3:
 	# 	raise SystemExit(f"beta: {up.current} {up.format} {up.text!r}")
 
-	test_id("EsgoThb", "with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x")
+	test_id("ddy85", "with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x")
 	# The caller says a 2.x build wrote it, as a beta of 3.0 could have
 	# (2026101407100010). The backup name keeps the format the line names.
 	up_beta = f"tags: a, b\n\n{shcl.GEN_BANNER}"
@@ -5023,7 +5023,7 @@ def main():
 	if not up_m.current or up_m.text != up_beta:
 		raise SystemExit(f"beta migrate: {up_m.current} {up_m.text!r}")
 
-	test_id("EsoQmUA", "from_v2_refuses_a_conversion_that_keeps_an_error")
+	test_id("de02w", "from_v2_refuses_a_conversion_that_keeps_an_error")
 	# The next run with from_v2 would read the fresh text by 2.x rules again,
 	# and the 2.x escape on line 1 would grow each time (2026101515372401).
 	# So nothing is made, with a Format line or not.
@@ -5064,7 +5064,7 @@ def main():
 		if len(os.listdir(ud)) != 1:
 			raise SystemExit(f"left: {os.listdir(ud)}")
 
-	test_id("EtaIsh6", "a_block_kept_at_the_top_names_this_format_too")
+	test_id("debk7", "a_block_kept_at_the_top_names_this_format_too")
 	# The lone stamp comes off, and the block kept above the first field's
 	# child named another format, which the fresh text then read as its own
 	# (2026102309053667).
@@ -5084,7 +5084,7 @@ def main():
 	if shcl.format_version(up_doc.to_canonical()) != 3:
 		raise SystemExit(f"kept top: set_banner names {shcl.format_version(up_doc.to_canonical())}")
 
-	test_id("Eu1bOv4", "upgrade_keeps_each_line_where_it_was")
+	test_id("dej5a", "upgrade_keeps_each_line_where_it_was")
 	# Blank lines and a raw block on its field's line stay put, so a line
 	# number in the old file names the same line in the fresh one
 	# (2026102620591101).
@@ -5098,7 +5098,7 @@ def main():
 		if not shcl.upgrade(up.text, False).current:
 			raise SystemExit(f"keeps lines {keep_v2}: a second run made it over again: {up.text!r}")
 
-	test_id("Es2k1DD", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently")
+	test_id("ddmkr", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently")
 	# The caller says it is 2.x, where a,b was an array.
 	up = shcl.upgrade("p: a,b\n", True)
 	if up.current or up.lost != 0 or up.diagnostics:
@@ -5110,7 +5110,7 @@ def main():
 	if not up.current or up.text != "a: 1\nb: x\n":
 		raise SystemExit(f"same: {up.current} {up.text!r}")
 
-	test_id("EsFrOVQ", "an_older_format_line_becomes_this_one_in_place")
+	test_id("ddqrr", "an_older_format_line_becomes_this_one_in_place")
 	# Nothing else changes, so only the stamp does, and only with from_v2
 	# (2026100717500017).
 	up_old = "port: 80\n##    Format   2\n"
@@ -5138,7 +5138,7 @@ def main():
 		if shcl.migrate(up_in, False).text != up_want:
 			raise SystemExit(f"migrate {up_in!r}: {shcl.migrate(up_in, False).text!r}")
 
-	test_id("Esgj35Q", "a_format_line_at_the_top_goes_when_the_block_goes_on")
+	test_id("ddy7v", "a_format_line_at_the_top_goes_when_the_block_goes_on")
 	# The block names the format, so the file names one (2026101407100001).
 	up = shcl.upgrade("##    Format   2\nname: x\nq: a,b\n", True)
 	if up.text != f"name: x\nq: [a, b]\n\n{shcl.GEN_BANNER}":
@@ -5159,7 +5159,7 @@ def main():
 	if top_n != 0 or top_doc.to_canonical() != f"{top_text}\n{shcl.GEN_BANNER}":
 		raise SystemExit(f"top block: {top_n} {top_doc.to_canonical()!r}")
 
-	test_id("Es2k1Fd", "upgrade_writes_a_fresh_file_with_the_info_block")
+	test_id("ddmks", "upgrade_writes_a_fresh_file_with_the_info_block")
 	up = shcl.upgrade(up_v2, False)
 	if up.current or up.ambiguous != 0 or up.lost != 0 or up.format != 2:
 		raise SystemExit(f"{up.current} {up.ambiguous} {up.lost} {up.format}")
@@ -5176,7 +5176,7 @@ def main():
 	if not shcl.upgrade(up.text, False).current:
 		raise SystemExit("the fresh text is not current")
 
-	test_id("Es2k1IT", "upgrade_refuses_text_that_reads_two_ways")
+	test_id("ddmkt", "upgrade_refuses_text_that_reads_two_ways")
 	up_amb = "a: x,y\nb: \"q\n"
 	up = shcl.upgrade(up_amb, False)
 	if up.current or up.ambiguous != 1 or up.text != up_amb:
@@ -5185,7 +5185,7 @@ def main():
 	if up.ambiguous != 0 or not up.text.startswith("a: [x, y]\nb: '\"q'\n\n##\n"):
 		raise SystemExit(f"from_v2: {up.ambiguous} {up.text!r}")
 
-	test_id("Es2k1LA", "backup_name_puts_the_tag_before_the_extension")
+	test_id("ddmkv", "backup_name_puts_the_tag_before_the_extension")
 	for up_file, up_format, up_want in (
 		("f.shcl", 2, f"f{up_tag}.shcl"),
 		("a/b.c.shcl", 2, f"a/b.c{up_tag}.shcl"),
@@ -5196,7 +5196,7 @@ def main():
 		if shcl.backup_file_name(up_file, up_format) != up_want:
 			raise SystemExit(f"{up_file}: {shcl.backup_file_name(up_file, up_format)!r}")
 
-	test_id("Es2k1Ny", "upgrade_file_backs_up_then_rewrites")
+	test_id("ddmkw", "upgrade_file_backs_up_then_rewrites")
 	with tempfile.TemporaryDirectory() as ud:
 		up_path = os.path.join(ud, "f.shcl")
 		with open(up_path, "wb") as uf:
@@ -5221,7 +5221,7 @@ def main():
 		if not up.current or up.backup != "" or len(os.listdir(ud)) != 2:
 			raise SystemExit(f"again: {up.current} {up.backup!r} {os.listdir(ud)}")
 
-	test_id("Es2k1Qn", "upgrade_file_never_writes_over_a_backup")
+	test_id("ddmkx", "upgrade_file_never_writes_over_a_backup")
 	with tempfile.TemporaryDirectory() as ud:
 		up_path = os.path.join(ud, "f.shcl")
 		with open(up_path, "wb") as uf:
@@ -5259,7 +5259,7 @@ def main():
 		if len(os.listdir(ud)) != 3:
 			raise SystemExit(f"left {os.listdir(ud)}")
 
-	test_id("Et6Am8z", "write_backup_refuses_a_swapped_file_and_text")
+	test_id("de4bc", "write_backup_refuses_a_swapped_file_and_text")
 	# The file and its text are both strings, and swapped they wrote a backup
 	# named after the text and returned its name (2026101807501110).
 	with tempfile.TemporaryDirectory() as ud:
@@ -5290,7 +5290,7 @@ def main():
 		if os.listdir(ud) != ["d"]:
 			raise SystemExit(f"directory: left {os.listdir(ud)}")
 
-	test_id("Eu7RSm4", "a_save_over_a_file_changed_since_the_load_is_refused")
+	test_id("dekj7", "a_save_over_a_file_changed_since_the_load_is_refused")
 	# A save over the file a load read refuses when another program changed it
 	# since, writes nothing, and writes with force. A save elsewhere, and a
 	# document from parse, save as they always did (2026102910482342).
@@ -5375,7 +5375,7 @@ def main():
 		shcl.Document.parse("a: 5\n").save_file(cother)
 		same("parsed", cread(cother), "a: 5\n")
 
-	test_id("Eu7hQCe", "a_create_only_save_refuses_a_file_already_there")
+	test_id("dekm6", "a_create_only_save_refuses_a_file_already_there")
 	# A create-only save refuses a file that's there, and only one of several
 	# saves at once makes it. A new file takes the mode asked for, whatever the
 	# umask, and one already there keeps its own (2026102910482343).
@@ -5461,7 +5461,7 @@ def main():
 			xdoc.save_file_with(mp, shcl.SaveOptions(mode=0o600))
 			xsame("kept mode", oct(xmode(mp)), oct(0o644))
 
-	test_id("Eu8h5g5", "a_newer_format_document_saves_nowhere")
+	test_id("dekvv", "a_newer_format_document_saves_nowhere")
 	# A document from a newer format reads and edits as usual, and every save
 	# of it is refused with nothing written, whatever the options, before any
 	# other check. The same reading as H006 decides, and a merge takes a newer
@@ -5527,7 +5527,7 @@ def main():
 		nunder.merge(shcl.Document.parse("b: 2\n"))
 		nsame("merged under", nunder.newer_format(), True)
 
-	test_id("EsJZko5", "default_fills_what_does_not_read")
+	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
 	# as its type, and keeps a value it replaces above the field as a comment
 	# with a note. A raw block stays (RawBlock), an array on a field with lines
@@ -5592,7 +5592,7 @@ def main():
 	if dloose.set_int_default("n", 1) is not shcl.SetStatus.Ok or dloose.to_canonical() != dbefore or dloose.read_int("n").status is not shcl.Status.Good:
 		raise SystemExit(f"loose $5: {dloose.to_canonical()!r}")
 
-	test_id("EsJZko9", "default_replace_round_trips")
+	test_id("ddrnh", "default_replace_round_trips")
 	# A replaced line kept as a comment goes through the save that keeps
 	# lines, `fmt` and a reload unchanged, and a run of the same defaults on
 	# the saved text writes nothing. Same fixture in every runner.
@@ -5624,7 +5624,7 @@ def main():
 	# URL is never fetched; only a regular file is read, and none over 16 MiB.
 	# The CLI's check is this call, so its rows in cli-regress pin the same
 	# rules. Same fixture in every runner.
-	test_id("EsJZ107", "read_named_schema_follows_check_rules")
+	test_id("ddrn9", "read_named_schema_follows_check_rules")
 	SS = shcl.SchemaStatus
 	with tempfile.TemporaryDirectory() as nd:
 		ns_cfg = nd + "/cfg.shcl"
@@ -5681,7 +5681,7 @@ def main():
 				raise SystemExit(f"named {ns_r!r}: {ns_named(ns_r)}, want {ns_want}")
 		if SS.FileNotFound.name != "FileNotFound" or SS.FileNotFound.value != 5:
 			raise SystemExit("named: names")
-	test_id("EsJYNe3", "kind_reads_say_what_is_there")
+	test_id("ddrn5", "kind_reads_say_what_is_there")
 	# kind() and read_kind(): what the value at a path is, from the stored
 	# form, with the status read_line() gives. Same fixture in every runner.
 	ktext = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n"
@@ -5758,7 +5758,7 @@ def main():
 			raise SystemExit(f"read_kind({kpath!r}) after setters {kr!r}")
 	if kdoc.read_kind("built").line != 0:
 		raise SystemExit(f"read_kind(built) {kdoc.read_kind('built')!r}")
-	test_id("EshdmLB", "format_diagnostic_is_the_cli_line")
+	test_id("ddyeh", "format_diagnostic_is_the_cli_line")
 	# format_diagnostic gives the CLI's stderr line, and str() is the same.
 	# Same fixture in every runner; the prose is each binding's own.
 	fd = shcl.Document.parse("a: 1\nb: [x\n").diagnostics()[0]
@@ -5784,7 +5784,7 @@ def main():
 			raise SystemExit(f"format_diagnostic {shcl.format_diagnostic(fdd)!r}, want {fdwant!r}")
 	if (fdE.name, fdH.name) != ("Error", "Hint"):
 		raise SystemExit("severity names")
-	test_id("EshnCyX", "format_value_is_the_setters_text")
+	test_id("ddyfp", "format_value_is_the_setters_text")
 	# format_value is the text set_string writes after `k: ` in a fresh
 	# document, None exactly where set_string refuses, and it reads back as the
 	# text it was handed. Over the setter soup, the review's examples and the
@@ -5842,7 +5842,7 @@ def main():
 	):
 		if fvgot != fvwant:
 			raise SystemExit(f"typed setter wrote {fvgot!r}, want {fvwant!r}")
-	test_id("EstLlpR", "reads_from_several_threads")
+	test_id("de18t", "reads_from_several_threads")
 	# spec.md says threads can share a document for reads, since the lookup
 	# index is built whole before it's put in place. Every read call over every
 	# corpus case, split across 8 threads on a document nothing has read yet,
@@ -5901,7 +5901,7 @@ def main():
 	sys.setswitchinterval(rt_interval)
 	if rt_bad:
 		raise SystemExit("\n".join(rt_bad[:5]))
-	test_id("EstLlpM", "quote_segment_selects_a_held_value")
+	test_id("de18p", "quote_segment_selects_a_held_value")
 	# spec.md: "name(" + quote_segment(value) + ")" picks the instance holding
 	# that value, numbers included, where site(0) is the first instance. Over
 	# the spec's examples and the setter soup, each value written with
@@ -5925,7 +5925,7 @@ def main():
 		qsr = qsdoc.read_string(qspath)
 		if qsdoc.count(qspath) != 1 or qsr.value != qsv or qsr.status != shcl.Status.Good:
 			raise SystemExit(f"{qsv!r} as {qspath!r}: count {qsdoc.count(qspath)}, read {qsr.value!r} {qsr.status}")
-	test_id("EsiL1Kh", "format_array_is_the_setters_text")
+	test_id("ddykx", "format_array_is_the_setters_text")
 	# format_array is the text set_string_array writes after `k: ` in a fresh
 	# document, None exactly where set_string_array refuses, and it reads back
 	# as the texts it was handed. Each text of the format_value fixture alone
@@ -5985,10 +5985,10 @@ def main():
 		if fagot != fawant:
 			raise SystemExit(f"typed array setter wrote {fagot!r}, want {fawant!r}")
 
-	test_id("EtD4W76", "windows_calls_build_their_ctypes_once")
+	test_id("de60c", "windows_calls_build_their_ctypes_once")
 	windows_calls_build_their_ctypes_once()
 
-	test_id("Et01jhN", "nothing_unraisable_or_uncollectable")
+	test_id("de2w2", "nothing_unraisable_or_uncollectable")
 	# Since 3.4 a cycle with __del__ is collected, so only what the collector
 	# can't free at all lands in gc.garbage, such as a C type with tp_del.
 	gc.collect()

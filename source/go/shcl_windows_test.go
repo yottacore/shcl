@@ -22,7 +22,7 @@ import (
 // hidden config used to come back visible. Same fixture in every runner; its
 // own file because the symbols are windows-only.
 func TestSaveKeepsHiddenAndSystem(t *testing.T) {
-	defer testID(t, "Eom3Uj2")
+	defer testID(t, "dc3vv")
 	f := filepath.Join(t.TempDir(), "h.shcl")
 	if err := os.WriteFile(f, []byte("a: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func readText(p string) (string, bool) {
 // always puts its temp file beside the target, so this calls the publish
 // directly.
 func TestFailedPublishLosesNeitherFile(t *testing.T) {
-	defer testID(t, "EqYTuc6")
+	defer testID(t, "dcydr")
 	root := t.TempDir()
 	x, y := filepath.Join(root, "x"), filepath.Join(root, "y")
 	for _, d := range []string{x, y} {
@@ -125,7 +125,7 @@ func TestFailedPublishLosesNeitherFile(t *testing.T) {
 // and the rename both, the way a scanner looking at a fresh file does. A hold
 // that ends in a few milliseconds must not fail the save.
 func TestBriefHoldIsWaitedOut(t *testing.T) {
-	defer testID(t, "EqYTuc7")
+	defer testID(t, "dcyds")
 	root := t.TempDir()
 	target, tmp := filepath.Join(root, "t.shcl"), filepath.Join(root, ".t.shcl.tmp1.0")
 	if err := os.WriteFile(target, []byte("old\n"), 0o644); err != nil {
@@ -215,7 +215,7 @@ func icaclsOK(t *testing.T, args ...string) {
 // fails the publish on every try, which keeps the temp file there long enough
 // for a poller to read its DACL. Same fixture in every runner.
 func TestTempFileTakesTargetsDACL(t *testing.T) {
-	defer testID(t, "ErO2NoE")
+	defer testID(t, "ddatf")
 	if underWine() {
 		t.Skip("wine keeps no ACLs")
 	}

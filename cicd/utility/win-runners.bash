@@ -85,9 +85,9 @@ fRun() {   ## fRun [--id ID] NAME TOOLS COMMAND [ARG ...]   TOOLS is space-separ
 	echo "[ ${name} ]"
 	# shellcheck disable=2086  ## the tool list is meant to split
 	if ! fHave ${tools}; then
-		fStepLine skip "${id}" "${name}" SKIPPED; skipped+=("${name}"); return 0
+		fStepLine SKIP "${id}" "${name}" SKIPPED; skipped+=("${name}"); return 0
 	fi
-	if "$@"; then fStepLine ok "${id}" "${name}" OK
+	if "$@"; then fStepLine PASS "${id}" "${name}" OK
 	else fStepLine FAIL "${id}" "${name}" FAILED >&2; failed+=("${name}"); fi
 }
 fStepLine() {   ## fStepLine STATUS ID NAME WORD
@@ -439,25 +439,25 @@ fRun "c++ veneer"  "${cxx}"         fRunCxx
 fRun "c oom hook"  "${cc}"          fRunOomSweep oom_hook
 fRun "c oom recover" "${cc}"        fRunOomSweep oom_recover
 fRun "c mem bounds" "${cc}"         fRunMemBounds
-fRun --id EojrwSX "c cli argv"  "${cc}"          fRunCcli
-fRun --id EonWXt5 "closed stdin" "${cc}"         fRunClosedStdin
-fRun --id EqMiKTw "c long path" "${cc}"          fRunLongPath
+fRun --id dc3b1 "c cli argv"  "${cc}"          fRunCcli
+fRun --id dc477 "closed stdin" "${cc}"         fRunClosedStdin
+fRun --id dcvk4 "c long path" "${cc}"          fRunLongPath
 fRun "cli regress"  "${cc}"         fRunCliRegress
-fRun --id EqS4fJw "devices c"   "${cc}"          fDevicesC
-fRun --id EqS4fJx "devices rust" "cargo"         fDevicesRust
-fRun --id EqS4fJy "devices go"  "go"             fDevicesGo
-fRun --id EqS4fJz "devices python" "${py}"       fDevicesPython
+fRun --id dcwwc "devices c"   "${cc}"          fDevicesC
+fRun --id dcwwd "devices rust" "cargo"         fDevicesRust
+fRun --id dcwwe "devices go"  "go"             fDevicesGo
+fRun --id dcwwf "devices python" "${py}"       fDevicesPython
 ## The installers' PATH handling needs a real registry, which only exists here.
 ## It overwrites the machine PATH for the length of the run - fine on a throwaway
 ## runner, not on a workstation, so a developer box gets the same test inside a
 ## sandbox, whose registry is thrown away with it.
 case "$(uname -s 2>/dev/null || true)" in
 	MINGW*|MSYS*|CYGWIN*)
-		fRun --id EqbvAmG "uninstall lock" "" fRunUninstallLock
-		fRun --id Er8Neza "dogfood runner" "cargo" fRunDogfood
-		fRun --id ErkQHTh "ps args" "cargo" fRunPsArgs
-		fRun --id Er8O5Tf "uninstall nothing" "" fRunUninstallNothing
-		fRun --id Er8M8AX "ops bom 5.1" "cargo" fRunOpsBom51
+		fRun --id dcz85 "uninstall lock" "" fRunUninstallLock
+		fRun --id dd71z "dogfood runner" "cargo" fRunDogfood
+		fRun --id ddg6q "ps args" "cargo" fRunPsArgs
+		fRun --id dd720 "uninstall nothing" "" fRunUninstallNothing
+		fRun --id dd71s "ops bom 5.1" "cargo" fRunOpsBom51
 		if [[ -n "${WINRUN_PARTIAL:-}" ]]; then fRunWinpathSandbox
 		else fRun "windows path" "" powershell -NoProfile -ExecutionPolicy Bypass -File cicd/utility/winpath-regress.ps1
 		fi

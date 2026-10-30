@@ -103,7 +103,7 @@ EOF
 
 missing=""
 for t in qemu-system-x86_64 curl xz tar sha256sum timeout; do command -v "${t}" >/dev/null 2>&1 || missing+=" ${t}"; done
-fTest EtMgsNv the pinned FreeBSD image is in the cache and matches its sha256
+fTest de8ae the pinned FreeBSD image is in the cache and matches its sha256
 haveImage=0
 if [[ -n "${missing}" ]]; then
 	if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then fBad "needs${missing}, and the gate requires it"; fi
@@ -137,7 +137,7 @@ if ((haveImage)); then
 	printf 'instance-id: shcl-check\n' > ci/meta-data
 	fUserData > ci/user-data
 
-	fTest EtMgrmj FreeBSD boots and runs the freebsd-x86_64 release
+	fTest de8ac FreeBSD boots and runs the freebsd-x86_64 release
 	accel=(-accel tcg -cpu max); how=TCG
 	if [[ "${SHCL_FREEBSD_ACCEL:-}" != tcg && -r /dev/kvm && -w /dev/kvm ]]; then accel=(-accel kvm -cpu host); how=KVM; fi
 	##	snapshot=on keeps the cached image and the FAT folder as they are.
@@ -159,7 +159,7 @@ if ((haveImage)); then
 	mkdir -p g/back
 	tar -C g/back -xf out.img 2>/dev/null || fBad "nothing came back on the output disk"
 
-	fTest EtMgs5P the freebsd-x86_64 release runs the CLI cases like the Linux one
+	fTest de8ad the freebsd-x86_64 release runs the CLI cases like the Linux one
 	nGot="$(grep -c ' rc ' g/back/rc.lst 2>/dev/null || true)"
 	((nGot == nCases)) || fBad "${nGot:-0} of ${nCases} CLI runs came back from FreeBSD"
 	##	One pass each over the exit codes and the outputs, then the cases named.

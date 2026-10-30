@@ -10232,7 +10232,7 @@ mod windows_publish {
 			let status = if std::thread::panicking() {
 				"FAIL"
 			} else {
-				"ok"
+				"PASS"
 			};
 			let thread = std::thread::current();
 			let name = thread.name().unwrap_or("?");
@@ -10260,7 +10260,7 @@ mod windows_publish {
 	// Neither the rename nor putting the old file back can get in either.
 	#[test]
 	fn a_failed_publish_loses_neither_file() {
-		let _id = test_id("EqYTuc4");
+		let _id = test_id("dcydp");
 		let root = scratch("kept");
 		let (x, y) = (root.join("x"), root.join("y"));
 		std::fs::create_dir_all(&x).unwrap();
@@ -10303,7 +10303,7 @@ mod windows_publish {
 	// does. A hold that ends in a few milliseconds must not fail the save.
 	#[test]
 	fn a_brief_hold_is_waited_out() {
-		let _id = test_id("EqYTuc5");
+		let _id = test_id("dcydq");
 		use std::os::windows::fs::OpenOptionsExt;
 		let root = scratch("hold");
 		let (target, tmp) = (root.join("t.shcl"), root.join(".t.shcl.tmp1.0"));
@@ -10425,7 +10425,7 @@ mod windows_publish {
 	// long enough for a poller to read its DACL. Same fixture in every runner.
 	#[test]
 	fn temp_file_takes_the_targets_dacl() {
-		let _id = test_id("ErO2NoD");
+		let _id = test_id("ddate");
 		use std::os::windows::fs::OpenOptionsExt;
 		use std::sync::atomic::{AtomicBool, Ordering};
 		if under_wine() {
@@ -17049,7 +17049,7 @@ mod kept_gate {
 			let status = if std::thread::panicking() {
 				"FAIL"
 			} else {
-				"ok"
+				"PASS"
 			};
 			let thread = std::thread::current();
 			let name = thread.name().unwrap_or("?");
@@ -17067,7 +17067,7 @@ mod kept_gate {
 
 	#[test]
 	fn a_kept_line_gone_from_the_tree_refuses_the_save() {
-		let _id = test_id("EreRyr7");
+		let _id = test_id("dders");
 		let mut doc = Document::parse_keep_lines(BASE, Strictness::Standard).unwrap();
 		assert_eq!(doc.lost_count(), 0);
 		let y = doc.arena[ROOT]
@@ -17105,7 +17105,7 @@ mod kept_gate {
 	// own line, and nothing beside it.
 	#[test]
 	fn a_remove_takes_the_kept_line_heading_its_field() {
-		let _id = test_id("EreUeCs");
+		let _id = test_id("ddes3");
 		let mut doc = Document::parse("a: [1\n\tb: 2\ny: 3\n");
 		assert_eq!(doc.remove("a"), 1);
 		assert_eq!(doc.lost_count(), 0);
@@ -17116,7 +17116,7 @@ mod kept_gate {
 	// above or below it, with the comments above them (2026100307163901).
 	#[test]
 	fn a_remove_leaves_the_kept_lines_beside_it() {
-		let _id = test_id("ErgToYw");
+		let _id = test_id("ddf8c");
 		for (text, path, want) in [
 			(BASE, "y", "x: 1\nr: [1, 2\n"),
 			("x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"),
@@ -17146,7 +17146,7 @@ mod kept_gate {
 	// and its kept line stays (escblock; 2026100307163907).
 	#[test]
 	fn a_field_opened_by_a_kept_line_goes_with_its_last_line() {
-		let _id = test_id("ErgToax");
+		let _id = test_id("ddf8d");
 		for (text, path, want) in [
 			("a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"),
 			(
@@ -17180,7 +17180,7 @@ mod kept_gate {
 	// The stamp is the real clock's here; the CLI rows pin it.
 	#[test]
 	fn a_setter_comments_out_the_kept_line_heading_its_target() {
-		let _id = test_id("ErleUnO");
+		let _id = test_id("ddgg6");
 		for (text, path, above, line, why, rest) in [
 			(
 				"a: [1\n\tb: 2\ny: 3\n",
@@ -17262,7 +17262,7 @@ mod kept_gate {
 	// of them, so a later hand fix never gives Multiple (2026100307163907).
 	#[test]
 	fn a_setter_comments_out_every_kept_line_of_its_name() {
-		let _id = test_id("ErmXhmZ");
+		let _id = test_id("ddgq1");
 		let note = |path: &str| {
 			format!(
 				"  ## commented out by shcl when setting {path}, STAMP: E019 malformed array, no closing ']' on the line"
@@ -17386,7 +17386,7 @@ mod kept_gate {
 	#[cfg_attr(miri, ignore = "calls tzset and localtime_r, which Miri can't")]
 	#[test]
 	fn a_note_names_the_zone_or_its_offset() {
-		let _id = test_id("ErleV68");
+		let _id = test_id("ddgg7");
 		assert_eq!(zone_label(-420, "PDT"), "PDT");
 		assert_eq!(zone_label(-420, ""), "UTC-07:00");
 		assert_eq!(zone_label(240, "+04"), "UTC+04:00");
@@ -17414,7 +17414,7 @@ mod kept_gate {
 
 	#[test]
 	fn a_merged_layer_owes_its_kept_lines() {
-		let _id = test_id("EreRysn");
+		let _id = test_id("ddert");
 		let mut doc = Document::parse("a: 1\n");
 		doc.merge(&Document::parse(BASE));
 		assert_eq!(doc.lost_count(), 0);
@@ -17434,7 +17434,7 @@ mod kept_gate {
 	// goes with the leaf's comments, so it is no longer owed.
 	#[test]
 	fn a_replaced_leaf_takes_its_settled_kept_line() {
-		let _id = test_id("ErfGoMI");
+		let _id = test_id("ddez2");
 		let mut doc = Document::parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n");
 		assert_eq!(doc.remove("x.c"), 1);
 		assert_eq!(doc.to_canonical(), "x: 0\n# a: 5\nb: 1\n");
@@ -17448,7 +17448,7 @@ mod kept_gate {
 	// already has, so that copy is not owed.
 	#[test]
 	fn a_footer_line_the_base_has_is_not_owed_twice() {
-		let _id = test_id("ErfGoMJ");
+		let _id = test_id("ddez3");
 		let mut doc = Document::parse("bad name: 1\n");
 		doc.merge(&Document::parse("bad name: 1\n"));
 		assert_eq!(doc.to_canonical(), "bad name: 1\n");
@@ -17460,7 +17460,7 @@ mod kept_gate {
 	// beside it stays with that line.
 	#[test]
 	fn a_replaced_leaf_leaves_the_lines_beside_it() {
-		let _id = test_id("ErkSy71");
+		let _id = test_id("ddg72");
 		let mut doc = Document::parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n");
 		assert_eq!(
 			doc.to_canonical(),
@@ -17495,7 +17495,7 @@ mod write_status_map {
 			let status = if std::thread::panicking() {
 				"FAIL"
 			} else {
-				"ok"
+				"PASS"
 			};
 			let thread = std::thread::current();
 			let _ = writeln!(
@@ -17510,7 +17510,7 @@ mod write_status_map {
 
 	#[test]
 	fn os_errors_map_to_one_reason() {
-		let _id = test_id("EsEhCFz");
+		let _id = test_id("ddqfs");
 		use std::io::ErrorKind as K;
 		let rows = [
 			(K::NotFound, WriteStatus::NotFound),

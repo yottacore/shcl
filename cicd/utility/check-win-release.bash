@@ -73,7 +73,7 @@ if [[ -z "${missing}" ]]; then
 	fCases > cases.tsv
 	nCases="$(wc -l < cases.tsv)"
 
-	fTest EtIZEst wine starts the windows-x86_64 release
+	fTest de7an wine starts the windows-x86_64 release
 	##	The server first: -p fails once wineboot has started one of its own.
 	mkdir -p "${WINEPREFIX}"
 	wineserver -p 120 || fBad "wineserver exited $?"
@@ -82,7 +82,7 @@ if [[ -z "${missing}" ]]; then
 	got="$(timeout 60 wine ./shcl.exe --version 2>&1 | tr -d '\r' || true)"
 	[[ -n "${want}" && "${got}" == "${want}" ]] || fBad "wine ./shcl.exe --version gave ${got@Q}, the Linux build ${want@Q}"
 
-	fTest EtIZEvy the windows-x86_64 release runs the CLI cases like the Linux one
+	fTest de7ap the windows-x86_64 release runs the CLI cases like the Linux one
 	SECONDS=0
 	fRunAll lin "${linBin}"
 	fRunAll win wine ./shcl.exe

@@ -82,7 +82,7 @@ if ((! skipping)); then
 	src=0
 	SHCL_SOAK_REPORT="${art}/c-soak.txt" heaptrack -o "${art}/c-heaptrack" "${work}/soak" project/conformance "${work}/saves" >"${work}/soak.out" 2>&1 || src=$?
 	## The soak's own status line, and its failure if it has one.
-	grep -E '^(ok|FAIL|skip) +[0-9A-Za-z]{7} c |^FAIL soak' "${work}/soak.out" || true
+	grep -E '^(PASS|FAIL|SKIP) [0-9a-z]{5} c |^FAIL soak' "${work}/soak.out" || true
 	if [[ "${src}" == 0 ]]; then soakOk=1
 	else echo "soak-c: the soak under heaptrack exited ${src}"; sed 's/^/    /' "${work}/soak.out"; fi
 
@@ -99,12 +99,12 @@ fJudge(){
 	if ((skipping)); then fTestSkip; return 0; fi
 	if (($1 == 0)); then nBad=$((nBad + 1)); fi
 }
-fTest Et9t3ED the C soak fails on a document that grows every round
+fTest de57w the C soak fails on a document that grows every round
 fJudge "${baitOk}"
-fTest Et9t3I4 heaptrack writes a report of the C soak
+fTest de57x heaptrack writes a report of the C soak
 fJudge "${reportOk}"
 fTestEnd
-## The soak's own line is soak.c's, Et9t3AU, so only its exit counts here.
+## The soak's own line is soak.c's, de57v, so only its exit counts here.
 if ((nBad)) || ((! skipping && ! soakOk)); then exit 1; fi
 if ((! skipping)); then
 	echo "soak-c: OK: the heap held steady over the corpus rounds, the bait was caught, and heaptrack's report is in cicd/artifacts/soak/ ($((SECONDS - start)) s)"

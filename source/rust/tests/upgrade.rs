@@ -24,7 +24,7 @@ const V2_FILE: &str = "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config 
 
 #[test]
 fn upgrade_leaves_a_clean_or_stamped_file() {
-	let _id = test_id("Es2R4RP");
+	let _id = test_id("ddmhb");
 	// a,b is one string now and an array under 2.x, but it loads clean, and
 	// nothing says the file is 2.x.
 	let clean = "a: 1\nb: x,y\n";
@@ -44,7 +44,7 @@ fn upgrade_leaves_a_clean_or_stamped_file() {
 
 #[test]
 fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
-	let _id = test_id("EsgoThZ");
+	let _id = test_id("ddy83");
 	// The caller says a 2.x build wrote it, as a beta of 3.0 could have
 	// (2026101407100010). The backup name keeps the format the line names.
 	let beta = format!("tags: a, b\n\n{}", GEN_BANNER);
@@ -81,7 +81,7 @@ fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
 
 #[test]
 fn from_v2_refuses_a_conversion_that_keeps_an_error() {
-	let _id = test_id("EsoQmU8");
+	let _id = test_id("de02t");
 	// The next run with from_v2 would read the fresh text by 2.x rules again,
 	// and the 2.x escape on line 1 would grow each time (2026101515372401).
 	// So nothing is made, with a Format line or not.
@@ -130,7 +130,7 @@ fn from_v2_refuses_a_conversion_that_keeps_an_error() {
 
 #[test]
 fn a_block_kept_at_the_top_names_this_format_too() {
-	let _id = test_id("EtaIsb8");
+	let _id = test_id("debk5");
 	// The lone stamp comes off, and the block kept above the first field's
 	// child named another format, which the fresh text then read as its own
 	// (2026102309053667).
@@ -152,7 +152,7 @@ fn a_block_kept_at_the_top_names_this_format_too() {
 
 #[test]
 fn upgrade_keeps_each_line_where_it_was() {
-	let _id = test_id("Eu1bOv2");
+	let _id = test_id("dej58");
 	// Blank lines and a raw block on its field's line stay put, so a line
 	// number in the old file names the same line in the fresh one
 	// (2026102620591101).
@@ -176,7 +176,7 @@ fn stamped_comma_list() -> String {
 
 #[test]
 fn upgrade_from_v2_rewrites_a_clean_file_that_reads_differently() {
-	let _id = test_id("Es2a1Jt");
+	let _id = test_id("ddmjf");
 	// The caller says it is 2.x, where a,b was an array.
 	let up = upgrade("p: a,b\n", true);
 	assert!(!up.current && up.lost == 0 && up.diagnostics.is_empty());
@@ -189,7 +189,7 @@ fn upgrade_from_v2_rewrites_a_clean_file_that_reads_differently() {
 
 #[test]
 fn an_older_format_line_becomes_this_one_in_place() {
-	let _id = test_id("EsFrOVO");
+	let _id = test_id("ddqrp");
 	// Nothing else changes, so only the stamp does, and only with from_v2
 	// (2026100717500017).
 	let old = "port: 80\n##    Format   2\n";
@@ -218,7 +218,7 @@ fn an_older_format_line_becomes_this_one_in_place() {
 
 #[test]
 fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
-	let _id = test_id("Esgj35O");
+	let _id = test_id("ddy7s");
 	// The block names the format, so the file names one (2026101407100001).
 	let up = upgrade("##    Format   2\nname: x\nq: a,b\n", true);
 	assert_eq!(up.text, format!("name: x\nq: [a, b]\n\n{}", GEN_BANNER));
@@ -238,7 +238,7 @@ fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
 
 #[test]
 fn upgrade_writes_a_fresh_file_with_the_info_block() {
-	let _id = test_id("Es2R4TW");
+	let _id = test_id("ddmhc");
 	let up = upgrade(V2_FILE, false);
 	assert!(!up.current && up.ambiguous == 0 && up.lost == 0);
 	assert_eq!(up.format, 2);
@@ -255,7 +255,7 @@ fn upgrade_writes_a_fresh_file_with_the_info_block() {
 
 #[test]
 fn upgrade_refuses_text_that_reads_two_ways() {
-	let _id = test_id("Es2R4Vy");
+	let _id = test_id("ddmhd");
 	let text = "a: x,y\nb: \"q\n";
 	let up = upgrade(text, false);
 	assert!(!up.current && up.ambiguous == 1 && up.text == text);
@@ -265,7 +265,7 @@ fn upgrade_refuses_text_that_reads_two_ways() {
 
 #[test]
 fn backup_name_puts_the_tag_before_the_extension() {
-	let _id = test_id("Es2R4YD");
+	let _id = test_id("ddmhe");
 	let tag = "_backup_20261004-001500_format-v2";
 	assert_eq!(backup_file_name("f.shcl", 2), format!("f{tag}.shcl"));
 	assert_eq!(
@@ -286,7 +286,7 @@ fn backup_name_puts_the_tag_before_the_extension() {
 )]
 #[test]
 fn upgrade_file_backs_up_then_rewrites() {
-	let _id = test_id("Es2R4aS");
+	let _id = test_id("ddmhf");
 	let dir = scratch("write");
 	let file = dir.join("f.shcl");
 	let path = file.to_str().unwrap();
@@ -316,7 +316,7 @@ fn upgrade_file_backs_up_then_rewrites() {
 
 #[test]
 fn upgrade_file_never_writes_over_a_backup() {
-	let _id = test_id("Es2R4ch");
+	let _id = test_id("ddmhg");
 	let dir = scratch("taken");
 	let file = dir.join("f.shcl");
 	let path = file.to_str().unwrap();
@@ -354,7 +354,7 @@ fn upgrade_file_never_writes_over_a_backup() {
 )]
 #[test]
 fn write_backup_refuses_a_swapped_file_and_text() {
-	let _id = test_id("Et6Am2s");
+	let _id = test_id("de4ba");
 	let dir = scratch("swap");
 	let file = dir.join("f.shcl").to_str().unwrap().to_string();
 	// Read as a path the text names a spot in dir, so a backup made of it

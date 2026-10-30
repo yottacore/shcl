@@ -3924,7 +3924,7 @@ mod build_date_tests {
 			let status = if std::thread::panicking() {
 				"FAIL"
 			} else {
-				"ok"
+				"PASS"
 			};
 			let thread = std::thread::current();
 			let name = thread.name().unwrap_or("?");
@@ -3940,7 +3940,7 @@ mod build_date_tests {
 
 	#[test]
 	fn build_number_decodes_to_the_commit_minute() {
-		let _id = test_id("EtaBWuf");
+		let _id = test_id("debj8");
 		// The same rows shell-regress pins fBuildNumber with.
 		for (epoch, build) in [
 			(946_684_800, "0"),
@@ -3958,7 +3958,7 @@ mod build_date_tests {
 
 	#[test]
 	fn day_counts_turn_into_calendar_dates() {
-		let _id = test_id("EtaBWyo");
+		let _id = test_id("debj9");
 		for (days, date) in [
 			(0, (1970, 1, 1)),
 			(-1, (1969, 12, 31)),
@@ -3972,7 +3972,7 @@ mod build_date_tests {
 
 	#[test]
 	fn the_local_date_is_within_a_day_of_utc() {
-		let _id = test_id("EtaBX2b");
+		let _id = test_id("debja");
 		if cfg!(miri) {
 			return;
 		}

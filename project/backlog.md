@@ -37,7 +37,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026102813104377
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs external testing: the docs-only sync of install-dev.bash to main, after the round's merge into dev. check-docs `EpHGoa0` compares origin/main with origin/dev and goes red until main has the new text.
+	- Needs external testing: the docs-only sync of install-dev.bash to main, after the round's merge into dev. check-docs `dcbc2` compares origin/main with origin/dev and goes red until main has the new text.
 	- Priority: High
 	- Opened: 20261028-131043
 	- Opened by: 2026102515494624
@@ -48,12 +48,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs now name 2026102814013272 too, since that split-off child changes --gate before install-dev's lines can follow.
 	- Progress log:
 		- 20261029: install-dev.bash's 3 `--gate` lines (header, `--help`, the closing echo) say `--merge-gate`, since a dev box needs the whole gate, and `--gate` is the quick run now. Done on the round branch.
-		- Verified: shellcheck, check-install-dev and check-docs pass. check-docs `EpHGoa0` compares origin/main with origin/dev, so it stays green until the merge reaches dev, then red until main gets the same text.
+		- Verified: shellcheck, check-install-dev and check-docs pass. check-docs `dcbc2` compares origin/main with origin/dev, so it stays green until the merge reaches dev, then red until main gets the same text.
 	- Decisions:
 		- me: `--merge-gate`, not `--backlog-run-quick`, since the line says what a dev box is set up to run before a merge, as contributing.md's does.
-	- Test case: no new test. check-docs `EpHGoa0` (installers match main) covers the sync.
+	- Test case: no new test. check-docs `dcbc2` (installers match main) covers the sync.
 	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
-	- 20261029: the round is on dev (`93ac745a`), so check-docs `EpHGoa0` is red there until main has the new text. The sync commit is ready on a local branch, `installsync` at `58231025`, off origin/main.
+	- 20261029: the round is on dev (`93ac745a`), so check-docs `dcbc2` is red there until main has the new text. The sync commit is ready on a local branch, `installsync` at `58231025`, off origin/main.
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
@@ -80,45 +80,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- ci.yml passes `--no-container`, and check-pins fails a hosted gate run without it. The pre-push hook isn't changed; it follows the default.
 			- The stubbed engines in check-push-gate and shell-regress no longer reach this box's docker.
 			- The help text, contributing.md, the hook's header and the history lines say so.
-			- Verified: check-push-gate passes. `EtDCDE4` to `EtDCDE8` each went red with its part of the change taken out, and passed once restored by copy. `EtDCDE7` has the run inside execute here, so its record is checked too.
-			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `EtDCDE9`, `EtDCDEA` and `EtDCDEB` went red with the check or the fix taken out.
+			- Verified: check-push-gate passes. `de61k` to `de61q` each went red with its part of the change taken out, and passed once restored by copy. `de61p` has the run inside execute here, so its record is checked too.
+			- Verified: shell-regress, check-pins, check-docs, shellcheck over the 47 lint targets, and `test-ids.py check`. `de61r`, `de61s` and `de61t` went red with the check or the fix taken out.
 			- Verified: `fCtrWhyNot` against this box's docker answers, and with `DOCKER_HOST` at a dead socket says it doesn't answer.
 		- 20261020: `cicd.bash --gate` with neither flag, in `gatewt-r1020` at `db311c7a`, started the main image once and ended with `tree c3687f1204d6 recorded`. Left: the bare run, which is JC's from 17:04, and a pre-push gate on a main push.
-		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `EtDCDE7` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
-			- `--gate` with neither flag started the image once, then stopped on check-docs `EqL3TGq` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
-			- Cause of the `EtDCDE7` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
+		- 20261021, tests on `r1021` at `fe2545f6`, failed: a bare run in the main image (`-y --no-lint`) failed this item's `de61p` in stage 4: "the run in the main image failed" in the stub engine, exit 1, 1 run in the image, nothing recorded. It passed in hosted run 39663476196, which runs without the image. Log `shcl/bare-r1021.log`.
+			- `--gate` with neither flag started the image once, then stopped on check-docs `dcv6f` (2026102108300000), so no tree was recorded. Log `shcl/gate-r1021.log`.
+			- Cause of the `de61p` failure: the stub docker didn't skip the new `--device /dev/kvm` option from 2026102022450000. Fixed by 2026102114060102 (`c87b33b2`); this item needs only its tests rerun.
 		- 20261022: back to Waiting on automated testing, since the fix is on dev and nothing is left to code. JC's bare run on dev `8b81b8c3` covers the first part.
-		- 20261022: JC's bare run on dev `8b81b8c3` (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed: the image started for stage 1 and again for 2-6, check-push-gate `EtDCDE4` to `EtDCDE8` passed, and `tree c739cfb75920 recorded`. Verified: `cicd.bash --gate` with neither flag on the same commit started the image once, passed `EtDCDE7` and recorded the same tree. Only the main push is left.
-		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` ran stages 1-6 in the main image. Verified: check-push-gate `EtDCDE4` to `EtDCDE8`, check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB` passed. The round pushes no main, so the main push is still left.
+		- 20261022: JC's bare run on dev `8b81b8c3` (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed: the image started for stage 1 and again for 2-6, check-push-gate `de61k` to `de61q` passed, and `tree c739cfb75920 recorded`. Verified: `cicd.bash --gate` with neither flag on the same commit started the image once, passed `de61p` and recorded the same tree. Only the main push is left.
+		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` ran stages 1-6 in the main image. Verified: check-push-gate `de61k` to `de61q`, check-pins `de61r`, shell-regress `de61s` and `de61t` passed. The round pushes no main, so the main push is still left.
 		- 20261024, CICD reset: this item is the reset's `CICD reset: containers` item, raised to High. The rule is otherwise in place. Its cleanup, CPU limits and Zig cache are 2026102416250030, 2026102416250040 and 2026102416250020.
-		- 20261025, test batch: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) ran stages 1-6 in the main image and passed. Verified: check-push-gate `EtDCDE4` to `EtDCDE8`, check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB` passed in it. The main push is still left.
-	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `EtDCDEB` fails a new one that doesn't, or a script that looks for the docker command itself.
+		- 20261025, test batch: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) ran stages 1-6 in the main image and passed. Verified: check-push-gate `de61k` to `de61q`, check-pins `de61r`, shell-regress `de61s` and `de61t` passed in it. The main push is still left.
+	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `de61t` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
-	- Test case: check-push-gate `EtDCDE4` (no docker, a silent one, or aarch64: local with a note, and it records), `EtDCDE5` (`--no-container` asks no docker), `EtDCDE6` (the refused pairs exit 2), `EtDCDE7` (docker answering: one run in the main image, which records), `EtDCDE8` (`--container` with a silent docker fails). check-pins `EtDCDE9`, shell-regress `EtDCDEA` and `EtDCDEB`.
+	- Test case: check-push-gate `de61k` (no docker, a silent one, or aarch64: local with a note, and it records), `de61m` (`--no-container` asks no docker), `de61n` (the refused pairs exit 2), `de61p` (docker answering: one run in the main image, which records), `de61q` (`--container` with a silent docker fails). check-pins `de61r`, shell-regress `de61s` and `de61t`.
 	- Held for the next push that moves main, which is the only thing left to watch.
-
-- CICD reset: keep-temp and list
-	- ID: 2026102515494634
-	- Type: Enhancement
-	- Status: Stalled
-		- Held for 2026102416250080, for the test IDs `--list` prints. `--keep-temp` and the steps `--list` prints are in.
-	- Priority: High
-	- Opened: 20261025-154946
-	- Opened by: 2026102416250050
-	- Parent ID: 2026102416250050
-	- Prereq IDs: 2026102416250080
-	- Requirements:
-		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
-		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
-	- Decisions:
-		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
-	- Progress log:
-		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
-		- Verified: check-push-gate `Etl0lIy` failed on the old engine and passes now, with `EtDQOIx`, `EtgFdOY` and `EtgShUg` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
-		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
-		- Verified: check-push-gate `Etl3oti` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
-	- Test case: check-push-gate `Etl0lIy` (`--keep-temp`) and `Etl3oti` (`--list`).
 
 - CICD reset: other hosts and VMs
 	- ID: 2026102416250010
@@ -183,31 +161,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
 
-- Other hosts: the 4 suites on vmFreeBSD
-	- ID: 2026102419263417
-	- Type: Enhancement
+- Hosted macos job fails: the macos-14 runner image is retired on 2026-11-02
+	- ID: 2026103014303616
+	- Type: Bug
 	- Status: Queued
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- Build the 4 bindings on vmFreeBSD and run their conformance suites and cli-regress there, through the box step.
-		- Say whether `check-freebsd.bash`'s qemu boot stays once vmFreeBSD runs the release.
-
-- Other hosts: Linux arm64 on vmDebARM64
-	- ID: 2026102419263422
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
-		- It runs under TCG, so keep its share of the run short.
+	- Severity: High
+	- Opened: 20261030-143036
+	- Opened by:
+	- Related IDs: 2026102416250110
+	- Progress log:
+		- 20261030: hosted ci.yml run 41120869306 on r1030 cancelled the macos job in 1 s, with the annotation that a scheduled macOS 14 runner image brownout failed it. ci.yml line 310 says runs-on: macos-14. Every other job passed. From 2026-11-02 the job can't run at all.
+		- Fix: move the job to a supported arm64 macOS label and check the macOS 13 floor still holds, since the universal binary targets macOS 13.
 
 - Other hosts: macOS on b26 and vmKt6m
 	- ID: 2026102419263427
@@ -250,21 +214,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
 		- A Done item that says none where a test could exist and would make sense gets one.
-
-- CICD reset: test IDs
-	- ID: 2026102416250080
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints a line when it runs.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides the private notes' `Test IDs` rule of 2026-09-27.
-		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
-		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
-		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
@@ -324,7 +273,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
-- check-push-gate `EtlDIOQ` failed once under load and passed on a rerun
+- check-push-gate `dee74` failed once under load and passed on a rerun
 	- ID: 2026102821264857
 	- Type: Bug
 	- Status: Queued
@@ -357,11 +306,162 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: 2026102413172941's sweep
 	- Related IDs: 2026102413172941
 	- Problem description:
-		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `EssNzSi`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
+		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `de116`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
 		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- The profiler attribution check fails every run since its status word became PASS
+	- ID: 2026103011015050
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261030-110150
+	- Opened by: found while working 2026102515494634
+	- Related IDs: 2026102416250080
+	- Steps to reproduce: run the Profiler step, as a default run, `--merge-gate` or `--backlog-run-full` do.
+	- Incorrect behavior: `PROFILE_CHECK` in cicd/config.bash sets `s=PASS` and ends with `[[ "${s}" == ok ]]`, so it returns 1 when the check passes, and the run stops with "profiler attribution check failed".
+	- Expected behavior: it returns 0 when the check passes.
+	- Reproduced: 20261030, the line's last test with `s=PASS` returns 1. No profiler run.
+	- Possible cause: `817ea2e1` changed `s=ok` to `s=PASS` and left the compare. check-push-gate's stub engine replaces `PROFILE_CHECK`, so no test runs the real one.
+	- Requirements:
+		- The compare reads `PASS`.
+		- A test runs config.bash's own `PROFILE_CHECK` with a stand-in binary that exits 0 and then 1.
+	- Estimated effort: Low
+	- Actual cause: confirmed. `817ea2e1` changed the status word to `PASS` and left the compare on `ok`.
+	- Actual fix: the compare reads `PASS`.
+	- Swept: config.bash and cicd/ for other compares against the old status words (`ok`, `FAIL` as a returned word). None left. check-readme's `ok (0 diagnostic(s))` is a tool's output, not a status line.
+	- Verified: shell-regress `demx9` runs config.bash's own `PROFILE_CHECK` with a stand-in that exits 0 and then 1, and checks exit code and status line. It fails with the compare on `ok` (exit 1 on the pass) and passes with the fix. Also the whole of shell-regress, `test-ids.py check` and shellcheck.
+	- Test case: shell-regress `demx9`.
+	- Closed: 20261030-112322
+
+- CICD reset: keep-temp and list
+	- ID: 2026102515494634
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261025-154946
+	- Opened by: 2026102416250050
+	- Parent ID: 2026102416250050
+	- Prereq IDs: 2026102416250080
+	- Requirements:
+		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
+		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
+	- Decisions:
+		- me: a step lists the tests it runs itself: its own script's, the test programs it builds, and for a binding's runner, that binding's tests and the corpus. So the corpus IDs show under all 4 runners, and the plain and `-race` Go runs list the same tests. A wrapper that reruns another suite, such as sanitize-c or check-c-compilers, lists only its own, since the whole suite again under it would hide what it adds.
+		- me: an ID line is `ID  file:line`, the form `test-ids.py find` prints, not the test's name, which test-ids.py doesn't read for every marker kind. A corpus case gives its folder.
+		- me: the rules for which step runs which tests sit in test-ids.py, beside its tables of where tests are, so a new kind of test place and its step rule change in one file.
+		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
+	- Progress log:
+		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
+		- Verified: check-push-gate `dee5k` failed on the old engine and passes now, with `de633`, `ded0y` and `ded2j` unchanged. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
+		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
+		- Verified: check-push-gate `dee5y` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
+		- 20261030: test IDs are in (2026102416250080), so the hold is over.
+		- 20261030: `--list` puts the test IDs each step runs under it, one `ID  file:line` per line. `test-ids.py list` reads the step list and matches each step to the files whose tests it runs. A step whose label isn't its command, such as a release check or a test box, hands its command over for the match, and only the label prints. When test-ids.py can't read the IDs, the steps print alone, with a line saying so. A default run lists 2014 of the 2059 IDs. The other 45 run only in the hosted windows job: win-runners.bash, winpath-regress.ps1, check-win-setup.bash and `shcl_windows_test.go`. Help and contributing.md say so.
+		- 20261030: test-ids.py reports a missing corpus folder or rows file as a problem, where it stopped with a traceback.
+		- Verified: check-push-gate `demwg` (a test script's ID under its step, none under a step that only names it, no hidden command printed) failed on the old engine and passes now. The rest of check-push-gate, shell-regress, `cicd.bash --skip=check-docs.bash --backlog-run-quick cicd` (all 5 steps), check-docs (red only on `dcbc2`, the known installer sync), `test-ids.py check` (2059 tests), shellcheck over the lint targets, ruff, mypy and markdownlint pass.
+	- Swept: every step `--list` prints, by stage. Each one that runs tests lists them, and the hosted windows tests are the only IDs no local step lists. The only reader of the list is check-push-gate `dee5y`. Not a binding change, so the four bindings don't apply.
+	- Test case: check-push-gate `dee5k` (`--keep-temp`), `dee5y` (`--list`'s steps) and `demwg` (`--list`'s test IDs).
+	- Branch: `r1030`
+	- Acceptance signoff: Self-closed: each requirement has a test that failed before and passes now.
+	- Closed: 20261030-111559
+
+- Other hosts: the 4 suites on vmFreeBSD
+	- ID: 2026102419263417
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- Build the 4 bindings on vmFreeBSD and run their conformance suites and cli-regress there, through the box step.
+		- Say whether `check-freebsd.bash`'s qemu boot stays once vmFreeBSD runs the release.
+	- Needs local test suite run?: No
+	- Progress log:
+		- 20261030: a `REMOTE_BOXES` row that ends in `|suites` also sends the tracked `source/` and `project/` files to the box, in the same visit as the CLI cases. There `cicd/utility/box-suites.bash` builds the 4 bindings and runs their suites, then cli-regress over the compiled CLIs that built. vmFreeBSD's row has it. A suite whose tool the box lacks is a `SKIP`. Each suite's result comes back as its own test line.
+		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and freebsd-x86_64 release builds, on the real vmFreeBSD through the host lock, from paused: `decyk` and `demxj` to `demxp` passed. Rust 48 s, Go 10 s, Python 77 s, C 19 s, cli-regress over all 4 CLIs 289 s. The VM ended paused, as found.
+		- Verified: with one line added to `002-stacked-array`'s `expected.shcl` in a scratch copy, the Rust, Go, Python and C rows each failed on the box, naming that case, and the run exited 1.
+		- Verified: with the Python CLI left out of cli-regress there, the same run passed all 6 rows: cli-regress over the 3 compiled CLIs took 15 s, and the box 175 s in all, so the step adds about 3 minutes to a full run.
+		- shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed (check-docs is red on dev for `dcbc2`).
+		- Not run: the step inside a whole run with release builds.
+		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk and demxj to demxp, vmFreeBSD 176 s with the suites.
+	- Decisions:
+		- `check-freebsd.bash`'s qemu boot stays (me). It runs a pinned stock 15.1 image with no network, in the container and in a `--no-remote` run, in about 18 s. vmFreeBSD is a lived-in box whose toolchains change with `pkg`, and is a `SKIP` when held or off. Dropping the boot would also drop 3 tests.
+		- Suites are a fourth row field, so vmDebARM64 can take them with one word, and the Macs stay CLI-only (me).
+		- Each run builds cold in the box's work folder, cargo's crates included, so nothing is left on the box (me).
+		- cli-regress on the box leaves out the Python CLI (me). It held about 270 s of cli-regress's 289 s there, which put the step over 5 minutes of every full run. Running the 4 bindings side by side saved only 10 s. Python's conformance suite still runs there.
+		- The suites are the conformance suites as asked: no Go `-race`, Python soak, or the C veneer, OOM and bounds tests (me).
+	- Swept: `REMOTE_BOXES` readers: cicd.bash's step (passes the field on), `--list` (reads the name only), check-push-gate (empties it), and the stand-in rows in the stub tools (3 fields, still valid).
+	- Test case: check-boxes `demxj` (Rust), `demxk` (Go), `demxm` (Python), `demxn` (C), `demxp` (cli-regress), beside `decyk`.
+	- Acceptance signoff: Self-closed: the box step passed inside a whole full run, and each suite was seen to fail on a broken golden.
+	- Closed: 20261030-143026
+
+- Other hosts: Linux arm64 on vmDebARM64
+	- ID: 2026102419263422
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
+		- It runs under TCG, so keep its share of the run short.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its fourth field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
+		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
+		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
+		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
+		- check-docs' two header checks read 120 lines, not 100, since the `--long` help line pushed cicd.bash's SPDX line to line 102 (`dcv6f`).
+		- shellcheck -x on the changed scripts passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed, and without the skip only `dcbc2` was red, as on dev.
+		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
+		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk with PASS vmDebARM64, 4471 CLI runs in 79 s.
+	- Decisions:
+		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
+		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
+		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
+	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
+	- Test case: check-boxes `decyk` for vmDebARM64; `demxk` to `demxp` under `--long`; shell-regress `demzb` for the row mapping.
+	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault.
+	- Closed: 20261030-143026
+
+- CICD reset: test IDs
+	- ID: 2026102416250080
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints a line when it runs.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides the private notes' `Test IDs` rule of 2026-09-27.
+		- Every ID moves to the shared scheme, converted once from the time each current ID gives. An ID never changes after that.
+		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
+		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
+	- Progress log:
+		- 20261030: every one of the 2057 test IDs is now 5 characters of lowercase Crockford base 32 minutes since 2000, from the time its old ID gave. Ties went to the next free minute, oldest first. The 97 IDs of commented-out tests and retired rows were converted the same way, after the live ones. Each old ID was replaced wherever it stood: tests, corpus `test-id` files, cicd scripts and this backlog, `Test case:` rows included.
+		- 20261030: `test-ids.py` reads and writes the new form. `new` takes the current minute or the next free one, `when` prints the minute in UTC, and `check` also fails a marker still holding an old base 62 ID, which would otherwise run unlisted.
+		- 20261030: the status line is `PASS`, `FAIL` or `SKIP`, then the ID, then the name, in all 4 bindings' runners, the C test programs, the bash include, win-runners.bash, winpath-regress.ps1 and the profiler check. The filters that drop passing lines (crosscheck's fuzz dump, soak-c, check-locale, sanitize-c, sanitize-rust) and a corpus case's missing-ID dashes follow.
+		- Verified: shell-regress `demvq` (`when decp8`, the form `new` gives, an old ID refused) fails on the old tool and passes. The fixtures `dd86w` and `de115` moved to the new form, and the status-line fixtures of the skip block (`dd86p`), crosscheck (`dd51c`, `ddg86`) and check-docs' feeds (`ddzwm`) want `PASS` and `SKIP`. Also the whole of shell-regress, the Python, C, Go and Rust suites, the C test programs and veneer smoke, check-abnf, `test-ids.py check` (2058 tests), shellcheck over the lint targets, ruff, mypy and check-docs (red only on `dcbc2`, the known installer sync).
+		- Verified: 20261030 hosted ci.yml run 41120869306 on r1030: the windows job passed, with 12 PASS lines from win-runners and 26 from winpath-regress in the new form, no FAIL, and no line in the old form. The full run on ec3afe1c passed all 7 steps.
+	- Decisions:
+		- me: the name in the status line keeps its leading binding or script word, as in `PASS d9s1g go corpus/001-messy-cities`, since the same test name runs in 4 runners and a reader of a merged log needs to tell them apart.
+		- me: IDs are padded to 5 characters, which hold every minute until 2063, so they sort by age as text.
+		- me: the old IDs in this backlog's progress logs were rewritten too, not only the `Test case:` rows, so a search for a test's ID still finds its history.
+		- me: commented-out tests and retired rows got new IDs too. Put back, they pass the check as they stand.
+	- Swept: every marker kind `test-ids.py` reads (Rust, Go, Python, C and C++, bash, PowerShell, win-runners, the cli-regress and perf-gate rows, config.bash, corpus `test-id` files), every status-line printer (`%-4s` and the PowerShell format) and every reader of the status words or the 7-character width in cicd/ and the tests. design.md, contributing.md and the style guide don't describe the ID form. The comparison crate's tests stay outside, as before.
+	- Test case: shell-regress `demvq`, and `dd86p` for the status words.
+	- Commit: `817ea2e1`
+	- Acceptance signoff: Self-closed: every runner prints the new line, and demvq failed against the old tool.
+	- Closed: 20261030-143035
 
 - CICD reset: --gate as a backlog run
 	- ID: 2026102814013272
@@ -377,14 +477,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- contributing.md's and install.md's `--gate` lines follow.
 	- Progress log:
 		- 20261029: `--gate` takes the `--backlog-run-quick` arm, areas included, prints `--gate is another name for --backlog-run-quick`, and goes into the image as `--backlog-run-quick`. So it records nothing. Help, contributing.md, install.md, design.md and the config.bash comments say so. contributing.md and install.md point at `--merge-gate` where they meant the whole gate.
-		- 20261029: check-push-gate's gate checks moved from `--gate` to `--merge-gate`: `EqGl8mf`, `EqjfWm8`, `Et6Aueh`, `EstM5WQ`'s calibration rows, `EtDCDE4`, `EtDCDE5`, `EtDCDE7`, and in `EtkuOxe` `1111|--gate --long` became `1111|--merge-gate --long`, in `Eu1ovZE` `1|--gate` became `1|--merge-gate`. A step-lines row now wants `Remote sync (--backlog-run-quick)`, and `Eu1ovZF` reads the areas from the help's `--backlog-run-quick, --gate [AREA...]` line. shell-regress `EqQUj04` drives the stub with `--merge-gate`.
-		- Verified: check-push-gate `Eu7Giqm` (the alias line, no record, `QUICK_SKIP` and `BACKLOG_SKIP` left out, an area, no calibration, `--gate --backlog-run-quick` taken, `--gate --merge-gate` and `--gate --long` refused) failed on the old engine and passes. `Eu7Giqn` (the run in the image gets `--backlog-run-quick`) failed with the engine passing `--gate` on, and passes. Also the whole of check-push-gate and shell-regress, check-pins, check-docs, test-ids, shellcheck and markdownlint.
+		- 20261029: check-push-gate's gate checks moved from `--gate` to `--merge-gate`: `dct5d`, `dd13s`, `de4be`, `de18v`'s calibration rows, `de61k`, `de61m`, `de61p`, and in `dee4t` `1111|--gate --long` became `1111|--merge-gate --long`, in `dej6y` `1|--gate` became `1|--merge-gate`. A step-lines row now wants `Remote sync (--backlog-run-quick)`, and `dej6z` reads the areas from the help's `--backlog-run-quick, --gate [AREA...]` line. shell-regress `dcwg7` drives the stub with `--merge-gate`.
+		- Verified: check-push-gate `dekgv` (the alias line, no record, `QUICK_SKIP` and `BACKLOG_SKIP` left out, an area, no calibration, `--gate --backlog-run-quick` taken, `--gate --merge-gate` and `--gate --long` refused) failed on the old engine and passes. `dekgw` (the run in the image gets `--backlog-run-quick`) failed with the engine passing `--gate` on, and passes. Also the whole of check-push-gate and shell-regress, check-pins, check-docs, test-ids, shellcheck and markdownlint.
 		- Swept: every `--gate` in cicd/, the hook, ci.yml, check-pins, check-push-gate, shell-regress, config.bash, the 2 Dockerfiles, contributing.md, install.md, design.md and the style guide. The hook's `--gate` fallback is for an engine from before `--merge-gate`, so it stays. install-dev.bash's lines are 2026102813104377. The other 3 bindings have no pipeline of their own, so no twin there.
 	- Decisions:
 		- me: `--container=ubuntu` ran `--gate --no-lint`. It runs `--merge-gate --no-lint --no-release --no-remote --no-leakcheck` now, the same stages as before, so it keeps the 200,000-input fuzz and the cross checks rather than shrink to the quick run. `--no-leakcheck` also drops the sanitizer runs there, since the image has no heaptrack or CodeQL for the leak checks, and spelling out 4 `--skip`s would tie it to their names. The main image and the hosted tests half still run them.
 		- me: `--gate` in the help shares `--backlog-run-quick`'s entry, as `--ci` and `--slow` do, to stay inside check-docs' 100-line header window.
-	- Test case: check-push-gate `Eu7Giqm` and `Eu7Giqn`.
-	- Verified: 20261029, `cicd.bash --container=ubuntu` on `r1029b` at `d67cc4fd` passed all 7 steps, the tests stage in 20 minutes. The first try failed check-c-compilers' musl row (`EstZ5TC`) in strict mode, since the ubuntu image had no zig while the hosted runner installs it. The image installs the pinned zig now, with its cache in the run's `/tmp`, and check-pins passes.
+	- Test case: check-push-gate `dekgv` and `dekgw`.
+	- Verified: 20261029, `cicd.bash --container=ubuntu` on `r1029b` at `d67cc4fd` passed all 7 steps, the tests stage in 20 minutes. The first try failed check-c-compilers' musl row (`de1aa`) in strict mode, since the ubuntu image had no zig while the hosted runner installs it. The image installs the pinned zig now, with its cache in the run's `/tmp`, and check-pins passes.
 	- Acceptance signoff: me, 20261029, the ubuntu image passes with its new arguments
 	- Closed: 20261029
 
@@ -490,7 +590,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- While the document holds such a line, every edit settles (`walked`), since its instances can sit anywhere above it.
 			- Docs: the one-sentence test above design.md's Load outcomes table, the Dropped bullet, the `E003` row, the refusal order, the emitter paragraph, a paragraph with the reasons, a note on the 2026-09 decision record. spec.md's `E003` row and its paragraph on lines it can't apply. A bullet under value-syntax.md's Selectors. The changelog and the conformance README (`086`, `103`).
 			- Goldens: `086` and `103` (kept, lost 0). No input changed. `095` has no `E003` line, so it doesn't change.
-			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (640 rows), crosscheck over the corpus plus a 2000-iteration dump (54174 comparisons), check-docs (red only on `EpHGoa0`), check-abnf, test-ids, rustfmt, clippy `-D warnings`, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `90870748` (31 properties, 480 s).
+			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (640 rows), crosscheck over the corpus plus a 2000-iteration dump (54174 comparisons), check-docs (red only on `dcbc2`), check-abnf, test-ids, rustfmt, clippy `-D warnings`, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `90870748` (31 properties, 480 s).
 			- Verified: each new test fails on the old library, and the `walked` part of each fails with the settle skip put back.
 			- Verified: `cicd.bash --backlog-run-quick rust go python c cli --skip=check-docs.bash` passed all 5 steps on `7d437f4c`.
 	- Decisions:
@@ -498,10 +598,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261029: a refused line under an array line no longer makes that line `E028`, as no other refused line does.
 		- me, 20261029: an `E003` line that opens a raw block is dropped with it, as an `E001` one is: where it would bind it can't be a comment.
 		- me, 20261029: every edit settles while a kept index line is held, rather than add every instance above it to the near sum. Only a document with such a line pays.
-		- me, 20261029: the walk also keeps a dotted line onto stacked items through an index (`E001`) as written, where it went out as a comment. `EtdPVpd`'s pin of that comment is commented out in all 4 runners (`EtdPW8G`, `EtdPWQz`, `EtdPWjj`), and the new test pins the line as written.
+		- me, 20261029: the walk also keeps a dotted line onto stacked items through an index (`E001`) as written, where it went out as a comment. `decb2`'s pin of that comment is commented out in all 4 runners (`decb3`, `decb4`, `decb5`), and the new test pins the line as written.
 		- me, 20261029: the sentence reads "A line is dropped only when, written back, it could feed a raw block or bind where no comment stands for it, as a tab-only misplaced line (`E012`) or one led by a BOM (`E014`) would, or when a caller's cap or the depth cap refused it, which the next load may set differently."
 		- Checked against it: `E001` and `E003` with a raw block, `E006`, `E012` and `E018` that open one, the tab-only `E012` and BOM-led `E014`, and `E016`, `E020` and `E021` fit. `E018` otherwise fits the second case: its parent can move or turn into a comment, and then it binds. `E002`'s value is no line, as the parent says.
-	- Test case: conformance `an_index_with_no_instance_stays_kept` (`Eu8yPCH` Rust, `Eu8yPCI` Go, `Eu8yPCJ` Python, `Eu8yPCK` C); corpus `EonNaTY` (`086`), `Ep1EGVc` (`103`); fuzz `EpFAzfk` counts `E003` as kept; cli-regress `Eu8yPCL`, `Eu8yPCM`, `Eu8yPCN`.
+	- Test case: conformance `an_index_with_no_instance_stays_kept` (`dekxz` Rust, `deky0` Go, `deky1` Python, `deky2` C); corpus `dc461` (`086`), `dc7gm` (`103`); fuzz `dcavy` counts `E003` as kept; cli-regress `deky3`, `deky4`, `deky5`.
 	- Swept: `E003` in the 4 parsers, `through_items` and `open_lazy` (held paths have no index), the emitter's kept-line check, `array_kept` and `settle_arrays`, `near_sum` and the resettle, the merge's settle, the keep-lines save (same emitter), the `tokens` dump (no `E003`), the 4 CLIs' explain text (names no outcome), check-migrate (2.x dropped it too), the fuzz outcome table and `REFUSING` list.
 	- Still to run: the full run (cppcheck, analyze-c, the C leak and sanitizer checks, Miri, codeql) and the test boxes.
 	- Branch: `r1029b-e003`
@@ -527,11 +627,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: a leaf the other layer replaces gives its kept lines to the replacement's leading lines, those from inside its block too, so they went a level up, above it.
 	- Actual fix: those from inside its block go inside the replacement's, in all 4. The rest go as before.
 	- Progress log:
-		- 20261029: Verified: the repro and its `E011` twin come out with both copies in the block, and reload the same. Corpus `091`'s merged golden changes the same way: its `*` line stays under the field that replaced the one it sat under. The 4 conformance suites, the whole Rust and Go suites, cli-regress (641 rows), crosscheck (54174 comparisons), check-docs (red only on `EpHGoa0`), rustfmt, clippy, go vet, staticcheck, ruff, mypy, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `dffd891d` (31 properties). Each new test fails on the old library.
+		- 20261029: Verified: the repro and its `E011` twin come out with both copies in the block, and reload the same. Corpus `091`'s merged golden changes the same way: its `*` line stays under the field that replaced the one it sat under. The 4 conformance suites, the whole Rust and Go suites, cli-regress (641 rows), crosscheck (54174 comparisons), check-docs (red only on `dcbc2`), rustfmt, clippy, go vet, staticcheck, ruff, mypy, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `dffd891d` (31 properties). Each new test fails on the old library.
 		- Verified: `cicd.bash --backlog-run-quick rust go python c cli --skip=check-docs.bash` passed all 5 steps on `7d437f4c`.
 	- Decisions:
 		- me, 20261029: a comment inside the replaced leaf's block still goes with the leaf, as the 2026-09-28 rule has it. Only kept lines move.
-	- Test case: conformance `a_replaced_leaf_keeps_the_lines_kept_in_its_block` (`Eu96oVF` Rust, `Eu96oVG` Go, `Eu96oVH` Python, `Eu96oVI` C); corpus `Ep0xKIj` (`091`); cli-regress `Eu96oVJ`.
+	- Test case: conformance `a_replaced_leaf_keeps_the_lines_kept_in_its_block` (`dekz1` Rust, `dekz2` Go, `dekz3` Python, `dekz4` C); corpus `dc7eh` (`091`); cli-regress `dekz5`.
 	- Swept: the leaf-replace path of the merge in all 4. The instance merge (`adopt_trivia`) already puts a layer's lines inside the block. A setter changes a leaf in place, so its block keeps them. A remove takes what the kept-lines table says. Docs: spec.md's merge paragraph, the changelog, the conformance README.
 	- Still to run: the full run and the test boxes.
 	- Branch: `r1029b-e003`
@@ -551,10 +651,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
 	- Progress log:
 		- 20261029: the release has a hosted part of its own, `--merge-gate --no-lint --no-tests --no-cross --no-remote`, and the tests part adds `--no-release`. timeout-minutes is 80, since the tests stage alone took 48. check-pins fails a hosted job that runs both tests and the release, as it does lint and tests.
-		- Verified: check-pins passes on the new ci.yml and fails with the release part folded back into tests. shell-regress `Eu8X2fW` passes, and passes check-pins with the new rule taken out. `cicd.bash --list` shows the release part runs the release builds, CPU floor and packages, and the tests part none of them.
+		- Verified: check-pins passes on the new ci.yml and fails with the release part folded back into tests. shell-regress `dektk` passes, and passes check-pins with the new rule taken out. `cicd.bash --list` shows the release part runs the release builds, CPU floor and packages, and the tests part none of them.
 	- Swept: every `--merge-gate` line in ci.yml, check-pins' other job rules, and shell-regress' check-pins rows, which still each edit a line that's there (the release-left-out row now adds `--no-release` to the release part). No doc names the 2 halves. The other 3 bindings have no pipeline of their own, so no twin there.
 	- Verified: 20261029, hosted ci.yml run 40976604414 on `r1029b` passed every job. The release part took 12.5 minutes, tests 52 and lint 49 (a cold cppcheck), all inside 80.
-	- Test case: shell-regress `Eu8X2fW`.
+	- Test case: shell-regress `dektk`.
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, the hosted run passed with room to spare
 	- Closed: 20261029
@@ -575,11 +675,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261029: the C runner's race is under `#ifndef _WIN32`, with pthreads, as its small-stack fixture is. The veneer smoke has no race, since it wraps the same C save.
 	- Progress log:
 		- 20261029: `s_write_file_atomic` takes the create and the mode, and says when create found something. `shcl_save_file_with` checks for anything at the target before the changed check, and calls it directly. design.md, spec.md, examples.md and the changelog say so for all 4.
-		- 20261029: codeql-scan flagged the C runner's race path as a stack address in a global (`cpp/stack-address-escape`), so it's static now. The Python twin's `chmod` of a fixture mode (`py/overly-permissive-file`, from 2026102913213663) is suppressed at its line, as the earlier ones are. Verified: codeql-scan alone passes, `EtAC9Zo` and `EtAC9fG` included, and the C and Python suites pass.
+		- 20261029: codeql-scan flagged the C runner's race path as a stack address in a global (`cpp/stack-address-escape`), so it's static now. The Python twin's `chmod` of a fixture mode (`py/overly-permissive-file`, from 2026102913213663) is suppressed at its line, as the earlier ones are. Verified: codeql-scan alone passes, `de5ag` and `de5aj` included, and the C and Python suites pass.
 		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
 	- Swept: C and the veneer. `shcl_write_file_atomic` and `shcl_upgrade_file` pass no create and no mode, so they write as before. The 3 short saves pass `{0}`. Docs: design.md's Save outcomes table (the create row, the mode on the new-file row) and its two Saving a file bullets on mode and the new-file publish, spec.md's file tier (the mode, a create bullet, the options list, the separate-values bullet), examples.md, and the changelog's New.
-	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
-	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
+	- Verified: `dekmj` and `dekmk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`dekmj`) and the veneer smoke (`dekmk`).
 	- Branch: `r1029`
 	- Commit: `a618835c`, `276abbc8`
 	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
@@ -597,7 +697,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Parent ID: 2026102910482342
 	- Prereq IDs: 2026102912203339, 2026102912203341
 	- Requirements:
-		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
+		- The parent's, in C and the veneer, as Rust has them, with the twin of `dekj6` in the C runner and the veneer smoke.
 		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
 	- Decisions:
 		- me, 20261029: C has `SHCL_SAVE_CHANGED` on the end of `shcl_save_result`, where new values go, and `shcl_save_file_with(d, path, shcl_save_options, *kept, *why)`, with `*kept` as the line-keeping save sets it. The options struct is `{ lossy, keep_lines, force }` and goes by value, as in Go, since all zero is `shcl_save_file`.
@@ -606,14 +706,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
 	- Progress log:
 		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
-		- 20261029: hosted ci.yml run 40953807354 failed `EqnwIkY` (windangle), `Eu7cuVd` and `Eu7cuVe` on windows, where wine passed them. The runner's TEMP has a short name, `RUNNER~1`. A file that's there resolved to its long name and one that isn't to the short one, so a removed or new file was never "over" the load's file. And a load through a dangling link ran the save's probe, which creates a file. Now a path with nothing at it takes its folder's final path, as Rust's canonicalize of the parent does, and the check walks a dangling link's own text, as the other 3 do, so a load creates nothing.
-			- Verified on b29w, from the mingw build: the old code fails `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe` the way the hosted job did with TEMP set to its short name, and the new code passes all 3 with TEMP short and long, the whole C runner (212) and the veneer smoke. The new short-name lines in `Eu7cuVd` fail on the old code with TEMP long too. Its new dangling-link lines fail with the link walk turned off. Also under wine, `cicd.bash --backlog-run-quick c`.
+		- 20261029: hosted ci.yml run 40953807354 failed `dd24q` (windangle), `dekkm` and `dekkn` on windows, where wine passed them. The runner's TEMP has a short name, `RUNNER~1`. A file that's there resolved to its long name and one that isn't to the short one, so a removed or new file was never "over" the load's file. And a load through a dangling link ran the save's probe, which creates a file. Now a path with nothing at it takes its folder's final path, as Rust's canonicalize of the parent does, and the check walks a dangling link's own text, as the other 3 do, so a load creates nothing.
+			- Verified on b29w, from the mingw build: the old code fails `dd24q`, `dekkm` and `dekkn` the way the hosted job did with TEMP set to its short name, and the new code passes all 3 with TEMP short and long, the whole C runner (212) and the veneer smoke. The new short-name lines in `dekkm` fail on the old code with TEMP long too. Its new dangling-link lines fail with the link walk turned off. Also under wine, `cicd.bash --backlog-run-quick c`.
 			- Swept: `shcl_resolve_path`'s 3 callers (the read, the save, the check). Rust, Go and Python already read a link's text and canonicalize the parent, so only C had it.
-		- 20261029: the full run on `52d50363` failed codeql-scan's `EtAC9Zo`. The veneer's load and save calls are now `cpp/path-injection` findings, since the save reads the file first. They open the path the caller named, as `read_file` already says, so each is suppressed at its line with that reason. Verified: codeql-scan alone passes all 17 checks, `EtAC9Zo` and `EtAC9lw` included, and the C runner and veneer smoke pass.
+		- 20261029: the full run on `52d50363` failed codeql-scan's `de5ag`. The veneer's load and save calls are now `cpp/path-injection` findings, since the save reads the file first. They open the path the caller named, as `read_file` already says, so each is suppressed at its line with that reason. Verified: codeql-scan alone passes all 17 checks, `de5ag` and `de5am` included, and the C runner and veneer smoke pass.
 		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
 	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
-	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
-	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
+	- Verified: `dekkm` and `dekkn` fail with the check turned off and pass with it. `dekkm` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`dekkm`) and the veneer smoke (`dekkn`).
 	- Branch: `r1029`
 	- Commit: `c271967d`, `42a12d0d`, `276abbc8`
 	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
@@ -705,11 +805,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261029: the CLI's `fmt --write` and `set --write` refuse at exit 7, first, so before the changed-since-read and nothing-to-write checks. `set`'s print refuses at 7 too, since it answers as `--write` would (2026100717500003), and `fmt --check` does, since it asks the save gate. `fmt` to stdout still prints. `--lossy` doesn't override. `--write` takes no `--layer`, so a newer layer refuses only the print. The help gets a sentence and the exit 7 line, and `explain H006` says a save is refused.
 		- Decided against: shclwrap's `ReadOnly` as the name, since `ReadOnly` is already a write status, for a read-only filesystem. Refusing only a save over the file the load read, since the lines are this reader's guess wherever they go. Letting `set` print, as the print mirrors `--write`.
 	- Progress log:
-		- 20261029: all 4 bindings and the veneer. The parse notes a newer format from the reading the hint uses, a merge ORs it in, and C's compact copies it. `save_file_with` checks it first. The 4 CLIs refuse in `write_back`, `fmt --check` and `set`'s print. crosscheck wants 7 and the file untouched for a corpus case with `H006` (`204-format-newer-hint`), as for one with a lost line. cli-regress `EsEtTdZ` has the new `explain H006` text. Docs: design.md (a bullet under the `H006` one, and a Save outcomes row), spec.md (the `H006` row, the CLI bullet, a file tier bullet, the separate-values bullet, the Format paragraph), examples.md, the changelog's New, the Rust README, the style guide and check-docs' Python-only names.
-		- 20261029: the quick run failed the Python soak (`Et01jhM`), which caught only `SaveFailed` and so stopped on the newer corpus case. It takes `SaveTooNew` too now. Go's soak checks for nil, and Rust's and C's ignore the result.
-		- Verified: the 5 library tests and the 6 refusal rows fail with the parse's newer forced off and pass with it. `fmt-print-newer` passes both ways, as it pins that `fmt` still prints. Also cargo test, go test in both modules, the Python, C and veneer suites, check-veneer, cli-regress (637 rows), crosscheck (22938), check-docs (only `EpHGoa0`, the known installer sync), test-ids, shellcheck, shell-regress, markdownlint, rustfmt, gofmt, clippy and ruff. Then `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, since `EpHGoa0` stops it otherwise.
+		- 20261029: all 4 bindings and the veneer. The parse notes a newer format from the reading the hint uses, a merge ORs it in, and C's compact copies it. `save_file_with` checks it first. The 4 CLIs refuse in `write_back`, `fmt --check` and `set`'s print. crosscheck wants 7 and the file untouched for a corpus case with `H006` (`204-format-newer-hint`), as for one with a lost line. cli-regress `ddqhj` has the new `explain H006` text. Docs: design.md (a bullet under the `H006` one, and a Save outcomes row), spec.md (the `H006` row, the CLI bullet, a file tier bullet, the separate-values bullet, the Format paragraph), examples.md, the changelog's New, the Rust README, the style guide and check-docs' Python-only names.
+		- 20261029: the quick run failed the Python soak (`de2w1`), which caught only `SaveFailed` and so stopped on the newer corpus case. It takes `SaveTooNew` too now. Go's soak checks for nil, and Rust's and C's ignore the result.
+		- Verified: the 5 library tests and the 6 refusal rows fail with the parse's newer forced off and pass with it. `fmt-print-newer` passes both ways, as it pins that `fmt` still prints. Also cargo test, go test in both modules, the Python, C and veneer suites, check-veneer, cli-regress (637 rows), crosscheck (22938), check-docs (only `dcbc2`, the known installer sync), test-ids, shellcheck, shell-regress, markdownlint, rustfmt, gofmt, clippy and ruff. Then `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, since `dcbc2` stops it otherwise.
 	- Swept: every save in all 4 and the veneer goes through `save_file_with`, and no library code saves otherwise. Every parse entry, the loads, `load_and_validate` and `new` go through the one parser. Merge in all 4, C's compact; no other copy of a document. `write_file_atomic`, `upgrade_file` (leaves a newer file, exit 0) and `migrate` (nothing to migrate) unchanged. CLIs: `write_back` (fmt and set `--write`), `fmt --check` and `set`'s print in all 4; `migrate --write` and `upgrade --write` leave the file; `set`'s create makes a new file. The 4 runners have no save op. The 4 soak tests save every corpus case: Python's caught only `SaveFailed`, fixed. `cicd/utility/comparison` saves a document it built.
-	- Test case: `a_newer_format_document_saves_nowhere` in Rust (`Eu8h5g4`), Python (`Eu8h5g5`), Go `TestANewerFormatDocumentSavesNowhere` (`Eu8h5g6`), the C runner (`Eu8h5g7`) and the veneer smoke (`Eu8h5g8`). cli-regress `Eu8h5g9`, `Eu8h5gA`, `Eu8h5gB`, `Eu8h5gC`, `Eu8h5gD`, `Eu8h5gE`, `Eu8h5gF`.
+	- Test case: `a_newer_format_document_saves_nowhere` in Rust (`dekvt`), Python (`dekvv`), Go `TestANewerFormatDocumentSavesNowhere` (`dekvw`), the C runner (`dekvx`) and the veneer smoke (`dekvy`). cli-regress `dekvz`, `dekw0`, `dekw1`, `dekw2`, `dekw3`, `dekw4`, `dekw5`.
 	- Branch: `r1029b-ro`
 	- Commit: `7f2aa27c`, `ddfe3333`
 	- Acceptance signoff: me, 20261029, every save of a newer doc is refused in all 4, and each new test failed with it off
@@ -725,16 +825,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026102912203343
 	- Target OS: Windows
 	- Steps to reproduce: run the C runner twice under wine, where the process id repeats.
-	- Incorrect behavior: the second run fails `Et6AmCW` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
+	- Incorrect behavior: the second run fails `de4bd` with "swap: mkdir failed". The first run left `shcl-upgrade-swap-<pid>` with an empty `d` in it, in TEMP.
 	- Expected behavior: each run removes its folders, and a run passes after another.
 	- Reproduced: 20261029, under wine on b23, twice in a row.
 	- Cause: `dir_clear` removes entries with `remove`, which takes no folder on windows, so the `d` that `backup_swapped` makes stays and so does its parent. On real windows it adds a folder to TEMP each run.
 	- Estimated effort: Low
 	- Progress log:
-		- 20261029: on windows `dir_clear` takes a folder with `_rmdir` when `remove` refuses it. `Et6AmCW` now fails when its folder is still there after the clear.
+		- 20261029: on windows `dir_clear` takes a folder with `_rmdir` when `remove` refuses it. `de4bd` now fails when its folder is still there after the clear.
 	- Swept: the C runner's other entry sweeps (the dacl and errno ones) clear plain files only, and every other folder there goes by `rmdir`. The veneer smoke removes files only. Rust, Go and Python remove their test folders whole.
-	- Verified: under wine, the old runner passes once and fails `Et6AmCW` the second time. With the fix it passes twice in a row. With the new check and the old `dir_clear` it fails "its folder is left behind" on the first run. The native C runner passes (212).
-	- Test case: C runner `Et6AmCW`.
+	- Verified: under wine, the old runner passes once and fails `de4bd` the second time. With the fix it passes twice in a row. With the new check and the old `dir_clear` it fails "its folder is left behind" on the first run. The native C runner passes (212).
+	- Test case: C runner `de4bd`.
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, 2 runs in a row pass under wine
 	- Closed: 20261029
@@ -757,8 +857,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: fixed by 050b4d38, where the `E011` item is kept. cli-regress has the case now.
 	- Swept: the 4 CLIs give the same `fmt` output for the case, for the `E004` line in the same spot (`a.*: 7`), and with the `- 0` line taken out.
-	- Verified: `Eu8XwjS` fails on the Rust CLI built from 050b4d38's parent and passes on all 4 now, with the rest of cli-regress (630 rows).
-	- Test case: cli-regress `Eu8XwjS`.
+	- Verified: `dektp` fails on the Rust CLI built from 050b4d38's parent and passes on all 4 now, with the rest of cli-regress (630 rows).
+	- Test case: cli-regress `dektp`.
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, the case keeps `* 7` under `srv` in all 4
 	- Closed: 20261029
@@ -780,8 +880,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261029: `WriteFileAtomic` wraps `writeFileHow`, which takes the create and the mode. `SaveFileWith` checks for anything at the target before the changed check.
 		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
 	- Swept: Go. `WriteFileAtomic` and `UpgradeFile` pass no create and no mode. No caller builds `SaveOptions` by position.
-	- Verified: `Eu7ju0H` fails with the create checks turned off, and with the mode turned off, and passes with both. Also `go vet` for linux, windows and darwin. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
-	- Test case: `TestACreateOnlySaveRefusesAFileAlreadyThere` (`Eu7ju0H`).
+	- Verified: `dekmf` fails with the create checks turned off, and with the mode turned off, and passes with both. Also `go vet` for linux, windows and darwin. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Test case: `TestACreateOnlySaveRefusesAFileAlreadyThere` (`dekmf`).
 	- Branch: `r1029`
 	- Commit: `a618835c`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
@@ -804,8 +904,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261029: `write_file_atomic` wraps a private write that takes the create and the mode, and gives `Exists` when create finds something there or loses the publish. `save_file_with` checks for anything at the target before the changed check.
 		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
 	- Swept: Rust and Python. `write_file_atomic`, `upgrade_file` and the CLI's saves pass no create and no mode, so they write as before. The CLI matches `SaveError` with a catch-all arm. The 3 short saves go through `save_file_with`.
-	- Verified: `Eu7hQCd` and `Eu7hQCe` fail with the create checks turned off, and with the mode turned off, and pass with both. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
-	- Test case: `a_create_only_save_refuses_a_file_already_there` in Rust (`Eu7hQCd`) and Python (`Eu7hQCe`).
+	- Verified: `dekm5` and `dekm6` fail with the create checks turned off, and with the mode turned off, and pass with both. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Test case: `a_create_only_save_refuses_a_file_already_there` in Rust (`dekm5`) and Python (`dekm6`).
 	- Branch: `r1029`
 	- Commit: `a618835c`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
@@ -826,14 +926,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
 		- 20261029: the box half sets `ionice -c 3` before `nice -n 19` when the box has an ionice that takes the class, found by absolute path since `env -i` clears PATH. A box without one, such as FreeBSD, runs at nice only. The cap needs no code: one case at a time is the rule's floor.
-		- Verified: 20261029, cicd.bash --backlog-run-full --no-lint --no-tests on ee700b61: ok Etfwju5, PASS vmFreeBSD 4471 CLI runs.
+		- Verified: 20261029, cicd.bash --backlog-run-full --no-lint --no-tests on ee700b61: ok decyk, PASS vmFreeBSD 4471 CLI runs.
 	- Decisions:
 		- The ionice is a prefix on the `env -i` line, not on the box's own `sh`, so the check doesn't need `$$` and the line still holds no single quote (me).
 	- Swept: the one `nice -n 19` in the box half. The host run in check-boxes.bash, and check-freebsd's run, are on this box and already under cicd.bash's ionice. The other 3 bindings have no box step.
 	- Verified: `private/claude_simple/tools/check-boxes-stub/ionice-probe.bash` runs the box half alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). `check-boxes-stub/run.bash` passes, skips and fails as before over the stand-in boxes (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
 	- Needs external testing: No
-	- Test case: check-boxes `Etfwju5` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
-	- Acceptance signoff: me, 20261029, Etfwju5 passed with vmFreeBSD in the full run
+	- Test case: check-boxes `decyk` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
+	- Acceptance signoff: me, 20261029, decyk passed with vmFreeBSD in the full run
 	- Closed: 20261029
 
 - Refuse a changed file's save, in Rust and Python
@@ -848,15 +948,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- The parent's, in the Rust and Python libraries, by the parent's Decisions.
 	- Decisions:
-		- me, 20261029: Python goes with Rust, since check-docs `EshYXXC` fails while the reference has a public item `shcl.py` lacks.
+		- me, 20261029: Python goes with Rust, since check-docs `ddydt` fails while the reference has a public item `shcl.py` lacks.
 		- me, 20261029: Rust has `SaveError::Changed { path }`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, &SaveOptions) -> Result<bool, SaveError>`, and the 3 save calls take `&mut self`. Python raises `SaveChanged` under `SaveError`, and has `SaveOptions(lossy=False, keep_lines=False, force=False)` and `save_file_with(path, opts)`. The message is `PATH: refusing to save: the file changed since it was loaded; nothing written (force overrides)`.
 		- me, 20261029: design.md's Save outcomes row, which says the library's save doesn't look, and spec.md wait for 2026102912203343, when all 4 have it.
 	- Progress log:
 		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. Every save call goes through `save_file_with`, which checks a save over that file before the write and records what it wrote. The CLI's `write_back` takes the document as `&mut`. check-docs and the style guide name `SaveChanged` as a Python-only class.
 		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
 	- Swept: Rust and Python. Every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with` and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate` and `new` read no file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it holds as `mut`. Go, C and the veneer are the other 2 children.
-	- Verified: `Eu7RSm3` and `Eu7RSm4` fail with the check turned off and pass with it. `Eu7RSm3` passes for windows under wine. Also `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark`.
-	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`Eu7RSm3`) and Python (`Eu7RSm4`).
+	- Verified: `dekj6` and `dekj7` fail with the check turned off and pass with it. `dekj6` passes for windows under wine. Also `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`dekj6`) and Python (`dekj7`).
 	- Branch: `r1029`
 	- Commit: `e799b7c6`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
@@ -881,7 +981,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: split in 3. This box's cap and priority is 2026102421025778, the containers 2026102421025783, the test boxes 2026102421025788. This item closes with the last of them.
 		- 20261024: 2026102421025778 and 2026102421025783 are in on `r1024c`, waiting on the full run. 2026102421025788 is next.
 		- 20261029: 2026102421025788 closed on r1029, the last child.
-	- Test case: its children's tests: 2026102421025778, 2026102421025783, and Etfwju5 with ionice-probe.bash for 2026102421025788.
+	- Test case: its children's tests: 2026102421025778, 2026102421025783, and decyk with ionice-probe.bash for 2026102421025788.
 	- Acceptance signoff: me, 20261029, all 3 children closed
 	- Closed: 20261029
 
@@ -894,7 +994,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: 2026102910482342
 	- Parent ID: 2026102910482342
 	- Requirements:
-		- The parent's, in Go, as Rust and Python have them in 2026102912203339: the changed error kind, the check in every save call, the save options with `force`, and the twin of `Eu7RSm3`.
+		- The parent's, in Go, as Rust and Python have them in 2026102912203339: the changed error kind, the check in every save call, the save options with `force`, and the twin of `dekj6`.
 	- Prereq on 2026102912203339 dropped: its Rust and Python code is in on r1029, and only its hosted Windows run is left, which doesn't hold up the Go port.
 	- Decisions:
 		- me, 20261029: Go returns `*SaveChanged{Path}`, its own error type beside `*SaveRefused` and `*WriteError`, so a caller tells them apart with `errors.As` as it already does. The message is the Rust one.
@@ -903,8 +1003,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. `SaveFile`, `SaveFileLossy` and `SaveFileKeepLines` go through `SaveFileWith`, which checks a save over that file before the write and records what it wrote.
 	- Swept: Go. Every load that reads a file goes through `loadFileAny`, for `LoadFile`, `LoadFileWith` and `LoadFileKeepLines`. `Parse`, `ParseKeepLines`, `LoadAndValidate` and `New` read no file. `Merge` changes the document in place, so it keeps the record. The Go CLI and `soak_test.go` save parsed documents or save elsewhere, so they save as before. `UpgradeFile` keeps its own check. Rust and Python are done in 2026102912203339, and C and the veneer are 2026102912203343.
-	- Verified: `Eu7ZvdD` fails with the check turned off and passes with it. It passes for windows under wine, with the link part skipped there as in the other POSIX link tests. Also `go vet` for linux, windows and darwin, `cicd.bash --backlog-run-quick go`, cli-regress over the Go CLI (629 rows), and lint-report `--check --no-mark`.
-	- Test case: `TestASaveOverAFileChangedSinceTheLoadIsRefused` (`Eu7ZvdD`).
+	- Verified: `dekk8` fails with the check turned off and passes with it. It passes for windows under wine, with the link part skipped there as in the other POSIX link tests. Also `go vet` for linux, windows and darwin, `cicd.bash --backlog-run-quick go`, cli-regress over the Go CLI (629 rows), and lint-report `--check --no-mark`.
+	- Test case: `TestASaveOverAFileChangedSinceTheLoadIsRefused` (`dekk8`).
 	- Branch: `r1029`
 	- Commit: `34536e68`
 	- Acceptance signoff: Self-closed: the new test failed with the check off and passes with it, and every gate run is green. The API shape follows Rust and Python, whose Check: entry stays open.
@@ -935,9 +1035,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261028: a `-` alone is an empty item, with or without a blank after it, so a kept one written back with its blank trimmed reloads as the same line, not as an `E014` name. Writing it back as `- ` was rejected, since canonical output has no trailing blanks and editors strip them. A `Check:` in questions.md.
 		- me, 20261028: `E004` is judged with the path, not while the path is walked, so it no longer waits on an earlier index finding its instance, and a raw block it opens is kept with it, as `E014`'s is.
 		- me, 20261028: an empty item past the element cap is still `E021`, as any faulted item is.
-	- Test case: corpus `Eu3cqRL` (`211-kept-wildcard-and-empty-item`) in all 4 runners, with `EoLwIlc` (`057`), `EoLwIlf` (`060`) and `Ep16w2C` (`095`). Fuzz `EpFAzfk` counts both codes as kept. cli-regress `Er84S7X`.
-		- 20261028: fuzz `EtXAOBZ`'s comment assert went from `\n\t# c: 1\n` to `\n\tc: 1\n`. The wildcard line it starts with is kept now, so the item after it is the lost line (`E011`), no list forms, and the field binds. Its lost count of 1 and its no-list-with-a-field check stay.
-		- 20261028: cli-regress `Er84S7X`'s line for a `-` alone went from `4:1 name=0-1` to `4:1 item value=1-1 elem=1-1`.
+	- Test case: corpus `dejmt` (`211-kept-wildcard-and-empty-item`) in all 4 runners, with `dbxjv` (`057`), `dbxjy` (`060`) and `dc7fq` (`095`). Fuzz `dcavy` counts both codes as kept. cli-regress `dd6zj`.
+		- 20261028: fuzz `deav0`'s comment assert went from `\n\t# c: 1\n` to `\n\tc: 1\n`. The wildcard line it starts with is kept now, so the item after it is the lost line (`E011`), no list forms, and the field binds. Its lost count of 1 and its no-list-with-a-field check stay.
+		- 20261028: cli-regress `dd6zj`'s line for a `-` alone went from `4:1 name=0-1` to `4:1 item value=1-1 elem=1-1`.
 		- Swept: the `E004` and `E009` arms, `is_item`, the parser's item test and the tokens dump in all 4 bindings and CLIs. `attach_path`'s wildcard arm stays, unreachable from a load, with a comment. Go, Python and C have no twin of the fuzz properties.
 	- Closed: 20261028-2345
 	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
@@ -965,10 +1065,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261028: case `160` stays and now pins a kept `E007` line through an edit. Case `159` still pins a dropped line through one.
 		- me, 20261028: a kept item that a merge leaves at the root reloads as `E007` and stays as written there, since nothing binds it. Where a merge puts a layer's kept line is older, filed as 2026102821530643.
-	- Test case: corpus `Eu3rXZ5` (`212-kept-homeless-items`) in all 4 runners, with `EoLwIlf` (`060`), `Ep16w2C` (`095`), `Ep1EGVd` (`104`) and `Eqwdeun` (`160`). Fuzz `EpFAzfk` counts both codes as kept. cli-regress `Er7gigM`, `Es8aXnv`, `Es8aXnx`.
-		- 20261028: fuzz `EtXAOBZ`'s lost count went from 1 to 0, since its `E011` item is kept now. Its no-list and comment checks stay.
-		- 20261028: cli-regress `Er7gigM` went from exit 7 and the file unchanged to exit 0 and `val: 9` / `\t- e` / `z: 2`. `Es8aXnv` went from exit 7 and no output to exit 0 and the same text. `Es8aXnx`'s output went from `val: 9` / `z: 2` to the same text, with no canonical-form note.
-		- 20261028: cli-regress `Es8aXo0` and `Es8aXo1` read the `%KL%` file, which still loses a line, where `%KE%` no longer does. The diag-exit `lost` fixture is a tab-only line now, and `EssOUuO` and `EssOUuP` remove `val.m`, which makes the save fall back, where `--set=val=9` now keeps every line.
+	- Test case: corpus `dejpn` (`212-kept-homeless-items`) in all 4 runners, with `dbxjy` (`060`), `dc7fq` (`095`), `dc7gn` (`104`) and `dd47m` (`160`). Fuzz `dcavy` counts both codes as kept. cli-regress `dd6wm`, `ddp0q`, `ddp0s`.
+		- 20261028: fuzz `deav0`'s lost count went from 1 to 0, since its `E011` item is kept now. Its no-list and comment checks stay.
+		- 20261028: cli-regress `dd6wm` went from exit 7 and the file unchanged to exit 0 and `val: 9` / `\t- e` / `z: 2`. `ddp0q` went from exit 7 and no output to exit 0 and the same text. `ddp0s`'s output went from `val: 9` / `z: 2` to the same text, with no canonical-form note.
+		- 20261028: cli-regress `ddp0w` and `ddp0x` read the `%KL%` file, which still loses a line, where `%KE%` no longer does. The diag-exit `lost` fixture is a tab-only line now, and `de11m` and `de11n` remove `val.m`, which makes the save fall back, where `--set=val=9` now keeps every line.
 		- Swept: the item arm, `add_star_element` and the emitter's kept-line check in all 4 bindings and the 4 CLIs' explain text. The fuzz outcome table and `REFUSING` list. No other site filed an `E007` or `E011`.
 	- Closed: 20261028-2345
 	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
@@ -997,13 +1097,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: `--gate` keeps its meaning until 2026102813104371, since the hosted workflow runs it.
 	- Progress log:
 		- 20261028: done in cicd.bash and config.bash. Help, contributing.md and design.md say so.
-		- Verified: check-push-gate `Eu1ovZE` (the 2 runs, areas, `BACKLOG_SKIP`, no tree from the quick one, no dogfood or publish, the usage errors) and `Eu1ovZF` (every test step in an area, and the areas in `--help`) failed on the old engine and pass now. Also test-ids, shellcheck and markdownlint.
-		- Verified: the whole of check-push-gate, shell-regress and check-docs passed on this change before `BACKLOG_SKIP`. After it, this box's pwsh crashed on start with a `FileLoadException`, on any tree, so check-docs `EqKhPQP`, check-push-gate `EqGjDth` and shell-regress's install.ps1 rows failed with it. The rest of each passed.
+		- Verified: check-push-gate `dej6y` (the 2 runs, areas, `BACKLOG_SKIP`, no tree from the quick one, no dogfood or publish, the usage errors) and `dej6z` (every test step in an area, and the areas in `--help`) failed on the old engine and pass now. Also test-ids, shellcheck and markdownlint.
+		- Verified: the whole of check-push-gate, shell-regress and check-docs passed on this change before `BACKLOG_SKIP`. After it, this box's pwsh crashed on start with a `FileLoadException`, on any tree, so check-docs `dcv3m`, check-push-gate `dct5a` and shell-regress's install.ps1 rows failed with it. The rest of each passed.
 		- Verified: a real `cicd.bash --backlog-run-quick` in the main image, before `BACKLOG_SKIP`, passed its 5 steps in 10.5 minutes at a load of 10 to 13, recorded nothing and left no tracked file changed. Without check-push-gate that's about 6.5 minutes.
 		- Swept: every reader of the run mode (`mode_flag`, `gate_mode`, `merge_gate`, `quick`) in cicd.bash, the tests step's `TEST_CMD`-only guard, and check-push-gate's stub config.
-	- Test case: check-push-gate `Eu1ovZE` and `Eu1ovZF`.
+	- Test case: check-push-gate `dej6y` and `dej6z`.
 	- Closed: 20261028-1625
-	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, as the round's full run. EqKhPQP, EqGjDth and shell-regress passed there with pwsh working again. `--backlog-run-quick` with every area named took 12 min at load 13 to 27, and the worker timed it at 6.5 min with none named, so the 4-minute aim is still the parent's to meet.
+	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, as the round's full run. dcv3m, dct5a and shell-regress passed there with pwsh working again. `--backlog-run-quick` with every area named took 12 min at load 13 to 27, and the worker timed it at 6.5 min with none named, so the 4-minute aim is still the parent's to meet.
 
 - CICD reset: hosted workflow on the merge gate, and --gate as a backlog run
 	- ID: 2026102813104371
@@ -1023,18 +1123,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261028: split. The hosted workflow is done here. `--gate` as a backlog run, with the contributing.md and install.md lines, is child 2026102814013272, free to start now that the hosted run doesn't use `--gate`.
 		- 20261028: ci.yml's halves run `--merge-gate --no-tests --no-release --no-remote` and `--merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash`, and the tests half installs qemu, busybox and cpio for the CPU floor check. cicd.bash takes `--skip TEXT`, which leaves out each step whose command holds TEXT, and the run records nothing. A TEXT that matches no step is exit 2. check-pins' job check wants `--merge-gate`, allows `--no-release` and `--no-remote`, and holds `--skip` to a leak check whose tool ci.yml leaves out. Help, the ci.yml comments, contributing.md and design.md say so.
-		- Verified: check-push-gate `Eu21ced` (both `--skip` forms, no record, the off line, the usage errors) went red with the record rule taken out, and passes. shell-regress `Eu21cec` (`--gate` in a job, the release nowhere, CodeQL run, another step skipped) went red with each check taken out of check-pins, and passes. The whole of check-push-gate, shell-regress, check-pins, check-docs and test-ids, shellcheck and markdownlint passed.
-		- Verified: `cicd.bash --backlog-run-quick cicd` in the main image passed its 5 steps in 6.5 minutes at a load of about 7, `Eu21ced`, `EsZzNCY` and `EtAC9of` included.
-		- Swept: every reader of the hosted job args (check-pins' `EsZzNCY`, `EtDCDE9`, `EtAC9of`, shell-regress `EsZzNEZ`, `EtDCDEA`), every `--gate` line in ci.yml and the design.md and contributing.md lines about the hosted run and what records a tree. The other 3 bindings have no pipeline of their own, so no twin there.
+		- Verified: check-push-gate `dej8h` (both `--skip` forms, no record, the off line, the usage errors) went red with the record rule taken out, and passes. shell-regress `dej8g` (`--gate` in a job, the release nowhere, CodeQL run, another step skipped) went red with each check taken out of check-pins, and passes. The whole of check-push-gate, shell-regress, check-pins, check-docs and test-ids, shellcheck and markdownlint passed.
+		- Verified: `cicd.bash --backlog-run-quick cicd` in the main image passed its 5 steps in 6.5 minutes at a load of about 7, `dej8h`, `ddwkk` and `de5an` included.
+		- Swept: every reader of the hosted job args (check-pins' `ddwkk`, `de61r`, `de5an`, shell-regress `ddwkm`, `de61s`), every `--gate` line in ci.yml and the design.md and contributing.md lines about the hosted run and what records a tree. The other 3 bindings have no pipeline of their own, so no twin there.
 	- Decisions:
 		- me: the halves keep their split, and the tests half takes the native release, its checks and packages, and the fast leak checks. It was about 36 minutes, and the lint half about 44 with cppcheck.
 		- me: the runner leaves out the test boxes, which are on the LAN, CodeQL, whose bundle is about 700 MB and its run about 10 minutes more than the tests half has, and the cross targets, which would need a third job with wine, QEMU and FreeBSD's 640 MB image. The macOS, Linux arm64 and Windows jobs already build on their own runners, and the style guide asks for a small hosted workflow.
 		- me: CodeQL goes by a new `--skip TEXT` rather than `--no-leakcheck`, which would drop the sanitizer runs hosted already had. It is general, matched as text like `QUICK_SKIP`, and the run says what it left out.
 		- me: makensis stays unpinned in ci.yml, since the hosted run builds no Windows release and so no setup.
-	- Test case: check-push-gate `Eu21ced`, shell-regress `Eu21cec`, plus the changed rows of `EsZzNEZ`.
-		- 20261028: `EsZzNEZ`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
+	- Test case: check-push-gate `dej8h`, shell-regress `dej8g`, plus the changed rows of `ddwkm`.
+		- 20261028: `ddwkm`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
 	- Closed: 20261028-1625
-	- Verified: 2026-10-28, hosted ci.yml run 40779407541 on r1028 passed after the runner's kernel was made readable (commit after 9d0943c1). Lint half 12 min, tests half 50 min. The tests half built the release, booted it on Penryn and Phenom (EsaOGRX to EsaOGRb), built packages and passed the leak checks. CodeQL and the test boxes were off.
+	- Verified: 2026-10-28, hosted ci.yml run 40779407541 on r1028 passed after the runner's kernel was made readable (commit after 9d0943c1). Lint half 12 min, tests half 50 min. The tests half built the release, booted it on Penryn and Phenom (ddwpp to ddwpt), built packages and passed the leak checks. CodeQL and the test boxes were off.
 
 - CICD reset: CPU and priority in containers
 	- ID: 2026102421025783
@@ -1053,10 +1153,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: every `docker run` cicd.bash and ctr-image.bash make passes `--cpus` and `--cpu-shares 256`: the stages' run at the run's count, `fCtrRunSelf` at its script's, and the passwd, group and Zig trim reads at 1. analyze-c, soak-c and codeql-scan start theirs through `fCtrRunSelf`.
 		- 20261024: `fCtrRunSelf` runs its script under `nice -n 19` in the image. The stages' run is cicd.bash, which renices itself (2026102421025778).
 	- Swept: the 5 `docker run` sites under `cicd/` and the hook: cicd.bash's passwd, group and stages runs, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. `docker build` and `volume create` start no container. ci.yml runs `--no-container`.
-	- Verified: check-push-gate `EtgShUg` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container: `cpu.max` read `800000 100000` and `cpu.weight` 35.
+	- Verified: check-push-gate `ded2j` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container: `cpu.max` read `800000 100000` and `cpu.weight` 35.
 	- Needs local test suite run?: No
 	- Branch: `r1024c`
-	- Test case: check-push-gate `EtgShUg`.
+	- Test case: check-push-gate `ded2j`.
 	- Closed: 20261028-1625
 	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, in the main image with the CPU limits on.
 
@@ -1077,12 +1177,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `upgrade` saves the migrated text the way `set` saves, keeping its lines, with the info block added at the end. Every line stays where it was, blank lines and `x: ~~~` included, so shclwrap's raw block case is fixed too. Where the lines can't be kept, or keeping them keeps an error the canonical form repairs, such as `   b` with no colon, it falls back to the `fmt` form as before. Same in Rust, Go, Python and C.
 	- Decisions:
 		- The whole layout is kept, not only blank lines, as `migrate` keeps it. The other way, a `fmt` that keeps blank-line runs, would still move every line after a raw block, and needs a new emitter mode in all 4 (me).
-		- The `fmt` fallback keeps upgrades that load clean only through `fmt`'s repair loading clean, as `EtaIsb8` shows. Without it that file would be refused with `--from-2x` (me).
+		- The `fmt` fallback keeps upgrades that load clean only through `fmt`'s repair loading clean, as `debk5` shows. Without it that file would be refused with `--from-2x` (me).
 		- Departs from the item: it does more than keep blank lines. Indent, quoting and layout come through as `migrate` wrote them, where they used to come out in `fmt`'s form. spec.md, the man page, examples.md, the help text in the 4 CLIs and the doc comments say so.
 	- Swept: `upgrade` in the 4 libraries, the one place the fresh text is made. `upgrade_file`, the CLIs and the C++ `upgrade` go through it. `migrate` already kept lines. The help text is the same in the 4 CLIs.
-	- Verified: the new tests fail on the old code in all 4 and pass on the fix. `EtaIsb8` failed with the lines always kept, which is why the fallback is there. `cargo test`, `go test`, the Python and C conformance suites, the Python soak, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, cli-regress (629 rows, 4 bindings), crosscheck (22758 comparisons), check-migrate (647 documents), the 2,000,000 release fuzz (31 tests), check-docs, check-doc-examples, check-completions, test-ids check, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and the C CLI under gcc 15 and clang pass.
+	- Verified: the new tests fail on the old code in all 4 and pass on the fix. `debk5` failed with the lines always kept, which is why the fallback is there. `cargo test`, `go test`, the Python and C conformance suites, the Python soak, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, cli-regress (629 rows, 4 bindings), crosscheck (22758 comparisons), check-migrate (647 documents), the 2,000,000 release fuzz (31 tests), check-docs, check-doc-examples, check-completions, test-ids check, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and the C CLI under gcc 15 and clang pass.
 	- Branch: `r1028`
-	- Test case: `upgrade_keeps_each_line_where_it_was` (Rust `Eu1bOv2`, Go `Eu1bOv3`, Python `Eu1bOv4`, C `Eu1bOv5`), and `EtaIsb8` and its twins for the fallback.
+	- Test case: `upgrade_keeps_each_line_where_it_was` (Rust `dej58`, Go `dej59`, Python `dej5a`, C `dej5b`), and `debk5` and its twins for the fallback.
 	- Acceptance signoff:
 		- Waits on JC: it keeps the whole layout rather than only the blank lines, which changes what `upgrade` writes (questions.md Check line).
 	- Acceptance signoff: me, 2026-10-28, per the standing call that a behavior change that fits the project better is made, not parked. Keeping each line where it was is what the item asks, and shclwrap needs it. The Check: entry in questions.md stays open for a veto.
@@ -1108,12 +1208,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Progress log:
 		- 20261028: Verified: in the main image, bash's `printf '%(...)T'` gave UTC with no mount, and PDT with the host's zone file mounted at `/etc/localtime`. `Asia/Bangkok`'s file gave +07, and `-e TZ=EST5EDT,M3.2.0,M11.1.0` gave EDT.
-		- 20261028: Verified: check-push-gate `Eu1i7hL` failed in all 4 cases on the old cicd.bash and ctr-image.bash, and passes now.
+		- 20261028: Verified: check-push-gate `dej63` failed in all 4 cases on the old cicd.bash and ctr-image.bash, and passes now.
 	- Decisions:
 		- me: the zone file goes in as the image's `/etc/localtime`, not `-e TZ=<name>`, since the main image has no zone files to look a name up in. A `TZ` that names no file, such as a POSIX rule, goes in as `-e TZ`. Tests that need a zone pin `TZ` themselves, as they do on the host.
 	- Actual fix: `fCtrZoneArgs` in `ctr-image.bash`, used by cicd.bash's run in the image and by `fCtrRunSelf`, which the C analysis, CodeQL and the C soak run through.
 	- Swept: every `docker run` in `cicd/`. cicd.bash's passwd and group reads print no time. No other script starts a container. Not a binding change, so the four bindings don't apply.
-	- Test case: check-push-gate `Eu1i7hL`: each run of cicd.bash or a gate in the image gets the zone file for `TZ` unset, a zone name and a `:`-led name, and `-e TZ` for a rule.
+	- Test case: check-push-gate `dej63`: each run of cicd.bash or a gate in the image gets the zone file for `TZ` unset, a zone name and a `:`-led name, and `-e TZ` for a rule.
 	- Acceptance signoff: closed on JC's criteria. The next full run's step lines in the image show it end to end.
 	- Closed: 20261028-130250
 
@@ -1135,12 +1235,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: as above. check-install-dev's `git init` named no branch, and git prints its hint where no default branch is set, as in the image.
 	- Actual effort: Low
 	- Progress log:
-		- 20261028: Verified: `run_20261025-174444.log` has rotated out, so on `run_20261027-114343.log`, which has the same 3 lines, the old lint-report says `NEW` with 3 and the new one `CLEAN`. shell-regress `Eu1jhy2` failed on the old lint-report and passes now.
+		- 20261028: Verified: `run_20261025-174444.log` has rotated out, so on `run_20261027-114343.log`, which has the same 3 lines, the old lint-report says `NEW` with 3 and the new one `CLEAN`. shell-regress `dej69` failed on the old lint-report and passes now.
 	- Decisions:
 		- me: a bare `vulnerabilities.` line is dropped on its own, since a real govulncheck finding prints its own `Vulnerability #N` and `affected by N` lines, and those still count. A `hint:` line is git's advice, never a finding, so it's dropped as well as fixed at the source.
 	- Actual fix: lint-report drops a bare `vulnerabilities.` line and any `hint:` line. check-install-dev's `git init` names its branch, and so do the 5 in shell-regress that named none.
 	- Swept: every `git init` in `cicd/`. check-push-gate's 4 bare ones stay, since none printed a hint in its runs. Not a binding change, so the four bindings don't apply.
-	- Test case: shell-regress `Eu1jhy2`: the wrapped note and the hint read `CLEAN`, and a govulncheck finding and a git `warning:` line still flag.
+	- Test case: shell-regress `dej69`: the wrapped note and the hint read `CLEAN`, and a govulncheck finding and a git `warning:` line still flag.
 	- Acceptance signoff: closed on JC's criteria.
 	- Closed: 20261028-130250
 
@@ -1164,9 +1264,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A mid-piece quote that never closes, as in `don't, stop`, keeps the pinned build's reading, 2 elements, where 2.0 ran the quote to the end of the line and read one. That reading swallowed comments, it is the bug `07c2becc` fixed, and the apostrophe in a word is the common case (me).
 		- check-migrate still compares against the pinned build, and takes lines where it and 2.0 read a value apart out first, as it does for a fence label holding a `#` (me).
 	- Swept: `scan_piece` in all 4 bindings is the one place 2.x value pieces are cut, for a value, a `*` item and the array arm, so `migrate`, `upgrade` and their CLIs all get it. `value_edits`' early skip in all 4 learned that a bare piece can hold a comma or a `#`. Selector bodies and names are cut elsewhere, and 2.0 had no mid-piece quote rule there that differs. The repeated `row:` case from floss reads right too, since the fix is per line. spec.md and value-syntax.md's Migration table say so.
-	- Verified: corpus case `210-migrate-mid-quote-comma` fails on the old Python port and passes on the fix. The 4 conformance suites, `cargo test`, `go test`, cli-regress (629 rows), crosscheck (22758 comparisons), check-migrate (647 documents, its new `Eu1VP9o` included), the 2,000,000 release fuzz (31 tests), check-doc-examples, check-docs, check-abnf, shell-regress, test-ids check, lint-report, shellcheck, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff and mypy pass.
+	- Verified: corpus case `210-migrate-mid-quote-comma` fails on the old Python port and passes on the fix. The 4 conformance suites, `cargo test`, `go test`, cli-regress (629 rows), crosscheck (22758 comparisons), check-migrate (647 documents, its new `dej4h` included), the 2,000,000 release fuzz (31 tests), check-doc-examples, check-docs, check-abnf, shell-regress, test-ids check, lint-report, shellcheck, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff and mypy pass.
 	- Branch: `r1028`
-	- Test case: corpus `Eu1VP9n` (`210-migrate-mid-quote-comma`) in all 4 runners, check-migrate `Eu1VP9o`.
+	- Test case: corpus `dej4g` (`210-migrate-mid-quote-comma`) in all 4 runners, check-migrate `dej4h`.
 	- Acceptance signoff: Self-closed: the new case failed before and passes after, and every gate run is green.
 	- Closed: 20261028-121432
 
@@ -1189,15 +1289,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A step that's off isn't counted. The first section lists each with the flags that took it out, or `not configured`, and prints under `--quiet` too, with only the count and that list.
 		- The run in the image or the frozen copy numbers its steps from the outer run's list. With `--container=NAME`, the steps that image's own flags in config.bash take out come off the count too.
 		- The Container, Frozen copy and done sections keep their rule and header. The run inside no longer prints a done section of its own.
-		- Verified: check-push-gate `EtlDIOQ` failed on the old engine in all 4 cases and passes now. Its alpine case also fails with the image's own flags left off the count. The rest of check-push-gate, shell-regress, check-docs, test-ids, shellcheck, markdownlint and `lint-report.bash --check --no-mark` pass.
-		- 20261025, test batch: Verified: in the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`), each step from `Step 1 of 7` to `Step 7 of 7` opens and closes once. The runs in the image and the frozen copy go on with the same count, the first section lists the 4 steps that are off with their flags, and sections have one blank line between them and one at the end. check-push-gate `EtlDIOQ` and `EtkuOxg` passed in the run.
+		- Verified: check-push-gate `dee74` failed on the old engine in all 4 cases and passes now. Its alpine case also fails with the image's own flags left off the count. The rest of check-push-gate, shell-regress, check-docs, test-ids, shellcheck, markdownlint and `lint-report.bash --check --no-mark` pass.
+		- 20261025, test batch: Verified: in the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`), each step from `Step 1 of 7` to `Step 7 of 7` opens and closes once. The runs in the image and the frozen copy go on with the same count, the first section lists the 4 steps that are off with their flags, and sections have one blank line between them and one at the end. check-push-gate `dee74` and `dee4w` passed in the run.
 		- 20261025: the steps run in the image stamp UTC, while the host's stamp local time, so Steps 6 and 7 read 7 hours apart. Filed as Bug 2026102520122877.
 		- Departs from the wording: the local timestamp holds only on the host until that bug is fixed.
 	- Decisions:
 		- me: closed here, with the image's UTC stamps left to Bug 2026102520122877, so the one defect left has one open item.
 	- Swept: cicd.bash's other sections and `fDie`. No other cicd script prints a rule or a step header. shell-regress's lift of the sync stage and the check-boxes stand-in moved to the step helpers. `--list` still prints `N/9` labels (Check in questions). Not a binding change, so the four bindings don't apply.
-	- Test case: check-push-gate `EtlDIOQ`: a default run, a failing cross check, `--gate` and an alpine image run.
-		- 20261025: `EtkuOxg` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
+	- Test case: check-push-gate `dee74`: a default run, a failing cross check, `--gate` and an alpine image run.
+		- 20261025: `dee4w` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
 	- Acceptance signoff: closed on JC's criteria: the full run's log covers each point but the image's time zone, which is Bug 2026102520122877.
 	- Closed: 20261025-201300
 
@@ -1220,12 +1320,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: `--ci` prints `--ci is another name for --merge-gate` and passes `--merge-gate` to the run in the image, so the line shows once.
 	- Progress log:
 		- 20261025: done in cicd.bash and the pre-push hook. Help, the hook's header, contributing.md and design.md say so.
-		- 20261025: 2 check-push-gate asserts changed with the hook's gate. `EqGl8me`: the hook's call was `--gate --no-largedoc`, and is `--merge-gate`. `Et6Aum5`: `--ci` exited 2 as an unknown option, and now exits 0 with its one line. `Et6Ak52` takes both markers out of its stub engine, so it still checks an engine from before `--gate`.
-		- Verified: check-push-gate `EtkuOxg` (release built, leak checks run, tree recorded, no dogfood or publish), `EqGl8me` and `Et6Aum5` failed on the old engine and hook and pass now. `EtkuOxf` covers the fallback to `--gate`. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
+		- 20261025: 2 check-push-gate asserts changed with the hook's gate. `dct5c`: the hook's call was `--gate --no-largedoc`, and is `--merge-gate`. `de4bf`: `--ci` exited 2 as an unknown option, and now exits 0 with its one line. `de4b9` takes both markers out of its stub engine, so it still checks an engine from before `--gate`.
+		- Verified: check-push-gate `dee4w` (release built, leak checks run, tree recorded, no dogfood or publish), `dct5c` and `de4bf` failed on the old engine and hook and pass now. `dee4v` covers the fallback to `--gate`. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
 		- Swept: every caller of the hook's gate flag (check-push-gate's hook stub) and every `--gate` and `--ci` under `cicd/`, `.github/`, the docs and install-dev.bash. ci.yml, install-dev.bash, install.md and contributing.md's other `--gate` lines stay, as `--gate` is unchanged until 2026102515494624.
-		- 20261025, test batch: no `cicd.bash --merge-gate` run was made. Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed every stage the merge gate adds to `--gate`: the release and cross builds, their checks, the packages, the test boxes and the 4 default leak checks. check-push-gate `EtkuOxg`, `EtkuOxf`, `EqGl8me` and `Et6Aum5` passed in the run.
+		- 20261025, test batch: no `cicd.bash --merge-gate` run was made. Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed every stage the merge gate adds to `--gate`: the release and cross builds, their checks, the packages, the test boxes and the 4 default leak checks. check-push-gate `dee4w`, `dee4v`, `dct5c` and `de4bf` passed in the run.
 		- Departs from the Needs row: the flag itself first runs for real on the next push that moves main, through the hook (2026101920461174).
-	- Test case: check-push-gate `EtkuOxg`, `EtkuOxf`, `EqGl8me` and `Et6Aum5`.
+	- Test case: check-push-gate `dee4w`, `dee4v`, `dct5c` and `de4bf`.
 	- Acceptance signoff: closed on JC's criteria: the full run and the merge gate's own tests cover each point. The call: what the merge gate runs, above.
 	- Closed: 20261025-201300
 
@@ -1248,10 +1348,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261025: done. config.bash lists the leak checks as `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG`, plus `LEAKCHECK_TESTS` for the test steps. `--long` and `--slow` in cicd.bash, passed on to the run in the image and the frozen copy. Help, contributing.md, design.md and sanitize-rust.bash's help say so.
 		- No step takes hours but `--miri-all`, so no benchmark moved.
-		- Verified: check-push-gate `EtkuOxe` failed on the old engine (an unknown `--long`, the fast ones left out of `--quick` and the default run) and passes on the new one, with `Et9t3dc` and `EtD3jdR` unchanged. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
-		- Swept: every reader of `LEAKCHECK_STEPS`: the engine, the alpine branch of config.bash, check-push-gate's stub, shell-regress `EtgMc2s`'s text match, and check-pins' leak-only tool scan, which reads no leak list.
-		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in 59 minutes, 17:44:44 to 18:43:38, at a load of about 18 to 30. It ran no `--miri-all`, and its 4 leak checks were `analyze-c.bash --ctu` (19 s), `soak-c.bash` (29 s), `sanitize-c.bash --glibcxx-debug` and `codeql-scan.bash` (558 s). check-push-gate `EtkuOxe`, `Et9t3dc` and `EtD3jdR` passed in the run.
-	- Test case: check-push-gate `EtkuOxe`.
+		- Verified: check-push-gate `dee4t` failed on the old engine (an unknown `--long`, the fast ones left out of `--quick` and the default run) and passes on the new one, with `de582` and `de609` unchanged. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
+		- Swept: every reader of `LEAKCHECK_STEPS`: the engine, the alpine branch of config.bash, check-push-gate's stub, shell-regress `ded1v`'s text match, and check-pins' leak-only tool scan, which reads no leak list.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in 59 minutes, 17:44:44 to 18:43:38, at a load of about 18 to 30. It ran no `--miri-all`, and its 4 leak checks were `analyze-c.bash --ctu` (19 s), `soak-c.bash` (29 s), `sanitize-c.bash --glibcxx-debug` and `codeql-scan.bash` (558 s). check-push-gate `dee4t`, `de582` and `de609` passed in the run.
+	- Test case: check-push-gate `dee4t`.
 	- Acceptance signoff: closed on JC's criteria: the full run fit in about an hour. The call: which leak checks are fast, slow and long, above.
 	- Closed: 20261025-201300
 
@@ -1273,20 +1373,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: config.bash's `HARD_STEPS` names the hard steps: both sanitizer scripts (Miri is in sanitize-rust), `go test -race`, the 2 soak runs, the large document and the 200,000 fuzz. Every leak check is hard without a row.
 		- 20261024: cicd.bash renices itself to 19 and sets `ionice -c 3` at the top, so every child, the run in the image included, takes both.
 		- 20261024: the gate scripts run by hand get their count from the same include, at a quarter for sanitize-c, sanitize-rust, codeql-scan, largedoc and `analyze-c --ctu`.
-		- 20261024: the priority check in `EtgMc0M` can't go red when shell-regress itself runs at nice 19, as it does inside a run. It was seen red run alone.
+		- 20261024: the priority check in `ded1t` can't go red when shell-regress itself runs at nice 19, as it does inside a run. It was seen red run alone.
 		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run, and hosted run 40163335236 on `r1024c`, still going, for the external part.
-		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed. Its first step opens with `jobs: 8 of 32 CPUs (busy, load 18.11)`. `(hard step)` shows on the 200,000 fuzz suite, `go test -race`, the Python soak, sanitize-c and the large document, and the leak checks run at 8 of 32. A `jobs:` line shows only when the count changes, so sanitize-rust and the leak checks, which follow a hard step, print none of their own. shell-regress `EtgMbxn`, `EtgMc0M`, `EtgMc2s`, `EqpNNtw` and `EtaC4oT` passed in the run.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed. Its first step opens with `jobs: 8 of 32 CPUs (busy, load 18.11)`. `(hard step)` shows on the 200,000 fuzz suite, `go test -race`, the Python soak, sanitize-c and the large document, and the leak checks run at 8 of 32. A `jobs:` line shows only when the count changes, so sanitize-rust and the leak checks, which follow a hard step, print none of their own. shell-regress `ded1s`, `ded1t`, `ded1v`, `dd2fp` and `debjb` passed in the run.
 		- 20261025: the busy reads came at loads of 17.9 to 29.7 on a box shared with other projects' runs, so the 1-minute load rule stays as it is.
 	- Decisions:
 		- A count the caller gives as `CPU_CAP` still holds for every step, with no busy check and no quarter. ci.yml's hosted jobs give `nproc` on runners with nothing else on them, and they're already at 46 of their 60 minutes. A run that cicd.bash starts, in the image or from the frozen copy, gets the caller's count through `SHCL_CPU_FIXED`, not the step's (me).
 		- The 1-minute load includes the run's own last step, so after a step at half the cores the next can read as busy. Left as the rule says, to be read from the full run's `jobs:` lines (me).
 	- Swept: every `nproc` cap under `cicd/` (check-c-compilers, sanitize-c, sanitize-rust, analyze-c, codeql-scan, crosscheck, largedoc, check-win-release), every `-j "${CPU_CAP}"` and `RUST_TEST_THREADS` in config.bash's plain arrays, and every step call in cicd.bash. soak-c, check-deps and check-pins default to 1, and check-freebsd's `xz` to 2, so they stay. The eval'd strings expand when they run, so they stay too. check-push-gate's and shell-regress's stub engines copy the new include. The other 3 bindings have no pipeline of their own, so no twin there.
-	- Verified: shell-regress `EtgMbxn`, `EtgMc0M` and `EtgMc2s` pass. Each went red on its own fault: the old config.bash, `>=` for the busy compare, no floor of 1, no `CARGO_BUILD_JOBS`, the leak checks not hard, `HARD_STEPS` not read or missing a row or taking the py_compile build step, a `jobs:` line on every step, and no renice.
+	- Verified: shell-regress `ded1s`, `ded1t` and `ded1v` pass. Each went red on its own fault: the old config.bash, `>=` for the busy compare, no floor of 1, no `CARGO_BUILD_JOBS`, the leak checks not hard, `HARD_STEPS` not read or missing a row or taking the py_compile build step, a `jobs:` line on every step, and no renice.
 	- Verified: the whole of shell-regress and check-push-gate, shellcheck over `SHELLCHECK_TARGETS`, check-docs, markdownlint and `test-ids.py check` passed. `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` printed `jobs: 16 of 32 CPUs` once in the build stage and passed.
 	- Needs external testing: N. Hosted run 40163335236 on `r1024c` passed every job, `ci (lint)` in 44 min and `ci (tests)` in 36, against 46 and 45 before.
 	- Branch: `r1024c`
-	- Test case: shell-regress `EtgMbxn` (the rule), `EtgMc0M` (each step, the leak checks, the image's count, the run's priority) and `EtgMc2s` (no count fixed at load, and which steps are hard).
-		- 20261024: `EqpNNtw` finds the native release build by its line, which is now `fStep "${RELEASE_NATIVE_CMD[@]}"`. Its pattern went from `^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$` to one that also takes a leading `fStep `. `EtaC4oT` reads the same line number.
+	- Test case: shell-regress `ded1s` (the rule), `ded1t` (each step, the leak checks, the image's count, the run's priority) and `ded1v` (no count fixed at load, and which steps are hard).
+		- 20261024: `dd2fp` finds the native release build by its line, which is now `fStep "${RELEASE_NATIVE_CMD[@]}"`. Its pattern went from `^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$` to one that also takes a leading `fStep `. `debjb` reads the same line number.
 	- Acceptance signoff: closed on JC's criteria: the full run's `jobs:` lines and the hosted run cover each point.
 	- Closed: 20261025-201300
 
@@ -1316,7 +1416,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: cache volumes: `shcl-zig-cache` is the only volume a run makes, and it already follows the 2 GB rule (2026102416250020). The other caches are the bind-mounted `CTR_CACHE` dir.
 		- 20261024: the hand pass is left for the round, since the full run in flight holds the only candidate. By ID: image `61b558c4520c` (`shcl-cicd:7f80c73639ce`, 10.1 GB), run by container `2e54cc96effe`. No other image, dangling image, stopped container or volume of ours. Once the next run builds the new tag, that image stays as the one before it, so today the pass has nothing to remove.
 		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run.
-		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, which carries `dev.project=shcl` and `dev.run`. `shcl-cicd:7f80c73639ce` stays beside it as the tag before. The cleanup line ends with `docker images 147.8GB -> 147.8GB, containers 6.755GB -> 6.755GB, volumes 12.45GB -> 12.45GB, build cache 148.2GB -> 148.2GB`, and no container of ours was left after it. check-push-gate `EtgFdOY`, `EtgFdh7`, `EtNhz0U`, `EtDQOPc` and `EtDQOSv` passed in the run.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, which carries `dev.project=shcl` and `dev.run`. `shcl-cicd:7f80c73639ce` stays beside it as the tag before. The cleanup line ends with `docker images 147.8GB -> 147.8GB, containers 6.755GB -> 6.755GB, volumes 12.45GB -> 12.45GB, build cache 148.2GB -> 148.2GB`, and no container of ours was left after it. check-push-gate `ded0y`, `ded0z`, `de8j8`, `de635` and `de636` passed in the run.
 		- 20261025, test batch: Verified: a Format and Build run of `e9732a84` in the image, from a fresh clone, with `--keep-temp`, left `shcl-shcl-run.aKPgwp-fmt` and `shcl-shcl-run.aKPgwp-build`, both labeled `dev.run=shcl-run.aKPgwp`. Both were removed by ID after.
 		- 20261025, the hand pass: by ID, image `61b558c4520c` (`shcl-cicd:7f80c73639ce`) is the only thing of ours with the old label, and it stays as the tag before. No stopped container or other volume of ours, so the pass removed nothing.
 	- Decisions:
@@ -1326,9 +1426,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: analyze-c, soak-c and codeql-scan keep their cidfile stop when run by hand. Their containers are labeled and named, but they don't stop by label on their own exit (me).
 	- Swept: every `docker run`, `build` and `volume create` under `cicd/` and the hook: fRunContainer's 3 runs and the volume, and ctr-image.bash's fCtrRunSelf, fCtrBuild and fCtrZigTrim. ci.yml and `--no-container` runs start none. Every `label=shcl-cicd` filter, in ctr-image.bash and in check-push-gate's fake docker. shell-regress names no label.
 	- Branch: `r1024c`
-	- Test case: check-push-gate `EtgFdOY` (both labels with the run folder on every run, build and volume, and the 7 container names of a whole run) and `EtgFdh7` (a failed run stops and removes its containers by `dev.run`), plus checks added to `EtNhz0U` (a stopped run, the same), `EtDQOPc` (the tag before stays, the build cache prune, docker's sizes on the line) and `EtDQOSv` (a gate's build keeps the tag before).
-		- 20261024: `Etg0eIJ`'s volume assert went from `--label shcl-cicd` to the `dev.project` and `dev.run` pair. `EtDQOPc` and `EtDQOSv` got a newer old tag per name, and `EtDQOPc` expects the one more removal that gives, of `shcl-cicd-gone`, which has no recipe.
-	- Verified: check-push-gate passes. `EtDQOPc` and `EtDQOSv` went red with no tag kept before the current one, `EtgFdh7` and `EtNhz0U` with no stop by label, `EtgFdOY` with no name on the Zig trim and with an empty `dev.run` (which turned `Etg0eIJ` red too), and `EtDQOPc` with no prune and with no sizes on the line. Each passed again once restored by copy.
+	- Test case: check-push-gate `ded0y` (both labels with the run folder on every run, build and volume, and the 7 container names of a whole run) and `ded0z` (a failed run stops and removes its containers by `dev.run`), plus checks added to `de8j8` (a stopped run, the same), `de635` (the tag before stays, the build cache prune, docker's sizes on the line) and `de636` (a gate's build keeps the tag before).
+		- 20261024: `decz2`'s volume assert went from `--label shcl-cicd` to the `dev.project` and `dev.run` pair. `de635` and `de636` got a newer old tag per name, and `de635` expects the one more removal that gives, of `shcl-cicd-gone`, which has no recipe.
+	- Verified: check-push-gate passes. `de635` and `de636` went red with no tag kept before the current one, `ded0z` and `de8j8` with no stop by label, `ded0y` with no name on the Zig trim and with an empty `dev.run` (which turned `decz2` red too), and `de635` with no prune and with no sizes on the line. Each passed again once restored by copy.
 	- Verified: `fCtrBuild`, `fCtrPrev`, `fCtrRunGone` and `fCtrDf` against this box's docker, on throwaway images and containers under another project name: 3 builds left the last 2 tags, the image carries both labels, and a run's 2 containers went while another run's stayed until its own turn.
 	- Verified: shellcheck over every cicd script, shell-regress, check-pins, check-docs, markdownlint and `test-ids.py check`.
 	- Acceptance signoff: closed on JC's criteria: the full run, the kept run's containers and the hand pass cover each point.
@@ -1352,7 +1452,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: at the end of a whole run in the main image, `fCtrZigTrim` (ctr-image.bash) reads the volume's size, its `zig-version.stamp` and the image's `zig version`. Over `CTR_ZIG_CAP_KB` (2 GB), or a stamp naming another Zig, and the volume goes by `docker volume rm`, named on the cleanup line. A volume with no stamp yet gets one.
 		- 20261024: the old cache, `~/.cache/shcl-cicd/main/home/.cache/zig` (119 MB), is left for one removal by hand once the next run is on the new image.
 		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run.
-		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, with its 4 zig cross builds. The `shcl-zig-cache` volume carries `dev.project=shcl` and `dev.run`, the pair that replaced the `shcl-cicd` label (2026102416250030). Its `zig-version.stamp` reads `0.16.0`, and it holds 130 MB. check-push-gate `Etg0eIJ` and `EstM5os` passed in the run.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, with its 4 zig cross builds. The `shcl-zig-cache` volume carries `dev.project=shcl` and `dev.run`, the pair that replaced the `shcl-cicd` label (2026102416250030). Its `zig-version.stamp` reads `0.16.0`, and it holds 130 MB. check-push-gate `decz2` and `de18w` passed in the run.
 		- 20261025: the old cache under `~/.cache/shcl-cicd/main/home/.cache/zig` is already gone.
 	- Decisions:
 		- 20261024: the mount point is `/zig-cache`, not under `/cache`, since docker would make a mount point inside the box's cache dir as root (me).
@@ -1361,8 +1461,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: this replaces, for Zig's cache only, 2026101303344553's call to keep caches in `~/.cache/shcl-cicd` rather than a docker volume.
 	- Swept: every `docker run` of the images. fRunContainer mounts it for main. fCtrRunSelf (analyze-c, soak-c, codeql-scan) runs no zig, and its HOME and TMPDIR are its scratch. The alpine and ubuntu recipes have no zig. ci.yml and `--no-container` runs use the box's `~/.cache/zig`, which nothing empties. No tracked `.zig-cache`. check-readme's `zig build-exe` keeps its local cache in its scratch dir.
 	- Branch: `r1024c`
-	- Test case: check-push-gate `Etg0eIJ` (over the cap or another Zig: removed and named; at the cap, an unreadable answer or no volume: kept; made with our label and mounted at `/zig-cache` in the main image), plus a check in `EstM5os` that an extra image doesn't get it.
-	- Verified: check-push-gate passes. `Etg0eIJ` went red with `>=` for the cap, no version compare, no label, no trim call and no mount, and `EstM5os` with the volume on the extra images. Each passed again once restored by copy.
+	- Test case: check-push-gate `decz2` (over the cap or another Zig: removed and named; at the cap, an unreadable answer or no volume: kept; made with our label and mounted at `/zig-cache` in the main image), plus a check in `de18w` that an extra image doesn't get it.
+	- Verified: check-push-gate passes. `decz2` went red with `>=` for the cap, no version compare, no label, no trim call and no mount, and `de18w` with the volume on the extra images. Each passed again once restored by copy.
 	- Verified: `fCtrZigTrim` against the real main image `shcl-cicd:7f80c73639ce` and a stand-in volume filled by a real `zig cc` build: a new volume stamped `0.16.0` and kept, a `0.15.2` stamp removed, a 1 KB cap removed, and a volume another container had kept.
 	- Verified: shellcheck, shell-regress, check-pins, check-docs and `test-ids.py check`.
 	- Acceptance signoff: closed on JC's criteria: the full run and the volume cover each point.
@@ -1385,9 +1485,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: the push is judged against what the remote's main holds. A new main, or one the clone hasn't fetched, runs the gate. The banner tag check still runs.
 	- Progress log:
 		- 20261025: done in the pre-push hook. No gate on a push to dev was already so. The hook's header, contributing.md and design.md say so.
-		- Verified: check-push-gate `Etl0lIx` failed on the old hook, which gated a docs-only push, and passes now. Its cases that must still gate pass: a script beside the docs, a corpus file, `grammar.abnf`, a new main and an unknown one. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
+		- Verified: check-push-gate `dee5j` failed on the old hook, which gated a docs-only push, and passes now. Its cases that must still gate pass: a script beside the docs, a corpus file, `grammar.abnf`, a new main and an unknown one. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
 		- Departs from the wording: `project/` leaves out its corpus and the grammar, since a build or test reads both.
-	- Test case: check-push-gate `Etl0lIx`.
+	- Test case: check-push-gate `dee5j`.
 	- Acceptance signoff: closed on JC's criteria. The call: which paths count as docs, above.
 	- Closed: 20261025-162100
 
@@ -1407,8 +1507,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Actual fix: the 3 sizes cicd.bash prints, the native and cross release builds and the demo gif, use `du -h --apparent-size`, as package.bash's already did.
 	- Swept: every `du` under `cicd/` and in the hook. package.bash's 2 already gave the size. The `du -sk` ones measure what a cleanup frees, where allocated blocks are right.
-	- Verified: a 1.3 MB file just written in `source/rust/target` read 1.0K with `du -h` and 1.3M with `--apparent-size`. shell-regress `EtkuOxd` failed on the old cicd.bash and passes on the fix.
-	- Test case: shell-regress `EtkuOxd`.
+	- Verified: a 1.3 MB file just written in `source/rust/target` read 1.0K with `du -h` and 1.3M with `--apparent-size`. shell-regress `dee4s` failed on the old cicd.bash and passes on the fix.
+	- Test case: shell-regress `dee4s`.
 	- Acceptance signoff: Self-closed: a mechanical fix, its test failed before and passes after.
 	- Closed: 20261025-160100
 
@@ -1426,7 +1526,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: r1024 at `e3418e0c`, with 2026102307035781's corpus inputs
 	- Steps to reproduce:
 		- `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke merge_never_panics_and_stays_fixpoint`, on the corpus with 2026102307035781's changes to 187, 188, 193 and the new 209, which move the seeds.
-	- Incorrect behavior: `EkyV758` fails with "a merged list with a field under it at iteration 1139165". A is a mutation of the case on a list closing onto an earlier sibling's value, and B one of the selector case.
+	- Incorrect behavior: `dab72` fails with "a merged list with a field under it at iteration 1139165". A is a mutation of the case on a list closing onto an earlier sibling's value, and B one of the selector case.
 	- Reproduced: 20261023, the same iteration and message on `e3418e0c`'s code with the new corpus, so the library change in 2026102307035781 plays no part. Neither document has an apostrophe outside a comment.
 	- Actual cause: the load, not the merge. B alone builds the list: `srv: [a]` then `srv(0).tls: on`. An index can select a list, and a dotted line through it put the field under the list. The same field on the line under `srv(0):` was already `E028`, or `E001` after `- ` items. The merge only carried B's list over.
 	- Estimated effort: Avg
@@ -1437,17 +1537,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Verified: the issue's A and B now merge with no list with a field, and the output is a fixpoint. The 2,000,000 release fuzz passes all 31 properties. Also the 4 conformance suites, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-migrate (642 documents), shell-regress, perf-gate, check-c-compilers, sanitize-c, test-ids, markdownlint, rustfmt, clippy, go vet, staticcheck, ruff and mypy. The new test fails on the old library in each runner.
 			- Swept: `attach_path`'s other selector arms, since a value selector never matches a list; `open_lazy`, whose held paths have no index; the setters, which refuse `srv(0).tls` on a list in all 4 CLIs; and the stacked-list and array-line checks at the level, in Rust, Go, Python and C.
 			- A kept dotted line after items is written as a comment, `# srv(0).tls: on`, since the emitter's model doesn't follow an index. That is the safe side, as with any kept line it reads as binding.
-		- 20261024 later: hosted run 40112190832 failed `EsJLUJy`. The 2 new spec.md rows quoted `srv(0).tls: on` and `srv: [a]` as whole lines, which check-doc-examples loads alone as examples of the row's code. Each needs the other line above it, so the rows now name the path, `srv(0).tls`, and the line before it in words. What they say is unchanged.
+		- 20261024 later: hosted run 40112190832 failed `ddrkh`. The 2 new spec.md rows quoted `srv(0).tls: on` and `srv: [a]` as whole lines, which check-doc-examples loads alone as examples of the row's code. Each needs the other line above it, so the rows now name the path, `srv(0).tls`, and the line before it in words. What they say is unchanged.
 			- Verified: check-doc-examples on the 4 CLIs (spec.md 34 rows, value-syntax.md 62, man page 7 blocks), check-docs, markdownlint. `check -` gives `E028` on line 1 for `srv: [a]` then `srv(0).tls: on`, and `E001` on line 3 after `srv:` with `- a`, in the C CLI.
 			- Swept: the same spans in design.md and the changelog are prose, which the gate doesn't read.
-		- 20261024, test batch, on `r1024b` at `d064d760`. Verified: hosted ci.yml run 40114707715, every job green. In the no-publish full run, `analyze-c` and `analyze-c --ctu`, sanitize-c, this item's tests in all 4, and `EsJLUJy`. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. The run stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
-		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all` (`EszIPWl`) and stages 5-6 included, with this item's tests in all 4 (`EtdPVpd`, `EtdPW8G`, `EtdPWQz`, `EtdPWjj`), `EsJLUJy`, and `EkyV758` at 200,000.
+		- 20261024, test batch, on `r1024b` at `d064d760`. Verified: hosted ci.yml run 40114707715, every job green. In the no-publish full run, `analyze-c` and `analyze-c --ctu`, sanitize-c, this item's tests in all 4, and `ddrkh`. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. The run stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
+		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all` (`de2pd`) and stages 5-6 included, with this item's tests in all 4 (`decb2`, `decb3`, `decb4`, `decb5`), `ddrkh`, and `dab72` at 200,000.
 	- Decisions:
 		- me, 20261024: option A stays, and this is worked first next round. Reverting brings back 3 load outcomes for 2 swapped lines and the 3 exceptions. The missing fixpoint is the same defect showing worse. The merge still builds a list with a field under it, which option A says can't exist, so the fix is in the merge and covers both.
 		- The fix includes a fixpoint check on this case that doesn't sit behind the first assert.
 	- Actual fix: `through_items` beside `under_items`, and an `E028` turn in the index arm of `attach_path`, in all 4.
 	- Branch: `r1024b`
-	- Test case: `an_index_onto_a_list_takes_no_field` (`EtdPVpd` Rust, `EtdPW8G` Go, `EtdPWQz` Python, `EtdPWjj` C). It checks each case's fixpoint and lost count apart from the list check, the merge case included. `EkyV758` at 2,000,000.
+	- Test case: `an_index_onto_a_list_takes_no_field` (`decb2` Rust, `decb3` Go, `decb4` Python, `decb5` C). It checks each case's fixpoint and lost count apart from the list check, the merge case included. `dab72` at 2,000,000.
 	- Acceptance signoff: Self-closed on JC's criteria: the tests went red on the old library in each runner, the 2,000,000 fuzz and the full run passed. It departs from the wording: the fix is in the load, not the merge, as the progress log says.
 	- Closed: 20261024-215700
 
@@ -1463,32 +1563,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026102418441478
 	- Version and build: `r1024b` at `d064d760`, and dev's `58f1b93f`
 	- Steps to reproduce:
-		- `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish`, or `cicd/utility/sanitize-rust.bash --miri-all`. Stage 4 aborts on `EszIPWl`.
+		- `cicd/cicd.bash -y --no-sync --no-dogfood --no-gif --no-publish`, or `cicd/utility/sanitize-rust.bash --miri-all`. Stage 4 aborts on `de2pd`.
 	- Incorrect behavior:
-		- `upgrade_leaves_its_own_output_alone` (`EssNzSi`) fails its guard "only 1 files naming this format were made over". At Miri's 100 iterations the guard needs `beta > iters / 100`, so 2. Natively with `SHCL_FUZZ_ITERS=100` it fails the same on `r1024b` and on `58f1b93f`.
-		- `merge_never_panics_and_stays_fixpoint` (`EkyV758`) ran past the 7200 s limit under Miri and was stopped, at host load about 42 beside another project's Miri run. Natively at 20,000 iterations it took 6.5-6.7 s on `r1024b` and 6.7-7.2 s on dev, so the round didn't slow it.
+		- `upgrade_leaves_its_own_output_alone` (`de116`) fails its guard "only 1 files naming this format were made over". At Miri's 100 iterations the guard needs `beta > iters / 100`, so 2. Natively with `SHCL_FUZZ_ITERS=100` it fails the same on `r1024b` and on `58f1b93f`.
+		- `merge_never_panics_and_stays_fixpoint` (`dab72`) ran past the 7200 s limit under Miri and was stopped, at host load about 42 beside another project's Miri run. Natively at 20,000 iterations it took 6.5-6.7 s on `r1024b` and 6.7-7.2 s on dev, so the round didn't slow it.
 	- Expected behavior: both pass under `--miri-all`, as on dev `8b81b8c3` on 2026-10-22.
 	- Reproduced: 20261024, the first natively at 100 iterations on both commits. The second only under Miri, on a loaded box.
 	- Possible cause: the corpus edits since 2026-10-22 moved the fuzz seeds, so the 100-iteration soup makes fewer format-3 files. Unconfirmed. The second may be load alone.
 	- Actual cause:
 		- Both come from the corpus edits since 2026-10-22, which moved the draws. Load isn't it.
-		- `EssNzSi`: about 4 in 100 runs make over a file naming this format, at every depth from 100 to 20,000. So at 100 the guard rode on luck. Today's code over `8b81b8c3`'s corpus gets 2 in the first 100, the least it passes on, and over today's corpus 1.
-		- `EkyV758`: round 72 now draws the depth cap case with one dot gone from its 513-segment line, so the line binds a 511-deep chain. Each path walk reads every path from the root, about 650 KB of paths, where a seed has 1 KB at most. At Miri's 100 rounds and opt-level 0, that round took 1.07 s of the test's 1.32 s natively, and the test went from 0.13 s on `8b81b8c3` to 1.34 s. No other fuzz test moved.
+		- `de116`: about 4 in 100 runs make over a file naming this format, at every depth from 100 to 20,000. So at 100 the guard rode on luck. Today's code over `8b81b8c3`'s corpus gets 2 in the first 100, the least it passes on, and over today's corpus 1.
+		- `dab72`: round 72 now draws the depth cap case with one dot gone from its 513-segment line, so the line binds a 511-deep chain. Each path walk reads every path from the root, about 650 KB of paths, where a seed has 1 KB at most. At Miri's 100 rounds and opt-level 0, that round took 1.07 s of the test's 1.32 s natively, and the test went from 0.13 s on `8b81b8c3` to 1.34 s. No other fuzz test moved.
 	- Estimated effort: Low
 	- Actual effort: Low
 	- Progress log:
-		- 20261024: Verified: `EssNzSi` fails at `SHCL_FUZZ_ITERS=100` before the fix and passes after. Both tests pass natively at 100, the default 300 and 20,000, and so does all of fuzz_smoke at the default. Also rustfmt, clippy and test-ids. With the skip forced on natively, `EkyV758` at 100 rounds and opt-level 0 takes 0.24 s, which is today's cost without round 72.
-		- 20261024: Verified: `EssNzSi` passes under Miri as `--miri-all` runs it, in 2006 s at load 2.4. `EkyV758` there was still going at 28 minutes when it was stopped at the time cap, so it's unverified.
-		- Swept: every share guard in fuzz_smoke at 100 rounds. Only 3 are thin, filed as 2026102418441478, and none of those draws from the corpus. Every fuzz test's time at 100 rounds, against `8b81b8c3`: only `EkyV758` moved. The fuzz is in Rust only, so Go, Python and C have no twin.
-		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed `--miri-all` (`EszIPWl`), `EssNzSi` and `EkyV758` included, and every other stage.
+		- 20261024: Verified: `de116` fails at `SHCL_FUZZ_ITERS=100` before the fix and passes after. Both tests pass natively at 100, the default 300 and 20,000, and so does all of fuzz_smoke at the default. Also rustfmt, clippy and test-ids. With the skip forced on natively, `dab72` at 100 rounds and opt-level 0 takes 0.24 s, which is today's cost without round 72.
+		- 20261024: Verified: `de116` passes under Miri as `--miri-all` runs it, in 2006 s at load 2.4. `dab72` there was still going at 28 minutes when it was stopped at the time cap, so it's unverified.
+		- Swept: every share guard in fuzz_smoke at 100 rounds. Only 3 are thin, filed as 2026102418441478, and none of those draws from the corpus. Every fuzz test's time at 100 rounds, against `8b81b8c3`: only `dab72` moved. The fuzz is in Rust only, so Go, Python and C have no twin.
+		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed `--miri-all` (`de2pd`), `de116` and `dab72` included, and every other stage.
 	- Decisions:
-		- me, 20261024: `EssNzSi` takes a floor rather than a lower bar. A bar low enough for 100 rounds would barely check the arm at 20,000. The floor is the native default, 300, so only Miri's run gets longer, about 3 times its old length.
-		- me, 20261024: under Miri only, `EkyV758` passes over the rare round that deep, after the round's last draw. Natively it still runs. A floor or a raised time limit would leave Miri's time hanging on the draw.
-	- Actual fix: `EssNzSi` runs at least 300 rounds, so its guard needs 4 hits of about 11. Under Miri, `EkyV758` passes over a round whose paths come to more than 64 KB, and fails if that's over 1 round in 10.
+		- me, 20261024: `de116` takes a floor rather than a lower bar. A bar low enough for 100 rounds would barely check the arm at 20,000. The floor is the native default, 300, so only Miri's run gets longer, about 3 times its old length.
+		- me, 20261024: under Miri only, `dab72` passes over the rare round that deep, after the round's last draw. Natively it still runs. A floor or a raised time limit would leave Miri's time hanging on the draw.
+	- Actual fix: `de116` runs at least 300 rounds, so its guard needs 4 hits of about 11. Under Miri, `dab72` passes over a round whose paths come to more than 64 KB, and fails if that's over 1 round in 10.
 	- Branch: `r1024c`
 	- Commit: `c1ac7f51`
-	- Test case: `EssNzSi` and `EkyV758` under `--miri-all` themselves.
-	- Acceptance signoff: Self-closed: `EssNzSi` failed at 100 rounds before the fix and passes after, and both pass under `--miri-all` in the full run.
+	- Test case: `de116` and `dab72` under `--miri-all` themselves.
+	- Acceptance signoff: Self-closed: `de116` failed at 100 rounds before the fix and passes after, and both pass under `--miri-all` in the full run.
 	- Closed: 20261024-215700
 
 - Other hosts: the box step, and the FreeBSD release on vmFreeBSD
@@ -1514,9 +1614,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` prints `SKIP vmFreeBSD: no release builds this run` in the step and again at the end, at exit 0, and with `--no-remote` the step says it was skipped. The step's block, run alone over stand-in boxes with release builds given, passed one, skipped the other 2, listed the 2 at the end, and stopped the run on a build with one changed output.
 		- Not run: the step inside a whole run with release builds, and any real box.
 		- Swept: `fDriver` is the same text as check-freebsd's. check-cpu-floor has its own. The other 3 bindings have no CLI release, so no twin there.
-		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` ran the step after stages 1-6: `PASS vmFreeBSD: 4416 CLI runs, same bytes and exit codes as the Linux build` and `Etfwju5` ok. The VM was running when that run started.
+		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` ran the step after stages 1-6: `PASS vmFreeBSD: 4416 CLI runs, same bytes and exit codes as the Linux build` and `decyk` ok. The VM was running when that run started.
 		- 20261024, test batch: Verified: from a paused vmFreeBSD, `check-boxes.bash` on the frozen tree's linux-x86_64 and freebsd-x86_64 release builds, through the real helper, passed the same 4416 runs at exit 0. The VM was paused again after, with no note left, and the box's work folder was gone. `bsdtest`'s login shell is bash. The VM was then put back to running, as found.
-	- Test case: check-boxes `Etfwju5`.
+	- Test case: check-boxes `decyk`.
 	- Acceptance signoff: Self-closed: the step passed in the full run, and from a paused VM it ran and put the VM back as found.
 	- Closed: 20261024-215700
 
@@ -1548,22 +1648,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- The 3 exceptions are gone: `stacks()` no longer counts children, `bracket()` brackets every list, and `unloadable_items` is removed with its use in the lost count and the keep-lines save. `settle_arrays` leaves array lines among and after a stacked list's items alone.
 			- Docs: design.md's table rows and 2 paragraphs, spec.md's Arrays, code table, `E018` row and merge text, value-syntax.md's stacked-list case and item table, the conformance README, and check-migrate's clean-code list (2.x bound an `E001` field).
 			- Goldens: `010`, `095` (lost 5), `128` (comments too), `188` (the line under the `E019` among the items went, since it would now be lost), `201` (comments, merged text).
-			- Tests: the 6 conformance tests per runner that built the list (Rust `Ers2oF1`, `ErsETML`, `Ert70BF`, `EsFs76t`, `Ert70DM`, `ErsWiow` and their Go, Python and C twins) are commented out with the reason. New `a_field_under_items_stays_kept` pins the load, the set-empty, merge, array setter and remove cases. The fuzz helper `list_after_empty` became `list_with_field`, and every property asserts it never holds. Fuzz `Erxfmqc` is commented out; `EtXAOBZ` pins the same text now. The outcome-table property moves `E008` to retained and counts a raw-block `E001`. cli-regress `Ers2pP0` and `Ers2pP1` expect exit 0 and the commented line.
-			- Verified: the 4 conformance suites, cli-regress (622 rows), crosscheck over the corpus plus a 2000-iteration dump (53499 comparisons), check-docs with check-abnf, test-ids, shell-regress, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and a 200,000-iteration release fuzz. Each new test failed on the old library (`EtXAjYU`, `EtXAOBZ`, `EtXCOeu`, `EtXCOkG`).
-			- Failed: the 2,000,000-iteration release fuzz, 4 properties (`Ejri0IV`, `Eof6zmK`, `EsJZkoB`, `Eqk24nZ`), all one case. A kept line refused for its value, with a kept line under it, sits in an empty field that later takes items, so canonical output writes it after the items. The reload no longer holds its level open there, so the line under it is `E018` and lost. Repro, from `Ejri0IV`, not a fixpoint under `fmt`: `a:` / `\tb: C:\dir, a\tb, 'it\'s'` / `\t\t\tno colon here` / `a: 1, , 2` / `  - 0`.
+			- Tests: the 6 conformance tests per runner that built the list (Rust `ddj1h`, `ddj2w`, `ddj9k`, `ddqs1`, `ddj9m`, `ddj53` and their Go, Python and C twins) are commented out with the reason. New `a_field_under_items_stays_kept` pins the load, the set-empty, merge, array setter and remove cases. The fuzz helper `list_after_empty` became `list_with_field`, and every property asserts it never holds. Fuzz `ddkd8` is commented out; `deav0` pins the same text now. The outcome-table property moves `E008` to retained and counts a raw-block `E001`. cli-regress `ddj1f` and `ddj1g` expect exit 0 and the commented line.
+			- Verified: the 4 conformance suites, cli-regress (622 rows), crosscheck over the corpus plus a 2000-iteration dump (53499 comparisons), check-docs with check-abnf, test-ids, shell-regress, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and a 200,000-iteration release fuzz. Each new test failed on the old library (`deav2`, `deav0`, `deav8`, `deava`).
+			- Failed: the 2,000,000-iteration release fuzz, 4 properties (`d9tnp`, `dc26d`, `ddrnk`, `dd16k`), all one case. A kept line refused for its value, with a kept line under it, sits in an empty field that later takes items, so canonical output writes it after the items. The reload no longer holds its level open there, so the line under it is `E018` and lost. Repro, from `d9tnp`, not a fixpoint under `fmt`: `a:` / `\tb: C:\dir, a\tb, 'it\'s'` / `\t\t\tno colon here` / `a: 1, , 2` / `  - 0`.
 			- Next: hold that level open again under items, as before, and refuse instead the line that would bind through it and so put a field under the list (`E001`, kept), with the emitter's model told the same. Then the 2,000,000 fuzz again.
 		- 20261023 later, same branch, with r1024 merged in, all 4 bindings:
 			- The planned fix: a line refused for its value alone holds its level open under items again, so what is kept under it stays kept. A line that would bind through it is `E001`, kept for a field line or an item, and dropped with its block for a fence line. The emitter models that level as held open, and writes a clean kept line under it as written while the list's items are written, as a comment otherwise.
-			- The next 2,000,000 run failed `Eqk24nZ` once: a kept `E001` or `E008` line written as a comment went at its own depth, so once a merge bracketed its list it sat 2 levels past the comment before it, and a reload read it 1 shallower. The one more fix: it goes at most 1 level past, as every comment run does. The same run failed `EpFAzfk` on a bare fence line's `E001`, which the outcome-table property now counts as dropped.
+			- The next 2,000,000 run failed `dd16k` once: a kept `E001` or `E008` line written as a comment went at its own depth, so once a merge bracketed its list it sat 2 levels past the comment before it, and a reload read it 1 shallower. The one more fix: it goes at most 1 level past, as every comment run does. The same run failed `dcavy` on a bare fence line's `E001`, which the outcome-table property now counts as dropped.
 			- Docs: spec.md's uniform-or-nothing bullet, value-syntax.md's stacked-list case, the conformance README's `188` note.
 			- Tests: `a_field_under_items_stays_kept` in all 4 adds the fuzz repro, a field line and an item under such a line, and the merge that makes one a comment. Each failed in all 4 without its fix.
 			- Verified: the 2,000,000 release fuzz (31 properties), the 4 conformance suites, `cargo test`, cli-regress (625 rows), crosscheck over the corpus plus a 2000-iteration dump (53775 comparisons), check-abnf, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff.
 			- Red, and red on r1024 before this branch's changes: mypy and check-docs `man-page-date-current`, both from `d6820c2e`. Filed as 2026102321462051.
-		- 20261024, test batch: the full run failed codeql-scan `EtAC9fG` on 14 `py/commented-out-code` alerts in the Python conformance tests commented out above. Each now has a `codeql[...]` line with its reason. Verified: codeql-scan passes, all 5 languages.
-		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760`. Verified: check-migrate (642 documents), `analyze-c --ctu`, soak-c, `sanitize-c --glibcxx-debug`, codeql-scan, `sanitize-rust` Miri over every test but the slow ones (`EszIPWk`), and this item's tests in all 4. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. `--miri-all` failed on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
-		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all`'s slow fuzz tests over the changed emitter and stages 5-6 included. Also this item's tests in all 4 (`EtXAjYU`, `EtXCOeu`, `EtXCOhX`, `EtXCOkG`), fuzz `EtXAOBZ`, corpus `010`, `095`, `128`, `188` and `201` in all 4 runners, and cli-regress `Ers2pP0` and `Ers2pP1`.
+		- 20261024, test batch: the full run failed codeql-scan `de5aj` on 14 `py/commented-out-code` alerts in the Python conformance tests commented out above. Each now has a `codeql[...]` line with its reason. Verified: codeql-scan passes, all 5 languages.
+		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760`. Verified: check-migrate (642 documents), `analyze-c --ctu`, soak-c, `sanitize-c --glibcxx-debug`, codeql-scan, `sanitize-rust` Miri over every test but the slow ones (`de2pc`), and this item's tests in all 4. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. `--miri-all` failed on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
+		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all`'s slow fuzz tests over the changed emitter and stages 5-6 included. Also this item's tests in all 4 (`deav2`, `deav8`, `deav9`, `deava`), fuzz `deav0`, corpus `010`, `095`, `128`, `188` and `201` in all 4 runners, and cli-regress `ddj1f` and `ddj1g`.
 	- Branch: `wip/r1023-2026102307143752`
-	- Test case: conformance `EtXAjYU` (Rust), `EtXCOeu` (Go), `EtXCOhX` (Python), `EtXCOkG` (C), `a_field_under_items_stays_kept`; fuzz `EtXAOBZ`; corpus `010`, `095`, `128`, `188`, `201`; cli-regress `Ers2pP0`, `Ers2pP1`.
+	- Test case: conformance `deav2` (Rust), `deav8` (Go), `deav9` (Python), `deava` (C), `a_field_under_items_stays_kept`; fuzz `deav0`; corpus `010`, `095`, `128`, `188`, `201`; cli-regress `ddj1f`, `ddj1g`.
 	- Swept: the 3 callers of `open_lazy` (fence, item and field arms), the emitter's held-open push and its kept-line comment path in all 4; the outcome-table predicate, which only the Rust fuzz has. Before that: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays` and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python and C runners; the CLI `explain` tables (wording still holds); check-migrate.
 	- Needs local test suite run?: done: the no-publish full run on `r1024c`'s frozen `d842ecf8`.
 	- Acceptance signoff: Self-closed: JC picked option A, each new test failed on the old library, and the 2,000,000 fuzz and the full run passed.
@@ -1596,14 +1696,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261023: corpus 088 and 193 regenerated, and 187 and 188 now use `O"Brien` so their lines stay refused for the value. New case 209.
 		- 20261023, asserts given new values for this change: `migrate_writes_star_items_as_dashes` and its 3 twins expect `- O'Brien` where they had `- "O'Brien"`. 193's `write-bad.ops` refuses `O' Brien` where it had `O'Brien`. check-abnf's `it's` samples now derive, with new negatives beside them.
 		- Swept: `bare_trouble` and its callers (`piece_fault`, `value_edits`) in Rust, Go, Python and C; `needs_quotes` and `emit_element`, which still quote any `'`; every `O'Brien`, `it's` and "a quote in a bare" in the docs, corpus, CLI help and cli-regress. The C++ veneer has no copy of the rule.
-		- Verified: cargo test, go test, the Python and C conformance runners, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-doc-examples, check-abnf, test-ids, shell-regress, markdownlint, cargo fmt, go vet, staticcheck, ruff and mypy. On the old code, corpus 088, 193 and 209, `migrate_writes_star_items_as_dashes` and cli-regress `EtahgWm`, `EtahhXs` and `Ervo6BP` fail. `EtahhXt` and `EtahhXu` pass on both, since they pin what stays `E025`. Also clippy, the C CLI under gcc 15 with `_FORTIFY_SOURCE=3`, and the C++ veneer smoke.
-		- 20261023: the 2M release fuzz passes 30 of 31 properties. `EkyV758` fails at iteration 1139165 on the old code too (2026102322270349). check-migrate has 3 divergences over 642 documents, all from its error count (2026102322233656), and the old CLI does the same on them.
+		- Verified: cargo test, go test, the Python and C conformance runners, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-doc-examples, check-abnf, test-ids, shell-regress, markdownlint, cargo fmt, go vet, staticcheck, ruff and mypy. On the old code, corpus 088, 193 and 209, `migrate_writes_star_items_as_dashes` and cli-regress `debp8`, `debp9` and `ddjys` fail. `debpa` and `debpb` pass on both, since they pin what stays `E025`. Also clippy, the C CLI under gcc 15 with `_FORTIFY_SOURCE=3`, and the C++ veneer smoke.
+		- 20261023: the 2M release fuzz passes 30 of 31 properties. `dab72` fails at iteration 1139165 on the old code too (2026102322270349). check-migrate has 3 divergences over 642 documents, all from its error count (2026102322233656), and the old CLI does the same on them.
 		- 20261024: the full run stopped at codeql-scan on commented-out Python tests from 2026102307143752, fixed in `7e1be7d0`. Stages after it weren't reached, so the full run is still left.
-		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` passed stages 1-3 and stage 4's tests. Verified: corpus `209` in all 4 runners, cli-regress `EtahgWm`, `EtahhXs`, `EtahhXt`, `EtahhXu` and `Ervo6BP`, check-migrate (642 documents), and `EkyV758` at 200,000. It stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
-		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all` and stages 5-6 included. Also corpus `088`, `193` and `209` in all 4 runners, and cli-regress `EtahgWm`, `EtahhXs`, `EtahhXt`, `EtahhXu` and `Ervo6BP`.
+		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` passed stages 1-3 and stage 4's tests. Verified: corpus `209` in all 4 runners, cli-regress `debp8`, `debp9`, `debpa`, `debpb` and `ddjys`, check-migrate (642 documents), and `dab72` at 200,000. It stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
+		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all` and stages 5-6 included. Also corpus `088`, `193` and `209` in all 4 runners, and cli-regress `debp8`, `debp9`, `debpa`, `debpb` and `ddjys`.
 	- Decisions:
 		- Only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
-	- Test case: corpus `209-apostrophe-in-word` (`EtahhXv`, all 4 runners), cli-regress `EtahgWm`, `EtahhXs`, `EtahhXt` and `EtahhXu`, and the updated 088 and 193.
+	- Test case: corpus `209-apostrophe-in-word` (`debpc`, all 4 runners), cli-regress `debp8`, `debp9`, `debpa` and `debpb`, and the updated 088 and 193.
 	- Acceptance signoff: Self-closed: the new tests failed on the old code, and the full run passed.
 	- Closed: 20261024-215700
 
@@ -1621,13 +1721,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Actual fix: each of the 3 blocks has an else branch that fails naming the missing file.
 	- Swept: every file test that opens a block in shell-regress, check-docs, check-push-gate and check-install-dev. 2 more were silent the same way, and fail by name now too: shell-regress's check-completions row and check-docs' install.ps1 tar and parse rows. The demo gif and the other install.ps1 block already print a skip line, and the rest test state the run makes. Only bash gates are involved, so the bindings have no twin.
-	- Test case: shell-regress `EoXLk6q`, `EoXVLaC`, `EomZie0` and `EoXPkY4`, and check-docs `EoXVY4O`, each failing by name when its file is gone.
+	- Test case: shell-regress `dc0an`, `dc0bv`, `dc3zv` and `dc0b5`, and check-docs `dc0bw`, each failing by name when its file is gone.
 	- Verified: with the repo root pointed at an empty dir, the 5 blocks fail by name, and the old ones stay green. shell-regress, check-docs, shellcheck and `test-ids.py check` pass.
 	- Branch: `r1024c`
 	- Acceptance signoff: Self-closed: each block went red with its file gone where the old one stayed green, and the gates pass on the round branch.
 	- Closed: 20261024-203400
 
-- check-push-gate's gate worktree half of `EstM5os` never runs
+- check-push-gate's gate worktree half of `de18w` never runs
 	- ID: 2026102419595509
 	- Type: Bug
 	- Status: Done
@@ -1638,11 +1738,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: the block that links `source/rust/target` to a stand-in `target-gate` runs only when there's no `source/rust/target` in the stub repository. By then there is one, an empty dir, so the block is skipped with no line saying so. Its 2 checks, the extra image's mounts in a gate worktree and the main image building into `target-gate`, assert nothing.
 	- Expected behavior: the block runs every time, or fails when it can't set up.
 	- Reproduced: 20261024, on `r1024c`. A probe echo in the block's else branch printed the empty dir, made earlier in the same run.
-	- Actual cause: every earlier stubbed run but `EstM5os`'s own is frozen, and the frozen copy makes the checkout's end of each `FROZEN_LINKS` entry with `mkdir -p` (`fFrozenLink`). So `source/rust/target` and `target-migrate` were empty dirs in the stub repository before the first layout too. Its "nothing built here" never had them missing, so the stand-ins for a missing dir weren't checked either.
-	- Actual fix: before the first layout, `EstM5os` removes the empty `CTR_PRIVATE` dirs left by the earlier runs, and fails if one is still there. The gate worktree layout then always runs, and fails by name when `source/rust/target` is in the way, rather than skipping.
-	- Swept: the other file tests in check-push-gate, shell-regress and check-install-dev that open a block. None guards on state an earlier run of the same script leaves. `fFrozenLink`'s other caller, the pre-push hook, links into the gate tree, which check-push-gate checks apart (`EqzwPFC`). Only bash gates are involved, so the bindings have no twin.
-	- Test case: check-push-gate `EstM5os`.
-	- Verified: check-push-gate passes. With an extra image mounting target-gate as well, the main image not mounting it, or no stand-in for a missing private dir, the new `EstM5os` goes red and the old one stays green. A non-empty `source/rust/target` planted before the layouts fails both by name. Also shellcheck, shell-regress and `test-ids.py check`.
+	- Actual cause: every earlier stubbed run but `de18w`'s own is frozen, and the frozen copy makes the checkout's end of each `FROZEN_LINKS` entry with `mkdir -p` (`fFrozenLink`). So `source/rust/target` and `target-migrate` were empty dirs in the stub repository before the first layout too. Its "nothing built here" never had them missing, so the stand-ins for a missing dir weren't checked either.
+	- Actual fix: before the first layout, `de18w` removes the empty `CTR_PRIVATE` dirs left by the earlier runs, and fails if one is still there. The gate worktree layout then always runs, and fails by name when `source/rust/target` is in the way, rather than skipping.
+	- Swept: the other file tests in check-push-gate, shell-regress and check-install-dev that open a block. None guards on state an earlier run of the same script leaves. `fFrozenLink`'s other caller, the pre-push hook, links into the gate tree, which check-push-gate checks apart (`dd51f`). Only bash gates are involved, so the bindings have no twin.
+	- Test case: check-push-gate `de18w`.
+	- Verified: check-push-gate passes. With an extra image mounting target-gate as well, the main image not mounting it, or no stand-in for a missing private dir, the new `de18w` goes red and the old one stays green. A non-empty `source/rust/target` planted before the layouts fails both by name. Also shellcheck, shell-regress and `test-ids.py check`.
 	- Branch: `r1024c`
 	- Acceptance signoff: Self-closed: the test went red on 3 faults the old one passed, and passes on the round branch.
 	- Closed: 20261024-202500
@@ -1657,7 +1757,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: r1024 at `e3418e0c` plus 2026102307035781's change
 	- Steps to reproduce:
 		- `cicd/utility/check-migrate.bash` once the corpus inputs changed for 2026102307035781, which moved the fuzz seeds.
-	- Incorrect behavior: `Es34DZj` fails on fuzz documents 00202 and 00332, mutated from corpus 175. Each names format 3 and a Schema file that isn't beside it. The harness expects them left alone, while `upgrade --write --from-2x` exits 7 on one and rewrites the other.
+	- Incorrect behavior: `ddmp7` fails on fuzz documents 00202 and 00332, mutated from corpus 175. Each names format 3 and a Schema file that isn't beside it. The harness expects them left alone, while `upgrade --write --from-2x` exits 7 on one and rewrites the other.
 	- Reproduced: Yes, 20261023, `check-migrate.bash` on r1024 at `b9ee7918`: 3 divergences over 642 documents, on `fuzz_00202` and `fuzz_00332`.
 	- Possible cause: `fErrors` counts `check`'s stdout. `check` on such a file exits 8 and prints no diagnostics, so the count is 0 though the load has errors (`E014`, and `E006` plus `E015`). The HEAD CLI does the same on both documents, so the library didn't change.
 	- Estimated effort: Low
@@ -1667,7 +1767,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: check-migrate passes, 642 documents with 0 divergences. The new shell-regress row fails on the old script (0 errors counted, and no helper) and passes on the fix. shell-regress, shellcheck and `test-ids.py check` pass.
 	- Branch: `r1024`
 	- Commit: `489705be`
-	- Test case: shell-regress `EtasKEp`: a file with an error and a Schema line naming a missing file counts 1 error, and its read from stdin shows the `E014`.
+	- Test case: shell-regress `debqj`: a file with an error and a Schema line naming a missing file counts 1 error, and its read from stdin shows the `E014`.
 	- Acceptance signoff: Self-closed: reproduced, the new row failed before the fix and passes after, and check-migrate is green.
 	- Closed: 20261023-224421
 
@@ -1688,10 +1788,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: the loop's `X if tr is not None else ()` gave mypy a union it couldn't type, and `d6820c2e` edited the man page without moving its date.
 	- Actual fix: the Python loop skips a node with no trivia before it runs, and the man page's `.TH` date is 2026-10-23.
 	- Swept: Python and `cicd/utility` for the same conditional loop shape, none left. Only Python has a type check, and the other 3 bindings' `swap_banner` were never red. The man page is the only page with a `.TH` date.
-	- Verified: mypy failed on the old `shcl.py` with the same error and passes on the fix. check-docs passes, `EqL29qS` included. ruff and the Python conformance suite pass (208 cases, `EtaIsh6` included).
+	- Verified: mypy failed on the old `shcl.py` with the same error and passes on the fix. check-docs passes, `dcv66` included. ruff and the Python conformance suite pass (208 cases, `debk7` included).
 	- Branch: `r1024`
 	- Commit: `f3359dd4`
-	- Test case: none new. The gates that went red are the checks: mypy in the lint stage, and check-docs `EqL29qS`.
+	- Test case: none new. The gates that went red are the checks: mypy in the lint stage, and check-docs `dcv66`.
 	- Acceptance signoff: Self-closed: both gates were red before and pass after, with no change in behavior.
 	- Closed: 20261023-215140
 
@@ -1719,7 +1819,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the new test fails on the old code in all 4 and passes with the fix. The 2,000,000 release fuzz passes all 31 properties. Also the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-migrate, check-docs, test-ids check, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy.
 	- Branch: `r1024`
 	- Commit: `d6820c2e`
-	- Test case: `a_block_kept_at_the_top_names_this_format_too` in Rust (`EtaIsb8`), Go (`EtaIse6`), Python (`EtaIsh6`) and C (`EtaIsjz`), through `upgrade` and `set_banner`, and fuzz `EssNzSi`.
+	- Test case: `a_block_kept_at_the_top_names_this_format_too` in Rust (`debk5`), Go (`debk6`), Python (`debk7`) and C (`debk8`), through `upgrade` and `set_banner`, and fuzz `de116`.
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new test failed before and passes after, and the fuzz that found it passes. Setting the line rather than refusing is my call, noted under Decisions.
 	- Closed: 20261023-205517
 
@@ -1740,7 +1840,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261023: cicd.bash sets `SHCL_BUILD_DATED` from the tag beside `SHCL_BUILD`. build.rs passes it on, and `--version` and `--about` add the date in the local zone, through `localtime_r` or `SystemTimeToTzSpecificLocalTime`.
 		- Verified: a stamped build gave `(2025-10-22)` under Los Angeles and `(2025-10-23)` under UTC and Tokyo for a midnight UTC commit, the windows build under wine the same, and no date without the flag. Plus clippy, cli-regress, check-docs, test-ids check and shell-regress.
 	- Commit: `b01bad6c`
-	- Test case: Rust `EtaBWuf`, `EtaBWyo` and `EtaBX2b` in main.rs, and shell-regress `EtaC4oT`, seen to fail with the tag test broken.
+	- Test case: Rust `debj8`, `debj9` and `debja` in main.rs, and shell-regress `debjb`, seen to fail with the tag test broken.
 	- Acceptance signoff: Self-closed on JC's criteria: each requirement is in and tested, and JC made the release call.
 	- Closed: 20261023-201500
 
@@ -1773,12 +1873,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md (Comments, code table), design.md (Lexical edges, Load outcomes), value-syntax.md, the corpus README, the changelog and `explain H008` in all 4 CLIs. The fuzz grammar generator expects `glued`, and checks both shapes come up.
 		- Verified: the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-docs, check-abnf, check-doc-examples, test-ids check, shell-regress, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy. The release fuzz at 2,000,000 passed every property but `upgrade_leaves_its_own_output_alone`, which fails at iteration 628247 on the old code too once the 2 new cases are in the seed set (2026102309053667).
 		- Seen to fail on the old code: the diags of 207, 208 and the 3 updated cases, and `explain H008`.
-		- 20261023, test batch: fuzz `EqGWdij` (`raw_bodies_stay_content`) failed at 100 iterations, as `--miri-all` runs it. It skipped the read-back for any opener with a diagnostic, so the `c#` openers it draws stopped counting once they hint. It now skips only an opener with an error, and the 2 line-to-code maps that find kept misplaced lines take errors only. A body line still may not draw any diagnostic. Verified: `EqGWdij` failed at 100 before and passes at 100 and the default, all of fuzz_smoke passes at both, plus clippy, the C mem, oom and veneer tests and the Python soak.
-		- 20261023, test batch: run 1 (`-y --no-sync --no-dogfood --no-gif --no-publish`) passed stages 1-3, exhaustive cppcheck included, and stage 4 through analyze-c, soak-c, sanitize-c and codeql-scan, then stopped at the `EqGWdij` failure above. After the fix, `EqGWdij` passed under Miri at 100 iterations, and run 2 (the same with `--no-leakcheck`) passed every stage, sanitize-rust ASan and Miri, check-migrate, the release builds and their cross checks included. The slow share of `--miri-all` (scale tests) wasn't rerun.
+		- 20261023, test batch: fuzz `dct3h` (`raw_bodies_stay_content`) failed at 100 iterations, as `--miri-all` runs it. It skipped the read-back for any opener with a diagnostic, so the `c#` openers it draws stopped counting once they hint. It now skips only an opener with an error, and the 2 line-to-code maps that find kept misplaced lines take errors only. A body line still may not draw any diagnostic. Verified: `dct3h` failed at 100 before and passes at 100 and the default, all of fuzz_smoke passes at both, plus clippy, the C mem, oom and veneer tests and the Python soak.
+		- 20261023, test batch: run 1 (`-y --no-sync --no-dogfood --no-gif --no-publish`) passed stages 1-3, exhaustive cppcheck included, and stage 4 through analyze-c, soak-c, sanitize-c and codeql-scan, then stopped at the `dct3h` failure above. After the fix, `dct3h` passed under Miri at 100 iterations, and run 2 (the same with `--no-leakcheck`) passed every stage, sanitize-rust ASan and Miri, check-migrate, the release builds and their cross checks included. The slow share of `--miri-all` (scale tests) wasn't rerun.
 		- Swept: every stop at a `#` in `scan_value`, `scan_array` (an element and the text after `]`) and the selector body in `tokenize`, plus the parser's tokenize calls in its line loop, in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h. The explain tables in all 4 CLIs.
 	- Branch: `r1023`
 	- Commit: `c11e41cd`, `5e032fc2`
-	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `EtXOTsa`, `EtXOTxq` and `EtXOTvD`, and fuzz `EpFkZy4`.
+	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `deawt`, `deaww` and `deawv`, and fuzz `dcb0c`.
 	- Acceptance signoff: Self-closed on JC's criteria: the hint changes no read or exit code, each case it names is pinned by a test seen to fail before, and the full run passed. The call on "right before it" is noted under Decisions.
 	- Closed: 20261023-183115
 
@@ -1936,8 +2036,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Plant each fault and see its gate go red: a leak, a null dereference, a heap-growing loop, a use after a vector grows in the smoke, and a data race in the smoke.
 		- Every new tool goes in `TOOL_PINS`, the build images, and `ci.yml` in the same commit. Each new test gets an ID from `test-ids.py new`.
 	- Progress log:
-		- 20261017, `cleak`, the every-run half. Sanitizers: `cicd/utility/lsan.supp` is empty and loaded through `LSAN_OPTIONS`. A leak bait has to be reported with it loaded (`Et09atr`). oom_hook runs with leak detection on, since it no longer leaks. `SHCL_ARENA_MALLOC` gives each arena request its own malloc in the sanitizer builds of the runner, the smoke and the CLI. mem_bounds and the 2 OOM tests keep the bump arena, since they count its blocks and allocations. The smoke's ASan build adds `-D_GLIBCXX_ASSERTIONS`. The flags and programs are in `include/c-flags.bash`, which `gen-compdb.bash` reads too.
-		- Static analysis: `analyze-c.bash`, in the lint stage, runs gcc 14's `-fanalyzer` and clang 19's analyzer over main.c and the 4 test .c files, and clang-tidy 19 over the veneer smoke from `gen-compdb.bash`'s database. Each tool first has to report a planted leak and null dereference (`Et09ats`, `Et09att`, `Et09atu`). The real runs are `Et09atv`, `Et09atw` and `Et09atx`. A box without the pinned tools runs it in the build image. gcc-14, clang-19 and clang-tidy-19 are in TOOL_PINS, the main Dockerfile and ci.yml.
+		- 20261017, `cleak`, the every-run half. Sanitizers: `cicd/utility/lsan.supp` is empty and loaded through `LSAN_OPTIONS`. A leak bait has to be reported with it loaded (`de2wy`). oom_hook runs with leak detection on, since it no longer leaks. `SHCL_ARENA_MALLOC` gives each arena request its own malloc in the sanitizer builds of the runner, the smoke and the CLI. mem_bounds and the 2 OOM tests keep the bump arena, since they count its blocks and allocations. The smoke's ASan build adds `-D_GLIBCXX_ASSERTIONS`. The flags and programs are in `include/c-flags.bash`, which `gen-compdb.bash` reads too.
+		- Static analysis: `analyze-c.bash`, in the lint stage, runs gcc 14's `-fanalyzer` and clang 19's analyzer over main.c and the 4 test .c files, and clang-tidy 19 over the veneer smoke from `gen-compdb.bash`'s database. Each tool first has to report a planted leak and null dereference (`de2wz`, `de2x0`, `de2x1`). The real runs are `de2x2`, `de2x3` and `de2x4`. A box without the pinned tools runs it in the build image. gcc-14, clang-19 and clang-tidy-19 are in TOOL_PINS, the main Dockerfile and ci.yml.
 		- Fixed: `arena_panic` is marked noreturn, the `fread` loops stop at a short read, the CLI's `read_stream` takes `is_stdin`, the CLI's suggestion buffers get `= {0}`, an `assert` on the layer count, `kept_taken` checks for trivia first, explicit `strcmp` compares, 2 widened multiplications, `'\0'` in 2 ternaries, and a NULL check in mem_bounds.
 		- Suppressed at the line, each with its reason: 14 volatile recovery-point owners for gcc, which loses a pointer stored in a volatile local; 9 hash map hits and 5 conformance.c checks for clang; 11 clang-tidy sites. 3 bugprone checks were off in analyze-c.bash until 20261018, below.
 		- Swept: all 14 volatile owners in shcl.h, all 5 `fread` loops, and both callers' hint buffers.
@@ -1945,7 +2045,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Question: keep gcc's `-fanalyzer` in the every-run gate, when the bait is the only thing it went red on?
 			- JC, 20261018: it stays in the every-run gate.
 		- Time added on this box, at load 11 to 46: analyze-c 150 to 182 s in the lint stage, and sanitize-c about 5 s (100 s to 105 s). In the ubuntu image with ci.yml's packages, analyze-c took 166 s at `CPU_CAP=4`. It went red there until g++-14 was installed, since clang found no C++ headers. A hosted run hasn't been tried.
-		- Verified: analyze-c green from the host through the image, and in the ubuntu image as ci.yml sets it up. Each plant was seen red, then restored by copy: a library leak (sanitize-c's runner, smoke, CLI and OOM tests, the clang analyzer, clang-tidy), a null dereference (the clang analyzer), a use after a vector grows in the smoke (ASan), a data race in the smoke (TSan), a use after move in shcl.hpp (clang-tidy, so the header filter reaches it), a one-byte arena overrun (red with `SHCL_ARENA_MALLOC`, green without it), a vector read inside its capacity (red with `_GLIBCXX_ASSERTIONS`, green with ASan alone), and `leak:main` in lsan.supp (`Et09atr`). check-pins went red with each new pin dropped from ci.yml or changed in the Dockerfile.
+		- Verified: analyze-c green from the host through the image, and in the ubuntu image as ci.yml sets it up. Each plant was seen red, then restored by copy: a library leak (sanitize-c's runner, smoke, CLI and OOM tests, the clang analyzer, clang-tidy), a null dereference (the clang analyzer), a use after a vector grows in the smoke (ASan), a data race in the smoke (TSan), a use after move in shcl.hpp (clang-tidy, so the header filter reaches it), a one-byte arena overrun (red with `SHCL_ARENA_MALLOC`, green without it), a vector read inside its capacity (red with `_GLIBCXX_ASSERTIONS`, green with ASan alone), and `leak:main` in lsan.supp (`de2wy`). check-pins went red with each new pin dropped from ci.yml or changed in the Dockerfile.
 		- Verified: sanitize-c (6329 CLI runs), check-c-compilers (141 builds, 5 compilers), the C tests at `-O2` with the strict warnings, mingw and zig Windows compiles, check-veneer, cli-regress over Rust and C, shell-regress, check-push-gate, check-pins, check-docs, `test-ids.py check`, shellcheck.
 		- Needs local test suite run?: exhaustive cppcheck over the C change, where `SHCL_ARENA_MALLOC` adds a configuration, and a full `--ci` with analyze-c in the lint stage.
 		- 20261018, `tidysup`: the 3 bugprone checks gate again. JC, 20261018: judge each site, file a real one as a bug, and suppress the rest at the line with a reason.
@@ -1953,36 +2053,36 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Filed: 2026101807501110. `shcl_write_backup`'s file and text are both strings, and swapped it writes a junk backup and returns OK. Its line is suppressed with the ID, and so is `s_write_file_atomic`'s.
 			- assignment-in-if-condition, 7 sites. Each assigns and then tests on purpose, and none is a mistaken `==`. All 7 suppressed.
 			- multi-level-implicit-pointer-conversion, 9 sites on 7 lines: a pointer array handed whole to `realloc`, `memset`, `free`, and `qsort`, and a string array kept as `void *` in `WDefault` and cast back. None is a `T**` where a `T*` was meant. All 7 lines suppressed.
-			- Verified: with one `NOLINT` of each check taken out, analyze-c's `Et09atx` went red naming all 3, and passed again with the file restored. analyze-c, sanitize-c, check-c-compilers, check-veneer, the C conformance runner (206 cases), the veneer smoke, oom_hook, oom_recover, mem_bounds, the mingw compile, cli-regress over C (612 rows), `test-ids.py check`, check-docs, and shellcheck pass.
+			- Verified: with one `NOLINT` of each check taken out, analyze-c's `de2x4` went red naming all 3, and passed again with the file restored. analyze-c, sanitize-c, check-c-compilers, check-veneer, the C conformance runner (206 cases), the veneer smoke, oom_hook, oom_recover, mem_bounds, the mingw compile, cli-regress over C (612 rows), `test-ids.py check`, check-docs, and shellcheck pass.
 			- Needs local test suite run: the exhaustive cppcheck over shcl.h, though the change is comments only.
 		- 20261019, branch `leakflag`, the `--leakcheck` half but CodeQL:
-			- `--leakcheck` in cicd.bash, shared with 2026101711273980. It runs config.bash's `LEAKCHECK_STEPS` at the end of the tests stage. A run with no flags runs them, `--gate` and `--quick` leave them out, `--leakcheck` adds them back, and `--no-tests` drops them. CodeQL joins that list. `Et9t3dc` in check-push-gate checks all 6 cases on a stubbed engine.
-			- `analyze-c.bash --ctu`: the clang analyzer in its cross-file mode. Each program is split in 2, its own code and the library compiled with what the program defines before the include, so its calls into the library cross a file. A leak and a null dereference the per-file pass misses have to be reported first (`Et9t3Ll`). The real run is `Et9t3PQ`, 17 s here.
+			- `--leakcheck` in cicd.bash, shared with 2026101711273980. It runs config.bash's `LEAKCHECK_STEPS` at the end of the tests stage. A run with no flags runs them, `--gate` and `--quick` leave them out, `--leakcheck` adds them back, and `--no-tests` drops them. CodeQL joins that list. `de582` in check-push-gate checks all 6 cases on a stubbed engine.
+			- `analyze-c.bash --ctu`: the clang analyzer in its cross-file mode. Each program is split in 2, its own code and the library compiled with what the program defines before the include, so its calls into the library cross a file. A leak and a null dereference the per-file pass misses have to be reported first (`de57y`). The real run is `de57z`, 17 s here.
 			- Only oom_hook.c, oom_recover.c and soak.c can be split. main.c, conformance.c, mem_bounds.c and the veneer smoke use the library's own types and static functions, so they're listed and left whole. That leaves no C++ for the cross-file pass.
 			- The cross-file pass found 2 real things in soak.c while it was new: a NULL handed to qsort for an empty corpus, and a leak on the early return. Both fixed. The per-file pass reports the same 2. With the whole library in each program's one file, the per-file pass already follows every call the cross-file one does.
 			- Question: keep `--ctu`, when the per-file pass already sees what it sees on this tree? It costs 17 s. It would matter once a program is split across files or the library stops being header-only.
 				- JC, 20261019: keep it.
-			- `soak-c.bash` with `source/c/tests/soak.c`: the C soak, a plain build under heaptrack. Each round is the Rust soak's: load, read, set, save, keep-lines save, merge, and validate over the 206 corpus cases. It judges glibc's bytes in use (`mallinfo2`) at round 3 against round 6, with a 4 KiB margin (`Et9t3AU`). The heap is flat from round 2 on, plain or under heaptrack. A bait build that grows one document every round has to fail (`Et9t3ED`). heaptrack's data and its printed report go in `cicd/artifacts/soak/` with the round table (`Et9t3I4`). An ASan build or another libc skips, since glibc's counts can't see the heap there. About 22 s in the build image.
+			- `soak-c.bash` with `source/c/tests/soak.c`: the C soak, a plain build under heaptrack. Each round is the Rust soak's: load, read, set, save, keep-lines save, merge, and validate over the 206 corpus cases. It judges glibc's bytes in use (`mallinfo2`) at round 3 against round 6, with a 4 KiB margin (`de57v`). The heap is flat from round 2 on, plain or under heaptrack. A bait build that grows one document every round has to fail (`de57w`). heaptrack's data and its printed report go in `cicd/artifacts/soak/` with the round table (`de57x`). An ASan build or another libc skips, since glibc's counts can't see the heap there. About 22 s in the build image.
 			- soak.c is a test .c file, so analyze-c's every-run gcc and clang passes take it too. analyze-c took 197 s with it, at load 25 to 30, against 150 to 182 s before.
-			- `sanitize-c.bash --glibcxx-debug`: the veneer smoke with `-D_GLIBCXX_DEBUG` on top of ASan, UBSan, and `SHCL_ARENA_MALLOC`, in a build dir of its own (`Et9t3ab`). A bait that steps an iterator past a vector's end has to be stopped (`Et9t3Wv`). That bait passes under ASan with `_GLIBCXX_ASSERTIONS`. 56 s.
+			- `sanitize-c.bash --glibcxx-debug`: the veneer smoke with `-D_GLIBCXX_DEBUG` on top of ASan, UBSan, and `SHCL_ARENA_MALLOC`, in a build dir of its own (`de581`). A bait that steps an iterator past a vector's end has to be stopped (`de580`). That bait passes under ASan with `_GLIBCXX_ASSERTIONS`. 56 s.
 			- heaptrack 1.5.0, and clang-tools 19 for `clang-extdef-mapping`, are in TOOL_PINS, the main Dockerfile, and ci.yml. ci.yml installs heaptrack as `heaptrack=1.5.0*`, so check-pins takes apt's `=` as a joiner. Both scripts start the build image through `fCtrRunSelf` in `include/ctr-image.bash` now, moved out of analyze-c.
 			- Verified: `analyze-c.bash --ctu` green here with clang 19.1.7. analyze-c green through the rebuilt image with soak.c in it, and soak-c green through it. `sanitize-c.bash --glibcxx-debug` green. The first 3 `LEAKCHECK_STEPS` strings, run the way the engine runs them, passed in 97 s. check-push-gate, check-pins, shell-regress, shellcheck over all 46 files, `test-ids.py check`, and markdownlint-cli2 pass. check-docs passes but for its installer row, which fails on dev too until install-dev.bash goes to main.
 			- check-docs reads 100 lines for the SPDX and copyright headers now, up from 80, since cicd.bash's help grew past 80. It went red at 80.
-			- Verified: each plant went red, then was restored by copy. The cross-file mode turned off failed `Et9t3Ll` and `Et9t3PQ`, with nothing loaded from the library's file. soak.c's 2 findings failed `Et9t3PQ` before the fix. A static list in `shcl_parse` that grows by a block a call failed the soak, 9216 bytes over 3 rounds, while the corpus runner and every CLI run passed under LSan with it. The bait's growth turned off failed `Et9t3ED`. An iterator stepped past the end in the veneer smoke failed `Et9t3ab` and passed under ASan with `_GLIBCXX_ASSERTIONS`. An engine that keeps the steps under `--gate` and `--quick`, one where `--leakcheck` does nothing, and one that never runs the list each failed `Et9t3dc`. check-pins went red with heaptrack or clang-tools dropped from ci.yml, and with another heaptrack version in the Dockerfile.
+			- Verified: each plant went red, then was restored by copy. The cross-file mode turned off failed `de57y` and `de57z`, with nothing loaded from the library's file. soak.c's 2 findings failed `de57z` before the fix. A static list in `shcl_parse` that grows by a block a call failed the soak, 9216 bytes over 3 rounds, while the corpus runner and every CLI run passed under LSan with it. The bait's growth turned off failed `de57w`. An iterator stepped past the end in the veneer smoke failed `de581` and passed under ASan with `_GLIBCXX_ASSERTIONS`. An engine that keeps the steps under `--gate` and `--quick`, one where `--leakcheck` does nothing, and one that never runs the list each failed `de582`. check-pins went red with heaptrack or clang-tools dropped from ci.yml, and with another heaptrack version in the Dockerfile.
 			- Needs local test suite run: a whole `--leakcheck` run, once CodeQL joins it, and a full run with no flags, which now takes hours (2026101711273980).
 		- 20261019, branch `codeql`, CodeQL over all 5 languages, shared with 2026101711273980:
 			- `cicd/utility/codeql-scan.bash`, in `LEAKCHECK_STEPS` before `--miri-all`. CodeQL 2.27.2 is in TOOL_PINS and the main image, as the bundle with its query packs, its sha256 in the Dockerfile. The image keeps only the 4 languages shcl has code in, which saves about 1 GB. It runs there with no network.
 			- C and C++ are one database, from a traced build of main.c and every test program. Go, Python and Rust get one each. Each runs its language's `security-and-quality` suite, and any finding fails.
-			- It scans a copy of `source/` with one planted finding per language, and each has to be reported (`EtAC9AA`, `EtAC9Cx`, `EtAC9FX`, `EtAC9IG`, `EtAC9L2`). Each database has to hold every source file of its languages, Go's tests included (`EtAC9O4`, `EtAC9Qz`, `EtAC9UO`, `EtAC9XH`). The findings are `EtAC9Zo`, `EtAC9cY`, `EtAC9fG` and `EtAC9ie`.
-			- A suppression is a `codeql[QUERY-ID] reason` comment alone on the line above, or `/* */` above commented-out C, which a `//` line would join. It needs its reason and has to still cover a finding (`EtAC9lw`). There's no baseline file, and lgtm and noqa comments don't count.
+			- It scans a copy of `source/` with one planted finding per language, and each has to be reported (`de5a7`, `de5a8`, `de5a9`, `de5aa`, `de5ab`). Each database has to hold every source file of its languages, Go's tests included (`de5ac`, `de5ad`, `de5ae`, `de5af`). The findings are `de5ag`, `de5ah`, `de5aj` and `de5ak`.
+			- A suppression is a `codeql[QUERY-ID] reason` comment alone on the line above, or `/* */` above commented-out C, which a `//` line would join. It needs its reason and has to still cover a finding (`de5am`). There's no baseline file, and lgtm and noqa comments don't count.
 			- The CLI's own suppression matching goes wrong after a literal U+2028 or U+2029, which shcl.py's whitespace table has. So the script matches the suppression query's output to the findings itself. A one-function file with such a string above it showed the same.
 			- 88 findings the first time: 54 in C and C++, 1 in Go, 33 in Python, none in Rust. Every site was read, and none is a real bug in our code, so nothing was filed.
 			- Fixed in C: shcl.h's include guard now covers the POSIX feature block above it too, and the corpus runner checks one parse for NULL.
 			- Suppressed in C and C++, 52 sites: 16 test scratch files opened with `fopen`, 8 `snprintf` loops in tests whose buffer fits every line, 5 opens of the path the caller named, 5 recovery points disarmed before their frame returns, 5 tests commented out, 4 loop counters that skip ahead on purpose, 3 structs pushed by value, and one each of: the gap shcl.h documents for filesystems with no hard links, an exact float match, a lambda capture, an empty `if` that quiets `warn_unused_result`, the busy block in `w_overlay`, and `t < 9` in `big_mul_pow10`. With that bound gone, cppcheck reports an out-of-bounds read.
 			- Verified: codeql-scan green in the build image, 307 to 377 s at 8 threads, at load 15 to 24. Its scratch copy of `source/` and the crates it fetches stay outside the repo, beside the container caches.
-			- Verified: each plant went red, then was restored by copy. A stack address kept in shcl.h and a `new` with `free` in shcl.hpp failed `EtAC9Zo`, a dead store failed `EtAC9cY`, an unclosed file failed `EtAC9fG`, and a null read in lib.rs failed `EtAC9ie`. A stale suppression and one with no reason failed `EtAC9lw`. A Go bait that reports nothing failed `EtAC9FX`. A `.c` file no program builds failed `EtAC9O4`. A stable Rust toolchain failed `EtAC9XH` and `EtAC9L2`. Before the build-tag rule, the 5 Go files for other platforms failed `EtAC9Qz`.
+			- Verified: each plant went red, then was restored by copy. A stack address kept in shcl.h and a `new` with `free` in shcl.hpp failed `de5ag`, a dead store failed `de5ah`, an unclosed file failed `de5aj`, and a null read in lib.rs failed `de5ak`. A stale suppression and one with no reason failed `de5am`. A Go bait that reports nothing failed `de5a9`. A `.c` file no program builds failed `de5ac`. A stable Rust toolchain failed `de5af` and `de5ab`. Before the build-tag rule, the 5 Go files for other platforms failed `de5ad`.
 			- The first C baits, a tainted path and a use after free, went unreported, so the C bait keeps a stack address past its frame instead.
-			- Verified: check-pins went red with CodeQL taken off the `--leakcheck`-only list (`EoSE8Nk`), with codeql-scan in `LINT_EXTRA` (`EtAC9of`), and with another version in the Dockerfile (`Esbpsph`).
+			- Verified: check-pins went red with CodeQL taken off the `--leakcheck`-only list (`dbz38`), with codeql-scan in `LINT_EXTRA` (`de5an`), and with another version in the Dockerfile (`ddx1t`).
 			- Verified: `LEAKCHECK_STEPS` but `--miri-all`, one after another: codeql-scan, `analyze-c.bash --ctu`, soak-c and `sanitize-c.bash --glibcxx-debug`. Also analyze-c, check-c-compilers (141 builds), sanitize-c, the C runner (206 cases), the veneer smoke, cppcheck at the normal level over main.c and conformance.c, check-pins, shell-regress, check-push-gate, `test-ids.py check`, markdownlint-cli2, and shellcheck over all 47 files. check-docs passes but for its installer row, as on dev.
 	- Decisions:
 		- Vendored code is included in the analyses (JC, 2026-10-17). Only code end users run (JC, 2026101920461160).
@@ -1991,20 +2091,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The C soak judges glibc's own count of the bytes in use, read by the program between rounds. heaptrack's report is for reading, since it has no per-round figure (me).
 		- `--ctu` splits only the programs that keep to the public calls, and lists the rest with the reason (me).
 		- CodeQL comes as the bundle, not the bare CLI, which has no query packs and would fetch them at run time (me).
-		- Hosted CI doesn't install CodeQL. Its bundle is about 700 MB, for a step the gate never runs. check-pins leaves a `--leakcheck`-only tool out of its ci.yml match, and fails if a gate step names one (`EtAC9of`). heaptrack and clang-tools stay in ci.yml as before (me).
+		- Hosted CI doesn't install CodeQL. Its bundle is about 700 MB, for a step the gate never runs. check-pins leaves a `--leakcheck`-only tool out of its ci.yml match, and fails if a gate step names one (`de5an`). heaptrack and clang-tools stay in ci.yml as before (me).
 		- Each language's standard `security-and-quality` suite, with nothing added or taken out (me).
 		- The scan covers `source/`: the 4 bindings, the CLIs, and their tests. The pipeline's own Python scripts stay out, as tooling (me).
 		- Platform code is analyzed as the Linux build sees it. Go files behind other platforms' build tags are named and skipped, and the Windows branches in C and Rust aren't compiled. There's no Windows pass (me).
-			- JC, 20261019: add a windows pass for Go. It extracts with `GOOS=windows` and judges only the files the Linux pass leaves out (`EtBmwWo`, `EtBmwbF`, `EtBmwfq`). C and Rust stay Linux only.
+			- JC, 20261019: add a windows pass for Go. It extracts with `GOOS=windows` and judges only the files the Linux pass leaves out (`de5pg`, `de5ph`, `de5pj`). C and Rust stay Linux only.
 	- 20261019, tests on dev at `aa2e3b33`: a full `--gate` passed, analyze-c and the exhaustive cppcheck included. `analyze-c --ctu`, `soak-c`, `sanitize-c --glibcxx-debug`, and `codeql-scan` passed one after another, the 4 `--leakcheck` steps before `--miri-all`. Hosted run 39307128325: both ubuntu jobs green. Its windows job failed the veneer smoke on 2026101807501110's new check, which isn't this item's.
 	- 20261021, tests on `r1021` at `fe2545f6`: the bare run in the main image (`-y --no-lint`, since lint is red for 2026102108300000) stopped at check-push-gate in stage 4, before the leak steps. So the full run is still left. Log `shcl/bare-r1021.log`.
 	- 20261022, JC's bare run on dev `8b81b8c3`, 08:54 to 10:37, log `run_20261022-085416` in `cicd/artifacts/lint/`: every stage passed, no `FAIL` line.
-		- Verified: analyze-c `Et09ats` to `Et09atx` in the lint stage. In the tests stage, sanitize-c `EoLqLse`, `EoLqLsf`, `EoaFuVO`, `EoezJiF`, `EoSE8Nl`, `EstYPCw`, `Et09atr` and `EoSE8Nm` (6329 CLI runs), and check-push-gate `Et9t3dc`.
-		- Verified, the leak steps: `analyze-c --ctu` `Et9t3Ll` and `Et9t3PQ`, soak-c `Et9t3AU`, `Et9t3ED` and `Et9t3I4`, `sanitize-c --glibcxx-debug` `Et9t3Wv` and `Et9t3ab`, and codeql-scan's C and C++ rows `EtAC9AA`, `EtAC9Cx`, `EtAC9O4`, `EtAC9Zo` and `EtAC9lw`, all 5 languages clean in 308 s.
+		- Verified: analyze-c `de2wz` to `de2x4` in the lint stage. In the tests stage, sanitize-c `dbxj4`, `dbxj5`, `dc113`, `dc25h`, `dbz39`, `de1a6`, `de2wy` and `dbz3a` (6329 CLI runs), and check-push-gate `de582`.
+		- Verified, the leak steps: `analyze-c --ctu` `de57y` and `de57z`, soak-c `de57v`, `de57w` and `de57x`, `sanitize-c --glibcxx-debug` `de580` and `de581`, and codeql-scan's C and C++ rows `de5a7`, `de5a8`, `de5ac`, `de5ag` and `de5am`, all 5 languages clean in 308 s.
 	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
 	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
 	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch covers what it calls (me).
-	- Test case: analyze-c `Et09ats` to `Et09atx`, `Et9t3Ll` and `Et9t3PQ`; sanitize-c `Et09atr`, `Et9t3Wv` and `Et9t3ab`; soak-c `Et9t3AU`, `Et9t3ED` and `Et9t3I4`; codeql-scan `EtAC9AA`, `EtAC9Cx`, `EtAC9O4`, `EtAC9Zo` and `EtAC9lw`; check-push-gate `Et9t3dc`.
+	- Test case: analyze-c `de2wz` to `de2x4`, `de57y` and `de57z`; sanitize-c `de2wy`, `de580` and `de581`; soak-c `de57v`, `de57w` and `de57x`; codeql-scan `de5a7`, `de5a8`, `de5ac`, `de5ag` and `de5am`; check-push-gate `de582`.
 	- Acceptance signoff: Self-closed on JC's criteria: every plant was seen red, and a full run with no flags passed each step and row above.
 	- Closed: 20261022-112537
 
@@ -2061,21 +2161,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- No binding or CLI has a runtime dependency on any release target, and nothing is vendored. Rust's `pprof` is behind the `profiling` feature and `dhat` is a dev-dependency, so neither is in scope. So nothing needs vendoring for CodeQL yet. Rechecked 20261019 for 2026101920461160.
 	- Progress log:
 		- 20261017, Rust, branch `rsleak`:
-			- `cicd/utility/sanitize-rust.bash`, in TEST_EXTRA and skipped on alpine, runs the whole suite under ASan and LSan (`EszIPWj`), then under Miri (`EszIPWk`). It uses `nightly-2026-10-16`, pinned in a `[nightly]` table in rust-toolchain.toml. The images and ci.yml read it from there, as they do the stable channel, so it has no TOOL_PINS row. The main image also gets llvm-19, since Rust's ASan names no frame without its symbolizer.
+			- `cicd/utility/sanitize-rust.bash`, in TEST_EXTRA and skipped on alpine, runs the whole suite under ASan and LSan (`de2pb`), then under Miri (`de2pc`). It uses `nightly-2026-10-16`, pinned in a `[nightly]` table in rust-toolchain.toml. The images and ci.yml read it from there, as they do the stable channel, so it has no TOOL_PINS row. The main image also gets llvm-19, since Rust's ASan names no frame without its symbolizer.
 			- Miri skips 12 tests with `#[cfg_attr(miri, ignore = "...")]` and the reason: saves (Miri has no `fchown` or directory fsync), an O_NONBLOCK open, tzset, and the 2 that start a process. The script pins the test clock, which keeps setters off tzset. The soak test is skipped there too, since dhat records a backtrace per allocation.
-			- 47 more tests take minutes each under Miri: the corpus walkers, the slow fuzz tests and 3 in mem_caps. They're ignored there unless built with `--cfg shcl_miri_all`, which `sanitize-rust.bash --miri-all` sets (`EszIPWl`). That mode belongs under `--leakcheck`. Each test runs under Miri as a job of its own, so a leak or UB report names its test. Measured cold in the main image at 5 jobs: ASan 57 s, Miri without the slow tests 102 s. `--miri-all` was stopped after an hour with 72 of 155 tests done and nothing reported. 4 tests had run 40 to 60 minutes each by then, so the whole mode is likely several hours.
-			- Soak test `EszDssm` in `tests/soak.rs`: dhat in testing mode, a dev-dependency. It loops load, read, set, save, merge, and validate over every corpus case, and fails when the heap at round 2N is more than 4 KiB past round N. The report, and the dhat profile on a failure, go to `cicd/artifacts/soak/`. About 5 s in the plain suite. The live heap is 288 bytes after every round today.
+			- 47 more tests take minutes each under Miri: the corpus walkers, the slow fuzz tests and 3 in mem_caps. They're ignored there unless built with `--cfg shcl_miri_all`, which `sanitize-rust.bash --miri-all` sets (`de2pd`). That mode belongs under `--leakcheck`. Each test runs under Miri as a job of its own, so a leak or UB report names its test. Measured cold in the main image at 5 jobs: ASan 57 s, Miri without the slow tests 102 s. `--miri-all` was stopped after an hour with 72 of 155 tests done and nothing reported. 4 tests had run 40 to 60 minutes each by then, so the whole mode is likely several hours.
+			- Soak test `de2ns` in `tests/soak.rs`: dhat in testing mode, a dev-dependency. It loops load, read, set, save, merge, and validate over every corpus case, and fails when the heap at round 2N is more than 4 KiB past round N. The report, and the dhat profile on a failure, go to `cicd/artifacts/soak/`. About 5 s in the plain suite. The live heap is 288 bytes after every round today.
 			- clippy: `mem_forget` and `undocumented_unsafe_blocks` are in Cargo.toml's `[lints.clippy]`, so the windows target lint gets them too. Every unsafe block in lib.rs, main.rs and the tests has a `// SAFETY:` comment.
 			- No suppressions. Nothing reported on the current code, dhat's crates included.
-			- Verified: each plant went red, then was restored by copy and rebuilt clean. An Rc cycle in the soak loop failed `EszDssm`. A `Box::leak` in an upgrade test failed LSan (exit 77) and Miri ("memory leaked"). An out-of-bounds read in an unsafe block in `Document::parse` failed ASan (heap-buffer-overflow, symbolized) and Miri (UB in 4 binaries). A dropped SAFETY comment and a `mem::forget` failed clippy.
+			- Verified: each plant went red, then was restored by copy and rebuilt clean. An Rc cycle in the soak loop failed `de2ns`. A `Box::leak` in an upgrade test failed LSan (exit 77) and Miri ("memory leaked"). An out-of-bounds read in an unsafe block in `Document::parse` failed ASan (heap-buffer-overflow, symbolized) and Miri (UB in 4 binaries). A dropped SAFETY comment and a `mem::forget` failed clippy.
 			- Verified: `sanitize-rust.bash` green in the main image with `SHCL_GATE_STRICT=1`. A missing nightly skips locally, fails strict, and installs nothing. cargo test, clippy for both targets, cargo fmt, cargo deny, check-pins, test-ids check, shellcheck, and shell-regress pass.
 			- Needs local test suite run: a full `--ci`, the ubuntu image, which has the nightly now and wasn't rebuilt, and the hosted nightly step in ci.yml.
 		- 20261017, Go and Python, branch `gopyleak`:
-			- Go: `TestMain` fails the run when goroutines are still running a second after the tests, and prints their stacks (`Et01j1m`). The CLI module has no tests, so it has no `TestMain`. The whole library suite runs under `-race` in place of the one test, with `-timeout 10m`. The 3 timed ratio tests and the soak skip under `-race`, since the detector's cost swamps what they time. Soak `Et01j4C` compares `HeapInuse` and the goroutine count at rounds 4 and 8 with a 128 KB margin, and writes `cicd/artifacts/soak/go-heap.pprof`.
-			- Python: the runner and the soak run with `-X dev -W error::ResourceWarning`. A ResourceWarning goes off in a destructor, where `-W error` only prints it, so an unraisable hook fails the test that was open. `Et01jhN` checks `gc.garbage` after a `gc.collect()` at the end of the run. Soak `Et01jhM` starts tracing before the import, compares rounds 6 and 12 with a 64 KB margin, and writes the top `compare_to()` lines to `cicd/artifacts/soak/python-tracemalloc.txt`. N is 6 because the interned-name table grows once, about 400 KB, near round 5.
+			- Go: `TestMain` fails the run when goroutines are still running a second after the tests, and prints their stacks (`de2vz`). The CLI module has no tests, so it has no `TestMain`. The whole library suite runs under `-race` in place of the one test, with `-timeout 10m`. The 3 timed ratio tests and the soak skip under `-race`, since the detector's cost swamps what they time. Soak `de2w0` compares `HeapInuse` and the goroutine count at rounds 4 and 8 with a 128 KB margin, and writes `cicd/artifacts/soak/go-heap.pprof`.
+			- Python: the runner and the soak run with `-X dev -W error::ResourceWarning`. A ResourceWarning goes off in a destructor, where `-W error` only prints it, so an unraisable hook fails the test that was open. `de2w2` checks `gc.garbage` after a `gc.collect()` at the end of the run. Soak `de2w1` starts tracing before the import, compares rounds 6 and 12 with a 64 KB margin, and writes the top `compare_to()` lines to `cicd/artifacts/soak/python-tracemalloc.txt`. N is 6 because the interned-name table grows once, about 400 KB, near round 5.
 			- Since 3.4 Python collects a cycle even with `__del__`, so only an object with a C `tp_del` lands in `gc.garbage`. The soak collects with `gc.DEBUG_SAVEALL`, so any cycle the library makes fails it.
 			- Added time, measured here at 5 cores under load: the Go `-race` run about 20 s in place of about 8, the Go soak about 3 s, `-X dev` about 8 s on the Python runner's 43, the Python soak about 16 s. All of it stays on the full run. Nothing for `--leakcheck`.
-			- Verified: each plant went red, and passed once restored. A goroutine blocked on a channel failed `Et01j1m`. Each document's path list kept in the soak loop failed `Et01j4C`, 350 KB over. A data race in `ReadString` failed the `-race` run and passed the plain one. A race in another test failed the whole-suite run and passed the old one-test line. An unclosed file in `load_file` failed the runner and the soak, and passed the old plain run. A module-global list in `paths()` failed `Et01jhM`, with the `shcl.py` lines on top of the artifact. A reference cycle in `merge` failed the soak. A `tp_del` cycle from `_testcapi` failed `Et01jhN`.
+			- Verified: each plant went red, and passed once restored. A goroutine blocked on a channel failed `de2vz`. Each document's path list kept in the soak loop failed `de2w0`, 350 KB over. A data race in `ReadString` failed the `-race` run and passed the plain one. A race in another test failed the whole-suite run and passed the old one-test line. An unclosed file in `load_file` failed the runner and the soak, and passed the old plain run. A module-global list in `paths()` failed `de2w1`, with the `shcl.py` lines on top of the artifact. A reference cycle in `merge` failed the soak. A `tp_del` cycle from `_testcapi` failed `de2w2`.
 			- Verified: the Go plain and `-race` suites, vet and staticcheck on the library for linux and windows, `TestReadsFromSeveralGoroutines` under `-race` in the alpine image, so musl has the race detector, the Python runner and soak, cli-regress over the Rust and Python CLIs, ruff, mypy, test-ids check, check-docs, shell-regress, shellcheck.
 			- Needs local test suite run: a full run, with the new test lines in place. Needs external testing: the hosted windows job, for the Go soak and for the Python runner and soak in win-runners.
 			- Fixed: a failed try in Python's `write_file_atomic` and `_windows_publish_file` kept the caught `OSError`, whose traceback holds the frame, so the two were a cycle until the next collection. On windows, a save that waits out a brief hold could fail the soak's cycle check. Both keep the error without its traceback now, so that way no frame from `shcl.py` is left in a cycle after the runner.
@@ -2097,18 +2197,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Cause: `shcl.py` set up its Windows API calls on every save. Each `WinDLL` makes a class, `_create_like` declared its `SecurityAttributes` Structure inside the call, and its DACL buffer was a ctypes array, whose type ctypes makes again once the last one is freed. A class is a reference cycle, and the soak's `DEBUG_SAVEALL` keeps every cycle it finds, so traced memory doubled.
 			- The `c_longdouble` class in the message is ctypes' own. On windows a `long double` is the size of a `double`, so ctypes swaps that class for `c_double` as it loads and leaves the first one in a cycle. Read in ctypes' source, not seen on windows.
 			- Fixed: `_win32()` builds both DLLs, their signatures and the Structure once, behind `functools.cache`, and the 3 windows calls share it. The DACL buffer is a bytearray, aligned by hand. The soak keeps cycles from round 2 on, since round 1 is where the library imports ctypes.
-			- Test case: `EtD4W76` `windows_calls_build_their_ctypes_once` in the Python runner. It swaps in a fake `ctypes.WinDLL` and `msvcrt`, so it runs on Linux too. It runs the 3 windows calls once, then 3 more rounds under `DEBUG_SAVEALL`, and fails on a DLL loaded again or any cycle left.
-			- Verified: `EtD4W76` failed on the old `shcl.py`, which loaded kernel32 3 times in one round. It failed with the Structure put back in the call (39 objects in cycles) and with the ctypes array put back (6), and passes with the fix. The Python runner, the soak, ruff, mypy, test-ids check, and check-docs pass. A list cycle planted per load still failed the soak.
+			- Test case: `de60c` `windows_calls_build_their_ctypes_once` in the Python runner. It swaps in a fake `ctypes.WinDLL` and `msvcrt`, so it runs on Linux too. It runs the 3 windows calls once, then 3 more rounds under `DEBUG_SAVEALL`, and fails on a DLL loaded again or any cycle left.
+			- Verified: `de60c` failed on the old `shcl.py`, which loaded kernel32 3 times in one round. It failed with the Structure put back in the call (39 objects in cycles) and with the ctypes array put back (6), and passes with the fix. The Python runner, the soak, ruff, mypy, test-ids check, and check-docs pass. A list cycle planted per load still failed the soak.
 			- Swept: Go's DLLs and procs are package-level `NewLazyDLL` vars, and Rust and C declare their imports, so none of them builds anything per call. The Python CLI's console check loads kernel32 once a run. The runner's windows fixtures load it once per test, in test code.
 			- Commit: `2251a602`.
-			- Needs external testing: the hosted windows job, for `Et01jhM` and `EtD4W76`.
-		- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `Et01jhM` and `EtD4W76`. Left: a whole `--miri-all` and a full run with no flags. JC's bare run from 17:04 is in its `--miri-all`.
+			- Needs external testing: the hosted windows job, for `de2w1` and `de60c`.
+		- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `de2w1` and `de60c`. Left: a whole `--miri-all` and a full run with no flags. JC's bare run from 17:04 is in its `--miri-all`.
 		- 20261021, tests on `r1021` at `fe2545f6`:
-			- Verified: hosted run 39663476196's windows job passed `Et01jhM` (Python soak), `EtD4W76`, the Go soak `Et01j4C` and every win-runners step, the Python runner included.
+			- Verified: hosted run 39663476196's windows job passed `de2w1` (Python soak), `de60c`, the Go soak `de2w0` and every win-runners step, the Python runner included.
 			- The bare run in the main image (`-y --no-lint`, since lint is red for 2026102108300000) stopped at check-push-gate in stage 4, before the leak steps and `--miri-all`. Log `shcl/bare-r1021.log`.
 	- Decisions:
 		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
-		- The Rust extractor swaps a stable toolchain for 1.98.1 and would install it, so CodeQL runs on the dated nightly from rust-toolchain.toml, which it keeps. The crates Cargo.lock names are fetched before the image starts, since it has no network, into the cargo home `--container` runs use. Under the repo, the crates' own Cargo.toml and README files threw off check-docs' greps of the tree, and shell-regress's `EsndgSX` went red on it (me).
+		- The Rust extractor swaps a stable toolchain for 1.98.1 and would install it, so CodeQL runs on the dated nightly from rust-toolchain.toml, which it keeps. The crates Cargo.lock names are fetched before the image starts, since it has no network, into the cargo home `--container` runs use. Under the repo, the crates' own Cargo.toml and README files threw off check-docs' greps of the tree, and shell-regress's `ddzwm` went red on it (me).
 	- Decided against: `goleak`. The Go library starts no goroutines, and `goleak` would be the library module's first dependency. The `NumGoroutine` check in `TestMain` does the same job here (me).
 	- Decided against: Go's `-asan` and `-msan`. They only check cgo code, and the Go binding has none (me).
 	- Decided against: Rust ThreadSanitizer. The library starts no threads. The only `thread::spawn` calls are in Windows tests, and safe Rust's `Send` and `Sync` rules cover sharing (me).
@@ -2116,13 +2216,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: an ASan-built CPython. There's no C extension. The only native calls are Windows-only `ctypes` ones (me).
 	- Decided against: `pip-audit`. The Python binding has no third-party dependencies. Add it when one arrives (me).
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
-	- 20261019, hosted run 39307128325 on dev at `59c6ecfb`: the windows job failed the Python soak `Et01jhM`. Traced memory grew from 28,929,219 bytes at round 6 to 55,877,467 at round 12, and 235,615 objects were in reference cycles, such as `ctypes.c_longdouble` and its bases. Linux is green. The cycles are ctypes classes, so the suspect is `shcl.py`'s windows-only ctypes code building types on each call. Not diagnosed yet. The Go soak passed there.
+	- 20261019, hosted run 39307128325 on dev at `59c6ecfb`: the windows job failed the Python soak `de2w1`. Traced memory grew from 28,929,219 bytes at round 6 to 55,877,467 at round 12, and 235,615 objects were in reference cycles, such as `ctypes.c_longdouble` and its bases. Linux is green. The cycles are ctypes classes, so the suspect is `shcl.py`'s windows-only ctypes code building types on each call. Not diagnosed yet. The Go soak passed there.
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 	- 20261022, JC's bare run on dev `8b81b8c3`, 08:54 to 10:37, log `run_20261022-085416` in `cicd/artifacts/lint/`: every stage passed, no `FAIL` line.
-		- Verified: sanitize-rust `EszIPWj` and `EszIPWk`, the soaks `EszDssm` (Rust), `Et01j4C` (Go) and `Et01jhM` (Python), Go's `Et01j1m` in the plain and `-race` suites, Python's `Et01jhN` and `EtD4W76`, and check-push-gate `Et9t3dc`. `Et01j4C` skips under `-race`, as designed.
-		- Verified, the leak steps: codeql-scan's Go, windows Go, Python and Rust rows `EtAC9FX`, `EtBmwWo`, `EtAC9IG`, `EtAC9L2`, `EtAC9Qz`, `EtBmwbF`, `EtAC9UO`, `EtAC9XH`, `EtAC9cY`, `EtBmwfq`, `EtAC9fG`, `EtAC9ie` and `EtAC9lw`, then `sanitize-rust --miri-all` `EszIPWl`, nothing reported.
-	- Test case: sanitize-rust `EszIPWj`, `EszIPWk` and `EszIPWl`; soaks `EszDssm`, `Et01j4C` and `Et01jhM`; `Et01j1m`, `Et01jhN` and `EtD4W76`; codeql-scan `EtAC9FX`, `EtBmwWo`, `EtAC9IG`, `EtAC9L2`, `EtAC9Qz`, `EtBmwbF`, `EtAC9UO`, `EtAC9XH`, `EtAC9cY`, `EtBmwfq`, `EtAC9fG`, `EtAC9ie` and `EtAC9lw`; check-push-gate `Et9t3dc`.
-	- Acceptance signoff: Self-closed on JC's criteria: every plant was seen red, hosted run 39663476196's windows job passed the soaks and `EtD4W76`, and a full run with no flags, `--miri-all` included, passed each row above.
+		- Verified: sanitize-rust `de2pb` and `de2pc`, the soaks `de2ns` (Rust), `de2w0` (Go) and `de2w1` (Python), Go's `de2vz` in the plain and `-race` suites, Python's `de2w2` and `de60c`, and check-push-gate `de582`. `de2w0` skips under `-race`, as designed.
+		- Verified, the leak steps: codeql-scan's Go, windows Go, Python and Rust rows `de5a9`, `de5pg`, `de5aa`, `de5ab`, `de5ad`, `de5ph`, `de5ae`, `de5af`, `de5ah`, `de5pj`, `de5aj`, `de5ak` and `de5am`, then `sanitize-rust --miri-all` `de2pd`, nothing reported.
+	- Test case: sanitize-rust `de2pb`, `de2pc` and `de2pd`; soaks `de2ns`, `de2w0` and `de2w1`; `de2vz`, `de2w2` and `de60c`; codeql-scan `de5a9`, `de5pg`, `de5aa`, `de5ab`, `de5ad`, `de5ph`, `de5ae`, `de5af`, `de5ah`, `de5pj`, `de5aj`, `de5ak` and `de5am`; check-push-gate `de582`.
+	- Acceptance signoff: Self-closed on JC's criteria: every plant was seen red, hosted run 39663476196's windows job passed the soaks and `de60c`, and a full run with no flags, `--miri-all` included, passed each row above.
 	- Closed: 20261022-112537
 
 - Builds clean up stale artifacts and side-effects when they're done
@@ -2169,7 +2269,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: a `--no-container` run makes no images, so it still asks docker nothing.
 	- Branch: `tidyup`, then `stopfix`
 	- Commit: `a1ca716f`
-	- Test case: check-push-gate `EtDQOIx`, `EtDQOMF`, `EtDQOPc`, `EtDQOSv`, `EtNhygG` (a stopped run takes down the frozen copy's run and its children) and `EtNhz0U` (a container whose client won't stop is killed by its ID).
+	- Test case: check-push-gate `de633`, `de634`, `de635`, `de636`, `de8j7` (a stopped run takes down the frozen copy's run and its children) and `de8j8` (a container whose client won't stop is killed by its ID).
 	- Acceptance signoff: Self-closed on JC's criteria: each check-push-gate row was seen red, a whole run and a stopped run in the real image left nothing behind, and the 10-20 `--gate` removed the superseded images.
 	- Closed: 20261022-112537
 
@@ -2200,20 +2300,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261021: done on `r1021`. The record is made by the run in the copy and goes to the main repo's common dir; it names the copied tree, so a run whose checkout holds extra edits records that tree, never HEAD's.
 		- 20261021: a `--gate --no-container --no-tests --no-lint --no-cross` run on this repo ran from the copy, listed 7 uncommitted files, rebuilt only the crate into the shared target in 3 s, and left no worktree behind.
 		- 20261021, tests on `r1021` at `fe2545f6`, failed:
-			- `--gate` in the main image failed check-docs `EqL3TGq`. The longer help moved cicd.bash's copyright and SPDX lines to 102 and 105, past the check's 100-line header window. Log `shcl/gate-r1021.log`.
-			- Hosted run 39663476196 failed the same: `ci (lint)` on `EqL3TGq`, and `ci (tests)` on check-push-gate `EqGjDth`, which runs check-docs over the tree. The other 9 jobs passed.
-			- A bare run in the image (`-y --no-lint`) failed `EqGjDth` and `EtDCDE7` in stage 4, before the leak steps. Log `shcl/bare-r1021.log`.
+			- `--gate` in the main image failed check-docs `dcv6f`. The longer help moved cicd.bash's copyright and SPDX lines to 102 and 105, past the check's 100-line header window. Log `shcl/gate-r1021.log`.
+			- Hosted run 39663476196 failed the same: `ci (lint)` on `dcv6f`, and `ci (tests)` on check-push-gate `dct5a`, which runs check-docs over the tree. The other 9 jobs passed.
+			- A bare run in the image (`-y --no-lint`) failed `dct5a` and `de61p` in stage 4, before the leak steps. Log `shcl/bare-r1021.log`.
 			- A run stopped by PID in stage 6 removed the copy and its temp dir at once, while its `docker run` and container kept going for about 2 minutes on the removed copy, until the CPU floor check failed. Log `shcl/stopped-r1021.log`.
 			- Verified: a `-y --no-lint --no-tests` run passed from the copy, with 2 image runs (format, then 2-6), "copied fe2545f648c7, with nothing uncommitted", and no worktree left. Log `shcl/bare2-r1021.log`.
 		- 20261021: the header failure is 2026102113494069.
 		- 20261022: back to Waiting on automated testing. The header fix (2026102113494069) and the stop of the image's container (2026101920461153, `stopfix`) are on dev, so only the tests are left. JC's bare run on dev `8b81b8c3` covers the bare run.
 		- 20261022, tests on dev `8b81b8c3` and `r1022` at `b1eabe99`:
-			- Verified: JC's bare run (log `run_20261022-085416` in `cicd/artifacts/lint/`) printed `copied 8b81b8c3cf3a, with nothing uncommitted`, made 2 image runs, format and then 2-6, passed `EtMYbKi` and recorded `tree c739cfb75920`.
+			- Verified: JC's bare run (log `run_20261022-085416` in `cicd/artifacts/lint/`) printed `copied 8b81b8c3cf3a, with nothing uncommitted`, made 2 image runs, format and then 2-6, passed `de89c` and recorded `tree c739cfb75920`.
 			- Verified: `cicd.bash --gate` from the dev checkout started the image once, ran 2-6 from `copied 8b81b8c3cf3a`, passed every stage and recorded the same tree. The frozen worktree and its temp dir were gone after.
-			- Verified: hosted run 39824537161 on `r1022` passed all 10 jobs. `ci (lint)` and `ci (tests)` each printed `copied b1eabe99bb50` and passed `EqL3TGq`, `EqGjDth` and `EtMYbKi`, at 46 and 45 of 60 minutes.
-	- Swept: every `worktree add` and `worktree remove` under `cicd/` and the hook: pre-push and check-migrate now use the helper; check-push-gate and check-install-dev add worktrees only in their own scratch repos. The other users of the engine's stub repos (shell-regress `EqQUj04`, check-push-gate's engine and hook stubs) copy the helper. check-push-gate's extra-image mount rows pass `--no-freeze`, since they check mounts on the checkout's own paths. The docker scan in shell-regress `EtDCDEB` matches `fRunContainer` called with arguments.
-	- Test case: shell-regress `EtMYbKi` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
-	- Acceptance signoff: Self-closed on JC's criteria: `EtMYbKi` was seen red, and a bare run, a `--gate` in the main image and a hosted run all ran from a copy and passed.
+			- Verified: hosted run 39824537161 on `r1022` passed all 10 jobs. `ci (lint)` and `ci (tests)` each printed `copied b1eabe99bb50` and passed `dcv6f`, `dct5a` and `de89c`, at 46 and 45 of 60 minutes.
+	- Swept: every `worktree add` and `worktree remove` under `cicd/` and the hook: pre-push and check-migrate now use the helper; check-push-gate and check-install-dev add worktrees only in their own scratch repos. The other users of the engine's stub repos (shell-regress `dcwg7`, check-push-gate's engine and hook stubs) copy the helper. check-push-gate's extra-image mount rows pass `--no-freeze`, since they check mounts on the checkout's own paths. The docker scan in shell-regress `de61t` matches `fRunContainer` called with arguments.
+	- Test case: shell-regress `de89c` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
+	- Acceptance signoff: Self-closed on JC's criteria: `de89c` was seen red, and a bare run, a `--gate` in the main image and a hosted run all ran from a copy and passed.
 	- Closed: 20261022-112537
 
 - check-freebsd fetches its image again on a bare run in the main image, though the cached copy is still there
@@ -2236,8 +2336,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `SHCL_FREEBSD_CACHE` in the main image's ENV; check-freebsd reads only that or `$HOME/.cache`.
 	- Branch: `stopfix`
 	- Swept: cicd.bash unsets `SHCL_IN_CONTAINER`, `SHCL_CTR_IMAGE`, `SHCL_RUN_PART` and `SHCL_FROZEN`. check-freebsd was the only script under `cicd/` or `.github/` that read one after the unset. config.bash reads `SHCL_CTR_IMAGE`, but it's sourced before the unset.
-	- Test case: shell-regress `EtNojbM`, which fails any script but cicd.bash and config.bash that reads a setting cicd.bash unsets, and checks config.bash is sourced first.
-	- Verified: `EtNojbM` failed on the old check-freebsd and passes on the fix. shellcheck over `SHELLCHECK_TARGETS` and shell-regress passed. The rebuilt main image, `shcl-cicd:7f80c73639ce`, ran check-freebsd on this box's cache with no fetch line: 4347 CLI runs passed, the cached image's mtime didn't change, and nothing was written under the image's HOME. The stray copy went to the trash.
+	- Test case: shell-regress `de8k2`, which fails any script but cicd.bash and config.bash that reads a setting cicd.bash unsets, and checks config.bash is sourced first.
+	- Verified: `de8k2` failed on the old check-freebsd and passes on the fix. shellcheck over `SHELLCHECK_TARGETS` and shell-regress passed. The rebuilt main image, `shcl-cicd:7f80c73639ce`, ran check-freebsd on this box's cache with no fetch line: 4347 CLI runs passed, the cached image's mtime didn't change, and nothing was written under the image's HOME. The stray copy went to the trash.
 	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix, red before and green after, checked in the real image.
 	- Closed: 20261021-174500
 
@@ -2252,9 +2352,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: `r1021` at `dbb9ff97`
 	- Steps to reproduce:
 		- `cicd/utility/check-docs.bash` on `r1021` at `fe2545f6` or later.
-	- Incorrect behavior: check-docs `EqL3TGq` fails on cicd.bash, with no SPDX or copyright line in its header. check-push-gate `EqGjDth` runs check-docs on a clone of HEAD and fails with it. Hosted run 39663476196 failed `ci (lint)` and `ci (tests)` on them, and the local `--gate` failed lint.
+	- Incorrect behavior: check-docs `dcv6f` fails on cicd.bash, with no SPDX or copyright line in its header. check-push-gate `dct5a` runs check-docs on a clone of HEAD and fails with it. Hosted run 39663476196 failed `ci (lint)` and `ci (tests)` on them, and the local `--gate` failed lint.
 	- Expected behavior: both pass.
-	- Reproduced: yes, `EqL3TGq` red on this tree.
+	- Reproduced: yes, `dcv6f` red on this tree.
 	- Actual cause: the frozen-copy paragraph and `--no-freeze` line added 10 lines to cicd.bash's help, which is its `##` header. The copyright and SPDX lines moved to 102 and 105, and the check reads the first 100 lines.
 	- Decisions:
 		- me: trim the new help paragraph to 3 lines, rather than move the copyright block or widen the window. Every other script under `cicd/` keeps it after the purpose text, none past line 67. The check covers every source file, so a wider window is weaker everywhere for one file. The detail the paragraph dropped is in `frozen-tree.bash`'s header, config.bash's `FROZEN_LINKS` comment and 2026102108300000.
@@ -2262,13 +2362,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: cicd.bash's frozen-copy help paragraph, 9 lines down to 3.
 	- Branch: `r1021`
 	- Commit: `67cabba7`
-	- Swept: check-docs runs `EqL3TGq` over every tracked source file, and cicd.bash was the only one past the window. The next deepest under `cicd/` is check-migrate.bash, with SPDX at 67.
-	- Verified: `EqL3TGq` failed on the tree before the fix and passes after. check-docs, check-push-gate (`EqGjDth` included, red before on a clone of HEAD), shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
-	- Test case: check-docs `EqL3TGq`.
+	- Swept: check-docs runs `dcv6f` over every tracked source file, and cicd.bash was the only one past the window. The next deepest under `cicd/` is check-migrate.bash, with SPDX at 67.
+	- Verified: `dcv6f` failed on the tree before the fix and passes after. check-docs, check-push-gate (`dct5a` included, red before on a clone of HEAD), shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
+	- Test case: check-docs `dcv6f`.
 	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix whose test went red before and green after.
 	- Closed: 20261021-141000
 
-- check-push-gate's stand-in docker misreads `--device`, so `EtDCDE7` fails on a box with KVM
+- check-push-gate's stand-in docker misreads `--device`, so `de61p` fails on a box with KVM
 	- ID: 2026102114060102
 	- Type: Bug
 	- Status: Done
@@ -2279,15 +2379,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: `r1021` at `67cabba7`
 	- Steps to reproduce:
 		- `cicd/utility/check-push-gate.bash` as a user who can write `/dev/kvm`.
-	- Incorrect behavior: `EtDCDE7` fails with "the run in the main image failed", and the run's log says `env: '/dev/kvm': Permission denied`. The bare run on `r1021` failed the same.
+	- Incorrect behavior: `de61p` fails with "the run in the main image failed", and the run's log says `env: '/dev/kvm': Permission denied`. The bare run on `r1021` failed the same.
 	- Expected behavior: it passes.
 	- Reproduced: yes, here.
 	- Actual cause: since `fe2545f6` (2026102022450000) cicd.bash passes `--device /dev/kvm` to `docker run` when it can write `/dev/kvm`. The stand-in docker skips only the options it knows, so it took `/dev/kvm` for the image and ran `env /dev/kvm ...`. A box where the user can't write `/dev/kvm` never passes the option.
 	- Actual fix: the stand-in skips `--device` and its value.
 	- Branch: `r1021`
 	- Swept: `--device` is the only `docker run` option cicd.bash adds that the stand-in didn't know. Its mount-recording branch steps over unknown options one word at a time, which is right for `--device`. No other script in `cicd/` stands in for `docker run`.
-	- Verified: `EtDCDE7` failed before and passes after. check-push-gate, shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
-	- Test case: check-push-gate `EtDCDE7`.
+	- Verified: `de61p` failed before and passes after. check-push-gate, shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
+	- Test case: check-push-gate `de61p`.
 	- Acceptance signoff: Self-closed on JC's criteria: a test stand-in fix, red before and green after.
 	- Closed: 20261021-141000
 
@@ -2314,8 +2414,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- It printed `fetching ... about 640 MB`, though the cache held a matching image from 19:33Z, which it didn't replace. The cache check passes inside the image. Not explained.
 	- Swept: the other release checks. `check-cpu-floor.bash` already scans the FreeBSD build and boots only the Linux one; `check-win-release.bash` now finds its build through the same `fArtOf` helper. Of the cross targets, the arm ones run in hosted jobs (2026102019500000) and macOS in the hosted macOS job, so FreeBSD was the last one nothing ran. Only the Rust CLI is cross-built, so the other 3 bindings have no twin.
 	- Verified: `check-freebsd.bash` passed with KVM and with TCG here, and with KVM inside the main image from the release check's own line in config.bash, which fetched into an empty cache. It went red on one changed stdout and on one changed exit code, naming the case, on an image that didn't match its sha256, and on a failed fetch under `SHCL_GATE_STRICT`. shellcheck over `SHELLCHECK_TARGETS`, `test-ids.py check` and `shell-regress.bash` passed.
-	- Verified: in stage 6 of a run in the main image, `EtMgsNv`, `EtMgrmj` and `EtMgs5P` passed: 4347 CLI runs under FreeBSD 15.1, same bytes and exit codes as the Linux build, with KVM, 18 s with the boot.
-	- Test case: check-freebsd `EtMgsNv` (image pinned and cached), `EtMgrmj` (FreeBSD boots and runs the build), `EtMgs5P` (same bytes and exit codes as the Linux build).
+	- Verified: in stage 6 of a run in the main image, `de8ae`, `de8ac` and `de8ad` passed: 4347 CLI runs under FreeBSD 15.1, same bytes and exit codes as the Linux build, with KVM, 18 s with the boot.
+	- Test case: check-freebsd `de8ae` (image pinned and cached), `de8ac` (FreeBSD boots and runs the build), `de8ad` (same bytes and exit codes as the Linux build).
 	- Acceptance signoff: Self-closed on JC's criteria: stage 6 runs the check through the image with KVM, and its 3 rows pass.
 	- Closed: 20261021-134800
 
@@ -2342,7 +2442,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The 2 test files pass natively.
 	- Branch: `bsquote`
 	- Commit: `1e3c925b`
-	- Test case: shell-regress `EtLh7er`.
+	- Test case: shell-regress `de82q`.
 	- Acceptance signoff: Self-closed on JC's criteria: the whole mode finishes, and a stuck test fails by name.
 	- Closed: 20261021-102500
 
@@ -2390,8 +2490,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The setup's stub is 32-bit, so its uninstall key is in the 32-bit registry view. Apps and features reads both views, and so does the check.
 		- msys quotes an argument with a space, and NSIS reads `_?=` only unquoted and last. Quoted, the uninstaller copied itself to temp and returned 0 at once. The check starts it through `Start-Process -Wait`, which passes the arguments as they are.
 	- Swept: package.bash is the one place the setup is built, and stage 6 and `setup-build` both call it. shclpath.ps1's PATH edits already had winpath-regress.
-	- Test case: `EtIkYkb`, `EtIkYnd` and `EtIkYqY` in `check-win-setup.bash`, run by ci.yml's `setup-test` job.
-	- Verified: hosted run 39542902000 passed all 3. Run 39537878800 failed all 3 on a setup path that didn't resolve, so nothing was installed. Run 39542221440 failed `EtIkYqY` while the uninstaller returned before it ran, and `EtIkYkb` on the 32-bit key.
+	- Test case: `de7c2`, `de7c3` and `de7c4` in `check-win-setup.bash`, run by ci.yml's `setup-test` job.
+	- Verified: hosted run 39542902000 passed all 3. Run 39537878800 failed all 3 on a setup path that didn't resolve, so nothing was installed. Run 39542221440 failed `de7c4` while the uninstaller returned before it ran, and `de7c2` on the 32-bit key.
 	- Acceptance signoff: Self-closed: each test was red on the hosted runner with nothing installed or nothing removed, and all 3 pass now.
 	- Closed: 20261020-215500
 
@@ -2400,7 +2500,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Needs local test suite run?: N
-	- Needs external testing: Y. The hosted windows job, for the veneer smoke `EjtkR0S`.
+	- Needs external testing: Y. The hosted windows job, for the veneer smoke `d9v59`.
 	- Severity: Low
 	- Opened: 20261018-075011
 	- Opened by: 2026101707582803, from clang-tidy's bugprone-easily-swappable-parameters
@@ -2419,18 +2519,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `write_backup` in all 4 first checks that the file is there and is a regular file, through the check `upgrade_file` already made, now one helper both call (`check_kept_file`, in each binding's spelling). Nothing there is `NotFound`. A directory or a FIFO is `Io`, with `IsDirectory` or `NotRegular`. Any other failure, such as no search permission, is left to the create, which fails the same way, since the backup goes in the same folder. The C++ veneer wraps the C call, so it refuses too. On windows the C helper now gives `NotFound` for a missing file itself, as the other 3 do. Its `upgrade_file` gave the same through the read. The doc comments in all 4 and the veneer, and spec.md, say so in one line. The C line keeps its suppression, and its reason now says a swap is refused. A path type of its own stays the v4 form.
 	- Branch: `wbswap`, then `winfix`
 	- Commit: `e469f1aa`, then `2251a602`
-	- Test case: `write_backup_refuses_a_swapped_file_and_text`, Rust `Et6Am2s`, Go `Et6Am5j`, Python `Et6Am8z`, and C `Et6AmCW`, which sanitize-c `EoLqLse` runs under ASan. In each, a swapped call in a scratch folder is refused, `NotFound` off windows, and the folder stays empty. A directory is refused as `IsDirectory`. The veneer smoke `EjtkR0S` has the swapped call too.
+	- Test case: `write_backup_refuses_a_swapped_file_and_text`, Rust `de4ba`, Go `de4bb`, Python `de4bc`, and C `de4bd`, which sanitize-c `dbxj4` runs under ASan. In each, a swapped call in a scratch folder is refused, `NotFound` off windows, and the folder stays empty. A directory is refused as `IsDirectory`. The veneer smoke `d9v59` has the swapped call too.
 	- Swept: `write_file_atomic` stays as it is, since it creates files on purpose and a path naming nothing is its normal case. Every caller of `write_backup`: the 4 CLIs' `migrate --write`, which read the file and check it's unchanged first, `upgrade_file` in all 4, the veneer, and the 4 runners' write-status rows, whose backup into a shut folder still gives `PermissionDenied`. No CLI path reaches the refusal, since each reads the file first, so there is no cli-regress row, and crosscheck has no `write_backup` dimension. design.md and examples.md don't describe `write_backup`.
 	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
 	- Acceptance signoff: Self-closed: a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
 	- Closed: 20261018-170500
-	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `EjtkR0S` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text holds characters windows refuses in a file name, so the read likely fails with another status. Python's `Et6Am8z` passed there.
+	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `d9v59` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text holds characters windows refuses in a file name, so the read likely fails with another status. Python's `de4bc` passed there.
 	- 20261019, branch `winfix`:
 		- Cause: the veneer smoke read the backup name made from the swapped text and wanted `NotFound`. That name has a newline and colons, which windows refuses in a name, so the read fails another way there. The swapped call was refused and wrote nothing.
 		- Fixed: the swapped call names a folder of its own, and the check is that the folder is still empty, so `rmdir` takes it. That means the same on every OS, and it also catches a colon turned into a stream on a file named `port`. The kind is still checked as `NotFound` off windows only.
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
-	- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `EjtkR0S` and the 4 `write_backup_refuses_a_swapped_file_and_text` tests.
+	- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `d9v59` and the 4 `write_backup_refuses_a_swapped_file_and_text` tests.
 	- Acceptance signoff: Self-closed: the reopening row passes on the hosted windows job, and its fix was seen red under wine first.
 	- Closed: 20261020-220500
 
@@ -2449,7 +2549,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: both prunes are gone. Each script removes the worktree it made with `worktree remove --force`, as before. An entry left by a failed remove is harmless, and git gc expires it.
 	- Swept: every script under `cicd/` and the hook, for `worktree prune`, `worktree remove` and `worktrees/`. check-push-gate removes worktrees only in its own scratch repos.
 	- Branch: `bsquote`
-	- Test case: shell-regress `EtIrTUG` fails any `worktree prune` in a shell file under `cicd/` or the hook. It failed on both old scripts.
+	- Test case: shell-regress `de7cy` fails any `worktree prune` in a shell file under `cicd/` or the hook. It failed on both old scripts.
 	- Verified: check-migrate built its 2.x reference through its own worktree and removed it, and the 3 other worktrees stayed listed. shell-regress, check-push-gate and shellcheck pass.
 	- Acceptance signoff: Self-closed: the test failed on the old scripts and passes now, and the live run kept the other worktrees.
 	- Closed: 20261020-213500
@@ -2473,7 +2573,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Found, for the other builds: nothing here runs them in a stage today. linux-arm64 links glibc, so qemu-system-aarch64, which this host has, could boot it the floor check's way, given an arm64 kernel and libc in the image. freebsd-x86_64 needs FreeBSD's own loader and libc, so a pinned FreeBSD boot image. Wine here can't run windows-arm64; the hosted `windows-11-arm` runner could. Filed as 2026102019500000.
 	- Swept: the floor check's case list is the one copy now. RELEASE_CHECKS, the lint list and the image recipe have the new script. Hosted CI never reaches stage 6, so ci.yml needs no wine.
 	- Branch: `bsquote`
-	- Test case: check-win-release `EtIZEst` (wine starts the build and gives the native `--version`) and `EtIZEvy` (the cases match). A copy of the exe with one byte of `explain` changed failed `EtIZEvy` on the `explain` case, and the windows-arm64 exe failed `EtIZEst`. With wine off PATH both skip, and under `SHCL_GATE_STRICT` the skip fails.
+	- Test case: check-win-release `de7an` (wine starts the build and gives the native `--version`) and `de7ap` (the cases match). A copy of the exe with one byte of `explain` changed failed `de7ap` on the `explain` case, and the windows-arm64 exe failed `de7an`. With wine off PATH both skip, and under `SHCL_GATE_STRICT` the skip fails.
 	- Verified: passes on this host and in the current image with wine added, on the 2026-10-16 release builds. The RELEASE_CHECKS entry passes through `eval` with and without a windows build. shellcheck, test-ids check, shell-regress, check-pins, check-push-gate and check-docs pass.
 	- Acceptance signoff: Self-closed: each new test was seen red with a fault and green after, and the second requirement is answered with a follow-up item. The first full run with the new image is the end-to-end check.
 	- Closed: 20261020-195000
@@ -2492,7 +2592,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: both scans drop the `extra: ` lines. Tool output never starts that way.
 	- Swept: the other echoes in the log, `veneer:`, `largedoc:`, `conformance:` and `crosscheck:`, are tool status lines and stay scanned. The `-D warnings` and `--enable=warning` filters stay for the `Lint ....:` echoes.
 	- Branch: `bsquote`
-	- Test case: shell-regress `EtIU3uI`. The `extra:` lines read CLEAN, and a real ResourceWarning and C error beside them still count. It failed on the old script.
+	- Test case: shell-regress `de7a1`. The `extra:` lines read CLEAN, and a real ResourceWarning and C error beside them still count. It failed on the old script.
 	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the running log reads INCOMPLETE now.
 	- Closed: 20261020-192000
 
@@ -2512,7 +2612,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided against: writing that ending some other way. It would make the backslash count again in 4 writers, which the 3.0 rules dropped to end the churn backslash escapes caused. A plain 3.0 `fmt` of `a: "C:\temp\"` gives the same text, so it isn't a migrate case either (me).
 	- Swept: `migrate --from-2x` gives the same line in Rust, Go, Python, and C, and `get` reads `x<TAB>y\z\q\` back in Rust, Go, and Python. `fmt` and `get` of a 3.0 value ending in a backslash agree in all 4 CLIs.
 	- Branch: `bsquote`
-	- Test case: cli-regress `EtIRb6R` (the report's line through `migrate --from-2x`), `EtIRbAz` (`get` of `"C:\temp\"`) and `EtIRbEZ` (`fmt` keeps it), over all 4 CLIs.
+	- Test case: cli-regress `de79q` (the report's line through `migrate --from-2x`), `de79r` (`get` of `"C:\temp\"`) and `de79s` (`fmt` keeps it), over all 4 CLIs.
 	- Acceptance signoff: Self-closed on JC's criteria: the call is that the text stays as written, per value-syntax.md, and the 3 rows pin it in all 4.
 	- Closed: 20261020-190900
 
@@ -2545,7 +2645,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 25 planted faults, each restored by copy, each failed its own test and printed the footer: Rust normal, build, `cfg(windows)`, default-feature and release `--features` crates; a Go `require`, a Go import, cgo; Python top-level, function-level and `import_module` imports; C `<zlib.h>`, `"miniz.h"`, `#pragma comment(lib, "zlib")`, `dlopen("libz.so.1")`; Rust `#[link(name = "ssl")]`, Go `NewLazyDLL("sqlite3.dll")`, Python `WinDLL(name)` and `CDLL("libyaml.so")`; `-lz` and `[source.crates-io]` in the cargo config; `source/rust/src/vendor/`, `third_party/` at the root; a foreign C header and Go file. The C CLI built with `-lz` failed the `NEEDED` test. Clean tree green. shellcheck over SHELLCHECK_TARGETS, shell-regress, check-docs, check-pins, `test-ids.py check` and markdownlint-cli2 green.
 	- Branch: `depguard`
 	- Commit: `5981735e`
-	- Test case: check-deps EtDJq3P (crates), EtDJq3Q (Go), EtDJq3R (Python), EtDJq3S (C includes), EtDJq3T (libraries in code), EtDJq3U (built CLIs), EtDJq3V (vendored trees), EtDJq3W (shipped files are ours).
+	- Test case: check-deps de629 (crates), de62a (Go), de62b (Python), de62c (C includes), de62d (libraries in code), de62e (built CLIs), de62f (vendored trees), de62g (shipped files are ours).
 	- Acceptance signoff: Self-closed: the intent was clear, the check does what the item asked, and it was seen to fail for each language.
 	- Closed: 20261019-220911
 
@@ -2574,7 +2674,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- JC, 20261019: whichever fits the Objectives best, in order.
 	- Progress log:
 		- 20261019: Rust, check-migrate, the docs and the tests are done on `bslash`. The Go, Python and C ports are next, on the same branch, and their runners fail the shared tests until then.
-		- Verified on the Rust side: `cargo test` with the fuzz at 20,000, cli-regress on the Rust CLI, check-migrate (630 compared, no divergence), check-readme, check-docs, shell-regress, test-ids check. With the old lib.rs, the 3 new Rust tests, the 5 corpus goldens, Es2R4TW, the new and revived cli-regress rows, and check-migrate (48 divergences over 630 documents) were each seen red.
+		- Verified on the Rust side: `cargo test` with the fuzz at 20,000, cli-regress on the Rust CLI, check-migrate (630 compared, no divergence), check-readme, check-docs, shell-regress, test-ids check. With the old lib.rs, the 3 new Rust tests, the 5 corpus goldens, ddmhc, the new and revived cli-regress rows, and check-migrate (48 divergences over 630 documents) were each seen red.
 		- For the ports, mirror lib.rs:
 			- New `v2_text(raw)`: resolves `\t`, `\n`, `\\`, `\"` and `\'`, and leaves any other backslash, a trailing one included. It's 2.x's `apply_escapes`.
 			- `value_edits` and `v2_element_text` test and write `v2_text(raw)` where they used `raw`.
@@ -2582,8 +2682,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- `migrate_line`, selector: `logical = v2_text(body)`, used by the sugar arm's spelling and `reads_same`, and by both `selector_reads_back` calls and the spelling in the paren arm.
 			- The CLI's lost message names "a quoted name with a backslash escape" (main.rs). The words up to the colon stay, since cli-regress and check-migrate match them.
 			- Doc comments: `migrate`, `Migration.ambiguous` and `.lost`, `migrate_spelling`, `value_edits`.
-		- Tests the ports have to pass: corpus migrate goldens 118, 119, 122, 124 and 170; cli-regress EtD6lsl to EtD6lsq, plus the revived Eq4Rkv2, Eq4Rkv3, Eq4Rkv4, ErUn2Bt, EqGUXeD, Eq4wD3b and Eq4wD3c; crosscheck; and each runner's twin of Rust's 3 new tests (EtD5PtP, EtD5PtQ, EtD5PtR), with fresh IDs. The upgrade test's `name: 'say \"hi\"'` becomes `name: 'say "hi"'` in Go `upgrade_test.go`, Python `conformance.py` and C `conformance.c`, as in Rust's Es2R4TW.
-		- Traps: `"C:\work"` with one backslash is no pair, so ErpZsUi stays. check-migrate's `fOneLine2x` now writes a 2.x element holding a line break through the Rust CLI's `--set`, since only the current writer gives the `◉NEWLINE◉` form.
+		- Tests the ports have to pass: corpus migrate goldens 118, 119, 122, 124 and 170; cli-regress de60n to de60t, plus the revived dcq6h, dcq6j, dcq6k, ddcef, dct38, dcqad and dcqae; crosscheck; and each runner's twin of Rust's 3 new tests (de60f, de60g, de60h), with fresh IDs. The upgrade test's `name: 'say \"hi\"'` becomes `name: 'say "hi"'` in Go `upgrade_test.go`, Python `conformance.py` and C `conformance.c`, as in Rust's ddmhc.
+		- Traps: `"C:\work"` with one backslash is no pair, so ddheq stays. check-migrate's `fOneLine2x` now writes a 2.x element holding a line break through the Rust CLI's `--set`, since only the current writer gives the `◉NEWLINE◉` form.
 		- 20261019: the Go, Python and C ports are done on `bslash`, mirroring lib.rs: `v2Text`/`_v2_text`/`v2_text`, the same 4 call sites, the quoted-name branch counting lost with no early return, the doc comments, and the CLI's lost message. `shcl.hpp` needed only its `Migration` comment, since `migrate` and `upgrade` already wrap the C calls and the struct has no new field.
 		- Waits on signoff since it reverses the 2026-10-05 answer in value-syntax.md and changes what `migrate --write` and `upgrade --write` write.
 	- Decisions:
@@ -2604,7 +2704,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: in all 4 bindings, migrate reads each piece and selector body as the text 2.x read, and counts a quoted name with a backslash pair lost.
 	- Branch: `bslash`
 	- Commit: `ddc4f8e4` (Rust half), `ccde6330` (Go, Python, C)
-	- Test case: Rust EtD5PtP, EtD5PtQ, EtD5PtR, Es2R4TW; their twins Go EtDC3Ca, EtDC3FC, EtDC3Hr, Python EtDC3KV, EtDC3N7, EtDC3Po, and C EtDC3SS, EtDC3V8, EtDC3Xn; the upgrade test's `say "hi"` in Go Es2fws2, Python Es2k1Fd and C Es2qPd2; corpus 118, 119, 122, 124, 170; cli-regress EtD6lsl to EtD6lsq and the revived rows above; check-migrate Eq5YPgP with no backslash allowance.
+	- Test case: Rust de60f, de60g, de60h, ddmhc; their twins Go de61a, de61b, de61c, Python de61d, de61e, de61f, and C de61g, de61h, de61j; the upgrade test's `say "hi"` in Go ddmk9, Python ddmks and C ddmmj; corpus 118, 119, 122, 124, 170; cli-regress de60n to de60t and the revived rows above; check-migrate dcqf3 with no backslash allowance.
 	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. In the ports: the same arms in `shcl.go`, `shcl.py` and `shcl.h`, each with 5 `v2_text` uses as in lib.rs and one new lost count; the doc comments on `Migration`, `migrate`, `migrate_spelling`, `value_edits` and `v2_element_text`; the 3 CLIs' lost message; `shcl.hpp`'s `Migration` comment. No other doc in the tree still says a 2.x backslash stays.
 	- Verified: with the old `shcl.go`, `shcl.py` and `shcl.h`, each port failed the 5 corpus goldens, its 3 new tests, and its `say "hi"` upgrade test. With the fix: `go test -count=1` for both Go modules, `-race`, the Python runner and soak, the C runner with the strict warnings, `cargo test`, cli-regress over all 4 CLIs (619 rows), crosscheck over the corpus (22236 comparisons), check-migrate (630 documents), check-veneer, sanitize-c, `test-ids.py check`, go vet, staticcheck, gofmt, ruff, and mypy. A quoted name with a backslash pair before a same-line fence, and a trailing backslash, a backslash before a multibyte character, and a `\'` in single quotes, migrate the same in all 4.
 	- Acceptance signoff: Closed on JC's criteria. JC, 20261019, left the call to the Objectives, and (c) was offered as the reversal of the 2026-10-05 answer, so it moves no decision JC kept. Each new test failed on the old code in all 4 bindings, and the gates above passed.
@@ -2663,14 +2763,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- `--no-leakcheck` in cicd.bash drops config.bash's `LEAKCHECK_STEPS` from any run, and goes on to a `--container` run like `--leakcheck` does. `--gate` and `--quick` still leave them out, and `--leakcheck` still adds them back.
 			- `--leakcheck --no-leakcheck`, in either order, is a usage error before anything runs: exit 2, as for an unknown option (me). The help text, contributing.md and the history lines say so.
 			- Note: an unknown option still exits 2.
-			- Verified: check-push-gate passes. `Et9t3dc` went red with an engine that ignores `--no-leakcheck`, and `EtD3jdR` with one that takes the pair with the last one winning. Both passed once restored by copy.
+			- Verified: check-push-gate passes. `de582` went red with an engine that ignores `--no-leakcheck`, and `de609` with one that takes the pair with the last one winning. Both passed once restored by copy.
 			- Verified: shell-regress, shellcheck over the 47 lint targets, check-docs, and `test-ids.py check`.
 	- Decisions:
 		- JC, 20261019: `--gate` keeps leaving them out, since the pre-push gate can't take hours. The item's "at minimum" allows it.
 		- JC, 20261019: the pair is refused as a usage error, exit 1, per design.md's "Nothing on the command line resolves last-wins".
 	- Branch: `cileak`
 	- Commit: `353da441`
-	- Test case: check-push-gate `Et9t3dc` (`--no-leakcheck` drops the checks from a bare, `--gate` and `--quick` run) and `EtD3jdR` (the pair exits 2 in either order and runs nothing).
+	- Test case: check-push-gate `de582` (`--no-leakcheck` drops the checks from a bare, `--gate` and `--quick` run) and `de609` (the pair exits 2 in either order and runs nothing).
 	- Acceptance signoff: Self-closed on JC's criteria. The flag is the item's own, and the pair's refusal follows design.md.
 	- Closed: 20261019-211430
 
@@ -2684,7 +2784,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: backlog round 2026-10-19, from a full `--gate` on dev at `aa2e3b33`
 	- Version and build: dev at `aa2e3b33`
 	- Steps to reproduce: run a full `cicd.bash --gate` with the box loaded. This one ran at load 14 to 23.
-	- Incorrect behavior: `FAIL EqAMPEI perf-gate mounts`: Rust took 410 ms against a 345 ms budget, from a 95 ms parse-only baseline. Go, Python, and C ran 2 to 3 times their usual times on the same row and passed. 2 runs of perf-gate alone right after passed, Rust `mounts` at 100 and 102 ms. Earlier gate logs have it at 80 to 110 ms.
+	- Incorrect behavior: `FAIL dcrm3 perf-gate mounts`: Rust took 410 ms against a 345 ms budget, from a 95 ms parse-only baseline. Go, Python, and C ran 2 to 3 times their usual times on the same row and passed. 2 runs of perf-gate alone right after passed, Rust `mounts` at 100 and 102 ms. Earlier gate logs have it at 80 to 110 ms.
 	- Expected behavior: a gate that's linear passes whatever the load. A real slowdown still fails.
 	- Possible cause: the baseline is taken once per binding before the workloads, and each workload is best of 2. A spike that covers both runs of a workload and not the baseline breaks the 3x ratio.
 	- Possible fix: time the baseline next to each workload, or run a failing workload and its baseline again before calling it. Memory.md's perf-gate note prefers a count to a clock where one fits.
@@ -2697,12 +2797,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261019, branch `cileak`:
 			- Verified: with 3 busy loops on the Rust CLI's core during `mounts` only, dev's perf-gate failed it at 695 ms against 316, exit 1, and this one passed at 153 of 315, exit 0. With `mounts` doing its work 5 times over, both failed, this one at 648 ms of CPU against 307, exit 1.
 			- Verified: the whole perf-gate on all 4 bindings, exit 0 at load 12, with margins about where the wall clock had them.
-			- Verified: `EtD6yAt` went red with the wall clock put back, a CLI that slept 1 s timed as 1003 ms. `EtD6yE6` went red with user time dropped, 500 ms of CPU timed as 5. Also shell-regress, shellcheck, check-docs, and `test-ids.py check`.
+			- Verified: `de60v` went red with the wall clock put back, a CLI that slept 1 s timed as 1003 ms. `de60w` went red with user time dropped, 500 ms of CPU timed as 5. Also shell-regress, shellcheck, check-docs, and `test-ids.py check`.
 			- Note: a spike on the core's other hyperthread, or on memory bandwidth, still moves CPU time. Rust `frags` and C `fills` sit at about 70 percent of their budgets.
 			- Note: `cargo test` builds `target/debug/shcl` again under `profile.test`, at opt-level 1, so the gate's perf-gate times that build, about 6 times faster than the dev one. Cargo.toml's comment says the CLI stays on the dev profile.
 	- Branch: `cileak`
 	- Commit: `353da441`
-	- Test case: perf-gate `EtD6yAt` (a second spent off the CPU counts for under half a second) and `EtD6yE6` (half a second of the CLI's own CPU counts in full).
+	- Test case: perf-gate `de60v` (a second spent off the CPU counts for under half a second) and `de60w` (half a second of the CLI's own CPU counts in full).
 	- Swept: every timer in `cicd/` and the 4 test suites. perf-gate is the only one that holds a CLI to a budget. The suites time a few checks in-process, with bounds such as 25 times plus a second. Those belong to their own items and were left alone.
 	- Acceptance signoff: Self-closed: reproduced with a spike over the workload alone, red before the fix and green after, a real cost still fails, and each new self-test was seen red.
 	- Closed: 20261019-211430
@@ -2734,10 +2834,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Step times from 20261018, at load 3 to 31. Left out of `--quick`: cppcheck exhaustive, 36 min with a cold cache; analyze-c 154 s; check-migrate 147 to 158 s; shell-regress and crosscheck 100 to 107 s each; sanitize-c 96 s; cli-regress 92 to 124 s; perf-gate 72 to 79 s; check-c-compilers 67 to 99 s; and sanitize-rust, about 160 s with its nightly. govulncheck and cargo-deny fetch their advisory lists, so they're out too. The longest step kept is the Python runner, 46 to 51 s. Each cross target took 16 to 18 s, arm64 included.
 			- A `--quick` run took 8 min 16 s at load 3 to 4, with `--no-sync --no-dogfood --no-publish`.
 			- The CPU floor check took 131 s, nearly all of it the emulated boot. The scan alone takes about 4 s, so `--quick` keeps it.
-			- Verified: `Et9T1FN` went red with the floor check back on `QUICK_SKIP`, and with the boot kept under `--quick`.
+			- Verified: `de54m` went red with the floor check back on `QUICK_SKIP`, and with the boot kept under `--quick`.
 			- A bare run leaves nothing out today. The extra container images and the hosted windows job were never part of a local run.
 			- Verified: a `--quick` run, green end to end. `--ci` exits 2 as an unknown option. A `--gate` run with every stage flag off went through the gate path, and `--gate --quick` shows the crosscheck skipped. check-push-gate, shell-regress, check-pins, check-docs, markdownlint-cli2, `test-ids.py check`, and shellcheck over all 45 files pass.
-			- Verified: each new row went red with its fault and passed once restored by copy. An engine that drops nothing failed `Et6Aueh`, and so did one that keeps the crosscheck, and one that runs quick every time. A `--ci` alias failed `Et6Aum5`. A hook without its fallback failed `Et6Ak52`. A `QUICK_SKIP` name that matches no step, one that matches 2, and an engine that stops asking about the crosscheck each failed `Et6AutN`.
+			- Verified: each new row went red with its fault and passed once restored by copy. An engine that drops nothing failed `de4be`, and so did one that keeps the crosscheck, and one that runs quick every time. A `--ci` alias failed `de4bf`. A hook without its fallback failed `de4b9`. A `QUICK_SKIP` name that matches no step, one that matches 2, and an engine that stops asking about the crosscheck each failed `de4bg`.
 	- Decisions:
 		- JC, 20261018: `--ci` is renamed `--gate` everywhere, with no alias. Closed items and past changelog entries keep the old text.
 		- JC, 20261018: a run with no flags does everything, the slow `--leakcheck` checks of 2026101707582803 and 2026101711273980 included once they exist.
@@ -2748,7 +2848,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `ci_mode` is `gate_mode` inside cicd.bash too (me).
 	- Branch: `cflags`
 	- Commit: `5d5fff3a`
-	- Test case: check-push-gate `Et6Aum5` (`--ci` is unknown), `Et6Aueh` (`--quick` leaves out what `QUICK_SKIP` names, and a bare run and `--gate` keep it), `Et6Ak52` (the hook and an engine from before `--gate`) and `EqGl8me` (the hook calls `--gate --no-largedoc`); shell-regress `Et6AutN` (each `QUICK_SKIP` name matches one step) and `Et9T1FN` (`--quick` runs the CPU floor scan without the boot, and a full run boots).
+	- Test case: check-push-gate `de4bf` (`--ci` is unknown), `de4be` (`--quick` leaves out what `QUICK_SKIP` names, and a bare run and `--gate` keep it), `de4b9` (the hook and an engine from before `--gate`) and `dct5c` (the hook calls `--gate --no-largedoc`); shell-regress `de4bg` (each `QUICK_SKIP` name matches one step) and `de54m` (`--quick` runs the CPU floor scan without the boot, and a full run boots).
 	- Swept: a grep of every tracked file for `--ci` and `ci_mode`. What's left is the history lines in cicd.bash and config.bash, the hook's fallback and its row, the changelog and the backlog.
 	- 20261019: the full `--gate` passed on its fifth run. The first stopped on check-docs' installer row until `install-dev.bash` was synced to main (`803d1815`), the next 2 on a flaky test (2026101912125490) and a perf-gate row under load (2026101914014130), and one more on sanitize-rust, whose pinned nightly wasn't installed on this host yet.
 	- Acceptance signoff: Self-closed: each new row was seen red and then green, a full `--gate` passed locally, and both hosted ubuntu jobs passed with `--gate` in run 39307128325.
@@ -2765,7 +2865,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: backlog round 2026-10-19, from a full `--gate` on dev at `59c6ecfb`
 	- Version and build: dev at `59c6ecfb`
 	- Steps to reproduce: run a full `cicd.bash --gate` with the box loaded. This one ran at load 30.
-	- Incorrect behavior: `FAIL Eqk24nb python edits_and_merges_match_a_reload`, "a step on the document and on its reload differ at iteration 67". The live and reload text differ only in the setter note's time: `# b: v1  ## replaced by shcl when setting a default for a.b, 2026-10-19 12:08:45 PDT: not an int` on the live side, `12:08:46` on the reload.
+	- Incorrect behavior: `FAIL dd16n python edits_and_merges_match_a_reload`, "a step on the document and on its reload differ at iteration 67". The live and reload text differ only in the setter note's time: `# b: v1  ## replaced by shcl when setting a default for a.b, 2026-10-19 12:08:45 PDT: not an int` on the live side, `12:08:46` on the reload.
 	- Expected behavior: it passes whatever second the clock is on.
 	- Reproduced: 20261019. With the library clock made to move a second on every read, Python's, Go's, and C's fixture failed at iteration 8. Rust's passed 200,000 iterations, since it takes the time out of the notes before comparing.
 	- Actual cause: each step runs on the document and then on its reload, and a default setter's note on each reads the real clock. Python, Go, and C pinned `SHCL_TEST_CLOCK` only around the tests that check a note's text, and this fixture wasn't one. Rust pinned it only in `upgrade.rs`, and stripped the time out of notes elsewhere, since a per-test `set_var` is unsafe on libtest's shared threads.
@@ -2777,9 +2877,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `check-doc-examples.bash` compares the 4 CLIs' output, so it pins the clock as cli-regress and crosscheck do.
 	- Branch: `testclock`
 	- Commit: `eb298b0d`
-	- Test case: `the_clock_is_pinned_for_every_test`, Rust `EtAxcPq`, Go `EtAxcPr`, Python `EtAxcPs`, and C `EtAxcPt`: the clock is set, and a default setter's note in a test has the pinned time. The fixture is `Eqk24nZ`, `Eqk24na`, `Eqk24nb`, and `EonWXt2`.
+	- Test case: `the_clock_is_pinned_for_every_test`, Rust `de5g4`, Go `de5g5`, Python `de5g6`, and C `de5g7`: the clock is set, and a default setter's note in a test has the pinned time. The fixture is `dd16k`, `dd16m`, `dd16n`, and `dc474`.
 	- Swept: the clock readers in all 4 libraries, which are the 2 setter notes and the backup name. Every test file in the 4 bindings: Rust's `tests/*.rs` and lib.rs's 3 test modules, Go's `*_test.go`, Python's runner and soak (`typing_probe.py` is only type-checked), and C's runner, `mem_bounds`, `oom_hook`, `soak`, and the veneer smoke. `oom_recover.c` reads no clock. The gate scripts: crosscheck and cli-regress were pinned, check-migrate pins its `upgrade --write` and compares reads elsewhere, and sanitize-rust pins for Miri. check-readme compares a save with the doc's text, sanitize-c checks exit codes and clears its backups, and perf-gate compares timings. win-runners and check-locale run the runners, which pin themselves.
-	- Verified: on the moving clock, after the fix, the whole Rust, Go, Python, and C suites passed, with the Rust fuzz at 200,000 iterations, and so did the veneer smoke, `mem_bounds`, and `oom_hook`. With Rust's pin turned off, its fixture failed at iteration 21 and `EtAxcPq` failed. With the pin taken out of the Go, Python, and C runners, `EtAxcPr`, `EtAxcPs`, and `EtAxcPt` failed, and so did Go's fixture and its note tests.
+	- Verified: on the moving clock, after the fix, the whole Rust, Go, Python, and C suites passed, with the Rust fuzz at 200,000 iterations, and so did the veneer smoke, `mem_bounds`, and `oom_hook`. With Rust's pin turned off, its fixture failed at iteration 21 and `de5g4` failed. With the pin taken out of the Go, Python, and C runners, `de5g5`, `de5g6`, and `de5g7` failed, and so did Go's fixture and its note tests.
 	- Verified: on the real clock, `cargo test`, clippy for linux and windows, `cargo fmt --check`, the Go suite plain and with `-race`, `go vet` and staticcheck on both modules, the Python runner and soak, ruff and mypy, the C runner, veneer smoke, `oom_hook`, `oom_recover`, `mem_bounds`, and soak with the gate's flags, `test-ids.py check`, `check-docs.bash`, `check-doc-examples.bash` over the 4 CLIs, `shell-regress.bash`, and shellcheck. cppcheck at the normal level found nothing in `conformance.c` or `soak.c`.
 	- Acceptance signoff: Self-closed: reproduced, failed before the fix and passes after, and swept.
 	- Closed: 20261019-124500
@@ -2793,7 +2893,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: me, merging `wbswap`
 	- Version and build: dev at `c54cbbc0`
 	- Steps to reproduce: put pwsh 7.4 first on PATH and run `cli-regress.bash` over the 4 CLIs. On this box `/usr/local/bin/pwsh` is 7.4.1 and comes before `/usr/bin/pwsh`, which is 7.6.6.
-	- Incorrect behavior: `EsEvmLE` fails all 4 with "ConvertFrom-Json and jq decode a line differently", on the `base(0).metrics` line. The 4 CLIs agree, and with 7.6 first it passes.
+	- Incorrect behavior: `ddqj7` fails all 4 with "ConvertFrom-Json and jq decode a line differently", on the `base(0).metrics` line. The 4 CLIs agree, and with 7.6 first it passes.
 	- Expected behavior: it passes with either pwsh.
 	- Reproduced: 20261019, on this box.
 	- Actual cause: without `-DateKind` the check blanks jq's value column with awk's `$2 = "-"`. An empty value leaves 2 spaces in jq's line, so awk reads the line number as `$2`, overwrites it, and drops it from the line.
@@ -2804,9 +2904,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: jq writes the `-` in the value column itself, so no field split runs over a line with an empty value. A pwsh that has `-DateKind` runs the comparison a second time without it, so the 7.4 path is checked on every host.
 	- Branch: `pwshdate`
 	- Commit: `fbd97a43`
-	- Test case: `EsEvmLE` json-reads-back, which now runs the no-`-DateKind` pass under any pwsh. No separate shell-regress row, since the row itself covers the 7.4 path on every host now.
+	- Test case: `ddqj7` json-reads-back, which now runs the no-`-DateKind` pass under any pwsh. No separate shell-regress row, since the row itself covers the 7.4 path on every host now.
 	- Swept: every tracked `.bash` and `.sh` for an awk field assignment (`$N = ...`). There are none left; the `check-migrate.bash` one rewrites `$0`. No other script compares jq and ConvertFrom-Json.
-	- Verified: before the fix, `cli-regress.bash` over the 4 CLIs failed `EsEvmLE` on all 4 under pwsh 7.4.6 with the line number dropped. After it, the whole suite passed under 7.4.6 and under 7.6.6 (3699 checks). With the old awk blanking put back into the new pass, it failed all 4 under 7.6.6. `shell-regress.bash`, `shellcheck` over the cicd list, and `test-ids.py check` passed.
+	- Verified: before the fix, `cli-regress.bash` over the 4 CLIs failed `ddqj7` on all 4 under pwsh 7.4.6 with the line number dropped. After it, the whole suite passed under 7.4.6 and under 7.6.6 (3699 checks). With the old awk blanking put back into the new pass, it failed all 4 under 7.6.6. `shell-regress.bash`, `shellcheck` over the cicd list, and `test-ids.py check` passed.
 	- Acceptance signoff: Self-closed: reproduced, failed before the fix and passes after under both pwsh versions, and swept.
 	- Closed: 20261019-073800
 
@@ -2814,8 +2914,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026101612343301
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: N. sanitize-c `EstYPCw` passed in hosted run 38962944867.
-	- Needs external testing: N. Hosted run 38993541382 on dev at `a8b7836d`: all 5 jobs green, `ok EstYOue` on windows.
+	- Needs local test suite run?: N. sanitize-c `de1a6` passed in hosted run 38962944867.
+	- Needs external testing: N. Hosted run 38993541382 on dev at `a8b7836d`: all 5 jobs green, `ok de1a5` on windows.
 	- Priority: Low
 	- Opened: 20261016-123433
 	- Opened by: backlog round 2026-10-16, while fixing 2026101514324720
@@ -2823,19 +2923,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026101514324720
 	- Problem description: the veneer's const members each take their document's lock, so reads can share one `Document`. No test reads from 2 threads, and no gate runs the veneer under ThreadSanitizer, so a const member that skips the lock would pass.
 	- Requirements: a threaded read in `veneer_smoke.cpp` run under `-fsanitize=thread`, or the sentence reworded until it claims nothing.
-	- Note: check-veneer `Er8oiHp` has run a small TSan check since `7b8f1a8e`: 8 of the reads from 2 threads. This item missed it. It stays as it is.
+	- Note: check-veneer `dd75a` has run a small TSan check since `7b8f1a8e`: 8 of the reads from 2 threads. This item missed it. It stays as it is.
 	- Actual fix: `veneer_smoke.cpp` reads one shared `Document` and schema from 8 threads, 3 rounds, each round on a fresh pair, and checks each answer against one thread's. The calls cover every const member, the 3 saves to a file per thread, and the free calls that read a schema (`load_and_validate_with`, `generate`, `suppress_declared_*`). sanitize-c builds the smoke a second time under `-fsanitize=thread` and runs it. The plain build runs the threads too.
 	- Swept: every lock site in `shcl.hpp`'s const members and schema-reading calls. Each was taken out alone and the TSan build run 3 times. 56 of 58 went red 3 of 3. The other 2, `strictness()` and `lost_count()`, read fields nothing writes after the parse, so they don't race. Taking the schema's lock out of `validate`'s pair doesn't race either, since the core only reads the schema there.
-	- Test case: C++ `EstYOue` (`reads_from_several_threads`), and sanitize-c `EstYPCw` for its TSan run.
-	- Verified: sanitize-c went red on `EstYPCw` with `instance_paths()` taking no lock, and on the ASan build too, and green restored. The plain smoke crashed or failed with `count()` taking no lock. The smoke passes plain, under TSan with gcc 14 here and gcc 13 in the ubuntu image, plain in the alpine image, and built for windows with zig under wine. Also the C conformance suite, check-veneer, check-c-compilers, check-docs, check-pins, shell-regress, shellcheck and test-ids check.
+	- Test case: C++ `de1a5` (`reads_from_several_threads`), and sanitize-c `de1a6` for its TSan run.
+	- Verified: sanitize-c went red on `de1a6` with `instance_paths()` taking no lock, and on the ASan build too, and green restored. The plain smoke crashed or failed with `count()` taking no lock. The smoke passes plain, under TSan with gcc 14 here and gcc 13 in the ubuntu image, plain in the alpine image, and built for windows with zig under wine. Also the C conformance suite, check-veneer, check-c-compilers, check-docs, check-pins, shell-regress, shellcheck and test-ids check.
 	- Branch: `cxxtsan`, then `tlsfix`
 	- Commit: `98e92883`, then `e7f34869`
-	- Progress log: 20261016, reopened. Hosted run 38962944867's windows job failed `c++ veneer`. The smoke printed `ok` and then `EstYOue` died within a second, with no output. The build there is mingw g++ with libstdc++. The zig and wine build here uses libc++ and passed.
+	- Progress log: 20261016, reopened. Hosted run 38962944867's windows job failed `c++ veneer`. The smoke printed `ok` and then `de1a5` died within a second, with no output. The build there is mingw g++ with libstdc++. The zig and wine build here uses libc++ and passed.
 		- Probable cause: `savePath` is a `thread_local std::string`. MinGW-w64 runs `thread_local` destructors after memory they use is freed, and a `thread_local std::string` is reported to crash at thread exit about half the time (GCC bug 80816). A plain `char` array or a path passed in would avoid it. Unverified, since this box has no mingw g++.
 		- Cause, confirmed: built with mingw g++ 14 and run under wine with its heap checks on, the smoke frees a pointer read from freed memory (`0xFEEEFEEE...`) once per worker thread exit, 24 a run. Wine lets it go. Windows' heap ends a process on a bad free, which would fit the silent death right after `ok`; that part is unverified. GCC bug 80816 is still open and reported on GCC 15. emutls frees the variable before its destructor runs.
 		- Fix: only an `int` slot is `thread_local` now, and the save call builds its path from it. The same build then frees nothing bad, 3 runs of 3 with the posix thread model and 1 with win32. No other `thread_local` in the tree.
-		- Verified: sanitize-c still goes red on `EstYPCw` with `instance_paths()` taking no lock, and green restored. Also the C conformance suite, the plain smoke, check-veneer, sanitize-c, check-docs and test-ids check. Only the hosted windows job is left.
-	- Acceptance signoff: closed on JC's criteria. `EstYOue` passes on the hosted windows job, and `EstYPCw` still goes red with a lock taken out.
+		- Verified: sanitize-c still goes red on `de1a6` with `instance_paths()` taking no lock, and green restored. Also the C conformance suite, the plain smoke, check-veneer, sanitize-c, check-docs and test-ids check. Only the hosted windows job is left.
+	- Acceptance signoff: closed on JC's criteria. `de1a5` passes on the hosted windows job, and `de1a6` still goes red with a lock taken out.
 	- Closed: 20261017-021500
 
 - C has no call for a value's text as written
@@ -2856,9 +2956,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the name is my call. `shcl_read_raw` already reads a raw block, so `shcl_raw` would have no status twin by the usual pattern. C++ keeps `raw()` and takes `read_raw_text()` for the twin, since `read_raw()` is taken there too.
 	- Note: style-guide_code.md's sentence covers all 3 now, and spec.md's C deviation names `shcl_raw_text`.
 	- Swept: every C site that builds a node (`select_or_create`, `w_new_child`, `w_new_child_under`, `w_clone_subtree`) and every site that changes a node's value (the setter, `array_under`'s reopen, `bind_block`, `fold_list_into_empty`, the stacked list items, a merge's raw block into an empty binding), against Rust's. Rust clears `src` only at the setter and the reopen, so C does the same.
-	- Test case: C `EsurKR1` (`raw_text`), 18 paths as loaded and after 3 setters, plus `shcl_compact`. The veneer smoke checks `raw()` and `read_raw_text()`.
-	- Verified: Rust, Go and Python give the same `raw` on that fixture, as loaded and after the setters, and `EsurKR1` expects those answers. It went red with each of these taken out alone: the setter's clear, the reopen's clear, the `src_set` check, the value-hash check, the clone's copy, and `raw_of` reading `src`. The veneer smoke went red with `raw()` giving the read string. Also the C conformance suite, crosscheck over the corpus and a fuzz dump, cli-regress, sanitize-c, check-veneer, check-c-compilers, check-docs, test-ids check, and cppcheck at the normal level and the gate's exhaustive level.
-	- Note: the threaded read test `EstYOue` calls `raw()` and `read_raw_text()` too, since `rawthr`. sanitize-c `EstYPCw` went red with `raw()` taking no lock, and green again with it put back.
+	- Test case: C `de1m6` (`raw_text`), 18 paths as loaded and after 3 setters, plus `shcl_compact`. The veneer smoke checks `raw()` and `read_raw_text()`.
+	- Verified: Rust, Go and Python give the same `raw` on that fixture, as loaded and after the setters, and `de1m6` expects those answers. It went red with each of these taken out alone: the setter's clear, the reopen's clear, the `src_set` check, the value-hash check, the clone's copy, and `raw_of` reading `src`. The veneer smoke went red with `raw()` giving the read string. Also the C conformance suite, crosscheck over the corpus and a fuzz dump, cli-regress, sanitize-c, check-veneer, check-c-compilers, check-docs, test-ids check, and cppcheck at the normal level and the gate's exhaustive level.
+	- Note: the threaded read test `de1a5` calls `raw()` and `read_raw_text()` too, since `rawthr`. sanitize-c `de1a6` went red with `raw()` taking no lock, and green again with it put back.
 	- Branch: `craw`
 	- Commit: `97779a33`
 	- Acceptance signoff: closed on JC's criteria. It does what the item asked, its test went red with each part taken out, and the name is my call, noted above.
@@ -2885,13 +2985,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: the private copy was mounted at the link's own path. Docker makes a missing mount point as root, and puts a mount on a link where the link leads, the same spot as the target-gate mount, so which one won came down to mount order. Here the private copy came out on top; the review saw the other. And only the Rust target had a private copy, while the build stage also writes the C and Go CLIs into the tree.
 	- Actual fix: `CTR_PRIVATE` names the C and Go CLIs and `target-migrate` too, with a trailing `/` marking a dir. Each private copy is mounted where its path leads, and an extra image doesn't mount target-gate. A missing mount point gets a stand-in, made by the caller before the run and removed after if it's still empty. A file copy is kept executable, since `go build -o` into a file that's there keeps its mode.
 	- Swept: what the alpine and ubuntu runs write into the tree. The Rust target, `target-migrate` (check-migrate, ubuntu only), and the 2 CLIs have copies now. `cicd/artifacts/` has run logs, not builds, and `__pycache__` names its files by Python version, so both are left alone.
-	- Verified: an alpine run with only the build stage real, in 3 layouts (nothing built here, this box's C and Go CLIs in place, a gate worktree with a target link), against dev's cicd.bash and the fix. Before: a root-owned `source/rust/target`, a musl `source/c/shcl` that exits 127 here, and the Go CLI replaced. After: the tree as it was, target-gate empty, and the CLIs built and run inside the image from their own copies. check-push-gate `EstM5os` fails 5 ways against dev's cicd.bash and config.bash, and passes with the fix. Taking out the stand-ins, their cleanup, or the main image's target-gate mount each turns it red. Also shellcheck over the gate's list, check-docs, and test-ids check.
-	- Test case: check-push-gate `EstM5os`. It reads an extra image's mounts off a stubbed engine, in a plain tree and a gate worktree. No mount point in the tree is missing when docker runs, no 2 mounts share one, each `CTR_PRIVATE` entry is the image's own copy where its path leads, this box's copy isn't mounted, no stand-in is left after, and every compiled CLI in `BINDING_CLIS` has a copy. The main image still mounts target-gate.
+	- Verified: an alpine run with only the build stage real, in 3 layouts (nothing built here, this box's C and Go CLIs in place, a gate worktree with a target link), against dev's cicd.bash and the fix. Before: a root-owned `source/rust/target`, a musl `source/c/shcl` that exits 127 here, and the Go CLI replaced. After: the tree as it was, target-gate empty, and the CLIs built and run inside the image from their own copies. check-push-gate `de18w` fails 5 ways against dev's cicd.bash and config.bash, and passes with the fix. Taking out the stand-ins, their cleanup, or the main image's target-gate mount each turns it red. Also shellcheck over the gate's list, check-docs, and test-ids check.
+	- Test case: check-push-gate `de18w`. It reads an extra image's mounts off a stubbed engine, in a plain tree and a gate worktree. No mount point in the tree is missing when docker runs, no 2 mounts share one, each `CTR_PRIVATE` entry is the image's own copy where its path leads, this box's copy isn't mounted, no stand-in is left after, and every compiled CLI in `BINDING_CLIS` has a copy. The main image still mounts target-gate.
 	- Note: for extra images only, this drops 2026101303344553's mount of a gate worktree's target-gate at its own path, since 2026101309250977 already has them build into their own copy. The main image is unchanged.
 	- Branch: `ctrfix`
 	- Commit: `31e91ff4`
 	- Verified: a whole `cicd/cicd.bash --container=alpine -y --no-publish` from the main checkout on dev at `34bb71fb`, 2026-10-16. Tests passed with no FAIL rows. After it, `source/rust/target` here isn't root-owned, `source/c/shcl` and `source/go/shcl` match their checksums from before the run, and the copies under `~/.cache/shcl-cicd/alpine/private` are new.
-	- Acceptance signoff: closed on JC's criteria. The fix does what the cicd.bash and config.bash comments said, and `EstM5os` went red on the old code.
+	- Acceptance signoff: closed on JC's criteria. The fix does what the cicd.bash and config.bash comments said, and `de18w` went red on the old code.
 	- Closed: 20261016-140831
 
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
@@ -2899,31 +2999,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Needs local test suite run?: N. check-c-compilers ran here with the new job.
-	- Needs external testing: N. Hosted run 38962944867 on dev at `34bb71fb`: `EstZ5TC` ok, and `ci (tests)` took 28m39s.
+	- Needs external testing: N. Hosted run 38962944867 on dev at `34bb71fb`: `de1aa` ok, and `ci (tests)` took 28m39s.
 	- Priority: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 19
 	- Version and build: dev at `79b9876c`
 	- Related IDs: 2026101419280002, 2026101308163572, 2026101011200000, 2026101316013508
 	- Problem description:
-		- 2026101419280002: shell-regress `EsndgSX` wants 30 or more guarded feeds and no `done < <(`. A feed changed to `|| true`, the form the item says hid real git errors, passes it and `EsndgVW`.
+		- 2026101419280002: shell-regress `ddzwm` wants 30 or more guarded feeds and no `done < <(`. A feed changed to `|| true`, the form the item says hid real git errors, passes it and `ddzwn`.
 		- 2026101308163572: with `mem_caps.rs` put back as it was, the 2 tests passed 31 of 31 runs. The race waits on a clock, as the item says. A source order check that each test takes its turn before it builds its input would pin it.
-		- 2026101011200000: with the hosted matrix put back to 1 `--ci` job, the form that ran out of time, check-pins still prints `ok EsZzNCY`. It could refuse a job that runs both the lint and test halves.
-		- 2026101316013508: `ErTZaL2` runs only in the Alpine image, which hasn't run since the fix. A C CLI built here with zig's musl target turns it red on the old code, and the fix passes.
+		- 2026101011200000: with the hosted matrix put back to 1 `--ci` job, the form that ran out of time, check-pins still prints `ok ddwkk`. It could refuse a job that runs both the lint and test halves.
+		- 2026101316013508: `ddc52` runs only in the Alpine image, which hasn't run since the fix. A C CLI built here with zig's musl target turns it red on the old code, and the fix passes.
 	- Requirements: a check for each, seen red with the fix taken out.
 	- Origin: docgate, memcap, cisplit and muslfix. Confirmed.
 	- Actual fix:
-		- 2026101419280002: shell-regress `EstZ5TA` reads check-docs. Every loop fed from a variable has to fill it through `fFeedBad`, and no capture may end in `)" || true`. The 7 older loops that guard their grep inside are listed by name.
+		- 2026101419280002: shell-regress `de1a8` reads check-docs. Every loop fed from a variable has to fill it through `fFeedBad`, and no capture may end in `)" || true`. The 7 older loops that guard their grep inside are listed by name.
 		- 2026101308163572: `every_test_takes_its_turn_first` in `mem_caps.rs` reads the file's own source. Each test has to open on its ID and then its turn.
-		- 2026101011200000: check-pins `EsZzNCY` refuses a hosted job that runs both lint and tests.
+		- 2026101011200000: check-pins `ddwkk` refuses a hosted job that runs both lint and tests.
 		- 2026101316013508: check-c-compilers builds the C CLI against musl with zig and runs the whole of cli-regress over it, on Linux. A missing zig fails under the gate. ci.yml and the main image already install zig 0.16.0.
 	- Verified:
-		- `EstZ5TA` fails with one check-docs feed turned to `|| true`, while `EsndgSX` and `EsndgVW` still pass. It also fails with the `|| true` moved inside a feed, and on the `mdFiles` feed.
-		- `EstZ5TB` fails with the turn taken after the input build in `EoezJiC`, and after the `use` line in `EofAXrU`.
-		- Dev's check-pins passes both new ci.yml forms in `EsZzNEZ`, a single job and a third job running everything. Both fail now.
-		- `EstZ5TC` fails with the musl fix taken out of `shcl.h` (`ErTZaL2`, `Invalid argument`), and passes with it, 612 rows. Without zig it fails under `SHCL_GATE_STRICT` and skips otherwise.
+		- `de1a8` fails with one check-docs feed turned to `|| true`, while `ddzwm` and `ddzwn` still pass. It also fails with the `|| true` moved inside a feed, and on the `mdFiles` feed.
+		- `de1a9` fails with the turn taken after the input build in `dc25e`, and after the `use` line in `dc26v`.
+		- Dev's check-pins passes both new ci.yml forms in `ddwkm`, a single job and a third job running everything. Both fail now.
+		- `de1aa` fails with the musl fix taken out of `shcl.h` (`ddc52`, `Invalid argument`), and passes with it, 612 rows. Without zig it fails under `SHCL_GATE_STRICT` and skips otherwise.
 		- Also shell-regress, check-pins, cli-regress (4 bindings), check-c-compilers, `cargo test`, `cargo clippy --test mem_caps`, check-docs, `test-ids.py check`, and shellcheck over the 40 lint targets.
-	- Test case: shell-regress `EstZ5TA` and `EsZzNEZ`, check-pins `EsZzNCY`, Rust `EstZ5TB`, check-c-compilers `EstZ5TC`.
+	- Test case: shell-regress `de1a8` and `ddwkm`, check-pins `ddwkk`, Rust `de1a9`, check-c-compilers `de1aa`.
 	- Branch: `gapchk`
 	- Commit: `9b9ab508`, `604f7771`, `431e5386`, `f2d558e5`
 	- Acceptance signoff: closed on JC's criteria. Each new check went red with its fix taken out, and passes on the hosted job.
@@ -2942,18 +3042,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description:
 		- spec.md says `QuoteSegment` output works as a selector body, so `site("0")` picks the instance whose value is 0. It's true today in all 4 CLIs for `"0"`, `"2020"`, `"@null"` and `"a.b"`. Nothing pins it.
 		- spec.md says Go reads are safe from several goroutines. No Go test reads that way, and the gate never runs `go test -race`. With `indexMu`'s lock taken out, `go test` stayed green.
-		- check-docs `EqRTWFc` reads the man page SYNOPSIS against the help one way only, so an option the help has and the SYNOPSIS lacks passes. The missing `--lossy` got by that way until 2026101407100006.
+		- check-docs `dcwqr` reads the man page SYNOPSIS against the help one way only, so an option the help has and the SYNOPSIS lacks passes. The missing `--lossy` got by that way until 2026101407100006.
 	- Requirements: a check for each, or the sentence reworded until it claims nothing.
-	- Origin: the first 2 from `6314a79b` (docsync). `EqRTWFc` is older.
+	- Origin: the first 2 from `6314a79b` (docsync). `dcwqr` is older.
 	- Actual fix:
 		- `QuoteSegment`: a fixture in all 4 runners writes the spec's examples and the setter soup under one name with `FormatValue`, then reads each back through `site(` + `QuoteSegment(v)` + `)`. `site(0)` has to stay the first instance.
 		- Go: a test reads every read call over every corpus case from 8 goroutines on a fresh document, against the one-goroutine answers. The test stage runs it again under `go test -race`, one test only, about 15 s. Taking `indexMu`'s lock out isn't a race, since the index is built whole and stored atomically, so the review's probe stayed green for a good reason. spec.md's Go line now says the index is built whole before it's put in place.
-		- `EqRTWFc`: an option one man SYNOPSIS spells out has to be spelled out in the SYNOPSIS of every subcommand the help gives it to, and in none the help doesn't. The man page gained `--schema=SCHEMA` on `check` and `--no-banner` on `set` to meet it.
+		- `dcwqr`: an option one man SYNOPSIS spells out has to be spelled out in the SYNOPSIS of every subcommand the help gives it to, and in none the help doesn't. The man page gained `--schema=SCHEMA` on `check` and `--no-banner` on `set` to meet it.
 	- Decisions:
 		- 20261016: the SYNOPSIS rule is all or none per option, since `[options]` covers everything and so can't tell a missing option from a covered one (me).
 	- Swept: the other concurrency lines in spec.md. Rust's `Send` and `Sync` now have a compile-time test, and Python's threads line has an 8-thread fixture like Go's, with a short switch interval. C makes no claim. C++'s lock claim is filed as 2026101612343301.
-	- Test case: Rust `EstLlpK` (`quote_segment_selects_a_held_value`), Go `EstLlpL`, Python `EstLlpM`, C `EstLlpN`. Go `EstLlpJ` (`TestReadsFromSeveralGoroutines`), also under `-race` in the test stage. Rust `EstLlpO` (`document_is_send_and_sync`). Python `EstLlpR` (`reads_from_several_threads`). check-docs `EqRTWFc`.
-	- Verified: each new check went red with its claim broken. The 4 selector fixtures failed with `QuoteSegment` leaving `0` bare. `EstLlpJ` failed under `-race` and plain with Go's index stored before it's filled, and `EstLlpR` failed the same way in Python. `EstLlpO` failed to compile with the index in a `OnceCell`. `EqRTWFc` failed with `--lossy` taken off `fmt`'s SYNOPSIS, and with `--lossy` added to `upgrade`'s. All pass on the fix. The race step also passes in the alpine image. Also cargo test, clippy, rustfmt, the Go suites with `-count=1`, go vet, staticcheck, gofmt, the Python suite, ruff, mypy, the C runner under gcc, gcc-15, clang and ASan with UBSan, cppcheck at the normal level, cli-regress (610 rows, 4 bindings), check-doc-examples, check-docs, shellcheck and test-ids check.
+	- Test case: Rust `de18m` (`quote_segment_selects_a_held_value`), Go `de18n`, Python `de18p`, C `de18q`. Go `de18k` (`TestReadsFromSeveralGoroutines`), also under `-race` in the test stage. Rust `de18r` (`document_is_send_and_sync`). Python `de18t` (`reads_from_several_threads`). check-docs `dcwqr`.
+	- Verified: each new check went red with its claim broken. The 4 selector fixtures failed with `QuoteSegment` leaving `0` bare. `de18k` failed under `-race` and plain with Go's index stored before it's filled, and `de18t` failed the same way in Python. `de18r` failed to compile with the index in a `OnceCell`. `dcwqr` failed with `--lossy` taken off `fmt`'s SYNOPSIS, and with `--lossy` added to `upgrade`'s. All pass on the fix. The race step also passes in the alpine image. Also cargo test, clippy, rustfmt, the Go suites with `-count=1`, go vet, staticcheck, gofmt, the Python suite, ruff, mypy, the C runner under gcc, gcc-15, clang and ASan with UBSan, cppcheck at the normal level, cli-regress (610 rows, 4 bindings), check-doc-examples, check-docs, shellcheck and test-ids check.
 	- Branch: `docpin`
 	- Commit: `069b42fc`
 	- Acceptance signoff: closed on JC's criteria. Each claim has a check seen to fail with the claim broken. The SYNOPSIS rule and the 2 man page additions are my call.
@@ -2975,8 +3075,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261016: a corpus case with no `lost` row is held to losing nothing. Case 051 was the one that refuses with no row, so it gained `lost 1` (me).
 	- Swept: the fuzz dump's `fmt --write` row has no golden to check against, so it stays a compare. The other `fCompareWrite` rows weren't part of the item and stay compares.
-	- Test case: shell-regress `EstLlpQ` (`2026101609320201-crosscheck-save-gate-answers`): a stub reference that writes where it has to refuse, a case whose `lost` row says the write refuses, and a case whose `expected.shcl` differs from what the write left. Each has to fail.
-	- Verified: `EstLlpQ` fails on the old crosscheck, the only red in shell-regress, and passes on the fix. crosscheck over the corpus failed on 051 before its `lost` row, and passes with it, 4 debug CLIs, 22236 comparisons. Also shell-regress, the 4 runners over 051's new row, cli-regress and shellcheck.
+	- Test case: shell-regress `de18s` (`2026101609320201-crosscheck-save-gate-answers`): a stub reference that writes where it has to refuse, a case whose `lost` row says the write refuses, and a case whose `expected.shcl` differs from what the write left. Each has to fail.
+	- Verified: `de18s` fails on the old crosscheck, the only red in shell-regress, and passes on the fix. crosscheck over the corpus failed on 051 before its `lost` row, and passes with it, 4 debug CLIs, 22236 comparisons. Also shell-regress, the 4 runners over 051's new row, cli-regress and shellcheck.
 	- Branch: `docpin`
 	- Commit: `d74fa56b`
 	- Acceptance signoff: Self-closed: the checks do what the comments say, the new test failed before and passes after, and the 2 rewritten rows are named with their reason.
@@ -2992,18 +3092,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: dev at `79b9876c`
 	- Related IDs: 2026101303344553, 2026101309250977
 	- Incorrect behavior:
-		- `Esbpt85` passes a recipe with `curl https://example.com/x.tgz -o x.tgz` (the URL before the options), one with `curl -fsSLo go.tgz` of another URL to a file name hashed elsewhere, and one whose `sha256sum -c` line is commented out. Docker drops comment lines inside a `RUN` continuation, so that build checks nothing.
-		- `Esbpsph` reads an extra image's versions only from its `ARG *_VER=` lines. `staticcheck@2025.1` written in the `RUN` line, with the ARG left at 2026.1, passes.
+		- `ddx1v` passes a recipe with `curl https://example.com/x.tgz -o x.tgz` (the URL before the options), one with `curl -fsSLo go.tgz` of another URL to a file name hashed elsewhere, and one whose `sha256sum -c` line is commented out. Docker drops comment lines inside a `RUN` continuation, so that build checks nothing.
+		- `ddx1t` reads an extra image's versions only from its `ARG *_VER=` lines. `staticcheck@2025.1` written in the `RUN` line, with the ARG left at 2026.1, passes.
 	- Expected behavior: check-pins' header says a recipe fails "when one fetches something it doesn't hash", and that "an extra image can't drift on its own". 2026101303344553 and 2026101309250977 name these checks as their tests.
 	- Reproduced: 20261015, on a copy of check-pins with each recipe edit. Each printed `ok`.
 	- Origin: `a1afc401` and `07914455` (ctrbuild, 2026-10-13). The commented-out hash is the hole closed for ci.yml on 2026-09-16, open again in the new check. Confirmed.
 	- Note: a bare `wget URL` passes too. The check's comment says a fetch has to have an option, since the package lists name both tools bare. Nothing checks that `FROM` is pinned by digest either. All 3 recipes are today.
-	- Sweep: shell-regress `Esbq6Ie` gets a case for each form.
-	- Actual cause: `Esbpt85` counted a fetch only when an option came right after `curl` or `wget`, and took a check from anywhere in the recipe, comment lines included. `Esbpsph` read versions only from `ARG *_VER=` lines.
+	- Sweep: shell-regress `ddx1w` gets a case for each form.
+	- Actual cause: `ddx1v` counted a fetch only when an option came right after `curl` or `wget`, and took a check from anywhere in the recipe, comment lines included. `ddx1t` read versions only from `ARG *_VER=` lines.
 	- Actual fix: a recipe's check has to be on the line right after its fetch, with nothing after `sha256sum -c -`, and a file is fetched once. A fetch is curl or wget with an option or a URL, or run as a command, and only `curl -fsSLo FILE`, one to a line, is followed. Every `FROM` needs a digest. A version typed into a RUN line as `name@X`, `name==X` or `name -RequiredVersion X` has to be the pin.
-	- Swept: `Esbq6Ie` has a case for each form in Incorrect behavior, plus the bare `wget`, a `FROM` with no digest, and a check ending in `|| true`. ci.yml's own check `Eq5jgxE` had 2 of the same holes, a second fetch to a file it had checked and a check ending in `|| true`. Both are closed, with cases in `Eq5jgxF`. Not checked: `COPY --from` an outside image, which no recipe does.
+	- Swept: `ddx1w` has a case for each form in Incorrect behavior, plus the bare `wget`, a `FROM` with no digest, and a check ending in `|| true`. ci.yml's own check `dcqge` had 2 of the same holes, a second fetch to a file it had checked and a check ending in `|| true`. Both are closed, with cases in `dcqgf`. Not checked: `COPY --from` an outside image, which no recipe does.
 	- Verified: the 9 new shell-regress cases fail against dev's check-pins and pass with the fix. check-pins passes on the real recipes and ci.yml. Also the full shell-regress, shellcheck over the gate's list, check-docs, and test-ids check.
-	- Test case: shell-regress `Esbq6Ie` (7 new cases) and `Eq5jgxF` (2 new), over check-pins `Esbpt85`, `Esbpsph` and `Eq5jgxE`.
+	- Test case: shell-regress `ddx1w` (7 new cases) and `dcqgf` (2 new), over check-pins `ddx1v`, `ddx1t` and `dcqge`.
 	- Branch: `ctrfix`
 	- Commit: `7967ebac`, `c820e581`
 	- Acceptance signoff: Self-closed: the review item was reproduced, each case failed before the fix and passes after, and the Sweep line is answered.
@@ -3025,8 +3125,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: `--no-tests` cleared `PROFILE_CHECK` while the options were read, whether or not `--ci` was among them.
 	- Actual fix: `--no-tests` clears it only under `--ci`, where the other hosted job runs the calibration. A local `--no-tests` run calibrates before it draws the graph.
 	- Swept: the other stage flags clear only their own stage. `--no-tests` was the one that reached into the profiler's.
-	- Verified: check-push-gate `EstM5WQ` fails against dev's cicd.bash, where a local `--no-tests` run drew the graph with no calibration, and passes with the fix. With the `--ci` half taken out, its `--ci --no-tests` row fails. Also shellcheck over the gate's list.
-	- Test case: check-push-gate `EstM5WQ`: a local run with and without `--no-tests` calibrates, and so does `--ci`, while `--ci --no-tests` doesn't.
+	- Verified: check-push-gate `de18v` fails against dev's cicd.bash, where a local `--no-tests` run drew the graph with no calibration, and passes with the fix. With the `--ci` half taken out, its `--ci --no-tests` row fails. Also shellcheck over the gate's list.
+	- Test case: check-push-gate `de18v`: a local run with and without `--no-tests` calibrates, and so does `--ci`, while `--ci --no-tests` doesn't.
 	- Branch: `ctrfix`
 	- Commit: `31e91ff4`
 	- Acceptance signoff: Self-closed: the review item was reproduced, and its test failed before the fix and passes after.
@@ -3043,7 +3143,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: pin 2.47.0 in TOOL_PINS, in ci.yml's `go install`, and in the 2 container recipes that build nfpm, which check-pins holds to the pin. 2.47.0 needs Go 1.26.4. ci.yml's `go-version: "1.26"` takes the newest 1.26.x, and the images have 1.26.9.
 	- Verified: check-pins passes, and fails with ci.yml or the ubuntu recipe left at 2.43.0. The drift check reads `v2.47.0` off this box's nfpm. shell-regress's package rows pass on 2.47.0.
 	- Note: the main and ubuntu images build again on their next `--container` run, since their recipes changed. The alpine image doesn't build nfpm and keeps its tag.
-	- Test case: check-pins `EoSE8Nk` (TOOL_PINS against ci.yml) and `Esbpsph` (against the recipes). A version bump needs no test of its own.
+	- Test case: check-pins `dbz38` (TOOL_PINS against ci.yml) and `ddx1t` (against the recipes). A version bump needs no test of its own.
 	- Branch: `ctrfix`
 	- Commit: `398a88e6`
 	- Acceptance signoff: Self-closed: mechanical version bump.
@@ -3065,8 +3165,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261016, all 4 CLIs. A default over 40,000 bad fields of one parent took 1.4 to 4.4 times as long as the same defaults spread one per parent, and grew faster than the field count.
 	- Actual fix: the check asks the name index for the field's instances under its parent, as the set's own fold does, rather than walking the parent's whole child list. The fold case keeps its answer: the note goes on whichever instance stays.
 	- Swept: the same check in all 4. The other child-list membership walk, `live` in the remove path, runs once per field a removal empties, and the `removes` perf-gate row already covers it. Left alone.
-	- Verified: perf-gate's new `fills` row fails on dev's 4 CLIs (Rust 7043 ms against 1617, Go 616 against 321, C 431 against 292, Python 11725 against 5876) and passes on the fix at 72 to 81 percent of its budget. With the fold branch taken out of Rust, cli-regress `EstMftv` fails. Also the Rust suite with 200,000 fuzz, `go test -count=1` for both modules, the Python and C conformance suites, the C++ veneer smoke, cli-regress (612 rows, 4 bindings), crosscheck over the corpus (22233 comparisons), the whole perf-gate, rustfmt, clippy, go vet for linux and windows, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level, and test-ids check.
-	- Test case: perf-gate `EstMfyF` (`fills`), judged against the same defaults one per parent rather than the parse, since a default costs several parsed lines. cli-regress `EstMftv` and `EstMfw7` pin the note's place when the default folds into an earlier or a later instance, which nothing tested before.
+	- Verified: perf-gate's new `fills` row fails on dev's 4 CLIs (Rust 7043 ms against 1617, Go 616 against 321, C 431 against 292, Python 11725 against 5876) and passes on the fix at 72 to 81 percent of its budget. With the fold branch taken out of Rust, cli-regress `de18x` fails. Also the Rust suite with 200,000 fuzz, `go test -count=1` for both modules, the Python and C conformance suites, the C++ veneer smoke, cli-regress (612 rows, 4 bindings), crosscheck over the corpus (22233 comparisons), the whole perf-gate, rustfmt, clippy, go vet for linux and windows, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level, and test-ids check.
+	- Test case: perf-gate `de18z` (`fills`), judged against the same defaults one per parent rather than the parse, since a default costs several parsed lines. cli-regress `de18x` and `de18y` pin the note's place when the default folds into an earlier or a later instance, which nothing tested before.
 	- Branch: `deffast`
 	- Commit: `3c0a544a`
 	- Acceptance signoff: Self-closed: a review item reproduced by timing, with a perf row that fails on the old code in all 4 and passes on the fix.
@@ -3088,8 +3188,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: the sentence and the 4 CLIs' comments over `check --schema`'s output were written before V094 and V095, and nothing read a range against the table.
 	- Actual fix: spec.md and the 4 comments say `V090`-`V095`. A check-docs check takes the codes the spec table marks `schema file`, and fails any tracked text that names another range of V09x codes as schema-line codes. The library fixture has every code in the range, and cli-regress has V094 and V095 rows.
 	- Swept: every V-code range in the tree. Besides the 5 fixed, the lib doc comments in all 4 and `shcl.hpp` already said V090 to V095, and corpus README's `V090`-`V093` names what case `023` produces, which is right.
-	- Verified: the check-docs check fails on the old spec.md sentence and on one old comment put back, and passes on the fix. With the Rust library's rule changed to leave V094 out, the Rust fixture fails on its new V094 row and cli-regress on `EssfCWy`. Both pass with it restored and rebuilt clean. Also the Rust, Go, Python and C conformance suites, the C++ veneer smoke, `go test -count=1` for both modules, cli-regress (610 rows, 4 bindings), crosscheck (22233 comparisons), check-docs as `SHCL_GATE_REF=main`, check-abnf, shell-regress, shellcheck, markdownlint-cli2, rustfmt, clippy for the host and windows, go vet, staticcheck, gofmt, ruff, mypy, cppcheck at the normal level, and test-ids check.
-	- Test case: check-docs `Essez3P` (`schema-line-range-matches-table`); cli-regress `EssfCWy` (`check-schema-line-v094`) and `EssfCWz` (`check-schema-line-v095`); the format-diagnostic fixture in all 4 runners (Rust `format_diagnostic_is_the_cli_line`), now V090 to V095.
+	- Verified: the check-docs check fails on the old spec.md sentence and on one old comment put back, and passes on the fix. With the Rust library's rule changed to leave V094 out, the Rust fixture fails on its new V094 row and cli-regress on `de13a`. Both pass with it restored and rebuilt clean. Also the Rust, Go, Python and C conformance suites, the C++ veneer smoke, `go test -count=1` for both modules, cli-regress (610 rows, 4 bindings), crosscheck (22233 comparisons), check-docs as `SHCL_GATE_REF=main`, check-abnf, shell-regress, shellcheck, markdownlint-cli2, rustfmt, clippy for the host and windows, go vet, staticcheck, gofmt, ruff, mypy, cppcheck at the normal level, and test-ids check.
+	- Test case: check-docs `de139` (`schema-line-range-matches-table`); cli-regress `de13a` (`check-schema-line-v094`) and `de13b` (`check-schema-line-v095`); the format-diagnostic fixture in all 4 runners (Rust `format_diagnostic_is_the_cli_line`), now V090 to V095.
 	- Branch: `climsg`
 	- Commit: `2f961afe`
 	- Acceptance signoff: Self-closed: a doc range fix with a check that was seen to fail on the old text, and pins for each code.
@@ -3100,7 +3200,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
-	- Needs external testing: N. Hosted run 38950612020 on dev at `56a37a27` passed the windows job, `Essd9Mg` included.
+	- Needs external testing: N. Hosted run 38950612020 on dev at `56a37a27` passed the windows job, `de132` included.
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 10
@@ -3116,8 +3216,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: Go and Python wrote their own text for the ops read and named a document on stdin by its argument. The ops read in each CLI was its own code, apart from the document read, and only that one had the rule that a stdin with nothing attached reads as empty. C's probe for the temp-create wording asked the folder in the path as given.
 	- Actual fix: Rust's wording in all 4. Go and Python name stdin `stdin` and say `stream did not contain valid UTF-8`. The ops read in all 4 takes the document read's rule for an unattached stdin, and a real read error is `stdin: ` and the reason, at 8. C reads the ops through the same `read_stream` as a document, so the separate UTF-8 check and its wrong comment are gone. C's `dir_takes_a_temp` probes the folder of `shcl_resolve_target`'s answer. Go drops the `read /dev/stdin:` part of a stdin read error, as it already did for a file.
 	- Swept: every stdin read in the 4 CLIs (the document read, which covers FILE, `--layer` and `--schema`, and the ops read), every UTF-8 message, and both `dir_takes_a_temp` callers in C (the save and the migrate and upgrade write). The OS's own text after `FILE: ` still differs by binding, by design (cli-regress header). Not pinned: a stdin read that fails outright, since a directory on stdin stops Python before `main` and no other failure is portable to set up; Python's document read now prefixes that one with `stdin: ` too.
-	- Verified: the new rows fail on dev's CLIs: `Essd9Mh` on Go and Python, `Essd9Mi` to `Essd9Ml` on Go and Python, `Essd9Mm` on C. All pass on the fix, with `Essd9Mg` passing both ways. The gate list on 2026101514324711 covers this branch.
-	- Test case: cli-regress `Essd9Mg` (`ops-closed-stdin`), `Essd9Mh` (`ops-write-only-stdin`, new `@wronlyin` stdin, POSIX only), `Essd9Mi` to `Essd9Ml` (bad UTF-8 on stdin as ops, document, layer and schema) and save case `Essd9Mm` (`dangling-nodir`).
+	- Verified: the new rows fail on dev's CLIs: `de133` on Go and Python, `de134` to `de137` on Go and Python, `de138` on C. All pass on the fix, with `de132` passing both ways. The gate list on 2026101514324711 covers this branch.
+	- Test case: cli-regress `de132` (`ops-closed-stdin`), `de133` (`ops-write-only-stdin`, new `@wronlyin` stdin, POSIX only), `de134` to `de137` (bad UTF-8 on stdin as ops, document, layer and schema) and save case `de138` (`dangling-nodir`).
 	- Branch: `climsg`
 	- Commit: `a3b730db`
 	- Acceptance signoff: Self-closed: reproduced, each new row failed before on the bindings it covers and passes after, and the Swept line names the sites. Rust's wording won everywhere, so no wording call was made.
@@ -3138,12 +3238,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `op line 1: unknown op:  (see --help)`. All 4.
 	- Expected behavior: the message names what it read, as it does for an op indented with spaces. An indented op stays an unknown op, by 2026101419280004's call. Only the text changes.
 	- Reproduced: 20261015, all 4 CLIs.
-	- Origin: the sibling 2026101419280004 left. That item called this message the one 2026101407100005 set out to remove, for a comment line. cli-regress `Esnb9g2` pins the space-indented form only. Confirmed.
+	- Origin: the sibling 2026101419280004 left. That item called this message the one 2026101407100005 set out to remove, for a comment line. cli-regress `ddzwc` pins the space-indented form only. Confirmed.
 	- Actual cause: the op is the text before the first tab, so a tab indent leaves it empty. Spaces then a tab leave only blanks, which the message printed raw, a CR included.
 	- Actual fix: an op that is empty or only spaces and CRs is refused as `unknown op: none before the first tab`, in all 4 CLIs. It's still an unknown op at exit 1, and the space-indented form still names `  int`. The wording is my call (me).
 	- Swept: the 4 CLIs' unknown-op arms (Rust `apply_op`, Go `applyOp`, Python `apply_op`, C `apply_op`). The 4 runners' unknown-op text is test-only and matched by prefix, so it's left alone. No doc quotes the message. A changelog line.
 	- Verified: the 2 new cli-regress rows fail on dev's 4 CLIs and pass on the fix. The gate list on 2026101514324711 covers this branch.
-	- Test case: cli-regress `EssaXoE` (`ops-tab-indented-op-unknown`) and `EssaXqa` (`ops-blank-tab-indented-op-unknown`), beside `Esnb9g2`.
+	- Test case: cli-regress `de12q` (`ops-tab-indented-op-unknown`) and `de12r` (`ops-blank-tab-indented-op-unknown`), beside `ddzwc`.
 	- Branch: `climsg`
 	- Commit: `9a52f21b`
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new rows failed before and pass after, and the wording call is noted above.
@@ -3158,20 +3258,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: Code review 20261015 item 4
 	- Version and build: dev at `79b9876c`
 	- Related IDs: 2026101514324701
-	- Problem description: fuzz never runs `upgrade` or `upgrade_file`. A probe of the property below over 20,000 fuzzed files found 2026101514324701. `schema_and_format_lines_follow_the_parser` (`ErfuRfE`) uses only names that parse and skips every file with an error, which is how that one got past it.
+	- Problem description: fuzz never runs `upgrade` or `upgrade_file`. A probe of the property below over 20,000 fuzzed files found 2026101514324701. `schema_and_format_lines_follow_the_parser` (`ddf41`) uses only names that parse and skips every file with an error, which is how that one got past it.
 	- Requirements:
 		- A property over `mutate` and `structural` output with a `Format 3` line, a `Format 2` line or none, with and without `from_v2`. A clean input naming this format comes back current and unchanged. A converted input naming this format loads clean. Upgrading the result again without `from_v2` is current.
-		- `ErfuRfE` adds names starting with `~` or a backtick, keeps files whose only errors are E014, and finds raw bodies with the test's own `raw_spans`. Changed that way it fails on dev at iteration 15.
+		- `ddf41` adds names starting with `~` or a backtick, keeps files whose only errors are E014, and finds raw bodies with the test's own `raw_spans`. Changed that way it fails on dev at iteration 15.
 	- Origin: `upgrade` came in `60d0196c` (2026-10-07) with no property.
-	- Actual fix: a new property, `upgrade_leaves_its_own_output_alone`, runs `upgrade` over `mutate` and `structural` output stamped `Format 3`, `2`, `4`, a number past 32 bits, or nothing, with and without `from_v2`. 1 input in 3 gets a name led by `~` or a backtick. `ErfuRfE` has `~x` and `` `y `` names and finds the bodies with `raw_spans`.
-	- Note: `ErfuRfE` keeps every file now, not only the E014 ones, since its oracle no longer reads the parser's values. With every file kept it passed at 200,000 (me).
+	- Actual fix: a new property, `upgrade_leaves_its_own_output_alone`, runs `upgrade` over `mutate` and `structural` output stamped `Format 3`, `2`, `4`, a number past 32 bits, or nothing, with and without `from_v2`. 1 input in 3 gets a name led by `~` or a backtick. `ddf41` has `~x` and `` `y `` names and finds the bodies with `raw_spans`.
+	- Note: `ddf41` keeps every file now, not only the E014 ones, since its oracle no longer reads the parser's values. With every file kept it passed at 200,000 (me).
 	- Note: `raw_spans` read a line with a carriage return in its indent as opening no block, where the load opens one. The new property found it at 200,000 on a corpus mutant. Fixed in the test. The library was right.
-	- Test case: fuzz `EssNzSi` (`upgrade_leaves_its_own_output_alone`), `ErfuRfE`, and `EssPQ7b` for the `raw_spans` fix.
-	- Verified: with the old `opens_raw` put back, `ErfuRfE` fails at iteration 4 and `EssNzSi` at 38, at the default 300. Both pass with it restored and rebuilt clean. `EssNzSi` also fails with a clean `Format 3` file converted under `from_v2`, and with the fresh-text-loads-clean check taken out. `EssPQ7b` fails on the old `raw_spans`. Fuzz at 300 and 200,000, 2,000,000 in release (31 properties, 410 s), the Rust suite, clippy, test-ids.
-	- Note: `EssNzSi` takes about 15 s alone at the `--ci` count of 200,000. The fuzz target's wall time there went from 56.7 s to 57.1 s.
+	- Test case: fuzz `de116` (`upgrade_leaves_its_own_output_alone`), `ddf41`, and `de122` for the `raw_spans` fix.
+	- Verified: with the old `opens_raw` put back, `ddf41` fails at iteration 4 and `de116` at 38, at the default 300. Both pass with it restored and rebuilt clean. `de116` also fails with a clean `Format 3` file converted under `from_v2`, and with the fresh-text-loads-clean check taken out. `de122` fails on the old `raw_spans`. Fuzz at 300 and 200,000, 2,000,000 in release (31 properties, 410 s), the Rust suite, clippy, test-ids.
+	- Note: `de116` takes about 15 s alone at the `--ci` count of 200,000. The fuzz target's wall time there went from 56.7 s to 57.1 s.
 	- Branch: `fuzzup`
 	- Commit: `4bdfe352`
-	- Acceptance signoff: Self-closed: the property and the `ErfuRfE` change are in, and each was seen to fail on the defects it covers.
+	- Acceptance signoff: Self-closed: the property and the `ddf41` change are in, and each was seen to fail on the defects it covers.
 	- Closed: 20261016-082453
 
 - Two fuzz properties never reach a branch they cover
@@ -3184,14 +3284,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: dev at `79b9876c`
 	- Related IDs: 2026101407100011, 2026101412591471, 2026100717500020
 	- Problem description:
-		- `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks `format_value` over a character soup that made no thousands-shaped text in 2,000,000 draws, and always builds 2 element arrays. With the keep-bare thousands branch taken out of `format_value`, or 1 element taking the scalar rule in `format_array`, fuzz stayed green. Only the fixtures went red.
-		- The default fill property (`EsJZkoB`) never reads the replaced-line note. Dropping the old value from the note, or adding a note to an empty field, kept fuzz green.
+		- `writer_roundtrips_and_stays_fixpoint` (`da6rk`) checks `format_value` over a character soup that made no thousands-shaped text in 2,000,000 draws, and always builds 2 element arrays. With the keep-bare thousands branch taken out of `format_value`, or 1 element taking the scalar rule in `format_array`, fuzz stayed green. Only the fixtures went red.
+		- The default fill property (`ddrnk`) never reads the replaced-line note. Dropping the old value from the note, or adding a note to an empty field, kept fuzz green.
 	- Requirements:
-		- `Ekfzh7g` draws from `thousands_soup` now and then, builds 0 to 4 elements, and checks `format_array` of one text against `format_value`'s, quoted for a thousands number.
-		- `EsJZkoB` checks that a replaced value leaves exactly 1 note line with the old value, and an empty field none.
+		- `da6rk` draws from `thousands_soup` now and then, builds 0 to 4 elements, and checks `format_array` of one text against `format_value`'s, quoted for a thousands number.
+		- `ddrnk` checks that a replaced value leaves exactly 1 note line with the old value, and an empty field none.
 	- Origin: fmtvalue, fmtelem and defaultfix. Confirmed by putting each break in.
-	- Actual fix: `Ekfzh7g` draws from `thousands_soup` 1 time in 6 and builds arrays of 0 to 4 elements. It checks that `format_value` keeps a thousands number bare, and that `format_array` of one text is `format_value`'s in brackets, quoted for a thousands number by spec.md's rule. `EsJZkoB` checks that a replaced value leaves exactly 1 new note line, whose old line reads back as the old value, and that anything else leaves none.
-	- Test case: fuzz `Ekfzh7g` and `EsJZkoB`.
+	- Actual fix: `da6rk` draws from `thousands_soup` 1 time in 6 and builds arrays of 0 to 4 elements. It checks that `format_value` keeps a thousands number bare, and that `format_array` of one text is `format_value`'s in brackets, quoted for a thousands number by spec.md's rule. `ddrnk` checks that a replaced value leaves exactly 1 new note line, whose old line reads back as the old value, and that anything else leaves none.
+	- Test case: fuzz `da6rk` and `ddrnk`.
 	- Verified: all 4 breaks go red at the default 300: `format_value` building a plain element, `format_array` taking the scalar rule for 1 element, a note on an empty field, and a note with the old value dropped. Each restored and rebuilt clean after. Same fuzz and gate runs as 2026101514324704.
 	- Branch: `fuzzup`
 	- Commit: `4bdfe352`
@@ -3220,7 +3320,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: docs only. The help's `upgrade` line says a file is made over when it doesn't load clean and names no format or an older one. Its exit codes paragraph gives upgrade's 7 as a file that reads two ways or would keep an error. The `--from-2x` text in the help, the man page and examples.md says that on a file not written for 2.x it can change good lines, and with `--write` the backup keeps the original. examples.md gives the Format line rule and says `--from-2x` is only for a file known to be old. The `upgrade` doc comment in Rust, Go, Python, C and C++, spec.md and the man page say the new block goes at the end in place of an old one there, and that a whole block above the first field stays, so such a file comes out with 2. The changelog's `upgrade_file` line names the Format line rule too, and zsh's one-line summary says an older file.
 	- Swept: the help in all 4 CLIs, still byte-identical and inside 80 columns. The man page's `upgrade`, `--from-2x` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry, which was already right, examples.md, README (no upgrade text), install.md, both completion files, and the changelog's Unreleased lines on upgrade. Nothing synced to main.
 	- Verified: `--help` from the 4 debug CLIs has one checksum and no line over 80; `shcl help upgrade` and the man page at 80 columns read as above.
-	- Test case: none, docs only. Help parity across the 4 is crosscheck's, and its width is cli-regress `help-width` (`Eq9yPCQ`) and `man-width` (`EpHH7ZQ`).
+	- Test case: none, docs only. Help parity across the 4 is crosscheck's, and its width is cli-regress `help-width` (`dcrhg`) and `man-width` (`dcbc4`).
 	- Branch: `upfix`
 	- Commit: `c525d086`
 	- Acceptance signoff: Self-closed on JC's criteria: the `--from-2x` sentence is JC's 2026-10-15 requirement, and the rest makes the help, examples.md and the doc comments say what spec.md and the man page say. The wording is my call.
@@ -3247,7 +3347,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `upgrade_file` in all 4 reads the file itself. A failed open or read gives the system's message and status, as `write_backup` does, so no permission is `PermissionDenied` with `f.shcl: Permission denied`. `Unreadable` and the UTF-8 message are left for text that isn't UTF-8, which is what `Unreadable`'s doc says it is. C gets a private `s_read_file` that also hands back the errno, and `shcl_read_file` calls it. The `PermissionDenied` docs in the 4 bindings and spec.md say it covers that read too. The CLI side was already gone with 2026101514324706, since `upgrade --write` reads the file first now.
 	- Swept: every library read of a file in the 4. `read_file` and `load_file` with its `_with` and `_keep_lines` forms give a status and no message, and their docs list permissions, a directory, bad encoding and the cap under `Unreadable`, so the contract stays. `read_named_schema` already gives a status per case and the system's message. `upgrade_file`'s check that the file hasn't changed takes a failed second read as "changed since it was read", left alone, since a file that read a moment before failing now is a race. The C++ veneer passes the C message and status through, unchanged.
 	- Verified: the new asserts fail on the old libraries in all 4 (`Unreadable` with the UTF-8 text) and pass on the fix.
-	- Test case: `write_status_names_each_failure` in Rust (`EsEhCFy`), Go (`EsEhCG1`), Python (`EsEhCG4`) and C (`EsEhCGA`): `upgrade_file` on a mode 000 file is `PermissionDenied` with no UTF-8 in the message, and a file that isn't UTF-8 still says so. POSIX only, and skipped as root, like the shut folder rows beside it.
+	- Test case: `write_status_names_each_failure` in Rust (`ddqfr`), Go (`ddqfv`), Python (`ddqfy`) and C (`ddqg4`): `upgrade_file` on a mode 000 file is `PermissionDenied` with no UTF-8 in the message, and a file that isn't UTF-8 still says so. POSIX only, and skipped as root, like the shut folder rows beside it.
 	- Branch: `upfix`
 	- Commit: `e498787b`
 	- Acceptance signoff: Self-closed: reproduced, the new asserts failed before and pass after, and `Unreadable` now means what its doc says.
@@ -3261,15 +3361,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 17
 	- Version and build: dev at `79b9876c`
-	- Incorrect behavior: `test-ids.py find EsZikJk` gives `source/python/tests/conformance.py:4026`, which is a `#` comment. Its Rust twin `EsZikJi`, commented out the same way, is `not found`.
+	- Incorrect behavior: `test-ids.py find ddwhr` gives `source/python/tests/conformance.py:4026`, which is a `#` comment. Its Rust twin `ddwhp`, commented out the same way, is `not found`.
 	- Expected behavior: a commented-out marker counts as no test, as in Rust and Go.
 	- Reproduced: 20261015.
 	- Origin: before this window. Confirmed.
 	- Actual cause: confirmed. The marker-only sites matched their pattern anywhere in a line, comments included. Rust and Go anchor theirs at the line start.
 	- Actual fix: those sites read each file with its comments blanked first: a `#` line in Python, Bash and PowerShell, and a `//` line or `/* */` span in C and C++.
-	- Swept: every marker-only site in the table. Bash had the same hole: `check-migrate.bash` has 2 commented-out `fTest` lines and `cli-regress.bash` 1, and all 3 counted as tests. The C twin `EsZikJl` did too. The cli-regress and perf-gate row arrays skip a line that doesn't start with a quote, so a commented row was already none.
-	- Test case: shell-regress `EssNRE0` runs `test-ids.py find` on a fake tree with live and commented-out markers in Python, C and Bash.
-	- Verified: `EssNRE0` fails on the old `test-ids.py` and passes on the fix. `find EsZikJk` now says `not found`. `test-ids.py check`, shell-regress, shellcheck, ruff and mypy pass.
+	- Swept: every marker-only site in the table. Bash had the same hole: `check-migrate.bash` has 2 commented-out `fTest` lines and `cli-regress.bash` 1, and all 3 counted as tests. The C twin `ddwhs` did too. The cli-regress and perf-gate row arrays skip a line that doesn't start with a quote, so a commented row was already none.
+	- Test case: shell-regress `de115` runs `test-ids.py find` on a fake tree with live and commented-out markers in Python, C and Bash.
+	- Verified: `de115` fails on the old `test-ids.py` and passes on the fix. `find ddwhr` now says `not found`. `test-ids.py check`, shell-regress, shellcheck, ruff and mypy pass.
 	- Branch: `gatefix`
 	- Commit: `8eba94bc`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the scan does what the item asked.
@@ -3290,8 +3390,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `279862ae` (2026-07-25), before this window. Confirmed.
 	- Actual fix: each bad op's run on the reference has to exit nonzero with nothing on stdout, or crosscheck fails with `NOT REFUSED`. The compare holds the other bindings to the reference, as before.
 	- Swept: the other crosscheck dimensions whose comments say what a call must do. The corpus save gate (`fmt --write` per case) and the fixed `fFixLost` write rows also only compare bindings. The runners and cli-regress pin those answers, so they were left as is.
-	- Test case: shell-regress `EssNRBl` runs crosscheck with the CLI as 2 bindings over a case whose `write-bad.ops` has a good line, which has to fail, and one whose line is refused, which has to pass.
-	- Verified: `EssNRBl` fails on the old crosscheck and passes on the fix. crosscheck over the corpus with the 4 debug CLIs (22233 comparisons), shell-regress and shellcheck pass.
+	- Test case: shell-regress `de114` runs crosscheck with the CLI as 2 bindings over a case whose `write-bad.ops` has a good line, which has to fail, and one whose line is refused, which has to pass.
+	- Verified: `de114` fails on the old crosscheck and passes on the fix. crosscheck over the corpus with the 4 debug CLIs (22233 comparisons), shell-regress and shellcheck pass.
 	- Branch: `gatefix`
 	- Commit: `33fcb499`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the check does what its comment says.
@@ -3321,13 +3421,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: CLI only, the library contract kept, as on 2026101419280005. `upgrade --write` reads the file itself first, as the printing form does. When `upgrade_file` fails, it prints the diagnostics of `upgrade` on that text, then the error, with the same exit codes as before. So a file that can't be read now gives the same message with or without `--write`.
 	- Swept: every early return in `upgrade` and `migrate` in the 4 CLIs. `migrate` prints the load's diagnostics right after its load, before any refusal or write, so only `upgrade --write` had the gap. The new rows walk the error exits of every loading subcommand: get's 2 to 6, `--strictness=strict` on count, instances, children and paths, check, `fmt --check` and `--write`, set, migrate and upgrade, printed and with `--write`, refused and failing at the backup.
 	- Verified: the new rows fail on dev's 4 CLIs in exactly the 4 `upgrade --write` rows, 16 checks, and pass on the fix. cli-regress is green on the branch.
-	- Test case: cli-regress `diagExits`, `EssOUuB` to `EssOUub` (`diag-exit-*`), each checking the exit code and that the file's one E014 line prints exactly once.
+	- Test case: cli-regress `diagExits`, `de117` to `de121` (`diag-exit-*`), each checking the exit code and that the file's one E014 line prints exactly once.
 	- Branch: `upfix`
 	- Commit: `538e3359`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule that every loading subcommand prints the load's diagnostics once.
 	- Closed: 20261016-080915
 
-- check-docs `EsnhDn1` takes a `#` line inside a code fence for a heading
+- check-docs `ddzx2` takes a `#` line inside a code fence for a heading
 	- ID: 2026101514324715
 	- Type: Bug
 	- Status: Done
@@ -3337,15 +3437,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: dev at `79b9876c`
 	- Related IDs: 2026101419280006
 	- Incorrect behavior: `installer-doc-pointers` builds the target doc's anchors from every `#` line, fenced or not. An installer link to `#typo-anchor` passes when install.md has `# typo anchor` in a `~~~bash` fence. Nothing on dev trips it.
-	- Expected behavior: its comment says each link has to reach a heading. `EsiRFl2` skips fences for the same job.
+	- Expected behavior: its comment says each link has to reach a heading. `ddymm` skips fences for the same job.
 	- Reproduced: 20261015, on a fixture repo with the check's block.
 	- Origin: `b3199842` (docgate, 2026-10-15). Confirmed.
 	- Note: one anchor builder for both checks closes it.
 	- Actual cause: confirmed. The check built its anchors with its own `sed`, which read every `#` line in the file.
-	- Actual fix: one anchor builder at the top of check-docs, which `EsnhDn1` and `EsiRFl2` both call. It skips fenced lines, as `EsiRFl2` did.
-	- Swept: the other heading builder in check-docs is `fBuildToc` for `EqQW89J`, which builds what the editor's contents block would hold, a different rule. It already skips fences. check-readme and the other gates build no anchors.
-	- Test case: shell-regress `EssNR9b` runs both link checks on a fixture repo with a fenced `# typo anchor`. `EsndgVW` now wants `EsnhDn1` to fail too when python3 crashes.
-	- Verified: `EssNR9b` fails on the old check-docs, since `EsnhDn1` passes the typo link, and passes on the fix. shell-regress, check-docs as `SHCL_GATE_REF=main`, shellcheck and `test-ids.py check` pass.
+	- Actual fix: one anchor builder at the top of check-docs, which `ddzx2` and `ddymm` both call. It skips fenced lines, as `ddymm` did.
+	- Swept: the other heading builder in check-docs is `fBuildToc` for `dcwgd`, which builds what the editor's contents block would hold, a different rule. It already skips fences. check-readme and the other gates build no anchors.
+	- Test case: shell-regress `de113` runs both link checks on a fixture repo with a fenced `# typo anchor`. `ddzwn` now wants `ddzx2` to fail too when python3 crashes.
+	- Verified: `de113` fails on the old check-docs, since `ddzx2` passes the typo link, and passes on the fix. shell-regress, check-docs as `SHCL_GATE_REF=main`, shellcheck and `test-ids.py check` pass.
 	- Branch: `gatefix`
 	- Commit: `9028769e`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the fix is the one the item named.
@@ -3379,8 +3479,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: one parse per binding, in the Format line read. The H006 and H007 hints, `restamp`, `migrate`, `upgrade` and the backup name all read through it. The C++ veneer passes the value through as `uint32_t`, which holds it.
 	- Swept: only the H006 and H007 messages print a Format number. The backup name keeps the read value. `explain H006` and `H007`, the man page and the C++ veneer name no number, so none of them changed.
 	- Note: the hint named the cap, 4294967295, until 2026-10-16. It names the digits as written now.
-	- Test case: cli-regress `EssAxd7` (`upgrade-format-overflow`), `EssAxd8` (`stamp-hint-leading-zeros`) and `EssAxd9` (`stamp-hint-long-number`), `stamp_hints_quote_digits` in all 4 runners, plus `format_version_caps_at_32_bits` and the `stamp_reads_say_why` row in all 4. `EsoQOx5` is commented out, since it pinned the cap in the hint.
-	- Verified: `EsoQOx5` fails on the review's 4 CLIs and passes on the fix. The runner checks fail in all 4 with the fix put back. Same gate list as 2026101514324701.
+	- Test case: cli-regress `de0zj` (`upgrade-format-overflow`), `de0zk` (`stamp-hint-leading-zeros`) and `de0zm` (`stamp-hint-long-number`), `stamp_hints_quote_digits` in all 4 runners, plus `format_version_caps_at_32_bits` and the `stamp_reads_say_why` row in all 4. `de035` is commented out, since it pinned the cap in the hint.
+	- Verified: `de035` fails on the review's 4 CLIs and passes on the fix. The runner checks fail in all 4 with the fix put back. Same gate list as 2026101514324701.
 	- Verified: the 3 new rows and `stamp_hints_quote_digits` fail in all 4 with dev's library at `c9cf1f5a` and pass on the hint change. The 4 conformance suites, the veneer smoke and the C memory tests, cli-regress, check-doc-examples, crosscheck over the corpus, shell-regress, check-docs at `SHCL_GATE_REF=main`, check-abnf, check-veneer, test-ids, clippy, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, and cppcheck at the normal level. The exhaustive cppcheck waits on the next `--ci`.
 	- Branch: `scanfix`, `fmtdigits`
 	- Commit: `bca7322f`, `25b4e53d`
@@ -3410,14 +3510,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: `opens_raw` sends a line starting with a fence character only to `child_fence`, against its own comment that a line refused for its text still takes its body. The Format line upgrade appends then reads as inside an open block, so the file looks unstamped every time.
 	- Origin: `4fcfec0b` (2026-10-03), before this window. `upgrade_file` (`60d0196c`, 2026-10-07) turns it into a new backup on every start. Neither 20261014 round saw it. 2026100307163902 accepted the scan and the parser disagreeing on E014 lines, since such a file fails `check` anyway. Confirmed.
 	- Sweep: every reader of the line scan in all 4: the Format and Schema line reads, `restamp`, and the banner code.
-	- Note: fuzz `ErfuRfE` misses it, since its names all parse and it skips any file with an error. 2026101514324704 widens it.
+	- Note: fuzz `ddf41` misses it, since its names all parse and it skips any file with an error. 2026101514324704 widens it.
 	- Actual cause: confirmed. When the child fence read opened nothing on a line led by a backtick or tilde, the scan stopped there, but the parser goes on to read it as a field line, whose fence takes the body (2026100307163902). The body's closing fence then opened a block in the scan that ran to the end of the file.
 	- Actual fix: the scan reads such a line as a field line too, as the parser does, in all 4 bindings.
 	- Swept: every reader of the line scan goes through the same `opens_raw`: the Format line read, with `restamp` and the H006 and H007 hints behind it, the Schema line read, and `migrate`'s check of where its output's blocks are. The banner code works on the parsed document, not the scan. The 4 CLIs have no scan of their own, and the C++ veneer wraps the C calls, so neither changed.
 	- Note: the repro's file has no Format line, so plain `upgrade --write` now exits 7 on it, as spec.md says for lines one rule set reads as a raw body and the other doesn't. Since 2026101515372401 `--from-2x` refuses it at 7 too, since line 1 stays an E014 error. With the Format line under the block, every run leaves it alone.
-	- Test case: cli-regress `EsoQOx2` (`upgrade-odd-name-block`), `EsoQOx3` (`check-odd-name-newer`), `EsoQOx4` (`check-backtick-schema-body`) and save case `EsoQOx6` (`upgrade-odd-name`), plus new rows in `stamp_reads_say_why` in all 4 runners.
+	- Test case: cli-regress `de02p` (`upgrade-odd-name-block`), `de02q` (`check-odd-name-newer`), `de02r` (`check-backtick-schema-body`) and save case `de02s` (`upgrade-odd-name`), plus new rows in `stamp_reads_say_why` in all 4 runners.
 	- Verified: the new rows and the save case fail on the review's 4 CLIs and pass on the fix. The runner rows fail in all 4 with the fix put back. The 4 conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, the 2,000,000 release fuzz, shell-regress, check-docs at `SHCL_GATE_REF=main`, check-abnf, check-veneer, the veneer smoke, test-ids, clippy, go vet, staticcheck, ruff, mypy, shellcheck, and cppcheck at the normal level.
-	- Note: at the merge with `upfrom`, `EsoQOx6` was changed to start from the file with its Format line and run plain `upgrade --write` twice, since `--from-2x` now refuses the file. It fails on the review's Rust CLI and passes on the merge.
+	- Note: at the merge with `upfrom`, `de02s` was changed to start from the file with its Format line and run plain `upgrade --write` twice, since `--from-2x` now refuses the file. It fails on the review's Rust CLI and passes on the merge.
 	- Branch: `scanfix`
 	- Commit: `9da3dd3c`
 	- Acceptance signoff: Self-closed: reproduced, the new tests failed before and pass after, and the scan now does what spec.md says.
@@ -3448,7 +3548,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `keep_mark` leaves a thousands number bare in all 4. A setter over `"x"`, `'x'` or a backtick value writes `k: 1,200`, which reads as text before and after the save. spec.md's setter paragraph and value-syntax.md's setter bullet now say so too.
 	- Swept: `keep_mark` is the one place an old quote kind goes on new text. Each of the 4 libraries has one definition and one call, in the scalar setter path (`grep -n 'keep_mark\|keepMark'`). Array setters keep no marks, and a stacked list keeps its form, not its quotes. `--set-literal` takes its quotes from the text, as before. The C++ veneer wraps the C call.
 	- Verified: the 4 runners' fixture, corpus 206's write ops, the 2 new cli-regress rows and the veneer smoke fail without the fix and pass with it. Also cargo test, `go test -count=1` for both modules, the Python and C runners, cli-regress (593 rows, 4 bindings), crosscheck (53505 comparisons), check-doc-examples, check-abnf, shell-regress, rustfmt, clippy, go vet, staticcheck, ruff, mypy, shellcheck and cppcheck at the normal level.
-	- Test case: `loose_reads_a_quoted_thousands_number` in all 4 runners (`EsbaIWJ`, `EsbaIYt`, `EsbaIba`, `EsbaIe1`); corpus `206-loose-thousands`'s `write.ops`; cli-regress `EsoRGvI` (`set-thousands-over-quoted`) and `EsoRGxW` (`loose-set-thousands-over-quoted`); the veneer smoke `EjtkR0S`; and the setter half of fuzz `EsoRGsu`.
+	- Test case: `loose_reads_a_quoted_thousands_number` in all 4 runners (`ddwzw`, `ddwzx`, `ddwzy`, `ddwzz`); corpus `206-loose-thousands`'s `write.ops`; cli-regress `de033` (`set-thousands-over-quoted`) and `de034` (`loose-set-thousands-over-quoted`); the veneer smoke `d9v59`; and the setter half of fuzz `de032`.
 	- Branch: `thoufix`
 	- Commit: `75ea0170`
 	- Acceptance signoff: Self-closed: reproduced, the new checks failed before the fix and pass after, and the Sweep has its Swept answer. It applies spec.md's own setter sentence and moves no recorded decision.
@@ -3476,11 +3576,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: `upgrade` and `upgrade_file` in all 4, the CLI's message and exit in all 4, and the help and man page lines on `--from-2x`.
 	- Actual cause: `upgrade` checked that the fresh text loads clean only for a file naming this format. A file with no Format line, or an older one, was written with its errors and stamped Format 3, so the next run with `--from-2x` took it for a beta file.
 	- Actual fix: with `from_v2`, `upgrade` makes nothing unless the fresh text loads clean, whatever the Format line says. `Upgrade.errors_left` lists the input's lines still in error, since migrate keeps every line where it was. `upgrade_file` returns a new `ErrorsLeft` error and writes nothing. The CLI prints `FILE: line(s) N would still have an error once converted from 2.x; nothing written` at exit 7, printed or with `--write`. A beta file whose conversion keeps an error was `current` at exit 0 before, and gets this refusal now. Nothing changed without `--from-2x`. Same in all 4 and the C++ veneer (`Upgrade::errors_left`, `UpgradeErrorKind::ErrorsLeft`, `UpgradeError::lines`).
-	- Note: the old checks that pinned a beta file left alone at exit 0 are commented out with the reason: the `stuck` asserts in the 4 `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` tests, and cli-regress `Esnb9kl` and save case `Esnb9pV` from 2026101419280005, replaced by `EsoQmUF` and `EsoQmUE`. check-migrate's format 3 case expects exit 7 for such a file now, with a floor of one.
+	- Note: the old checks that pinned a beta file left alone at exit 0 are commented out with the reason: the `stuck` asserts in the 4 `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` tests, and cli-regress `ddzwf` and save case `ddzwg` from 2026101419280005, replaced by `de031` and `de030`. check-migrate's format 3 case expects exit 7 for such a file now, with a floor of one.
 	- Note: `upgrade --write`'s refusal prints no load diagnostics yet, the same as its ambiguous refusal. 2026101514324706 covers both.
 	- Swept: `upgrade` and `upgrade_file` in Rust, Go, Python and C, and the C++ veneer. The printed and `--write` arms of the 4 CLIs. The `--from-2x` help in the 4 CLIs, and the man page's `--from-2x`, `upgrade` and exit 7 text. spec.md's `UpgradeFile` paragraph, design.md's `upgrade_file` entry and the changelog line. The doc comments on `Upgrade`, `upgrade` and `upgrade_file` in all 4. The style guide's and check-docs' lists of Python-only error classes. check-migrate's format 3 case. `migrate` never takes a beta file as 2.x, so it's unchanged. Help wording past the refusal is left to 2026101514324708.
 	- Verified: the 4 new cli-regress rows fail on the reviewed tree's 4 CLIs, 16 checks and nothing else, and pass on the fix. The 4 library tests fail with the check put back to beta files only, and pass with the fix. check-migrate fails with the old rule (3 fuzz documents and its fixed file) and passes with the fix. Green on the branch: cargo test, go test for the library and cmd, the Python and C runners, veneer smoke, sanitize-c, the oom and mem_bounds tests, cli-regress, check-doc-examples, crosscheck, check-migrate, shell-regress, check-docs with `SHCL_GATE_REF=main`, check-abnf, check-veneer, check-completions, check-readme, markdownlint-cli2, shellcheck, clippy native and windows-gnu, go vet, staticcheck, ruff, mypy, cppcheck at the normal and exhaustive levels, test-ids check, and windows builds of the C CLI and the veneer.
-	- Test case: `from_v2_refuses_a_conversion_that_keeps_an_error` in Rust (`EsoQmU8`), Go (`EsoQmU9`), Python (`EsoQmUA`) and C (`EsoQmUB`), with `upgrade_file`; cli-regress `EsoQmUC` (`upgrade-from-2x-left`) and `EsoQmUF` (`upgrade-left-diags-from-2x`); save cases `EsoQmUD` (`upgrade-from-2x-left`, the item's file refused, then converted with `port` quoted and left alone by the next run) and `EsoQmUE` (`upgrade-beta-left`); the veneer smoke checks on `errors_left` and `ErrorsLeft`; check-migrate `Es34DZk`.
+	- Test case: `from_v2_refuses_a_conversion_that_keeps_an_error` in Rust (`de02t`), Go (`de02v`), Python (`de02w`) and C (`de02x`), with `upgrade_file`; cli-regress `de02y` (`upgrade-from-2x-left`) and `de031` (`upgrade-left-diags-from-2x`); save cases `de02z` (`upgrade-from-2x-left`, the item's file refused, then converted with `port` quoted and left alone by the next run) and `de030` (`upgrade-beta-left`); the veneer smoke checks on `errors_left` and `ErrorsLeft`; check-migrate `ddmp8`.
 	- Branch: `upfrom`
 	- Commit: `88daada9`
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the rule is JC's 2026-10-15 call on the item. The refusal line's wording is my call; the rest of the `upgrade` help wording is 2026101514324708's.
@@ -3495,21 +3595,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: Code review 20261015 item 3
 	- Version and build: dev at `79b9876c`
 	- Related IDs: 2026101309122757, 2026101318521195, 2026101010054746
-	- Problem description: spec.md says `"1,2000"` and `"$ 1,200"` stay text, and a `%` goes where it goes on any Loose number. No runner, corpus case or cli-regress row has `"1,2000"`, `"1234,567"`, `"$ 1,200"`, or an int read of `"1,200%"`. 4 breaks of the rule in the reference passed every gate: a head of 4 digits, groups of 3 or more, a blank after the currency sign, and an int read that ignores `%`. Groups of 3 or more in the Python port passed too, while its CLI read `"1,2000"` as 12000. `typed_reads_survive_a_save` (`EsZikJr`) compares a read before and after a save, so it can't see the rule.
+	- Problem description: spec.md says `"1,2000"` and `"$ 1,200"` stay text, and a `%` goes where it goes on any Loose number. No runner, corpus case or cli-regress row has `"1,2000"`, `"1234,567"`, `"$ 1,200"`, or an int read of `"1,200%"`. 4 breaks of the rule in the reference passed every gate: a head of 4 digits, groups of 3 or more, a blank after the currency sign, and an int read that ignores `%`. Groups of 3 or more in the Python port passed too, while its CLI read `"1,2000"` as 12000. `typed_reads_survive_a_save` (`ddwhn`) compares a read before and after a save, so it can't see the rule.
 	- Requirements:
 		- Rows in corpus `206-loose-thousands` and the shared `loose_reads_a_quoted_thousands_number` fixture for each spelling spec.md says stays text, plus `"1234,567"` and an int read of `"1,200%"`.
 		- A fuzz property: a quoted `thousands_soup` value reads Good at Loose, as int and float, exactly when it matches spec.md's pattern, with the number checked, and BadType at Standard and Strict.
 		- crosscheck's fuzz dump gets thousands documents with Loose reads, so the other 3 bindings see them.
-		- The cli-regress comment above `EsZikJm` says fmt writes the value quoted. It keeps it bare since 2026101309122757.
+		- The cli-regress comment above `ddwhh` says fmt writes the value quoted. It keeps it bare since 2026101309122757.
 	- Reason: the rule changed 4 times in 9 days. The next change to it should go red somewhere.
 	- Origin: `4527cc4e` and `10deaa99` (loosethou). Confirmed by putting each break in and running the gates.
 	- Done:
 		- Corpus 206 has `"1,2000"`, `"1234,567"`, `"$ 1,200"` and a backtick `1,200`, with Loose reads of each, float reads of `"1, 200"` and `"1,2,3"`, and an int read of `"1,200%"`. The shared fixture in the 4 runners has the same spellings plus `".1,200"`.
 		- Fuzz `quoted_thousands_read_by_the_rule` reads a quoted `thousands_soup` value, in each quote kind and at each level, against spec.md's pattern worked out apart from the library, int and float values included. A setter's soup over a quoted value has to read as text at every level, before and after a save, so 02's bug fails it.
 		- The fuzz dump writes 40 thousands documents with Loose int, float and array reads, which crosscheck replays through the other 3.
-		- The cli-regress comment above `EsZikJm` no longer says fmt quotes the value.
+		- The cli-regress comment above `ddwhh` no longer says fmt quotes the value.
 	- Verified: each of the review's 4 breaks put back in the reference fails the fixture, corpus 206 and the fuzz property. Groups of 3 or more in the Python port fail its corpus run and crosscheck over the dump. 02's bug fails the property. Release fuzz at 2,000,000 passed, 29 properties in 475 s, since corpus 206's input changed. The gates listed on 02 ran on the same tree.
-	- Test case: fuzz `EsoRGsu` (`quoted_thousands_read_by_the_rule`); corpus `206-loose-thousands` (`EsbaIuk`) in all 4 runners and crosscheck; `loose_reads_a_quoted_thousands_number` in all 4 runners; crosscheck `EjsGuyA` over the thousands dump.
+	- Test case: fuzz `de032` (`quoted_thousands_read_by_the_rule`); corpus `206-loose-thousands` (`ddx06`) in all 4 runners and crosscheck; `loose_reads_a_quoted_thousands_number` in all 4 runners; crosscheck `d9tsz` over the thousands dump.
 	- Branch: `thoufix`
 	- Commit: `2af9be49`
 	- Acceptance signoff: Self-closed: each Requirement has its check, and each break the review named fails one.
@@ -3526,16 +3626,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Steps to reproduce:
 		- Add a tracked `.md` that isn't valid UTF-8, and one sorting after it with a link to a missing file.
 		- Run `cicd/utility/check-docs.bash`.
-	- Incorrect behavior: `doc-links-resolve` (`EsiRFl2`) reports nothing past the bad file and passes. The traceback goes to stderr and the exit stays 0. An `__all__` change that makes `python-surface-matches-reference` (`EshYXXC`) raise turns that check off the same way.
+	- Incorrect behavior: `doc-links-resolve` (`ddymm`) reports nothing past the bad file and passes. The traceback goes to stderr and the exit stays 0. An `__all__` change that makes `python-surface-matches-reference` (`ddydt`) raise turns that check off the same way.
 	- Expected behavior: a crash in the script fails its gate.
 	- Reproduced: 20261014, the gate's loop form under `set -Eeuo pipefail` with a script that prints 1 hit and then raises. The loop counted 1 and the script went on. Not run against the real gate.
 	- Reproduced again: 20261015 on the real gate, with the steps above in a clone and with a `python3` that exits 1 after its output. All three script-fed checks passed.
 	- Origin: `3f870f9d` and `b30d70a8` (both 2026-10-14). `done < <(...)` drops the producer's exit status, and `set -e` never sees it.
-	- Sweep: `backlog-closed-items-name-a-test` (`Er8RudX`) is fed the same way. check-docs has 34 `done < <(...)` loops. Most read awk or grep, where a crash is less likely, but the hole is the same. Check the other gate scripts too.
+	- Sweep: `backlog-closed-items-name-a-test` (`dd72g`) is fed the same way. check-docs has 34 `done < <(...)` loops. Most read awk or grep, where a crash is less likely, but the hole is the same. Check the other gate scripts too.
 	- Actual fix: each of check-docs' 34 loops reads its input from a variable filled first, as `hits="$(...)" || fFeedBad $?`, so a feed that exits non-zero fails its own check by name. A grep in a feed goes through `fGrepOrNone`, so its no-match exit 1 doesn't read as a crash. The old `|| true` on those hid a real grep or git error too. A feed of several steps exits on the first that fails. The doc-links check asks git for its file list itself, so a git failure stops it as well.
 	- Swept: all 34 `done < <(...)` loops in check-docs, and `grep -n 'done < <('` finds only the comment on the helper now. Left alone: check-docs' 2 `mapfile < <(...)` reads (a Go file list with a count floor after it, and the help text already in a variable), and `fTestSkipBlock`'s, which only prints skip lines. The other gates' `done < <(...)` loops, in check-completions, check-cpu-floor, check-veneer, check-pins, crosscheck, cli-regress and shell-regress, were read and not changed. Their feeds are sed, awk, grep or find over a file or a here-string, or a CLI's own listing, not a script. A crash there is less likely but not ruled out.
 	- Verified: check-docs with `SHCL_GATE_REF=main`, shell-regress, shellcheck over the 40 lint targets, check-push-gate (which runs check-docs on a clone), and `test-ids.py check` pass.
-	- Test case: shell-regress `EsndgSX` makes every check-docs feed exit 3 after its output and wants each test holding one to fail by name, with no `done < <(...)` left. `EsndgVW` runs check-docs with a `python3` that exits 1 after its output and wants `EshYXXC`, `Er8RudX` and `EsiRFl2` to fail. Both failed on the old check-docs and pass now, and `EsndgSX` fails with `fFeedBad` made a no-op. The unguarded-grep scan reads `fGrepOrNone` as a guard, with bait for it in `EomZie1`.
+	- Test case: shell-regress `ddzwm` makes every check-docs feed exit 3 after its output and wants each test holding one to fail by name, with no `done < <(...)` left. `ddzwn` runs check-docs with a `python3` that exits 1 after its output and wants `ddydt`, `dd72g` and `ddymm` to fail. Both failed on the old check-docs and pass now, and `ddzwm` fails with `fFeedBad` made a no-op. The unguarded-grep scan reads `fGrepOrNone` as a guard, with bait for it in `dc3zw`.
 	- Branch: `docgate`
 	- Commit: `b3199842`
 	- Acceptance signoff: Self-closed: the item's own steps fail the gate now and passed it before, and the Sweep has its Swept line.
@@ -3561,9 +3661,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: install.bash's 3 sites (the usage comment, the no-prebuilt message and the openssl message) and install.ps1's refusal off Windows link `https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install`. It's a full URL like the installers' other links, since someone running one from curl has no checkout. The cicd.bash comment names the install doc's one-liners, and sign-release.bash's names project/install.md. Two more comments the split missed: config.bash and ci.yml called the C and Zig examples the README's, and they're in project/examples.md now.
 	- Swept: `git grep -n README -- ':!*.md'`. What's left is about the README's own checks, its small example and the demo gif, which are all still in the README.
 	- Note: main has no `project/install.md` yet, so the URL works once the docs reach main along with these installers. The new check fails a push to main whose installers link a doc the pushed tree doesn't have.
-	- Note: `EpHGoa0` is red on this branch with `SHCL_GATE_REF=main`, since its installers now differ from dev's. It clears on the merge to dev, and plain check-docs stays red on it there, as before.
-	- Verified: check-docs passes but for `EpHGoa0` as above. shell-regress passes, and its install.ps1 refusal row pins the new text. PSScriptAnalyzer passes on install.ps1, which is still ASCII with no BOM. shellcheck and check-pins pass. install.bash run with no openssl on PATH prints the new link.
-	- Test case: check-docs `EsnhDn1` installer-doc-pointers. install.bash and install.ps1 may name no doc by bare file name, and each `blob/main` URL in them has to reach a tracked file and a heading there. It failed on the old installers (4 bare `README.md`), on a broken anchor and on a wrong path, and passes now.
+	- Note: `dcbc2` is red on this branch with `SHCL_GATE_REF=main`, since its installers now differ from dev's. It clears on the merge to dev, and plain check-docs stays red on it there, as before.
+	- Verified: check-docs passes but for `dcbc2` as above. shell-regress passes, and its install.ps1 refusal row pins the new text. PSScriptAnalyzer passes on install.ps1, which is still ASCII with no BOM. shellcheck and check-pins pass. install.bash run with no openssl on PATH prints the new link.
+	- Test case: check-docs `ddzx2` installer-doc-pointers. install.bash and install.ps1 may name no doc by bare file name, and each `blob/main` URL in them has to reach a tracked file and a heading there. It failed on the old installers (4 bare `README.md`), on a broken anchor and on a wrong path, and passes now.
 	- Branch: `docgate`
 	- Commit: `b3199842`
 	- Acceptance signoff: closed on JC's criteria. The call was the message wording, with the URL in the same form as the installers' other links (me).
@@ -3578,14 +3678,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: Code review 20261014b item 3
 	- Version and build: dev at `4d59700f`
 	- Related IDs: 2026101407100010
-	- Incorrect behavior: `fUpFormat3` treats a file as rewritten when it had an error and upgrade changed it, and as untouched otherwise. So a file upgrade should have converted, but left alone, passes as untouched. The first loop (`Eq5YPgP`) never checks `nUpFormat3`, and the second (`Es34DZk`) resets it, so only the second loop's 2 fixed files can catch a miss. A wrong rewrite is caught, since `fUpRewritten` wants a fresh file that loads clean.
+	- Incorrect behavior: `fUpFormat3` treats a file as rewritten when it had an error and upgrade changed it, and as untouched otherwise. So a file upgrade should have converted, but left alone, passes as untouched. The first loop (`dcqf3`) never checks `nUpFormat3`, and the second (`ddmp8`) resets it, so only the second loop's 2 fixed files can catch a miss. A wrong rewrite is caught, since `fUpRewritten` wants a fresh file that loads clean.
 	- Expected behavior: the check works out from the file whether it should convert, the way `fUpgradeCheck` does for 2.x files with `fErrors` and `fMigrateChanged`, then checks upgrade did that. It's seen to fail with upgrade's Format 3 branch broken.
 	- Reproduced: no, from reading the code.
 	- Origin: `ad9af077` (2026-10-14).
 	- Actual fix: `fUpConverts3` works out from the file whether `--from-2x` should convert it. It has to load with an error, and its text, run through `migrate --from-2x` as a format 2 file and then `fmt`, has to load clean. `fUpFormat3` wants a rewrite or an untouched file by that answer, so a miss fails in either loop. A third fixed file is a beta comma list under the info block, which is what the betas wrote, and the count of fixed files to convert is 2.
 	- Note: none of the 14 fuzz and corpus files naming format 3 in a run should convert, so a miss in the first loop shows only on a new document. The fixed files cover that case.
 	- Verified: check-migrate fails with upgrade's format 3 branch broken 3 ways: never converting (both beta files), skipping a file with the info block (that file alone), and converting one whose fresh file has errors (3 fuzz files and `format3-bad`). It passes on the fixed tree, after a clean rebuild. shell-regress and shellcheck pass.
-	- Test case: check-migrate `Es34DZk`, and the upgrade half of `Eq5YPgP`, counted under `Es34DZj`.
+	- Test case: check-migrate `ddmp8`, and the upgrade half of `dcqf3`, counted under `ddmp7`.
 	- Swept: `fUpgradeCheck` already decides from `fErrors` and `fMigrateChanged`. `fUpFormat3` was the only check that decided from upgrade's own output.
 	- Branch: `migcheck`
 	- Acceptance signoff: Self-closed. The check does what the item asked, no more, and was seen to fail.
@@ -3603,11 +3703,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: the beta-file assertion in `upgrade_leaves_a_clean_or_stamped_file` is commented out in all 4 suites (`tests/upgrade.rs`, `upgrade_test.go`, and the Python and C conformance files), and so are 2 pairs of `fUpgradeRun` lines in `check-migrate.bash`, each with a note. The commented text says a beta file is always current, which isn't true anymore, and an edit could uncomment it.
 	- Requirements:
 		- Delete them, and keep a short note where the reason helps.
-	- Sweep: check-migrate's older commented blocks, `ErUuq8D` and the 2.x re-read half since `vsmig`, are the same kind. Say whether they go too.
+	- Sweep: check-migrate's older commented blocks, `ddcfc` and the 2.x re-read half since `vsmig`, are the same kind. Say whether they go too.
 	- Decisions:
 		- JC, 2026-10-15: keep commented, fix the notes.
 	- Actual fix: nothing deleted. Each note says the old claim is wrong now, since a beta Format 3 file that loads with an error now converts, so it isn't always current, and says not to uncomment it. The older check-migrate blocks stay too, with a note on why: nothing defines `fPathBreak` now, and migrate's output isn't for 2.x.
-	- Swept: `upgrade_leaves_a_clean_or_stamped_file` in all 4 suites, both `fUpgradeRun` pairs in check-migrate, `ErUuq8D` with `ErkiUcu`, and the 2.x re-read half. `grep -rn 2026101407100010 source/` finds no other commented assertion.
+	- Swept: `upgrade_leaves_a_clean_or_stamped_file` in all 4 suites, both `fUpgradeRun` pairs in check-migrate, `ddcfc` with `ddg90`, and the 2.x re-read half. `grep -rn 2026101407100010 source/` finds no other commented assertion.
 	- Verified: the 4 suites, check-migrate, shell-regress, shellcheck, rustfmt, gofmt and ruff pass.
 	- Test case: none. Comments only.
 	- Branch: `migcheck`
@@ -3636,7 +3736,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the 4 CLIs skip a line whose first character past spaces, tabs and CRs is `#`, and the 4 runners do the same. An indented op is still an unknown op. The help says a `#` line is a script comment "indented or not", which is my wording call (me).
 	- Swept: the 4 CLIs' `set` ops loops, and both loops in each runner (`write.ops` and `write-bad.ops`; Rust `is_comment_op`, Go `isCommentOpTest`, Python `_comment_op`, C `comment_op`). The help in all 4, still byte-identical at 80 columns, the man page, `project/conformance/README.md`, and a changelog line. spec.md says nothing about comment or blank lines in the ops script, so nothing changed there. The runners' `merge.sets` loops take `#` only at column 0 too, but that's a test-only file and not the ops script, so it's left alone.
 	- Verified: the 3 new cli-regress rows: the 2 comment rows fail on dev's 4 CLIs and pass on the fix, and the indented-op row passes both. Dev's 4 runners fail on corpus 029's 2 new comment lines and pass on the fix. Also cargo test, the Go, Python and C conformance suites, `go test -count=1` for both modules, cli-regress (591 rows, 4 bindings), crosscheck (22053 comparisons), rustfmt, clippy for the host and windows, go vet, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level, and test-ids check.
-	- Test case: cli-regress `Esnb9bC` (`ops-indented-comment`), `Esnb9db` (`ops-tab-indented-comment`) and `Esnb9g2` (`ops-indented-op-unknown`); corpus `029-write-gate`, whose `write.ops` has a tab-indented and a space-indented comment, in all 4 runners and crosscheck.
+	- Test case: cli-regress `ddzwa` (`ops-indented-comment`), `ddzwb` (`ops-tab-indented-comment`) and `ddzwc` (`ops-indented-op-unknown`); corpus `029-write-gate`, whose `write.ops` has a tab-indented and a space-indented comment, in all 4 runners and crosscheck.
 	- Branch: `opsup`
 	- Commit: `7ac89887`
 	- Acceptance signoff: Self-closed: reproduced, the new rows and corpus lines failed before and pass after, the Sweep has its Swept answer, and the one wording call is noted above.
@@ -3667,7 +3767,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: when upgrade leaves the file alone, the 4 CLIs load its text and print the diagnostics once, before the "nothing to upgrade" line, with or without `--write`. stdout and exit codes are unchanged. A file naming a newer format gets its `H006` hint the same way, and a clean file its warnings and hints.
 	- Swept: `upgrade` in the 4 CLIs, printed and with `--write`. Their `migrate` already prints the load's diagnostics when it finds the file current, checked on the same file. The upgrade text in the man page and spec.md says nothing either way, and the man page's rule for every loading subcommand now holds for upgrade too.
 	- Verified: the 3 new cli-regress rows and the new save case fail on dev's 4 CLIs and pass on the fix. The gate list on 2026101419280004 covers this branch.
-	- Test case: cli-regress `Esnb9iN` (`upgrade-left-diags`), `Esnb9kl` (`upgrade-left-diags-from-2x`), `Esnb9n8` (`upgrade-newer-diags`) and save case `Esnb9pV` (`upgrade-beta-left`), each pinning the exact stderr.
+	- Test case: cli-regress `ddzwd` (`upgrade-left-diags`), `ddzwf` (`upgrade-left-diags-from-2x`), `ddzwe` (`upgrade-newer-diags`) and save case `ddzwg` (`upgrade-beta-left`), each pinning the exact stderr.
 	- Branch: `opsup`
 	- Commit: `7ac89887`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule with JC's call on the library contract.
@@ -3718,12 +3818,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: dev at `99497638`
 	- Steps to reproduce:
 		- Run `cicd/utility/shell-regress.bash` on dev.
-	- Incorrect behavior: `EoXOPYu` (`no-failed-test-loop-bodies`) and `EoTJb0N` (`no-unguarded-grep`) fail on two lines `75c1067f` added to `cli-regress.bash`.
+	- Incorrect behavior: `dc0b0` (`no-failed-test-loop-bodies`) and `dbzbt` (`no-unguarded-grep`) fail on two lines `75c1067f` added to `cli-regress.bash`.
 	- Expected behavior: green.
 	- Actual cause: the round that made 2026101407100002, 04 and 07 didn't run shell-regress. Line 2037's `have=" $(grep ... | xargs) "` dies with no message under `pipefail` when an entry has no flag, since the assignment takes grep's exit 1. Line 1589's loop ends on a failed `[[ ]] &&`, which is only the lint's pattern there, since a line follows it.
 	- Actual fix: `|| true` inside the substitution, and an `if` in the loop.
 	- Verified: shell-regress and shellcheck pass, and cli-regress over all 4 CLIs (585 rows, 3467 checks). The old line 2037 form exits 1 with no output under `set -Eeuo pipefail` on an entry with no flag, and the new one carries on.
-	- Test case: shell-regress `EoXOPYu` and `EoTJb0N`, which failed on dev before the fix and pass after.
+	- Test case: shell-regress `dc0b0` and `dbzbt`, which failed on dev before the fix and pass after.
 	- Branch: `srfix`
 	- Acceptance signoff: closed on JC's 20261014 criteria. Gate-script fix only, no behavior change.
 	- Closed: 20261014-154200
@@ -3747,7 +3847,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `format_array` in all four and C++ (Go `FormatArray`, C `shcl_format_array`), each building the value `set_string_array` builds, running its read-back check and returning the emitter's text. C takes texts and lengths as `shcl_set_string_array` does, and shares one helper with `shcl_format_value`, so the working arena goes back before the out-of-memory hook the same way. spec.md has it under the Writer below `FormatValue`, and the changelog has it under New. Python's `__all__` has it.
 	- Swept: every array setter's path in the four bindings (`array_cell` and its ports), which is the one `format_array` calls. `check-veneer.bash` counts it made by `shcl.hpp`. No CLI or runner builds bracket text of its own to switch over. README.md has no `format_value` example, so it gets no `format_array` one either.
 	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. The writer fuzz test at 2,000,000 in release. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang and under ASan and UBSan, the C CLI under gcc, clang and mingw, check-c-compilers, the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (49725 comparisons) over all 4 CLIs. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. The Rust, Go, Python and C tests and the veneer smoke went red with the call joining `format_value`'s texts in brackets, and the fuzz test with it joining them with a bare comma. check-veneer went red with the wrapper not calling C. oom_hook went red with the array call keeping its arenas on the hook path.
-	- Test case: `format_array_is_the_setters_text`, one fixture in every runner: Rust `EsiL1FW`, Go `EsiL1IE`, Python `EsiL1Kh` and C `EsiL1NB`. Over each text of the `format_value` fixture alone and after another element, all of them at once, and none, each must equal what `set_string_array` writes into `to_canonical` and read back as the same texts, or be refused by both. It checks one element against `format_value` and the typed array setters' texts too. `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks it over the fuzz soup. C++ is in `EjtkR0S` (veneer smoke), and C's out-of-memory path in `EoH8aeO` (oom_hook).
+	- Test case: `format_array_is_the_setters_text`, one fixture in every runner: Rust `ddykv`, Go `ddykw`, Python `ddykx` and C `ddyky`. Over each text of the `format_value` fixture alone and after another element, all of them at once, and none, each must equal what `set_string_array` writes into `to_canonical` and read back as the same texts, or be refused by both. It checks one element against `format_value` and the typed array setters' texts too. `writer_roundtrips_and_stays_fixpoint` (`da6rk`) checks it over the fuzz soup. C++ is in `d9v59` (veneer smoke), and C's out-of-memory path in `dbwdx` (oom_hook).
 	- Branch: `fmtelem`
 	- Commit: `6d5d8dd1`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The call is mine: a whole array, `format_array`, built through the array setter's own path, so there's no second copy of the quoting or bracket rules. It matches value-syntax.md's Arrays and Canonical output and moves no closed decision. The four runner tests failed against a broken call and pass.
@@ -3769,8 +3869,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261014: the benchmarks and the Pkl, CUE and Dhall section are in `project/comparison.md`, beside the other long docs the README's Docs list points into (me). The README keeps the feature table, its note on types, and "When SHCL is the wrong choice", since who it isn't for belongs on the front page.
 	- Actual fix: moved as written, with the heading levels raised one and the relative links fixed. The README links to it under the table and in its Docs list. check-docs' performance, schema size and read time sentences read the new doc.
 	- Swept: every gate and script that reads README.md text or names its sections (check-readme, check-docs, check-doc-examples, shell-regress, compare.bash, sign-release, config.bash, cicd.bash, the installers' messages), design.md's pointers, `project/legacy/readme.md`'s anchors, and every relative link in a tracked .md. The crates.io and PyPI pages are `source/rust/README.md` and `source/python/README.md`, which use full URLs, so the split doesn't reach them.
-	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `EsiRFl2` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `EoXOPYu` and `EoTJb0N` on `cli-regress.bash` without this branch.
-	- Test case: check-docs `EqQW89I` (performance numbers) and `EqQW89J` (contents blocks) over `project/comparison.md`, and the new `EsiRFl2` (doc-links-resolve), which checks every relative link and anchor in a tracked .md.
+	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `ddymm` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `dc0b0` and `dbzbt` on `cli-regress.bash` without this branch.
+	- Test case: check-docs `dcwgc` (performance numbers) and `dcwgd` (contents blocks) over `project/comparison.md`, and the new `ddymm` (doc-links-resolve), which checks every relative link and anchor in a tracked .md.
 	- Branch: `readmesplit`
 	- Commit: `b30d70a8`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are the name and place, `project/comparison.md`, and keeping the wrong-choice bullets in the README.
@@ -3791,8 +3891,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261014: one doc, `project/install.md`, has every install route and the development setup (me). contributing.md already has the long toolchain list, and the setup section links to it. The README keeps short Installation and development sections that link out.
 	- Actual fix: moved as written, with the heading levels raised one and the relative links fixed. The stable-channel sentence that goes at 3.0.0 final is now in `project/install.md`, under "Install scripts, stable or dev". So are the cut's version strings, except the Go dependency line, which is in `project/examples.md`. check-docs' tar note and shell-regress's two one-liner rows read the new doc.
 	- Swept: every gate and script that reads README.md text or names its sections (check-readme, check-docs, check-doc-examples, shell-regress, compare.bash, sign-release, config.bash, cicd.bash, the installers' messages), design.md's pointers, `project/legacy/readme.md`'s anchors, and every relative link in a tracked .md. The crates.io and PyPI pages are `source/rust/README.md` and `source/python/README.md`, which use full URLs, so the split doesn't reach them.
-	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `EsiRFl2` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `EoXOPYu` and `EoTJb0N` on `cli-regress.bash` without this branch.
-	- Test case: check-docs `EoXVY4O` (installer-tar-prerequisite) and `EqQW89J`, shell-regress `EqzwPFI` and `EqzwPFQ` (the one-liners), and `EsiRFl2`.
+	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `ddymm` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `dc0b0` and `dbzbt` on `cli-regress.bash` without this branch.
+	- Test case: check-docs `dc0bw` (installer-tar-prerequisite) and `dcwgd`, shell-regress `dd51k` and `dd51v` (the one-liners), and `ddymm`.
 	- Branch: `readmesplit`
 	- Commit: `b30d70a8`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are one doc for both, and its name and place.
@@ -3814,8 +3914,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261014: `project/examples.md` has "Using the CLI" and the per-language examples through "What saving does" (me). The README keeps "What a .shcl file looks like" as its snippet, and the Escapes section, which explains a feature. The examples read that file and link to it rather than repeat it.
 	- Actual fix: moved as written, at the same heading levels, with the relative links fixed. The languages badge links there. check-readme reads every block from both the README and the new doc, so a block moved either way stays checked. check-docs' toolchain floors, setter checks, edit options and get transcript read the new doc, and check-doc-examples its schema.
 	- Swept: every gate and script that reads README.md text or names its sections (check-readme, check-docs, check-doc-examples, shell-regress, compare.bash, sign-release, config.bash, cicd.bash, the installers' messages), design.md's pointers, `project/legacy/readme.md`'s anchors, and every relative link in a tracked .md. The crates.io and PyPI pages are `source/rust/README.md` and `source/python/README.md`, which use full URLs, so the split doesn't reach them.
-	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `EsiRFl2` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `EoXOPYu` and `EoTJb0N` on `cli-regress.bash` without this branch.
-	- Test case: check-readme `EpHHs8W`, `Er1ohBI`, `EpHHs8X`, `EqRTWFf`, `EqRTWFg`, `EpHHs8Y`, `EqGg9jM`, `Es3cEBF`, `Es9JhMP`, `Es9JhOf`, `Es9JhQu` and `Es9KiYw`; check-docs `EshaoyP`, `EoXX3yy`, `Eom0qpk`, `Eom0qpm` and `EqQW89J`; check-doc-examples `EsJLUJz`; and `EsiRFl2`.
+	- Verified: check-docs as `SHCL_GATE_REF=main`, check-readme, check-doc-examples, markdownlint-cli2, shellcheck on the four edited gates, `test-ids.py check`, cargo test, go test `-count=1` and the Python suite. Each retargeted check went red with its moved text broken in the new doc, and `ddymm` with the old `README.md#bash` link put back. shell-regress matches dev, which fails `dc0b0` and `dbzbt` on `cli-regress.bash` without this branch.
+	- Test case: check-readme `dcbc6`, `dd5fe`, `dcbc7`, `dcwqv`, `dcwqw`, `dcbc8`, `dct4z`, `ddmte`, `ddp6d`, `ddp6e`, `ddp6f` and `ddp6g`; check-docs `ddye3`, `dc0c2`, `dc3vg`, `dc3vj` and `dcwgd`; check-doc-examples `ddrkj`; and `ddymm`.
 	- Branch: `readmesplit`
 	- Commit: `b30d70a8`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are the name and place, and keeping the web server file in the README as the snippet.
@@ -3841,7 +3941,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `format_value` in all four and C++ (Go `FormatValue`, C `shcl_format_value`). Each builds the value the way the string setter does, runs the setter's read-back check and returns the emitter's text, so there's no second copy of the quoting rules. Rust gives an `Option`, Go a second `bool`, Python `None` (and a TypeError for a non-str, as `set_string`), C++ an empty `std::optional`, and C a malloc'd string the caller frees or NULL. C's working arena is given back before the out-of-memory hook, as `restamp_text`'s is. spec.md has it under the Writer with a line under `QuoteSegment`, and the changelog has it under New. Python's `__all__` has it.
 	- Swept: every scalar setter's path in the four bindings (`cell_of` and its ports), which is the one `format_value` calls. `check-veneer.bash` counts it made by `shcl.hpp`. No CLI or runner had its own copy of the value quoting to switch over.
 	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. The writer fuzz test at 2,000,000 in release. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang and under ASan and UBSan, the C CLI under gcc, clang and mingw, the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (49725 comparisons) over all 4 CLIs. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. The Go, Python and C tests went red with the call returning the array element's text, and the Rust test and the fuzz test with it returning `quote_segment`'s. check-veneer went red with the wrapper not calling C. oom_hook went red with C's arena a frame local.
-	- Test case: `format_value_is_the_setters_text`, one fixture in every runner: Rust `EshnBvV`, Go `EshnBxd`, Python `EshnCyX` and C `EshnD0s`. Over the setter soup, the review's examples and the typed setters' texts, each must equal what the string setter writes into `to_canonical` and read back as itself, or be refused by both. `writer_roundtrips_and_stays_fixpoint` (`Ekfzh7g`) checks it over the fuzz soup too. C++ is in `EjtkR0S` (veneer smoke), and C's out-of-memory path in `EoH8aeO` (oom_hook).
+	- Test case: `format_value_is_the_setters_text`, one fixture in every runner: Rust `ddyfm`, Go `ddyfn`, Python `ddyfp` and C `ddyfq`. Over the setter soup, the review's examples and the typed setters' texts, each must equal what the string setter writes into `to_canonical` and read back as itself, or be refused by both. `writer_roundtrips_and_stays_fixpoint` (`da6rk`) checks it over the fuzz soup too. C++ is in `d9v59` (veneer smoke), and C's out-of-memory path in `dbwdx` (oom_hook).
 	- Branch: `fmtvalue`
 	- Commit: `85ea3f9b`
 	- Acceptance signoff: closed on JC's 20261014 criteria. It is JC's `format_value`, built through the setter's own path, so there's no second copy of the quoting rules. Text input matches `set_string`. Array elements are 2026101412591471. The four runner tests failed against a broken call and pass.
@@ -3866,8 +3966,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261014: the call gives the stderr line, message included, and the `schema line` rule for V090 to V095 moved from the CLIs into it, since that number counts schema lines (me). `check`'s codes-only stdout line stays the CLI's own: it's the cross-binding contract and has no message.
 		- 20261014: C takes the line, severity, code and message rather than a document and index, so one call covers `shcl_diag_*` and `shcl_validation_*`. It returns malloc'd text and its length, as `shcl_read_file` does, since a message may hold a NUL (me).
 	- Swept: the CLIs' print sites in all four: `say_diagnostics_from`, and the schema's own diagnostics in `check` and `init`. C's inline `"Error"`/`"Hint"` picks in its CLI and its runner's code lines use `shcl_severity_name`. No other site in `source/` builds the stderr line. The README names no `format_*` call, so it's unchanged.
-	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang, the C CLI under both, check-c-compilers (140 builds), the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (22053 comparisons) over all 4 CLIs, both unchanged. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. A mark put into each library's format came out on that CLI's stderr line, so no CLI keeps a copy. `EshYXXC` went red with `format_diagnostic` left out of Python's `__all__`.
-	- Test case: `format_diagnostic_is_the_cli_line`, one fixture in every runner: Rust `EshdmF9`, Go `EshdmI8`, Python `EshdmLB` and C `EshdmOB`. C++'s checks are in `EjtkR0S` (veneer smoke). The CLI lines are pinned by the existing cli-regress rows, `EomzUym`, `EqzuLVu` to `EqzuLVx`, `Eon9YY4` and `Eon2Qoy` among them.
+	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang, the C CLI under both, check-c-compilers (140 builds), the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (22053 comparisons) over all 4 CLIs, both unchanged. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. A mark put into each library's format came out on that CLI's stderr line, so no CLI keeps a copy. `ddydt` went red with `format_diagnostic` left out of Python's `__all__`.
+	- Test case: `format_diagnostic_is_the_cli_line`, one fixture in every runner: Rust `ddyef`, Go `ddyeg`, Python `ddyeh` and C `ddyej`. C++'s checks are in `d9v59` (veneer smoke). The CLI lines are pinned by the existing cli-regress rows, `dc431`, `dd50y` to `dd511`, `dc449` and `dc43d` among them.
 	- Branch: `diagline`
 	- Commit: `02241ff5`
 	- Acceptance signoff: JC, 20261014: the names and the display hooks.
@@ -3899,10 +3999,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261014: the help changes for points 3, 4, 6 and 7 too, not only the refused list and `--remove`. Each was a gap or a wrong reading in the help itself, so a docs-only fix would leave the help disagreeing (me).
 	- Swept: the changelog's Unreleased entry on ops escapes said "a string, raw or comment value" too, and now says a raw op's content. The man page's refused list gained the same two entries. The completions have no option text. spec.md's CLI section makes no claim on what `--remove` takes, and already says flag mode returns the zero. No "value anyway", "delete what" or "string, raw" is left outside the backlog and code comments.
 	- Verified: the 2 new checks failed on dev's 4 CLIs (28 lines) and pass after. The 5 new rows pass before and after, since they pin behavior that didn't change. Also cargo build and the other 3 CLIs, cli-regress (585 rows, 3467 checks, all 4 CLIs, man-width included), crosscheck over the corpus (22053 comparisons), check-docs with `SHCL_GATE_REF=main`, check-readme, check-doc-examples, test-ids check, rustfmt, gofmt, ruff, shellcheck and markdownlint.
-	- Test case: cli-regress `EshU8Hz` (`help-lists-refusals`): every refusal a row gets that names two options has an entry in the help's refused list naming them all. `EshU8KI` (`help-says`): the help's lines on `--remove`, raw INFO, exit 8, the stderr note and flag mode, each run by a row: `EshU86R`, `EshU88j`, `EshU8B1`, `EshU8DJ` and `EshU8Fc` (new), `Er5ivub` and `Es8aXnz`. The man SYNOPSIS, README and style guide points have none, since nothing reads that text against the CLI.
+	- Test case: cli-regress `ddyde` (`help-lists-refusals`): every refusal a row gets that names two options has an entry in the help's refused list naming them all. `ddydf` (`help-says`): the help's lines on `--remove`, raw INFO, exit 8, the stderr note and flag mode, each run by a row: `ddyd9`, `ddyda`, `ddydb`, `ddydc` and `ddydd` (new), `dd6dh` and `ddp0v`. The man SYNOPSIS, README and style guide points have none, since nothing reads that text against the CLI.
 	- Branch: `docsync`
 	- Commit: `6314a79b`
-	- Acceptance signoff: closed on JC's 20261014 criteria. Each doc now says what the CLI does, the help changes past the item's list fix points 3, 4, 6 and 7 where the help was wrong too, and `EshU8Hz` and `EshU8KI` failed before and pass after.
+	- Acceptance signoff: closed on JC's 20261014 criteria. Each doc now says what the CLI does, the help changes past the item's list fix points 3, 4, 6 and 7 where the help was wrong too, and `ddyde` and `ddydf` failed before and pass after.
 	- Closed: 20261014-142729
 
 - The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
@@ -3930,7 +4030,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261014: shapes and calls that exist for a reason got a guide line, and only names were changed. The C unit values weren't in the item, but they're the same kind of drift and C was the only binding with other words (me).
 	- Swept: check-docs now walks every Python module-level name, `__all__` against the reference's pub items, and each Python enum's members against the reference's. The C++ enums already match the reference by name. Go's enum prefixes and C's `SET`, `WRITE`, `SCHEMA`, `KIND` and `SEV` prefixes are prefixes on the reference's words. No check walks the Go or C names against the reference; check-veneer covers C against C++.
 	- Verified: Python suite, ruff and mypy; C conformance, the veneer smoke, oom and mem_bounds tests, and check-veneer; cargo test; go test `-count=1`; crosscheck (22053 comparisons) and cli-regress (585 rows) over all 4 CLIs; check-docs as `SHCL_GATE_REF=main`; shellcheck and markdownlint.
-	- Test case: check-docs `EshYXXC` (`python-surface-matches-reference`). It failed on dev with 20 findings and passes after. Its other branches failed under an injected pub item and enum on one side only. The C renames have no test of their own, past the C runner, the veneer and the C CLI building against them.
+	- Test case: check-docs `ddydt` (`python-surface-matches-reference`). It failed on dev with 20 findings and passes after. Its other branches failed under an injected pub item and enum on one side only. The C renames have no test of their own, past the C runner, the veneer and the C CLI building against them.
 	- Branch: `bindparity`
 	- Commit: `3f870f9d`
 	- Acceptance signoff: JC, 20261014: `Quote.None_`, the dropped `RULES_*` aliases and the C unit value names.
@@ -3985,7 +4085,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `load_and_validate_with` in all four and C++ (Go `LoadAndValidateWith`, C `shcl_load_and_validate_with`). `load_and_validate` parses its schema text and calls it, so the two share one path; an empty schema text still skips validation there. spec.md names the new call, says how parse then validate differs, and adds it to the V099 and Strict lists. Changelog line under New. Python's `__all__` is unchanged, since both calls are `Document` methods there as in Rust.
 	- Swept: every caller of the one-shot in `source/`, the runners, the C++ veneer and oom_hook. No CLI calls it. The strict entry-point list in each runner and the C++ smoke now include the new call. `check-veneer.bash` counts it made by `shcl.hpp`.
 	- Verified: cargo test, clippy on the host and windows targets, and rustfmt. go test `-count=1` in both modules, go vet, staticcheck and gofmt. The Python suite, ruff and mypy. C conformance under gcc and clang, the C CLI under both, the veneer smoke, oom_hook, oom_recover, mem_bounds and check-veneer. cli-regress (585 rows, 3467 checks) and crosscheck (22053 comparisons) over all 4 CLIs. check-docs as `SHCL_GATE_REF=main`, test-ids check and markdownlint. With the text form split off its own path and made to differ, each runner's new test went red: Rust and Go at Strict, Python and C at Loose. oom_hook went red with the new call's recovery leaking.
-	- Test case: `load_and_validate_with_matches_the_text_form`, one fixture in every runner: Rust `Eshi8hz`, Go `Eshi8i0`, Python `Eshi8i1` and C `Eshi8i2`. Each compares strict result, every diagnostic line and the canonical text against `load_and_validate` for each corpus schema at Loose, Standard and Strict, reusing one schema document, plus a validation error alone at Strict and a schema that doesn't load. C++'s checks are in `EjtkR0S` (veneer smoke), and the C recovery path in `EoH8aeO` (oom_hook).
+	- Test case: `load_and_validate_with_matches_the_text_form`, one fixture in every runner: Rust `ddyf0`, Go `ddyf1`, Python `ddyf2` and C `ddyf3`. Each compares strict result, every diagnostic line and the canonical text against `load_and_validate` for each corpus schema at Loose, Standard and Strict, reusing one schema document, plus a validation error alone at Strict and a schema that doesn't load. C++'s checks are in `d9v59` (veneer smoke), and the C recovery path in `dbwdx` (oom_hook).
 	- Branch: `validwith`
 	- Commit: `3305630e`
 	- Acceptance signoff: Self-closed: it is the call and semantics JC named, and its tests pass. The two (me) calls above are on the item.
@@ -4003,7 +4103,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `rust-version = "1.88"` in `Cargo.toml`. check-docs holds the README's Rust line to it, and the README's and the Python README's Python line to `requires-python`.
 	- Verified: clippy with `-D warnings` is clean at 1.88 on the host and on `x86_64-pc-windows-gnu`, all targets. At 1.85 clippy's MSRV lint flags an item stable since 1.87, so it reads the field. cargo test, cargo fmt and check-docs pass.
 	- Swept: the Python floor is the same kind of claim and is in the same check. Go's `go.mod` says `go 1.20`, and no doc states a Go floor.
-	- Test case: check-docs `EshaoyP` (`toolchain-floors-match-readme`). It failed before the fix (no `rust-version`) and passes after. A raised `requires-python` turns it red too.
+	- Test case: check-docs `ddye3` (`toolchain-floors-match-readme`). It failed before the fix (no `rust-version`) and passes after. A raised `requires-python` turns it red too.
 	- Branch: `bindparity`
 	- Commit: `1a7c41a6`
 	- Acceptance signoff: Self-closed: mechanical, and its test failed before and passes after.
@@ -4028,7 +4128,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261014: a message that says its own fix gets no pointer, and cli-regress lists them: `(try --X=VALUE)`, `write it --X=VALUE`, `drop --write to print, or pass a FILE`, `check`'s `Pipe instead:`, `invalid argument encoding (expected UTF-8)`, and `explain`'s `(shcl explain lists them all)` (me).
 	- Swept: the op-line and `--set` print sites in all 4 CLIs, and every exit 1 any cli-regress row gets, in all 4, through the new check. Rust's `set_value_opt` fallback arm, which no caller reaches, got the pointer too.
 	- Verified: the new check fails on dev's 4 CLIs (180 lines: 45 rows in each of the 4) and passes after. The 27 rows that pinned the old text moved with it. The gate list on 2026101407100002 covers this branch.
-	- Test case: cli-regress `EshMywc` (`usage-errors-name-a-fix`): every exit 1 a row gets ends with `(see --help)` or one of the listed fixes. Rows `Equbm1b` (`banner-bad-value`) and the `ops-too-few-*` rows pin the new text exactly.
+	- Test case: cli-regress `ddycc` (`usage-errors-name-a-fix`): every exit 1 a row gets ends with `(see --help)` or one of the listed fixes. Rows `dd3r2` (`banner-bad-value`) and the `ops-too-few-*` rows pin the new text exactly.
 	- Branch: `usagemsgs`
 	- Commit: `75c1067f`
 	- Acceptance signoff: Self-closed: reproduced, the new check failed before and passes after, and the two wording calls are noted above.
@@ -4052,9 +4152,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the 20261007 call that a supplied `--default` substitutes silently stands. This is the case with none supplied.
 	- Actual cause: the default mode prints what `--default` gave, and with no `--default` that was an empty string. Nothing tied the mode to the option.
 	- Actual fix: `get --on-bad=default` without `--default` is a usage error at exit 1, `--on-bad=default needs --default (see --help)`, whatever the read would give. An empty `--default=` still counts as given, in all 4. The help's refused list, the man page and spec.md say so. A supplied `--default` still substitutes silently.
-	- Swept: only `get` takes `--on-bad`. The check is in each CLI's option check, beside the `--default` with `--on-bad=error` one. crosscheck, sanitize-c and the docs pass `--on-bad=error` only, and the one row using `--on-bad=default` (`EomzUys`) gives a `--default`.
+	- Swept: only `get` takes `--on-bad`. The check is in each CLI's option check, beside the `--default` with `--on-bad=error` one. crosscheck, sanitize-c and the docs pass `--on-bad=error` only, and the one row using `--on-bad=default` (`dc437`) gives a `--default`.
 	- Verified: the 2 new rows fail on dev's 4 CLIs (an empty line at exit 0) and pass after. The gate list on 2026101407100002 covers this branch.
-	- Test case: cli-regress `EshMywg` (`onbad-default-needs-default`, a missing path) and `EshMywh` (`onbad-default-needs-default-good`, a good one).
+	- Test case: cli-regress `ddycg` (`onbad-default-needs-default`, a missing path) and `ddych` (`onbad-default-needs-default-good`, a good one).
 	- Branch: `usagemsgs`
 	- Commit: `75c1067f`
 	- Acceptance signoff: Self-closed: the message is the one the item named, and the new rows failed before and pass after.
@@ -4080,7 +4180,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `fmt --check` with `--layer`, `--set` or any of its 4 siblings is a usage error at exit 1, `--check cannot be combined with --layer (see --help)`, naming the option given. The help's refused list has it beside `--write`, and so do the man page and spec.md. The check sits in each CLI's option check (Rust and C `check_opts`, Go `checkOpts`, Python `check_opts`).
 	- Swept: `migrate --check` and `check` already refuse `--layer` and the `--set` options at exit 1, since neither subcommand takes them (`option --layer not valid for migrate (see --help)`, and `check` names the pipe to use instead). Run in all 4 CLIs. The 5 `--set` options share one list, so the refusal covers all of them.
 	- Verified: the 3 new rows fail on dev's 4 CLIs (exit 0 or 6) and pass after. Also cargo build and the other 3 CLIs, cli-regress (580 rows, 3351 checks, all 4 CLIs), crosscheck over the corpus (22053 comparisons), check-docs with `SHCL_GATE_REF=main`, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for the host and windows, ruff, mypy, cppcheck at the normal level, the C CLI under gcc and clang, shellcheck and markdownlint. The help stays byte-identical in all 4 at 80 columns.
-	- Test case: cli-regress `EshMywd` (`fmt-check-layer`), `EshMywe` (`fmt-check-set`) and `EshMywf` (`fmt-check-remove`).
+	- Test case: cli-regress `ddycd` (`fmt-check-layer`), `ddyce` (`fmt-check-set`) and `ddycf` (`fmt-check-remove`).
 	- Branch: `usagemsgs`
 	- Commit: `75c1067f`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and the Sweep has its Swept answer.
@@ -4107,11 +4207,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reason: of every 3.0 change the survey found, this is the one that puts a hand step in front of each user of two programs.
 	- Progress log:
 		- 20261014: built in all four, on top of 2026101407100001, which takes the old Format line off when the new block goes on. The nemo and slodworld shape (`range: 0, 100` under `##    Format   3`) comes out as `range: [0, 100]` with the info block, and the original goes to `NAME_backup_..._format-v3.EXT`. A second `upgrade --from-2x` leaves the result alone.
-	- Swept: `upgrade` and `migrate_text` in Rust, Go (`Upgrade`, `migrateText`), Python and C (`upgrade_into`, `migrate_text`). `upgrade_file` and the four CLIs go through `upgrade`, so they needed nothing, and the backup name already came from the Format line. The C++ interface needs nothing, since no call changed. spec.md (both places it said a beta file is never written), design.md, value-syntax.md and the changelog say so. check-migrate's Format 3 checks (`Es34DZk` and the main loop) learned the new case; the old lines are commented out with the reason.
-	- Verified: the new tests and save case fail on the code before this item and pass after, and so does check-migrate `Es34DZk`. A run with the fresh-file check taken out fails the Rust test. Also: `cargo test`, the 2,000,000 release fuzz (all 28), `go test` (both modules), the Python and C conformance suites, veneer_smoke, oom_hook, oom_recover, mem_bounds, check-veneer, cli-regress (563 rows, 3283 checks, all four), crosscheck over the corpus (21966 comparisons), check-migrate, check-docs (gated on main), check-doc-examples, check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for the host and windows, ruff, mypy, shellcheck, markdownlint, cppcheck at the normal level, and the C CLI under gcc 15 and clang.
+	- Swept: `upgrade` and `migrate_text` in Rust, Go (`Upgrade`, `migrateText`), Python and C (`upgrade_into`, `migrate_text`). `upgrade_file` and the four CLIs go through `upgrade`, so they needed nothing, and the backup name already came from the Format line. The C++ interface needs nothing, since no call changed. spec.md (both places it said a beta file is never written), design.md, value-syntax.md and the changelog say so. check-migrate's Format 3 checks (`ddmp8` and the main loop) learned the new case; the old lines are commented out with the reason.
+	- Verified: the new tests and save case fail on the code before this item and pass after, and so does check-migrate `ddmp8`. A run with the fresh-file check taken out fails the Rust test. Also: `cargo test`, the 2,000,000 release fuzz (all 28), `go test` (both modules), the Python and C conformance suites, veneer_smoke, oom_hook, oom_recover, mem_bounds, check-veneer, cli-regress (563 rows, 3283 checks, all four), crosscheck over the corpus (21966 comparisons), check-migrate, check-docs (gated on main), check-doc-examples, check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for the host and windows, ruff, mypy, shellcheck, markdownlint, cppcheck at the normal level, and the C CLI under gcc 15 and clang.
 	- Branch: `upfmt`
 	- Commit: `ad9af077`
-	- Test case: `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` (Rust `EsgoThZ`, Go `EsgoTha`, Python `EsgoThb`, C `EsgoThc`), cli-regress `EsgoThd`, `EsgoThe` and save case `EsgoThf`, and check-migrate `Es34DZk`. The beta assertion in `upgrade_leaves_a_clean_or_stamped_file` (`Es2R4RP` and its twins) is commented out with the reason.
+	- Test case: `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` (Rust `ddy83`, Go `ddy84`, Python `ddy85`, C `ddy86`), cli-regress `ddy87`, `ddy88` and save case `ddy89`, and check-migrate `ddmp8`. The beta assertion in `upgrade_leaves_a_clean_or_stamped_file` (`ddmhb` and its twins) is commented out with the reason.
 	- Acceptance signoff: JC, 20261014, on the narrowed rule.
 	- Closed: 20261014-095800
 
@@ -4137,7 +4237,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: each op in the table takes exactly its field count, and too few gets the too-many message: `raw takes 4 tab-separated field(s), got 3`. An array form takes any number of elements, so `int-array<TAB>k` still writes `[]`, but needs its PATH: `int-array takes at least 2 tab-separated field(s), got 1`. The "at least" wording for the array forms is my call (me). The 4 runners check the same way.
 	- Swept: all 29 ops in the help's table, in the 4 CLIs' op decoders and the 4 runners' (Rust `try_apply_op`, Go `tryApplyOpTest`, Python `try_apply_op`, C `try_apply_op_c`). `remove`, `empty`, `clear-comments` and `banner` give the count message now. Nothing that writes op lines relied on the short read: the corpus `write.ops` files, the fuzz smoke test's op lines, the profiler and perf-gate scripts, crosscheck's generated ops, and the README and man page examples. The only short line found, `int-array<TAB>w0` in corpus 196, is an empty array and stays legal.
 	- Verified: the 10 new too-few cli-regress rows fail on dev's 4 CLIs and pass on the fix. Corpus 029's new `write-bad.ops` lines fail dev's 4 runners and pass on the fix. With the fix, all 29 ops at 1, 2 and 3 fields give the same stdout, stderr and exit in all 4 CLIs. Also cargo test, the four conformance suites, `go test -count=1` per module, cli-regress (573 rows, 4 bindings), crosscheck (22053 comparisons), check-docs with `SHCL_GATE_REF=main`, check-completions, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
-	- Test case: cli-regress `Esgiz1x` to `Esgiz26` (`ops-too-few-*`), one per op form plus a later line; corpus `029-write-gate`, whose `write-bad.ops` has a too-few line for every op in the table, in all 4 runners and crosscheck's bad-op dimension.
+	- Test case: cli-regress `ddy7d` to `ddy7p` (`ops-too-few-*`), one per op form plus a later line; corpus `029-write-gate`, whose `write-bad.ops` has a too-few line for every op in the table, in all 4 runners and crosscheck's bad-op dimension.
 	- Branch: `opsfld`
 	- Commit: `366f8e6a`
 	- Acceptance signoff: Self-closed: reproduced, the new rows and corpus lines failed before and pass after, the Sweep is answered, and the one wording call is noted above.
@@ -4162,7 +4262,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: the line loop skipped only an empty line or a `#` one, so a line of blanks went to the decoder and came back as an op with no name.
 	- Actual fix: the 4 CLIs skip a line of only spaces, tabs and CRs. The 4 runners skip it the same way in `write.ops` and `write-bad.ops`.
 	- Verified: the 2 new cli-regress rows fail on dev's 4 CLIs and pass on the fix, and dev's 4 runners fail on corpus 029's new blank-only lines. The gate list on 2026101407100003 covers this branch.
-	- Test case: cli-regress `Esgiz27` (`ops-tab-only-line`) and `Esgiz28` (`ops-blanks-only-line`); corpus `029-write-gate`, whose `write.ops` has a tab-only line and a line of spaces and a tab, in all 4 runners.
+	- Test case: cli-regress `ddy7q` (`ops-tab-only-line`) and `ddy7r` (`ops-blanks-only-line`); corpus `029-write-gate`, whose `write.ops` has a tab-only line and a line of spaces and a tab, in all 4 runners.
 	- Branch: `opsfld`
 	- Commit: `366f8e6a`
 	- Acceptance signoff: Self-closed: the call is noted above, and the new rows and corpus lines failed before and pass after.
@@ -4192,7 +4292,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the new tests and save case fail on dev's code in all four and pass after. Also: `cargo test`, `go test` (both modules), the Python and C conformance suites, veneer_smoke, cli-regress (561 rows, 3271 checks, all four), clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, cppcheck at the normal level.
 	- Branch: `upfmt`
 	- Commit: `2d5276b7`
-	- Test case: `a_format_line_at_the_top_goes_when_the_block_goes_on` (Rust `Esgj35O`, Go `Esgj35P`, Python `Esgj35Q`, C `Esgj35R`) and cli-regress save case `Esgj35S`.
+	- Test case: `a_format_line_at_the_top_goes_when_the_block_goes_on` (Rust `ddy7s`, Go `ddy7t`, Python `ddy7v`, C `ddy7w`) and cli-regress save case `ddy7x`.
 	- Acceptance signoff: self-closed 20261014. Reproduced, the new tests fail before the fix and pass after, and the Sweep has its Swept answer.
 	- Closed: 20261014-082520
 
@@ -4215,7 +4315,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A string read gives the text as written at every level.
 		- `fmt` and the writer leave a bare thousands-shaped value bare, at every strictness, so a save can't turn bare `80,443` into a quoted `"80,443"` that reads as 80443. This is the one exception to quoting a value with a comma.
 		- A value a setter wrote counts as quoted when the saved text would quote it (spec.md).
-		- A typed read gives the same answer before and after `fmt` and a save. The fuzz property `EsZikJr` covers it.
+		- A typed read gives the same answer before and after `fmt` and a save. The fuzz property `ddwhn` covers it.
 	- Reason: Loose is for values people type by hand, and `"$1,200"` is how they write money. The quotes say it is one value, not a list.
 	- Progress log:
 		- 20261013: Built in all four. At Loose an int or float read of a quoted thousands number gives the number, and the writer and the setters keep a bare one bare. A whole one goes into an int read exact, so `"9,007,199,254,740,993"` keeps its last digit.
@@ -4226,7 +4326,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A `.` needs a digit after it, so `"1,200."` is text. Changed by JC, see 2026101318521195.
 			- The merge rule covers every item going into brackets, so the `quoted` flag on a merged `- rw,noatime` is true before the save, as after it.
 			- A setter's `1,000` is written bare and reads as text, like a hand-typed one. Through an array setter it is quoted and reads as 1000.
-		- The old tests that pinned the 10-10 rule are commented out with the reason: `a_thousands_comma_reads_the_same_after_a_save` in all four (`EsZikJi` to `EsZikJl`) and cli-regress `EsZikJq`.
+		- The old tests that pinned the 10-10 rule are commented out with the reason: `a_thousands_comma_reads_the_same_after_a_save` in all four (`ddwhp` to `ddwhs`) and cli-regress `ddwht`.
 	- Decisions:
 		- 20261013: the `%`, setter and merge calls are signed off. A blank still makes it text. A trailing `.` is OK, which 2026101318521195 builds (JC).
 		- 20261013: Loose only. Standard and Strict still refuse commas, currency and `%` (JC).
@@ -4234,8 +4334,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261013: `fmt` keeps a bare thousands-shaped value bare, so the read can't change across a save. That was the 10-10 bug (me, agreed by JC).
 	- Note: this setting has changed 3 times. 20261006 made quoted thousands read as numbers, 20261010 dropped them, and this brings them back at Loose only with the `fmt` exception.
 	- Swept: in all four, every place a value or `- ` item is written (canonical emit, `emit_value_text` for the line-keeping save and the default note, `keep_mark`), every value a setter or selector builds (`cell_of`, the selector's instance value), `unstack`, and the int and float reads. Array elements, the `H001` hint and `migrate`'s respelling stay on the array rule, since a comma splits there. The C++ veneer has no public change (check-veneer). spec.md, value-syntax.md, the README's Loose line, the corpus notes and the changelog say so.
-	- Verified: each new runner test fails on dev's library and passes on the fix, in all four. Corpus 206 and the changed 100 and 202 rows fail on dev's Go, Python and C. 4 of the 7 new cli-regress rows fail on dev's CLIs. The other 3 pin what dev already does, and fail with the fix's quote check or level check taken out. `EsZikJr` fails with the writer's exception taken out and with the merge rule taken out. Also cargo test, the 2,000,000 release fuzz (all 28), the 200,000 debug fuzz, the four conformance suites, the C suite under ASan and UBSan, `go test -count=1` per module, cli-regress (556 rows, 4 bindings), crosscheck (49494 comparisons), check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, check-veneer, shellcheck and markdownlint.
-	- Test case: `loose_reads_a_quoted_thousands_number`, Rust `EsbaIWJ`, Go `EsbaIYt`, Python `EsbaIba`, C `EsbaIe1`; corpus `206-loose-thousands` (`EsbaIuk`) with reads at all 3 levels, `fmt`, write ops and a merge, plus new rows in `100` and `202`; cli-regress `EsbaIgH`, `EsbaIia`, `EsbaIkt`, `EsbaInW`, `EsbaIq7`, `EsbaIsU`, `EsbaIx6`; fuzz `EsZikJr` (`typed_reads_survive_a_save`), which now also makes thousands values bare and quoted, stacked and in brackets, merges them, and compares int and float array reads.
+	- Verified: each new runner test fails on dev's library and passes on the fix, in all four. Corpus 206 and the changed 100 and 202 rows fail on dev's Go, Python and C. 4 of the 7 new cli-regress rows fail on dev's CLIs. The other 3 pin what dev already does, and fail with the fix's quote check or level check taken out. `ddwhn` fails with the writer's exception taken out and with the merge rule taken out. Also cargo test, the 2,000,000 release fuzz (all 28), the 200,000 debug fuzz, the four conformance suites, the C suite under ASan and UBSan, `go test -count=1` per module, cli-regress (556 rows, 4 bindings), crosscheck (49494 comparisons), check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, check-veneer, shellcheck and markdownlint.
+	- Test case: `loose_reads_a_quoted_thousands_number`, Rust `ddwzw`, Go `ddwzx`, Python `ddwzy`, C `ddwzz`; corpus `206-loose-thousands` (`ddx06`) with reads at all 3 levels, `fmt`, write ops and a merge, plus new rows in `100` and `202`; cli-regress `ddx00`, `ddx01`, `ddx02`, `ddx03`, `ddx04`, `ddx05`, `ddx07`; fuzz `ddwhn` (`typed_reads_survive_a_save`), which now also makes thousands values bare and quoted, stacked and in brackets, merges them, and compares int and float array reads.
 	- Branch: `loosethou`
 	- Commit: `4527cc4e`, `bae0d847`, `10deaa99`
 	- Acceptance signoff: JC 20261013, the calls above, with the trailing `.` moved to 2026101318521195. Then the full `--ci` here on dev at `c741ccbf`, judged as main and recorded, and hosted run 38505851633 on dev, green on all 5 jobs.
@@ -4250,7 +4350,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: me, from the Alpine image run in 2026101309250977
 	- Related IDs: 2026101309250977
 	- Target OS: Linux with musl
-	- Steps to reproduce: `cicd/cicd.bash --container=alpine`, then read cli-regress row `ErTZaL2` (`schema-line-pagemap`).
+	- Steps to reproduce: `cicd/cicd.bash --container=alpine`, then read cli-regress row `ddc52` (`schema-line-pagemap`).
 	- Incorrect behavior: the C CLI exits 8 with `/proc/self/pagemap: Invalid argument`.
 	- Expected behavior: the same as on glibc and the other 3 bindings, exit 8 with "too large for a schema".
 	- Reproduced: 20261013, in the Alpine image. Why musl differs is not checked yet.
@@ -4260,8 +4360,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261013: Seen in the Alpine image: `readv(3, [{iov_len=65535}, {iov_len=1024}]) = -1 EINVAL`. With the fix it reads 64 KB at a time and stops at the 16 MiB cap with the usual message.
 	- Swept: the other C reads through `fread` (the library's `shcl_read_file`, the CLI's `read_stream`, `read_all_fp` and its changed-since-read compare) read regular files and streams, where musl's split read changes nothing. No row loads the page map as a document, and none of the 4 bindings defines what that does, so they stay. The Windows half of the schema read gets the same unbuffered stream, built with mingw and run under wine. The other 3 bindings passed the row in 2026101309250977's Alpine run.
-	- Verified: 20261013. Row `ErTZaL2` fails on the old C CLI in the Alpine image and passes with the fix; the whole cli-regress for C there passes, 561 rows. Also in the Alpine image, the C conformance suite, `mem_bounds`, `oom_hook` and `oom_recover`. On this box, the same 4 suites, sanitize-c (ASan and UBSan), cli-regress (561 rows, 4 bindings), crosscheck (21966 comparisons), check-docs with `SHCL_GATE_REF=main`, check-veneer, test-ids check, cppcheck at the normal level, the mingw build, the `SHCL_NO_FILE_IO` build and gcc 15 with `_FORTIFY_SOURCE`.
-	- Test case: cli-regress `ErTZaL2` (`schema-line-pagemap`), which already pinned this and fails only on musl. It runs in the Alpine image's test stage. A glibc test can't see it, since glibc never splits the read.
+	- Verified: 20261013. Row `ddc52` fails on the old C CLI in the Alpine image and passes with the fix; the whole cli-regress for C there passes, 561 rows. Also in the Alpine image, the C conformance suite, `mem_bounds`, `oom_hook` and `oom_recover`. On this box, the same 4 suites, sanitize-c (ASan and UBSan), cli-regress (561 rows, 4 bindings), crosscheck (21966 comparisons), check-docs with `SHCL_GATE_REF=main`, check-veneer, test-ids check, cppcheck at the normal level, the mingw build, the `SHCL_NO_FILE_IO` build and gcc 15 with `_FORTIFY_SOURCE`.
+	- Test case: cli-regress `ddc52` (`schema-line-pagemap`), which already pinned this and fails only on musl. It runs in the Alpine image's test stage. A glibc test can't see it, since glibc never splits the read.
 	- Branch: `muslfix`
 	- Commit: `60d9719a`
 	- Acceptance signoff: Self-closed: the fix gives the answer the other 3 bindings and glibc already give, and the existing row was seen to fail before and pass after in the Alpine image.
@@ -4289,8 +4389,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261013: Each arena can now hold one empty 64 KB block after a rollback. The default-probe check in `mem_bounds` reads 320 KB held, up from 192 KB, under its 1 MB limit.
 		- 20261013: No glibc-only switch was needed. The fix changes how often we call the allocator, not how it behaves.
 	- Swept: every `arena_release` caller goes through the changed helper (the setters' marks, `w_set_default`'s read mark, `read_copied` and the array reads). `arena_reset`, `arena_reset_smallest` and `arena_reset_largest` already keep a block. The `writes`, `defaults`, `string-default`, `datetime-default` and refused-write runs on musl make no other per-op `mmap`. `shcl_parse_datetime` still opens and frees its own arena per call, by its contract that nothing outlives the call. That's a fixed cost per call and on no CLI path, so it stays.
-	- Verified: 20261013. `mem_bounds_mark_at_block_end` fails on dev's header (131 MB allocated over 2000 calls for each of its 2 checks) and passes on the fix (0 bytes). perf-gate `EoUsQuG` fails on the old C CLI in the Alpine image (370 ms against 301) and passes with the fix, as does the full perf-gate there for C. The full perf-gate on this box, dev's C CLI against the fix, all green. Also the gates listed on 2026101316013508, which ran on the same commit.
-	- Test case: `mem_bounds_mark_at_block_end` (`EsdfEvu`) in `source/c/tests/mem_bounds.c`, a count of bytes allocated, so it fails on glibc too; perf-gate `EoUsQuG` (`reads`) in the Alpine image.
+	- Verified: 20261013. `mem_bounds_mark_at_block_end` fails on dev's header (131 MB allocated over 2000 calls for each of its 2 checks) and passes on the fix (0 bytes). perf-gate `dbzqm` fails on the old C CLI in the Alpine image (370 ms against 301) and passes with the fix, as does the full perf-gate there for C. The full perf-gate on this box, dev's C CLI against the fix, all green. Also the gates listed on 2026101316013508, which ran on the same commit.
+	- Test case: `mem_bounds_mark_at_block_end` (`ddxfw`) in `source/c/tests/mem_bounds.c`, a count of bytes allocated, so it fails on glibc too; perf-gate `dbzqm` (`reads`) in the Alpine image.
 	- Branch: `muslfix`
 	- Commit: `60d9719a`
 	- Acceptance signoff: Self-closed: the cause was measured before the fix, the fix is in one helper, and the new count test and the Alpine perf row were each seen to fail before and pass after.
@@ -4315,8 +4415,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261013: Built in all four. The grouping test takes a `.` with no digits after it, so `"1,200."` and `"$1,200."` read as 1200 and `"1,200.%"` as 12. An int read of one goes through the float path and rounds, like `"5."` and `"1,200.50"`.
 		- 20261013: The read and the writer's keep-bare exception use the one grouping test in each binding, so they take exactly the same set. A bare `1,200.` stays bare through `fmt`, a setter and the line-keeping save, and goes in quotes when a merge puts it in brackets.
 	- Swept: in all four, every caller of the grouping test: the int and float reads, `emit_scalar`, `new_scalar` and their ports, which feed the canonical save, the line-keeping save, `keep_mark`, `cell_of` and the selector's value. No other copy of the grouping rule. The C++ veneer has no public change (check-veneer). spec.md, value-syntax.md, the corpus notes and the changelog say so. The README's Loose line doesn't state the grouping rule, so it stays.
-	- Verified: the new runner test fails on dev's library and passes on the fix, in all four. Corpus 206's new rows fail on dev in all four (canonical, write, merge and reads). cli-regress `EsdUlxn`, `EsdUlxo` and `EsdUlxp` fail on dev's 4 CLIs; `EsdUlxq` and `EsdUlxr` pin what dev already does (Standard refuses, a leading `.` stays text). `EsZikJr` fails with the writer's exception kept off a trailing-dot value. Also cargo test, the 2,000,000 release fuzz (all 28), the four conformance suites, the C suite under ASan and UBSan, the veneer smoke test, `go test -count=1` per module, cli-regress (561 rows, 4 bindings), crosscheck (49638 comparisons), check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, check-veneer, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
-	- Test case: `loose_reads_a_quoted_thousands_number_with_a_trailing_dot`, Rust `EsdUlxj`, Go `EsdUlxk`, Python `EsdUlxl`, C `EsdUlxm`; new rows in corpus `206-loose-thousands`; cli-regress `EsdUlxn`, `EsdUlxo`, `EsdUlxp`, `EsdUlxq`, `EsdUlxr`; fuzz `EsZikJr`, whose thousands values now also start with a `.` now and then.
+	- Verified: the new runner test fails on dev's library and passes on the fix, in all four. Corpus 206's new rows fail on dev in all four (canonical, write, merge and reads). cli-regress `ddxep`, `ddxeq` and `ddxer` fail on dev's 4 CLIs; `ddxes` and `ddxet` pin what dev already does (Standard refuses, a leading `.` stays text). `ddwhn` fails with the writer's exception kept off a trailing-dot value. Also cargo test, the 2,000,000 release fuzz (all 28), the four conformance suites, the C suite under ASan and UBSan, the veneer smoke test, `go test -count=1` per module, cli-regress (561 rows, 4 bindings), crosscheck (49638 comparisons), check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, check-veneer, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
+	- Test case: `loose_reads_a_quoted_thousands_number_with_a_trailing_dot`, Rust `ddxej`, Go `ddxek`, Python `ddxem`, C `ddxen`; new rows in corpus `206-loose-thousands`; cli-regress `ddxep`, `ddxeq`, `ddxer`, `ddxes`, `ddxet`; fuzz `ddwhn`, whose thousands values now also start with a `.` now and then.
 	- Branch: `loosedot`
 	- Commit: `738a6b64`
 	- Acceptance signoff: Self-closed: JC's call was clear and narrow, the change does that and no more, and each new test was seen to fail on dev.
@@ -4351,7 +4451,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261013: Apt reads the Debian snapshot the base image names. pip installs by hash and npm from a lock file, and check-pins fails when a recipe and TOOL_PINS disagree. No wine and no Go floor version, since no stage runs either (me).
 		- 20261013: `--no-release` skips the release builds and the packages, dogfood and gif made from them. The Alpine image runs with it (me).
 	- Verified: 20261013. `SHCL_GATE_REF=main cicd/cicd.bash --ci --container` passed in the image in about 33 minutes, with no FAIL and only the windows-only skips, and recorded its tree for the pre-push hook. A full `cicd/cicd.bash -y --container`, less sync, dogfood, gif and publish, passed stages 1 to 6 there too: the profiler, the native and 5 cross release builds, the CPU floor check booting both emulated CPUs, and the .deb, .rpm and setup packages. Also shellcheck over the gate's list, check-pins, check-docs with `SHCL_GATE_REF=main`, shell-regress and markdownlint.
-	- Test case: check-pins `Esbpsph` (the recipes install the TOOL_PINS versions) and `Esbpt85` (every download in them is hashed), pinned by shell-regress `Esbq6Ie`, whose 9 cases all fail with the 2 checks taken out. The container itself has no test of its own; a `--container` run is the gate.
+	- Test case: check-pins `ddx1t` (the recipes install the TOOL_PINS versions) and `ddx1v` (every download in them is hashed), pinned by shell-regress `ddx1w`, whose 9 cases all fail with the 2 checks taken out. The container itself has no test of its own; a `--container` run is the gate.
 	- Branch: `ctrbuild`
 	- Commit: `a1afc401`, `bb96e452`, `07914455`
 	- Acceptance signoff: Self-closed: the item's requirements and notes were the spec, the gate passed in the image and recorded its tree, and the new checks were seen to fail.
@@ -4374,13 +4474,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261013: `--container=ubuntu` and `--container=alpine` build `cicd/container/ubuntu.Dockerfile` and `alpine.Dockerfile` the first time they're needed. `CTR_ARGS_ubuntu` and `CTR_ARGS_alpine` in config.bash name what each runs. Neither records the tree, and nothing runs on the host after either.
 		- 20261013: The Ubuntu image found that Ubuntu's own mawk reads `#{2,5}` wrong, so check-docs' contents-block check fails under it. The hosted lint job passes that check, so the runner's awk reads it right; the image has gawk now.
-		- 20261013: The Alpine run is red on 2 musl differences in the C binding. cli-regress `ErTZaL2` gets `/proc/self/pagemap: Invalid argument` where glibc gets to "too large for a schema". Why is not checked yet. perf-gate's `reads` workload takes about 370 ms in C against a 300 ms budget, where glibc takes about 90, while every other C workload is close to glibc's time. Both need items of their own.
+		- 20261013: The Alpine run is red on 2 musl differences in the C binding. cli-regress `ddc52` gets `/proc/self/pagemap: Invalid argument` where glibc gets to "too large for a schema". Why is not checked yet. perf-gate's `reads` workload takes about 370 ms in C against a 300 ms budget, where glibc takes about 90, while every other C workload is close to glibc's time. Both need items of their own.
 	- Decisions:
 		- 20261013: Ubuntu 24.04 runs the format check, build, tests and cross checks, strict like `--ci`. That's the hosted tests job plus the cross checks, which build with Ubuntu's mingw. Lint stays in the main image, since its linters are the same pinned versions on any OS. No profiler, release builds or packages, which hosted doesn't run either (me).
 		- 20261013: Ubuntu's apt reads the live archive, as the runner's image does, and its Python is 3.13, as the runner's setup-python gives it. The snapshot archive was also too slow to use (me).
 		- 20261013: Alpine runs the build and the tests stage, large document included, less 7 gates. check-c-compilers, check-locale and sanitize-c need a second gcc, localedef or the sanitizers, which musl doesn't have. shell-regress, check-migrate, check-install-dev and check-push-gate test the installers, hooks and 2.x conversion, nothing the libc changes. No format check or lint, which are the main image's job, no cross checks, which don't build for the host's libc, and no profiler or release builds, since no musl build is released. It isn't strict, so a row that wants a tool the image lacks skips out loud (me).
 	- Verified: 20261013. `cicd/cicd.bash --container=ubuntu` passed with no FAIL, check-c-compilers on gcc 12, 13, 14 and clang, and the 3 cross checks. `cicd/cicd.bash --container=alpine` passed everything but the 2 rows above, which were each taken out for a run to reach the rest. Each took 25 to 30 minutes.
-	- Test case: none of its own. The images run the existing gates, and check-pins `Esbpsph` fails when a version pinned in their recipes isn't the TOOL_PINS one.
+	- Test case: none of its own. The images run the existing gates, and check-pins `ddx1t` fails when a version pinned in their recipes isn't the TOOL_PINS one.
 	- Branch: `ctrbuild`
 	- Commit: `a1afc401`, `bb96e452`, `07914455`
 	- Acceptance signoff: Self-closed: both images build and run the stages the item named, and the gates each one skips are listed with the reason.
@@ -4394,17 +4494,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20261013-081635
 	- Opened by: me, from the hosted run at the end of the 20261013 round
 	- Version and build: dev at `8a803032`
-	- Steps to reproduce: run `cargo test --test mem_caps` until `diagnostic_cap_bounds_the_parse` (`EofAXrU`) runs before `element_cap_bounds_the_parse` (`EoezJiC`).
-	- Incorrect behavior: hosted run 38415689485's macos job failed `EofAXrU`, with 8617093 bytes counted against a bound of 8000040. Everything else in the run was green.
+	- Steps to reproduce: run `cargo test --test mem_caps` until `diagnostic_cap_bounds_the_parse` (`dc26v`) runs before `element_cap_bounds_the_parse` (`dc25e`).
+	- Incorrect behavior: hosted run 38415689485's macos job failed `dc26v`, with 8617093 bytes counted against a bound of 8000040. Everything else in the run was green.
 	- Expected behavior: the test counts only what its own parse holds, whatever order the tests run in.
 	- Reproduced: 20261013, once, hosted macos. The same test counts 7417067 bytes here at `c5734e0e`, `5bb89ac4`, `50be3ed9` and `8a803032`, so no library change moved it.
 	- Possible cause [Bug]: the counter is global to the process. `element_cap_bounds_the_parse` builds its 600 KB text before it takes the lock, and that build holds 2 copies at once, about 1.2 MB. The count was 1200026 bytes over this box's figure. On 10-10 the 2 tests ran the other way around, and the job was green.
-	- Actual cause [Bug]: confirmed. Each test in `mem_caps.rs` took the lock only around its measurement, so it built its input beside whatever measurement was running. `EoezJiC`'s text build counted 1209773 bytes into `EofAXrU`, for 8626840 against 8000040. `a_plain_name_costs_the_scan_nothing` built its 2 documents the same way, only smaller.
+	- Actual cause [Bug]: confirmed. Each test in `mem_caps.rs` took the lock only around its measurement, so it built its input beside whatever measurement was running. `dc25e`'s text build counted 1209773 bytes into `dc26v`, for 8626840 against 8000040. `a_plain_name_costs_the_scan_nothing` built its 2 documents the same way, only smaller.
 	- Note: Avg, since a rerun passes. A red macos job on a main push still needs one.
 	- Actual fix [Bug]: every test in the file takes the lock first and holds it to the end, input build included. Both measuring helpers need the held lock passed in, so a new test can't measure without taking it. A failed test no longer poisons the lock for the others.
-	- Verified: 20261013. With `EofAXrU`'s measurement held open until `EoezJiC` had built its text, the old order failed 3 runs of 3 at 8626840 bytes. With the fix, the same timing counted 7417067 in 3 runs of 3, the figure the test has alone. Also `cargo fmt`, `cargo clippy --test mem_caps -- -D warnings`, `cargo test --test mem_caps` 6 times plus once on 1 thread, and `test-ids.py check`.
+	- Verified: 20261013. With `dc26v`'s measurement held open until `dc25e` had built its text, the old order failed 3 runs of 3 at 8626840 bytes. With the fix, the same timing counted 7417067 in 3 runs of 3, the figure the test has alone. Also `cargo fmt`, `cargo clippy --test mem_caps -- -D warnings`, `cargo test --test mem_caps` 6 times plus once on 1 thread, and `test-ids.py check`.
 	- Swept: `mem_caps.rs` is the only test file with a counting allocator, and all 3 of its tests now take the lock first. Go's memory tests run one at a time, with no `t.Parallel` in the package. The C and Python memory checks run on 1 thread, and Python starts tracemalloc after its text is built.
-	- Test case: `EofAXrU` and `EoezJiC`, run in either order. The timing that forced the overlap isn't in the tree, since it waits on a clock.
+	- Test case: `dc26v` and `dc25e`, run in either order. The timing that forced the overlap isn't in the tree, since it waits on a clock.
 	- Branch: `memcap`
 	- Commit: `974de060`
 	- Acceptance signoff: Self-closed: reproduced, the forced overlap failed before the fix and passes after, and the sweep found no other file with the pattern.
@@ -4415,7 +4515,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Needs local test suite run?: N. The engine side is pinned by check-push-gate's stubbed engine.
-	- Needs external testing: a hosted run on the branch (`gh workflow run ci --ref cisplit`). Watch the times of the two ubuntu jobs, `ci (lint)` and `ci (tests)`. Each should end well inside 60 minutes: lint about 30 with a cold cppcheck and under 10 with a warm one, tests about 30. Also that both are green with no strict skip, that the tests job prints the profiler calibration line `EqeDCi1`, and that the lint job's last step saves a `cppcheck-` cache.
+	- Needs external testing: a hosted run on the branch (`gh workflow run ci --ref cisplit`). Watch the times of the two ubuntu jobs, `ci (lint)` and `ci (tests)`. Each should end well inside 60 minutes: lint about 30 with a cold cppcheck and under 10 with a warm one, tests about 30. Also that both are green with no strict skip, that the tests job prints the profiler calibration line `dczst`, and that the lint job's last step saves a `cppcheck-` cache.
 	- Severity: High
 	- Opened: 20261010-111707
 	- Opened by: me, from the hosted run after the 2026100717500020 merges
@@ -4438,18 +4538,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `cicd.bash --no-tests` is new. It skips the tests stage and the `--ci` calibration, and keeps a run from recording its tree, like `--no-lint`.
 		- The cppcheck cache is restored and saved as 2 steps, and the save runs even when the job fails or times out.
 		- check-pins fails when the jobs running `cicd.bash` stop covering every stage between them. It allows only `--ci` plus the 4 flags that each drop one stage, so `--no-largedoc` or `--quick` can't drop the large document unseen.
-	- Verified: the new check fails on 6 broken copies of ci.yml (both jobs `--no-lint`, a `--no-largedoc` job, a job without `--ci`, no matrix value, one literal `--no-tests` run, no `cicd.bash` at all) and passes on the real one and on dev's single job. check-push-gate's new row fails when `--no-tests` doesn't hold back the record, and when it skips nothing. shell-regress `EsZzNEZ` fails 4 ways against dev's check-pins and passes with the fix. Also actionlint (which catches a wrong matrix or step name in a control copy), shellcheck over every gate target, check-pins, check-push-gate, shell-regress, check-docs judged as main, test-ids check, markdownlint.
-	- Test case: check-pins `EsZzNCY`, shell-regress `EsZzNEZ`, and the `--no-tests` row in check-push-gate `EqGl8mf`. No test bounds the hosted time itself; the hosted run is the check.
+	- Verified: the new check fails on 6 broken copies of ci.yml (both jobs `--no-lint`, a `--no-largedoc` job, a job without `--ci`, no matrix value, one literal `--no-tests` run, no `cicd.bash` at all) and passes on the real one and on dev's single job. check-push-gate's new row fails when `--no-tests` doesn't hold back the record, and when it skips nothing. shell-regress `ddwkm` fails 4 ways against dev's check-pins and passes with the fix. Also actionlint (which catches a wrong matrix or step name in a control copy), shellcheck over every gate target, check-pins, check-push-gate, shell-regress, check-docs judged as main, test-ids check, markdownlint.
+	- Test case: check-pins `ddwkk`, shell-regress `ddwkm`, and the `--no-tests` row in check-push-gate `dct5d`. No test bounds the hosted time itself; the hosted run is the check.
 	- Branch: `cisplit`
 	- Commit: `cbfced5c`
-	- Acceptance signoff: me 20261013, self-closed: the hosted run 38415689485 on dev finished both halves inside the limit, `ci (lint)` in 26 minutes with a cold cppcheck cache and `ci (tests)` in 31, both green with no strict skip. The tests half printed `EqeDCi1`, and the lint half saved its `cppcheck-` cache.
+	- Acceptance signoff: me 20261013, self-closed: the hosted run 38415689485 on dev finished both halves inside the limit, `ci (lint)` in 26 minutes with a cold cppcheck cache and `ci (tests)` in 31, both green with no strict skip. The tests half printed `dczst`, and the lint half saved its `cppcheck-` cache.
 	- Closed: 20261013-081635
 
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
 	- Type: Feature
 	- Status: Done
-	- Needs external testing: the hosted windows job (`gh workflow run ci --ref winscan`): cli-regress `EsEvmLE` green for every binding. Also the README PowerShell blocks, and the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
+	- Needs external testing: the hosted windows job (`gh workflow run ci --ref winscan`): cli-regress `ddqj7` green for every binding. Also the README PowerShell blocks, and the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
 	- Priority: Avg
 	- Opened: 20261008-144556
 	- Opened by: JC, from talk on 2026100717500016
@@ -4473,16 +4573,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Only what JSON requires is escaped, the way `jq -c` writes it, so `jq -c .` gives each line back byte for byte.
 			- New library calls in all four and the C++ interface: `fields()`, `read_fields()` and `read_child_fields()` (Go `Fields`, C `shcl_fields`). Built from the old calls, `--json` looked up each path again, and a lookup scans every sibling, so a wide file went quadratic. One walk keeps it linear: 20,000 instances list in about 0.1 to 0.3 s in Rust, Go and C.
 		- PowerShell 7 turns a value that looks like a date into a `DateTime`, unless 7.5 or later is given `-DateKind String`. README and the man page say so. Windows PowerShell 5.1 should not do this, but was not run.
-		- 20261010: hosted windows job: `EsEvmLE` red for every binding. `jq -c .` wrote every line back "differently" with the same text, which points at line endings: jq on windows ends its lines with CR LF and the scan compares bytes. Back to Queued; the scan should strip the CR before comparing. Ubuntu and macos passed it.
+		- 20261010: hosted windows job: `ddqj7` red for every binding. `jq -c .` wrote every line back "differently" with the same text, which points at line endings: jq on windows ends its lines with CR LF and the scan compares bytes. Back to Queued; the scan should strip the CR before comparing. Ubuntu and macos passed it.
 		- 20261010: the Windows PowerShell 5.1 half ran on vm925w (5.1.26100): the README block as written gives both sites with their paths and lines, `line` is a number, a value shaped like a date stays a string, a non-ASCII value reads right after `[Console]::OutputEncoding` is set, `get`, `children` and `paths --json` read back, and a missing field exits 3. Done, so no further box visit is needed.
-		- 20261013: `EsEvmLE` takes the CRs off jq's output before comparing, in both of its jq calls. jq escapes a CR inside a string, so a bare one is a line end. The CLI's own lines keep theirs, so a CLI that writes CR LF still fails. This works whatever jq's build or version, where `--binary` would depend on both.
+		- 20261013: `ddqj7` takes the CRs off jq's output before comparing, in both of its jq calls. jq escapes a CR inside a string, so a bare one is a line end. The CLI's own lines keep theirs, so a CLI that writes CR LF still fails. This works whatever jq's build or version, where `--binary` would depend on both.
 	- Swept: the four CLIs' option tables, help and dispatch, both completion files, check-completions and shell-regress's anchors on the old shared option row, the crosscheck and sanitize-c row arms, README, the man page, spec.md and the changelog.
-	- Verified: the four conformance suites and the veneer smoke, cli-regress over all four CLIs (strict, pwsh 7.6 and jq 1.8.1), crosscheck over the corpus and a 500-input fuzz dump (48747 comparisons, 0 divergences), sanitize-c, check-readme, check-docs (only the known `installers-match-main` red), check-abnf, check-completions, check-veneer, shell-regress, test-ids check, markdownlint, shellcheck, clippy for both targets, go vet and staticcheck, ruff and mypy, cppcheck at the normal level, gcc 15, clang and mingw builds of the C CLI. `EsEvmL4` and `EsEvmLE` failed with Go's DEL escape removed, and the library tests failed with a slot miss dropped.
-		- 20261013: with a jq that writes CR LF first on PATH, `EsEvmLE` failed for all four bindings with "jq -c . writes a line back differently", as on the hosted windows job. With the fix it passes there and with the plain jq. It still fails for a CLI whose output ends its lines with CR LF. cli-regress (545 rows, four bindings), crosscheck, check-doc-examples, check-docs judged as main, shell-regress, shellcheck over the lint list, test-ids check and markdownlint pass.
+	- Verified: the four conformance suites and the veneer smoke, cli-regress over all four CLIs (strict, pwsh 7.6 and jq 1.8.1), crosscheck over the corpus and a 500-input fuzz dump (48747 comparisons, 0 divergences), sanitize-c, check-readme, check-docs (only the known `installers-match-main` red), check-abnf, check-completions, check-veneer, shell-regress, test-ids check, markdownlint, shellcheck, clippy for both targets, go vet and staticcheck, ruff and mypy, cppcheck at the normal level, gcc 15, clang and mingw builds of the C CLI. `ddqhx` and `ddqj7` failed with Go's DEL escape removed, and the library tests failed with a slot miss dropped.
+		- 20261013: with a jq that writes CR LF first on PATH, `ddqj7` failed for all four bindings with "jq -c . writes a line back differently", as on the hosted windows job. With the fix it passes there and with the plain jq. It still fails for a CLI whose output ends its lines with CR LF. cli-regress (545 rows, four bindings), crosscheck, check-doc-examples, check-docs judged as main, shell-regress, shellcheck over the lint list, test-ids check and markdownlint pass.
 	- Branch: `listjson`, then `winscan` for the CR LF fix
 	- Commit: `250115f3`, then `2f860c48`
-	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
-	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: `EsEvmLE` green on windows, ubuntu and the local run, and the README PowerShell blocks green in check-readme. The output calls made while building it are in the progress log.
+	- Test case: `fields_give_each_instance_its_own_path` (Rust `ddqh3`, Go `ddqh4`, Python `ddqh5`, C `ddqh6`) and the veneer smoke; cli-regress `ddqhn`, `ddqhq`, `ddqhs` to `ddqj5`, and `ddqj7` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
+	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: `ddqj7` green on windows, ubuntu and the local run, and the README PowerShell blocks green in check-readme. The output calls made while building it are in the progress log.
 	- Closed: 20261013-081635
 
 - Doc examples, man page blocks and help text aren't run as tests
@@ -4490,7 +4590,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Needs local test suite run?: Y, the full `--ci`, whose tests stage runs the new gate.
-	- Needs external testing: a hosted run (`gh workflow run ci --ref winscan`). The windows job: cli-regress `EsJLUK1`, `EsaAH2V` and `EsaAW1o` green for every binding, and the Go `EsaBeHl` and Python `EsaBeHk` runner tests. The ubuntu job runs check-doc-examples with jq, and the macos job cli-regress's two scans.
+	- Needs external testing: a hosted run (`gh workflow run ci --ref winscan`). The windows job: cli-regress `ddrkm`, `ddwmy` and `ddwmz` green for every binding, and the Go `ddwn4` and Python `ddwn3` runner tests. The ubuntu job runs check-doc-examples with jq, and the macos job cli-regress's two scans.
 	- Priority: Avg
 	- Opened: 20261007-191221
 	- Opened by: JC
@@ -4503,7 +4603,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261010: `check-doc-examples.bash` runs the tables in value-syntax.md and spec.md through all four CLIs with `doc-tables.py`, and the man page's EXAMPLES blocks on each binding. Every binding has to print the same bytes, and the result has to be what the row says. 58 rows of value-syntax.md and 33 of spec.md are checked, and the rest are prose and counted. Every row holds on all four bindings, so no doc or binding defect turned up.
 		- 20261010: cli-regress fails on a 2.x escape form in the help, each `help CMD`, each `explain` code with the retired ones, `--about`, `--donate`, the rendered man page, and the stdout and stderr of every row on every binding.
-		- 20261010: hosted windows job: `EsJLUK1` red. The scan read the Python CLI's OS error on the `write-names-the-phase` row (`Eon514S`) as a 2.x escape: Python quotes the temp path in the message as `'C:\\Users\\...'`, with doubled backslashes. A Windows path in an OS message is not a value escape. Back to Queued; either the scan skips the OS text after the colon or the Python CLI prints the OS error without the path repr, as the other three do. Ubuntu and macos passed it.
+		- 20261010: hosted windows job: `ddrkm` red. The scan read the Python CLI's OS error on the `write-names-the-phase` row (`dc43q`) as a 2.x escape: Python quotes the temp path in the message as `'C:\\Users\\...'`, with doubled backslashes. A Windows path in an OS message is not a value escape. Back to Queued; either the scan skips the OS text after the colon or the Python CLI prints the OS error without the path repr, as the other three do. Ubuntu and macos passed it.
 		- 20261013: the cause is in the Python library, so the scan stays as it is. A failed save gave `str()` of the OS error, which adds `[Errno N]` and the temp file's name as a repr. Rust and C give `FILE: ` and the system's own message, as the UI guide says, and Go named the call and the temp file. Python and Go now give the file and the system's message for the temp file create, a failed write, sync, close or publish, and the windows note on where the files were left.
 	- Decisions:
 		- 20261010: a table is known by its header. Each known kind has a reader, a header with none fails the gate, and a table with no examples is listed by header with its reason (me).
@@ -4513,12 +4613,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261010: the 2.x rule is a backslash then `n` or `t` with no letter or digit after it, or two backslashes, so `C:\temp\new` passes. JSON lines pass, and so does migrate's output of a kept 2.x pair, listed by content (me).
 	- Swept: the 2.x scan reads everything the CLIs print in cli-regress's 541 rows, ops scripts and diagnostics included, plus every help and code text. The README and man page shell blocks run under check-readme and this gate. README prose is not CLI output and is not scanned.
 		- 20261013, the OS error text: in Python, every place an `OSError` goes into a message. The save's temp create, `_failed` (write, sync, close, publish) and the windows publish note are fixed. The backup's create and write, `read_input`, the schema read and the stdout write already used `strerror`. In Go, the same three save sites and the windows publish note; `WriteBackup` and the read already unwrapped the path error. Rust's `io::Error` and C's `strerror` carry no path.
-	- Verified: each new test was seen to fail. `EsJLUJx` and `EsJLUJy` on doc copies with a changed value, code, element count, alias, character, migrate result, typed read, strictness pair, boolean token and `◉U+` prefix, on a reads-as wording with no rule, on a renamed table header, and on a floor above the row count. A binding that differs from the rest in one read, or in an exit code, fails them too. `EsJLUJz` on `site[*]` in a block, a roff escape in a block, a `.nf` block under another section, and only 4 blocks. `EsJLUK0` and `EsJLUK1` on a binding that writes `\n` in place of `◉NEWLINE◉` and in its help. `EsJLUK1` with an allowed migrate line taken off the list and with no rows scanned, `EsJLUK0` with a `\en` added to the man page. On the branch, check-doc-examples and cli-regress (541 rows, 3187 checks, four bindings), check-readme, check-docs (only the known `EpHGoa0` red), shell-regress, check-pins, test-ids check, shellcheck over the lint list, ruff and markdownlint pass.
-		- 20261013: with the temp folder under a name holding a backslash, `EsJLUK1` flagged dev's Python CLI on `Eon514S` and nothing else, the same failure as hosted, and passed with the fixed one. cli-regress `EsaAH2V` and `EsaAW1o` failed on dev's Python and Go CLIs and pass on all four. Python `EsaBeHk` failed on dev's library at the temp create, and at the publish with only the temp create fixed. Go `EsaBeHl` failed on dev's library at both. cli-regress (545 rows, four bindings), the Python and Go suites, crosscheck, check-doc-examples, check-docs judged as main, shell-regress, shellcheck over the lint list, ruff and mypy, go vet and staticcheck for linux and windows, test-ids check and markdownlint pass.
+	- Verified: each new test was seen to fail. `ddrkg` and `ddrkh` on doc copies with a changed value, code, element count, alias, character, migrate result, typed read, strictness pair, boolean token and `◉U+` prefix, on a reads-as wording with no rule, on a renamed table header, and on a floor above the row count. A binding that differs from the rest in one read, or in an exit code, fails them too. `ddrkj` on `site[*]` in a block, a roff escape in a block, a `.nf` block under another section, and only 4 blocks. `ddrkk` and `ddrkm` on a binding that writes `\n` in place of `◉NEWLINE◉` and in its help. `ddrkm` with an allowed migrate line taken off the list and with no rows scanned, `ddrkk` with a `\en` added to the man page. On the branch, check-doc-examples and cli-regress (541 rows, 3187 checks, four bindings), check-readme, check-docs (only the known `dcbc2` red), shell-regress, check-pins, test-ids check, shellcheck over the lint list, ruff and markdownlint pass.
+		- 20261013: with the temp folder under a name holding a backslash, `ddrkm` flagged dev's Python CLI on `dc43q` and nothing else, the same failure as hosted, and passed with the fixed one. cli-regress `ddwmy` and `ddwmz` failed on dev's Python and Go CLIs and pass on all four. Python `ddwn3` failed on dev's library at the temp create, and at the publish with only the temp create fixed. Go `ddwn4` failed on dev's library at both. cli-regress (545 rows, four bindings), the Python and Go suites, crosscheck, check-doc-examples, check-docs judged as main, shell-regress, shellcheck over the lint list, ruff and mypy, go vet and staticcheck for linux and windows, test-ids check and markdownlint pass.
 	- Branch: `doctest`, then `winscan` for the OS error text
 	- Commit: `9131f267`, then `2f860c48`
-	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output). For the OS error text, cli-regress `EsaAH2V` and `EsaAW1o` (a failed temp file gives the file and the system's message, in all four CLIs), Python `EsaBeHk` and Go `EsaBeHl` (the same with a windows path in the OS error). Rust and C get no runner test, since their OS error text never holds a path.
-	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: `EsJLUK1`, `EsaAH2V`, `EsaAW1o`, `EsaBeHk` and `EsaBeHl` green on windows, and check-doc-examples green in the local run and the hosted tests half.
+	- Test case: check-doc-examples `ddrkg` (value-syntax.md tables), `ddrkh` (spec.md tables) and `ddrkj` (man page examples). cli-regress `ddrkk` (help, code texts and man page) and `ddrkm` (every row's output). For the OS error text, cli-regress `ddwmy` and `ddwmz` (a failed temp file gives the file and the system's message, in all four CLIs), Python `ddwn3` and Go `ddwn4` (the same with a windows path in the OS error). Rust and C get no runner test, since their OS error text never holds a path.
+	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: `ddrkm`, `ddwmy`, `ddwmz`, `ddwn3` and `ddwn4` green on windows, and check-doc-examples green in the local run and the hosted tests half.
 	- Closed: 20261013-081635
 
 - Library gaps a generic tool has to work around
@@ -4544,9 +4644,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261010 (kind): `kind` and `read_kind` in all four and the C++ interface (Go `Kind` and `ReadKind`, C `shcl_kind` and `shcl_read_kind`). They give `Empty`, `Scalar`, `Array` or `Raw` from the stored form, with `Good`, `NotFound`, `Multiple` or `BadPath`.
 		- 20261010 (schema resolve): `read_named_schema(text, file)` in all four (Go `ReadNamedSchema`, C `shcl_read_named_schema` and `shcl_named_schema_free`) and C++ `read_named_schema`. It reads the Schema line, resolves it from the config's directory, and gives back the schema's text or a `SchemaStatus`: `NotFound`, `Empty`, `Url`, `NetworkPath`, `FileNotFound`, `IsDirectory`, `NotRegular`, `TooLarge` or `Unreadable`, with the path, the line and a message naming the path.
 		- 20261010 (schema resolve): `check` in all four CLIs goes through it, and their own copies of the rules are gone. Python's `check` now refuses a windows device name on the Schema line, as the other three did.
-		- 20261010 (schema resolve, kind): both merged to dev (`b1642d1b`, `115326a4`, seams `c5734e0e`) and covered by the full `--ci` here, judged as main, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102. The new runner tests pass on windows.
+		- 20261010 (schema resolve, kind): both merged to dev (`b1642d1b`, `115326a4`, seams `c5734e0e`) and covered by the full `--ci` here, judged as main, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102. The new runner tests pass on windows.
 		- 20261010 (default): the third requirement is built on `defaultfix`, in Rust, Go, Python, C and the C++ interface. A default form writes where the path is missing, where the field is empty, and where its value does not read as the type by the typed read at the document's strictness. A replaced value stays above the field as `# port: abc  ## replaced by shcl when setting a default for port, STAMP: not an int`. A raw block is refused for a default of another type, with the new last `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). design.md has a Default forms table as the rule.
-		- 20261010 (default): on this branch the fuzz property `Eqk24nZ` fails at 20,000 iterations and up. A bare `80,443` reads as text, `fmt` quotes it, and the quoted one reads as the int 80443, so a default acts differently on a document and on its reload. Filed as 2026101010054746. With the quoted thousands reading switched off, the 2,000,000 release fuzz passes all 27, so that is the only failure. Merging this branch before 2026101010054746 is settled turns the `--quick` and `--ci` fuzz red.
+		- 20261010 (default): on this branch the fuzz property `dd16k` fails at 20,000 iterations and up. A bare `80,443` reads as text, `fmt` quotes it, and the quoted one reads as the int 80443, so a default acts differently on a document and on its reload. Filed as 2026101010054746. With the quoted thousands reading switched off, the 2,000,000 release fuzz passes all 27, so that is the only failure. Merging this branch before 2026101010054746 is settled turns the `--quick` and `--ci` fuzz red.
 		- 20261010 (default): built on `defaultfix` and not merged. It waits on 2026101010054746, whose fix changes which values the default forms replace, and on the `--set-default` question above.
 		- 20261013 (default): dev merged into `defaultfix`, over 2026101010054746's fix. The branch already did what both recorded decisions say, in all four CLIs, so the CLI is unchanged. A cli-regress row now pins `--set-literal-default` as well. Not merged to dev yet.
 	- Decisions:
@@ -4574,20 +4674,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- One call makes sure a field has a usable value of a type.
 	- Origin: Confirmed by reading and probes.
 	- Swept (schema resolve): every `schema_ref` and `read_schema_ref` caller. Only `check` resolved the line, in each CLI. Each CLI's resolve and read helpers (the name split, the open that does not wait on a FIFO, the 16 MiB cap) moved into the library, and Go's `main_unix.go`, which held only that open, is gone. spec.md, README, the style guide's naming list and the changelog say so.
-	- Verified (schema resolve): each new runner test fails with its binding's fix broken and passes with it, and cli-regress's FIFO-swap row fails for Go without the library's open that does not wait. The Rust, Go and C tests and the C++ smoke pass their Windows branches under wine. Also cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, the C runner under ASan and UBSan and at all five `-O` levels, gcc-15, clang, mingw, cli-regress (541 rows, 4 bindings), crosscheck, check-veneer, check-abnf, test-ids, markdownlint, and check-docs with only the known `EpHGoa0` red.
-	- Test case (schema resolve): `read_named_schema_follows_check_rules` in all four runners (Rust `EsJZ105`, Go `EsJZ106`, Python `EsJZ107`, C `EsJZ108`) and the C++ smoke `EjtkR0S`. The CLI side is cli-regress's schema-line rows, `Er2thhx` to `ErfuRh7`, and `Erlf8t9`.
+	- Verified (schema resolve): each new runner test fails with its binding's fix broken and passes with it, and cli-regress's FIFO-swap row fails for Go without the library's open that does not wait. The Rust, Go and C tests and the C++ smoke pass their Windows branches under wine. Also cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, the C runner under ASan and UBSan and at all five `-O` levels, gcc-15, clang, mingw, cli-regress (541 rows, 4 bindings), crosscheck, check-veneer, check-abnf, test-ids, markdownlint, and check-docs with only the known `dcbc2` red.
+	- Test case (schema resolve): `read_named_schema_follows_check_rules` in all four runners (Rust `ddrn7`, Go `ddrn8`, Python `ddrn9`, C `ddrna`) and the C++ smoke `d9v59`. The CLI side is cli-regress's schema-line rows, `dd5qs` to `ddf42`, and `ddggf`.
 	- Branch (schema resolve): `schemares`
 	- Commit (schema resolve): `f7f81be1`
 	- Swept (kind): `kind` and `read_kind` in Rust, Go, Python, C and `shcl.hpp`, with C's `shcl_value_kind_name` behind C++ `to_string(ValueKind)`. spec.md (Status sentinels and the path calls), the style guide's naming exceptions, the changelog and the Python typing probe name them. No CLI, corpus or migration change.
-	- Verified (kind): the new test fails in all four, and veneer_smoke too, with arrays mapped to `Scalar`, and passes after. Also: `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (541 rows, 3187 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint.
+	- Verified (kind): the new test fails in all four, and veneer_smoke too, with arrays mapped to `Scalar`, and passes after. Also: `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (541 rows, 3187 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `dcbc2` installer red), check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint.
 	- Branch (kind): `nodekind`
 	- Commit (kind): `2c2937f1`
-	- Test case (kind): `kind_reads_say_what_is_there` in all four runners (Rust `EsJYNe1`, Go `EsJYNe2`, Python `EsJYNe3`, C `EsJYNe4`), and the kind checks in the C++ `veneer_smoke` (`EjtkR0S`).
+	- Test case (kind): `kind_reads_say_what_is_there` in all four runners (Rust `ddrn3`, Go `ddrn4`, Python `ddrn5`, C `ddrn6`), and the kind checks in the C++ `veneer_smoke` (`d9v59`).
 	- Swept (default): every default form in Rust, Go, Python, C and `shcl.hpp`, and `SetComment`, whose placement code became one helper the replace shares. The four CLIs' `refusal()` and help text (the ops table line and `--set-default`); their ops decoders already call the library forms. The status order tests in the four runners and veneer_smoke, and C's setter soup bound. spec.md, design.md (the status table, the note under Kept lines under edits, a new Default forms section), the man page, README, the corpus README, the code style guide, a perf-gate comment and the changelog. Corpus cases 014, 015, 063, 065, 092 and 121 use default ops and pass unchanged. The comparison tool and the dogfood runners call no default form.
 		- 20261013: the four CLIs' `--set-default`, `--set-literal-default` and typed default ops against the 20261009 and 20261010 decisions, with their help text, the man page, README, spec.md and design.md's Default forms table. All match.
-	- Verified (default): each new test fails with the old behavior put back, in all four, and the Rust table fails with the raw block replaced or the note left off. cargo test, rustfmt, clippy for the host and windows, `go test -count=1` for both modules, gofmt, go vet, staticcheck, the Python runner, ruff, mypy, the C runner, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, check-c-compilers (5 compilers), sanitize-c, cppcheck at the normal level, the mingw CLI build, cli-regress (545 rows, 3203 checks, all four), crosscheck over the corpus and a 2,000-iteration fuzz dump (48930 comparisons), perf-gate in all four, check-docs (only the known `EpHGoa0` red), check-abnf, test-ids check, shell-regress, shellcheck and markdownlint. A one-off run of 8 typed default ops over the corpus inputs and 150 fuzz inputs through the four CLIs gave the same bytes and exit codes in 1137 runs, 369 of them replacing. The 200,000 release fuzz passes all but `Eqk24nZ` (2026101010054746).
-		- 20261013, with dev merged in: the 2,000,000 release fuzz passes all 28 properties, `Eqk24nZ` and `EsZikJr` included. The four CLIs give the same bytes for `--set-default` and `--set-literal-default` over a bad value, an empty field, a missing one and a section header, and for the typed default ops. `EsaLLI5` fails with Python's `--set-literal-default` writing as `--set-literal`, and passes with it fixed. Also cargo test, the four conformance suites, `go test -count=1` per module, the C++ smoke (also built for windows and run under wine), check-veneer, cli-regress (550 rows, 3223 checks, all four), crosscheck (48990 comparisons), check-docs judged as main, check-abnf, check-doc-examples, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
-	- Test case (default): `default_fills_what_does_not_read` (Rust `EsJZko3`, Go `EsJZko4`, Python `EsJZko5`, C `EsJZko6`), `default_replace_round_trips` (Rust `EsJZko7`, Go `EsJZko8`, Python `EsJZko9`, C `EsJZkoA`), fuzz `a_default_leaves_a_value_of_its_type` (`EsJZkoB`), cli-regress `EsJZkoC`, `EsJZkoD`, `EsJZkoE`, `EsJZkoF` and `EsaLLI5`, and `RawBlock` added to the status order tests (`EsDRhHg`, `EsDeJ9a`, `EsDeik0`, `EsDjstE`) and veneer_smoke (`EjtkR0S`).
+	- Verified (default): each new test fails with the old behavior put back, in all four, and the Rust table fails with the raw block replaced or the note left off. cargo test, rustfmt, clippy for the host and windows, `go test -count=1` for both modules, gofmt, go vet, staticcheck, the Python runner, ruff, mypy, the C runner, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, check-c-compilers (5 compilers), sanitize-c, cppcheck at the normal level, the mingw CLI build, cli-regress (545 rows, 3203 checks, all four), crosscheck over the corpus and a 2,000-iteration fuzz dump (48930 comparisons), perf-gate in all four, check-docs (only the known `dcbc2` red), check-abnf, test-ids check, shell-regress, shellcheck and markdownlint. A one-off run of 8 typed default ops over the corpus inputs and 150 fuzz inputs through the four CLIs gave the same bytes and exit codes in 1137 runs, 369 of them replacing. The 200,000 release fuzz passes all but `dd16k` (2026101010054746).
+		- 20261013, with dev merged in: the 2,000,000 release fuzz passes all 28 properties, `dd16k` and `ddwhn` included. The four CLIs give the same bytes for `--set-default` and `--set-literal-default` over a bad value, an empty field, a missing one and a section header, and for the typed default ops. `ddwpa` fails with Python's `--set-literal-default` writing as `--set-literal`, and passes with it fixed. Also cargo test, the four conformance suites, `go test -count=1` per module, the C++ smoke (also built for windows and run under wine), check-veneer, cli-regress (550 rows, 3223 checks, all four), crosscheck (48990 comparisons), check-docs judged as main, check-abnf, check-doc-examples, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
+	- Test case (default): `default_fills_what_does_not_read` (Rust `ddrnb`, Go `ddrnc`, Python `ddrnd`, C `ddrne`), `default_replace_round_trips` (Rust `ddrnf`, Go `ddrng`, Python `ddrnh`, C `ddrnj`), fuzz `a_default_leaves_a_value_of_its_type` (`ddrnk`), cli-regress `ddrnm`, `ddrnn`, `ddrnp`, `ddrnq` and `ddwpa`, and `RawBlock` added to the status order tests (`ddq65`, `ddq7n`, `ddq7q`, `ddq8b`) and veneer_smoke (`d9v59`).
 	- Branch (default): `defaultfix`
 	- Commit (default): `5bb89ac4`, then `c0329cc9` with dev merged in
 	- Test case: each part has its own row above, for schema resolve, kind and default.
@@ -4621,7 +4721,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261013: the Windows build's floor is v1 plus SSE3, CMPXCHG16B and LAHF/SAHF, which Rust's Windows target assumes and both CPUs have (me).
 	- Verified: 20261013. The stage 6 release builds for Linux, Windows and FreeBSD x86_64 pass the scan, and the Linux one gives the same bytes and exit codes as on the host on the emulated Penryn and Phenom. Seen to fail: an x86-64-v3 build fails the scan and every CLI run dies of SIGILL on both CPUs; an SSSE3 build fails the scan and dies on Phenom only, as on the real chips; an x86-64-v2 build fails the scan and dies on Phenom; a v3 Windows build fails the scan; a doctored host result fails both compares; a stage 6 run with `RUSTFLAGS=-Ctarget-cpu=x86-64-v3` stops at the check and collects no artifacts. The Go CLI built with `GOAMD64=v1` and the C CLI from the plain `cc` line also match the host on both emulated CPUs. Also shellcheck, check-docs judged as main, shell-regress, check-push-gate, check-pins, test-ids check and markdownlint.
-	- Test case: `check-cpu-floor.bash` `EsaOGRX` (the scan), `EsaOGRY` and `EsaOGRa` (each emulated CPU traps on what it lacks), `EsaOGRZ` and `EsaOGRb` (the CLI over the corpus on Penryn and Phenom). A stage 6 release check, not part of `--ci`.
+	- Test case: `check-cpu-floor.bash` `ddwpp` (the scan), `ddwpq` and `ddwps` (each emulated CPU traps on what it lacks), `ddwpr` and `ddwpt` (the CLI over the corpus on Penryn and Phenom). A stage 6 release check, not part of `--ci`.
 	- Branch: `oldcpu`
 	- Commit: `b2c6f659`
 	- Acceptance signoff: Self-closed: the floor holds on every x86_64 release build, and the check was seen to fail on builds past it.
@@ -4639,7 +4739,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Steps to reproduce: a file holding `p: 80,443`. `shcl get --int FILE p` exits 4, not a valid int. `shcl fmt --write FILE` writes `p: "80,443"`, and the same `get` now prints 80443.
 	- Incorrect behavior: a typed read changes across a `fmt`, at exit 0. Thousands separators read only in quotes (spec.md), and since 2026100719122101 the writer quotes any value with a comma.
 	- Expected behavior: a value reads the same before and after `fmt` and a save.
-	- Reproduced: 20261010, dev's Rust build, and all four CLIs on `defaultfix`. 2026100717500020's default forms act on that read, so on `defaultfix` the fuzz property `Eqk24nZ` fails at iteration 12093: a default replaces the bare value on the document and leaves the quoted one on its reload.
+	- Reproduced: 20261010, dev's Rust build, and all four CLIs on `defaultfix`. 2026100717500020's default forms act on that read, so on `defaultfix` the fuzz property `dd16k` fails at iteration 12093: a default replaces the bare value on the document and leaves the quoted one on its reload.
 	- Possible cause [Bug]: two recorded rules meet. A quoted `1,000` reads as 1000 (spec.md, 20261006), and the writer quotes a value holding `,` (2026100719122101). Item 13 of an earlier review fixed the same class for a value a setter wrote, which counts as quoted when the canonical text quotes it.
 	- Decisions:
 		- 20261010: a quoted thousands number stops reading as a number, so `"1,000"` is text like `1,000`. `fmt` keeps quoting a value with a comma, and a typed read gives the same answer before and after a save (JC).
@@ -4651,10 +4751,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix [Bug]: the thousands branch is gone from the int read and the wide float read in all four, so `"1,000"` is text at every level, `BadType` as an int or a float. The `quoted` flag and the setter's quoting stay, since the writer and the public flag read them. spec.md, the README's Loose example, the corpus notes and the changelog say so.
 	- Against: spec.md's quoted-thousands rule (20261006) and the float path from Code review 20260904 item 20, both reversed by the decision above.
 	- Swept: every thousands parse, `grep -rn thousand` and a `[0-9],[0-9]{3}` grep over the four bindings, the C++ interface, the tests, cli-regress, the corpus and the docs. The int read and the wide float read were the only sites, in each binding. shcl.hpp, value-syntax.md and grammar.abnf have none. Corpus `100` and `202` and the 3 cli-regress rows of 20260909 item 13 expected 1000.
-	- Note: the 3 cli-regress rows `EpykNRw`, `EpykNRx` and `EpykNRy` expected 1000 from a setter's and a selector's `1,000`. They are commented out with the reason, and new rows expect exit 4.
+	- Note: the 3 cli-regress rows `dcntn`, `dcntp` and `dcntq` expected 1000 from a setter's and a selector's `1,000`. They are commented out with the reason, and new rows expect exit 4.
 	- Verified: each new runner test and the new cli-regress rows fail on dev's library and pass on the fix, and so does the fuzz property, which fails at iteration 1470 on dev's library. Also: cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck, the C++ smoke, check-veneer, cli-regress (543 rows, 4 bindings), crosscheck (48990 comparisons), shell-regress, check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, test-ids, markdownlint, shellcheck, and the 2,000,000 release fuzz, all 27 properties.
-	- Verified: 20261013, with this fix merged over `defaultfix`, the 2,000,000 release fuzz passes all 28 properties, `Eqk24nZ` included. Plain `defaultfix` still fails `Eqk24nZ` at iteration 12093.
-	- Test case: `a_thousands_comma_reads_the_same_after_a_save`, Rust `EsZikJi`, Go `EsZikJj`, Python `EsZikJk`, C `EsZikJl`; fuzz `EsZikJr` (`typed_reads_survive_a_save`), typed reads before and after a save over loaded and set values at each level; cli-regress `EsZikJm` to `EsZikJq`; corpus `100` and `202` reads.
+	- Verified: 20261013, with this fix merged over `defaultfix`, the 2,000,000 release fuzz passes all 28 properties, `dd16k` included. Plain `defaultfix` still fails `dd16k` at iteration 12093.
+	- Test case: `a_thousands_comma_reads_the_same_after_a_save`, Rust `ddwhp`, Go `ddwhq`, Python `ddwhr`, C `ddwhs`; fuzz `ddwhn` (`typed_reads_survive_a_save`), typed reads before and after a save over loaded and set values at each level; cli-regress `ddwhh` to `ddwht`; corpus `100` and `202` reads.
 	- Branch: `thousands`
 	- Commit: `50be3ed9`
 	- Acceptance signoff: Self-closed: does what the recorded decision asked, and each new test fails before the fix and passes after.
@@ -4670,7 +4770,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026100717500017, 2026100914525821
 	- Version and build: dev at `904cef04`
 	- Steps to reproduce: `cicd/utility/check-migrate.bash` from the repo root, about 8 minutes.
-	- Incorrect behavior: 14 divergences over 654 documents. `fuzz_00274` and `fuzz_00412` read differently after `migrate` than under 2.x, and `fuzz_00412` fails every `upgrade` check: no backup, a fresh file that loads with an error and no info block, and a second upgrade that changes it again. `Eq5YPgP` and `Es34DZj` fail.
+	- Incorrect behavior: 14 divergences over 654 documents. `fuzz_00274` and `fuzz_00412` read differently after `migrate` than under 2.x, and `fuzz_00412` fails every `upgrade` check: no backup, a fresh file that loads with an error and no info block, and a second upgrade that changes it again. `dcqf3` and `ddmp7` fail.
 	- Expected behavior: the gate passes, or each document is a case the gate already excuses.
 	- Reproduced: 20261009, on dev with `restamp` merged, and with dev's library before `restamp`. The dumped fuzz documents changed when corpus 204 and 205 moved the seeds. 20261010, again on dev at `2504fca0`, each document cut down:
 		- `fuzz_00274`: once the lines 2.x refused come out, as the gate takes them out, `kind: split,` sits 2 lines above `kind: split` with lines under it, and 2.x joins the two (`H002`). Cut down to `k: s,` then `k: s`. 2.x reads one `k`. `migrate --from-2x` exits 0 with `k: [s]` and `k: s`, which reads as 2. `k: s,` alone also read as the string `[s]`, where 2.x read `s`.
@@ -4684,14 +4784,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- check-migrate checks a document that names Format 3 for being left as written by `migrate` and by `upgrade` both ways, and does not compare it with 2.x. It takes that path only when the text has the line and `migrate` says the file names its format. No new corpus case, so the fuzz seeds did not move.
 		- value-syntax.md's Migration table, spec.md and the changelog say so.
 	- Swept: the comma-list branch of `migrate_line` in Rust, Go, Python and C, the only place a 2.x list is written again. Count and string read match 2.x for `s, ,`, `,s`, `"s",`, `'s',`, `a b,`, `-,`, `done:,`, `"",`, `80,` and a pair with lines under each. 2-element lists, and `"a, b"` beside `a, b`, already matched. `k: ```,` and `k: [x,` take other paths and are unchanged.
-	- Verified: each new runner test and the cli-regress row fail on dev's library and pass on the fix. The 2 gate pins fail with the format check broken and pass on it. check-migrate passes: 642 documents compared, 12 naming Format 3 left as written, 654 in all. Also the four conformance suites, cli-regress (537 rows, 2887 checks, all four), crosscheck over the corpus and a fuzz dump (35955 comparisons), the 200,000 release fuzz, check-docs (only the known `EpHGoa0` red), check-abnf, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy and cppcheck at the normal level.
-	- Test case: `migrate_writes_a_lone_2x_element_plain` in all four runners (Rust `EsIx4WI`, Go `EsIx4YP`, Python `EsIx4ac`, C `EsIx4cm`), cli-regress `EsIx4ev`, and check-migrate `EsIx4hA` (corpus 149 takes the Format 3 path) and `EsIx4jK` (a 2.x document with `Format 3` in a comment does not).
+	- Verified: each new runner test and the cli-regress row fail on dev's library and pass on the fix. The 2 gate pins fail with the format check broken and pass on it. check-migrate passes: 642 documents compared, 12 naming Format 3 left as written, 654 in all. Also the four conformance suites, cli-regress (537 rows, 2887 checks, all four), crosscheck over the corpus and a fuzz dump (35955 comparisons), the 200,000 release fuzz, check-docs (only the known `dcbc2` red), check-abnf, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy and cppcheck at the normal level.
+	- Test case: `migrate_writes_a_lone_2x_element_plain` in all four runners (Rust `ddrgf`, Go `ddrgg`, Python `ddrgh`, C `ddrgj`), cli-regress `ddrgk`, and check-migrate `ddrgm` (corpus 149 takes the Format 3 path) and `ddrgn` (a 2.x document with `Format 3` in a comment does not).
 	- Branch: `migfix`
 	- Commit: `03068cf9`
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Note: High, since check-migrate is in the pre-push gate, so the next main push fails until this is fixed.
-	- Acceptance signoff: me 20261010, check-migrate `Eq5YPgP` green in the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and in the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
+	- Acceptance signoff: me 20261010, check-migrate `dcqf3` green in the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and in the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102.
 	- Closed: 20261010-111707
 
 - A file stamped with a newer Format major should load clean
@@ -4722,12 +4822,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Against: 2026100313461649's call that a clean file naming an older format is left alone. JC reversed that part on 20261009, and only for `--from-2x`.
 	- Swept: the restamp is one helper per binding, `restamp` in Rust, Go and C (with C's `restamp_text` for `upgrade`) and `_restamp` in Python. It replaces the line `format_line_read` found and reads the result back through it. `upgrade` and `migrate` are its only callers. The four `explain` tables, spec.md, design.md, the man page and the changelog say so. The C++ interface needs nothing, since no call changed.
 	- Swept: every load in each binding goes through its one parser function, so `parse`, `parse_with`, `parse_limited`, the keep-lines loads, the file loads and the one-shot all hint. `migrate`, `upgrade`, `format_version` and the hint read one function per binding: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. spec.md, design.md, the changelog, the corpus README and all four `explain` tables say so.
-	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
-	- Verified: 20261009, the restamp. The new tests and rows fail on dev's code and pass on all four. Also: the four conformance suites, veneer_smoke and check-veneer, cli-regress (536 rows, 2883 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` red), test-ids check, shellcheck, markdownlint, rustfmt, clippy on the library, CLI and the other test targets for the host and on the library and CLI for windows, gofmt, go vet, staticcheck, ruff, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 2,000,000 release fuzz passes all but `Eqk24nZ` (2026100914525821). check-migrate has 14 divergences, the same ones on dev's code.
+	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `dcbc2` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `dd16k`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
+	- Verified: 20261009, the restamp. The new tests and rows fail on dev's code and pass on all four. Also: the four conformance suites, veneer_smoke and check-veneer, cli-regress (536 rows, 2883 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `dcbc2` red), test-ids check, shellcheck, markdownlint, rustfmt, clippy on the library, CLI and the other test targets for the host and on the library and CLI for windows, gofmt, go vet, staticcheck, ruff, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 2,000,000 release fuzz passes all but `dd16k` (2026100914525821). check-migrate has 14 divergences, the same ones on dev's code.
 	- Branch: `fmtstamp`, `restamp`
 	- Commit: `be88796f`, `b79f2183`
-	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`. The restamp: `an_older_format_line_becomes_this_one_in_place` (Rust `EsFrOVO`, Go `EsFrOVP`, Python `EsFrOVQ`, C `EsFrOVR`), cli-regress `EsFrOVT`, `EsFrOVU` and save case `EsFrOVV`, and the changed row `EsEtTda`.
-	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, exhaustive cppcheck included, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
+	- Test case: corpus `204-format-newer-hint` (`ddqhc`) and `205-format-older-hint` (`ddqhd`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `ddqh8`, Go `ddqh9`, Python `ddqha`, C `ddqhb`), cli-regress `ddqhe` to `ddqhk`, and veneer_smoke `d9v59`. The restamp: `an_older_format_line_becomes_this_one_in_place` (Rust `ddqrp`, Go `ddqrq`, Python `ddqrr`, C `ddqrs`), cli-regress `ddqrv`, `ddqrw` and save case `ddqrx`, and the changed row `ddqhk`.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, exhaustive cppcheck included, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102.
 	- Closed: 20261010-111707
 
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
@@ -4761,11 +4861,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261010: `read_exists`, `read_comments`, `try_remove` and `try_clear_comments` say `NotFound` when the path reaches no node that is there, so a wildcard whose slots all miss is `NotFound` for them. Their plain answers already count only those nodes (me).
 		- 20261010: C reuses `shcl_read_usize`, `shcl_read_str`, `shcl_read_bool` and `shcl_read_str_list`, and adds `shcl_read_usize_list` for `shcl_read_lines` (me).
 	- Swept: `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` in Rust, Go, Python, C and `shcl.hpp`. The four CLIs refuse a bad PATH before the load, so they did not change. spec.md, the conformance README and the changelog name the twins. Every call that takes a path now has a status form.
-	- Verified: the new test fails in all four with `BadPath` swapped for `NotFound` in the twins, and so do the new `162` rows, and both pass after. `cargo test`, the four conformance suites (C also at `-O0` and `-O3`), `go test` (both modules), veneer_smoke, check-veneer, cli-regress (537 rows, 2887 checks), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, check-readme, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck (host and windows), ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint, shellcheck.
+	- Verified: the new test fails in all four with `BadPath` swapped for `NotFound` in the twins, and so do the new `162` rows, and both pass after. `cargo test`, the four conformance suites (C also at `-O0` and `-O3`), `go test` (both modules), veneer_smoke, check-veneer, cli-regress (537 rows, 2887 checks), crosscheck over the corpus (21339 comparisons), check-docs (only the known `dcbc2` installer red), check-abnf, check-readme, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck (host and windows), ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint, shellcheck.
 	- Branch: `pathstat`
 	- Commit: `4c6e3380`
-	- Test case: `path_twins_say_bad_path` in all four runners (Rust `EsJ3y7I`, Go `EsJ3y9X`, Python `EsJ3yBo`, C `EsJ3yE5`), the twin checks in the C++ `veneer_smoke` (`EjtkR0S`), and the `comments` rows in case `162`, which now pin `read_comments`.
-	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, with check-c-compilers and sanitize-c, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102, with `EsJ3y7I`, `EsJ3y9X`, `EsJ3yBo` and `EsJ3yE5` ok on windows.
+	- Test case: `path_twins_say_bad_path` in all four runners (Rust `ddrha`, Go `ddrhb`, Python `ddrhc`, C `ddrhd`), the twin checks in the C++ `veneer_smoke` (`d9v59`), and the `comments` rows in case `162`, which now pin `read_comments`.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, with check-c-compilers and sanitize-c, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102, with `ddrha`, `ddrhb`, `ddrhc` and `ddrhd` ok on windows.
 	- Closed: 20261010-111707
 
 - Long values make messages huge
@@ -4792,11 +4892,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- H001's suggested values and V004's bracket list cut each element the same way, in the writer's form.
 	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` count characters and cut the middle past 200. `diag_element` cuts the same way.
 	- Swept: the value sites in Rust, Go, Python and C: `one_line` (E023's escape name, V004 to V006), `diag_element` (H001, V004's bracket list), and `quoted` in the four CLIs. Names and paths (`diag_name`, `schema_text`) are not values and are not cut. Neither is command-line text echoed in a usage error.
-	- Verified: the new rows fail on dev's build and pass on all four. `cargo test`, the four conformance suites, `go test` (both modules), the C extras and veneer_smoke, cli-regress (507 rows, 2731 checks), crosscheck over the corpus (17901 comparisons), clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, the C CLI under gcc 15 and clang at `-O0`, `-O3` and `-Os`, the 2M release fuzz (all 26), shell-regress, check-docs (only the known `EpHGoa0` installer red), check-abnf, check-readme, test-ids check, shellcheck, markdownlint.
+	- Verified: the new rows fail on dev's build and pass on all four. `cargo test`, the four conformance suites, `go test` (both modules), the C extras and veneer_smoke, cli-regress (507 rows, 2731 checks), crosscheck over the corpus (17901 comparisons), clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, the C CLI under gcc 15 and clang at `-O0`, `-O3` and `-Os`, the 2M release fuzz (all 26), shell-regress, check-docs (only the known `dcbc2` installer red), check-abnf, check-readme, test-ids check, shellcheck, markdownlint.
 	- Branch: `msgval`
 	- Commit: `81943546`
-	- Test case: cli-regress `EsEhCd0` to `EsEhCd5`, with 2 and 4 byte characters and the 200 and 201 character edges.
-	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102, with `EsEhCd0` to `EsEhCd5` ok on windows and macos.
+	- Test case: cli-regress `ddqga` to `ddqgf`, with 2 and 4 byte characters and the 200 and 201 character edges.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102, with `ddqga` to `ddqgf` ok on windows and macos.
 	- Closed: 20261010-111707
 
 - `migrate --write` leaves the old Format line beside the new one
@@ -4816,12 +4916,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261009, all four CLIs.
 	- Actual cause [Bug]: `migrate` always appended its stamp, whatever older Format line the file had.
 	- Actual fix [Bug]: `migrate` writes `Format 3` over the older line `format_line_read` found, indent and line end kept, through the restamp helper 2026100717500017 added. The line is kept only when it reads back as the stamp; otherwise it goes at the end as before. A file with no Format line gets one at the end, and the migrated note still goes at the end. The rewritten Format line counts as a rewritten line, so `--write` keeps a backup and `--check` names it.
-	- Swept: `migrate_text` in Rust, Go, Python and C. The stamp check over the corpus in all four runners (Rust `Eqps7zO`, Go `Eqpzw7U`, Python and C) learned the in-place stamp.
+	- Swept: `migrate_text` in Rust, Go, Python and C. The stamp check over the corpus in all four runners (Rust `dd2kj`, Go `dd2mg`, Python and C) learned the in-place stamp.
 	- Verified: the new rows and tests fail on dev's code and pass on all four. The same runs as 2026100717500017.
 	- Branch: `restamp`
 	- Commit: `b79f2183`
-	- Test case: cli-regress `EsFrOVS`, `EsFrOVX` and save case `EsFrOVW`, the migrate half of `an_older_format_line_becomes_this_one_in_place` (`EsFrOVO` to `EsFrOVR`), and the corpus stamp check in the four runners.
-	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
+	- Test case: cli-regress `ddqrt`, `ddqrz` and save case `ddqry`, the migrate half of `an_older_format_line_becomes_this_one_in_place` (`ddqrp` to `ddqrs`), and the corpus stamp check in the four runners.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102.
 	- Closed: 20261010-111707
 
 - Messages on stderr show value text with 2.x backslash escapes
@@ -4858,15 +4958,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261010: a cut value is shown as the one text `head...tail`, the way `diag_element` already cuts one. The cut still counts the value's own characters, so an escape name adds nothing to the count (me).
 		- 20261010: a schema path and a setter note's path show what `fmt` escapes the same way, with a `◉` left as written, since in a path it is the path's own escape (me).
 	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` write the forms above. `schema_text` and the setter note's path write a line break as `◉NEWLINE◉`, and the note a carriage return as `◉CR◉`. V004's bracket list no longer goes through `one_line` twice. Corpus 127's `init` golden moved, since a generated comment showed a schema path's line break as `\n`. Its `input.shcl` keeps the old comment, so the fuzz seed set stays the same.
-		- 20261010 rework: `one_line`, `schema_text` and `note_text` run the writer's `quote_with` and turn its `◉DOUBLE_QUOTE◉` and `◉ESCAPE_CHAR◉` back into a `"` and the mark form. Each CLI's `quoted` does the same through `quote_segment`. cli-regress `EsEhCcy` now expects `◉BEL◉` where it pinned `◉U+0007◉`, per the 20261009 decision.
+		- 20261010 rework: `one_line`, `schema_text` and `note_text` run the writer's `quote_with` and turn its `◉DOUBLE_QUOTE◉` and `◉ESCAPE_CHAR◉` back into a `"` and the mark form. Each CLI's `quoted` does the same through `quote_segment`. cli-regress `ddqg8` now expects `◉BEL◉` where it pinned `◉U+0007◉`, per the 20261009 decision.
 	- Swept: `quoted` in the four CLIs. `one_line`, `schema_text` and `note_text` in Rust, Go, Python and C. `diag_name` and `diag_element` use the writer's form and stay. A grep of the four libraries and CLIs for a written `\n`, `\r`, `\t` or `\\` finds no other site.
 		- 20261010 rework: the same sites in all four. A grep of the four libraries and CLIs for a hand-written escape name or `U+%04X` outside the generated table and the writer finds none. A grep of the Rust library's messages for text put in raw finds only the format stamp, which is digits.
 	- Verified: the new and changed rows fail on dev's build and pass on all four. The same runs as 2026100818251400.
-		- 20261010 rework: the new rows and `EsEhCcy` fail on dev's build in all four (20 checks) and pass on the branch. `cargo test`, `go test` (both modules), the Python and C conformance runners, the C extras and veneer_smoke, cli-regress (541 rows, 2903 checks), crosscheck over the corpus (21339 comparisons), rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, shellcheck, test-ids check, gen-escapes. The C CLI builds under gcc 15 and clang at `-O0` and `-O3` and under mingw, and runs clean under ASan and UBSan over the new inputs. The four agree byte for byte on a set of selectors, flag tags, joiners and a CR LF pair across the cut.
+		- 20261010 rework: the new rows and `ddqg8` fail on dev's build in all four (20 checks) and pass on the branch. `cargo test`, `go test` (both modules), the Python and C conformance runners, the C extras and veneer_smoke, cli-regress (541 rows, 2903 checks), crosscheck over the corpus (21339 comparisons), rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, shellcheck, test-ids check, gen-escapes. The C CLI builds under gcc 15 and clang at `-O0` and `-O3` and under mingw, and runs clean under ASan and UBSan over the new inputs. The four agree byte for byte on a set of selectors, flag tags, joiners and a CR LF pair across the cut.
 	- Branch: `msgval`, `msgfmt`
 	- Commit: `81943546`, `1d5f3f2b`
-	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`. The rework adds `EsJDGCI` to `EsJDGCL`: a BEL, a C1 control, a zero-width space and a direction override in a `get` type error, in an `E023` escape name and in a schema path, and `◉NUL◉`, `◉ESC◉`, `◉DEL◉` and `◉CRLF◉` in a `get` type error.
-	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102, with `EsEhCcw`, `EsEhCcz`, `EsEix5w`, `EsJDGCI` and `EsJDGCL` ok on windows and macos.
+	- Test case: cli-regress `ddqg6` to `ddqg9` and `ddqgg`, and the changed rows `dct3y` to `dct45`, `dc45p` and `dd5h2`. The rework adds `ddrjf` to `ddrjj`: a BEL, a C1 control, a zero-width space and a direction override in a `get` type error, in an `E023` escape name and in a schema path, and `◉NUL◉`, `◉ESC◉`, `◉DEL◉` and `◉CRLF◉` in a `get` type error.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102, with `ddqg6`, `ddqg9`, `ddqgg`, `ddrjf` and `ddrjj` ok on windows and macos.
 	- Closed: 20261010-111707
 
 - A failed write says why only in text
@@ -4894,13 +4994,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- C++: `WriteStatus` with `to_string`. `write_file_atomic` returns it in place of a bool. The saves take `WriteStatus *why = nullptr`, so old calls still build. `UpgradeError` has `status`.
 			- Other calls: `NotRegular` sits beside `IsDirectory`, since every binding already told the two apart in its message. `upgrade_file`'s "changed since it was read" is `Other`. A file another process holds open on Windows is `PermissionDenied` in all four, where C and Python already put it. Windows system codes go through one table all four share, since each language files some of them differently.
 			- CLI output is unchanged.
-	- Test case: `write_status_values_in_order` (Rust `EsEhCFx`, Go `EsEhCG0`, Python `EsEhCG3`, C `EsEhCG9`), `write_status_names_each_failure` (`EsEhCFy`, `EsEhCG1`, `EsEhCG4`, `EsEhCGA`), the OS error table (Rust `os_errors_map_to_one_reason` `EsEhCFz`, Go `TestWriteStatusOf` `EsEhCG2`, Python `write_status_of_os_errors` `EsEhCG5`, C `write_status_of_errno` `EsEhCGB`), Python `write_status_only_ok_is_true` (`EsEhCG6`), and the C++ `veneer_smoke` (`EjtkR0S`).
+	- Test case: `write_status_values_in_order` (Rust `ddqfq`, Go `ddqft`, Python `ddqfx`, C `ddqg3`), `write_status_names_each_failure` (`ddqfr`, `ddqfv`, `ddqfy`, `ddqg4`), the OS error table (Rust `os_errors_map_to_one_reason` `ddqfs`, Go `TestWriteStatusOf` `ddqfw`, Python `write_status_of_os_errors` `ddqfz`, C `write_status_of_errno` `ddqg5`), Python `write_status_only_ok_is_true` (`ddqg0`), and the C++ `veneer_smoke` (`d9v59`).
 	- Swept: every call of `write_file_atomic`, the 3 saves, `write_backup` and `upgrade_file` in the four libraries, the four CLIs, the four runners, the C++ veneer and its smoke test, the README's C and Zig examples, and the comparison tool, which builds.
 	- Verified: the Rust tests, clippy for the host and windows, and the write tests for the windows target under wine. Go tests in both modules, vet for the host and windows, staticcheck, and the Go write tests under wine. The Python runner, ruff and mypy. The C runner, its mingw build under wine, check-c-compilers, sanitize-c, cppcheck at the normal level, the no-file-IO build, the C++ veneer smoke and check-veneer. cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17901 comparisons), check-readme with every example built, check-abnf, test-ids check and markdownlint. check-docs is red only on `installers-match-main`, as before.
 	- Verified: each binding's tests fail with `NotADirectory` or `ENOTDIR` taken out of the table, and with `Unreadable` given as `Other`. C's fail with the FIFO flag dropped, and C++'s with a save's status not passed back.
 	- Branch: `wrstat`
 	- Commit: `6e0210c2`
-	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, exhaustive cppcheck included, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102, with the OS error table tests `EsEhCFz`, `EsEhCG2`, `EsEhCG5` and `EsEhCGB` ok on windows.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, exhaustive cppcheck included, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102, with the OS error table tests `ddqfs`, `ddqfw`, `ddqfz` and `ddqg5` ok on windows.
 	- Closed: 20261010-111707
 
 - `format_version` gives the same answer for a garbled Format line and for none
@@ -4924,11 +5024,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261009: a status form after 2026100818140260's twins (JC). The name is my pick.
 	- Swept: `format_version` and `schema_ref` in Rust, Go, Python, C and `shcl.hpp`. Their callers (`migrate`, `upgrade`, the CLIs' `check`, `migrate` and `upgrade`) keep the plain calls, whose answers did not change.
-	- Verified: the shared table in each runner caught a Go slip while porting (a missed `CutPrefix` hands back the whole line). Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
+	- Verified: the shared table in each runner caught a Go slip while porting (a missed `CutPrefix` hands back the whole line). Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `dcbc2` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `dd16k`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
 	- Branch: `fmtstamp`
 	- Commit: `be88796f`
-	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
-	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
+	- Test case: `stamp_reads_say_why` in all four runners (Rust `ddqh8`, Go `ddqh9`, Python `ddqha`, C `ddqhb`), and the status checks in veneer_smoke (`d9v59`).
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102.
 	- Closed: 20261010-111707
 
 - The 2M release fuzz fails `edits_and_merges_match_a_reload` once corpus 204 and 205 move the seeds
@@ -4942,18 +5042,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: `fmtstamp` at `be88796f`, and dev's code at `45e38056` with the two cases copied in
 	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` release fuzz, `--test fuzz_smoke edits_and_merges_match_a_reload`.
 		- Cut down: load `srv:` with `\t[` under it, merge `srv:` with `\t- 1`, `\t*` and `\tb: 1` under it, then remove `srv.b` from that document and from a reload of its canonical text.
-	- Incorrect behavior: `Eqk24nZ` fails at iteration 1116826: op 4 (a remove) at `srv.b` gives different text on the document and on its reload. The base has kept lines and a merge layer before it.
+	- Incorrect behavior: `dd16k` fails at iteration 1116826: op 4 (a remove) at `srv.b` gives different text on the document and on its reload. The base has kept lines and a merge layer before it.
 		- Cut down: the document writes `\t[` before `\t*`, and the reload writes `\t*` before `\t[`.
 	- Expected behavior: the two match, or differ only in comments the reload took.
 	- Reproduced: 20261009, Rust fuzz only. Dev's code fails the same way with the two cases, so the hints did not cause it. Not cut down yet.
 		- 20261009: on dev at `185bf53b` with 204 and 205 in, same iteration. Cut down to the steps above in Rust. Go, Python and C fail the same steps.
 	- Note: High, since the 2M release fuzz is on the release bar. The 200,000 gate passes.
-	- Actual cause [Bug]: a library defect in all four, not the documented remove case. A stacked list with a field under it that joins an empty binding of its name (2026100520243961's join) brings its fields, but the binding's own kept lines inside its block stayed filed there. A load files such lines on the last field, and a merge does too for every block it visits. The joined binding is not one of those blocks. A remove of the last field then wrote the field's lines after the binding's, where the text had them before. Both lines are kept lines (`E013`, `E014`), not comments, so the excuse in `Eqk24nZ` never applied, and it shouldn't.
+	- Actual cause [Bug]: a library defect in all four, not the documented remove case. A stacked list with a field under it that joins an empty binding of its name (2026100520243961's join) brings its fields, but the binding's own kept lines inside its block stayed filed there. A load files such lines on the last field, and a merge does too for every block it visits. The joined binding is not one of those blocks. A remove of the last field then wrote the field's lines after the binding's, where the text had them before. Both lines are kept lines (`E013`, `E014`), not comments, so the excuse in `dd16k` never applied, and it shouldn't.
 	- Actual fix [Bug]: the join files the binding's inside lines on the last field, as a load does. One helper does that for the join and for the settle pass, in all four. No change to the test's excuse.
 	- Swept: every place a child list grows. The parser settles every block after its folds. The write-side fold and its fold of the children below settle the survivor. A merge settles each block it visits, and a new child settles its parent. Both joins, the settle pass's (load and merge) and the write side's (setters and remove), go through the one fold, which now settles. Same in Go (`foldListIntoEmpty`), Python (`_fold_list_into_empty`) and C (`fold_list_into_empty`).
-	- Verified: the 2,000,000 release fuzz passes all 26, `Eqk24nZ` included. The new fixture fails in all four with the fix taken out, both the merge's join and the remove's join. Also: the four conformance suites, cargo test, go test for both modules, cli-regress (532 rows, 2859 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` red), test-ids check, rustfmt, gofmt, go vet, staticcheck, ruff, cppcheck at the exhaustive level.
+	- Verified: the 2,000,000 release fuzz passes all 26, `dd16k` included. The new fixture fails in all four with the fix taken out, both the merge's join and the remove's join. Also: the four conformance suites, cargo test, go test for both modules, cli-regress (532 rows, 2859 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `dcbc2` red), test-ids check, rustfmt, gofmt, go vet, staticcheck, ruff, cppcheck at the exhaustive level.
 	- Note: dev's clippy fails `nonminimal_bool` at the migrate stamp property in `fuzz_smoke.rs`, and mypy fails `comparison-overlap` in Python's stamp test. Both came in with `fmtstamp`, so they are left for the restamp work.
-	- Test case: `a_joined_list_files_the_bindings_lines_like_a_reload`, Rust `EsFs76t`, Go `EsFs7xv`, Python `EsFs7xw`, C `EsFs7xx`; fuzz `Eqk24nZ` at 2,000,000.
+	- Test case: `a_joined_list_files_the_bindings_lines_like_a_reload`, Rust `ddqs1`, Go `ddqs2`, Python `ddqs3`, C `ddqs0`; fuzz `dd16k` at 2,000,000.
 	- Branch: `fuzzrm`
 	- Commit: `14e0a249`
 	- Acceptance signoff: Self-closed: the fuzz failed before and passes after, each new test fails without the fix, and the reload's order is what the document's own text says.
@@ -5002,27 +5102,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- `check_set_path` gives `Ok` or one of the path reasons, `BadPath` to `UnderArray`. When the path and the value are both wrong the setter gives the path's reason. Rust asks the path check only after a value is refused, so a write that applies walks the path once. A default form on a path already there gives what the plain setter would.
 			- The CLIs print the reason from the status, with the same text as before for every reason they could reach. `refusal()` in `main.rs` has one line per status, and the ports copy it byte for byte. The CLI's own copies of the rules (`describe_refusal`, `raw_refusal`, `array_refusal`) are gone, and the ports drop theirs.
 			- For the ports: Go's values are `SetOk` to `SetNoReadBack`, C's `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK` with type `shcl_set_status` (code style guide). C's OK is 0, so every `if (!shcl_set_...)` turns around without a warning; sweep them all, tests and the README's C example included. Python needs a choice on truthiness: an `IntEnum` makes `Ok` false. The README's Go, Python, C and C++ examples still test a bool and call `check_set_path`, and check-readme builds them, so each port updates its own. The changelog line needs the Go and C names.
-			- Tests to copy: `EsDRhHg` (names and order), `EsDRhFU` (each refusal, path wins, defaults), the fuzz property `EsDRhJo`, `Es9aZSF` now asserting `Multiple` from the setter, and `Es9S4kJ` with its field-under-an-array row commented out.
+			- Tests to copy: `ddq65` (names and order), `ddq64` (each refusal, path wins, defaults), the fuzz property `ddq66`, `ddp8e` now asserting `Multiple` from the setter, and `ddp7b` with its field-under-an-array row commented out.
 			- Gates on `setstat`: none red. cli-regress, crosscheck and the Go, Python and C suites pass as they are, since no CLI text changed and the other three are untouched. check-docs' `installers-match-main` is red, from installers that differ between dev and main, not from this change.
-		- 20261009: Go is in on `ssgo`: the library, the CLI's `refusal()`, the README's Go example and the changelog's Go names. Text that is not UTF-8 gives `NotUtf8` ahead of any other value reason, and a path's reason still wins over it. Go has no fuzz harness, so the `EsDRhJo` property runs over the setter soup instead.
-			- Tests: `EsDeJ9a` (names and order), `EsDeJBi` (each refusal, Go's `NotUtf8` cases included), `EsDemw3` (status agrees with the path check), and `Es9S4kK`, `Es9aZSG`, `Eof29pZ` and `EomvfCs` now asserting the status. `Es9S4kK`'s field-under-an-array row is commented out with the reason.
+		- 20261009: Go is in on `ssgo`: the library, the CLI's `refusal()`, the README's Go example and the changelog's Go names. Text that is not UTF-8 gives `NotUtf8` ahead of any other value reason, and a path's reason still wins over it. Go has no fuzz harness, so the `ddq66` property runs over the setter soup instead.
+			- Tests: `ddq7n` (names and order), `ddq7p` (each refusal, Go's `NotUtf8` cases included), `ddq7v` (status agrees with the path check), and `ddp7c`, `ddp8f`, `dc25v` and `dc42m` now asserting the status. `ddp7c`'s field-under-an-array row is commented out with the reason.
 			- Verified: both Go modules' tests, go vet, gofmt, staticcheck, cli-regress and crosscheck in all four, check-readme, and test-ids check. check-docs is red only on `installers-match-main`, as before.
 		- 20261009: the Python part is in on `sspy`: the library, the CLI, the tests, the READMEs' Python examples, the changelog and the code style guide.
 			- `SetStatus` is an `Enum` whose only true value is `Ok`, so an old `if not doc.set_int(...)` still means refused. An `IntEnum` would make `Ok` the false one. It is a per-language deviation in the code style guide.
 			- `NotUtf8` comes before the other value reasons: a value, comment, info or body with a lone surrogate gives `NotUtf8` even with a line break or a `#` in it too. Go and C should do the same.
-			- A path with a lone surrogate is `BadPath` from `check_set_path` too now, where it said `Ok`, since the name check moved into the path check. `Es9aZSJ`'s five path rows are commented out for it, and `EsDeim8` has them.
+			- A path with a lone surrogate is `BadPath` from `check_set_path` too now, where it said `Ok`, since the name check moved into the path check. `ddp8j`'s five path rows are commented out for it, and `ddq7r` has them.
 			- `OutOfRange` comes from `set_int`, `set_int_array` and their default forms.
-			- Python has no fuzz soup, so its twin of `EsDRhJo` runs over the sequence fixture's documents and the setter soup, with the same guard.
+			- Python has no fuzz soup, so its twin of `ddq66` runs over the sequence fixture's documents and the setter soup, with the same guard.
 		- 20261009: C is in on `ssc`: the library, the CLI's `refusal()`, the C++ interface, the README's C, C++ and Zig examples, the changelog's C names and design.md. All four now agree, so the branch can merge.
 			- `shcl_set_status`, `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`. New `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read. C++ has `SetStatus` with `to_string`, and the setters stay `[[nodiscard]]`.
-			- `NotUtf8` comes before the other value reasons and a path's reason still wins, as in Go and Python. A path that is not UTF-8 is `BadPath` from `shcl_check_set_path` too, so `Es9aZSK`'s five path rows are commented out and `EsDjsvT` has them. design.md says so under the table.
+			- `NotUtf8` comes before the other value reasons and a path's reason still wins, as in Go and Python. A path that is not UTF-8 is `BadPath` from `shcl_check_set_path` too, so `ddp8k`'s five path rows are commented out and `ddq8c` has them. design.md says so under the table.
 			- No `warn_unused_result` on the setters. The library uses it nowhere, and it would not catch the real hazard, a check written the wrong way round.
 			- A default form whose probe document cannot be made now aborts after `SHCL_OOM`, as `arena_panic` does, where it returned 0.
 			- Swept, every C setter call: the library (the default forms, `w_place`, `w_set_marked_as`, `set_comment`), the CLI (`set_apply`, the ops `SET` macro, `apply_op`), `conformance.c` (113 sites, the ops runner and soup helper included), `mem_bounds.c` (10), `oom_hook.c` (one bare call, left), `veneer_smoke.cpp`, `check-veneer.bash`'s consumer file, the README's C, C++ and Zig examples, and check-docs' setter-check pattern, which counted `if (!shcl_set_` as a check and no longer does. The comparison tool calls only Rust.
-	- Test case: conformance `setter_status_values_in_order` (`EsDRhHg`, Go `EsDeJ9a`, Python `EsDeik0`, C `EsDjstE`) and `setter_status_names_each_refusal` (`EsDRhFU`, Go `EsDeJBi`, Python `EsDeim8`, C `EsDjsvT`), fuzz `setter_status_agrees_with_the_path_check` (`EsDRhJo`, Go `EsDemw3`, Python `EsDeioE`, C `EsDjsxk`), the C++ `veneer_smoke` (`EjtkR0S`), Python's `setter_status_only_ok_is_true` (`EsDeiqL`), cli-regress `EsDRhLy`, `EsDRhOB`, `EsDRhQM`, `EsDRhSf`, `EsDRhUp`, `EsDTA92` and `EsDTA93`, and check-docs `setter-examples-check-the-result` (`EoXX3yy`), which counts a status compared with `Ok` as a check. `Es9S4kJ`'s field-under-an-array row, Go's `Es9S4kK`'s, Python's `Es9S4kL`'s and C's `Es9S4kM`'s, are commented out with the reason.
-	- Verified (Rust): `cargo test` with the fuzz at 20,000, `fuzz_smoke` at 200,000 in release, rustfmt, clippy for the host and windows. `EsDRhFU` fails with the path check skipped on a refused value and with `UnderArray` given as `BadPath`. `EsDRhJo` fails on both too. The 7 new cli-regress rows fail with the CLI's text changed. `EoXX3yy` fails with one README check taken out.
-	- Verified (Python, on `sspy`): the conformance run, ruff, mypy with the typing probe, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) across all four, check-readme, test-ids check, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDeim8` and `EsDeioE` each fail with the path check skipped on a refused value, and with `UnderArray` given as `BadPath`. `EsDeiqL` fails with `__bool__` taken out, the typing probe with a setter typed `Any`, and `EoXX3yy` with one Python check taken out of the README.
-	- Verified (C, on `ssc`): the C conformance runner at gcc `-O0` and `-O2` and clang `-O0` and `-O2`, `oom_hook`, `oom_recover`, `mem_bounds`, check-c-compilers (5 compilers), sanitize-c under ASan and UBSan, cppcheck at the normal level, the C++ veneer smoke, native and as a Windows build, check-veneer, the mingw and no-file-IO builds, perf-gate for C, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) and over a fuzz dump with its eol and kept saves (41880) across all four, check-readme with the Zig example built, test-ids check, shellcheck, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDjsvT` and `EsDjsxk` each fail with the path check skipped on a refused value and with `UnderArray` given as `BadPath`, and `EsDjsvT` and `Es9aZSK` with `NotUtf8` asked after the raw reasons. cli-regress fails on C's CLI with its refusal text changed. `EoXX3yy` fails with one C check taken out of the README. Exhaustive cppcheck waits for the next main push.
+	- Test case: conformance `setter_status_values_in_order` (`ddq65`, Go `ddq7n`, Python `ddq7q`, C `ddq8b`) and `setter_status_names_each_refusal` (`ddq64`, Go `ddq7p`, Python `ddq7r`, C `ddq8c`), fuzz `setter_status_agrees_with_the_path_check` (`ddq66`, Go `ddq7v`, Python `ddq7s`, C `ddq8d`), the C++ `veneer_smoke` (`d9v59`), Python's `setter_status_only_ok_is_true` (`ddq7t`), cli-regress `ddq67`, `ddq68`, `ddq69`, `ddq6a`, `ddq6b`, `ddq6c` and `ddq6d`, and check-docs `setter-examples-check-the-result` (`dc0c2`), which counts a status compared with `Ok` as a check. `ddp7b`'s field-under-an-array row, Go's `ddp7c`'s, Python's `ddp7d`'s and C's `ddp7e`'s, are commented out with the reason.
+	- Verified (Rust): `cargo test` with the fuzz at 20,000, `fuzz_smoke` at 200,000 in release, rustfmt, clippy for the host and windows. `ddq64` fails with the path check skipped on a refused value and with `UnderArray` given as `BadPath`. `ddq66` fails on both too. The 7 new cli-regress rows fail with the CLI's text changed. `dc0c2` fails with one README check taken out.
+	- Verified (Python, on `sspy`): the conformance run, ruff, mypy with the typing probe, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) across all four, check-readme, test-ids check, markdownlint, and check-docs, red only on `installers-match-main` as before. `ddq7r` and `ddq7s` each fail with the path check skipped on a refused value, and with `UnderArray` given as `BadPath`. `ddq7t` fails with `__bool__` taken out, the typing probe with a setter typed `Any`, and `dc0c2` with one Python check taken out of the README.
+	- Verified (C, on `ssc`): the C conformance runner at gcc `-O0` and `-O2` and clang `-O0` and `-O2`, `oom_hook`, `oom_recover`, `mem_bounds`, check-c-compilers (5 compilers), sanitize-c under ASan and UBSan, cppcheck at the normal level, the C++ veneer smoke, native and as a Windows build, check-veneer, the mingw and no-file-IO builds, perf-gate for C, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) and over a fuzz dump with its eol and kept saves (41880) across all four, check-readme with the Zig example built, test-ids check, shellcheck, markdownlint, and check-docs, red only on `installers-match-main` as before. `ddq8c` and `ddq8d` each fail with the path check skipped on a refused value and with `UnderArray` given as `BadPath`, and `ddq8c` and `ddp8k` with `NotUtf8` asked after the raw reasons. cli-regress fails on C's CLI with its refusal text changed. `dc0c2` fails with one C check taken out of the README. Exhaustive cppcheck waits for the next main push.
 	- Verified (all four, on `setstat`): cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17862 comparisons), the Go, Python and C suites, check-readme, check-abnf, check-docs, test-ids check, shellcheck, markdownlint. The comparison tool builds.
 	- Branch: `setstat`, C on `ssc`
 	- Commit: `c251f741`, C `4aea318a`
@@ -5052,7 +5152,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: cli-regress over all four CLIs (strict), crosscheck over the corpus and a fuzz dump (`instances --paths` on every `instances` row), sanitize-c, check-completions, check-readme, shell-regress.
 	- Branch: `listjson`
 	- Commit: `250115f3`
-	- Test case: cli-regress `EsEvmKv` (instances-paths), `EsEvmKx` (slot miss), `EsEvmKz` (2 instances with one value), `EsEvmLB` and `EsEvmLD` (refusals); crosscheck `instances --paths` on every corpus `instances` row.
+	- Test case: cli-regress `ddqhm` (instances-paths), `ddqhp` (slot miss), `ddqhr` (2 instances with one value), `ddqj4` and `ddqj6` (refusals); crosscheck `instances --paths` on every corpus `instances` row.
 	- Acceptance signoff: JC 20261009.
 	- Closed: 20261009-162016
 
@@ -5073,7 +5173,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: both tests fail with the fix taken back out (a returned message, and `Document()` with no arena) and pass with it. The Python runner, ruff and mypy pass.
 	- Branch: `wrstat`
 	- Commit: `6e0210c2`
-	- Test case: Python `write_file_atomic_raises` (`EsEhCG7`) and `document_constructor_is_empty` (`EsEhCG8`).
+	- Test case: Python `write_file_atomic_raises` (`ddqg1`) and `document_constructor_is_empty` (`ddqg2`).
 	- Acceptance signoff: Self-closed: the item's intent was clear, and its tests fail without the fix and pass with it.
 	- Closed: 20261009-133641
 
@@ -5124,10 +5224,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The plain calls now return the twin's value, so each binding has one implementation of each.
 	- Actual fix [Bug]: the three twins in all four and the C++ interface. Corpus rows for `count`, `instances` and `children` now check the twin's status when their status column is not `-`. 25 rows that said `Good` for a count of 0 had never been checked; they now say `NotFound`. New rows in cases `081` and `203` pin `BadPath`, `NotFound`, the empty section and the wildcard cases. spec.md, the conformance README and the changelog say so.
 	- Swept: `count`, `instances` and `children` in Rust, Go, Python, C and `shcl.hpp`. The four CLIs already refuse a bad PATH before the load, so they did not change. The other path calls with no status are in the question above.
-	- Verified: the new test and the corpus rows fail with `BadPath` swapped for `NotFound` in each binding, and pass after. `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (489 rows, 2659 checks), crosscheck over the corpus (17901 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, check-readme, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, the C runner built by gcc at every `-O` level and run from gcc `-O2`, clang, and ASan and UBSan, exhaustive cppcheck, shell-regress, markdownlint.
+	- Verified: the new test and the corpus rows fail with `BadPath` swapped for `NotFound` in each binding, and pass after. `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (489 rows, 2659 checks), crosscheck over the corpus (17901 comparisons), check-docs (only the known `dcbc2` installer red), check-abnf, check-readme, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, the C runner built by gcc at every `-O` level and run from gcc `-O2`, clang, and ASan and UBSan, exhaustive cppcheck, shell-regress, markdownlint.
 	- Branch: `liststat`
 	- Commit: `76bb2bb1`
-	- Test case: `list_reads_say_bad_path` in all four runners (Rust `EsDQqYd`, Go `EsDQqYe`, Python `EsDQqYf`, C `EsDQqYg`), list-read checks in the C++ `veneer_smoke` (`EjtkR0S`), and the corpus rows in `081` and `203`.
+	- Test case: `list_reads_say_bad_path` in all four runners (Rust `ddq60`, Go `ddq61`, Python `ddq62`, C `ddq63`), list-read checks in the C++ `veneer_smoke` (`d9v59`), and the corpus rows in `081` and `203`.
 	- Closed: 20261009-084449
 
 - Retire the bash and PowerShell wrappers
@@ -5148,9 +5248,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261008: Both moved to `project/legacy/` with a readme, and out of the installers (`install.bash` 1.4.0, `install.ps1` 1.2.0), the packages, the drop-ins tarball, the dogfood stage and the lint lists. An update removes an older install's `scripts/` copies, and so does the setup.
 		- 20261008: README, design.md (the old design kept under "Shell wrappers (retired)"), spec, style guide, contributing, the man page and the changelog. The README's Bash and PowerShell examples call `shcl` directly, with the 5.1 encoding line.
 		- 20261008: The wrapper rows left shell-regress and win-runners. The dogfood runner's rows stay.
-		- check-docs `EpHGoa0` goes red once this reaches dev, until the installers are synced to main.
+		- check-docs `dcbc2` goes red once this reaches dev, until the installers are synced to main.
 	- Verified: shell-regress, check-readme, check-docs, `test-ids.py check`, shellcheck, PSScriptAnalyzer on install.ps1 and the dogfood runner, markdownlint, `install.bash --help`.
-	- Test case: shell-regress `EsAArRe` runs install.bash over an older install with the wrappers in `scripts/`, and `EsAArkd` runs install.ps1's `Remove-OldWrapper` the same way. Both fail on the old installers and pass now. check-readme `Es9JhMP` and `Es9JhOf` run the new README examples.
+	- Test case: shell-regress `ddpcx` runs install.bash over an older install with the wrappers in `scripts/`, and `ddpcy` runs install.ps1's `Remove-OldWrapper` the same way. Both fail on the old installers and pass now. check-readme `ddp6d` and `ddp6e` run the new README examples.
 	- Branch: nowrap
 	- Commit: `cee64cc4`
 	- Closed: 20261008-184153
@@ -5159,7 +5259,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100719122101
 	- Type: Enhancement
 	- Status: Done
-	- Needs local test suite run?: the full `--ci` with the next main push, and a demo GIF rerender (shell-regress `EqM7a7s` is red until then).
+	- Needs local test suite run?: the full `--ci` with the next main push, and a demo GIF rerender (shell-regress `dcvej` is red until then).
 	- Needs external testing: a hosted run with the next main push.
 	- Priority: High
 	- Opened: 20261007-191221
@@ -5183,14 +5283,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Question: `fmt` still drops quotes a name doesn't need, so `"host": x` becomes `host: x`. Should a name keep its quotes too? Left as is.
 		- The demo GIF is stale. Its `window:` line now comes out quoted. Not rerendered.
 		- Corpus case 164 is now `164-quoted-data-kept`, since it pins the opposite of its old name.
-		- 2026-10-08: The demo GIF was rendered again and `cicd/demo/expected.txt` refreshed (`helphint`, `4aab0b99`). shell-regress `EqM7a7s` passes.
+		- 2026-10-08: The demo GIF was rendered again and `cicd/demo/expected.txt` refreshed (`helphint`, `4aab0b99`). shell-regress `dcvej` passes.
 		- 20261008: signed off (JC).
 		- 20261008, names (JC): no quotes where a name doesn't need them, but a quoted name changes only when its line is edited or the whole file is made canonical. That is how it already works: `set --write` keeps `"host": x` as written, `fmt` writes `host: x`.
 	- Decisions:
 		- The quote list and the never-drop rule, above (JC, 2026-10-08). Quote kind stays. `set --write` leaves untouched lines alone.
 	- Swept: the quoting, emit and new-element code and `keep_mark` in all four, `migrate`'s respelling and 2.x array text, the H001 hint's element, value-syntax.md, spec.md, design.md, grammar.abnf through `gen-escapes.py`, check-abnf's samples, the corpus README, the changelog, 5 cli-regress rows. Names checked, no change.
-	- Verified: the four conformance suites (203 of 203 each) and the other C tests, cli-regress, crosscheck over the corpus and a fuzz dump, the 2M release fuzz (all 25), check-docs, check-abnf, check-readme, check-migrate, check-c-compilers, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level. shell-regress passes but for `EqM7a7s`.
-	- Test case: `the_writer_quotes_a_colon_or_comma` in all four (`Ervn569`, `Ery85QH`, `EryEqwF`, `EryvVbF`), which fails on the old Rust writer and passes now. Also the corpus goldens, 164 and 202 most of all, and check-abnf's `fmt-bareword` samples.
+	- Verified: the four conformance suites (203 of 203 each) and the other C tests, cli-regress, crosscheck over the corpus and a fuzz dump, the 2M release fuzz (all 25), check-docs, check-abnf, check-readme, check-migrate, check-c-compilers, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level. shell-regress passes but for `dcvej`.
+	- Test case: `the_writer_quotes_a_colon_or_comma` in all four (`ddjy9`, `ddkgc`, `ddkh7`, `ddkpg`), which fails on the old Rust writer and passes now. Also the corpus goldens, 164 and 202 most of all, and check-abnf's `fmt-bareword` samples.
 	- Branch: fmtquote
 	- Commit: `ce9c8a87`
 	- Acceptance signoff: JC 20261008.
@@ -5214,13 +5314,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: the `H001` builders in all four.
 	- Cause: the H001 builder joined every value of the repeated field into the hint.
 	- Fixed: a list in a diagnostic shows its first 3 values, then `...` and a count, in all four: `'item' repeats as a bare leaf - did you mean 'item: [v0, v1, v2, ...]'? (and 399997 more)`. 3 or fewer show as before. stderr for the 400,000-line file is 301 bytes, the same bytes in all four. design.md and the changelog say so.
-	- Swept: the H001 builder in all four. Every other message builder in the four libraries and CLIs that joins a list: only `V004` on an array read as a string, which printed the whole array, now cut the same way. `init`'s `one of:` annotation and `desc` join write file text, not messages. `H002`, `H005`, `V004` to `V006`, the "did you mean" suggestions and every name quote one value or name from their own line, so they were left alone. The corpus `expected-diags` files hold codes only. cli-regress `EqTPxzc` and `ErqYSbQ` pin 2-value hints and still pass.
+	- Swept: the H001 builder in all four. Every other message builder in the four libraries and CLIs that joins a list: only `V004` on an array read as a string, which printed the whole array, now cut the same way. `init`'s `one of:` annotation and `desc` join write file text, not messages. `H002`, `H005`, `V004` to `V006`, the "did you mean" suggestions and every name quote one value or name from their own line, so they were left alone. The corpus `expected-diags` files hold codes only. cli-regress `dcx6q` and `ddhp9` pin 2-value hints and still pass.
 	- Progress log:
 		- 2026-10-08: The hint wording and the cut at 3 are for signoff.
 		- Question: one value can still be as long as its own line, and `V004` on a raw block puts the whole block on one stderr line. Should a single value be cut short too, say past 200 characters?
 		- 20261008: signed off (JC).
 	- Verified: cli-regress, shell-regress, crosscheck over the corpus, the four conformance suites and the other unit tests, check-docs, check-abnf, clippy for both targets, go vet, staticcheck, ruff, mypy, markdownlint.
-	- Test case: cli-regress `Es9aIMN` (`diag-list-cap`): a field repeated on 20,000 lines, 3 and 4 repeats, and `V004` on 3- and 5-element arrays, exact text in all four and stderr under 1,000 bytes. It failed in all four before the fix and passes now.
+	- Test case: cli-regress `ddp8d` (`diag-list-cap`): a field repeated on 20,000 lines, 3 and 4 repeats, and `V004` on 3- and 5-element arrays, exact text in all four and stderr under 1,000 bytes. It failed in all four before the fix and passes now.
 	- Branch: helphint
 	- Commit: `86825250`
 	- Acceptance signoff: JC 20261008.
@@ -5247,7 +5347,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the three are gone from `shcl.h`, and the `_or` calls hold the code. The README's C and Zig examples, the C runner, spec.md, the style guide, check-veneer's list and the changelog's upgrade notes moved with them. The C++ interface never called them.
 	- Swept: every public `shcl_get_*` in `shcl.h`, now `_or` only (int, float, bool, duration, size). A repo-wide grep for the three names, CLIs, scripts and docs included, found only the README, the C runner and check-veneer, all changed.
 	- Verified: the four conformance suites (203 cases each), the full Rust suite at 20k fuzz, both Go modules, the other C tests and the C++ smoke, cli-regress (489 rows), crosscheck over the corpus, check-veneer, check-readme with its C and Zig examples, check-docs, check-abnf, test-ids, shellcheck, markdownlint, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
-	- Test case: check-veneer `Es9li9x` (`c-get-calls-take-the-or-name`): every public `shcl_get_*` in `shcl.h` ends in `_or`. It fails on dev's header, naming the three, and passes now.
+	- Test case: check-veneer `ddp9s` (`c-get-calls-take-the-or-name`): every public `shcl_get_*` in `shcl.h` ends in `_or`. It fails on dev's header, naming the three, and passes now.
 	- Branch: apitidy
 	- Commit: `daa1d9fe`
 	- Acceptance signoff: JC 20261008.
@@ -5283,7 +5383,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: one gate per binding (`strict_gate`, `strictGate`, `_strict_gate`) that every entry point taking a strictness returns through. spec.md, design.md, the C and C++ comments, the Rust and Python READMEs and the changelog's upgrade notes say so. The "Strict never throws here" lines in the Rust, Go and Python one-shot tests are commented out with the reason, and those tests now expect the failure. C's gained a `shcl_strict_failed` check.
 	- Swept: the six entry points in all four and the C++ interface, listed above. Every caller in the repo: the bindings' tests, `mem_test.go` and the Go package doc. No CLI, script, wrapper or the comparison tool calls them. `parse` and `load_file` are Standard only and never fail.
 	- Verified: the four conformance suites (203 cases each), the full Rust suite at 20k fuzz, both Go modules, the other C tests and the C++ smoke, cli-regress (489 rows), crosscheck over the corpus, check-veneer, check-readme with its C and Zig examples, check-docs, check-abnf, test-ids, shellcheck, markdownlint, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
-	- Test case: `strict_fails_the_same_from_every_entry_point` in Rust `Es9mP2o`, Go `Es9mP4v`, Python `Es9mP70` and C `Es9mP97`, and checks in the C++ smoke `EjtkR0S`. Python fails on dev's library and passes now. Rust and Go don't build against dev, since the old signatures can't express the failure. C and C++ pass on dev too, since C was already consistent; both fail when the one-shot ignores its strictness.
+	- Test case: `strict_fails_the_same_from_every_entry_point` in Rust `ddp9w`, Go `ddp9x`, Python `ddp9y` and C `ddp9z`, and checks in the C++ smoke `d9v59`. Python fails on dev's library and passes now. Rust and Go don't build against dev, since the old signatures can't express the failure. C and C++ pass on dev too, since C was already consistent; both fail when the one-shot ignores its strictness.
 	- Branch: apitidy
 	- Commit: `daa1d9fe`
 	- Acceptance signoff: JC 20261008.
@@ -5310,7 +5410,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Fixed: all four take a paragraph only when its first line starts with the command's name.
 	- Swept: `help_for` in all four CLIs. C's `print_block` also cuts the Types block, which already starts a paragraph, so its output is unchanged. `help CMD` for every command is byte-identical across the four.
 	- Verified: cli-regress, shell-regress, crosscheck over the corpus, the four conformance suites and the other unit tests, check-docs, check-abnf, clippy for both targets, go vet, staticcheck, ruff, mypy.
-	- Test case: cli-regress `Es9aIKE` (`help-own-paragraphs`): for every command, in all four, no line of `help CMD` comes from a paragraph that opens with another command, and the command's own paragraph is there whole. It failed on `help fmt` in all four before the fix and passes now.
+	- Test case: cli-regress `ddp8c` (`help-own-paragraphs`): for every command, in all four, no line of `help CMD` comes from a paragraph that opens with another command, and the command's own paragraph is there whole. It failed on `help fmt` in all four before the fix and passes now.
 	- Acceptance signoff: Self-closed: the change does what the item asked, and its test failed before and passes after.
 	- Branch: helphint
 	- Commit: `288ce795`
@@ -5334,12 +5434,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every read-back check in C and Python: value, raw info and body, name, selector value, comment, `set_literal`.
 	- Actual cause [Bug]: C's read-back checks had no UTF-8 test, and Python's `_encodable` let a lone surrogate through on purpose, leaving the save to fail on it.
 	- Actual fix [Bug]: C's `value_reads_back` (value, raw info line and raw body), `name_reads_back` and `comment_line` refuse text that is not valid UTF-8, through `shcl_utf8_valid`, moved out of the file-tier block so a `SHCL_NO_FILE_IO` build keeps it. Python's `_value_reads_back`, `_name_reads_back` and `_comment_line` refuse a lone surrogate, and check a raw body too. The setter returns false, writes nothing, and the path still checks Ok. The refused-values lists in C, Python, `shcl.hpp`, README "What saving does", spec.md and the changelog say so.
-	- Note: 20260918b item 20 decided a lone surrogate is one more character to the parse and every lookup, and the save is where it fails. That stands for parsed text; only the setters changed. Python test `EoM2uEl` put its surrogate in through `set_string`; that line is commented out with the reason, and the test now gets it from a parse.
+	- Note: 20260918b item 20 decided a lone surrogate is one more character to the parse and every lookup, and the save is where it fails. That stands for parsed text; only the setters changed. Python test `dbxkr` put its surrogate in through `set_string`; that line is commented out with the reason, and the test now gets it from a parse.
 	- Swept: each check on the Sweep line, in both. The value check also covers a selector value a setter creates (`w_place`, `_place`), `set_literal` and every default form, and the name check a field a setter creates. Python's `_encodable` callers are these three functions only. The four CLIs already refuse such text in an argument or on stdin at exit 1, before the library sees it, so they need no change.
-	- Verified: the new tests fail on the old checks (C 38 failures, Python on its first case) and pass after. `cargo test` (fuzz 200000), Go library and cmd tests, the Python and C runners (203 cases each), C `oom_hook`, `oom_recover`, `mem_bounds`, the C++ `veneer_smoke`, a `SHCL_NO_FILE_IO` build, gcc 15 and clang builds of the C runner, cli-regress (489 rows, 2587 checks), crosscheck over the corpus and a fuzz dump (41841 comparisons), check-docs, check-readme, check-abnf, check-veneer, check-completions, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, markdownlint, shellcheck. shell-regress fails only `EqM7a7s` (the stale demo GIF), which fails the same on dev.
+	- Verified: the new tests fail on the old checks (C 38 failures, Python on its first case) and pass after. `cargo test` (fuzz 200000), Go library and cmd tests, the Python and C runners (203 cases each), C `oom_hook`, `oom_recover`, `mem_bounds`, the C++ `veneer_smoke`, a `SHCL_NO_FILE_IO` build, gcc 15 and clang builds of the C runner, cli-regress (489 rows, 2587 checks), crosscheck over the corpus and a fuzz dump (41841 comparisons), check-docs, check-readme, check-abnf, check-veneer, check-completions, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, markdownlint, shellcheck. shell-regress fails only `dcvej` (the stale demo GIF), which fails the same on dev.
 	- Branch: `setmulti`
 	- Commit: `3f8e9dfb`
-	- Test case: `setters_refuse_text_that_is_not_utf8`, Python `Es9aZSJ` and C `Es9aZSK`: strings, string arrays, comments, raw bodies and info strings, `set_literal`, the default forms, a quoted field name and a selector value a setter would create, each refused with nothing written and the path at Ok. C covers a bad byte, a cut sequence, an encoded surrogate and an overlong form. One case in the C++ `veneer_smoke` (`EjtkR0S`).
+	- Test case: `setters_refuse_text_that_is_not_utf8`, Python `ddp8j` and C `ddp8k`: strings, string arrays, comments, raw bodies and info strings, `set_literal`, the default forms, a quoted field name and a selector value a setter would create, each refused with nothing written and the path at Ok. C covers a bad byte, a cut sequence, an encoded surrogate and an overlong form. One case in the C++ `veneer_smoke` (`d9v59`).
 	- Acceptance signoff: Self-closed 20261008: the expected behavior on the item, matching Go; the tests fail before and pass after.
 	- Closed: 20261008-164310
 
@@ -5360,9 +5460,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A `(value)` selector that matches two instances is refused too, by "any step". The load and a merge fold equal instances, so it is not reached today.
 			- A default form on a repeated path returns false, since on a path that exists it reports the path check's answer.
 			- `set_comment` refuses the same way, through the same walk.
-			- `remove` and `clear_comments` act on every node the path reaches, as a read sees them, and return the count. That is documented ("the node(s) at a path") and is not this defect, since nothing is picked for the caller. Left alone; `remove` is pinned by the new tests and cli-regress `Es9cyaF`.
+			- `remove` and `clear_comments` act on every node the path reaches, as a read sees them, and return the count. That is documented ("the node(s) at a path") and is not this defect, since nothing is picked for the caller. Left alone; `remove` is pinned by the new tests and cli-regress `ddp8t`.
 			- design.md's 907 rule, "Two valid lines of one name stay as they are", still holds: the setter is refused, so both stay, and design.md now says so. The kept-gate test row that pinned the first-instance write (`a: 1`, `a: 2` set to `a: 5`, `a: 2`) is commented out in all four with the reason, and a check that the setter refuses and the keep save is unchanged sits beside it.
-			- 5 corpus ops lines wrote a repeated path. They name the instance now (`list(0)`, `b(0)`, `"404"(0)`) in 015, 062, 143, 169 and 194, with the goldens unchanged. `ErsETML`'s two `b` rows set `b(0)` in all four for the same reason.
+			- 5 corpus ops lines wrote a repeated path. They name the instance now (`list(0)`, `b(0)`, `"404"(0)`) in 015, 062, 143, 169 and 194, with the goldens unchanged. `ddj2w`'s two `b` rows set `b(0)` in all four for the same reason.
 			- The CLI message is "cannot write PATH: the path matches multiple instances; name(0) picks one". The `--set` help says "edit one path, after all files; repeatable. A path matching several fields is refused; name(0) picks one", where it said "override one path as the top layer".
 	- Reproduced: 20261007, Rust and Go, and the Rust CLI.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
@@ -5371,7 +5471,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the runner tests fail in all four with only the path check's new branch taken out, and pass with it. The 5 refusal rows in cli-regress fail on dev's four CLIs (20 checks) and pass after. The gates listed on 2026100815543610, run on the same tree.
 	- Branch: `setmulti`
 	- Commit: `a4d2d6b0`
-	- Test case: `repeated_path_refuses_a_setter` in all four runners (Rust `Es9aZSF`, Go `Es9aZSG`, Python `Es9aZSH`, C `Es9aZSI`): each setter kind on a repeated leaf, a child of a repeated block, a new child under it and a repeated child, refused with nothing written and the path at `Multiple`; an index or value selector writes the one it names; a remove takes both. Two checks in the C++ `veneer_smoke` (`EjtkR0S`). cli-regress `Es9aZSL` to `Es9aZSP` (`--set`, a repeated parent, `get --set`, `--set-literal-default`, an ops line), `Es9aZSQ` (an index picks one) and `Es9cyaF` (a remove takes every instance).
+	- Test case: `repeated_path_refuses_a_setter` in all four runners (Rust `ddp8e`, Go `ddp8f`, Python `ddp8g`, C `ddp8h`): each setter kind on a repeated leaf, a child of a repeated block, a new child under it and a repeated child, refused with nothing written and the path at `Multiple`; an index or value selector writes the one it names; a remove takes both. Two checks in the C++ `veneer_smoke` (`d9v59`). cli-regress `ddp8m` to `ddp8r` (`--set`, a repeated parent, `get --set`, `--set-literal-default`, an ops line), `ddp8s` (an index picks one) and `ddp8t` (a remove takes every instance).
 	- Acceptance signoff: Self-closed 20261008: built as the call on the item; tests fail before and pass after in all four. The calls above are listed for review.
 	- Closed: 20261008-164310
 
@@ -5397,7 +5497,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the new test passes in all four, and fails in all four with `set_float` taking NaN. `cargo test`, the four conformance suites, Go cmd tests, the C++ veneer smoke, cli-regress (482 rows), crosscheck (17862 comparisons), check-docs, check-readme, check-veneer, check-abnf, check-completions, shell-regress, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, gcc 15 and clang builds of the C runner, markdownlint.
 	- Branch: `setcheck`
 	- Commit: `0dbfcdf6`
-	- Test case: `refused_values_pass_the_path_check` in all four runners (Rust `Es9S4kJ`, Go `Es9S4kK`, Python `Es9S4kL`, C `Es9S4kM`): each listed refusal returns false, writes nothing, and the path checks Ok. Go adds its UTF-8 cases and Python its 64-bit ones. Two of them in the C++ `veneer_smoke` (`EjtkR0S`).
+	- Test case: `refused_values_pass_the_path_check` in all four runners (Rust `ddp7b`, Go `ddp7c`, Python `ddp7d`, C `ddp7e`): each listed refusal returns false, writes nothing, and the path checks Ok. Go adds its UTF-8 cases and Python its 64-bit ones. Two of them in the C++ `veneer_smoke` (`d9v59`).
 	- Acceptance signoff: Self-closed 20261008: docs only, and the test checks the list.
 	- Closed: 20261008-155436
 
@@ -5442,7 +5542,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified (rename): the gates listed on 2026100717500009, run on the same commit.
 	- Branch: `badpath`, `badread`, `setcheck`
 	- Commit: `abe9c719`, `1e56f1d0`, `0dbfcdf6`
-	- Test case: `check_set_path_names_the_failure` (`ElouJ8K` to `ElouJ8N`, renamed in place) holds the new names. `bad_path_reads_say_bad_path` in all four runners (Rust `Es9JVrX`, Go `Es9JVrY`, Python `Es9JVrZ`, C `Es9JVra`), plus BadPath checks in the C++ `veneer_smoke` (`EjtkR0S`), and the 23 corpus rows. CLI half: cli-regress `Es8PcNw` to `Es8PcO5` (each refusal, the `--default` cases included), plus `Es8PcO6` (`children` with an empty path lists the top level) and `Es8PcO7` (a missing path still gives the default). `ErxfmqP`, `ErxfmqU` and `ErrQs1q` expected exit 3 and are commented out, replaced by `Es8PcNw`, `Es8PcNz` and `Es8PcO0`.
+	- Test case: `check_set_path_names_the_failure` (`daqta` to `daqtd`, renamed in place) holds the new names. `bad_path_reads_say_bad_path` in all four runners (Rust `ddp69`, Go `ddp6a`, Python `ddp6b`, C `ddp6c`), plus BadPath checks in the C++ `veneer_smoke` (`d9v59`), and the 23 corpus rows. CLI half: cli-regress `ddnzc` to `ddnzn` (each refusal, the `--default` cases included), plus `ddnzp` (`children` with an empty path lists the top level) and `ddnzq` (a missing path still gives the default). `ddkd6`, `ddkd7` and `ddhxc` expected exit 3 and are commented out, replaced by `ddnzc`, `ddnzf` and `ddnzg`.
 	- Acceptance signoff: Signed off 20261009 (JC).
 	- Closed: 20261008-152746
 
@@ -5464,11 +5564,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause [Bug]: the blocks predate the bracket arrays and paren selectors, and `check-readme.bash` ran only the language examples and the console transcripts.
 	- Actual fix [Bug]: both `--set-literal` lines write `[a.example.com, b.example.com]`, the PowerShell op removes `site(old.example.com)`, and the prose after the bash block shows `hosts=[a, b]`. `check-readme.bash` now runs the `### Bash` and `### PowerShell` blocks and the `## Using the CLI` sh block against the built CLI. Each section runs top to bottom on the README's server.shcl, every command has to succeed, and the file left behind has to load clean. A `# N` comment on an assignment is checked against the value. PowerShell runs one statement at a time and fails on a nonzero exit. With no pwsh it's a noted skip, and a failure under the strict gate. The prose's `hosts=[a, b]` goes through both options: one string from `--set`, 2 elements from `--set-literal`.
 	- Swept: README's shell, PowerShell, console, text and shcl blocks and its prose. Only the 3 sites above, plus the 2.x paragraph (2026100717500008). The man page's shell blocks and its `--set` and `--set-literal` text already use parens and brackets. Its `name:[disc]`, `base[Boston]` and `[\-default]` hits describe the old forms or option syntax. Left alone: the `shcl.ps1` header's `--set-literal=ports=80,443`, which is about PowerShell splitting at a comma and still runs at exit 0.
-	- Verified: on the old README, `Es9JhMP` fails on the bash block. With only that fixed, `Es9JhOf` fails on the PowerShell `--set-literal`, then on the op. With both fixed, `Es9JhQu` fails on the old prose. All pass after. Also red on a wrong byte count in the bash comment. With pwsh off PATH the test skips and is noted in SHCL_GATE_SKIPS, and fails under SHCL_GATE_STRICT. check-docs, shell-regress (its skip-rule scans included), test-ids check, shellcheck and markdownlint pass.
+	- Verified: on the old README, `ddp6d` fails on the bash block. With only that fixed, `ddp6e` fails on the PowerShell `--set-literal`, then on the op. With both fixed, `ddp6f` fails on the old prose. All pass after. Also red on a wrong byte count in the bash comment. With pwsh off PATH the test skips and is noted in SHCL_GATE_SKIPS, and fails under SHCL_GATE_STRICT. check-docs, shell-regress (its skip-rule scans included), test-ids check, shellcheck and markdownlint pass.
 	- Note: the hosted ci job runs the PowerShell blocks for the first time with the next main push.
 	- Branch: `readmesh`
 	- Commit: `98a4b7d4`
-	- Test case: check-readme `Es9JhMP` (shell blocks), `Es9JhOf` (PowerShell blocks), `Es9JhQu` (the `--set` prose).
+	- Test case: check-readme `ddp6d` (shell blocks), `ddp6e` (PowerShell blocks), `ddp6f` (the `--set` prose).
 	- Acceptance signoff: Self-closed: the blocks follow value-syntax.md, and the tests fail before and pass after. The one prose change is the example.
 	- Closed: 20261008-153500
 
@@ -5486,10 +5586,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `1991e313` (2026-09-27), stale since `vsmig`. Not seen by an earlier round. Confirmed.
 	- Actual cause [Bug]: `vsmig` changed what `migrate` rewrites, and the README paragraphs weren't updated with spec.md and the man page.
 	- Actual fix [Bug]: the list of rewrites is now the man page's: a comma list, a `*` item, a selector in brackets, a quote that never closed, and `name:[disc]`. The exit 7 example is `p: a,b`, an array then and one string now. A new sentence says backslashes are a quiet change that `migrate` leaves as written, so `path: "C:\temp\new"` comes through as it was. The raw label sentence stays, as "another" quiet case.
-	- Verified: `migrate` without `--from-2x` on each case in the list rewrites it at exit 0, but `p: a,b`, which it leaves at exit 7. `Es9KiYw` fails on the old paragraph and on a non-comma value in its place, and passes after.
+	- Verified: `migrate` without `--from-2x` on each case in the list rewrites it at exit 0, but `p: a,b`, which it leaves at exit 7. `ddp6g` fails on the old paragraph and on a non-comma value in its place, and passes after.
 	- Branch: `readmesh`
 	- Commit: `98a4b7d4`
-	- Test case: check-readme `Es9KiYw` (runs the paragraph's comma value and backslash value through `migrate`).
+	- Test case: check-readme `ddp6g` (runs the paragraph's comma value and backslash value through `migrate`).
 	- Acceptance signoff: Self-closed: the text follows spec.md and the man page, and the test fails before and passes after. The backslash sentence is new README wording.
 	- Closed: 20261008-153500
 
@@ -5512,10 +5612,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the note prints only when stdin is a terminal. Rust uses `IsTerminal`. Go asks for the terminal settings on Linux, macOS and the BSDs and the console mode on Windows, with a character-device guess anywhere else. Python uses `isatty`, plus the console mode on Windows. C uses `isatty`, or the console mode on Windows. The man page says so, and the changelog.
 	- Note: cli-regress's `@appear` and `@change` rows waited for the note to know the command was reading its ops. They now first write more script comments than a pipe holds, a write that returns only once the command is reading. The row loop no longer drops the note from stderr.
 	- Swept: `set` is the one subcommand with a waiting note, in all four CLIs.
-	- Verified: `Es8bB5G` fails on dev's four CLIs and passes after. `Es8bB5H` passes before and after, as it should, and its harness reads nothing from a command that prints nothing. `EpyBxDM` and `EqLeNlw` pass with the new wait. The mingw C CLI and windows Go CLI print no note on a pipe under wine.
+	- Verified: `ddp1k` fails on dev's four CLIs and passes after. `ddp1m` passes before and after, as it should, and its harness reads nothing from a command that prints nothing. `dcnpd` and `dcvb4` pass with the new wait. The mingw C CLI and windows Go CLI print no note on a pipe under wine.
 	- Branch: `opsesc`
 	- Commit: `273cc07e`
-	- Test case: cli-regress `Es8bB5G` (no note with stdin from /dev/null or a pipe) and `Es8bB5H` (the note at a terminal, through a pseudo-terminal; skipped on Windows or without python3). `EqzuLW2` pinned the note on /dev/null and is commented out.
+	- Test case: cli-regress `ddp1k` (no note with stdin from /dev/null or a pipe) and `ddp1m` (the note at a terminal, through a pseudo-terminal; skipped on Windows or without python3). `dd52a` pinned the note on /dev/null and is commented out.
 	- Acceptance signoff: JC 20261008, OK as long as it doesn't open up churn.
 	- Closed: 20261008-144500
 
@@ -5543,7 +5643,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 9 new rows fail on dev's four CLIs and pass after. Corpus cases 016, 058, 112, 131, 150, 171, 192 and 193 fail under dev's C runner and pass after. cli-regress (471 rows), crosscheck (41841 comparisons over the corpus and a 2000-iteration fuzz dump), the four conformance suites, `cargo test`, Go tests, shell-regress, check-docs, check-abnf, check-readme, check-completions, check-veneer, check-c-compilers, cppcheck at the normal level, clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, test-ids check. The mingw C CLI and windows Go CLI applied an escaped op under wine.
 	- Branch: `opsesc`
 	- Commit: `ce5fb45f`
-	- Test case: cli-regress `Es8bB4z` to `Es8bB57` (backslash text, names, raw line break, array, comment, default, both quote kinds, unknown name) and `Es8bB55` (a raw body's CR before a line break), plus the corpus write ops above. `ErpZsUg` and `EqBBQ57` pinned the old decode and are commented out, replaced by `Es8bB4z` and `Es8bB55`.
+	- Test case: cli-regress `ddp12` to `ddp1a` (backslash text, names, raw line break, array, comment, default, both quote kinds, unknown name) and `ddp18` (a raw body's CR before a line break), plus the corpus write ops above. `ddhev` and `dcrth` pinned the old decode and are commented out, replaced by `ddp12` and `ddp18`.
 	- Acceptance signoff: Self-closed: the answer on the item, tests fail before and pass after. The help, man page and README wording is new.
 	- Closed: 20261008-123238
 
@@ -5570,10 +5670,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261008: for signoff. Three calls the item did not spell out: `set` prints nothing at 7 where `migrate` prints its text at 7, as it already did for its other refusals; `set --layer` refuses too, on any layer's lost line, with no note about kept lines; the canonical note on stderr is new for the print.
 	- Swept: `set` and `migrate` without `--write` (fixed). `upgrade` without `--write` runs the same `upgrade()` its `--write` does and gives the same exit; it writes past lost lines by design, since the backup keeps them, so nothing to fix. `fmt` to stdout left alone, per the item. `get`, `count`, `instances`, `children`, `paths`, `check`, `init`, `tokens` and `explain` produce no file text.
-	- Verified: cli-regress rows `Es8aXnv` to `Es8aXo4` fail on dev's four CLIs (36 checks) and pass after; the two guard rows pass both ways. cli-regress (473 rows), stderr and exit compared byte for byte across the four on 10 cases, help and `help set|migrate|fmt` byte-identical at 80 columns, man page rendered. Crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-completions, shell-regress, clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck, PSScriptAnalyzer, shellcheck, test-ids check, markdownlint.
+	- Verified: cli-regress rows `ddp0q` to `ddp10` fail on dev's four CLIs (36 checks) and pass after; the two guard rows pass both ways. cli-regress (473 rows), stderr and exit compared byte for byte across the four on 10 cases, help and `help set|migrate|fmt` byte-identical at 80 columns, man page rendered. Crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-completions, shell-regress, clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck, PSScriptAnalyzer, shellcheck, test-ids check, markdownlint.
 	- Branch: `setgate`
 	- Commit: `e3d6208b`
-	- Test case: cli-regress `Es8aXnv` (the review's repro), `Es8aXnw`, `Es8aXnx`, `Es8aXnz`, `Es8aXo0`, `Es8aXo1` (`set` printing), `Es8aXo2`, `Es8aXo3`, `Es8aXo4` (`migrate` printing and `--check --lossy`), plus guards `Es8aXny` (kept lines still print at 0) and `Es8aXo5` (`fmt --lossy` without `--write` still 1).
+	- Test case: cli-regress `ddp0q` (the review's repro), `ddp0r`, `ddp0s`, `ddp0v`, `ddp0w`, `ddp0x` (`set` printing), `ddp0y`, `ddp0z`, `ddp10` (`migrate` printing and `--check --lossy`), plus guards `ddp0t` (kept lines still print at 0) and `ddp11` (`fmt --lossy` without `--write` still 1).
 	- Acceptance signoff: Self-closed 20261008: tests fail before and pass after in all four, and the calls follow the item's expected behavior. They are listed above for review.
 	- Closed: 20261008-123947
 
@@ -5598,7 +5698,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 8 new rows fail on dev's four CLIs and pass after, and the gates on 2026100717500002 cover this too.
 	- Branch: `opsesc`
 	- Commit: `ce5fb45f`
-	- Test case: cli-regress `Es8bB58` to `Es8bB5F`, including a backslash pair printed as text beside a real line break, and a lone CR. `EqT42DB`, `EqnwIkU`, `EqnwIkV`, `EqnwIkW`, `EqoRWES` and `EqoRWET` pinned the `\n` form and are commented out, replaced by `Es8bB58` to `Es8bB5D`.
+	- Test case: cli-regress `ddp1b` to `ddp1j`, including a backslash pair printed as text beside a real line break, and a lone CR. `dcx42`, `dd24r`, `dd24s`, `dd24t`, `dd28j` and `dd28k` pinned the `\n` form and are commented out, replaced by `ddp1b` to `ddp1g`.
 	- Acceptance signoff: Self-closed: the item named the form, tests fail before and pass after.
 	- Closed: 20261008-123238
 
@@ -5625,7 +5725,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: one helper per binding, `schema_load_fault`, used by `validate`, `load_and_validate` and `generate`. A schema with an error diagnostic of its own gets a lone `V099` and nothing is checked. A `V` code on the schema is not a load error: a document from `load_and_validate` holds some, and C's `generate` records its faults on the schema. Doc comments in all four and the C++ interface now say so, and so do spec.md, design.md, README and the changelog.
 	- Branch: `valschema`
 	- Commit: `47f885ee`
-	- Test case: `validate_and_generate_report_a_broken_schema` in every runner, `Es8Oq5B` (Rust), `Es8Oq5C` (Go), `Es8Oq5D` (Python), `Es8Oq5E` (C), plus checks in the C++ smoke `EjtkR0S`. Each runner's schema dimension now takes `V099` from `validate` itself and checks `load_and_validate` gives the same list on every corpus case, so corpus `024-schema-noload` pins it in all four.
+	- Test case: `validate_and_generate_report_a_broken_schema` in every runner, `ddnz8` (Rust), `ddnz9` (Go), `ddnza` (Python), `ddnzb` (C), plus checks in the C++ smoke `d9v59`. Each runner's schema dimension now takes `V099` from `validate` itself and checks `load_and_validate` gives the same list on every corpus case, so corpus `024-schema-noload` pins it in all four.
 	- Acceptance signoff: Self-closed 20261008: tested both ways in all four. The README sentence and the `generate` call can still be judged at review. Exhaustive cppcheck goes with the next main push; the normal level passed.
 	- Verified: the steps above, run again 20261008 in Python, gave nothing from `validate` and `V099` from `load_and_validate`. Each runner fails with the check taken out of `validate` (024 gave `V001`, the fixture got nothing) and passes with it. The `generate` check and the `V` code filter each fail alone too, in Python and C, and the filter in Rust. Full Rust suite at 20k fuzz, both Go modules, the Python and C runners, the C++ smoke, `oom_hook`, `oom_recover`, `mem_bounds`, the C runner and C++ smoke under ASan and UBSan, cli-regress (453 rows), crosscheck over the corpus, check-docs, check-readme, check-abnf, markdownlint, test-ids, shell-regress, clippy for the host and windows-gnu, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
 	- Swept: `validate`, `load_and_validate` and `generate` in Rust, Go, Python, C, and their C++ wrappers. `check --schema` and `init` already refuse in all four CLIs, left as they are. Docs: README, spec.md, design.md, changelog. The Rust and Python READMEs, the man page and `check-veneer.bash` show no parse-then-validate on a broken schema.
@@ -5645,12 +5745,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Read `p.s.c`, then save, reload and read it again.
 	- Incorrect behavior: the merge adds the list, with its field, as a new instance after the empty `s`. A reload joins the two, so the merged document and its reload differ. Any kept line or comment in the gap does it.
 	- Expected behavior: the merged document is the one its saved text loads back to.
-	- Reproduced: 20261005, on `valsyn` before `vsnarrow`, in Rust. Release fuzz `Eqk24nZ` at iteration 1814886 after `vsnarrow`.
-	- Note: likely the same join the `vsfuzz` fix gave a setter (`ErsETML`), missing on the merge path. Rust only for now; the other ports have no list join yet.
+	- Reproduced: 20261005, on `valsyn` before `vsnarrow`, in Rust. Release fuzz `dd16k` at iteration 1814886 after `vsnarrow`.
+	- Note: likely the same join the `vsfuzz` fix gave a setter (`ddj2w`), missing on the merge path. Rust only for now; the other ports have no list join yet.
 	- Estimated effort: Avg
 	- Cause: the merge's settle looked for the join before it moved the lines after each child down to the next one. A comment or kept line still sitting after the empty binding made it refuse the join, and only then did the line move above the list. The setter's twin never sees such a line, since a load has already moved it. A remove had no join at all: one taking the last field of an empty binding left a list of its name after it unjoined, and one taking a list's last field left it stacked there, which a reload joins and drops.
 	- Fix: the settle tries the join again once the lines have moved. A remove that leaves a block with no fields settles its name the way a setter does, so the list joins the binding, or goes in brackets when the binding still has fields.
-	- Test case: `Ert70BF` (merge, with a comment, a kept line and a sibling in the gap), `Ert70DM` (both remove cases), and corpus 201 (`Ert9PEK`). All 3 failed on the code before and pass now.
+	- Test case: `ddj9k` (merge, with a comment, a kept line and a sibling in the gap), `ddj9m` (both remove cases), and corpus 201 (`ddj9x`). All 3 failed on the code before and pass now.
 	- Swept: the setter's twin (`set_empty` past a comment or kept line, at and below the binding's level, already matched a reload), the writer's fold and the new child settle (both go through the same settle), and remove (fixed here). `clear_comments` and `set_comment` cannot leave a line after a binding that is not its last child.
 	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust. The 2,000,000 release fuzz passes all 24, on the old seed set and with corpus 201 added.
 	- Note: the Go, Python and C ports need this with their list join.
@@ -5670,13 +5770,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026100307310000, 2026100307163902
 	- Version and build: dev at `e9e4a6cc`
 	- Steps to reproduce:
-		- `SHCL_FUZZ_ITERS=2000000` release fuzz, with the `EreT6dh` excuse for 2026100307163902 widened from `E014` to `E012` so it gets past iteration 558881.
-	- Incorrect behavior: `EreT6dh` fails at iteration 1061439. A canonical save after a merge and a raw set loses kept lines. Dev's code fails the same way, so the banner fix did not cause it.
+		- `SHCL_FUZZ_ITERS=2000000` release fuzz, with the `dderx` excuse for 2026100307163902 widened from `E014` to `E012` so it gets past iteration 558881.
+	- Incorrect behavior: `dderx` fails at iteration 1061439. A canonical save after a merge and a raw set loses kept lines. Dev's code fails the same way, so the banner fix did not cause it.
 	- Expected behavior: every kept line outside the edit's target is in the saved text, or the save refuses.
 	- Reproduced: 20261003, Rust fuzz only, with the widened excuse made locally and not committed. Not cut down to a small file yet, and not checked by hand in the other three bindings.
 	- Note: filed Critical on the release bar, since the property fails only when the save goes through. Lower it if the cut-down case shows the save refused.
-	- Note: 20261003, found while working 2026100307163901. With the known rows excused, the 2,000,000 release fuzz fails `EreT6dh` at iteration 960275 on a merge with no raw set that loses the kept line `b: 4` at exit 0. Dev does the same. Likely a second repro of this item.
-	- Note: 20261003, found while working 2026100307163902. After that fix, the 2,000,000 release fuzz fails `EreT6dh` first at iteration 749492: a merge loses the kept line `srv[x]: [3]`, with no raw block in the input. With merges excused, nothing else fails up to 2,000,000.
+	- Note: 20261003, found while working 2026100307163901. With the known rows excused, the 2,000,000 release fuzz fails `dderx` at iteration 960275 on a merge with no raw set that loses the kept line `b: 4` at exit 0. Dev does the same. Likely a second repro of this item.
+	- Note: 20261003, found while working 2026100307163902. After that fix, the 2,000,000 release fuzz fails `dderx` first at iteration 749492: a merge loses the kept line `srv[x]: [3]`, with no raw block in the input. With merges excused, nothing else fails up to 2,000,000.
 	- Reproduced: 20261004, cut down to `    srv: a` / `  srv[x]: [3]` / `b[x]: [4]` / `q: c` merged with `q: 9`. The load settles `srv[x]: [3]` as a comment, and the merge writes `srv: a` / `b[x]: [4]` / `q: 9` at a lost count of 0, so the save goes through. All four bindings did the same. The 960275 report is the same class: on the seed set from before corpus 191, the old code fails at 959829 losing `b: 4` the same way. The raw set in the title had no part in it.
 	- Actual cause:
 		- A merge that replaces a leaf dropped every comment held on it, settled lines included, and kept only its plain kept lines. Lines above a kept line beside the leaf are held on the leaf too, so a settled line there went with it. By design.md's table only the leaf's own comments go, and a remove already reads those as the ones after its last kept line.
@@ -5684,14 +5784,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Against: the 2026-09-28 decision (a settled line on a replaced leaf goes with the leaf's comments). It still holds. This only says which comments are the leaf's, which the decision did not spell out.
 	- Note: corpus 091's merged golden moved. Its top comment sits above a kept line, so it now stays. A comment of the leaf's own was added to its layer so the case still shows one going.
 	- Swept: the replace path in each binding's merge is the only site that drops a settled line (grep for the kept-owed decrements: remove, the footer dedup and this one). The property was right; 2026100313174977 is not the cause and was left alone.
-	- Verified: the 2,000,000 release fuzz passes with no excuses, all 17 properties, and `EreT6dh` passes on the seed set from before corpus 191. The four conformance suites, cli-regress, crosscheck over the corpus plus a fuzz dump, check-docs, shell-regress, clippy for both targets, rustfmt, go vet, staticcheck, ruff and mypy pass.
+	- Verified: the 2,000,000 release fuzz passes with no excuses, all 17 properties, and `dderx` passes on the seed set from before corpus 191. The four conformance suites, cli-regress, crosscheck over the corpus plus a fuzz dump, check-docs, shell-regress, clippy for both targets, rustfmt, go vet, staticcheck, ruff and mypy pass.
 	- Estimated effort: Avg
 	- Progress log:
 		- 20261004: fixed and tested. Waits on the full `--ci`, then signoff on the comment placement, since a merge now keeps a plain comment it used to drop.
-		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, the full `--ci` included, with the four new tests and `EreT6dh` green. A merge now keeps a plain comment it used to drop, as design.md's table says.
+		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, the full `--ci` included, with the four new tests and `dderx` green. A merge now keeps a plain comment it used to drop, as design.md's table says.
 	- Branch: `mergekept`
 	- Commit: `5d31a47d`
-	- Test case: `ErkSy71` (Rust), `ErkSyFW` (Go), `ErkSyPf` (Python), `ErkSySr` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `EreT6dh` at 2,000,000.
+	- Test case: `ddg72` (Rust), `ddg73` (Go), `ddg74` (Python), `ddg75` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `dderx` at 2,000,000.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
 	- Closed: 20261004-114043
 
@@ -5713,21 +5813,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
 	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
 	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
-	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `EreYYXK` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
+	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `ddesk` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `dderx` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
 	- Estimated effort: Avg
 	- Actual cause [Bug]: a kept line sits in the next field's leading lines, or in a block's trailing ones, and `remove` dropped those lines with the field.
 	- Progress log:
 		- 20261003: fixed in all four, with 2026100307163907. A remove leaves the kept lines beside its target where they were, with the comments above them. A comment written right against the target goes with it. When the target was the last field in its block, its kept lines stay at the end of the block, and a misplaced line among them moves down to just above the next field line, where a reload files it.
-		- 20261003: tests whose expectation moved. cli-regress `EreYYXK` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `EreT6dh` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `Eqk24nZ` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
+		- 20261003: tests whose expectation moved. cli-regress `ddesk` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `dderx` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `dd16k` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
 		- 20261003: left for signoff: which comments go with the target. The fix takes those between the target and the nearest kept line, and keeps the rest.
 		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
 	- Actual fix [Bug]: `remove` puts what stays above the next field, or at the end of the block, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. design.md's "Kept lines under edits" has three new bullets for it. No table cell changed.
 	- Swept: `remove` in all four. The merge's replaced leaf already moves its kept lines onto the replacement. Every setter goes through `set_value` or its twin, which changes the value in place and keeps the node's lines, and `collapse_dup` folds them into the survivor. `clear_comments` already skipped kept lines. No other edit unlinks a node.
-	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
+	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `dderx`, which still fails on the open row of 2026100307163902 first.
 	- Note: 20261003, the 2,000,000 release fuzz, run on past known rows with local excuses only. A merge loses a kept line at exit 0 with dev's library as well, at iteration 960275 (`set_int`, banner on, merge; no raw set). An `E019` line ending in a fence has its body read as fields, the same class as 2026100307163902 and 2026100117214801; dev never reached it, since this item's row excused the step first. Nothing else failed.
 	- Branch: `removekept`
 	- Commit: `46e6176a`
-	- Test case: `ErgToYw` (Rust), `ErgTocq` (Go), `ErgTogT` (Python), `ErgTokB` (C); cli-regress `EreYYXK`; fuzz `EreT6dh`.
+	- Test case: `ddf8c` (Rust), `ddf8e` (Go), `ddf8g` (Python), `ddf8k` (C); cli-regress `ddesk`; fuzz `dderx`.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
 
@@ -5749,23 +5849,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the E014 arm moves on one line without taking the block, and the `line_fault` arm, which takes E023 in a name, does the same. `skip_field_line` does not help as written, since `line_fence` returns nothing on a faulted token list.
 	- Origin: older than the range. The 20260918 and 20260918b rounds declined the E014 fence run on the belief that the closing fence hides the rest of the file at E005, so a save refuses. This repro saves at exit 0, and the 2026-10-02 rule that an error never throws out good lines came after. Item 2026100117214801 is the E023 half of the same class. Confirmed.
 	- Note: a fix wants the whole class from 20260918b: a kept or refused line on which the tokenizer can still see a fence run takes its body. 801 would close with it.
-	- Note: 20261003, found while working 2026100307163904. The 2,000,000 release fuzz fails `EreT6dh` at iteration 558881 on dev too: a misplaced `E012` line opens a raw block and its body is read as fields. The property excuses this only for `E014`, so `E012` is the same class and this fix should cover it.
-	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
-	- Note: 20261003, found while working 2026100307163901. Past the known rows, the 2,000,000 release fuzz fails `EreT6dh` at iteration 1818622 on an `E019` line ending in a fence, with its body read as fields. Same class, so this fix should cover `E019` too.
+	- Note: 20261003, found while working 2026100307163904. The 2,000,000 release fuzz fails `dderx` at iteration 558881 on dev too: a misplaced `E012` line opens a raw block and its body is read as fields. The property excuses this only for `E014`, so `E012` is the same class and this fix should cover it.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `dderx` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
+	- Note: 20261003, found while working 2026100307163901. Past the known rows, the 2,000,000 release fuzz fails `dderx` at iteration 1818622 on an `E019` line ending in a fence, with its body read as fields. Same class, so this fix should cover `E019` too.
 	- Estimated effort: Avg
 	- Actual cause [Bug]: two arms moved on one line after keeping it: the `E014` arm, and the arm for a bad escape in a name. `line_fence` saw no fence on a line that did not tokenize, so the misplaced arms let such a body through too, which is the `E012` case at fuzz iteration 555233. The `E019` report at iteration 1818622 was the property's own guess at the value: `a_:[0]:` followed by a three-backtick fence is bracket text, whose value starts with `[`, so it opens no block.
 	- Progress log:
 		- 20261003: fixed in all four. A kept line whose value is a fence keeps the body and closing fence with it, as one kept line, so the save gate's count holds. A line that does not tokenize opens a block when a fence follows its first colon past where reading stopped, with no `#` before that colon. Canonical output writes the body one level under the line, as for a field's block, and a block that never closed gets its closing fence. A misplaced line that opens a block still takes it and is lost, as the `E012` row says.
 		- 20261003: the property's two oracles read a line's value with the tokenizer now, rather than splitting at the first `: `. That guess made the `E019` report above.
-		- 20261003: the 2,000,000 release fuzz is green but for `EreT6dh` on a merge, which is 2026100316012486. The new corpus case moved the seeds, and it now fails first at iteration 749492, a kept line lost after a merge with no raw block in the input. With merges excused locally, nothing else fails up to 2,000,000.
+		- 20261003: the 2,000,000 release fuzz is green but for `dderx` on a merge, which is 2026100316012486. The new corpus case moved the seeds, and it now fails first at iteration 749492, a kept line lost after a merge with no raw block in the input. With merges excused locally, nothing else fails up to 2,000,000.
 		- 20261003: left for signoff: canonical output moves a kept body one level under its line, and `fmt` adds the closing fence to a kept block that never closed. Both change what `fmt --write` writes.
 		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
 	- Actual fix [Bug]: `line_fence` sees a fence past a fault, and the `E014` and line-fault arms keep the body on the kept line's text (`keep_body`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The emitter writes it one level under the line (`push_kept`). Spec, design.md (Load outcomes, Lexical edges, Kept lines under edits), `explain E014` and `E023` in the four CLIs, and the changelog say so.
 	- Swept: every arm that refuses a line and moves on, in all four. Field lines: `E012`, `E018` and `E021` go through `skip_field_line`, which now sees past a fault; `E014`, `E019`, `E023` and `E024` through `keep_body`. A child fence line already took its body. A `*` element line (`E012`, `E018`, `E013`, `E023`, `E024`) has no value that can open a block. The Schema and Format line walk (`opens_raw`) reads through the same `line_fence`, so it agrees with the parser. No `E025` arm exists yet; 2026100207032800 adds them. No C++ veneer call changed.
-	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, shell-regress, check-veneer, sanitize-c, check-migrate, check-docs, check-abnf, test-ids, markdownlint, clippy, go vet, staticcheck, ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3` and the mingw C build. Corpus 191 fails on dev in all four, and `EreT6dh` fails on dev at iteration 25 with its row out. Both pass with the fix.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, shell-regress, check-veneer, sanitize-c, check-migrate, check-docs, check-abnf, test-ids, markdownlint, clippy, go vet, staticcheck, ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3` and the mingw C build. Corpus 191 fails on dev in all four, and `dderx` fails on dev at iteration 25 with its row out. Both pass with the fix.
 	- Branch: `rawkept`
 	- Commit: `0a6d1bb5`
-	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
+	- Test case: corpus 191 (`ddfb9`) in all four; fuzz `dderx` (open row taken out) and `dct3h` (its `E014` excuse taken out).
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
 
@@ -5792,14 +5892,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: one line walk that knows which rules it reads by. The Schema line is new in format 3, so `schema_ref` finds blocks the way the parser does, through the parser's own tokenizer and fence tests (`child_fence`, `line_fence`). A Format line counts by the rules it names: one naming format 3 counts outside the parser's blocks, and an older one outside the blocks 2.x found. `migrate` on a file that names no format also counts lines one rule set reads as a raw body and the other does not as reading two ways, so it refuses at 7 unless `--from-2x` says the file is 2.x. It does not stamp a file whose output ends inside a raw block under either rule set. Spec and design say so.
 	- Note: a line refused for its text (E014, E019, E023, E024) can still read its body as lines in the parser while the walk takes the body. That file fails `check` anyway, and 2026100307163902 and 2026100117214801 move the parser to the walk's answer.
 	- Note: with `--from-2x`, 2.x's reading stands. A 2.x line that 2.x refused and that now opens a block is left as written, per the low-stakes rule for 2.x.
-	- Note: the new corpus case moved the fuzz seeds, and `EreT6dh` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
+	- Note: the new corpus case moved the fuzz seeds, and `dderx` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
 	- Swept: `schema_ref` and `format_line_version` in Rust, Go, Python and C now read through one walker (`RawLines`, `rawLines`, `_RawLines`, `ShclRawLines`), and the parser's child-fence test is the shared `child_fence`. The only other caller of `migrate_line` is the rewrite loop in `migrate`, which reads 2.x on purpose and now checks its output against the parser's blocks. The C++ veneer only wraps the two C calls, and no script reads either line.
 	- Verified: the repro gives V003 at exit 6 and the `migrate` repro exits 7, in all four CLIs. The four conformance suites, `cli-regress.bash` (344 rows), `crosscheck.bash` over the corpus and a 2,000-input fuzz dump, `check-migrate.bash`, `shell-regress.bash`, `check-docs.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet and staticcheck (also windows), ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3`, the mingw C build and the C runner under ASan and UBSan pass. The release fuzz at 2,000,000 passes.
 	- Branch: `schemaraw`
 	- Commit: 4fcfec0b, 55d4777d
-	- Test case: corpus `189-schema-line-raw-after-backslash` (`ErfuRcU`, all four runners), cli-regress `ErfuRh7` and `ErfuRj5`, fuzz property `ErfuRfE`. Each fails on the old code and passes on the new.
-	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
-	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `EreT6dh` change is a fix to the test, so neither needed a call.
+	- Test case: corpus `189-schema-line-raw-after-backslash` (`ddf40`, all four runners), cli-regress `ddf42` and `ddf43`, fuzz property `ddf41`. Each fails on the old code and passes on the new.
+	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `dderx` trim change.
+	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `dderx` change is a fix to the test, so neither needed a call.
 	- Closed: 20261003-162005
 
 - No '\' escapes
@@ -5845,7 +5945,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Left for B: brackets, `- ` lists, selectors (a lookup path still takes the old bare rules), merge output, the `--set-literal` message.
 			- Left for C: `migrate` beyond the backslash re-spelling, spec.md, grammar.abnf, design.md, README. check-docs fails on the spec code table, check-abnf and the README `E014` transcript until then.
 			- Left for D to F: the other bindings' table copies and the same-fixture tests changed in the Rust runner.
-			- The 2,000,000 release fuzz fails `Eqk24nZ` on a class older than this, now reached far more often. Filed as 2026100506223902.
+			- The 2,000,000 release fuzz fails `dd16k` on a class older than this, now reached far more often. Filed as 2026100506223902.
 		- 20261005: calls made in chunk A that the doc does not settle. Each is easy to reverse.
 			- An author's quote kind is kept by `fmt` too, not only on an overwrite: `'abc'` stays single quoted. A quoted data format still goes bare.
 			- A backtick value counts as quoted as well, and typed reads still read its text.
@@ -5878,9 +5978,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Selectors match one plain value, quoted or not, never an array or a raw block. A lookup path with a bad selector body (`E025`, `E017`, `E023`) finds nothing.
 			- A merge writes every list in brackets. A bare comma in a list item is `E026`, kept among the items; `E010` is retired with `E026` as its replacement. An array setter keeps a stacked list stacked. A comment on a stacked item stays on it, and a whole-line comment among the items stays among them.
 			- `--set-literal` help and man page show a quoted string and a backtick value. Backtick values and kept quote kinds already worked from A and B1; rows now pin them.
-			- Fuzz: the `ErqSBCw` fixture took the new `E019` text. `EreT6dh` had three oracle faults, no library defect: a setter's raw body counted as copies of a kept line, a remove's raw body lines matched a kept line by text, and fence closers were trimmed of more than the load trims. A remove also leaves the leads above its target alone.
-			- Corpus: 179 rewritten for merge brackets, new 199 (`E028`) and 200 (selectors), about 20 cases updated. cli-regress: 21 new rows, each but the pinning ones seen to fail on the code before; `Ep3OILK` and `Ep3OILL` commented out, since a quote in a bare selector is `E025` now.
-			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passed all 20 before cases 199 and 200 went in; with them, `EreT6dh` (iteration 991183, a merge footer dedup over a `- name:` line) and `Eqk24nZ` (iteration 1814916) fail. Left for later, not cut down.
+			- Fuzz: the `ddhn5` fixture took the new `E019` text. `dderx` had three oracle faults, no library defect: a setter's raw body counted as copies of a kept line, a remove's raw body lines matched a kept line by text, and fence closers were trimmed of more than the load trims. A remove also leaves the leads above its target alone.
+			- Corpus: 179 rewritten for merge brackets, new 199 (`E028`) and 200 (selectors), about 20 cases updated. cli-regress: 21 new rows, each but the pinning ones seen to fail on the code before; `dc81c` and `dc81d` commented out, since a quote in a bare selector is `E025` now.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passed all 20 before cases 199 and 200 went in; with them, `dderx` (iteration 991183, a merge footer dedup over a `- name:` line) and `dd16k` (iteration 1814916) fail. Left for later, not cut down.
 			- Left for later: those two fuzz failures, and 2026100511210900.
 		- 20261005: calls made in chunk B part 2. Each is easy to reverse.
 			- A bare comma in a list item is `E026`, value only, and the line is kept among the items.
@@ -5895,28 +5995,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A line with no colon is `E015` whatever its name, and binds the name it reads as. `404`, `-x` and `user name` alone now repair to `"404":` and the rest. That reaches lines with a space too: `square-miles 300` and `this is ! not parseable` were `E014` and kept as written, and now repair to a quoted name at exit 0. Cases 004, 013, 049, 091 and 194 moved with it, and the `b 2` and `also bad` lines in the cli-regress fixtures.
 			- A line or a stacked item past the caller's element cap is `E021` and dropped, whatever its value. The path and the name are still judged first, and a broken item within the cap is still kept.
 			- `migrate` leaves every 2.x backslash as written, `\"` and `\'` included, and it reads as text. A piece is written another way only where these rules would read its text as something else, so `"say \"hi\""` becomes `'say \"hi\"'`. A backslash no longer makes a file ambiguous, so without `--from-2x` only a raw block the two rule sets split still refuses at 7. Goldens 118, 119, 122, 124 and 170 moved.
-			- check-migrate lets an element read differ from the 2.x one only where a backslash pair 2.x read as an escape is text now, line for line. A path that held a line break is no longer required to refuse at 7, so `ErUuq8D` and `ErkiUcu` are commented out. The gate is still red on valsyn until chunk C: 246 divergences over 652 documents, down from 293.
+			- check-migrate lets an element read differ from the 2.x one only where a backslash pair 2.x read as an escape is text now, line for line. A path that held a line break is no longer required to refuse at 7, so `ddcfc` and `ddg90` are commented out. The gate is still red on valsyn until chunk C: 246 divergences over 652 documents, down from 293.
 			- `explain E023` prints `◉` itself. cli-regress `help-width` takes the mark as one column in `explain` output, and anything else outside ASCII still fails it. check-docs has no rule on help text.
-			- Tests: conformance `Ers2oCr` (the cap) and `Ers2oF1` (2026100511210900). `parse_limited_caps` has two asserts commented out with the reason, and `EqKhPQO` now checks the new cap rule. cli-regress: 12 new rows, 6 edited in place, 8 commented out with the reason, and the `%RF2%` fixture moved so `EqGUXeC` still tests what it was for. Each new or changed test and row was seen to fail on the code before.
+			- Tests: conformance `ddj1c` (the cap) and `ddj1h` (2026100511210900). `parse_limited_caps` has two asserts commented out with the reason, and `dcv3k` now checks the new cap rule. cli-regress: 12 new rows, 6 edited in place, 8 commented out with the reason, and the `%RF2%` fixture moved so `dct37` still tests what it was for. Each new or changed test and row was seen to fail on the code before.
 			- The raw block oracle in `fuzz_smoke.rs` took a `- ` item for a line that can open a block. It now skips items, as the parser does.
 			- Left for chunk C: these answers in value-syntax.md, spec.md and design.md; the migration table rows for `\\`, `\t`, `\n`, `\"` and `\'`; the README `E014` transcript, which prints `E015` now; and the `migrate` refusal, which still says "value(s)" though only raw block lines count now.
 			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck on both scripts. check-docs and shell-regress fail on the same tests as on `valsyn`.
-			- The 2,000,000 release fuzz still fails `EreT6dh` and `Eqk24nZ`, now at 1632940 and 1618034. The library changes move the random stream, so the numbers do not compare. Both reproduce on the code before this rework. `Eqk24nZ` cuts down to `b: x`, `b: y z`, then `- 3` and `k: 1` indented under it: after `set_empty("b")`, a read of `b.k` is NotFound, and Good after a reload. `EreT6dh`: a remove of the field beside a misplaced `a:` line moves other kept lines above it.
+			- The 2,000,000 release fuzz still fails `dderx` and `dd16k`, now at 1632940 and 1618034. The library changes move the random stream, so the numbers do not compare. Both reproduce on the code before this rework. `dd16k` cuts down to `b: x`, `b: y z`, then `- 3` and `k: 1` indented under it: after `set_empty("b")`, a read of `b.k` is NotFound, and Good after a reload. `dderx`: a remove of the field beside a misplaced `a:` line moves other kept lines above it.
 			- Question: should a line with no colon whose name has a space, such as `square-miles 300`, repair like `404`, or stay `E014` and kept as written, as before chunk A? Built as the first, since the answer said always. The second is a small change.
 		- 20261005: the two 2,000,000 release fuzz failures, on `vsfuzz`, Rust only.
-			- `Eqk24nZ` was the library. A setter that empties a field joins a stacked list after it, fields and all, as a reload does. The name index still filed the moved fields under the list's node, so a read after the write found nothing. The join now moves them in the index, and a settle that joins one drops the index. Test `ErsETML`.
-			- `EreT6dh` at 1632940 was the property. A misplaced line beside a removed field goes down past the kept lines that stay, as design.md's table says and a reload does. The property let such a line move as a bound, but not as a copy of the removed field's own line. Test `ErsETOT`.
-			- 2 more seed sets, run by changing the seeds by hand since the harness has no offset, found 3 more. 2 were the property: a file-start BOM hid a `*` line from its raw block check (`ErsMtSw`), and a misplaced line past a layer's last field counted as a copy of a footer line the merge dedup skipped (`ErsPRww`). That second one is likely the 991183 report's class; not reproduced on the old seeds. 1 was the library, in `EqutO7I`: a load can build the list no text loads back (2026100511210900) under a kept array line (`E028`), and the save that keeps lines then fell back to canonical with no edits. Test `ErsWiow`.
+			- `dd16k` was the library. A setter that empties a field joins a stacked list after it, fields and all, as a reload does. The name index still filed the moved fields under the list's node, so a read after the write found nothing. The join now moves them in the index, and a settle that joins one drops the index. Test `ddj2w`.
+			- `dderx` at 1632940 was the property. A misplaced line beside a removed field goes down past the kept lines that stay, as design.md's table says and a reload does. The property let such a line move as a bound, but not as a copy of the removed field's own line. Test `ddj2v`.
+			- 2 more seed sets, run by changing the seeds by hand since the harness has no offset, found 3 more. 2 were the property: a file-start BOM hid a `*` line from its raw block check (`ddj3w`), and a misplaced line past a layer's last field counted as a copy of a footer line the merge dedup skipped (`ddj46`). That second one is likely the 991183 report's class; not reproduced on the old seeds. 1 was the library, in `dd3t9`: a load can build the list no text loads back (2026100511210900) under a kept array line (`E028`), and the save that keeps lines then fell back to canonical with no edits. Test `ddj53`.
 			- Call made: the save that keeps lines checks for that list only when the source was canonical. Any other source is held to its own reload check, so a file that loads one keeps its text on a `set --write`. `fmt --write` still refuses it at 7, since canonical text writes the kept array line as a comment and the list then joins the binding above it. Writing that line in place of the list's `name:` line would load back. Not done.
 			- The Go, Python and C ports have no list join yet. They need the index move and the keep gate change when they get it.
 			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust. Each new test failed on the code before. The 2,000,000 release fuzz passes all 23 on the committed seeds and on the 2 other seed sets.
 		- 20261005: the no-colon rule narrowed back on `vsnarrow`, off `valsyn`, Rust only. `vsfix` read the `E015` answer too widely.
 			- A line with no colon that is one name or path is `E015` and binds, `404` and `-x` included, and a quoted name with a space too. One whose bare name has a blank in it, such as `square-miles 300`, `user name` or `this is ! not parseable`, is `E014` again and kept as written, per spec.md's narrow repair rule. The lines under it still load under it, as in chunk A.
 			- Call made: that `E014` takes the message it had before chunk A, "unexpected character after the path", with the column of the second word. So the README `E014` transcript line matches the CLI again.
-			- Moved back: corpus 004, 013, 049, 091 and 194, the `b 2` and `also bad` cli-regress rows, and the 2 Rust test fixtures `vsfix` changed. `Ers2pOr` and `Ers2pOs` are commented out, since their `user name` line is `E014` now. `ErsrQb6` and `ErsrQd5` replace them.
-			- Test: `ErsrQZC`. It failed on the code before and passes now, and so did `ErsrQb6`, `ErsrQd5` and the 6 moved-back rows.
-			- The release fuzz `EreT6dh` then found an oracle fault: its raw block check closed a block at a fence line with a carriage return after the indent, which the load reads as body text. Fixed, test `ErsrQev`.
-			- Open: the release fuzz `Eqk24nZ` fails at 1814886 on an older library class, reproduced on `valsyn` before this change with any kept line or comment in the gap. A merge adds a list with a field under it as a new instance after an empty one of its name, and a reload joins the two. Cut down: `p:`, `\ts:`, `\t# c`, merged with `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`. Filed as 2026100520243961.
+			- Moved back: corpus 004, 013, 049, 091 and 194, the `b 2` and `also bad` cli-regress rows, and the 2 Rust test fixtures `vsfix` changed. `ddj1j` and `ddj1k` are commented out, since their `user name` line is `E014` now. `ddj7p` and `ddj7q` replace them.
+			- Test: `ddj7n`. It failed on the code before and passes now, and so did `ddj7p`, `ddj7q` and the 6 moved-back rows.
+			- The release fuzz `dderx` then found an oracle fault: its raw block check closed a block at a fence line with a carriage return after the indent, which the load reads as body text. Fixed, test `ddj7r`.
+			- Open: the release fuzz `dd16k` fails at 1814886 on an older library class, reproduced on `valsyn` before this change with any kept line or comment in the gap. A merge adds a list with a field under it as a new instance after an empty one of its name, and a reload joins the two. Cut down: `p:`, `\ts:`, `\t# c`, merged with `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`. Filed as 2026100520243961.
 			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passes 23 of 24. check-docs (16) and shell-regress (2) fail on the same checks as on `valsyn`, and the README `E014` check now fails only on the sample's bare comma. check-migrate is at 246 divergences, unchanged.
 		- 20261005: chunk C docs, part 1, on `vsspec`, off `valsyn`. Docs and doc gates only, no library change.
 			- value-syntax.md: the 20261005 answers and the kept chunk A and B calls are written in: the no-colon rule, the cap, edge trimming, one error per line, the quote kind, backtick reads, `- a, b`, comments on items, 2026100511210900, `explain E023` and the `migrate` backslash answer. `E010` joins the retired rows. The Roadmap marks what is done.
@@ -5924,16 +6024,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- gen-escapes.py now also writes the spec's escape table and the grammar's escape names, bare text class and White_Space-free formatter class, so `escape-tables-match` holds them to the one list.
 			- grammar.abnf: brackets, `- ` items, escapes, backtick values and the bare rules. check-abnf's samples moved with it: 10 flipped and 49 new, each tied to the CLI.
 			- README: the sample's `methods` line is in brackets, in the file and in the canonical output example. The man page date.
-			- Verified: check-docs passes, where it failed 16 before (`Er1z2hW`, `EqWax3I`, `Eom0qpm`, `EqL29qS`). check-abnf, gen-escapes, test-ids check, markdownlint, ruff check and shellcheck pass. A hand edit to the spec's escape table fails gen-escapes.
-			- Left: design.md, the changelog, `migrate` and its table, check-migrate, the ports. value-syntax.md's migration table rows for backslash pairs and spec.md's Migrating from 2.x section still describe the old `migrate`, `E024` included. check-readme `EqGg9jM` still fails on the README schema sample, a bare `desc` with spaces and `allowed` with a bare comma. spec.md's design goal that the user is never made to satisfy the machine is superseded for bare whitespace, per value-syntax.md, and left as written.
+			- Verified: check-docs passes, where it failed 16 before (`dd5gs`, `dcxz5`, `dc3vj`, `dcv66`). check-abnf, gen-escapes, test-ids check, markdownlint, ruff check and shellcheck pass. A hand edit to the spec's escape table fails gen-escapes.
+			- Left: design.md, the changelog, `migrate` and its table, check-migrate, the ports. value-syntax.md's migration table rows for backslash pairs and spec.md's Migrating from 2.x section still describe the old `migrate`, `E024` included. check-readme `dct4z` still fails on the README schema sample, a bare `desc` with spaces and `allowed` with a bare comma. spec.md's design goal that the user is never made to satisfy the machine is superseded for bare whitespace, per value-syntax.md, and left as written.
 		- 20261006: the design doc has the 20261006 spacing, colon and comma answer. Rust, spec.md, grammar.abnf, check-abnf and the corpus still have the old no-space rule.
 		- 20261006: the spacing, colon and comma answer built on `vsspace2`, off `valsyn`, Rust only.
 			- In: a bare value or `- ` item keeps its spaces. A tab, other whitespace, a bracket, or a colon before a blank or the end is `E025`, and `E027` in an item. A comma splits a value only before a blank, a comment or the end; any other comma is text. Inside `[]` every comma splits. A bare selector body takes no colon, comma or bracket. Each message says what to do.
 			- Writer: `rw,noatime` and `:0` stay bare, a trailing `:` or `,` is quoted, and so is an array element with a comma. `migrate` writes a 2.x comma list in brackets.
 			- Docs: spec.md, grammar.abnf, check-abnf (7 samples flipped, 20 new), value-syntax.md's Roadmap, and the README schema sample's `allowed` in brackets. design.md does not state the no-space rule, so it is unchanged.
 			- Corpus: new case 202. 13 cases moved; 089, 111, 187 and 188 changed input to keep their point, and 099 and 193 each had a bad op commented out and replaced.
-			- Tests: `Ervn567`, `Ervn568`, `Ervn569`, `Ervn56A` and corpus `ErvmhRG`. cli-regress: 14 new rows, 6 edited in place, `ErpZsUj` commented out with the reason. Each new test and row failed on the code before, except the pinning rows `ErvnzpR`, `ErvnzpV` and `Ervnzpb`. The `parse_limited_caps` fence fixture now spells `a, b, c, d`; the other runners need the same.
-			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-docs, check-abnf, check-readme and markdownlint. check-readme `EqGg9jM` passes now: the `desc` lines read clean under the new rule, and `allowed` needed brackets. shell-regress fails the same 2 as before this change (`Ep19Ax8`, `EqM7a7s`). The 2,000,000 release fuzz passes all 24.
+			- Tests: `ddjy7`, `ddjy8`, `ddjy9`, `ddjya` and corpus `ddjy5`. cli-regress: 14 new rows, 6 edited in place, `ddhew` commented out with the reason. Each new test and row failed on the code before, except the pinning rows `ddjyb`, `ddjyf` and `ddjyn`. The `parse_limited_caps` fence fixture now spells `a, b, c, d`; the other runners need the same.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-docs, check-abnf, check-readme and markdownlint. check-readme `dct4z` passes now: the `desc` lines read clean under the new rule, and `allowed` needed brackets. shell-regress fails the same 2 as before this change (`dc7g1`, `dcvej`). The 2,000,000 release fuzz passes all 24.
 		- 20261006: calls made that the doc does not settle. Each is easy to reverse.
 			- A comma right before a `#` counts as one at the end, so `x: a,# c` is `E026`.
 			- A setter's `1,000` keeps its quotes, so it still reads as 1000, as before. Bare `1,000` in a file is text, so `80,443` never reads as a number. A quoted value with a comma keeps its quotes through `fmt` for the same reason.
@@ -5947,7 +6047,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- check-migrate is green: 654 documents, 33 lost counts. The 2.x build no longer reads the migrated text, since the output is in the new syntax and the Format line is what stops a second run. Paths are compared by name, each read back by its own CLI's rules, in place of the Python binding's old writer. A quoted name may differ by a backslash pair, like an element. A path goes after `--`, since `-x` read as an option. The two lost kinds are taken out like the other exceptions. Each new piece failed on an injected fault.
 			- Docs: value-syntax.md's migration table (the backslash rows, `\uXXXX`, whitespace, new rows, the lost list) and spec.md's Migrating from 2.x, with `E024` and the doubled backslash gone.
 			- cli-regress: the save rows' `base:[Boston]` fixture got a line under it, since alone it reads clean as an array now and is left without `--from-2x`. That includes the 3 windows-only rows.
-			- Tests: `Erwed4A` to `Erwed4F`, cli-regress `Erwf3oC` and `Erwf3oD`, each seen to fail on the code before. Goldens 118 and 170 moved.
+			- Tests: `ddk4w` to `ddk51`, cli-regress `ddk52` and `ddk53`, each seen to fail on the code before. Goldens 118 and 170 moved.
 			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-docs, check-abnf, markdownlint, shellcheck. shell-regress fails the same 2 as on `valsyn`. Not run: the windows-only rows, which need the hosted run, and the 2,000,000 release fuzz, since the tokenizer and trivia did not change.
 		- 20261006: calls made in the `migrate` piece that the doc does not settle. Each is easy to reverse.
 			- `x: ,`, only empty slots, is written `x:`, not `x: []`.
@@ -5966,18 +6066,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Calls made: the `*` item marker stays until part 2 moves it to `- `. A `*` item takes the value rules (`E017`, `E023`, `E025`) and an array there is `E019`, while a bare comma in one stays `E010`. A selector body takes the whitespace, quote, bracket, colon and comma rules, but not the paren and `#` ones, which come with parens. The 2.x helpers stay for `migrate` until part 3.
 			- Corpus: 64 of 203 passed before, 103 after. The 100 left all need part 2 or 3: 67 use paren selectors, 25 `- ` items and 8 `migrate`.
 			- Crosscheck with Rust over the corpus: 1831 of 5952 comparisons diverged before, 1106 after. cli-regress for Go: 147 rows failed before, 74 after. Each divergence and failing row sampled uses parens, `- ` items, `E028`, `E029`, `migrate` or help text about them. Value lines alone match Rust on `fmt`, `check` and `tokens` but for `E028`: the corpus with paren and item lines taken out, and 423 hand-made value and name lines.
-			- Tests: 6 new Go tests matching the Rust ones, `Ery85QC` to `Ery85QH`, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Rust runner: `parse_limited_caps` (the fence label is `a, b, c, d`, two asserts commented out with the reason), the kept-line gate fixtures, read surface, raw text, the convenience tier and the setter refusals.
-			- Verified: `go test -count=1` (unit tests pass, corpus as above), `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, gen-escapes, ruff and mypy. check-docs fails only `EpHGoa0`, as on `valsyn`.
+			- Tests: 6 new Go tests matching the Rust ones, `ddkg7` to `ddkgc`, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Rust runner: `parse_limited_caps` (the fence label is `a, b, c, d`, two asserts commented out with the reason), the kept-line gate fixtures, read surface, raw text, the convenience tier and the setter refusals.
+			- Verified: `go test -count=1` (unit tests pass, corpus as above), `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, gen-escapes, ruff and mypy. check-docs fails only `dcbc2`, as on `valsyn`.
 			- Left for part 2: `- ` items, `E013`, `E026` in items with `E010` retired, `E027`, `E028` (a Go setter can still put a field under an array, which reloads as `E028`), merge output, stacked lists kept stacked, comments on items, the list join and index move, and 2026100511210900's save refusal. Part 3: parens, `E029`, `migrate`, dropping `[#N]`.
 		- 20261006: chunk D part 2, Go lists, on `vsgo2`, off `valsyn`. Library and CLI.
 			- In: a setter refuses a field under an array and an array over fields (`E028`), and the CLI says which. Before, a Go setter wrote a field under an array, which reloads as `E028`. `- ` items, `E013` for a `*` line, `E026` for a bare comma in an item, kept among the items, with `E010` retired, and `E027`. `E028` when a field binds under an array line, the line kept and written in place of the field's own. `fmt` and the writer keep a `- ` list stacked, and a comment on an item stays on its item. A merge writes every list in brackets. An array setter keeps a stacked list stacked, and kept lines and comments among the old items go above the field.
 			- Also in: the list join, with the moved fields refiled in the name index. The settle moves the gap's lines before the join, and `remove` joins too. 2026100511210900's save refusal; the keep-lines save checks for that list only when the source was canonical, so `fmt --write` refuses at 7 and `set --write` keeps the source. The cap rule for items past the cap was in from part 1, and its rows are back on. `explain` for these codes, and `tokens` prints `item`.
 			- Corpus: 103 of 203 passed before, 130 after. The 73 left: 7 fail on `migrate`, and the rest use parens or `E029`.
 			- Crosscheck with Rust over the corpus: 1106 of 5952 comparisons diverged before, 713 after. cli-regress for Go: 74 rows failed before, 51 after. Every divergence and failing row left uses parens, a bracket selector, `migrate`, or help text about them. Over a fuzz dump of 500 inputs plus its line-ending and kept-line sets, every divergence is on an input with parens, a bracket selector or `migrate`.
-			- Calls made: the fixture holding edits and merges to a reload (`Eqk24na`) wrote its list with `*`, which is `E013` now, so it wrote no list. It writes `- ` now, so it builds the list no text loads back, and like Rust's `Eqk24nZ` it stops that run and checks the save refuses. The Python and C runners still write `*` there and need the same change. `EryDg1D` pins the setter refusal in Go; Rust has only the cli-regress rows for it. The new Go tests spell a selector in brackets until part 3.
-			- Tests: `EryDfqr`, `EryDfsy`, `EryDfv3`, `EryDfx5` and `EryDfzB` match Rust's `Ers2oF1`, `ErsETML`, `ErsWiow`, `Ert70BF` and `Ert70DM`, and `EryDg1D` is new. `EryDfqr`, `EryDfv3`, `EryDfzB` and `EryDg1D` fail on the code before. The other two pass there too, since that code never joined a list. Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
+			- Calls made: the fixture holding edits and merges to a reload (`dd16m`) wrote its list with `*`, which is `E013` now, so it wrote no list. It writes `- ` now, so it builds the list no text loads back, and like Rust's `dd16k` it stops that run and checks the save refuses. The Python and C runners still write `*` there and need the same change. `ddkgx` pins the setter refusal in Go; Rust has only the cli-regress rows for it. The new Go tests spell a selector in brackets until part 3.
+			- Tests: `ddkgy`, `ddkgz`, `ddkh0`, `ddkh1` and `ddkh8` match Rust's `ddj1h`, `ddj2w`, `ddj53`, `ddj9k` and `ddj9m`, and `ddkgx` is new. `ddkgy`, `ddkh0`, `ddkh8` and `ddkgx` fail on the code before. The other two pass there too, since that code never joined a list. Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
 			- Verified: `go test -count=1` (unit tests pass, corpus as above), `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check.
-			- Left for part 3: parens, `E029`, dropping `[#N]`, `migrate`, the help text's "quotes and parens", `explain` for E002, E003, E029 and V097. cli-regress `Ers2pP0` and `Ers2pP1` fail only on their `x(v)` path; the same edit with brackets refuses at 7 and saves with `--lossy`.
+			- Left for part 3: parens, `E029`, dropping `[#N]`, `migrate`, the help text's "quotes and parens", `explain` for E002, E003, E029 and V097. cli-regress `ddj1f` and `ddj1g` fail only on their `x(v)` path; the same edit with brackets refuses at 7 and saves with `--lossy`.
 		- 20261006: chunk E part 1, Python values, on `vspy1`, off `valsyn`. Library and CLI.
 			- In: what Go's part 1 has. A backslash is text; `◉` escapes from the generated table, which `gen-escapes.py` now writes for Python too; `E023`; backtick values with a `backtick` read flag; the writer's quoting, kept quote kind and escapes. The bare value rules: spaces, `E025`, `E026`, the loose colon. The bare name rule, `E014` kept and held open, with the narrow `E015` repair. `E017` value only, the cap judged before the value (`E021`), `E024` and `H003` retired. `explain` text, the `tokens` backtick mark and array spans, and the `--set-literal` help lines.
 			- Bracket arrays came with it, as for Go: the array value kind, `E019`, string reads in bracket form, array setters writing brackets, `set_literal`'s value check, schema `allowed` and `repeat` in brackets, and a selector matching one plain value.
@@ -5986,19 +6086,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Corpus: 64 of 203 passed before, 103 after, the same 100 failing as Go. Each uses paren selectors, `- ` items or `migrate`. The runner stops at the first write op it cannot apply (015, a paren selector) before and after, so these counts come from a copy that notes that and goes on.
 			- Crosscheck with Rust over the corpus: 1831 of 5952 comparisons diverged before, 1106 after, as for Go. Python and Go agree on all 5917. cli-regress for Python: 147 rows failed before, 74 after, the same rows as Go.
 			- 302 hand-made value and name documents through `fmt`, `check` and `tokens` differ from Rust only on `E028`, selectors in brackets and `*` items, and match Go on all 906 runs. `--set` and `--set-literal` match Rust on 448 writes. Ops-script array writes match Rust but for the `E028` refusals and `*` lists, and match Go on all 105.
-			- Tests: 6 new Python tests matching the Rust ones, `EryEqlx` to `EryEqwF`, each seen to fail on the code before, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Rust runner: `parse_limited_caps` (the fence label is `a, b, c, d`, 2 asserts commented out with the reason), the capped-parse memory text, the kept-line gate fixtures, the read surface, raw text, the convenience tier, the line break in a path and the setter refusals.
-			- Verified: the Python runner (unit tests pass, corpus as above), ruff, mypy, gen-escapes, test-ids check. check-docs fails only `EpHGoa0`, as on `valsyn`.
+			- Tests: 6 new Python tests matching the Rust ones, `ddkh2` to `ddkh7`, each seen to fail on the code before, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Rust runner: `parse_limited_caps` (the fence label is `a, b, c, d`, 2 asserts commented out with the reason), the capped-parse memory text, the kept-line gate fixtures, the read surface, raw text, the convenience tier, the line break in a path and the setter refusals.
+			- Verified: the Python runner (unit tests pass, corpus as above), ruff, mypy, gen-escapes, test-ids check. check-docs fails only `dcbc2`, as on `valsyn`.
 			- Parse of the comparison's `ddl.shcl`, for 2026100221215300: 232 to 242 ms before and 241 to 250 ms after on the same file, which now draws 109 `E026` for its `a, b` lines, and 241 to 244 ms with those lines in brackets. No real change either way.
 			- Left for part 2: `- ` items, `E013`, `E026` in items with `E010` retired, `E027`, `E028` (a Python setter can still put a field under an array), merge output, stacked lists kept stacked, comments on items, the list join and index move, and 2026100511210900's save refusal. Part 3: parens, `E029`, `migrate`, dropping `[#N]`.
 			- Noted, not changed: the `set_literal` doc comment gives `80, 443` as its two-element example in Rust and Python, and that is `E026` now.
-		- 20261006: hosted run 37548389438 on valsyn `9b241d3f`: the 3 windows-only cli-regress migrate rows `vsmig` edited pass (`ErMwKp1`, `ErMwwHF`, `ErMwwZ1`). The run is red elsewhere, on the bindings not yet ported.
+		- 20261006: hosted run 37548389438 on valsyn `9b241d3f`: the 3 windows-only cli-regress migrate rows `vsmig` edited pass (`ddaj0`, `ddaj3`, `ddaj4`). The run is red elsewhere, on the bindings not yet ported.
 		- 20261006: chunk D part 3a, Go selectors in parens (2026100610073400), on `vsgo3`, off `valsyn`. Library and CLI, `migrate` aside.
 			- In: what Rust's `vspar` has. A selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written and judged first on its line, and the lines under it load under the instance it names. A lookup, setter or schema path in brackets is refused, and `V093` says why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `x(a(b))` is `E014`. `InstancePaths()`, `init`'s lines and the package doc example write parens, and `init` refuses a child of a parent whose default is an array (`V097`). `explain` for E002, E003, E029 and V097, the help text's "quotes and parens", and the CLI's "a selector is written in parens now" in `get`, `--set`, `--remove` and ops errors.
 			- Also in: the `SetLiteral` doc comment's example is `[80, 443]` in Go and in Rust's reference. The quoted-flag fixture reads `m: ["x", "y"]` in Go, and in Rust too, which had the same old text. Python's and C's doc comments still say `80, 443`.
 			- Corpus: 130 of 203 passed before, 196 after. The 7 left fail only on `migrate`: 118, 119, 122, 123, 124, 170 and 174.
 			- Crosscheck with Rust over the corpus: 671 comparisons diverged before, 68 of 5952 after, every one a `migrate` run. Over a fuzz dump of 500 inputs plus its line-ending and kept-line sets, every divergence is a `migrate` run, and the line-ending and kept-line checks agree. 840 hand-made selector lines through `fmt`, `check`, `tokens` and `paths`, and 23 paths through the read commands, the three `--set` forms, `--remove` and ops, match Rust on all 3590 runs. `--help`, every `help CMD` and all 46 `explain` texts match.
-			- cli-regress for Go: 51 rows failed before, 12 after, all `migrate`: `Ervnzpd`, `Ervnzpe`, `Ers2pOu` to `Ers2pOz`, `ErpaTy3`, `Erwf3oC`, `Erwf3oD` and `Erxvsaw`.
-			- Tests: `Eryg0ZB` and `Eryg0bK` match Rust's `Erxfmqa` and `Erxfmqb`. `Eryg0ZB` fails on the code before, with its tokenizer lines taken out since the field is new. `Eryg0bK` passes there, since part 1 already gave an array no selector body; it fails with that check taken out. Rust's `Erxfmqc` is a fuzz property with no Go twin. Part 1's 4 commented paren rows are back on and fail on the code before. Parts 1 and 2's fixtures and `listAfterEmpty` now use parens.
+			- cli-regress for Go: 51 rows failed before, 12 after, all `migrate`: `ddjyq`, `ddjyr`, `ddj1m` to `ddj1s`, `ddhet`, `ddk52`, `ddk53` and `ddkep`.
+			- Tests: `ddkme` and `ddkmf` match Rust's `ddkd4` and `ddkd5`. `ddkme` fails on the code before, with its tokenizer lines taken out since the field is new. `ddkmf` passes there, since part 1 already gave an array no selector body; it fails with that check taken out. Rust's `ddkd8` is a fuzz property with no Go twin. Part 1's 4 commented paren rows are back on and fail on the code before. Parts 1 and 2's fixtures and `listAfterEmpty` now use parens.
 			- Verified: `go test -count=1` (unit tests pass, corpus as above), `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, check-docs, check-readme's Go example, cargo fmt and the Rust conformance tests.
 			- Left for part 3b: `migrate`, which still writes brackets, with its 7 corpus cases and 12 cli-regress rows. Go has no twins of Rust's `migrate` tests yet.
 		- 20261006: chunk D part 3b, Go `migrate` (2026100610073400's `migrate` half too), on `vsgo3b`, off `valsyn`. Library and CLI.
@@ -6008,26 +6108,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. With a fuzz dump of 500 inputs added, none of 10129 diverge.
 			- cli-regress for Go: 12 rows failed before, none after. Go and Rust both pass every row.
 			- check-migrate drives only the Rust CLI. Pointed at the Go CLI it passes the same way (638 documents, 28 lost counts), and it has 192 divergences on the Go CLI before.
-			- Tests: `ErykhtD` to `ErykhtK` match Rust's `Ervn56A`, `Erwed4A` to `Erwed4F` and `ErxqQLy`. Each failed on the code before.
+			- Tests: `ddkn0` to `ddkn7` match Rust's `ddjya`, `ddk4w` to `ddk51` and `ddke1`. Each failed on the code before.
 			- Verified: `go test -count=1`, `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, check-docs, crosscheck, cli-regress for Go and Rust, check-migrate.
 			- No new calls. The Go port is done. The Python and C ports, with the C++ veneer, remain.
 		- 20261006: chunk E part 2, Python lists, on `vspy2`, off `valsyn` (`9addd72e`). Library and CLI.
 			- In: what Go's part 2 has. A setter refuses a field under an array and an array over fields (`E028`), and the CLI says which. `- ` items, `E013` for a `*` line, `E026` for a bare comma in an item, kept among the items, with `E010` retired, and `E027`. `E028` when a field binds under an array line, the line kept and written in place of the field's own. `fmt` and the writer keep a `- ` list stacked, and a comment on an item stays on its item. A merge writes every list in brackets. An array setter keeps a stacked list stacked.
 			- Also in: the list join, with the moved fields refiled in the name index, the settle moving the gap's lines before the join, and `remove` joining too. 2026100511210900's save refusal, with the keep-lines save checking for that list only when the source was canonical. `explain` for these codes, and `tokens` prints `item`. The `set_literal` doc comment's example is `[80, 443]`.
-			- Calls made: the fixture holding edits and merges to a reload is `Eqk24nb` in Python. It writes `- ` now and, like Go's `Eqk24na`, stops a run that builds the list no text loads back and checks the save refuses; that happens 20 times in its 3000 runs. Python's merge walks its levels from a stack, so a matched instance goes in brackets once its own level is done, not after its whole subtree. Only its own child list counts, so the result is the same. The new tests spell a selector in brackets until part 3.
+			- Calls made: the fixture holding edits and merges to a reload is `dd16n` in Python. It writes `- ` now and, like Go's `dd16m`, stops a run that builds the list no text loads back and checks the save refuses; that happens 20 times in its 3000 runs. Python's merge walks its levels from a stack, so a matched instance goes in brackets once its own level is done, not after its whole subtree. Only its own child list counts, so the result is the same. The new tests spell a selector in brackets until part 3.
 			- Corpus: 103 of 203 passed before, 130 after, the same 73 failing as Go after its part 2. 7 fail on `migrate`, 1 on `E029` alone, and 65 use parens. Counted with a copy of the runner that goes on past a failed case.
 			- Crosscheck with Rust over the corpus: 1106 of 5952 comparisons diverged before, 713 after, the same comparisons Go diverged on after its part 2. Over a fuzz dump of 500 inputs plus its line-ending and kept-line sets, every divergence is a `migrate` run or on an input with a selector. cli-regress for Python: 74 rows failed before, 51 after, the same rows as Go after its part 2.
 			- 330 hand-made list documents through `fmt`, `check`, `tokens` and `paths`, a merge of each with another, and 10 setter ops on each match Rust on all 4950 runs but for one document with a bracket selector (`E029`). The sampled `E028` refusal messages match too.
-			- Tests: `ErylLpa` to `ErylLpe` match Rust's `Ers2oF1`, `ErsETML`, `ErsWiow`, `Ert70BF` and `Ert70DM`, and `ErylLpf` matches Go's `EryDg1D`. `ErylLpa`, `ErylLpc`, `ErylLpe` and `ErylLpf` fail on the code before. `ErylLpb` and `ErylLpd` pass there, as Go's twins did, since that code never joined a list; each fails with its fix taken out (the index move, the second join pass). Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
+			- Tests: `ddkn9` to `ddknd` match Rust's `ddj1h`, `ddj2w`, `ddj53`, `ddj9k` and `ddj9m`, and `ddkn8` matches Go's `ddkgx`. `ddkn9`, `ddknb`, `ddknd` and `ddkn8` fail on the code before. `ddkna` and `ddknc` pass there, as Go's twins did, since that code never joined a list; each fails with its fix taken out (the index move, the second join pass). Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
 			- Verified: the Python runner (unit tests pass, corpus as above), ruff, mypy, test-ids check, gen-escapes. perf-gate passes but for `selectors`, whose document uses parens.
-			- Left for part 3: parens, `E029`, dropping `[#N]`, `migrate`, the help text's "quotes and parens", `explain` for E002, E003, E029 and V097. cli-regress `Ers2pP0` and `Ers2pP1` fail only on their `x(v)` path; the same edit with brackets refuses at 7 and saves with `--lossy`.
+			- Left for part 3: parens, `E029`, dropping `[#N]`, `migrate`, the help text's "quotes and parens", `explain` for E002, E003, E029 and V097. cli-regress `ddj1f` and `ddj1g` fail only on their `x(v)` path; the same edit with brackets refuses at 7 and saves with `--lossy`.
 		- 20261006: chunk E part 3a, Python selectors in parens (2026100610073400), on `vspy3`, off `valsyn`. Library and CLI, `migrate` aside.
 			- In: what Go's part 3a has. A selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written and judged first on its line, and the lines under it load under the instance it names. A lookup, setter or schema path in brackets is refused, and `V093` says why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `x(a(b))` is `E014`. `instance_paths()` and `init`'s lines write parens, and `init` refuses a child of a parent whose default is an array (`V097`). `explain` for E002, E003, E029 and V097, the help text's "quotes and parens", and the CLI's "a selector is written in parens now" in `get`, `--set`, `--remove` and ops errors.
 			- Calls made: none new. `Tokens.bracket_selector` is None when there is none, as `misspelled` is. As in Rust, `_index_shape` still takes 2.x's `#` for `migrate`.
 			- Corpus: 130 of 203 passed before, 196 after. The 7 left fail only on `migrate`: 118, 119, 122, 123, 124, 170 and 174.
 			- Crosscheck with Rust over the corpus: 713 of 5952 comparisons diverged before, 68 after, every one a `migrate` run. With the part 2 fuzz dump of 500 inputs plus its line-ending and kept-line sets added, 1061 of 13945 diverge, all `migrate` runs, and the line-ending and kept-line checks agree. 4680 hand-made selector documents through `fmt`, `check`, `tokens` and `paths`, and 30 paths through the read commands, the four `--set` forms, `--remove` and 5 ops, match Rust on all 18720 and 450 runs, stderr included. `--help`, every `help CMD` and all 46 `explain` texts match.
-			- cli-regress for Python: 51 rows failed before, 12 after, all `migrate`: `Ervnzpd`, `Ervnzpe`, `Ers2pOu` to `Ers2pOz`, `ErpaTy3`, `Erwf3oC`, `Erwf3oD` and `Erxvsaw`.
-			- Tests: `ErysKPJ` and `ErysKS0` match Go's `Eryg0ZB` and `Eryg0bK`. `ErysKPJ` fails on the code before. `ErysKS0` passes there, as Go's twin did, since part 1 already gave an array no selector body; it fails with that check taken out. Part 1's 4 commented paren rows in `EryEquE` are back on and fail on the code before. Parts 1 and 2's fixtures and `list_after_empty` now use parens.
+			- cli-regress for Python: 51 rows failed before, 12 after, all `migrate`: `ddjyq`, `ddjyr`, `ddj1m` to `ddj1s`, `ddhet`, `ddk52`, `ddk53` and `ddkep`.
+			- Tests: `ddknz` and `ddkp0` match Go's `ddkme` and `ddkmf`. `ddknz` fails on the code before. `ddkp0` passes there, as Go's twin did, since part 1 already gave an array no selector body; it fails with that check taken out. Part 1's 4 commented paren rows in `ddkh6` are back on and fail on the code before. Parts 1 and 2's fixtures and `list_after_empty` now use parens.
 			- Verified: the Python runner (unit tests pass, corpus as above), ruff, mypy, test-ids check, check-docs, check-readme's Python example, perf-gate (`selectors` included).
 			- Left for part 3b: `migrate`, which still writes brackets, with its 7 corpus cases and 12 cli-regress rows.
 		- 20261007: chunk E part 3b, Python `migrate` (2026100610073400's `migrate` half too), on `vspy3b`, off `valsyn`. Library and CLI.
@@ -6037,7 +6137,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. With a fresh fuzz dump of 500 inputs plus its line-ending and kept-line sets added, none of 13945 diverge.
 			- cli-regress for Python: 12 rows failed before, none after. Python and Rust both pass every row.
 			- check-migrate pointed at the Python CLI passes the same way it does for Go (638 documents, 28 lost counts), and it has 192 divergences on the Python CLI before.
-			- Tests: `Es1eIOp` to `Es1eIOw` match Go's `ErykhtD` to `ErykhtK`. Each failed on the code before.
+			- Tests: `ddmba` to `ddmbh` match Go's `ddkn0` to `ddkn7`. Each failed on the code before.
 			- Verified: the Python runner (unit tests pass, corpus 203 of 203), ruff, mypy, test-ids check, check-docs, crosscheck, cli-regress for Python and Rust, check-migrate against the Python CLI.
 			- No new calls. The Python port is done. The C port, with the C++ veneer, remains.
 		- 20261006: chunk F part 1, C values, on `vsc1`, off `valsyn`. Library, CLI and the C++ interface.
@@ -6048,7 +6148,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Corpus: 64 of 203 passed before, 103 after, the same 100 failing as Go and Python after their part 1. Each uses paren selectors, `- ` items or `migrate`.
 			- Crosscheck with Rust over the corpus: 1831 of 5952 comparisons diverged before, 1106 after, as for Go and Python. C and Go's part 1 CLI agree on all 5917. cli-regress for C: 147 rows failed before, 74 after, the same rows as Go's part 1.
 			- 462 hand-made value and name documents through `fmt`, `check`, `tokens`, `paths` and reads match Go's part 1 CLI on all 8778 runs. `--set`, `--set-literal` and `--set-default` over 6 starting documents match it on all 918 writes.
-			- Tests: 6 new C tests, `EryvVQj` to `EryvVbF`, match Python's `EryEqlx` to `EryEqwF`. Each failed on the code before, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Python runner: `parse_limited_caps` (the fence label is `a, b, c, d`, 2 asserts commented out with the reason), the kept-line gate fixtures, authored names, the line break in a path and the setter refusals, plus the C-only array read and copy-out fixtures. `mem_bounds.c` and `veneer_smoke.cpp` moved to brackets too, and `veneer_smoke.cpp` checks the backtick flag and the new token fields.
+			- Tests: 6 new C tests, `ddkpb` to `ddkpg`, match Python's `ddkh2` to `ddkh7`. Each failed on the code before, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Python runner: `parse_limited_caps` (the fence label is `a, b, c, d`, 2 asserts commented out with the reason), the kept-line gate fixtures, authored names, the line break in a path and the setter refusals, plus the C-only array read and copy-out fixtures. `mem_bounds.c` and `veneer_smoke.cpp` moved to brackets too, and `veneer_smoke.cpp` checks the backtick flag and the new token fields.
 			- `mem_bounds.c` parsed a 24-byte schema with a length of 25, so its NUL made a third line. That line now binds as a misspelled name and broke the generation loop; the length is 24.
 			- Verified: the C runner (unit tests pass, corpus as above), the same for the windows build under wine, sanitize-c (no sanitizer report; the corpus runner fails only its 100 cases), check-c-compilers (140 builds, gcc 12 to 15 and clang, all five levels), cppcheck at the normal check level, check-veneer, veneer_smoke, mem_bounds, oom_hook, oom_recover, test-ids check, gen-escapes, check-docs. shell-regress fails the same 2 as on `valsyn`. Not run: cppcheck at the exhaustive level, left for the full run.
 			- Left for part 2: `- ` items, `E013`, `E026` in items with `E010` retired, `E027`, `E028` (a C setter can still put a field under an array), merge output, stacked lists kept stacked, comments on items, the list join and index move, and 2026100511210900's save refusal. Part 3: parens, `E029`, `migrate`, dropping `[#N]`, and the 2.x helpers left for it.
@@ -6056,11 +6156,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- In: what Go's and Python's part 2 have. A setter refuses a field under an array and an array over fields (`E028`), and the CLI says which. `- ` items, `E013` for a `*` line, `E026` for a bare comma in an item, kept among the items, with `E010` retired, and `E027`. `E028` when a field binds under an array line, the line kept and written in place of the field's own. `fmt` and the writer keep a `- ` list stacked, and a comment on an item stays on its item. A merge writes every list in brackets. An array setter keeps a stacked list stacked.
 			- Also in: the list join, with the moved fields refiled in the name index, the settle moving the gap's lines before the join, and `remove` joining too. 2026100511210900's save refusal, with the keep-lines save checking for that list only when the source was canonical. `explain` for these codes, `explain E010` pointing to `E026`, and `tokens` printing `item`.
 			- C++ interface: no new public C call, so nothing new to wrap.
-			- Calls made: the fixture holding edits and merges to a reload is `EonWXt2` in C. It writes `- ` now and, like Go's `Eqk24na` and Python's `Eqk24nb`, stops a run that builds the list no text loads back and checks the save refuses; that happens 20 times in its 3000 runs, as in Python. `shcl_quoted` gives a one-element array its element's flag (part 1's call), so the CLI's "an array takes no lines under it" check and that fixture tell an array from a quoted `"[x]"` by its element read. That matches the other bindings, where a string read of an array is never quoted. `shcl_compact` copies the tree without putting lists in brackets; only a merge's copies do. The new tests spell a selector in brackets until part 3.
+			- Calls made: the fixture holding edits and merges to a reload is `dc474` in C. It writes `- ` now and, like Go's `dd16m` and Python's `dd16n`, stops a run that builds the list no text loads back and checks the save refuses; that happens 20 times in its 3000 runs, as in Python. `shcl_quoted` gives a one-element array its element's flag (part 1's call), so the CLI's "an array takes no lines under it" check and that fixture tell an array from a quoted `"[x]"` by its element read. That matches the other bindings, where a string read of an array is never quoted. `shcl_compact` copies the tree without putting lists in brackets; only a merge's copies do. The new tests spell a selector in brackets until part 3.
 			- Corpus: 103 of 203 passed before, 130 after, the same 73 failing as Go and Python after their part 2.
 			- Crosscheck with Rust over the corpus: 1106 of 5952 comparisons diverged before, 713 after, the same comparisons Go's part 2 CLI diverged on. With a fuzz dump of 500 inputs plus its line-ending and kept-line sets added, C and Go's part 2 CLI diverge from Rust on the same 2897 of 13945. cli-regress for C: 74 rows failed before, 51 after, the same rows as Go after its part 2.
 			- 700 hand-made list documents through `fmt`, `check`, `tokens` and `paths`, a merge each way with another, and 98 setter ops each match Go's part 2 CLI on all 72800 runs, stderr and exit code included, but for 1 that differs by the clock second in a setter's note. The first 400 match the Rust CLI the same way on 41600 runs. The first pass found 134 refusal messages that differed, which is the `"[x]"` call above.
-			- Tests: `Es1gWRs` to `Es1gWRx` match Python's `ErylLpa` to `ErylLpf`. `Es1gWRs`, `Es1gWRu`, `Es1gWRw` and `Es1gWRx` fail on the code before. `Es1gWRt` and `Es1gWRv` pass there, as their twins did, since that code never joined a list; each fails with its fix taken out (the index move, the second join pass). Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
+			- Tests: `ddmbk` to `ddmbr` match Python's `ddkn9` to `ddkn8`. `ddmbk`, `ddmbn`, `ddmbq` and `ddmbr` fail on the code before. `ddmbm` and `ddmbp` pass there, as their twins did, since that code never joined a list; each fails with its fix taken out (the index move, the second join pass). Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
 			- Verified: the C runner (unit tests pass, corpus as above), the same for the windows build under wine, sanitize-c (no sanitizer report; the corpus runner fails only its 73 cases), check-c-compilers (140 builds, gcc 12 to 15 and clang, all five levels), cppcheck at the normal check level, check-veneer, veneer_smoke, mem_bounds, test-ids check. perf-gate passes but for `selectors`, whose document uses parens. Not run: cppcheck at the exhaustive level, left for the full run.
 			- Left for part 3: parens, `E029`, `migrate`, dropping `[#N]`, the 2.x helpers left for it, the help text's "quotes and parens", and `explain` for E002, E003, E029 and V097.
 		- 20261007: chunk F part 3a, C selectors in parens (2026100610073400), on `vsc3`, off `valsyn`. Library, CLI and the C++ interface, `migrate` aside.
@@ -6069,8 +6169,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Calls made: none new. As in Python's part 3a, `index_shape` still takes 2.x's `#` for `migrate`.
 			- Corpus: 130 of 203 passed before, 196 after. The 7 left fail only on `migrate`: 118, 119, 122, 123, 124, 170 and 174.
 			- Crosscheck with Rust over the corpus: 713 of 5952 comparisons diverged before, 68 after, every one a `migrate` run. 198 hand-made selector documents through `fmt`, `check`, `tokens` and `paths`, and 48 paths through the read commands, the four `--set` forms, `--remove` and 5 ops, match Rust on all 2232 runs, stderr and exit code included; 1608 differed before. 9 schemas with selector paths match it through `check --schema` and `init`. `--help`, every `help CMD` and all 46 `explain` texts match.
-			- cli-regress for C: 51 rows failed before, 12 after, all `migrate`: `Ervnzpd`, `Ervnzpe`, `Ers2pOu` to `Ers2pOz`, `ErpaTy3`, `Erwf3oC`, `Erwf3oD` and `Erxvsaw`.
-			- Tests: `Es1qzv8` and `Es1qzxJ` match Python's `ErysKPJ` and `ErysKS0`. `Es1qzv8` fails on the code before, with its tokenizer lines taken out since the field is new. `Es1qzxJ` passes there, as its twins did, since part 1 already gave an array no selector body; it fails with that check taken out. Part 1's 4 commented paren rows in `bare_text` are back on and fail on the code before. Parts 1 and 2's fixtures and `list_after_empty` now use parens, and so do `mem_bounds.c`'s wildcard writes.
+			- cli-regress for C: 51 rows failed before, 12 after, all `migrate`: `ddjyq`, `ddjyr`, `ddj1m` to `ddj1s`, `ddhet`, `ddk52`, `ddk53` and `ddkep`.
+			- Tests: `ddmcw` and `ddmcx` match Python's `ddknz` and `ddkp0`. `ddmcw` fails on the code before, with its tokenizer lines taken out since the field is new. `ddmcx` passes there, as its twins did, since part 1 already gave an array no selector body; it fails with that check taken out. Part 1's 4 commented paren rows in `bare_text` are back on and fail on the code before. Parts 1 and 2's fixtures and `list_after_empty` now use parens, and so do `mem_bounds.c`'s wildcard writes.
 			- Verified: the C runner (unit tests pass, corpus as above), the same for the windows build under wine, sanitize-c (no sanitizer report; the corpus runner fails only its 7 `migrate` cases), check-c-compilers (140 builds, gcc 12 to 15 and clang, all five levels), cppcheck at the normal check level, check-veneer, veneer_smoke, mem_bounds, oom_hook, oom_recover, test-ids check, check-docs, perf-gate (`selectors` included), and check-readme in full, the C and C++ examples included. shell-regress fails the same 2 as on `valsyn`. Not run: cppcheck at the exhaustive level, left for the full run.
 			- Left for part 3b: `migrate`, which still writes brackets, with its 7 corpus cases and 12 cli-regress rows, and the 2.x helpers left for it.
 		- 20261007: chunk F part 3b, C `migrate` (2026100610073400's `migrate` half too), on `vsc3b`, off `valsyn`. Library and CLI.
@@ -6081,7 +6181,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. All four bindings over the corpus plus a fresh fuzz dump of 500 inputs with its line-ending and kept-line sets: none of 41835 diverge.
 			- cli-regress for C: 12 rows failed before, none after. C and Rust both pass every row.
 			- check-migrate pointed at the C CLI passes the same way it does for Go and Python (638 documents, 28 lost counts), and it has 192 divergences on the C CLI before.
-			- Tests: `Es1ySon` to `Es1ySou` match Python's `Es1eIOp` to `Es1eIOw`. Each failed on the code before.
+			- Tests: `ddmdt` to `ddme1` match Python's `ddmba` to `ddmbh`. Each failed on the code before.
 			- Verified: the C runner (unit tests pass, corpus 203 of 203), the same for the windows build under wine, sanitize-c (no sanitizer report, its runner green), check-c-compilers (140 builds, gcc 12 to 15 and clang, all five levels), cppcheck at the normal check level, check-veneer, veneer_smoke and its windows build under wine, mem_bounds, oom_hook, oom_recover, test-ids check, check-docs, check-readme, crosscheck, cli-regress for C and Rust, check-migrate against the C CLI. Not run: cppcheck at the exhaustive level, left for the full run.
 			- No new calls. The C port is done, and with it the ports: Go, Python and C all follow the Rust reference now.
 	- Decisions:
@@ -6117,21 +6217,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Steps to reproduce:
 		- Run the full `--ci` on valsyn, or a hosted run.
 	- Incorrect behavior: 3 gate rows fail on the test, not the CLI, and block the valsyn merge to dev.
-		- shell-regress `Ep19Ax8`: its fixture's field `-dash` is `E014` now, so the quoted `--` row reads nothing.
-		- shell-regress `Ep1BXPn`: largedoc's generated document writes `tags: a, b` and `* ` items. At 1 MiB it loads with 35230 errors and its long array reads back 0 of 20000.
-		- cli-regress `EqTPxzc`, on the hosted windows job only: its stderr regex has a `.` for each `◉`, which is 3 bytes. msys bash runs grep in a byte locale, so a `.` matches 1 byte there.
+		- shell-regress `dc7g1`: its fixture's field `-dash` is `E014` now, so the quoted `--` row reads nothing.
+		- shell-regress `dc7gc`: largedoc's generated document writes `tags: a, b` and `* ` items. At 1 MiB it loads with 35230 errors and its long array reads back 0 of 20000.
+		- cli-regress `dcx6q`, on the hosted windows job only: its stderr regex has a `.` for each `◉`, which is 3 bytes. msys bash runs grep in a byte locale, so a `.` matches 1 byte there.
 	- Expected behavior: the rows test what they were written for.
-	- Reproduced: 20261007. Both shell-regress rows fail as in the gate log. `EqTPxzc` fails under `LC_ALL=C` and passes under UTF-8.
+	- Reproduced: 20261007. Both shell-regress rows fail as in the gate log. `dcx6q` fails under `LC_ALL=C` and passes under UTF-8.
 	- Actual cause: fixtures and a generator written for the old syntax, and a regex that only works in a UTF-8 locale.
 	- Actual fix:
-		- `Ep19Ax8` writes the field as `"-dash": 5`, so the row still checks that a quoted `--` gets a dot-sourced pwsh `shcl` to a name starting with `-`. `EpHNNhw`'s `dash-arg` row had the same fixture and passed only because the binary and the wrappers gave the same `E014`. It is quoted too.
+		- `dc7g1` writes the field as `"-dash": 5`, so the row still checks that a quoted `--` gets a dot-sourced pwsh `shcl` to a name starting with `-`. `dcbcw`'s `dash-arg` row had the same fixture and passed only because the binary and the wrappers gave the same `E014`. It is quoted too.
 		- largedoc's generator writes `tags: [fast, "eu, west", cheapN]` and `- ` items for `burst` and `wide`. Its other lines were already fine.
-		- `EqTPxzc` has the `◉` mark itself in the regex, which matches in either locale.
+		- `dcx6q` has the `◉` mark itself in the regex, which matches in either locale.
 	- Note: the profiler workload is the same generator at 4 MiB. It loaded with errors on valsyn and loads clean now, so its numbers may move.
-	- Swept: cli-regress for all four CLIs under `LC_ALL=C` fails only `EqTPxzc`. Of the regex rows whose stderr has a non-ASCII byte (7), only `EqTPxzc` used `.` for the mark. A grep over `cicd/` and `.github/` for a regex `.` beside an escape name, `©` or other non-ASCII text found no others. cli-regress's own `-h` field fixture (`EqzuLVq`) was already quoted.
-	- Verified: shell-regress passes, with `Ep19Ax8`, `EpHNNhw` and `Ep1BXPn` ok. largedoc at 1 MiB passes all 5 of its tests for the four CLIs, where before it failed `Eojtm8u` and `EnPl0qI`. cli-regress passes for all four CLIs under UTF-8 and under `LC_ALL=C`. test-ids check and shellcheck pass.
+	- Swept: cli-regress for all four CLIs under `LC_ALL=C` fails only `dcx6q`. Of the regex rows whose stderr has a non-ASCII byte (7), only `dcx6q` used `.` for the mark. A grep over `cicd/` and `.github/` for a regex `.` beside an escape name, `©` or other non-ASCII text found no others. cli-regress's own `-h` field fixture (`dd50t`) was already quoted.
+	- Verified: shell-regress passes, with `dc7g1`, `dcbcw` and `dc7gc` ok. largedoc at 1 MiB passes all 5 of its tests for the four CLIs, where before it failed `dc3b8` and `dbfk5`. cli-regress passes for all four CLIs under UTF-8 and under `LC_ALL=C`. test-ids check and shellcheck pass.
 	- Not verified: the hosted windows job. The next hosted run covers it.
-	- Test case: shell-regress `Ep19Ax8` and `Ep1BXPn`, cli-regress `EqTPxzc`. Each failed before and passes now, `EqTPxzc` under `LC_ALL=C`.
+	- Test case: shell-regress `dc7g1` and `dc7gc`, cli-regress `dcx6q`. Each failed before and passes now, `dcx6q` under `LC_ALL=C`.
 	- Acceptance signoff: Self-closed: mechanical fixture fixes, and the tests failed before and pass after.
 	- Branch: `vsgate`
 	- Commit: `ad9c8510`
@@ -6149,17 +6249,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: `vslex` off `valsyn`
 	- Steps to reproduce:
 		- Load `a: [1]` / `\t\t": ` / `\t d-: 2` / `\te: 3`, then `clear_comments` on `a.d`, `set_empty` on `a.c`, `set_raw` on `b.c`, and save. Remove `a.c` from that document, and from a reload of the saved text.
-	- Incorrect behavior: the document keeps `\t# d-: 2`, a misplaced line the settle wrote as a comment, and the reload drops it with the removed field's comments. Fuzz `Eqk24nZ` fails on it.
+	- Incorrect behavior: the document keeps `\t# d-: 2`, a misplaced line the settle wrote as a comment, and the reload drops it with the removed field's comments. Fuzz `dd16k` fails on it.
 	- Expected behavior: the same text either way.
 	- Reproduced: 20261005, Rust, on dev's code with the line above, and on `vslex` with `a:` and a line separator in place of `a: [1]`. The 2,000,000 release fuzz on `vslex` finds 6 such inputs, the first at iteration 9285, so the 200,000 debug fuzz in `--ci` fails too. Dev's seed set never reached one. The value syntax keeps far more lines, so it reaches this often now.
 	- Estimated effort: Avg
 	- Actual effort: Avg
-	- Actual cause [Bug]: the libraries follow design.md's table. A remove leaves a kept line beside its target, and a line the settle wrote as a comment counts as kept. The reload of the canonical text reads that line as a plain comment, so its remove takes it. The two cannot agree, as 2026100307163901 recorded, so `Eqk24nZ` excuses that step. It excused it only when the target's comments above it differed, which misses a settled line below the target. One sits there when a new field goes between a block's last kept line and a settled line after it, where 2026100117214802 puts it. A setter making a field from a kept line moves the lines under it into the new block, and the value syntax keeps far more such lines.
+	- Actual cause [Bug]: the libraries follow design.md's table. A remove leaves a kept line beside its target, and a line the settle wrote as a comment counts as kept. The reload of the canonical text reads that line as a plain comment, so its remove takes it. The two cannot agree, as 2026100307163901 recorded, so `dd16k` excuses that step. It excused it only when the target's comments above it differed, which misses a settled line below the target. One sits there when a new field goes between a block's last kept line and a settled line after it, where 2026100117214802 puts it. A setter making a field from a kept line moves the lines under it into the new block, and the value syntax keeps far more such lines.
 	- Note: the table settles which side is wrong. It says the document keeps the line, and that a reload reads it as a plain comment. Making the two agree would mean a remove takes the line, as a merge already does for a replaced leaf. That drops the user's line and reverses the table's note, so it was not done. The fix is in the tests only, so it is easy to undo if that call changes.
-	- Actual fix [Bug]: no library change. The excuse in `Eqk24nZ` and its Go, Python and C twins now checks what differs, wherever it sits. The reload's comment lines must be some of the document's, in order, and with comment and blank lines left out the two must load as one document. Before, any difference in the target's comments excused the whole step.
-	- Swept: the reload property in all four, Rust and Python `edits_and_merges_match_a_reload`, Go `TestEditsAndMergesMatchAReload`, C `edits_and_merges_match_a_reload`. No other test excuses a step by its comments. `EreT6dh` already expects a line beside a removed target to stay.
-	- Verified: `Eqk24nZ` at 2,000,000 in release, on dev and on `valsyn` with the Rust change alone. On `valsyn` it failed at iteration 9285 before. On dev, every step the old excuse let through, 11,726 of them, passes the new check, and no other step needed it. The new fixture fails in all four with the check forced either way, and in Rust when the remove takes the settled line. The four conformance suites, cargo test, go test, clippy, cargo fmt, cli-regress, crosscheck, check-docs and the test ID check pass.
-	- Test case: `a_remove_keeps_a_settled_line_below_it`, the issue's steps with `a: [1`, which stays a refused value under the value syntax, as `ErpmA09` (Rust), `ErpmA2G` (Go), `ErpmA4L` (Python) and `ErpmA6K` (C); fuzz `Eqk24nZ` at 2,000,000.
+	- Actual fix [Bug]: no library change. The excuse in `dd16k` and its Go, Python and C twins now checks what differs, wherever it sits. The reload's comment lines must be some of the document's, in order, and with comment and blank lines left out the two must load as one document. Before, any difference in the target's comments excused the whole step.
+	- Swept: the reload property in all four, Rust and Python `edits_and_merges_match_a_reload`, Go `TestEditsAndMergesMatchAReload`, C `edits_and_merges_match_a_reload`. No other test excuses a step by its comments. `dderx` already expects a line beside a removed target to stay.
+	- Verified: `dd16k` at 2,000,000 in release, on dev and on `valsyn` with the Rust change alone. On `valsyn` it failed at iteration 9285 before. On dev, every step the old excuse let through, 11,726 of them, passes the new check, and no other step needed it. The new fixture fails in all four with the check forced either way, and in Rust when the remove takes the settled line. The four conformance suites, cargo test, go test, clippy, cargo fmt, cli-regress, crosscheck, check-docs and the test ID check pass.
+	- Test case: `a_remove_keeps_a_settled_line_below_it`, the issue's steps with `a: [1`, which stays a refused value under the value syntax, as `ddhfy` (Rust), `ddhfz` (Go), `ddhg0` (Python) and `ddhg1` (C); fuzz `dd16k` at 2,000,000.
 	- Branch: `settledrm`
 	- Commit: `002b821f`
 	- Acceptance signoff: Self-closed: the fuzz failed before and passes after on `valsyn`, and the table settles which side keeps the line.
@@ -6170,7 +6270,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Needs external testing: the hosted windows job. Its win-runners row `ErkQHTh` runs both scripts under 5.1 and 7, and the `.cmd` launcher.
+	- Needs external testing: the hosted windows job. Its win-runners row `ddg6q` runs both scripts under 5.1 and 7, and the `.cmd` launcher.
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 5
 	- Version and build: dev at `6e8b7f89`
@@ -6192,13 +6292,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261004: in a session, an unquoted `-x:y` loses its `-x:` on the way to the binary, in both scripts. That is a different cause, filed as 2026100408550401.
 		- 20261004: also fixed: `-k:$true` made the dogfood runner skip its update, since that boolean on the left of `-ceq` equals any word.
 		- 20261004: `-?` stays with PowerShell. It is how every PowerShell command shows its help, the binary refuses it anyway, and passing it on would mean dropping both help blocks. Both blocks now say to run `--help` for shcl's own help.
-		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, win-runners `ErkQHTh` included under 5.1 and 7.
+		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, win-runners `ddg6q` included under 5.1 and 7.
 	- Actual fix [Bug]: started by `-File`, which leaves no invoking line, `shcl.ps1` and `dogfood_shcl.ps1` take their arguments from the process's own argument list, after the entry naming the script. With no such entry, or from a session, `$args` is used as before. The launchers are unchanged.
 	- Swept: `shcl.ps1`, `dogfood_shcl.ps1`, and the launchers `utility/dogfood_shcl` and `dogfood_shcl.cmd`. `install.ps1`, `shclpath.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1` have param blocks and pass nothing through.
 	- Verified: shell-regress, check-docs, PSScriptAnalyzer on both scripts, shellcheck, `test-ids.py check`.
 	- Branch: `psargs`
 	- Commit: `cbda6273`
-	- Test case: shell-regress `ErkOqpb` (`shcl.ps1` by `-File` and as pwsh's first word, and the steps above on the real binary) and `ErkOqsp` (the bash launcher); win-runners `ErkQHTh`.
+	- Test case: shell-regress `ddg6m` (`shcl.ps1` by `-File` and as pwsh's first word, and the steps above on the real binary) and `ddg6j` (the bash launcher); win-runners `ddg6q`.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
 	- Closed: 20261004-114043
 
@@ -6226,10 +6326,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: an old block comes off from the lone `##` above its first line to the next lone `##`. With that closing line gone, it ends after its last line written the block's way. A Format line `migrate` stamped comes off with the migrated note under it. Every other comment stays. All four bindings, their doc comments and the spec say so.
 	- Swept: `drop_banners` in Rust and C, `dropBanners` in Go, `_drop_banners` in Python, and the four `set_banner` doc comments. The C++ veneer only wraps `shcl_set_banner`, and its comment says nothing about comments. Nothing else removes the block: `git grep "This config file format is SHCL"` finds the constants, the runners' init checks and the corpus. `format_line_version` only reads the Format line.
 	- Verified: corpus 190 and the four new cli-regress tests fail on dev's code in all four bindings and pass on the branch. Also the four conformance suites, `cargo test`, the Go tests, cli-regress, crosscheck over the corpus and a fresh fuzz dump, check-docs, shell-regress, the test ID check, clippy for linux and windows, go vet, staticcheck, ruff, mypy, check-veneer, the veneer smoke test, the C runner under ASan and UBSan, and a gcc 15 fortified build.
-	- Note: the 2,000,000 release fuzz is green but for `EreT6dh`, which fails at iterations 558881 and 1061439 with dev's library as well, and with no banner op in either. The first is a misplaced `E012` line opening a raw block, which the property excuses only for `E014`. The second is kept lines lost by a canonical save after a merge and a raw set. Neither is this item.
+	- Note: the 2,000,000 release fuzz is green but for `dderx`, which fails at iterations 558881 and 1061439 with dev's library as well, and with no banner op in either. The first is a misplaced `E012` line opening a raw block, which the property excuses only for `E014`. The second is kept lines lost by a canonical save after a merge and a raw set. Neither is this item.
 	- Branch: `bannerkeep`
 	- Commit: `6c00b70d`
-	- Test case: corpus `190-banner-own-comments` (`Erg8DKu`). cli-regress `Erg8DKv` and `Erg8DKw` run `banner off` and `banner on` on the review's file. `Erg8DKx` and `Erg8DKy` run `migrate --from-2x --write` then `banner on`, without and with the migrated note.
+	- Test case: corpus `190-banner-own-comments` (`ddf5q`). cli-regress `ddf5r` and `ddf5s` run `banner off` and `banner on` on the review's file. `ddf5t` and `ddf5v` run `migrate --from-2x --write` then `banner on`, without and with the migrated note.
 	- Acceptance signoff: 20261003, signed off.
 	- Closed: 20261003-162005
 
@@ -6255,7 +6355,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `check-push-gate.bash` passes. With the hook's call taken out, six of its eight new tests go red. The plain `sort -V` order, a tail match on the remote's tags, and dropping the delete or spec checks each turn their test red. shellcheck, `test-ids.py check` and `check-docs.bash` pass. Against origin on dev, at 2.0.0, the check passes with no tag due.
 	- Branch: `bannertag`
 	- Commit: 62c1033f
-	- Test case: `check-push-gate` `ErUaPZV`, `ErUaPbL`, `ErUaPd9`, `ErUaPf2`, `ErUawc7`, `ErUaPgt`, `ErUaPj3`, `ErUaPkx`.
+	- Test case: `check-push-gate` `ddccv`, `ddccw`, `ddccx`, `ddccy`, `ddcd2`, `ddccz`, `ddcd0`, `ddcd1`.
 	- Acceptance signoff: Self-closed: does what the decision asked, and its tests were seen to fail with the check removed.
 	- Closed: 20261001-155818
 
@@ -6381,7 +6481,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261007: `check-migrate.bash` runs every document it compares through `upgrade --write`, with and without `--from-2x`, on the Rust CLI as the rest of it does. A rewrite has to leave the original bytes at `cfg_backup_20261004-001500_format-v2.shcl` (`SHCL_TEST_CLOCK`) and nothing else beside it. The fresh file has to load clean, have the info block once, read the same as `migrate --from-2x`'s text, and be left alone by a second run with or without the flag. A file left alone has to keep its bytes.
 		- With `--from-2x` a file is expected to be rewritten when it loads with an error, or loads clean and `migrate` still changes it (`p: a,b`). Without the flag a clean file is current, and one with an error is either rewritten to the same fresh file or refused at 7, as `migrate` refuses it. Each of those ways has to be taken by some document, or the test fails.
 		- A file naming Format 3 is never touched, with or without the flag: the corpus inputs that name it, plus one that loads with errors.
-	- Test case: check-migrate `Es34DZj` (upgrade on every compared document) and `Es34DZk` (Format 3 left alone). Each failed with the library broken: a backup with other bytes, no info block, the fresh file built from the unmigrated text, the Format 3 and clean-unchanged early returns taken out, the ambiguity ignored, a fresh file that differs without the flag, and `migrate` not refusing ambiguous text.
+	- Test case: check-migrate `ddmp7` (upgrade on every compared document) and `ddmp8` (Format 3 left alone). Each failed with the library broken: a backup with other bytes, no info block, the fresh file built from the unmigrated text, the Format 3 and clean-unchanged early returns taken out, the ambiguity ignored, a fresh file that differs without the flag, and `migrate` not refusing ambiguous text.
 	- Verified: check-migrate passes (638 compared, 288 rewritten with `--from-2x`, 22 of them clean, 234 without, 350 left alone, 32 refused at 7, 7 naming Format 3), shellcheck, test-ids check, check-docs. A one-off copy pointed at the Go, C and Python CLIs passed too.
 	- Decision: 20261007, OK'd by JC: the upgrade checks run on the Rust CLI only, like the rest of check-migrate. Python alone takes about 30 minutes there.
 	- Acceptance signoff: Self-closed: the item's intent was clear, the gate passes and each new check was seen to fail.
@@ -6440,16 +6540,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Left for the ports:
 			- Mirror `upgrade`, `upgrade_file`, `backup_file_name`, `write_backup`, the error type and the CLI subcommand. The help text is byte-identical across the CLIs, so copy it from `main.rs`.
 			- `drop_banners` takes a mark, `#` for 2.x's block, and `set_banner` goes through `swap_banner(on, v2)`. The clock is `clock_now()`, beside `note_stamp()`.
-			- The `from_v2` rule above: a clean load returns current only without `from_v2`, or when the unstamped migrate leaves the text as it was (Rust `upgrade`, `Es2a1Jt`; rows `Es2a1Ju`, `Es2a1Jv`).
+			- The `from_v2` rule above: a clean load returns current only without `from_v2`, or when the unstamped migrate leaves the text as it was (Rust `upgrade`, `ddmjf`; rows `ddmjg`, `ddmjh`).
 			- Each CLI's `migrate --write` drops `_old_v2` for `backup_file_name`.
-			- cli-regress `Er5qICu`, the `migrate-*` save cases, the 3 windows migrate rows and `Er5qICw` expect the new name, so Go, Python and C fail them until ported. The per-binding clear in cli-regress and the one in sanitize-c remove both names. Drop `_old_v2` from both once all four have moved.
-			- Rows `Es2Rg1E` to `Es2Rg1P`, `Es2RuBA`, `Es2a1Ju` and `Es2a1Jv` run against every binding. Each port gets its own twins of the 7 Rust tests in `tests/upgrade.rs`.
+			- cli-regress `dd6ee`, the `migrate-*` save cases, the 3 windows migrate rows and `dd6eg` expect the new name, so Go, Python and C fail them until ported. The per-binding clear in cli-regress and the one in sanitize-c remove both names. Drop `_old_v2` from both once all four have moved.
+			- Rows `ddmhh` to `ddmhw`, `ddmhx`, `ddmjg` and `ddmjh` run against every binding. Each port gets its own twins of the 7 Rust tests in `tests/upgrade.rs`.
 			- The changelog line doesn't say "in every binding" yet. Add that with the last port.
 			- The C++ interface wraps the new C calls (`check-veneer.bash`).
-		- 20261007: the Go part is in (`upgo`), CLI and `migrate --write` included. Its result type is `Upgraded`, since Go can't name a type and a call both `Upgrade` (noted in the style guide). Go tests `Es2fwnG` to `Es2fx19` twin the 7 Rust ones, and each fails with its part taken out. Verified: go test, go vet and staticcheck, cli-regress and crosscheck for Rust and Go, check-migrate on the Go CLI, help at 80 columns, test-ids check.
-		- 20261007: the Python port, on `uppy`. Python tests `Es2k1AZ` to `Es2k1Qn` match `Es2R4RP`, `Es2a1Jt`, `Es2R4TW`, `Es2R4Vy`, `Es2R4YD`, `Es2R4aS` and `Es2R4ch`, and each failed before it. Python raises `UpgradeNotFound`, `UpgradeAmbiguous`, `UpgradeBackupTaken` or `UpgradeFailed`, all under `UpgradeError`, as a save raises `SaveRefused` or `SaveFailed`. cli-regress, crosscheck and check-migrate pass for the Python CLI.
-		- 20261007: the C port, with the C++ interface, on `upc`. It was the last one, so the changelog line says "in every binding" now, and cli-regress and sanitize-c no longer clear `_old_v2`, since nothing writes that name. C names the result `shcl_upgraded`, beside its `shcl_upgrade` call (noted in the style guide), and `shcl_upgrade_error` is an enum with the message handed back beside it. C tests `Es2qPd0` to `Es2qPd6` twin the 7 Rust ones, and each fails with its part taken out. 24 cli-regress migrate and upgrade rows failed on the C CLI before. Verified: the C runner (203 of 203) and its windows build under wine, sanitize-c, check-c-compilers (all 5 levels), cppcheck at the normal level, check-veneer, veneer_smoke and its windows build under wine, cli-regress for C and Rust, crosscheck (no divergences), check-migrate on the C CLI, help at 80 columns, test-ids check, check-docs, check-readme. Over the 203 corpus inputs, `upgrade` with and without `--from-2x`, printed and with `--write`, matches Rust byte for byte under ASan and UBSan.
-	- Test case: Rust `tests/upgrade.rs`, `Es2R4RP` to `Es2R4ch` and `Es2a1Jt`; cli-regress `Es2Rg1E` to `Es2Rg1P`, `Es2RuBA`, `Es2a1Ju` and `Es2a1Jv`. `Es2R4RP`, `Es2R4TW` and `Es2R4ch` each fail with their part of the change taken out. `Es2a1Jt` failed on `60d0196c` and passes after. `Es2R4RP` now checks the clean file without `from_v2`, since the from_v2 call changed that case.
+		- 20261007: the Go part is in (`upgo`), CLI and `migrate --write` included. Its result type is `Upgraded`, since Go can't name a type and a call both `Upgrade` (noted in the style guide). Go tests `ddmk7` to `ddmkd` twin the 7 Rust ones, and each fails with its part taken out. Verified: go test, go vet and staticcheck, cli-regress and crosscheck for Rust and Go, check-migrate on the Go CLI, help at 80 columns, test-ids check.
+		- 20261007: the Python port, on `uppy`. Python tests `ddmkq` to `ddmkx` match `ddmhb`, `ddmjf`, `ddmhc`, `ddmhd`, `ddmhe`, `ddmhf` and `ddmhg`, and each failed before it. Python raises `UpgradeNotFound`, `UpgradeAmbiguous`, `UpgradeBackupTaken` or `UpgradeFailed`, all under `UpgradeError`, as a save raises `SaveRefused` or `SaveFailed`. cli-regress, crosscheck and check-migrate pass for the Python CLI.
+		- 20261007: the C port, with the C++ interface, on `upc`. It was the last one, so the changelog line says "in every binding" now, and cli-regress and sanitize-c no longer clear `_old_v2`, since nothing writes that name. C names the result `shcl_upgraded`, beside its `shcl_upgrade` call (noted in the style guide), and `shcl_upgrade_error` is an enum with the message handed back beside it. C tests `ddmmg` to `ddmmp` twin the 7 Rust ones, and each fails with its part taken out. 24 cli-regress migrate and upgrade rows failed on the C CLI before. Verified: the C runner (203 of 203) and its windows build under wine, sanitize-c, check-c-compilers (all 5 levels), cppcheck at the normal level, check-veneer, veneer_smoke and its windows build under wine, cli-regress for C and Rust, crosscheck (no divergences), check-migrate on the C CLI, help at 80 columns, test-ids check, check-docs, check-readme. Over the 203 corpus inputs, `upgrade` with and without `--from-2x`, printed and with `--write`, matches Rust byte for byte under ASan and UBSan.
+	- Test case: Rust `tests/upgrade.rs`, `ddmhb` to `ddmhg` and `ddmjf`; cli-regress `ddmhh` to `ddmhw`, `ddmhx`, `ddmjg` and `ddmjh`. `ddmhb`, `ddmhc` and `ddmhg` each fail with their part of the change taken out. `ddmjf` failed on `60d0196c` and passes after. `ddmhb` now checks the clean file without `from_v2`, since the from_v2 call changed that case.
 	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, the upgrade tests on windows-gnu under wine, cli-regress for Rust, check-migrate, check-docs, check-completions, test-ids check, shellcheck, markdownlint, and the 2,000,000 release fuzz (all 25). shell-regress fails the same 2 as on `valsyn`. Over the 203 corpus inputs, `upgrade --from-2x` rewrote 71, each one a fixpoint of `upgrade` and of `fmt`, with the same paths as `migrate --from-2x`.
 	- Verified: 20261007, on `upgbak` at `5c4221bf` with dev merged in: the full `--ci` (2032 ok, tree recorded) and hosted run 37680667248 (ci, windows, macos and go-floor green).
 	- Branch: `upgbak`
@@ -6491,7 +6591,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Writer: `InstancePaths()`, `init`'s lines and the CLI help write parens. `Paths()` and `QuoteSegment` already quote a name with a paren in it. The stale `gen_selector_text` doc comment is fixed.
 			- Corpus: 75 cases moved to parens, new case 203. The migrate cases 118, 122, 170 and 174 keep their 2.x inputs, so loaded as they are their selector lines are `E029` now, and their reads moved with that.
 			- cli-regress: 14 new rows, 30 edited in place. perf-gate's selector workload, check-docs' lookups into the comparison results and the demo's `get` step use parens.
-			- The 2,000,000 release fuzz found the fmt fixpoint property missing the excuse the setter property has for 2026100511210900's list, which a kept array line can build. Older than this change. Fixed in the property, test `Erxfmqc`.
+			- The 2,000,000 release fuzz found the fmt fixpoint property missing the excuse the setter property has for 2026100511210900's list, which a kept array line can build. Older than this change. Fixed in the property, test `ddkd8`.
 		- 20261006: calls made in the Rust part that the doc does not settle. Each is easy to reverse.
 			- `E029` comes before every other fault in the path and the name, so `base[New York]:` says brackets first. Its level opens only when the body reads clean as a value. An index or a wildcard in brackets opens nothing, so the lines under `item[0]:` are `E018`, as under `item(0):`.
 			- A nested pair, `x(a(b))`, is `E014`, since the body ends at the first `)`, as `x[a[b]]` did. Only a lone `(` in a bare body is `E025`.
@@ -6501,7 +6601,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A value with a paren is written bare.
 		- 20261006: left for the next pieces.
 			- `migrate` still writes brackets. So `migrate_matches_expected` (118, 122, 170, 174), `migrate_escapes_a_real_mark`, `migrate_quotes_a_bare_selector_these_rules_refuse` and `migrate_leaves_what_reads_clean_now` fail, and check-migrate is at 579 divergences, partly because its read loop builds `[#i]` paths.
-			- check-docs fails `Er1z2hW` (no `E029` row in spec.md), `EqWax3I` (4 bracket samples in check-abnf) and `Eom0qpm`, and check-readme fails `EqRTWFg`, both on the README sample's bracket selector.
+			- check-docs fails `dd5gs` (no `E029` row in spec.md), `dcxz5` (4 bracket samples in check-abnf) and `dc3vj`, and check-readme fails `dcwqw`, both on the README sample's bracket selector.
 			- spec.md, grammar.abnf, check-abnf, design.md, value-syntax.md, README, the man page (its `--set` text and the `site[*]` example), the changelog, then the Go, Python and C ports.
 		- 20261006: `migrate` and the docs on `vsmig2`, off `valsyn`. Rust and docs only.
 			- In: `migrate` writes a 2.x selector in parens, `x[sel]` as `x(sel)`, an index and the wildcard included. A bare body these rules refuse, such as one with a space, a quote or a paren, is quoted. The `name:[disc]` sugar before the last segment loses its colon and goes in parens too.
@@ -6517,18 +6617,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- The README's Go, Python, C, C++ and Zig examples use parens too. So check-readme fails at its C example until the ports, where it failed at the Rust one before.
 			- The man page's migrate text still named `E024` and the old lost forms. It now matches spec.md, in short.
 		- 20261006: Rust and the docs are in. Status stays Started only because the Go, Python and C ports, with the C++ veneer, remain.
-		- 20261006: the Go port, `migrate` aside, on `vsgo3` with 2026100207032800's Go part 3a. Details there. The Go corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Go tests `Eryg0ZB` and `Eryg0bK` match `Erxfmqa` and `Erxfmqb`.
+		- 20261006: the Go port, `migrate` aside, on `vsgo3` with 2026100207032800's Go part 3a. Details there. The Go corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Go tests `ddkme` and `ddkmf` match `ddkd4` and `ddkd5`.
 			- No new calls. `Tokens.BracketSelector` is -1 when there is none, as `Misspelled` is. Go's `migrate`, then the Python and C ports with the C++ veneer, remain.
-		- 20261006: Go's `migrate` writes selectors in parens, on `vsgo3b` with 2026100207032800's Go part 3b. Go test `ErykhtI` matches `ErxqQLy`; the Python and C ports remain.
-		- 20261006: the Python port, `migrate` aside, on `vspy3` with 2026100207032800's Python part 3a. The Python corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Python tests `ErysKPJ` and `ErysKS0` match `Eryg0ZB` and `Eryg0bK`.
-		- 20261007: Python's `migrate` writes selectors in parens, on `vspy3b` with 2026100207032800's Python part 3b. Python test `Es1eIOu` matches `ErxqQLy`; the C port remains.
-		- 20261007: the C port, `migrate` aside, on `vsc3` with 2026100207032800's C part 3a. The C corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. C tests `Es1qzv8` and `Es1qzxJ` match `ErysKPJ` and `ErysKS0`.
-		- 20261007: C's `migrate` writes selectors in parens, on `vsc3b` with 2026100207032800's C part 3b. C test `Es1ySos` matches `ErxqQLy`. The ports are done.
+		- 20261006: Go's `migrate` writes selectors in parens, on `vsgo3b` with 2026100207032800's Go part 3b. Go test `ddkn5` matches `ddke1`; the Python and C ports remain.
+		- 20261006: the Python port, `migrate` aside, on `vspy3` with 2026100207032800's Python part 3a. The Python corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Python tests `ddknz` and `ddkp0` match `ddkme` and `ddkmf`.
+		- 20261007: Python's `migrate` writes selectors in parens, on `vspy3b` with 2026100207032800's Python part 3b. Python test `ddmbf` matches `ddke1`; the C port remains.
+		- 20261007: the C port, `migrate` aside, on `vsc3` with 2026100207032800's C part 3a. The C corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. C tests `ddmcw` and `ddmcx` match `ddknz` and `ddkp0`.
+		- 20261007: C's `migrate` writes selectors in parens, on `vsc3b` with 2026100207032800's C part 3b. C test `ddmdz` matches `ddke1`. The ports are done.
 	- Branch: `vspar`, `vsmig2`, `vsgo3`, `vsgo3b`, `vspy3`, `vspy3b`, `vsc3`, `vsc3b`
 	- Commit: `c4da140e`, `df0eab64`, `dfb108ad`, `1fd8a1f1`, `a3a87c98`, `26ad66ec`, `63e19b96`, `2afe3638`
-	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row. `vsmig2`: conformance `ErxqQLy`, cli-regress `Erxvsaw`, and check-migrate `Eq5YPgP` with the bracket copies. Each failed on the code before; check-migrate had 35 divergences there.
+	- Test case: corpus 203 (`ddkcq`), conformance `ddkd4` and `ddkd5`, fuzz `ddkd8`, cli-regress `ddkcr` to `ddkd3`. Each failed on the code before but `ddkd7`, a pinning row. `vsmig2`: conformance `ddke1`, cli-regress `ddkep`, and check-migrate `dcqf3` with the bracket copies. Each failed on the code before; check-migrate had 35 divergences there.
 	- Verified: cargo test but the 4 `migrate` tests above, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck, markdownlint. shell-regress fails the same 2 as on `valsyn`. The 2,000,000 release fuzz passes all 25.
-		- `vsmig2`: cargo test with all 4 `migrate` tests, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-abnf, gen-escapes, markdownlint, shellcheck, ruff and mypy. check-docs passes but `EpHGoa0`, which fails because dev's installers are not on main yet. check-readme's Rust example and transcripts pass; its C, C++, Go and Python examples fail until the ports. shell-regress fails the same 2. The 2,000,000 release fuzz passes all 25.
+		- `vsmig2`: cargo test with all 4 `migrate` tests, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-abnf, gen-escapes, markdownlint, shellcheck, ruff and mypy. check-docs passes but `dcbc2`, which fails because dev's installers are not on main yet. check-readme's Rust example and transcripts pass; its C, C++, Go and Python examples fail until the ports. shell-regress fails the same 2. The 2,000,000 release fuzz passes all 25.
 	- Swept: every `x[...]` selector and `[#N]` in spec.md, grammar.abnf, design.md, value-syntax.md, README.md, the binding READMEs, the man page and the changelog's `## Unreleased`. What is left in brackets is the `E029` text, the 2.x side of the migration rows, and design.md's history entries.
 	- Verified: 20261007, on valsyn `aec9959b` with all four bindings: the full `--ci` (1989 ok, 0 FAIL, tree recorded), the 2,000,000 release fuzz (all 25 pass) and hosted run 37668959888 (ci, windows, macos and go-floor all green).
 	- Acceptance signoff: Self-closed: built in all four bindings with the docs, and the full gate and hosted run pass.
@@ -6559,7 +6659,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261004: the full local run passed on dev at `063df7f2`. Hosted run 37213067174 started on dev.
 		- 20261004: hosted run 37213067174 on dev passed, windows job included. Waits on signoff for the refusal wording.
 	- Branch: `keptgate`
-	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
+	- Test case: `dderx` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `dders`, `ddes3`, `ddert` (Rust), `ddes4`, `ddes5`, `ddes6` (Go), `ddes7`, `ddes8`, `ddes9` (Python), `ddesc`, `ddesd`, `ddese`, `ddesm` (C); the merge's two exceptions `ddez2`, `ddez3` (Rust), `ddez4`, `ddez5` (Go), `ddez6`, `ddez7` (Python), `ddez8`, `ddez9` (C); cli-regress `ddesk`; crosscheck `ddesf`.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
 
@@ -6604,13 +6704,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026100307310000
 	- Incorrect behavior:
 		- gcc 13 and 14 at `-O3` refuse `keep_text` in `shcl.h` with `-Wclobbered`, for a local of the inlined `keep_lines`. check-c-compilers failed 6 of 120 builds here, and the hosted ci job failed the same way.
-		- On the hosted windows job, cli-regress `Erls2v0` set a value of `/bin/bash`, and msys turned it into a Windows path before the CLI saw it.
+		- On the hosted windows job, cli-regress `ddgj0` set a value of `/bin/bash`, and msys turned it into a Windows path before the CLI saw it.
 	- Actual cause [Bug]: the save gate's kept-line count (`253a397b`) and later edits changed what gcc inlines into `keep_text`. The row's value only had to be a plain word; a leading `/` was never the point.
 	- Actual fix [Bug]: `keep_text` gets the same scoped `-Wclobbered` pragma as `do_parse`, since its recovery path reads only the volatile `own`. The row now sets `bash`.
 	- Swept: every other `SHCL_SETJMP` site built clean in all 120 builds. No other cli-regress row passes a `--set` value starting with `/`.
 	- Verified: check-c-compilers (120 builds over gcc 12 to 15 and clang) failed before and passes after; `gcc-14 -O3` on `mem_bounds.c` builds. cli-regress against Rust passes. The windows row runs at the next hosted run.
 	- Branch: `cifix`
-	- Test case: check-c-compilers `EoezJiE` and `EoaFuVN`; cli-regress `Erls2v0` on the hosted windows job.
+	- Test case: check-c-compilers `dc25g` and `dc112`; cli-regress `ddgj0` on the hosted windows job.
 	- Closed: 20261005-143000
 
 - Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
@@ -6631,7 +6731,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
 	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
 	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
-	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `dderx` skips this class through its row keyed by this ID, and the fix takes the row out.
 	- Estimated effort: Low
 	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
 	- Progress log:
@@ -6643,7 +6743,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (JC, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
 		- Rust has no crates to lean on here. Local time comes from `localtime_r` on POSIX and the Win32 time zone calls on Windows, declared by hand like the existing `ReplaceFile` ones.
 		- 20261004: setter half fixed in all four. A setter on a field opened from a kept line writes that line as the OK'd comment, then sets. The line is a plain comment from then on, as a reload reads it, so `ClearComments` and a remove of the field take it. `SHCL_TEST_CLOCK` pins the time for tests, and cli-regress and crosscheck set it. design.md's setter row, spec.md and the changelog say so.
-		- 20261004: `EreT6dh` had no row left for this item, since the remove half took it out. It now counts a setter's comment, by its note, as the line it was. A 300,000 run reached that path 8,516 times.
+		- 20261004: `dderx` had no row left for this item, since the remove half took it out. It now counts a setter's comment, by its note, as the line it was. A 300,000 run reached that path 8,516 times.
 		- Question: a setter that creates a field leaves a kept line naming it beside the new one, as the table's beside column says. From `a: [1]` and `y: 3`, `set a=5` writes `a: 5` at the end, and once line 1 is fixed `a` reads as Multiple. `--remove a.b --set a=1` on the item's file ends the same way. Should a setter comment that line out too?
 		- 20261004, answered: do what happens with two valid lines of one name. There a setter changes the first one. The setter made a second `a` only because the load could not read `a: [1]`, so the document had no `a` to change.
 		- So a setter that would create a field takes the first kept line of that name in the block as the field. It writes that line as the comment with its note, and the new line goes right under it. If a field of that name already loaded, the setter changes it and the kept line stays, as a second valid line would.
@@ -6651,14 +6751,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261004: create case fixed in all four. A setter writing `a` writes every kept `a` line in that block as the noted comment, the one heading the field included. It changes a loaded `a` in place, or puts the new line right under the first comment. The lines written under that kept line go under the new field. A field made on the way to the target does the same, since `set a.c=1` beside a kept `a: [1]` gave Multiple the same way.
 		- 20261004: two kinds of kept line are left as they were. One has a kept line under it and is not where the new field goes; as a comment it would leave that line under the field above. The other has a misplaced line under it, which does not move with it. Both came up in the fuzz runs.
 		- 20261004: a line the load dropped right after the kept line a new field goes under is not placed by the line-keeping save. So `set --write` refuses at 7 there, where it appended at exit 0 before. Nothing is lost, and `--lossy` writes it. Left as is.
-		- 20261004: `Eqk24nZ` failed once in a 2,000,000 run and passed on the rerun. It sets the same field on a document and on its reload, and each reads the clock, so a second can tick between the two. It now leaves the note's time out when it compares.
+		- 20261004: `dd16k` failed once in a 2,000,000 run and passed on the rerun. It sets the same field on a document and on its reload, and each reads the clock, so a second can tick between the two. It now leaves the note's time out when it compares.
 	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four. A setter on such a field writes its kept line as a comment with a note, then sets, in all four. A setter writing a field writes every kept line of its name in the block as that comment, and a new field goes right under the first, in all four.
 	- Swept: as 2026100307163901. Setter half: every setter in all four goes through one `set_value`. The other value writes are the parser's own fills and merge, whose row is 2026100313174974. Create case: a field is created through one `place` in all four, which the setters and `SetComment` share; only the setters comment out, as design.md's table says for `SetComment`.
 	- Verified: 20261004, the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump, check-docs, clippy for the host and windows, go vet and staticcheck, ruff and mypy, cppcheck, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out. The Rust and C windows paths ran under wine and wrote the offset.
 	- Verified: 20261004, create case: the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump and again over 1274 dumped edits that write a setter's comment, sanitize-c, those 1274 through the C CLI under ASan and UBSan, check-docs, check-abnf, check-veneer, shell-regress, clippy for the host and windows, go vet and staticcheck for both modules and windows, ruff and mypy, cppcheck exhaustive, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out.
 	- Branch: `removekept`, `setkept`, `setcreate`
 	- Commit: `46e6176a`, `80d64922`, `14609e9b`
-	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`. Create case: `ErmXhmZ` (Rust), `ErmXhpm` (Go), `ErmXhtL` (Python), `ErmXhwI` (C); cli-regress `ErmXhyt`.
+	- Test case: `ddf8d` (Rust), `ddf8f` (Go), `ddf8h` (Python), `ddf8m` (C); cli-regress `ddf8j`; corpus 187; fuzz `dderx`. Setter: `ddgg6` and `ddgg7` (Rust), `ddgg8` and `ddgg9` (Go), `ddgga` and `ddggb` (Python), `ddggc` and `ddggd` (C); cli-regress `ddgge`. Create case: `ddgq1` (Rust), `ddgq2` (Go), `ddgq3` (Python), `ddgq4` (C); cli-regress `ddgq5`.
 	- Acceptance signoff: Self-closed 20261004: built as answered, and its tests and the fuzz runs pass.
 	- Closed: 20261004-190620
 
@@ -6667,7 +6767,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: Avg
-	- Needs external testing: 5.1 on Windows, through the hosted windows job's win-runners row `ErkQHTh`.
+	- Needs external testing: 5.1 on Windows, through the hosted windows job's win-runners row `ddg6q`.
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 8
 	- Version and build: dev at `6e8b7f89`
@@ -6681,14 +6781,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause [Bug]: as the possible cause says. 5.1 builds a native command line the old way, and the runner passed its arguments as they came.
 	- Estimated effort: Low
 	- Progress log:
-		- 20261004: fixed. `ErkOqyK` failed before the fix and passes after. The win-runners row has not run yet.
-		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, win-runners `ErkQHTh` included under 5.1.
+		- 20261004: fixed. `ddg6k` failed before the fix and passes after. The win-runners row has not run yet.
+		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, win-runners `ddg6q` included under 5.1.
 	- Actual fix [Bug]: the runner quotes its arguments before the call, with the same rules as `_shcl_native_args` in `shcl.ps1`, as the advanced function `ConvertTo-NativeArgument`.
 	- Swept: every native call in a `.ps1` that passes arguments through: `shcl.ps1` (two, already fixed) and `dogfood_shcl.ps1`. `install.ps1` runs `--version` only.
 	- Verified: shell-regress, PSScriptAnalyzer, `test-ids.py check`.
 	- Branch: `psargs`
 	- Commit: `cbda6273`
-	- Test case: shell-regress `ErkOqyK` (Legacy mode of 7, the values of `ErD2LTv` plus the one above); win-runners `ErkQHTh` under 5.1.
+	- Test case: shell-regress `ddg6k` (Legacy mode of 7, the values of `dd85s` plus the one above); win-runners `ddg6q` under 5.1.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
 	- Closed: 20261004-114043
 
@@ -6717,9 +6817,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the repro exits 7 in all four, with the file untouched and no copy. The four conformance suites, `cli-regress.bash` (353 rows), `crosscheck.bash` over the corpus, `check-docs.bash`, `shell-regress.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet, staticcheck, ruff, mypy and shellcheck pass. `check-migrate.bash` passes with the change below.
 	- Note: left for signoff: the message, "a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again".
 	- Branch: `migfix`
-	- Note: `check-migrate.bash` wanted exit 0 from every document 2.x read cleanly, and 2.x took an unterminated raw block as clean, so the refusal turned it red on 36 documents (corpus 056, 059, 075, 096, 097, 143 and 191, and 29 fuzz documents). Now a document whose 2.x check reports `E005` has to be refused at 7 over the open block, and its reads are still compared. It passes over 635 documents, 36 of them refused this way. It goes red when `migrate` refuses a document without an open block (582 divergences), and when the refusal is taken out (all 36, plus `Erklujb`).
+	- Note: `check-migrate.bash` wanted exit 0 from every document 2.x read cleanly, and 2.x took an unterminated raw block as clean, so the refusal turned it red on 36 documents (corpus 056, 059, 075, 096, 097, 143 and 191, and 29 fuzz documents). Now a document whose 2.x check reports `E005` has to be refused at 7 over the open block, and its reads are still compared. It passes over 635 documents, 36 of them refused this way. It goes red when `migrate` refuses a document without an open block (582 divergences), and when the refusal is taken out (all 36, plus `ddg9d`).
 	- Commit: `673052a8`, and `5852d913` for the gate
-	- Test case: cli-regress `ErkalBb` (`--check`) and `ErkalBc` (`--write`, file unchanged), all four CLIs. Both fail on the old code and pass on the new. check-migrate `Eq5YPgP` over the corpus and fuzz dump, and `Erklujb` on corpus 096.
+	- Test case: cli-regress `ddg87` (`--check`) and `ddg88` (`--write`, file unchanged), all four CLIs. Both fail on the old code and pass on the new. check-migrate `dcqf3` over the corpus and fuzz dump, and `ddg9d` on corpus 096.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
 
@@ -6747,7 +6847,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the repro gives exit 0 with nothing named from `--check`, and `--write` adds only the Format line and keeps no copy, in all four. Same gates as 2026100316275800.
 	- Branch: `migfix`
 	- Commit: `05f5871c`
-	- Test case: cli-regress `ErkalBd` to `ErkalBh`: `--check` and `--write` on a CRLF file with no final newline, the same on an LF file whose last line ends in a lone CR, and `--check` on a CRLF file whose last line does. `ErkalBd`, `ErkalBe` and `ErkalBh` fail on the old code and pass on the new; the two LF rows pass on both.
+	- Test case: cli-regress `ddg89` to `ddg8d`: `--check` and `--write` on a CRLF file with no final newline, the same on an LF file whose last line ends in a lone CR, and `--check` on a CRLF file whose last line does. `ddg89`, `ddg8a` and `ddg8d` fail on the old code and pass on the new; the two LF rows pass on both.
 	- Acceptance signoff: Self-closed: reproduced, its tests fail before the fix and pass after, and the sweep is answered.
 	- Closed: 20261004-100737
 
@@ -6764,17 +6864,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Run `check-migrate.bash` over a small corpus with that case.
 	- Incorrect behavior: green either way. The injected run shows one more document "with lines taken out first".
 	- Expected behavior: a migrate that writes a line it cannot read back, at exit 0, fails the gate.
-	- Reproduced: 20261003, in a scratch clone. cli-regress `ErUn2Bt` catches this one spelling, not the class.
+	- Reproduced: 20261003, in a scratch clone. cli-regress `ddcef` catches this one spelling, not the class.
 	- Possible cause: `fPathBreak` picks the lines to take out by running `migrate` and looking for E024 in its output, so the code under test chooses what is not compared. The only check that migrate refuses such a line at 7 is in the branch where every unclean 2.x line is a bracket array.
 	- Origin: `c29f08fa` (gates, in `d2fbdacd` escblock). New since the last round. Confirmed.
 	- Estimated effort: Low
 	- Actual cause: `fPathBreak` took its lines from `migrate`'s own output, so a migrate that wrote a line it cannot read back picked that line to leave out of the comparison. Only a document whose unclean 2.x lines were all bracket arrays was checked for the refusal.
 	- Actual fix: the lines are found in the 2.x text: a value whose 2.x reading, written in double quotes, starts like a Windows path and holds a line break. Any document with one has to be refused at 7. The exact lost count is checked whenever its other unclean lines are bracket arrays or there are none.
 	- Swept: `fPathBreak` was the one place the gate asked `migrate` which lines to leave out. `fUnplaced` asks the current parser about the source, not migrate's output.
-	- Verified: with a `migrate` that turns `C:\\t` into `C:\t` in its output, the old gate passed and the new one fails on the read compare. With one that exits 0 over a lost path, `Eq5YPgP` stayed green on the old gate and goes red on the new one. The full gate passes: 635 documents, 11 lost counts checked (8 before). Over the corpus and a 2,000-iteration dump, the new line set matches the E024 lines in migrate's output everywhere but two fuzz lines 2.x refused anyway. `ErkiUcu` goes red with the share form left out.
+	- Verified: with a `migrate` that turns `C:\\t` into `C:\t` in its output, the old gate passed and the new one fails on the read compare. With one that exits 0 over a lost path, `dcqf3` stayed green on the old gate and goes red on the new one. The full gate passes: 635 documents, 11 lost counts checked (8 before). Over the corpus and a 2,000-iteration dump, the new line set matches the E024 lines in migrate's output everywhere but two fuzz lines 2.x refused anyway. `ddg90` goes red with the share form left out.
 	- Branch: `gatefix`
 	- Commit: 9de427ea
-	- Test case: `check-migrate` `Eq5YPgP` and `ErkiUcu`; `ErUuq8D` still holds 170.
+	- Test case: `check-migrate` `dcqf3` and `ddg90`; `ddcfc` still holds 170.
 	- Acceptance signoff: Self-closed: reproduced, and the gate was seen to fail on both injected defects after the fix and pass on the real `migrate`.
 	- Closed: 20261004-100557
 
@@ -6798,10 +6898,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: an empty tag read as no tag due, so a Syntax line the pattern no longer matched, a moved banner or a missing `lib.rs` all passed.
 	- Actual fix: a tree at or past `3.0.0-beta1`, the first release whose banner names a tag, has to give the check a tag. If not, the push is refused at 2 with a message naming the file and the pattern. Below that version an untagged banner still passes, as main's 2.0.0 does. A new test pushes a cut built from the real `lib.rs`, so a banner change that leaves the pattern behind goes red there.
 	- Swept: the pre-push hook is the only caller, and the release recipe runs the same script after the push.
-	- Verified: `check-push-gate.bash` passes. `Erkafqf` failed on the old script for all five banners: `Syntax:`, `tree/`, a trailing space, no banner and no `lib.rs`. `Erkafx3` goes red with the real banner's spacing changed, and `ErkafuD` with the version floor removed. Against origin/main (2.0.0, banner links `main`) and dev, the check passes.
+	- Verified: `check-push-gate.bash` passes. `ddg81` failed on the old script for all five banners: `Syntax:`, `tree/`, a trailing space, no banner and no `lib.rs`. `ddg83` goes red with the real banner's spacing changed, and `ddg82` with the version floor removed. Against origin/main (2.0.0, banner links `main`) and dev, the check passes.
 	- Branch: `gatefix`
 	- Commit: d7b7001a
-	- Test case: `check-push-gate` `Erkafqf`, `ErkafuD`, `Erkafx3`.
+	- Test case: `check-push-gate` `ddg81`, `ddg82`, `ddg83`.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
 	- Closed: 20261004-100557
 
@@ -6820,10 +6920,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `74cc8fdd` (review 20260928 item 9) made the informational outputs flags only. The row in `win-runners.bash` kept the old word.
 	- Actual fix: the row passes `--version`. Three comments in the Go, Python and C CLIs named `shcl version` too.
 	- Swept: every script in `cicd`, `utility` and `.github` for a bare `version`, `about` or `donate` argument. The only other hit is crosscheck's `usage version` row, which checks the refusal on purpose.
-	- Verified: under pwsh 7 on Linux with a scratch HOME, the runner with `version` prints the refusal and with `--version` prints `shcl v2.0.0`. shellcheck passes. In hosted run `36744540495` on the branch, `Er8Neza` passes and the windows job is green.
+	- Verified: under pwsh 7 on Linux with a scratch HOME, the runner with `version` prints the refusal and with `--version` prints `shcl v2.0.0`. shellcheck passes. In hosted run `36744540495` on the branch, `dd71z` passes and the windows job is green.
 	- Branch: dogfoodver
 	- Commit: 9418ba5e
-	- Test case: `Er8Neza` (`win-runners` dogfood runner), red on dev in the hosted windows job.
+	- Test case: `dd71z` (`win-runners` dogfood runner), red on dev in the hosted windows job.
 	- Acceptance signoff: Self-closed: mechanical, the row passes the flag the CLIs now take.
 	- Closed: 20260930-101555
 
@@ -6978,7 +7078,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Corpus 106, 126 and 178 and cli-regress rows `sugar-check`, `sugar-write-refused`, `fmt-check-refused`, `write-existing-quiet` and `set-write-keeps-dropped-between` pinned the old dropped block. 126, 178 and the last row now use a parent skipped for its path; the others are commented out with new rows beside them.
 	- Actual fix: a LAZY stack level in all four parsers (`hold_open`, `open_lazy`), the same model in the emitter's reload stack, and `heads_block` in the canonical emit. Spec, design outcome table, explain text for `E019` and `E023` in all four CLIs, changelog.
 	- Swept: the field arm, the stacked element arm and the raw fence arm in all four bindings. A retained `*` element line still holds a dead level, since nothing under an element binds.
-	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ErUmRRa` to `ErUmRRc` fail on dev at `5956ff4a`.
+	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ddceb` to `ddced` fail on dev at `5956ff4a`.
 	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Branch: escblock
 	- Commit: c29f08fa
@@ -7009,14 +7109,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261002: a merge never drops a layer's kept line that has kept lines under it, or one under another, as a repeat of the footer. The group goes in whole.
 	- Actual fix: all four bindings. A second chain in `comment_depth` for kept lines, `give_pending` and `head_of` beside `open_lazy`, the two hang rules in `hang_deeper_pending`, `keep_among` nesting, the fence arm, and the merge footer. design.md's line on kept-line levels names the exception.
 	- Swept: every `comment_depth` caller in all four (attach, hang, open_lazy, the end of the parse, keep_among), the field, fence and element arms, and the merge footer dedup. The settle, clear_comments, drop_banners and the fold move whole lead lists or only comments, so they need nothing.
-	- Verified: the four conformance suites, cli-regress (342 rows), crosscheck over the corpus and a 2000-iteration dump that now includes the new property's soup (39564 comparisons), check-docs, check-abnf, shell-regress, test-ids, shellcheck, clippy, go vet, staticcheck, ruff, mypy, gcc 14 and 15 and clang at `-Werror`, and the 2,000,000 release fuzz with the new corpus case. Corpus 188 fails on dev at `dfdd3385` in all four, and so does the fuzz property. The commands behind cli-regress `Era9kPy`, `Era9kPz` and `EraAIXa` give the old output on dev's Rust CLI; the script itself was not run against dev.
-	- Note: cli-regress `Er7gihi` expected exit 7, since the save could not keep its lines once the kept line sat under the dotted line. It now keeps them, the dropped line included, at exit 0. It is commented out with the reason; `EraAIXa` pins the new result and `EraAIXb` keeps the refusal on a save that falls back.
+	- Verified: the four conformance suites, cli-regress (342 rows), crosscheck over the corpus and a 2000-iteration dump that now includes the new property's soup (39564 comparisons), check-docs, check-abnf, shell-regress, test-ids, shellcheck, clippy, go vet, staticcheck, ruff, mypy, gcc 14 and 15 and clang at `-Werror`, and the 2,000,000 release fuzz with the new corpus case. Corpus 188 fails on dev at `dfdd3385` in all four, and so does the fuzz property. The commands behind cli-regress `dddqq`, `dddqr` and `dddqs` give the old output on dev's Rust CLI; the script itself was not run against dev.
+	- Note: cli-regress `dd6wn` expected exit 7, since the save could not keep its lines once the kept line sat under the dotted line. It now keeps them, the dropped line included, at exit 0. It is commented out with the reason; `dddqs` pins the new result and `dddqt` keeps the refusal on a save that falls back.
 	- Note: 20261002, comments between nested kept lines should nest too. Filed as 2026100218185700.
 	- Note: 20261002, design.md's wording on kept-line levels is OK.
 	- Note: the property lives in the Rust fuzz. The other three are held to it through the crosscheck, which now replays its inputs too.
 	- Needs local test suite run?: full `--ci` at the next main push.
 	- Branch: keptnest
-	- Test case: fuzz `ErZx5Et` (`kept_lines_keep_their_path`); corpus `188-kept-line-keeps-parent`; cli-regress `kept-under-kept-fmt`, `kept-before-dotted-fmt`, `set-write-keeps-dropped-gap`, `set-write-gap-fallback-refused`.
+	- Test case: fuzz `dddp5` (`kept_lines_keep_their_path`); corpus `188-kept-line-keeps-parent`; cli-regress `kept-under-kept-fmt`, `kept-before-dotted-fmt`, `set-write-keeps-dropped-gap`, `set-write-gap-fallback-refused`.
 	- Acceptance signoff: 20261003, closed without a hand check: the fuzz property, corpus 188 and the cli-regress rows cover what a hand test would, and the open question on the item went to 2026100218185700.
 	- Closed: 20261003-113243
 
@@ -7039,8 +7139,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Done: 20261007, the demo file's `tags` line is a bracket array now. `script.txt` and `demo-scenario.toml` already used current syntax, the parens selector included. `assets/demo.gif` was rendered again from the release binary, and `cicd/demo/expected.txt` refreshed. The GIF shows what the CLI prints now at each step.
 	- Note: `fmt` now writes the demo file back unchanged, since `window` stays bare. The fmt step still shows the kept `retries 5` line and its `E014`.
-	- Verified: shell-regress passes, `EqM7a7s` and the demo output order rows included.
-	- Test case: shell-regress `EqM7a7s` (demo matches the gif). It failed before and passes now.
+	- Verified: shell-regress passes, `dcvej` and the demo output order rows included.
+	- Test case: shell-regress `dcvej` (demo matches the gif). It failed before and passes now.
 	- Acceptance signoff: Self-closed: the change does what the item asked and its test passes.
 	- Branch: `vsgate`
 	- Commit: `493552b9`
@@ -7082,7 +7182,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the stage 6 command gave the same bytes from 2 target dirs and from another checkout. Both halves are for macOS 13 and link only libSystem, and every page hash in the arm64 signature matches. shell-regress, check-pins, check-docs, check-readme, test-ids, markdownlint and shellcheck pass. A Linux release build passes cli-regress and crosscheck the way the job runs them. The b26 run in the progress log passed. Stage 7's cross loop puts the universal binary in `util/macos/bin` under a scratch HOME.
 	- Swept: the FreeBSD target's sites. Stage 6, the toolchain targets, both installers and their comments, README, design.md, the changelog, the release table and the dogfood note. For stage 7: the runner's macOS dir list, and the stage 7 cross loop's key for `macos-universal`.
 	- Branch: `macbin`, `macb26`
-	- Test case: shell-regress `ErxeImS` (macOS plan on both arches), `ErxeImT` (install of the universal binary), `ErxeImU` (the macOS floor), `ErxeImV` (every stage 6 binary gets a table cell). `Er1zTEe` has the new install.ps1 text, and `EqL4rtp` holds the per-line pip read. Each failed with its change taken out.
+	- Test case: shell-regress `ddkch` (macOS plan on both arches), `ddkcj` (install of the universal binary), `ddkck` (the macOS floor), `ddkcm` (every stage 6 binary gets a table cell). `dd5gt` has the new install.ps1 text, and `dcv6p` holds the per-line pip read. Each failed with its change taken out.
 		- b26, 20261006, not CI: the corpus `fmt` and `check` against Linux, cli-regress, and `install.bash` against a stand-in release.
 		- Hosted: the `macos` job, run 37637035207.
 	- Acceptance signoff: 20261007, the b26 run and the hosted macos job both passed, with the gates in Verified.
@@ -7153,7 +7253,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261005: done on `dltable`. The heading and its place in the notes are my pick, and are in the private recipe only, so easy to move.
 	- Branch: `dltable`
 	- Commit: `e6a75d0c`
-	- Test case: shell-regress `ErsrmzS` (fixture names to the expected table) and `Ersrn1M` (upload names, and the refusals).
+	- Test case: shell-regress `ddj7s` (fixture names to the expected table) and `ddj7t` (upload names, and the refusals).
 	- Acceptance signoff: Self-closed: the change does what the item asked, and its tests pass.
 	- Closed: 20261005-193533
 
@@ -7176,7 +7276,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261004: README, design.md and the changelog say so. README says to `pkg install bash curl` first, since a fresh FreeBSD has neither.
 	- Verified: on vmFreeBSD the cross-built binary gave the same `fmt` and `check` output as Linux over all 189 corpus cases, and a `set --write` worked. `install.bash` ran there end to end against a local stand-in release: install, `man shcl`, the `bash <(...)` form, uninstall, and the no-binary message. The system target was not run there.
 	- Branch: `bsdbin`
-	- Test case: shell-regress `ErlTWJD` (FreeBSD plan line and the arm64 refusal), `ErlTWLO` (a release with no binary for the platform is named and nothing is fetched), and `EqzwPFH` (the FreeBSD floor). Each failed with its fix taken out.
+	- Test case: shell-regress `ddgev` (FreeBSD plan line and the arm64 refusal), `ddgew` (a release with no binary for the platform is named and nothing is fetched), and `dd51j` (the FreeBSD floor). Each failed with its fix taken out.
 	- Closed: 20261004-131915
 
 - Read the lock script and add b26
@@ -7232,7 +7332,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261002: README tables and prose, and design.md's findings, now quote that run. Rust SHCL got a little faster and its peak memory on the stress test fell from 2.1 GB to 1.7. Python SHCL got slower, filed as 2026100221215300.
 		- The "minimap" in the request was taken as a SilkTerm leftover. Nothing here has one.
 	- Branch: benchrerun
-	- Test case: check-docs `EqQW89I` performance-numbers-match-results. It works out the ratios, places, gzip gap and schema sentence from the newest run and fails when a document does not match.
+	- Test case: check-docs `dcwgc` performance-numbers-match-results. It works out the ratios, places, gzip gap and schema sentence from the newest run and fails when a document does not match.
 	- Closed: 20261002-212153
 
 - Every closed backlog item gets a Test line
@@ -7476,7 +7576,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
 	- Note: a rough edge. Only programs that shipped a beta build of 3.0 to users are hit. SilkTerm's dogfood builds did; none of its releases did.
 	- Done: spec.md's "Migrating from 2.x" and the changelog say a file a pre-release build stamped `Format 3` is on its own, and `migrate` and `upgrade` leave it alone. README's migrating paragraph doesn't cover stamped files, so it stays as is.
-	- Test case: no code change. check-migrate `Es34DZk` already holds that `upgrade` leaves a file naming format 3 alone.
+	- Test case: no code change. check-migrate `ddmp8` already holds that `upgrade` leaves a file naming format 3 alone.
 	- Verified: `migrate`, `migrate --check`, `upgrade` and `upgrade --write` on a Format 3 file with an `E023` line all exit 0 and leave it as is.
 	- Acceptance signoff: Self-closed: docs only, the call was OK'd 20261002.
 	- Branch: `escnote`
@@ -7507,14 +7607,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Actual fix: each row keeps the GNU form where it works and falls back otherwise.
 		- `broken-pipe` puts the default SIGPIPE back with perl where `env` has no `--default-signal`. With neither, it runs the CLI as is when SIGPIPE is not ignored, and skips with a message when it is.
-		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `EqRiIDx`, the only other string compare of a `wc` count.
+		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `dcwsm`, the only other string compare of a `wc` count.
 		- `man-width` uses man-db when `man --version` says it is man-db, else `mandoc -T ascii -O width=80`, else the old skip. The overstrike strip no longer needs GNU sed's `\x08`.
 	- Verified: on Linux with GNU tools, cli-regress passes all 3 rows on the Rust debug CLI, and check-migrate, shell-regress, test-ids and shellcheck pass. With a padding `wc`, an `env` without `--default-signal`, a `man` that is not man-db and Debian's `mandoc` 1.14.6 first on PATH, the old script fails all 3 rows and the new one passes them. It also passes with no perl, and with perl and SIGPIPE ignored. With no perl and SIGPIPE ignored, `broken-pipe` skips. With no mandoc, `man-width` skips as before. A 90-column line put in the page fails `man-width` through mandoc, and a CLI that does not die of SIGPIPE still fails `broken-pipe`.
 	- Not verified, only reasoned: real BSD `env`, `wc`, `perl` and macOS's `man` and `mandoc`, and the windows job, where `broken-pipe` skips as before and `man-width` takes the same path it did.
 	- Swept: every `env --default-signal`, `\x08` in sed, `man --nh` and string compare of a `wc` count under `cicd/`. Other `wc` counts are read as numbers, which takes the padding.
 	- Branch: `bsdrows`
 	- Commit: f0170ca5
-	- Test case: cli-regress `EqzuLW3` (broken-pipe), `Er5ivub` (save-migrate-taken), `EpHH7ZQ` (man-width), and check-migrate `EqRiIDx`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
+	- Test case: cli-regress `dd516` (broken-pipe), `dd6dh` (save-migrate-taken), `dcbc4` (man-width), and check-migrate `dcwsm`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
 	- Verified: 20261007, cli-regress on b26 (macOS 15.8.1, Intel) as `mactest`, under Homebrew bash 5.2 with only `/usr/bin` and `/bin` tools and a perl stand-in for `timeout`, against the stage 6 universal binary from dev `9300b1be`. 372 rows ok, all 3 included, and 14 skipped for no `/dev/full`, `/proc` or strace and the Windows rows.
 	- Acceptance signoff: Self-closed: the 3 rows pass on real BSD tools and in the hosted macos job.
 	- Closed: 20261007-102000
@@ -7534,11 +7634,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261005: the load stays as is, so the `E001` line still binds. A save that would write this case refuses at exit 7.
 	- Actual fix: the lost count takes in the items of such a list, so `save_file`, the line-keeping save and every `--write` refuse at 7, and `--lossy` writes. The line-keeping save skipped its reload check when the loaded text was canonical, so it falls back to the gate here too. Rust only; the ports take it with 2026100207032800.
-	- Swept: `save_file`, `save_file_keep_lines`, the CLI's write path, a merge and an edit. The three fuzz properties that skipped the case now check the save refuses it, and `EreT6dh` stops its steps there.
-	- Verified: cli-regress `Ers2pP0` exits 0 and loses both items on the code before, and refuses at 7 with the file unchanged after.
+	- Swept: `save_file`, `save_file_keep_lines`, the CLI's write path, a merge and an edit. The three fuzz properties that skipped the case now check the save refuses it, and `dderx` stops its steps there.
+	- Verified: cli-regress `ddj1f` exits 0 and loses both items on the code before, and refuses at 7 with the file unchanged after.
 	- Branch: `vsfix`
 	- Commit: `11b069fe`
-	- Test case: conformance `Ers2oF1`; cli-regress `Ers2pP0` and `Ers2pP1`.
+	- Test case: conformance `ddj1h`; cli-regress `ddj1f` and `ddj1g`.
 	- Acceptance signoff: Self-closed: does what the 20261005 decision asked, and its tests fail before and pass after.
 	- Closed: 20261005-164930
 
@@ -7565,7 +7665,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Not verified: the hosted macos job with this change. It takes the empty `SDKROOT` path, so its build should not change.
 	- Branch: `xcrun`
 	- Commit: 5650cffb
-	- Test case: shell-regress `Es1rCr5`. It fails on the old config and passes on the new one.
+	- Test case: shell-regress `ddmcy`. It fails on the old config and passes on the new one.
 	- Acceptance signoff: Self-closed: the warning is gone, the binary is byte for byte the same, and the test failed before and passes after.
 	- Closed: 20261007-083039
 
@@ -7584,9 +7684,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause [Bug]: a false positive. gcc can't rule out a negative layer count, where the fill loop never runs and the read after it finds nothing. The count is never negative, and every slot up to it is filled or the load returns.
 	- Actual fix [Bug]: the base length is taken inside the loop, on its last pass, so there is no read after it. No pragma. check-c-compilers now builds `main.c` at all five levels, which costs 20 more builds: 57 to 71 seconds here, and about a quarter more CPU time.
 	- Swept: no other array in `main.c` or `shcl.h` is read at a count after the loop that fills it. The 140 builds cover both files at every level on gcc 12 to 15 and clang.
-	- Verified: check-c-compilers failed on the old code (gcc-14 and gcc-15 at -O3, `EoXhawq`) and passes after. `main.c` builds at -O0, -O1, -O2, -O3 and -Os with gcc, gcc-15 and clang. C conformance 191 cases, and cli-regress against the C CLI built at -O3 with gcc, gcc-15 and clang, pass.
+	- Verified: check-c-compilers failed on the old code (gcc-14 and gcc-15 at -O3, `dc0dc`) and passes after. `main.c` builds at -O0, -O1, -O2, -O3 and -Os with gcc, gcc-15 and clang. C conformance 191 cases, and cli-regress against the C CLI built at -O3 with gcc, gcc-15 and clang, pass.
 	- Branch: `o3warn`
-	- Test case: check-c-compilers `EoXhawq`.
+	- Test case: check-c-compilers `dc0dc`.
 	- Acceptance signoff: Self-closed: the build fix does what the item asked, and its gate failed before and passes after.
 	- Closed: 20261005-171000
 
@@ -7613,7 +7713,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: both new tests failed before the fix (Go: E017 on all 7 bad values, both quote kinds; C: 28 failures) and pass after. Go `go test -count=1` on both modules, go vet, the C conformance suite at -O0 to -O3 and -Os with gcc and gcc-15, veneer smoke, `test-ids.py check`, and crosscheck (4 bindings, 40659 comparisons) all pass. check-c-compilers passed apart from internal compiler segfaults in gcc and clang on random builds under load, a host fault; the one build that crashed in both runs passed at every level when built alone. cppcheck at the normal level reported no warnings; the exhaustive run did not finish in 10 minutes.
 	- Branch: `utf8len`
 	- Commit: `d9f38a4a`
-	- Test case: Go `ErryPpd` (`TestABadUTF8ByteKeepsItsClosingQuote`), C `ErryPsK` (`a_bad_utf8_byte_keeps_its_closing_quote`).
+	- Test case: Go `ddj0v` (`TestABadUTF8ByteKeepsItsClosingQuote`), C `ddj0w` (`a_bad_utf8_byte_keeps_its_closing_quote`).
 	- Acceptance signoff: Self-closed: reproduced, failing test before the fix, passing after.
 	- Closed: 20261005-161622
 
@@ -7621,7 +7721,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026100408550401
 	- Type: Bug
 	- Status: Done
-	- Needs external testing: Ran. Hosted run 37317758758 on `68f40e78` passed, with `ErkQHTh` ok on the windows job under 5.1 and 7.
+	- Needs external testing: Ran. Hosted run 37317758758 on `68f40e78` passed, with `ddg6q` ok on the windows job under 5.1 and 7.
 	- Severity: Low
 	- Opened: 20261004-085504
 	- Opened by: found while working 2026100307163905
@@ -7641,10 +7741,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261004: when a caller's own function took one of the colon parameters off the same line, as in `w -q:1 -x: y` with `w` passing its `$args` on, no command matches and `-x: y` goes on as `-x:y`. Left as is; it needs a wrapper with its own colon-style parameter, and `-x:` alone is not something shcl takes.
 	- Actual fix [Bug]: `shcl.ps1` and `dogfood_shcl.ps1` rejoin a marked `-x:` with its value before the native call. The call stack is searched for the command whose colon parameters have the same names in order, and where its line has a space after the colon the two stay apart. With no match they are joined. An array value is joined with commas, as a direct call does. The results are plain strings, so later splats keep them whole. The `-File` path from 2026100307163905 is unchanged.
 	- Swept: `shcl.ps1` (the `shcl` function, so the typed helpers, `& shcl.ps1` and a user's own wrapper all go through it), `dogfood_shcl.ps1`, and the launchers `utility/dogfood_shcl` and `dogfood_shcl.cmd`, which start by `-File` and never see a marked argument. `install.ps1`, `shclpath.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1` have param blocks and pass nothing through. The header's two quoting notes still hold; neither README nor design.md mentions `-x:`.
-	- Verified: shell-regress (148 ok; without the fix only `Ermwgw4` and `ErmwiJ3` failed), check-docs, PSScriptAnalyzer on both scripts, shellcheck on both gate scripts, `test-ids.py check`. The win-runners session lines ran on Linux against the real binary, with and without the fix.
+	- Verified: shell-regress (148 ok; without the fix only `ddgt6` and `ddgt5` failed), check-docs, PSScriptAnalyzer on both scripts, shellcheck on both gate scripts, `test-ids.py check`. The win-runners session lines ran on Linux against the real binary, with and without the fix.
 	- Branch: `psargs`
 	- Commit: `a63bb9d6`
-	- Test case: shell-regress `Ermwgw4` (`shcl.ps1` dot-sourced, a typed helper, `& shcl.ps1`, a user's wrapper, piped input, a statement over two lines, the fallback, and Legacy mode) and `ErmwiJ3` (`dogfood_shcl.ps1` called with `&`); win-runners `ErkQHTh` under 5.1 and 7.
+	- Test case: shell-regress `ddgt6` (`shcl.ps1` dot-sourced, a typed helper, `& shcl.ps1`, a user's wrapper, piped input, a statement over two lines, the fallback, and Legacy mode) and `ddgt5` (`dogfood_shcl.ps1` called with `&`); win-runners `ddg6q` under 5.1 and 7.
 	- Closed: 20261005-151500
 
 - A crosscheck run aborted the Python CLI with exit 134 under load
@@ -7673,7 +7773,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261004: closed as a host fault outside shcl. The crosscheck change is what was left to do here.
 	- Actual fix: none in shcl. crosscheck now keeps each run's stderr, and a divergence shows the binding's stderr and names a run killed by a signal, so the next one can be told apart from a shcl defect at a glance.
 	- Swept: all four DIVERGE sites in crosscheck (stdout, stdin-fed, in-place write, planted temp) show stderr; the reference's shows when it is the one that died.
-	- Test case: shell-regress `Ern198f`, a stub binding that exits 134 with text on stderr. Red on the old crosscheck, green on the new.
+	- Test case: shell-regress `ddgtp`, a stub binding that exits 134 with text on stderr. Red on the old crosscheck, green on the new.
 	- Branch: `pyabort`
 	- Commit: `e9681e9a`
 	- Estimated effort: Low
@@ -7717,9 +7817,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Actual fix: the zsh summary now reads "apply edits and print the file with the edited lines changed", from the help's own words. check-completions also holds every zsh summary to the help: each word of five letters or more has to be in that subcommand's help entry.
 	- Swept: the bash completion has no summaries, and there are no fish or PowerShell completions. No other zsh summary disagrees with the help. The man page's `set` entry already says unedited lines come back as written.
-	- Verified: check-completions `ErlbzxH` fails on the old summary and passes on the new one. shellcheck passes.
+	- Verified: check-completions `ddgfw` fails on the old summary and passes on the new one. shellcheck passes.
 	- Branch: clismall
-	- Test case: check-completions `ErlbzxH`.
+	- Test case: check-completions `ddgfw`.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
 
@@ -7740,9 +7840,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Actual fix: the man page names the wrappers and where they go: `/usr/share/shcl/scripts` from the .deb and .rpm, and `scripts` under the install directory from the other installers. Both wrappers now also look a level up from themselves, where every installer but the packages puts the binary, before PATH. The packages put the binary in `/usr/bin`, which PATH finds.
 	- Swept: `install.bash`, `install.ps1`, the NSIS setup and nfpm.yaml all put the wrappers in `scripts` beside the binary, or in `/usr/share/shcl/scripts` with the binary in `/usr/bin`. No installer changed. The README makes no claim about where the wrappers sit. Both wrapper headers now list the new step.
-	- Verified: shell-regress `ErlisVv` (bash) and `ErlisYf` (pwsh) lay out an install with a stub binary a level up and no shcl on PATH. Both wrappers from dev said "cannot find a shcl binary"; both now run the stub. shell-regress, shellcheck and PSScriptAnalyzer pass, and the man page renders at 80 columns.
+	- Verified: shell-regress `ddggr` (bash) and `ddggs` (pwsh) lay out an install with a stub binary a level up and no shcl on PATH. Both wrappers from dev said "cannot find a shcl binary"; both now run the stub. shell-regress, shellcheck and PSScriptAnalyzer pass, and the man page renders at 80 columns.
 	- Branch: clismall
-	- Test case: shell-regress `ErlisVv` and `ErlisYf`.
+	- Test case: shell-regress `ddggr` and `ddggs`.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
 
@@ -7768,7 +7868,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: cli-regress over the four CLIs passes, 362 rows. Against dev's Go and C CLIs, the three `explain` rows fail and the three `get` rows pass, since only the text changed.
 	- Branch: `doctext`
 	- Commit: `28ef9598`
-	- Test case: cli-regress `Erlr8eZ`, `Erlr8gU`, `Erlr8iQ` (`get` exits 2 for `E019`, `E023` and `E024` with a line under), `Erlr21T`, `Erlr23g`, `Erlr25Z` (`explain` text for the three).
+	- Test case: cli-regress `ddghs`, `ddght`, `ddgj5` (`get` exits 2 for `E019`, `E023` and `E024` with a line under), `ddghr`, `ddghv`, `ddgj4` (`explain` text for the three).
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
 
@@ -7789,7 +7889,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: check-docs, check-readme, markdownlint on the changed docs, and cli-regress over the four CLIs (help width rows included) all pass.
 	- Branch: `doctext`
 	- Commit: `28ef9598`
-	- Test case: none, wording only. The behavior is `EreYYXK` and the per-binding `kept_gate` tests.
+	- Test case: none, wording only. The behavior is `ddesk` and the per-binding `kept_gate` tests.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
 
@@ -7815,7 +7915,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f97003c8`'s libraries in all four and pass with the fix.
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Branch: keepcosm
-	- Test case: cli-regress `Erls2uy` (`remove-emptied-repeat-header`), `Erls2uz` (`set-keeps-blank-above-repeat`).
+	- Test case: cli-regress `ddghy` (`remove-emptied-repeat-header`), `ddghz` (`set-keeps-blank-above-repeat`).
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
 
@@ -7842,7 +7942,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f8c0685e`'s libraries in all four and pass with the fix.
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Branch: keepcosm
-	- Test case: cli-regress `Erls2v0` (`set-new-block-majority-step`), `Erls2v1` (`set-new-block-space-step`).
+	- Test case: cli-regress `ddgj0` (`set-new-block-majority-step`), `ddgj1` (`set-new-block-space-step`).
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
 
@@ -7868,7 +7968,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. The new rows and corpus 065 fail on `c3eb6db7`'s libraries in all four and pass with the fix.
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Branch: keepcosm
-	- Test case: cli-regress `Erls2uw` (`set-new-key-after-kept-end`), `Erls2ux` (`set-new-key-after-kept-in-block`); corpus `065-bracket-array`.
+	- Test case: cli-regress `ddghw` (`set-new-key-after-kept-end`), `ddghx` (`set-new-key-after-kept-in-block`); corpus `065-bracket-array`.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
 
@@ -7898,7 +7998,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f26c2802`'s libraries in all four and pass with the fix.
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Branch: keepcosm
-	- Test case: cli-regress `Erls2v2` (`comment-under-kept-fmt`), `Erls2v3` (`comment-under-kept-in-block-fmt`); the fuzz fixpoint and `edits_and_merges_match_a_reload` properties.
+	- Test case: cli-regress `ddgj2` (`comment-under-kept-fmt`), `ddgj3` (`comment-under-kept-in-block-fmt`); the fuzz fixpoint and `edits_and_merges_match_a_reload` properties.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
 
@@ -7931,14 +8031,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: the review of 2026100307310000, round 1 (F8)
 	- Parent ID: 2026100307310000
 	- Version and build: dev at `e74c95bd`
-	- Incorrect behavior: in "Kept lines under edits", the row for the base's lines in a merge has the replaced-leaf exception under "Under the target", and "Beside the target" says "stays". A leaf has nothing under it. The line the exception takes is the leaf's leading comment, which the table's own definition puts beside the target. Test `ErfGoMI` is that case: `# a: 5` above `b: 1` goes when a layer replaces `b`.
+	- Incorrect behavior: in "Kept lines under edits", the row for the base's lines in a merge has the replaced-leaf exception under "Under the target", and "Beside the target" says "stays". A leaf has nothing under it. The line the exception takes is the leaf's leading comment, which the table's own definition puts beside the target. Test `ddez2` is that case: `# a: 5` above `b: 1` goes when a layer replaces `b`.
 	- Expected behavior: the row says a settled line among a replaced leaf's own comment lines goes, in the column that holds them. The bullet under the table already has it right.
 	- Estimated effort: Low
 	- Actual fix [Bug]: the base's row now has the exception under "Beside the target": a settled line among the comments of a leaf the layer replaces goes with them. "Under the target" says "stays". The setter row is unchanged.
 	- Branch: `doctext`
 	- Commit: `28ef9598`
-	- Test case: none for the table itself. The behavior it states is `ErfGoMI` to `ErfGoMP`, one pair per binding.
-	- Acceptance signoff: Self-closed: mechanical, matches the bullet under the table and `ErfGoMI`.
+	- Test case: none for the table itself. The behavior it states is `ddez2` to `ddez9`, one pair per binding.
+	- Acceptance signoff: Self-closed: mechanical, matches the bullet under the table and `ddez2`.
 	- Closed: 20261004-144800
 
 - A FIFO swapped in at the Schema path between the type check and the open hangs `check`
@@ -7963,10 +8063,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: the open itself waits on a FIFO, and the stat before it cannot see a swap that comes after.
 	- Actual fix: on POSIX the open asks not to wait, the flag comes straight back off, and the fstat after it refuses the FIFO before any read. All four. The C Windows branch had no check after the open; it now asks the handle's type too.
 	- Swept: `read_named_schema` in all four CLIs. On Windows a FIFO cannot sit at a path, and a pipe is refused after the open in all four: Rust's handle metadata, Go's `Stat`, Python's `fstat` and now C's `GetFileType`. Nothing else opens a path read out of a file.
-	- Verified: cli-regress `Erlf8t9` holds the stat on the schema path while the path turns into a FIFO, so the open meets it every run. All four hung until killed before the fix and refuse at exit 8 after. It tries again with more time if the swap missed the window, and was seen to recover from a swap too early and too late. Rust clippy for Linux and Windows, `cargo check` for FreeBSD and macOS, Go vet and staticcheck for Linux and Windows, ruff and mypy, and the C build under gcc 14, gcc 15 and mingw pass. The mingw C build still reads a local schema under wine.
+	- Verified: cli-regress `ddggf` holds the stat on the schema path while the path turns into a FIFO, so the open meets it every run. All four hung until killed before the fix and refuse at exit 8 after. It tries again with more time if the swap missed the window, and was seen to recover from a swap too early and too late. Rust clippy for Linux and Windows, `cargo check` for FreeBSD and macOS, Go vet and staticcheck for Linux and Windows, ruff and mypy, and the C build under gcc 14, gcc 15 and mingw pass. The mingw C build still reads a local schema under wine.
 	- Note: the C Windows refusal of a pipe swapped in after the test is by reading only. `--write` FILE has the same gap between its stat and the read, and was left: that path is the user's own, named on the command line.
 	- Branch: clismall
-	- Test case: cli-regress `Erlf8t9` (`schema-line-fifo-swap`). It needs strace, which the hosted job installs; POSIX only.
+	- Test case: cli-regress `ddggf` (`schema-line-fifo-swap`). It needs strace, which the hosted job installs; POSIX only.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after, sweep answered.
 	- Closed: 20261004-141028
 
@@ -7989,9 +8089,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Actual fix: the C fold reads every file first, then loads them in order, as the other three do.
 	- Swept: `load_layered_from` is the one fold in the C CLI; `set` goes through it too. Go and Python already read every file first, and the new rows pass on all four.
-	- Verified: cli-regress `Erlbzz0` and `Erlc00p` fail on the old C build at exit 6 and pass on all four after. The full cli-regress passes on all four.
+	- Verified: cli-regress `ddgfx` and `ddgfy` fail on the old C build at exit 6 and pass on all four after. The full cli-regress passes on all four.
 	- Branch: clismall
-	- Test case: cli-regress `Erlbzz0` (`paths`) and `Erlc00p` (`set`), a strict failure in the first layer and a missing second one.
+	- Test case: cli-regress `ddgfx` (`paths`) and `ddgfy` (`set`), a strict failure in the first layer and a missing second one.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
 	- Closed: 20261004-134958
 
@@ -8019,7 +8119,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: as 2026100307163902.
 	- Branch: `rawkept`
 	- Commit: `0a6d1bb5`
-	- Test case: corpus 191 (`Ergr8Z4`), its line 9, in all four.
+	- Test case: corpus 191 (`ddfb9`), its line 9, in all four.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
 
@@ -8034,7 +8134,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: dev at `6e8b7f89`
 	- Steps to reproduce:
 		- `SHCL_GATE_STRICT=1 SHCL_GATE_SKIPS=skips.txt crosscheck.bash --corpus project/conformance --extra DIR` with a `DIR` that has no `eol/`.
-	- Incorrect behavior: `skip ErUF4nK`, exit 0, and `skips.txt` stays empty. A local run would record the tree as green. Anything that stops `ErTmDwQ` dumping turns the replay off unseen.
+	- Incorrect behavior: `skip ddca7`, exit 0, and `skips.txt` stays empty. A local run would record the tree as green. Anything that stops `ddc6m` dumping turns the replay off unseen.
 	- Expected behavior: a strict run fails, or the skip is logged where the skip lints see it.
 	- Reproduced: 20261003, scratch run.
 	- Possible cause: `crosscheck.bash:663` calls `fTestSkip` with no strict check and no "skipping (no" message.
@@ -8043,10 +8143,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual cause: the unit loop passed over a missing `eol/` or `kept/` with `continue`, and the test line then marked it skipped with no look at strict mode and nothing in the skip list.
 	- Actual fix: a dump given with `--extra` and missing either folder fails a strict run at 2. Otherwise crosscheck says it is skipping that folder and notes it in `SHCL_GATE_SKIPS`, so the tree is not recorded as green. shell-regress's crosscheck rows now run without the run's strict flag and skip list, since their stub dumps leave folders out on purpose.
 	- Swept: `kept/` had the same skip and goes through the same code. A run with no `--extra` still skips both without a note, since it asked for less.
-	- Verified: shell-regress row `Erkag5x` fails on the old crosscheck and passes now. A strict run over the corpus with a real dump missing `eol/` exits 2. With the full dump, strict, all four bindings agree on 40656 comparisons and nothing is noted as skipped.
+	- Verified: shell-regress row `ddg86` fails on the old crosscheck and passes now. A strict run over the corpus with a real dump missing `eol/` exits 2. With the full dump, strict, all four bindings agree on 40656 comparisons and nothing is noted as skipped.
 	- Branch: `gatefix`
 	- Commit: b27660f2
-	- Test case: `shell-regress` `Erkag5x`.
+	- Test case: `shell-regress` `ddg86`.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
 	- Closed: 20261004-100557
 
@@ -8075,7 +8175,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the repro says 2 line(s) in all four. The four conformance suites, `cli-regress.bash` (354 rows), `crosscheck.bash` over the corpus, `check-migrate.bash` (11 lost counts match), `shell-regress.bash`, clippy (host and windows), go vet, staticcheck, ruff, mypy, the C++ veneer smoke test and gcc 15 with `_FORTIFY_SOURCE=3` pass.
 	- Branch: `migfix`
 	- Commit: `84b786ce`
-	- Test case: cli-regress `Erkljp5`, all four CLIs. It fails on the old code and passes on the new.
+	- Test case: cli-regress `ddg9e`, all four CLIs. It fails on the old code and passes on the new.
 	- Acceptance signoff: Self-closed: reproduced, its test fails before the fix and passes after, and the sweep is answered.
 	- Closed: 20261004-104626
 
@@ -8101,7 +8201,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `save_writes_lf_bytes` passes in the hosted run 36785011455 on dev at `fa421bd7`. The save wrote LF both ways on Windows. The explicit binary opens stay, since they match what the code does.
 	- Branch: winfollow
 	- Commit: 50ceb521
-	- Test case: `save_writes_lf_bytes` (Python, ErOTliS), a byte check of a create and an overwrite, in the hosted windows job.
+	- Test case: `save_writes_lf_bytes` (Python, ddaxv), a byte check of a create and an overwrite, in the hosted windows job.
 	- Closed: 20260930-161101
 
 - A Schema line naming `/proc/self/pagemap` makes `check` read until memory runs out
@@ -8161,10 +8261,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Actual fix: that line keeps the source line's own ending. It takes the majority one only when the source line had none, as the last line of a file with no final newline. All four bindings.
 	- Swept: the three ways a keep save writes a changed line, in all four. The value splice and the group splice keep the source line's tail, ending included. The line rewritten after its name was the one that did not. Lines written fresh below it are new lines and take the majority ending, as the spec says.
-	- Verified: `ErTecqB` failed in all four on dev and passes after. cli-regress (335 rows), the four conformance suites, the veneer smoke test, `cargo test`, the 2,000,000 release fuzz, crosscheck, check-docs, shell-regress, `test-ids.py check`, shellcheck, clippy, go vet, staticcheck, ruff and mypy pass.
+	- Verified: `ddc5p` failed in all four on dev and passes after. cli-regress (335 rows), the four conformance suites, the veneer smoke test, `cargo test`, the 2,000,000 release fuzz, crosscheck, check-docs, shell-regress, `test-ids.py check`, shellcheck, clippy, go vet, staticcheck, ruff and mypy pass.
 	- Branch: eolfix
 	- Commit: 353a4a5c
-	- Test case: cli-regress `ErTecqB` (`set-write-eol-raw-to-scalar`).
+	- Test case: cli-regress `ddc5p` (`set-write-eol-raw-to-scalar`).
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
 	- Closed: 20261001-121827
 
@@ -8189,10 +8289,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Actual fix: the trim takes off whichever line ending the text ends with. All four bindings.
 	- Swept: the one end trim in each binding's keep save.
-	- Verified: `ErTecqC` and `ErTecqD` failed in all four on dev and pass after. The same gates as 2026093019075901 pass.
+	- Verified: `ddc5q` and `ddc5r` failed in all four on dev and pass after. The same gates as 2026093019075901 pass.
 	- Branch: eolfix
 	- Commit: 353a4a5c
-	- Test case: cli-regress `ErTecqC` (`set-write-eol-no-final-crlf`) and `ErTecqD` (`set-write-eol-no-final-lf`).
+	- Test case: cli-regress `ddc5q` (`set-write-eol-no-final-crlf`) and `ddc5r` (`set-write-eol-no-final-lf`).
 	- Acceptance signoff: Self-closed: reproduced, its tests failed before the fix and pass after in all four.
 	- Closed: 20261001-121827
 
@@ -8221,7 +8321,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20260930: the hosted run 36785011455 on dev at `fa421bd7` builds the C runner, and all four DACL tests pass there, C's included.
 	- Branch: tempacl, winfollow
 	- Commit: 0671c515 (tests), 6dbed730, 1f882e83, 808ccfb8, c3a6395f, f6a43b42, faeb522f (C test build)
-	- Test case: `temp_file_takes_the_targets_dacl` (Rust, ErO2NoD), `TestTempFileTakesTargetsDACL` (Go, ErO2NoE), `temp_takes_the_targets_dacl` (C, ErO2NoF; Python, ErO2NoG), in the hosted windows job. They skip under wine, which keeps no ACLs.
+	- Test case: `temp_file_takes_the_targets_dacl` (Rust, ddate), `TestTempFileTakesTargetsDACL` (Go, ddatf), `temp_takes_the_targets_dacl` (C, ddatg; Python, ddath), in the hosted windows job. They skip under wine, which keeps no ACLs.
 	- Acceptance signoff: 20260930
 	- Closed: 20260930-164249
 
@@ -8876,18 +8976,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Severity: Low
 	- Opened: 20260929-172333
 	- Opened by: found while working 2026092813365324
-	- Steps to reproduce: read the `bashsrc` arm of test `EpHNNhw` (`20260904-39-wrappers-match-the-binary`) in `cicd/utility/shell-regress.bash`.
+	- Steps to reproduce: read the `bashsrc` arm of test `dcbcw` (`20260904-39-wrappers-match-the-binary`) in `cicd/utility/shell-regress.bash`.
 	- Incorrect behavior: it runs `bash -c 'source "$0"; shcl "$@"' PATH`. With the path as `$0`, the wrapper's `BASH_SOURCE[0] == $0` test is true, so the file runs as a script and the sourced path is never tested.
 	- Expected behavior: the mode sources the file, as a user's script would.
 	- Reproduced: 20260929. The same form in a new test failed with `unknown command: shcl_int`. The `shcl` rows give the same output either way, so the test stays green.
 	- Actual cause: `bash -c` puts its first argument in `$0`, so with the wrapper's path there the wrapper's `BASH_SOURCE[0] == $0` test was true and it ran as a script.
 	- Estimated effort: Low
-	- Actual fix: both `bashsrc` arms, with and without stdin, pass the path as `$1` and shift it off before sourcing, as `ErJEygN` does. A short comment at the site says why.
+	- Actual fix: both `bashsrc` arms, with and without stdin, pass the path as `$1` and shift it off before sourcing, as `dd9nh` does. A short comment at the site says why.
 	- Branch: bashsrc
 	- Commit: 1252f801
-	- Test case: `EpHNNhw` (`20260904-39-wrappers-match-the-binary`), `bashsrc` mode.
-	- Swept: every `source` or `.` inside a `bash -c` in `cicd/` and the rest of the tracked tree. Only the two `bashsrc` arms used `$0`. The four `SHCL_BIN` rows near the top of shell-regress inline the path in the command text, so `$0` stays `bash`. The sibling-binary rows, `ErJEygN` and the dogfood-dests row pass it as `$1`.
-	- Verified: with an override of `shcl` added only on the sourced path, `EpHNNhw` stayed green on the old form and went red on the new one, all 10 rows, stdin rows included. With the wrapper restored, shell-regress exits 0, and shellcheck and `test-ids.py check` pass.
+	- Test case: `dcbcw` (`20260904-39-wrappers-match-the-binary`), `bashsrc` mode.
+	- Swept: every `source` or `.` inside a `bash -c` in `cicd/` and the rest of the tracked tree. Only the two `bashsrc` arms used `$0`. The four `SHCL_BIN` rows near the top of shell-regress inline the path in the command text, so `$0` stays `bash`. The sibling-binary rows, `dd9nh` and the dogfood-dests row pass it as `$1`.
+	- Verified: with an override of `shcl` added only on the sourced path, `dcbcw` stayed green on the old form and went red on the new one, all 10 rows, stdin rows included. With the wrapper restored, shell-regress exits 0, and shellcheck and `test-ids.py check` pass.
 	- Acceptance signoff: Self-closed: a test harness fix, red on the old form and green on the new.
 	- Closed: 20260930-073042
 
@@ -8964,7 +9064,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- On Linux after the change: the 4 file-tier fixtures pass (C with gcc 14, gcc 15 and clang, and gcc with `_FORTIFY_SOURCE`), cli-regress, shell-regress, shellcheck, test-ids, rustfmt, clippy, gofmt and ruff pass.
 	- Branch: `bsdtest`
 	- Commit: aa2f80ff
-	- Test case: a one-off run on vmFreeBSD, not CI. Rust `EnEYHTs`, Go `EnEYHTt`, Python `EoTHZsG` and the C file-tier block, C `EoXPDVh`, and cli-regress `ErCrqz4`, `EqzuLW4` and `EqzuLW5` each failed there on dev and pass with the fix.
+	- Test case: a one-off run on vmFreeBSD, not CI. Rust `dbcwv`, Go `dbcww`, Python `dbzbp` and the C file-tier block, C `dc0b4`, and cli-regress `dd84h`, `dd517` and `dd518` each failed there on dev and pass with the fix.
 	- Acceptance signoff: Self-closed: test task, every requirement ran and passed.
 	- Closed: 20261007-092637
 
@@ -8996,7 +9096,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- check-docs' new lines fail on a code both retired and live, and on spec.md not saying a code is retired. crosscheck fails on a changed retired entry in one binding. Both watched red.
 	- Branch: `retired`
 	- Commit: `99e5668b`
-	- Test case: cli-regress `Ern4qLa` and `Ern4qOc`, both failed before the fix in all four and pass after. crosscheck's usage check and cli-regress `Eq9yPCQ` read the retired list from the reference.
+	- Test case: cli-regress `ddgv5` and `ddgv6`, both failed before the fix in all four and pass after. crosscheck's usage check and cli-regress `dcrhg` read the retired list from the reference.
 	- Acceptance signoff: 20261005, the wording, exit 0 and leaving retired codes out of the listing.
 	- Closed: 20261005-151500
 
@@ -9010,7 +9110,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Parent ID: 2026100307310000
 	- Version and build: dev at `e74c95bd`
 	- Problem description:
-		- `EreT6dh` picks the lines a merge may drop by position, then takes each out of a list of expected texts. With two kept lines of the same text, a merge that kept the excused one and dropped the other would pass. It moves a line without deleting content, and no merge code does it today.
+		- `dderx` picks the lines a merge may drop by position, then takes each out of a list of expected texts. With two kept lines of the same text, a merge that kept the excused one and dropped the other would pass. It moves a line without deleting content, and no merge code does it today.
 		- A replaced leaf counts only when every parent above it is a single node with the same value on both sides. Under a repeated parent nothing is excused, so a correct merge there could show as a false failure at high iteration counts. None showed up to 2,000,000.
 	- Requirements:
 		- The property removes excused lines by position, not text.
@@ -9024,13 +9124,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The expected lines stay a count by text. A settled line and a comment of the same text are the same line of canonical text, so later steps cannot tell them apart either.
 		- A layer's instance goes into the base instance with the same name and value, so the property names each parent by instance, `s[#1].b`, and matches it by value. A parent with one instance on each side is the old rule.
 		- The footer lines were compared with their indent trimmed, so a misplaced layer line the dedup did not skip was excused. The spaces now stay, as in the dedup.
-	- Swept: the remove and setter steps of `EreT6dh` also take lines off by text. Filed as 2026100505513100, since the place check there needs its own rules for what a remove moves.
-	- Verified: `ErpR2rr` fails with the old parent rule, with the place check off, and with the footer check off, and passes with all three. The 2,000,000 release fuzz passes, all 18 tests. In that run 76 merges had a leaf under a repeated parent, 5 of them with a line to excuse, 11 stretches had copies to check, and 877 merges had a footer line skipped. `cargo test`, clippy with `-D warnings`, rustfmt and `test-ids.py check` pass.
+	- Swept: the remove and setter steps of `dderx` also take lines off by text. Filed as 2026100505513100, since the place check there needs its own rules for what a remove moves.
+	- Verified: `ddhda` fails with the old parent rule, with the place check off, and with the footer check off, and passes with all three. The 2,000,000 release fuzz passes, all 18 tests. In that run 76 merges had a leaf under a repeated parent, 5 of them with a line to excuse, 11 stretches had copies to check, and 877 merges had a footer line skipped. `cargo test`, clippy with `-D warnings`, rustfmt and `test-ids.py check` pass.
 	- Progress log:
 		- 20261005: done on `keptmerge`. Test-only change, so no other binding is involved.
 	- Branch: `keptmerge`
 	- Commit: `dfff27a8`
-	- Test case: `ErpR2rr` (`merge_exceptions_go_by_position`), and `EreT6dh` at 2,000,000.
+	- Test case: `ddhda` (`merge_exceptions_go_by_position`), and `dderx` at 2,000,000.
 	- Acceptance signoff: Self-closed: a test-only change that does what the item asked, and its test passes.
 	- Closed: 20261005-055131
 
@@ -9043,7 +9143,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: the work on 2026100313174977
 	- Related IDs: 2026100313174977, 2026100506223902
 	- Problem description:
-		- `EreT6dh` picks the lines a remove takes, and the kept lines a setter writes as comments, by where they sit, then takes each off the expected lines by text. With two kept lines of one text, a remove or setter that kept the one it should take and dropped or commented the other would pass. The merge step had the same gap until 2026100313174977.
+		- `dderx` picks the lines a remove takes, and the kept lines a setter writes as comments, by where they sit, then takes each off the expected lines by text. With two kept lines of one text, a remove or setter that kept the one it should take and dropped or commented the other would pass. The merge step had the same gap until 2026100313174977.
 	- Requirements:
 		- Those steps check the edited text by place, as the merge step does, or the item says why they cannot.
 	- Estimated effort: Avg
@@ -9053,20 +9153,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The setter step reads its reach from the text: the lines at the level of the target's parent's block, a repeated header's block included. Under a parent with two instances the setter can make fields on the way, so those levels count too. A copy outside the reach must stay in its stretch with no note, and no copy may go.
 		- A copy in reach may move, since a setter that folds two fields of one name moves their lines. Nothing from the target's first line to the end of its last block is a bound.
 		- The merge, remove and setter steps share one stretch cut.
-	- Note: `EreT6dh` is in the Rust tests only. The other three bindings are held to it through the cross-binding check, which replays its inputs and edits (design.md), so there was no twin to change.
+	- Note: `dderx` is in the Rust tests only. The other three bindings are held to it through the cross-binding check, which replays its inputs and edits (design.md), so there was no twin to change.
 	- Note: every false failure on the way was a move the table allows. No library defect showed, so nothing was filed.
-	- Swept: the steps of `EreT6dh` that take expected lines off by text are the merge (2026100313174977), the remove and the setter, and all three now go by place. Go, Python and C have no copy of the property or its helpers.
+	- Swept: the steps of `dderx` that take expected lines off by text are the merge (2026100313174977), the remove and the setter, and all three now go by place. Go, Python and C have no copy of the property or its helpers.
 	- Verified:
 		- At 2,000,000 in release, 4,049 remove stretches and 1,427 setter stretches had a copy to hold, and all 20 fuzz tests pass.
 		- With a setter that also comments out the top level's kept lines of its name, the new check fails at iteration 69 and the old one passes all 2,000,000.
 		- With a remove that puts the lines beside its target above the sibling before it, the new check fails at iteration 58858, on two kept lines of one text with one taken. The old one passes all 2,000,000.
-		- `ErqSBCw` and `ErpR2rr` fail with the stretch cut turned off.
+		- `ddhn5` and `ddhda` fail with the stretch cut turned off.
 		- The Rust suite at its default, the Go, Python and C suites, clippy for the host and windows, rustfmt and `test-ids.py check` pass.
 	- Progress log:
 		- 20261005: done on `keptplace`. Test-only, no library change.
 	- Branch: `keptplace`
 	- Commit: `216831f1`
-	- Test case: `ErqSBCw` (`remove_and_setter_exceptions_go_by_position`), and `EreT6dh` at 2,000,000.
+	- Test case: `ddhn5` (`remove_and_setter_exceptions_go_by_position`), and `dderx` at 2,000,000.
 	- Acceptance signoff: Self-closed: a test-only change that does what the item asked. Its checks fail on both broken libraries and pass on the real one.
 	- Closed: 20261005-102024
 
@@ -9089,10 +9189,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix:
 		- The tag, sent in the push or already on the remote, has to point at a commit with a spec whose version is the tag's. A remote tag this clone does not hold is refused at 2, with the fetch to run.
 		- The script's header says it relies on `--atomic`. The release recipe's run after the push now has to print `TAG OK`, and says to push the tags on their own at once when it does not.
-	- Verified: `Erkafzp` (a tag on a 2.0.0 commit, sent in the push and on the remote) and `Erkag2h` (a remote tag on a commit this clone lacks) failed on the old script and pass now. `check-push-gate.bash` passes.
+	- Verified: `ddg84` (a tag on a 2.0.0 commit, sent in the push and on the remote) and `ddg85` (a remote tag on a commit this clone lacks) failed on the old script and pass now. `check-push-gate.bash` passes.
 	- Branch: `gatefix`
 	- Commit: d7b7001a
-	- Test case: `check-push-gate` `Erkafzp`, `Erkag2h`. The `--atomic` half is a recipe step, with no test.
+	- Test case: `check-push-gate` `ddg84`, `ddg85`. The `--atomic` half is a recipe step, with no test.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
 
@@ -9105,19 +9205,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: the fuzz work for 2026093019075905
 	- Related IDs: 2026093019075905, 2026093019075901, 2026093019075902, 2026093019075904
 	- Requirements:
-		- The Rust fuzz property `ErTmDwQ` checks only the Rust keep save. A file mixing LF, CRLF and no final newline is never run through the other three.
+		- The Rust fuzz property `ddc6m` checks only the Rust keep save. A file mixing LF, CRLF and no final newline is never run through the other three.
 		- Dump a capped set of those inputs, with the edit each one makes, beside the `fmt` dump crosscheck already reads.
 		- Crosscheck runs each through a keep save in all four and compares the bytes on disk.
 	- Estimated effort: Low
 	- Actual effort: Low
-	- Actual fix: with `SHCL_FUZZ_DUMP` set, `ErTmDwQ` writes the first 100 inputs it checks to an `eol/` folder in the dump, each with the edits that took as a write-ops script. Crosscheck finds that folder through `--extra`, runs each input through `set --write` with its ops on stdin in all four, and compares the file left on disk, CRs included, as its own test. An input with no ops, or an empty `eol/`, exits 2. The cicd stage needed no change.
+	- Actual fix: with `SHCL_FUZZ_DUMP` set, `ddc6m` writes the first 100 inputs it checks to an `eol/` folder in the dump, each with the edits that took as a write-ops script. Crosscheck finds that folder through `--extra`, runs each input through `set --write` with its ops on stdin in all four, and compares the file left on disk, CRs included, as its own test. An input with no ops, or an empty `eol/`, exits 2. The cicd stage needed no change.
 	- Note: the property's checks and its random sequence are unchanged. About half the dumped inputs mix both endings and about a third have no final newline.
 	- Swept: the cicd stage and `config.bash` pass the dump as before. check-migrate runs only the `fmt` fuzz test and globs the dump's top level, so it never sees `eol/`. The conformance README's crosscheck paragraph now names the `eol/` replay.
 	- Verified: the Rust CLI's write equals the library's checked text on all 100 dumped inputs, and the other three already agree. Crosscheck went red with new lines always LF in the Go keep save, and with a tie going to CRLF in the Python one; the tie was seen by the new test alone. Green again after each restore and a clean rebuild.
 	- Verified: crosscheck over the corpus and a fresh dump, shell-regress (its new row failed with the ops not fed on stdin), cargo test for the fuzz file, cargo fmt, clippy, `test-ids.py check`, check-docs, shellcheck and markdownlint pass.
 	- Branch: eolcross
 	- Commit: 8ee021ce, c906e66b
-	- Test case: crosscheck `ErUF4nK` (mixed line-ending keep saves agree), and shell-regress `ErUF4pC` for its failure paths.
+	- Test case: crosscheck `ddca7` (mixed line-ending keep saves agree), and shell-regress `ddca8` for its failure paths.
 	- Acceptance signoff: Self-closed: a test only, it does what the item asked, and it failed on each injected defect.
 	- Closed: 20261001-143722
 
@@ -9135,7 +9235,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: both new rows failed on the old Rust build and pass in all four. cli-regress (327 rows), the four conformance suites, the veneer smoke test, crosscheck, the 2,000,000 release fuzz and the lints pass.
 	- Branch: eolmajority
 	- Commit: 4ad726f6
-	- Test case: cli-regress `ErPO61B` (`set-write-eol-mostly-crlf`) and `ErPO633` (`set-write-eol-mostly-lf`).
+	- Test case: cli-regress `ddb4v` (`set-write-eol-mostly-crlf`) and `ddb4w` (`set-write-eol-mostly-lf`).
 	- Acceptance signoff: Self-closed: asked for directly, and the rows fail on the old code.
 	- Closed: 20260930-183520
 
@@ -9214,12 +9314,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261001: exit 7 on a 2.x line break in such a path follows the standing rule for hard 2.x edges: refuse rather than build machinery, and never damage a correct file at exit 0.
 		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
 	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
-	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
+	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ddcej`, `ddcek`, `ddcem` to `ddcep` and `ddcef` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
 	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Superseded by ID: 2026100207032800
 	- Branch: escblock
 	- Commit: c29f08fa
-	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ErUuq8D`. The old `path-hint-*` rows are commented out.
+	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ddcfc`. The old `path-hint-*` rows are commented out.
 	- Acceptance signoff: 20261003, closed without a hand check: every case is pinned in all four bindings, its sibling 2026100115403384 was signed off from the same branch, and 2026100207032800 replaces this behavior anyway.
 	- Closed: 20261003-113243
 
@@ -9238,11 +9338,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the Format and Migrated lines end in the file's majority line ending, a tie going to LF, and so does the line ending added after a last line that had none. One count serves this and the keep save, in all four bindings. spec.md says so under Migrating from 2.x.
 	- Note: corpus 124's migrate golden and the four runners' "the stamp is the only difference" check had pinned LF stamps. Both now expect the majority ending.
 	- Swept: each binding's migrate is the only code that writes the stamp. The unstamped call writes none, and `init` and a creating `set --write` write a new file, canonical and LF.
-	- Verified: `ErTecqE` failed in all four on dev and passes after. `ErTecqF`, the tie, passes on both. The same gates as 2026093019075901 pass.
+	- Verified: `ddc5s` failed in all four on dev and passes after. `ddc5t`, the tie, passes on both. The same gates as 2026093019075901 pass.
 	- Verified: both rows pass in the linux and windows jobs of the hosted run 36916523189 on dev at `6169e71f`.
 	- Branch: eolfix
 	- Commit: 8aa812a9, 38259bbd
-	- Test case: cli-regress `ErTecqE` (`migrate-write-eol-crlf`) and `ErTecqF` (`migrate-eol-tie-lf`), and corpus `124-migrate-crlf-fence`.
+	- Test case: cli-regress `ddc5s` (`migrate-write-eol-crlf`) and `ddc5t` (`migrate-eol-tie-lf`), and corpus `124-migrate-crlf-fence`.
 	- Acceptance signoff: 20261001
 	- Closed: 20261001-141757
 
@@ -9255,7 +9355,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026093019075901, 2026093019075902
 	- Requirements:
 		- The fuzz properties generate mixed LF, CRLF and no final newline, and check each kept or changed line's ending against the spec rule.
-		- Today only cli-regress `ErPO61B` and `ErPO633` pin the rule. A tie, a changed line keeping its own ending and a missing final newline are pinned nowhere.
+		- Today only cli-regress `ddb4v` and `ddb4w` pin the rule. A tie, a changed line keeping its own ending and a missing final newline are pinned nowhere.
 	- Note: items 1 and 2 of this round are what it would have found.
 	- Estimated effort: Avg
 	- Actual effort: Low
@@ -9265,7 +9365,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the property fails with the fix for 2026093019075901 undone, with the fix for 2026093019075902 undone, and with a tie going to CRLF. It passes on the tree, at the default count and at 2,000,000 in release with the rest of the fuzz. `cargo test`, cargo fmt, clippy, `test-ids.py check` and check-docs pass.
 	- Branch: eolfuzz
 	- Commit: 61495af6
-	- Test case: fuzz `keeping_lines_ends_each_line_by_the_rule` (`ErTmDwQ`).
+	- Test case: fuzz `keeping_lines_ends_each_line_by_the_rule` (`ddc6m`).
 	- Acceptance signoff: Self-closed: a test only, it does what the item asked, and it failed with each fix undone.
 	- Closed: 20261001-124327
 
@@ -9281,10 +9381,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Actual fix: with no second group, each row is noted in `SHCL_GATE_SKIPS`, and under `--ci` it fails instead, as the `/dev/full` rows do. Windows still skips both as a platform fact.
 	- Note: the hosted linux job needs no change. Both rows passed there in run `36785011455`, so the runner user already has a second group.
-	- Verified: with the caller in one group, both rows skip and are noted, and under strict both fail and cli-regress exits 1. Before the change the same case exits 0 under strict and notes nothing. With a second group both rows pass. shellcheck, shell-regress, check-docs and `test-ids.py check` pass, and `EqGhNQu` goes red with the note line removed.
+	- Verified: with the caller in one group, both rows skip and are noted, and under strict both fail and cli-regress exits 1. Before the change the same case exits 0 under strict and notes nothing. With a second group both rows pass. shellcheck, shell-regress, check-docs and `test-ids.py check` pass, and `dct57` goes red with the note line removed.
 	- Branch: groupskip
 	- Commit: c8187a46
-	- Test case: `EqMO8fA` and `ErCrqxU` (cli-regress), with `EqGhNQu` (shell-regress) holding the skip to the strict read and the note.
+	- Test case: `dcvgt` and `dd84g` (cli-regress), with `dct57` (shell-regress) holding the skip to the strict read and the note.
 	- Acceptance signoff: Self-closed: the change does what the item asked, and its pin fails when the note is dropped.
 	- Closed: 20261001-122751
 
@@ -19155,9 +19255,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 - Code review 20261015:
 	- Decided against: `upgrade --from-2x` damaging the good lines of a beta file with one error, such as a backtick-quoted `#fff` cut at the `#`. It's the class 2026101419280001 closed as docs only: `from_v2` is for a file known to be old. JC kept that call on 2026-10-15; the docs say what it can do (2026101514324708).
-	- Decided against: `upgrade --from-2x` saying `nothing to upgrade, left as is` at exit 0 on a Format 3 file whose fresh text wouldn't load clean. `Esnb9pV` pins it, and the wording is JC's call on 2026101419280005.
+	- Decided against: `upgrade --from-2x` saying `nothing to upgrade, left as is` at exit 0 on a Format 3 file whose fresh text wouldn't load clean. `ddzwg` pins it, and the wording is JC's call on 2026101419280005.
 	- Decided against: a beta file with its info block at the top getting a second block from `upgrade`. 2026101407100001 keeps a whole block above the first field. Only the doc comments are filed (2026101514324708).
-	- Decided against: a build at the Rust 1.88 floor in the gate. There's no 1.88 toolchain here, and `EshaoyP` checks the floor against the docs.
+	- Decided against: a build at the Rust 1.88 floor in the gate. There's no 1.88 toolchain here, and `ddye3` checks the floor against the docs.
 	- Decided against: a fuzz property for control characters in diagnostic lines, and fuzz differentials for ops scripts and `--json`. Probes over 411,512 diagnostics, 600 scripts and 400 inputs found nothing, and crosscheck already feeds ops scripts and `paths --json` from the fuzz dump.
 	- Decided against: a check that walks the Go and C names against the reference. 2026101407100008 records it as the gap it left.
 	- Decided against: the cleanup trap turning exit 0 into 1 when it can't remove the container's scratch folder. Nothing found makes it fail.
