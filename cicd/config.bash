@@ -201,6 +201,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-cpu-floor.bash
+	cicd/utility/box-suites.bash
 	cicd/utility/check-boxes.bash
 	cicd/utility/check-freebsd.bash
 	cicd/utility/check-win-release.bash
@@ -579,10 +580,12 @@ BACKLOG_AREAS=(
 
 ## Test boxes, after the release builds, on this box rather than in the image,
 ## since the host lock and the ssh keys are here (2026102419263412). One row per
-## box: "BOX|SSH_TARGET|os-arch", the os-arch naming the release build it runs.
+## box: "BOX|SSH_TARGET|os-arch[|suites]", the os-arch naming the release build
+## it runs. "suites" also builds the 4 bindings there and runs their
+## conformance suites and cli-regress (2026102419263417).
 ## --no-remote leaves them out, and a box that isn't there is a SKIP.
 REMOTE_BOXES=(
-	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64"
+	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64|suites"
 )
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored

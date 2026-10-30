@@ -220,7 +220,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: High
 	- Opened: 20261024-192634
 	- Opened by: 2026102416250010
@@ -229,6 +229,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Build the 4 bindings on vmFreeBSD and run their conformance suites and cli-regress there, through the box step.
 		- Say whether `check-freebsd.bash`'s qemu boot stays once vmFreeBSD runs the release.
+	- Needs local test suite run?: Y, `--backlog-run-full`: its `Test boxes` step passes `decyk` and `demxj` to `demxp` for vmFreeBSD.
+	- Progress log:
+		- 20261030: a `REMOTE_BOXES` row that ends in `|suites` also sends the tracked `source/` and `project/` files to the box, in the same visit as the CLI cases. There `cicd/utility/box-suites.bash` builds the 4 bindings and runs their suites, then cli-regress over the compiled CLIs that built. vmFreeBSD's row has it. A suite whose tool the box lacks is a `SKIP`. Each suite's result comes back as its own test line.
+		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and freebsd-x86_64 release builds, on the real vmFreeBSD through the host lock, from paused: `decyk` and `demxj` to `demxp` passed. Rust 48 s, Go 10 s, Python 77 s, C 19 s, cli-regress over all 4 CLIs 289 s. The VM ended paused, as found.
+		- Verified: with one line added to `002-stacked-array`'s `expected.shcl` in a scratch copy, the Rust, Go, Python and C rows each failed on the box, naming that case, and the run exited 1.
+		- Verified: with the Python CLI left out of cli-regress there, the same run passed all 6 rows: cli-regress over the 3 compiled CLIs took 15 s, and the box 175 s in all, so the step adds about 3 minutes to a full run.
+		- shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed (check-docs is red on dev for `dcbc2`).
+		- Not run: the step inside a whole run with release builds.
+	- Decisions:
+		- `check-freebsd.bash`'s qemu boot stays (me). It runs a pinned stock 15.1 image with no network, in the container and in a `--no-remote` run, in about 18 s. vmFreeBSD is a lived-in box whose toolchains change with `pkg`, and is a `SKIP` when held or off. Dropping the boot would also drop 3 tests.
+		- Suites are a 4th row field, so vmDebARM64 can take them with one word, and the Macs stay CLI-only (me).
+		- Each run builds cold in the box's work folder, cargo's crates included, so nothing is left on the box (me).
+		- cli-regress on the box leaves out the Python CLI (me). It held about 270 s of cli-regress's 289 s there, which put the step over 5 minutes of every full run. Running the 4 bindings side by side saved only 10 s. Python's conformance suite still runs there.
+		- The suites are the conformance suites as asked: no Go `-race`, Python soak, or the C veneer, OOM and bounds tests (me).
+	- Swept: `REMOTE_BOXES` readers: cicd.bash's step (passes the field on), `--list` (reads the name only), check-push-gate (empties it), and the stand-in rows in the stub tools (3 fields, still valid).
+	- Test case: check-boxes `demxj` (Rust), `demxk` (Go), `demxm` (Python), `demxn` (C), `demxp` (cli-regress), beside `decyk`.
 
 - Other hosts: Linux arm64 on vmDebARM64
 	- ID: 2026102419263422

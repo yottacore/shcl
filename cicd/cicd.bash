@@ -144,7 +144,7 @@ FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); 
 LEAKCHECK_FAST=(); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=(); LEAKCHECK_TESTS=()
 FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
-REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch" test boxes, after the release builds
+REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites]" test boxes, after the release builds
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
@@ -1410,8 +1410,8 @@ if fStepOn boxes; then
 	else
 		box_rows=()
 		for r in "${REMOTE_BOXES[@]}"; do
-			IFS='|' read -r r_box r_target r_osarch <<< "${r}"
-			box_rows+=("${r_box}|${r_target}|$(fArtOf "${r_osarch}")")
+			IFS='|' read -r r_box r_target r_osarch r_suites <<< "${r}"
+			box_rows+=("${r_box}|${r_target}|$(fArtOf "${r_osarch}")${r_suites:+|${r_suites}}")
 		done
 		box_rc=0; fCpuStep check-boxes.bash
 		"${here}/utility/check-boxes.bash" "${RELEASE_NATIVE_BIN}" "${box_rows[@]}" 2>&1 | tee "${run_tmp}/boxes.out" || box_rc=$?
