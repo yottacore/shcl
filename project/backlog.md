@@ -33,49 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Hosted ci.yml tests half runs past its 60-minute timeout
-	- ID: 2026102915235852
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: one hosted ci.yml run, where the release part ends well inside its timeout and the tests part does too.
-	- Severity: High
-	- Opened: 20261029-152358
-	- Opened by:
-	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
-	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
-	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
-	- Progress log:
-		- 20261029: the release has a hosted part of its own, `--merge-gate --no-lint --no-tests --no-cross --no-remote`, and the tests part adds `--no-release`. timeout-minutes is 80, since the tests stage alone took 48. check-pins fails a hosted job that runs both tests and the release, as it does lint and tests.
-		- Verified: check-pins passes on the new ci.yml and fails with the release part folded back into tests. shell-regress `Eu8X2fW` passes, and passes check-pins with the new rule taken out. `cicd.bash --list` shows the release part runs the release builds, CPU floor and packages, and the tests part none of them.
-	- Swept: every `--merge-gate` line in ci.yml, check-pins' other job rules, and shell-regress' check-pins rows, which still each edit a line that's there (the release-left-out row now adds `--no-release` to the release part). No doc names the 2 halves. The other 3 bindings have no pipeline of their own, so no twin there.
-	- Test case: shell-regress `Eu8X2fW`.
-	- Branch: `r1029b`
-
-- Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
-	- ID: 2026102913213704
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: No
-	- Priority: High
-	- Opened: 20261029-132137
-	- Opened by: 2026102910482343
-	- Parent ID: 2026102910482343
-	- Prereq IDs: 2026102913213663, 2026102913213683
-	- Requirements: the parent's, in C and the veneer, as Rust has them, with the twin of its test in the C runner and the veneer smoke. Once all 4 have it: design.md's Save outcomes, spec.md's file tier, examples.md's What saving does, and the changelog.
-	- Decisions:
-		- me, 20261029: C has `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, and `shcl_save_options` gets `int create` and `unsigned mode`, so `{0}` is still `shcl_save_file`. The Rust message is in the enum's comment, as `CHANGED`'s is. The veneer has `SaveResult::Exists`, and `SaveOptions` gets `create` and `mode`.
-		- me, 20261029: the C runner's race is under `#ifndef _WIN32`, with pthreads, as its small-stack fixture is. The veneer smoke has no race, since it wraps the same C save.
-	- Progress log:
-		- 20261029: `s_write_file_atomic` takes the create and the mode, and says when create found something. `shcl_save_file_with` checks for anything at the target before the changed check, and calls it directly. design.md, spec.md, examples.md and the changelog say so for all 4.
-		- 20261029: codeql-scan flagged the C runner's race path as a stack address in a global (`cpp/stack-address-escape`), so it's static now. The Python twin's `chmod` of a fixture mode (`py/overly-permissive-file`, from 2026102913213663) is suppressed at its line, as the earlier ones are. Verified: codeql-scan alone passes, `EtAC9Zo` and `EtAC9fG` included, and the C and Python suites pass.
-		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
-	- Swept: C and the veneer. `shcl_write_file_atomic` and `shcl_upgrade_file` pass no create and no mode, so they write as before. The 3 short saves pass `{0}`. Docs: design.md's Save outcomes table (the create row, the mode on the new-file row) and its two Saving a file bullets on mode and the new-file publish, spec.md's file tier (the mode, a create bullet, the options list, the separate-values bullet), examples.md, and the changelog's New.
-	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
-	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
-	- Branch: `r1029`
-	- Commit: `a618835c`, `276abbc8`
-
 - CICD reset: --gate as a backlog run
 	- ID: 2026102814013272
 	- Type: Enhancement
@@ -119,38 +76,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: `--merge-gate`, not `--backlog-run-quick`, since the line says what a dev box is set up to run before a merge, as contributing.md's does.
 	- Test case: no new test. check-docs `EpHGoa0` (installers match main) covers the sync.
 	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
-
-- Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
-	- ID: 2026102912203343
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
-	- Needs external testing: No
-	- Priority: High
-	- Opened: 20261029-122033
-	- Opened by: 2026102910482342
-	- Parent ID: 2026102910482342
-	- Prereq IDs: 2026102912203339, 2026102912203341
-	- Requirements:
-		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
-		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
-	- Decisions:
-		- me, 20261029: C has `SHCL_SAVE_CHANGED` on the end of `shcl_save_result`, where new values go, and `shcl_save_file_with(d, path, shcl_save_options, *kept, *why)`, with `*kept` as the line-keeping save sets it. The options struct is `{ lossy, keep_lines, force }` and goes by value, as in Go, since all zero is `shcl_save_file`.
-		- me, 20261029: C's saves give no message, refused or failed, so the Rust message is in the enum's comment rather than in a new out-parameter.
-		- me, 20261029: the veneer has `SaveResult::Changed`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, opts, why)`, which gives the result and whether it kept the lines. Its 3 saves are no longer `const`, as Rust's take `&mut self`. They still hold the document's lock, so the threads test keeps its save, through a non-const reference.
-		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
-	- Progress log:
-		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
-		- 20261029: hosted ci.yml run 40953807354 failed `EqnwIkY` (windangle), `Eu7cuVd` and `Eu7cuVe` on windows, where wine passed them. The runner's TEMP has a short name, `RUNNER~1`. A file that's there resolved to its long name and one that isn't to the short one, so a removed or new file was never "over" the load's file. And a load through a dangling link ran the save's probe, which creates a file. Now a path with nothing at it takes its folder's final path, as Rust's canonicalize of the parent does, and the check walks a dangling link's own text, as the other 3 do, so a load creates nothing.
-			- Verified on b29w, from the mingw build: the old code fails `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe` the way the hosted job did with TEMP set to its short name, and the new code passes all 3 with TEMP short and long, the whole C runner (212) and the veneer smoke. The new short-name lines in `Eu7cuVd` fail on the old code with TEMP long too. Its new dangling-link lines fail with the link walk turned off. Also under wine, `cicd.bash --backlog-run-quick c`.
-			- Swept: `shcl_resolve_path`'s 3 callers (the read, the save, the check). Rust, Go and Python already read a link's text and canonicalize the parent, so only C had it.
-		- 20261029: the full run on `52d50363` failed codeql-scan's `EtAC9Zo`. The veneer's load and save calls are now `cpp/path-injection` findings, since the save reads the file first. They open the path the caller named, as `read_file` already says, so each is suppressed at its line with that reason. Verified: codeql-scan alone passes all 17 checks, `EtAC9Zo` and `EtAC9lw` included, and the C runner and veneer smoke pass.
-		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
-	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
-	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
-	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
-	- Branch: `r1029`
-	- Commit: `c271967d`, `42a12d0d`, `276abbc8`
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
@@ -279,58 +204,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: split into children 2026102813104060 (the backlog run flags), 2026102813104371 (the hosted workflow on `--merge-gate`, then `--gate` as another name for `--backlog-run-quick`) and 2026102813104377 (install-dev's gate lines and the docs-only sync to main), in that order. The hosted workflow runs `--gate` today, and would lose the slow checks if `--gate` changed first.
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
-
-- Refuse a save over a file that changed since the load
-	- ID: 2026102910482342
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Related IDs: 2026102910482343
-	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
-	- Requirements:
-		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
-		- A caller that means to replace it can force the save.
-		- A document from `parse`, with no file behind it, saves as it does now.
-	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
-	- Note: with v4 (JC).
-	- Decisions:
-		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
-		- me, 20261029: the check is on content only, byte for byte against what the load read, as `upgrade_file` and shclwrap check. A touch alone is no change. The document keeps the text it read, about the file's size in memory.
-		- me, 20261029: after a good save over the file, the check is against what that save wrote, so a program that saves twice isn't refused by its own first save. In Rust the save calls take `&mut self` for it.
-		- me, 20261029: over the file means the path the load read, after links are followed, the way the save finds its target. Another hard link to it isn't seen. A save anywhere else isn't checked.
-		- me, 20261029: a load that found nothing expects nothing there at the save, and a file gone since the load is a change too. An `Unreadable` load has nothing to compare, so it saves as now.
-		- me, 20261029: the force is a save option, in a new `save_file_with(path, options)` that also holds `lossy` and `keep_lines`, so the create and the mode of 2026102910482343 go beside it rather than in more save calls. The 3 save calls stay, as its short forms.
-		- me, 20261029: `upgrade_file` keeps its own changed refusal, `Io` with `Other`, since it returns `UpgradeError`, not `SaveError`.
-		- me, 20261029: the CLI parses the text it read, so its saves have no file behind them and keep the CLI's own check.
-		- me, 20261029: it's a check and not a lock. An edit between the check and the rename is still lost, as in `upgrade_file`.
-	- Progress log:
-		- 20261029: split by binding. Rust and Python are child 2026102912203339, Go 2026102912203341, and C, the C++ veneer and the docs 2026102912203343.
-
-- Let a save create a new file only, and give a new file its mode
-	- ID: 2026102910482343
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261029-104823
-	- Opened by: JC
-	- Related IDs: 2026102910482342
-	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
-	- Requirements:
-		- A create-only save fails when the file is there, even with 2 programs saving it at once.
-		- A new file can be given a mode. A file that's already there keeps its own, as now.
-		- Both are save options, beside the force from 2026102910482342.
-	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
-	- Note: with v4 (JC).
-	- Decisions:
-		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
-		- me, 20261029: `create` and `mode` are fields of `SaveOptions`, beside `force`. A second create-only save call was canceled.
-		- me, 20261029: a create-only save that finds a file there is refused with its own kind, as the changed check is, and nothing is written: Rust `SaveError::Exists { path }`, Python `SaveExists`, Go `*SaveExists`, C `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, the veneer `SaveResult::Exists`. The message is `PATH: refusing to save: the file is already there and create asks for a new one; nothing written`. Losing the race to another create is the same refusal, since the publish of a new file already fails on anything at the path.
-		- me, 20261029: the lost-content gate goes first, then the create check, then the changed check. `force` doesn't override `create`.
-		- me, 20261029: `mode` is the permission bits, `0o777`, and 0 means the mode an ordinary create gives, so the zero value is still `save_file` in every binding. It's set exactly, on the handle, so the umask doesn't narrow it, and the temp file is born private first. A file already there keeps its own mode and the option is ignored. Windows has no POSIX modes, so it's ignored there.
-	- Progress log:
-		- 20261029: split by binding. Rust and Python are child 2026102913213663, Go 2026102913213683, and C, the C++ veneer and the docs 2026102913213704. All 3 are in on `r1029` and wait on the hosted windows job, and the C one on cppcheck.
 
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
@@ -596,6 +469,147 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Hosted ci.yml tests half runs past its 60-minute timeout
+	- ID: 2026102915235852
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261029-152358
+	- Opened by:
+	- Problem description: on r1029, ci.yml run 40953807354's tests half passed its Tests step, then was canceled at 60 minutes inside the release step's check-cpu-floor (the Penryn run alone took 5 minutes). It took 50 minutes on 2026-10-28, so it's near the edge, and a main push can't pass the hosted merge gate while it does this.
+	- Requirements: the tests half finishes inside its timeout with room to spare, by a longer timeout-minutes or by moving the CPU-floor emulator runs to their own job.
+	- 20261029: again on run 40965510877 (5852966d): Tests passed at 48 minutes, then canceled at 60 inside Release builds.
+	- Progress log:
+		- 20261029: the release has a hosted part of its own, `--merge-gate --no-lint --no-tests --no-cross --no-remote`, and the tests part adds `--no-release`. timeout-minutes is 80, since the tests stage alone took 48. check-pins fails a hosted job that runs both tests and the release, as it does lint and tests.
+		- Verified: check-pins passes on the new ci.yml and fails with the release part folded back into tests. shell-regress `Eu8X2fW` passes, and passes check-pins with the new rule taken out. `cicd.bash --list` shows the release part runs the release builds, CPU floor and packages, and the tests part none of them.
+	- Swept: every `--merge-gate` line in ci.yml, check-pins' other job rules, and shell-regress' check-pins rows, which still each edit a line that's there (the release-left-out row now adds `--no-release` to the release part). No doc names the 2 halves. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Verified: 20261029, hosted ci.yml run 40976604414 on `r1029b` passed every job. The release part took 12.5 minutes, tests 52 and lint 49 (a cold cppcheck), all inside 80.
+	- Test case: shell-regress `Eu8X2fW`.
+	- Branch: `r1029b`
+	- Acceptance signoff: me, 20261029, the hosted run passed with room to spare
+	- Closed: 20261029
+
+- Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
+	- ID: 2026102913213704
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261029-132137
+	- Opened by: 2026102910482343
+	- Parent ID: 2026102910482343
+	- Prereq IDs: 2026102913213663, 2026102913213683
+	- Requirements: the parent's, in C and the veneer, as Rust has them, with the twin of its test in the C runner and the veneer smoke. Once all 4 have it: design.md's Save outcomes, spec.md's file tier, examples.md's What saving does, and the changelog.
+	- Decisions:
+		- me, 20261029: C has `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, and `shcl_save_options` gets `int create` and `unsigned mode`, so `{0}` is still `shcl_save_file`. The Rust message is in the enum's comment, as `CHANGED`'s is. The veneer has `SaveResult::Exists`, and `SaveOptions` gets `create` and `mode`.
+		- me, 20261029: the C runner's race is under `#ifndef _WIN32`, with pthreads, as its small-stack fixture is. The veneer smoke has no race, since it wraps the same C save.
+	- Progress log:
+		- 20261029: `s_write_file_atomic` takes the create and the mode, and says when create found something. `shcl_save_file_with` checks for anything at the target before the changed check, and calls it directly. design.md, spec.md, examples.md and the changelog say so for all 4.
+		- 20261029: codeql-scan flagged the C runner's race path as a stack address in a global (`cpp/stack-address-escape`), so it's static now. The Python twin's `chmod` of a fixture mode (`py/overly-permissive-file`, from 2026102913213663) is suppressed at its line, as the earlier ones are. Verified: codeql-scan alone passes, `EtAC9Zo` and `EtAC9fG` included, and the C and Python suites pass.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
+	- Swept: C and the veneer. `shcl_write_file_atomic` and `shcl_upgrade_file` pass no create and no mode, so they write as before. The 3 short saves pass `{0}`. Docs: design.md's Save outcomes table (the create row, the mode on the new-file row) and its two Saving a file bullets on mode and the new-file publish, spec.md's file tier (the mode, a create bullet, the options list, the separate-values bullet), examples.md, and the changelog's New.
+	- Verified: `Eu7kRqj` and `Eu7kRqk` fail with the create checks and the mode turned off and pass with them. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Test case: `a_create_only_save_refuses_a_file_already_there` in the C runner (`Eu7kRqj`) and the veneer smoke (`Eu7kRqk`).
+	- Branch: `r1029`
+	- Commit: `a618835c`, `276abbc8`
+	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
+	- Acceptance signoff: me, 20261029, cppcheck and the hosted Windows job pass
+	- Closed: 20261029
+
+- Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
+	- ID: 2026102912203343
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261029-122033
+	- Opened by: 2026102910482342
+	- Parent ID: 2026102910482342
+	- Prereq IDs: 2026102912203339, 2026102912203341
+	- Requirements:
+		- The parent's, in C and the veneer, as Rust has them, with the twin of `Eu7RSm3` in the C runner and the veneer smoke.
+		- Once all 4 have it: design.md's Save outcomes row that says the library's save doesn't look, spec.md's file tier, examples.md's "What saving does", the Rust README and the changelog.
+	- Decisions:
+		- me, 20261029: C has `SHCL_SAVE_CHANGED` on the end of `shcl_save_result`, where new values go, and `shcl_save_file_with(d, path, shcl_save_options, *kept, *why)`, with `*kept` as the line-keeping save sets it. The options struct is `{ lossy, keep_lines, force }` and goes by value, as in Go, since all zero is `shcl_save_file`.
+		- me, 20261029: C's saves give no message, refused or failed, so the Rust message is in the enum's comment rather than in a new out-parameter.
+		- me, 20261029: the veneer has `SaveResult::Changed`, `SaveOptions { lossy, keep_lines, force }` and `save_file_with(path, opts, why)`, which gives the result and whether it kept the lines. Its 3 saves are no longer `const`, as Rust's take `&mut self`. They still hold the document's lock, so the threads test keeps its save, through a non-const reference.
+		- me, 20261029: a C load that runs out of memory noting the file gives NULL, as a load that runs out in the parse does. A save that runs out goes to `SHCL_OOM`, as any call on a built document does. The record is malloc'd, so a save can give the old text back, and `shcl_compact` moves it to the new copy.
+	- Progress log:
+		- 20261029: every C load that reads a file goes through `s_load_file_any`, which records where the path resolved to and takes the text it read, or notes that nothing was there. `shcl_save_file`, `shcl_save_file_lossy` and `shcl_save_file_keep_lines` go through `shcl_save_file_with`, which checks a save over that file before the write and records what it wrote. Text that is no longer UTF-8 counts as a change. The docs say so for all 4.
+		- 20261029: hosted ci.yml run 40953807354 failed `EqnwIkY` (windangle), `Eu7cuVd` and `Eu7cuVe` on windows, where wine passed them. The runner's TEMP has a short name, `RUNNER~1`. A file that's there resolved to its long name and one that isn't to the short one, so a removed or new file was never "over" the load's file. And a load through a dangling link ran the save's probe, which creates a file. Now a path with nothing at it takes its folder's final path, as Rust's canonicalize of the parent does, and the check walks a dangling link's own text, as the other 3 do, so a load creates nothing.
+			- Verified on b29w, from the mingw build: the old code fails `EqnwIkY`, `Eu7cuVd` and `Eu7cuVe` the way the hosted job did with TEMP set to its short name, and the new code passes all 3 with TEMP short and long, the whole C runner (212) and the veneer smoke. The new short-name lines in `Eu7cuVd` fail on the old code with TEMP long too. Its new dangling-link lines fail with the link walk turned off. Also under wine, `cicd.bash --backlog-run-quick c`.
+			- Swept: `shcl_resolve_path`'s 3 callers (the read, the save, the check). Rust, Go and Python already read a link's text and canonicalize the parent, so only C had it.
+		- 20261029: the full run on `52d50363` failed codeql-scan's `EtAC9Zo`. The veneer's load and save calls are now `cpp/path-injection` findings, since the save reads the file first. They open the path the caller named, as `read_file` already says, so each is suppressed at its line with that reason. Verified: codeql-scan alone passes all 17 checks, `EtAC9Zo` and `EtAC9lw` included, and the C runner and veneer smoke pass.
+		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK: the item's Windows tests pass. cppcheck passed in the full run on 52d50363, before the Windows resolver fix 42a12d0d, so it's still needed on that commit.
+	- Swept: C and the veneer. `shcl_load_file`, `shcl_load_file_with` and `shcl_load_file_keep_lines` record; `shcl_parse*`, `shcl_load_and_validate*` and `shcl_new` read no file. `shcl_merge` keeps the record and `shcl_compact` moves it. The veneer's saves wrap the C ones. The C CLI parses the text it read, so it keeps its own check. `soak.c` saves to a file it didn't load. `shcl_upgrade_file` keeps its own check. Docs: design.md's Save outcomes row, spec.md's file tier (a new bullet, and the separate-values one), examples.md's "What saving does", the Rust README's example comment, and the changelog's Upgrading and New. Rust, Python and Go were done in 2026102912203339 and 2026102912203341.
+	- Verified: `Eu7cuVd` and `Eu7cuVe` fail with the check turned off and pass with it. `Eu7cuVd` passes for windows under wine, from the mingw build, with the link part compiled out there. Also `cicd.bash --backlog-run-quick c`, sanitize-c.bash (TSan on the veneer smoke included), analyze-c.bash, check-c-compilers.bash, check-veneer.bash, check-docs.bash, cli-regress over the C CLI (629 rows), and lint-report `--check --no-mark`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in the C runner (`Eu7cuVd`) and the veneer smoke (`Eu7cuVe`).
+	- Branch: `r1029`
+	- Commit: `c271967d`, `42a12d0d`, `276abbc8`
+	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
+	- Acceptance signoff: me, 20261029, cppcheck and the hosted Windows job pass
+	- Closed: 20261029
+
+- Refuse a save over a file that changed since the load
+	- ID: 2026102910482342
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482343
+	- Problem description: a save writes over a file another program changed after the load, and that program's edit is lost. Only `upgrade_file` checks for this now.
+	- Requirements:
+		- A save over a file that changed since the load is refused, with its own error kind, and nothing is written.
+		- A caller that means to replace it can force the save.
+		- A document from `parse`, with no file behind it, saves as it does now.
+	- Note: shclwrap does this as `ErrChanged`, with `WriteOpts.Force`. Its shared cases are a place to start.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: the check is on content only, byte for byte against what the load read, as `upgrade_file` and shclwrap check. A touch alone is no change. The document keeps the text it read, about the file's size in memory.
+		- me, 20261029: after a good save over the file, the check is against what that save wrote, so a program that saves twice isn't refused by its own first save. In Rust the save calls take `&mut self` for it.
+		- me, 20261029: over the file means the path the load read, after links are followed, the way the save finds its target. Another hard link to it isn't seen. A save anywhere else isn't checked.
+		- me, 20261029: a load that found nothing expects nothing there at the save, and a file gone since the load is a change too. An `Unreadable` load has nothing to compare, so it saves as now.
+		- me, 20261029: the force is a save option, in a new `save_file_with(path, options)` that also holds `lossy` and `keep_lines`, so the create and the mode of 2026102910482343 go beside it rather than in more save calls. The 3 save calls stay, as its short forms.
+		- me, 20261029: `upgrade_file` keeps its own changed refusal, `Io` with `Other`, since it returns `UpgradeError`, not `SaveError`.
+		- me, 20261029: the CLI parses the text it read, so its saves have no file behind them and keep the CLI's own check.
+		- me, 20261029: it's a check and not a lock. An edit between the check and the rename is still lost, as in `upgrade_file`.
+	- Progress log:
+		- 20261029: split by binding. Rust and Python are child 2026102912203339, Go 2026102912203341, and C, the C++ veneer and the docs 2026102912203343.
+		- 20261029: all 3 children are Done (2026102912203339, 2026102912203341 and 2026102912203343).
+	- Test case: the children's, one per binding.
+	- Acceptance signoff: me, 20261029, every child is Done
+	- Closed: 20261029
+
+- Let a save create a new file only, and give a new file its mode
+	- ID: 2026102910482343
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261029-104823
+	- Opened by: JC
+	- Related IDs: 2026102910482342
+	- Problem description: a program can't ask a save to fail when the file is already there, or to give a new file an exact mode, such as 0600 for one with tokens. Programs write their own create step for both.
+	- Requirements:
+		- A create-only save fails when the file is there, even with 2 programs saving it at once.
+		- A new file can be given a mode. A file that's already there keeps its own, as now.
+		- Both are save options, beside the force from 2026102910482342.
+	- Note: shclwrap has these as `WriteOpts.Create` and `WriteOpts.Mode`.
+	- Note: with v4 (JC).
+	- Decisions:
+		- JC, 20261029: pulled into 3.0.0-beta1, since shclwrap is frozen and gitniblet moves straight to shcl 3. These were its save guards.
+		- me, 20261029: `create` and `mode` are fields of `SaveOptions`, beside `force`. A second create-only save call was canceled.
+		- me, 20261029: a create-only save that finds a file there is refused with its own kind, as the changed check is, and nothing is written: Rust `SaveError::Exists { path }`, Python `SaveExists`, Go `*SaveExists`, C `SHCL_SAVE_EXISTS` on the end of `shcl_save_result`, the veneer `SaveResult::Exists`. The message is `PATH: refusing to save: the file is already there and create asks for a new one; nothing written`. Losing the race to another create is the same refusal, since the publish of a new file already fails on anything at the path.
+		- me, 20261029: the lost-content gate goes first, then the create check, then the changed check. `force` doesn't override `create`.
+		- me, 20261029: `mode` is the permission bits, `0o777`, and 0 means the mode an ordinary create gives, so the zero value is still `save_file` in every binding. It's set exactly, on the handle, so the umask doesn't narrow it, and the temp file is born private first. A file already there keeps its own mode and the option is ignored. Windows has no POSIX modes, so it's ignored there.
+	- Progress log:
+		- 20261029: split by binding. Rust and Python are child 2026102913213663, Go 2026102913213683, and C, the C++ veneer and the docs 2026102913213704. All 3 are in on `r1029` and wait on the hosted windows job, and the C one on cppcheck.
+		- 20261029: all 3 children are Done (2026102913213663, 2026102913213683 and 2026102913213704).
+	- Test case: the children's, one per binding.
+	- Acceptance signoff: me, 20261029, every child is Done
+	- Closed: 20261029
 
 - Open a newer format's file read-only
 	- ID: 2026102910482344
