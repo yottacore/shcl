@@ -6184,7 +6184,9 @@ func TestAnIndexOntoAListTakesNoField(t *testing.T) {
 	if _, st := doc.GetString("srv.tls"); st == Good {
 		t.Fatal("srv.tls binds")
 	}
-	check(doc, "srv:\n\t- a\n# srv(0).tls: on\n")
+	// The emitter walks the index now, so the line stays as written, where a
+	// reload keeps it again (2026102821334970, TestAnIndexWithNoInstanceStaysKept).
+	// check(doc, "srv:\n\t- a\n# srv(0).tls: on\n")
 	// The 2M merge fuzz's case: the layer brought the list and the field.
 	doc = Parse("m: 1\n")
 	doc.Merge(Parse("srv: [a]\nsrv(0).tls: on\n"))
@@ -6192,6 +6194,99 @@ func TestAnIndexOntoAListTakesNoField(t *testing.T) {
 	doc = Parse("m: 1\n")
 	doc.Merge(Parse("srv:\n\t- a\nsrv(0).tls: on\n"))
 	check(doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n")
+}
+
+// An index that selects no instance bound before it is kept (E003): the line
+// binds nothing, opens none of its path's fields, and nothing is lost. Where a
+// merge or an edit puts an instance above it, it is written as a comment. One
+// that opens a raw block is dropped with it. Same fixture in every runner.
+func TestAnIndexWithNoInstanceStaysKept(t *testing.T) {
+	defer testID(t, "Eu8yPCI")
+	check := func(doc *Document, want string) {
+		t.Helper()
+		text := doc.ToCanonical()
+		if text != want {
+			t.Fatalf("canonical %q, want %q", text, want)
+		}
+		back := Parse(text)
+		if back.ToCanonical() != text || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
+			t.Fatalf("reload differs: %q", text)
+		}
+		if back.LostCount() != 0 {
+			t.Fatalf("reload lost %d: %q", back.LostCount(), text)
+		}
+	}
+	codes := func(doc *Document) []string {
+		var out []string
+		for _, d := range doc.Diagnostics() {
+			out = append(out, fmt.Sprintf("%d %s", d.Line, d.Code))
+		}
+		return out
+	}
+	src := "a: 1\na(5).b: 2  # c\nx.a(0).b: 1\nh: \"open\n\tb(0).c: 1\na(3).d: [1, 2]\nz: 1\n"
+	doc := Parse(src)
+	if got := codes(doc); !reflect.DeepEqual(got, []string{"2 E003", "3 E003", "4 E017", "5 E003", "6 E003"}) {
+		t.Fatalf("diagnostics %v", got)
+	}
+	if doc.LostCount() != 0 || !reflect.DeepEqual(doc.Paths(), []string{"a", "z"}) {
+		t.Fatalf("lost %d, paths %v", doc.LostCount(), doc.Paths())
+	}
+	check(doc, src)
+	doc = Parse("a: 1\na(5).b: ```\n\tbody: 1\n```\nz: 1\n")
+	if got := codes(doc); !reflect.DeepEqual(got, []string{"2 E003"}) || doc.LostCount() != 1 {
+		t.Fatalf("raw: diagnostics %v, lost %d", got, doc.LostCount())
+	}
+	// A dotted line onto stacked items through an index stays as written.
+	src = "srv:\n\t- a\nsrv(0).tls: on\n"
+	check(Parse(src), src)
+	// A merge brings the instance above it.
+	doc = Parse("a: 1\na(1).b: 2\nz: 1\n")
+	doc.Merge(Parse("a: 1\na: 2\n"))
+	check(doc, "a: 1\na: 2\n# a(1).b: 2\nz: 1\n")
+	// An edit far above it gives the index one, and the document settles.
+	doc = Parse("p:\n\tx: bar\n\t\ty: 1\nw: 1\np.x(foo).y(0).z: 1\nq: 1\n")
+	if got := codes(doc); !reflect.DeepEqual(got, []string{"5 E003"}) {
+		t.Fatalf("edit: diagnostics %v", got)
+	}
+	if st := doc.SetString("p.x", "foo"); st != SetOk {
+		t.Fatalf("set: %v", st)
+	}
+	check(doc, "p:\n\tx: foo\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
+	// It settled to the comment, as a save and a reload would have.
+	if st := doc.SetString("p.x", "bar"); st != SetOk {
+		t.Fatalf("set back: %v", st)
+	}
+	check(doc, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
+}
+
+// A line kept in a leaf's block stays in the merged block when the other layer
+// replaces the leaf, as it does when a setter changes the leaf in place. It
+// went to the root, above the field, where an item reloaded as E007. Same
+// fixture in every runner.
+func TestAReplacedLeafKeepsTheLinesKeptInItsBlock(t *testing.T) {
+	defer testID(t, "Eu96oVG")
+	for _, c := range []struct{ src, want, code string }{
+		{"val: 1\n\ta: [1\nz: 2\n", "val: 1\n\ta: [1\n\ta: [1\nz: 2\n", "E019"},
+		{"val: 1\n\t- e\nz: 2\n", "val: 1\n\t- e\n\t- e\nz: 2\n", "E011"},
+	} {
+		doc := Parse(c.src)
+		doc.Merge(Parse(c.src))
+		text := doc.ToCanonical()
+		if text != c.want {
+			t.Fatalf("canonical %q, want %q", text, c.want)
+		}
+		back := Parse(text)
+		if back.ToCanonical() != text || back.LostCount() != 0 {
+			t.Fatalf("reload differs or loses: %q", text)
+		}
+		var codes []string
+		for _, d := range back.Diagnostics() {
+			codes = append(codes, fmt.Sprintf("%d %s", d.Line, d.Code))
+		}
+		if !reflect.DeepEqual(codes, []string{"2 " + c.code, "3 " + c.code}) {
+			t.Fatalf("reload diagnostics %v", codes)
+		}
+	}
 }
 
 // A field with lines under it takes one plain value or none (E028), so a

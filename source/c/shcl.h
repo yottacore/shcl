@@ -1754,6 +1754,10 @@ struct shcl_doc {
 	   and nothing is wrong. malloc'd; shcl_free and shcl_compact give it back. */
 	size_t *kept_near; size_t kept_near_len, kept_near_cap;
 	uint64_t kept_sum;
+	/* A kept line with an index in its path was judged by the instances
+	   written before it, which can sit anywhere above it, so every edit
+	   settles while one is held. */
+	int walked;
 	/* The parse's multi-line bindings, as pairs: a raw block's or a stacked
 	   list's binding line and the last line it took. Edits leave it alone;
 	   only a reparse reads it. */
@@ -5834,6 +5838,7 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 				   the line under `srv(0):` does (E028). */
 				if (!is_last && !NODE(P->d, cur).star_list && NODE(P->d, cur).value.kind == V_ARRAY) cur = array_under(P, cur);
 			} else {
+				/* index_miss keeps a parsed line with one first (E003). */
 				ShclSB m = {0}; sb_puts(P->line, &m, "no instance "); sb_put_u64(P->line, &m, seg->sel.index); sb_puts(P->line, &m, " of '"); sb_putS(P->line, &m, diag_name(P->line, seg->name)); sb_putc(P->line, &m, '\'');
 				p_refuse(P, line, "E003", sb_S(&m), out_kind(OUT_DROPPED), indent); return 0;
 			}
@@ -5996,6 +6001,23 @@ static int kept_for_place(ShclArena *a, ShclStr text) {
 	return line_fault(a, &tok, text, &f) ? 0 : 1;
 }
 
+/* The path of a kept field line that reads clean and has an index in it,
+   array or not, ok only then. A reload walks it over the instances written
+   before it. */
+static ShclPathScan indexed_path(ShclArena *a, ShclStr text) {
+	ShclPathScan none; memset(&none, 0, sizeof none);
+	if (!is_field_text(text)) return none;
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	tokenize(a, text, ':', 0, SHCL_RULES_CURRENT, &tok);
+	ShclFault f;
+	if (line_fault(a, &tok, text, &f)) return none;
+	ShclPathScan scan = path_of(a, &tok, text);
+	if (!scan.ok) return none;
+	for (size_t k = 0; k < scan.segs.len; k++)
+		if (scan.segs.data[k].sel.tag == SEL_INDEX) return scan;
+	return none;
+}
+
 static int opens_later(ShclArena *a, ShclStr text) {
 	if (!is_field_text(text)) return 0;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
@@ -6102,17 +6124,21 @@ static int under_items(const ShclParser *P, size_t parent) {
 	return node < P->d->nodes.len && NODE(P->d, node).star_list;
 }
 
+/* The child named name with no value that select_or_create would select for
+   a path step, without creating it, or -1. */
+static size_t empty_child(ShclParser *P, size_t cur, ShclStr name) {
+	ShclValue empty = v_empty();
+	uint64_t h = merge_hash(name, &empty);
+	for (ShclCMapEnt *e = cmap_first(P->cmaps->data[cur], h); e; e = cmap_next(e, h))
+		if (merge_eq(NODE(P->d, e->val).name, &NODE(P->d, e->val).value, name, &empty)) return e->val;
+	return (size_t)-1;
+}
+
 /* The child one path step selects under cur without creating it, or -1. */
 static size_t found_step(ShclParser *P, size_t cur, const ShclSegment *seg) {
 	if (cur >= P->d->nodes.len) return (size_t)-1;
 	switch (seg->sel.tag) {
-	case SEL_NONE: {
-		ShclValue empty = v_empty();
-		uint64_t h = merge_hash(seg->name, &empty);
-		for (ShclCMapEnt *e = cmap_first(P->cmaps->data[cur], h); e; e = cmap_next(e, h))
-			if (merge_eq(NODE(P->d, e->val).name, &NODE(P->d, e->val).value, seg->name, &empty)) return e->val;
-		return (size_t)-1;
-	}
+	case SEL_NONE: return empty_child(P, cur, seg->name);
 	case SEL_VALUE: return find_by_value(P, cur, seg->name, seg->sel.value);
 	case SEL_INDEX: {
 		size_t nth = 0; ShclVecSize ch = NODE(P->d, cur).children;
@@ -6128,6 +6154,25 @@ static size_t found_step(ShclParser *P, size_t cur, const ShclSegment *seg) {
 	}
 }
 
+/* The node a line binds under, found without opening it: a LAZY level, and
+   any LAZY one it sits under, as open_lazy would open them. -1 when that
+   would create one. */
+static size_t held_node(ShclParser *P, size_t parent) {
+	if (parent != LAZY) return parent;
+	size_t from = P->stack.len - 1;
+	while (from > 1 && P->stack.data[from - 1].node == LAZY) from--;
+	size_t node = P->stack.data[from - 1].node;
+	for (size_t j = 0; j < P->lazies.len; j++) {
+		const ShclLazy *lz = &P->lazies.data[j];
+		if (lz->at < from) continue;
+		for (size_t k = 0; k < lz->nsegs; k++) {
+			node = found_step(P, node, &lz->segs[k]);
+			if (node == (size_t)-1) return node;
+		}
+	}
+	return node;
+}
+
 /* True when a dotted path reaches stacked items through an index before its
    last segment, as `srv(0).tls: on` does after `srv:` and `- a`. Its field
    would go under the list, as the line under `srv(0):` would. Only an index
@@ -6138,26 +6183,49 @@ static int through_items(ShclParser *P, size_t parent, const ShclSegment *segs, 
 	int indexed = 0;
 	for (size_t i = 0; i + 1 < nsegs; i++) indexed |= segs[i].sel.tag == SEL_INDEX;
 	if (!indexed) return 0;
-	size_t node = parent;
-	if (parent == LAZY) {
-		size_t from = P->stack.len - 1;
-		while (from > 1 && P->stack.data[from - 1].node == LAZY) from--;
-		node = P->stack.data[from - 1].node;
-		for (size_t j = 0; j < P->lazies.len; j++) {
-			const ShclLazy *lz = &P->lazies.data[j];
-			if (lz->at < from) continue;
-			for (size_t k = 0; k < lz->nsegs; k++) {
-				node = found_step(P, node, &lz->segs[k]);
-				if (node == (size_t)-1) return 0;
-			}
-		}
-	}
+	size_t node = held_node(P, parent);
+	if (node == (size_t)-1) return 0;
 	for (size_t i = 0; i + 1 < nsegs; i++) {
 		node = found_step(P, node, &segs[i]);
 		if (node == (size_t)-1) return 0;
 		if (NODE(P->d, node).star_list) return 1;
 	}
 	return 0;
+}
+
+/* The node array_under leaves a field under node to bind in, found without
+   moving anything, or -1 when it would create one. */
+static size_t array_opens(ShclParser *P, size_t node) {
+	const ShclNode *nd = &NODE(P->d, node);
+	if (node == ROOT || nd->star_list || nd->value.kind != V_ARRAY) return node;
+	uint64_t h = array_mark_hash(node);
+	for (ShclCMapEnt *e = cmap_first(&P->array_at, h); e; e = cmap_next(e, h)) {
+		const ShclArrayMark *m = &P->array_marks.data[e->val];
+		if (m->node != node) continue;
+		if (m->line != nd->line && m->line >= 1 && m->line <= P->src_lines.len) return empty_child(P, nd->parent, nd->name);
+		break;
+	}
+	return node;
+}
+
+/* The index segment of a line's path that selects no instance among those
+   bound before it (E003), walked as attach_path will walk it, creating
+   nothing: its position, or nsegs for none. A step that would create a field
+   leaves every index after it nothing to select. Judged before anything
+   opens, so a kept line opens none of its path's fields. */
+static size_t index_miss(ShclParser *P, size_t parent, const ShclSegment *segs, size_t nsegs) {
+	int indexed = 0;
+	for (size_t i = 0; i < nsegs; i++) indexed |= segs[i].sel.tag == SEL_INDEX;
+	if (!indexed) return nsegs;
+	size_t node = held_node(P, parent);
+	if (node != (size_t)-1) node = array_opens(P, node);
+	for (size_t i = 0; i < nsegs; i++) {
+		size_t found = node == (size_t)-1 ? (size_t)-1 : found_step(P, node, &segs[i]);
+		if (segs[i].sel.tag != SEL_INDEX) { node = found; continue; }
+		if (found == (size_t)-1) return i;
+		node = i + 1 < nsegs ? array_opens(P, found) : found;
+	}
+	return nsegs;
 }
 
 /* Where the parse resumes after a refused field line. Every arm that skips one
@@ -6718,6 +6786,22 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			if (tok.has_array) P.kept_arrays = 1;
 			p_refuse(&P, lineno, "E001", s_lit("field mixed with list elements"), out_retained(trim_wsp_end(rest), had_blank), indent);
 			i++; continue;
+		}
+		/* An index that selects no instance bound before it: kept the same
+		   way, since an instance written above it later would make it bind. */
+		{
+			size_t miss = index_miss(&P, parent, scan.segs.data, scan.segs.len);
+			if (miss < scan.segs.len) {
+				const ShclSegment *seg = &scan.segs.data[miss];
+				ShclSB m = {0}; sb_puts(P.line, &m, "no instance "); sb_put_u64(P.line, &m, seg->sel.index); sb_puts(P.line, &m, " of '"); sb_putS(P.line, &m, diag_name(P.line, seg->name)); sb_putc(P.line, &m, '\'');
+				if (line_fence(P.tmp, &tok, rest).ok) {
+					p_refuse(&P, lineno, "E003", sb_S(&m), out_kind(OUT_DROPPED), indent);
+					i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
+				}
+				P.kept_any = 1;
+				p_refuse(&P, lineno, "E003", sb_S(&m), out_retained(trim_wsp_end(rest), had_blank), indent);
+				i++; continue;
+			}
 		}
 		ShclValue value;
 		int celled = 0;
@@ -8882,7 +8966,7 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 				   the parser promised to keep, so those move onto the
 				   replacement. A comment starts with `#`, a retained line
 				   never does. The texts already live in the document arena. */
-				ShclVecLead kept = {0};
+				ShclVecLead kept = {0}, inside = {0};
 				for (size_t i = 0; i < named[bni].len; i++) {
 					size_t b = named[bni].data[i];
 					const ShclTrivia *bt = NODE(d, b).trivia;
@@ -8900,9 +8984,11 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 					for (size_t k = 0; k < above; k++) ShclVecLead_push(t, &kept, bt->leading.data[k]);
 					const ShclVecLead *lists[3] = { &bt->leading, &bt->inside, &bt->after };
 					size_t from[3] = { above, 0, 0 }, to[3] = { bt->leading.len, bt->inside.len, below };
+					/* A line kept inside its block stays there, as when a setter
+					   changes the leaf in place. */
 					for (size_t li = 0; li < 3; li++) {
 						for (size_t k = from[li]; k < to[li]; k++) {
-							if (!(lists[li]->data[k].text.n && lists[li]->data[k].text.p[0] == '#')) ShclVecLead_push(t, &kept, lists[li]->data[k]);
+							if (!(lists[li]->data[k].text.n && lists[li]->data[k].text.p[0] == '#')) ShclVecLead_push(t, li == 1 ? &inside : &kept, lists[li]->data[k]);
 							/* A settled one goes with the leaf's comments
 							   (decided 2026-09-28), so it is no longer owed. */
 							else if (lists[li]->data[k].kept && d->kept_owed > 0) d->kept_owed--;
@@ -8925,6 +9011,14 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 					ct->leading = lead;
 					/* Comments from two sources now share one run. */
 					restep(&ct->leading);
+				}
+				if (inside.len) {
+					ShclTrivia *ct = triv_mut(a, &NODE(d, rep[gi].data[0]));
+					ShclVecLead ins = {0};
+					for (size_t k = 0; k < inside.len; k++) ShclVecLead_push(a, &ins, inside.data[k]);
+					for (size_t k = 0; k < ct->inside.len; k++) ShclVecLead_push(a, &ins, ct->inside.data[k]);
+					ct->inside = ins;
+					restep(&ct->inside);
 				}
 			}
 		} else {
@@ -9622,6 +9716,9 @@ static void emit_trailing(ShclArena *a, ShclSB *out, ShclStr trailing) {
 }
 typedef struct { size_t node; ShclSite site; size_t i; size_t depth; } ShclFell;
 DEFINE_VEC(ShclVecFell, ShclFell)
+/* A kept line held open since the last binding line, by its indent. */
+typedef struct { ShclStr indent, text; } ShclHeld;
+DEFINE_VEC(ShclVecHeld, ShclHeld)
 
 /* Canonical text on its way out, with a model of the level stack a reload of
    it will have at this point: the sentinel and one level per tab up to open,
@@ -9645,8 +9742,13 @@ typedef struct {
 	/* Per binding depth, LV_ITEMS when that node has a `- ` item written,
 	   LV_FIELDS when it has a field line under it, and LV_VALUED when it
 	   has a value an item cannot join, for a kept line refused only for
-	   where it sits. */
-	ShclVecSize lv;
+	   where it sits, and in lv_at the node and its place in its parent's
+	   list, as pairs. Then each kept line held open since the last binding
+	   line, and whether a kept line was asked about the instances written
+	   before it. */
+	ShclVecSize lv, lv_at;
+	ShclVecHeld lazies;
+	int walked;
 	/* shcl_to_text_keep_lines only: where the lines from each source line
 	   start (offset, line; 0 for none), each raw body with the tabs its lines
 	   are padded with (start, end, pad), and where each value is written on
@@ -9678,10 +9780,14 @@ static ShclStr emit_tabs(ShclEmit *e, size_t n) {
 enum { LV_ITEMS = 1, LV_FIELDS = 2, LV_VALUED = 4 };
 
 /* A binding line at this depth: the stack is its levels and nothing else. */
-static void emit_bound(ShclEmit *e, size_t depth) {
+static void emit_bound(ShclEmit *e, size_t depth, size_t node, size_t pos) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	if (e->lv.len > depth) e->lv.len = depth;
 	if (e->lv.len) e->lv.data[e->lv.len - 1] |= LV_FIELDS;
 	ShclVecSize_push(e->a, &e->lv, 0);
+	e->lv_at.len = 2 * depth;
+	ShclVecSize_push(e->a, &e->lv_at, node);
+	ShclVecSize_push(e->a, &e->lv_at, pos);
+	e->lazies.len = 0;
 	e->open = (ptrdiff_t)depth;
 	e->tail.len = 0;
 	e->has_hold = 0;
@@ -10099,6 +10205,75 @@ static void push_kept(ShclEmit *e, ShclStr text, size_t pad) {
 	}
 }
 
+/* The child a reload's path step selects under cur among its first upto
+   children (all of them for -1), as the parser's found_step does, or -1. */
+static size_t written_step(const shcl_doc *d, size_t cur, size_t upto, const ShclSegment *seg) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
+	ShclVecSize ch = d->nodes.data[cur].children;
+	size_t n = upto < ch.len ? upto : ch.len;
+	uint64_t nth = 0;
+	for (size_t k = 0; k < n; k++) {
+		size_t c = ch.data[k];
+		const ShclNode *nd = &d->nodes.data[c];
+		if (!s_eq(nd->name, seg->name)) continue;
+		switch (seg->sel.tag) {
+		case SEL_NONE: if (nd->value.kind == V_EMPTY) return c; break;
+		case SEL_VALUE: if (nd->value.kind == V_CELL && s_eq(nd->value.els[0].text, seg->sel.value)) return c; break;
+		case SEL_INDEX: if (nth == seg->sel.index) return c; nth++; break;
+		default: break;
+		}
+	}
+	return (size_t)-1;
+}
+
+/* True when a reload keeps a clean field line with an index in its path where
+   the emit model stands, after its resolve found a live parent: an index
+   selects none of the instances written before it (E003), or one reaches
+   stacked items before the last segment (E001). Lines held open since the
+   last binding line are walked first, as the reload opens them. */
+static int index_refuses(const shcl_doc *d, ShclEmit *e, const ShclTrial *t, const ShclSegment *segs, size_t nsegs) {
+	for (size_t k = 0; k < t->ntail; k++) if (t->tail[k].node != LAZY) return 0;
+	size_t node = ROOT;
+	if (t->open >= 0) {
+		if ((size_t)t->open >= e->lv.len) return 0;
+		node = e->lv_at.data[2 * (size_t)t->open];
+	}
+	/* Of the first node's children, only those written so far. */
+	size_t below = (size_t)(t->open + 1);
+	size_t upto = below < e->lv.len ? e->lv_at.data[2 * below + 1] + 1 : 0;
+	for (size_t k = 0; k < t->ntail; k++) {
+		const ShclHeld *h = NULL;
+		for (size_t j = e->lazies.len; j-- > 0 && !h;)
+			if (s_eq(e->lazies.data[j].indent, t->tail[k].indent)) h = &e->lazies.data[j];
+		if (!h) return 0;
+		ShclTokens tok; memset(&tok, 0, sizeof tok);
+		tokenize(e->a, h->text, ':', 0, SHCL_RULES_CURRENT, &tok);
+		ShclPathScan scan = path_of(e->a, &tok, h->text);
+		if (!scan.ok) return 0;
+		for (size_t j = 0; j < scan.segs.len; j++) {
+			node = written_step(d, node, upto, &scan.segs.data[j]);
+			/* Opening it creates a field, with no instance under it. */
+			if (node == (size_t)-1) return 1;
+			upto = (size_t)-1;
+		}
+	}
+	int through = 0;
+	for (size_t i = 0; i + 1 < nsegs; i++) through |= segs[i].sel.tag == SEL_INDEX;
+	for (size_t i = 0; i < nsegs; i++) {
+		size_t c = written_step(d, node, upto, &segs[i]);
+		upto = (size_t)-1;
+		if (c != (size_t)-1) {
+			if (through && i + 1 < nsegs && stacks(&d->nodes.data[c])) return 1;
+			node = c;
+			continue;
+		}
+		if (segs[i].sel.tag == SEL_INDEX) return 1;
+		/* Created, so every index after it selects nothing. */
+		for (size_t j = i + 1; j < nsegs; j++) if (segs[j].sel.tag == SEL_INDEX) return 1;
+		return 0;
+	}
+	return 0;
+}
+
 /* Write a run of comments and kept lines, base levels deep. A misplaced line
    kept as written (its text has its own indent, a comment's never does)
    goes back as it was only where a reload keeps it again, which the model of
@@ -10107,7 +10282,7 @@ static void push_kept(ShclEmit *e, ShclStr text, size_t pad) {
    would bind, and there it is written as a comment, which reads the same.
    node, site and first name the list and the index of its first line, for
    settle_kept. */
-static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base, size_t node, ShclSite site, size_t first) { // NOLINT(bugprone-easily-swappable-parameters): a count follows its array
+static void push_leads(shcl_doc *d, ShclEmit *e, const ShclLead *leads, size_t n, size_t base, size_t node, ShclSite site, size_t first) { // NOLINT(bugprone-easily-swappable-parameters): a count follows its array
 	ShclArena *a = e->a;
 	size_t last_comment = 0;
 	for (size_t i = 0; i < n; i++) {
@@ -10151,7 +10326,9 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			   an item only as E008 under a field with a field line written,
 			   E011 under one with a value, or E007 at the root. Anywhere else
 			   it would bind: a comment then. */
+			ShclPathScan segs = indexed_path(a, c->text);
 			int kind = kept_for_place(a, c->text);
+			if (!kind && segs.ok) kind = 1;
 			if (kind) {
 				int stays = kind == 2 && t.found && t.parent == ROOT && t.open == -1 && !t.ntail;
 				if (pad > 0 && !t.ntail && t.open == (ptrdiff_t)pad - 1 && pad - 1 < e->lv.len && t.found && t.parent != DEAD && t.parent != UNOPENED)
@@ -10160,6 +10337,13 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 					int held = 1;
 					for (size_t k = 0; k < t.ntail; k++) held = held && t.tail[k].node == LAZY;
 					stays = stays || held;
+				}
+				/* One with an index in its path is kept too where the index
+				   selects none of the instances written before it (E003), or
+				   reaches stacked items through one (E001). */
+				if (segs.ok && !stays && t.found && t.parent != DEAD && t.parent != UNOPENED) {
+					stays = index_refuses(d, e, &t, segs.segs.data, segs.segs.len);
+					e->walked |= stays;
 				}
 				if (!stays && !memchr(c->text.p, '\n', c->text.n)) {
 					/* A comment nests at most one level past the line before it,
@@ -10180,6 +10364,7 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			e->has_hold = 0;
 			if (t.found && t.parent != DEAD && opens_later(a, c->text)) {
 				emit_take(e, &t);
+				ShclHeld h; h.indent = ind; h.text = c->text; ShclVecHeld_push(a, &e->lazies, h);
 				ShclStackEnt se; se.indent = ind; se.node = LAZY; ShclVecStack_push(a, &e->tail, se);
 			}
 			else emit_refused(e, ind, &t);
@@ -10217,10 +10402,10 @@ static void emit_node(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	emit_near(e, idx, pos);
 	/* Comments this block owns with no child to take them, one deeper. */
 	ShclVecLead ins = triv_inside(&NODE(d, idx));
-	push_leads(e, ins.data, ins.len, depth + 1, idx, SITE_INSIDE, 0);
+	push_leads(d, e, ins.data, ins.len, depth + 1, idx, SITE_INSIDE, 0);
 	/* Comments that hung on this block after its last child. */
 	ShclVecLead aft = triv_after(&NODE(d, idx));
-	push_leads(e, aft.data, aft.len, depth, idx, SITE_AFTER, 0);
+	push_leads(d, e, aft.data, aft.len, depth, idx, SITE_AFTER, 0);
 }
 
 /* Kept out of emit_node, which recurses once per level: its locals would
@@ -10243,10 +10428,10 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	   parent's walk. Each blank rides its own comment (or the binding line),
 	   never as the first output line. */
 	emit_near(e, idx, pos);
-	push_leads(e, lead.data, lead.len, depth, idx, SITE_LEADING, 0);
+	push_leads(d, e, lead.data, lead.len, depth, idx, SITE_LEADING, 0);
 	/* The kept line just written opens this block on a reload. */
 	if (heads_block(a, node)) {
-		emit_bound(e, depth);
+		emit_bound(e, depth, idx, pos);
 		emit_near(e, idx, pos);
 		return;
 	}
@@ -10259,7 +10444,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	for (size_t k = 0; k < depth; k++) sb_putc(a, out, '\t');
 	sb_putS(a, out, emit_name(a, node->name));
 	sb_putc(a, out, ':');
-	emit_bound(e, depth);
+	emit_bound(e, depth, idx, pos);
 	emit_near(e, idx, pos);
 	if (depth < e->lv.len && v->kind != V_EMPTY && !stacks(node)) e->lv.data[depth] |= LV_VALUED;
 	if (v->kind == V_EMPTY) { emit_span(e, out->len); emit_trailing(a, out, trailing); sb_putc(a, out, '\n'); }
@@ -10272,7 +10457,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 		for (size_t i = 0; i < v->nels; i++) {
 			size_t from = next;
 			while (next < am.len && am.data[next].before <= i) next++;
-			for (size_t j = from; j < next; j++) push_leads(e, &am.data[j].lead, 1, depth + 1, idx, SITE_AMONG, j);
+			for (size_t j = from; j < next; j++) push_leads(d, e, &am.data[j].lead, 1, depth + 1, idx, SITE_AMONG, j);
 			ShclStr column = emit_tabs(e, depth + 1);
 			sb_putS(a, out, column);
 			sb_puts(a, out, "- ");
@@ -10284,7 +10469,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 			emit_placed(e, column);
 			if (depth < e->lv.len) e->lv.data[depth] |= LV_ITEMS;
 		}
-		for (size_t j = next; j < am.len; j++) push_leads(e, &am.data[j].lead, 1, depth + 1, idx, SITE_AMONG, j);
+		for (size_t j = next; j < am.len; j++) push_leads(d, e, &am.data[j].lead, 1, depth + 1, idx, SITE_AMONG, j);
 	}
 	else if (v->kind == V_CELL || v->kind == V_ARRAY) {
 		size_t at = out->len;
@@ -10328,7 +10513,7 @@ static void emit_all(shcl_doc *d, ShclEmit *e) {
 	emit_children(d, &rc, 0, e);
 	/* Comments that never found a following line re-emit at the end. */
 	emit_near(e, ROOT, 0);
-	push_leads(e, d->orphans.data, d->orphans.len, 0, ROOT, SITE_ORPHANS, 0);
+	push_leads(d, e, d->orphans.data, d->orphans.len, 0, ROOT, SITE_ORPHANS, 0);
 }
 
 /* The canonical text, built in scratch (valid until the next resolve). Emit's
@@ -10348,6 +10533,7 @@ static int settle_kept_once(shcl_doc *d) {
 	ShclEmit e; emit_init(&e, &d->scratch, 0, 1);
 	emit_all(d, &e);
 	d->kept = e.verbatim > 0;
+	d->walked = e.walked;
 	if (e.kept_near.len > d->kept_near_cap) {
 		size_t *grown = (size_t *)realloc(d->kept_near, e.kept_near.len * sizeof(size_t));
 		if (!grown) arena_panic(d->panic);
@@ -10459,7 +10645,12 @@ static int array_kept(ShclArena *t, ShclStr text) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(t, text, ':', 0, SHCL_RULES_CURRENT, &tok);
 	if (!tok.has_array) return 0;
-	if (!path_of(t, &tok, text).ok) return 0;
+	ShclPathScan scan = path_of(t, &tok, text);
+	if (!scan.ok) return 0;
+	/* One with an index in its path is the emitter's, which asks the
+	   instances written before it. */
+	for (size_t k = 0; k < scan.segs.len; k++)
+		if (scan.segs.data[k].sel.tag == SEL_INDEX) return 0;
 	ShclFault f;
 	return !line_fault(t, &tok, text, &f);
 }
@@ -10541,7 +10732,7 @@ static void settle_kept(shcl_doc *d) {
    from cannot move it, and the whole-document emit is skipped (20260924d
    item 2). */
 static void resettle_kept(shcl_doc *d) {
-	if (d->kept && near_sum(d) != d->kept_sum) settle_kept(d);
+	if (d->kept && (d->walked || near_sum(d) != d->kept_sum)) settle_kept(d);
 	else settle_arrays(d);
 }
 

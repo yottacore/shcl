@@ -5257,7 +5257,10 @@ int main(int argc, char **argv) {
 		   list and the field. */
 		struct { const char *src, *want; int merge; } ic[] = {
 			{"srv: [a]\nsrv(0).tls: on\n", "srv: [a]\n\ttls: on\n", 0},
-			{"srv:\n\t- a\nsrv(0).tls: on\n", "srv:\n\t- a\n# srv(0).tls: on\n", 0},
+			/* The emitter walks the index now, so the line stays as written,
+			   where a reload keeps it again (2026102821334970,
+			   an_index_with_no_instance_stays_kept). */
+			// {"srv:\n\t- a\nsrv(0).tls: on\n", "srv:\n\t- a\n# srv(0).tls: on\n", 0},
 			{"srv: [a]\nsrv(0).tls: on\n", "m: 1\nsrv: [a]\n\ttls: on\n", 1},
 			{"srv:\n\t- a\nsrv(0).tls: on\n", "m: 1\nsrv: [a]\n# srv(0).tls: on\n", 1},
 		};
@@ -5277,6 +5280,82 @@ int main(int argc, char **argv) {
 			shcl_str cbt = shcl_to_canonical(cb);
 			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("index_onto_list", "reload differs");
 			if (shcl_lost_count(cd) != 0 || shcl_lost_count(cb) != 0) fail("index_onto_list", "lost");
+			shcl_free(cb); shcl_free(cd);
+		}
+	}
+	test_id("Eu8yPCK", "an_index_with_no_instance_stays_kept");
+	/* An index that selects no instance bound before it is kept (E003): the
+	   line binds nothing, opens none of its path's fields, and nothing is
+	   lost. Where a merge or an edit puts an instance above it, it is written
+	   as a comment. One that opens a raw block is dropped with it. Same
+	   fixture in every runner. */
+	{
+		const char *nsrc = "a: 1\na(5).b: 2  # c\nx.a(0).b: 1\nh: \"open\n\tb(0).c: 1\na(3).d: [1, 2]\nz: 1\n";
+		shcl_doc *nd = shcl_parse(nsrc, strlen(nsrc));
+		static const struct { size_t line; const char *code; } want[] = {{2, "E003"}, {3, "E003"}, {4, "E017"}, {5, "E003"}, {6, "E003"}};
+		int same = shcl_diag_count(nd) == 5;
+		for (size_t k = 0; same && k < 5; k++) same = shcl_diag_line(nd, k) == want[k].line && strcmp(shcl_diag_code(nd, k), want[k].code) == 0;
+		if (!same) fail("index_no_instance", "diagnostics");
+		shcl_str *np;
+		size_t npaths = shcl_paths(nd, &np);
+		if (shcl_lost_count(nd) != 0 || npaths != 2 || !str_is(np[0], "a") || !str_is(np[1], "z")) fail("index_no_instance", "lost or paths");
+		shcl_free(nd);
+		const char *rsrc = "a: 1\na(5).b: ```\n\tbody: 1\n```\nz: 1\n";
+		nd = shcl_parse(rsrc, strlen(rsrc));
+		if (shcl_diag_count(nd) != 1 || shcl_diag_line(nd, 0) != 2 || strcmp(shcl_diag_code(nd, 0), "E003") != 0 || shcl_lost_count(nd) != 1) fail("index_no_instance", "raw");
+		shcl_free(nd);
+		/* A dotted line onto stacked items through an index stays as written.
+		   A merge brings the instance above it. An edit far above it gives the
+		   index one, and the document settles, so the edit back leaves the
+		   comment, as a save and a reload would have. */
+		const char *esrc = "p:\n\tx: bar\n\t\ty: 1\nw: 1\np.x(foo).y(0).z: 1\nq: 1\n";
+		struct { const char *src, *layer; int sets; const char *want; } nc[] = {
+			{nsrc, NULL, 0, nsrc},
+			{"srv:\n\t- a\nsrv(0).tls: on\n", NULL, 0, "srv:\n\t- a\nsrv(0).tls: on\n"},
+			{"a: 1\na(1).b: 2\nz: 1\n", "a: 1\na: 2\n", 0, "a: 1\na: 2\n# a(1).b: 2\nz: 1\n"},
+			{esrc, NULL, 1, "p:\n\tx: foo\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n"},
+			{esrc, NULL, 2, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n"},
+		};
+		for (size_t k = 0; k < sizeof nc / sizeof nc[0]; k++) {
+			shcl_doc *cd = shcl_parse(nc[k].src, strlen(nc[k].src));
+			if (nc[k].layer) {
+				shcl_doc *lo = shcl_parse(nc[k].layer, strlen(nc[k].layer));
+				shcl_merge(cd, lo);
+				shcl_free(lo);
+			}
+			if (nc[k].sets > 0 && shcl_set_string(cd, "p.x", 3, "foo", 3) != SHCL_SET_OK) fail("index_no_instance", "set");
+			if (nc[k].sets > 1 && shcl_set_string(cd, "p.x", 3, "bar", 3) != SHCL_SET_OK) fail("index_no_instance", "set back");
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, nc[k].want)) { fail("index_no_instance", nc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("index_no_instance", "reload differs");
+			if (shcl_lost_count(cb) != 0) fail("index_no_instance", "reload lost");
+			shcl_free(cb); shcl_free(cd);
+		}
+	}
+	test_id("Eu96oVI", "a_replaced_leaf_keeps_the_lines_kept_in_its_block");
+	/* A line kept in a leaf's block stays in the merged block when the other
+	   layer replaces the leaf, as it does when a setter changes the leaf in
+	   place. It went to the root, above the field, where an item reloaded as
+	   E007. Same fixture in every runner. */
+	{
+		struct { const char *src, *want, *code; } rc[] = {
+			{"val: 1\n\ta: [1\nz: 2\n", "val: 1\n\ta: [1\n\ta: [1\nz: 2\n", "E019"},
+			{"val: 1\n\t- e\nz: 2\n", "val: 1\n\t- e\n\t- e\nz: 2\n", "E011"},
+		};
+		for (size_t k = 0; k < sizeof rc / sizeof rc[0]; k++) {
+			shcl_doc *cd = shcl_parse(rc[k].src, strlen(rc[k].src));
+			shcl_doc *lo = shcl_parse(rc[k].src, strlen(rc[k].src));
+			shcl_merge(cd, lo);
+			shcl_free(lo);
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, rc[k].want)) { fail("replaced_leaf", rc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || shcl_lost_count(cb) != 0) fail("replaced_leaf", "reload differs or loses");
+			if (shcl_diag_count(cb) != 2 || shcl_diag_line(cb, 0) != 2 || strcmp(shcl_diag_code(cb, 0), rc[k].code) != 0
+				|| shcl_diag_line(cb, 1) != 3 || strcmp(shcl_diag_code(cb, 1), rc[k].code) != 0) fail("replaced_leaf", "reload diagnostics");
 			shcl_free(cb); shcl_free(cd);
 		}
 	}

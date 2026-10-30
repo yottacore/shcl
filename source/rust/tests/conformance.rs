@@ -3490,7 +3490,9 @@ fn an_index_onto_a_list_takes_no_field() {
 	assert_eq!(codes(&doc), [(3, "E001")]);
 	assert_eq!(doc.get_string_array("srv"), Ok(vec!["a".to_string()]));
 	assert!(doc.get_string("srv.tls").is_err());
-	check(&doc, "srv:\n\t- a\n# srv(0).tls: on\n");
+	// The emitter walks the index now, so the line stays as written, where a
+	// reload keeps it again (2026102821334970, an_index_with_no_instance_stays_kept).
+	// check(&doc, "srv:\n\t- a\n# srv(0).tls: on\n");
 	// The 2M merge fuzz's case: the layer brought the list and the field.
 	let mut doc = Document::parse("m: 1\n");
 	doc.merge(&Document::parse("srv: [a]\nsrv(0).tls: on\n"));
@@ -3498,6 +3500,101 @@ fn an_index_onto_a_list_takes_no_field() {
 	let mut doc = Document::parse("m: 1\n");
 	doc.merge(&Document::parse("srv:\n\t- a\nsrv(0).tls: on\n"));
 	check(&doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n");
+}
+
+/// An index that selects no instance bound before it is kept (E003): the
+/// line binds nothing, opens none of its path's fields, and nothing is lost.
+/// Where a merge or an edit puts an instance above it, it is written as a
+/// comment. One that opens a raw block is dropped with it. Same fixture in
+/// every runner.
+#[test]
+fn an_index_with_no_instance_stays_kept() {
+	let _id = test_id("Eu8yPCH");
+	let codes = |doc: &Document| -> Vec<(usize, &'static str)> {
+		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect()
+	};
+	let check = |doc: &Document, want: &str| {
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(doc.paths(), back.paths(), "{text:?}");
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+	};
+	let src = "a: 1\na(5).b: 2  # c\nx.a(0).b: 1\nh: \"open\n\tb(0).c: 1\na(3).d: [1, 2]\nz: 1\n";
+	let doc = Document::parse(src);
+	assert_eq!(
+		codes(&doc),
+		[
+			(2, "E003"),
+			(3, "E003"),
+			(4, "E017"),
+			(5, "E003"),
+			(6, "E003")
+		]
+	);
+	assert_eq!(doc.lost_count(), 0);
+	assert_eq!(doc.paths(), ["a", "z"]);
+	check(&doc, src);
+	let doc = Document::parse("a: 1\na(5).b: ```\n\tbody: 1\n```\nz: 1\n");
+	assert_eq!(codes(&doc), [(2, "E003")]);
+	assert_eq!(doc.lost_count(), 1);
+	// A dotted line onto stacked items through an index stays as written.
+	let src = "srv:\n\t- a\nsrv(0).tls: on\n";
+	check(&Document::parse(src), src);
+	// A merge brings the instance above it.
+	let mut doc = Document::parse("a: 1\na(1).b: 2\nz: 1\n");
+	doc.merge(&Document::parse("a: 1\na: 2\n"));
+	check(&doc, "a: 1\na: 2\n# a(1).b: 2\nz: 1\n");
+	// An edit far above it gives the index one, and the document settles.
+	let mut doc = Document::parse("p:\n\tx: bar\n\t\ty: 1\nw: 1\np.x(foo).y(0).z: 1\nq: 1\n");
+	assert_eq!(codes(&doc), [(5, "E003")]);
+	assert_eq!(doc.set_string("p.x", "foo"), shcl::SetStatus::Ok);
+	check(
+		&doc,
+		"p:\n\tx: foo\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n",
+	);
+	// It settled to the comment, as a save and a reload would have.
+	assert_eq!(doc.set_string("p.x", "bar"), shcl::SetStatus::Ok);
+	check(
+		&doc,
+		"p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n",
+	);
+}
+
+/// A line kept in a leaf's block stays in the merged block when the other
+/// layer replaces the leaf, as it does when a setter changes the leaf in
+/// place. It went to the root, above the field, where an item reloaded as
+/// E007. Same fixture in every runner.
+#[test]
+fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
+	let _id = test_id("Eu96oVF");
+	for (src, want, code) in [
+		(
+			"val: 1\n\ta: [1\nz: 2\n",
+			"val: 1\n\ta: [1\n\ta: [1\nz: 2\n",
+			"E019",
+		),
+		(
+			"val: 1\n\t- e\nz: 2\n",
+			"val: 1\n\t- e\n\t- e\nz: 2\n",
+			"E011",
+		),
+	] {
+		let mut doc = Document::parse(src);
+		doc.merge(&Document::parse(src));
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+		let codes: Vec<(usize, &str)> = back
+			.diagnostics()
+			.iter()
+			.map(|d| (d.line, d.code))
+			.collect();
+		assert_eq!(codes, [(2, code), (3, code)]);
+	}
 }
 
 #[cfg_attr(

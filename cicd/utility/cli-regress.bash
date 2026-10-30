@@ -664,6 +664,12 @@ rows=(
 	## 2026102820592074: an E011 item after a kept line under an E028 array line
 	## moved that line to the root, above the array line.
 	'Eu8XwjS|fmt-keeps-line-under-array-line|fmt -|srv.srv: 2\nsrv: [v1]\n\t* 7\n\t- 0\n\tc: 1\n|0|srv: [v1]\n\tsrv: 2\n\t* 7\n\t- 0\n\tc: 1\n|E028'
+	## 2026102821334970: an index that selects no instance is kept (E003), so a
+	## save loses nothing. A dotted line onto items through an index stays as
+	## written, where it used to go out as a comment.
+	'Eu8yPCL|fmt-keeps-index-no-instance|fmt -|a: 1\na(5).b: 2\nz: 1\n|0|a: 1\na(5).b: 2\nz: 1\n|E003'
+	'Eu8yPCM|fmt-check-keeps-index-no-instance|fmt --check -|a: 1\na(5).b: 2\nz: 1\n|0||!would refuse'
+	'Eu8yPCN|fmt-keeps-dotted-line-onto-items|fmt -|srv:\n\t- a\nsrv(0).tls: on\n|0|srv:\n\t- a\nsrv(0).tls: on\n|E001'
 	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
 	## file said nothing.
 	'Er8Ivln|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
@@ -684,6 +690,9 @@ rows=(
 	## anywhere refuses, and --lossy prints with no word about keeping them.
 	'Es8aXo0|set-print-layer-refused|set --set=q=1 --layer=%F% %KL%|-|7||refusing to print|-'
 	'Es8aXo1|set-print-layer-lossy|set --lossy --set=q=1 --layer=%F% %KL%|-|0|-|!canonical form|-'
+	## 2026102821530643: the layer's kept item stays in the block it sat in,
+	## where it went to the root, above the field.
+	'Eu96oVJ|set-layer-keeps-kept-line-in-block|set --set=q=1 --layer=%KE% %KE%|-|0|val: 1\n\t- e\n\t- e\nz: 2\n\nq: 1\n|-'
 	"Ep3OILN|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.

@@ -205,74 +205,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
 
-- A stacked list and a field under one parent load 3 different ways
-	- ID: 2026102307035771
-	- Type: Enhancement
-	- Status: Started
-		- Its first child, 2026102307143752, goes on with option A (JC).
-	- Priority: Avg
-	- Opened: 20261023-070357
-	- Opened by: JC
-	- Related IDs: 2026100511210900, 2026102307035786
-	- Estimated effort: High
-	- Problem description:
-		- Items then a field under one parent bind both (`E001`, bound). A field then items drops the items as lost, so the save refuses (`E008`, dropped). The bracket spelling of the same tree is refused (`E028`, retained). Swapping 2 lines changes whether data is lost.
-		- The `E001` tree then needs its own exceptions: the merge keeps it stacked (spec.md near line 430), it's a case no text loads back (value-syntax.md near line 453), and the save refusal filed as 2026100511210900.
-		- Several dropped codes fail design.md's stated test for dropping, "re-emitted it could bind somewhere else". The emitter already asks the reload before it writes a kept line, and writes it as a comment where it would bind (design.md, the paragraph starting "The emitter asks the reload"), so that case is covered for every retained line.
-	- Requirements:
-		- `E001` and `E008` are both retained: the line is kept as written, binds nothing, counts nothing lost, and what is indented under it goes with it as `E018`. A list with a field under it then can't be built, and the 3 exceptions above go.
-		- New test for dropping, as one sentence in design.md above the Load outcomes table: a line is dropped only when, re-emitted, it could feed a raw block, or when its refusal comes from a caller cap or the depth cap, which the next load may set differently.
-		- By that test `E003`, `E004`, `E007`, `E009` and `E011` become retained too. `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line stay as they are. Check each against the sentence and say so on the item where one doesn't fit.
-		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the corpus goldens for the cases that change. Strict fails either way, so strict outcomes don't change.
-	- Decisions:
-		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
-		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
-		- JC, 20261023: option A for the emitter, with the stop rule on 2026102307143752.
-	- Progress log:
-		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
-		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
-
-- Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
-	- ID: 2026102307143758
-	- Type: Enhancement
-	- Status: Started
-	- Priority: Avg
-	- Opened: 20261023-071437
-	- Opened by: JC
-	- Parent ID: 2026102307035771
-	- Prereq IDs: 2026102307143752
-	- Requirements:
-		- The parent's second and third requirements: the one-sentence test for dropping in design.md above the Load outcomes table, and `E003`, `E004`, `E007`, `E009` and `E011` retained by it.
-		- Check `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line against the sentence, and say so here where one doesn't fit.
-		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
-	- Estimated effort: High
-	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
-	- Progress log:
-		- 20261028: split in 2 to fit a round: 2026102820320485 (`E004`, `E009`), then 2026102820321403 (`E003`, `E007`, `E011` and the sentence). The first 2 are refused for their content, so they need no emitter check. The sentence goes in with the second child, so the table never disagrees with it.
-		- 20261028: checked against the sentence. `E006` fits, since its line is a fence, and `E016`, `E020` and `E021` fit as caps. 2 don't:
-			- `E002`'s dropped value isn't a line. The line binds, so it can't also be kept as written, and the value has nowhere to go. It stays value dropped, outside the sentence.
-			- A tab-only `E012` line is neither. It is dropped since a tab-only indent is one canonical output writes levels with, so written back it would bind, and a comment was turned down for it (the user, 2026-09-24, corpus `147`). A BOM-led `E014` line is the same kind, since the file-start strip would make it bind.
-	- Decisions:
-		- me, 20261028: the sentence names a third case for those 2, a line that would bind written back as it was, where no comment stands for it, rather than leave them as unstated exceptions. It goes in with 2026102820321403.
-
-- `E003`, `E007` and `E011` are retained, and dropping follows one test
-	- ID: 2026102820321403
-	- Type: Enhancement
-	- Status: Started
-	- Priority: Avg
-	- Opened: 20261028-203214
-	- Opened by: me
-	- Parent ID: 2026102307143758
-	- Prereq IDs: 2026102820320485
-	- Estimated effort: High
-	- Requirements:
-		- `E003`, `E007` and `E011` lines are retained. Each is refused only for where it sits, so the emitter asks the reload before it writes one, as it does for a clean `E001` or `E008` line, and writes it as a comment where it would bind.
-		- The one-sentence test for dropping goes in design.md above the Load outcomes table, once every code it names follows it.
-		- The sentence also names a tab-only `E012` and a BOM-led `E014`, per the Decisions on 2026102307143758.
-		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
-	- Progress log:
-		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
-
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
 	- Type: Enhancement
@@ -356,21 +288,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The per-test line is `PASS`, `FAIL` or `SKIP`, then the ID and the name.
 		- The ID tool, its lint check and the `Test case:` rows that name an ID follow.
 
-- `E003` is retained, and dropping follows one test
-	- ID: 2026102821334970
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261028-213349
-	- Opened by: me
-	- Parent ID: 2026102820321403
-	- Prereq IDs: 2026102821334870
-	- Requirements:
-		- A line whose index selects no instance (`E003`) is retained. The emitter asks the reload before it writes one, from the instances written before it, and writes it as a comment where the index would find one.
-		- The one-sentence test for dropping goes in design.md above the Load outcomes table, with the tab-only `E012` and the BOM-led `E014` named, per the parent.
-		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
-	- Estimated effort: High
-
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
 	- Type: Enhancement
@@ -440,20 +357,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261028, once, in `--backlog-run-quick rust go python c cli cicd` on `r1028b` at a load near 22. Its no-sync case said "exit 0, step 5 never closed", with `Starting Release builds` as the last line, and its alpine case counted no steps. A rerun of check-push-gate alone passed, at a load near 10.
 	- Possible cause: a stub run whose step 5 had not closed when it was read, so the test reads before the run ends, or a timeout in the stub that only a loaded box hits.
 
-- A merge writes a layer's kept line from inside a merged block at the root
-	- ID: 2026102821530643
+- `shcl explain E008` says the item is dropped
+	- ID: 2026102919222300
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Opened: 20261028-215306
-	- Opened by: me
-	- Related IDs: 2026102821334870
+	- Opened: 20261029-192223
+	- Opened by: 2026102821334970's sweep
+	- Related IDs: 2026102307143752
+	- Steps to reproduce: `shcl explain E008`, in each of the 4 CLIs.
+	- Incorrect behavior: "The parent already holds named children, so the item is dropped." `E008` is kept as written since 2026102307143752.
+	- Expected behavior: the text says the item is kept and binds nothing, byte for byte in all 4, with cli-regress's explain row to match. `E011`'s "the item is ignored" could say the same.
 	- Estimated effort: Low
-	- Steps to reproduce:
-		- `shcl set --set=q=1 --layer=f.shcl f.shcl` on `val: 1` / `\ta: [1` / `z: 2`.
-	- Incorrect behavior: the layer's copy of `\ta: [1` comes out as `a: [1` at the root, above `val: 1`. It binds nothing and nothing is lost, but it left its block. A kept `E011` item under `val` does the same, and comes back as `E007`.
-	- Expected behavior: the layer's kept line stays in the merged block, or goes as a comment there, the way a kept `E008` item's copy does.
-	- Reproduced: 20261028, on `r1028b`, with `E019` and with `E011`. A comment in the same spot is folded into the base's copy.
 
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
@@ -469,6 +384,157 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- A stacked list and a field under one parent load 3 different ways
+	- ID: 2026102307035771
+	- Type: Enhancement
+	- Status: Done
+		- Its first child, 2026102307143752, goes on with option A (JC).
+	- Priority: Avg
+	- Opened: 20261023-070357
+	- Opened by: JC
+	- Related IDs: 2026100511210900, 2026102307035786
+	- Estimated effort: High
+	- Problem description:
+		- Items then a field under one parent bind both (`E001`, bound). A field then items drops the items as lost, so the save refuses (`E008`, dropped). The bracket spelling of the same tree is refused (`E028`, retained). Swapping 2 lines changes whether data is lost.
+		- The `E001` tree then needs its own exceptions: the merge keeps it stacked (spec.md near line 430), it's a case no text loads back (value-syntax.md near line 453), and the save refusal filed as 2026100511210900.
+		- Several dropped codes fail design.md's stated test for dropping, "re-emitted it could bind somewhere else". The emitter already asks the reload before it writes a kept line, and writes it as a comment where it would bind (design.md, the paragraph starting "The emitter asks the reload"), so that case is covered for every retained line.
+	- Requirements:
+		- `E001` and `E008` are both retained: the line is kept as written, binds nothing, counts nothing lost, and what is indented under it goes with it as `E018`. A list with a field under it then can't be built, and the 3 exceptions above go.
+		- New test for dropping, as one sentence in design.md above the Load outcomes table: a line is dropped only when, re-emitted, it could feed a raw block, or when its refusal comes from a caller cap or the depth cap, which the next load may set differently.
+		- By that test `E003`, `E004`, `E007`, `E009` and `E011` become retained too. `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line stay as they are. Check each against the sentence and say so on the item where one doesn't fit.
+		- All 4 bindings, the Load outcomes table, spec.md's code table, value-syntax.md, and the corpus goldens for the cases that change. Strict fails either way, so strict outcomes don't change.
+	- Decisions:
+		- JC, 20261023: retained for both, rather than letting `E001`'s tree stand and making `E028` bind too, which would spread the exception into the writer and the schema's `allowed` rule.
+		- The `E001` outcome was tabled, never decided, so this moves no closed decision.
+		- JC, 20261023: option A for the emitter, with the stop rule on 2026102307143752.
+	- Progress log:
+		- 20261023: split in 2 to fit a round: 2026102307143752, then 2026102307143758.
+		- 20261023: the first child is built in all 4 and on `wip/r1023-2026102307143752`, short of the 2,000,000 fuzz. See it for what's left.
+		- 20261029: both children are Done.
+	- Test case: the children's, 2026102307143752 and 2026102307143758.
+	- Acceptance signoff: me, 20261029, both children are Done
+	- Closed: 20261029
+
+- Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
+	- ID: 2026102307143758
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261023-071437
+	- Opened by: JC
+	- Parent ID: 2026102307035771
+	- Prereq IDs: 2026102307143752
+	- Requirements:
+		- The parent's second and third requirements: the one-sentence test for dropping in design.md above the Load outcomes table, and `E003`, `E004`, `E007`, `E009` and `E011` retained by it.
+		- Check `E006`, `E016`, `E020`, `E021`, `E002`'s dropped value and the tab-only `E012` line against the sentence, and say so here where one doesn't fit.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Estimated effort: High
+	- Note: 20261023, the first child already drops an `E001` line that opens a raw block, by this sentence. `E003`, `E007` and `E011` lines refused only for where they sit need the same emitter check the first child adds for `E001` and `E008`, or an edit can make them bind.
+	- Progress log:
+		- 20261028: split in 2 to fit a round: 2026102820320485 (`E004`, `E009`), then 2026102820321403 (`E003`, `E007`, `E011` and the sentence). The first 2 are refused for their content, so they need no emitter check. The sentence goes in with the second child, so the table never disagrees with it.
+		- 20261028: checked against the sentence. `E006` fits, since its line is a fence, and `E016`, `E020` and `E021` fit as caps. 2 don't:
+			- `E002`'s dropped value isn't a line. The line binds, so it can't also be kept as written, and the value has nowhere to go. It stays value dropped, outside the sentence.
+			- A tab-only `E012` line is neither. It is dropped since a tab-only indent is one canonical output writes levels with, so written back it would bind, and a comment was turned down for it (the user, 2026-09-24, corpus `147`). A BOM-led `E014` line is the same kind, since the file-start strip would make it bind.
+		- 20261029: both children are Done, and the sentence is in design.md.
+	- Decisions:
+		- me, 20261028: the sentence names a third case for those 2, a line that would bind written back as it was, where no comment stands for it, rather than leave them as unstated exceptions. It goes in with 2026102820321403.
+	- Test case: the children's, 2026102820320485 and 2026102820321403.
+	- Acceptance signoff: me, 20261029, both children are Done
+	- Closed: 20261029
+
+- `E003`, `E007` and `E011` are retained, and dropping follows one test
+	- ID: 2026102820321403
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261028-203214
+	- Opened by: me
+	- Parent ID: 2026102307143758
+	- Prereq IDs: 2026102820320485
+	- Estimated effort: High
+	- Requirements:
+		- `E003`, `E007` and `E011` lines are retained. Each is refused only for where it sits, so the emitter asks the reload before it writes one, as it does for a clean `E001` or `E008` line, and writes it as a comment where it would bind.
+		- The one-sentence test for dropping goes in design.md above the Load outcomes table, once every code it names follows it.
+		- The sentence also names a tab-only `E012` and a BOM-led `E014`, per the Decisions on 2026102307143758.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Progress log:
+		- 20261028: split in 2 to fit a round: 2026102821334870 (`E007`, `E011`), then 2026102821334970 (`E003` and the sentence). The emitter's check for the 2 item codes needs only where the item sits. `E003` needs the instances written before it, so it is the bigger half.
+		- 20261029: both children are Done.
+	- Test case: the children's, 2026102821334870 and 2026102821334970.
+	- Acceptance signoff: me, 20261029, both children are Done
+	- Closed: 20261029
+
+- `E003` is retained, and dropping follows one test
+	- ID: 2026102821334970
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: Avg
+	- Opened: 20261028-213349
+	- Opened by: me
+	- Parent ID: 2026102820321403
+	- Prereq IDs: 2026102821334870
+	- Requirements:
+		- A line whose index selects no instance (`E003`) is retained. The emitter asks the reload before it writes one, from the instances written before it, and writes it as a comment where the index would find one.
+		- The one-sentence test for dropping goes in design.md above the Load outcomes table, with the tab-only `E012` and the BOM-led `E014` named, per the parent.
+		- All 4 bindings, the table, spec.md's code table, value-syntax.md, and the goldens that change (`095-dropped-element-block` among them).
+	- Estimated effort: High
+	- Progress log:
+		- 20261029, all 4 bindings:
+			- The field arm asks `index_miss` after `E001` and before the value is read. It walks the path as `attach_path` will, through the lines held open (`held_node`) and an array line's open field (`array_opens`), creating nothing. A miss keeps the line whole, its comment included. One that opens a raw block is dropped with it. `attach_path`'s `E003` arm stays, unreachable from a load, with a comment.
+			- The emitter's level model records each binding line's node and its place, and the text of each line held open since. A clean kept line with an index (`indexed_path`) is walked over the instances written before it (`index_refuses`), and stays as written where an index finds none or a step reaches stacked items (`E001`). Anywhere else it's a comment. `array_kept` leaves index lines to that walk, so `settle_arrays` doesn't comment them out at load.
+			- While the document holds such a line, every edit settles (`walked`), since its instances can sit anywhere above it.
+			- Docs: the one-sentence test above design.md's Load outcomes table, the Dropped bullet, the `E003` row, the refusal order, the emitter paragraph, a paragraph with the reasons, a note on the 2026-09 decision record. spec.md's `E003` row and its paragraph on lines it can't apply. A bullet under value-syntax.md's Selectors. The changelog and the conformance README (`086`, `103`).
+			- Goldens: `086` and `103` (kept, lost 0). No input changed. `095` has no `E003` line, so it doesn't change.
+			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (640 rows), crosscheck over the corpus plus a 2000-iteration dump (54174 comparisons), check-docs (red only on `EpHGoa0`), check-abnf, test-ids, rustfmt, clippy `-D warnings`, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `90870748` (31 properties, 480 s).
+			- Verified: each new test fails on the old library, and the `walked` part of each fails with the settle skip put back.
+			- Verified: `cicd.bash --backlog-run-quick rust go python c cli --skip=check-docs.bash` passed all 5 steps on `7d437f4c`.
+	- Decisions:
+		- me, 20261029: `E003` is judged before the path opens anything, as `E004` is, so `x.a(0).b: 1` leaves no empty `x`. It comes after `E001` and the value faults, and before the value is read, so a line with no colon gets `E003` alone, not `E015` too.
+		- me, 20261029: a refused line under an array line no longer makes that line `E028`, as no other refused line does.
+		- me, 20261029: an `E003` line that opens a raw block is dropped with it, as an `E001` one is: where it would bind it can't be a comment.
+		- me, 20261029: every edit settles while a kept index line is held, rather than add every instance above it to the near sum. Only a document with such a line pays.
+		- me, 20261029: the walk also keeps a dotted line onto stacked items through an index (`E001`) as written, where it went out as a comment. `EtdPVpd`'s pin of that comment is commented out in all 4 runners (`EtdPW8G`, `EtdPWQz`, `EtdPWjj`), and the new test pins the line as written.
+		- me, 20261029: the sentence reads "A line is dropped only when, written back, it could feed a raw block or bind where no comment stands for it, as a tab-only misplaced line (`E012`) or one led by a BOM (`E014`) would, or when a caller's cap or the depth cap refused it, which the next load may set differently."
+		- Checked against it: `E001` and `E003` with a raw block, `E006`, `E012` and `E018` that open one, the tab-only `E012` and BOM-led `E014`, and `E016`, `E020` and `E021` fit. `E018` otherwise fits the second case: its parent can move or turn into a comment, and then it binds. `E002`'s value is no line, as the parent says.
+	- Test case: conformance `an_index_with_no_instance_stays_kept` (`Eu8yPCH` Rust, `Eu8yPCI` Go, `Eu8yPCJ` Python, `Eu8yPCK` C); corpus `EonNaTY` (`086`), `Ep1EGVc` (`103`); fuzz `EpFAzfk` counts `E003` as kept; cli-regress `Eu8yPCL`, `Eu8yPCM`, `Eu8yPCN`.
+	- Swept: `E003` in the 4 parsers, `through_items` and `open_lazy` (held paths have no index), the emitter's kept-line check, `array_kept` and `settle_arrays`, `near_sum` and the resettle, the merge's settle, the keep-lines save (same emitter), the `tokens` dump (no `E003`), the 4 CLIs' explain text (names no outcome), check-migrate (2.x dropped it too), the fuzz outcome table and `REFUSING` list.
+	- Still to run: the full run (cppcheck, analyze-c, the C leak and sanitizer checks, Miri, codeql) and the test boxes.
+	- Branch: `r1029b-e003`
+	- Commit: `90870748`
+	- Acceptance signoff: me, 20261029, each new test failed on the old library, and the 2,000,000 fuzz and the quick run passed
+	- Closed: 20261029
+
+- A merge writes a layer's kept line from inside a merged block at the root
+	- ID: 2026102821530643
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: No
+	- Severity: Low
+	- Opened: 20261028-215306
+	- Opened by: me
+	- Related IDs: 2026102821334870
+	- Estimated effort: Low
+	- Steps to reproduce:
+		- `shcl set --set=q=1 --layer=f.shcl f.shcl` on `val: 1` / `\ta: [1` / `z: 2`.
+	- Incorrect behavior: the layer's copy of `\ta: [1` comes out as `a: [1` at the root, above `val: 1`. It binds nothing and nothing is lost, but it left its block. A kept `E011` item under `val` does the same, and comes back as `E007`.
+	- Expected behavior: the layer's kept line stays in the merged block, or goes as a comment there, the way a kept `E008` item's copy does.
+	- Reproduced: 20261028, on `r1028b`, with `E019` and with `E011`. A comment in the same spot is folded into the base's copy.
+	- Actual cause: a leaf the other layer replaces gives its kept lines to the replacement's leading lines, those from inside its block too, so they went a level up, above it.
+	- Actual fix: those from inside its block go inside the replacement's, in all 4. The rest go as before.
+	- Progress log:
+		- 20261029: Verified: the repro and its `E011` twin come out with both copies in the block, and reload the same. Corpus `091`'s merged golden changes the same way: its `*` line stays under the field that replaced the one it sat under. The 4 conformance suites, the whole Rust and Go suites, cli-regress (641 rows), crosscheck (54174 comparisons), check-docs (red only on `EpHGoa0`), rustfmt, clippy, go vet, staticcheck, ruff, mypy, markdownlint, the veneer smoke, and a 2,000,000-iteration release fuzz on `dffd891d` (31 properties). Each new test fails on the old library.
+		- Verified: `cicd.bash --backlog-run-quick rust go python c cli --skip=check-docs.bash` passed all 5 steps on `7d437f4c`.
+	- Decisions:
+		- me, 20261029: a comment inside the replaced leaf's block still goes with the leaf, as the 2026-09-28 rule has it. Only kept lines move.
+	- Test case: conformance `a_replaced_leaf_keeps_the_lines_kept_in_its_block` (`Eu96oVF` Rust, `Eu96oVG` Go, `Eu96oVH` Python, `Eu96oVI` C); corpus `Ep0xKIj` (`091`); cli-regress `Eu96oVJ`.
+	- Swept: the leaf-replace path of the merge in all 4. The instance merge (`adopt_trivia`) already puts a layer's lines inside the block. A setter changes a leaf in place, so its block keeps them. A remove takes what the kept-lines table says. Docs: spec.md's merge paragraph, the changelog, the conformance README.
+	- Still to run: the full run and the test boxes.
+	- Branch: `r1029b-e003`
+	- Commit: `dffd891d`
+	- Acceptance signoff: me, 20261029, the repro and corpus 091 keep the line in its block, and each new test failed on the old library
+	- Closed: 20261029
 
 - Hosted ci.yml tests half runs past its 60-minute timeout
 	- ID: 2026102915235852

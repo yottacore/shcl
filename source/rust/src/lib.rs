@@ -937,6 +937,10 @@ pub struct Document {
 	// such line left: the next check costs the same, and nothing is wrong.
 	kept_near: Vec<(usize, usize)>,
 	kept_sum: u64,
+	// A kept line with an index in its path was judged by the instances
+	// written before it, which can sit anywhere above it, so every edit
+	// settles while one is held.
+	walked: bool,
 	// The parse's multi-line bindings, from the binding line to the last
 	// line each took. Edits leave it alone; only a reparse reads it.
 	ends: Vec<(usize, usize)>,
@@ -4152,6 +4156,25 @@ fn kept_for_place(text: &str) -> Option<bool> {
 		.then_some(true)
 }
 
+/// The path of a kept field line that reads clean and has an index in it,
+/// array or not. A reload walks it over the instances written before it.
+fn indexed_path(text: &str) -> Option<Vec<Segment>> {
+	if !is_field_text(text) {
+		return None;
+	}
+	let mut tok = Tokens::default();
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	if line_fault(&tok, text).is_some() {
+		return None;
+	}
+	let scan = path_of(&tok, text).ok()?;
+	scan.segments.iter().any(by_index).then_some(scan.segments)
+}
+
+fn by_index(seg: &Segment) -> bool {
+	matches!(seg.selector, Some(Selector::ByIndex(_)))
+}
+
 /// A stacked list item's line: `-` then a blank or the end. The blank is
 /// what keeps `-x: y` a field line (`E014`) and `- -5` the item `-5`.
 fn is_item(text: &str) -> bool {
@@ -5132,23 +5155,9 @@ impl<'a> Parser<'a> {
 		{
 			return false;
 		}
-		let mut node = parent;
-		if parent == LAZY {
-			let top = self.stack.len() - 1;
-			let mut from = top;
-			while from > 1 && self.stack[from - 1].1 == LAZY {
-				from -= 1;
-			}
-			node = self.stack[from - 1].1;
-			for l in self.lazies.iter().filter(|l| l.at >= from) {
-				for seg in &l.segs {
-					match self.found_step(node, seg) {
-						Some(c) => node = c,
-						None => return false,
-					}
-				}
-			}
-		}
+		let Some(mut node) = self.held_node(parent) else {
+			return false;
+		};
 		for seg in steps {
 			match self.found_step(node, seg) {
 				Some(c) if self.arena[c].star_list => return true,
@@ -5159,25 +5168,80 @@ impl<'a> Parser<'a> {
 		false
 	}
 
+	/// The node a line binds under, found without opening it: a LAZY level,
+	/// and any LAZY one it sits under, as open_lazy() would open them. None
+	/// when that would create one.
+	fn held_node(&self, parent: usize) -> Option<usize> {
+		if parent != LAZY {
+			return Some(parent);
+		}
+		let top = self.stack.len() - 1;
+		let mut from = top;
+		while from > 1 && self.stack[from - 1].1 == LAZY {
+			from -= 1;
+		}
+		let mut node = self.stack[from - 1].1;
+		for l in self.lazies.iter().filter(|l| l.at >= from) {
+			for seg in &l.segs {
+				node = self.found_step(node, seg)?;
+			}
+		}
+		Some(node)
+	}
+
+	/// The index segment of a line's path that selects no instance among
+	/// those bound before it (E003), walked as attach_path() will walk it,
+	/// creating nothing. A step that would create a field leaves every
+	/// index after it nothing to select. Judged before anything opens, so a
+	/// kept line opens none of its path's fields.
+	fn index_miss<'s>(&self, parent: usize, segs: &'s [Segment]) -> Option<(u64, &'s str)> {
+		if !segs.iter().any(by_index) {
+			return None;
+		}
+		let mut node = self.held_node(parent).and_then(|n| self.array_opens(n));
+		for (i, seg) in segs.iter().enumerate() {
+			let found = node.and_then(|n| self.found_step(n, seg));
+			let Some(Selector::ByIndex(k)) = seg.selector else {
+				node = found;
+				continue;
+			};
+			let Some(n) = found else {
+				return Some((k, &seg.name));
+			};
+			node = if i + 1 < segs.len() {
+				self.array_opens(n)
+			} else {
+				Some(n)
+			};
+		}
+		None
+	}
+
+	/// The node array_under() leaves a field under `node` to bind in, found
+	/// without moving anything. None when it would create one.
+	fn array_opens(&self, node: usize) -> Option<usize> {
+		let nd = &self.arena[node];
+		if node == ROOT || nd.star_list || !matches!(nd.value, Value::Array(_)) {
+			return Some(node);
+		}
+		match self.array_line.get(&node) {
+			Some(m)
+				if m.line != nd.line
+					&& m.line.checked_sub(1).is_some_and(|k| k < self.src.len()) =>
+			{
+				self.empty_child(nd.parent, &nd.name)
+			}
+			_ => Some(node),
+		}
+	}
+
 	/// The child one path step selects under `cur` without creating it.
 	fn found_step(&self, cur: usize, seg: &Segment) -> Option<usize> {
 		if cur >= self.arena.len() {
 			return None;
 		}
 		match &seg.selector {
-			None => self.child_map[cur]
-				.as_deref()
-				.and_then(|m| m.get(&merge_hash(&seg.name, &Value::Empty)))
-				.and_then(|slot| {
-					slot.first_match(|c| {
-						merge_eq(
-							&self.arena[c].name,
-							&self.arena[c].value,
-							&seg.name,
-							&Value::Empty,
-						)
-					})
-				}),
+			None => self.empty_child(cur, &seg.name),
 			Some(Selector::ByValue { text, .. }) => self.find_by_value(cur, &seg.name, text),
 			Some(Selector::ByIndex(n)) => index_usize(*n).and_then(|i| {
 				self.arena[cur]
@@ -5189,6 +5253,24 @@ impl<'a> Parser<'a> {
 			}),
 			Some(Selector::Wildcard) => None,
 		}
+	}
+
+	/// The child named `name` with no value that select_or_create() would
+	/// select for a path step, without creating it.
+	fn empty_child(&self, cur: usize, name: &str) -> Option<usize> {
+		self.child_map[cur]
+			.as_deref()
+			.and_then(|m| m.get(&merge_hash(name, &Value::Empty)))
+			.and_then(|slot| {
+				slot.first_match(|c| {
+					merge_eq(
+						&self.arena[c].name,
+						&self.arena[c].value,
+						name,
+						&Value::Empty,
+					)
+				})
+			})
 	}
 
 	/// The node a path's first segment bound, from the one its last did.
@@ -5402,6 +5484,7 @@ impl<'a> Parser<'a> {
 							cur = self.array_under(cur);
 						}
 					} else {
+						// index_miss() keeps a parsed line with one first (E003).
 						self.refuse(
 							line,
 							"E003",
@@ -6221,6 +6304,29 @@ impl<'a> Parser<'a> {
 				i += 1;
 				continue;
 			}
+			// An index that selects no instance bound before it: kept the same
+			// way, since an instance written above it later would make it bind.
+			if let Some((k, name)) = self.index_miss(parent, &scan.segments) {
+				let msg = format!("no instance {} of '{}'", k, diag_name(name));
+				if line_fence(&tok, rest).is_some() {
+					self.refuse(lineno, "E003", msg, Outcome::Dropped, indent);
+					i = self.skip_field_line(&lines, i, indent, &tok, rest);
+					continue;
+				}
+				self.kept_any = true;
+				self.refuse(
+					lineno,
+					"E003",
+					msg,
+					Outcome::Retained {
+						text: trim_wsp_end(rest).to_string(),
+						blank_before: had_blank,
+					},
+					indent,
+				);
+				i += 1;
+				continue;
+			}
 			// The verbatim value span, kept for reads' `raw` (only the plain
 			// scalar/inline-array case has a one-line source spelling).
 			let mut src_text: Option<&str> = None;
@@ -6379,6 +6485,7 @@ impl<'a> Parser<'a> {
 			bracketed: false,
 			kept_near: Vec::new(),
 			kept_sum: 0,
+			walked: false,
 			ends: self.ends,
 			dropped: self.dropped,
 			source: None,
@@ -6811,7 +6918,82 @@ impl Document {
 		self.emit_children(&self.arena[ROOT].children, 0, e);
 		// Comments that never found a following line re-emit at the end.
 		e.near(ROOT, 0);
-		push_leads(e, &self.orphans, 0, (ROOT, Site::Orphans, 0));
+		push_leads(self, e, &self.orphans, 0, (ROOT, Site::Orphans, 0));
+	}
+
+	/// True when a reload keeps a clean field line with an index in its path
+	/// where the emit model stands, after its resolve found a live parent:
+	/// an index selects none of the instances written before it (E003), or
+	/// one reaches stacked items before the last segment (E001). Lines held
+	/// open since the last binding line are walked first, as the reload opens
+	/// them.
+	fn index_refuses(
+		&self,
+		e: &Emit,
+		open: isize,
+		tail: &[(String, usize)],
+		segs: &[Segment],
+	) -> bool {
+		if tail.iter().any(|t| t.1 != LAZY) {
+			return false;
+		}
+		let base = usize::try_from(open).ok();
+		let Some(mut node) = base.map_or(Some(ROOT), |d| e.lv.get(d).map(|l| l.node)) else {
+			return false;
+		};
+		// Of the first node's children, only those written so far.
+		let mut upto = e.lv.get(base.map_or(0, |d| d + 1)).map_or(0, |l| l.pos + 1);
+		let mut held: Vec<Segment> = Vec::new();
+		for (indent, _) in tail {
+			let Some((_, text)) = e.lazies.iter().rev().find(|l| l.0 == *indent) else {
+				return false;
+			};
+			let mut tok = Tokens::default();
+			tokenize(text, b':', false, Rules::Current, &mut tok);
+			let Ok(scan) = path_of(&tok, text) else {
+				return false;
+			};
+			held.extend(scan.segments);
+		}
+		for seg in &held {
+			match self.written_step(node, upto, seg) {
+				Some(c) => node = c,
+				// Opening it creates a field, with no instance under it.
+				None => return true,
+			}
+			upto = usize::MAX;
+		}
+		let through = segs[..segs.len() - 1].iter().any(by_index);
+		for (i, seg) in segs.iter().enumerate() {
+			let found = self.written_step(node, upto, seg);
+			upto = usize::MAX;
+			match found {
+				Some(c) if through && i + 1 < segs.len() && stacks(&self.arena[c]) => return true,
+				Some(c) => node = c,
+				None if by_index(seg) => return true,
+				// Created, so every index after it selects nothing.
+				None => return segs[i + 1..].iter().any(by_index),
+			}
+		}
+		false
+	}
+
+	/// The child a reload's path step selects under `cur` among its first
+	/// `upto` children, as the parser's found_step() does.
+	fn written_step(&self, cur: usize, upto: usize, seg: &Segment) -> Option<usize> {
+		let kids = &self.arena[cur].children;
+		let mut named = kids[..upto.min(kids.len())]
+			.iter()
+			.copied()
+			.filter(|&c| self.arena[c].name == seg.name);
+		match &seg.selector {
+			None => named.find(|&c| self.arena[c].value.is_empty()),
+			Some(Selector::ByValue { text, .. }) => {
+				named.find(|&c| matches!(&self.arena[c].value, Value::Cell(v) if v.text == *text))
+			}
+			Some(Selector::ByIndex(k)) => index_usize(*k).and_then(|i| named.nth(i)),
+			Some(Selector::Wildcard) => None,
+		}
 	}
 
 	/// Make a misplaced line kept as written into the comment the emitter
@@ -6881,7 +7063,7 @@ impl Document {
 	/// those came from cannot move it, and the whole-document emit is
 	/// skipped (20260924d item 2).
 	fn resettle_kept(&mut self) {
-		if self.kept && self.near_sum() != self.kept_sum {
+		if self.kept && (self.walked || self.near_sum() != self.kept_sum) {
 			self.settle_kept();
 		} else {
 			self.settle_arrays();
@@ -6945,6 +7127,7 @@ impl Document {
 		let mut e = Emit::new(0, true);
 		self.emit_all(&mut e);
 		self.kept = e.verbatim > 0;
+		self.walked = e.walked;
 		self.kept_near = std::mem::take(&mut e.kept_near);
 		let mut among: Vec<(usize, usize)> = Vec::new();
 		for &(node, site, i, depth) in &e.fell {
@@ -7021,13 +7204,20 @@ impl Document {
 		e.near(idx, pos);
 		// Comments this block owns with no child to take them, one deeper.
 		push_leads(
+			self,
 			e,
 			self.arena[idx].inside(),
 			depth + 1,
 			(idx, Site::Inside, 0),
 		);
 		// Comments that hung on this block after its last child.
-		push_leads(e, self.arena[idx].after(), depth, (idx, Site::After, 0));
+		push_leads(
+			self,
+			e,
+			self.arena[idx].after(),
+			depth,
+			(idx, Site::After, 0),
+		);
 	}
 
 	// Kept out of emit_node, which recurses once per level: its temporaries
@@ -7043,10 +7233,10 @@ impl Document {
 		// trailing comment joins the leading lines instead; the flag comes from
 		// the parent's walk. Each blank rides its own comment (or the binding
 		// line), never as the first output line.
-		push_leads(e, node.leading(), depth, (idx, Site::Leading, 0));
+		push_leads(self, e, node.leading(), depth, (idx, Site::Leading, 0));
 		// The kept line just written opens this block on a reload.
 		if heads_block(node) {
-			e.bound(depth);
+			e.bound(depth, idx, pos);
 			e.near(idx, pos);
 			return;
 		}
@@ -7063,7 +7253,7 @@ impl Document {
 		out.push_str(&pad);
 		out.push_str(&emit_name(&node.name));
 		out.push(':');
-		e.bound(depth);
+		e.bound(depth, idx, pos);
 		e.near(idx, pos);
 		if let Some(l) = e.lv.get_mut(depth) {
 			l.valued = !node.value.is_empty() && !stacks(node);
@@ -7087,6 +7277,7 @@ impl Document {
 					}
 					for (j, (_, l)) in among[from..next].iter().enumerate() {
 						push_leads(
+							self,
 							e,
 							std::slice::from_ref(l),
 							depth + 1,
@@ -7108,6 +7299,7 @@ impl Document {
 				}
 				for (j, (_, l)) in among[next..].iter().enumerate() {
 					push_leads(
+						self,
 						e,
 						std::slice::from_ref(l),
 						depth + 1,
@@ -7196,8 +7388,13 @@ struct Emit {
 	kept_near: Vec<(usize, usize)>,
 	// Per binding depth, whether that node has a `- ` item written yet, a
 	// field line under it, and a value an item cannot join, for a kept line
-	// refused only for where it sits.
+	// refused only for where it sits, and the node with its place in its
+	// parent's list. Then the text of each kept line held open since the
+	// last binding line, by its indent, and whether a kept line was asked
+	// about the instances written before it.
 	lv: Vec<Lv>,
+	lazies: Vec<(String, String)>,
+	walked: bool,
 	// to_text_keep_lines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
 	// and where each value is written on its binding line.
@@ -7221,6 +7418,8 @@ impl Emit {
 			flushed: 0,
 			kept_near: Vec::new(),
 			lv: Vec::new(),
+			lazies: Vec::new(),
+			walked: false,
 			lines: false,
 			marks: Vec::new(),
 			bodies: Vec::new(),
@@ -7242,14 +7441,19 @@ impl Emit {
 	}
 
 	/// A binding line at this depth: the stack is its levels and nothing else.
-	fn bound(&mut self, depth: usize) {
+	fn bound(&mut self, depth: usize, node: usize, pos: usize) {
 		self.lv.truncate(depth);
 		if let Some(up) = self.lv.last_mut() {
 			up.fields = true;
 		}
-		self.lv.push(Lv::default());
+		self.lv.push(Lv {
+			node,
+			pos,
+			..Lv::default()
+		});
 		self.open = depth as isize;
 		self.tail.clear();
+		self.lazies.clear();
 		self.hold = None;
 		self.near.clear();
 		self.flushed = 0;
@@ -7313,6 +7517,8 @@ struct Lv {
 	items: bool,
 	fields: bool,
 	valued: bool,
+	node: usize,
+	pos: usize,
 }
 
 /// Which trivia list a line sits in.
@@ -7456,7 +7662,11 @@ fn array_kept(text: &str) -> bool {
 	}
 	let mut tok = Tokens::default();
 	tokenize(text, b':', false, Rules::Current, &mut tok);
-	tok.array.is_some() && path_of(&tok, text).is_ok() && line_fault(&tok, text).is_none()
+	// One with an index in its path is the emitter's, which asks the
+	// instances written before it.
+	tok.array.is_some()
+		&& path_of(&tok, text).is_ok_and(|scan| !scan.segments.iter().any(by_index))
+		&& line_fault(&tok, text).is_none()
 }
 
 /// A path in a note, kept to one line, the way `schema_text` shows one.
@@ -7710,7 +7920,7 @@ fn local_clock() -> (String, i32, String) {
 /// leave it where it would bind, and there it is written as a comment,
 /// which reads the same. `at` names the list and the index of its first
 /// line, for settle_kept().
-fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize)) {
+fn push_leads(d: &Document, e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize)) {
 	let mut last_comment = 0;
 	for (i, c) in leads.iter().enumerate() {
 		if c.blank_before && !e.out.is_empty() {
@@ -7769,7 +7979,8 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			// an item only as E008 under a field with a field line written,
 			// E011 under one with a value, or E007 at the root. Anywhere else
 			// it would bind: a comment then.
-			if let Some(field) = kept_for_place(&c.text) {
+			let indexed = indexed_path(&c.text);
+			if let Some(field) = kept_for_place(&c.text).or(indexed.as_ref().map(|_| true)) {
 				let up = (pad > 0 && tail.is_empty() && open == pad as isize - 1)
 					.then(|| e.lv.get(pad - 1))
 					.flatten()
@@ -7781,9 +7992,18 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 						.and_then(|d| e.lv.get(d))
 						.is_some_and(|l| l.items);
 				let root = !field && parent == Some(ROOT) && open == -1 && tail.is_empty();
-				let stays = root
+				let mut stays = root
 					|| held || up
 					.is_some_and(|l| if field { l.items } else { l.fields || l.valued });
+				// One with an index in its path is kept too where the index
+				// selects none of the instances written before it (E003), or
+				// reaches stacked items through one (E001).
+				if let Some(segs) = &indexed
+					&& !stays && parent.is_some_and(|p| p != DEAD && p != UNOPENED)
+				{
+					stays = d.index_refuses(e, open, &tail, segs);
+					e.walked |= stays;
+				}
 				if !stays && !c.text.contains('\n') {
 					// A comment nests at most one level past the line before it,
 					// or a reload reads it shallower.
@@ -7807,6 +8027,7 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			if parent.is_some_and(|p| p != DEAD) && opens_later(&c.text) {
 				e.open = open;
 				e.tail = tail;
+				e.lazies.push((indent.clone(), c.text.clone()));
 				e.tail.push((indent, LAZY));
 			} else {
 				e.refused(&indent, open, tail);
@@ -12935,6 +13156,7 @@ impl Document {
 					// onto the replacement. A comment starts with `#`, a
 					// retained line never does.
 					let mut kept: Vec<Lead> = Vec::new();
+					let mut inside: Vec<Lead> = Vec::new();
 					// Off the index, not a scan of every base child: N leaves
 					// overridden by the same N names made this quadratic
 					// (20260918b item 58).
@@ -12957,14 +13179,21 @@ impl Document {
 							.unwrap_or(after.len());
 						kept.extend_from_slice(&leading[..above]);
 						let among = nd.among().iter().map(|a| &a.1);
-						for l in leading[above..]
+						// A line kept inside its block stays there, as when a
+						// setter changes the leaf in place.
+						let lines = leading[above..]
 							.iter()
 							.chain(among)
-							.chain(nd.inside())
-							.chain(&after[..below])
-						{
+							.map(|l| (l, false))
+							.chain(nd.inside().iter().map(|l| (l, true)))
+							.chain(after[..below].iter().map(|l| (l, false)));
+						for (l, within) in lines {
 							if !l.text.starts_with('#') {
-								kept.push(l.clone());
+								if within {
+									inside.push(l.clone());
+								} else {
+									kept.push(l.clone());
+								}
 							} else if l.kept {
 								// A settled one goes with the leaf's comments
 								// (decided 2026-09-28), so it is no longer owed.
@@ -12979,6 +13208,12 @@ impl Document {
 						t.leading = kept;
 						// Comments from two sources now share one run.
 						restep(&mut t.leading);
+					}
+					if !inside.is_empty() {
+						let t = self.arena[clones[0].1].triv_mut();
+						inside.append(&mut t.inside);
+						t.inside = inside;
+						restep(&mut t.inside);
 					}
 					replace.insert(name, clones.into_iter().map(|(_, c)| c).collect());
 				} else {
