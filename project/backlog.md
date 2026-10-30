@@ -33,6 +33,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The profiler attribution check fails every run since its status word became PASS
+	- ID: 2026103011015050
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261030-110150
+	- Opened by: found while working 2026102515494634
+	- Related IDs: 2026102416250080
+	- Steps to reproduce: run the Profiler step, as a default run, `--merge-gate` or `--backlog-run-full` do.
+	- Incorrect behavior: `PROFILE_CHECK` in cicd/config.bash sets `s=PASS` and ends with `[[ "${s}" == ok ]]`, so it returns 1 when the check passes, and the run stops with "profiler attribution check failed".
+	- Expected behavior: it returns 0 when the check passes.
+	- Reproduced: 20261030, the line's last test with `s=PASS` returns 1. No profiler run.
+	- Possible cause: `817ea2e1` changed `s=ok` to `s=PASS` and left the compare. check-push-gate's stub engine replaces `PROFILE_CHECK`, so no test runs the real one.
+	- Requirements:
+		- The compare reads `PASS`.
+		- A test runs config.bash's own `PROFILE_CHECK` with a stand-in binary that exits 0 and then 1.
+	- Estimated effort: Low
+
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
@@ -101,8 +119,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: keep-temp and list
 	- ID: 2026102515494634
 	- Type: Enhancement
-	- Status: Queued
-		- Held for 2026102416250080, for the test IDs `--list` prints. `--keep-temp` and the steps `--list` prints are in.
+	- Status: Done
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -112,6 +129,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--keep-temp` keeps the run's temp folder and containers, and prints where they are.
 		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
 	- Decisions:
+		- me: a step lists the tests it runs itself: its own script's, the test programs it builds, and for a binding's runner, that binding's tests and the corpus. So the corpus IDs show under all 4 runners, and the plain and `-race` Go runs list the same tests. A wrapper that reruns another suite, such as sanitize-c or check-c-compilers, lists only its own, since the whole suite again under it would hide what it adds.
+		- me: an ID line is `ID  file:line`, the form `test-ids.py find` prints, not the test's name, which test-ids.py doesn't read for every marker kind. A corpus case gives its folder.
+		- me: the rules for which step runs which tests sit in test-ids.py, beside its tables of where tests are, so a new kind of test place and its step rule change in one file.
 		- me: `--keep-temp` keeps the run's temp folder, the runs inside it included, and the containers of the run's stage steps, which start without `--rm`. The end-of-run docker sweep is skipped, since it would take them. The frozen copy still goes, since it's a copy of the tree, and so do the 2 probe containers that read the image's `/etc/passwd` and `/etc/group`.
 	- Progress log:
 		- 20261025: `--keep-temp` done. A whole, failed or stopped run prints `kept this run's temp folder: PATH`, plus the `docker ps` filter for its containers after a run in the image. Help and contributing.md say so.
@@ -119,7 +139,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261025: `--list` prints each stage's steps, as the other flags leave them, and exits 0 before a temp folder, a prompt or a log. Help and contributing.md say so. Left: the test IDs. They wait on the test ID item, 2026102416250080, since today they sit in 6 kinds of place with no one list to read.
 		- Verified: check-push-gate `dee5y` failed on the old engine and passes now: a default, `--quick` and `--gate` list, with no step run, nothing recorded and no run folder left.
 		- 20261030: test IDs are in (2026102416250080), so the hold is over.
-	- Test case: check-push-gate `dee5k` (`--keep-temp`) and `dee5y` (`--list`).
+		- 20261030: `--list` puts the test IDs each step runs under it, one `ID  file:line` per line. `test-ids.py list` reads the step list and matches each step to the files whose tests it runs. A step whose label isn't its command, such as a release check or a test box, hands its command over for the match, and only the label prints. When test-ids.py can't read the IDs, the steps print alone, with a line saying so. A default run lists 2014 of the 2059 IDs. The other 45 run only in the hosted windows job: win-runners.bash, winpath-regress.ps1, check-win-setup.bash and `shcl_windows_test.go`. Help and contributing.md say so.
+		- 20261030: test-ids.py reports a missing corpus folder or rows file as a problem, where it stopped with a traceback.
+		- Verified: check-push-gate `demwg` (a test script's ID under its step, none under a step that only names it, no hidden command printed) failed on the old engine and passes now. The rest of check-push-gate, shell-regress, `cicd.bash --skip=check-docs.bash --backlog-run-quick cicd` (all 5 steps), check-docs (red only on `dcbc2`, the known installer sync), `test-ids.py check` (2059 tests), shellcheck over the lint targets, ruff, mypy and markdownlint pass.
+	- Swept: every step `--list` prints, by stage. Each one that runs tests lists them, and the hosted windows tests are the only IDs no local step lists. The only reader of the list is check-push-gate `dee5y`. Not a binding change, so the four bindings don't apply.
+	- Test case: check-push-gate `dee5k` (`--keep-temp`), `dee5y` (`--list`'s steps) and `demwg` (`--list`'s test IDs).
+	- Branch: `r1030`
+	- Acceptance signoff: Self-closed: each requirement has a test that failed before and passes now.
+	- Closed: 20261030-111559
 
 - CICD reset: other hosts and VMs
 	- ID: 2026102416250010

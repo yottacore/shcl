@@ -71,7 +71,7 @@
 ##	   --no-container      run stages 1-6 on this box even when docker answers.
 ##	                       Not with --container
 ##	   --no-freeze         run stages 2-6 in the checkout, not in a copy. See below
-##	   --list              print the steps the other flags would run; run nothing
+##	   --list              print the steps and test IDs the flags pick; run nothing
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
@@ -486,8 +486,10 @@ if [[ -n "${plan_only}" ]]; then
 	exit 0
 fi
 
-## --list: the steps a run with the other flags would take, by stage, and
-## nothing run, made or asked. Test IDs aren't listed yet (2026102515494634).
+## --list: the steps a run with the other flags would take, by stage, with
+## the test IDs each one runs under it, and nothing run, made or asked.
+## test-ids.py finds the IDs. A step whose label isn't its command carries the
+## command after a \x1f, for it to match, and the label alone is printed.
 if ((list_only)); then
 	fListStage(){   ## fListStage TITLE STEP... (empty steps dropped)
 		local step n=0
@@ -497,39 +499,46 @@ if ((list_only)); then
 		done
 		if ((n == 0)); then printf '\t(none)\n'; fi
 	}
-	lsSteps=()
-	if ((sync_enable)); then lsSteps=("fast-forward from upstream"); fi
-	fListStage "0/9  Remote sync" "${lsSteps[@]}"
-	if ((gate_mode)); then fListStage "1/9  Format (check only)" "${FMT_CHECK_CMD[*]}" "${FMT_CHECK_EXTRA[@]}"
-	else fListStage "1/9  Format" "${FMT_CMD[*]}" "${FMT_EXTRA[@]}"; fi
-	fListStage "2/9  Build (debug)" "${BUILD_CMD[*]}" "${BUILD_EXTRA[@]}"
-	lsSteps=(); if ((${#SHELLCHECK_TARGETS[@]})); then lsSteps=("shellcheck over ${#SHELLCHECK_TARGETS[@]} file(s)"); fi
-	fListStage "3/9  Lint" "${LINT_CMD[*]}" "${LINT_EXTRA[@]}" "${lsSteps[@]}"
-	lsSteps=()
-	if ((${#BINDING_CLIS[@]} && xcheck_enable)); then lsSteps+=("crosscheck.bash over ${#BINDING_CLIS[@]} binding(s)"); fi
-	if ((LARGEDOC_MIB)); then lsSteps+=("largedoc.bash at ${LARGEDOC_MIB} MiB"); fi
-	fListStage "4/9  Tests" "${TEST_CMD[*]}" "${TEST_EXTRA[@]}" "${lsSteps[@]}" "${LEAKCHECK_STEPS[@]}"
-	lsSteps=()
-	if ((PROFILE_ENABLE)); then lsSteps=("${PROFILE_BUILD_CMD[*]}" "profiler run, ${PROFILE_SECS}s")
-	elif ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]]; then lsSteps=("profiler attribution check"); fi
-	fListStage "5/9  Profiler" "${lsSteps[@]}"
-	lsSteps=()
-	for c in "${CROSS_CHECKS[@]}"; do lsSteps+=("cross check: ${c%%|*}"); done
-	if ((${#RELEASE_NATIVE_CMD[@]})); then
-		lsSteps+=("${RELEASE_NATIVE_CMD[*]}")
-		for c in "${CROSS_TARGETS[@]}"; do lsSteps+=("cross: ${c%%|*}"); done
-		for c in "${RELEASE_CHECKS[@]}"; do lsSteps+=("release check: ${c%%|*}"); done
-		if ((PACKAGE_ENABLE)); then lsSteps+=("package.bash"); fi
+	fListSteps(){
+		lsSteps=()
+		if ((sync_enable)); then lsSteps=("fast-forward from upstream"); fi
+		fListStage "0/9  Remote sync" "${lsSteps[@]}"
+		if ((gate_mode)); then fListStage "1/9  Format (check only)" "${FMT_CHECK_CMD[*]}" "${FMT_CHECK_EXTRA[@]}"
+		else fListStage "1/9  Format" "${FMT_CMD[*]}" "${FMT_EXTRA[@]}"; fi
+		fListStage "2/9  Build (debug)" "${BUILD_CMD[*]}" "${BUILD_EXTRA[@]}"
+		lsSteps=(); if ((${#SHELLCHECK_TARGETS[@]})); then lsSteps=("shellcheck over ${#SHELLCHECK_TARGETS[@]} file(s)"); fi
+		fListStage "3/9  Lint" "${LINT_CMD[*]}" "${LINT_EXTRA[@]}" "${lsSteps[@]}"
+		lsSteps=()
+		if ((${#BINDING_CLIS[@]} && xcheck_enable)); then lsSteps+=("crosscheck.bash over ${#BINDING_CLIS[@]} binding(s)"); fi
+		if ((LARGEDOC_MIB)); then lsSteps+=("largedoc.bash at ${LARGEDOC_MIB} MiB"); fi
+		fListStage "4/9  Tests" "${TEST_CMD[*]}" "${TEST_EXTRA[@]}" "${lsSteps[@]}" "${LEAKCHECK_STEPS[@]}"
+		lsSteps=()
+		if ((PROFILE_ENABLE)); then lsSteps=("${PROFILE_BUILD_CMD[*]}" "profiler run, ${PROFILE_SECS}s"$'\x1f'"${PROFILE_CHECK:-}")
+		elif ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]]; then lsSteps=("profiler attribution check"$'\x1f'"${PROFILE_CHECK}"); fi
+		fListStage "5/9  Profiler" "${lsSteps[@]}"
+		lsSteps=()
+		for c in "${CROSS_CHECKS[@]}"; do lsSteps+=("cross check: ${c%%|*}"$'\x1f'"${c#*|}"); done
+		if ((${#RELEASE_NATIVE_CMD[@]})); then
+			lsSteps+=("${RELEASE_NATIVE_CMD[*]}")
+			for c in "${CROSS_TARGETS[@]}"; do lsSteps+=("cross: ${c%%|*}"); done
+			for c in "${RELEASE_CHECKS[@]}"; do lsSteps+=("release check: ${c%%|*}"$'\x1f'"${c#*|}"); done
+			if ((PACKAGE_ENABLE)); then lsSteps+=("package.bash"); fi
+		fi
+		fListStage "6/9  Release builds" "${lsSteps[@]}"
+		lsSteps=()
+		if ((! no_remote && ${#RELEASE_NATIVE_CMD[@]})); then for c in "${REMOTE_BOXES[@]}"; do lsSteps+=("${c%%|*}"$'\x1fcheck-boxes.bash'); done; fi
+		fListStage "6/9  Test boxes" "${lsSteps[@]}"
+		lsSteps=(); if ((${#DOGFOOD_FIXED_DESTS[@]} && ${#RELEASE_NATIVE_CMD[@]})); then lsSteps=("${DOGFOOD_FIXED_DESTS[@]}"); fi
+		fListStage "7/9  Dogfood" "${lsSteps[@]}"
+		lsSteps=(); if ((GIF_ENABLE)); then lsSteps=("${GIF_OUT}"); fi
+		fListStage "8/9  Demo gif" "${lsSteps[@]}"
+		fListStage "9/9  Backup + publish" "${GIT_PUBLISH[*]}"
+	}
+	lsText="$(fListSteps)"
+	if ! python3 "${here}/utility/test-ids.py" list <<< "${lsText}" 2>/dev/null; then
+		printf '%s\n' "${lsText}" | sed $'s/\x1f.*//'
+		echo "(test IDs not listed: utility/test-ids.py could not read them)"
 	fi
-	fListStage "6/9  Release builds" "${lsSteps[@]}"
-	lsSteps=()
-	if ((! no_remote && ${#RELEASE_NATIVE_CMD[@]})); then for c in "${REMOTE_BOXES[@]}"; do lsSteps+=("${c%%|*}"); done; fi
-	fListStage "6/9  Test boxes" "${lsSteps[@]}"
-	lsSteps=(); if ((${#DOGFOOD_FIXED_DESTS[@]} && ${#RELEASE_NATIVE_CMD[@]})); then lsSteps=("${DOGFOOD_FIXED_DESTS[@]}"); fi
-	fListStage "7/9  Dogfood" "${lsSteps[@]}"
-	lsSteps=(); if ((GIF_ENABLE)); then lsSteps=("${GIF_OUT}"); fi
-	fListStage "8/9  Demo gif" "${lsSteps[@]}"
-	fListStage "9/9  Backup + publish" "${GIT_PUBLISH[*]}"
 	exit 0
 fi
 
@@ -1624,3 +1633,4 @@ exit 0
 ##		- 2026-10-28 JC: The run in the image gets this box's zone, so its step lines are in local time too.
 ##		- 2026-10-28 JC: --skip TEXT leaves out each step that holds TEXT, and the run records nothing. The hosted run skips CodeQL.
 ##		- 2026-10-29 JC: --gate is another name for --backlog-run-quick, so it records no tree.
+##		- 2026-10-30 JC: --list prints the test IDs each step runs under it.

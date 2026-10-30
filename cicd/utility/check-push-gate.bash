@@ -461,7 +461,10 @@ eng="${work}/eng"
 git init -q -b dev "${eng}" || { echo "check-push-gate: git init failed" >&2; exit 2; }
 mkdir -p "${eng}/cicd/utility/include" "${eng}/source/rust"
 cp "${root}/cicd/cicd.bash" "${root}/cicd/config.bash" "${eng}/cicd/"
-cp "${root}/cicd/utility/green-tree.bash" "${eng}/cicd/utility/"
+cp "${root}/cicd/utility/green-tree.bash" "${root}/cicd/utility/test-ids.py" "${eng}/cicd/utility/"
+## A test script with one ID, for --list.
+printf '#!/usr/bin/env bash\n: fTest %s stub test\n' zzzz1 > "${eng}/cicd/utility/stub-ids.bash"
+chmod +x "${eng}/cicd/utility/stub-ids.bash"
 cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" \
 	"${root}/cicd/utility/include/stop-descendants.bash" "${root}/cicd/utility/include/cpu-cap.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
@@ -475,9 +478,9 @@ cat >> "${eng}/cicd/config.bash" <<'CFG'
 ## check-push-gate: every stage stubbed.
 FMT_CMD=(true); FMT_CHECK_CMD=(true); FMT_EXTRA=(); FMT_CHECK_EXTRA=()
 BUILD_CMD=(true); BUILD_EXTRA=()
-LINT_CMD=(true); LINT_EXTRA=(); SHELLCHECK_TARGETS=()
+LINT_CMD=(true); LINT_EXTRA=('true cicd/utility/stub-ids.bash'); SHELLCHECK_TARGETS=()
 TEST_CMD=(true); TEST_QUICK_CMD=(true)
-TEST_EXTRA=('if [[ -n "${STUB_SKIP:-}" ]]; then echo stub >> "${SHCL_GATE_SKIPS}"; fi' 'echo "${GIT_DIR:-unset}" > "${STUB_GITDIR:-/dev/null}"' 'echo slow > "${STUB_SLOW:-/dev/null}"')
+TEST_EXTRA=('cicd/utility/stub-ids.bash' 'if [[ -n "${STUB_SKIP:-}" ]]; then echo stub >> "${SHCL_GATE_SKIPS}"; fi' 'echo "${GIT_DIR:-unset}" > "${STUB_GITDIR:-/dev/null}"' 'echo slow > "${STUB_SLOW:-/dev/null}"')
 ## A test that leaves scratch in TMPDIR, a read-only dir in it too, and one
 ## that stops the run. TERM, as INT is ignored in a run started in the
 ## background.
@@ -1101,6 +1104,16 @@ for listCase in '-y --no-sync --list|echo leak' '-y --no-sync --quick --list|ech
 		fail "cicd.bash ${listCase%%|*}: exit ${engRc}, recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
 	fi
 done
+fTest demwg --list puts the test IDs each step runs under it
+## 2026102515494634: a step that runs a test script lists its IDs, a step that
+## only names it lists none, and a label's hidden command isn't printed.
+fEngine -- -y --no-sync --list
+listIds="$(grep -A1 -xF "$(printf '\tcicd/utility/stub-ids.bash')" "${work}/eng.log" | sed -n 2p || true)"
+listNamed="$(grep -A1 -xF "$(printf '\ttrue cicd/utility/stub-ids.bash')" "${work}/eng.log" | sed -n 2p || true)"
+if ((engRc != 0)) || [[ "${listIds}" != "$(printf '\t\tzzzz1  cicd/utility/stub-ids.bash:2')" || "${listNamed}" == $'\t\t'* ]] \
+	|| ! grep -qxF "$(printf '\tcross check: stub')" "${work}/eng.log" || grep -qF 'test IDs not listed' "${work}/eng.log"; then
+	fail "cicd.bash --list: exit ${engRc}, under the test script '${listIds}', under the lint step '${listNamed}': $(tail -3 "${work}/eng.log")"
+fi
 fTest dee74 each step opens and closes with a numbered, timed line under a rule
 ## 2026102416250060: Starting, then PASS or FAIL, as Step N of M, with only
 ## the steps that run counted, the same numbers in the frozen copy's run, and
