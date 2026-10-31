@@ -33,11 +33,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- lint-report reads a passing run as INCOMPLETE when box SKIP lines follow the done line
+	- ID: 2026103109184125
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261031-091841
+	- Opened by: me
+	- Progress log:
+		- 20261031: JC's bare run `run_20261031-070351` passed all 13 steps and printed `[ shcl CI/CD: done. ]`, then 6 more lines: the vmFreeBSD SKIP and the `demxj` to `den85` SKIP lines, which the box step had already printed at lines 3499 to 3511. `lint-report.bash --check` checks only the last line for the done text, so it says INCOMPLETE and never marks the log seen.
+		- Find what prints the box SKIP lines a second time after the done line, such as a trap or a late tee, and fix it there. lint-report should also accept a done line followed only by SKIP lines, or the next late line will do the same.
+
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the docs-only sync of install-dev.bash to main, after the round's merge into dev. check-docs `dcbc2` compares origin/main with origin/dev and goes red until main has the new text.
+	- Status: Done
+	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261028-131043
 	- Opened by: 2026102515494624
@@ -49,17 +60,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: install-dev.bash's 3 `--gate` lines (header, `--help`, the closing echo) say `--merge-gate`, since a dev box needs the whole gate, and `--gate` is the quick run now. Done on the round branch.
 		- Verified: shellcheck, check-install-dev and check-docs pass. check-docs `dcbc2` compares origin/main with origin/dev, so it stays green until the merge reaches dev, then red until main gets the same text.
+		- Verified: 20261031: main got the sync as `355bf38d`, and check-docs `dcbc2` passed in JC's bare run on dev `981d95f7` (log `run_20261031-070351` in `cicd/artifacts/lint/`).
 	- Decisions:
 		- me: `--merge-gate`, not `--backlog-run-quick`, since the line says what a dev box is set up to run before a merge, as contributing.md's does.
 	- Test case: no new test. check-docs `dcbc2` (installers match main) covers the sync.
 	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
+	- Acceptance signoff: me, 20261031: dcbc2 is green on dev with main synced, which is all this item asked.
+	- Closed: 20261031
 	- 20261029: the round is on dev (`93ac745a`), so check-docs `dcbc2` is red there until main has the new text. The sync commit is ready on a local branch, `installsync` at `58231025`, off origin/main.
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
-	- Status: Stalled
-	- Needs local test suite run?: a pre-push gate on a push that moves main, through the real main image, which since 2026102515494619 runs `cicd.bash --merge-gate`. It should start the image once and end with `tree ... recorded`, or skip a tree already recorded. A test round can't push main, so it waits for the next main push.
+	- Status: Done
+	- Needs local test suite run?: No
 	- Priority: High
 	- Opened: 20261019-204611
 	- Opened by: JC
@@ -92,10 +106,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` ran stages 1-6 in the main image. Verified: check-push-gate `de61k` to `de61q`, check-pins `de61r`, shell-regress `de61s` and `de61t` passed. The round pushes no main, so the main push is still left.
 		- 20261024, CICD reset: this item is the reset's `CICD reset: containers` item, raised to High. The rule is otherwise in place. Its cleanup, CPU limits and Zig cache are 2026102416250030, 2026102416250040 and 2026102416250020.
 		- 20261025, test batch: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) ran stages 1-6 in the main image and passed. Verified: check-push-gate `de61k` to `de61q`, check-pins `de61r`, shell-regress `de61s` and `de61t` passed in it. The main push is still left.
+		- 20261031: the main push of `355bf38d` ran main's own pre-push engine, which predates this item, so the hook first runs this code on a main push at the 3.0.0-beta1 cut.
+		- Verified: 20261031: JC's bare run on dev `981d95f7` (log `run_20261031-070351` in `cicd/artifacts/lint/`) ran stage 1 and stages 2-6 in the main image, passed `de61k` to `de61t`, and recorded tree `6ecd263b99d5`.
 	- Swept: the callers of cicd.bash are ci.yml, the pre-push hook, check-push-gate and shell-regress. check-install-dev only copies it. The scripts that run the image are cicd.bash, analyze-c, soak-c and codeql-scan, and all 4 ask `fCtrWhyNot`. `de61t` fails a new one that doesn't, or a script that looks for the docker command itself.
 	- Branch: `ctrdef`
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `de61k` (no docker, a silent one, or aarch64: local with a note, and it records), `de61m` (`--no-container` asks no docker), `de61n` (the refused pairs exit 2), `de61p` (docker answering: one run in the main image, which records), `de61q` (`--container` with a silent docker fails). check-pins `de61r`, shell-regress `de61s` and `de61t`.
+	- Acceptance signoff: me, 20261031: the hook has no code of its own here and follows the default, and check-push-gate `de61p` covers that path. The cut push is gated, so a failure there stops the cut.
+	- Closed: 20261031
 	- Held for the next push that moves main, which is the only thing left to watch.
 
 - CICD reset: other hosts and VMs
