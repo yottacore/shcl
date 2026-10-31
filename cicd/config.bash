@@ -247,6 +247,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/include/ctr-image.bash
 	cicd/utility/include/frozen-tree.bash
 	cicd/utility/include/stop-descendants.bash
+	cicd/utility/include/safe-rm.bash
 	cicd/utility/include/gfs-rotate.bash
 	cicd/utility/include/largedoc-gen.bash
 	cicd/utility/include/test-id.bash

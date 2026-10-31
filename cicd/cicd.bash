@@ -248,6 +248,7 @@ inner_run=0
 if ((in_container)) || [[ -n "${run_part}" ]]; then inner_run=1; fi
 source "${here}/utility/include/frozen-tree.bash"
 source "${here}/utility/include/stop-descendants.bash"
+source "${here}/utility/include/safe-rm.bash"
 source "${here}/utility/include/gfs-rotate.bash"   ## gfs_rotate() for log/artifact pruning
 cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
@@ -630,17 +631,53 @@ if ((list_only)); then
 	exit 0
 fi
 
-## Every run gets a temp dir of its own, and TMPDIR points into it, so what a
-## gate or a test leaves when it fails or is killed goes with it at the end. A
-## stopped run's too, through the trap.
-run_tmp_root="${TMPDIR:-/tmp}"
-if [[ "${run_tmp_root}" != /* ]]; then run_tmp_root=/tmp; fi
-run_tmp_root="${run_tmp_root%/}"
-run_tmp="$(mktemp -d "${run_tmp_root}/${APP_NAME}-run.XXXXXX")" || { echo "could not make a temp dir under ${run_tmp_root}" >&2; exit 2; }
-echo "$$" > "${run_tmp}/.cicd-run"
-export TMPDIR="${run_tmp}"
+## Every run gets a folder of its own, ${HOST_TEMP}/shcl/<stamp>_<NNN>, and
+## TMPDIR, TEMP and TMP point into it, so what a gate or a test leaves when it
+## fails or is killed goes with it at the end. A stopped run's too, through the
+## trap. The run in the image has neither set, so it makes its own under the
+## /tmp it's given.
+HOST_TEMP="${HOST_TEMP:-${TMPDIR:-/tmp}}"
+if [[ "${HOST_TEMP}" != /* ]]; then HOST_TEMP=/tmp; fi
+projectName="${APP_NAME}"
+if ! mkdir -p -- "${HOST_TEMP}/${projectName}" 2>/dev/null || ! HOST_TEMP="$(realpath -e -- "${HOST_TEMP}")"; then
+	echo "could not make ${HOST_TEMP}/${projectName}" >&2; exit 2
+fi
+export HOST_TEMP
+run_tmp_root="${HOST_TEMP}/${projectName}"
+## The part run in the frozen copy nests in the folder of the run that started it.
+if ((inner_run)) && [[ "${TMPDIR:-}" == "${run_tmp_root}"/?* && -d "${TMPDIR}" ]]; then run_tmp_root="${TMPDIR%/}"; fi
+run_tmp=""
+for ((runSeq = 1; runSeq < 1000; runSeq++)); do
+	printf -v run_tmp '%s/%s_%03d' "${run_tmp_root}" "${stamp}" "${runSeq}"
+	if mkdir -- "${run_tmp}" 2>/dev/null; then break; fi
+	run_tmp=""
+done
+[[ -n "${run_tmp}" ]] || { echo "could not make a run folder under ${run_tmp_root}" >&2; exit 2; }
+echo "$$" > "${run_tmp}/run.pid"
+export TMPDIR="${run_tmp}" TEMP="${run_tmp}" TMP="${run_tmp}"
 ## What docker makes for this run carries the folder's name, as dev.run.
 export SHCL_DEV_RUN="${run_tmp##*/}"
+## Run folders of ours more than 2 days old whose run is gone. Age is by the
+## stamp in the name, since a folder's mtime moves while its run writes. One
+## with no run.pid was made by hand, and stays.
+stale_runs=0; stale_kb=0
+fStaleRuns(){
+	local d pid cutoff kb
+	cutoff="$(date -d '-2 days' +%Y%m%d-%H%M%S 2>/dev/null)" || return 0
+	for d in "${run_tmp_root}"/[0-9]*_[0-9][0-9][0-9]; do
+		[[ "${d##*/}" =~ ^[0-9]{8}-[0-9]{6}_[0-9]{3}$ && "${d##*/}" < "${cutoff}" ]] || continue
+		[[ -d "${d}" && ! -L "${d}" && -O "${d}" && -f "${d}/run.pid" ]] || continue
+		pid=""; read -r pid < "${d}/run.pid" 2>/dev/null || true
+		## kill -0 fails on another user's live process too.
+		if [[ "${pid}" =~ ^[0-9]+$ ]] && { kill -0 "${pid}" 2>/dev/null || ps -p "${pid}" >/dev/null 2>&1; }; then continue; fi
+		## A frozen copy that was left is a locked worktree, which git keeps a note of.
+		if [[ -d "${d}/tree" ]]; then fFrozenRemove "${root}" "${d}/tree" || true; fi
+		kb="$(du -sk -- "${d}" 2>/dev/null | cut -f1)" || kb=0
+		chmod -R u+rwX -- "${d}" 2>/dev/null || true
+		if fSafeRm "${d}"; then stale_runs=$((stale_runs + 1)); stale_kb=$((stale_kb + ${kb:-0})); fi
+	done
+}
+if ((! inner_run)); then fStaleRuns; fi
 ## Only the dir this run made: still at its path, a real dir that's ours, with
 ## this run's mark in it.
 fRmRunTmp(){
@@ -653,21 +690,20 @@ fRmRunTmp(){
 		fi
 		return 0
 	fi
-	[[ -n "${d}" && "${d}" == "${run_tmp_root}/${APP_NAME}-run."* && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
-	mark="$(cat -- "${d}/.cicd-run" 2>/dev/null || true)"
+	[[ -n "${d}" && "${d}" == "${run_tmp_root}/"* && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
+	mark="$(cat -- "${d}/run.pid" 2>/dev/null || true)"
 	[[ "${mark}" == "$$" ]] || return 0
 	## A test that failed can leave a dir it made read-only. chmod -R passes
 	## over links, as rm -rf does.
-	if ! rm -rf -- "${d}" 2>/dev/null; then
+	if ! fSafeRm "${d}" 2>/dev/null; then
 		chmod -R u+rwX -- "${d}" 2>/dev/null || true
-		rm -rf -- "${d}" 2>/dev/null || echo "cleanup: could not remove all of ${d}" >&2
+		fSafeRm "${d}" || echo "cleanup: could not remove all of ${d}" >&2
 	fi
 }
 ## KB to a size a person reads.
 fSize(){ if (($1 >= 1048576)); then printf '%d.%d GB' $(($1 / 1048576)) $(($1 % 1048576 * 10 / 1048576)); else printf '%d MB' $((($1 + 512) / 1024)); fi; }
-## The frozen copy, beside the temp dir rather than in it: docker would make a
-## mount point for it as root inside the dir mounted at /tmp. A copy git can't
-## take down is removed by hand, but only the one this run made.
+## The frozen copy, the run folder's tree/, so a stale sweep takes it too. A
+## copy git can't take down is removed by hand, but only the one this run made.
 frozen_root=""
 fFrozenGone(){
 	local d="${frozen_root}"
@@ -675,8 +711,8 @@ fFrozenGone(){
 	[[ -n "${d}" ]] || return 0
 	fFrozenRemove "${root}" "${d}" && return 0
 	echo "cleanup: git could not remove the frozen copy at ${d}" >&2
-	[[ "${d}" == "${run_tmp_root}/${APP_NAME}-tree."* && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
-	rm -rf -- "${d}" 2>/dev/null || echo "cleanup: could not remove all of ${d}" >&2
+	[[ "${d}" == "${run_tmp_root}/"*/tree && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
+	fSafeRm "${d}" || echo "cleanup: could not remove all of ${d}" >&2
 }
 ## A run that stops early. fCleanup has already done it on a whole run.
 # shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
@@ -693,7 +729,8 @@ fRunTmpGone(){
 	if ((keep_temp)); then fRmRunTmp; return 0; fi
 	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
 	fRmRunTmp
-	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files, about %s ]\n' "$(fSize "${kb:-0}")" >&2; fi
+	if ((stale_runs)); then n=" and ${stale_runs} stale run folder(s)"; else n=""; fi
+	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files%s, about %s ]\n' "${n}" "$(fSize "$((${kb:-0} + stale_kb))")" >&2; fi
 }
 ## The tee the run logs through. Bash doesn't wait for it, so a caller that
 ## reads the log as soon as the run exits can miss the last lines, as a loaded
@@ -908,6 +945,13 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 		printf '%s:x:%s:\n' "${gname}" "${gid}" >> "${etc}/group"
 	done
 	mounts+=(-v "${etc}/passwd:/etc/passwd:ro" -v "${etc}/group:/etc/group:ro" "${zone[@]}")
+	## Docker makes a mount point it can't find as root. Under /tmp that's in
+	## the scratch dir, where a root-owned dir with another in it can't be
+	## removed after, so those are made here first.
+	for link in "${mounts[@]}"; do
+		dest="${link#*:}"; dest="${dest%%:*}"
+		if [[ "${link}" == /*:/tmp/?* && -d "${link%%:*}" ]]; then mkdir -p -- "${scratch}${dest#/tmp}" || true; fi
+	done
 	for gid in $(id -G); do
 		if [[ "${gid}" != "$(id -g)" ]]; then groups+=(--group-add "${gid}"); fi
 	done
@@ -1238,7 +1282,8 @@ fFreeze(){
 		fEcho "WARNING: no commit to copy; stages 2-6 run in the checkout"
 		return 0
 	fi
-	frozen_root="$(mktemp -d "${run_tmp_root}/${APP_NAME}-tree.XXXXXX")" || fDie "could not make a dir for the frozen copy under ${run_tmp_root}"
+	frozen_root="${run_tmp}/tree"
+	mkdir -- "${frozen_root}" || { frozen_root=""; fDie "could not make a dir for the frozen copy in ${run_tmp}"; }
 	if ! fFrozenAdd "${root}" "${frozen_root}" "${head}" "${tree}"; then
 		rmdir -- "${frozen_root}" 2>/dev/null || true
 		frozen_root=""
@@ -1379,7 +1424,8 @@ else
 		xcheck_extra=()
 		if ((${#BINDING_CLIS[@]} >= 2)) && [[ -n "${XCHECK_GEN:-}" ]]; then
 			export XCHECK_DUMP_DIR="${root}/cicd/artifacts/crosscheck"
-			rm -rf "${XCHECK_DUMP_DIR}"; mkdir -p "${XCHECK_DUMP_DIR}"
+			if [[ -e "${XCHECK_DUMP_DIR}" || -L "${XCHECK_DUMP_DIR}" ]]; then fSafeRmUnder "${root}/cicd/artifacts" "${XCHECK_DUMP_DIR}" || fDie "could not clear ${XCHECK_DUMP_DIR}"; fi
+			mkdir -p "${XCHECK_DUMP_DIR}"
 			fCpuStep "${XCHECK_GEN}"; eval "${XCHECK_GEN}"
 			xcheck_extra=(--extra "${XCHECK_DUMP_DIR}")
 		fi
@@ -1533,7 +1579,8 @@ else
 			ver="$(fVersion)"
 			[[ -n "$ver" ]] || fDie "no version found in ${VERSION_MANIFEST}"
 			art_dir="${root}/${RELEASE_ARTIFACT_DIR}"
-			rm -rf "${art_dir}"; mkdir -p "${art_dir}"
+			if [[ -e "${art_dir}" || -L "${art_dir}" ]]; then fSafeRmUnder "${root}/cicd/artifacts" "${art_dir}" || fDie "could not clear ${art_dir}"; fi
+			mkdir -p "${art_dir}"
 			sums="${EXE_NAME}-${ver}-sha256sums.txt"
 			for pair in "${built_arts[@]}"; do
 				p_osarch="${pair%%|*}"; p_src="${pair#*|}"
@@ -1789,6 +1836,7 @@ fCleanup(){
 		done
 		if ((sidecars)); then gone+=("${sidecars} profiler sample file(s) whose graph is gone"); fi
 	fi
+	if ((stale_runs)); then gone+=("${stale_runs} stale run folder(s)"); kb+=stale_kb; fi
 	## --keep-temp keeps this run's containers, which the sweep would take.
 	if [[ -n "${ctr_image}" ]] && ((! keep_temp)); then
 		mkdir -p "${run_tmp}/sweep"

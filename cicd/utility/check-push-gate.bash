@@ -44,8 +44,9 @@ export GIT_COMMITTER_NAME=check GIT_COMMITTER_EMAIL=check@example.invalid
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
-## The hook's worktrees and the helper's scratch index go in here too.
-export TMPDIR="${work}"
+## The hook's worktrees and the helper's scratch index go in here too, and the
+## engine's run folders, under shcl/.
+export TMPDIR="${work}" HOST_TEMP="${work}"
 
 rc=0; declare -i nFail=0
 fail() { echo "check-push-gate: FAIL: $*" >&2; rc=1; nFail+=1; }
@@ -466,7 +467,7 @@ cp "${root}/cicd/utility/green-tree.bash" "${root}/cicd/utility/test-ids.py" "${
 printf '#!/usr/bin/env bash\n: fTest %s stub test\n' zzzz1 > "${eng}/cicd/utility/stub-ids.bash"
 chmod +x "${eng}/cicd/utility/stub-ids.bash"
 cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" \
-	"${root}/cicd/utility/include/stop-descendants.bash" "${root}/cicd/utility/include/cpu-cap.bash" "${eng}/cicd/utility/include/"
+	"${root}/cicd/utility/include/stop-descendants.bash" "${root}/cicd/utility/include/safe-rm.bash" "${root}/cicd/utility/include/cpu-cap.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
 mkdir -p "${eng}/.github/workflows"; : > "${eng}/.github/workflows/ci.yml"
 cat > "${eng}/cicd/utility/crosscheck.bash" <<'EOF'
@@ -485,7 +486,7 @@ TEST_EXTRA=('cicd/utility/stub-ids.bash' 'if [[ -n "${STUB_SKIP:-}" ]]; then ech
 ## A test that leaves scratch in TMPDIR, a read-only dir in it too, and one
 ## that stops the run. TERM, as INT is ignored in a run started in the
 ## background.
-TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TMPDIR}"; mkdir -p "${TMPDIR}/left/deep" "${TMPDIR}/left/ro"; : > "${TMPDIR}/left/deep/f"; : > "${TMPDIR}/left/ro/f"; chmod 555 "${TMPDIR}/left/ro"; fi' 'if [[ -n "${STUB_STOP:-}" ]]; then kill -TERM $$; fi')
+TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TMPDIR}"; echo "${TEMP:-}|${TMP:-}" > "${STUB_TMPDIR}.vars"; mkdir -p "${TMPDIR}/left/deep" "${TMPDIR}/left/ro"; : > "${TMPDIR}/left/deep/f"; : > "${TMPDIR}/left/ro/f"; chmod 555 "${TMPDIR}/left/ro"; fi' 'if [[ -n "${STUB_STOP:-}" ]]; then kill -TERM $$; fi')
 ## A test that hangs in a child process, which a stop has to take down.
 TEST_EXTRA+=('if [[ -n "${STUB_HANG:-}" ]]; then echo "${TMPDIR}" > "${STUB_HANG}.tmp"; sleep 300 & echo "$!" > "${STUB_HANG}"; wait "$!"; fi')
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
@@ -1242,18 +1243,77 @@ rm -f "${work}/keep-args.txt"
 fCtr STUB_DOCKER_ARGS="${work}/keep-args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_ZIG='512\t0.16.0\t0.16.0' STUB_MOUNTS="${work}/keep-lbl.tsv" -- -y --no-sync --keep-temp
 keepRm="$(grep -E -- '--name shcl-[^ ]+-(build|fmt) ' "${work}/keep-args.txt" | grep -cF -- ' --rm ' || true)"
 keepRuns="$(grep -cE -- '--name shcl-[^ ]+-(build|fmt) ' "${work}/keep-args.txt" || true)"
-if ((engRc != 0 || keepRuns < 2 || keepRm != 0)) || ! grep -qF 'and its containers: docker ps -a --filter label=dev.run=shcl-run.' "${work}/eng.log"; then
+if ((engRc != 0 || keepRuns < 2 || keepRm != 0)) || ! grep -qE 'and its containers: docker ps -a --filter label=dev\.run=[0-9]{8}-[0-9]{6}_[0-9]{3}' "${work}/eng.log"; then
 	fail "--keep-temp in the image: exit ${engRc}, ${keepRuns} step run(s), ${keepRm} with --rm: $(tail -3 "${work}/eng.log")"
 fi
+fTest dephe a run folder is HOST_TEMP/shcl/stamp_NNN, and stale ones of ours go
+## 2026103114555299: a plain mkdir counts up past a taken name, TMPDIR, TEMP
+## and TMP point there, and a run takes out a run folder over 2 days old whose
+## run.pid names no live process. A live one, a new one, one with no run.pid
+## and a link stay.
+stDir="${work}/shcl"; mkdir -p "${stDir}" "${work}/st-elsewhere"
+## Past pid_max, so no process has it.
+stDead=2147483646
+mkdir -p "${stDir}/20200101-000000_001/left/ro" "${stDir}/20200101-000000_002" "${stDir}/20200101-000000_003"
+echo "${stDead}" > "${stDir}/20200101-000000_001/run.pid"; chmod 555 "${stDir}/20200101-000000_001/left/ro"
+echo "$$" > "${stDir}/20200101-000000_002/run.pid"
+echo "${stDead}" > "${work}/st-elsewhere/run.pid"; ln -s "${work}/st-elsewhere" "${stDir}/20200101-000000_004"
+stNew="${stDir}/$(date -d '-1 hour' +%Y%m%d-%H%M%S)_001"; mkdir "${stNew}"; echo "${stDead}" > "${stNew}/run.pid"
+## The next minute's names are all taken, so the run takes _002.
+stNow="$(date +%s)"; stTaken=()
+for ((stI = 0; stI < 60; stI++)); do stTaken+=("${stDir}/$(date -d "@$((stNow + stI))" +%Y%m%d-%H%M%S)_001"); done
+mkdir -p "${stTaken[@]}"
+rm -f "${work}/eng.tmpdir" "${work}/eng.tmpdir.vars"
+fEngine STUB_TMPDIR="${work}/eng.tmpdir" -- --gate --keep-temp
+## The tests ran in the frozen copy, whose run folder nests in the run's.
+runTmp="$(cat "${work}/eng.tmpdir" 2>/dev/null || true)"
+if ((engRc != 0)) || [[ ! "${runTmp}" =~ ^"${stDir}"/[0-9]{8}-[0-9]{6}_002/[0-9]{8}-[0-9]{6}_[0-9]{3}$ || "$(cat "${work}/eng.tmpdir.vars" 2>/dev/null)" != "${runTmp}|${runTmp}" || ! -f "${runTmp%/*}/run.pid" || ! -f "${runTmp}/run.pid" ]]; then
+	fail "the run folder: exit ${engRc}, TMPDIR '${runTmp}', TEMP|TMP '$(cat "${work}/eng.tmpdir.vars" 2>/dev/null)': $(tail -3 "${work}/eng.log")"
+fi
+if [[ -e "${stDir}/20200101-000000_001" ]] || ! grep -qF '1 stale run folder(s)' "${work}/eng.log"; then
+	fail "a stale run folder whose run is gone is still there: $(grep -F cleanup "${work}/eng.log" || true)"
+fi
+for stKeep in "${stDir}/20200101-000000_002/run.pid" "${stDir}/20200101-000000_003" "${work}/st-elsewhere/run.pid" "${stNew}/run.pid"; do
+	[[ -e "${stKeep}" ]] || fail "the stale sweep took ${stKeep}, which isn't stale or isn't ours"
+done
+[[ -L "${stDir}/20200101-000000_004" ]] || fail "the stale sweep took a link"
+if [[ -n "${runTmp}" && -d "${runTmp%/*}" ]]; then chmod -R u+rwX -- "${runTmp%/*}"; fi
+fTest dephf the safe removal guard refuses what a run may not remove
+## 2026103114555299: the repo's copy of the shared guard, and its form for a
+## build folder in the repo.
+sgOut="$(
+	set +e
+	# shellcheck source=/dev/null
+	source "${root}/cicd/utility/include/safe-rm.bash"
+	HOST_TEMP="${work}/sg"
+	# shellcheck disable=SC2034  ## the guard reads it
+	projectName=shcl
+	mkdir -p "${HOST_TEMP}/shcl/run/a" "${work}/sg-parent/out/a" "${work}/sg-other/x"
+	ln -s "${work}/sg-other" "${HOST_TEMP}/shcl/run/lnk"; ln -s "${work}/sg-parent" "${work}/sg-parent-link"
+	for sgP in "${HOST_TEMP}" "${HOST_TEMP}/shcl" "${HOST_TEMP}/shcl/" "${HOST_TEMP}/shcl/run/../run" "${HOST_TEMP}//shcl/run" "" \
+		"${HOST_TEMP}/shcl/run/lnk" "${HOST_TEMP}/shcl/run/lnk/x" "${HOST_TEMP}/shcl/nope" /nonexistent-shcl-guard/x; do
+		if fSafeRm "${sgP}" 2>/dev/null; then echo "took ${sgP}"; fi
+	done
+	if fSafeRm "${HOST_TEMP}/shcl/run/a" "${HOST_TEMP}/shcl/run" 2>/dev/null; then echo "took 2 args"; fi
+	for sgP in "${work}/sg-parent" "${work}/sg-other" "${work}/sg-parent/../sg-other"; do
+		if fSafeRmUnder "${work}/sg-parent" "${sgP}" 2>/dev/null; then echo "took ${sgP} under the parent"; fi
+	done
+	fSafeRm "${HOST_TEMP}/shcl/run" || echo "refused a run folder"
+	[[ -d "${work}/sg-other" ]] || echo "followed a link"
+	fSafeRmUnder "${work}/sg-parent-link" "${work}/sg-parent-link/out" || echo "refused a build folder behind a linked parent"
+	if [[ -e "${work}/sg-parent/out" ]]; then echo "left a build folder"; fi
+	if [[ -e "${HOST_TEMP}/shcl/run" ]]; then echo "left a run folder"; fi
+)"
+[[ -z "${sgOut}" ]] || fail "the safe removal guard: ${sgOut//$'\n'/; }"
 fTest dee5y --list prints the steps the other flags would run and runs none
 ## 2026102515494634: the leak checks by length show it, and nothing runs, is
 ## recorded or is left in TMPDIR.
 for listCase in '-y --no-sync --list|echo leak' '-y --no-sync --quick --list|echo fast' '--gate --list|Format (check only)'; do
 	read -r -a listArgs <<< "${listCase%%|*}"
 	rm -f "${work}/eng.leak" "${work}/eng.leakfast"
-	ls -d "${work}"/shcl-run.* > "${work}/list.before" 2>/dev/null || true
+	ls -d "${work}"/shcl/*_[0-9][0-9][0-9] > "${work}/list.before" 2>/dev/null || true
 	fEngine STUB_LEAK="${work}/eng.leak" STUB_LEAK_FAST="${work}/eng.leakfast" -- "${listArgs[@]}"
-	ls -d "${work}"/shcl-run.* > "${work}/list.after" 2>/dev/null || true
+	ls -d "${work}"/shcl/*_[0-9][0-9][0-9] > "${work}/list.after" 2>/dev/null || true
 	if ((engRc != 0 || engRecorded != 0)) || [[ -e "${work}/eng.leak" || -e "${work}/eng.leakfast" ]] || ! grep -qF -- "${listCase#*|}" "${work}/eng.log" \
 		|| ! grep -qx '4/9  Tests' "${work}/eng.log" || ! cmp -s "${work}/list.before" "${work}/list.after"; then
 		fail "cicd.bash ${listCase%%|*}: exit ${engRc}, recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
@@ -1416,7 +1476,7 @@ for zigCase in "over the cap|2097153\t0.16.0\t0.16.0|volume rm shcl-zig-cache" "
 	if [[ -n "${zigWant}" ]] && ! grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "the shcl-zig-cache volume"; then
 		fail "Zig's cache volume, ${zigLabel}: the cleanup line doesn't name it"
 	fi
-	[[ "$(cat "${work}/vols.txt" 2>/dev/null)" =~ ^"volume create --label dev.project=shcl --label dev.run=shcl-run."[A-Za-z0-9]+" shcl-zig-cache"$ ]] \
+	[[ "$(cat "${work}/vols.txt" 2>/dev/null)" =~ ^"volume create --label dev.project=shcl --label dev.run="[0-9]{8}-[0-9]{6}_[0-9]{3}" shcl-zig-cache"$ ]] \
 		|| fail "Zig's cache volume, ${zigLabel}: made as '$(cat "${work}/vols.txt" 2>/dev/null)', want our label on it before the run"
 done
 fTest ded0y what a run makes in docker carries its labels, and each container its name
@@ -1429,7 +1489,7 @@ lblBad="$(grep -vF -- "--label dev.project=shcl --label dev.run=${lblRun} " "${w
 mapfile -t lblNames < <(grep -oE -- '--name [^ ]+' "${work}/args.txt" | cut -d' ' -f2 | LC_ALL=C sort)
 lblWant="$(printf "shcl-${lblRun}-%s\n" build build-group build-passwd fmt fmt-group fmt-passwd zig-trim | LC_ALL=C sort | paste -sd' ')"
 lblBuilds="$(grep -c '^build ' "${work}/args.txt" || true)"; lblVols="$(grep -c '^volume create ' "${work}/args.txt" || true)"
-if ((engRc != 0 || lblBuilds < 1 || lblVols < 1)) || [[ ! "${lblRun}" =~ ^shcl-run\.[A-Za-z0-9]+$ || -n "${lblBad}" ]]; then
+if ((engRc != 0 || lblBuilds < 1 || lblVols < 1)) || [[ ! "${lblRun}" =~ ^[0-9]{8}-[0-9]{6}_[0-9]{3}$ || -n "${lblBad}" ]]; then
 	fail "the labels on what a run makes: exit ${engRc}, run '${lblRun}', ${lblBuilds} build(s), ${lblVols} volume(s), without both labels: ${lblBad:-none}: $(tail -2 "${work}/eng.log")"
 fi
 [[ "$(printf '%s\n' "${lblNames[@]}" | paste -sd' ')" == "${lblWant}" ]] || fail "the containers' names: '${lblNames[*]}', want '${lblWant}'"

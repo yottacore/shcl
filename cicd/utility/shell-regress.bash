@@ -2287,7 +2287,7 @@ fTest dcwg7 20260920-2-gate-runs-the-cross-checks
 stubDir="${tmpDir}/cicd-stub"
 mkdir -p "${stubDir}/cicd/utility/include"
 cp "${repoDir}/cicd/cicd.bash" "${stubDir}/cicd/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${stubDir}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${stubDir}/cicd/utility/include/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${stubDir}/cicd/utility/"
 cat > "${stubDir}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
@@ -3915,7 +3915,7 @@ frz="${tmpDir}/frozen"; frzLive="${frz}/live"; frzOut="${frz}/out"
 mkdir -p "${frzLive}/cicd/utility/include" "${frzLive}/cicd/artifacts" "${frz}/tmp" "${frzOut}"
 cp "${repoDir}/cicd/cicd.bash" "${frzLive}/cicd/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${frzLive}/cicd/utility/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${frzLive}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${frzLive}/cicd/utility/include/"
 cp "${repoDir}/.gitignore" "${frzLive}/"
 cat > "${frzLive}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
@@ -3953,11 +3953,11 @@ if (
 ); then
 	frzHeadTree="$(git -C "${frzLive}" rev-parse 'HEAD^{tree}')"
 	frzRc=0
-	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
+	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" HOST_TEMP="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
 		bash cicd/cicd.bash -y --no-sync --no-container ) > "${frz}/run.log" 2>&1 || frzRc=$?
 	if ((frzRc)) || ! grep -qF 'CI/CD: done.' "${frz}/run.log"; then fBad "a run whose checkout and engine were edited mid-run failed (exit ${frzRc}): $(tail -n 5 "${frz}/run.log")"; fi
 	frzWhere="$(cat "${frzOut}/where" 2>/dev/null || true)"
-	[[ "${frzWhere}" == "${frz}/tmp/stub-tree."* ]] || fBad "the tests stage ran in ${frzWhere@Q}, not a frozen copy beside the run's temp dir"
+	[[ "${frzWhere}" == "${frz}/tmp/stub/"[0-9]*_[0-9][0-9][0-9]/tree ]] || fBad "the tests stage ran in ${frzWhere@Q}, not a frozen copy in the run's folder"
 	[[ "$(cat "${frzOut}/edited-before" 2>/dev/null || true)" == dirty ]] || fBad "the frozen copy lacks the checkout's uncommitted edit"
 	[[ "$(cat "${frzOut}/edited-after" 2>/dev/null || true)" == dirty ]] || fBad "an edit to the checkout mid-run reached the frozen copy"
 	[[ -f "${frzOut}/untracked" ]] || fBad "the frozen copy lacks the checkout's untracked file"
@@ -3969,7 +3969,7 @@ if (
 		fBad "the run doesn't say what it copied: $(grep -A5 'Frozen copy' "${frz}/run.log" || true)"
 	fi
 	[[ "$(git -C "${frzLive}" worktree list --porcelain | grep -c '^worktree ')" == 1 ]] || fBad "the frozen copy is still registered after the run: $(git -C "${frzLive}" worktree list)"
-	if compgen -G "${frz}/tmp/stub-tree.*" >/dev/null; then fBad "the frozen copy's folder is still there after the run"; fi
+	if compgen -G "${frz}/tmp/stub/*/tree" >/dev/null; then fBad "the frozen copy's folder is still there after the run"; fi
 	##	The record names the tree that was tested: the checkout as the format
 	##	stage left it, never HEAD's, and never what it held at the end.
 	cp "${frz}/eng.orig" "${frzLive}/cicd/cicd.bash"; printf 'dirty\n' > "${frzLive}/edited"; rm -f "${frzLive}/late"
@@ -3978,7 +3978,7 @@ if (
 	if bash "${repoDir}/cicd/utility/green-tree.bash" passed "${frzLive}" "${frzHeadTree}"; then fBad "HEAD's tree was recorded for a run that tested uncommitted work"; fi
 	##	--no-freeze runs in place, as before.
 	: > "${frzOut}/where"
-	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
+	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" HOST_TEMP="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
 		bash cicd/cicd.bash -y --no-sync --no-container --no-freeze ) > "${frz}/run2.log" 2>&1 || true
 	[[ "$(cat "${frzOut}/where")" == "$(cd "${frzLive}" && pwd -P)" ]] || fBad "a --no-freeze run's tests ran in $(cat "${frzOut}/where"), not the checkout"
 else

@@ -33,6 +33,64 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- CICD reset: the safe removal guard in the hook, gate scripts and installers
+	- ID: 2026103114560029
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261031-145600
+	- Opened by: 2026102416250090
+	- Parent ID: 2026102416250090
+	- Prereq IDs: 2026103114555299
+	- Requirements:
+		- The parent's second part: every recursive removal in the pre-push hook, the gate scripts under `cicd/utility/` and `install.bash` goes through the repo's copy of the safe removal guard, or one of the same kind naming the one parent it may remove under. File list in the private notes.
+		- install.bash keeps to Bash 3.2, so it has a copy of its own.
+
+- CICD reset: a safe removal guard for the PowerShell scripts
+	- ID: 2026103114555334
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261031-145553
+	- Opened by: 2026102416250090
+	- Parent ID: 2026102416250090
+	- Prereq IDs: 2026103114555299
+	- Requirements:
+		- The parent's third part: a guard of the same kind for the recursive `Remove-Item` calls in `install.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1`.
+
+- CICD reset: the run folder and its guard
+	- ID: 2026103114555299
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Y: the round's `--backlog-run-full`, in the image: a run folder under `${HOST_TEMP}/shcl/`, the frozen copy in its `tree/` mounted in the container, and no run folder or worktree of the run left after.
+	- Priority: Avg
+	- Opened: 20261031-145552
+	- Opened by: 2026102416250090
+	- Parent ID: 2026102416250090
+	- Requirements:
+		- The parent's first part: the run's folder is `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, made with a plain `mkdir`, with `TMPDIR`, `TEMP` and `TMP` pointed there, and a `run.pid` in it.
+		- `--keep-temp` keeps it and prints its path.
+		- Each run removes the project's own run folders older than 2 days whose `run.pid` names no live process.
+		- A copy of the shared safe removal guard in the repo, and every recursive removal in cicd.bash goes through it.
+	- Progress log:
+		- 20261031: cicd.bash makes `${HOST_TEMP}/shcl/<stamp>_<NNN>` with a plain `mkdir`, counting up past a taken name, writes `run.pid` in it and points `TMPDIR`, `TEMP` and `TMP` there. Without `HOST_TEMP` it uses `TMPDIR`, then `/tmp`, resolved once. The part run in the frozen copy nests in its starter's folder, as before, and the run in the image makes its own under the `/tmp` it's given. `dev.run` and the container names follow the new folder name.
+		- 20261031: the frozen copy is the run folder's `tree/`, so a stale sweep takes a leftover one too, after `worktree remove`. Docker's mount points under `/tmp` are made in the scratch dir first, since a root-owned one with another in it can't be removed.
+		- 20261031: at start, a run removes the run folders under `${HOST_TEMP}/shcl/` more than 2 days old, by the stamp in the name, whose `run.pid` names no live process. The cleanup line counts them.
+		- 20261031: `cicd/utility/include/safe-rm.bash` holds `fSafeRm`, the shared guard, and `fSafeRmUnder` for a folder under one named parent. The run folder, the frozen copy's fallback, the stale sweep, and the crosscheck dump and release artifact folders under `cicd/artifacts` go through them. contributing.md says where a run's scratch goes.
+		- Verified: check-push-gate passes whole, with `dephe` and `dephf`. On the old engine `dephe` fails, and so do the new name asserts of `dee5k`, `decz2` and `ded0y`. With the guard's whole-folder check taken out, `dephf` fails, having removed `HOST_TEMP`. shell-regress passes whole, `de89c` included. shellcheck is clean on the changed scripts.
+		- Not run: a real docker run with `HOST_TEMP` under `/tmp`, which the mount point fix is for. This box sets `HOST_TEMP` elsewhere.
+	- Decisions:
+		- me: a folder with no `run.pid` stays, since hand-made temp folders share the layout and only a run writes one.
+		- me: age comes from the name's stamp, not mtime, which moves while a run writes.
+		- me: the repo's `fSafeRm` prints nothing on success, unlike the shared one, since the run's cleanup line already says what went.
+		- me: `fSafeRmUnder`'s parent may sit behind a link, as a checkout often does, but nothing below it may.
+		- me: two runs that start in the same second under different `HOST_TEMP` folders would share a `dev.run` label. A box has one `HOST_TEMP`, so that's left.
+		- me: old `shcl-run.XXXXXX` folders under `TMPDIR` aren't swept. Only a killed run left one, and the new name is the one the rule names.
+	- Swept: every `rm -rf` and `mktemp -d` in cicd.bash (5 removals, now 0 bare). `mktemp -d` users there make dirs inside the run folder. The includes it sources have no recursive removal. The stub engines in check-push-gate and shell-regress copy the new include. The hook, the gate scripts and the installers are the next child, 2026103114560029, and the PowerShell ones 2026103114555334.
+	- Test case: check-push-gate `dephe` (the folder, its counter, `TEMP` and `TMP`, and the stale sweep) and `dephf` (the guard's refusals), plus `de633`, `dee5k`, `dee5y`, `decz2`, `ded0y` and shell-regress `de89c` with the new folder.
+		- 20261031: `dee5k`'s, `decz2`'s and `ded0y`'s `dev.run` asserts went from `shcl-run.XXXXXX` to `<stamp>_<NNN>`, `dee5y`'s folder list from `shcl-run.*` to `shcl/*_NNN`, and `de89c`'s frozen copy from beside the folder (`stub-tree.*`) to its `tree/`.
+	- Branch: `r1031b`
+
 - Other hosts: timed work, such as perf-gate, on vm925w
 	- ID: 2026103016433965
 	- Type: Enhancement
@@ -158,6 +216,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--keep-temp` keeps it and prints its path.
 		- Each run removes the project's own run folders older than 2 days whose `run.pid` names no live process.
 		- A copy of the shared safe removal guard in the repo, for every recursive removal in cicd.bash, the hook, the gate scripts and the installers, and a guard of the same kind for the PowerShell ones. File list in the private notes.
+	- Progress log:
+		- 20261031: split into children 2026103114555299 (the run folder, the stale sweep and the guard in cicd.bash), 2026103114560029 (the guard in the hook, the gate scripts and install.bash) and 2026103114555334 (the PowerShell guard). The first is in on `r1031b`.
 
 - CICD reset: version line
 	- ID: 2026102416250100
