@@ -474,7 +474,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Decisions:
 		- me, 20261031: `E011` says the same, since its item is kept as written too.
-	- Test case: cli-regress `dfe08` (`explain E008`) and `dfe11` (`explain E011`), run against all 4 CLIs.
+	- Test case: cli-regress `depcx` (`explain E008`) and `depcy` (`explain E011`), run against all 4 CLIs.
 		- 20261031: cli-regress passed, 643 rows across 4 bindings.
 	- Swept: the `CODES` text in the 4 CLIs, and the other explain rows. No other text says dropped or ignored for a kept line.
 	- Closed: 20261031
