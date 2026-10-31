@@ -63,8 +63,10 @@ for gitVar in $(git rev-parse --local-env-vars 2>/dev/null || true); do unset "$
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "${here}/../.." && pwd)"
-# shellcheck disable=SC1091  # the shared worktree helper, beside the engine
+# shellcheck disable=SC1091  # the shared worktree and removal helpers, beside the engine
 source "${root}/cicd/utility/include/frozen-tree.bash"
+# shellcheck disable=SC1091
+source "${root}/cicd/utility/include/safe-rm.bash"
 
 ## stdin gives "<local ref> <local sha> <remote ref> <remote sha>" per ref.
 ## Only a push that would move main is worth the wait; the sha bound for it is
@@ -114,18 +116,19 @@ fDocsOnly(){   ## fDocsOnly OLD NEW
 	return 0
 }
 
-## A detached worktree at the pushed commit, locked while the gate runs and
-## removed once it's through, so the next sha (if any) starts clean.
-tmpTree=""; treeAdded=0
+## A detached worktree at the pushed commit, the tree/ of the hook's own temp
+## folder, locked while the gate runs and removed once it's through, so the
+## next sha (if any) starts clean.
+hookTmp=""; tmpTree=""; treeAdded=0
 # shellcheck disable=SC2329  # runs from the EXIT trap as well
 fCleanup(){
 	[[ -n "${tmpTree}" ]] || return 0
 	if ((treeAdded)); then fFrozenRemove "${root}" "${tmpTree}" || true; fi
 	## No prune: it's global, and drops every worktree whose folder is away (2026102021300000).
-	rm -rf "${tmpTree}"
+	fSafeRmUnder_IfThere "${hookTmp}" "${tmpTree}" || true
 	tmpTree=""; treeAdded=0
 }
-trap fCleanup EXIT
+trap 'fCleanup; if [[ -n "${hookTmp}" ]]; then fSafeRm "${hookTmp}" || true; fi' EXIT
 
 for i in "${!gatedShas[@]}"; do
 	sha="${gatedShas[i]}"
@@ -166,7 +169,8 @@ for i in "${!gatedShas[@]}"; do
 	echo
 	echo "[ pre-push: running the merge gate on ${sha:0:12} before ${gatedRefs[i]} ]"
 	echo
-	tmpTree="$(mktemp -d "${TMPDIR:-/tmp}/shcl-prepush.XXXXXX")"
+	if [[ -z "${hookTmp}" ]]; then fSafeTmpDir hookTmp || exit 1; fi
+	tmpTree="${hookTmp}/tree"
 	if fFrozenAdd "${root}" "${tmpTree}" "${sha}" 2>/dev/null; then
 		treeAdded=1
 		gateRoot="${tmpTree}"

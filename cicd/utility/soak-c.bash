@@ -31,13 +31,15 @@ cd "${root}"
 # shellcheck source-path=SCRIPTDIR
 source "${here}/include/test-id.bash"
 # shellcheck source-path=SCRIPTDIR
+source "${here}/include/safe-rm.bash"
+# shellcheck source-path=SCRIPTDIR
 source "${here}/include/stop-descendants.bash"
 testWhere=soak-c; testCounter=nBad; nBad=0
 
 if (($#)); then echo "soak-c: takes no arguments (see the header)" >&2; exit 2; fi
 
 art="${root}/cicd/artifacts/soak"
-work="$(mktemp -d)"; trap 'fStopDescendants; rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work; trap 'fStopDescendants; fSafeRm "${work}"' EXIT
 
 skipping=0
 missing=()

@@ -36,7 +36,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: the safe removal guard in the hook, gate scripts and installers
 	- ID: 2026103114560029
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Y: the round's `--backlog-run-full`, for the gate scripts only a full run starts (check-freebsd, check-cpu-floor, check-win-release, analyze-c, soak-c, codeql-scan, the sanitizers, package, check-wheel) and the box step, `demxp` and `den85`, where cli-regress and win-runners make their scratch on b26, vmFreeBSD and b29w.
+	- Needs external testing: hosted ci.yml on the round branch: the `macos`, `windows`, `setup-test` and `winarm-test` jobs run cli-regress, crosscheck, win-runners and package.bash outside Linux, which takes the guard's BSD and Windows branches.
 	- Priority: Avg
 	- Opened: 20261031-145600
 	- Opened by: 2026102416250090
@@ -45,6 +47,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- The parent's second part: every recursive removal in the pre-push hook, the gate scripts under `cicd/utility/` and `install.bash` goes through the repo's copy of the safe removal guard, or one of the same kind naming the one parent it may remove under. File list in the private notes.
 		- install.bash keeps to Bash 3.2, so it has a copy of its own.
+	- Progress log:
+		- 20261031: the hook and every gate script under `cicd/utility/` take their scratch from `fSafeTmpDir`, new in `cicd/utility/include/safe-rm.bash`, and remove it with `fSafeRm`. In a run it's a folder inside the run's own. Run by hand it's a run folder of its own, `${HOST_TEMP}/shcl/<stamp>_<NNN>` with a `run.pid`, and `TMPDIR`, `TEMP` and `TMP` point there, so a killed script's folder goes in the stale sweep.
+		- 20261031: the hook's worktree is the `tree/` of its folder, and check-migrate's 2.x tree the same. Folders inside a scratch, cli-regress' 8 and one each in check-migrate and check-cpu-floor, go through `fSafeRmUnder_IfThere`, and so do check-wheel's leavings in `source/python`. codeql-scan's folder under the container cache goes through `fSafeRmUnder`. package.bash stages its payload and check-wheel its output a level down, so a `run.pid` or a tool's temp file never ends up in a package.
+		- 20261031: the include has no GNU realpath or rm now, since cli-regress, crosscheck, perf-gate, win-runners and package.bash run on macOS, BSD and Windows boxes and hosted jobs. check-boxes ships it to the boxes beside test-id.bash.
+		- 20261031: install.bash resolves its `mktemp -d` folder once and `fRmTmp` takes down only that folder, in Bash 3.2.
+		- 20261031: contributing.md says where a script run by hand keeps its scratch.
+		- 20261031: install.bash reaches users only from main, so it needs a docs-only sync to main after the round's merge, which check-docs `dcbc2` watches for.
+		- Verified: check-push-gate passes whole, `depk3` and `depk4` included. `depk4` finds 38 bare removals in the old files. `depk3`'s EXIT trap case fails on a first cut of the guard whose link resolver ended in a bare `return`, which also failed `de633` and shell-regress `dct58`, `dd51c`, `ddca8` and `ddg86`. shell-regress passes whole. `cicd.bash --backlog-run-quick`, every area, passed all 5 steps. check-readme, check-locale and check-veneer pass run by hand, and leave no folder behind.
+		- Not run: the guard's BSD and Windows branches, and the gate scripts only a full run starts.
+	- Decisions:
+		- me: the scratch maker went in the include rather than in each script, since by hand a `mktemp -d` right under `/tmp` with no `HOST_TEMP` is a folder the guard refuses as a whole project folder.
+		- me: check-boxes' box-side `gone()` stays its own guard, in POSIX sh, naming the one parent it may remove under. A path-through-link check there would refuse macOS's `/tmp`, which is a link.
+		- me: the guard stays on one filesystem with GNU rm's flag or BSD's `-x`, and with neither, as on busybox, it goes without.
+		- me: install-dev.bash has no recursive removal, so it's unchanged.
+	- Swept: every `rm -r` form in the hook, the 39 scripts under `cicd/utility/` and both installers. 38 were bare; none are now, apart from the two guards of their own above. Every `mktemp -d` that held a recursive removal makes its folder through `fSafeTmpDir` now, except codeql-scan's, under the container cache. The stub trees in check-push-gate and shell-regress that copy a gate script copy the include too, and so does check-boxes for a box. The image recipes' removals are build steps, outside this item.
+	- Test case: check-push-gate `depk3` (the scratch folder by hand and in a run, its counter, `TMPDIR`, removal from a failed script's EXIT trap, and install.bash's `fRmTmp` refusals) and `depk4` (no bare recursive removal in the hook, the gate scripts or install.bash), plus `dephe`, `dephf` and `de633`, and shell-regress `dct58`, `dd51c`, `ddca8` and `ddg86`, which exit 2 through the new trap.
+	- Branch: `r1031b`
 
 - CICD reset: a safe removal guard for the PowerShell scripts
 	- ID: 2026103114555334

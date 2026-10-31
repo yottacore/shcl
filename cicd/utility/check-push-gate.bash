@@ -27,6 +27,8 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 testWhere=check-push-gate; testCounter=nFail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -42,8 +44,10 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=check GIT_AUTHOR_EMAIL=check@example.invalid
 export GIT_COMMITTER_NAME=check GIT_COMMITTER_EMAIL=check@example.invalid
 
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work
+## The tests below point HOST_TEMP into work, so the trap takes the real one.
+hostTemp="${HOST_TEMP}"
+trap 'HOST_TEMP="${hostTemp}" fSafeRm "${work}"' EXIT
 ## The hook's worktrees and the helper's scratch index go in here too, and the
 ## engine's run folders, under shcl/.
 export TMPDIR="${work}" HOST_TEMP="${work}"
@@ -56,7 +60,7 @@ zeros=0000000000000000000000000000000000000000
 git init -q -b dev "${repo}" || { echo "check-push-gate: git init failed" >&2; exit 2; }
 mkdir -p "${repo}/cicd/hooks" "${repo}/cicd/utility/include" "${repo}/source/rust"
 cp "${root}/cicd/hooks/pre-push" "${repo}/cicd/hooks/pre-push"
-cp "${root}/cicd/utility/include/frozen-tree.bash" "${repo}/cicd/utility/include/"
+cp "${root}/cicd/utility/include/frozen-tree.bash" "${root}/cicd/utility/include/safe-rm.bash" "${repo}/cicd/utility/include/"
 cp "${helper}" "${repo}/cicd/utility/green-tree.bash"
 cp "${root}/cicd/utility/check-banner-tag.bash" "${repo}/cicd/utility/check-banner-tag.bash"
 cp "${root}/cicd/docs-only-paths.txt" "${repo}/cicd/docs-only-paths.txt"
@@ -434,7 +438,7 @@ if git clone -q --shared --no-checkout "${root}" "${clone}" 2>/dev/null && git -
 	fDocsCopy(){
 		cp "${root}/cicd/utility/check-docs.bash" "${clone}/cicd/utility/check-docs.bash"
 		mkdir -p "${clone}/cicd/utility/include"
-		cp "${root}/cicd/utility/include/test-id.bash" "${clone}/cicd/utility/include/test-id.bash"
+		cp "${root}/cicd/utility/include/test-id.bash" "${root}/cicd/utility/include/safe-rm.bash" "${clone}/cicd/utility/include/"
 	}
 	fDocsCopy
 	fDocs(){ docsRc=0; docsOut="$(env -u SHCL_GATE_STRICT "$@" SHCL_GATE_SKIPS=/dev/null bash "${clone}/cicd/utility/check-docs.bash" 2>&1)" || docsRc=$? ;}
@@ -1305,6 +1309,48 @@ sgOut="$(
 	if [[ -e "${HOST_TEMP}/shcl/run" ]]; then echo "left a run folder"; fi
 )"
 [[ -z "${sgOut}" ]] || fail "the safe removal guard: ${sgOut//$'\n'/; }"
+fTest depk3 the scratch folder of a gate script and the installer guard
+## 2026103114560029: by hand a script makes a folder of its own, with a run.pid
+## and TMPDIR in it, and in a run a folder inside the run's. install.bash takes
+## down only the one folder it made.
+stOut="$(
+	set +e
+	unset TMPDIR TEMP TMP projectName
+	# shellcheck source=/dev/null
+	source "${root}/cicd/utility/include/safe-rm.bash"
+	HOST_TEMP="${work}/st"; mkdir -p "${HOST_TEMP}"
+	stA=''; stB=''; stC=''
+	fSafeTmpDir stA || echo "no folder by hand"
+	[[ "${stA}" =~ ^${work}/st/shcl/[0-9]{8}-[0-9]{6}_001$ && "$(cat "${stA}/run.pid" 2>/dev/null)" == "$$" ]] || echo "by hand: '${stA}'"
+	[[ "${TMPDIR:-}|${TEMP:-}|${TMP:-}" == "${stA}|${stA}|${stA}" ]] || echo "TMPDIR, TEMP and TMP not in it"
+	fSafeTmpDir stB; [[ "${stB}" == "${stA}"/tmp.* && -d "${stB}" ]] || echo "in a run: '${stB}'"
+	unset TMPDIR; fSafeTmpDir stC; [[ "${stC%_*}" == "${stA%_*}" && "${stC}" != "${stA}" ]] || [[ "${stC%_*}" != "${stA%_*}" ]] || echo "no count up: '${stC}'"
+	fSafeRm "${stB}" && fSafeRm "${stA}" && fSafeRm "${stC}" || echo "the guard refused a scratch folder"
+	fSafeRmUnder_IfThere "${work}/st" "${work}/st/none" || echo "refused what isn't there"
+	## From the EXIT trap of a script that failed, as most removals run.
+	stD=''; (fSafeTmpDir stD; trap 'fSafeRm "${stD}" || echo "refused in a failed script'"'"'s EXIT trap"' EXIT; : > "${stD}/f"; exit 2)
+	[[ -z "$(find "${work}/st/shcl" -mindepth 1 -maxdepth 1 2> /dev/null)" ]] || echo "a failed script left its folder"
+	mkdir -p "${work}/st/lk-to"; ln -s "${work}/st/lk-to" "${work}/st/lk"
+	if fSafeRmUnder_IfThere "${work}/st" "${work}/st/lk" 2>/dev/null; then echo "took a link"; fi
+	## install.bash's own, Bash 3.2 copy.
+	eval "$(sed -n '/^fRmTmp()/,/^}/p' "${root}/install.bash")"
+	declare -F fRmTmp > /dev/null || echo "no fRmTmp in install.bash"
+	tmpParent="${work}/st/inst"; mkdir -p "${tmpParent}/t.1/d" "${tmpParent}/t.2"; ln -s "${tmpParent}/t.2" "${tmpParent}/t.3"
+	for stP in "${tmpParent}" "${tmpParent}/t.1/d" "${tmpParent}/t.3" "${tmpParent}/../inst/t.2" "${tmpParent}//t.2" "" "${work}/st/lk-to" "${tmpParent}/nope"; do
+		if fRmTmp "${stP}" 2>/dev/null; then echo "install.bash took '${stP}'"; fi
+	done
+	fRmTmp "${tmpParent}/t.1" || echo "install.bash refused its own folder"
+	[[ ! -e "${tmpParent}/t.1" && -d "${tmpParent}/t.2" ]] || echo "install.bash removed the wrong folder"
+)"
+[[ -z "${stOut}" ]] || fail "the scratch folder and the installer's guard: ${stOut//$'\n'/; }"
+fTest depk4 no bare recursive removal in the hook, the gate scripts or install.bash
+## 2026103114560029: each goes through the guard. Two guards of their own stay:
+## install.bash's, and the one check-boxes runs on a box, in POSIX sh.
+# shellcheck disable=SC2016  ## the two guards' own lines, as text
+bareRm="$(grep -nE '(^|[^[:alnum:]_-])rm[[:space:]]+(-[[:alnum:]]*[rR]|--recursive)' "${root}/cicd/hooks/pre-push" "${root}/install.bash" "${root}/cicd/utility/"*.bash \
+	| grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
+	| grep -vF -e 'rm -rf ${oneFs} -- "${p}"' -e '[ ! -h "${w}" ] && rm -rf -- "${w}"' || true)"
+[[ -z "${bareRm}" ]] || fail "a bare recursive removal: ${bareRm//$'\n'/; }"
 fTest dee5y --list prints the steps the other flags would run and runs none
 ## 2026102515494634: the leak checks by length show it, and nothing runs, is
 ## recorded or is left in TMPDIR.

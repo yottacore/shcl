@@ -44,14 +44,16 @@ docNames="${readme} or ${examples}"
 testWhere="check-readme"; testCounter="nBad"; nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "${repoDir}/cicd/utility/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "${repoDir}/cicd/utility/include/safe-rm.bash"
 ##	Every failure here ends the run, so the open test is failed on the way out.
 fOnExit(){
 	local rc=$?
 	if [[ "${rc}" != 0 ]]; then nBad=$((nBad + 1)); fi
 	fTestEnd
-	rm -rf "${tmpDir}"
+	fSafeRm "${tmpDir}"
 }
-tmpDir="$(mktemp -d)"; trap fOnExit EXIT
+tmpDir=''; fSafeTmpDir tmpDir; trap fOnExit EXIT
 cp "${header}" "${tmpDir}/"
 
 ##	The config the examples read, from the README, and the file the examples

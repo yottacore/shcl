@@ -352,8 +352,28 @@ fPickTag(){
 }
 
 api="https://api.github.com/repos/${REPO}/releases?per_page=100"
-tmp="$(mktemp -d)"
-trap 'rm -rf "${tmp}"' EXIT
+## The one folder this script made, and nothing else: the shared safe removal
+## guard cut down to that, in Bash 3.2 and with no GNU realpath or rm.
+tmp="$(mktemp -d)" || fDie "could not make a temp folder"
+tmp="$(CDPATH='' cd -P -- "${tmp}" && pwd -P)" || fDie "could not make a temp folder"
+tmpParent="${tmp%/*}"
+fRmTmp(){
+	local p="${1:-}" oneFs=''
+	case "${p}" in
+		''|*..*|*//*|*"
+"*) printf 'safe-rm: refused, bad path: "%s"\n' "${p}" >&2; return 1 ;;
+	esac
+	if [[ -z "${tmpParent}" || "${p}" != "${tmpParent}"/?* || "${p#"${tmpParent}"/}" == */* ]]; then
+		printf 'safe-rm: refused, not the folder this made: %s\n' "${p}" >&2; return 1
+	fi
+	if [[ -L "${p}" || ! -d "${p}" ]]; then printf 'safe-rm: refused, a link or not there: %s\n' "${p}" >&2; return 1; fi
+	if [[ "$(CDPATH='' cd -P -- "${p}" 2>/dev/null && pwd -P)" != "${p}" ]]; then
+		printf 'safe-rm: refused, goes through a link: %s\n' "${p}" >&2; return 1
+	fi
+	if rm --version >/dev/null 2>&1; then oneFs=--one-file-system; else case "$(uname -s)" in Darwin|*BSD) oneFs=-x ;; esac; fi
+	rm -rf ${oneFs} -- "${p}"
+}
+trap 'fRmTmp "${tmp}"' EXIT
 ## A 403 from an unauthenticated request is the API's rate limit, and behind a
 ## shared address it is common - "none published yet, or network down" sent
 ## people looking in the wrong place. GITHUB_TOKEN is used when it is set.

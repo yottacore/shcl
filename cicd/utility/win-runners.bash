@@ -30,6 +30,8 @@
 set -Eeuo pipefail
 
 meDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/safe-rm.bash"
 root="${1:-$(cd -- "${meDir}/../.." && pwd)}"
 cd -- "${root}"
 
@@ -67,8 +69,8 @@ fHave() {   ## fHave TOOL [TOOL ...] - false if any is in the missing list
 	return 0
 }
 
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work
+trap 'fSafeRm "${work}"' EXIT
 
 echo "win-runners: root ${root}"
 echo "win-runners: $(uname -s 2>/dev/null || echo unknown), cc=${cc} cxx=${cxx} py=${py}"

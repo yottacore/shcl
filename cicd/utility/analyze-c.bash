@@ -55,6 +55,8 @@ cd "${root}"
 # shellcheck source-path=SCRIPTDIR
 source "${here}/include/test-id.bash"
 # shellcheck source-path=SCRIPTDIR
+source "${here}/include/safe-rm.bash"
+# shellcheck source-path=SCRIPTDIR
 source "${here}/include/stop-descendants.bash"
 testWhere=analyze-c; testCounter=nBad; nBad=0
 
@@ -91,7 +93,7 @@ clangBin="$(fPinned clang)" || exit 2
 tidyBin="$(fPinned clang-tidy)" || exit 2
 extdefBin="$(fPinned clang-tools clang-extdef-mapping)" || exit 2
 
-work="$(mktemp -d)"; trap 'fStopDescendants; rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work; trap 'fStopDescendants; fSafeRm "${work}"' EXIT
 
 ## The build image, with this script run inside it, read only but for the
 ## scratch dir.

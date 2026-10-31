@@ -24,7 +24,9 @@ fBad(){ echo "check-docs: $1" >&2; nBad+=1 ;}
 testWhere="check-docs"; testCounter="nBad"
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
-scratch="$(mktemp -d)"; trap 'rm -rf -- "${scratch}"' EXIT
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
+scratch=''; fSafeTmpDir scratch; trap 'fSafeRm "${scratch}"' EXIT
 ##	A loop's input is made first, as `hits="$(...)" || fFeedBad $?`, and read
 ##	back from a here-string. `done < <(...)` drops the exit status, so a script
 ##	that crashed partway read as a check with nothing to report. A grep in there

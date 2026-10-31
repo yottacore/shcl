@@ -30,6 +30,8 @@ repoDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 testWhere="check-doc-examples"; testCounter="nBad"; nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "${repoDir}/cicd/utility/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "${repoDir}/cicd/utility/include/safe-rm.bash"
 ## A setter's note and a backup's name have the local time in them, and the
 ## four runs are not in the same second.
 export SHCL_TEST_CLOCK="2026-10-04 00:15:00 -420 PDT"
@@ -54,9 +56,9 @@ fOnExit(){
 	local rc=$?
 	if [[ "${rc}" != 0 ]]; then nBad=$((nBad + 1)); fi
 	fTestEnd
-	rm -rf "${tmpDir}"
+	fSafeRm "${tmpDir}"
 }
-tmpDir="$(mktemp -d)"; trap fOnExit EXIT
+tmpDir=''; fSafeTmpDir tmpDir; trap fOnExit EXIT
 
 ##	The floors sit a little under what each doc has now, so a reader that stops
 ##	matching its table, or a table that loses its rows, fails rather than

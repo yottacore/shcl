@@ -32,6 +32,8 @@ veneer="${srcDir}/shcl.hpp"
 testWhere="check-veneer"; testCounter="nBad"; nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 
 ## Public calls the veneer reaches another way, and how.
 declare -A covered=(
@@ -95,7 +97,7 @@ fTest dd523 get-refuses-an-unsupported-type
 ## would pass as the refusal.
 cxx="${CXX:-g++}"
 command -v "${cxx}" >/dev/null || { echo "check-veneer: no C++ compiler (${cxx})" >&2; exit 2; }
-work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work; trap 'fSafeRm "${work}"' EXIT
 fGetSnippet(){ printf '#include "shcl.hpp"\nint main() { auto d = shcl::Document::parse("a: 1\\n"); return d.get<%s>("a").value == 1 ? 0 : 1; }\n' "$1" >"${work}/get.cpp"; }
 fGetSnippet int64_t
 if ! "${cxx}" -std=c++17 -fsyntax-only -I"${srcDir}" "${work}/get.cpp" 2>"${work}/good.err"; then

@@ -28,6 +28,8 @@ root="${1:?usage: package.bash ROOT ART_DIR VERSION}"
 artDir="${2:?usage: package.bash ROOT ART_DIR VERSION}"
 ver="${3:?usage: package.bash ROOT ART_DIR VERSION}"
 meDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/safe-rm.bash"
 
 fEcho(){ echo "[ $* ]"; }
 fWarn(){ fEcho "WARNING: $*"; }
@@ -48,8 +50,10 @@ fVersionQuad(){
 }
 
 ## Stage the shared payload (same file set install.bash pulls from a tag).
-payload="$(mktemp -d)"
-trap 'rm -rf "${payload}"' EXIT
+## A folder below the scratch, since the scratch can hold a run.pid and TMPDIR.
+pkgTmp=''; fSafeTmpDir pkgTmp
+trap 'fSafeRm "${pkgTmp}"' EXIT
+payload="${pkgTmp}/payload"
 mkdir -p "${payload}/code"
 chmod 755 "${payload}" "${payload}/code"   ## tree type copies dir modes into the package
 cp "${root}/source/rust/src/lib.rs" "${root}/source/go/shcl.go" "${root}/source/python/shcl.py" \

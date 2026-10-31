@@ -74,6 +74,8 @@ set -Eeuo pipefail
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 # shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
+# shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/frozen-tree.bash"
 testWhere=check-migrate; testCounter=nBad
 
@@ -101,12 +103,12 @@ if ! git -C "${root}" cat-file -e "${pin}^{commit}" 2>/dev/null; then
 		|| { echo "check-migrate: the pinned 2.x commit ${pin:0:12} is not in this clone" >&2; exit 2; }
 fi
 
-tmpDir="$(mktemp -d)"; tree=""
+tmpDir=''; fSafeTmpDir tmpDir; tree=""
 fCleanup(){
 	##	Never prune: in the image only this tree is mounted, so every other
 	##	worktree reads as gone and loses its entry (2026102021300000).
 	if [[ -n "${tree}" ]]; then fFrozenRemove "${root}" "${tree}" || true; fi
-	rm -rf "${tmpDir}"
+	fSafeRm "${tmpDir}"
 }
 trap fCleanup EXIT
 
@@ -115,13 +117,13 @@ oldTarget="${root}/source/rust/target-migrate"
 oldCli="${oldTarget}/debug/shcl"
 if [[ ! -x "${oldCli}" || "$(cat "${oldTarget}/.pin" 2>/dev/null || true)" != "${pin}" ]]; then
 	echo "check-migrate: building the 2.x reference at ${pin:0:12}"
-	tree="$(mktemp -d "${TMPDIR:-/tmp}/shcl-migrate.XXXXXX")"
+	tree="${tmpDir}/tree"
 	fFrozenAdd "${root}" "${tree}" "${pin}" 2>/dev/null \
 		|| { echo "check-migrate: cannot check ${pin:0:12} out" >&2; exit 2; }
 	fFrozenLink "${root}" "${tree}" source/rust/target "${oldTarget}"
 	( cd "${tree}/source/rust" && cargo build --quiet ) || { echo "check-migrate: the 2.x build failed" >&2; exit 2; }
 	printf '%s\n' "${pin}" > "${oldTarget}/.pin"
-	fCleanup; tree=""; tmpDir="$(mktemp -d)"
+	fCleanup; tree=""; tmpDir=''; fSafeTmpDir tmpDir
 fi
 newCli="${root}/source/rust/target/debug/shcl"
 [[ -x "${newCli}" ]] || ( cd "${root}/source/rust" && cargo build --quiet )
@@ -526,7 +528,7 @@ fMigrateChanged(){
 ##	--write` and any options given. The exit code is left in upRc.
 fUpgradeRun(){
 	local src="$1"; shift
-	rm -rf "${upDir}"; mkdir -p "${upDir}"; cp "${src}" "${upDir}/cfg.shcl"
+	fSafeRmUnder_IfThere "${tmpDir}" "${upDir}"; mkdir -p "${upDir}"; cp "${src}" "${upDir}/cfg.shcl"
 	fUpgradeAgain "$@"
 }
 fUpgradeAgain(){

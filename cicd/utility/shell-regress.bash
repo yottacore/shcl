@@ -39,7 +39,9 @@ while (($#)); do case "$1" in
 esac; done
 [[ -x "${cli}" ]] || { echo "shell-regress: no shcl binary at ${cli}" >&2; exit 2; }
 
-tmpDir="$(mktemp -d)"; trap 'rm -rf "${tmpDir}"' EXIT
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
+tmpDir=''; fSafeTmpDir tmpDir; trap 'fSafeRm "${tmpDir}"' EXIT
 printf 'a: 1\n' > "${tmpDir}/t.shcl"
 declare -i nBad=0
 fBad(){ echo "shell-regress: $1" >&2; nBad+=1 ;}
@@ -2977,7 +2979,7 @@ fTest ddzwm 20261014b-2-check-docs-feeds-keep-their-exit
 ##	name, and the old form may not come back.
 cdFeed="${tmpDir}/cdfeed"
 mkdir -p "${cdFeed}/include"
-cp "${repoDir}/cicd/utility/include/test-id.bash" "${cdFeed}/include/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${cdFeed}/include/"
 : > "${cdFeed}/sites"
 awk -v sites="${cdFeed}/sites" '
 	$1 == "fTest" { name = $3 }
@@ -3044,7 +3046,7 @@ fTest de113 20261015-15-fenced-hash-is-no-heading
 ##	repo, where a fenced `# typo anchor` has to make no anchor for either.
 cdAnc="${tmpDir}/cdanchor"
 mkdir -p "${cdAnc}/include" "${cdAnc}/repo/project"
-cp "${repoDir}/cicd/utility/include/test-id.bash" "${cdAnc}/include/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${cdAnc}/include/"
 awk 'BEGIN {on = 1} $1 == "fTest" {on = ($2 == "ddzx2" || $2 == "ddymm")} on' "${docs}" > "${cdAnc}/check-docs.bash"
 printf '\nfTestEnd\n((nBad == 0))\n' >> "${cdAnc}/check-docs.bash"
 ancUrl="https://github.com/yottacore/shcl/blob/main/project/install.md"
@@ -3605,7 +3607,7 @@ fTest de82q 2026102106592600-miri-test-time-limit
 miriT="${tmpDir}/miri-limit"
 mkdir -p "${miriT}/cicd/utility/include" "${miriT}/source/rust/tests" "${miriT}/bin"
 cp "${repoDir}/cicd/utility/sanitize-rust.bash" "${miriT}/cicd/utility/"
-cp "${repoDir}/cicd/utility/include/test-id.bash" "${miriT}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${miriT}/cicd/utility/include/"
 : > "${miriT}/source/rust/tests/lone.rs"
 printf '[nightly]\nchannel = "nightly-stub"\n' > "${miriT}/rust-toolchain.toml"
 printf '#!/usr/bin/env bash\necho nightly-stub-x86_64-unknown-linux-gnu\n' > "${miriT}/bin/rustup"
