@@ -125,6 +125,7 @@ CALLS: dict[str, list[str]] = {
 	"source/c/tests/conformance.c": [CORPUS],
 	"cicd/utility/check-docs.bash": ["cicd/utility/check-abnf.py"],
 	"cicd/utility/soak-c.bash": ["source/c/tests/soak.c"],
+	"cicd/utility/win-runners.bash": ["cicd/utility/winpath-regress.ps1"],
 }
 HEAD = r"(?:^|[;&|(]\s*|\bthen\s+|\benv\s+(?:\w+=\S+\s+)*)"
 RUN_SCRIPT = rf"{HEAD}(?:\S*/)?([\w-]+\.bash)(?=\s|$)"

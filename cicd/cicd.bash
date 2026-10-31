@@ -530,6 +530,15 @@ fi
 ## the test IDs each one runs under it, and nothing run, made or asked.
 ## test-ids.py finds the IDs. A step whose label isn't its command carries the
 ## command after a \x1f, for it to match, and the label alone is printed.
+## fBoxListStep ROW: a REMOTE_BOXES row as --list takes it, the box's name and
+## the command whose tests it runs. A Windows box's suites are win-runners.bash
+## (2026103016433943).
+fBoxListStep(){
+	local oa w
+	IFS='|' read -r _ _ oa w <<< "$1"; w="|${w}|"; ((long_run)) || w="${w//|suites-long/|}"
+	if [[ "${oa}" == windows-* && "${w}" == *'|suites'* ]]; then printf '%s\x1fcheck-boxes.bash && win-runners.bash\n' "${1%%|*}"
+	else printf '%s\x1fcheck-boxes.bash\n' "${1%%|*}"; fi
+}
 if ((list_only)); then
 	fListStage(){   ## fListStage TITLE STEP... (empty steps dropped)
 		local step n=0
@@ -566,7 +575,7 @@ if ((list_only)); then
 		fi
 		fListStage "6/9  Release builds" "${lsSteps[@]}"
 		lsSteps=()
-		if ((! no_remote && ${#RELEASE_NATIVE_CMD[@]})); then for c in "${REMOTE_BOXES[@]}"; do lsSteps+=("${c%%|*}"$'\x1fcheck-boxes.bash'); done; fi
+		if ((! no_remote && ${#RELEASE_NATIVE_CMD[@]})); then for c in "${REMOTE_BOXES[@]}"; do lsSteps+=("$(fBoxListStep "${c}")"); done; fi
 		fListStage "6/9  Test boxes" "${lsSteps[@]}"
 		if [[ -n "${HOSTED_JOB}" ]]; then
 			lsSteps=(); if fStepWanted hosted; then lsSteps=("${HOSTED_JOB} job of ${HOSTED_WORKFLOW}, started before stage 1"); fi

@@ -4067,6 +4067,24 @@ brWant+="a|u@a|/r/arm|suites b|u@b|/r/bsd|suites c|u@c|/r/arm d|u@d|/r/arm|suite
 ## check-boxes.bash refuses a suite it has no name for.
 brRc=0; "${repoDir}/cicd/utility/check-boxes.bash" /bin/true "x|u@x||suites=go,perl" > /dev/null 2>&1 || brRc=$?
 [[ "${brRc}" == 2 ]] || fBad "check-boxes.bash took suites=go,perl: exit ${brRc}"
+
+fTest den87 2026103016433943-winbox-suites
+##	A Windows box's suites are win-runners.bash, run whole: check-boxes.bash
+##	refuses a LIST on one, and --list puts win-runners.bash beside
+##	check-boxes.bash only for a Windows row with suites, suites-long under
+##	--long only.
+brRc=0; "${repoDir}/cicd/utility/check-boxes.bash" /bin/true "x|u@x|/r/shcl.exe|suites=go" > /dev/null 2>&1 || brRc=$?
+[[ "${brRc}" == 2 ]] || fBad "check-boxes.bash took suites=go on a Windows box: exit ${brRc}"
+# shellcheck disable=SC2016  ## the inner shell's own variables
+brOut="$("${BASH}" -c 'set -Eeuo pipefail; eval "$1"
+	for long_run in 0 1; do
+		for r in "w|u@w|windows-x86_64|suites" "v|u@v|windows-x86_64|suites-long" "u|u@u|windows-x86_64" "f|u@f|freebsd-x86_64|suites"; do
+			fBoxListStep "${r}" | tr "\037" "^"
+		done
+	done' _ "$(sed -n '/^fBoxListStep()/,/^}/p' "${repoDir}/cicd/cicd.bash")" 2>&1 || true)"
+brWant="w^check-boxes.bash && win-runners.bash v^check-boxes.bash u^check-boxes.bash f^check-boxes.bash "
+brWant+="w^check-boxes.bash && win-runners.bash v^check-boxes.bash && win-runners.bash u^check-boxes.bash f^check-boxes.bash"
+[[ "${brOut//$'\n'/ }" == "${brWant}" ]] || fBad "--list's box steps: ${brOut@Q}"
 ## Every row's words are ones fBoxRow takes, and the TCG box runs only Go in a
 ## run without --long.
 # shellcheck disable=SC2016  ## the inner shell's own variables
@@ -4107,3 +4125,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-28  The hosted job rows read --merge-gate, and the release and the skipped leak check are held.
 ##		2026-10-30  A REMOTE_BOXES row's suites-long runs its suites only under --long.
 ##		2026-10-30  suites=LIST rows, and check-boxes.bash's pattern takes what fBoxRow makes.
+##		2026-10-31  A Windows box's suites are win-runners.bash, in check-boxes.bash and --list.

@@ -450,7 +450,9 @@ fRun --id dcwwf "devices python" "${py}"       fDevicesPython
 ## The installers' PATH handling needs a real registry, which only exists here.
 ## It overwrites the machine PATH for the length of the run - fine on a throwaway
 ## runner, not on a workstation, so a developer box gets the same test inside a
-## sandbox, whose registry is thrown away with it.
+## sandbox, whose registry is thrown away with it. A test box runs it as the
+## runner does, as an administrator, and gets both values back after
+## (2026103016433943).
 case "$(uname -s 2>/dev/null || true)" in
 	MINGW*|MSYS*|CYGWIN*)
 		fRun --id dcz85 "uninstall lock" "" fRunUninstallLock
@@ -489,3 +491,4 @@ fi
 ##		- 20260903: The registry row runs on a developer box too, inside a
 ##		  sandbox, instead of being skipped there.
 ##		- 20261008: The shcl.ps1 rows went with the retired wrapper.
+##		- 20261031: Runs on the b29w test box too, through check-boxes.bash.

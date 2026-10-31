@@ -48,7 +48,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Other hosts: win-runners.bash and winpath-regress.ps1 on b29w
 	- ID: 2026103016433943
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: one `check-boxes.bash` run of b29w's row with `suites`, through the host lock: `den85` passes with no FAIL line, `ddaj0` included.
 	- Priority: High
 	- Opened: 20261030-164339
 	- Opened by: 2026102419263432
@@ -56,6 +57,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026103016433921
 	- Requirements:
 		- `win-runners.bash`, which runs `winpath-regress.ps1`, on b29w through the box step, from a copy of the tracked source. b29w has git-bash, cargo, go, mingw gcc and g++, and Python 3.14.
+	- Progress log:
+		- 20261031: a Windows row's `suites` sends the tracked source, plus what `win-runners.bash` and `winpath-regress.ps1` read, in the same visit as the CLI cases. `box-cases.ps1` runs `win-runners.bash` there under git's bash, with its caches and temp files in the work folder, Python from `C:\Python314`, and the box's CPU cap. Its log and exit code come back. `check-boxes.bash` prints the box's status lines with the box's name, and passes or fails the new test `den85`. A Windows row refuses `suites=LIST`, since `win-runners.bash` runs whole.
+		- 20261031: b29w's row is `suites-long`, so this runs under `--long` only. `--list` puts `win-runners.bash`'s and `winpath-regress.ps1`'s IDs under b29w then. design.md says so.
+		- Verified: the first b29w run (1537 s) passed the CLI cases, every `winpath-regress.ps1` check and every Windows-only row, and failed only cli-regress `ddaj0`. The binding's migrate was fine. Windows PowerShell 5.1, started from pwsh 7 through git's bash, can't load `Get-Acl`'s module, since pwsh 7's module path is passed down. Reproduced on b29w, and fixed there by setting the machine's `PSModulePath` before bash starts, for the Rust and Python CLIs. `box-cases.ps1` now does that.
+		- Verified: shell-regress `den87` (a LIST refused on a Windows row, and `--list`'s box steps) fails on the old scripts and passes now. The whole of shell-regress, `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` (all 5 steps), `lint-report.bash --check --no-mark`, `test-ids.py check` (2069 tests), shellcheck, and PSScriptAnalyzer on `box-cases.ps1` and `winpath-regress.ps1` pass.
+	- Decisions:
+		- A Windows box's `suites` means `win-runners.bash`, with no LIST, not a new row word (me). It runs the same 4 bindings' runners and cli-regress the other boxes' suites do, plus the Windows-only rows.
+		- `suites-long` for b29w (me). The run took about 25 minutes, past the 5-minute limit for every run. The hosted windows job still runs it on every hosted run.
+		- `winpath-regress.ps1` runs straight on b29w as `collierjr`, an administrator, not in Windows Sandbox (me). It puts both PATH values back in a `finally`. Filed as a `Check:`.
+		- The box's status lines are printed with the box's name, so a run's log holds each test ID (me).
+	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`), `--list` (now through `fBoxListStep`), check-push-gate (empties it), shell-regress's row checks. Every place that starts Windows PowerShell 5.1 from the box: cli-regress's `fDacl` and the 5.1 rows of `win-runners.bash` all inherit the fixed path.
+	- Test case: check-boxes `den85` on b29w under `--long`; shell-regress `den87`.
+	- Branch: `r1030b`
 
 - Other hosts: the windows-x86_64 release over the CLI cases on b29w
 	- ID: 2026103016433921

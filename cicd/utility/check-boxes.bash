@@ -11,7 +11,10 @@
 ##		runs only those, such as the Go suite on a slow box (2026102419263422).
 ##		A Windows build, BIN ending in .exe, means a Windows box. Its ssh opens
 ##		in cmd, so box-cases.ps1 runs the cases there in place of the sh half,
-##		and only the code of an OS error is compared (2026103016433921).
+##		and only the code of an OS error is compared (2026103016433921). Its
+##		|suites runs win-runners.bash there, from a copy of the tracked source,
+##		which runs the 4 bindings' runners, cli-regress and winpath-regress.ps1
+##		as the hosted windows job does. It takes no LIST (2026103016433943).
 ##		Each box is held through the VM state helper's wrap, which takes the
 ##		shared host lock and puts a VM back the way it was found. The box gets
 ##		a work folder of its own under its temp root, removed after.
@@ -190,13 +193,17 @@ suiteNames=(rust go python c cli)
 suitesRe='^suites(=(rust|go|python|c|cli)(,(rust|go|python|c|cli))*)?$'
 ##	fWants LIST NAME: whether a box's suite list, all or a comma list, has NAME.
 fWants(){ [[ "$1" == all || ",$1," == *",$2,"* ]] ;}
-##	The tracked files of source/ and project/, as they are in the tree, plus
-##	what box-suites.bash and cli-regress need from cicd/.
+##	fSrcTree DIR [PATH...]: the tracked files of source/ and project/, as they
+##	are in the tree, plus what box-suites.bash and cli-regress need from cicd/,
+##	and any PATH given.
 fSrcTree(){
-	mkdir -p "$1"
-	git -C "${root}" ls-files -z --cached --others --exclude-standard -- source project cicd/utility/box-suites.bash cicd/utility/cli-regress.bash cicd/utility/include/test-id.bash \
-		| tar -C "${root}" --null --ignore-failed-read -T - -cf - | tar -C "$1" -xf -
+	local d="$1"; shift
+	mkdir -p "${d}"
+	git -C "${root}" ls-files -z --cached --others --exclude-standard -- source project cicd/utility/box-suites.bash cicd/utility/cli-regress.bash cicd/utility/include/test-id.bash "$@" \
+		| tar -C "${root}" --null --ignore-failed-read -T - -cf - | tar -C "${d}" -xf -
 }
+##	What win-runners.bash and winpath-regress.ps1 read besides.
+winSrc=(cicd/utility/win-runners.bash cicd/utility/winpath-regress.ps1 cicd/utility/winpath-sandbox.ps1 cicd/packaging/shclpath.ps1 install.ps1 utility/dogfood_shcl.ps1 utility/dogfood_shcl.cmd)
 ##	fSuiteRows NAME: one line per box for that suite, out of suites.all.
 fSuiteRows(){
 	local s="$1" bx st nm rest
@@ -219,6 +226,7 @@ linBin="$(realpath -- "$1")"; shift
 for row in "$@"; do
 	IFS='|' read -r box target bin suites <<< "${row}"
 	[[ "${box}" =~ ^[A-Za-z0-9._-]+$ && -n "${target}" && ( -z "${suites}" || "${suites}" =~ ${suitesRe} ) ]] || { echo "check-boxes: not BOX|SSH_TARGET|BIN[|suites[=LIST]]: ${row}" >&2; exit 2 ;}
+	[[ "${bin}" != *.exe || "${suites}" != suites=* ]] || { echo "check-boxes: a Windows box runs win-runners.bash whole, so no LIST: ${row}" >&2; exit 2 ;}
 done
 
 vmState="${SHCL_VM_STATE:-${HOME}/synced/0-0/common/exec/util/linux/bash/claude_vm-state.bash}"
@@ -247,17 +255,15 @@ for row in "$@"; do
 	if [[ ! -f "${bin}" ]]; then echo "SKIP ${box}: no release build for it"; continue; fi
 	if [[ -z "${vmState}" ]]; then echo "SKIP ${box}: no claude_vm-state.bash, so no host lock"; continue; fi
 	##	A Windows build means a Windows box, which runs the cases through
-	##	box-cases.ps1 and has no suites yet (2026103016433943).
-	onBox=--on-box; exe=""; cmp=h
+	##	box-cases.ps1, and win-runners.bash for its suites (2026103016433943).
+	onBox=--on-box; exe=""; cmp=h; winRun=0
 	if [[ "${bin}" == *.exe ]]; then
 		onBox=--on-winbox; exe=.exe; cmp=hw
-		if [[ -n "${want}" ]]; then
-			for s in "${suiteNames[@]}"; do if fWants "${want}" "${s}"; then echo "${box} skip ${s} not on a Windows box yet"; fi; done >> suites.all
-			want=""
-		fi
+		if [[ -n "${want}" ]]; then winRun=1; want=""; fi
 	fi
 	cp -r g/. "${b}/g/"; cp "${bin}" "${b}/g/shcl${exe}"
 	if [[ -n "${want}" ]]; then fSrcTree "${b}/g/src"; echo "${want}" > "${b}/g/want"; fi
+	((winRun == 0)) || fSrcTree "${b}/g/src" "${winSrc[@]}"
 	tar -C "${b}/g" --format=pax -cf "${b}/in.tar" .
 	SECONDS=0; wrapRc=0
 	"${vmState}" wrap "${box}" --wait "${boxWait}" -- "${self}" "${onBox}" "${target}" "${work}/${b}/in.tar" "${work}/${b}" < /dev/null > "${b}/wrap.out" 2>&1 || wrapRc=$?
@@ -286,6 +292,10 @@ for row in "$@"; do
 	awk -F'\t' 'NR == FNR { bad[$1] = 1; next } ($1 in bad) && shown++ < 5 { $1 = "    differs: " $1; print }' OFS=' ' - g/cases.tsv <<< "${diffIds}" >&2
 	if ((nDiff)); then fBad "${box}: ${nDiff} of ${nCases} CLI runs differ from the Linux build"
 	else echo "PASS ${box}: ${nCases} CLI runs, same bytes and exit codes as the Linux build (${SECONDS} s${suites:+ with the suites})"; fi
+	if ((winRun)); then
+		if [[ -f "${b}/back/s/rc" ]]; then echo "${box} $(cat "${b}/back/s/rc")" >> winrun.all
+		else echo "${box} nothing came back" >> winrun.all; fi
+	fi
 	if [[ -z "${want}" ]]; then :
 	elif [[ -f "${b}/back/s/suites.lst" ]]; then sed "s/^/${box} /" "${b}/back/s/suites.lst" >> suites.all
 	else for s in "${suiteNames[@]}"; do if fWants "${want}" "${s}"; then echo "${box} fail ${s} nothing came back"; fi; done >> suites.all; fi
@@ -302,6 +312,20 @@ fTest demxn each suites box builds the C binding and passes its conformance suit
 fSuiteRows c
 fTest demxp each suites box passes cli-regress over the CLIs it built
 fSuiteRows cli
+fTest den85 each Windows suites box passes win-runners.bash, winpath-regress.ps1 included
+declare -i nWin=0
+while read -r bx rest; do
+	log="b_${bx}/back/s/win-runners.log"
+	##	The box's own status lines, with its name, so each test ID is in the log.
+	sed -nE "s/^(PASS|FAIL|SKIP) ([0-9a-z]{5}) /\1 \2 ${bx}: /p" "${log}" 2> /dev/null | tr -d '\r' || true
+	case "${rest}" in
+		0) echo "PASS ${bx}: win-runners.bash ($(grep -c '^\[ ' "${log}" 2> /dev/null) rows)"; nWin+=1 ;;
+		skip\ *) echo "SKIP ${bx}: win-runners.bash, ${rest#skip }" ;;
+		*) fBad "${bx}: win-runners.bash failed (${rest})"; nWin+=1
+		   grep -vE '^(PASS|SKIP) |: OK$|^\[ |^$' "${log}" 2> /dev/null | tail -n 20 | tr -d '\r' | sed 's/^/    /' >&2 || true ;;
+	esac
+done < <(cat winrun.all 2> /dev/null || true)
+((nWin)) || fTestSkip
 fTestEnd
 
 if ((nBad)); then
@@ -316,3 +340,4 @@ echo "check-boxes: OK"
 ##		2026-10-30  A |suites row runs the 4 bindings' suites and cli-regress there, for 2026102419263417.
 ##		2026-10-30  |suites=LIST runs only those suites, for 2026102419263422.
 ##		2026-10-30  A Windows box runs the cases through box-cases.ps1, for 2026103016433921.
+##		2026-10-31  A Windows box's |suites runs win-runners.bash there, for 2026103016433943.

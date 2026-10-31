@@ -591,14 +591,16 @@ BACKLOG_AREAS=(
 ## the x86_64 half of the universal build, and the hosted macos job the arm64
 ## half (2026102419263427). b29w runs the windows-x86_64 build, through
 ## box-cases.ps1 since its ssh opens in cmd, as collierjr, the administrator the
-## registry tests there will need (2026103016433921).
+## registry tests there need (2026103016433921). Its suites are win-runners.bash,
+## winpath-regress.ps1 included, which takes too long for every run, so they run
+## under --long (2026103016433943).
 ## --no-remote leaves them out, and a box that isn't there is a SKIP.
 REMOTE_BOXES=(
 	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64|suites"
 	"vmDebARM64|tester@vmDebARM64|linux-arm64|suites=go|suites-long"
 	"vmKt6m|mactest@vmKt6m|macos-universal"
 	"b26|mactest@b26|macos-universal"
-	"b29w|collierjr@b29w|windows-x86_64"
+	"b29w|collierjr@b29w|windows-x86_64|suites-long"
 )
 
 ## ci.yml's macos job, on GitHub's free arm64 Mac runner: it builds the
@@ -754,3 +756,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-25 JC: The leak checks split by length: LEAKCHECK_FAST for --quick too, LEAKCHECK_STEPS, LEAKCHECK_LONG for --long, and LEAKCHECK_TESTS.
 ##		- 2026-10-30 JC: HOSTED_WORKFLOW, HOSTED_JOB and HOSTED_TARGET, the hosted macos job a full run starts.
 ##		- 2026-10-30 JC: REMOTE_BOXES: vmDebARM64 runs the Go suite every run, and vmKt6m and b26 run the macOS build.
+##		- 2026-10-31: REMOTE_BOXES: b29w runs win-runners.bash, under --long.
