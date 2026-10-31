@@ -91,6 +91,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and windows-x86_64 release builds (build `den0r`), through the real host lock: `decyk` passed, 4471 CLI runs in 40 s. The box's work folders were gone after every run, failed ones included.
 		- Verified: with the OS error wording left as it is, 2 runs differ and `decyk` fails at exit 1. With the Linux build sent as the `.exe`, the box can't start it and `decyk` fails at exit 1.
 		- Verified: over the stand-in boxes, a Windows box that doesn't answer is a SKIP, and the old pass, skip and fail cases come out as before.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: PASS b29w, 4471 CLI runs in 38 s; den85 a SKIP there, as a full run sends b29w the CLI cases only.
 	- Decisions:
 		- A build ending in `.exe` means a Windows box (me). The row's os-arch already says so, so there's no second word to keep in step.
 		- As `collierjr`, not `wintest` (me). The registry tests in 2026103016433943 need an administrator, and `wintest` reaches one only through Windows Sandbox.
@@ -235,8 +236,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted macos job fails: the macos-14 runner image is retired on 2026-11-02
 	- ID: 2026103014303616
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml on r1030b, run in full: every other job still runs and passes.
+	- Status: Done
+	- Needs external testing: No
 	- Severity: High
 	- Opened: 20261030-143036
 	- Opened by:
@@ -246,12 +247,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fix: move the job to a supported arm64 macOS label and check the macOS 13 floor still holds, since the universal binary targets macOS 13.
 		- 20261030: the job runs on `macos-15`. After `lipo`, it reads each half's floor with `vtool -show-build` and fails unless both say `MACOS_FLOOR` from config.bash, 13.0. The floor comes from the zig build's own `-target`, so the runner can't move it, but nothing checked it before.
 		- Verified: 20261030 hosted ci.yml 41143471789 on r1030b, job=macos: the job passed on image macos-15-arm64 and printed x86_64 and arm64 macOS 13.0 and up.
+		- Verified: 20261031 hosted ci.yml 41155448447 on r1030b at 64bd33fe passed every job, macos on macos-15 included.
 	- Decisions:
 		- me: `macos-15`, the supported arm64 runner nearest the 13.0 floor, as zuid's macos workflow chose. `macos-latest` moves to a new macOS with no commit here, and `macos-26` is further from the floor. `macos-15` is GitHub's older supported image, so it is the next one retired.
 	- Actual fix: ci.yml's `macos` job on `macos-15`, with a floor check of both halves.
 	- Test case: ci.yml's `macos` job, its floor check included. Its rows can only run on GitHub's Mac runner.
 	- Swept: every `macos-14` in the tree, which was only ci.yml's runs-on and old backlog notes.
 	- Verified: both halves of the last local `macos-universal` build carry `LC_BUILD_VERSION` with `minos 13.0`, the field the check reads. check-pins, shellcheck and check-docs pass on the job, less `dcbc2`, which is red on dev until the installer sync to main.
+	- Acceptance signoff: Self-closed: both hosted runs passed.
+	- Closed: 20261031
 
 - Other hosts: macOS on b26 and vmKt6m
 	- ID: 2026102419263427
@@ -273,6 +277,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: with the linux-x86_64 build sent to b26 in place of the macOS one, all 4471 runs differed and `decyk` failed, at exit 1.
 		- Verified: shellcheck -x on the changed scripts, shell-regress `demzb`, and `check-boxes-stub/run.bash`, which passes, skips and fails over the stand-in boxes as before.
 		- Not run: the step inside a whole run. The round's full run shows a `PASS vmKt6m` and a `PASS b26` line there.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: PASS vmKt6m and PASS b26, 4471 CLI runs each, and decyk passed.
 	- Decisions:
 		- Both Macs, every run (me). They add about 75 s to a full run, and b26 is the one real Mac. A box that's asleep or held is a `SKIP`.
 		- CLI cases only, no suites, as 2026102419263417 decided for the Macs (me). The hosted `macos` job runs the Rust tests, crosscheck and cli-regress on arm64.
@@ -339,6 +344,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with `suites=go`: `decyk` and `demxk` passed, and Python, C and cli-regress gave no line. 278 s in all, Go 174 s, against 92 s for the CLI cases alone. The VM ended paused, and its work folder was gone.
 		- Verified: the same over a stand-in box with `suites=go,c` ran only those two.
 		- Verified: shell-regress `demzb` passes, and fails with cicd.bash's old `fBoxRow`, with check-boxes.bash's old row check, and with config.bash's old vmDebARM64 row.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: PASS vmDebARM64 CLI runs and the go suite (182 s), demxk passed, 273 s in all.
 	- Decisions:
 		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
 		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
@@ -386,8 +392,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: macOS runner
 	- ID: 2026102416250110
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: with r1030b pushed, `gitsby raw gh workflow run ci.yml --ref r1030b -f job=macos` runs the `macos` job alone and every other job shows as skipped. A run with no `-f` runs every job.
+	- Status: Done
+	- Needs external testing: No
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -399,6 +405,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261030: the hosted `macos` job took 2 to 3 minutes in runs 40779407541 and 40993114853.
 		- 20261030: a run with no flags, `--long`, `--merge-gate` and `--backlog-run-full` start the job first, right after the sync, through ci.yml's new `job` input, and wait for it after the test boxes. A failed job fails the run. A branch the remote doesn't have at HEAD, no gh, or a canceled job is a SKIP with the reason, named again at the end, like a test box. `--quick`, `--backlog-run-quick`, `--no-remote`, `--no-cross`, `--no-release`, a `--skip` that takes out the macOS target, and the pre-push hook's run leave it out, each with an Off line. `--list` shows it.
 		- 20261030: ci.yml's `job` input runs one job alone. Every other job has `if: ${{ !inputs.job }}`, and the concurrency group takes the input, so a run of the job alone and a full run on one branch don't cancel each other.
+		- Verified: 20261031 hosted ci.yml 41143471789 with job=macos ran only macos, every other job skipped; 41155448447 with no input ran and passed every job.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: step 1 started the macos job (41155899490), step 9 waited and passed, and den5e passed.
 	- Decisions:
 		- me: the job by length is about 3 minutes plus GitHub's queue, which a run with no flags or a longer one hides by starting it first. The quick runs test edits in progress, which GitHub can't see, so they leave it out, as zuid's quick runs do.
 		- me: a `job` input on ci.yml, not a workflow of its own, so `check-pins.bash` keeps reading every pin from one file.
@@ -408,6 +416,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261030: `dee74` counts the Off lines of a run with no sync. The GitHub job's one line took it from 6 to 7.
 	- Verified: check-push-gate `den5e` passes, and fails against the cicd.bash from before. The whole of check-push-gate and shell-regress pass, and `--backlog-run-quick cicd --skip=check-docs.bash` passed format, build and lint. check-docs fails only `dcbc2`, which is red on dev until the installer sync to main.
 	- Swept: every flag that takes out the release, the cross targets or the remote hosts (`--no-release`, `--no-cross`, `--skip`, `--no-remote`), the run modes, `--list`, the container and frozen-copy runs, which never start it, and the end summary's SKIP lines, which the test boxes step now adds to rather than replaces.
+	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written.
+	- Closed: 20261031
 
 - CICD reset: CICD process gaps
 	- ID: 2026102416250120
