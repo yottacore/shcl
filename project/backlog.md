@@ -100,7 +100,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -115,6 +115,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261031: of 1303 closed items, 893 named no ID. IDs went in beside the test names that match a test exactly, on 417 items, and reasons or IDs by hand on 10 more. 466 are left, split into children by part of the backlog: 2026103111123554, 2026103111123559, 2026103111123564 and 2026103111123569. Then 2026103111123574 dropped the date from `dep9w`.
 		- 20261031: two items that give none, where a test makes sense, get one: 2026103111123580 and 2026103111123585.
 		- Verified: shell-regress `dep9x` passes, and fails with a Test environment row read as a test row, with a parent passing on any one child, or with `--since` ignored. check-docs `dep9w` fails on a Done item closed 2026-11-01 that names no ID, and passes on this backlog. Also the whole of shell-regress, check-docs, `test-ids.py check` (2076 tests), shellcheck over the lint targets, ruff and mypy.
+		- 20261031: last children closed (2026103111123585 added depgq), so the parent closes.
 	- Decisions:
 		- me: the check is a `test-ids.py` command, since it needs the list of IDs that file builds. check-docs runs it, as it runs the other backlog checks.
 		- me: `dep9w` checks only items closed from 2026-11-01 on until the children are done, so check-docs stays green meanwhile and a new close can't add a gap.
@@ -122,6 +123,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: a hosted job with no test ID of its own counts as a reason, written as "none by ID, since the hosted job is the test".
 	- Test case: check-docs `dep9w`, shell-regress `dep9x`, and the children's.
 	- Branch: `r1031`
+	- Acceptance signoff: me, every child closed and test-ids.py backlog passes over every closed item
+	- Closed: 20261031
 
 - A test that the publish helper keeps quotes in `--message`
 	- ID: 2026103111123585
