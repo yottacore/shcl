@@ -1246,6 +1246,21 @@ if [[ -d "${eng}/cicd/container" ]]; then
 		fail "an alpine run: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
 	fi
 fi
+fTest dena0 a run exits only once its log has every line
+## 2026102821264857: the run logs through a tee bash doesn't wait for, so on a
+## loaded box the caller read the log before its last lines were in it. A tee
+## that holds everything for a second stands in for the load.
+mkdir -p "${work}/slowtee"
+cat > "${work}/slowtee/tee" <<SLOWTEE
+#!/usr/bin/env bash
+mapfile -t teeLines; sleep 1; printf '%s\n' "\${teeLines[@]}" | "$(command -v tee)" "\$@"
+SLOWTEE
+chmod +x "${work}/slowtee/tee"
+fEngine PATH="${work}/slowtee:${PATH}" -- -y --no-sync
+stepErr="$(fStepLines 5)"
+if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qF 'CI/CD: done.' "${work}/eng.log"; then
+	fail "a run whose log is slow to write: exit ${engRc}, ${stepErr:-step lines whole}, last line '$(tail -1 "${work}/eng.log")'"
+fi
 fTest de634 a whole run removes a profiler sample file whose graph is gone
 ## 2026101920461153: the rotation prunes a graph and leaves the sample count
 ## beside it. One whose graph is still there stays, whatever its role now.

@@ -423,13 +423,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-push-gate `dee74` failed once under load and passed on a rerun
 	- ID: 2026102821264857
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: check-push-gate `dena0` against the cicd.bash from before this fix (af3ebc16), to see it fail; it passes with the fix.
 	- Severity: Low
 	- Opened: 20261028-212648
 	- Opened by: me
 	- Estimated effort: Low
+	- Actual effort: Low
 	- Reproduced: 20261028, once, in `--backlog-run-quick rust go python c cli cicd` on `r1028b` at a load near 22. Its no-sync case said "exit 0, step 5 never closed", with `Starting Release builds` as the last line, and its alpine case counted no steps. A rerun of check-push-gate alone passed, at a load near 10.
 	- Possible cause: a stub run whose step 5 had not closed when it was read, so the test reads before the run ends, or a timeout in the stub that only a loaded box hits.
+	- Actual cause: a run that isn't a gate run logs through `exec > >(tee ...)`, and bash doesn't wait for a process substitution. cicd.bash exited while its tee still held the last lines, and the test read the log first. Only the runs with the tee failed: the no-sync and alpine cases, not `--gate`.
+	- Actual fix: the EXIT trap, after the cleanup lines, lets go of the pipe and waits for the tee to end, up to 10 s in case something the run left outside its own tree still holds it.
+	- Decisions:
+		- me: a bounded wait through `fStopAlive`, not `wait`, since a process left holding the pipe would hang the run's exit. Without `/proc` it waits for nothing, as `fStopDescendants` does.
+	- Swept: every `>(...)` in cicd/: the one tee, and `XCHECK_GEN`'s stderr filter, which a step's own pipe waits for. check-boxes.bash's `| tee` is a plain pipe.
+	- Test case: check-push-gate `dena0` (a tee that holds the log a second stands in for the load), with `dee74`.
+		- Verified: with the fix, the whole of check-push-gate (`dena0` and `dee74` included), shell-regress, `test-ids.py check` (2070 tests), shellcheck, `lint-report.bash --check --no-mark`, and `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` (all 5 steps) pass. `dena0` failing on the old cicd.bash is unverified.
+	- Branch: `r1030b`
 
 - `shcl explain E008` says the item is dropped
 	- ID: 2026102919222300

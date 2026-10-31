@@ -660,7 +660,20 @@ fRunTmpGone(){
 	fRmRunTmp
 	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files, about %s ]\n' "$(fSize "${kb:-0}")" >&2; fi
 }
-trap 'if declare -F fStepFail >/dev/null; then fStepFail || true; fi; fRunTmpGone || true' EXIT
+## The tee the run logs through. Bash doesn't wait for it, so a caller that
+## reads the log as soon as the run exits can miss the last lines, as a loaded
+## box showed (2026102821264857). Bounded, in case something the run left
+## outside its own tree still holds the pipe.
+run_tee=""
+# shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
+fTeeDone(){
+	local pid="${run_tee}" i
+	run_tee=""
+	[[ -n "${pid}" ]] || return 0
+	exec >/dev/null 2>&1
+	for ((i = 0; i < 200; i++)); do fStopAlive "${pid}" || break; sleep 0.05 || true; done
+}
+trap 'if declare -F fStepFail >/dev/null; then fStepFail || true; fi; fRunTmpGone || true; fTeeDone || true' EXIT
 export SHCL_GATE_SKIPS="$(mktemp)"
 
 ## Publish commit message: -m wins, then config, then a default when unattended.
@@ -1042,7 +1055,7 @@ if ((! gate_mode)) && ((! inner_run)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -
 	gfs_rotate "${root}/${LINT_LOG_DIR}" run log >/dev/null 2>&1 || true
 	exec > >(tee "${root}/${LINT_LOG_DIR}/run_${stamp}.log") 2>&1
 	## It has to outlive the stop, or the cleanup lines are lost.
-	stop_keep+=("$!")
+	run_tee="$!"; stop_keep+=("${run_tee}")
 fi
 
 ## Warn (non-gating) when a pinned helper tool has drifted from TOOL_PINS, so a
