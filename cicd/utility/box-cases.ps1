@@ -5,7 +5,9 @@
 ## tar, runs shcl.exe over cases.tsv the way the sh driver does elsewhere, and
 ## packs rc.lst and o\ into out.tar beside it for check-boxes.bash to fetch.
 ## With a source tree in the tar, it runs win-runners.bash there too, and packs
-## s\ as well. check-boxes.bash removes the folder after (2026103016433921).
+## s\ as well, and with perf-gate.bash in p\, it times shcl.exe there and
+## packs that into s\ too. check-boxes.bash removes the folder after
+## (2026103016433921).
 ##
 ## Exit: 0 = ran, 91 = the tar did not unpack.
 ##
@@ -18,7 +20,7 @@
 .SYNOPSIS
 Runs the release build over the CLI cases on a Windows test box.
 .DESCRIPTION
-Unpacks in.tar beside the script, runs shcl.exe over each row of cases.tsv with no stdin, and packs each run's stdout, stderr and exit code into out.tar. With a src folder in the tar, it also runs win-runners.bash there under git's bash and packs its log and exit code. pwsh 7 only.
+Unpacks in.tar beside the script, runs shcl.exe over each row of cases.tsv with no stdin, and packs each run's stdout, stderr and exit code into out.tar. With a src folder in the tar, it also runs win-runners.bash there under git's bash and packs its log and exit code. With a p folder, it runs perf-gate.bash over shcl.exe the same way. pwsh 7 only.
 .EXAMPLE
 pwsh -NoProfile -ExecutionPolicy Bypass -File box-cases.ps1
 #>
@@ -87,20 +89,37 @@ $lines = @($rows | Sort-Object -Property Index | ForEach-Object { $_.Line })
 
 ## With a copy of the tracked source in src\, win-runners.bash runs there under
 ## git's bash, as the hosted windows job runs it, winpath-regress.ps1 included
-## (2026103016433943). Its log and exit code go back in s\. The caches and temp
-## files stay in the work folder, so they go with it.
+## (2026103016433943). With perf-gate.bash in p\, it times shcl.exe, first,
+## so the builds don't share the box with it (2026103016433965). Logs and exit
+## codes go back in s\. The caches and temp files stay in the work folder, so
+## they go with it.
 $packed = @('rc.lst', 'o')
-if (Test-Path -LiteralPath src) {
+$hasSrc = Test-Path -LiteralPath src
+$hasPerf = Test-Path -LiteralPath p
+if ($hasSrc -or $hasPerf) {
 	$s = Join-Path -Path $PSScriptRoot -ChildPath 's'
 	$null = New-Item -ItemType Directory -Path $s
 	$packed += 's'
 	$bash = Join-Path -Path $env:ProgramFiles -ChildPath 'Git\bin\bash.exe'
+	$t = Join-Path -Path $PSScriptRoot -ChildPath 't'
+	$null = New-Item -ItemType Directory -Path $t
+	$env:TMP = $t; $env:TEMP = $t; $env:TMPDIR = $t
+}
+if ($hasPerf) {
+	if (-not (Test-Path -LiteralPath $bash)) {
+		[IO.File]::WriteAllText((Join-Path -Path $s -ChildPath 'perf.rc'), "skip no git bash on the box`n", $utf8)
+	} else {
+		## Windows counts CPU time in 15.6 ms ticks, and a release build reads
+		## the default 40,000 keys in about 3 of them, so 10 times the keys. Its
+		## reads ran at 2.7 to 3.5 times the parse at 100,000 to 400,000 keys,
+		## so 4 times rather than 3.
+		& $bash -c 'cd p || exit 1; bash perf-gate.bash --keys 400000 --factor 4 "rust|$(cd .. && pwd)/shcl.exe" > ../s/perf-gate.log 2>&1; echo "$?" > ../s/perf.rc' 2>&1 | Out-Null
+	}
+}
+if ($hasSrc) {
 	if (-not (Test-Path -LiteralPath $bash)) {
 		[IO.File]::WriteAllText((Join-Path -Path $s -ChildPath 'rc'), "skip no git bash on the box`n", $utf8)
 	} else {
-		$t = Join-Path -Path $PSScriptRoot -ChildPath 't'
-		$null = New-Item -ItemType Directory -Path $t
-		$env:TMP = $t; $env:TEMP = $t; $env:TMPDIR = $t
 		$env:CARGO_HOME = Join-Path -Path $t -ChildPath 'cargo-home'
 		$env:GOCACHE = Join-Path -Path $t -ChildPath 'go-cache'
 		$env:GOPATH = Join-Path -Path $t -ChildPath 'go-path'
@@ -121,3 +140,4 @@ exit $LASTEXITCODE
 ##	History:
 ##		2026-10-30  Created, for 2026103016433921.
 ##		2026-10-31  Runs win-runners.bash over a source tree in src\, for 2026103016433943.
+##		2026-10-31  Runs perf-gate.bash over shcl.exe with p\ in the tar, for 2026103016433965.

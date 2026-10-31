@@ -227,7 +227,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Other hosts: timed work, such as perf-gate, on vm925w
 	- ID: 2026103016433965
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: vm925w in a full run's box step, check-boxes `dep83` with its perf-gate lines. It was off on 20261031 and couldn't start, since vmKt6m held its SPICE port.
 	- Priority: High
 	- Opened: 20261030-164339
 	- Opened by: 2026102419263432
@@ -235,6 +236,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026103016433921
 	- Requirements:
 		- Anything timed, such as perf-gate, runs on vm925w through the box step rather than here.
+	- Progress log:
+		- 20261031: config.bash's `REMOTE_BOXES` has `vm925w|collierjr@vm925w|windows-x86_64|perf`. On a Windows row, `perf` sends `perf-gate.bash` to the box with the CLI cases, and `box-cases.ps1` runs it under git's bash over the windows-x86_64 release build, at 400,000 keys and a factor of 4. check-boxes `dep83` passes or fails it, and the box's own status lines come back with its name. `perf` on any other row is a usage error.
+		- 20261031: git bash's `time` counts only its own processes, so the release build read 30 to 75 ms of CPU at 40,000 and 400,000 keys alike. On Windows a `.exe` now runs under `cpu-time.ps1`, which writes the CPU time the CLI itself used, and perf-gate `dep84` checks that 8 times the keys reads as more than 3 times the time. perf-gate's `write-counts` is a SKIP off Linux, since git bash's strace counts no system calls.
+	- Decisions:
+		- perf-gate stays in the local test step too, over the 4 bindings' Linux CLIs (me). Its budgets are ratios to the same CLI's own parse in CPU time, so this box's load doesn't move them, and only the local run covers Go, Python and C. vm925w adds the Windows release build, which nothing timed before.
+		- Only the release build on vm925w, not the 4 bindings built there (me). It's the one CLI shipped, and a build of all 4 there would cost minutes every run.
+		- User time only on Windows (me). A write call costs far more kernel time there, and `badlines` makes one per diagnostic, so its kernel time alone was over 4 times the parse, linear all the same.
+		- 400,000 keys and a factor of 4 on the box (me). Windows counts CPU time in 15.6 ms ticks, and the release build reads 40,000 keys in about 3 of them. `reads` ran at 2.7 to 3.5 times the parse from 100,000 to 400,000 keys, too close to 3. A quadratic path at that size is still far over 4.
+		- Every run, not only under `--long` (me). perf-gate added about 60 s to b29w's visit. vm925w's start from off is not timed yet.
+	- Swept: `REMOTE_BOXES` readers: check-boxes.bash's row checks (both loops, through `fRowWords`), `fBoxRow` (passes `perf` on), `fBoxListStep` (`--list`), check-push-gate (empties it), shell-regress's row checks. perf-gate's other Linux-only part is `write-counts`; `timeout` is bypassed for a `.exe` there, and `cpu-time.ps1` takes the cap. Every tracked `.ps1` is in the lint list, `cpu-time.ps1` included.
+		- Verified: check-boxes over the Oct 30 linux-x86_64 and windows-x86_64 release builds, with a `perf` row for b29w through the real host lock: `decyk`, `dep83` and `dep84` passed, `reads` at 1203 of 1936 ms, 104 s for the visit. Before `cpu-time.ps1`, the baseline read 30 to 46 ms at 40,000 and 400,000 keys alike.
+		- Verified: shell-regress `dep89` fails with `--list`'s perf-gate line or check-boxes' Windows-only check taken out, and passes with them.
+	- Test case: check-boxes `dep83`, perf-gate `dep84`, shell-regress `dep89`.
+	- Branch: `r1031`
+	- Verified: `cicd.bash --backlog-run-quick cicd` passed all 5 steps, and so did shell-regress, perf-gate over the Rust CLI, `lint-report.bash --check --no-mark`, PSScriptAnalyzer on `box-cases.ps1` and `cpu-time.ps1`, and `test-ids.py check`.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070

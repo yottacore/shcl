@@ -15,18 +15,21 @@
 ##		|suites runs win-runners.bash there, from a copy of the tracked source,
 ##		which runs the 4 bindings' runners, cli-regress and winpath-regress.ps1
 ##		as the hosted windows job does. It takes no LIST (2026103016433943).
+##		A Windows row's |perf runs perf-gate.bash there over that build, under
+##		git's bash, since timed work goes to vm925w (2026103016433965).
 ##		Each box is held through the VM state helper's wrap, which takes the
 ##		shared host lock and puts a VM back the way it was found. The box gets
 ##		a work folder of its own under its temp root, removed after.
 ##		A box that isn't there, or no helper, is a SKIP, and the rest go on.
 ##	Syntax:
-##		check-boxes.bash LINUX_BIN BOX|SSH_TARGET|BIN[|suites[=LIST]]...
+##		check-boxes.bash LINUX_BIN BOX|SSH_TARGET|BIN[|suites[=LIST]][|perf]...
 ##		  LINUX_BIN         the native release build, run here for the answers
 ##		  BOX               the box's name in the host lock
 ##		  SSH_TARGET        user@host for ssh
 ##		  BIN               the release build that box runs; empty when none
 ##		  suites            also run the suites there
 ##		  LIST              a comma list of rust, go, python, c and cli
+##		  perf              also run perf-gate.bash there, Windows boxes only
 ##		  SHCL_VM_STATE     the VM state helper (default claude_vm-state.bash in
 ##		                    the synced util tree, then on PATH)
 ##		  SHCL_BOX_WAIT     seconds to wait for a box another session holds
@@ -191,6 +194,20 @@ fBad(){ echo "check-boxes: $1" >&2; nBad+=1 ;}
 fOsErr(){ find "$1" -name '*.e' -size +0 -exec sed -i -E 's/: [^:]+ \(os error ([0-9]+)\)/: (os error \1)/' {} + ;}
 suiteNames=(rust go python c cli)
 suitesRe='^suites(=(rust|go|python|c|cli)(,(rust|go|python|c|cli))*)?$'
+##	fRowWords ROW: sets box, target, bin, suites and perf from a row, and fails
+##	on a word it has no name for.
+fRowWords(){
+	local w rest
+	local -a ws=()
+	IFS='|' read -r box target bin rest <<< "$1"
+	suites=""; perf=0
+	IFS='|' read -ra ws <<< "${rest}"
+	for w in "${ws[@]}"; do
+		if [[ "${w}" == perf ]]; then perf=1
+		elif [[ -z "${suites}" && "${w}" =~ ${suitesRe} ]]; then suites="${w}"
+		else return 1; fi
+	done
+}
 ##	fWants LIST NAME: whether a box's suite list, all or a comma list, has NAME.
 fWants(){ [[ "$1" == all || ",$1," == *",$2,"* ]] ;}
 ##	fSrcTree DIR [PATH...]: the tracked files of source/ and project/, as they
@@ -224,9 +241,9 @@ case "${1:-}" in -h|--help) sed -n '/^##	Purpose:/,/^##	History:/p' "${self}" | 
 linBin="$(realpath -- "$1")"; shift
 [[ -f "${linBin}" ]] || { echo "check-boxes: no such file: ${linBin}" >&2; exit 2 ;}
 for row in "$@"; do
-	IFS='|' read -r box target bin suites <<< "${row}"
-	[[ "${box}" =~ ^[A-Za-z0-9._-]+$ && -n "${target}" && ( -z "${suites}" || "${suites}" =~ ${suitesRe} ) ]] || { echo "check-boxes: not BOX|SSH_TARGET|BIN[|suites[=LIST]]: ${row}" >&2; exit 2 ;}
+	fRowWords "${row}" && [[ "${box}" =~ ^[A-Za-z0-9._-]+$ && -n "${target}" ]] || { echo "check-boxes: not BOX|SSH_TARGET|BIN[|suites[=LIST]][|perf]: ${row}" >&2; exit 2 ;}
 	[[ "${bin}" != *.exe || "${suites}" != suites=* ]] || { echo "check-boxes: a Windows box runs win-runners.bash whole, so no LIST: ${row}" >&2; exit 2 ;}
+	((perf == 0)) || [[ "${bin}" == *.exe ]] || { echo "check-boxes: perf runs on a Windows box only: ${row}" >&2; exit 2 ;}
 done
 
 vmState="${SHCL_VM_STATE:-${HOME}/synced/0-0/common/exec/util/linux/bash/claude_vm-state.bash}"
@@ -248,7 +265,7 @@ cp "${linBin}" h/shcl
 
 fTest decyk each test box runs its release build like the Linux one
 for row in "$@"; do
-	IFS='|' read -r box target bin suites <<< "${row}"
+	fRowWords "${row}"
 	want=""; case "${suites}" in suites) want=all ;; suites=*) want="${suites#suites=}" ;; esac
 	[[ -z "${bin}" || "${bin}" == /* ]] || bin="${startDir}/${bin}"
 	b="b_${box}"; mkdir -p "${b}/g" "${b}/back"
@@ -264,6 +281,7 @@ for row in "$@"; do
 	cp -r g/. "${b}/g/"; cp "${bin}" "${b}/g/shcl${exe}"
 	if [[ -n "${want}" ]]; then fSrcTree "${b}/g/src"; echo "${want}" > "${b}/g/want"; fi
 	((winRun == 0)) || fSrcTree "${b}/g/src" "${winSrc[@]}"
+	if ((perf)); then mkdir -p "${b}/g/p/include"; cp "${meDir}/perf-gate.bash" "${meDir}/cpu-time.ps1" "${b}/g/p/"; cp "${meDir}/include/test-id.bash" "${b}/g/p/include/"; fi
 	tar -C "${b}/g" --format=pax -cf "${b}/in.tar" .
 	SECONDS=0; wrapRc=0
 	"${vmState}" wrap "${box}" --wait "${boxWait}" -- "${self}" "${onBox}" "${target}" "${work}/${b}/in.tar" "${work}/${b}" < /dev/null > "${b}/wrap.out" 2>&1 || wrapRc=$?
@@ -289,12 +307,18 @@ for row in "$@"; do
 	diffIds="$( { diff "${cmp}/rc.lst" "${b}/back/rc.lst" | sed -n 's/^[<>] \([0-9]*\) rc .*/\1/p' || true
 		diff -rq "${cmp}/o" "${b}/back/o" 2>/dev/null | grep -oE '[0-9]+\.[oe]( |$)' | sed 's/\.[oe] *$//'; } | sort -un || true)"
 	nDiff=0; [[ -z "${diffIds}" ]] || nDiff="$(wc -l <<< "${diffIds}")"
+	also="${suites:+ with the suites}"
+	if ((perf)); then if [[ -n "${also}" ]]; then also+=" and perf-gate"; else also=" with perf-gate"; fi; fi
 	awk -F'\t' 'NR == FNR { bad[$1] = 1; next } ($1 in bad) && shown++ < 5 { $1 = "    differs: " $1; print }' OFS=' ' - g/cases.tsv <<< "${diffIds}" >&2
 	if ((nDiff)); then fBad "${box}: ${nDiff} of ${nCases} CLI runs differ from the Linux build"
-	else echo "PASS ${box}: ${nCases} CLI runs, same bytes and exit codes as the Linux build (${SECONDS} s${suites:+ with the suites})"; fi
+	else echo "PASS ${box}: ${nCases} CLI runs, same bytes and exit codes as the Linux build (${SECONDS} s${also})"; fi
 	if ((winRun)); then
 		if [[ -f "${b}/back/s/rc" ]]; then echo "${box} $(cat "${b}/back/s/rc")" >> winrun.all
 		else echo "${box} nothing came back" >> winrun.all; fi
+	fi
+	if ((perf)); then
+		if [[ -f "${b}/back/s/perf.rc" ]]; then echo "${box} $(tr -d '\r' < "${b}/back/s/perf.rc")" >> perfrun.all
+		else echo "${box} nothing came back" >> perfrun.all; fi
 	fi
 	if [[ -z "${want}" ]]; then :
 	elif [[ -f "${b}/back/s/suites.lst" ]]; then sed "s/^/${box} /" "${b}/back/s/suites.lst" >> suites.all
@@ -326,6 +350,19 @@ while read -r bx rest; do
 	esac
 done < <(cat winrun.all 2> /dev/null || true)
 ((nWin)) || fTestSkip
+fTest dep83 each perf box passes perf-gate over its release build
+declare -i nPerf=0
+while read -r bx rest; do
+	log="b_${bx}/back/s/perf-gate.log"
+	sed -nE "s/^(PASS|FAIL|SKIP) ([0-9a-z]{5}) /\1 \2 ${bx}: /p" "${log}" 2> /dev/null | tr -d '\r' || true
+	case "${rest}" in
+		0) echo "PASS ${bx}: perf-gate over its release build"; nPerf+=1 ;;
+		skip\ *) echo "SKIP ${bx}: perf-gate, ${rest#skip }" ;;
+		*) fBad "${bx}: perf-gate failed (${rest})"; nPerf+=1
+		   grep -E '^perf-gate: ' "${log}" 2> /dev/null | tail -n 20 | tr -d '\r' | sed 's/^/    /' >&2 || true ;;
+	esac
+done < <(cat perfrun.all 2> /dev/null || true)
+((nPerf)) || fTestSkip
 fTestEnd
 
 if ((nBad)); then
@@ -341,3 +378,4 @@ echo "check-boxes: OK"
 ##		2026-10-30  |suites=LIST runs only those suites, for 2026102419263422.
 ##		2026-10-30  A Windows box runs the cases through box-cases.ps1, for 2026103016433921.
 ##		2026-10-31  A Windows box's |suites runs win-runners.bash there, for 2026103016433943.
+##		2026-10-31  A Windows box's |perf runs perf-gate.bash there, for 2026103016433965.

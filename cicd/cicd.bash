@@ -154,7 +154,7 @@ FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); 
 LEAKCHECK_FAST=(); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=(); LEAKCHECK_TESTS=()
 FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
-REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIST]]" test boxes, after the release builds
+REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIST]][|perf]" test boxes, after the release builds
 ## A job of a GitHub workflow, started first and waited for last, when the run
 ## builds the cross target it tests.
 HOSTED_WORKFLOW=""; HOSTED_JOB=""; HOSTED_TARGET=""
@@ -566,12 +566,13 @@ fi
 ## command after a \x1f, for it to match, and the label alone is printed.
 ## fBoxListStep ROW: a REMOTE_BOXES row as --list takes it, the box's name and
 ## the command whose tests it runs. A Windows box's suites are win-runners.bash
-## (2026103016433943).
+## (2026103016433943), and its perf is perf-gate.bash (2026103016433965).
 fBoxListStep(){
-	local oa w
+	local oa w c=check-boxes.bash
 	IFS='|' read -r _ _ oa w <<< "$1"; w="|${w}|"; ((long_run)) || w="${w//|suites-long/|}"
-	if [[ "${oa}" == windows-* && "${w}" == *'|suites'* ]]; then printf '%s\x1fcheck-boxes.bash && win-runners.bash\n' "${1%%|*}"
-	else printf '%s\x1fcheck-boxes.bash\n' "${1%%|*}"; fi
+	if [[ "${oa}" == windows-* && "${w}" == *'|suites'* ]]; then c+=" && win-runners.bash"; fi
+	if [[ "${oa}" == windows-* && "${w}" == *'|perf|'* ]]; then c+=" && perf-gate.bash"; fi
+	printf '%s\x1f%s\n' "${1%%|*}" "${c}"
 }
 if ((list_only)); then
 	fListStage(){   ## fListStage TITLE STEP... (empty steps dropped)
@@ -1870,3 +1871,4 @@ exit 0
 ##		- 2026-10-30 JC: suites=LIST and suites-long=LIST name some of a box's suites, so vmDebARM64 runs Go every run.
 ##		- 2026-10-30 JC: A run with no flags, --long and the full run modes start HOSTED_JOB on GitHub first and wait for it last.
 ##		- 2026-10-31 JC: --backlog-run-quick runs its lint and test steps up to 4 side by side, and prints them in order.
+##		- 2026-10-31: A REMOTE_BOXES row's perf runs perf-gate.bash on that Windows box.

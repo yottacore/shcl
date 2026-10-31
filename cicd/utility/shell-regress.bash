@@ -4090,9 +4090,36 @@ brWant+="w^check-boxes.bash && win-runners.bash v^check-boxes.bash && win-runner
 # shellcheck disable=SC2016  ## the inner shell's own variables
 brOut="$("${BASH}" -c 'set +u; source "$1"; l="(rust|go|python|c|cli)(,(rust|go|python|c|cli))*"
 	for r in "${REMOTE_BOXES[@]}"; do IFS="|" read -r b _ _ s <<< "${r}"; IFS="|" read -ra ws <<< "${s}"
-		for w in "${ws[@]}"; do [[ "${w}" =~ ^suites(-long)?(=${l})?$ ]] || echo "${b}: ${w}"; done; done
+		for w in "${ws[@]}"; do [[ "${w}" =~ ^suites(-long)?(=${l})?$ || "${w}" == perf ]] || echo "${b}: ${w}"; done; done
 	for r in "${REMOTE_BOXES[@]}"; do case "${r}" in vmDebARM64\|*) [[ "${r}" == *"|suites=go|suites-long" ]] || echo "vmDebARM64 not suites=go|suites-long: ${r}" ;; esac; done; true' _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
 [[ -z "${brOut}" ]] || fBad "config.bash's REMOTE_BOXES: ${brOut@Q}"
+
+fTest dep89 2026103016433965-box-perf
+##	Timed work goes to vm925w: a Windows row's perf runs perf-gate.bash there.
+##	check-boxes.bash takes perf beside a suites word and refuses it on a row
+##	that isn't Windows, fBoxRow passes it on, --list puts perf-gate.bash beside
+##	check-boxes.bash for it, and config.bash's vm925w row has it.
+# shellcheck disable=SC2016  ## the inner shell's own variables
+brOut="$("${BASH}" -c 'set -Eeuo pipefail; eval "$1"; eval "$2"
+	for r in "w|u@w|/r/s.exe|perf" "w|u@w|/r/s.exe|suites|perf" "w|u@w|/r/s|perf|suites=go" "w|u@w|/r/s|suites|suites" "w|u@w|/r/s|perfx"; do
+		if fRowWords "${r}"; then printf "%s,%s,%s " "${bin}" "${suites:--}" "${perf}"; else printf "refused "; fi
+	done' _ "$(grep '^suitesRe=' "${repoDir}/cicd/utility/check-boxes.bash")" "$(sed -n '/^fRowWords()/,/^}/p' "${repoDir}/cicd/utility/check-boxes.bash")" 2>&1 || true)"
+[[ "${brOut}" == "/r/s.exe,-,1 /r/s.exe,suites,1 /r/s,suites=go,1 refused refused " ]] || fBad "check-boxes.bash's row words: ${brOut@Q}"
+brRc=0; "${repoDir}/cicd/utility/check-boxes.bash" /bin/true "x|u@x|/r/shcl|perf" > /dev/null 2>&1 || brRc=$?
+[[ "${brRc}" == 2 ]] || fBad "check-boxes.bash took perf on a box that isn't Windows: exit ${brRc}"
+# shellcheck disable=SC2016  ## the inner shell's own variables
+brOut="$("${BASH}" -c 'set -Eeuo pipefail; eval "$1"; eval "$2"
+	built_arts=("windows-x86_64|/r/win.exe")
+	fArtOf(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == "$1" ]]; then printf "%s\n" "${a#*|}"; fi; done; }
+	for long_run in 0 1; do
+		for r in "v|u@v|windows-x86_64|perf" "w|u@w|windows-x86_64|suites-long|perf" "f|u@f|freebsd-x86_64|perf"; do
+			printf "%s %s " "$(fBoxRow "${r}")" "$(fBoxListStep "${r}" | tr "\037" "^")"
+		done
+	done' _ "$(sed -n '/^fBoxRow()/,/^}/p' "${repoDir}/cicd/cicd.bash")" "$(sed -n '/^fBoxListStep()/,/^}/p' "${repoDir}/cicd/cicd.bash")" 2>&1 || true)"
+brWant="v|u@v|/r/win.exe|perf v^check-boxes.bash && perf-gate.bash w|u@w|/r/win.exe|perf w^check-boxes.bash && perf-gate.bash f|u@f||perf f^check-boxes.bash "
+brWant+="v|u@v|/r/win.exe|perf v^check-boxes.bash && perf-gate.bash w|u@w|/r/win.exe|suites|perf w^check-boxes.bash && win-runners.bash && perf-gate.bash f|u@f||perf f^check-boxes.bash "
+[[ "${brOut}" == "${brWant}" ]] || fBad "perf rows through fBoxRow and --list: ${brOut@Q}"
+grep -qxF '	"vm925w|collierjr@vm925w|windows-x86_64|perf"' "${repoDir}/cicd/config.bash" || fBad "config.bash has no vm925w perf row"
 
 fTestEnd
 
@@ -4126,3 +4153,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-30  A REMOTE_BOXES row's suites-long runs its suites only under --long.
 ##		2026-10-30  suites=LIST rows, and check-boxes.bash's pattern takes what fBoxRow makes.
 ##		2026-10-31  A Windows box's suites are win-runners.bash, in check-boxes.bash and --list.
+##		2026-10-31  A Windows row's perf runs perf-gate.bash, in check-boxes.bash, fBoxRow and --list.

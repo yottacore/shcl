@@ -188,7 +188,17 @@ awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "int-default\tg%d.k\t0
 ##	its number and fails on the number, which is the more useful report. Only a
 ##	hang reaches this. The self-test below lowers it to a second.
 declare -i runSecs=300
-fRun(){ timeout -k 5 "${runSecs}" "$@"; }
+##	Git bash on Windows counts only its own processes in `time`, so a native CLI
+##	read 30 to 75 ms of CPU at any size. There a .exe runs under cpu-time.ps1,
+##	which writes what the CLI itself used, and takes the cap too
+##	(2026103016433965).
+winTimer=""
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) winTimer="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/cpu-time.ps1" ;; esac
+fRun(){
+	if [[ -n "${winTimer}" && "$1" == *.exe ]]; then
+		pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${winTimer}" "${tmpDir}/cpu.win" "${runSecs}" "$@"
+	else timeout -k 5 "${runSecs}" "$@"; fi
+}
 
 ##	CPU milliseconds, user plus system, for one run of $2 (an ops file, a
 ##	document when $3 is "check", or a document validated against ${sugSchema}
@@ -206,7 +216,7 @@ fTimeMs(){
 	local cli="$1" input="$2" mode="${3:-set}" want="${4:-1}" best=-1 ms rc lines userS sysS
 	local TIMEFORMAT='%3U %3S'
 	for _ in 1 2; do
-		rc=0
+		rc=0; rm -f "${tmpDir}/cpu.win"
 		{ time {
 			if [[ "${mode}" == check ]]; then
 				fRun "${cli}" check "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
@@ -256,7 +266,12 @@ fTimeMs(){
 			echo "perf-gate: ${cli##*/}: ${mode} run printed ${lines} line(s), expected at least ${want}" >&2
 			printf '%s' -1; return
 		fi
-		read -r userS sysS < "${tmpDir}/cpu"
+		##	User time only, under cpu-time.ps1: a write call costs far more
+		##	kernel time on Windows, and badlines makes one per diagnostic, so
+		##	there its kernel time alone was over 4 times the parse, linear all
+		##	the same.
+		if [[ -n "${winTimer}" && "${cli}" == *.exe ]]; then read -r userS _ < "${tmpDir}/cpu.win"; sysS=0
+		else read -r userS sysS < "${tmpDir}/cpu"; fi
 		## Bash prints the locale's decimal point.
 		ms=$(( 10#${userS//[!0-9]/} + 10#${sysS//[!0-9]/} ))
 		if ((best < 0 || ms < best)); then best="${ms}"; fi
@@ -316,6 +331,22 @@ EOF
 chmod +x "${tmpDir}/bait-burn"
 got="$(TMPDIR="${tmpDir}" fTimeMs "${tmpDir}/bait-burn" "${tmpDir}/base.ops" set 1 2>/dev/null)"
 ((got >= 450)) || { echo "perf-gate: self-test: a CLI that burned 500 ms of CPU was timed as ${got} ms" >&2; nBad+=1; }
+fTest dep84 self-test-native-cpu-counted
+## Where a native CLI runs under cpu-time.ps1, its own work has to count: a
+## document 8 times the size reads as more than 3 times the CPU. Timing only
+## the wrapper reads the same at both sizes.
+nNative=0
+if [[ -n "${winTimer}" ]]; then
+	awk -v n="$((keys / 8))" 'BEGIN{ for (i = 0; i < n; i++) printf "k%d: %d\n", i, i }' > "${tmpDir}/eighth.shcl"
+	for b in "${bindings[@]}"; do
+		cli="${b#*|}"; [[ "${cli}" == *.exe ]] || continue
+		nNative=$((nNative + 1))
+		small="$(fTimeMs "${cli}" "${tmpDir}/eighth.shcl" raws "$((keys / 8))")"
+		got="$(fTimeMs "${cli}" "${doc}" raws "${keys}")"
+		((small >= 0 && got > small * 3)) || { echo "perf-gate: self-test: ${cli##*/} read ${got} ms for ${keys} keys and ${small} ms for an eighth of them" >&2; nBad+=1; }
+	done
+fi
+((nNative)) || fTestSkip
 ## A gate whose own guards are down judges nothing after them.
 if ((nBad)); then fTestEnd; exit 1; fi
 
@@ -429,7 +460,12 @@ done
 ##	times its baseline on the hosted runner and failed the gate there now and
 ##	then.
 fTest dd2b3 write-counts
-if command -v strace >/dev/null 2>&1; then
+##	A Windows box's git bash has an strace too, cygwin's, which counts no
+##	system calls (2026103016433965).
+if [[ "$(uname -s)" != Linux ]]; then
+	echo "perf-gate: write counts SKIPPED - strace counts Linux system calls only"
+	fTestSkip
+elif command -v strace >/dev/null 2>&1; then
 	counts=""
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
@@ -496,3 +532,5 @@ echo "perf-gate: OK: ${keys} keys, ${#bindings[@]} binding(s) within ${factor}x 
 ##		            parent, each of which rescanned the parent's child list.
 ##		2026-10-19  CPU time in place of the wall clock, since a load spike over
 ##		            a workload adn not its baseline failed it.
+##		2026-10-31  write-counts skips off Linux, for a Windows box (2026103016433965).
+##		2026-10-31  A .exe on Windows is timed through cpu-time.ps1, for 2026103016433965.
