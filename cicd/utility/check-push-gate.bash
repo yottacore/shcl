@@ -546,7 +546,8 @@ fEngine(){  ## fEngine [VAR=VALUE ...] -- ARGS... -> engRc, engRecorded
 	local envs=()
 	while [[ "$1" != "--" ]]; do envs+=("$1"); shift; done; shift
 	rm -f "${engRecords}"
-	engRc=0; env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS SHCL_DOCKER="${work}/no-docker" "${envs[@]}" bash "${eng}/cicd/cicd.bash" "$@" > "${work}/eng.log" 2>&1 || engRc=$?
+	## CARGO_TERM_QUIET: an outer -q run exports it (depbf)
+	engRc=0; env -u SHCL_GATE_STRICT -u SHCL_GATE_SKIPS -u CARGO_TERM_QUIET SHCL_DOCKER="${work}/no-docker" "${envs[@]}" bash "${eng}/cicd/cicd.bash" "$@" > "${work}/eng.log" 2>&1 || engRc=$?
 	engRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${engTree}"; then engRecorded=1; fi
 }
 fEngine -- --merge-gate
