@@ -322,24 +322,38 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Closed items name a test ID: legacy features before the 20260904 review
 	- ID: 2026103111123564
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
 	- Parent ID: 2026102416250070
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me: a row that named a script or a test only by what it checks gets the ID of the closest test by name, or the script's own IDs when its tests have no names. The tool filled none of these, since no name matched exactly.
+		- me: a row for a retired test says so and starts with "none". The shell wrapper rows went with the wrappers. A lint-stage or hosted-job check with no ID of its own says "none by ID" and why.
+	- Test case: `test-ids.py backlog` lists none of its 98 items, and check-docs `dep9w` runs it.
+	- Branch: `r1031`
+	- Closed: 20261031
 	- Requirements:
 		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Features and enhancements` down to its `Code review 20260904:` bullet. About 98 items.
 
 - Closed items name a test ID: legacy features from the 20260904 review on
 	- ID: 2026103111123569
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
 	- Parent ID: 2026102416250070
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me: a row that named a script or a test only by what it checks gets the ID of the closest test by name, or the script's own IDs when its tests have no names. The tool filled none of these, since no name matched exactly.
+		- me: a row for a retired test says so and starts with "none". The shell wrapper rows went with the wrappers. A lint-stage or hosted-job check with no ID of its own says "none by ID" and why.
+	- Test case: `test-ids.py backlog` lists none of its 105 items, and check-docs `dep9w` runs it.
+	- Branch: `r1031`
+	- Closed: 20261031
 	- Requirements:
 		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Features and enhancements` from its `Code review 20260904:` bullet to the end. About 105 items.
 
@@ -15327,7 +15341,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: 200,000 reads of a three-string array grew 18.8 MB. A plain one-string read grew nothing, it already points into the document. A string read of an array's joined text grew 6 MB.
 		- Done: `shcl_read_string_to` and a `_to` form of each of the five array reads. Each copies into the caller's buffer and gives the read arena back to where it was. The veneer already releases before every read, so it doesn't wrap them.
 		- Verified: a C test does 20,000 rounds of all six with the arena unchanged after, plus short buffers and a missing path. With the release taken out it fails. Sanitizers clean.
-		- Test case: the `copy_out` block in the C runner (`source/c/tests/conformance.c`), 20,000 rounds with the read arena flat.
+		- Test case: the `copy_out` block in the C runner (`source/c/tests/conformance.c`), 20,000 rounds with the read arena flat. [dd3r4]
 		- Opened: 20260925-115006
 		- Closed: 20260925-121058
 
@@ -15355,7 +15369,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Wanted: a public `format_version` or `needs_migrate`, and an option to leave the stamp off.
 	- Note: reported from SilkTerm.
 	- Done: `format_version` and `migrate_unstamped` in Rust and Python, `FormatVersion` and `MigrateUnstamped` in Go, `shcl_format_version` and `shcl_migrate_unstamped` in C, and the veneer. The C reader also read "300" as 30; it parses the way the others do now.
-	- Pinned by: a runner test in all four that `migrate_unstamped` differs from `migrate` only by the stamp, and that `current` agrees with `format_version`, over every corpus input.
+	- Pinned by: a runner test in all four that `migrate_unstamped` differs from `migrate` only by the stamp, and that `current` agrees with `format_version`, over every corpus input. [dd2kj]
 	- Opened: 20260924-142912
 	- Closed: 20260924-180219
 
@@ -15370,7 +15384,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Fixed: `sanitize-c.bash` builds its six programs at once, then runs the test programs beside a corpus pass split the same way. 91 s to 23 s, the same 2,898 CLI runs.
 	- Fixed: `largedoc.bash` runs the bindings and the reference's three reads at once, as long as their memory ceilings fit in free memory less 2 GiB. A small runner goes two at a time, and one job may always run. 188 s to 132 s here, where Python's own run is now all of it.
 	- Measured: hosted run `35734495800`, against `35685464650` before. `sanitize-c.bash` 118 s to 71 s, and `crosscheck.bash` with its fuzz dump 322 s to 130 s. `largedoc.bash` went 156 s to 184 s, since Python alone is two minutes there and this runner was slower at everything, cppcheck's cold run included. The job total did not move for the same reason.
-	- Pinned by: each was watched to fail. crosscheck on a binding that differs on one case (the same 30 of 5,342 as the old script) and on a worker killed mid-run. sanitize-c on an ASan fault in one case, a killed worker, a failing test program and a broken build. largedoc on a differing binding, a killed run and a failing reference, and its budget was traced at 400 MiB and at 1.
+	- Pinned by: each was watched to fail. crosscheck on a binding that differs on one case (the same 30 of 5,342 as the old script) and on a worker killed mid-run. sanitize-c on an ASan fault in one case, a killed worker, a failing test program and a broken build. largedoc on a differing binding, a killed run and a failing reference, and its budget was traced at 400 MiB and at 1. [dd51b, dbxj4, dbfk3]
 	- Test case: None, gate speed-up with no number to pin.
 	- Opened: 20260922-054500
 	- Closed: 20260922-063521
@@ -15382,7 +15396,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Fixed: `check-c-compilers.bash` runs its builds `CPU_CAP` at a time and builds a compiler once when two names reach it (`gcc` is `gcc-14` here). 324 s to 22 s, and 80 builds where it was 96.
 	- Fixed: the test binaries build at opt-level 1. The fuzz goes from 161 s to 29 s with overflow checks and debug assertions still on. The CLI is still the dev profile's, so `perf-gate.bash` measures what it was sized against.
 	- Measured: the whole local `--ci` went from 33 minutes to 14, `largedoc.bash` included, with no C change since the cache was filled. The hosted job went from 2530 s to 1456 s with the cache still empty, on run `35685464650`.
-	- Pinned by: `check-c-compilers.bash` was watched to fail two ways. A build refused at one optimization level failed 5 of 80 and named each, and jobs killed without a word failed 16 of 80 and said each ended without a result.
+	- Pinned by: `check-c-compilers.bash` was watched to fail two ways. A build refused at one optimization level failed 5 of 80 and named each, and jobs killed without a word failed 16 of 80 and said each ended without a result. [dc0dc, dc0dd]
 	- Left alone: `crosscheck.bash`, which is mostly Python start-up over 17,034 comparisons, and `sanitize-c.bash`. Both could be split across cores, and neither is a quick change. `largedoc.bash` too, which is mostly Python and the debug Rust CLI on 100 MiB. It runs the four one at a time on purpose, since four at once would need 14 GB, and the pre-push gate skips it anyway.
 	- Test case: None, gate speed-up with no number to pin.
 	- Opened: 20260921-194500
@@ -15424,14 +15438,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided: `Read<T>` gets no line or quoted field, as in C. Filling them would look the path up twice more on every read, and `line()` and `quoted()` already answer both.
 	- Decided: `read_datetime_array` returns `Datetime` values and the text form moves to `read_datetime_array_str`, matching the scalar pair. A datetime array setter can then take what the read hands back.
 	- Fixed: `shcl.hpp` has all 27 writes, the tokenizer, both suppressors, `write_file_atomic`, `format_f64`, `strictness_from_arg` and `status_code`. `Document()` calls `shcl_new` and `Read::ok()` calls `shcl_status_ok`, so six `shcl_get_*` calls are the only ones it reaches another way.
-	- Pinned by: `check-veneer.bash` in the lint stage, watched to fail, and new checks in `veneer_smoke.cpp`.
+	- Pinned by: `check-veneer.bash` in the lint stage, watched to fail, and new checks in `veneer_smoke.cpp`. [dcq9w, d9v59]
 	- Opened: 20260916-141855
 	- Closed: 20260916-145336
 
 - ✅ A push to dev ran the whole gate again, then half an hour of hosted CI, even right after a full local run had passed the same files.
 	- Decided: the pre-push hook skips a commit whose tree a run already passed. Hosted CI runs on pushes to `main`, on pull requests, and by hand, and no longer on `dev`.
 	- Fixed: `cicd.bash` records the tree it tested once the tests stage passes, and the hook lets a commit with that tree through. A run with `--quick`, `--no-fmt`, `--no-lint` or a skipped tool records nothing. `SHCL_GATE_RERUN=1` runs the gate anyway.
-	- Pinned by: `check-push-gate.bash`, and `shell-regress.bash` rows for the skip notes. Both were watched to fail.
+	- Pinned by: `check-push-gate.bash`, and `shell-regress.bash` rows for the skip notes. Both were watched to fail. [dcmcd]
 	- Opened: 20260914-130413
 	- Closed: 20260914-140600
 
@@ -15451,7 +15465,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Narrowed first: only a carriage return diverges. Every other control character before a `#` was `E014` under 2.x too, so nothing was bound then either, and those lines are already the recorded "a line 2.x could not read comes through as written" case.
 	- Decided: `migrate` drops the run. The carriage return is a byte 2.x itself discarded before it bound anything, so dropping it loses nothing the old reading kept, and `migrate` already edits outside the tree wherever the two rule sets disagree - it inserts a space before a `#`, re-quotes pieces, and takes the colon out of the selector sugar. Leaving it would have meant a binding disappearing while the text survived, which the exit code can't report, since a retained line counts nothing lost.
 	- Fixed in all four: `cr_run_to_comment` (`crRunToComment` in Go, `_cr_run_to_comment` in Python) names the run, the 2.x tokenizer steps over one that runs into a `#`, and the comment fixup replaces the whole run with a single space instead of only inserting one. A line whose leading run is such a run is the comment 2.x read it as. The value half already migrated correctly and is unchanged.
-	- Pinned by corpus case `115-cr-before-comment`, which has the shape after a name, after a selector, in a value, and as a whole line. `check-migrate.bash` no longer skips the shape, and fails on four documents without the fix.
+	- Pinned by corpus case `115-cr-before-comment`, which has the shape after a name, after a selector, in a value, and as a whole line. `check-migrate.bash` no longer skips the shape, and fails on four documents without the fix. [dcegc]
 	- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 	- Test case: corpus `115-cr-is-a-blank`, which pins the carriage-return rule that replaced this one.
 	- Opened: 20260908-180000
@@ -15461,7 +15475,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- `unwritable` sends such a path to the trailing "not generated" block, because the value emitter used to have nothing to escape a break with. It has since the tokenizer cut, and `gen_selector_text` already writes one; the setters take the same path now. So the exclusion is probably stale, and `V097` validates whatever the generator emits, which would catch it if it were not.
 	- Small, and nothing in the corpus has such a schema, so no golden moves either way. Left out of the setter round to keep generation out of it.
 	- Fixed: the exclusion is gone in all four (`unwritable` in the reference, Go and Python, `g_unwritable` in C). A generated line writes the break escaped, loads with no diagnostics and reads back as the path it was generated for.
-	- Pinned by: corpus `113`, which also covers a line break in a name.
+	- Pinned by: corpus `113`, which also covers a line break in a name. [dacv7]
 	- Opened: 20260908-015200
 	- Closed: 20260908-110000
 
@@ -15477,7 +15491,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20260725 item 13, 20260817 item 5, 20260829 items 2 and 3, 20260830 item 9, 20260830b items 1, 5 and 6, 20260901 item 4, 20260902 item 38, 20260904 items 18 and 19.
 	- Cause: the writer has its own trim, its own CR check, its own `#` check and its own bracket check per setter, none of them the parser's. Every new setter re-decides each, and a decision taken for one (a CR is content, 20260817 item 5) was taken the other way for the next (20260830b item 5).
 	- Fix: a setter builds its line text through the emitter, runs it through the tokenizer, and refuses unless the result is one line whose spans read back the value it was given. `SetString`, `SetLiteral`, `SetRaw` (the info string as a fence line, each body line under the raw-body rule), `SetComment` (as a comment line), and a path segment through `quote_segment` then the tokenizer. The per-setter refusals go: what is refused is whatever does not survive the round trip. `SetFloat` and `SetDateTime` keep their render-and-parse-back from 20260901 item 4, which is the same shape.
-	- Pinned by: a fuzz property per setter in all four runners. Inputs drawn from a soup of CR, LF, `#`, both quotes, brackets, commas, backslashes and unicode spaces; for each setter and input, either the call returns false and the document is byte-identical, or the document's canonical text reloads to itself and the read hands back the value. The corpus fixpoint property stays as it is.
+	- Pinned by: a fuzz property per setter in all four runners. Inputs drawn from a soup of CR, LF, `#`, both quotes, brackets, commas, backslashes and unicode spaces; for each setter and input, either the call returns false and the document is byte-identical, or the document's canonical text reloads to itself and the read hands back the value. The corpus fixpoint property stays as it is. [dc26d, ddq66]
 	- Note: a few inputs that used to be accepted and mangled are refused. Changelog Fixed entry.
 	- Note: after the tokenizer item.
 	- Fixed: one check for every setter. The value is emitted the way the writer will write it, read back with the tokenizer, and refused unless the pieces match what they were given; `set_value` runs it before the document is touched, so a refused write leaves the file byte-identical. `SetRaw`'s four hand-written checks, `SetComment`'s truncation and `SetLiteral`'s carriage-return refusal are gone, and the emitter's value half and fence line are each one function now, shared by the writer and the check.
@@ -15518,7 +15532,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Fix: one tokenizer per binding. It takes text and a separator (`:` for a line, `=` for `--set`) and returns spans into the input: per segment a name span and whether it was quoted, an optional selector body span and whether it was quoted, and the name wildcard; the separator offset; the value span; one span per element with its quoted flag; the comment offset; and a fault as a position plus code (an unterminated quote in a name or selector, an empty selector, a bad name character). It copies nothing. The rules it implements are the spec's, and after the 3.0 item the shorter set.
 	- Fix: every consumer reads spans. The parser's line dispatch, `scan_path` (which keeps only the interpretation: index, value or wildcard from the selector span), the comment split, the comma split, the element cap (a count of element spans), the unterminated-quote check (a flag on the piece), `literal_value`, `split_set`. The seven scanners are deleted, not wrapped.
 	- Fix: the write side stays as it is, but `quote_segment`, `escape_name` and `emit_element` gain a round-trip test: emit, tokenize, one span with the same content.
-	- Pinned by: a `tokens` mode in each conformance runner that prints the spans for every line of every corpus input and every fuzz-dumped document, compared four ways by `crosscheck.bash`. And the grammar oracle from the 20260905 round, extended: lines generated from `grammar.abnf` with their span structure known at generation time must tokenize to exactly those spans. The second gate is the one that sees a defect all four share. `perf-gate.bash`'s parse workload must not move; one pass replaces five, so it should improve.
+	- Pinned by: a `tokens` mode in each conformance runner that prints the spans for every line of every corpus input and every fuzz-dumped document, compared four ways by `crosscheck.bash`. And the grammar oracle from the 20260905 round, extended: lines generated from `grammar.abnf` with their span structure known at generation time must tokenize to exactly those spans. The second gate is the one that sees a defect all four share. `perf-gate.bash`'s parse workload must not move; one pass replaces five, so it should improve. [dcb0c, d9tsx]
 	- Note: `style-guide.md` names the tokenizer as the one place the lexical rules live, and `check-docs.bash` asserts the sentence. Done means a reader can find no second quote state machine in a binding.
 	- Note: after the funnel item, before the setter item. Written to the 3.0 rules from the start, since no 2.x release is coming: a tokenizer that reproduces the 2.x edge cases only to have them cut would be work thrown away. The 3.0 item below is done with this one.
 	- Fixed: one tokenizer per binding, taking text and a separator and handing back spans: per segment a name and an optional selector body with how each was quoted, the separator, the value and its elements, the comment, or the fault that makes the line malformed. The parser's dispatch, the path scanner behind every lookup and setter, `SetLiteral`, `SetRaw`'s info check and the CLI's `--set` split read those spans; the seven scanners are deleted. A 2.x flag on the same tokenizer is what `migrate` reads with.
@@ -15536,7 +15550,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Fix: one funnel. A line the parser handles ends in one of three outcomes: bound, retained (the text kept verbatim as trivia and written back unchanged), or dropped. One function takes the line, its code and its outcome; it records the diagnostic, pushes a dead level for anything not bound, and counts lost for dropped. No arm writes `lost` or touches the level stack itself. A line under a retained or dropped line is `E018` through the same funnel, so it inherits the outcome.
 	- Fix: a table in `design.md`, one row per load-time code: outcome and severity, nothing else, since level and count follow from the outcome. The spec's code table points at it. Every code in the gray zone gets a row and the code follows the row rather than a heuristic. `E019` is the first, and the 3.0 item below settles it as retained.
 	- Fix: the merge keeps a retained line as trivia the way it keeps a comment, so 20260904 item 5 holds by construction rather than by a special case.
-	- Pinned by: a fuzz property in all four runners: `lost` is zero exactly when every input line's content reappears in the canonical output, after the parser's own normalization. The corpus `lost` row on every case stays. And a `shell-regress.bash` scan: no function in any binding's parser writes the lost count or pushes a level except the funnel.
+	- Pinned by: a fuzz property in all four runners: `lost` is zero exactly when every input line's content reappears in the canonical output, after the parser's own normalization. The corpus `lost` row on every case stays. And a `shell-regress.bash` scan: no function in any binding's parser writes the lost count or pushes a level except the funnel. [dcavy]
 	- Note: reference first, then the three ports from the diff, per the style guide. No behavior changes, so no golden moves. If one does, the table was wrong about that code and the table wins.
 	- Fixed: one funnel per binding (`refuse`), taking the line, its code and its outcome. It records the diagnostic, counts lost for a dropped line or value, keeps a retained line as trivia, and holds the indent level for anything not bound. Every arm that used to count or push now names its outcome and nothing else.
 	- Fixed: the outcome table is in `design.md` under Load outcomes, one row per load-time code; the spec's code table points at it.
@@ -15549,14 +15563,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - ✅ `install-dev.bash --hooks-only`, and a gate over its hook setup.
 	- The hook setup was the one piece of that script nothing exercised: the toolchain installs in front of it can't run in a gate. Noted as still ungated when the test-gap round closed.
 	- Fixed: `--hooks-only` skips the toolchain and just points git at the tracked hooks. Useful on its own for a box that already has the tools, and it makes the tail runnable. An explicit `--dir` wins over in-clone detection under it, so it can be aimed at any clone.
-	- Pinned by: `check-install-dev.bash`, on a throwaway local clone - both configs set, a second run changes nothing, a chosen `core.sshCommand` survives, the in-clone path works, and a directory that is not a clone is refused.
+	- Pinned by: `check-install-dev.bash`, on a throwaway local clone - both configs set, a second run changes nothing, a chosen `core.sshCommand` survives, the in-clone path works, and a directory that is not a clone is refused. [dc1z7]
 	- Opened: 20260901-114703
 	- Closed: 20260901-114703
 
 - ✅ The Windows installers' PATH handling is tested against a real registry.
 	- Noted as still ungated when the test-gap round closed: it needs a registry, which only the hosted windows job has.
 	- Fixed on the way in: `install.ps1`'s two PATH edits are one function now, and the setup's PATH script is a real file (`cicd/packaging/shclpath.ps1`) packed into the installer instead of line-by-line writes from the .nsi - so the text that ships is the text the gate runs.
-	- Pinned by: `winpath-regress.ps1`, run by `win-runners.bash` on the hosted windows job against the runner's own Environment keys, saved first and restored after. What it holds: `%VAR%` references survive unexpanded, the value stays REG_EXPAND_SZ, segments compare whole (a superstring dir still appends), add is idempotent, and remove takes exactly its own segment. Later widened to a PATH ending in `;` (the add does not double it, the remove drops it) and an empty one (the add leaves no leading `;`).
+	- Pinned by: `winpath-regress.ps1`, run by `win-runners.bash` on the hosted windows job against the runner's own Environment keys, saved first and restored after. What it holds: `%VAR%` references survive unexpanded, the value stays REG_EXPAND_SZ, segments compare whole (a superstring dir still appends), add is idempotent, and remove takes exactly its own segment. Later widened to a PATH ending in `;` (the add does not double it, the remove drops it) and an empty one (the add leaves no leading `;`). [dc1zb]
 	- Opened: 20260901-114703
 	- Closed: 20260901-114703
 
@@ -15592,7 +15606,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- It caught a real library defect: `save_file` on a path holding a NUL raised `ValueError` straight past a contract that promises a returned message. POSIX raises at the resolve; Windows raises later, at the first call that touches the filesystem.
 		- It also caught two test files that would not compile there at all. The C++ veneer smoke had the same POSIX two-argument `mkdir` as the C runner.
 		- The C runner tripped a truncation diagnostic that gcc 15 raises and gcc 14 does not, so that one was never Windows-specific, just unseen.
-	- Test case: hosted `windows` job in `ci.yml` running `win-runners.bash`.
+	- Test case: hosted `windows` job in `ci.yml` running `win-runners.bash`. [dc3b1]
 	- Opened: 20260820-154417
 	- Closed: 20260821-114838
 
@@ -15602,7 +15616,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: it runs in the tests stage after the crosscheck, in full local runs and in the GitHub gate. `--quick` skips it, since the fast loop is for the small cases, and `--no-largedoc` skips it outright.
 	- The generated document is structured, not padded: repeated instances of one name, nesting, inline and bullet arrays, quoted values holding the separator, raw blocks, comments, blank lines and non-ASCII.
 	- The measurements it produced are the item below.
-	- Test case: `largedoc.bash` itself.
+	- Test case: `largedoc.bash` itself. [dbfk3]
 	- Opened: n/a
 	- Closed: 20260819-100700
 
@@ -15622,7 +15636,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: a full two-tier run at the stress size, recorded in results.shcl; README tables and prose refreshed, design.md's summary paragraph too. Numbers only; the wording moved just where a claim would otherwise have gone false.
 	- The stress read time and peak memory both halved, so SHCL now sits below TOML and YAML on memory and at a quarter of `toml_edit`.
 	- The like-for-like pair moved apart: the Rust binding gained more against `toml` than the Python one did against `tomllib`, so the closing sentence now says "the same few-fold gap" rather than "similar gap".
-	- Test case: `check-docs.bash` check that design.md's rerun date and the README ratios match the newest run in `results.shcl`.
+	- Test case: `check-docs.bash` check that design.md's rerun date and the README ratios match the newest run in `results.shcl`. [dcwgc]
 	- Opened: 20260821-150025
 	- Closed: 20260821-183607
 
@@ -15635,7 +15649,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: `cicd/utility/check-completions.bash` diffs the CLI's table against both completion files and fails the lint stage on any disagreement, so an option added to one can't drift from the others.
 	- Done: the .deb and .rpm install the man page and both completions into the distribution's own directories, so they work with nothing to configure. The installer symlinks the man page into the target's man1 dir and leaves the completions under the install dir with the line to paste for each shell - the reasoning is in `design.md`. Uninstall removes both, and the man symlink only when it points back into the install dir.
 	- Done: the man page and completions ride in the signed drop-in payload, so nothing unverified is installed. A payload from before they existed installs what it has and says so.
-	- Test case: `check-completions.bash` (`option-tables-agree` and its sibling checks), cli-regress `man-width`, and `shell-regress.bash` row `20260918b-41-man-link-not-ours` for the installer's man link.
+	- Test case: `check-completions.bash` (`option-tables-agree` and its sibling checks), cli-regress `man-width`, and `shell-regress.bash` row `20260918b-41-man-link-not-ours` for the installer's man link. [dbfgh, dcbc4, dcv6j]
 	- Opened: 20260818-165540
 	- Closed: 20260819-084518
 
@@ -15677,7 +15691,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- `--write` names the file the command produces, so refusing a missing one was an obstacle rather than a safeguard: the workaround was to `touch` it first, the same act with an extra step.
 	- Only `set --write`. `fmt --write` has nothing to format and still reports it missing, and a file that exists but can't be read stays an error in both - the alternative is writing over something unread.
 	- Done: all four CLIs, help text and man page moved together, and the four agree byte-for-byte on the create, both refusals and the unreadable case. Pinned in `crosscheck.bash` rather than a runner: this one is reachable from the CLI, and the tree compare covers the created file's mode as well.
-	- Test case: crosscheck "set --write creates a missing file" and "fmt --write still refuses a missing file".
+	- Test case: crosscheck "set --write creates a missing file" and "fmt --write still refuses a missing file". [dcvgq]
 	- Opened: n/a
 	- Closed: 20260820-154417
 
@@ -15744,7 +15758,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: `help`, `about` and `donate` now print a blank line above and below, so the block stands clear of the prompts either side. Bare `shcl` keeps printing the same help text unpadded, since it is a usage error rather than something asked for, and `version` stays a bare line for capture.
 	- Found en route: C's option-skip list was missing `--set-literal`, so `shcl get --set-literal -h FILE PATH` answered with the help text where the other three read the value. Predated this change; fixed with it.
 	- Note: superseded on bare `shcl` by the 20260802 round's item 28, which went in on 2026-08-18. A bare run prints the padded help and exits 0, like `shcl help`.
-	- Test case: crosscheck "usage about", "usage about flag", "usage donate" and "usage donate flag".
+	- Test case: crosscheck "usage about", "usage about flag", "usage donate" and "usage donate flag". [dd854, dd851, dd852]
 	- Opened: n/a
 	- Closed: 20260804-170930
 
@@ -15772,7 +15786,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: the write-half notes moved out of the C subsection, where they had ended up by accident, into their own section at the end of the examples. Its after-save file is now the real output rather than an abridged one, which also fixed inline comments that had gone stale against the input above it.
 	- Done: Features gained the three capabilities the list had been silent on: querying repeated fields, stable diagnostic codes, and the writer keeping comments attached across a save.
 	- Done: the GitHub About blurb was a paragraph; it now matches the tagline and fits the width the card actually shows. Sponsorship is mentioned once in the support section and once in `contributing.md`, both times as an aside.
-	- Test case: `check-readme.bash`, which runs each README console transcript and compares the output.
+	- Test case: `check-readme.bash`, which runs each README console transcript and compares the output. [dcbc6]
 	- Opened: n/a
 	- Closed: 20260804-102729
 
@@ -15781,7 +15795,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- The flag is negative so the footer is what a caller gets by saying nothing - the opt-out is the thing that has to be asked for.
 	- The `Legal` line names SHCL as its subject ("SHCL is Copyright ...") rather than opening with the copyright, so it can't be misread as a claim over the config it sits in.
 	- Verified: the footer is output, so it is a byte-for-byte cross-binding contract like the annotation line. The three init goldens have it; each runner also generates with the flag set and checks the result is the golden minus the footer, so the flag costs no extra goldens.
-	- Test case: the `expected-init.shcl` goldens, which have the footer, and the `--no-banner` prefix check in the init generation test of all four runners.
+	- Test case: the `expected-init.shcl` goldens, which have the footer, and the `--no-banner` prefix check in the init generation test of all four runners. [dd3r1]
 	- Opened: n/a
 	- Closed: 20260804-092009
 
@@ -15823,7 +15837,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Hosted CI now installs a stable toolchain instead of reading go.mod, since the pipeline's own `go -C` needs a current release, while the go.mod directive gates the consumer floor.
 		- From convert-base-v2: go.mod declares 1.24, and that declaration is their recorded reason for vendoring the file instead of using it as a module - it would drag their deliberately-1.21 project up.
 		- The identical file compiles and passes their full suite under 1.21, so 1.24 is declaration, not need; find the real floor (generics suggest possibly 1.18) and declare that.
-	- Test case: the hosted `go-floor` job: vet and the library's tests on the release go.mod names.
+	- Test case: none by ID, since the hosted job is the test: the hosted `go-floor` job: vet and the library's tests on the release go.mod names.
 	- Opened: n/a
 	- Closed: 20260802-131850
 
@@ -15933,7 +15947,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- From TradeClanker: Set* returns a bare pass/fail, and false covers an empty path, a malformed path, a wildcard, a depth overrun, and an unresolvable index indistinguishably - their workbench's error message is literally a guess because the library won't say.
 		- A small reason enum (or per-binding equivalent) on the write result fixes it; CLI behavior stays exit 1.
 	- All four bindings move together; the write corpus pins outputs, not the reason values, so exposure should be small; verify.
-	- Test case: `write_reason_names_the_failure` in Rust and `TestWriteReasonNamesTheFailure` with its twins in Python and C.
+	- Test case: `write_reason_names_the_failure` in Rust and `TestWriteReasonNamesTheFailure` with its twins in Python and C. [ddq7r, ddqfy]
 	- Opened: n/a
 	- Closed: 20260802-122258
 
@@ -15948,7 +15962,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 - ✅ Dev-environment install script (Linux, macOS, Windows), runnable via a single `curl` or `wget`. Clones, installs dependencies, states what it will do with an option to abort.
 	- Done: `install-dev.bash` at repo root. Linux + macOS directly; Windows via WSL (the dev pipeline is bash). Clones (or detects an existing clone), installs the no-sudo pieces itself (rustup, ruff/mypy/cppcheck via pipx, markdownlint via npm, PSScriptAnalyzer via pwsh), and prints the exact package-manager hint for what needs root (go, python3, gcc, shellcheck). Shellcheck-gated.
-	- Test case: `check-install-dev.bash` (runs the shipped script on a throwaway clone: plan off the pins with tools stubbed, and --hooks-only), plus shellcheck in the lint stage.
+	- Test case: `check-install-dev.bash` (runs the shipped script on a throwaway clone: plan off the pins with tools stubbed, and --hooks-only), plus shellcheck in the lint stage. [dc1z7]
 	- Opened: 20260713-065600
 	- Closed: 20260722-195027
 
@@ -15990,7 +16004,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 					- Add %USERPROFILE%\bin\ to %PATH%.
 				- macOS: ?
 				- BSD: ?
-	- Test case: `shell-regress.bash` installer rows: tag pick per channel for install.bash and install.ps1, lay-down and uninstall, checksum line, API failure text, fake-API plan line.
+	- Test case: `shell-regress.bash` installer rows: tag pick per channel for install.bash and install.ps1, lay-down and uninstall, checksum line, API failure text, fake-API plan line. [dbzq8, dbzq9]
 	- Opened: 20260722-194151
 	- Closed: 20260722-195027
 
@@ -16053,8 +16067,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Runs as a script or sourced for typed helpers. Forwards the binary's exit code unchanged.
 		- ✅ PowerShell wrapper (`source/powershell/shcl.ps1`).
 			- Runs as a script or dot-sourced for the same typed helpers; forwards the binary's exit code in `$LASTEXITCODE`. Cross-platform binary resolution (also matches `.exe`).
-		- Test case: `shell-regress.bash` wrapper rows for `shcl.bash` (script and sourced) and `shcl.ps1` (exit code in $LASTEXITCODE).
-	- Test case: the Go, Python and C conformance runners over the corpus, and `crosscheck.bash` holding each CLI to the reference.
+		- Test case: none, the wrappers and their rows are gone: `shell-regress.bash` wrapper rows for `shcl.bash` (script and sourced) and `shcl.ps1` (exit code in $LASTEXITCODE).
+	- Test case: the Go, Python and C conformance runners over the corpus, and `crosscheck.bash` holding each CLI to the reference. [d9tsx, d9s1g]
 	- Opened: n/a
 	- Closed: 20260728-114451
 
@@ -16064,7 +16078,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ `--ci` mode is the correctness gate the GitHub workflow runs, so local and CI share one definition of passing.
 		- Test case: None, structural: ci.yml runs `cicd.bash --ci` as its gate step.
 	- ✅ cross-binding differential check. Every binding CLI must agree with the reference byte-for-byte on the corpus and a fuzz-dumped input set.
-		- Test case: `crosscheck.bash` (corpus plus fuzz-dumped extras), run by --ci.
+		- Test case: `crosscheck.bash` (corpus plus fuzz-dumped extras), run by --ci. [d9tsx]
 	- ✅ dogfood stage installs the fresh release binary to a fixed local dir. Off under `--ci`, no sudo path.
 		- Test case: None, local deploy stage, off under --ci.
 	- ✅ lint stage widened to every binding. ruff and mypy for Python, cppcheck for C, markdownlint for docs, PSScriptAnalyzer for the ps1 wrapper. All gating, locally and in CI; setup steps in `contributing.md`.
@@ -16082,7 +16096,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Test case: None, demo gif is a visual asset built outside --ci.
 	- ✅ Packaging (.deb, .rpm, NSIS). Wire it when release cuts start.
 		- Done: stage 6 builds .deb + .rpm (nfpm) per Linux binary and an NSIS setup per Windows binary into the release artifact dir, covered by the same sha256sums. `--no-package` to skip; off under `--ci` and `--quick`. Packages use distro layout (/usr/bin + /usr/share/shcl); payload matches install.bash.
-		- Test case: `shell-regress.bash` package rows: nfpm builds a .deb and .rpm from `nfpm.yaml` and reads them back with `fCheckDeps`, and the makensis rows where installed.
+		- Test case: `shell-regress.bash` package rows: nfpm builds a .deb and .rpm from `nfpm.yaml` and reads them back with `fCheckDeps`, and the makensis rows where installed. [dd5he, dd5hf]
 	- Test case: None, the pipeline is the gate itself; its sub-items have the checks.
 	- Opened: 20260713-065600
 	- Closed: 20260728-114451
@@ -16126,7 +16140,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - ✅ Rust reference parser (Tier 1) implementing the full spec, driven by the corpus. The `shcl` CLI builds from it.
 	- Done: single-file zero-dependency library plus the CLI (`get`, `fmt`, `check`, `count`, `instances`). Corpus-green, with fuzz smoke in the test run.
 	- Note: fuzzing turned up two formatter rules, now in `spec.md`.
-	- Test case: `tests/conformance.rs` over the corpus and `tests/fuzz_smoke.rs` (`mutated_inputs_never_panic_and_format_is_fixpoint`).
+	- Test case: `tests/conformance.rs` over the corpus and `tests/fuzz_smoke.rs` (`mutated_inputs_never_panic_and_format_is_fixpoint`). [d9tnp]
 	- Opened: n/a
 	- Closed: 20260713-065600
 
@@ -16136,7 +16150,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: a scratch copy of the test over every budget up to a finished parse came back NULL each time, clean under ASan. The header says a parse never reaches `SHCL_OOM()`, and nothing checks that for these two.
 		- Done: `oom_recover.c` runs every budget through `shcl_parse_keep_lines` and `shcl_load_file_keep_lines` on a text that is not canonical, so the copy is made. Each call comes back NULL or finishes with its text kept.
 		- Verified: with the recovery point taken out of `keep_source`, the test fails at `SHCL_OOM()`.
-		- Test case: `oom_recover.c`, as in the line above.
+		- Test case: `oom_recover.c`, as in the line above. [dc114]
 		- Opened: 20260925-144920
 		- Closed: 20260925-160837
 
@@ -16169,7 +16183,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Idea 3: `fBuildNumber` accepts an empty or non-numeric date and returns a build that looks valid.
 		- Done: `fBuildNumber` in `cicd.bash` takes digits only, from 2000 on, and otherwise says so and returns 1, which stops the release stage. The digits test comes before any arithmetic reads the argument.
-		- Pinned by: `shell-regress.bash` rows for an empty, a word, a negative, a padded and a pre-2000 argument, and one that would run a command. Four fail on the old function.
+		- Pinned by: `shell-regress.bash` rows for an empty, a word, a negative, a padded and a pre-2000 argument, and one that would run a command. Four fail on the old function. [dd2fp]
 		- Opened: 20260924-190225
 		- Closed: 20260925-160837
 
@@ -16179,42 +16193,42 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: packages are the same bytes on one box, but a different tool version on another box changes them with no warning. `ci.yml` must install the pinned versions in the same commit.
 		- Note: `nfpm` pinned 2026-09-26, so hosted CI can run the stub-package rows. `makensis` is left.
 		- Done: `makensis` pinned at 3.11 in `TOOL_PINS`. The hosted gate builds no release, so `check-pins.bash` leaves it out of what `ci.yml` has to install, as it does `cargo-zigbuild`.
-		- Test case: `check-pins.bash` passes with the new pin; the drift warning at the start of every run is the check.
+		- Test case: `check-pins.bash` passes with the new pin; the drift warning at the start of every run is the check. [dbz38]
 		- Opened: 20260924-133723
 		- Closed: 20260927-203331
 
 	- ✅ Idea 1: the installers take no `--version` (`-Version` in PowerShell).
 		- Note: all three scripts. silkterm's installers have a version constant for it.
 		- Done: all three take `--version`, and `install.ps1` takes `-Version`. Each prints its own version, 1.1.0.
-		- Test case: `shell-regress.bash` rows: `--version` byte for byte for install.bash and install-dev.bash, `-Version` for install.ps1.
+		- Test case: `shell-regress.bash` rows: `--version` byte for byte for install.bash and install-dev.bash, `-Version` for install.ps1. [dc0bt]
 		- Opened: 20260924-133723
 		- Closed: 20260924-142448
 
 	- ✅ Idea 2: the installers print no blank line on their fail and abort paths.
 		- Note: `fDie` in both Bash scripts, `Exit-Install` in `install.ps1`, and each "aborted" exit. `install-dev.bash --help` has no trailing blank either.
 		- Done: each run opens and ends with a blank line, on the error, abort and help paths too.
-		- Test case: `shell-regress.bash` rows: the `--bogus` refusal byte for byte for both bash installers, install.ps1's not-Windows refusal, and `--help` opening and ending on a blank line.
+		- Test case: `shell-regress.bash` rows: the `--bogus` refusal byte for byte for both bash installers, install.ps1's not-Windows refusal, and `--help` opening and ending on a blank line. [dc0bt]
 		- Opened: 20260924-133723
 		- Closed: 20260924-142448
 
 	- ✅ Idea 3: `install.bash` ranks any release tag, while `install.ps1` keeps only `vX.Y.Z` ones.
 		- Note: a tag such as `vnext` would outrank real versions under the Bash sort.
 		- Fixed: only `vX.Y.Z` tags count, as in `install.ps1`.
-		- Pinned by: a `vnext` row in the `shell-regress.bash` tag fixture, which the old picker takes on both channels.
+		- Pinned by: a `vnext` row in the `shell-regress.bash` tag fixture, which the old picker takes on both channels. [dbzq8, dbzq9]
 		- Opened: 20260924-133723
 		- Closed: 20260924-142448
 
 	- ✅ Idea 4: the install plan does not say where the files come from.
 		- Note: add the release URL to the plan in both installers.
 		- Done: the plan names the release page, in both installers.
-		- Test case: `shell-regress.bash` rows: install.ps1's fake-API plan and a full install.bash run with a stub curl, each naming the release page for stable and dev.
+		- Test case: `shell-regress.bash` rows: install.ps1's fake-API plan and a full install.bash run with a stub curl, each naming the release page for stable and dev. [dd5gw, dd2rm]
 		- Opened: 20260924-133723
 		- Closed: 20260924-142448
 
 	- ✅ Idea 5: `install.ps1` shows a raw exception when a download or file copy fails.
 		- Note: a locked `shcl.exe` or a read-only target reads as "used by another process" or a stack of .NET text. There is no writable check before the download and no floor below 5.1. silkterm's installer has helpers for all three.
 		- Fixed: a failed download names the file and the HTTP status or reason. The copy step gives one line. Before any download, the target is probed for write access, and an existing `shcl.exe` is opened with no sharing, which a running copy refuses. Below 5.1 it says what it needs.
-		- Pinned by: `shell-regress.bash` rows for a read-only target and a `shcl.exe` held open. Both fail with the probes taken out.
+		- Pinned by: `shell-regress.bash` rows for a read-only target and a `shcl.exe` held open. Both fail with the probes taken out. [dcz7z, dd2f6]
 		- Opened: 20260924-133723
 		- Closed: 20260924-142448
 
@@ -16229,14 +16243,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: `stable` and `user` are the usual defaults. Changing it is a call to make, and stable as the default also wants a fallback to the newest prerelease when no stable release exists.
 		- Decided: `stable` and `user` (JC, 2026-09-24).
 		- Done: both installers. While there is no full release, `stable` takes the newest pre-release and the plan says so.
-		- Pinned by: a pre-release-only fixture in `shell-regress.bash`, which the old pickers answer with nothing.
+		- Pinned by: a pre-release-only fixture in `shell-regress.bash`, which the old pickers answer with nothing. [dd2f5]
 		- Opened: 20260924-133723
 		- Closed: 20260924-142448
 
 	- ✅ Idea 9: the dogfood install copies over a binary that is running.
 		- Note: skip the copy with a warning when the target is in use.
 		- Done: stage 7 skips the copy with a warning while a process runs from it. Linux only, through `/proc`.
-		- Pinned by: `shell-regress.bash` rows on a running and an idle binary. They fail with the scan broken.
+		- Pinned by: `shell-regress.bash` rows on a running and an idle binary. They fail with the scan broken. [dd2gp]
 		- Opened: 20260924-133723
 		- Closed: 20260924-151302
 
@@ -16245,7 +16259,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: the latest link is `~/.local/bin/shcl`, the user install location. A system install goes in the usual root location, `/usr/local/bin` (JC, 2026-09-24).
 		- Done: `utility/dogfood_shcl.ps1`, with `dogfood_shcl` for Linux and macOS and `dogfood_shcl.cmd` for Windows. It takes the build from the synced dogfood dir and keeps 5 to 10 versions within 1 GB, by GFS role. It never deletes a running version, and leaves a regular file at the fixed name alone. The pipe gets only shcl's output. Stage 7 deploys all three where they changed. `n8runshcl.ps1` is gone.
 		- Decided against: self-elevating on Windows. A CLI's output would land in a new window that closes. The fixed name falls back to a hard link, then a copy.
-		- Pinned by: `shell-regress.bash` rows, which fail with the running check, the stderr notes or the regular-file guard taken out.
+		- Pinned by: `shell-regress.bash` rows, which fail with the running check, the stderr notes or the regular-file guard taken out. [dd2gn]
 		- Opened: 20260924-133723
 		- Closed: 20260924-151302
 
@@ -16253,7 +16267,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: include the build number (JC, 2026-09-24). It reverses an earlier call for no `build` stamp and a bare `version` line.
 		- Note: it would be minutes since 2000 from the commit time, in lower-case Crockford base32, in all four CLIs. `cargo install` from crates.io has no git history, so it needs a fallback.
 		- Done: the release builds in stage 6 print `shcl vX.Y.Z build <id>` for `version` and on the first line of `about`. `version` stays one line, as design.md has it for scripts. Other builds print `shcl vX.Y.Z`, the other three CLIs included, so the four still compare byte for byte.
-		- Pinned by: `shell-regress.bash` rows for the encoding, and for the export ahead of the native release build. Both fail with the alphabet or the export broken.
+		- Pinned by: `shell-regress.bash` rows for the encoding, and for the export ahead of the native release build. Both fail with the alphabet or the export broken. [dd2fp]
 		- Opened: 20260924-133723
 		- Closed: 20260924-144234
 
@@ -16287,7 +16301,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Idea 1: `check` gives the "Pipe instead" hint for `--layer`, `--set` and `--set-literal`, but not for `--set-default`, `--set-literal-default` or `--remove`.
 		- Note: least surprise. The help says the five edit options share one list, and the last three came in 20260830b item 21 without this site. All four CLIs.
 		- Done: all six edit options get the hint. `check_opts` in Rust, Python and C, `checkOpts` in Go.
-		- Pinned by: six `cli-regress.bash` rows. The three new ones fail on the old CLI.
+		- Pinned by: six `cli-regress.bash` rows. The three new ones fail on the old CLI. [dd3z7, dd3z8, dd3z9]
 		- Opened: 20260923-145138
 		- Closed: 20260925-160837
 
@@ -16296,7 +16310,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Done: `--remove` refuses a path the scanner rejects or one with a value part, at option parse, in every subcommand that takes it. A missing path or a wildcard still removes nothing at exit 0. The help and the man page say so.
 		- Done: the ops script's `remove` and `clear-comments` refuse the same paths. They took them as a miss too.
 		- Swept: `unusable_path` in Rust, Python and C, `unusablePath` in Go, called from `set_value_opt` and `apply_op` (`setValueOpt` and `applyOp` in Go, `_set_value_opt` in Python).
-		- Pinned by: seven `cli-regress.bash` rows. Five fail on the old CLI.
+		- Pinned by: seven `cli-regress.bash` rows. Five fail on the old CLI. [dd3zd, dd3zj]
 		- Opened: 20260923-145138
 		- Closed: 20260925-160837
 
@@ -16333,7 +16347,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `5756a59` (2026-07-12) and later. 20260829 item 47 trimmed the pads and did not measure this.
 		- Fixed: `emit_element`, `escape_name` and `emit_name` hand back the text they were given when it needs no quoting, and copy only where a caller keeps it. The inside pad is written straight into the output, and so is each cell. `escape_name` checks bytes, which left `is_bare_name_char` unused, so it went.
 		- Measured: with ideas 7 and 8, `fmt` on the 16 MB document went from about 1.02 to 0.92 s, and on the 32 MB comment-heavy one from 0.93 to 0.71 s. Output identical.
-		- Pinned by: nothing new. The conformance suite and the crosscheck cover the output.
+		- Pinned by: none new. The conformance suite and the crosscheck cover the output.
 		- Test case: None, perf idea with no number to pin; output held by corpus and crosscheck.
 		- Opened: 20260922-120717
 		- Closed: 20260923-085158
@@ -16344,7 +16358,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: try a document of many short names first, since the map takes its control bits from the top of the hash.
 		- Fixed: the eight maps use a hasher that takes the key as it is, with its top half folded down. Fnv's low bits are its weak ones, and the table picks a bucket from the low bits.
 		- Measured: `fmt` and `fmt --layer` on the 16 MB document were each about 3 percent faster, inside the noise of a shared box. A document of many one- and two-letter names was no slower. Output identical.
-		- Pinned by: nothing new. The conformance suite and the crosscheck cover the output.
+		- Pinned by: none new. The conformance suite and the crosscheck cover the output.
 		- Origin: `082c917` (2026-08-21) and `5321e38` (2026-09-19).
 		- Test case: None, perf idea with no number to pin; output held by corpus and crosscheck.
 		- Opened: 20260922-120717
@@ -16369,7 +16383,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `5756a59` (2026-07-12) in Rust. 20260829 item 47 left it with no number.
 		- Fixed: Rust, C and Python hold the first node of a name and make the list on the second, as Go does. All four skip a parent with fewer than two children. C also resets its scratch arena per parent, since each hint is copied out as it is made.
 		- Measured: C `fmt` on the 16 MB document went from about 0.69 to 0.61 s, and peak memory from 536 to 388 MB. On the comment-heavy document peak memory went from 479 to 406 MB. Output identical.
-		- Pinned by: nothing new. The corpus's H001 cases and the crosscheck cover the output.
+		- Pinned by: none new. The corpus's H001 cases and the crosscheck cover the output.
 		- Test case: None, perf idea with no number to pin; output held by H001 corpus cases.
 		- Opened: 20260922-120717
 		- Closed: 20260923-085158
@@ -16381,7 +16395,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `e58fe9f` (2026-09-07), `5756a59` (2026-07-12), and `0165a83` (2026-09-21) for the comment filing.
 		- Fixed: `PathScan` keeps a span into the line in place of a copy of the value text. `attach_path` takes its segments by value, so each name moves into its node. The parser borrows each indent from the source text, for its stack and for pending comments, and the comment filing sorts the pending list in place.
 		- Measured: see idea 3.
-		- Pinned by: nothing new. The 2,000,000-run release fuzz and the crosscheck over fuzz inputs pass.
+		- Pinned by: none new. The 2,000,000-run release fuzz and the crosscheck over fuzz inputs pass.
 		- Test case: None, refactor, no behavior change.
 		- Opened: 20260922-120717
 		- Closed: 20260923-085158
@@ -16392,7 +16406,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: mostly `e58fe9f` (2026-09-07) and `5756a59` (2026-07-12). No directive pass had read them.
 		- Fixed: all the named sites borrow now. The two `children.clone()` calls before a fold read the survivor's new tail instead, since the fold only appends. The CLI takes an option's earlier value rather than copying it, since the new value replaces it next, and `do_tokens` writes into its buffer.
 		- Measured: see idea 3.
-		- Pinned by: nothing new. The conformance suite and `cli-regress.bash` pass.
+		- Pinned by: none new. The conformance suite and `cli-regress.bash` pass.
 		- Test case: None, refactor, no behavior change.
 		- Opened: 20260922-120717
 		- Closed: 20260923-085158
@@ -16400,7 +16414,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Idea 9: containers whose size is known are grown one push at a time. Unmeasured.
 		- Note: the duplicate-fold maps in Rust (`fold_late_dups` and the writer's fold) and in C (`fold_late_dups`, `w_fold_dups_below`), which Go sized last round. Rust's `cell_of_tokens`. Four loops in the C++ veneer, one of them run once per tokenized line.
 		- Fixed: the duplicate-fold maps are sized to the child count in Rust, both folds, and in C, through a new `cmap_reserve` that leaves are skipped for. Rust's `cell_of_tokens` reserves its elements, as Go's does. The four veneer loops reserve, like every other loop in `shcl.hpp`.
-		- Pinned by: nothing new. Unmeasured, as filed.
+		- Pinned by: none new. Unmeasured, as filed.
 		- Origin: 2026-07 to 2026-09.
 		- Test case: None, refactor, no behavior change.
 		- Opened: 20260922-120717
@@ -16421,7 +16435,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Measured: gcc 14, gcc 15 and clang 19 give one `-Wshadow` warning in `shcl.h`, in `generate_in`'s rank loop, and two in `conformance.c`. Nothing else.
 		- Note: rename the three locals, then add the flags in `config.bash` and `check-c-compilers.bash`.
 		- Fixed: the three locals are renamed, and eight more in `mem_bounds.c` and `oom_hook.c` that the review did not build. The four flags are on every Linux C build in `config.bash` and `check-c-compilers.bash`. The mingw check takes `-Wshadow -Wvla` only, since its `isfinite` and `isnan` macros trip `-Wconversion`.
-		- Pinned by: `check-c-compilers.bash`, 80 builds on gcc 12 to 15 and clang. With the `shcl.h` shadow put back it failed 75 of them.
+		- Pinned by: `check-c-compilers.bash`, 80 builds on gcc 12 to 15 and clang. With the `shcl.h` shadow put back it failed 75 of them. [dc0dc, dc0dd]
 		- Origin: the directive's C section, 2026-09-19.
 		- Opened: 20260922-120717
 		- Closed: 20260922-190014
@@ -16432,7 +16446,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: `Read` is `Generic[T]`, and the read tier returns `Read[int]`, `Read[list[str]]` and so on. The six helpers and `Piece` have hints. `mypy --strict` goes from 66 `no-any-return` to 3, all inside the module, and a consumer file sees `int` and `list[str]`.
 		- Measured: `Read` still has no `__dict__`, and 200,000 `read_int` calls took the same time.
 		- Origin: `68ba5ab` (2026-07-21) and `d78cb8b` (2026-08-29).
-		- Test case: `source/python/tests/typing_probe.py`, run by mypy in the lint stage: every typed read comes back as its element type, not `Any`.
+		- Test case: none by ID, since mypy in the lint stage is the check: `source/python/tests/typing_probe.py`, run by mypy in the lint stage: every typed read comes back as its element type, not `Any`.
 		- Opened: 20260922-120717
 		- Closed: 20260922-190014
 
@@ -16441,7 +16455,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: `diag_value`, `desc` and `emit_value_inline` end on a `_` arm that stands for two named variants.
 		- Fixed: `Migration` derives `Debug`, and the three arms name `Value::Empty | Value::Raw(_)`.
 		- Origin: `7040ab7` (2026-09-16) and earlier.
-		- Test case: `#![warn(missing_debug_implementations)]` in lib.rs, failed by clippy `-D warnings`. The wildcard-arm half has none, since clippy's lint flags nine other arms.
+		- Test case: none by ID, since clippy in the lint stage is the check: `#![warn(missing_debug_implementations)]` in lib.rs, failed by clippy `-D warnings`. The wildcard-arm half has none, since clippy's lint flags nine other arms.
 		- Opened: 20260922-120717
 		- Closed: 20260922-190014
 
@@ -16464,7 +16478,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: the remove after a successful link keeps its behavior. The save has gone through by then, and failing it would be the bigger surprise. That reason is now in the doc comment of `publishNewFile` in Go, `publish_new_file` in Rust, `_publish_new_file` in Python and `shcl_publish_new_file` in C, and the windows backup's in each windows publish.
 		- Fixed: in the tests, a probe file's close and a read-back fail the test now, and the Standard `ParseLimited` calls say why they drop the error.
 		- Fixed: `readInput` wraps with `%w` at both sites. The message text is the same.
-		- Pinned by: nothing new, since the only code change is the wrap. `cli-regress.bash` passes all 221 rows on the new Go CLI.
+		- Pinned by: none new, since the only code change is the wrap. `cli-regress.bash` passes all 221 rows on the new Go CLI.
 		- Test case: None, refactor, no behavior change; message text unchanged.
 		- Opened: 20260921-132543
 		- Closed: 20260921-185850
@@ -16486,7 +16500,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: a `staticcheck.conf` turning on ST1020 and ST1021 would hold the form after the fix.
 		- Fixed: the four doc comments are in the `Name does X` form, `statGid` is `statGID`, and a blank line splits the windows file comment from `package shcl`.
 		- Fixed: `source/go/staticcheck.conf` turns on ST1000, ST1003, ST1020 and ST1021. The CLI module reads it too, from the parent directory.
-		- Pinned by: the config. With a `ReadRaw:` comment and the `statGid` name put back, `staticcheck ./...` exits 1 and names both. A probe function named `probeGid` in the CLI module fails the same way.
+		- Pinned by: none by ID, since staticcheck in the lint stage is the check: the config. With a `ReadRaw:` comment and the `statGid` name put back, `staticcheck ./...` exits 1 and names both. A probe function named `probeGid` in the CLI module fails the same way.
 		- Opened: 20260921-132543
 		- Closed: 20260921-185850
 
@@ -16494,7 +16508,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: with pipeline indentation off, it flags five lines today, in `shcl.ps1`, `install.ps1` and `n8runshcl.ps1`. Fix those, then enable it.
 		- Fixed: `PSScriptAnalyzerSettings.psd1` turns the rule on with tabs. It checks pipeline lines too, at one tab past the first pipe, which is how the scripts already lay them out.
 		- Fixed: the two flagged spots, in `shcl.ps1` and `install.ps1`, are plain statements now rather than backtick continuations. The rule has no room for spaces lined up after the tabs.
-		- Pinned by: the lint stage. The old `shcl.ps1` and `install.ps1` fail it under the new settings and pass under the old.
+		- Pinned by: none by ID, since the analyzer in the lint stage is the check: the lint stage. The old `shcl.ps1` and `install.ps1` fail it under the new settings and pass under the old.
 		- Opened: 20260921-132543
 		- Closed: 20260922-072651
 
@@ -16505,7 +16519,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: every `Join-Path` names its parameters, and so do the other positional cmdlet calls. The two constant strings are single-quoted. `shclpath.ps1` sets strict mode and has the house copyright block, and keeps its CRLF line ends.
 		- Keep: `shcl.ps1`'s functions stay plain, per the style guide. An advanced function has no `$args`, so the pass-through would break.
 		- Left alone: help blocks on the small inner helpers, which each have a comment already. `Write-Output` and a script's own two-argument helpers stay positional, which the analyzer allows.
-		- Pinned by: the analyzer, and shell-regress, which lifts five `install.ps1` functions and runs them. Three of its source-order checks follow the new spellings. The hosted windows job runs `winpath-regress.ps1` and `shclpath.ps1` under 5.1.
+		- Pinned by: none by ID, since the analyzer in the lint stage is the check: the analyzer, and shell-regress, which lifts five `install.ps1` functions and runs them. Three of its source-order checks follow the new spellings. The hosted windows job runs `winpath-regress.ps1` and `shclpath.ps1` under 5.1.
 		- Opened: 20260921-132543
 		- Closed: 20260922-072651
 
@@ -16513,7 +16527,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: plausible, read only. A running `shcl.exe` is locked, so its removal fails silently, and the message says the directory holds files the installer did not put there.
 		- Fixed: the removal is `Remove-ShclFile`, which hands back what would not go and whether anything the installer did not write is left. A file that would not go ends the run at exit 1 and is named, before the PATH entry is touched, so a second run finishes the job. The line about someone else's files shows only when there are some.
 		- Note: what is left is judged by name within its own dir. A full path read back can be written differently from the one given, as a short 8.3 name is, and a compare by full path counted the locked file as someone else's.
-		- Pinned by: shell-regress. The real script, with a read-only dir standing in for the lock, must name the file and must not blame anyone else. The old script passes over it in silence. More rows run the function on a clean install, on one holding a file it did not write, and on a dir named by a path written differently from the one read back.
+		- Pinned by: shell-regress. The real script, with a read-only dir standing in for the lock, must name the file and must not blame anyone else. The old script passes over it in silence. More rows run the function on a clean install, on one holding a file it did not write, and on a dir named by a path written differently from the one read back. [dcz7z]
 		- Pinned by: a `win-runners.bash` row that holds `shcl.exe` open with no sharing, which stops a delete the way a running copy does, and runs the function under 5.1.
 		- Opened: 20260921-132543
 		- Closed: 20260922-072651
@@ -16521,7 +16535,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Idea 7: two naming conventions inside one script.
 		- Note: `install-dev.bash` mixes `setup_hooks` and `have` with `fIsShcl` and `fOnPath`. `install.bash` mixes `fetch` and `die` with `fApiStatus`. `cicd.bash` has one camelCase variable among snake_case ones.
 		- Fixed: the helpers in both installers take the `f` prefix: `fDie`, `fHave`, `fUsage`, `fFetch`, `fFetchApi`, `fSetupHooks`, `fPin`, `fAtPin` and `fCppcheckWheel`. The two stray variables are snake_case like the rest of their files, `man_note` and `installer_drift`.
-		- Pinned by: nothing new. shell-regress lifts both fetch helpers by name and runs them, and `check-install-dev.bash` runs the dev installer's default path.
+		- Pinned by: none new. shell-regress lifts both fetch helpers by name and runs them, and `check-install-dev.bash` runs the dev installer's default path.
 		- Test case: None, rename; shell-regress lifts the renamed helpers by name.
 		- Opened: 20260921-132543
 		- Closed: 20260922-072651
@@ -16530,7 +16544,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: a compile takes about 4.7 s here, so about 19 s per hosted windows run, likely more under mingw. Build it once and share it.
 		- Fixed: `fBuildCcli` builds it once for all five rows. A failed build is remembered, so each row fails on it without compiling again.
 		- Measured: on the hosted windows job a build is about 5 s, and the four rows after the first no longer pay it. The long path row went from 5.3 s to 0.1 s and the C devices row from 5.1 s to 0.3 s.
-		- Pinned by: nothing new. The hosted windows job runs all five rows, and passed them on run `35742074457`.
+		- Pinned by: none new. The hosted windows job runs all five rows, and passed them on run `35742074457`.
 		- Test case: None, CI build-time change, no behavior change.
 		- Opened: 20260921-132543
 		- Closed: 20260922-072651
@@ -16554,7 +16568,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the read side is thin in the same place. No `input.shcl` has a fence run longer than three, a closing fence deeper than its opener, a closing fence with trailing text, or a mismatched closer.
 		- Fixed: corpus case `131-raw-fence-runs`, both halves in one case. Its `write.ops` sets six raw blocks whose bodies hold a three-run, a three and a four, a tilde run, an indented run, a run with a label after it, and a run alone; its `input.shcl` has the four read shapes the note lists. All four bindings agreed with the reference on every one, so nothing was wrong, which is what the note expected.
 		- Note: a run with text after it counts for nothing, because a closer has to be the whole trimmed line. That is why a body line written ```` ```python ```` still gets a three-backtick fence and still reads back.
-		- Pinned by: case `131`. Watched to fail twice: with `choose_fence` pinned at three the write golden and its fixpoint go red, and with `is_fence_close` reading only the first `min_len` bytes the trailing-text line closes the block and the read golden goes red. Both fired on case `131` alone.
+		- Pinned by: case `131`. Watched to fail twice: with `choose_fence` pinned at three the write golden and its fixpoint go red, and with `is_fence_close` reading only the first `min_len` bytes the trailing-text line closes the block and the read golden goes red. Both fired on case `131` alone. [dcxx0]
 		- Opened: 20260920-174959
 		- Closed: 20260921-082651
 
@@ -16575,7 +16589,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: no stated bound is broken. The header already says a removed node's storage is not reclaimed until `shcl_compact`, so this is a cost, not a defect.
 		- Fixed: `shcl_remove` takes its three work vectors from `d->scratch`, which the `resolve` at the top of the call already reset and which nothing resolves again before it returns. `targets` moved with `marked` and `parents`: it was pushed on the document arena too in the single-target and slot arms.
 		- Measured: removing 20,000 same-named leaves grew the document arena by 1,048,448 bytes before and by 0 after.
-		- Pinned by: a `remove` block in `source/c/tests/mem_bounds.c`, bounded at 8 KB. Watched to fail with the arena put back.
+		- Pinned by: a `remove` block in `source/c/tests/mem_bounds.c`, bounded at 8 KB. Watched to fail with the arena put back. [dc25j]
 		- Opened: 20260920-174959
 		- Closed: 20260920-204500
 
@@ -16583,7 +16597,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: all four runners and `crosscheck.bash` skip such a directory without a word, while `check-docs.bash` still requires its README note, so the case looks present and asserts nothing. No directory is in that state today.
 		- Note: the C runner's own comment says a missing `expected.shcl` or `reads.tsv` used to count as a pass and that those two were fixed. The case-level skip is the one that stayed. Crosscheck's NUL skip is the model: it says so out loud.
 		- Fixed: a directory with no `input.shcl` is a mistake, not a non-case. The Rust, Go and Python runners fail on it the way the C runner already failed on a missing `expected.shcl`; the C runner takes every subdirectory as a case now, through an `opendir` test that needs no extra header on windows, so its own check fires. `crosscheck.bash` exits 2 and names the directory.
-		- Pinned by: nothing standing, since no such directory exists and adding one would fail the whole corpus. Watched instead: an empty `999-no-input` directory makes all four runners and crosscheck say so by name, and every one of them passed before.
+		- Pinned by: none standing, since no such directory exists and adding one would fail the whole corpus. Watched instead: an empty `999-no-input` directory makes all four runners and crosscheck say so by name, and every one of them passed before.
 		- Test case: `shell-regress.bash` crosscheck self-test and C corpus runner rows on a case directory holding only reads.tsv. The Rust, Go and Python runners read a fixed corpus path, so they get no row.
 		- Opened: 20260920-174959
 		- Closed: 20260920-204500
@@ -16602,14 +16616,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: `generated_starters` discards `generate_checked`'s result in its mutated-seed loop, so the doc comment's floors are not enforced. It passes if `generate` refuses every mutated schema.
 		- Fixed, all three. `comments_behind_selectors_stay_comments` runs the four selector shapes alone first, where nothing above can drop the line, and asks for a zero lost count and exactly one canonical line ending in `# k`; the soup loop and its floor stay as they were. `raw_bodies_stay_content` reads each body line back out of the document's values and floors how many it read. `generated_starters_load_and_validate_clean` counts the mutated seeds that generated and floors it at a sixteenth.
 		- Measured: 235 of 2000 mutated schemas generate, so the floor sits at about half the observed rate. Holds at 300, 20,000 and 200,000 iterations.
-		- Pinned by: the properties themselves, each watched to fail and each shown to have passed the same injection before. An `E017` in a selector made to drop its line: the new head catches it, the old property does not. A parsed raw block emptied of its body: the read-back catches it, the old property does not. A `generate` that refuses any schema over 300 bytes, which is the corpus seeds and not the grid: the new floor catches it.
+		- Pinned by: the properties themselves, each watched to fail and each shown to have passed the same injection before. An `E017` in a selector made to drop its line: the new head catches it, the old property does not. A parsed raw block emptied of its body: the read-back catches it, the old property does not. A `generate` that refuses any schema over 300 bytes, which is the corpus seeds and not the grid: the new floor catches it. [dcavy, dc26d]
 		- Opened: 20260920-174959
 		- Closed: 20260920-204500
 
 	- ✅ Idea 7: the set-id file-mode fixture skips without saying so in all four runners.
 		- Note: each guards on the mode it just set being readable back as `6750` and moves on quietly when it is not. Setgid is cleared when the file's group is not the caller's, so the guard fires on ordinary boxes. It passes if a save drops setuid or setgid anywhere that happens.
 		- Fixed: each of the four runners prints `skipping the set-id fixture` with the mode it got back, so a box where setgid does not stick says so instead of passing quietly. The assertion itself is unchanged.
-		- Pinned by: nothing, since the skip does not fire on this box (the mode reads back as 6750 here). Watched instead: comparing against 6751 makes all four print the line.
+		- Pinned by: none, since the skip does not fire on this box (the mode reads back as 6750 here). Watched instead: comparing against 6751 makes all four print the line.
 		- Test case: None, skip message only fires on a box where setgid does not stick.
 		- Opened: 20260920-174959
 		- Closed: 20260920-204500
@@ -16621,7 +16635,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: indentation and fence termination are context ABNF cannot state, so a line rule's sample gets a parent field and a tab when it has no indent of its own. The rule's own indent is `*(SP / HTAB)`, so that stays inside it. Where a probe needs a closing fence, the run to close is read off `shcl tokens` rather than guessed from the text.
 		- Note: three `bareword` rows in the true direction went in with it (`a]b`, `C:\dir\file`, `it's fine`), since all six that were there refuse. They are the value halves of field lines already listed.
 		- Note: the tie needs the debug binary. With none it says so on stderr and notes itself in `SHCL_GATE_SKIPS`, as `check-docs.bash` does for its own help checks, and under `SHCL_GATE_STRICT` it fails instead. The lint stage runs after the debug build, so a full run always has one.
-		- Pinned by: itself, watched to fail four times, each on the row it should and no other. A narrowed info string (the 20260918b item 51 defect put back) reddens `sql:pg, "v" [x]`; quoting a backslash in the emitter reddens `back\slash`; backtick-only fences redden the tilde fence line; a value scan that never splits on a comma reddens `a,b`.
+		- Pinned by: itself, watched to fail four times, each on the row it should and no other. A narrowed info string (the 20260918b item 51 defect put back) reddens `sql:pg, "v" [x]`; quoting a backslash in the emitter reddens `back\slash`; backtick-only fences redden the tilde fence line; a value scan that never splits on a comma reddens `a,b`. [dcv6b, dcv6c]
 		- Opened: 20260920-174959
 		- Closed: 20260921-093726
 
@@ -16631,7 +16645,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: three walks in `pyworker.py`, one per document shape. `data_scalars` for json, yaml and both toml readers, over `Mapping` and `Sequence` rather than `dict` and `list`, since tomlkit hands back its own containers. `xml_scalars` for both XML readers, counting a leaf element and dropping lxml's comments and processing instructions. `shcl_scalars` for the binding, through `children()` and `instances()` the way the rust walk goes.
 		- Fixed: the count has its own worker mode, `--count KEY FILE`, so it stays out of the measured run and costs the timings and the memory figures nothing. The rust worker leaves it out the same way. `verify()` renders each pre-flight document to a file and asks every python library the tier can import.
 		- Measured: six shapes, thirteen libraries, and every one agrees. Nothing was wrong, which is what the note expected. `tomlkit` is not installed on this box, so `toml-edit` is the one python row still unchecked.
-		- Pinned by: `verify()` itself, watched to fail three times. A mapping counted as a value of its own reddens json, yaml and toml; an XML branch counted the same way reddens both XML readers; and an `shcl_scalars` blind to repeated instances reddens `records` and `ddl` alone, which is the trap the rust walk's comment warns about.
+		- Pinned by: none by ID, since the comparison tool checks itself in `verify()`: `verify()` itself, watched to fail three times. A mapping counted as a value of its own reddens json, yaml and toml; an XML branch counted the same way reddens both XML readers; and an `shcl_scalars` blind to repeated instances reddens `records` and `ddl` alone, which is the trap the rust walk's comment warns about.
 		- Note: a first injection, a string read as a sequence, only made the worker recurse until it died, so it was thrown out and replaced. A fixture has to fail the way the check is for.
 		- Note: `design.md` says what the check covers now.
 		- Test case: None, comparison tool is not in CI.
@@ -16644,7 +16658,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Done: the sandbox path on B29W, with TMP and TEMP set to a folder whose name holds a space. The fixed `winpath-sandbox.ps1` started the sandbox and the registry gate passed inside it. The script from before item 19's fix waited out its 420 seconds and failed under the same TEMP, so the setup does reach the defect.
 		- Done: the four device rows and the Python runner ran on a hosted windows runner (build 26100), on dev `bca746f`, and all passed. That runner has git-bash, which neither box here does, so it is the place these rows run from now on.
 		- Measured: the Python row goes red with the Python CLI's pre-read check taken out. `CON` exited 124 at the 20 second timeout, which is the console wait the row exists for, and the other three device rows stayed green.
-		- Test case: `win-runners.bash` `fCheckDevices` rows and the Python runner, on the hosted windows job.
+		- Test case: `win-runners.bash` `fCheckDevices` rows and the Python runner, on the hosted windows job. [dc3b1, dc477]
 		- Opened: 20260920-174959
 		- Closed: 20260921-105648
 
@@ -16669,7 +16683,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: idea.
 		- Corrected: the eight budgets did reach the level pool and the recovery arm, which an injected leak of each proves. What they never reached was a validate that finished, since the whole call cost exactly eight allocations, so nothing on the completed path was under the swapped allocator at all.
 		- Fixed: the bound is 400, like its two siblings, and the sweep now asserts that a budget loose enough to finish is in it. The schema is 200 fields with a constraint on each, half the document's keys, so a budget can run out in the check walk and in the unknown-key sweep rather than only in a one-field schema build.
-		- Pinned by: the test itself. With `shcl_validation_free` leaving the validation arena behind, the old sweep is clean and the new one reports 375 MB leaked in 5321 allocations under the sanitizers.
+		- Pinned by: the test itself. With `shcl_validation_free` leaving the validation arena behind, the old sweep is clean and the new one reports 375 MB leaked in 5321 allocations under the sanitizers. [dbwdx]
 		- Cost: 1.4 s plain and 6.2 s under the sanitizers, from 0.2 s.
 		- Opened: 20260920-055406
 		- Closed: 20260920-131500
@@ -16684,7 +16698,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Worse than filed in one place: the C CLI did not return at all on `CON`. Its pre-read check was a no-op on windows, so it read the file before deciding it would not write it, and a read of the console device waits.
 		- Fixed: a device test in all four, at both sites - the library save, and the CLI's pre-read check, which has to answer before the read for the same reason a FIFO is not drained. The handle answers first, since it is the OS's own and it keeps a volume-prefixed real path out of the device case; where the open is refused outright (`CON` gives ERROR_INVALID_PARAMETER) the full path decides, because a reserved name resolves into the device namespace from whatever directory it is typed in.
 		- Measured on b29w and vm925w, all four bindings, before and after. Before: C did not return on `CON` and said `No such file or directory` for `NUL`; Rust said `Cannot create a file when that file already exists. (os error 183)` for all three; Go and Python said `not a regular file` for `CON` and `NUL` and leaked the publish error for `COM1`, Python's naming its own temp file. After: `CON`, `NUL` and `COM1` are exit 8 with `not a regular file` in all four, and an ordinary create and an ordinary rewrite are unchanged.
-		- Pinned by: a `win-runners.bash` row per binding, run under a timeout, since the defect it watches for is a read that waits on the console and a gate that hangs reports nothing.
+		- Pinned by: a `win-runners.bash` row per binding, run under a timeout, since the defect it watches for is a read that waits on the console and a gate that hangs reports nothing. [dc3b1]
 		- Opened: 20260920-055406
 		- Closed: 20260920-184500
 
@@ -16694,7 +16708,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the shell list drifted this way once and got its check on 2026-09-19.
 		- Origin: idea.
 		- Fixed: `shell-regress.bash` compares both lists with the tracked files, both ways, beside the shellcheck one. PowerShell is one `Invoke-ScriptAnalyzer` line per file. Python is two lists read as one: the binding's own files from `[tool.mypy] files` in its project file, everything else from the pipeline's ruff line. Ruff inside `source/python` is pointed at the whole directory and needs no list.
-		- Pinned by: three injections. A new `.ps1` and a new `.py` that no list names, a dropped analyzer line, and a mypy entry renamed to a file that does not exist. Each is reported by name, and the renamed one is reported from both sides at once.
+		- Pinned by: three injections. A new `.ps1` and a new `.py` that no list names, a dropped analyzer line, and a mypy entry renamed to a file that does not exist. Each is reported by name, and the renamed one is reported from both sides at once. [dcwqf, dcwqg]
 		- Opened: 20260920-055406
 		- Closed: 20260920-134500
 
@@ -16704,7 +16718,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Probable fix: assert each replaced text changed, and name the anchor that did not.
 		- Origin: idea.
 		- Fixed: the six replaces go through one helper that stops on a replace that changed nothing and says which anchor it wanted.
-		- Pinned by: itself. With the dispatch anchor written `do_pathsX`, the row reports `anchor not found: main.rs: the paths line of the dispatch` instead of building a fixture that tests nothing.
+		- Pinned by: itself. With the dispatch anchor written `do_pathsX`, the row reports `anchor not found: main.rs: the paths line of the dispatch` instead of building a fixture that tests nothing. [dbfgh]
 		- Opened: 20260920-055406
 		- Closed: 20260920-142000
 
@@ -16713,7 +16727,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Probable fix: match the whole line on the Windows side as well.
 		- Origin: idea.
 		- Fixed: both `Where-Object` filters in `install.ps1` anchor the name the way `install.bash` greps it, leading whitespace to end of line, and match case-sensitively.
-		- Pinned by: a `shell-regress.bash` row that lifts both lines out of the shipped file and runs them over a sums file holding a `.sha256` sidecar line above each asset. The old lines answer with the sidecar's hash for both.
+		- Pinned by: a `shell-regress.bash` row that lifts both lines out of the shipped file and runs them over a sums file holding a `.sha256` sidecar line above each asset. The old lines answer with the sidecar's hash for both. [dcwqe]
 		- Opened: 20260920-055406
 		- Closed: 20260920-142000
 
@@ -16724,7 +16738,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the same site has been fixed twice for this class already - a fragment that did not compile, and transcripts that drifted.
 		- Origin: idea.
 		- Fixed: `check-readme.bash` builds all five and runs the four that save. Each gets its own directory and a fresh copy of the README's config block, and the file it leaves is compared with the "What saving does" block. Rust is a short manifest with a path dependency, with the tree's `rust-toolchain.toml` so the example is built with the toolchain the rest of the gate uses; Python is the block with `shcl.py` beside it. Nothing reaches the network.
-		- Pinned by: two injections. One number changed in the "What saving does" block, which all four report, and one changed in the Python example alone, which only Python reports.
+		- Pinned by: two injections. One number changed in the "What saving does" block, which all four report, and one changed in the Python example alone, which only Python reports. [dcbc6, dd5fe, dcbc7, dcwqv, dcwqw]
 		- Cost: about 7 seconds for the whole check, the Rust build included.
 		- Opened: 20260920-055406
 		- Closed: 20260920-162000
@@ -16735,7 +16749,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Probable fix: drive the pin reader and the plan against a fixture config, with the installs stubbed. No network needed.
 		- Origin: idea.
 		- Fixed: the plan's cppcheck line names both numbers, `cppcheck 2.17.1 (pipx cppcheck==1.5.1, user-space)`, so it says what the install two blocks down will actually ask for.
-		- Pinned by: `check-install-dev.bash` runs the default path inside its throwaway clone with a fixture `cicd/config.bash` and every tool it would install stubbed on PATH, plus a scratch HOME, since the script puts `~/.cargo/bin` and the go bin dir ahead of PATH and would otherwise reach past the stubs. The fixture has one tool at its pin, one drifted, one missing, and a wheel version that is not the binary's. It reads back the plan, what the stub pipx was asked for, and the refusal when `CPPCHECK_WHEEL` is gone.
+		- Pinned by: `check-install-dev.bash` runs the default path inside its throwaway clone with a fixture `cicd/config.bash` and every tool it would install stubbed on PATH, plus a scratch HOME, since the script puts `~/.cargo/bin` and the go bin dir ahead of PATH and would otherwise reach past the stubs. The fixture has one tool at its pin, one drifted, one missing, and a wheel version that is not the binary's. It reads back the plan, what the stub pipx was asked for, and the refusal when `CPPCHECK_WHEEL` is gone. [dcqg8, dcqg9]
 		- Watched to fail three ways: the old plan line, an `at_pin` that always says no (which puts a tool already at its pin in the plan and installs it), and the config with the wheel line taken out.
 		- Opened: 20260920-055406
 		- Closed: 20260920-150000
@@ -16747,7 +16761,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: idea. Same class as idea 5, a comparison derived at one site and kept by hand at its siblings.
 		- Note: the guide's exit table got its check with bug item 7 in the fix round, so what was left here was the man page's two copies.
 		- Fixed: `check-docs.bash` compares the man page's EXIT STATUS codes and its per-option subcommand lists with the help's. Not with the CLI directly: `cli-regress.bash` already holds the help's lists to what each CLI refuses, so the help is the one derived copy and everything else is compared with it. Both sides name subcommands in prose, so each is reduced to the subcommand names it holds; `(same)` and a missing list take the entry above, in both documents.
-		- Pinned by: two injections, an exit row renumbered 8 to 9 and `--from-2x` moved to `fmt`. Each is reported with both sides spelled out.
+		- Pinned by: two injections, an exit row renumbered 8 to 9 and `--from-2x` moved to `fmt`. Each is reported with both sides spelled out. [dcwqr]
 		- Opened: 20260920-055406
 		- Closed: 20260920-154500
 
@@ -16760,7 +16774,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Read wider than the title: the decision says a repeat with the SAME value is what stays allowed, so a value option given two different values competes too. `--strictness`, `--on-bad`, `--default` and `--schema` all refuse now. `--layer` and `--set` are ordered lists and are untouched.
 		- Fixed: one recorder, `note_clash`, keeps the first competing pair the line held, and `check_opts` reports it. It sits after the per-subcommand check, so `check --int --raw` still says type options are not valid for check. The message is `A cannot be combined with B (see --help)` in the sentence the existing refusals use, naming both in the order typed. A repeat compares the resolved value, not the text, so `--strictness=1 --strictness=loose` and `--on-bad=ERROR --on-bad=error` go through.
 		- Where: `parse_opts` and `set_value_opt` in Rust and C, `_set_value_opt` in Python, `setValueOpt` in Go, plus the help's refused list, the man page, `spec.md`, `design.md` and the CLI style guide. `--array` with `--raw` is left where it was, in the read, since `--array` is a modifier and not a type.
-		- Pinned by: fourteen `cli-regress.bash` rows. The seven refusals were watched to fail in all four bindings with the recorder neutered, and the seven allowed rows stay green there, so they pin the old answer rather than the new one.
+		- Pinned by: fourteen `cli-regress.bash` rows. The seven refusals were watched to fail in all four bindings with the recorder neutered, and the seven allowed rows stay green there, so they pin the old answer rather than the new one. [dc435, dc436, dc437]
 		- Opened: 20260920-055406
 		- Closed: 20260920-193000
 
@@ -16811,14 +16825,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 59: Python's `ShclDateTime` has no `__eq__`, `__hash__` or `__repr__`.
 		- Two parses of the same datetime compare unequal, and it prints as an object address. The reference derives equality and a debug form. 20260909 item 50 gave `__repr__` to `Diagnostic` and `Read` only.
 		- Fixed: `ShclDateTime` gets `__eq__`, `__hash__` and `__repr__`, field by field as the reference derives them. Same-moment comparison is a different question and stays in the value code, so `12:00:00Z` and `12:00:00+00:00` are still two values.
-		- Pinned by: the Python runner's repr block, beside the Diagnostic and Read checks 20260909 item 50 left there. With the three methods taken back out it fails with "two parses of one datetime are not equal".
+		- Pinned by: the Python runner's repr block, beside the Diagnostic and Read checks 20260909 item 50 left there. With the three methods taken back out it fails with "two parses of one datetime are not equal". [dcrns]
 		- Opened: 20260918-193000
 		- Closed: 20260919-154025
 
 	- ✅ Item 60: `check-wheel.bash` downloads and runs an unpinned setuptools from PyPI on every gate run, the pre-push gate included.
 		- `build` is pinned and `pyproject.toml` says `setuptools>=77`, so each lint stage runs whatever PyPI serves that day, and the gate needs the network. A pinned setuptools with `--no-isolation`, or a hashed constraints file, closes it.
 		- Fixed: `cicd/packaging/python-build-constraints.txt` names the version (`setuptools==78.1.1`) and `check-wheel.bash` exports it as `PIP_CONSTRAINT`, so the isolated build stands the same backend up every time. The gate then reads the version back out of the built wheel's `WHEEL` metadata (`Generator: setuptools (X)`) and fails when it is not the pinned one, so a pin that stops taking effect is a red gate rather than a quiet drift.
-		- Pinned by: `check-wheel.bash` itself. With the `PIP_CONSTRAINT` export commented out it said `the constraints file pins setuptools 78.1.1, and the wheel was built by 84.0.0` and exited 1; with it, exit 0.
+		- Pinned by: `check-wheel.bash` itself. With the `PIP_CONSTRAINT` export commented out it said `the constraints file pins setuptools 78.1.1, and the wheel was built by 84.0.0` and exited 1; with it, exit 0. [dcved]
 		- Measured: PyPI serves 84.0.0 today against the box's 78.1.1, so the drift the item describes is live, not hypothetical.
 		- Left alone: no `--hash` lines, though a constraints file takes them. One hash puts pip in `--require-hashes` mode, where it refuses any requirement not pinned with `==`, and that includes `pyproject.toml`'s published `setuptools>=77`, which is the contract for whoever builds the sdist and not this gate's to narrow. The file says so. `TOOL_PINS` is not the home for it either: the backend is fetched per build, not installed on the box, the same reasoning as `CPPCHECK_WHEEL`. `ci.yml` needs no change, since the constraint travels with the repo.
 		- Opened: 20260918-193000
@@ -16830,7 +16844,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the tool has not been built on this box from its committed lock, and whether it still compiles against the 3.0 API was checked only by grepping the calls it makes.
 		- Fixed: the release recipe now says to rerun `cicd/utility/comparison/compare.bash` and refresh the numbers before the bump commit, with the two other places that have them (the README tables, the design.md table and its `rerun on <date>` line). Added to `details.md` -> Release cut recipe, above the gate bullet. The file was backed up first.
 		- Fixed: `check-docs.bash` compares design.md's `rerun on <date>` with the newest `run:` stamp in `results.shcl` and fails when they disagree. That is the only currency claim in the repo, so it is now the one a gate reads.
-		- Pinned by: `check-docs.bash`, watched to fail. Dating design.md back to 2026-08-21 gave "project/design.md says the comparison was rerun on 2026-08-21, but the newest run in results.shcl is 20260919", and the file was restored by copy. Green before and after, and shellcheck clean.
+		- Pinned by: `check-docs.bash`, watched to fail. Dating design.md back to 2026-08-21 gave "project/design.md says the comparison was rerun on 2026-08-21, but the newest run in results.shcl is 20260919", and the file was restored by copy. Green before and after, and shellcheck clean. [dcwgc]
 		- Left alone: the README has no run stamp, only a link to `results.shcl`. Adding one would rewrite hand-written prose for no gain, since the date in design.md already pins the pair and both are refreshed together.
 		- Left alone: the numbers themselves. The 2026-09-19 rerun (bug item 4) already landed on dev, so only the process half was open.
 		- Opened: 20260918-193000
@@ -16840,7 +16854,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `fmt` frame ends in the old E014 wording. The note says "values verbatim" over a frame where `window: 2026-07-12T14:30` comes back quoted, which is right per the spec and reads like the claim failing. The release gate passes `--no-gif`, so nothing refreshes it before a cut.
 		- Fixed: the gif was rerendered against a fresh release build of this branch, so its `check` frame shows today's `E014 malformed line skipped: unexpected character after the path, at column 9` and the explain line under it. The old gif showed `unexpected '5' after field`, a wording two rounds old, and no explain line.
 		- Fixed: the last note read "Canonical fmt; values verbatim" over a frame where `window: 2026-07-12T14:30` comes back quoted. It reads "Canonical fmt; nothing lost" now, which is true of the frame (the bad line is retained, nothing dropped) and does not depend on how a value is written. Changed in `cicd/demo-scenario.toml` and its mirror `cicd/demo/script.txt`. The input was left as it is, since the datetime is worth showing and the quoting is per spec.
-		- Pinned by: a new check in `cicd/utility/shell-regress.bash`, watched to fail. It runs the scenario's steps through `gen-demo-gif.py`'s own `fRunStep`, which is what the gif shows, and compares the text with `cicd/demo/expected.txt`. Doctoring the golden back to the old E014 wording gave "the demo steps no longer print what assets/demo.gif shows; rerender the gif ... and refresh cicd/demo/expected.txt", and the golden was restored by copy.
+		- Pinned by: a new check in `cicd/utility/shell-regress.bash`, watched to fail. It runs the scenario's steps through `gen-demo-gif.py`'s own `fRunStep`, which is what the gif shows, and compares the text with `cicd/demo/expected.txt`. Doctoring the golden back to the old E014 wording gave "the demo steps no longer print what assets/demo.gif shows; rerender the gif ... and refresh cicd/demo/expected.txt", and the golden was restored by copy. [dcvej]
 		- Fixed: the recipe also gained a line saying the release gate passes `--no-gif`, so a cut never rerenders the gif and it has to be done by hand when output changes. That is why nothing caught this: the gif stage is the one stage the gate skips.
 		- Left alone: comparing the gif's pixels or frame count. The frames are rendered from the captured text, so the text check catches the same drift for nothing, and a pixel check would go red on a font or a Pillow version.
 		- Frames were extracted from the old and new gifs and read directly: the old `check` frame shows the retired wording, the new one matches what the CLI prints today, and the `fmt` frame shows the reworded note over the quoted value.
@@ -16855,7 +16869,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed, `sanitize-c.bash`: a CLI run counts as bad at exit 77 or anything above 128, so a run killed by a signal is a finding. Only 77 counted before, and a sanitized CLI that aborted on every input read as a clean gate. The message includes the exit code now.
 		- Fixed, `perf-gate.bash`: every timed run goes through `timeout -k 5 300`, and a run that hits it is refused rather than timed. The cap is far above any budget on purpose - a merely slow binding still finishes and fails on its number, which is the more useful report - so only a hang reaches it. Before this a binding that stopped terminating hung the gate until whatever was running it gave up, which on hosted CI is the job timeout with no workload named.
 		- Fixed, both startup gates: `lint-report.bash` and `flame-report.py` print how old the artifact is (`0m`, `7h`, `16d`) on every line they print, SEEN included. A SEEN against a fortnight-old run used to read exactly like one against this morning's.
-		- Pinned by: a bait in each gate, plus two `shell-regress.bash` rows. `sanitize-c.bash` builds a CLI that raises SIGKILL and refuses to go on unless its own counter caught it; with the old `code == 77` test the gate exited 2 at `a CLI killed by a signal went uncounted`. `perf-gate.bash` has a third bait beside the two it had, a CLI that sleeps 30 s then prints its line and exits 0, so no other guard can catch it; with the timeout wrapper neutered the self-test reported it as `timed as 30002 ms, not refused`. The two `shell-regress.bash` rows age a fixture log and a fixture graph 16 days and look for `16d old`; both fail on the pre-fix scripts.
+		- Pinned by: a bait in each gate, plus two `shell-regress.bash` rows. `sanitize-c.bash` builds a CLI that raises SIGKILL and refuses to go on unless its own counter caught it; with the old `code == 77` test the gate exited 2 at `a CLI killed by a signal went uncounted`. `perf-gate.bash` has a third bait beside the two it had, a CLI that sleeps 30 s then prints its line and exits 0, so no other guard can catch it; with the timeout wrapper neutered the self-test reported it as `timed as 30002 ms, not refused`. The two `shell-regress.bash` rows age a fixture log and a fixture graph 16 days and look for `16d old`; both fail on the pre-fix scripts. [dc7gt, dc7gv]
 		- Measured: `sanitize-c.bash` green, 2572 CLI runs. `perf-gate.bash` green on rust debug, 40000 keys, eleven workloads, nothing near the cap (largest 505 ms against a 966 ms budget). `shell-regress.bash` green.
 		- Left alone: the age comes off the file's mtime, not the timestamp in its name. Both are the run's time for any artifact the pipeline writes, and mtime is the one that exists whatever the file is called. One existing `shell-regress.bash` row was widened to `(2 warning line(s), ` since the age now follows it.
 		- Note: `lint-report.bash` already had the 20260918b item 13 work. That is untouched; the age is a second history line under it.
@@ -16883,7 +16897,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `6ad45f8` (Merge pushgate, 2026-09-14); the check-readme note is `be84553` (2026-09-17). Confirmed.
 		- Note: nothing written is violated, so this is an enhancement. The helper and the hook's skip did catch both faults put in front of them.
 		- Done: `check-push-gate.bash` runs the real `cicd.bash` and config on a throwaway repository with every stage stubbed. A `--ci` run records its tree, and a `--quick` run, a run with `--no-lint` or `--no-fmt`, and a run whose gate noted a skip record nothing. The hook's stub gate now logs its arguments, which have to be `--ci --no-largedoc`. The check-readme note is covered by 20260918 item 11's per-skip rule.
-		- Pinned by: each of the three faults above, put back one at a time, now fails `check-push-gate.bash` or shell-regress.
+		- Pinned by: each of the three faults above, put back one at a time, now fails `check-push-gate.bash` or shell-regress. [dcmcd]
 		- Opened: 20260918-132951
 		- Closed: 20260918-163719
 
@@ -16902,7 +16916,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A script parsing diagnostics has to know to drop the last line. Sending the summary to stderr, or gating it behind a flag, is the conventional split.
 		- Decided: the summary stays on stdout. `spec.md` makes stdout the contract, item 42 decided nothing on that line could move, and every `expected-diags.txt` pins it. Every diagnostic line starts with `line ` and the summary never does, so a script can split them by that prefix. Chosen while the call was pending, as the option that changes no output. Moving the summary is still open to reverse before 3.0.
 		- Fixed: `spec.md` and the man page say what stdout holds, with both spellings of the summary.
-		- Pinned by: the corpus goldens, which already hold the summary line.
+		- Pinned by: the corpus goldens, which already hold the summary line. [dct50]
 		- Opened: 20260909-105700
 		- Closed: 20260917-202038
 
@@ -16911,7 +16925,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced, 2026-09-17. On a 7.4 MB XML document the comparison worker timed lxml at 0.115 s where the same parse without the encode is 0.090 s, so about 28% of what it reported was work no other loader was charged for. lxml's entry point wants bytes; every other loader here takes the file's text.
 		- Fixed: a loader may hand back a fourth element that turns the file's text into whatever its parser wants. It runs once, before the baseline and before the clock, so neither the time nor the memory figure includes it.
 		- Fixed: the demo runs a step with stderr on the same pipe as stdout. It used to capture the two separately and concatenate, which put every stderr line under every stdout line - the order `set` prints its stdin note in, among others. No current step writes to stderr, so the published gif does not change; the next one that does would have been wrong.
-		- Pinned by: two `shell-regress.bash` checks, both watched to fail. The worker one hands `run()` a loader that marks what it prepared and asserts the parser saw the mark; the demo one runs a step that writes to both streams and asserts the order, skipping out loud where Pillow is absent.
+		- Pinned by: two `shell-regress.bash` checks, both watched to fail. The worker one hands `run()` a loader that marks what it prepared and asserts the parser saw the mark; the demo one runs a step that writes to both streams and asserts the order, skipping out loud where Pillow is absent. [dc0an, dcrtj]
 		- Opened: 20260909-110000
 		- Closed: 20260918-000000
 
@@ -16936,7 +16950,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A command that is the only path across a breaking change has no normative description: what it guarantees, what it leaves alone, and what its exit code means.
 		- Fixed: the Migrating from 2.x section now states what `migrate` promises - the output reads as 2.x read it, it is its own fixpoint, a file it cannot convert is left alone, it adds two comment lines and never the whole block, and it is not a formatter - plus the four exit codes in one line.
 		- Note: the section already described the flags and the two edges. What was missing was the guarantees, which is what a consumer needs to decide whether to trust a scripted migration.
-		- Pinned by: four phrases in `check-docs.bash`, watched to fail by rewording one.
+		- Pinned by: four phrases in `check-docs.bash`, watched to fail by rewording one. [dcdax]
 		- Opened: 20260909-105400
 		- Closed: 20260917-223000
 
@@ -16956,7 +16970,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: `check-readme.bash`'s zig skip is a failure under the flag and is noted in `SHCL_GATE_SKIPS`, which was the one skip left that turns on what is installed. `check-migrate.bash`'s untrimmable documents and `crosscheck.bash`'s NUL cases are properties of the input, not of the box, so both stay out and say why.
 		- Fixed: the hand list is backed by a derived rule. Any gate whose text says it is skipping because a tool is not here has to read the flag, so the list cannot fall behind again.
 		- Note: both greps now match the expansion rather than the name. The first attempt matched `SHCL_GATE_STRICT` anywhere, and the history line added in the same edit satisfied it - the guard could be deleted and the gate stayed green. Caught by watching it fail.
-		- Pinned by: `shell-regress.bash`, watched to fail with the guard taken out of `check-readme.bash`.
+		- Pinned by: `shell-regress.bash`, watched to fail with the guard taken out of `check-readme.bash`. [dc7gs]
 		- Opened: 20260909-105200
 		- Closed: 20260917-220000
 
@@ -16974,7 +16988,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the recorded rule is that a transient arena armed on a recovery point has to be reachable from it, or the unwind skips its frame.
 		- Fixed: the two arenas live in a small `ShclMigrateOwn` off the frame, reached through a volatile pointer, and `shcl_migrate` arms its own recovery point over them. An allocation failure now lands there, frees both and the owner, then calls `SHCL_OOM` so the hook still gets its unwind with nothing left behind.
 		- Note: the arenas had to leave the frame. An ordinary local is indeterminate once the jump lands, which is the same reason `do_parse` holds its two through volatile pointers.
-		- Pinned by: `oom_hook.c` counts live blocks now and asserts a cut-short migration ends where it started. Watched to fail: with the guards dropped it reports the leak at the first budget.
+		- Pinned by: `oom_hook.c` counts live blocks now and asserts a cut-short migration ends where it started. Watched to fail: with the guards dropped it reports the leak at the first budget. [dbwdx]
 		- Opened: 20260909-105000
 		- Closed: 20260917-213000
 
@@ -17024,7 +17038,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `print(d.diagnostics()[0])` gives `<shcl.Diagnostic object at 0x...>`. A `__repr__` on each is the whole change, and Python is the binding where printing a value is how people debug.
 		- Fixed: `__repr__` on both, in the shape the reference's derived Debug prints. `Read` prints its slots with `str()`, since a list's own repr would print `<Status.Good: 0>` beside a plain `Status.Good` for `.status`.
 		- Left alone: the other three bindings, which already print their fields.
-		- Pinned by: a check in `source/python/tests/conformance.py`, watched to fail with the `__repr__` removed.
+		- Pinned by: a check in `source/python/tests/conformance.py`, watched to fail with the `__repr__` removed. [dcrns]
 		- Opened: 20260909-104900
 		- Closed: 20260917-170000
 
@@ -17043,7 +17057,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Related: bug item 12 is the other half of the header's build story.
 		- Decided: the sentinel is `_FEATURES_H`, which both glibc and musl use to guard `features.h`. It cannot misfire on a build that would have worked: any feature level that declares the POSIX calls leaves `_POSIX_C_SOURCE` defined, and the block's existing condition already skips those. Confirmed both ways here - under `-std=c11` the sentinel is set and `_POSIX_C_SOURCE` is not, and in the default gnu mode both are set and the build works.
 		- Fixed: an `#error` inside the existing feature-level block in `shcl.h`, naming the three ways out (move the include up, set `_POSIX_C_SOURCE` first, or build `SHCL_NO_FILE_IO`).
-		- Pinned by: `check-c-compilers.bash` builds a fixture with the header second and requires the refusal to name include order, under every compiler on the box. Watched to fail: with the `#error` taken out, the fixture still will not compile, but for the old unhelpful reason, and the gate reports 6 of 90 builds bad - one per compiler. The three existing builds that include the header first are the other half, so an unconditional guard would show up there too.
+		- Pinned by: `check-c-compilers.bash` builds a fixture with the header second and requires the refusal to name include order, under every compiler on the box. Watched to fail: with the `#error` taken out, the fixture still will not compile, but for the old unhelpful reason, and the gate reports 6 of 90 builds bad - one per compiler. The three existing builds that include the header first are the other half, so an unconditional guard would show up there too. [dc0dc]
 		- Opened: 20260909-104500
 		- Closed: 20260917-152000
 
@@ -17053,7 +17067,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: the spec's prose is too long for a terminal, so the table is written again in short form, one entry per code: a `CODE|severity|summary` head line and a few lines of detail. Bare `explain` lists every code one line each. An unknown code is exit 1. The subcommand takes no options and reads no file.
 		- Decided: the pointer at the lookup goes on `check`'s stderr, once per run and only when there was a diagnostic. The summary line is stdout and compared across bindings, so nothing there could move.
 		- Fixed: `explain` is in the four CLIs, the completions, the man page and the README.
-		- Pinned by: a crosscheck dimension comparing all four bindings on every code and on the listing, and five `cli-regress.bash` rows, watched to fail on a disabled refusal and an over-wide table line.
+		- Pinned by: a crosscheck dimension comparing all four bindings on every code and on the listing, and five `cli-regress.bash` rows, watched to fail on a disabled refusal and an over-wide table line. [dcrh2, dcrh4]
 		- Opened: 20260909-104100
 		- Closed: 20260917-123150
 
@@ -17063,7 +17077,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: the suggestion says nothing for a word that is not ASCII. C counts distance in bytes where the other three count characters, and every candidate is ASCII, so this removes the one shape the four could answer differently.
 		- Fixed: a near miss on a command, an option or a diagnostic code says what was probably meant, in the same "; did you mean 'x'?" wording the validator uses. The candidate list is built from the table `check_opts` judges against, so a new option is suggestable as soon as it is accepted.
 		- Fixed: the suggestion for `--stricness=1` is against the name half, not the whole token.
-		- Pinned by: five `cli-regress.bash` rows, including one that must stay silent, watched to fail with the suggester disabled.
+		- Pinned by: five `cli-regress.bash` rows, including one that must stay silent, watched to fail with the suggester disabled. [dcrh7, dcrh8, dcrhb]
 		- Opened: 20260909-104200
 		- Closed: 20260917-123150
 
@@ -17073,7 +17087,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: an entry keeps the "(get)" annotation it has in the full help. It still reads true, and stripping it would mean reflowing the text.
 		- Decided: a paragraph of the full help that opens with a subcommand's own name belongs to it. Today that is `set`'s write-ops block, and that is the half of `set` most needed in front of a reader.
 		- Fixed: `shcl help CMD` and `--help` after a subcommand both narrow. `help` with two arguments is a usage error, and a name that is no subcommand gets item 43's suggestion. `allowed_opts` was split out of `check_opts`, which `check-completions.bash` still reads.
-		- Pinned by: a crosscheck dimension comparing all four bindings on every subcommand's help, four `cli-regress.bash` rows, and the width check, which now covers every narrowed help and every code entry.
+		- Pinned by: a crosscheck dimension comparing all four bindings on every subcommand's help, four `cli-regress.bash` rows, and the width check, which now covers every narrowed help and every code entry. [dcrhc, dcrhd, dcrhe]
 		- Opened: 20260909-104300
 		- Closed: 20260917-123150
 
@@ -17146,7 +17160,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: driving `_shcl` with a fixed `COMP_WORDS`/`COMP_CWORD`, and the zsh function with stubbed `_describe`/`_values`/`_files`/`compadd`/`compset`, is about fifteen lines each. Items 10 and 11 both came out of exactly that.
 		- Reproduced, and worse than filed: the zsh completion did not parse at all. `'tokens:each line's lexical spans'` closed its quote at the apostrophe and left one open for the rest of the file, so every zsh user got a parse error where a completion should have been. Nothing had ever run the file.
 		- Fixed: that description is rewritten without the apostrophe. Changelog Fixed entry.
-		- Pinned by: `shell-regress.bash` drives `_shcl` with `_describe`, `_values`, `_files`, `compadd` and `compset` stubbed that record what they were offered - word 2, both value-option spellings, the file slot, the slot after a `--set` value, the nothing where a PATH goes, and the short-option claim (`-w` where `--write` is and nowhere else, `-h` aside). It syntax-checks the file first, since none of the answers mean anything if it does not parse.
+		- Pinned by: `shell-regress.bash` drives `_shcl` with `_describe`, `_values`, `_files`, `compadd` and `compset` stubbed that record what they were offered - word 2, both value-option spellings, the file slot, the slot after a `--set` value, the nothing where a PATH goes, and the short-option claim (`-w` where `--write` is and nowhere else, `-h` aside). It syntax-checks the file first, since none of the answers mean anything if it does not parse. [dc7f3, dcbcs]
 		- Left alone: the bash half. `shell-regress.bash` has driven it under readline's word split since the 20260905 round, which covers the value-option skip list, the `=VALUE` form, both value lists and the file slot.
 		- Found on the way: a failure before the five subshelled installer blocks was counted six times, because each inherits the running total, exits with it and has one added back. Each reports its own count now.
 		- Opened: 20260904-173300
@@ -17163,7 +17177,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 37: gate main's installers against dev's.
 		- One `git diff --quiet origin/main origin/dev -- install.bash install.ps1 install-dev.bash` in `check-docs.bash` turns the docs-only-exception decision into something enforced. It currently rests on remembering, and it is the only drift in the tree that reaches users the moment it happens.
 		- Fixed: `check-docs.bash` compares the three installers across `origin/main` and `origin/dev` and names each one that differs. Where either ref is absent - a shallow CI clone, a fork - it says it is skipping rather than failing, since a missing ref is not drift.
-		- Pinned by: both paths were run - a clone whose `origin/main` points at an older installer reports all three, and one with no `origin/main` skips out loud.
+		- Pinned by: both paths were run - a clone whose `origin/main` points at an older installer reports all three, and one with no `origin/main` skips out loud. [dc7gr]
 		- Opened: 20260904-173500
 		- Closed: 20260908-152000
 
@@ -17179,7 +17193,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `shell-regress.bash` covers `SHCL_BIN` resolution, the caller-scope hygiene, the symlink resolution and the pre-.NET-6 guard, and caps the header comment width. Nothing covers argument pass-through, exit-code pass-through, stdin and stdout fidelity, or whether the two wrappers agree - which is why item 16 was never seen. The whole matrix run this round is about forty rows.
 		- Fixed: a matrix in `shell-regress.bash`. Ten invocations - a good read, a missing path, a bad type, a missing file, a usage error, `fmt -` from stdin, a `set` ops script from stdin, a raw block whose body ends in a blank line, an argument holding a space, and a leading-dash argument after `--` - each run through the binary and then through four ways of calling a wrapper: bash as a script, bash sourced, PowerShell as a script, PowerShell dot-sourced. Stdout, stderr and the exit code have to match the binary. Thirty-nine checks.
 		- Note: the dot-sourced PowerShell form skips the `--` row, which is the one documented difference and is pinned on its own two rows above.
-		- Pinned by: making each wrapper's run path exit 0 instead of forwarding the code. The bash injection is caught on four rows, the PowerShell one on four.
+		- Pinned by: none, the wrappers and their rows are gone: making each wrapper's run path exit 0 instead of forwarding the code. The bash injection is caught on four rows, the PowerShell one on four.
 		- Opened: 20260904-173700
 		- Closed: 20260908-174500
 
@@ -17187,7 +17201,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The rule holds today: the release binary and every packaged artifact have zero matches for pprof, inferno or quick-xml, and no default-feature build resolves the dependency. It rests entirely on the release command not passing the feature flag. One `strings` line in `package.bash` or `sign-release.bash` would pin it to the file rather than to the command. The stake is a GPL-incompatible license that `deny.toml` allows on exactly that basis.
 		- Note: the `--features profiling` build is neither linted nor compiled by any gate, so the feature-gated block only breaks visibly in a full local run. `cargo check --features profiling` in the lint extras costs seconds after the first build.
 		- Fixed: `package.bash` reads every binary in the artifact directory and the source payload beside them, and fails on any trace of the three crates. The rule is on the file now rather than on the release command not passing a flag.
-		- Pinned by: packaging a `--features profiling` build, which the check refuses by name.
+		- Pinned by: packaging a `--features profiling` build, which the check refuses by name. [dd5hg]
 		- Decided: the `--features profiling` build stays out of the `--ci` gate. It needs crates.io, which the gate must not, for the same reason the comparison tool's rust half is out. A full local run builds it and hard-fails, which is where a broken feature block is caught; `config.bash` says so beside the build command.
 		- Test case: `shell-regress.bash` row running `fCheckNoProfiler` from package.bash on a stub artifact with a profiler crate name, and on a clean one.
 		- Opened: 20260904-173800
@@ -17196,7 +17210,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 41: the man page's rendered width is ungated, and one line already runs past 80.
 		- Rendered at `MANWIDTH=80`, exactly one line is 81 columns, from an unfilled example block. `cli-regress.bash` pins the help at 80 and says why; nothing does the same for the page next to it.
 		- Fixed: the pipeline in that example runs over two lines, which is what a shell reads anyway.
-		- Pinned by: `cli-regress.bash` renders the page at `MANWIDTH=80` and holds it to the same 80 the help is held to. Rendered, not read: the source's line lengths are not the page's, and nroff's overstrike bold has to come off first or every emphasized line reads as double width. Skipped out loud where there is no `man`.
+		- Pinned by: `cli-regress.bash` renders the page at `MANWIDTH=80` and holds it to the same 80 the help is held to. Rendered, not read: the source's line lengths are not the page's, and nroff's overstrike bold has to come off first or every emphasized line reads as double width. Skipped out loud where there is no `man`. [dcbc4]
 		- Opened: 20260904-173900
 		- Closed: 20260908-155000
 
@@ -17235,7 +17249,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 46: `shcl_validate` leaves one arena guarded on a frame it has returned from.
 		- The teardown clears the validation arena and the document's three, and not `v->scratch`, which `v_unknown` armed on the same recovery point. Inert today, because that arena is only written inside `v_unknown` and freed afterwards. It becomes a jump into a dead frame the moment anything allocates into it after the call. `do_parse` clears all four of its arenas explicitly, which is what makes the omission read as an oversight.
 		- Fixed: the teardown disarms `v->scratch` with the other four. Nothing changes today; it stops being a jump into a returned frame the moment anything allocates into that arena after the call.
-		- Pinned by: a C runner fixture that runs a validate reaching the unknown-field sweep and asserts every arena the call armed is disarmed on return.
+		- Pinned by: a C runner fixture that runs a validate reaching the unknown-field sweep and asserts every arena the call armed is disarmed on return. [dc0b3]
 		- Opened: 20260904-174400
 		- Closed: 20260908-130000
 
@@ -17252,7 +17266,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `$ 1200` reads as 1200 in all four. The spec says only "a single leading symbol ... is stripped" and calls the list closed, so a port written from the spec would refuse it.
 		- Decided: the spec moves, not the code. Loose is the forgiving tier and `$ 1200` is a spelling people write; the trim was put there deliberately, so refusing it would break working configs to satisfy a sentence.
 		- Fixed: the currency rule now says the whitespace after the symbol goes with it, and names `$ 1200` as the example.
-		- Pinned by: corpus `003`, which already read a quoted `"$ 3.14"` and now reads a bare `$ 1200` beside it.
+		- Pinned by: corpus `003`, which already read a quoted `"$ 3.14"` and now reads a bare `$ 1200` beside it. [d9t9q]
 		- Opened: 20260904-174600
 		- Closed: 20260908-142000
 
@@ -17260,7 +17274,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `read_raw_info` on an empty binding is `BadType` where `read_raw` on the same node is `Empty`. The spec is silent, so this is a call to make rather than a rule broken.
 		- Decided: `Empty`. An empty binding has no block, so there is no info string and nothing to mismatch a type against; the raw-content read on the same node already said `Empty`. A binding whose value is there and is not a block stays `BadType`. Spec sentence added under the read statuses.
 		- Fixed: `read_raw_info` in the reference, `ReadRawInfo` in Go, `read_raw_info` in Python and `shcl_read_raw_info` in C.
-		- Pinned by: corpus `114`, which reads both halves against an empty binding, a valued one and a block.
+		- Pinned by: corpus `114`, which reads both halves against an empty binding, a valued one and a block. [dcbbw]
 		- Opened: 20260904-174700
 		- Closed: 20260908-141000
 
@@ -17296,7 +17310,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: `cli-regress.bash` reads `SHCL_GATE_STRICT` - a missing `/dev/full` is a failure under the gate and a skip outside it, the way the other four gates read it. `shell-regress.bash`'s list of gates that must keep reading the variable names it now.
 		- Fixed: `check-c-compilers.bash` builds the two OOM tests at every optimization level, since the shape it exists for is one gcc decides per level. 30 builds to 78, two minutes to four.
 		- Fixed: both `fEcho_Clean` helpers compare a string instead of using `-eq`, and the dead `fBuildQuotedParams` is gone from this project's copy of `n8git_backup-and-publish`. The canonical copy under the synced tree is untouched, as ever.
-		- Test case: `shell-regress.bash` gate list requiring `cli-regress.bash` to read SHCL_GATE_STRICT; `check-c-compilers.bash` runs the level sweep itself; the other shapes were unreachable.
+		- Test case: `shell-regress.bash` gate list requiring `cli-regress.bash` to read SHCL_GATE_STRICT; `check-c-compilers.bash` runs the level sweep itself; the other shapes were unreachable. [dc7gs]
 		- Opened: 20260904-175000
 		- Closed: 20260908-164000
 
@@ -17305,7 +17319,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the C example is gated by `check-readme-c.bash`. The Zig example builds and runs correctly today with the build line the README prints, and nothing checks it.
 		- Fixed: both fragments print the value they read, so the binding is used and the Go one compiles.
 		- Fixed: `check-readme-c.bash` is `check-readme.bash` and builds all three. Go gets a package clause, a main and the two imports its body calls, with the library resolved from the tree rather than the proxy so it needs no network; Zig gets the statements in a main, the two-line `impl.c` the README describes, and the build line the README prints. Zig is skipped out loud where it is not installed, since nothing shipped depends on it.
-		- Pinned by: taking the print back out of the Go fragment, which the gate then refuses with `declared and not used: root`.
+		- Pinned by: taking the print back out of the Go fragment, which the gate then refuses with `declared and not used: root`. [dcbc7]
 		- Opened: 20260904-175200
 		- Closed: 20260908-160000
 
@@ -17314,7 +17328,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 29: `perf-gate.bash` passes a CLI that fails every workload instantly.
 		- A stub that prints a usage error and exits 1 gets `OK: within 3x their own parse baseline`; the timer discards the exit status and nothing checks that the workload did anything. Today's workloads do run (an uncapped `edit_distance` blows the suggest budget by 20x), so the gate measures what it says and can't tell when it stops. Require exit 0 (6 for `suggest`) and a non-empty stdout of the expected size per run.
 		- Fixed: every timed run checks its exit code (0 for a write workload, 6 for the two that check a document with diagnostics) and that stdout has at least the lines the work would produce - the key count for a write, two for a check. A run that did neither is a failure rather than a fast one.
-		- Pinned by the gate itself against a stub that prints a usage error and exits 1: it reported OK before and names the failing run now.
+		- Pinned by the gate itself against a stub that prints a usage error and exits 1: it reported OK before and names the failing run now. [dc7gq]
 		- Test case: perf-gate `self-test-exit-code`, and `shell-regress.bash` row `20260904-26-perf-gate-stub-clis`.
 		- Opened: 20260902-172800
 		- Closed: 20260903-053000
@@ -17322,7 +17336,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 30: `shell-regress.bash`'s two static scans miss the ordinary spellings of what they scan for.
 		- The unguarded-grep scan finds `a=$(grep`, `b="$(grep` and `c=$( grep` and misses `local x="$(grep ...)"`, `declare`, `export`, `readonly`, backticks, `+=`, an array element, and a `$(` whose `grep` is on the next line; it also skips every `set -e` script without a `.bash` extension, which is the pre-push hook and the publish script. The `\t`-in-ERE scan reads single-quoted patterns under `cicd/` only, so a double-quoted pattern, `--`, `--extended-regexp` and the installers are outside it. No live instance today. Allow the keyword prefixes and both quotes, and drive the file list off `git ls-files` plus a shebang test.
 		- Fixed: the assignment scan takes a keyword prefix, an array element, `+=` and backticks; the escape scan takes either quote style and the long option spelling; and both sweep every tracked or untracked-but-not-ignored file that is named `*.bash` or has a shell shebang, which brings in the pre-push hook, the publish script and the installers.
-		- Pinned by a self-test inside the gate: one synthetic file has all nine spellings plus two that must not match, and each scan has to find its own. The old scans find none of the seven assignment shapes and one of the two escape shapes.
+		- Pinned by a self-test inside the gate: one synthetic file has all nine spellings plus two that must not match, and each scan has to find its own. The old scans find none of the seven assignment shapes and one of the two escape shapes. [dc3zw]
 		- Test case: `shell-regress.bash` `static-scan-self-test`.
 		- Opened: 20260902-172900
 		- Closed: 20260903-055000
@@ -17330,7 +17344,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 31: PSScriptAnalyzer is the one lint tool with no version pin, and `check-pins.bash` holds one direction only.
 		- `ci.yml` installs it with no `-RequiredVersion` and `TOOL_PINS` has no entry, against the comment that the two agree; a new PSSA rule reddens hosted CI while the local gate stays green. Deleting the `ruff` entry from a scratch `config.bash` while `ci.yml` still installs it passes `check-pins`. Pin 1.25.0 in both places and walk `ci.yml`'s install lines the other way.
 		- Fixed: `TOOL_PINS` includes PSScriptAnalyzer at 1.25.0 with a version command the drift warning can read, `ci.yml` installs that exact version, and `check-pins.bash` knows the `-RequiredVersion` joiner. It also walks the other way now: every pip, npm, `go install` and `Install-Module` line that names a version has to have a `TOOL_PINS` entry.
-		- Pinned by the gate itself, both ways: dropping the `ruff` entry from `config.bash` is reported, and taking `-RequiredVersion` off the PSSA line is reported.
+		- Pinned by the gate itself, both ways: dropping the `ruff` entry from `config.bash` is reported, and taking `-RequiredVersion` off the PSSA line is reported. [dbz38]
 		- Test case: `check-pins.bash` `tool-pins-match-ci` and `installs-are-pinned`, and `shell-regress.bash` row `20260918b-45-check-pins-install-families`.
 		- Opened: 20260902-173000
 		- Closed: 20260903-060000
@@ -17338,7 +17352,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 32: five gates exit 0 when a tool they need is missing.
 		- `check-locale.bash` skips without `localedef`, `shell-regress.bash` skips 12 checks without `pwsh`, 6 without `openssl` and the prerelease packaging row without `makensis` (the hosted runner has none, so 20260830b item 8 is pinned on this box only), and `package.bash` skips the rpm read-back without `rpm`. A strict switch under `--ci` that turns a skip into a failure keeps a runner that loses a tool from going quiet.
 		- Fixed: `--ci` exports `SHCL_GATE_STRICT`, and all five skips read it - a missing tool is a failure under the gate and still a skip in a working copy, which need not have every tool.
-		- Pinned by `shell-regress.bash` itself, which exercises its own `fHave` both ways; flattening the helper back to a bare `command -v` fails it.
+		- Pinned by `shell-regress.bash` itself, which exercises its own `fHave` both ways; flattening the helper back to a bare `command -v` fails it. [dcv6e]
 		- Note: the hosted runner had no NSIS compiler, so the strict switch would have failed it on the prerelease packaging row; the workflow installs `nsis` now, which also means that row - 20260830b item 8's pin - runs somewhere other than this box for the first time.
 		- Test case: `shell-regress.bash` `fhave-strict-and-skip`.
 		- Opened: 20260902-173100
@@ -17356,7 +17370,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `a: "q\"uote"` and `a: 'q"uote'` are two instances, in one file and across layers, yet `a["q\"uote"]` matches both (`count` 2, `get` exit 5), and writing `a["q\"uote"].j: 2` in an over layer merges into the base's instance while the block spelling appends a second. Names took the resolve-escapes rule on 2026-08-18; the spec's merge sentence says nothing about escapes for values. A spec decision: either the identity key resolves escapes (all four take the resolved string in the key and hash) or the spec says a selector may address several spellings.
 		- Decided: the identity key resolves escapes. The selector already matched on the resolved text, names have followed that rule since 2.0, and quoting was never part of identity either (`a: x` and `a: "x"` have always been one instance), so this is the spelling-is-not-identity rule finished rather than started. Recorded in `design.md`; the spec's merge bullet says it.
 		- Fixed: the merge key, its hash and the equality behind a hash hit all take the escape-resolved element text, in all four. An element with no backslash is keyed on its own bytes, so the parse pays nothing for it - C resolves through the streaming hash it already had and compares a byte at a time, with neither side built.
-		- Pinned by corpus `084` (two escape spellings of one value, a tab escape, and a bare-versus-quoted pair, with selector reads in both spellings and a layer that merges into the same instance). All four reported two instances before.
+		- Pinned by corpus `084` (two escape spellings of one value, a tab escape, and a bare-versus-quoted pair, with selector reads in both spellings and a layer that merges into the same instance). All four reported two instances before. [dc40e]
 		- Test case: corpus `084-value-identity-escapes`.
 		- Opened: 20260902-173300
 		- Closed: 20260903-071500
@@ -17364,7 +17378,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 35: three merge facts the spec should state.
 		- The fold is not associative: with `p: 1`, `p: 2` and `p:` over `x: 1`, `(A+B)+C` overrides the leaf and `A+(B+C)` keeps `p: 1` as a wrapper-mention peer; 56 of 300 generated triples differ the same way, so a consumer caching a pre-merged upper pair gets a different document from the CLI fold. A merged document keeps the base's strictness, so a value from a stricter layer reads with the base's coercion (library only). And a merge costs a pass over the base's touched scopes plus an index rebuild on the next read, with replaced nodes kept until the document is dropped (measured in all four: 40k-key base plus a 3-line over is 5 to 66 ms, the next read 2 to 17 ms, 500 merges of an 8-node over grow the process by 0.5 to 1.5 MB). One sentence each in Layered loading and the merge doc comments.
 		- Fixed: the spec's Layered loading section states all three with the measured shape of the cost, and every binding's merge doc comment says the same three.
-		- Pinned by `check-docs.bash`, which requires the sentence in the spec and in all four merge comments.
+		- Pinned by `check-docs.bash`, which requires the sentence in the spec and in all four merge comments. [dc40f]
 		- Test case: `check-docs.bash` `merge-facts-in-spec` and `merge-doc-comments-say-not-associative`.
 		- Opened: 20260902-173400
 		- Closed: 20260903-073000
@@ -17373,7 +17387,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A one-leaf over onto a 40k-key document costs 1 MB of arena per merge (100 merges, 100 MB), because `w_overlay` rebuilds the parent's children into a fresh doubling vector in the document arena and the abandoned copies are never reused. `set_string` of a 20 MB value grows the arena by 85 MB, from the 32-byte builder doubling through blocks of twice each request. Build the rebuilt list in scratch and copy it exactly sized; reserve the builder up front.
 		- Fixed: the rebuilt child list is built in scratch and copied into the document arena at exactly its size, and the string builder opens at the value's own length. A bump arena abandons every step of a doubling climb, which is what both were paying for.
 		- Measured: 100 merges onto a 40000-key base cost 786 KB each and cost 320 KB now, which is the list itself; a 20 MB `set_string` cost 55 MB and costs 20 MB.
-		- Pinned by `mem_bounds.c`: a merge may cost no more than half again the list it rebuilds, and a string value no more than its own size plus a block. Both fail on the old header.
+		- Pinned by `mem_bounds.c`: a merge may cost no more than half again the list it rebuilds, and a string value no more than its own size plus a block. Both fail on the old header. [dc25j]
 		- Test case: `mem_bounds.c`, the merge and string-value bounds.
 		- Opened: 20260902-173500
 		- Closed: 20260903-081500
@@ -17382,7 +17396,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- After 100k set-and-remove cycles a document with 1000 live nodes holds 400k, and every rebuild (the first read after any merge) indexes the dead ones too: 48 ms per read against 0 on a fresh document; `shcl_compact` cures it in C and the other three have no compact. Rust's `name_index` iterates the arena the same way. Build the index by walking from the root in all four.
 		- Fixed: the rebuild walks from the root in all four. Chains keep file order, since a chain is one parent's same-named children and each parent's are appended in its own list order.
 		- Measured: 200 rebuild-and-read cycles behind 100000 set-and-remove pairs took 68 ms in C and take 2.6 ms; the same shape in the reference went from 269 ms to 3 ms.
-		- Pinned by a fixture in all four runners: the same document timed with and without the churn, bounded by a ratio rather than a wall-clock constant. All four fail it on the old code.
+		- Pinned by a fixture in all four runners: the same document timed with and without the churn, bounded by a ratio rather than a wall-clock constant. All four fail it on the old code. [dc412, dc414, dc413]
 		- Note: the chain array is still sized by the arena, which is a fill the walk can't avoid; the bound is loose enough to leave that alone and tight enough to catch the walk.
 		- Test case: `index_rebuild_ignores_removed_nodes` in Rust and Python, `TestIndexRebuildIgnoresRemovedNodes` in Go, and the index rebuild ratio in `mem_bounds.c`.
 		- Opened: 20260902-173600
@@ -17392,7 +17406,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `set_string("k", "q\"q'")` stores `q"q'`, canonical output is `k: "q\"q'"`, and a reparse stores `q\"q'` with the escape intact; reads and selectors agree on both sides, `instances()` returns display text and so differs. All four. The one observable where `set(x)` and `load(emit(set(x)))` disagree; either write `\"` in the encoders when both quote kinds are present, or leave it documented.
 		- Decided: write it. The alternative documents a difference between a document and its own reload, which is the one thing the fixpoint rules exist to rule out.
 		- Fixed: the string encoder escapes the bare double quotes when both kinds are present, which is what the emitter writes and therefore what a reparse stores. Reads are unchanged - escapes are resolved on the way out - and identity was already escape-resolved.
-		- Pinned by a fixture in all four runners and by a new fuzz property: a written document and its own reload must agree on `instances`, not only on the value. Both fail in all four on the old encoders; the property fails within 50 iterations.
+		- Pinned by a fixture in all four runners and by a new fuzz property: a written document and its own reload must agree on `instances`, not only on the value. Both fail in all four on the old encoders; the property fails within 50 iterations. [dd16k]
 		- Test case: `written_spelling_matches_its_reload` in all four runners, and the `instances` check in the Rust fuzz `writer_roundtrips_and_stays_fixpoint`.
 		- Opened: 20260902-173700
 		- Closed: 20260903-095000
@@ -17400,7 +17414,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 39: Python's array setters take any iterable, so a string or a generator writes the wrong value at `True`.
 		- `set_string_array("k", "abc")` writes `k: a, b, c`; `set_int_array("k", (x for x in [1, 2, 3]))` writes an empty value and returns `True`, because the type gate consumes the generator before the setter reads it. `set_comment`, `set_raw` and `set_literal` have no type gate at all and raise from inside on a non-string. The module's own comment says a typed setter takes exactly the type its name says. Refuse `str` and `bytes`, materialize the iterable once, and gate the three.
 		- Fixed: the shared element check refuses `str`, `bytes` and `bytearray` outright and materializes the iterable once, handing the list back to the setter; the three untyped setters call the same type gate their typed siblings use.
-		- Pinned by a fixture in the Python runner (five wrong-type calls that must raise, and a generator that must write three elements). Python-only: the other three bindings are statically typed here.
+		- Pinned by a fixture in the Python runner (five wrong-type calls that must raise, and a generator that must write three elements). Python-only: the other three bindings are statically typed here. [dc425]
 		- Test case: Python runner `typed_array_setters_take_a_list`.
 		- Opened: 20260902-173800
 		- Closed: 20260903-103000
@@ -17409,7 +17423,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Rust alone writes through a trailing `/` on a regular-file path (`save_file("f/")` succeeds where POSIX refuses `open("f/")`); Go refuses `f/` but writes `f/.`; Python refuses both. Go's `SetString` of a string that is not UTF-8 stores U+FFFD per bad byte and reports success, so the value does not read back verbatim; return false from the string setters on invalid input, or say so in the Go doc comment.
 		- Decided: refuse in both cases. A document is not a directory, and a value that can't read back verbatim is what every other setter already refuses.
 		- Fixed: all four refuse a path that ends in a separator or whose last component is `.` or `..`, before the path is resolved; the spec's save section says so. Go's `SetString` and `SetStringArray` refuse text that is not valid UTF-8.
-		- Pinned by a save fixture in all four runners (three directory-shaped spellings refused, the file unchanged, the plain path still saving) and a Go test for the UTF-8 refusal. The reference took `f/` and Go took `f/.`; Python and C already refused both, which the fixture now holds them to.
+		- Pinned by a save fixture in all four runners (three directory-shaped spellings refused, the file unchanged, the plain path still saving) and a Go test for the UTF-8 refusal. The reference took `f/` and Go took `f/.`; Python and C already refused both, which the fixture now holds them to. [dc42j, dc42p, dc42n]
 		- Test case: `save_refuses_a_directory_shaped_path` in all four runners, and Go `TestSetStringRefusesInvalidUTF8`.
 		- Opened: 20260902-173900
 		- Closed: 20260903-113000
@@ -17418,7 +17432,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `get --array --default=0` on a missing or empty array prints one line, indistinguishable from a one-element array equal to the default. Extra tab-separated fields on an ops line are dropped silently (`raw` loses everything after a literal tab in its content). `--default` followed by `--on-bad=error` drops the default; the other order keeps it. Schema-side hints are never printed by `check --schema` or `init`, so the `H001` that explains a `V092` from a merged `allowed` is invisible. `children` prints nothing at exit 0 for a missing path, a repeated field and a childless node alike, at the library level too. Each wants a decision, not a fix.
 		- Decided: three are fixed and two are documented. `--default` with a contradicting `--on-bad` is a usage error, since honoring one of the two silently is what surprises and the order dependence made it unpredictable. Extra fields on an ops line are an error: dropping them lost content at exit 0, and a tab inside a value has an escape. The schema's own diagnostics are printed with its own line numbers, on stderr where a V099's already go, so stdout stays the code contract and no golden moves. The array-default ambiguity and `children`'s three silences are inherent to a line-per-element surface, so the man page says what to ask instead.
 		- Fixed: all four CLIs, one behavior at a time; the man page has the two documented shapes.
-		- Pinned by seven `cli-regress` rows: the option conflict in both orders, the consistent pair, `--default` on its own, extra fields on a `raw` and on an `int` with an array form that still takes any number, and a schema whose own load hints. All fail on the old CLIs.
+		- Pinned by seven `cli-regress` rows: the option conflict in both orders, the consistent pair, `--default` on its own, extra fields on a `raw` and on an `int` with an array form that still takes any number, and a schema whose own load hints. All fail on the old CLIs. [dc435, dc436]
 		- Note: the C conflict check first read an uninitialized field, so `--default` on its own was refused. Only the crosscheck's own `--default` dimension saw it; the rows here all named `--on-bad` or neither. There is a row for `--default` alone now.
 		- Test case: cli-regress `default-vs-onbad`, `onbad-vs-default`, `default-with-onbad-default`, `default-alone`, `ops-extra-fields-raw`, `ops-extra-fields-int`, `ops-array-takes-any` and `schema-own-hints`.
 		- Opened: 20260902-174000
@@ -17428,7 +17442,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The Loose float-to-int tie rule (the code rounds half away from zero, `-2.5` to `-3`, while the formatter decision is half-even and Python's `round` is half-even). The aggregate-status ordering for array reads (`Good < Empty < NotFound < BadType < Multiple`, derived from the enum order in all four and written nowhere). And `format_f64`'s doc comment says the CLI uses it, which becomes true with item 1.
 		- Decided: the tie rounds half away from zero, which is what all four already do and what every language's own `round` but Python's does. Half-even is the formatter's rule for choosing a spelling; picking an integer is a different operation, and changing it would move values under every consumer.
 		- Fixed: the coercion table names the direction with both signs, and the aggregate-status rule gives the ordering. `format_f64`'s comment became true with item 1 and needed nothing.
-		- Pinned by `check-docs.bash` for both sentences, and by corpus rows: `003` reads `-2.5` and `3.5` at Loose, and `081` has a wildcard read whose four slots are Good, Empty, NotFound and Multiple with the worst as the aggregate.
+		- Pinned by `check-docs.bash` for both sentences, and by corpus rows: `003` reads `-2.5` and `3.5` at Loose, and `081` has a wildcard read whose four slots are Good, Empty, NotFound and Multiple with the worst as the aggregate. [dc438, dc3rj]
 		- Test case: `check-docs.bash` `tie-rounding-and-status-order`, and corpus `003-coercions` and `081-wildcard-compose`.
 		- Opened: 20260902-174100
 		- Closed: 20260903-140000
@@ -17437,7 +17451,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A `desc` that is not one scalar (`desc: a, b`) produces no comment and no fault. `type: raw` with a `default` can never generate (the default is emitted inline, so V097 reports wrong type), and a default with a raw block is dropped silently. `init` prints `schema line 0` for V096 and V097, whose line space is the document.
 		- Decided: `desc` takes the whole value, since a comma in a sentence is what an author types and a comment has room for it. A `default` with no value-line spelling is a schema fault, not a dropped value: the alternative is a starter config missing a field's default with nothing said. And V096/V097 print as `line 0`, since neither is at a schema line.
 		- Fixed: all four read `desc` as every element joined as written, fault a raw-valued `default` and a `default` under `type: raw` with `V092` at its own line, and print the two generation-only codes in the document's line space. `init`'s fault printer goes through the shared diagnostic line now instead of hard-coding the schema prefix.
-		- Pinned by three `cli-regress` rows (a raw default, a comma `desc` with its whole generated output, and the V097 line space), each failing in all four before. The spec's generation section says both rules and the code table names the line space.
+		- Pinned by three `cli-regress` rows (a raw default, a comma `desc` with its whole generated output, and the V097 line space), each failing in all four before. The spec's generation section says both rules and the code table names the line space. [dc43d, dc43e, dc43f]
 		- Test case: cli-regress `init-raw-default`, `init-comma-desc` and `init-genfault-line-space`.
 		- Opened: 20260902-174200
 		- Closed: 20260903-152000
@@ -17446,7 +17460,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The C library reports errno alone and the CLI guesses the phase from `_waccess(dir, 2)`; on real Windows an ACL-protected directory gets the bare errno where Rust and Go name the temp-create phase. Cosmetic under wine, which follows the unix mode bits. Record the failing phase in the library's write, or probe with an exclusive create.
 		- Decided: probe. Recording the phase means an out-parameter or a per-thread last-error on a call that returns errno today, which is API growth for a message; creating a file is what the write itself does, so it answers for the platform it is on.
 		- Fixed: the CLI creates a uniquely named file in the target's directory and removes it, instead of asking `access`. Only on the failure path.
-		- Pinned by a `cli-regress` row: a file in a directory with no write permission must name the temp-create phase in all four.
+		- Pinned by a `cli-regress` row: a file in a directory with no write permission must name the temp-create phase in all four. [dc43q]
 		- Note: the row can't fail on the old C here - `access(dir, W_OK)` is right on linux, and it is `_waccess` on windows that answers yes for every existing directory. Said plainly rather than papered over; the hosted windows job runs the row, but an ACL-protected directory is not something the runner can be given portably.
 		- Test case: cli-regress `write-names-the-phase`, which can't fail on the old C on linux.
 		- Opened: 20260902-174300
@@ -17455,7 +17469,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 45: `shcl_authored_name`'s comment says its result lives in the read arena; it lives in the document arena.
 		- The real lifetime is longer than stated (until `shcl_free` or `shcl_compact`), so no caller is hurt; `shcl_children` hands back the same kind of pointer and says so correctly. Fix the sentence.
 		- Fixed: the comment says the document's own arena, and why - the name is stored rather than built.
-		- Pinned by `check-docs.bash` for the sentence and by `mem_bounds.c`, which reads an authored name, releases the read arena and requires the bytes to still be there.
+		- Pinned by `check-docs.bash` for the sentence and by `mem_bounds.c`, which reads an authored name, releases the read arena and requires the bytes to still be there. [dc440, dc25j]
 		- Note: `mem_bounds`'s index-rebuild timing check is skipped under a sanitizer, which costs per allocation rather than per node walked; it was marginal there and would have been a flaky gate. The plain build in the test stage is where the ratio is judged.
 		- Test case: `check-docs.bash` `authored-name-lifetime`, and `mem_bounds.c`, which reads an authored name after a release.
 		- Opened: 20260902-174400
@@ -17467,7 +17481,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Base `t<VT>o: 5`, layer `*<tab>```` / `  line1` / `  #` / `` `` ``. Direct gives `line1: / # / t<VT>o: 5`; through the canonical form, `line1: / t<VT>o: 5 / #`.
 		- Cause: a comment trailing a field at the field's own indent is kept as that field's, and a document's own trailing comment is kept separately and emitted after everything. For a top-level field the two are written the same - column zero - so a reload can't tell them apart, and a merge, where the field's comment travels with the field and the document's is appended, puts them in different orders. An error-repaired document is what makes the two spellings meet: the field was written indented and ended up at the top level.
 		- Fixed: a comment trailing a top-level field is the document's. One written deeper than its field still belongs to the field, since that has an indent to come back to. All four bindings.
-		- Pinned by corpus `087`, which every binding failed before the change, and by the merge fuzz property that found it - clean over 200,000 iterations now, where it failed at 44,208.
+		- Pinned by corpus `087`, which every binding failed before the change, and by the merge fuzz property that found it - clean over 200,000 iterations now, where it failed at 44,208. [dc48n]
 		- Test case: corpus `087-merge-tail-comment`, and the merge-its-canonical-form check in the Rust fuzz `merge_never_panics_and_stays_fixpoint`.
 		- Opened: 20260904-025000
 		- Closed: 20260904-034000
@@ -17478,7 +17492,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced on a real windows host, first run and every run. The fault is a read past the top of the stack from inside `RtlVirtualUnwind`, on the first budget tight enough to reach the `longjmp` at all - so every recovery was crashing, not an edge case among them.
 		- Cause: mingw's `setjmp` hands `longjmp` a target frame, so `longjmp` runs a full `RtlUnwindEx` to get there. Taking that frame address forces a frame pointer, and gcc then puts a vectorized function's xmm save slots at offsets from the post-prologue rsp while `UWOP_SET_FPREG` in the same unwind info tells the unwinder to take them from rbp, which sits above the whole frame. The difference is the frame's own size and it lands off the end of the stack. Wine derives rsp differently and never reads there.
 		- Fixed: both recovery points arm with `_setjmp(buf, NULL)` on mingw x86_64, which makes `longjmp` restore the context without unwinding at all. That is all a C recovery point needs - nothing in between has a destructor or a `__finally`. Recorded as a C deviation in `style-guide.md`, and the `SHCL_OOM` docs now point an embedder whose hook longjmps at the same thing, since that unwind crosses these frames too.
-		- Pinned by a `win-runners.bash` step that builds and runs the test at `-O0`, `-O1`, `-O2`, `-O3` and `-Os`. The shape needs both a frame pointer and saved xmm registers, which gcc decides per level: backed out, three of the five crash and two do not, so a single-level gate could have gone either way.
+		- Pinned by a `win-runners.bash` step that builds and runs the test at `-O0`, `-O1`, `-O2`, `-O3` and `-Os`. The shape needs both a frame pointer and saved xmm registers, which gcc decides per level: backed out, three of the five crash and two do not, so a single-level gate could have gone either way. [dc3b1]
 		- Fixed on the way: the load half wrote its fixture to a hardcoded `/tmp`, which a mingw binary does not translate. The new gate would have rested on the runner happening to have a `C:\tmp`.
 		- Follow-on: the macro is `SHCL_SETJMP` and now sits in the public half of the header, since the embedder the `SHCL_OOM` docs point at arms the recovery point in their own translation unit and could not reach it. `oom_hook.c` arms with it too, and the gate sweeps both oom tests across the five levels rather than only the recovery one - the hook's recovery point is the same shape, one inlining decision from the same fault.
 		- Test case: the `win-runners.bash` step `c oom recover`, which runs `oom_recover.c` at all five `-O` levels in the hosted windows job.
@@ -17490,7 +17504,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 24: diagnostics printed under `--layer` do not say which file they came from.
 		- Two layers with a bad line 2 print `line 2: ...` twice, indistinguishable. Schema diagnostics already have a `schema line N` prefix for the same reason.
 		- Fixed: each layer's diagnostics include its own file name, in all four, and only when more than one file is loaded - a single-file run prints exactly what it did.
-		- Pinned by two `cli-regress` rows: a layered load must name the second file, and a single-file load must not name anything.
+		- Pinned by two `cli-regress` rows: a layered load must name the second file, and a single-file load must not name anything. [dc449, dcvb2]
 		- Test case: cli-regress `layer-diags-named`, `layer-diags-named-set` and `single-file-diags-unnamed`.
 		- Opened: 20260901-192300
 		- Closed: 20260903-171500
@@ -17508,7 +17522,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `Line(path)` after a merge cites a line of whichever file the node came from, unlabeled. A leaf override drops the base leaf's comments and its blank-line grouping, where the in-file fold keeps both. Merging a document over itself doubles its leading comments. `lost` sums across layers, so a library consumer that merges then saves to a fresh path is refused for a line a layer dropped. A strict failure in a lower layer prints only that layer's diagnostics. All four bindings agree on every one.
 		- Decided: state all five, change none. Each follows from a rule that is already there - a leaf override replaces the binding the comment described, `lost` is about content the merged document no longer has whatever it is written to, a strict failure ends the fold - and all four already agree, so the gap was the writing down.
 		- Fixed: the spec's Layered loading section states all five. The one thing that did change is a message: a strict failure in a layer now says which layer, the same labelling item 24 gave the rest.
-		- Pinned by a `cli-regress` row for the labelled strict failure; the five statements are behavior the corpus's merged cases already hold.
+		- Pinned by a `cli-regress` row for the labelled strict failure; the five statements are behavior the corpus's merged cases already hold. [dc451]
 		- Test case: cli-regress `layer-strict-names-the-layer` and `layer-strict-names-the-layer-set`.
 		- Opened: 20260901-192500
 		- Closed: 20260903-190000
@@ -17517,14 +17531,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All four agree. The struct mirrors what was written, so this is arguably by design, but it is not a rule anyone would write down. Either compare on a normalized key or state the as-written rule in the spec.
 		- Decided: compare the moment. The `allowed` row already says the comparison is in the coerced space of `type`, and for a datetime that space is a time, not a spelling - the struct mirroring the source is right for reads and wrong for a set membership test. It only ever admits values that used to be refused, so nothing that passed starts failing.
 		- Fixed: the `allowed` comparison in all four ignores the zone spelling (`Z` and a zero offset are one zone) and trailing zeros in the fraction. An absent zone still matches no zoned value: a floating time is a different thing.
-		- Pinned by corpus `085`, whose schema admits one moment in five spellings and refuses the floating one. All four reported three extra V004s before.
+		- Pinned by corpus `085`, whose schema admits one moment in five spellings and refuses the floating one. All four reported three extra V004s before. [dc45d]
 		- Test case: corpus `085-datetime-allowed-moment`.
 		- Opened: 20260901-192600
 		- Closed: 20260903-200000
 
 	- ✅ Item 28: a raw body in a `V004` message embeds its newlines, so one diagnostic spans several stderr lines.
 		- Fixed: the value a `V004` message quotes has its line breaks and tabs escaped, in all four, so one diagnostic is one line however the value was written.
-		- Pinned by a `cli-regress` row: a raw block with a two-line body against a string `allowed` must report on one line.
+		- Pinned by a `cli-regress` row: a raw block with a two-line body against a string `allowed` must report on one line. [dc45p]
 		- Test case: cli-regress `diag-value-one-line`.
 		- Opened: 20260901-192700
 		- Closed: 20260903-210000
@@ -17533,7 +17547,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `type: string` on a multi-element value checks type against the joined string and `allowed` per element, so `allowed: "x, y, z"` fails on `c: x, y, z` while `get --string` returns the joined form. `min` above `max` is not a schema fault. Both consistent across the four.
 		- Decided: the `allowed` interaction is the documented rule met head-on - the row already says element values, and `allowed: "x, y, z"` is one element - so it is written down rather than changed. A crossed `min`/`max` is a schema fault: the range admits nothing, so the config was told off twice per value for something only the schema can fix.
 		- Fixed: a `min` above its `max` reports `V092` at the `max` line and drops the field, in all four. The spec's `allowed` and `min`/`max` rows say both rules.
-		- Pinned by corpus `023`, which gained a crossed range; all four reported two per-value errors and no fault before.
+		- Pinned by corpus `023`, which gained a crossed range; all four reported two per-value errors and no fault before. [da9vz]
 		- Test case: corpus `023-schema-faults` (a crossed range). The later rule that drops only the range is pinned by `090-crossed-range` and `check-docs.bash` `crossed-range-drops-range`.
 		- Opened: 20260901-192800
 		- Closed: 20260903-220000
@@ -17541,7 +17555,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 30: `E003` is reachable from a file after all, and the spec, the backlog and the corpus all say it is not.
 		- `a[5].b: 2` with one `a` reports it in all four. The spec's "unreachable" reasoning covers only the `[#N]` spelling; the bare `[N]` index is documented and reaches it. Reword the row and add a corpus row.
 		- Fixed: the code row says which spelling can't reach it and which does, instead of telling a reader the code never fires.
-		- Pinned by corpus `086` (a bare index past the end, and a valid one beside it) and by `check-docs.bash`, which refuses the old wording.
+		- Pinned by corpus `086` (a bare index past the end, and a valid one beside it) and by `check-docs.bash`, which refuses the old wording. [dc461, dc462]
 		- Test case: corpus `086-index-no-instance`, and `check-docs.bash` `e003-reachable`.
 		- Opened: 20260901-192900
 		- Closed: 20260903-224500
@@ -17550,7 +17564,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `oom_recover.c`, the setjmp unwind and the most platform-sensitive test in the suite, and `mem_bounds.c` are built on Linux only. Both pass under wine, so it is two lines in `win-runners.bash`.
 		- Fixed: `win-runners.bash` builds and runs `mem_bounds.c` there. `oom_recover.c` was held off that job at the time because it crashed on a real windows host; item 48 fixed the crash and put it on, swept across five optimization levels.
 		- The index-rebuild check is a ratio against a fresh document, and it went wrong two ways once it ran off this box. Windows counts whole milliseconds, so the fresh side reads one tick or none and the ratio rests on nothing; it is skipped now where the clock can't resolve that side, the way it is already skipped under a sanitizer. And the constant term was tight enough that a shared runner's descheduling crossed it, so all four bindings' copies use a wider one - the factor is what catches the defect, which is orders rather than a fraction. Every allocation bound in the file still runs on windows.
-		- Pinned by the two new rows. The ratio still catches an index rebuild that walks every node the document ever held, unchanged.
+		- Pinned by the two new rows. The ratio still catches an index rebuild that walks every node the document ever held, unchanged. [dc3b1]
 		- Test case: the `win-runners.bash` steps `c mem bounds` and `c oom recover`, in the hosted windows job.
 		- Opened: 20260901-193000
 		- Closed: 20260903-231500
@@ -17569,7 +17583,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: all three are defects, not just gaps in what is checked, so each was fixed rather than only pinned.
 		- Fixed, stdin: a stdin nothing is attached to reads as an empty document in all four CLIs. Windows reports a handle the shell closed as an invalid handle or an invalid function rather than as end of input, and all three windows CLIs exited 8 on it - not only Go.
 		- Fixed, C on windows: the save target is resolved through the final path, so a symlink or junction is followed and the answer has the long-path prefix. The prefix is kept only where the name plus the temp file's suffix would exceed the old limit.
-		- Pinned by a `win-runners` closed-stdin row across all four, and by two windows-only C runner fixtures: a save and rewrite through a path past 260 characters, and a save through a symlink that has to leave the link in place. The link fixture skips where no link could be made, which is every run under wine and a windows host without the privilege.
+		- Pinned by a `win-runners` closed-stdin row across all four, and by two windows-only C runner fixtures: a save and rewrite through a path past 260 characters, and a save through a symlink that has to leave the link in place. The link fixture skips where no link could be made, which is every run under wine and a windows host without the privilege. [dc477, dc475]
 		- The long-path fixture found a second half on the hosted job: the read side went through the plain wide open, so a path past the limit could be written and not read. Reads take the same resolver now.
 		- Note: the symlink half is judged only on the hosted windows job. Nothing else here can make a windows symlink: wine reports one as created and creates nothing. Both windows fixtures pass there.
 		- Test case: `win-runners.bash` `closed stdin`, and the windows-only C runner fixtures `save_through_a_long_path` and `winlink`, in the hosted windows job.
@@ -17582,14 +17596,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed, program files: a system install reads `ProgramW6432` when it is set, which is only where it differs from `ProgramFiles`.
 		- Fixed, tag picker: the three fields are split out of the response before they are read, so a release on one line works the same as a pretty-printed one.
 		- Fixed, 5.1 stderr: the smoke run drops the Stop preference for the call and puts it straight back.
-		- Pinned by four `shell-regress` blocks. The uninstall one runs the shipped function against a directory the calling shell can't read and the command it runs can, which is what privilege buys and needs no root. The tag picker gets the same fixture with its whitespace removed. The program files line is evaluated in a pwsh with both variables set, then with only one. The 5.1 rule is source order, since the throw needs a 5.1 that can't be run here.
+		- Pinned by four `shell-regress` blocks. The uninstall one runs the shipped function against a directory the calling shell can't read and the command it runs can, which is what privilege buys and needs no root. The tag picker gets the same fixture with its whitespace removed. The program files line is evaluated in a pwsh with both variables set, then with only one. The 5.1 rule is source order, since the throw needs a 5.1 that can't be run here. [dc47a]
 		- Test case: `shell-regress.bash` rows `20260901b-34-uninstall-globs-as-root`, `20260901b-34-compact-release-json` and `20260901b-34-install-ps1-windows-only-paths`.
 		- Opened: 20260901-193300
 		- Closed: 20260904-011500
 
 	- ✅ Item 35: the `.rpm` does not own `/usr/share/shcl`, so removal leaves the directory behind. The `.deb` is fine.
 		- Fixed: the package definition declares the directory, so both formats own it and both remove it.
-		- Pinned by the package read-back in `package.bash`, which now checks the directory in both formats, and by a `shell-regress` block that builds a stub package and puts it through that same read-back - the release-time check had nothing to fail on until a release. That block needs a packager, so it runs where one is and stays out of the hosted gate, which installs none.
+		- Pinned by the package read-back in `package.bash`, which now checks the directory in both formats, and by a `shell-regress` block that builds a stub package and puts it through that same read-back - the release-time check had nothing to fail on until a release. That block needs a packager, so it runs where one is and stays out of the hosted gate, which installs none. [dc47e]
 		- Test case: `shell-regress.bash` row `20260901b-35-rpm-owns-its-directories`, and the package read-back in `package.bash`.
 		- Opened: 20260901-193400
 		- Closed: 20260904-013000
@@ -17597,7 +17611,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 36: `install.bash` silently replaces a symlink at the bin path that points somewhere else.
 		- Only a regular file is refused. A link to a cargo-built or hand-built copy is overwritten with no word about it, where the uninstall path already knows how to test "only ours".
 		- Fixed: the check is `fLinkOwner`, and it answers free, ours, file or elsewhere. The last two are refused before any download, naming what is there and where it points.
-		- Pinned by a `shell-regress` block over all four answers.
+		- Pinned by a `shell-regress` block over all four answers. [dc47f]
 		- Test case: `shell-regress.bash` row `20260901b-36-bin-link-owner`.
 		- Opened: 20260901-193500
 		- Closed: 20260904-014000
@@ -17606,7 +17620,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The receipt line runs the installed link directly, never what `shcl` resolves to on PATH. On Windows the user PATH entry is appended after the machine PATH, so a setup.exe install shadows every later user install permanently.
 		- Fixed: both installers ask what `shcl` resolves to and name the other copy when it is not the one just written.
 		- Note: on windows a user install can't be put ahead of a machine one - windows reads the machine entries first - so saying which copy wins is the whole of what an installer can do there without rewriting someone else's PATH.
-		- Pinned by a `shell-regress` block over the three answers (ours, someone else's, none at all) and a source check that the PowerShell side asks the same question.
+		- Pinned by a `shell-regress` block over the three answers (ours, someone else's, none at all) and a source check that the PowerShell side asks the same question. [dc47g, dcv6a]
 		- Test case: `shell-regress.bash` row `20260901b-37-shadowing-copy-seen`.
 		- Opened: 20260901-193600
 		- Closed: 20260904-014500
@@ -17614,7 +17628,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 38: `install.ps1 -Uninstall -Target system` over a setup.exe install guts it and leaves the Add/Remove Programs entry pointing at nothing, and the reverse leaves a stale version there.
 		- Both write the same directory. When `uninstall.exe` is present, run it or say to.
 		- Fixed: an uninstall that finds `uninstall.exe` in the directory refuses and points at it, rather than deleting the files under a registration it can't remove. An install over one says the Add/Remove entry still names the version the setup put there.
-		- Pinned by source order in `shell-regress`, the way the smoke-run placement is: the whole script refuses to run off windows, so nothing here can reach that branch.
+		- Pinned by source order in `shell-regress`, the way the smoke-run placement is: the whole script refuses to run off windows, so nothing here can reach that branch. [dc47h]
 		- Test case: `shell-regress.bash` row `20260901b-38-setup-uninstaller-first`, a source-order check.
 		- Opened: 20260901-193700
 		- Closed: 20260904-015000
@@ -17622,14 +17636,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 39: a read-only HOME fails after both downloads, with two raw `mkdir` errors.
 		- The plan step could probe the nearest existing parent for writability before spending the downloads.
 		- Fixed: the three destinations are probed before anything is fetched, each by walking up to whatever exists, and the refusal names the directory that can't be written. A sudo install skips the probe, since root is what writes there.
-		- Pinned by a `shell-regress` block over the walk-up and a read-only home, plus a source-order check that the probe precedes the first download.
+		- Pinned by a `shell-regress` block over the walk-up and a read-only home, plus a source-order check that the probe precedes the first download. [dc47j]
 		- Test case: `shell-regress.bash` row `20260901b-39-read-only-home-probed-first`.
 		- Opened: 20260901-193800
 		- Closed: 20260904-015500
 
 	- ✅ Item 40: `install-dev.bash` leaves a fresh clone on `main` while contributing.md says to branch from `dev`.
 		- Fixed: a fresh clone is put on `dev` when the remote has one. A checkout that is already on another branch, or has edits in it, is left where it is.
-		- Pinned by a `shell-regress` block over three clones: fresh, one with staged work, and one of a repo with no dev branch.
+		- Pinned by a `shell-regress` block over three clones: fresh, one with staged work, and one of a repo with no dev branch. [dc47n]
 		- Test case: `shell-regress.bash` row `20260901b-40-fresh-clone-starts-on-dev`.
 		- Opened: 20260901-193900
 		- Closed: 20260904-020000
@@ -17637,7 +17651,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 41: both installers report a GitHub API rate limit as "none published yet, or network down".
 		- An unauthenticated 403 is common behind a shared address. Honor `GITHUB_TOKEN` when set and name a 403.
 		- Fixed: both send `GITHUB_TOKEN` when it is set, and both name a 403 or 429 as the rate limit it is. A 401 blames the token rather than the network, which is what a wrong token gets.
-		- Pinned by a `shell-regress` block over the four statuses. The status itself is curl's own reporting.
+		- Pinned by a `shell-regress` block over the four statuses. The status itself is curl's own reporting. [dc47p]
 		- Test case: `shell-regress.bash` row `20260901b-41-rate-limit-named`.
 		- Opened: 20260901-194000
 		- Closed: 20260904-020500
@@ -17646,7 +17660,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 424 changed lines across four rounds, including the shell-scope leak and the umask tree, and every user today runs the pre-fix scripts whichever release they get. The next cut resolves it once; the standing question is whether installer fixes count under the docs-only main merge exception, or the one-liners should fetch at a tag.
 		- Decided: the installers count under the docs-only exception. Nothing ships them and the one-liners read them from main as they run, so a fix on dev reaches nobody. Fetching at a tag was rejected - it would freeze an installer's bugs into every release cut with them. Recorded in `design.md` under Branch flow.
 		- Done: the three scripts are on main, matching dev byte for byte, with no tag, no bump and no changelog entry. The one-liners now fetch the fixed scripts.
-		- Test case: `check-docs.bash` installer drift check (install.bash, install.ps1, install-dev.bash must match between origin/main and origin/dev).
+		- Test case: `check-docs.bash` installer drift check (install.bash, install.ps1, install-dev.bash must match between origin/main and origin/dev). [dcbc2]
 		- Opened: 20260901-194100
 		- Closed: 20260904-021000
 
@@ -17654,7 +17668,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The sampler's library blocklist drops any sample whose leaf is inside libc rather than truncating it, so allocation, copying and write time are invisible and every percentage is over the survivors. Today's graph kept 930 of about 1600 samples. Print the expected count beside the kept one at least.
 		- Decided: the blocklist stays. It keeps the signal handler out of libc's own unwinder, which is what it is for; what it can't do is go unsaid.
 		- Fixed: the profiler writes the kept and expected counts beside the SVG, and the report leads with them and with what the missing samples were. Measured on a fresh run: 762 of about 1194.
-		- Pinned by `shell-regress` rows over a graph with the counts beside it and one without, plus a check that the profiler still records them.
+		- Pinned by `shell-regress` rows over a graph with the counts beside it and one without, plus a check that the profiler still records them. [dc47s]
 		- Test case: `shell-regress.bash` row `20260901b-43-flame-report-dropped-samples`.
 		- Opened: 20260901-194200
 		- Closed: 20260904-022000
@@ -17664,7 +17678,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: a name with no backslash and no upper case is already its own resolved, folded spelling, so the scanner's own buffer becomes the segment name and nothing else is built. That is nearly every name in a document. `fold_name` returns a `Cow` for the same reason `key_text` does.
 		- Measured: three allocations per segment down to one, which is the segment vector growing. Parse of a flat 6.7 MB document with two segments a line, best of fifteen: 218 ms to 209 ms.
 		- Note: the 33% reading overstated it, and item 43's own caveat is why. What the graph shows there is Rust's drop glue; the free itself lands in libc, whose samples the sampler drops. Timing says four percent, which is real and repeatable and which no wall-clock threshold could gate.
-		- Pinned by an allocation count instead: `mem_caps.rs` parses the same document with one segment a line and with four, and requires the extra segments to cost under two allocations each. Before the change they cost three; the reading is exact and does not care how fast the machine is.
+		- Pinned by an allocation count instead: `mem_caps.rs` parses the same document with one segment a line and with four, and requires the extra segments to cost under two allocations each. Before the change they cost three; the reading is exact and does not care how fast the machine is. [dc483]
 		- Note: the two measuring helpers in that file had a lock each, so a reading taken while the other test ran counted its allocations too. One lock for both now.
 		- Test case: `mem_caps.rs` `a_plain_name_costs_the_scan_nothing`, an allocation count per segment.
 		- Opened: 20260901-194300
@@ -17679,7 +17693,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Item 46: the PowerShell wrapper's header has one ragged 126-column line where its bash twin wraps.
 		- Fixed: it wraps, and so does the bash wrapper's array example, which ran to 106 columns.
-		- Pinned by a `shell-regress` row over both wrappers' comment lines. Code lines are left out: both have a long one on purpose.
+		- Pinned by none, the wrappers and their rows are gone: a `shell-regress` row over both wrappers' comment lines. Code lines are left out: both have a long one on purpose.
 		- Test case: `shell-regress.bash` row `20260901b-46-wrapper-header-width`.
 		- Opened: 20260901-194500
 		- Closed: 20260904-030200
@@ -17702,7 +17716,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- That is the mechanism behind item 2's stacked-array measurement, but it is not specific to `E021` - any per-line code does it, and a caller reaching for `ParseLimited` because the input is untrusted has no way to cap it.
 		- A ceiling with a "and N more" tail is the usual shape. It would want a spec line, since the diagnostics list is a contract.
 		- Done: `ParseLimited` takes a third cap, `max_diags` (0 = uncapped, and the plain parse stays uncapped). Every parse diagnostic goes through one gate; past the cap it is counted by severity and dropped, and the parse ends its list with one `E022` at line 0 naming the cap, the count not listed and how many of those were errors. The tail is an error whenever an unlisted one was, so a consumer scanning the list still finds an error, `error_count` stays nonzero and a Strict load still fails; a hint otherwise. In C a message is built in the per-line arena and copied into the document only when listed, so an unlisted one costs nothing past its line. The C++ veneer mirrors the new parameter. Spec: `E022` row and the Limits bullet; the changelog's `ParseLimited` entry names the third cap.
-		- Pinned by the `parse_limited` fixture in all four runners (fifty bad lines at cap 10: ten `E014` then the tail with its exact message; error count 11; Strict fails; hints past the cap leave a hint tail that loads at Strict; at the cap exactly there is no tail) and by an allocation bound in all four: 200k stacked element lines under an element cap of 8 and a diagnostic cap of 100 must stay under 8x the text (16x in Python, where the split lines alone are 10x). With the cap made a no-op every fixture and every bound fails.
+		- Pinned by the `parse_limited` fixture in all four runners (fifty bad lines at cap 10: ten `E014` then the tail with its exact message; error count 11; Strict fails; hints past the cap leave a hint tail that loads at Strict; at the cap exactly there is no tail) and by an allocation bound in all four: 200k stacked element lines under an element cap of 8 and a diagnostic cap of 100 must stay under 8x the text (16x in Python, where the split lines alone are 10x). With the cap made a no-op every fixture and every bound fails. [dc1yg, dc26x, dc1yj, dc1yh]
 		- Test case: `parse_limited_caps` in Rust, Python and C and `TestParseLimitedCaps` in Go, and the allocation bounds in Rust `diagnostic_cap_bounds_the_parse`, Go `TestDiagnosticCapBoundsTheParse`, Python `parse_limited_caps` and `mem_bounds.c`.
 		- Opened: 20260901-140700
 		- Closed: 20260901-200000
@@ -17712,7 +17726,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Inherent to a bump arena and not documented as otherwise, so it is not a defect. The reads got their own arena and a release call for the same reason, and a long-running writer has the same problem with no answer.
 		- Smaller than item 3 and reachable only by a consumer that writes in a loop. Worth a documented note even if no call is added.
 		- Done: `shcl_compact(d)` rebuilds the document into fresh arenas through the clone the merge already uses, copies the diagnostics, orphans, lost count and strictness across, swaps the rebuilt document in and frees the old storage. Read results are invalid after it, as after `shcl_reads_release`; on an allocation failure the document is left as it was. The C++ veneer exposes `compact()`. Recorded in `style-guide.md` as a sanctioned deviation, named in the README's C note, and in the changelog under Added.
-		- Pinned by `mem_bounds.c` (100k rewrites of one field grow the arena from 800 bytes to 4.8 MB; compaction brings it to 864 and the document reads the same) and by a property over every corpus case in the C runner: canonical output, every diagnostic, the lost count, the error count and the strictness are unchanged across a compaction. Clean under ASan, UBSan and the leak check.
+		- Pinned by `mem_bounds.c` (100k rewrites of one field grow the arena from 800 bytes to 4.8 MB; compaction brings it to 864 and the document reads the same) and by a property over every corpus case in the C runner: canonical output, every diagnostic, the lost count, the error count and the strictness are unchanged across a compaction. Clean under ASan, UBSan and the leak check. [dc25j]
 		- Test case: `mem_bounds.c`, and the compaction check over every corpus case in the C runner.
 		- Opened: 20260901-140800
 		- Closed: 20260901-203000
@@ -17755,7 +17769,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Worth deciding rather than drifting. A real shared library means an ABI commitment, a soname, symbol versioning and a headers package, all of which pull against the one-file zero-dependency premise.
 		- Narrowing the documents is the cheap answer and probably the right one: drop "prebuilt", and say those two modes mean compiling the drop-in.
 		- Decided: narrow the documents. A published shared object means an ABI to keep - soname, symbol versioning, a headers package - which pulls against the one-file zero-dependency premise. The two modes now read as compiling a drop-in source file two ways, and the paragraph says plainly that neither is published prebuilt and why.
-		- Pinned by `check-docs.bash`: a document may not offer a `.so`, `.dll` or `.dylib` as already built while no manifest declares a library crate-type. Verified by restoring the old wording and watching it fail.
+		- Pinned by `check-docs.bash`: a document may not offer a `.so`, `.dll` or `.dylib` as already built while no manifest declares a library crate-type. Verified by restoring the old wording and watching it fail. [dc09v]
 		- Test case: `check-docs.bash` `no-shared-library-claim`.
 		- Opened: 20260830-140346
 		- Closed: 20260831-083000
@@ -17769,7 +17783,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: `--remove=PATH`, `--set-default=PATH=VALUE` and `--set-literal-default=PATH=TEXT` in all four CLIs. All five spellings share one ordered list, so two touching the same path resolve in the order given, and they are valid on the same subcommands `--set` already was.
 		- Note: removing nothing is not an error, matching the ops script's `remove`.
 		- Also: the `--write can't be combined with` refusal names the option actually given rather than always saying `--set`, and the help's subcommand lists for `--layer` and `--set` read "all but check/init" - they had gone stale when item 19 added two subcommands.
-		- Pinned by eight `cli-regress.bash` rows covering each spelling, a default that must not clobber, ordering within the list, the ephemeral form on a read, the `--write` refusal and an empty path. 32 of 136 checks fail without the code.
+		- Pinned by eight `cli-regress.bash` rows covering each spelling, a default that must not clobber, ordering within the list, the ephemeral form on a read, the `--write` refusal and an empty path. 32 of 136 checks fail without the code. [dc0a4, dc0a5, dc0a6, dc0a7]
 		- Test case: cli-regress `remove-option`, `set-default-absent`, `set-default-present`, `set-literal-default`, `set-family-order`, `remove-ephemeral`, `remove-write-refused` and `remove-empty-path`.
 		- Opened: 20260830-140346
 		- Closed: 20260831-093000
@@ -17783,7 +17797,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: new exit 8 for a file or stream that could not be read or written, and 1 becomes the usage code alone. Same reasoning as exit 7, applied to what was left in the catch-all: fixing a command line and fixing a path, a permission or a disk are unrelated remedies.
 		- A path a write option refuses (a wildcard, an index naming no instance) stays at 1 rather than taking a third code, because what has to change there is the option's value. Two codes, not three.
 		- Fixed: in all four bindings - every file, schema, layer and stdin read, and the save's generic failure. Help, man page, spec, both wrappers and design updated.
-		- Pinned by six `cli-regress.bash` rows, four I/O and two usage, plus the existing directory-read row moved from 1 to 8. 20 of 160 checks fail without the code.
+		- Pinned by six `cli-regress.bash` rows, four I/O and two usage, plus the existing directory-read row moved from 1 to 8. 20 of 160 checks fail without the code. [dc0ac, dc0ad, dc0ag, dc0ah]
 		- Test case: cli-regress `io-missing-file`, `io-missing-layer`, `io-missing-check`, `io-missing-schema`, `usage-unknown-option`, `usage-bad-write-path` and `read-dir-names-error`.
 		- Opened: 20260830-140346
 		- Closed: 20260831-101500
@@ -17861,7 +17875,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Go-only, no cross-binding effect. Recorded as a measured win, not a defect.
 		- Fixed: scan for an upper-case byte first, and copy only from where one was found.
 		- Measured here on a 5000-key document: the read path got about 8% faster. The mixed-case call got slightly slower, which is the right trade - nearly every name is already folded.
-		- Pinned by a Go test asserting an already-folded name allocates nothing. It allocated once before. An allocation count is exact where a wall-clock threshold on a constant-factor win would flake.
+		- Pinned by a Go test asserting an already-folded name allocates nothing. It allocated once before. An allocation count is exact where a wall-clock threshold on a constant-factor win would flake. [dc0as]
 		- Test case: Go `TestAsciiLowerDoesNotCopyAFoldedName`.
 		- Opened: 20260830-140346
 		- Closed: 20260831-130000
@@ -17871,7 +17885,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- No code point folds into the accepted words, so this is drift rather than a live divergence.
 		- Fixed: the Go CLI has its own ASCII fold now, mirroring the library helper the strictness option already goes through and C's own equality check.
 		- Found a second site in the same file with the same divergence: the float-grammar check that accepts inf/infinity/nan folded by Unicode too, where Python and C fold ASCII there. Both use the new helper.
-		- Pinned by the existing crosscheck, which replays every option spelling through all four CLIs; the fold is only observable as agreement, since no code point folds into the accepted words.
+		- Pinned by the existing crosscheck, which replays every option spelling through all four CLIs; the fold is only observable as agreement, since no code point folds into the accepted words. [d9tsx]
 		- Test case: crosscheck `usage and option behavior`, which replays every option spelling through the four CLIs.
 		- Opened: 20260830-140346
 		- Closed: 20260831-130500
@@ -17901,7 +17915,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The style directive asks for exhaustive matches and no catch-all unless needed. Here two lists have to be kept in step by hand and nothing enforces it.
 		- Spell the last arm out and keep an explicit unreachable, or derive both from one table.
 		- Fixed in all four, not just the reference: every one had the same fall-through, so leaving three would be the same finding again next round. Each command has its own arm and the last one is a refusal.
-		- Pinned by `check-completions.bash`, which already parses the command table out of the reference: it now also parses the dispatch arms and diffs the two. Removing one arm makes it fail, naming the command that lost it.
+		- Pinned by `check-completions.bash`, which already parses the command table out of the reference: it now also parses the dispatch arms and diffs the two. Removing one arm makes it fail, naming the command that lost it. [dc0ax]
 		- The extractor matches the arm arrow rather than the indentation. `\t` is not an escape in POSIX ERE, so a pattern with one matches under the interactive grep on this box and nothing at all under the grep a script gets - it looked like a working check while asserting nothing.
 		- Test case: `check-completions.bash` `every-command-dispatches`.
 		- Opened: 20260830-140346
@@ -17921,7 +17935,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Unlike the array reads, the header states the contract: the result lives in the document's arena until it is freed. So the growth is what was promised.
 		- Recorded beside item 3 so a fix for that one does not quietly change these without a decision. No change needed unless the contract is revisited.
 		- Closed by item 3's fix. The contract was revisited deliberately and kept; these accessors moved to the read arena with the rest, so `shcl_reads_release` covers them and the promise in the header still holds for anyone who never calls it.
-		- Test case: `mem_bounds.c` released read loop (shcl_paths, shcl_children, shcl_to_canonical stay flat across shcl_reads_release).
+		- Test case: `mem_bounds.c` released read loop (shcl_paths, shcl_children, shcl_to_canonical stay flat across shcl_reads_release). [dc25j]
 		- Opened: 20260830-140346
 		- Closed: 20260830-181500
 
@@ -17932,7 +17946,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced, once the right shape was tried: on this bash the loop is harmless at statement level, which is why the first attempt saw nothing. The same loop as the last command in a function returns 1 and kills the caller.
 		- Note: latent in the sense that where it sits today is safe, not in the sense that the trap has gone.
 		- Fixed with `|| continue` on the miss. The same shape was in `crosscheck.bash` and, in a non-glob form, in `check-pins.bash`; both are fixed too.
-		- Pinned by a repo-wide scan in `shell-regress.bash`, beside the grep-substitution one. Restoring any of the three makes it fail, naming the file and line.
+		- Pinned by a repo-wide scan in `shell-regress.bash`, beside the grep-substitution one. Restoring any of the three makes it fail, naming the file and line. [dbzbt]
 		- That scan also caught a line added earlier in this round, in `check-completions.bash`, which is the argument for having it.
 		- Test case: `shell-regress.bash` `no-failed-test-loop-bodies`.
 		- Opened: 20260830-140346
@@ -17943,7 +17957,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Noticed but not chased: whether all slots are freed on every exit path was not verified.
 		- Fixed: the level arenas are heap-allocated and freed with the rest.
 		- Note: the unchased half is answered - nothing returns between the allocation and the free loop, so every slot is reached on every path. Said in a comment beside it.
-		- Pinned by a POSIX-only fixture in the C runner that validates on a thread with the smallest stack the platform allows. It segfaults with the array back on the stack and passes without it. The runner and the sanitizer build now link pthread.
+		- Pinned by a POSIX-only fixture in the C runner that validates on a thread with the smallest stack the platform allows. It segfaults with the array back on the stack and passes without it. The runner and the sanitizer build now link pthread. [dc0b4]
 		- Test case: C runner `validate_fits_a_small_stack`, POSIX only.
 		- Opened: 20260830-140346
 		- Closed: 20260831-150000
@@ -18069,7 +18083,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Item 50: one bold-lead bullet in the design document uses a trailing dash where every other closes the bold with punctuation.
 		- Fixed: the bold now closes with a period, matching every other bold-lead bullet in the file.
-		- Pinned by `check-docs.bash`? No - a one-line wording fix has nothing to fail. A repo-wide scan for the shape returns nothing now, which is the check that would have found it.
+		- Pinned by none by ID. A one-line wording fix has nothing to fail: `check-docs.bash`? No - a one-line wording fix has nothing to fail. A repo-wide scan for the shape returns nothing now, which is the check that would have found it.
 		- Test case: None, one-line wording fix.
 		- Opened: 20260830-140346
 		- Closed: 20260831-185000
@@ -18089,7 +18103,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every other item closes with the stamps. Twelve in the 20260830 round append a result after them, so the stamps stop being a reliable item terminator, and the trailing bullets are the ones a reader most wants next to the finding.
 		- Eight of the twelve also have no classification prefix.
 		- Fixed: thirteen bullets moved above the stamps, so the stamps terminate every item.
-		- Pinned by `check-docs.bash`: no sub-bullet may follow an `Opened:`/`Closed:` run at the same indent.
+		- Pinned by `check-docs.bash`: no sub-bullet may follow an `Opened:`/`Closed:` run at the same indent. [dc0c7]
 		- Test case: `check-docs.bash` check "sub-bullet below the stamps" over backlog.md.
 		- Opened: 20260830-140346
 		- Closed: 20260831-190000
@@ -18127,7 +18141,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The 20260830 round removed method clauses but left the discovery-mechanism ones.
 		- Drop them, or fold into the cause line where the gate that caught it is the point.
 		- Fixed: nine, counting one this round had just added. The pure-method ones are gone; the rest were folded into what they were actually saying - a coverage gap, a symptom, or the gate that first measured something.
-		- Pinned by `check-docs.bash`: no backlog bullet may open with "Found by" or "Found while".
+		- Pinned by `check-docs.bash`: no backlog bullet may open with "Found by" or "Found while". [dc0c8]
 		- Note: the check for it read `\t` in an ERE at first, which POSIX has no escape for - so it matched nothing under the grep a script gets while matching under the interactive one. `shell-regress.bash` now scans for that shape, since the same mistake had already cost a check earlier in this round.
 		- Test case: `check-docs.bash` `no-found-by-bullets`.
 		- Opened: 20260830-140346
@@ -18215,7 +18229,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fifty-odd internal typedefs are unprefixed and end up in the consumer's implementation TU; either document "one TU of its own" or prefix them.
 		- The veneer's `generate()` is `const` but can push a diagnostic onto the schema; the hand-written rule of five could be a `unique_ptr` deleter.
 		- Internal typedefs have the Shcl prefix; the veneer owns its handle via unique_ptr and generate() is no longer const.
-		- Test case: `sanitize-c.bash` (get, init, --layer, the --write paths and veneer_smoke under ASan and UBSan) and `check-veneer.bash` (every public call made or listed).
+		- Test case: `sanitize-c.bash` (get, init, --layer, the --write paths and veneer_smoke under ASan and UBSan) and `check-veneer.bash` (every public call made or listed). [dbxj4, dcq9w]
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18246,12 +18260,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 37: exit code 1 covers both "add `--lossy`" and "file missing", and `init`'s exit 6 is in no table.
 		- A script gating a rewrite can't tell the refusal apart. Decision: a code of its own, and a table entry for `init`.
 		- Decided: the refusal has its own exit code, 7. Help, man page, README, wrappers and design.md include it, along with exit 6's init clause.
-		- Test case: `cli-regress.bash` exit-7 rows, `sugar-write-refused` among them, all four CLIs.
+		- Test case: `cli-regress.bash` exit-7 rows, `sugar-write-refused` among them, all four CLIs. [ddced]
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 38: five help lines run past 80 columns; one wraps mid-word on a default terminal.
-		- Test case: `cli-regress.bash` help-width check (every help, per-subcommand help and explain at 80 columns), all four CLIs.
+		- Test case: `cli-regress.bash` help-width check (every help, per-subcommand help and explain at 80 columns), all four CLIs. [dcrhg]
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18260,13 +18274,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `get` in the synopsis is set with `.RI`, so it renders roman with italic brackets while every other subcommand is bold.
 		- The help header promises a subcommand list per option and `--set` and `--set-literal` have none.
 		- Neither names the four refusals the CLI enforces, or that `--raw` has no array form.
-		- Test case: `check-docs.bash` man page checks (.TH date against the last commit, .SY synopsis against each help, option list against the help).
+		- Test case: `check-docs.bash` man page checks (.TH date against the last commit, .SY synopsis against each help, option list against the help). [dcv66]
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 40: completion drift the checker can't see.
 		- Neither file offers `--about` or `--donate`; the zsh file offers no top-level options at all and claims to be line for line the bash one.
-		- Test case: `check-completions.bash` top-level offer diff against the CLI, both completion files.
+		- Test case: `check-completions.bash` top-level offer diff against the CLI, both completion files. [dbz6y]
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18279,7 +18293,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Closed: 20260830-124432
 
 	- ✅ Item 42: the installer's glibc message names 2.34 for every arch; the arm64 binary needs 2.30.
-		- Test case: `shell-regress.bash` glibc smoke row with `arch=arm64`: the refusal names 2.30, not 2.34.
+		- Test case: `shell-regress.bash` glibc smoke row with `arch=arm64`: the refusal names 2.30, not 2.34. [dd51j]
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18287,7 +18301,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `install-dev.bash` skips the hooks setup in a git worktree, where `.git` is a file.
 		- The cppcheck wheel version is now written in three places and only two are compared.
 		- `check-pins.bash` matches by substring; a pin named `build` matches five workflow lines.
-		- Test case: `check-install-dev.bash` worktree rows, and `shell-regress.bash` check-pins rows for exact version matches and the cppcheck wheel.
+		- Test case: `check-install-dev.bash` worktree rows, and `shell-regress.bash` check-pins rows for exact version matches and the cppcheck wheel. [dcqg8, dcwqs, dcqgf, dcqgg]
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18368,7 +18382,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The drop-ins tarball records the local user and group and the checkout mtimes, so a fresh clone or another box gives a different sum, and the sums file signs it.
 		- The README claim is scoped to binaries and is still true. Set `SOURCE_DATE_EPOCH` from the commit, touch the payload to it, and build the tarball sorted with numeric owner zero.
 		- Fixed: `SOURCE_DATE_EPOCH` from the commit, the payload touched to it, the rpm build host pinned, the tarball built sorted with numeric owner zero. Two builds seconds apart give identical sums for every package and the tarball.
-		- Test case: `shell-regress.bash` rows: package.bash twice a second apart gives the same .deb and .rpm, and the drop-ins tar line gives the same tarball over new mtimes, owner 0. The rpm build host cannot be varied on one box.
+		- Test case: `shell-regress.bash` rows: package.bash twice a second apart gives the same .deb and .rpm, and the drop-ins tar line gives the same tarball over new mtimes, owner 0. The rpm build host cannot be varied on one box. [dd5he, dd5hf]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18397,14 +18411,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 30: every run flags advisory noise, so the session-start lint check never reads clean.
 		- cargo-deny warns about three duplicate crates inside the profiling chain that is never released, and the lint report's grep also catches govulncheck's "your code does not appear to call" lines. Allow the duplicates with a reason, and exclude the informational block.
 		- Fixed: the three duplicates are allowed with a reason, and the report skips the informational block.
-		- Test case: `shell-regress.bash` lint-report row: govulncheck's informational block reads CLEAN. The cargo-deny half is deny.toml, checked by the lint stage's cargo-deny run.
+		- Test case: `shell-regress.bash` lint-report row: govulncheck's informational block reads CLEAN. The cargo-deny half is deny.toml, checked by the lint stage's cargo-deny run. [dd5hd]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
 	- ✅ Item 31: the pre-push hook gates the working tree, not the commit being pushed.
 		- An uncommitted fix can pass a broken commit; an uncommitted breakage can block a good one. At least warn on a dirty tree; better, run the gate in a detached worktree at the pushed commit.
 		- Fixed: the hook runs the gate in a detached worktree at the pushed commit, sharing the target dir.
-		- Test case: `check-push-gate.bash`: the stub records the commit it gated and must see the pushed sha.
+		- Test case: `check-push-gate.bash`: the stub records the commit it gated and must see the pushed sha. [dcmcd]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18425,7 +18439,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 34: nothing asserts the release tag matches the crate version at signing.
 		- Cargo.toml is the version source and the three CLI mirrors are gated, but a mistyped tag would publish assets whose names disagree with it. The signing script can refuse when `git describe --exact-match` and the crate version differ.
 		- Fixed: signing refuses unless a `v<version>` tag points at HEAD (`--no-tag-check` for rehearsals).
-		- Test case: `shell-regress.bash` sign-release rows: an untagged HEAD and a wrong tag are refused, the right tag gets past the check, and no .sig is left.
+		- Test case: `shell-regress.bash` sign-release rows: an untagged HEAD and a wrong tag are refused, the right tag gets past the check, and no .sig is left. [dd5hb]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18455,7 +18469,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The publish helper is kept out of shellcheck for a reason that no longer applies (it disables the rule itself and passes clean).
 		- The PowerShell analyzer settings exclude a rule nothing trips, with a comment describing a choice that was never made.
 		- Fixed: the two utilities are linted under the project rule set (E101 off for the cicd files) and pass; the worker too; the publish helper is back in shellcheck; the analyzer exclusion is gone.
-		- Test case: the lint stage itself: ruff over flame-report.py, gen-demo-gif.py and pyworker.py in `LINT_EXTRA`, and `shell-regress.bash`'s check that every tracked shell script is in `SHELLCHECK_TARGETS`.
+		- Test case: the lint stage itself: ruff over flame-report.py, gen-demo-gif.py and pyworker.py in `LINT_EXTRA`, and `shell-regress.bash`'s check that every tracked shell script is in `SHELLCHECK_TARGETS`. [dcwqf, dcwqg]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18469,7 +18483,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 40: no sanitizer build anywhere in the pipeline.
 		- An address-and-undefined-behavior build of the C test programs found item 12 in one run. It is one extra compile line in the C test stage.
 		- Fixed: `sanitize-c.bash` in the test stage builds the runners and the CLI under ASan and UBSan and runs the corpus.
-		- Test case: `sanitize-c.bash` itself.
+		- Test case: `sanitize-c.bash` itself. [dbxj4]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18543,7 +18557,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 50: the build script and the comparison tool are off house style.
 		- No license header on `build.rs` (it is in the published crate) or the three comparison sources; the comparison tool uses the shell bullet rule as a Rust banner, and has two unexplained unwraps.
 		- Fixed: headers on all four files, banners gone, the two unwraps explained.
-		- Test case: `check-docs.bash` SPDX and copyright header check over every tracked source file, build.rs and the comparison sources included.
+		- Test case: `check-docs.bash` SPDX and copyright header check over every tracked source file, build.rs and the comparison sources included. [dcv6f]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18585,7 +18599,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 56: C++ veneer structure.
 		- `generate` takes an out-parameter where every other binding returns a pair; the diagnostic struct has no member initializers; two lines write bare `size_t`.
 		- Fixed: `generate` returns a pair, the diagnostic has initializers, `std::size_t`.
-		- Test case: `veneer_smoke.cpp` generate calls, which destructure the returned pair (initializers and std::size_t are style).
+		- Test case: `veneer_smoke.cpp` generate calls, which destructure the returned pair (initializers and std::size_t are style). [d9v59]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18619,7 +18633,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 61: design.md and the two tables of contents.
 		- design.md sends readers to a notes file that is not in the repo; its lockstep example uses the 1.x version constraints; both its TOC and the README's have drifted from the headings (anchors still resolve).
 		- Fixed: the pointer is gone, the example is on 2.x, both tables of contents match their headings.
-		- Test case: `check-docs.bash` contents-block check (README, design.md, spec, contributing, ai_policy regenerate from their headings).
+		- Test case: `check-docs.bash` contents-block check (README, design.md, spec, contributing, ai_policy regenerate from their headings). [dcwgd]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18633,7 +18647,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 63: spelling and word-choice pass.
 		- Six British spellings in prose and comments. "honest" eleven times, "crucial" once, "key" as an adjective twice, "human" nine times outside the policy doc. The trademark contact is obfuscated with a non-ASCII glyph unlike the other two files. Three typos in the guidelines doc; "Github" once in the backlog.
 		- Fixed: across the repo; the spec's diagnostics paragraph says prose message now.
-		- Test case: `check-docs.bash` US spelling check and circled-A contact check; the word-choice part is prose.
+		- Test case: `check-docs.bash` US spelling check and circled-A contact check; the word-choice part is prose. [dd40z]
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18680,7 +18694,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Done: all three install scripts now open and close with a blank line and put one between output sections.
 		- The dev channel listed one release and took it, and the API orders that list by publish date - so a maintenance release cut on an older line would win. Both installers now list up to 100 and take the highest version, with a final outranking its own pre-releases.
 		- Done: `install-dev.bash` confirms the same way `install.bash` does (try the terminal read, treat "can't ask" as abort) and accepts "yes". `install.ps1` consults `PROCESSOR_ARCHITEW6432` and turns the progress bar off for the downloads.
-		- Test case: `shell-regress.bash` channel rows: `fPickTag` stable and dev over a publish-order release list, and the install.ps1 twin.
+		- Test case: `shell-regress.bash` channel rows: `fPickTag` stable and dev over a publish-order release list, and the install.ps1 twin. [dbzq8]
 		- Opened: n/a
 		- Closed: 20260822-115416
 
@@ -18705,7 +18719,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Closed: 20260822-115416
 
 	- ✅ Item 7: 60 public items in the Rust reference had no doc comment where the Go binding documents the same inventory. Filled from the Go text; one stranded doc block (`quote_segment`'s, sitting on `format_f64`) moved home.
-		- Test case: `check-docs.bash` check that every pub item in lib.rs has a `///` doc comment. Fields and variants are left out, which is why it is not rustc's `missing_docs`.
+		- Test case: `check-docs.bash` check that every pub item in lib.rs has a `///` doc comment. Fields and variants are left out, which is why it is not rustc's `missing_docs`. [dd5gq]
 		- Opened: n/a
 		- Closed: 20260822-115416
 
@@ -18727,7 +18741,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Publish keeps its own pull either way, as a second guard.
 		- Done: a sync stage ahead of the format stage. Fast-forwards when only behind, wrapping a dirty tree in a stash; stops the run when the branch and its upstream have both moved; warns and carries on when offline, untracked, or on a detached head. `--no-sync` skips it, and `--ci` turns it off since the runner already has the exact commit.
 		- Done: a stash pop that conflicts now stops the run rather than letting the build proceed over conflict markers. Git keeps the entry, so the work is recoverable.
-		- Test case: `shell-regress.bash` stage 0 row on clones of a scratch remote: diverged stops, behind fast-forwards around a stashed edit, a conflicting stash pop stops with the stash kept. The offline, no-upstream and detached warnings are not pinned.
+		- Test case: `shell-regress.bash` stage 0 row on clones of a scratch remote: diverged stops, behind fast-forwards around a stashed edit, a conflicting stash pop stops with the stash kept. The offline, no-upstream and detached warnings are not pinned. [dd5hj]
 		- Opened: 20260819-111243
 		- Closed: 20260819-121316
 
@@ -18772,7 +18786,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The deny config is `source/rust/deny.toml`: permissive licenses only, unknown registries refused, a known vulnerability fails the run.
 		- Two advisories are recorded as accepted rather than hidden. Both are quick-xml 0.26 under inferno under pprof - nothing here parses XML, the chain is behind the profiling feature and is never released, and inferno pins that version so there is nowhere to move. They come out when pprof uses a newer inferno.
 		- Done: a dependency refresh went with it and cleared the yanked `spin` the release notes used to have to explain.
-		- Test case: `check-pins.bash` holds the staticcheck, govulncheck and cargo-deny pins against ci.yml; the --ci lint stage runs all three.
+		- Test case: `check-pins.bash` holds the staticcheck, govulncheck and cargo-deny pins against ci.yml; the --ci lint stage runs all three. [dbz38]
 		- Opened: 20260819-111243
 		- Closed: 20260819-123753
 
@@ -18782,7 +18796,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Done: `cicd/hooks/pre-push`, enabled by pointing `core.hooksPath` at `cicd/hooks`. `install-dev.bash` sets it up.
 		- It only runs the gate when the push would move `main` or `dev`; feature branches push without waiting. It leaves out the large-document stage, which the hosted workflow still covers.
 		- `git push --no-verify` overrides it.
-		- Test case: `check-push-gate.bash` (main gated, feature pushes not) and `check-install-dev.bash` (hooksPath setup).
+		- Test case: `check-push-gate.bash` (main gated, feature pushes not) and `check-install-dev.bash` (hooksPath setup). [dcmcd, dc1z7]
 		- Opened: 20260819-111243
 		- Closed: 20260819-121316
 
@@ -18866,7 +18880,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 16: two run-on bullets in `spec.md`.
 		- The pair covering `--lossy` and what a bare `-` means. Both pack several clauses into one sentence with dashes doing the joining, and they are the only two top-level bullets in the file not separated by a blank line.
 		- Done: split into separate sentences and bullets, and the neighboring bullet above them had the same problem and got the same treatment. No top-level bullet in the file is missing its blank line now.
-		- Test case: `check-docs.bash` blank line between top-level bullets check (the sentence splits are prose).
+		- Test case: `check-docs.bash` blank line between top-level bullets check (the sentence splits are prose). [dc0bz]
 		- Opened: 20260819-111243
 		- Closed: 20260819-132623
 
@@ -18897,7 +18911,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Everything else in both installers matches: signature checked before any checksum, idempotent, states its plan and asks, detects the architecture, and uninstalls only what it laid down.
 		- Done: `-Help` prints the options and exits. Written into the script rather than left to the comment block, because the documented one-liner pipes the script into the shell and leaves nothing to ask about.
 		- Done: README lists it alongside the others.
-		- Test case: `shell-regress.bash` rows on install.ps1 `-Help`: exit 0, the title line, all six options, blank lines at both ends.
+		- Test case: `shell-regress.bash` rows on install.ps1 `-Help`: exit 0, the title line, all six options, blank lines at both ends. [dd5gt]
 		- Opened: 20260819-111243
 		- Closed: 20260819-132623
 
@@ -18926,7 +18940,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: every example builds and runs, zig included, the c one under the readme's own `-std=c11` line. The zig note about its standard library moving between releases got shorter rather than longer: routing the file work through the c tier removes the part that was actually unstable.
 		- Fixed: the schema-fault sentence now matches the code: a broken constraint keeps its entry so the sweep still runs, and only a lost path spelling turns it off.
 		- Fixed: installation moved above "Using the CLI" - install, then use, then embed. The one "below" in a cross-reference went with it.
-		- Test case: `check-readme.bash` builds and runs every README example and compares the saved file.
+		- Test case: `check-readme.bash` builds and runs every README example and compares the saved file. [dcbc6]
 		- Opened: 20260817-204524
 		- Closed: 20260818-144317
 
@@ -18937,7 +18951,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: all 26 reference setters are `#[must_use]` now. Only five sites in the whole repo were discarding one, all in tests, since the CLIs already checked. Each became an assertion, including one that pins a too-deep path as not writable.
 		- Fixed: the examples check a setter and print the write reason: all three writes in the front-page rust one (must_use leaves no choice), one write in go, python and c, and one in each per-binding readme. Every example builds and runs, the rust ones under `-D warnings`.
 		- One sentence about the ignored-false consequence went into all four setter docs plus the spec; the rust-only annotation is recorded as a sanctioned API deviation in the style guide.
-		- Test case: `check-docs.bash` README setter check (every setter call checked), and `check-readme.bash` building the Rust example.
+		- Test case: `check-docs.bash` README setter check (every setter call checked), and `check-readme.bash` building the Rust example. [dc0c2, dcbc6]
 		- Opened: 20260817-204524
 		- Closed: 20260818-145500
 
@@ -19081,7 +19095,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- ✅ The deep soak is written down where it will be seen (`cicd/config.bash`, beside the gate) with the command and the reason. The gate itself was raised once the two fixpoint bugs it found were fixed. Both needed that depth to show up at all, so a gate below it could not see the class that produced them.
 		- 🚫 Canceled: a 32-bit build. 32-bit is not a target, so there is nothing to verify. The whole line traces to one observation: C's `decode_cps` sizes an allocation as `(m+1) * sizeof(size_t)` unchecked, which only overflows where `size_t` is 32 bits, and then only past a gigabyte of input. On every supported target that arithmetic is 64-bit and can't overflow at any input size the parser will accept.
 		- ✋ Standing, not fixable by a gate: the cross-binding check can't see a defect all four bindings share. Only the corpus can, and only if a case has the form. Both bugs filed this round are exactly that kind, and both were found by the fuzzer rather than the differential. That is the practical answer: widen the fuzzer, and add a corpus case whenever it finds something.
-		- Test case: mypy with `check_untyped_defs` in LINT_EXTRA, the CR and unusual-whitespace entries in the `fuzz_smoke.rs` character set, and the mingw and SHCL_NO_FILE_IO builds in CROSS_CHECKS.
+		- Test case: mypy with `check_untyped_defs` in LINT_EXTRA, the CR and unusual-whitespace entries in the `fuzz_smoke.rs` character set, and the mingw and SHCL_NO_FILE_IO builds in CROSS_CHECKS. [dc26d]
 		- Opened: 20260817-204524
 		- Closed: 20260818-170931
 
@@ -19140,14 +19154,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 28: most exported Go functions have no doc comment.
 		- The style guide requires one starting with the name; about sixty were missing, including the whole writer API. Nothing checks this automatically.
 		- Fixed: 74 of them, one line each.
-		- Test case: `check-docs.bash` check that every exported Go func, method and type has a doc comment.
+		- Test case: `check-docs.bash` check that every exported Go func, method and type has a doc comment. [dd5gq]
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
 	- ✅ Item 29: a doc comment sits on the wrong function.
 		- Cause: the description of the element parser ended up attached to the helper inserted above it, in both the reference and Go.
 		- Fixed: moved onto the function it describes, matching the other two.
-		- Test case: `check-docs.bash` stranded doc comment check (a Go comment opening with another declared name); the Rust half has no check.
+		- Test case: `check-docs.bash` stranded doc comment check (a Go comment opening with another declared name); the Rust half has no check. [dd13g]
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
@@ -19192,7 +19206,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Low stakes while the only release is a pre-release, and cheap to change now. Later it means a migration step for anyone who already installed.
 		- The system target (`C:\Program Files\Shcl`) is already conventional.
 		- Done before the 1.0.0 cut, which was the last moment it stayed free: `user` now goes to `%LOCALAPPDATA%\Programs\Shcl` and that dir goes on the user PATH directly. The old layout needed a second copy of the exe in a parent `bin` dir for PATH to find it; that whole branch is gone.
-		- Test case: `shell-regress.bash` install.ps1 -Uninstall rows, which lay down and remove the user install at %LOCALAPPDATA%\Programs\Shcl.
+		- Test case: `shell-regress.bash` install.ps1 -Uninstall rows, which lay down and remove the user install at %LOCALAPPDATA%\Programs\Shcl. [dcr5y]
 		- Opened: 20260727-134444
 		- Closed: 20260728-131605
 
@@ -19213,7 +19227,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Measured: a 4.3 MB document of one-line fields holds 252 MB resident, about 59x, so the byte cap alone can't bound a load. That is what reopened the deferred half.
 		- Decided: the caps are the caller's, not constants - `parse_limited(text, strictness, max_nodes, max_elements)` in every binding and the C++ veneer, 0 = uncapped. At the node cap the parse stops with one `E020` and the unparsed remainder counts as lost; an over-long array is refused whole (`E021`), never truncated. The depth cap keeps its skip-and-continue recovery; reasons in design.md.
 		- Fixed: all four bindings plus the veneer, byte-identical diagnostics.
-		- Pinned by: a parse_limited fixture in all four runners plus a veneer smoke line - cap crossing and its line number, lost accounting, the last-line cross, the one-line overshoot, both array spellings, strict failure with the document.
+		- Pinned by: a parse_limited fixture in all four runners plus a veneer smoke line - cap crossing and its line number, lost accounting, the last-line cross, the one-line overshoot, both array spellings, strict failure with the document. [dc1yg, dc26x, dc1yj]
 		- Opened: 20260725-152141
 		- Closed: 20260901-112357
 
@@ -19277,7 +19291,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `V001`-`V099` were fully tabled, but `E001`-`E015` and `H001` were listed nowhere, while users are told to gate CI on `check`.
 		- Done: `E001`-`E016` plus `H001` are now tabled in the spec's Diagnostics section.
 		- Threading the code through every call site is deferred - see Future and/or deferred.
-		- Test case: `check-docs.bash` check that the codes `explain` lists and the spec's table rows match both ways.
+		- Test case: `check-docs.bash` check that the codes `explain` lists and the spec's table rows match both ways. [dd5gs]
 		- Opened: 20260725-152141
 		- Closed: 20260725-175440
 
@@ -19317,7 +19331,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 34: Python's public `get_*` raises a private-named `_StatusError`.
 		- A caller can't catch it without reaching into a private name, so in practice they will write a bare `except Exception`.
 		- Fixed: the class is public `StatusError` now (docstring included), so callers can catch it by name.
-		- Test case: the Python runner's get-tier fixture: `get_int("missing")` raises `shcl.StatusError`, caught by its public name.
+		- Test case: the Python runner's get-tier fixture: `get_int("missing")` raises `shcl.StatusError`, caught by its public name. [ddq7r]
 		- Opened: 20260725-152141
 		- Closed: 20260725-180134
 
@@ -19333,7 +19347,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `TOOL_PINS` already tracks the versions the local gate uses, so CI and local disagree about what "passing" was tested against.
 		- Actions are also referenced by floating tag rather than commit SHA - generic hardening, low risk here.
 		- Fixed: ci.yml installs ruff/mypy/cppcheck/markdownlint at the exact `TOOL_PINS` versions, and every action is referenced by commit SHA with the tag in a comment.
-		- Test case: `check-pins.bash` (ci.yml installs at the TOOL_PINS versions); action SHA pinning has no check.
+		- Test case: `check-pins.bash` (ci.yml installs at the TOOL_PINS versions); action SHA pinning has no check. [dbz38]
 		- Opened: 20260725-152141
 		- Closed: 20260725-181714
 
@@ -19345,7 +19359,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Key custody is offline and signing is manual, deliberately: a key in CI would be reachable by the same compromise the signature defends against. RSA rather than Ed25519 purely so the verifier is one both `openssl` and Windows PowerShell 5.1 already have. Rationale and threat model in `design.md`.
 		- Still not covered: the source tarball that supplies the drop-in files. It is fetched by tag, so it is as trustworthy as the tag, but it has no signature of its own.
 			- Closed by Code review 20260817 item 28: the drop-ins now travel in a signed release asset, and the source tarball is out of the install path.
-		- Test case: `shell-regress.bash` rows running install.bash's and install.ps1's signature checks with a throwaway key: the signed sums file passes, a one-byte change is refused.
+		- Test case: `shell-regress.bash` rows running install.bash's and install.ps1's signature checks with a throwaway key: the signed sums file passes, a one-byte change is refused. [dd5gv]
 		- Opened: 20260725-152141
 		- Closed: 20260728-131605
 
@@ -19362,7 +19376,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Eight sites - six `unreachable!` (four of them in the newest validator and generator code) and two `unwrap()`.
 		- Each is provably unreachable today, but they are invariants asserted by a panic in a library whose contract is that it never bails on a whole file, and three ports copy the structure.
 		- Fixed: every non-test `unreachable!`/`unwrap()` now degrades instead of aborting - a slipped invariant skips the constraint, returns no-parent, or keeps the match total with an empty string. Zero panic macros left outside tests (the feature-gated profiling `expect`s are never released).
-		- Test case: clippy's `unwrap_used`, `expect_used`, `panic` and `unreachable` lints on lib.rs outside tests, failed by `-D warnings`.
+		- Test case: none by ID, since clippy in the lint stage is the check: clippy's `unwrap_used`, `expect_used`, `panic` and `unreachable` lints on lib.rs outside tests, failed by `-D warnings`.
 		- Opened: 20260725-152141
 		- Closed: 20260725-181125
 
