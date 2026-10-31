@@ -3100,6 +3100,38 @@ printf 'fTest %s old\n' EtDCDE7 > "${ti}/cicd/utility/t2.bash"
 out="$(python3 "${ti}/cicd/utility/test-ids.py" check 2>&1 || true)"
 [[ "${out}" == *"t2.bash:1: an ID in the old base 62 form: EtDCDE7"* ]] || fBad "test-ids.py check on an old base 62 ID said: ${out@Q}"
 
+fTest dep9x 2026102416250070-closed-items-name-a-test-id
+##	Each closed bug, feature or enhancement names its test's ID, or says why it
+##	has none, or names children that do. A row named only by its test's name
+##	is listed with the ID it could give. Tasks, open items and a Test
+##	environment row don't count, and --since leaves out what closed before.
+bl="${tmpDir}/idgaps.md"
+# shellcheck disable=SC2016  ## the backticks are markdown
+{
+	printf '## Issues\n\n'
+	printf -- '- Named\n\t- ID: 1000000000000001\n\t- Type: Bug\n\t- Status: Done\n\t- Test case: shell-regress `demvq`.\n\t- Closed: 20261102\n\n'
+	printf -- '- Unnamed\n\t- ID: 1000000000000002\n\t- Type: Feature\n\t- Status: Done\n\t- Test environment: `demvq` box\n\t- Test case: the corpus case.\n\t- Closed: 20261102\n\n'
+	printf -- '- Reasoned\n\t- ID: 1000000000000003\n\t- Type: Enhancement\n\t- Status: Done\n\t- Test case: none, a comment.\n\t- Closed: 20261102\n\n'
+	printf -- '- Good parent\n\t- Type: Enhancement\n\t- Status: Done\n\t- Test case: the children'"'"'s, 1000000000000001 and 1000000000000003.\n\t- Closed: 20261102\n\n'
+	printf -- '- Bad parent\n\t- Type: Enhancement\n\t- Status: Done\n\t- Test case: the children'"'"'s, 1000000000000002.\n\t- Closed: 20261102\n\n'
+	printf -- '- A task\n\t- Type: Task\n\t- Status: Done\n\t- Test case: the rest.\n\n'
+	printf -- '- Still open\n\t- Type: Bug\n\t- Status: Queued\n\n'
+	printf -- '- Closed early\n\t- Type: Bug\n\t- Status: Done\n\t- Test case: the old one.\n\t- Closed: 20261001-120000\n\n'
+	printf '## Old format\n\n#### Done - Bugs\n\n'
+	printf -- '- \u2705 Legacy by name.\n\t- Pinned by: corpus `001-messy-cities`.\n\n'
+	printf -- '- \u2705 Legacy by ID.\n\t- Test: `demvq`.\n\t- \u2705 Legacy child.\n\n'
+	printf -- '- \u2705 Legacy none.\n\t- Test case: None, docs only.\n'
+} > "${bl}"
+out="$(python3 "${repoDir}/cicd/utility/test-ids.py" backlog "${bl}" 2>&1)" && rc=0 || rc=$?
+got="$(sed -n 's/^idgaps\.md:[0-9]*: //p' <<<"${out}" | tr '\n' '|')"
+[[ "${rc}" == 1 && "${got}" == "Unnamed|Bad parent|Closed early|"*" Legacy by name.|" && "${out}" == *$'\tcould name: d9s1g (001-messy-cities)'* && "${out}" == *"4 closed item(s) name no test ID"* ]] \
+	|| fBad "test-ids.py backlog on a fixture said (exit ${rc}): ${out@Q}"
+out="$(python3 "${repoDir}/cicd/utility/test-ids.py" backlog --since=20261101 "${bl}" 2>&1)" && rc=0 || rc=$?
+got="$(sed -n 's/^idgaps\.md:[0-9]*: //p' <<<"${out}" | tr '\n' '|')"
+[[ "${rc}" == 1 && "${got}" == "Unnamed|Bad parent|" ]] || fBad "test-ids.py backlog --since on a fixture said (exit ${rc}): ${out@Q}"
+out="$(python3 "${repoDir}/cicd/utility/test-ids.py" backlog --since=20991231 "${bl}" 2>&1)" && rc=0 || rc=$?
+[[ "${rc}" == 0 && "${out}" == "test-ids: OK ("*")" ]] || fBad "test-ids.py backlog with nothing in range said (exit ${rc}): ${out@Q}"
+
 fTest dc0b5 check-completions-option-less-subcommand
 ##	The completions check against a subcommand that takes no options. One side
 ##	emitted a row for it and the other dropped any row with an empty option

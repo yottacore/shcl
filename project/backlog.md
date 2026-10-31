@@ -265,6 +265,106 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
 		- A Done item that says none where a test could exist and would make sense gets one.
+	- Progress log:
+		- 20261031: `test-ids.py backlog` lists each closed bug, feature or enhancement whose test row names no test's ID and gives no reason, with the IDs it could name, and a count. A reason is a row that starts with "none" or "no ". A parent passes by naming children that pass. check-docs `dep9w` runs it for items closed from 2026-11-01 on, so no new gap gets in.
+		- 20261031: of 1303 closed items, 893 named no ID. IDs went in beside the test names that match a test exactly, on 417 items, and reasons or IDs by hand on 10 more. 466 are left, split into children by part of the backlog: 2026103111123554, 2026103111123559, 2026103111123564 and 2026103111123569. Then 2026103111123574 drops the date from `dep9w`.
+		- 20261031: two items that give none, where a test makes sense, get one: 2026103111123580 and 2026103111123585.
+		- Verified: shell-regress `dep9x` passes, and fails with a Test environment row read as a test row, with a parent passing on any one child, or with `--since` ignored. check-docs `dep9w` fails on a Done item closed 2026-11-01 that names no ID, and passes on this backlog. Also the whole of shell-regress, check-docs, `test-ids.py check` (2076 tests), shellcheck over the lint targets, ruff and mypy.
+	- Decisions:
+		- me: the check is a `test-ids.py` command, since it needs the list of IDs that file builds. check-docs runs it, as it runs the other backlog checks.
+		- me: `dep9w` checks only items closed from 2026-11-01 on until the children are done, so check-docs stays green meanwhile and a new close can't add a gap.
+		- me: an ID goes in brackets after the test's name, and the row's wording stays. A name used for a subcommand in prose, such as `migrate` or `check`, gets no ID by name alone, and a glob gets only the tests there when the item closed.
+		- me: a hosted job with no test ID of its own counts as a reason, written as "none by ID, since the hosted job is the test".
+	- Test case: check-docs `dep9w`, shell-regress `dep9x`, and the children's.
+	- Branch: `r1031`
+
+- Closed items name a test ID: new format, and legacy bugs before the 20260904 review
+	- ID: 2026103111123554
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261031-111235
+	- Opened by: 2026102416250070
+	- Parent ID: 2026102416250070
+	- Estimated effort: Low
+	- Requirements:
+		- Only edits backlog rows. Light-tier work.
+		- Each item `test-ids.py backlog` lists from the top of the backlog down to the `Code review 20260904:` bullet under `Done - Bugs` names its test's ID, or says in a few words why it has none, starting the row with "none". About 135 items.
+		- Many name a test that was renamed or retired since. `test-ids.py find` and the 2026-10-30 ID map help. Keep the row's wording, and add the ID in brackets after the name.
+		- Where a row says none but a test could exist and would make sense, file a child of 2026102416250070 for it.
+
+- Closed items name a test ID: legacy bugs from the 20260904 review on
+	- ID: 2026103111123559
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261031-111235
+	- Opened by: 2026102416250070
+	- Parent ID: 2026102416250070
+	- Estimated effort: Low
+	- Requirements:
+		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Bugs` from the `Code review 20260904:` bullet to the end of that heading. About 128 items.
+
+- Closed items name a test ID: legacy features before the 20260904 review
+	- ID: 2026103111123564
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261031-111235
+	- Opened by: 2026102416250070
+	- Parent ID: 2026102416250070
+	- Estimated effort: Low
+	- Requirements:
+		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Features and enhancements` down to its `Code review 20260904:` bullet. About 98 items.
+
+- Closed items name a test ID: legacy features from the 20260904 review on
+	- ID: 2026103111123569
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261031-111235
+	- Opened by: 2026102416250070
+	- Parent ID: 2026102416250070
+	- Estimated effort: Low
+	- Requirements:
+		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Features and enhancements` from its `Code review 20260904:` bullet to the end. About 105 items.
+
+- check-docs `dep9w` checks every closed item
+	- ID: 2026103111123574
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261031-111235
+	- Opened by: 2026102416250070
+	- Parent ID: 2026102416250070
+	- Prereq IDs: 2026103111123554, 2026103111123559, 2026103111123564, 2026103111123569
+	- Estimated effort: Low
+	- Requirements:
+		- Once `test-ids.py backlog` lists nothing, `dep9w` drops its `--since` date, so every closed item is held to the rule.
+
+- A test that `-q` reaches each tool's quiet flag
+	- ID: 2026103111123580
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261031-111235
+	- Opened by: 2026102416250070
+	- Parent ID: 2026102416250070
+	- Requirements:
+		- The legacy Done item "`-q` does not flow through to the stage commands" (20260829) says none, "verbosity only". A stub tool that records its arguments can show `-q` reaching cargo, go, ruff and the packagers, and a step that drops it would fail.
+		- The legacy item's Test case row then names the new test's ID.
+
+- A test that the publish helper keeps quotes in `--message`
+	- ID: 2026103111123585
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261031-111235
+	- Opened by: 2026102416250070
+	- Parent ID: 2026102416250070
+	- Requirements:
+		- The legacy Done item "the publish helper rewrites every quote in a `--message` before committing it" (20260920) says none, since the message only shows at a real commit. Its argument parse can be run alone, as shell-regress does for other scripts, and `--message "it's done"` has to come out unchanged.
+		- The legacy item's Test case row then names the new test's ID.
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
@@ -418,7 +518,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me: `macos-15`, the supported arm64 runner nearest the 13.0 floor, as zuid's macos workflow chose. `macos-latest` moves to a new macOS with no commit here, and `macos-26` is further from the floor. `macos-15` is GitHub's older supported image, so it is the next one retired.
 	- Actual fix: ci.yml's `macos` job on `macos-15`, with a floor check of both halves.
-	- Test case: ci.yml's `macos` job, its floor check included. Its rows can only run on GitHub's Mac runner.
+	- Test case: none by ID, since the hosted job is the test: ci.yml's `macos` job, its floor check included. Its rows can only run on GitHub's Mac runner.
 	- Swept: every `macos-14` in the tree, which was only ci.yml's runs-on and old backlog notes.
 	- Verified: both halves of the last local `macos-universal` build carry `LC_BUILD_VERSION` with `minos 13.0`, the field the check reads. check-pins, shellcheck and check-docs pass on the job, less `dcbc2`, which is red on dev until the installer sync to main.
 	- Acceptance signoff: Self-closed: both hosted runs passed.
@@ -953,7 +1053,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: split by binding. Rust and Python are child 2026102912203339, Go 2026102912203341, and C, the C++ veneer and the docs 2026102912203343.
 		- 20261029: all 3 children are Done (2026102912203339, 2026102912203341 and 2026102912203343).
-	- Test case: the children's, one per binding.
+	- Test case: the children's, one per binding: 2026102912203339, 2026102912203341 and 2026102912203343.
 	- Acceptance signoff: me, 20261029, every child is Done
 	- Closed: 20261029
 
@@ -981,7 +1081,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: split by binding. Rust and Python are child 2026102913213663, Go 2026102913213683, and C, the C++ veneer and the docs 2026102913213704. All 3 are in on `r1029` and wait on the hosted windows job, and the C one on cppcheck.
 		- 20261029: all 3 children are Done (2026102913213663, 2026102913213683 and 2026102913213704).
-	- Test case: the children's, one per binding.
+	- Test case: the children's, one per binding: 2026102913213663, 2026102913213683 and 2026102913213704.
 	- Acceptance signoff: me, 20261029, every child is Done
 	- Closed: 20261029
 
@@ -2146,7 +2246,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- JC, 20261022: stay on the free M1 runner. GitHub has no M4 runner, only third-party services do. What runs on M1 runs on M4, though not always the other way.
 		- JC, 20261023: "GitHub's M4 macOS runners" means GitHub's free arm64 macOS runners, which aren't M4 now.
 		- The release isn't built for a newer CPU than M1, since nothing sets `target-cpu` and the Rust target's default is `apple-m1`.
-	- Test case: ci.yml's `macos` job, which runs `cargo test`, then crosscheck over the corpus and cli-regress on the release.
+	- Test case: none by ID, since the hosted job is the test: ci.yml's `macos` job, which runs `cargo test`, then crosscheck over the corpus and cli-regress on the release.
 	- Acceptance signoff: Self-closed on JC's criteria: the job already does each requirement on M1, and JC chose M1.
 	- Closed: 20261022-173253
 
@@ -2674,7 +2774,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- freebsd-x86_64 moved to 2026102022450000.
 	- Swept: the 3 jobs read the build command from CROSS_TARGETS, so a change there reaches them. Each fails when the target's line is missing or builds nothing. check-pins passes with the 2 new zig downloads hashed.
 	- Branch: `bsquote`
-	- Test case: hosted jobs `linux-arm` (crosscheck and cli-regress) and `winarm-test` (cli-regress).
+	- Test case: none by ID, since the hosted jobs are the test: `linux-arm` (crosscheck and cli-regress) and `winarm-test` (cli-regress).
 	- Verified: hosted run 39543831612: `linux-arm` agreed on 7412 crosscheck comparisons and passed cli-regress. Run 39544603290: `winarm-test` passed 622 cli-regress rows, 871 checks, with 71 skipped out loud. The jobs weren't fault-injected; the gates they run are the ones every other job runs.
 	- Acceptance signoff: Self-closed on JC's criteria: the call is hosted arm runners over an emulated boot for the 2 arm builds, and both jobs pass.
 	- Closed: 20261020-224500
@@ -6406,7 +6506,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261006: spaces are allowed in a bare field value and a bare `- ` item, kept as typed, and the writer still quotes them. Not inside `[]` or a selector. A bare colon or comma needs a character other than whitespace after it, so `rw,noatime`, `:0` and URLs stay bare and `ports: 80, 443` is `E026`. Inside `[]` a comma always separates. A selector body also takes no bare colon, comma or bracket. Full rules in the design doc. spec.md's "never made to satisfy the machine" goal stays as written.
 	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`, chunk C docs on `vsspec`, the 20261006 spacing answer on `vsspace2`, chunk C's `migrate` on `vsmig`, the Go port's part 1 on `vsgo1`, part 2 on `vsgo2`, part 3a on `vsgo3`, part 3b on `vsgo3b`, the Python port's part 1 on `vspy1`, part 2 on `vspy2`, part 3a on `vspy3`, part 3b on `vspy3b`, the C port's part 1 on `vsc1`, part 2 on `vsc2`, part 3a on `vsc3`, part 3b on `vsc3b`)
 	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes), `0b57d0d2` (the no-colon narrowing), `7075fb4d` (the 20261006 spacing answer), `e3695acf` (chunk C's `migrate`), `bd7061ad` (the Go port's part 1), `fd0cf5c8` (the Go port's part 2), `dfb108ad` (the Go port's part 3a), `1fd8a1f1` (part 3b), `f2b97394` (the Python port's part 1), `9addd72e` (part 2), `a3a87c98` (part 3a), `26ad66ec` (part 3b), `ba5c4503` (the C port's part 1), `41cfe0a0` (part 2), `63e19b96` (part 3a), `2afe3638` (part 3b)
-	- Test case: corpus cases 192 to 203 and the reworked goldens, plus the conformance, fuzz and cli-regress tests named per chunk in the progress log.
+	- Test case: corpus cases 192 to 203 (`ddhdw` to `ddkcq`) and the reworked goldens, plus the conformance, fuzz and cli-regress tests named per chunk in the progress log.
 	- Verified: 20261007, on valsyn `aec9959b` with all four bindings: the full `--ci` (1989 ok, 0 FAIL, tree recorded), the 2,000,000 release fuzz (all 25 pass) and hosted run 37668959888 (ci, windows, macos and go-floor all green).
 	- Acceptance signoff: Self-closed: every rule the design doc settles is built in all four bindings, and the full gate and hosted run pass.
 	- Superseded by ID:
@@ -6591,7 +6691,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: on Windows 11, all four refuse a Schema line naming `//host/share/...`, `\\host\share\...`, `/\host\...` or `\??\C:\...` at exit 8, and still read a local or relative schema. Python before the fix tried the share and read the `\??\` path.
 	- Branch: schemaline
 	- Commit: 27d73efb
-	- Test case: cli-regress `schema-line-device` and `schema-line-fifo`, both failing on dev, and `schema-line-share`, which runs on Windows only, in the hosted windows job with all four.
+	- Test case: cli-regress `schema-line-device` (`dd83m`) and `schema-line-fifo` (`dd83n`), both failing on dev, and `schema-line-share` (`dd83s`), which runs on Windows only, in the hosted windows job with all four.
 
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
@@ -6615,7 +6715,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the keep-lines fuzz floor went from 90 to 85 percent. The new corpus case moved the seeds, and dev's own code then kept 150 of 167 tidy configs. Every fallback was a designed one: a child under a stacked list or a dotted line, or a comment on a dotted path.
 	- Branch: schemaline
 	- Commit: 27d73efb
-	- Test case: corpus 182, cli-regress `schema-line-indented` and `migrate-indented-stamp-noop`. Each fails on dev.
+	- Test case: corpus 182 (`dd83j`), cli-regress `schema-line-indented` (`dd83k`) and `migrate-indented-stamp-noop` (`dd83r`). Each fails on dev.
 	- Closed: 20260929-052459
 
 - A line-keeping save deletes lines the load dropped, at exit 0
@@ -6644,7 +6744,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `dropped` beside `ends`, `drop_line` in the parser's one refuse exit, and a `wrote` check in `keep_lines`, in all four.
 	- Swept: every place the keep save writes a source line, in all four. The C++ veneer only wraps the C call.
 	- Branch: `keepdrop`
-	- Test case: cli-regress `set-write-keeps-dropped-element` and `set-write-keeps-dropped-between`. The Rust fuzz `keeping_lines_reloads_as_the_document` and the shared fixture `edits_and_merges_match_a_reload` in Go, Python and C now check the reload loses as many lines as the source. Each fails on the old code.
+	- Test case: cli-regress `set-write-keeps-dropped-element` (`dd6wm`) and `set-write-keeps-dropped-between`. The Rust fuzz `keeping_lines_reloads_as_the_document` (`dd3t9`) and the shared fixture `edits_and_merges_match_a_reload` (`dd16k`, `dd16n`, `dc474`) in Go, Python and C now check the reload loses as many lines as the source. Each fails on the old code.
 
 - `clear-comments` deletes a misplaced line kept as written
 	- ID: 2026092620255202
@@ -6670,7 +6770,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: a `kept` flag on the comment line, set by `settle_kept_once` and copied by merges, and `is_comment` in `clear_comments` and `comments`, in all four.
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
-	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+	- Test case: corpus `178-clear-comments-kept-line` (`dd6ww`), both routes, with `comments` reads. It fails on the old code.
 
 - A CICD test that makes old shcl files and checks the automatic conversion
 	- ID: 2026100313461650
@@ -6896,7 +6996,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: to regenerate the documents, run `cicd/utility/comparison/compare.bash --work DIR --keep`, with `--no-record` to leave results.shcl alone. Put DIR on ZFS or the ext4 temp root.
 	- Swept: a grep over `cicd/utility/comparison/` for `[` selectors and `", "` joins found main.rs (record, prune), bench.rs (walk) and pyworker.py (walk). check-docs already reads results.shcl with parens. The other four encoders are unchanged. The committed results.shcl loads clean.
 	- Verified: the tool at 1 MiB, both tiers. Its pre-flight check agrees across 13 libraries for all 6 shapes. All 6 SHCL documents and the results file pass `shcl check` with 0 diagnostics. A run recorded into a copy of results.shcl reads back by the paths check-docs uses. With the old quoting back, the new test fails on `E026`. With `[]` back, the walk gives 200 scalars against 3200 and recording stops with "nothing recorded". ruff passes; clippy shows only an older warning in main.rs.
-	- Test case: `shcl_documents_load_clean_and_read_back` in the comparison crate, plus its `memory_figure_holds_one_document`. Both failed before and pass after. Run with `cargo test --manifest-path cicd/utility/comparison/Cargo.toml`. No test IDs, since that crate is outside the gate.
+	- Test case: none in CI. `shcl_documents_load_clean_and_read_back` in the comparison crate, plus its `memory_figure_holds_one_document`. Both failed before and pass after. Run with `cargo test --manifest-path cicd/utility/comparison/Cargo.toml`. No test IDs, since that crate is outside the gate.
 	- Acceptance signoff: Self-closed: syntax fix in a dev tool, tests failed before and pass after.
 	- Branch: `cmpsyn`
 	- Commit: `42e6e85f`
@@ -7207,7 +7307,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the Windows ACL half is split out as 2026092815155546.
 	- Branch: oldcopy
 	- Commit: 4dbe70af
-	- Test case: cli-regress save case `migrate-setgid`, which fails on dev in all four.
+	- Test case: cli-regress save case `migrate-setgid` (`dd84g`), which fails on dev in all four.
 	- Closed: 20260929-052459
 
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
@@ -7227,7 +7327,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `shcl_compact` settles the copy before the swap, while the recovery point still covers it.
 	- Swept: compaction is C only. The C++ `compact` calls it.
 	- Branch: `compact`
-	- Test case: `oom_recover.c` runs a compaction of a document with a kept line under every allocation budget and checks the canonical text is unchanged. It reached the hook on the old code.
+	- Test case: `oom_recover.c` (`dc114`) runs a compaction of a document with a kept line under every allocation budget and checks the canonical text is unchanged. It reached the hook on the old code.
 
 - An unknown escape in double quotes loads silently, with the known escapes around it decoded
 	- ID: 2026092616330237
@@ -7257,7 +7357,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `bad_escape` in the field and element line arms of the parser, in `scan_lookup` and in `literal_value`, plus `migrate` edits for names, selectors and values. Rust `bad_escape`, Go `badEscape`, Python `_bad_escape`, C `bad_escape`. Explain entry in all four CLIs, grammar `escape` rule, spec, man page, changelog.
 	- Branch: `escerr`
 	- Commit: `ea4b719`
-	- Test case: corpus `170-unknown-escape`, cli-regress `escape-unknown-*` and `escape-doubled-path` rows, check-abnf `field-line` samples. Each fails on the old code.
+	- Test case: corpus `170-unknown-escape` (`dd5dp`), cli-regress `escape-unknown-*` and `escape-doubled-path` (`dd5dr`) rows, check-abnf `field-line` samples. Each fails on the old code.
 	- Acceptance signoff: 20260926
 	- Closed: 20260926-171332
 
@@ -7290,7 +7390,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Branch: escblock
 	- Commit: c29f08fa
-	- Test case: corpus `187-value-fault-opens-block`; cli-regress `sugar-check-block`, `sugar-block-read`, `sugar-write-kept`, `path-escape-block`.
+	- Test case: corpus `187-value-fault-opens-block` (`ddcdm`); cli-regress `sugar-check-block` (`ddceb`), `sugar-block-read` (`ddcec`), `sugar-write-kept` (`ddced`), `path-escape-block` (`ddcee`).
 
 - A kept line under a kept value-only line is saved at column 0
 	- ID: 2026100213205957
@@ -7558,7 +7658,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: 239 closed items got a `Test case:` line, counting sub-items whose parent has none. Most name the test their prose already did; the rest name one that covers the behavior, or say why there is none.
 	- Verified: every name in backticks on those lines exists in the repo.
 	- Branch: `windev`
-	- Test case: `check-docs.bash` `backlog-closed-items-name-a-test`, which refuses a closed item with no Test line, legacy or new format. It finds 78 on the old backlog.
+	- Test case: `check-docs.bash` `backlog-closed-items-name-a-test` (`dd72g`), which refuses a closed item with no Test line, legacy or new format. It finds 78 on the old backlog.
 
 - `set` says when it wrote the canonical form instead of keeping lines
 	- ID: 2026092620255217
@@ -7576,7 +7676,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20260927: under `--write` only. Printed output shows the text itself.
 	- Actual fix: `write_back` in all four CLIs says "rewritten in the canonical form; the lines could not be kept as they were" after a save meant to keep lines that did not.
 	- Branch: `setkeep`
-	- Test case: cli-regress `set-write-says-canonical`. It fails on the old code.
+	- Test case: cli-regress `set-write-says-canonical` (`dd71c`). It fails on the old code.
 
 - `fmt` keeps the quotes on a number with a leading zero
 	- ID: 2026092621211801
@@ -7596,7 +7696,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Actual fix: `is_data_format` in all four no longer counts a number with a leading zero, so its quotes stay.
 	- Branch: `conv`
-	- Test case: corpus `172-leading-zero-quotes`. It fails on the old code.
+	- Test case: corpus `172-leading-zero-quotes` (`dd5pd`). It fails on the old code.
 
 - `0o` and `0b` integer spellings
 	- ID: 2026092621211802
@@ -7614,7 +7714,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Actual fix: `radix_body` in the int parser and the wide float read, in all four.
 	- Branch: `conv`
-	- Test case: corpus `173-octal-binary`. It fails on the old code.
+	- Test case: corpus `173-octal-binary` (`dd5ph`). It fails on the old code.
 
 - Duration read
 	- ID: 2026092621211803
@@ -7641,7 +7741,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: High
 	- Actual fix: `read_duration` and `get_duration_or` in all four and the veneer, `get_duration` in Rust, Go and Python, `H005` in the parser, schema type `duration` with `unit`, `min` and `max`, and `get --duration` with `--unit`. Spec, design, man page, completions, changelog.
 	- Branch: `conv`
-	- Test case: corpus `176-durations-sizes` and `177-schema-durations-sizes`, a `duration` row type in all four runners, crosscheck and sanitize-c, cli-regress `duration-*` and `unit-*` rows, veneer smoke checks. Each fails on the old code.
+	- Test case: corpus `176-durations-sizes` (`dd5s7`) and `177-schema-durations-sizes` (`dd5s8`), a `duration` row type in all four runners, crosscheck and sanitize-c, cli-regress `duration-*` and `unit-*` rows, veneer smoke checks. Each fails on the old code.
 
 - Byte size read
 	- ID: 2026092621211804
@@ -7664,7 +7764,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Avg
 	- Actual fix: `read_size` and `get_size_or` in all four and the veneer, `get_size` in Rust, Go and Python, schema type `size`, and `get --size` with `--unit` and `--decimal`. Shares the duration work.
 	- Branch: `conv`
-	- Test case: corpus `176-durations-sizes` and `177-schema-durations-sizes`, a `size` row type in all four runners, cli-regress `size-*` rows. Each fails on the old code.
+	- Test case: corpus `176-durations-sizes` (`dd5s7`) and `177-schema-durations-sizes` (`dd5s8`), a `size` row type in all four runners, cli-regress `size-*` rows. Each fails on the old code.
 
 - `\u` escapes, with invisible characters escaped on output
 	- ID: 2026092621211805
@@ -7688,7 +7788,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Avg
 	- Actual fix: `\u` and `\U` in the escape reader, `E023` for one that names no character, and `invisible` in the value and name emitters, in all four. `migrate` keeps the 2.x reading. Grammar, explain text, spec, changelog.
 	- Branch: `conv`
-	- Test case: corpus `174-unicode-escapes` and five regenerated goldens in four cases, cli-regress `escape-unicode-*` rows, check-abnf samples, and check-migrate, which now reads a 2.x name the way the current CLI writes it. Each fails on the old code, except the `--from-2x` migrate row, which pins behavior that did not change.
+	- Test case: corpus `174-unicode-escapes` (`dd5qb`) and five regenerated goldens in four cases, cli-regress `escape-unicode-*` rows, check-abnf samples, and check-migrate, which now reads a 2.x name the way the current CLI writes it. Each fails on the old code, except the `--from-2x` migrate row, which pins behavior that did not change.
 	- Progress log:
 		- 20260928: the hosted run found two things this left red: `strings.ContainsFunc` is newer than the Go floor (1.20), and two `escape-unicode` rows wrote their text with `\u`, which msys printf leaves as written under the windows runner's locale. `strings.IndexFunc` and raw UTF-8 bytes in the rows, on `windev`.
 
@@ -7712,7 +7812,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Avg
 	- Actual fix: `schema_ref` and `SCHEMA_LINE_HEAD` in all four and the veneer, and `schema_for` in the four CLIs. Help, man page, spec, design, README.
 	- Branch: `conv`
-	- Test case: corpus `175-schema-line` with a new `schema` read in all four runners, cli-regress `schema-line-*` rows. Each fails on the old code, except the `--schema` override row.
+	- Test case: corpus `175-schema-line` (`dd5qr`) with a new `schema` read in all four runners, cli-regress `schema-line-*` rows. Each fails on the old code, except the `--schema` override row.
 
 - `migrate --write` keeps the original file beside the migrated one
 	- ID: 2026092709243678
@@ -7737,7 +7837,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `old_copy_name` and `keep_original` in all four CLIs, called from the migrate write arm. Help, man page, spec, design.md, README and changelog.
 	- Branch: `keepold`, `keeptests`
 	- Commit: `6c49d1b`, `70a1b69`
-	- Test case: cli-regress save cases `migrate`, `migrate-taken`, `migrate-dotname`, `migrate-dotdir` and `migrate-link`, and row `migrate-write-keeps`, which windows runs too. Each fails on the old code. `migrate-stamp` pins the no-copy case, which did not change. The `migrate-failed-save` block caps the file size so the save fails after the copy, and fails when the copy is left behind.
+	- Test case: cli-regress save cases `migrate` (`dd6dg`), `migrate-taken` (`dd6dh`), `migrate-dotname` (`dd6dk`), `migrate-dotdir` (`dd6dm`) and `migrate-link` (`dd6ef`), and row `migrate-write-keeps` (`dd6ee`), which windows runs too. Each fails on the old code. `migrate-stamp` (`dd6dj`) pins the no-copy case, which did not change. The `migrate-failed-save` (`dd6eg`) block caps the file size so the save fails after the copy, and fails when the copy is left behind.
 	- Acceptance signoff: Jim Collier, 20260927
 	- Closed: 20260927-110011
 
@@ -8444,7 +8544,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the hosted run 36916523189 on dev at `6169e71f` is green, cppcheck included. The windows job passed the at-cap and over-cap rows in all four and skipped the pagemap row.
 	- Branch: schemacap
 	- Commit: 1c0d325b
-	- Test case: cli-regress `schema-line-pagemap` and `schema-line-over-cap`, both failing on dev, and `schema-line-at-cap`.
+	- Test case: cli-regress `schema-line-pagemap` (`ddc52`) and `schema-line-over-cap` (`ddc54`), both failing on dev, and `schema-line-at-cap` (`ddc53`).
 	- Acceptance signoff: 20261001
 	- Closed: 20261001-142038
 
@@ -8556,7 +8656,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the hosted run 36785011455 on dev at `fa421bd7` passes its lint stage with the Windows-target clippy line.
 	- Branch: winfollow
 	- Commit: ec6e4cdf
-	- Test case: the Windows-target clippy line in the lint stage, `LINT_EXTRA` in `cicd/config.bash`.
+	- Test case: none, a lint step: the Windows-target clippy line in the lint stage, `LINT_EXTRA` in `cicd/config.bash`.
 	- Acceptance signoff: Self-closed: mechanical, a scoped lint allow with the reason, and the new lint line fails without it.
 	- Closed: 20260930-161101
 
@@ -8603,7 +8703,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: on Windows 11, all four: a protected DACL granting only the user, an inherited DACL with an added grant, and a protected DACL with a deny all come through to the copy unchanged. Also in a subdirectory, with either separator, and with a non-ASCII name. A taken copy name and a directory that refuses the create still exit 8 with the same messages.
 	- Branch: winbatch
 	- Commit: 5e1f1eaf
-	- Test case: cli-regress `windows-migrate-acl`, in the hosted windows job. It failed on dev in all four and passes with the fix.
+	- Test case: cli-regress `windows-migrate-acl` (`ddaj0`), in the hosted windows job. It failed on dev in all four and passes with the fix.
 
 - The hosted ci job runs close to its 45-minute timeout
 	- ID: 2026093010155541
@@ -8645,7 +8745,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: on Windows 11, all four keep the copy of `C:.shclrc` as `C:.shclrc_old_v2`. Python before the fix wrote `C:_old_v2.shclrc`.
 	- Branch: schemaline
 	- Commit: 27d73efb
-	- Test case: cli-regress `windows-migrate-drive-relative`, which names the file by the fixture's own drive and runs in the hosted windows job with all four.
+	- Test case: cli-regress `windows-migrate-drive-relative` (`ddaj4`), which names the file by the fixture's own drive and runs in the hosted windows job with all four.
 	- Acceptance signoff: Self-closed: reproduced before the fix, passes after in all four, and the fix is mechanical.
 	- Closed: 20260930-083333
 
@@ -8667,7 +8767,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: with Python 3.14 on Windows 11, the copy of a read-only file is writable. Before the fix it was read-only. Rust, Go and C leave it writable too.
 	- Branch: oldcopy
 	- Commit: 4dbe70af
-	- Test case: cli-regress `windows-migrate-readonly`, which the hosted windows job runs with Python 3.13.
+	- Test case: cli-regress `windows-migrate-readonly` (`ddaj3`), which the hosted windows job runs with Python 3.13.
 	- Acceptance signoff: Self-closed: reproduced before the fix and passes after, and the fix is mechanical.
 	- Closed: 20260930-083333
 
@@ -8688,7 +8788,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: C refuses a Schema path holding a NUL at exit 8 and prints the whole path.
 	- Branch: schemaline
 	- Commit: 27d73efb
-	- Test case: cli-regress `schema-line-nul`. C exits 6 on dev.
+	- Test case: cli-regress `schema-line-nul` (`dd83p`). C exits 6 on dev.
 	- Closed: 20260929-052459
 
 - `check` without `--schema` got about three times slower on large escaped files in C
@@ -8709,7 +8809,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: C `check` on the review's escaped file went from 1.7 s to 0.68 s, and Rust from 0.75 s to 0.52 s.
 	- Branch: schemaline
 	- Commit: 27d73efb
-	- Test case: corpus 182 holds a quoted fence run that opens nothing and a value fence that opens a block. The time has no gate, as in item 5.
+	- Test case: corpus 182 (`dd83j`) holds a quoted fence run that opens nothing and a value fence that opens a block. The time has no gate, as in item 5.
 	- Closed: 20260929-052459
 
 - The Schema line's directory is split at a backslash on Linux and macOS
@@ -8729,7 +8829,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: a backslash is a separator only on Windows, in the Schema path's directory and in the absolute-path test. All four, through the `name_start` helper `old_copy_name` now shares.
 	- Branch: schemaline
 	- Commit: 27d73efb
-	- Test case: cli-regress `schema-line-backslash-name`, which fails on dev.
+	- Test case: cli-regress `schema-line-backslash-name` (`dd83q`), which fails on dev.
 	- Closed: 20260929-052459
 
 - Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
@@ -8749,7 +8849,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: Go keeps the whole mode, and Python flushes before the mode goes on.
 	- Branch: oldcopy
 	- Commit: 4dbe70af
-	- Test case: cli-regress save case `migrate-setid` at 6755, which fails on dev for Go and Python.
+	- Test case: cli-regress save case `migrate-setid` (`dd84h`) at 6755, which fails on dev for Go and Python.
 	- Closed: 20260929-052459
 
 - Go's `_old_v2` copy errors name the path twice
@@ -8770,7 +8870,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the other Go CLI paths that wrap a path error already unwrap it.
 	- Branch: oldcopy
 	- Commit: 4dbe70af
-	- Test case: cli-regress save case `migrate-rodir`, which fails on dev for Go.
+	- Test case: cli-regress save case `migrate-rodir` (`dd84j`), which fails on dev for Go.
 	- Closed: 20260929-052459
 
 - `about --version` and `version --donate` are usage errors now
@@ -8797,7 +8897,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: 20260923 item 17's three rows are commented out with the reason, since the words they tested are gone. Installers are 1.1.2 and 1.1.4, and main owes them a sync.
 	- Branch: infoflags2
 	- Commit: 74cc8fdd
-	- Test case: cli-regress `version-word-gone`, `about-word-gone`, `donate-word-gone`, `help-topic-version-word`, `info-flags-in-order` and `info-about-covers-version`. Each fails on dev.
+	- Test case: cli-regress `version-word-gone` (`dd850`), `about-word-gone` (`dd851`), `donate-word-gone` (`dd852`), `help-topic-version-word` (`dd855`), `info-flags-in-order` (`dd853`) and `info-about-covers-version` (`dd854`). Each fails on dev.
 	- Closed: 20260929-052459
 
 - Help leaves out `kB` and the `--duration` and `--size` refusals with `--array`
@@ -8854,7 +8954,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: a stamp that names no real date reads as no stamp, so that file is not taken for a version and is left alone.
 	- Branch: psfix
 	- Commit: c63a6ace
-	- Test case: shell-regress `20260928-item16-dogfood-impossible-date`, which fails on dev.
+	- Test case: shell-regress `20260928-item16-dogfood-impossible-date` (`dd85m`), which fails on dev.
 	- Closed: 20260929-052459
 
 - The closed-items Test check borrows a Test line from an unrelated item
@@ -8875,7 +8975,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: 20260925b idea 1 got its Test line, the one item that had passed by borrowing.
 	- Branch: gatefix
 	- Commit: 530f8deb
-	- Test case: shell-regress `20260928-item18-closed-items-test-parent`, which lifts the check out of check-docs and runs it on a small backlog. It fails on dev.
+	- Test case: shell-regress `20260928-item18-closed-items-test-parent` (`dd86e`), which lifts the check out of check-docs and runs it on a small backlog. It fails on dev.
 	- Closed: 20260929-052459
 
 - Gate status lines can say `ok` for a test that failed or did not run
@@ -8899,7 +8999,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: crosscheck `--min 999999` and check-migrate `--min 999999` print FAIL on the owning test; perf-gate on a CLI whose baseline fails prints skip for each workload.
 	- Branch: gatefix
 	- Commit: 530f8deb
-	- Test case: shell-regress `20260928-item19-skipped-block-names-its-tests` for the helper. The floors and skips were checked by hand, as above.
+	- Test case: shell-regress `20260928-item19-skipped-block-names-its-tests` (`dd86p`) for the helper. The floors and skips were checked by hand, as above.
 	- Closed: 20260929-052459
 
 - `config.bash` says the hosted gate does not install makensis, but it does, unpinned
@@ -8967,7 +9067,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `$Invariant` in `dogfood_shcl.ps1`. Reopened fix: `LastWriteTime` and `Get-Date` in place of their UTC forms.
 	- Swept: every `ToString` and `ParseExact` in the runner.
 	- Branch: `dogfood`, reopened on `stamplocal`
-	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
+	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture` (`dd6yq`), under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
 
 - A merge result depends on whether the lower layer writes a list stacked or inline
 	- ID: 2026092620255204
@@ -8990,7 +9090,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the overlay's matched branch sets the stacked flag from `stacks()` of both sides, in all four.
 	- Swept: the flag is read only by `stacks()` and the parser. The merge's clone of an unmatched node copies the higher layer's own flag, which that layer's reload keeps.
 	- Branch: `stackmerge`
-	- Test case: corpus `179-merge-stacked-spelling`. It fails on the old code.
+	- Test case: corpus `179-merge-stacked-spelling` (`dd6xs`). It fails on the old code.
 
 - `banner on` adds a second info block when the old one sits under the first field
 	- ID: 2026092620255205
@@ -9014,7 +9114,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the `set_banner` doc comment in all four now names the first field's first child down and says why.
 	- Swept: the rule is stated only in the four doc comments. The spec, man page and README do not give it.
 	- Branch: `stackmerge`
-	- Test case: corpus `180-banner-first-child` pins that the block stays and a new one goes at the end.
+	- Test case: corpus `180-banner-first-child` (`dd6y1`) pins that the block stays and a new one goes at the end.
 
 - C `shcl_compact` turns earlier generation faults into ordinary diagnostics
 	- ID: 2026092620255206
@@ -9033,7 +9133,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the compaction copies each diagnostic whole, flag included.
 	- Swept: compaction is C only.
 	- Branch: `compact`
-	- Test case: C runner `compact_keeps_generation_faults`. It fails on the old code.
+	- Test case: C runner `compact_keeps_generation_faults` (`dd6xj`). It fails on the old code.
 
 - C++ `const` reads on one document race each other
 	- ID: 2026092620255207
@@ -9055,7 +9155,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `detail::held` and `detail::fresh` in `shcl.hpp` return a guard holding one of 64 recursive locks, picked by the document's address. The header's comment on `Document` states the rule.
 	- Swept: every const member and every free function taking a `const Document &`.
 	- Branch: `cxxlock`
-	- Test case: `check-veneer.bash` `const-reads-share-across-threads`, two threads of mixed const reads under ThreadSanitizer. It fails on the old header.
+	- Test case: `check-veneer.bash` `const-reads-share-across-threads` (`dd75a`), two threads of mixed const reads under ThreadSanitizer. It fails on the old header.
 
 - On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
 	- ID: 2026092620255208
@@ -9076,7 +9176,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the library and CLI copies in all four; C's CLI calls the library's.
 	- Verified: hosted windows job on `windev`, all four CLIs.
 	- Branch: `windev`
-	- Test case: cli-regress `windows-volume-path-create`, which runs on windows only.
+	- Test case: cli-regress `windows-volume-path-create` (`dd71r`), which runs on windows only.
 
 - `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
 	- ID: 2026092620255209
@@ -9098,7 +9198,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: Go and Python read digits past 32 bits as the current major, and the helper comments in three bindings say 32 bits.
 	- Swept: the version parse in all four; `migrate` goes through the same helper.
 	- Branch: `fmtver`
-	- Test case: `format_version_caps_at_32_bits` in all four runners. The Go and Python ones fail on the old code.
+	- Test case: `format_version_caps_at_32_bits` (`dd6yh`, `dd6yk`, `dd6ym`) in all four runners. The Go and Python ones fail on the old code.
 
 - Man page and README lag three changes
 	- ID: 2026092620255210
@@ -9137,7 +9237,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `--mode=u=rwX,go=rX`, so every file is 644 and the one git marks executable 755, whatever the checkout's umask.
 	- Swept: `package.bash` already sets its payload's modes outright.
 	- Branch: `tarmode`
-	- Test case: `shell-regress.bash` row `20260829-26-dropins-tarball-reproducible` now takes the second copy's group and other bits away. It fails on the old tar line.
+	- Test case: `shell-regress.bash` row `20260829-26-dropins-tarball-reproducible` (`dd5hf`) now takes the second copy's group and other bits away. It fails on the old tar line.
 
 - The pre-push green-tree skip passes over the main-push installer check
 	- ID: 2026092620255213
@@ -9156,7 +9256,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: before it skips a push to main, the hook compares the pushed tree's installers with `origin/dev` and runs the gate when they differ.
 	- Swept: the installer check is the only one that reads refs; `green-tree.bash`'s header says the hook makes it.
 	- Branch: `tarmode`
-	- Test case: `check-push-gate.bash` row "a recorded tree whose installers differ from dev is gated on main". It fails on the old hook.
+	- Test case: `check-push-gate.bash` row "a recorded tree whose installers differ from dev is gated on main" (`dd6zd`). It fails on the old hook.
 
 - `conformance.c` does not build at `-Os` with the gate's warnings
 	- ID: 2026092620255214
@@ -9225,7 +9325,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: corpus 186 fails the merge dimension in all four runners on dev and passes after. The 2,000,000 release fuzz passes with case 186 and without it. The four conformance suites, `cargo test`, `go test -count=1` in both modules, `cargo fmt --check`, clippy, go vet, staticcheck, ruff, mypy, cppcheck, markdownlint, cli-regress, crosscheck with a fuzz dump, check-docs, check-abnf, `test-ids.py check` and shell-regress pass.
 	- Branch: rawmerge
 	- Commit: 54ae8503
-	- Test case: corpus `186-kept-line-first-blank`, a kept line that turns into a comment above the first list, merged under a one-line layer.
+	- Test case: corpus `186-kept-line-first-blank` (`ddagb`), a kept line that turns into a comment above the first list, merged under a one-line layer.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
 	- Closed: 20260930-080144
 
@@ -9479,7 +9579,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the row's budget is half again the others', since the line-keeping save parses three times against a one-parse baseline. Python now sits near half of it.
 	- Verified: a quadratic loop injected into Python's keep save still fails the row.
 	- Branch: `setkeep`
-	- Test case: perf-gate `keeps` itself.
+	- Test case: perf-gate `keeps` (`dd3w8`) itself.
 
 - `cli-regress` rows have no timeout
 	- ID: 2026092620255220
@@ -9527,7 +9627,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Superseded by ID: 2026100207032800
 	- Branch: escblock
 	- Commit: c29f08fa
-	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ddcfc`. The old `path-hint-*` rows are commented out.
+	- Test case: corpus `171-windows-path-escape` (`dd5en`) (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab` (`ddcef`); check-migrate `ddcfc`. The old `path-hint-*` rows are commented out.
 	- Acceptance signoff: 20261003, closed without a hand check: every case is pinned in all four bindings, its sibling 2026100115403384 was signed off from the same branch, and 2026100207032800 replaces this behavior anyway.
 	- Closed: 20261003-113243
 
@@ -9607,7 +9707,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: `test-ids.py check` finds every `#[test]` and `func Test` in any tracked file and fails on one its tables do not place. TestMain and the comparison tool's crate are left out.
 	- Branch: gatefix
 	- Commit: 530f8deb
-	- Test case: shell-regress `20260928-idea6-test-ids-strays`, a fake tree with three misplaced tests. It fails on dev.
+	- Test case: shell-regress `20260928-idea6-test-ids-strays` (`dd86w`), a fake tree with three misplaced tests. It fails on dev.
 	- Closed: 20260929-052459
 
 - The drop-ins tarball mode row passes on a checkout made under umask 077
@@ -9621,7 +9721,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: the row also checks each file's mode in the tarball, 644, or 755 where git records it executable.
 	- Branch: gatefix
 	- Commit: 530f8deb
-	- Test case: shell-regress `20260829-26-dropins-tarball-reproducible`. With `--mode` taken off the tar line it fails on the modes.
+	- Test case: shell-regress `20260829-26-dropins-tarball-reproducible` (`dd5hf`). With `--mode` taken off the tar line it fails on the modes.
 	- Closed: 20260929-052459
 
 - The dropped-line bookkeeping has an arm that cannot run
@@ -9663,7 +9763,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the wider table and a context check for selectors and tags in all four, with `\U` for an escape past U+FFFF. That spelling was wrong in all four before, and unseen, since nothing that high was escaped. Grammar, spec, design.md, changelog. check-migrate rewrites 2.x names through the Python binding instead of its own copy of the list.
 	- Branch: `escapes`
 	- Commit: `5c18d81d`
-	- Test case: corpus `183-invisible-escapes`, cli-regress `escape-ignorable-fmt`, `escape-tags-fmt`, `escape-tags-set`, `escape-selector-run` (each fails on dev) and `escape-flag-kept`, `escape-selector-kept` (unchanged behavior), seven check-abnf `fmt-bareword` samples (five fail on the old grammar), and check-docs `escape-tables-match`, seen red on a changed Go table. The fuzz alphabet gained a selector, a black flag and two tags.
+	- Test case: corpus `183-invisible-escapes` (`dd8eg`), cli-regress `escape-ignorable-fmt` (`dd8ek`), `escape-tags-fmt` (`dd8em`), `escape-tags-set` (`dd8en`), `escape-selector-run` (`dd8er`) (each fails on dev) and `escape-flag-kept` (`dd8ep`), `escape-selector-kept` (`dd8eq`) (unchanged behavior), seven check-abnf `fmt-bareword` samples (five fail on the old grammar), and check-docs `escape-tables-match` (`dd8es`), seen red on a changed Go table. The fuzz alphabet gained a selector, a black flag and two tags.
 	- Swept: every `invisible` call site in the four bindings (the two quoting checks and the name and value escape loops each), `QuoteSegment` and `diag_name` through `escape_name`, the grammar's bare class, check-migrate's copy, the C++ veneer (no copy), and the bash and PowerShell wrappers (no copy).
 	- Verified: the four conformance suites, cargo test, go test per module, crosscheck with a fuzz dump, cli-regress, shell-regress, check-migrate, check-abnf, check-docs, check-veneer, perf-gate, test-ids check, the fuzz at 2,000,000 in release, clippy, go vet, staticcheck, cppcheck, ruff, mypy, shellcheck and markdownlint. Random selector and tag text through all four CLIs gave the same output and a fixpoint.
 	- Closed: 20260929-052459
@@ -9688,7 +9788,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the one bound reader per binding (`quantity` in Rust, Go and Python, the min and max loop in C). The value side already read the name first. `allowed` refuses durations and sizes, so it reads no bound.
 	- Branch: `boundunit`
 	- Commit: `c0c09cd5`
-	- Test case: corpus `184-schema-bound-name-unit`, red on dev in all four runners. It pins a bare bound from `-ms`, `_mb` and a decimal `-kb`, the name winning over `unit`, a bound's own unit winning over the name, and `V092` where neither the name nor `unit` gives one, a `*` path included.
+	- Test case: corpus `184-schema-bound-name-unit` (`dd9mk`), red on dev in all four runners. It pins a bare bound from `-ms`, `_mb` and a decimal `-kb`, the name winning over `unit`, a bound's own unit winning over the name, and `V092` where neither the name nor `unit` gives one, a `*` path included.
 	- Acceptance signoff: Self-closed: the bound now reads the way the value does, as asked, and its case fails on dev.
 	- Closed: 20260930-073042
 
@@ -9728,7 +9828,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: goldens that changed order, each an `H001` that now sits at its line instead of at the end: corpus 048 (ahead of two `H002`s), 078 (three `H001`s ahead of two `H002`s, in the diags and the validate golden), 103 (ahead of an `E003`) and 133 (ahead of an `E014`).
 	- Branch: diagorder
 	- Commit: 4e6c2580
-	- Test case: corpus 185 (`185-diag-line-order`) and cli-regress `diag-line-order`, which pins stdout and the whole of stderr. Each fails on dev in all four bindings. cli-regress gained a `=` stderr field for an exact match. The cap tests in all four pin `E022` last.
+	- Test case: corpus 185 (`185-diag-line-order` (`dd9p3`)) and cli-regress `diag-line-order` (`dd9p5`), which pins stdout and the whole of stderr. Each fails on dev in all four bindings. cli-regress gained a `=` stderr field for an exact match. The cap tests in all four pin `E022` last.
 	- Swept: the end of the parse in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The C++ interface calls the C parse and keeps no list of its own. No binding's merge touches the diagnostics.
 	- Verified: the four conformance suites, cargo test, go test in both modules, cli-regress, crosscheck with a fuzz dump, check-docs, check-abnf, test-ids, shell-regress, sanitize-c, cppcheck, and the Rust, Go, Python, C, shell and markdown lints. A 974-line document of mixed late hints and errors gave the same stdout and stderr in all four, in line order.
 	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. Filed as 2026092918110222.
@@ -10154,7 +10254,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: fails loudly. The documented one-liner is typed at a prompt.
 		- Origin: 20260829 item 16's fix. Confirmed.
 		- Fixed: a file run is one where `$MyInvocation` names a script and `$PSCommandPath` is that script. Under iex from a script, `$PSCommandPath` is empty. Installer 1.1.2.
-		- Test case: `shell-regress.bash` row `20260926-install-ps1-iex-in-a-script`, which pipes it into iex inside a script on Linux, where it refuses at once. It fails on the old installer.
+		- Test case: `shell-regress.bash` row `20260926-install-ps1-iex-in-a-script` (`dd70a`), which pipes it into iex inside a script on Linux, where it refuses at once. It fails on the old installer.
 		- Note: not yet run under Windows PowerShell 5.1.
 		- Opened: 20260926-101656
 		- Closed: 20260927-195730
@@ -10165,7 +10265,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the package-stub rows skipped silently in hosted CI. They go through `fHave` now, and `ci.yml` installs nfpm and rpm.
 		- Fixed: `--ci` runs the profiler's attribution check on a build without LTO. It is a noted skip where the sampler's crates are not in the local cache.
 		- Note: the Windows rows run only in the hosted windows job.
-		- Test case: the tests it names, each watched to fail: corpus `163` to `169`, the port runner fixtures, `mem_bounds.c`, `check-veneer.bash` `get-refuses-an-unsupported-type`, the `cli-regress` rows, `shell-regress.bash` `crosscheck-failure-paths` and the new `check-docs` checks.
+		- Test case: the tests it names, each watched to fail: corpus `163` to `169`, the port runner fixtures, `mem_bounds.c`, `check-veneer.bash` `get-refuses-an-unsupported-type` (`dd523`), the `cli-regress` rows, `shell-regress.bash` `crosscheck-failure-paths` (`dd51b`) and the new `check-docs` checks.
 		- Opened: 20260926-101656
 		- Closed: 20260926-110903
 
@@ -10188,7 +10288,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: retained lines, E012 with a space and E003, already survive. Only dropped, value-dropped and stopped lines force the fallback. SilkTerm's line-saving item waits on this.
 		- Fixed: a line no binding stands for goes out right after the kept line above it, before the next source line. A new line indented past it goes first, since under a dropped line it would be dropped too. The reload may drop the lines the source dropped and nothing more. The keep save and `set --write` refuse only when they fall back.
 		- Note: a repeated header or field the load folded gets the same treatment, so cases 157 and 158 now keep their lines.
-		- Pinned by: corpus 159 and 160, a save gate fixture in all four runners, and two `set --write` rows in `cli-regress.bash`. The Rust fuzz keep property covers bases with dropped lines. 2M clean.
+		- Pinned by: corpus 159 (`dd47k`) and 160, a save gate fixture in all four runners, and two `set --write` rows in `cli-regress.bash`. The Rust fuzz keep property covers bases with dropped lines. 2M clean.
 		- Opened: 20260925-190824
 		- Closed: 20260925-210051
 
@@ -10201,7 +10301,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: a block at the top of a file can stay out of scope, per the original item. They keep their own text match for now.
 		- Fixed: it looks above every field but the first line's too. A comment nested under a removed block moves out to its column, since a reload would file it elsewhere.
 		- Note: the second part was found by the 2M fuzz, and was already in the footer-only version.
-		- Pinned by: corpus 161.
+		- Pinned by: corpus 161 (`dd47n`).
 		- Opened: 20260925-190824
 		- Closed: 20260925-210051
 
@@ -10218,7 +10318,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: reported from SilkTerm.
 	- Fixed: a kept line among a stacked list's elements stays where it sat, and the list is written stacked. `keep_among` and `stacks` in Rust, Python and C, `keepAmong` and `stacks` in Go. A setter, or a list after an empty binding of its name, unstacks it and moves the lines above (`unstack`).
 	- Fixed: a comment at an element's column after the last element stays inside the list. It went out a level up.
-	- Pinned by: corpus case `146-stacked-kept-line`.
+	- Pinned by: corpus case `146-stacked-kept-line` (`dd2kh`).
 	- Opened: 20260924-142912
 	- Closed: 20260924-180219
 
@@ -10228,7 +10328,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: reported from SilkTerm.
 	- Decided: the link names `v3.0.0-beta1`, the first release of format 3, by the rule item 57 set, and stays for all of format 3. The first cut has to tag exactly that.
 	- Fixed: the banner in all four bindings, the spec, the README, `cli-regress.bash` and the `init` goldens.
-	- Test case: the `init` goldens (`026-init-schema` `expected-init.shcl` and the other init cases) and `cli-regress.bash` row `create-info-block`, all four CLIs.
+	- Test case: the `init` goldens (`026-init-schema` (`dab7k`) `expected-init.shcl` and the other init cases) and `cli-regress.bash` row `create-info-block` (`dcc9t`), all four CLIs.
 	- Opened: 20260924-142912
 	- Closed: 20260924-180219
 
@@ -10237,7 +10337,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Cause: the Rust CLI wrote each diagnostic to an unbuffered stderr one format piece at a time, eleven write calls a line against Go's two. The gate's CLI is built at the test profile's opt-level 1, which makes the parse baseline about 50 ms, so the write calls became most of the cost.
 	- Origin: the stderr macro is older than 3.0 work. `[profile.test] opt-level = 1` (2026-09-22) moved the baseline under it. Not a regression from the 20260924 fixes: `cc73b01` times the same. Confirmed.
 	- Fixed: `errln!` in `main.rs` builds the line first and writes it once. Output is byte-identical. `badlines` went from 172 ms to 102 ms here at opt-level 1.
-	- Pinned by: `perf-gate.bash` counts write calls for `badlines` with strace, at most four per line, in all four CLIs. It fails on the old Rust CLI with 440,002. `ci.yml` installs strace, and a missing one fails under the strict gate.
+	- Pinned by: `perf-gate.bash` counts write calls for `badlines` (`dc253`) with strace, at most four per line, in all four CLIs. It fails on the old Rust CLI with 440,002. `ci.yml` installs strace, and a missing one fails under the strict gate.
 	- Swept: Go writes 2 calls a line, C 3 and Python 1. `errln!` is the only stderr write in `main.rs`.
 	- Opened: 20260924-121508
 	- Closed: 20260924-112810
@@ -10248,7 +10348,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: a comment moves, nothing is lost. The same class as the inside-comment item of 20260921, in reverse.
 	- Note: found by `merge_never_panics_and_stays_fixpoint` at iteration 412,493, past the gate's 200,000, once corpus case 141 shifted the seeds. The reduced inputs are kept with the private notes, under `fuzz-20260923`.
 	- Fixed: once the tree is final, a non-last child's comments at its own level move onto the next sibling's leading list, from the first one at that level on. `after_to_next_sibling` in Rust and C, `afterToNextSibling` in Go, `_after_to_next_sibling` in Python.
-	- Pinned by: corpus case `142-comment-before-reopened`, whose merged golden has the comment just above `s`. The old C runner fails its merge dimension.
+	- Pinned by: corpus case `142-comment-before-reopened` (`dd0wm`), whose merged golden has the comment just above `s`. The old C runner fails its merge dimension.
 	- Note: the 2,000,000 fuzz is clean on both seed sets, with case 142 and without it.
 	- Opened: 20260923-102629
 	- Closed: 20260923-112850
@@ -10258,7 +10358,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Cause: the end of the load folded late duplicates before it filed the tail comments, so the tail lines were filed on the instance the fold had just dropped. The fold moves a dropped instance's trivia over, but only what is already on it.
 	- Note: found by `lost_count_follows_the_outcome_table` at iteration 983,588, past the gate's 200,000, while testing the SilkTerm comment fix.
 	- Fixed: the tail is filed before the fold, in the end-of-load sequence of `Parser::parse` in Rust, `parser.parse` in Go, `_Parser.parse` in Python and `do_parse` in C.
-	- Pinned by: corpus case `139-fold-keeps-tail`, a comment and an `E013` line under the folded list. The old C runner fails it.
+	- Pinned by: corpus case `139-fold-keeps-tail` (`dcy8b`), a comment and an `E013` line under the folded list. The old C runner fails it.
 	- Opened: 20260921-141244
 	- Closed: 20260921-143132
 
@@ -10268,7 +10368,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Cause: a comment inside a block, at an indent between the block's and its child's, is filed as the block's inside comment. It is written out after the last child's block at that child's level, and a reload files it on the last child. A merge treats the two differently when the other layer adds children to the block.
 	- Fixed: once the tree is final, a block's inside comments move onto its last child's trailing list, which writes them in the same place. `inside_to_last_child` in Rust and C, `insideToLastChild` in Go, `_inside_to_last_child` in Python.
 	- Note: the first try moved them while the comments were being filed, onto the last child at that moment. The next fuzz run found a block reopened later, whose new children the comment then landed ahead of. Doing it once at the end fixed that.
-	- Pinned by: corpus case `140-inside-comment-on-child`, whose merged golden has the comment right after the overridden leaf. The old C runner fails its merge dimension.
+	- Pinned by: corpus case `140-inside-comment-on-child` (`dcy8c`), whose merged golden has the comment right after the overridden leaf. The old C runner fails its merge dimension.
 	- Opened: 20260921-141244
 	- Closed: 20260921-143132
 
@@ -10364,7 +10464,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: found while testing 20260920b item 26, which fixed the same class in the CLI's `instances`. Not the same site: this is the library's diagnostic prose, which the crosscheck drops and `expected-diags.txt` records by code only, so nothing watches it.
 	- Fixed: the suggestion is written through the emitter now, the same way `diag_name` writes a name. `diag_element` gives one element the emitter's inline spelling and `diag_value` joins a cell's elements with `, `; the hint builder calls the second. A mid-piece carriage return is content, so the emitter leaves it bare - it forces quotes here and is escaped, which is the rule `diag_name` already had. `diag_element`/`diag_value` in Rust, `diagElement`/`diagValue` in Go, `_diag_element`/`_diag_value` in Python, `diag_element`/`diag_value` in C.
 	- Note: the suggestion is now valid SHCL, where before it was not: `srv: "a\nb", c` reads back as the two values it names.
-	- Pinned by: the `diag-value-line-break` row in `cli-regress.bash`, over the `nlvalue.shcl` fixture that was already there for the `instances` rows. Watched to fail in all four with the per-element helper cut back to the raw text.
+	- Pinned by: the `diag-value-line-break` (`dcx6q`) row in `cli-regress.bash`, over the `nlvalue.shcl` fixture that was already there for the `instances` rows. Watched to fail in all four with the per-element helper cut back to the raw text.
 	- Opened: 20260920-190801
 	- Closed: 20260920-204500
 
@@ -10393,7 +10493,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced on B29W: a 222-character directory and `set --write --set a=1 "\\?\C:\...\new.shcl"`. C exits 8 with "cannot create temporary file"; Rust and Go write the file.
 	- Cause: `shcl_resolve_target` prefixed an already-prefixed path again and built `\\?\UNC\?\C:\...`. Under MAX_PATH the strip at the end undid that, so only a long path, which is where a caller needs the prefix, showed it.
 	- Fixed: a path that already has `\\?\` or `\\.\` is taken as it is.
-	- Pinned by: `win-runners.bash` row `c long path`, which builds a 256-character path and saves through it. Watched to fail on B29W with the old binary and pass with the new one.
+	- Pinned by: `win-runners.bash` row `c long path` (`dcvk4`), which builds a 256-character path and saves through it. Watched to fail on B29W with the old binary and pass with the new one.
 	- Note: also from the area-d read, filed as Plausible pending the batch.
 	- Opened: 20260919-165000
 	- Closed: 20260919-170000
@@ -10412,7 +10512,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Cause: the first Format line decided, and the stamp goes at the end of the file.
 	- Note: found by the fuzz in the 20260918 fix round, once corpus `126` moved the seeds. It predates the round, from `7040ab7` (Merge migrate-version).
 	- Fixed: the highest Format line decides, in `format_version` (Rust, C), `formatVersion` (Go) and `_format_version` (Python). The spec says so.
-	- Pinned by: `cli-regress.bash` row `migrate-two-stamps`, which fails in all four on the old code, and the migrate fixpoint check in `fuzz_smoke.rs`.
+	- Pinned by: `cli-regress.bash` row `migrate-two-stamps` (`dct3j`), which fails in all four on the old code, and the migrate fixpoint check in `fuzz_smoke.rs`.
 	- Opened: 20260918-154016
 	- Closed: 20260918-154016
 
@@ -10432,7 +10532,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Cause: only must-exist lines count as valued parents, so a child under a commented valued parent is not written `srv[web].port`.
 	- Note: found while fixing the optional-default `V097` bug. That fix checks each commented line alone on purpose, so this stays a starter config that breaks only when two lines are uncommented together.
 	- Fixed: a commented line under a commented valued parent selects that parent by its default, so the example generates `# srv[web].port: 80`, in all four. A live line under a commented parent keeps the dotted form, which the item 5 note in 20260909 decided on purpose. `spec.md` says both.
-	- Pinned by: corpus `125-init-commented-parent`, whose input is its own `init` output with both lines uncommented and reads one `srv`. All four runners fail it on the old code.
+	- Pinned by: corpus `125-init-commented-parent` (`dacvj`), whose input is its own `init` output with both lines uncommented and reads one `srv`. All four runners fail it on the old code.
 	- Note: the `init-optional-defaults-ok` row in `cli-regress.bash` expected the dotted spelling. It is commented out with the reason, and a row with the new spelling sits beside it.
 	- Opened: 20260915-110339
 	- Closed: 20260917-090648
@@ -10449,7 +10549,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced in the reference against the pinned 2.x build. `k:[a\,b]` reads `a\,b` under 2.x with only the sugar hint. `migrate` wrote the line back unchanged, which is `E019` now, so `k` bound nothing, and `migrate --write` exited 0. The value spelling `k: a\,b` migrated correctly, so only the last-segment arm dropped it.
 	- Cause: that arm bailed when the raw body held any comma. 2.x refused only a bare one, and a comma behind a backslash never made the brackets an array.
 	- Fixed: the arm reads the body with the 2.x tokenizer and bails only on two or more elements, through `v2_bracket_array` (Rust and C), `v2BracketArray` (Go) and `_v2_bracket_array` (Python). One tokenizer answers the question the arm used to answer with a substring test.
-	- Pinned by: corpus `123-migrate-sugar-shielded-comma` in all four runners, which also pins that a real two-element bracket array is still left as written. With the fix backed out the migration dimension fails and names that case alone.
+	- Pinned by: corpus `123-migrate-sugar-shielded-comma` (`dcq13`) in all four runners, which also pins that a real two-element bracket array is still left as written. With the fix backed out the migration dimension fails and names that case alone.
 	- Note: same arm as 20260909 item 3, and beside item 17, which is the other 2.x difference in a selector body.
 	- Opened: 20260914-150934
 	- Closed: 20260916-105829
@@ -10458,7 +10558,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced in all four against the pinned 2.x build. 2.x reports `k:['C':x']` as `E014 unterminated selector` and binds nothing. `migrate` wrote `k: 'C':x'`, which loads as `E017`, at exit 0, and a second run rewrote that to `k: "C':x"`.
 	- Cause: the 2.x rules in the tokenizer called any piece quoted when a quote sat at both ends. 2.x did that for a value piece only. A selector body had to close right before its `]`.
 	- Fixed: the both-ends reading applies to a value piece only, in `scan_piece` (Rust and C), `scanPiece` (Go) and `_scan_piece` (Python). The line comes through as written, like any other line 2.x could not read.
-	- Pinned by: a `sugar-inner` line in corpus `119-migrate-sugar-backslash`, and the `migrate` fixpoint check in all four runners and the reference fuzz. All four runners fail the case with the fix backed out.
+	- Pinned by: a `sugar-inner` line in corpus `119-migrate-sugar-backslash` (`dcns4`), and the `migrate` fixpoint check in all four runners and the reference fuzz. All four runners fail the case with the fix backed out.
 	- Note: found while testing 20260909 item 4. Item 17 is a different 2.x difference in the same selector body, and stays open.
 	- Opened: n/a
 	- Closed: 20260915-132809
@@ -10497,7 +10597,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced in all four bindings: `fmt --layer=good.shcl broken.shcl` reported nothing, while swapping the two files reported the same damage correctly. `set` had its own copy of the fold and the same hole.
 	- Cause: a merge does not keep diagnostics, so the merged document only holds the lowest layer's. Both folds read them off it.
 	- Fixed: the fold now collects each layer's diagnostics as it loads and hands them back with the document, lowest first. C keeps the over-layer documents alive for the same reason it keeps their text.
-	- Pinned by `cli-regress.bash` rows `layer-base-diags` and `layer-base-diags-set`, which fail in all four bindings without the fix.
+	- Pinned by `cli-regress.bash` rows `layer-base-diags` (`dc09b`) and `layer-base-diags-set` (`dc09c`), which fail in all four bindings without the fix.
 	- Left alone: the lines are still unlabeled, so a multi-layer report does not say which file a line number belongs to. Labeling would change single-file output too, which every corpus case pins.
 	- Test case: cli-regress `layer-base-diags` and `layer-base-diags-set`.
 	- Opened: 20260831-070237
@@ -10536,7 +10636,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- A raw body is the only content kept untrimmed, so it is the only place a trailing CR is visible at all; everywhere else the line trim removes it.
 	- Fixed by taking the whole trailing CR run off at load, not just one. A line ending in CR has no spelling that survives a write, so normalizing once is the only stable answer, and it matches the line-ending policy already in place rather than inventing a second one. A CR inside a line is content and still round-trips untouched.
 	- Verified: pinned by a fixture in all four runners rather than a corpus case: a golden holding the bytes would be rewritten by any platform's line-ending translation.
-	- Test case: `raw_block_line_endings_normalize_and_round_trip` in Rust, `TestRawBlockLineEndingsNormalizeAndRoundTrip` in Go, and the twins in Python and C.
+	- Test case: `raw_block_line_endings_normalize_and_round_trip` (`dbep1`, `dbep4`, `dbep3`) in Rust, `TestRawBlockLineEndingsNormalizeAndRoundTrip` (`dbep2`) in Go, and the twins in Python and C.
 	- Opened: n/a
 	- Closed: 20260818-183513
 
@@ -10548,7 +10648,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Same family as the merge item below: raw blocks and whitespace. Settled together, as one branch.
 	- Fixed, but by leaving the body alone rather than normalizing it to empty as proposed above. Emit adds no indent exactly where load stripped none, so the two stay inverses and the body survives byte-for-byte. Normalizing would also have ended the growth, but it discards whatever the body held, and a line of non-breaking or ideographic space is content, not layout, inside a construct whose whole promise is verbatim. Case 055 pins both, including the non-space-whitespace body.
 		- Superseded by Code review 20260829 item 2: the stripped indent is now the closing fence's own, with no special case for a blank body.
-	- Test case: corpus `055-raw-blank-body`.
+	- Test case: corpus `055-raw-blank-body` (`dbenz`).
 	- Opened: 20260818-170931
 	- Closed: 20260818-183513
 
@@ -10560,7 +10660,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Fixed: merge adopts the parser's empty-fill rule, so a merge and a parse of the two layers run together produce the same document. The fill is limited to a raw block, which is the limit of the parser's own rule; an unmatched valued instance still appends, as a parse of the same two lines does. Case 056 pins both halves.
 	- The info-string half needed no separate fix: with the pair folded, the emitter never reaches the same-line-fence spelling for it, so the `#` survives. Pinned in the same case.
 	- Raise the soak in the pipeline, or at least run a long one before a cut: the short gate can't see this class. Related to Code review 20260817 item 29.
-	- Test case: corpus `056-merge-empty-fill`.
+	- Test case: corpus `056-merge-empty-fill` (`dbep0`).
 	- Opened: 20260818-163310
 	- Closed: 20260818-183513
 
@@ -10573,7 +10673,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Fixed in all four bindings by choosing the temp file's create mode from whether the target already exists, rather than by chmod'ing afterwards. An existing target still gets a private temp and its own mode copied on, so nothing about the case the privacy was for changed.
 	- Verified: pinned in all four runners rather than `crosscheck.bash`: the CLI can't create a file at all (`set --write` on a missing FILE is an error), so the path is library-only and no CLI comparison can reach it. The fixture compares against a file made by the language's own ordinary create, so it states the rule without hard-coding a umask.
 	- Spec says it now, in the file-tier paragraph beside the rest of the save's mechanics.
-	- Test case: `file_tier_load_save` in Rust, `TestFileTierLoadSave` in Go, and the twins in Python and C.
+	- Test case: `file_tier_load_save` (`dbcwv`, `dd6h9`, `dd5h6`) in Rust, `TestFileTierLoadSave` (`dbcww`) in Go, and the twins in Python and C.
 	- Opened: 20260820-075114
 	- Closed: 20260820-120244
 
@@ -10589,7 +10689,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- From gitniblet: a quoted `"fFoo()"` default came out bare in the starter file, so their function-ref convention read it back as a call. One `fmt` pass did the same to a document (`"@null"` -> `@null`), un-escaping the sentinel the `quoted` read flag exists to protect. `emit_element` re-derived quoting from content alone.
 	- Done, all four bindings: a quoted element keeps its quotes unless the text reads as an int, float, bool, or datetime at standard strictness - those still normalize to bare (`ver: "8"` -> `ver: 8`). The clause only ever adds quoting over the reserved-character minimum, so no bare emit becomes unsafe (quoted thousands stay covered by the comma rule).
 	- Goldens 017 (NUL string keeps quotes) and 030 (newline default now in its quoted spelling, which the spec prose had promised all along) moved; spec and `design.md` updated.
-	- Test case: corpus `164-quoted-data-bare`, and the moved goldens of `017-nul-merge-key` and `030-init-edge`.
+	- Test case: corpus `164-quoted-data-bare`, and the moved goldens of `017-nul-merge-key` (`da6w3`) and `030-init-edge` (`dacvh`).
 	- Opened: n/a
 	- Closed: 20260817-111802
 
@@ -10599,7 +10699,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Cause: after-trivia hung on the deepest open level whose indent prefixes the comment's indent. A childless header never opens its level, since no binding line ever resolves under it, so the comments hung one level up and re-emitted at the header's depth.
 	- Fixed: a hung comment now splits by written depth. At the last binding's own level it trails that binding as before; deeper, it sits inside that binding's block at its own depth, so a childless header keeps its commented children indented.
 	- Verified: all four bindings, new case 045 pins it, and goldens 027/034 moved - a tail note and a deep tail note keep their written depth now.
-	- Test case: corpus `045-childless-header`, with the moved goldens of `027-layer-wrapper` and `034-comment-indent`.
+	- Test case: corpus `045-childless-header` (`datst`), with the moved goldens of `027-layer-wrapper` (`dact0`) and `034-comment-indent` (`daqtv`).
 	- Opened: 20260804-143741
 	- Closed: 20260804-151804
 
@@ -10617,7 +10717,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Impact: their unknown-field check walks Paths(), so a typo whose name needs quoting slipped past the one check built to catch typos. It also broke round-tripping, since the writer could create a node the enumeration would not report.
 	- Cause: the skip was deliberate, and pinned by a doc comment, the spec wording, and the shared paths fixture in all four runners.
 	- Fixed: non-bare segments now emit quoted and escaped, in the same spelling the canonical formatter uses, so every returned path resolves. The fixture, the doc comment, and the spec's traversal section moved with the code.
-	- Test case: `paths_enumeration_shape` in Rust, `TestPathsEnumerationShape` in Go, and the twins in Python and C.
+	- Test case: `paths_enumeration_shape` (`dacx2`, `daqry`, `daqrx`) in Rust, `TestPathsEnumerationShape` (`dacx3`) in Go, and the twins in Python and C.
 	- Opened: 20260802-110332
 	- Closed: 20260802-113718
 
@@ -10625,7 +10725,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reported from TradeClanker. The Go parse returned a nil document beside the error, so the natural `doc, err :=` followed by `doc.Diagnostics()` panicked.
 	- Cause: the error value did include the full diagnostics list, but the message was only a count, so the obvious path hid every line and code it was already holding.
 	- Fixed both ways, in all four bindings. The failure now includes the parsed document, and the message names the first three diagnostics with line and code. Go returns the document non-nil beside the error, so the natural path can't panic.
-	- Test case: `strict_failure_carries_document` in Rust, `TestStrictFailureCarriesDocument` in Go, and the Python twin.
+	- Test case: `strict_failure_carries_document` (`daqsp`, `daqsr`) in Rust, `TestStrictFailureCarriesDocument` (`daqsq`) in Go, and the Python twin.
 	- Opened: n/a
 	- Closed: 20260802-120213
 
@@ -10634,7 +10734,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: `regex: ^\d{2,3}$` came back as `^\d{2, 3}$` with no diagnostics. Anything already written `a, b` round-tripped looking correct, so casual testing passed and only a value like `{2,3}` failed.
 	- Fixed: the parser keeps the source line's value span, and reads hand it back verbatim. Writer-built values, stacked-list elements, and raw blocks fall back to the display form. Rust, Go and Python have it - those are the bindings whose read result exposes the field.
 	- Note: this also covers their separate request to read a comma-bearing scalar verbatim without a fenced block. Having the reader consult the schema's declared type before comma-splitting was declined, since it buys the same result at much higher complexity.
-	- Test case: `raw_is_source_text` in Rust, `TestRawIsSourceText` in Go, and the Python twin.
+	- Test case: `raw_is_source_text` (`daqsg`, `daqsj`) in Rust, `TestRawIsSourceText` (`daqsh`) in Go, and the Python twin.
 	- Opened: n/a
 	- Closed: 20260804-095938
 
@@ -10642,7 +10742,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reported from convert-base-v2. A `["q\"uote"]` selector and a document's `'q"uote'` are the same string but did not cross-match, because both sides kept their escape pairs verbatim and the comparison was spelling against spelling.
 	- Impact: a silent NotFound. Anyone using a quote-bearing discriminator would hit it eventually. The spec pinned matching against the display form but said nothing about escapes.
 	- Fixed: escapes are applied on both sides at every compare and index site, in all four bindings - the resolver, the parser's attach path, the writer's place walk, and the validator's contexts. The spec now pins the logical-string match, and corpus case 033 pins both the reads and the write path.
-	- Test case: corpus `033-selector-escapes`, reads and the write path.
+	- Test case: corpus `033-selector-escapes` (`daqsf`), reads and the write path.
 	- Opened: n/a
 	- Closed: 20260804-095938
 
@@ -10683,7 +10783,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `d426c74`, ports `03e4bf0`. New code, not seen before. Confirmed.
 		- Fixed: the kept text may not load with an error the source did not have, counted by code. `keep_lines` and `errors_within` in Rust and C, `keepLines` and `errorsWithin` in Go, `_keep_lines` and `_errors_within` in Python.
 		- Fixed: a child added under a list that a kept line holds stacked made the canonical form itself load with `E001`. The list now goes inline, as it already did for a setter on the list. `new_child` in Rust, `newChild` in Go, `_new_child` in Python, `w_new_child` in C.
-		- Pinned by: corpus case `154-keep-lines-list-child`, in the keep and write dimensions. The Rust fuzz property `keeping_lines_reloads_as_the_document` and the shared sequence fixture in the Go, Python and C runners check the kept text's errors against the base's.
+		- Pinned by: corpus case `154-keep-lines-list-child` (`dd3z1`), in the keep and write dimensions. The Rust fuzz property `keeping_lines_reloads_as_the_document` (`dd3t9`) and the shared sequence fixture in the Go, Python and C runners check the kept text's errors against the base's.
 		- Verified: case 154 fails on the old Rust CLI. The Go fixture fails at iteration 64 with the fix taken out.
 		- Opened: 20260925-144920
 		- Closed: 20260925-155637
@@ -10695,7 +10795,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `d426c74`, ports `03e4bf0`. Confirmed.
 		- Fixed: the runs one source line gave, whatever the canonical form writes between them, and the lines inside a raw block or stacked list are one group, kept or rewritten whole. A changed value in a group goes into its line. `group_units` and `splice_group` in Rust and C, `groupUnits` and `spliceGroup` in Go, `_group_units` and `_splice_group` in Python.
 		- Fixed: where the canonical order puts a source line above one that sat above it, as with folded blocks or a selector's child under an earlier block, the save falls back to the canonical form rather than moving some lines. design.md's fallback list says so.
-		- Pinned by: corpus cases `153-keep-lines-groups` (a comment above a dotted line and above a selector line, with edits beside and on them) and `155-keep-lines-order`. The Rust fuzz's tidy configs now have dotted lines, and a new field at the top must keep every line of the base that is not blank, in order.
+		- Pinned by: corpus cases `153-keep-lines-groups` (`dd3z0`) (a comment above a dotted line and above a selector line, with edits beside and on them) and `155-keep-lines-order` (`dd3z2`). The Rust fuzz's tidy configs now have dotted lines, and a new field at the top must keep every line of the base that is not blank, in order.
 		- Verified: both cases fail on the old Rust CLI, and so does the new fuzz property. 2,000,000 fuzz clean.
 		- Opened: 20260925-144920
 		- Closed: 20260925-155637
@@ -10705,7 +10805,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Rests on: the spec says a changed value goes into its own line with the spacing left alone.
 		- Origin: `d426c74`, ports `03e4bf0`. Confirmed.
 		- Fixed: the blanks after the colon stay when the old and the new value are both there. `splice_value` in Rust and C, `spliceValue` in Go, `_splice_value` in Python.
-		- Pinned by: `expected-keep.shcl` of corpus cases 150 and 151, which the old code fails.
+		- Pinned by: `expected-keep.shcl` of corpus cases 150 (`dd3t5`) and 151, which the old code fails.
 		- Opened: 20260925-144920
 		- Closed: 20260925-155637
 
@@ -10724,7 +10824,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Rests on: the runner's header says the fixed name is where a user install puts shcl, and idea 11 of 20260924c set the latest link at the user install location. `install.ps1` uses `Programs\Shcl\shcl.exe` and puts that folder on PATH.
 		- Origin: `eefd1db`. Not seen before. Plausible.
 		- Fixed: the Windows fixed name is `%LOCALAPPDATA%\Programs\Shcl\shcl.exe`, the folder `install.ps1` puts on PATH, made when it is missing. The pool stays where it was.
-		- Test case: `win-runners.bash` step `dogfood runner`, in the hosted windows job.
+		- Test case: `win-runners.bash` step `dogfood runner` (`dd71z`), in the hosted windows job.
 		- Opened: 20260924-190225
 		- Closed: 20260927-214242
 
@@ -10746,7 +10846,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `d0b200c` (reference) and `c62b3a5` (ports), the feedback round. Confirmed in Rust, the ports by reading.
 		- Fixed: a full settle records the nodes between each kept line and the binding line above it, with a sum of what the emit model reads from them. An edit or merge settles again only when that sum changes, or when a merged layer brings kept lines of its own. `near_sum` and `resettle_kept` in Rust, Python and C, `nearSum` and `resettleKept` in Go. C's `shcl_compact` renumbers the nodes, so it settles in full.
 		- Measured: the 2000 edits above take 0.01 s with the kept line, the same as without it.
-		- Pinned by: `a_far_kept_line_costs_an_edit_nothing` and its twin in each runner, 500 edits and 500 merges beside a kept line. It fails on the old code in all four.
+		- Pinned by: `a_far_kept_line_costs_an_edit_nothing` (`dd2tf`, `dd2th`) and its twin in each runner, 500 edits and 500 merges beside a kept line. It fails on the old code in all four.
 		- Pinned by: the sequence fixture in Go, Python and C now writes misplaced lines, one of them among a list's elements. It had none, so the property never met a kept line. With the skip made to never settle, it fails at iteration 318.
 		- Verified: the 2,000,000 Rust fuzz and each port's sequence fixture, with a temporary check that a full settle on every skip changed nothing.
 		- Note: removing a block above every recorded node leaves the kept flag set with no kept line left. That costs only the check.
@@ -10770,7 +10870,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Rests on: `Get-RunTarget`'s comment says it uses the fixed name when it names a pool version.
 		- Origin: `eefd1db`. Not seen before. Confirmed.
 		- Fixed: the fixed name runs only when it is a link to the newest pool version, or on Windows holds its bytes. Anything else runs the newest version by its own path.
-		- Test case: `shell-regress.bash` row `20260924d-item4-dogfood-no-update-target`. It fails on the old runner.
+		- Test case: `shell-regress.bash` row `20260924d-item4-dogfood-no-update-target` (`dd6yr`). It fails on the old runner.
 		- Swept: `Update-FixedName` already checked the target.
 		- Opened: 20260924-190225
 		- Closed: 20260927-191725
@@ -10780,7 +10880,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Rests on: the header says it writes to stderr only when it changed something.
 		- Origin: `eefd1db`. Confirmed.
 		- Fixed: both notes come only on a run that took a new build, which is when the fixed name falls behind. The header says so.
-		- Test case: `shell-regress.bash` row `20260924d-item6-dogfood-quiet-notes`. It fails on the old runner.
+		- Test case: `shell-regress.bash` row `20260924d-item6-dogfood-quiet-notes` (`dd6ys`). It fails on the old runner.
 		- Swept: the runner's other notes each report something it just did.
 		- Opened: 20260924-190225
 		- Closed: 20260927-191725
@@ -10826,7 +10926,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: fails loudly. A likely fix is the ops reader skipping one leading U+FEFF in all four CLIs, the same as the document parser.
 		- Origin: older than 3.0 work; found during this round's fixes. Not seen before. Confirmed.
 		- Fixed: `set` takes every BOM off the front of the ops it reads, in all four CLIs. The hosted run showed one strip was not enough under 5.1.
-		- Test case: cli-regress `ops-leading-bom`, with two marks, which fails on the old code, and `win-runners.bash` step `ops bom 5.1`, which pipes an op through Windows PowerShell 5.1 in the hosted windows job.
+		- Test case: cli-regress `ops-leading-bom` (`dd6zf`), with two marks, which fails on the old code, and `win-runners.bash` step `ops bom 5.1` (`dd71s`), which pipes an op through Windows PowerShell 5.1 in the hosted windows job.
 		- Swept: the ops text is the only other input the CLIs read whole; every document goes through the parser.
 		- Opened: 20260924-110225
 		- Closed: 20260927-193609
@@ -10854,7 +10954,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 3: `check-docs.bash` fails on dev: the man page's `.TH` date is older than its last commit.
 		- Origin: `16b4add` edited `shcl.1` and did not move the date. Confirmed.
 		- Fixed: the date moved. The existing check is the pin.
-		- Test case: `check-docs.bash` `man-page-date-current`.
+		- Test case: `check-docs.bash` `man-page-date-current` (`dcv66`).
 		- Opened: 20260924-100526
 		- Closed: 20260924-110225
 
@@ -10907,7 +11007,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `7384068`. Confirmed.
 		- Fixed: `check-docs.bash` refuses the old owner path, the troff spelling included, in every tracked file but the changelog and the backlog. A `cli-regress` row runs `tokens` over a raw body.
 		- Verified: each fails on its fault, the old path put back in the man page and a wrong span in the row.
-		- Test case: `check-docs.bash` `no-old-org-path` and cli-regress `tokens-raw-body`.
+		- Test case: `check-docs.bash` `no-old-org-path` (`dd15c`) and cli-regress `tokens-raw-body` (`dd15d`).
 		- Opened: 20260923-155056
 		- Closed: 20260923-160833
 
@@ -10918,7 +11018,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the sizing moved into `arenaWant`, which gives a negative cap the root alone. `TestParseLimitedCaps` reads the reserve for each negative cap and a few positive ones.
 		- Verified: the test fails with the negative case taken out.
 		- Swept: Go only. The other three take the cap unsigned or reserve nothing up front.
-		- Test case: `TestParseLimitedCaps` in Go.
+		- Test case: `TestParseLimitedCaps` (`dc1yh`) in Go.
 		- Opened: 20260923-155056
 		- Closed: 20260923-160833
 
@@ -10927,7 +11027,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `3425ce4` (20260923 item 6). Confirmed.
 		- Fixed: both raw-body cases assert an exact count, each with a field after the close.
 		- Verified: the test fails with the close check taken out.
-		- Test case: `TestArenaSizedToTheDocument` in Go.
+		- Test case: `TestArenaSizedToTheDocument` (`dczzb`) in Go.
 		- Opened: 20260923-155056
 		- Closed: 20260923-160833
 
@@ -10938,7 +11038,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Rests on: the spec says every merged level under a hinted re-open reports.
 		- Origin: the late fold, 2026-08-03. Not seen before. Confirmed.
 		- Fixed: the late fold hints the way a merge at parse time does: when a sibling kept since stands between the two, or the parent is a hinted re-open. In all four parsers.
-		- Test case: corpus `181-late-fold-hint`, both routes. It fails on the old code.
+		- Test case: corpus `181-late-fold-hint` (`dd70v`), both routes. It fails on the old code.
 		- Note: the fold runs after the parse, so its hint comes after the load's other diagnostics.
 		- Opened: 20260923-145138
 		- Closed: 20260927-202231
@@ -10948,7 +11048,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the publisher got this fix on 2026-09-23 (`035dfb7`). The stash here is already `--include-untracked`.
 		- Origin: the sync stage, 2026-08-19. The sibling of the publisher fix. Confirmed.
 		- Fixed: an untracked file makes the tree dirty, as in the publisher. A file upstream also adds is stashed, the fast-forward goes through, and the pop stops the run with the file kept in the stash.
-		- Test case: `shell-regress.bash` row `20260819-1-remote-sync-stage`, with a clone that holds such a file. It fails on the old stage.
+		- Test case: `shell-regress.bash` row `20260819-1-remote-sync-stage` (`dd5hj`), with a clone that holds such a file. It fails on the old stage.
 		- Opened: 20260923-145138
 		- Closed: 20260927-195730
 
@@ -10957,7 +11057,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the release payload is still checked against the signed sums file. The API listing that picks the tag, the rustup script in `install-dev.bash` and the fetched pins file are not.
 		- Origin: 2026-07-25. Confirmed.
 		- Fixed: the wget fetch lines in `install.bash` and `install-dev.bash` read wget's record of each response and refuse the file when a hop's `Location` is plain http. The rustup script is fetched to a file and run from there, so a refused download runs nothing. Installer 1.1.1.
-		- Test case: `shell-regress.bash` row `20260923-15-no-plain-http-redirect`, through a local https listener that redirects to a plain one. The wget arm fails on the old installers.
+		- Test case: `shell-regress.bash` row `20260923-15-no-plain-http-redirect` (`dd702`), through a local https listener that redirects to a plain one. The wget arm fails on the old installers.
 		- Swept: `install.ps1` goes through .NET, which does not follow an https to http redirect. `fApiStatus` reads a status code and no content.
 		- Opened: 20260923-145138
 		- Closed: 20260927-195730
@@ -10967,7 +11067,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: `tokens` decides on the star after trimming the trailing blanks, and the parser decides before.
 		- Origin: 2026-09-10. Not seen before. Confirmed.
 		- Fixed: `tokens` looks for the blank after a `*` on the untrimmed line, as the parser does, in all four CLIs. A `*` with nothing after it stays a name fault, as it is `E013` to the parser.
-		- Test case: cli-regress `tokens-star-trailing-blank`. It fails on the old code.
+		- Test case: cli-regress `tokens-star-trailing-blank` (`dd6zj`). It fails on the old code.
 		- Opened: 20260923-145138
 		- Closed: 20260927-193609
 
@@ -10976,7 +11076,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: stderr wording is per binding, but the guide sets this form, and 20260901b item 32 already brought the directory case in line.
 		- Origin: the guide line is from 2026-09-17; the CLIs are older. Confirmed.
 		- Fixed: Go unwraps the path error, and Python writes `FILE: ` and the error's own text.
-		- Test case: cli-regress `io-missing-file-form`. The old Go and Python CLIs fail it.
+		- Test case: cli-regress `io-missing-file-form` (`dd6zm`). The old Go and Python CLIs fail it.
 		- Swept: every document, layer and schema read goes through the one read function in each CLI.
 		- Opened: 20260923-145138
 		- Closed: 20260927-193609
@@ -11017,7 +11117,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `SetRaw` from 2026-07-25; the gate from 2026-09-02 left these out. A sibling of item 40. Confirmed.
 		- Fixed: the UTF-8 test moved into the one read-back gate every setter passes through: `valueReadsBack` for a value, raw body and fence info, `nameReadsBack` for a created name or selector, and `commentLine`. The two per-setter copies in `SetString` and `SetStringArray` went, since the gate covers them.
 		- Sweep: every Go setter and its `*Default` form, the path's names and selectors. Rust cannot hold such a string, Python refuses at save and C's header makes it the caller's contract, as the item says.
-		- Pinned by: `TestSetStringRefusesInvalidUTF8`, now over every setter and a bad name, quoted name and selector. With the gate lines taken out, nine of its probes are accepted.
+		- Pinned by: `TestSetStringRefusesInvalidUTF8` (`dc42m`), now over every setter and a bad name, quoted name and selector. With the gate lines taken out, nine of its probes are accepted.
 		- Opened: 20260923-145138
 		- Closed: 20260923-151454
 
@@ -11028,7 +11128,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: the sibling of `6651739` (2026-09-23) and of the corpus 140 fix. Confirmed.
 		- Fixed: one settle step per block, used by the load and run again wherever a child list changes after it: a merge settles the whole tree, a new child settles its last pair, and the writer's fold settles each block it folded. The blank the emitter drops on the first line is cleared after every write and merge too. The fuzz property found one more rule of the same kind: a raw block's trailing comment goes above it when an empty binding of its name comes first, so that is filed as a leading comment.
 		- Swept: Rust `settle_block`, Go `settleBlock`, Python `_settle_block`, C `settle_block`, each called from the parse, merge, new child, collapse, fold, and the set, comment and remove calls for the first blank. `shcl_compact` copies a settled tree as it is, `init` builds through the setters, and nothing else changes a child list.
-		- Pinned by: corpus case `143-comments-after-edits`, a three-layer merge and a write script. Old Python fails both dimensions. A property in all four: a step on a document and on a reload of its saved text give the same text. It is `edits_and_merges_match_a_reload` in the Rust fuzz, and one fixed-seed fixture in the Go, Python and C runners, which fail at iteration 30 on the old code.
+		- Pinned by: corpus case `143-comments-after-edits` (`dd16j`), a three-layer merge and a write script. Old Python fails both dimensions. A property in all four: a step on a document and on a reload of its saved text give the same text. It is `edits_and_merges_match_a_reload` (`dd16k`, `dd16n`, `dc474`) in the Rust fuzz, and one fixed-seed fixture in the Go, Python and C runners, which fail at iteration 30 on the old code.
 		- Verified: the three reproductions agree in all four, the 2,000,000 fuzz is clean, and so is the new property at that count.
 		- Opened: 20260923-145138
 		- Closed: 20260923-164652
@@ -11048,7 +11148,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `a134efe` (2026-09-22), the last round's idea 2. Regression. Confirmed.
 		- Fixed: the cap is compared without adding to it, and a negative cap sizes nothing, since it stops the parse at the first line anyway.
 		- Sweep: the reserve is Go only; Rust, Python and C grow their arenas as they go.
-		- Pinned by: `TestParseLimitedCaps`, with caps at `MaxInt`, `MaxInt-1`, `MaxInt-2`, -1, -3 and `MinInt`. The old compare panics it.
+		- Pinned by: `TestParseLimitedCaps` (`dc1yh`), with caps at `MaxInt`, `MaxInt-1`, `MaxInt-2`, -1, -3 and `MinInt`. The old compare panics it.
 		- Opened: 20260923-145138
 		- Closed: 20260923-151454
 
@@ -11059,7 +11159,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the count, now `trimCountingNodeLines`, skips a raw body from its opening fence to the close, same-line and child-indent spellings both.
 		- Measured against the binary before the reserve: `raw20` 96 MB before, 101 now (169 in the review). The flat 1M-key file keeps the gain, 705 to 570 MB.
 		- Sweep: Go only, as item 5.
-		- Pinned by: `TestArenaSizedToTheDocument` counts a 20,000-line body of each fence kind. Counting bodies again fails it.
+		- Pinned by: `TestArenaSizedToTheDocument` (`dczzb`) counts a 20,000-line body of each fence kind. Counting bodies again fails it.
 		- Opened: 20260923-145138
 		- Closed: 20260923-151454
 
@@ -11078,7 +11178,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: if something holds the probe file open, the delete fails and an empty file stays behind. The next load reads it as an empty document.
 		- Origin: 2026-09-03, the long-path reads plus the save-side probe. No item covers the read side. Confirmed.
 		- Fixed: the Windows resolver takes a read-or-save flag, and a read gets not-found for a dangling link without the probe. Saves keep it.
-		- Pinned by: `windangle` in the C runner. It sets the directory's write time back, reads through the link, and fails if the time moved. On vm925w the old header fails it and the new one passes.
+		- Pinned by: `windangle` (`dd24q`) in the C runner. It sets the directory's write time back, reads through the link, and fails if the time moved. On vm925w the old header fails it and the new one passes.
 		- Opened: 20260923-145138
 		- Closed: 20260924-084901
 
@@ -11115,7 +11215,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: needs a decision. Either fix the spec's wording to the general bare-value rule, or diagnose `* key: value`, which is the YAML list-of-maps habit and now reads silently as a string.
 		- Origin: the spec text is from 2026-07-12, before the 3.0 bare-value rule. Confirmed.
 		- Fixed: a hint, `H003`, on a bare element written `name: value` or `name:`. An error would refuse a value the bare-value rule takes everywhere else, and a hint changes no load or exit code. The spec wording now matches the parser. Decision in `design.md`.
-		- Pinned by: corpus 144, with near misses that stay quiet.
+		- Pinned by: corpus 144 (`dd24n`), with near misses that stay quiet.
 		- Opened: 20260923-145138
 		- Closed: 20260924-084901
 
@@ -11124,7 +11224,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: 2026-09-07. Confirmed.
 		- Fixed: one clause in the help (all four CLIs), the man page and the README: each line is read on its own, so a raw body line is tokenized as a field line.
 		- Sweep: the code comments in the four `tokens` commands already said so.
-		- Test case: `cli-regress.bash` row `tokens-raw-body`, all four CLIs.
+		- Test case: `cli-regress.bash` row `tokens-raw-body` (`dd15d`), all four CLIs.
 		- Opened: 20260923-145138
 		- Closed: 20260923-151454
 
@@ -11323,7 +11423,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: remove the group. `spec.md` already says a wildcard remove takes every resolved slot, and `design.md` says `count`, `instances`, the read and `Remove` see the same list. Refusing the whole call would make a documented path unusable wherever one instance happens to repeat a leaf.
 		- Fixed: the resolve walk takes a `group` flag. Off, a sub-path landing on several nodes is still one `Multiple` slot, which is what the reads want; on, those nodes join the slot list. Rust `resolve_group` / `resolve_from`, Go `resolveGroup` / `resolveFrom`, Python `_resolve(path, True)` / `_resolve_slots`, C `resolve_group` / `resolve_from`.
 		- Swept: `exists` was the only other caller dropping the not-exactly-one entries, and it now reads the same list, so it cannot answer false where `remove` would take something. The reads keep the per-slot statuses and are unchanged. The setters refuse a wildcard before resolving, so there is nothing else.
-		- Pinned by: corpus case `130-remove-wild-group`, whose write op is the wildcard remove and whose reads still expect `Good|NotFound|Multiple`, so the two answers are held apart. Watched to fail: with the old arm back, the write dimension goes red in all four and the reads stay green.
+		- Pinned by: corpus case `130-remove-wild-group` (`dcx2e`), whose write op is the wildcard remove and whose reads still expect `Good|NotFound|Multiple`, so the two answers are held apart. Watched to fail: with the old arm back, the write dimension goes red in all four and the reads stay green.
 		- Note: `spec.md` and `design.md` both say what the two sides answer now.
 		- Opened: 20260920-174959
 		- Closed: 20260920-181847
@@ -11333,7 +11433,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the annotation builder tested `allowed` and the bounds as one exclusive chain rather than as the independent parts the spec's grammar has.
 		- Fixed: `allowed` is its own test, and the two numeric arms follow it. Rust `gen_annotation`, Go `genAnnotation`, Python `_gen_annotation`, C `v_gen_annotation`.
 		- Swept: the float arm had the same chain and is covered by the same change. `repeat` and `required` were already unconditional.
-		- Pinned by: two fields added to corpus case `026-init-schema`, one int and one float, each with `allowed` and a bound. Watched to fail: with the old chain back, the generation dimension goes red in all four.
+		- Pinned by: two fields added to corpus case `026-init-schema` (`dab7k`), one int and one float, each with `allowed` and a bound. Watched to fail: with the old chain back, the generation dimension goes red in all four.
 		- Opened: 20260920-174959
 		- Closed: 20260920-181847
 
@@ -11509,7 +11609,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: 20260902 item 19 closed on the reasoning that a literal newline in a schema path is unreachable, because a schema value holding one is an unterminated quote. That is wrong and this item is the correction: `\n` inside a double-quoted schema value resolves to a real newline before the path is parsed, so the path holds one with nothing malformed anywhere.
 		- Note: the comment above the caller, which says a name with a newline goes through the segment renderer, described a route the condition had stopped taking. The fix makes it true again rather than rewriting it.
 		- Fixed: `spec.md` drops the literal newline from the list of paths that cannot be written at all, and says a body or a name with one is written escaped.
-		- Pinned by: two fields added to corpus case `113-init-selector-newline`, one selector and one name, each written with a real line break beside the escaped twin already there. Watched to fail: with the guard taken out, the generation dimension reports `113-init-selector-newline: init schema has faults`.
+		- Pinned by: two fields added to corpus case `113-init-selector-newline` (`dacv7`), one selector and one name, each written with a real line break beside the escaped twin already there. Watched to fail: with the guard taken out, the generation dimension reports `113-init-selector-newline: init schema has faults`.
 		- Opened: 20260920-174959
 		- Closed: 20260920-184049
 
@@ -11519,7 +11619,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: the CLI moves, not the spec. `check` writes nothing, so `fmt`'s refusal to rewrite a strict-failing document does not apply there, and a user was getting less out of `check` at strict than at standard on the same file.
 		- Fixed: the strict arm takes the recovered document out of the load error and the schema half runs either way, in all four CLIs. The summary line is still `strict load failed`, so the exit contract is unchanged. A schema that does not itself load is still one `V099` at strict.
 		- Fixed: `spec.md` says the one-shot's diagnostics reach `check` at strict too.
-		- Pinned by: `cli-regress.bash` row `check-strict-schema-validates`, watched to fail with the old strict guard put back.
+		- Pinned by: `cli-regress.bash` row `check-strict-schema-validates` (`dcx40`), watched to fail with the old strict guard put back.
 		- Opened: 20260920-174959
 		- Closed: 20260920-190801
 
@@ -11548,7 +11648,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: escape the value. The help promises one per line, a consumer splitting on newlines miscounts, and only a value holding a line break changes - everything else goes out as written, which is what keeps the contract for every caller that has one today.
 		- Fixed: a `one_line` helper in each CLI (`out_one_line` in C) writes the quoted escaped spelling when the value holds a line break. Not `quote_segment`, which is for path segments and would also quote a value holding a dot. The library still hands values back as they are, so `reads.tsv` and the conformance runners are untouched.
 		- Fixed: the man page and `spec.md` say the CLI escapes such a value and the library does not.
-		- Pinned by: `cli-regress.bash` rows `instances-one-per-line` and `instances-plain-unescaped`. Watched to fail: with the escape taken out the first goes red and the second stays green, which is what proves it pins the no-change half too.
+		- Pinned by: `cli-regress.bash` rows `instances-one-per-line` and `instances-plain-unescaped` (`dcx41`). Watched to fail: with the escape taken out the first goes red and the second stays green, which is what proves it pins the no-change half too.
 		- Opened: 20260920-174959
 		- Closed: 20260920-190801
 
@@ -11560,7 +11660,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: new ground, no earlier round read it. `fmt --check` reached dev 2026-09-19, `migrate --check` 2026-09-16. Confirmed.
 		- Fixed: both arms ask the gate before they count, and report its refusal at 7. Rust `do_fmt` and `do_migrate`, Go `doFmt` and `doMigrate`, Python `do_fmt` and `do_migrate`, C `do_fmt` and `do_migrate`.
 		- Swept: all four CLIs, both arms. The four agree byte-for-byte on stderr and exit code.
-		- Pinned by: `cli-regress.bash` rows `fmt-check-refused` and `migrate-check-refused`, both watched to fail at exit 6 on the old code, with `migrate-write-refused-lost` beside them as the write half of the pair.
+		- Pinned by: `cli-regress.bash` rows `fmt-check-refused` and `migrate-check-refused` (`dcwfz`), both watched to fail at exit 6 on the old code, with `migrate-write-refused-lost` (`dcwg0`) beside them as the write half of the pair.
 		- Note: the help's `--check` line, the man page, `spec.md`, `design.md` and the changelog say the 7 case now. `--lossy` is a usage error with `--check`, so the override can never be in play, but the test writes the `--write` condition whole so the two cannot drift.
 		- Opened: 20260920-055406
 		- Closed: 20260920-082633
@@ -11678,7 +11778,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Sweep: `write_file_atomic` in `lib.rs`, `WriteFileAtomic` in `shcl.go`, `write_file_atomic` in `shcl.py`, `shcl_write_file_atomic` in `shcl.h`.
 		- Decided: `design.md` -> Save outcomes, a table of what a save does with each thing it can find at the path, marked as the rule. Items 17 and 18 are two of its rows.
 		- Fixed: only a regular file is replaced. A directory is refused as one, anything else as "not a regular file", in `write_file_atomic` (Rust, Python), `WriteFileAtomic` (Go) and `shcl_write_file_atomic` (C, `EINVAL`, since POSIX has no errno for it). The four CLIs ask before they read a `--write` FILE (`write_target_ok`, `writeTargetOK` in Go), so a FIFO is not drained, and say "not a regular file" at exit 8.
-		- Pinned by: the `save-targets` cases in `cli-regress.bash`, one per row of the table, run through every CLI in a fresh directory. On the old code the FIFO cases hung in all four and were cut off by the timeout. A library fixture in all four runners (`save_replaces_only_a_regular_file`, `TestSaveReplacesOnlyARegularFile`, and the Python and C POSIX blocks) saves onto a FIFO directly, since the CLI's check hides the library's. All four failed on the old library.
+		- Pinned by: the `save-targets` cases in `cli-regress.bash`, one per row of the table, run through every CLI in a fresh directory. On the old code the FIFO cases hung in all four and were cut off by the timeout. A library fixture in all four runners (`save_replaces_only_a_regular_file` (`dcvaj`, `dcvb1`, `dcvb0`), `TestSaveReplacesOnlyARegularFile` (`dcvak`), and the Python and C POSIX blocks) saves onto a FIFO directly, since the CLI's check hides the library's. All four failed on the old library.
 		- Swept: the four sites the item names. The device half is the `device` case, a link to `/dev/null`, which needs no root.
 		- Left alone: Windows device names such as `NUL`. Checked on B29W, 2026-09-19: `set --write --set a=1 NUL`, and the same with `\\.\NUL`, is exit 8 in all four. The wording differs there - Go and Python name the rule, Rust and C report what the OS said - which is the per-binding stderr voice the gates already allow.
 		- Opened: 20260918-193000
@@ -11722,7 +11822,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `67f1c80` (2026-09-01), reachable since 20260902 items 5 and 7. Sibling of 20260902 item 5. Confirmed.
 		- Decided: the class gets a table, `design.md` -> Generation outcomes, marked as the rule. The generator no longer predicts what the scanner reads. Each spelling it picks is scanned back as a file line first, and every line it writes is read back. This item is its "two lines on one path" row.
 		- Fixed: the parent-value table is first-wins in Rust, Go and Python, as C's already was and as the dedup's first spelling is. `generate` in `lib.rs`, `Generate` in `shcl.go`, `generate` in `shcl.py`.
-		- Pinned by: corpus `127-init-reads-back`, whose reads find `a[x].port` and one `a`. Its golden fails in all four runners on the old code, and this shape alone gave `a[y].port:` in the three.
+		- Pinned by: corpus `127-init-reads-back` (`dacvk`), whose reads find `a[x].port` and one `a`. Its golden fails in all four runners on the old code, and this shape alone gave `a[y].port:` in the three.
 		- Opened: 20260918-193000
 		- Closed: 20260919-130017
 
@@ -11745,7 +11845,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Probable fix: stop guessing. Hand the body to the path scanner and quote unless it comes back as an unquoted by-value selector with the same text. Item 27 is the same function.
 		- Sweep: `gen_selector_text` in `lib.rs` and `shcl.h`, `genSelectorText` in `shcl.go`, `_gen_selector_text` in `shcl.py`.
 		- Fixed: `gen_selector_text` (Rust, C), `genSelectorText` (Go) and `_gen_selector_text` (Python) are rebuilt. The body comes from the elements the reader takes out of the parent's line, and each candidate (a single element as written, then bare, then quoted) is scanned back as a file line before it is used. The 64-bit guess, the dead `#` index arm, its comment and Python's bare `.strip()` are gone with the copy of the scanner's rule.
-		- Pinned by: corpus `127-init-reads-back`, whose `srv["20000000000000000000"].port` reads 2. This shape alone was `V097` in all four on the old code.
+		- Pinned by: corpus `127-init-reads-back` (`dacvk`), whose `srv["20000000000000000000"].port` reads 2. This shape alone was `V097` in all four on the old code.
 		- Swept: `gen_selector_text` and `gen_path_text` in all four. A schema path's own `[value]` body goes through the same read-back (item 26).
 		- Opened: 20260918-193000
 		- Closed: 20260919-130017
@@ -11757,7 +11857,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Keep: 20260817 item 1, "a miss must never change the answer". Its reason is gone, since elements store logical text now, and the trees match with the scan removed over the corpus and 60,000 documents. Replacing the scan with the keyed lookup keeps the rule word for word.
 		- Note: a bare index on a binding line, `a[N].k: 1`, is quadratic too. The spec discourages that spelling, so it ranks lower.
 		- Fixed: the fallback scan asks the merge map instead, in `find_by_value` (Rust, C), `findByValue` (Go) and `_find_by_value` (Python). A scalar child with the selector's text is exactly the one-element value that map is keyed on, so the answer is the same and a miss costs one lookup. 20000 quoted lines went from 82 s to 0.23 s in the Rust debug build, 59 s to 0.59 s in Python, 3.5 s to 0.02 s in C and 3.0 s to 0.05 s in Go.
-		- Pinned by: a `selectors` workload in `perf-gate.bash`, quoted selectors each naming a new instance at half the key count. All four were over budget on the old code and are inside it now.
+		- Pinned by: a `selectors` (`dcvbs`) workload in `perf-gate.bash`, quoted selectors each naming a new instance at half the key count. All four were over budget on the old code and are inside it now.
 		- Keep: 20260817 item 1, "a miss must never change the answer". The lookup is the same question the scan asked, so corpus `051` and `070` and the crosscheck are unchanged.
 		- Left alone: a bare index selector on a binding line (`a[N].k: 1`) is still quadratic. The spec discourages that spelling, and an index there has to count same-name siblings in order.
 		- Opened: 20260918-193000
@@ -11770,7 +11870,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Probable fix: keep each sibling name once and bucket by length, since only names within two characters can match. The `suggest` workload in `perf-gate.bash` has 30 names and cannot see it.
 		- Fixed: each chain's sibling names are kept once, and past the first 16 queries on a chain every name up to 16 characters is filed under each spelling with up to two characters deleted. Two names within edit distance 2 share such a spelling, so a query measures only the names its own spellings find, and the answer is the same name the scan chose. Longer names keep the scan, filtered by length. `SuggestNames` in Rust, `suggestNames` in Go, `_SuggestNames` in Python and `ShclSuggestNames` in C, each with its deletion-spelling walk. Python keys on the spellings themselves, since a hash written in Python costs more than the dict's own.
 		- Measured: 4000 unknown names against 4000 schema names took 30.6 s in the Rust debug build and 1.2 s now. 16000 of each take 0.18 to 2.2 s across the four, where the review measured 32 s in C and 63 s in a Rust release build. 4000 fields under one section went from 4.9 s to under 0.2 s.
-		- Pinned by: an `unknowns` workload in `perf-gate.bash`, 4000 unknown names of eight pseudo-random letters against 4000 top-level names and 4000 under one section. All four were over budget on the old code (2.4 s to 54 s against budgets under 2.1 s) and are inside it now. The hints came out byte-identical to the old code on the 4000-name case.
+		- Pinned by: an `unknowns` (`dcvcb`) workload in `perf-gate.bash`, 4000 unknown names of eight pseudo-random letters against 4000 top-level names and 4000 under one section. All four were over budget on the old code (2.4 s to 54 s against budgets under 2.1 s) and are inside it now. The hints came out byte-identical to the old code on the 4000-name case.
 		- Opened: 20260918-193000
 		- Closed: 20260919-132749
 
@@ -11812,7 +11912,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Probable fix: load through the shared loader, not a second labelled copy, with `set` twins of the two `cli-regress` rows.
 		- Sweep: `do_set` in `main.rs`, `main.py` and `main.c`, `doSet` in `main.go`.
 		- Fixed: `set` loads through the shared fold. `load_layered_from` (`loadLayeredFrom` in Go) takes FILE's text when `set` creates the file or reads an empty document, and reads it otherwise, so the labels, the strict failure and the `--set` pass are one copy in each CLI. The old private copies, and the single-load helpers only they used, are gone.
-		- Pinned by: `cli-regress.bash` rows `layer-diags-named-set` and `layer-strict-names-the-layer-set`, the `set` twins of the two `fmt` rows. On the old code the first failed in Rust, Go and Python and the second in all four.
+		- Pinned by: `cli-regress.bash` rows `layer-diags-named-set` (`dcvb2`) and `layer-strict-names-the-layer-set` (`dcvb3`), the `set` twins of the two `fmt` rows. On the old code the first failed in Rust, Go and Python and the second in all four.
 		- Swept: `do_set` in `main.rs`, `main.py` and `main.c`, `doSet` in `main.go`. No other subcommand builds its own fold.
 		- Opened: 20260918-193000
 		- Closed: 20260919-123632
@@ -11834,7 +11934,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Keep: item 6 decided against a second save call. This adds none.
 		- Probable fix: look again before the save, as item 6 did. Re-read FILE and exit 8 if the bytes differ from what was loaded.
 		- Fixed: `--write` reads FILE again just before the save and exits 8 with "changed since it was read" when the bytes differ, in `fmt`, `set` and `migrate`. `unchanged_since_read` in `main.rs`, `main.py` and `main.c`, `unchangedSinceRead` in `main.go`, called from `write_back` (`writeBack`) and from `migrate`'s own save. `set` takes FILE's text back from the shared fold (item 14) to compare. A file `set` is creating keeps item 6's check. The library's save is unchanged, as decided on 2026-09-19. `design.md` -> Save outcomes has the row, and the spec the sentence.
-		- Pinned by: `cli-regress.bash` row `write-changed-during-wait`, through a new `@change` stdin mode that edits FILE after the stdin notice. It exited 0 in all four on the old code, with the other edit gone.
+		- Pinned by: `cli-regress.bash` row `write-changed-during-wait` (`dcvb4`), through a new `@change` stdin mode that edits FILE after the stdin notice. It exited 0 in all four on the old code, with the other edit gone.
 		- Keep: 20260909 item 6's decision against a second save call. None was added.
 		- Left alone: the gap between the second read and the publish, the width of one save. Closing it needs a lock the other writer would also have to take.
 		- Opened: 20260918-193000
@@ -11845,7 +11945,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: `filepath.Join` in `resolveTarget` runs `Clean`, which cancels `lnk/..` as text.
 		- Origin: `4d50595e` (2026-08-29), the fix for 20260829 item 7. Confirmed.
 		- Fixed: the walk joins the link's text to the directory as written. `rawDir` in `shcl.go` replaces `filepath.Dir` and `filepath.Join` there, both of which clean. Save outcomes has the row.
-		- Pinned by: the `save-dotdot` case in `cli-regress.bash` and `TestSaveReplacesOnlyARegularFile`, with the same fixture in the other three runners. Go failed both on the old code.
+		- Pinned by: the `save-dotdot` case in `cli-regress.bash` and `TestSaveReplacesOnlyARegularFile` (`dcvak`), with the same fixture in the other three runners. Go failed both on the old code.
 		- Swept: `resolve_target` in Rust joins without cleaning. Python's `os.path.join` and C's hand join do not clean either. All three pass the same case.
 		- Opened: 20260918-193000
 		- Closed: 20260919-122956
@@ -11867,7 +11967,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Probable fix: an identity check at the top of `merge` in Python, Go, C and the C++ veneer, with one stated answer in all four doc comments.
 		- Decided: a document merged onto itself is left as it is. The reference cannot make the call, and merging an equal copy is not the identity in every case, so the answer is stated rather than borrowed.
 		- Fixed: an identity check at the top of `Merge` (Go), `merge` (Python) and `shcl_merge` (C), which the C++ veneer calls. The same sentence is in all four doc comments and the veneer's.
-		- Pinned by: every corpus input, and the three lines that showed it, merged onto itself and compared with its canonical text before, in the Go test `TestMergeOntoItselfLeavesItAlone` and the Python and C runners. On the old code Go failed the compare, and the Python and C runners never returned. The veneer smoke gained the same three lines, which did not fail on the old C.
+		- Pinned by: every corpus input, and the three lines that showed it, merged onto itself and compared with its canonical text before, in the Go test `TestMergeOntoItselfLeavesItAlone` (`dcvcg`) and the Python and C runners. On the old code Go failed the compare, and the Python and C runners never returned. The veneer smoke gained the same three lines, which did not fail on the old C.
 		- Opened: 20260918-193000
 		- Closed: 20260919-133211
 
@@ -11926,7 +12026,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: in all four at exit 0. The block's second column prints the fragment name raw, and `b: 1` comes out as a binding the schema never asked for.
 		- Origin: `df85048` (2026-09-18) escaped the path on this very line and left the name. Third site of 20260725 item 10's class. Confirmed.
 		- Fixed: the fragment name goes through `schema_text` at the push, in `expand_mounts` (Rust), `expandMounts` (Go), `_expand_mounts` (Python) and `g_expand_go` (C).
-		- Pinned by: corpus `127-init-reads-back`, whose trailing block reads `f\nb: 1`. The old code wrote a live `b: 1` there.
+		- Pinned by: corpus `127-init-reads-back` (`dacvk`), whose trailing block reads `f\nb: 1`. The old code wrote a live `b: 1` there.
 		- Swept: the other column of that block is the type name or the path, both already escaped.
 		- Opened: 20260918-193000
 		- Closed: 20260919-130017
@@ -11956,7 +12056,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: needed before code, with a line in `design.md` and a corpus case beside `095`. Either the kept element holds its column with the field as the level's node, or it holds it dead and what sits under it is `E018`.
 		- Decided: a kept element holds its column, with the field as that level's node. It is what a field written in the element's place already does, it loses the least, and E001 keeps its meaning. The other option, holding the column dead so what sits under it is E018, would have moved E001.
 		- Fixed: `add_star_element` (Rust, C), `addStarElement` (Go) and `_add_star_element` (Python) push the level when the element joins the list. A refused element already held its column through the refusal funnel. `design.md` -> Load outcomes and the spec's element bullet say so.
-		- Pinned by: corpus `128-kept-element-level`, beside `095` for the dropped half. All four runners fail it on the old code: `a.d` is NotFound and the lost count is 3 rather than 2.
+		- Pinned by: corpus `128-kept-element-level` (`dcvd5`), beside `095` for the dropped half. All four runners fail it on the old code: `a.d` is NotFound and the lost count is 3 rather than 2.
 		- Note: in the item's own example line 5 is now `E008`, "list element mixed with field children", since the field written under the element is the field's child. Lines 4 and 5 were `E012` and both lost.
 		- Opened: 20260918-193000
 		- Closed: 20260919-135357
@@ -11968,7 +12068,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: `design.md` -> Load outcomes gains the order. Where a line sits comes first, then what it is, then the cap. A cap refuses only a line that would otherwise bind.
 		- Fixed: bracket text is judged before the cap and from the value's first piece, which a capped scan keeps, not the value span, which it empties. `bracket_text` in Rust and C, `bracketText` in Go, `_bracket_text` in Python, each called from the parse loop.
 		- Fixed: a sibling the new property found. An element line under a field that already has a value was `E021` under a cap and `E011` without. The cap in `add_star_element` (Rust, C), `addStarElement` (Go) and `_add_star_element` (Python) now applies only to a line that would join the list.
-		- Pinned by: fuzz property `a_cap_refuses_only_a_line_that_would_bind`, red on the old reference inside 300 iterations and green at 200,000. A `parse_limited` fixture in all four runners, each red on its old binding.
+		- Pinned by: fuzz property `a_cap_refuses_only_a_line_that_would_bind` (`dcv3k`), red on the old reference inside 300 iterations and green at 200,000. A `parse_limited` fixture in all four runners, each red on its old binding.
 		- Swept: the child-indent fence arm's `E021` stays, per 20260909 item 11, and runs after `E012` and `E018`.
 		- Note: a selector's `E017` is now reported ahead of both refusals, so a capped line with an open selector quote reports it too.
 		- Opened: 20260918-193000
@@ -11979,7 +12079,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: a bare `int()` in `_format_version`. Every other `int()` in the file is length-gated for this.
 		- Origin: `7040ab7` (2026-09-16), and the line was re-touched in the 20260918 round. Confirmed.
 		- Fixed: `_format_version` length-gates the digits before `int()`, as `_parse_uint` already did, and reads a number past ten digits as this major. That is what the other three do: the reference's `u32` parse fails and falls back to the current major, and Go's `Atoi` error does the same. The file then says there is nothing to migrate, at exit 0, in all four.
-		- Pinned by: `cli-regress.bash` row `migrate-huge-format`, a Format line of five thousand digits. Python exited 1 on the old code.
+		- Pinned by: `cli-regress.bash` row `migrate-huge-format` (`dcvdd`), a Format line of five thousand digits. Python exited 1 on the old code.
 		- Swept: `int()` in `shcl.py`. The remaining two are the gated `_parse_uint` and a `bool` used as 0 or 1.
 		- Opened: 20260918-193000
 		- Closed: 20260919-135951
@@ -11988,7 +12088,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: `TokenizeValue("abc", -1, ...)` panics in `skipWsp`. Python returns spans starting at -1 and raises `IndexError` below `-len`. The reference's unsigned type cannot express the value. No caller in the tree passes one.
 		- Origin: `fbbe7ce` (2026-09-07). Same function as 20260909 item 19. Confirmed.
 		- Fixed: a negative offset reads as 0 in `TokenizeValue` (Go) and `tokenize_value` (Python), and both doc comments say so. The reference's offset is unsigned, so there is nothing else one can mean; Go panicked in `skipWsp` and Python read it as an offset from the end.
-		- Pinned by: `TestTokenizeValueTakesANegativeOffsetAsZero` in the Go test and the same fixture in the Python runner, comparing the pieces, the value span and the comment against a scan from zero. Go panicked and Python failed the compare on the old code.
+		- Pinned by: `TestTokenizeValueTakesANegativeOffsetAsZero` (`dcvdb`) in the Go test and the same fixture in the Python runner, comparing the pieces, the value span and the comment against a scan from zero. Go panicked and Python failed the compare on the old code.
 		- Left alone: C and Rust take an unsigned offset, so neither can be handed one.
 		- Opened: 20260918-193000
 		- Closed: 20260919-135951
@@ -12009,7 +12109,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: a plain string tested against `""`. The class 20260918 item 9 fixed for the help topic, with this field not swept.
 		- Origin: `ba43d2d` (2026-07-23). Confirmed.
 		- Fixed: `opts` has `schemaSet` beside the path, set when the option is given, and `check` and `init` read that instead of comparing the string with "". `--schema=` is now a path the command line gave, read and refused at exit 8 as in the other three.
-		- Pinned by: `cli-regress.bash` rows `schema-empty-value` and `init-schema-empty-value`. Go exited 0 and 1 on the old code.
+		- Pinned by: `cli-regress.bash` rows `schema-empty-value` (`dcvdr`) and `init-schema-empty-value` (`dcvds`). Go exited 0 and 1 on the old code.
 		- Swept: the other CLIs keep the distinction in the type (C a null pointer, Rust and Python an option). Go's only other value option, `--default`, asks its seen list.
 		- Opened: 20260918-193000
 		- Closed: 20260919-141206
@@ -12020,7 +12120,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: the list is `c78d41d` and the rule `9d7a4f4` (2026-09-17). Same family as 20260830 item 39, 20260909 item 33 and 20260918 item 18. Confirmed.
 		- Fixed: the help gained a `--write` entry, naming `-w` and the temp-file rename, and its "Also refused" list gained `--write` with a FILE of `-` and `--default` with `--on-bad=error` or `flag`. The man page's refused list gained those two and the three it was already missing (`--no-banner` on `set` without `--write`, `--check` with `--write`). All four helps stay byte-identical at 80 columns.
 		- Fixed: the entry head is `--write`, not `--write, -w`. The narrowed help reads a head up to its first space, so an alias in the head made `shcl help migrate` drop the entry.
-		- Pinned by: a new `option-entries` check in `cli-regress.bash`. Every option the completions offer must have an entry in each CLI's help, so an option with none is no longer invisible to the scope check that walks the entries. It names `--write` in all four on the old code. The two newly listed refusals have rows: the `--default` pair already did, and `write-stdin-fmt` and `write-stdin-set` are new.
+		- Pinned by: a new `option-entries` (`dcvdw`) check in `cli-regress.bash`. Every option the completions offer must have an entry in each CLI's help, so an option with none is no longer invisible to the scope check that walks the entries. It names `--write` in all four on the old code. The two newly listed refusals have rows: the `--default` pair already did, and `write-stdin-fmt` (`dcvdt`) and `write-stdin-set` (`dcvdv`) are new.
 		- Note: `check-completions.bash` holds the completion table against the CLI's own option table, so the new check reaches the whole list rather than a copy of it.
 		- Opened: 20260918-193000
 		- Closed: 20260919-141206
@@ -12216,7 +12316,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `7040ab7` (Merge migrate-version, 2026-09-16), 20260909 item 4's second half. Not seen before. Confirmed.
 		- Against: the spec's Migrating section, that the Format line decides and that `migrate` never damages a file that was already correct.
 		- Fixed: the version scan walks the lines through the rewrite's own line reader, so it skips a raw body exactly where the rewrite does. `format_version` in Rust and C, `formatVersion` in Go, `_format_version` in Python.
-		- Pinned by: `cli-regress.bash` rows `migrate-format-in-raw-old` and `migrate-format-in-raw-new`. Both fail in all four on the old code.
+		- Pinned by: `cli-regress.bash` rows `migrate-format-in-raw-old` (`dct37`) and `migrate-format-in-raw-new` (`dct38`). Both fail in all four on the old code.
 		- Opened: 20260918-133258
 		- Closed: 20260918-153113
 
@@ -12227,7 +12327,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `7040ab7` (Merge migrate-version, 2026-09-16). Confirmed.
 		- Against: the spec, that a file with the Format line has nothing to migrate, and parity with the reference.
 		- Fixed: C `migrate` takes the BOM off before the version scan, as the other three do.
-		- Pinned by: rows `migrate-bom-stamped` and `migrate-bom-stamped-from-2x`. Both fail in C on the old code.
+		- Pinned by: rows `migrate-bom-stamped` (`dct39`) and `migrate-bom-stamped-from-2x` (`dct3a`). Both fail in C on the old code.
 		- Opened: 20260918-133258
 		- Closed: 20260918-153113
 
@@ -12239,7 +12339,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the ninth item in this class. The fix should be one rule for every skip arm, that a skipped line opening a fence takes its body with it, rather than one more arm.
 		- Against: `spec.md:135`, "a fence line there takes its whole body with it", and the E018 row at `spec.md:445`.
 		- Fixed: one rule for every arm that skips a field line. `skip_field_line` (Rust, C), `skipFieldLine` (Go) and `_skip_field_line` (Python) take a fence's body with the line, and the E012, E018 and E021 arms all call it. A line whose path did not parse still goes alone, as the review decided for E014.
-		- Pinned by: corpus `126-skipped-line-fence`, which all four runners fail on the old code, and `raw_bodies_stay_content` in `fuzz_smoke.rs`, a property that no diagnostic lands on a raw body line. It fails on the old code at iteration 4.
+		- Pinned by: corpus `126-skipped-line-fence` (`dct3g`), which all four runners fail on the old code, and `raw_bodies_stay_content` (`dct3h`) in `fuzz_smoke.rs`, a property that no diagnostic lands on a raw body line. It fails on the old code at iteration 4.
 		- Opened: 20260918-133258
 		- Closed: 20260918-153943
 
@@ -12250,7 +12350,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `533ca3e` (Merge optional-default, 2026-09-15) over `faf5adf` (Merge init-selfcheck, 2026-09-14). This is where 20260909 item 5 and the optional-default fix meet. Confirmed.
 		- Against: `spec.md:667`, a default that does not name the instance its path selects fails generation with V097, "That holds for an optional field too".
 		- Fixed: each commented line is read back through its field's own path, the way validation reads it, rather than through the first leaf the line binds. A line that binds nothing on that path is V097, "default does not name the instance its path selects". In the `generate` self-check of all four: `generate` in Rust and Python, `Generate` in Go, `shcl_generate` in C.
-		- Pinned by: `cli-regress.bash` row `init-optional-selector-default`, which fails in all four on the old code.
+		- Pinned by: `cli-regress.bash` row `init-optional-selector-default` (`dct3m`), which fails in all four on the old code.
 		- Note: `init-optional-defaults-ok` expected an optional `a[b]` with `default: c` to generate, which is this defect. It is commented out with the reason, and `init-optional-defaults-ok-named` has the same schema with `default: b`. The generation grid count in `fuzz_smoke.rs` went from 1171 to 1039, all 132 of them optional fields with a contradicting default.
 		- Opened: 20260918-133258
 		- Closed: 20260918-154454
@@ -12310,7 +12410,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `c78d41d` (Merge cli-help, 2026-09-17, 20260909 item 44). Confirmed.
 		- Against: `style-guide_ui-ux.md:9`, the ports match the Rust CLI on stdout and exit code.
 		- Fixed: the ports hold "no topic" apart from an empty one, as the reference does: `hasTopic` in Go, `None` in Python, a NULL topic in C. `shcl help ''` and `shcl '' --help` are an unknown command at exit 1 in all four.
-		- Pinned by: `cli-regress.bash` rows `help-empty-topic` and `empty-cmd-help`, which fail in Go, Python and C on the old code. A `%E%` in a row now stands for an empty argument, which a row could not write before.
+		- Pinned by: `cli-regress.bash` rows `help-empty-topic` (`dct4k`) and `empty-cmd-help` (`dct4m`), which fail in Go, Python and C on the old code. A `%E%` in a row now stands for an empty argument, which a row could not write before.
 		- Verified on Windows (B29W, pwsh 7.6): `help ''` and `'' --help` give the unknown command at exit 1 in all four CLIs through real Windows argv.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161509
@@ -12322,7 +12422,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `c78d41d` (Merge cli-help, 2026-09-17). A regression of the older behavior. Confirmed.
 		- Against: the comment above this branch in all four, that asking for the help by name or by flag prints it and succeeds, and 20260909 item 59's rule against handing a user's own spelling back.
 		- Fixed: after `help`, a `-h` or `--help` is dropped before the topic is chosen, in the help branch of all four CLIs. `help --help` and `help -h` print the full help, and `help get --help` prints get's.
-		- Pinned by: rows `help-help-flag`, `help-h-flag` and `help-cmd-help-flag`, which fail in all four on the old code.
+		- Pinned by: rows `help-help-flag` (`dct4n`), `help-h-flag` (`dct4p`) and `help-cmd-help-flag` (`dct4q`), which fail in all four on the old code.
 		- Verified on Windows (B29W): `help --help`, `help -h` and `help get --help` exit 0 in all four CLIs.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161509
@@ -12369,7 +12469,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Against: 20260909 item 18's fix note.
 		- Fixed: one helper per binding writes schema text for a diagnostic, with a line break written `\n` and nothing else changed: `schema_text` in Rust and C, `schemaText` in Go, `_schema_text` in Python. V002 to V007, V091 and V093 go through it, and so do the V097 messages and the generator's comment lines, which had their own copies of the same escape. C's `g_escape_nl` became `schema_text`.
 		- Sweep: V093, "bad schema path", printed its path raw too and was not in the review. V090, V094 and V095 already go through `diag_name`, and V092 names a fixed key.
-		- Pinned by: `cli-regress.bash` rows `schema-text-v002` to `schema-text-v007`, `schema-text-v091` and `schema-text-v093`. All eight fail in all four on the old code.
+		- Pinned by: `cli-regress.bash` rows `schema-text-v002` (`dct3y`) to `schema-text-v007` (`dct43`), `schema-text-v091` (`dct44`) and `schema-text-v093` (`dct45`). All eight fail in all four on the old code.
 		- Opened: 20260918-133258
 		- Closed: 20260918-155459
 
@@ -12380,7 +12480,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `bac2498` (Merge e014-column, 2026-09-17). Confirmed.
 		- Against: 20260909 item 34's fix, a byte column from the line start, indent included, and the help text at `main.rs:273`.
 		- Fixed: the column adds the blank run between the indent and the text, in the E014 arm of each parser. The run is ASCII blanks, so its length is its byte count in Python too.
-		- Pinned by: `cli-regress.bash` row `e014-column-cr-lead`, which fails in all four on the old code.
+		- Pinned by: `cli-regress.bash` row `e014-column-cr-lead` (`dct46`), which fails in all four on the old code.
 		- Opened: 20260918-133258
 		- Closed: 20260918-155713
 
@@ -12391,7 +12491,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `e230886` (Merge init-v097, 2026-09-17, 20260909 item 59). Confirmed.
 		- Against: `style-guide_ui-ux.md:67` and `:69`, a message names what went wrong, and a fix it names has to work.
 		- Fixed: the "no FILE is left" refusal runs after the option check, so an option the command does not take is named as that first, and explain joins init as a command that wants no FILE. In `run` (Rust), `run` (Go), `run` (Python) and `cli_main` (C).
-		- Pinned by: rows `explain-opt-refused-first` and `migrate-opt-refused-first`, which fail in all four on the old code.
+		- Pinned by: rows `explain-opt-refused-first` (`dct4r`) and `migrate-opt-refused-first` (`dct4s`), which fail in all four on the old code.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161540
 
@@ -12402,7 +12502,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `c78d41d` (Merge cli-help, 2026-09-17, 20260909 item 42). Confirmed.
 		- Against: 20260909 item 43, no suggestion for a non-ASCII word, and `style-guide_ui-ux.md:19`.
 		- Fixed: `explain` upper-cases the code by ASCII only, through a new `asciiUpper` in Go and `_ascii_upper` in Python, as Rust and C already did.
-		- Pinned by: row `explain-non-ascii-no-suggestion`, which fails in Go and Python on the old code. A `%LS%` in a row stands for the long s.
+		- Pinned by: row `explain-non-ascii-no-suggestion` (`dct4t`), which fails in Go and Python on the old code. A `%LS%` in a row stands for the long s.
 		- Verified on Windows (B29W): `explain` with a long s gets no suggestion, at exit 1, in all four CLIs.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161626
@@ -12416,7 +12516,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the third time. The man page names `--layer` and `--set` by subcommand and stayed right. The fix should do the same in the help, or check each list against `allowed_opts`, so the fourth subcommand cannot repeat it.
 		- Against: `style-guide_ui-ux.md:45`, each option names the subcommands it belongs to, and `changelog.md:179`.
 		- Fixed: the help names the subcommands of `--strictness`, `--layer` and `--set` in full, as the man page does for the last two, and the man page's `--strictness` line does too. migrate's usage line reads `[options] FILE` like its help line, and the help says `-w` works there. In all four CLIs.
-		- Pinned by: a check in `cli-regress.bash` that asks each CLI which subcommands take each option, by whether it answers "not valid for", and compares that with the parentheses the help prints. It fails on 7 options with the old help, and a new subcommand can no longer join an option's list unseen. Row `migrate-usage-line` pins the usage line.
+		- Pinned by: a check in `cli-regress.bash` that asks each CLI which subcommands take each option, by whether it answers "not valid for", and compares that with the parentheses the help prints. It fails on 7 options with the old help, and a new subcommand can no longer join an option's list unseen. Row `migrate-usage-line` (`dct4x`) pins the usage line.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161713
 
@@ -12428,7 +12528,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: this does not reopen the settled `#` rule. It brings two lines into line with it.
 		- Against: `design.md:457` and `spec.md:99`.
 		- Fixed: the E003 entry in all four explain tables gives `a[5].b`, and says a file names the index bare since a `#` opens a comment. The spec row says the same, and that `a[#5].b` in a file is E014.
-		- Pinned by: row `explain-e003`, whose stdout is the whole entry. It fails in all four on the old code.
+		- Pinned by: row `explain-e003` (`dct4v`), whose stdout is the whole entry. It fails in all four on the old code.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161626
 
@@ -12439,7 +12539,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `c78d41d` (Merge cli-help, 2026-09-17). Confirmed.
 		- Against: `spec.md:589`, and the table's own comment that it is the spec's rules cut to fit a terminal.
 		- Fixed: the V097 entry in all four explain tables names the second cause, a required path nothing can generate.
-		- Pinned by: row `explain-v097`, whose stdout is the whole entry. It fails in all four on the old code.
+		- Pinned by: row `explain-v097` (`dct4w`), whose stdout is the whole entry. It fails in all four on the old code.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161626
 
@@ -12450,7 +12550,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `c78d41d` (Merge cli-help) and `9d7a4f4` (Merge cli-guide), both 2026-09-17. Same class as 20260909 item 34. Confirmed.
 		- Against: the README transcripts as real output, and item 58's "both spellings".
 		- Fixed: both README transcripts show the pointer line, and the spec names the third summary, `strict load failed: N diagnostic(s)`.
-		- Pinned by: `check-readme.bash` now runs every `$ shcl` line in the README's console blocks against the README's own files and compares the output, stderr included. It failed on exactly these two transcripts before the README fix. Row `check-strict-summary` pins the strict summary.
+		- Pinned by: `check-readme.bash` now runs every `$ shcl` line in the README's console blocks against the README's own files and compares the output, stderr included. It failed on exactly these two transcripts before the README fix. Row `check-strict-summary` (`dct50`) pins the strict summary.
 		- Note: the second time a transcript drifted, after 20260909 item 34, so the check is for the class.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161754
@@ -12462,7 +12562,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `e230886` (Merge init-v097) and `c78d41d` (Merge cli-help), both 2026-09-17. Confirmed.
 		- Against: 20260909 item 59, that calling an option unknown and suggesting it back says nothing, and `style-guide_ui-ux.md:25`.
 		- Fixed: one `known_option` per CLI (`knownOption` in Go) counts `-w` as a real option. Before the subcommand `-w` gets "goes after the subcommand", and a real flag written with `=VALUE` gets "option --write takes no value (see --help)" rather than unknown.
-		- Pinned by: rows `short-write-before-cmd`, `flag-given-value` and `type-flag-given-value`, which fail in all four on the old code.
+		- Pinned by: rows `short-write-before-cmd` (`dct51`), `flag-given-value` (`dct52`) and `type-flag-given-value` (`dct53`), which fail in all four on the old code.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161831
 
@@ -12473,7 +12573,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: the messages predate `0090046`; the rule is `9d7a4f4` (Merge cli-guide, 2026-09-17). Confirmed.
 		- Against: `style-guide_ui-ux.md:69`.
 		- Fixed: the three messages end with `(see --help)` in all four, and the `--layer=-` one drops its parentheses for a colon, so it does not have two in a row.
-		- Pinned by: rows `raw-array-see-help`, `layer-stdin-set-see-help` and `init-strictness-see-help`, which fail in all four on the old code.
+		- Pinned by: rows `raw-array-see-help` (`dct54`), `layer-stdin-set-see-help` (`dct55`) and `init-strictness-see-help` (`dct56`), which fail in all four on the old code.
 		- Opened: 20260918-135050
 		- Closed: 20260918-161904
 
@@ -12487,7 +12587,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: corpus `105-quote-in-selector` covers a quote mid-body and a quote properly closed, and expects zero diagnostics. It has no unclosed case, so the suite is blind to this.
 		- Sites: the `path_of` call site in each - `lib.rs:2870`, `shcl.go:2826`, `shcl.py:2326`, `shcl.h:3125`; the selector arms are `lib.rs:1733` and `:1793`, `shcl.go:1882` and `:1938`, `shcl.py:1597` and `:1642`, `shcl.h:1824` and `:1861`.
 		- Fixed: one `selector_open_quote` per binding (`selectorOpenQuote` in Go, `_selector_open_quote` in Python) reads the flag the tokenizer already recorded, and the parse loop reports `E017` beside the value half's own check. The binding is unchanged - the body is still read bare, quotes and all, which is what the spec says the piece does - so only the diagnostic is new. A line whose value and whose selector both open a quote reports both, since they are independent faults.
-		- Pinned by: corpus `116-selector-open-quote`, which has an open double quote, an open single quote on a deeper segment, and a line where the selector and the value each open one. All four fail the case with the check backed out. Case `105` keeps its zero-diagnostic character.
+		- Pinned by: corpus `116-selector-open-quote` (`dcdj9`), which has an open double quote, an open single quote on a deeper segment, and a line where the selector and the value each open one. All four fail the case with the check backed out. Case `105` keeps its zero-diagnostic character.
 		- Note: reporting does not stop `fmt --write` from writing the canonical spelling, since nothing is lost and the save gate reads the lost count. That matches what an unterminated quote in a value has always done. What changes is that `check` exits 6 and a strict load fails, so the typo is no longer silent.
 		- Opened: 20260909-100000
 		- Closed: 20260909-174000
@@ -12497,7 +12597,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the `name:[disc]` rewrite writes the discriminator text straight into the line rather than through `emit_element`, so nothing quotes a discriminator that opens a fence, a comment or a bracket.
 		- Sites: `lib.rs:1641`, `shcl.go:1779`, `shcl.py:1509`, `shcl.h:1689`.
 		- Fixed: a bare discriminator in the last-segment sugar arm is written by the emitter, the way `fmt` writes a value, in `migrate_line` (Rust and C), `migrateLine` (Go) and `_migrate_line` (Python). A quoted or escaped one keeps the spelling it had.
-		- Pinned by: corpus `117-migrate-sugar-spelling`, through an `expected-migrate.shcl` pair that all four conformance runners now check. All four fail the case with the fix backed out. Its migrated text reads the same as 2.x read the input, and migrating it again changes nothing.
+		- Pinned by: corpus `117-migrate-sugar-spelling` (`dcmf0`), through an `expected-migrate.shcl` pair that all four conformance runners now check. All four fail the case with the fix backed out. Its migrated text reads the same as 2.x read the input, and migrating it again changes nothing.
 		- Note: not run on Windows.
 		- Note: a discriminator holding a backslash before a comma still loses its binding. It is filed as its own bug, below.
 		- Opened: 20260909-100200
@@ -12509,7 +12609,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: this is worse than a no-op wasted. Running `migrate` on a directory that holds a mix of 2.x and 3.0 files damages the 3.0 ones, and running it twice damages files the first run had just fixed.
 		- Decided: 2026-09-14. A version line in the SHCL comment block records the format's major version, and only `migrate` reads it. `migrate --write` appends it plus a line saying the file was migrated. A file with no version line gets option B: an ambiguous backslash re-spelling is left as written at exit 7 unless a flag says the file is 2.x.
 		- Fixed: the half where a second run changed `migrate`'s own output. A rewritten piece holding a backslash is written in double quotes, which 2.x and 3.0 read alike, through `migrate_spelling` (Rust and C), `migrateSpelling` (Go) and `_migrate_spelling` (Python).
-		- Pinned by: corpus `118-migrate-backslash-spelling` and `119-migrate-sugar-backslash`, a `migrate` fixpoint check over every case in all four runners and in the reference fuzz, and a second comparison in `check-migrate.bash` that reads the migrated text with the 2.x build. With the fix backed out, all four runners fail both cases, the fuzz fails at iteration 56, and `check-migrate.bash` reports 118.
+		- Pinned by: corpus `118-migrate-backslash-spelling` (`dcns3`) and `119-migrate-sugar-backslash` (`dcns4`), a `migrate` fixpoint check over every case in all four runners and in the reference fuzz, and a second comparison in `check-migrate.bash` that reads the migrated text with the 2.x build. With the fix backed out, all four runners fail both cases, the fuzz fails at iteration 56, and `check-migrate.bash` reports 118.
 		- Fixed: the other half, a 3.0 file `migrate` did not write. Which rule set wrote a file is not in its text, so the info block has a `Format` line naming the format's major and `migrate` is the only thing that reads it. A file with the current major has nothing to migrate; one with an older major, or a caller passing `--from-2x`, gets the backslash re-spellings; anything else gets every other rewrite, leaves those pieces as written and exits 7. A rewritten file is stamped with the line and a migrated-from note, which is what makes the second run a no-op. `Migration` passes the counts back in all four, so the CLI refuses rather than reporting success.
 		- Pinned by: `cli-regress.bash` rows `migrate-ambiguous-refused`, `migrate-ambiguous-kept`, `migrate-ambiguous-write-refused`, `migrate-from-2x` and `migrate-stamped-noop`, across all four CLIs, and the veneer smoke test. The corpus migrate dimension passes `--from-2x`, since every case there is a 2.x file, and the goldens now have the stamp. The reference fuzz checks the fixpoint under both answers. With the version check backed out, `p: 'C:\temp'` migrates to `p: "C:\temp"` at exit 0 again, which is the original report.
 		- Opened: 20260909-100300
@@ -12520,7 +12620,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the `V097` self-check parses its own output and reads only the validation diagnostics. The parse diagnostics are never read, so half of the promise ("loads with no error diagnostics and validates clean") is unchecked.
 		- Note: `init` is the first command a new user runs, and its whole point is a file that works.
 		- Fixed: a path whose last segment selects by value, with a `default`, is written as the bare path with the default, so `env[prod]` with `default: prod` gives `env: prod`. Validation decides whether the default names the selected instance, and one that names another is `V097`. The self-check reads the generated text's load errors before its validation errors. Both are in `generate` (Rust and Python), `Generate` (Go) and `shcl_generate` (C).
-		- Pinned by: corpus `120-init-selector-default` in all four runners, `cli-regress` rows `init-selector-default-contradicts` and `init-selector-default-consistent`, and the property `generated_starters_load_and_validate_clean` over a grid of 1,560 schemas plus corpus mutations. All of them fail with the fix backed out. With only the spelling half backed out, all four refuse with `V097 generated text does not load: E002`.
+		- Pinned by: corpus `120-init-selector-default` (`dacv8`) in all four runners, `cli-regress` rows `init-selector-default-contradicts` (`dcmjc`) and `init-selector-default-consistent` (`dcmjd`), and the property `generated_starters_load_and_validate_clean` (`dcmjb`) over a grid of 1,560 schemas plus corpus mutations. All of them fail with the fix backed out. With only the spelling half backed out, all four refuse with `V097 generated text does not load: E002`.
 		- Left alone: `field: a` beside `field: "a[b]"` with a default puts two lines on one path. The first wins, so `init` refuses and names `a[b]`. Keying the duplicate check on the whole line would move corpus `102`'s rule.
 		- Note: not run on Windows.
 		- Opened: 20260909-100400
@@ -12532,7 +12632,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the same window exists in `init` and in any create path that decides "new file" before it writes.
 		- Decided: no new call. A save that found nothing at the path publishes without replacing, so a consumer has no second save to pick between.
 		- Fixed: `set --write` looks again just before the save, with the same test that decided the create, and exits 8 on a file that appeared. That is in `do_set` (Rust, Python, C) and `doSet` (Go). The save itself publishes through a hard link when nothing was at the path, then drops the temp name, so a file that appears after the save looked is reported and kept. A filesystem with no hard links gets a check and a rename. Windows moves without the replace flag. The publish is `publish_new_file` (Rust), `publishNewFile` (Go, with `windowsPublishNewFile`), `_publish_new_file` (Python) and `shcl_publish_new_file` (C).
-		- Pinned by: `cli-regress` row `create-appeared`, which fails on the old build. The save's own refusal was checked in all four with a file created after the save looked, and it kept that file and left no temp behind.
+		- Pinned by: `cli-regress` row `create-appeared` (`dcnpd`), which fails on the old build. The save's own refusal was checked in all four with a file created after the save looked, and it kept that file and left no temp behind.
 		- Left alone: `init` prints to stdout and creates no file, so it has no such window.
 		- Note: the windows publish compiles for windows and has not been run there.
 		- Opened: 20260909-100500
@@ -12544,7 +12644,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: `spec.md:87` says `a:#x` is the value `#x`, and `spec.md:95` says a `#` with no whitespace before it is content. Hex colors, URL fragments and CSS ids all take this shape, and no refusal channel fires.
 		- Sites: `lib.rs:4309`, `shcl.go:4341`, `shcl.py:430`, `shcl.h:4006`.
 		- Fixed: one `value_half` per binding (`valueHalf` in Go, `_value_half` in Python) builds the line the text describes - the value behind a colon - and scans from after it, so the tokenizer's line-start rule can't reach a value half. `literal_value` and `value_reads_back` both go through it. The second was right only because the emitter quotes every element holding a `#`; relaxing that quoting later would have made it refuse valid values.
-		- Pinned by: corpus `044-write-literal` gains a leading `#`, a `#` mid-value and a trailing one, and a `cli-regress` row takes the same value through `--set-literal`. All four fail the case with the fix backed out.
+		- Pinned by: corpus `044-write-literal` (`datds`) gains a leading `#`, a `#` mid-value and a trailing one, and a `cli-regress` row takes the same value through `--set-literal`. All four fail the case with the fix backed out.
 		- Left alone: `reads_same` and `gen_selector_text` pass the same `from=0`. Both are conservative there rather than wrong - they quote a spelling they can't place, and 2.x could not produce a bare piece holding a `#` at all - so changing them would move emitted bytes for nothing.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 		- Test case: None, superseded by the settled comment rule (design.md Lexical edges); corpus 044 now expects `hexcolor:` empty and row `literal-hash` pins the new rule.
@@ -12567,7 +12667,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: this is the same failure mode the project closed one day earlier for the carriage-return case. A scripted migration can't tell the difference between "migrated" and "gave up".
 		- Note: stands under the settled rules. Bracket text is the one line `migrate` leaves that 2.x bound, so this is where the nonzero exit is needed.
 		- Fixed: the sugar arm asks the 2.x tokenizer whether the body was a bracket array and counts the binding it is about to drop, rather than lumping it in with the index and wildcard bodies 2.x bound nothing for either. `migrate` reports the count, and the CLI exits 7 in both modes, so a redirected print says so too; `--lossy` accepts the loss on a rewrite.
-		- Pinned by: `cli-regress.bash` rows `migrate-lost-binding`, `migrate-lost-write-refused` and `migrate-lost-write-lossy`, across all four CLIs. Corpus `123-migrate-sugar-shielded-comma` already had the shape and pins the text. The write rows take a fresh copy per binding, since a rewrite that stamps the file leaves the next binding nothing to do.
+		- Pinned by: `cli-regress.bash` rows `migrate-lost-binding` (`dcq6n`), `migrate-lost-write-refused` (`dcq6p`) and `migrate-lost-write-lossy` (`dcq6q`), across all four CLIs. Corpus `123-migrate-sugar-shielded-comma` (`dcq13`) already had the shape and pins the text. The write rows take a fresh copy per binding, since a rewrite that stamps the file leaves the next binding nothing to do.
 		- Note: `check-migrate.bash` cannot see this shape - its clean-under-2.x filter admits only codes that bind the line, and this one is `E019` - which is why the gate never reported it.
 		- Opened: 20260909-100900
 		- Closed: 20260916-140000
@@ -12612,7 +12712,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: a flag on the document that turned the plain setter into a probe was tried first and dropped. An `SHCL_OOM` hook that longjmps between setting and clearing it leaves it set, and every later write on that document would then do nothing and report success.
 		- Decided: a fresh empty document per call was tried next and dropped. Each present-path default ran a whole write on it, and 40,000 of them took Python's perf-gate read workload over budget, with the other three near it.
 		- Measured: 40,000 present-path defaults in Python took 1383 ms with a fresh document per call and 633 ms with the kept probe.
-		- Pinned by: corpus `121-default-value-refused`, bracket text and an open quote on present paths, and present-path float and datetime default checks in each runner's setter-refusal test. The old code accepts all three corpus lines and fails all thirteen new checks.
+		- Pinned by: corpus `121-default-value-refused` (`dcnv6`), bracket text and an open quote on present paths, and present-path float and datetime default checks in each runner's setter-refusal test. The old code accepts all three corpus lines and fails all thirteen new checks.
 		- Opened: 20260909-101400
 		- Closed: 20260915-145757
 
@@ -12639,7 +12739,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced against the pinned 2.x build. Any bare selector ending in a backslash makes `migrate` bail, and with the sugar spelling the whole line's bindings disappear instead.
 		- Cause: the 2.x bare-text shield was on for every piece the scan reads. 2.x shielded a backslash in value text only - its name-half scan ran a bare selector body to the first `]` - so the emulation ate the `]`, faulted the line, and handed it back as written with its value unmigrated.
 		- Fixed: the shield applies to a value piece only, in `scan_piece` (Rust and C), `scanPiece` (Go) and `_scan_piece` (Python). A bare selector body runs to its first `]` under both rule sets, so the line reads and the rest of it migrates.
-		- Pinned by: corpus `122-migrate-selector-backslash` in all four runners, and `check-migrate.bash`, which compares that case document by document since it is clean under 2.x. With the fix backed out the migration dimension fails and names that case alone, and the other dimensions stay green.
+		- Pinned by: corpus `122-migrate-selector-backslash` (`dcq12`) in all four runners, and `check-migrate.bash`, which compares that case document by document since it is clean under 2.x. With the fix backed out the migration dimension fails and names that case alone, and the other dimensions stay green.
 		- Opened: 20260909-101600
 		- Closed: 20260916-105829
 
@@ -12649,7 +12749,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: a second facet - the path is joined with `.` from raw names, so a field named `a.b` prints indistinguishably from `a` nesting `b`.
 		- Fixed: one `diag_name` per binding (`diagName` in Go) writes a name the way the emitter would write it, which closes both facets at once - the quoted form escapes the line break, and a flat `a.b` comes out `"a.b"` where real nesting stays `a.b`. Every site that names a field goes through it: `V001` and its suggestion, `E002`, `E003`, `V090`, `V094`, `V095`, and the `H001` and `H002` heads. Calling it inside the two heads is what keeps each suppressor matching the head its builder emitted. `V092` is left as it was, since its key is a literal like `min` rather than user text.
 		- Note: a carriage return is escaped for display only. `escape_name` cannot write one, because the name parse has no `\r` escape to read back, so an emitted `\r` would reload as a backslash and an `r`.
-		- Pinned by: `cli-regress.bash` rows `diag-name-line-break` and `diag-name-dotted`, against all four CLIs. Both go red with the speller backed out, showing the three-line hint and the ambiguous `x.y`. The corpus cannot pin either one: `expected-diags.txt` has codes only, and the crosscheck drops stderr.
+		- Pinned by: `cli-regress.bash` rows `diag-name-line-break` (`dcq4e`) and `diag-name-dotted` (`dcq4f`), against all four CLIs. Both go red with the speller backed out, showing the three-line hint and the ambiguous `x.y`. The corpus cannot pin either one: `expected-diags.txt` has codes only, and the crosscheck drops stderr.
 		- Opened: 20260909-101700
 		- Closed: 20260916-125334
 
@@ -12855,7 +12955,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decision needed: `E019` can't tell a bracket array from selector sugar, because they are written the same. It does not have to: count lost only where something is really dropped. A comma in the brackets changes the value's reading, a numeric or `*` body already drops the line under its own code, and `[x]` reads exactly as `x` does.
 		- Decided: the comma decides. `E019` is an error that counts lost when the brackets hold an unquoted comma, since that is where two elements fold into one string; otherwise it is a hint under the same code (the `E022` precedent) and counts nothing, so `check` exits 0, a strict load passes and the rewrite goes through. Recorded in `design.md` under Saving a file, and on the `E019` row of the spec.
 		- Fixed: the bracket-array site in all four bindings splits the bracket body on unquoted commas and picks the level by the count.
-		- Pinned by: corpus `106-bracket-sugar` (four sugar shapes, a strict load, the reads, lost 0) and five `cli-regress` rows: a bracket array at `check` exit 6 and `fmt --write` exit 7, the sugar file at `check` exit 0 in both strictnesses and `fmt --write` exit 0 on a fresh copy per binding. Corpus `089` is unchanged, since every line there has a comma. The case and the three sugar rows fail on the old code in every binding.
+		- Pinned by: corpus `106-bracket-sugar` (`dc81h`) (four sugar shapes, a strict load, the reads, lost 0) and five `cli-regress` rows: a bracket array at `check` exit 6 and `fmt --write` exit 7, the sugar file at `check` exit 0 in both strictnesses and `fmt --write` exit 0 on a fresh copy per binding. Corpus `089` is unchanged, since every line there has a comma. The case and the three sugar rows fail on the old code in every binding.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 		- Test case: None, superseded: bracket text after the colon is E019 retained (design.md Lexical edges); corpus `106-bracket-sugar` now pins E019 errors on the sugar shapes.
 		- Opened: 20260905-141600
@@ -12868,7 +12968,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: this is the half of 20260904 item 2 that fix did not reach. That round moved `value_comment_at`, `split_unquoted_commas` and `cell_exceeds` onto the start-of-piece rule and left `name_half` opening a quote anywhere. Sites: `lib.rs:717`, `shcl.go:1456`, `shcl.py:1132`, `shcl.h:1015`.
 		- Note: an apostrophe in a discriminator is ordinary input - `O'Brien`, `St. John's`, a windows path ending in a separator.
 		- Fixed: the name-half scan opens a quote only where the path scanner does - as a segment's first character or a selector body's first character - and shields a backslash inside quotes only, so a bare selector runs to its first `]`. One rule in all four bindings. The spec's selector paragraph now says where a quote opens.
-		- Pinned by: corpus `105-quote-in-selector` (an apostrophe, a mid-text quote, a trailing backslash, and two quoted discriminators, each with a trailing comment; the reads and a lost count of 0), and a fuzz property over the structural soup: a line with a known comment behind such a selector must come back with the comment still a comment. Both fail on the old code in every binding and pass now.
+		- Pinned by: corpus `105-quote-in-selector` (`dc818`) (an apostrophe, a mid-text quote, a trailing backslash, and two quoted discriminators, each with a trailing comment; the reads and a lost count of 0), and a fuzz property over the structural soup: a line with a known comment behind such a selector must come back with the comment still a comment. Both fail on the old code in every binding and pass now.
 		- Opened: 20260905-141700
 		- Closed: 20260905-191617
 
@@ -12888,7 +12988,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the spec claims the bound this breaks - "termination is structural and cost is proportional to the document, never the schema's unfolding".
 		- Note: the document is the attacker-controlled half in a consumer calling `LoadAndValidate` on user config, and 35 lines is enough.
 		- Fixed: the chain matcher in all four bindings remembers each (fragment, parts consumed) state it has ruled out, so two mounts of one fragment at one depth are walked once. Depth 34 went from seconds to about 2 ms; depth 400 is under 60 ms in every binding.
-		- Pinned by: a `perf-gate` workload (`recurse`: the two-mount fragment against a 60-level document ending in an unknown field, judged against the binding's own parse baseline like the other five), which the old reference does not finish, and corpus `107-schema-recursive-mounts`, which pins that the memo prunes nothing it should not: a type fault seven mounts down, a star path through a mount, one unknown leaf at the bottom.
+		- Pinned by: a `perf-gate` workload (`recurse` (`dc81v`): the two-mount fragment against a 60-level document ending in an unknown field, judged against the binding's own parse baseline like the other five), which the old reference does not finish, and corpus `107-schema-recursive-mounts` (`dc81t`), which pins that the memo prunes nothing it should not: a type fault seven mounts down, a star path through a mount, one unknown leaf at the bottom.
 		- Opened: 20260905-141900
 		- Closed: 20260905-193329
 
@@ -12919,7 +13019,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: `split_comment`, `split_unquoted_commas` and `cell_exceeds` enter quote state on any `"` or `'`, wherever it sits. The spec says a piece is quoted only when it begins with one, and the grammar agrees. `unterminated_quote` already implements the correct rule, so the helpers disagree with each other.
 		- Note: this violates two spec sentences at once - "a value *beginning* with a quote opens a quoted element" with "mid-text whitespace, `:`, `'`, `]`, even a `"`, all pass through", and "Comments are never discarded". An English apostrophe in a config value is about as common as input gets.
 		- Fixed: the comment split, the comma split and the element count open a quote only at the start of a piece. A field line's name half still opens a quote anywhere, the way the path scanner reads a quoted name or selector value, and the value half switches to the piece rule after the field's own colon. List elements and setter arguments are value text from the first character.
-		- Pinned by: corpus `088-mid-text-quote`, apostrophes and mid-text quotes beside trailing comments, in every runner. The old code turns the comment into value text on line 2.
+		- Pinned by: corpus `088-mid-text-quote` (`dc7ec`), apostrophes and mid-text quotes beside trailing comments, in every runner. The old code turns the comment into value text on line 2.
 		- Opened: 20260904-170100
 		- Closed: 20260905-091206
 
@@ -12928,7 +13028,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: `looks_like_bracket_array` uses `content.find(':')`, which sits inside the quoted name or the selector rather than at the field separator, so the line falls through to `E015`. `E015` counts no lost content, so the save gate never fires.
 		- Note: the spec says of `E019` that it "counts as lost content and an in-place rewrite refuses (`--lossy` overrides) rather than baking the changed value in". That promise is exactly what fails here. The `E015` diagnostic is also wrong on its own terms.
 		- Fixed: the check finds the field's own colon with the same name-half scan the comment split uses, so a quoted name or a selector holding one no longer stands in for it.
-		- Pinned by: corpus `089-bracket-behind-colon`, four bracket arrays behind a quoted name, a value selector, nothing, and selector sugar, all `E019` with a lost count of four. The old code reports `E015` and counts nothing lost on lines 2 and 3.
+		- Pinned by: corpus `089-bracket-behind-colon` (`dc7ed`), four bracket arrays behind a quoted name, a value selector, nothing, and selector sugar, all `E019` with a lost count of four. The old code reports `E015` and counts nothing lost on lines 2 and 3.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 		- Opened: 20260904-170200
 		- Closed: 20260905-091206
@@ -12940,7 +13040,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the 20260902 clean list records "`min > max` no fault" for Python. That is wrong twice - there is a fault, and this is its side effect.
 		- Decided: a crossed range is a key-level fault like a bad `min:` value on its own. The range is dropped and the entry stays, so `type`, `allowed`, `required` and `repeat` still apply and the path still legalizes its name chain. The spec's constraint table now says the range is dropped rather than the field.
 		- Fixed: `parse_field` clears both bounds and returns the constraint instead of dropping it, in all four.
-		- Pinned by: corpus `090-crossed-range`, two crossed ranges beside two unknown fields and a value the surviving `allowed` refuses. The old code reports neither unknown field.
+		- Pinned by: corpus `090-crossed-range` (`dc7eg`), two crossed ranges beside two unknown fields and a value the surviving `allowed` refuses. The old code reports neither unknown field.
 		- Opened: 20260904-170300
 		- Closed: 20260905-091652
 
@@ -12949,7 +13049,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: a content-malformed line is stored in the same trivia slot as a comment, and a leaf override drops the base leaf's trivia. The spec sanctions dropping the base leaf's comments; it does not sanction dropping content it promised to retain "so a hand-typo in a config survives the consumer loading, editing, and writing the file back".
 		- Note: library-only, because `--write` refuses `--layer`. A consumer folding layers and saving is the exact case the lost gate exists for.
 		- Fixed: a leaf override moves every retained line off the replaced base leaves onto the first replacement, ahead of its own leading comments. Comments still go with the leaf, as the spec allows. A retained line is told from a comment by its first character.
-		- Pinned by: corpus `091-merge-keeps-malformed`, a bad line above an overridden leaf and a bad `*` line under one, both present in the merged golden. The old code writes neither.
+		- Pinned by: corpus `091-merge-keeps-malformed` (`dc7eh`), a bad line above an overridden leaf and a bad `*` line under one, both present in the merged golden. The old code writes neither.
 		- Opened: 20260904-170400
 		- Closed: 20260905-091652
 
@@ -12958,7 +13058,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: each `_default` form is `if !exists(path) { return set_X(...) } true`, and `exists` is true for a wildcard whose slots resolve, so the refusal is never reached. Whether an unusable path passes now depends on the document's contents.
 		- Note: it also disagrees with `write_reason`, whose doc comment says "`Writable` means the same validation `place()` runs would pass". `write_reason` correctly says `Wildcard` on the same path.
 		- Fixed: every default form answers `write_reason` when the path already resolves, so a present path reports what a write there would. The C CLI's and C runner's op scripts had their own present-check instead of the library's default forms; both take the same answer now.
-		- Pinned by: corpus `092-default-wildcard`, five default ops on resolving wildcard paths under `write-bad.ops`. The old code accepts every one.
+		- Pinned by: corpus `092-default-wildcard` (`dc7em`), five default ops on resolving wildcard paths under `write-bad.ops`. The old code accepts every one.
 		- Opened: 20260904-170500
 		- Closed: 20260905-092040
 
@@ -12969,7 +13069,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: a count is the right measure here, not a clock. The defect is how many nodes were walked, which is exact.
 		- Fixed: the fixture is the same in all four now - 100000 churn, 2000 merges, factor 25, constant 250 ms - so the defect costs tens of seconds against a bound under a second, and the constant absorbs a slow runner without absorbing the walk. C times the block on the wall clock instead of `clock()`, so the ratio is judged on windows too. A walked-node count would need a test-only hook in every binding; the work was scaled instead, and the injected defect fails by forty times in Rust and Python.
 		- Left alone: the 25x factor and the 250 ms constant. Python's healthy churned side is already ten times its fresh side, because the chain list is sized by the arena, so a tighter factor would fail a sound build.
-		- Test case: `index_rebuild_ignores_removed_nodes` in Rust, `TestIndexRebuildIgnoresRemovedNodes` in Go, the churn fixture in the Python runner, and the index-walk churn fixture in `mem_bounds.c` for C.
+		- Test case: `index_rebuild_ignores_removed_nodes` (`dc412`, `dc414`) in Rust, `TestIndexRebuildIgnoresRemovedNodes` (`dc413`) in Go, the churn fixture in the Python runner, and the index-walk churn fixture in `mem_bounds.c` for C.
 		- Opened: 20260904-170600
 		- Closed: 20260905-092615
 
@@ -12978,7 +13078,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the comparison is field-wise and then requires equal offsets, which makes the three offset-zero spellings agree and nothing else. The spec says "For `datetime` the coerced space is the moment".
 		- Note: normalize a zoned value to its instant before comparing, and keep the field-wise path for zone-less values so "a value with no zone is local and matches no zoned one" still holds.
 		- Fixed: two zoned values compare as minutes since the epoch, the written clock less its offset with the date carrying the day wrap; a time alone compares on a 24-hour cycle. Seconds, their presence and the fraction still have to agree, and zone-less values still compare field by field.
-		- Pinned by: corpus `093-datetime-allowed-offset`, the same instant at four offsets including two day wraps, two wrong clocks at the right offset, a midnight wrap and a fraction. The old code fails all eight.
+		- Pinned by: corpus `093-datetime-allowed-offset` (`dc7ew`), the same instant at four offsets including two day wraps, two wrong clocks at the right offset, a midnight wrap and a fraction. The old code fails all eight.
 		- Opened: 20260904-170700
 		- Closed: 20260905-092825
 
@@ -13012,7 +13112,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced in all four. A line written `a: val` with a U+00A0 after the value loads clean, and `fmt --write` leaves `a: val`. Same for U+2028, VT and FF.
 		- Cause: the line trim uses the language's Unicode whitespace set where the grammar says `wsp = SP / HTAB` and puts those characters in the bare value alphabet.
 		- Fixed: every parser-side trim - the line end, a pending comment or retained line, a value, a selector body, a list element, the piece walkers, the fence lines and the raw-fence picker - trims a space or a tab and nothing else, in all four. `SetComment` and `SetLiteral` follow, since they read text the parser's way. Coercion keeps its wider trim: that is a read of a stored value, not the line. The line-end trim also takes a carriage return, which the load strips off a line end anyway; the fuzz found a retained line that kept one and lost it on the next load.
-		- Pinned by: corpus `094-unicode-space`, a no-break space, a line separator, a vertical tab and a form feed after bare values, one before a value and one inside an element, all kept and quoted on output. The old code deletes every one. Two fixtures that had pinned the old trim moved with it: the element-cap table now counts a U+3000 piece as an element, and case 066 keeps a no-break space on a comment.
+		- Pinned by: corpus `094-unicode-space` (`dc7fa`), a no-break space, a line separator, a vertical tab and a form feed after bare values, one before a value and one inside an element, all kept and quoted on output. The old code deletes every one. Two fixtures that had pinned the old trim moved with it: the element-cap table now counts a U+3000 piece as an element, and case 066 keeps a no-break space on a comment.
 		- Opened: 20260904-171100
 		- Closed: 20260905-094221
 
@@ -13020,7 +13120,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced in all four. `x: ```sql` then `body` with a final newline reads back `body\n\n`; the same two lines without the final newline read back `body\n`. `fmt` writes the fabricated line out.
 		- Cause: splitting the text on `\n` yields a phantom final element, which `consume_raw` takes as a body line. The grammar says the last line may lack a newline, so the two spellings are the same document.
 		- Fixed: the line list drops that final empty piece when the text ends in a newline, in all four, so nothing downstream ever sees a line the file does not have.
-		- Pinned by: corpus `096-raw-unterminated-eof` and `097-raw-unterminated-noeol`, the same two lines with and without the final newline, both reading `body`. The old code reads the first as `body` plus an empty line. Case `059-raw-errors` had pinned the extra line and moved with the fix.
+		- Pinned by: corpus `096-raw-unterminated-eof` (`dc7fr`) and `097-raw-unterminated-noeol` (`dc7fs`), the same two lines with and without the final newline, both reading `body`. The old code reads the first as `body` plus an empty line. Case `059-raw-errors` (`dbxjx`) had pinned the extra line and moved with the fix.
 		- Opened: 20260904-171200
 		- Closed: 20260905-095502
 
@@ -13029,7 +13129,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the line trim removes the trailing space before the marker check, so the marker is a bare `*`. The spec's code table gives this shape `E009`.
 		- Note: `E013` pushes a dead level and `E009` does not, so the wrong code costs the block as well as the message.
 		- Fixed: when the trimmed line is a bare `*`, the untrimmed line decides whether a space followed it, so `* ` is an empty element (`E009`) in all four. Under item 15 an empty element takes its block with it too, so the block is skipped either way; what changed is the code and the message.
-		- Pinned by: corpus `095-dropped-element-block`, line 8. The old code reports `E013` there.
+		- Pinned by: corpus `095-dropped-element-block` (`dc7fq`), line 8. The old code reports `E013` there.
 		- Opened: 20260904-171300
 		- Closed: 20260905-095502
 
@@ -13039,7 +13139,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: needs a call on whether a dropped element opens a block at all. `E001` already keeps a field among list elements at the parent, so keeping the child is arguable; giving the same mistake two answers is not.
 		- Decided: a dropped element is a skipped line and holds its indent level, so what is written under it is `E018` and counts lost, the same as under the malformed spelling. Re-parenting moved content to a place the author did not write it; skipping it is counted, so a save refuses. Recorded in `design.md` beside the retained-line rule and on the spec's `E018` row.
 		- Fixed: `add_star_element` reports whether the element was added, and the caller pushes the dead level when it was not, for `E007` to `E011` and the element cap, in all four.
-		- Pinned by: corpus `095-dropped-element-block`: a line under an `E008` element, under an `E009` one and under an `E011` one, each `E018`, with `sizes.n` and `full.deep` NotFound and a lost count of six. The old code re-parents the first and third. Case `087-merge-tail-comment` reached its top-level field only through that re-parenting, so its input now writes the field directly; it pins the same merged-comment order.
+		- Pinned by: corpus `095-dropped-element-block` (`dc7fq`): a line under an `E008` element, under an `E009` one and under an `E011` one, each `E018`, with `sizes.n` and `full.deep` NotFound and a lost count of six. The old code re-parents the first and third. Case `087-merge-tail-comment` (`dc48n`) reached its top-level field only through that re-parenting, so its input now writes the field directly; it pins the same merged-comment order.
 		- Opened: 20260904-171400
 		- Closed: 20260905-095502
 
@@ -13067,7 +13167,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the blank is only moved above the comment when the node's leading list is empty. The spec says the call places "a node's blank separator line above the comment so the comment sits against its node", with no such condition, and the code's own comment says the same.
 		- Note: cosmetic - the result is still a fixpoint.
 		- Fixed: the blank moves above the first leading comment already there when there is one, and onto the new comment otherwise, in all four.
-		- Pinned by: corpus `098-set-comment-blank`, a comment added to a node that already has one. The old code leaves the blank between the two comments and the node.
+		- Pinned by: corpus `098-set-comment-blank` (`dbzb9`), a comment added to a node that already has one. The old code leaves the blank between the two comments and the node.
 		- Opened: 20260904-171700
 		- Closed: 20260905-100356
 
@@ -13077,7 +13177,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the refusal list is also wider than the spec in one direction - a bare CR is refused, where a file keeps it as content mid-line and `set_string` accepts it.
 		- Decided: the spec sentence is the half to fix. Refusing a fence opener now would change a released API for no gain, so the "only" list should say what the code does.
 		- Fixed: the spec sentence now says what the call refuses - a line break or a carriage return, a piece that opens a quote it never closes, bracket-array text - and that text a file line would not read as a value at all, a fence opener or a lone `[`, is stored as written, since the call reads a value half rather than a line.
-		- Pinned by: corpus `099-literal-text`: a fence opener and a lone `[` stored as quoted strings, an unclosed quote refused in both the first and a later piece.
+		- Pinned by: corpus `099-literal-text` (`dacv4`): a fence opener and a lone `[` stored as quoted strings, an unclosed quote refused in both the first and a later piece.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 		- Opened: 20260904-171800
 		- Closed: 20260905-100356
@@ -13086,7 +13186,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced in all four. `0x8000000000000000` and `0xFFFFFFFFFFFFFFFF` through `get --float` exit 4; `9223372036854775808` and `18446744073709551615` exit 0. Quoted thousands separators have the same hole.
 		- Cause: the float read recognizes a decimal integer by its own shape test but reaches a hex one only through the i64 integer parse, so the i64 bound leaks into a read the spec bounds by the double range - "An integer is a valid float on read" and "The value must fit a double".
 		- Fixed: when the i64 read of a hex or quoted-thousands spelling fails, the float read takes it again as a double - hex digit by digit in the double so every binding rounds alike, thousands through the correctly rounded decimal parse - and refuses only what does not fit a double. Plain decimal already went through the float parse.
-		- Pinned by: corpus `100-hex-float`, seven spellings across the i64 boundary read as floats and refused as ints. The old code exits 4 on five of them.
+		- Pinned by: corpus `100-hex-float` (`dc7fz`), seven spellings across the i64 boundary read as floats and refused as ints. The old code exits 4 on five of them.
 		- Opened: 20260904-171900
 		- Closed: 20260905-100356
 
@@ -13104,7 +13204,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the C suppressor has an extra `&& last->name.n` the other three do not. The spec's only stated exception is the name wildcard.
 		- Note: a stdout divergence the crosscheck could see - the corpus just has no empty-named field under a schema.
 		- Fixed: the C suppressor takes the leaf name whatever its length, as the other three do.
-		- Pinned by: corpus `101-empty-name-hint`, two empty-named leaves under a schema that declares the field with `repeat: 1, 5`: no hint under the schema, one without it. The old C reports the hint under the schema.
+		- Pinned by: corpus `101-empty-name-hint` (`dc7g9`), two empty-named leaves under a schema that declares the field with `repeat: 1, 5`: no hint under the schema, one without it. The old C reports the hint under the schema.
 		- Opened: 20260904-172100
 		- Closed: 20260905-101319
 
@@ -13141,7 +13241,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20260901b item 45: no gate reads `style-guide.md` at all. The corrections can be reverted and nothing fails.
 		- 20260902 item 7, second half: no test anywhere covers a rendered path being emitted once when a schema writes the same name twice. The behavior is right and agrees four-way; the corpus has no schema with both spellings. The first half is pinned by case 082.
 		- Fixed, one per sub-item. `perf-gate`: `shell-regress.bash` feeds it a CLI that prints nothing and one that exits wrong, and requires the two refusals by name. Installers: `cicd.bash` compares the three against `origin/main` after a dev publish and fails the run on a difference, so an installer fix left on dev goes red until the docs-only merge; a hard gate anywhere earlier would have blocked the dev push that has the fix, and `shell-regress.bash` pins the line. Style guide: `check-docs.bash` requires the iterative-walks bullet and its reason inside the Python section. Duplicate spelling: corpus `102-init-dup-path`, `field: w` beside `field: "w[*]"` generating one line.
-		- Test case: `shell-regress.bash` rows `20260904-26-perf-gate-stub-clis` and `20260904-26-installers-compared-after-publish`, `check-docs.bash` `python-iterative-walks`, and corpus `102-init-dup-path`.
+		- Test case: `shell-regress.bash` rows `20260904-26-perf-gate-stub-clis` (`dc7gq`) and `20260904-26-installers-compared-after-publish` (`dc7gr`), `check-docs.bash` `python-iterative-walks` (`dc7gp`), and corpus `102-init-dup-path` (`dacv5`).
 		- Opened: 20260904-172500
 		- Closed: 20260905-102409
 
@@ -13186,7 +13286,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `grammar.abnf` puts `index-sel` inside `field-line` with no query-only carve-out, so it documents `a[#0].b: 1` as legal where all four say `E014`; and its `newline = [ CR ] LF` contradicts the spec's "a line's entire trailing carriage-return run is removed", which is what the code does.
 		- Note: also here because it is one sweep - a bare numeric selector past u64 silently becomes a value selector rather than an index, against `1*DIGIT`, and a trailing comment on a root-level `*` element line is discarded, against "Comments are never discarded". The second is contained by the save gate at exit 7.
 		- Fixed, one per sub-item. The `fmt` synopsis has `[options]` in all four helps and the man page, and both `set` and `fmt` list `-w` there. The spec names the five edit options as sharing the ordered list, and `--slots`. Its worked example is now one that is non-associative: a base `p:` holding `q: 1`, then `p: 2`, then a bare `p:`. The grammar has the same query-only note for `index-sel` that the wildcard has, and its newline rule is `*CR LF`. An all-digit selector past u64 is an index that names no instance in all four - Python had it as a value selector too - and a root-level `*` line's trailing comment rides the document instead of vanishing.
-		- Pinned by: corpus `103-huge-index` (the line is `E003`, a write through it is refused, a read is NotFound) and `104-root-element-comment`; `check-docs.bash` already reads the help's synopsis against the man page.
+		- Pinned by: corpus `103-huge-index` (`dc7gm`) (the line is `E003`, a write through it is refused, a read is NotFound) and `104-root-element-comment` (`dc7gn`); `check-docs.bash` already reads the help's synopsis against the man page.
 		- Opened: 20260904-173000
 		- Closed: 20260905-102409
 
@@ -13520,7 +13620,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Measured: 300 unknown fields of 300 characters against 300 schema names of 300 characters, 188 KB in all, takes 23 s in the release reference, 27 s in Go, 10 s in C. Double both lengths and the reference did not finish in two minutes.
 		- Cause: a full Levenshtein table per pair with no prefilter, while the result is discarded past distance 2. A length difference over 2 can be rejected outright, and a banded table bounded by the threshold makes the rest linear.
 		- Fixed: the edit distance takes the cap (2): a length gap past it returns at once, only the band of cells within the cap is computed, and a row whose minimum passes the cap ends the pair. The 188 KB repro went from 23 s to 0.06 s in the reference; the 2000-character shape that did not finish in two minutes takes 0.04 s. The banded result equals the full table for every distance at or under the cap (checked over 200k random pairs at four caps), so no suggestion changes.
-		- Pinned by `perf-gate.bash`'s new `suggest` workload: 30 unknown 800-character names against 30 schema names of the same length, timed against the binding's parse baseline. Over budget on the old code in every binding (17 s, 1.9 s, 86 s, 0.66 s for rust, go, python, c) and 10 to 370 ms now.
+		- Pinned by `perf-gate.bash`'s new `suggest` (`dc3ab`) workload: 30 unknown 800-character names against 30 schema names of the same length, timed against the binding's parse baseline. Over budget on the old code in every binding (17 s, 1.9 s, 86 s, 0.66 s for rust, go, python, c) and 10 to 370 ms now.
 		- Test case: perf-gate `suggest`.
 		- Opened: 20260901-190700
 		- Closed: 20260902-113000
@@ -13556,7 +13656,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced under wine with code page 1252. `café.shcl` is refused as bad encoding. With `ā.shcl` and `a.shcl` both present, `set --write` on the first exits 0 and rewrites the second.
 		- The library's own file tier was made wide in the 20260828 fixes; the CLI's narrow `main` and the header's silence on argument encoding are what is left. The C CLI is not distributed, but a C consumer's own `main` inherits the same trap.
 		- Fixed: on windows the C CLI takes its arguments from the wide command line and converts them to UTF-8, and its own file opens and the directory check go through the library's wide calls instead of the narrow `fopen`/`_access`. The header's file-tier comment now says paths are UTF-8 on every platform and that a consumer's `main` has to hand over UTF-8 too.
-		- Pinned by a `c cli argv` step in `win-runners.bash`, which builds the C CLI on the windows job, reads `café.shcl` and writes `ā.shcl` beside an `a.shcl` that must stay untouched. On the old build the first is refused and the second rewrites `a.shcl`; both pass now.
+		- Pinned by a `c cli argv` (`dc3b1`) step in `win-runners.bash`, which builds the C CLI on the windows job, reads `café.shcl` and writes `ā.shcl` beside an `a.shcl` that must stay untouched. On the old build the first is refused and the second rewrites `a.shcl`; both pass now.
 		- Test case: `win-runners.bash` step `c cli argv`, in the hosted windows job.
 		- Opened: 20260901-191100
 		- Closed: 20260902-140000
@@ -13649,7 +13749,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 23: Go's two suppress filters return the caller's slice when nothing is disavowed, against their own comment, and `Diagnostics()` hands out the live internal slice.
 		- Reproduced: the returned slice shares its backing array, so an append by the caller and the document's own next append overwrite each other. The in-place-filter bug fixed on 20260831 was the drop path; this is its sibling on the keep-everything path, which the test for it does not cover.
 		- Fixed: both suppressors copy on the keep-everything path, and `Diagnostics()` returns a copy of the document's list, so nothing handed out shares a backing array with the document.
-		- Pinned by `TestSuppressLeavesTheCallersDiagnosticsAlone`, extended: with a schema that disavows nothing, each suppressor's result and `Diagnostics()` itself must not point at the caller's or the document's array. Fails on the old code.
+		- Pinned by `TestSuppressLeavesTheCallersDiagnosticsAlone` (`dc11d`), extended: with a schema that disavows nothing, each suppressor's result and `Diagnostics()` itself must not point at the caller's or the document's array. Fails on the old code.
 		- Test case: Go `TestSuppressLeavesTheCallersDiagnosticsAlone`.
 		- Opened: 20260901-192200
 		- Closed: 20260902-163000
@@ -13665,7 +13765,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reachable by accident, not just by malice: pointing the CLI at a text file that is not SHCL is the whole reproducer.
 		- Arrived with the 20260817 round's change to retain malformed lines as trivia. The retention is right; walking the list per line is what costs.
 		- Fixed: each pending entry remembers the shortest incoming indent it was already checked against, and a stack of marks records how far the list is settled at each indent. A hang check pops the marks above its own indent and walks only the entries they covered, so an entry is rewalked only when a shallower line arrives, and a shallower line can only arrive as many times as the indent is long. 40k bad lines: 7.6 s to 0.08 s in the reference, and linear in all four bindings, including the alternating-indent and sawtooth shapes that a max-indent shortcut alone would have left quadratic.
-		- Pinned by `perf-gate.bash`'s new `badlines` workload, which checks a document of refused lines against the same binding's parse baseline. It fails on the old code in every binding (the reference took 7.8 s against a 0.3 s budget) and passes now. Trivia placement is unchanged: 9,000 fuzzed documents mixing comments, blanks, bad lines, stacked elements and mixed indent format byte-identically to the previous build, and the corpus is unchanged.
+		- Pinned by `perf-gate.bash`'s new `badlines` (`dc253`) workload, which checks a document of refused lines against the same binding's parse baseline. It fails on the old code in every binding (the reference took 7.8 s against a 0.3 s budget) and passes now. Trivia placement is unchanged: 9,000 fuzzed documents mixing comments, blanks, bad lines, stacked elements and mixed indent format byte-identically to the previous build, and the corpus is unchanged.
 		- Test case: perf-gate `badlines`.
 		- Opened: 20260901-140000
 		- Closed: 20260901-160000
@@ -13680,7 +13780,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed, inline spelling: the element count is taken by a scan that builds nothing, and it runs before the quote check as well, since that check splits the value too. A refused 200k-element line now costs about the text in every binding (Rust 1.0x, Go 0.01x, Python 4x, C 1.4x) against 38x to 78x before.
 		- Pinned three ways in all four bindings: an allocation bound on that line (under 8x the text; the old code fails at 38x and up), a table of thirteen value spellings whose cap count must equal the count the array reads back as (quoted and escaped commas, empty and blank slots, Unicode blanks, an open quote), and a refused line reporting `E021` alone. Rust's bound lives in its own test binary because the counting allocator is process-wide; C's is a new `mem_bounds.c`, in the compiler sweep and the sanitizer run too.
 		- The stacked spelling's cap was already right; its cost is the per-line diagnostics, which item 8's ceiling bounds. Trivia amplification is the same per-line overhead any document has and is not a cap matter; a caller bounds it by bytes with `ReadFile`.
-		- Test case: the allocation bound in Rust `element_cap_bounds_the_parse`, Go `TestElementCapBoundsTheParse`, Python `parse_limited_caps` and `mem_bounds.c`, and the cap-count table in `parse_limited_caps` in all four runners.
+		- Test case: the allocation bound in Rust `element_cap_bounds_the_parse` (`dc25e`), Go `TestElementCapBoundsTheParse` (`dc25f`), Python `parse_limited_caps` (`dc1yg`, `dc26x`, `dc1yj`) and `mem_bounds.c`, and the cap-count table in `parse_limited_caps` in all four runners.
 		- Opened: 20260901-140100
 		- Closed: 20260901-163000
 
@@ -13704,7 +13804,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The CLI is inconsistent with itself about this. Its datetime op validates the text through the reader's own parser and refuses a bad one; the float op ten lines away parses with the language's own float reader, which takes `inf` and `nan`, and writes them.
 		- All four bindings agree, and the C rendering matches the reference byte for byte on all fourteen, so this is shared logic and not a parity break.
 		- Fixed: `SetFloat` and its array form refuse a non-finite value; `SetDateTime` and its array form render the struct and parse it back, and refuse unless the fields come back equal. Both return false and bind nothing, the way `SetRaw` already did for an info-string it can't write. The CLI's float ops (`float`, `float-default`, `float-array`, and the default array) refuse `inf`, `nan` and a literal past the double range in all four bindings. Spec: the setter contract names the refusal.
-		- Pinned by a runner fixture in all four bindings (three non-finite floats through the scalar, default and array setters; ten datetime shapes through the same three; a valid value still writes and reads back equal; the document is byte-identical after every refusal) and by corpus 029's `write-bad.ops`, which gained `1e400`, `INF`, `nan`, `-inf`, `infinity`, an array holding `inf` and a default of `nan`. Those first three were in `write.ops` with `inf`/`NaN` as the expected output, from the 20260725 round's parity fix; that round's item 3 has a note. Fails on the old code in all four (Rust 2 tests, Go 2, Python 14 lines, C 29).
+		- Pinned by a runner fixture in all four bindings (three non-finite floats through the scalar, default and array setters; ten datetime shapes through the same three; a valid value still writes and reads back equal; the document is byte-identical after every refusal) and by corpus 029 (`dacv3`)'s `write-bad.ops`, which gained `1e400`, `INF`, `nan`, `-inf`, `infinity`, an array holding `inf` and a default of `nan`. Those first three were in `write.ops` with `inf`/`NaN` as the expected output, from the 20260725 round's parity fix; that round's item 3 has a note. Fails on the old code in all four (Rust 2 tests, Go 2, Python 14 lines, C 29).
 		- The C `dt_clamp` fixture still hands the setter its worst-case struct: the render into the fixed buffer happens before the value is judged, so the clamp is still exercised, and the setter is now expected to refuse.
 		- Test case: `setters_refuse_a_value_the_reader_refuses` in all four runners, and corpus `029-write-gate` `write-bad.ops`.
 		- Opened: 20260901-140300
@@ -13719,7 +13819,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed, in two parts. The generator now selects a valued live parent by its value: `srv: web` is followed by `srv[web].port:`, which lands on the instance the first line made, and a concrete child (`srv.host`) gets the same treatment, since `srv.host:` under `srv: web` was two instances as well. A default that would end or escape the selector (`]`, `[`, a backslash) is written quoted; the selector matches on the escaped display, so it still finds the bare value. And the self-check lets through only a `V007` whose lower bound is 2 or more, read off the message's `not in LO..HI`, so `repeat: 1` on a path generation can't satisfy (a nameless `*` path) faults the schema the way `required` already did. Spec: the dotted-form rule names the selector.
 		- Of the six schemas, the `srv[*].port` shape now generates a config that passes its own schema; the five with `repeat: 1` on a `*` field fault with `V097`. The 700 schemas produce byte-identical stdout, stderr and exit codes across the four bindings; the 46 remaining self-schema failures are all the sanctioned lower bound of 2 or 3.
 		- Found on the way: the C CLI reported a schema that does not build by validating an empty document, which added that document's own `V002`/`V007` to the fault list. `shcl_generate` records its build faults on the schema document now, like the other generation faults, and the CLI prints those.
-		- Pinned by corpus `073-init-parent-value` (valued parent with a wildcard child and a concrete child, a quoted default, a `]` in a default, an optional parent, a bare parent; fails on the old code in all four runners, which also check the output against its own schema), and by three `cli-regress` rows: `repeat: 1` on `*` exits 6 with `V097 ... not in 1..1`, `repeat: 2` generates, and a build fault reports `V091` with no `V002` beside it. The last one needed a negative stderr form in the harness.
+		- Pinned by corpus `073-init-parent-value` (`dc268`) (valued parent with a wildcard child and a concrete child, a quoted default, a `]` in a default, an optional parent, a bare parent; fails on the old code in all four runners, which also check the output against its own schema), and by three `cli-regress` rows: `repeat: 1` on `*` exits 6 with `V097 ... not in 1..1`, `repeat: 2` generates, and a build fault reports `V091` with no `V002` beside it. The last one needed a negative stderr form in the harness.
 		- Left alone: an optional parent with a default (`#opt: x`) and a must-exist child still emits `opt.child:`, which materializes an empty `opt`. Uncommenting the parent then makes two instances. The schema says the parent is optional, so the generator does not make it live; a selector form there would.
 		- Test case: corpus `073-init-parent-value`, and cli-regress `init-star-repeat1`, `init-star-repeat2`, `init-build-fault` and `init-build-fault-only`.
 		- Opened: 20260901-140400
@@ -13731,7 +13831,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- So the door the `E019` work closed is still open through the writer, and what comes through it is a different wrong answer rather than the same one.
 		- All four bindings agree. Refusing the shape, the way `SetLiteral` already refuses a quote that never closes, is the consistent answer.
 		- Fixed: `SetLiteral` and `SetLiteralDefault` refuse a value that, after the comment is split off and the ends trimmed, starts with `[` and ends with `]` - the parser's own test for `E019`. The refusal returns false and binds nothing. Spec: the `SetLiteral` sentence names it beside the other two refusals.
-		- Pinned by corpus `065-bracket-array`, which gained a `write-bad.ops` (four bracket spellings, one through the default form, one with a trailing comment) and a `write.ops` for the two neighbours that stay accepted: a quoted `"[80, 443]"`, which is a string, and an unclosed `[80, 443`, which the parser also reads as two elements. Fails on the old code in all four runners.
+		- Pinned by corpus `065-bracket-array` (`dbzdt`), which gained a `write-bad.ops` (four bracket spellings, one through the default form, one with a trailing comment) and a `write.ops` for the two neighbours that stay accepted: a quoted `"[80, 443]"`, which is a string, and an unclosed `[80, 443`, which the parser also reads as two elements. Fails on the old code in all four runners.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 		- Test case: corpus `065-bracket-array` `write-bad.ops`.
 		- Opened: 20260901-140500
@@ -13745,7 +13845,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- No value is lost, since a reload merges the pair. What breaks is the promise that a write leaves a canonical file, so a "fmt changes nothing" gate fails right after a legitimate edit.
 		- All four bindings, and the cross-binding check can't see it. Fold the moved children after the merge, the shape the parser already uses.
 		- Fixed: the writer folds depth-first now, the shape the parser already used. Only a node that just received children is rechecked, so the cost stays with the fold.
-		- Pinned by corpus case `062-write-fold-deep`, which fails on all four bindings without the change.
+		- Pinned by corpus case `062-write-fold-deep` (`dbzb1`), which fails on all four bindings without the change.
 		- Test case: corpus `062-write-fold-deep`.
 		- Opened: 20260830-140346
 		- Closed: 20260830-145320
@@ -13760,7 +13860,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: new code `E019` names the shape, and the load counts it as lost content, so `fmt --write` refuses at exit 7 instead of baking `"80, 443"` into the file. Spec table and changelog include it.
 		- The wrong-answer-at-exit-0 half is closed by item 18: once the read subcommands print load diagnostics, a `get` on this file says so too.
 		- A pasted YAML list is untouched and stays `E014`. Its text is kept verbatim as trivia, so nothing is lost and the save gate has nothing to refuse.
-		- Pinned by corpus case `065-bracket-array`, which reports `E015` on all four bindings without the change.
+		- Pinned by corpus case `065-bracket-array` (`dbzdt`), which reports `E015` on all four bindings without the change.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 		- Test case: corpus `065-bracket-array` for the code, now under the later rule that retains the line, and cli-regress `bracket-array-check` and `bracket-array-write-kept`.
 		- Opened: 20260830-140346
@@ -13789,7 +13889,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: fault the schema. A default outside its own field's constraints is an error in the schema, and saying so is more use to the author than quietly commenting the field out.
 		- Fixed with a new `V097`. Generation now checks its finished text against the schema that produced it rather than trusting each branch, so the doc comment's promise is enforced instead of assumed, and any future defect of the same class is caught with it. `V007` stays exempt, being the documented repeat-lower-bound shortfall.
 		- The C CLI could not report it at first: on a generation fault it rebuilt the fault list by validating an empty document, which can't reproduce a fault the generator found. It now prints the diagnostics the generator recorded, and keeps the empty-document trick for build faults that leave none.
-		- Pinned by the `init-bad-default` row in `cli-regress.bash`, across all four bindings.
+		- Pinned by the `init-bad-default` (`dbzed`) row in `cli-regress.bash`, across all four bindings.
 		- Test case: cli-regress `init-bad-default`.
 		- Opened: 20260830-140346
 		- Closed: 20260830-191500
@@ -13810,7 +13910,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Empty text stores `# `, a single space stores `#  `. Non-ASCII trailing whitespace does the same, because the parser trims the full whitespace set and the setter trims nothing.
 		- All four bindings. Trim with the parser's own trim before the prefix, and drop the write when nothing is left.
 		- Fixed: the built comment line is trimmed with the parser's own trim, so what is written is what reads back. Text that is blank leaves a bare `#`, which is a valid comment line and a fixpoint, rather than dropping the write.
-		- Pinned by corpus case `066-comment-trim`, covering a trailing space, a trailing non-ASCII space and empty text. The corpus already asserts that writer output is a fmt fixpoint, so the case fails on all four bindings without the change.
+		- Pinned by corpus case `066-comment-trim` (`dbzb8`), covering a trailing space, a trailing non-ASCII space and empty text. The corpus already asserts that writer output is a fmt fixpoint, so the case fails on all four bindings without the change.
 		- Test case: corpus `066-comment-trim`.
 		- Opened: 20260830-140346
 		- Closed: 20260830-215127
@@ -13822,7 +13922,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The low end is already exact. Compare against the exact bound.
 		- Fixed: the top bound is 2^63 itself and the compare is strict, in all four. The low end was already exact and is unchanged.
 		- Behavior change: `9223372036854775807.0` now reads BadType at loose. There is no double that holds i64 max, so the float path can't honestly produce it; the plain decimal spelling still reads exactly.
-		- Pinned by corpus case `067-i64-float-bound`.
+		- Pinned by corpus case `067-i64-float-bound` (`dbzq2`).
 		- Test case: corpus `067-i64-float-bound`.
 		- Opened: 20260830-140346
 		- Closed: 20260830-215127
@@ -13908,7 +14008,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- That document is CC BY 4.0 and invites verbatim reuse, so the error travels into anyone's copy.
 		- Fixed: the sentence says what it means.
 		- Harness extended: `check-docs.bash` flags a second negation in the same sentence as "legal advice", which is the shape of the error. The backlog is excluded, since it quotes the broken wording as a finding.
-		- Test case: `check-docs.bash` `legal-disclaimer-not-reversed`.
+		- Test case: `check-docs.bash` `legal-disclaimer-not-reversed` (`dbzqp`).
 		- Opened: 20260830-140346
 		- Closed: 20260830-215127
 
@@ -13920,7 +14020,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: a same-line fence takes the rest of the line as its info string, in all four. `db: ```c#` now labels the block `c#` instead of silently dropping the `#`.
 		- Behavior change: a trailing comment on a same-line fence is no longer a comment. It goes on the line above.
 		- Note: `set_raw` still refuses an unquoted `#` in an info string. That refusal is now conservative rather than necessary, since both spellings round-trip one. Relaxing it is a separate change and is not a bug.
-		- Pinned by corpus case `068-info-hash-spellings`, which reads the same label through both spellings.
+		- Pinned by corpus case `068-info-hash-spellings` (`dbzr2`), which reads the same label through both spellings.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 		- Test case: None, superseded: a `#` on a fence line opens a comment (design.md Lexical edges); corpus 068 now pins that rule, `c#` reads as `c`.
 		- Opened: 20260830-140346
@@ -13934,7 +14034,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: loose items first, rounds after, each run newest first. That is the order Canceled already had, and it moved two bullets instead of fourteen.
 		- Fixed: both Done sections reordered, and the conventions sentence now names the order rather than describing two runs without saying which comes first.
 		- Harness extended: `check-docs.bash` reads the order back out of the file, and also catches rounds that fall out of date order.
-		- Test case: `check-docs.bash` `backlog-done-sections-in-order`.
+		- Test case: `check-docs.bash` `backlog-done-sections-in-order` (`dbzr3`).
 		- Opened: 20260830-140346
 		- Closed: 20260830-215127
 
@@ -13944,7 +14044,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: `a: 1` / `b: 2`, then `remove a`: `exists("a")` is still true and `read_int("a")` still gives 1. A `set_int_default("a", 3)` after the remove writes nothing.
 		- Cause: the index is dropped before the resolve that finds the targets, that resolve rebuilds it, and the removal then only unlinks the node from its parent.
 		- All four bindings. Drop the index after the removal, and add a remove-then-read fixture to every runner.
-		- Test case: corpus `063-remove-then-default` (a default after a remove must write, which a stale index skipped).
+		- Test case: corpus `063-remove-then-default` (`dbzb6`) (a default after a remove must write, which a stale index skipped).
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -13952,7 +14052,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: `chmod 6750` a file, `fmt --write` it, the bits are gone. All four bindings.
 		- Cause: the mode is applied to the temp file before the data is written, and the kernel clears those bits on the write.
 		- Apply the mode after the data and the fsync, or take the promise out of the spec.
-		- Test case: the file-tier save fixture in all four runners (set-id 6750 kept across a save): Rust conformance.rs, Go `TestFileTierLoadSave`, Python, C `file_tier`.
+		- Test case: the file-tier save fixture in all four runners (set-id 6750 kept across a save): Rust conformance.rs, Go `TestFileTierLoadSave` (`dbcww`), Python, C `file_tier`.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -13960,7 +14060,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Measured: 40k writes into a flat 40k-key document went from 13.5 s to 61 s with the 20260829 round. Comparing the name first brings it back.
 		- All four bindings.
 		- Closed by item 4's fix; flat 40k writes run in tenths of a second now.
-		- Test case: `perf-gate.bash` `writes` workload.
+		- Test case: `perf-gate.bash` `writes` (`dbzbq`) workload.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -13970,7 +14070,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The writer itself is still O(siblings) per op. Either check existence with the writer's own probe walk, or keep the index alive across writes and use it in the writer too.
 		- All four bindings.
 		- Fix (b): the index lives across writes and the writer uses it. Covers item 3 too.
-		- Test case: `perf-gate.bash` `defaults` workload.
+		- Test case: `perf-gate.bash` `defaults` (`dbzbr`) workload.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -14008,7 +14108,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: an empty `k:` followed by a raw `k[#1]` with info `a # b` saves as `k: ```a # b`; reading it back gives info `a` and `check` says ok.
 		- Only reachable when an empty same-named sibling precedes the raw node. Refuse it in `set_raw`, as the line-break check does. All four bindings.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
-		- Test case: corpus `064-raw-info-hash` `write-bad.ops` (`raw k` with info `a # b` refused).
+		- Test case: corpus `064-raw-info-hash` (`dbzb7`) `write-bad.ops` (`raw k` with info `a # b` refused).
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -14016,7 +14116,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The reference keeps the CR (so `int a 1<CR>` is a bad int), the ports strip it. The crosscheck never feeds one.
 		- Spec decision: strip one trailing CR per line everywhere, or keep the reference's rule and make the ports match. Then add a fixture.
 		- Decided: an ops line loses one trailing carriage return in all four CLIs; a lone one becomes a blank line and is skipped.
-		- Test case: `cli-regress.bash` rows `ops-line-cr` and `ops-lone-cr`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `ops-line-cr` (`dbzbe`) and `ops-lone-cr` (`dbzbf`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -14029,7 +14129,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Item 12: the Python CLI writes stdout in the locale encoding, so a Windows pipe or file raises `UnicodeEncodeError` on non-ASCII content.
 		- The newline fix from 20260829 item 11 set the newline only. The reference writes bytes. Set the encoding to UTF-8 in the same call.
-		- Test case: `cli-regress.bash` rows `ascii-locale-get` and `ascii-locale-fmt`, all four CLIs, also run on windows by win-runners.bash.
+		- Test case: `cli-regress.bash` rows `ascii-locale-get` (`dd514`) and `ascii-locale-fmt` (`dd515`), all four CLIs, also run on windows by win-runners.bash.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -14042,36 +14142,36 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Item 14: the Python CLI crashes with a traceback on a closed stdin or stdout, and the C CLI's exit code differs from the reference on a closed stdin.
 		- Rust and Go print nothing and exit 0. Python raises on `sys.stdin.buffer`. C prints `read error` and exits 1.
-		- Test case: `cli-regress.bash` rows `closed-stdin` and `closed-stdout`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `closed-stdin` (`dbzbg`) and `closed-stdout` (`dbzbh`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 15: two `-` inputs on one command line read stdin once, and the second one gets an empty document that looks like a real answer.
 		- `check --schema=- -` validates the schema against nothing; `get --layer=- -` reads the layer as the base. `set` already refuses this; the other commands do not. All four.
-		- Test case: `cli-regress.bash` rows `dup-stdin-schema` and `dup-stdin-layer`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `dup-stdin-schema` (`dbzbc`) and `dup-stdin-layer` (`dbzbd`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 16: the C CLI's op-script errors drop the `op line N:` prefix and the offending op.
 		- The other three print `op line 2: unknown op: bogus`; C prints `unknown op`. Same for every op error.
-		- Test case: `cli-regress.bash` row `bad-op-unknown`, all four CLIs.
+		- Test case: `cli-regress.bash` row `bad-op-unknown` (`dbzbj`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 17: the C CLI's strict-load failure prints a bare count where the spec and the other three name the diagnostics.
-		- Test case: `cli-regress.bash` row `strict-load-list`, all four CLIs.
+		- Test case: `cli-regress.bash` row `strict-load-list` (`dbzbm`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 18: the C CLI loses the reason on a read failure and on a temp-file failure.
 		- A directory gives `dir: read error` (the reference names the error); a missing parent dir loses the "can't create temporary file" context.
-		- Test case: `cli-regress.bash` rows `read-dir-names-error` and `write-names-the-phase`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `read-dir-names-error` (`dbzbk`) and `write-names-the-phase` (`dc43q`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 19: a writer-created top-level node with a comment emits the section blank line between the comment and the node.
 		- `int x 5` then `comment x note` emits the comment, a blank line, then `x: 5`, so the comment reads as belonging to the field above. It is a fmt fixpoint, so it never self-corrects. All four.
-		- Test case: corpus `165-write-comment-new-top`.
+		- Test case: corpus `165-write-comment-new-top` (`dbzbb`).
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -14110,7 +14210,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Shared by all four bindings, so the crosscheck agrees on the wrong answer. Needs a corpus case with the fix.
 		- Fixed: a skipped line now holds its indent level, so what was written under it is skipped with it (`E018`, new) and the next sibling binds where it should. Corpus case 057.
 		- Case 057 was widened later to a whole subtree: a grandchild under a skipped line, under both the dropped and the retained-as-trivia spelling, plus `children` and `paths` rows so enumeration can't hand back a name a read then refuses. Backing the skip out re-parents the grandchild with its parent, which the earlier one-level rows did not see.
-		- Test case: corpus `057-skipped-parent`.
+		- Test case: corpus `057-skipped-parent` (`dbxjv`).
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14120,7 +14220,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- An indented SQL or YAML snippet is the headline raw-block use, so this is not a corner. All four bindings agree.
 		- Fix is a spec decision: strip only up to the fence line's indent (the CommonMark rule), or have `set_raw` refuse a body it can't write.
 		- Fixed: by a spec change: the nesting stripped from a raw body is the closing fence's own indent (the opening line's when the block never closes), so a shared body indent is content and survives a reload. The emitter no longer special-cases an all-blank body. Cases 053 and 055 updated, 058 added.
-		- Test case: corpus `058-raw-indent`, with `053-raw-blank-line` and `055-raw-blank-body`, and `set_raw_keeps_a_shared_indent_and_trims_the_info` in all four runners.
+		- Test case: corpus `058-raw-indent` (`dbxjw`), with `053-raw-blank-line` (`dbe9f`) and `055-raw-blank-body` (`dbenz`), and `set_raw_keeps_a_shared_indent_and_trims_the_info` (`dbxk1`, `dbxkt`, `dbxm0`) in all four runners.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14128,7 +14228,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A line break in the info splits the block on reload with no diagnostic; leading or trailing whitespace and a trailing CR vanish.
 		- `set_literal` already refuses a line break; `set_raw` should do the same for the info, and trim it so write and read agree. All four bindings.
 		- Fixed: the info-string is trimmed the way a fence line reads it, and one holding a line break fails the write. All four bindings, fixture in every runner.
-		- Test case: `TestSetRawKeepsASharedIndentAndTrimsTheInfo` in Go and its twins in the other runners.
+		- Test case: `TestSetRawKeepsASharedIndentAndTrimsTheInfo` (`dbxka`) in Go and its twins in the other runners.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14136,7 +14236,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The over-cap check adds one to the cap. At the type's maximum that overflows: the reference panics in a debug build and reads zero bytes in release, Go returns an empty document reported Clean.
 		- A consumer who passes "no cap" as the type maximum gets an empty document and no status. Saturate, or treat the maximum as no cap. Check Python and C too.
 		- Fixed: the probe saturates at the type maximum (Python reads in pieces instead of preallocating the cap; C already saturated). Fixture in every runner.
-		- Test case: `TestReadFileAtTheLargestCap` in Go and its twins in the other runners.
+		- Test case: `TestReadFileAtTheLargestCap` (`dbxk9`) in Go and its twins in the other runners.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14144,7 +14244,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `bool\tp\tyes` writes `p: false` at exit 0 in every CLI. The int, float and datetime ops reject bad text; bool compares against the single word `true`.
 		- Accept the standard boolean token set and reject the rest; add a `write-bad.ops` row.
 		- Fixed: `bool` ops take exactly `true` or `false`; anything else is `bad bool` at exit 1. All four CLIs and runners.
-		- Test case: corpus `029-write-gate` write-bad.ops row `bool k yes`.
+		- Test case: corpus `029-write-gate` (`dacv3`) write-bad.ops row `bool k yes`.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14152,7 +14252,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--set 'x[a=b].c=1'` fails with `can't write x[a`. Values holding `=` are fine.
 		- Split at the first `=` outside quotes and brackets, and say so in the help text.
 		- Fixed: PATH ends at the first `=` outside quotes and brackets. The help text and the man page say so.
-		- Test case: `cli-regress.bash` row `set-eq-in-selector`, all four CLIs.
+		- Test case: `cli-regress.bash` row `set-eq-in-selector` (`dbzrh`), all four CLIs.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14160,7 +14260,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Rust, Go and C fall back to the given path when the link can't be resolved, so the link becomes a file. Python resolves the link anyway and creates the target.
 		- Two defects: the spec promises a link is written through, and the four bindings do not leave the same file tree behind.
 		- Fixed: Rust, Go and C follow a dangling link by hand and create the file where it points. The spec says so and the crosscheck has a fixture.
-		- Test case: crosscheck fixture "write creates behind a dangling symlink", and `save_creates_the_file_behind_a_dangling_symlink` in all four runners.
+		- Test case: crosscheck fixture "write creates behind a dangling symlink", and `save_creates_the_file_behind_a_dangling_symlink` (`dbxk2`, `dbxkp`, `dbxm1`) in all four runners.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14171,7 +14271,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The spec's list of what a save can't preserve names hard links, ACLs, xattrs and labels, but not ownership, sticky directories or read-only files.
 		- Pick one rule for each, document it, and pin the Windows case in the hosted windows job.
 		- Fixed: decided and written down. The whole mode is copied, setuid, setgid and sticky included. A read-only file is rewritten on every platform; Windows clears the attribute for the publish and sets it back after, publish failure included. The spec lists ownership, sticky directories and read-only files with the rest. Windows fixture in every runner, run by the hosted windows job.
-		- Test case: `save_rewrites_a_read_only_file` in all four runners, windows included in the hosted job, and Python `save_keeps_set_id_bits`.
+		- Test case: `save_rewrites_a_read_only_file` (`dbxk3`, `dbxkq`, `dbxm2`) in all four runners, windows included in the hosted job, and Python `save_keeps_set_id_bits` (`dbzbp`).
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14186,7 +14286,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Validate through mounts, generate through mount expansion, and resolve through wildcard segments each need about one frame per level for a 512-deep document. From a caller already deep in its own stack they raise `RecursionError`.
 		- The 20260817 close-out said validate and resolve survive from a deep caller; that holds for the plain forms only.
 		- Fixed: the three walks, plus two more of the same kind found on the way (`_v_contexts`, `_chain_parts_legal`), use explicit stacks. The fixture runs each from a deep caller.
-		- Test case: Python runner `deep_documents_from_a_deep_caller`.
+		- Test case: Python runner `deep_documents_from_a_deep_caller` (`dbeb3`).
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -14318,7 +14418,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Not visible to the corpus or the cross-binding check, because no case has this form. Needs a case as part of the fix.
 		- Moves output bytes in three bindings. Do it before the next cut; the ports currently define a different language than the reference does.
 		- Fixed: the three ports now take the fallback scan on an outright accelerator miss as well as on a wrong-kind hit, matching the reference. Case 051 pins the miss, the selection reaching the right instance, and the two paths that still create.
-		- Test case: corpus `051-selector-accel-miss`.
+		- Test case: corpus `051-selector-accel-miss` (`dbe4e`).
 		- Opened: 20260817-204524
 		- Closed: 20260818-091437
 
@@ -14361,7 +14461,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed in all four, for a segment name and for a by-value selector - the selector stores the path text raw, so it bypassed the escaping the ordinary setters already do. The escaped spelling is a different path and still writes fine.
 		- A carriage return turned out not to be the same class: it round-trips intact, so rejecting it would be a behavior change with no defect behind it. Only the line break is refused.
 		- Verified: pinned by the write-reason fixture in all four runners rather than the corpus: an ops line is line-based and can't contain a raw newline. Same reason the reason-code list is spelled out in the spec instead.
-		- Test case: `a_line_break_in_a_path_writes_and_reads_back` in all four runners, since a line break in a path now writes as `\n` and reads back, and `write_reason_names_the_failure` for the reasons.
+		- Test case: `a_line_break_in_a_path_writes_and_reads_back` (`dcb7v`, `dcb83`, `dcb7z`) in all four runners, since a line break in a path now writes as `\n` and reads back, and `write_reason_names_the_failure` for the reasons.
 		- Opened: 20260817-204524
 		- Closed: 20260818-114245
 
@@ -14372,7 +14472,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fix: also quote when the first or last character is whitespace by the same definition the parser trims by. Edge-only on purpose - quoting on interior whitespace would move bytes for documents that round-trip fine today.
 		- Fixed in all four exactly that way; every existing case still matches byte for byte, so nothing moved. Checked first that all four already agree on which characters count as whitespace - they do, or the fix itself would have split them.
 		- Verified: case 052 pins it through the writer, where the loss was reachable: an author-quoted value already survived, so only a written one showed it.
-		- Test case: corpus `052-edge-whitespace`.
+		- Test case: corpus `052-edge-whitespace` (`dbe9e`).
 		- Opened: 20260817-204524
 		- Closed: 20260818-115430
 
@@ -14385,7 +14485,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Superseded by Code review 20260829 item 2: the common-indent rule is gone; each body line loses only what it shares with the closing fence's own indent.
 		- Verified: case 053 pins the whole gradient: a line longer than the indent, one shorter, and a truly empty one.
 		- The case has meaningful trailing whitespace. An editor that trims on save would quietly break it; that is the first thing to check if it ever starts failing on its own.
-		- Test case: corpus `053-raw-blank-line`.
+		- Test case: corpus `053-raw-blank-line` (`dbe9f`).
 		- Opened: 20260817-204524
 		- Closed: 20260818-115430
 
@@ -14427,7 +14527,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed in go, and in C, which had it too and the item did not name: neither read path validates, so both loaded a binary file clean. Rust's read-to-string and python's decoding open reject it for free.
 		- C's validator is its own copy rather than the cli's: that one also gates argv and the ops script, which exist with the file tier compiled out.
 		- Both status comments now have the bad-encoding clause the other two kept. Pinned by the shared file-tier fixture in all four runners.
-		- Test case: `file_tier_load_save` in all four runners.
+		- Test case: `file_tier_load_save` (`dbcwv`, `dd6h9`, `dd5h6`) in all four runners.
 		- Opened: 20260817-204524
 		- Closed: 20260818-124653
 
@@ -14437,7 +14537,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fix: add the missing type to both catch clauses.
 		- Fixed. The save half raised from the path resolution before any i/o, so that call is what got the guard rather than a catch clause.
 		- Verified: pinned in the python runner only, not the shared fixture: a C path string can't contain a NUL at all, so there is nothing to compare against.
-		- Test case: the NUL-path load and save checks in the Python runner's `file_tier_load_save`.
+		- Test case: the NUL-path load and save checks in the Python runner's `file_tier_load_save` (`dbcwv`, `dd6h9`, `dd5h6`).
 		- Opened: 20260817-204524
 		- Closed: 20260818-124653
 
@@ -14447,7 +14547,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fix: range-check in the integer setters and return false, which is the failure channel they already have.
 		- Fixed in the scalar and array setters; the only-if-absent forms delegate to those, so all four are covered. The style guide already listed unbounded int as a banned shortcut - the rule existed, the setter just never applied it.
 		- Verified: pinned in the python runner, including both in-range edges so the check can't drift inward.
-		- Test case: Python runner `set_int_refuses_past_64_bits`, both in-range edges included.
+		- Test case: Python runner `set_int_refuses_past_64_bits` (`dbeb2`), both in-range edges included.
 		- Opened: 20260817-204524
 		- Closed: 20260818-124653
 
@@ -14470,7 +14570,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed the first way, which the parse and emit walks already set the precedent for. Clone became a node copy driven by a stack; overlay split into a driver and a one-level worker that returns the pairs still to merge.
 		- Deferring those pairs changes no result: each level's rebuild depends on nothing the deeper levels do, and a name that produces a pending pair is never one the rebuild replaces, so the base node it names survives. The walk stays depth-first and in order.
 		- Verified: validate and resolve turned out not to need it. All four walks now survive a document at the cap from a deep caller, where merge used to raise well short of the cap.
-		- Test case: Python runner `deep_documents_from_a_deep_caller`.
+		- Test case: Python runner `deep_documents_from_a_deep_caller` (`dbeb3`).
 		- Opened: 20260817-204524
 		- Closed: 20260818-124653
 
@@ -14482,7 +14582,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Five comments, not three: rust, go, python, c and the c++ veneer. Spec corrected to say so explicitly, so the next reader does not re-open it.
 		- Verified: pinned in all four runners, so a later pass can't quietly flip it back.
 		- What this exposed has its own item, filed below: two names that differ only in escaping are different names, where the equivalent two values are the same string.
-		- Test case: the escaped-name `authored_name` checks in `read_surface_line_quoted_children` in Rust, Go and Python and C `authored_name`.
+		- Test case: the escaped-name `authored_name` (`dbegk`) checks in `read_surface_line_quoted_children` (`daqsz`, `dbxkn`, `daqt1`) in Rust, Go and Python and C `authored_name`.
 		- Opened: 20260817-204524
 		- Closed: 20260818-124653
 
@@ -14497,7 +14597,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All seven fixed. The python docstring move needed care - the statement it sat below is the one that passes a merged layer's lost count forward, and dropping it would have silently disarmed the save gate on any merged document.
 		- The dead branch was the one under the bad-`*` line: that line begins with the `*` that got it there, so it can never also begin with a byte-order mark. Removed in all four, with the comment now pointing at the sibling site where the exception is real.
 		- Go's i/o failures wrap instead of flattening, so a caller can separate a permission failure from a full disk without matching on prose. Printed text is unchanged.
-		- Test case: `TestSaveFileErrorWrapsTheCause` in Go for the wrapped i/o error; the doc placements are held by check-docs' doc-comment checks.
+		- Test case: `TestSaveFileErrorWrapsTheCause` (`dd522`) in Go for the wrapped i/o error; the doc placements are held by check-docs' doc-comment checks.
 		- Opened: 20260817-204524
 		- Closed: 20260818-124653
 
@@ -14508,7 +14608,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: when a node's value is filled in after the fact, it moves to a new merge key. If a later sibling already holds that key the filled node is left beside it instead of merging.
 		- Note: all four bindings behave the same, so the cross-binding check can't see it, and no test case has this form.
 		- Fixed: duplicate siblings are folded once parsing finishes, so the tree matches a reparse of its own canonical text. Folding is depth-first, since merging two parents can leave duplicate children a level down. Case 042.
-		- Test case: corpus `042-late-merge`.
+		- Test case: corpus `042-late-merge` (`das6q`).
 		- Opened: 20260803-111610
 		- Closed: 20260803-120312
 
@@ -14539,7 +14639,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The C build also runs out of memory, because each level's working data is kept until the whole validation ends rather than being released on the way back out.
 		- Fixed: each constraint set is checked once per node, so two paths reaching the same node cost one pass. A document near the depth cap now validates near-instantly.
 		- Fixed in C as well: the working data for each level is released on the way back out. The same document went from gigabytes to megabytes. Case 043.
-		- Test case: corpus `043-schema-recursion`, and perf-gate `recurse` for the time.
+		- Test case: corpus `043-schema-recursion` (`das7z`), and perf-gate `recurse` (`dc81v`) for the time.
 		- Opened: 20260803-111610
 		- Closed: 20260803-124328
 
@@ -14549,7 +14649,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: generation reads a file the user supplies, so this is reachable from ordinary use.
 		- Fixed: a mount chain that reaches the nesting cap is noted like one that re-enters, rather than followed. A schema whose mounts multiply past a field ceiling now reports a schema fault, V096.
 		- Validation is unaffected: it still follows the document, so it needs no limit.
-		- Test case: `generation_bounds_a_multiplying_schema` in the Rust tests, `cli-regress.bash` row `init-cap-over` on all four CLIs, and the Python runner's deep generate through mounts.
+		- Test case: `generation_bounds_a_multiplying_schema` (`das80`) in the Rust tests, `cli-regress.bash` row `init-cap-over` (`dc3tw`) on all four CLIs, and the Python runner's deep generate through mounts.
 		- Opened: 20260803-111610
 		- Closed: 20260803-124328
 
@@ -14557,7 +14657,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: a value of five thousand digits makes the Python build exit with a stack trace, while the reference reports a bad type. Same for oversized selector indexes, schema repeat counts, and a day number inside a quoted date.
 		- Cause: Python refuses to convert decimal strings past a few thousand digits, and that happens before the code's own range check.
 		- Fixed: leading zeros are dropped and the rest is length-checked against what the type can hold before any conversion, so a small value written behind thousands of zeros still reads. Hexadecimal was never affected.
-		- Test case: corpus `166-long-digits`.
+		- Test case: corpus `166-long-digits` (`dd51y`).
 		- Opened: 20260803-111610
 		- Closed: 20260803-130248
 
@@ -14567,7 +14667,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the text is built in full and then clamped to the documented size, which is now stated at the declaration. Output for values that came from parsing is unchanged.
 		- Found alongside it: negating the most negative offset was itself undefined, and is now done at a width that holds it.
 		- Pinned since 20260831 by the C runner's `dt_clamp` fixture, which renders a struct filled with the extreme of every field. The clamp is checked directly; the working buffer behind it is checked by the sanitizer run.
-		- Test case: C runner `datetime_render_clamps`, and the sanitizer run in `sanitize-c.bash`.
+		- Test case: C runner `datetime_render_clamps` (`dc119`), and the sanitizer run in `sanitize-c.bash`.
 		- Opened: 20260803-111610
 		- Closed: 20260803-130248
 
@@ -14576,7 +14676,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Separately, a write that merges two duplicate fields drops any comment that hung below the losing one.
 		- Both contradicted the documented promise that comments travel with the node they belong to.
 		- Fixed: a matched instance now takes on the higher layer's comments, and the shared fold keeps the comments that hang below a block. Spec and case 042 pin both.
-		- Test case: corpus `042-late-merge`, its `layer1.shcl` merge and the fold.
+		- Test case: corpus `042-late-merge` (`das6q`), its `layer1.shcl` merge and the fold.
 		- Opened: 20260803-111610
 		- Closed: 20260803-120312
 
@@ -14584,7 +14684,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: a schema with a bad indent loads partially and validation runs anyway, so constraints on the dropped lines quietly vanish. A badly broken schema makes every field in the config report as unknown.
 		- The command-line tool gets this right and reports a schema failure. Only the library shortcut skipped the check.
 		- Fixed: the shortcut now reports the same schema failure and validates nothing. An empty schema still means skip validation, as before.
-		- Test case: `one_shot_load_reports_a_broken_schema` in Rust, `TestOneShotLoadReportsABrokenSchema` in Go.
+		- Test case: `one_shot_load_reports_a_broken_schema` (`das92`, `dd527`, `dd524`) in Rust, `TestOneShotLoadReportsABrokenSchema` (`dd520`) in Go.
 		- Opened: 20260803-111610
 		- Closed: 20260803-131801
 
@@ -14592,7 +14692,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: `datetime-array-default` is rejected by the reference and accepted by the other three.
 		- Write output and exit codes are supposed to match everywhere. No test case uses this operation, which is why it went unnoticed.
 		- Fixed: the reference accepts it like the others. The vocabulary was then checked verb by verb across all four, and a test line for it was added so the gap can't reopen.
-		- Test case: corpus `014-write-build` (its `write.ops` has a `datetime-array-default` line).
+		- Test case: corpus `014-write-build` (`da6qb`) (its `write.ops` has a `datetime-array-default` line).
 		- Opened: 20260803-111610
 		- Closed: 20260803-131801
 
@@ -14600,7 +14700,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: formatting with a lower layer and `--write` folds that layer's contents permanently into the top file, which defeats the point of layering.
 		- Help text says layering prints the merged document; it doesn't mention what `--write` then does.
 		- Fixed: the combination is refused, like other option pairs that can't both hold.
-		- Test case: `cli-regress.bash` rows `write-layer-fmt` and `write-layer-set`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `write-layer-fmt` (`dd5gz`) and `write-layer-set` (`dd5h0`), all four CLIs.
 		- Opened: 20260803-111610
 		- Closed: 20260803-131801
 
@@ -14608,7 +14708,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: passing `-h` or `--version` as a default value, a path, or a filename prints help or the version to normal output and exits successfully. A caller reading a value gets the help text back.
 		- Cause: the whole argument list is scanned for those flags before options are parsed.
 		- Fixed: only a flag in option position counts. A value that reads like one, and anything after the file, is data.
-		- Test case: `cli-regress.bash` rows `help-flag-as-default` and `version-flag-as-default`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `help-flag-as-default` (`dd50r`) and `version-flag-as-default` (`dd50s`), all four CLIs.
 		- Opened: 20260803-111610
 		- Closed: 20260803-131801
 
@@ -14617,7 +14717,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the wildcard is stripped out of the path as text rather than rebuilt from the parsed segments.
 		- The documented promise is that generated output always loads clean and validates against the schema that produced it.
 		- Fixed: the path is rebuilt from its parsed segments rather than cut out of the text, so every spelling of a wildcard behaves the same. A path deeper than a document may nest now goes to the trailing note instead of being written out.
-		- Test case: corpus `167-init-spaced-wildcard`, Rust `generation_bounds_a_multiplying_schema` (deep chain), fuzz `generated_starters_load_and_validate_clean`.
+		- Test case: corpus `167-init-spaced-wildcard` (`dc3rw`), Rust `generation_bounds_a_multiplying_schema` (`das80`) (deep chain), fuzz `generated_starters_load_and_validate_clean` (`dcmjb`).
 		- Opened: 20260803-111610
 		- Closed: 20260803-124328
 
@@ -14635,7 +14735,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Command-line use is unaffected; this only bit programs using the library.
 		- Fixed: it builds its own list, so the caller's is never disturbed.
 		- Pinned since 20260831 by `TestSuppressLeavesTheCallersDiagnosticsAlone`, over both filters. Backing the fix out reproduces the shuffle and the duplicate exactly.
-		- Test case: Go `TestSuppressLeavesTheCallersDiagnosticsAlone`, over both filters.
+		- Test case: Go `TestSuppressLeavesTheCallersDiagnosticsAlone` (`dc11d`), over both filters.
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
@@ -14652,7 +14752,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: the closing quote gets treated as escaped, so the result is a path the scanner rejects, and the set silently fails.
 		- The helper exists to make user-typed text safe to splice into a path, so this is the case it was written for.
 		- Fixed in the shared quoting helper, so segment quoting, path enumeration and the formatter all get it. Any name now round-trips.
-		- Test case: `quote_segment_backslash_round_trips` in the Rust conformance tests.
+		- Test case: `quote_segment_backslash_round_trips` (`das9v`) in the Rust conformance tests.
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
@@ -14660,7 +14760,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: a schema path whose last segment is quoted and contains a dot is split on that dot, so the leftover text matches an unrelated field name.
 		- Matching on the name alone is deliberate. Splitting the raw text rather than using the parsed segments was not.
 		- Fixed: the name comes from the parsed path. A quoted literal star is no longer mistaken for the wildcard either.
-		- Test case: `repeat_suppression_uses_parsed_leaf` in the Rust conformance tests.
+		- Test case: `repeat_suppression_uses_parsed_leaf` (`das9w`) in the Rust conformance tests.
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
@@ -14669,14 +14769,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the check joins path parts with a null before comparing.
 		- Pre-existing, but the new wildcard matching is built on the same joined text.
 		- Fixed: each part is now written with its length, the same way merge keys already solved this, so no name can pose as two.
-		- Test case: `nul_name_does_not_satisfy_a_dotted_schema_path` in Rust and `TestNulNameDoesNotSatisfyADottedSchemaPath` in Go.
+		- Test case: `nul_name_does_not_satisfy_a_dotted_schema_path` (`dasb1`, `dd528`, `dd525`) in Rust and `TestNulNameDoesNotSatisfyADottedSchemaPath` (`dd521`) in Go.
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
 	- ✅ Item 20: end-of-file comments multiply when layering.
 		- Reproduced: a footer comment shared by three layers appears three times in the merged output. The result still formats stably.
 		- Fixed: each distinct end-of-file comment is kept once.
-		- Test case: corpus `042-late-merge` (shared footer appears once in `expected-merged.shcl`).
+		- Test case: corpus `042-late-merge` (`das6q`) (shared footer appears once in `expected-merged.shcl`).
 		- Opened: 20260803-111610
 		- Closed: 20260803-120312
 
@@ -14700,7 +14800,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The workflow pins its actions by commit and its packages by version, then fetches one tool as an archive with no checksum and installs it ahead of the system copy.
 		- Fixed: the download is checked against a pinned hash before it is installed.
 		- Pinned since 20260831 in `check-pins.bash`: every file the workflow fetches has to be named on a line that checks it against a sha256.
-		- Test case: `check-pins.bash` `downloads-are-hashed`.
+		- Test case: `check-pins.bash` `downloads-are-hashed` (`dcqge`).
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
@@ -14718,7 +14818,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- An option expecting a value will take the next flag as that value without complaint.
 		- Reading the write operations from standard input while also asking for standard input as a layer silently produces nothing.
 		- Fixed: `--` now ends the options, `init` rejects extra arguments, and asking for standard input twice is refused. The help text says what a value option does with the next argument, which is the one case left as it was, since that is how options normally behave.
-		- Test case: `cli-regress.bash` rows `double-dash-ends-options`, `init-extra-arg`, `dup-stdin-layer` and `layer-stdin-set-see-help`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `double-dash-ends-options` (`dd50t`), `init-extra-arg` (`dd50v`), `dup-stdin-layer` (`dbzbd`) and `layer-stdin-set-see-help` (`dct55`), all four CLIs.
 		- Opened: 20260803-111610
 		- Closed: 20260803-131801
 
@@ -14789,7 +14889,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Wider than it reads: the wipe covers every same-named instance, so mentioning `server: web1` also deletes an untouched `server: web2`.
 		- A body that is only a comment counts as empty, because comments are trivia rather than children.
 		- Fixed: the leaf-override path now applies only when the base side of the name group is also all-childless, so a bare section header merges (matching instance untouched, unmatched appended as an empty instance) and leaf clearing still works. No way to blank a section from a higher layer; a deletion spelling is deferred. All four bindings, spec reworded, corpus case 027.
-		- Test case: corpus `027-layer-wrapper`.
+		- Test case: corpus `027-layer-wrapper` (`dact0`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-162837
 
@@ -14799,7 +14899,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: Python merge is the acute one; a few kilobytes is enough. The reference aborts on `fmt` at tens of thousands of levels; C segfaults; Go survives by growing without bound.
 		- A dotted path buys one level per two bytes, so depth is cheap for an attacker and needs no odd syntax.
 		- Same input, four different exit codes: the inverse of the product guarantee.
-		- Test case: corpus `028-depth-cap` and Rust `depth_cap_boundary_and_writer`.
+		- Test case: corpus `028-depth-cap` (`dactb`) and Rust `depth_cap_boundary_and_writer` (`dactc`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-163911
 
@@ -14810,7 +14910,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- stdout and exit codes are contract here and the crosscheck replays `set`, so this only escapes CI because no corpus op line has a malformed value.
 		- Fixed: go/python/C now gate op values with the reference's exact grammar: sign + ASCII digits + i64 range for ints, the Rust f64 grammar for floats, with overflow stored as `inf`. C's truncating staging buffers are gone. The ops stdin gets the same UTF-8 gate as file input in all four. Corpus case 029 pins accept and reject sets cross-binding (`write-bad.ops` dimension in all four runners + the differential harness).
 		- Superseded in part by the 20260901 round's item 4: overflow is refused now rather than stored as `inf`, since the reader refuses `inf`. The grammar gate and the UTF-8 gate stand.
-		- Test case: corpus `029-write-gate` `write-bad.ops` in all four runners and the crosscheck, and cli-regress `ops-not-utf8` for the ops UTF-8 gate.
+		- Test case: corpus `029-write-gate` (`dacv3`) `write-bad.ops` in all four runners and the crosscheck, and cli-regress `ops-not-utf8` (`dc3sr`) for the ops UTF-8 gate.
 		- Opened: 20260725-152141
 		- Closed: 20260725-170306
 
@@ -14819,7 +14919,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Hard process abort inside a library call, which is exactly what the status-as-data design exists to avoid.
 		- One-line fix, Go only.
 		- Fixed: the bounds check compares in uint64 like the sibling sites.
-		- Test case: corpus `168-validate-huge-index`.
+		- Test case: corpus `168-validate-huge-index` (`dd51z`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-171744
 
@@ -14845,7 +14945,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: C never checks `fwrite`/`fclose`, so a failed write prints nothing and exits 0 while the other three exit 1 - a live exit-code divergence.
 		- Cause: no binding uses temp-file-and-rename, so an interrupted write destroys the file the tool exists to protect. The dogfood installer was made atomic for this exact reason.
 		- Fixed: all four CLIs write through a temp-file-and-rename in the target's directory (data synced before the rename), and C checks every stdio call, so a failed or interrupted write exits 1 and never leaves a truncated file.
-		- Test case: `cli-regress.bash` rows `write-names-the-phase` and `full-stdout-*`, all four CLIs; crosscheck write dimension.
+		- Test case: `cli-regress.bash` rows `write-names-the-phase` (`dc43q`) and `full-stdout-*`, all four CLIs; crosscheck write dimension.
 		- Opened: 20260725-152141
 		- Closed: 20260725-170306
 
@@ -14863,7 +14963,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: a wildcard `required` bites whenever some other live path materializes the wildcard's parent.
 		- The project's own corpus golden fails against its own schema, so the two newest features contradict each other on the fixture that is supposed to pin them.
 		- Fixed in all four generators: fields with a `repeat` lower bound of 1+ generate live like `required`, and a must-exist wildcard whose parent gets materialized by another live line is generated in dotted form under that instance. Generated output now validates clean against its own schema (asserted by every runner; the one documented exception is a repeat lower bound of 2+, which can't be auto-satisfied). Case 026's golden regenerated.
-		- Test case: corpus `026-init-schema`, whose output every runner validates against its own schema, and the Rust fuzz `generated_starters_load_and_validate_clean`.
+		- Test case: corpus `026-init-schema` (`dab7k`), whose output every runner validates against its own schema, and the Rust fuzz `generated_starters_load_and_validate_clean` (`dcmjb`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-171744
 
@@ -14872,7 +14972,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: a newline inside an `allowed` value breaks out of the annotation comment and injects a live binding.
 		- The spec promises the generated file loads with no error diagnostics.
 		- Fixed: `[#N]` paths (and paths with a literal newline) go to the trailing not-generated block instead of emitting a broken line. Newlines in the annotation are escaped to `\n`. A default with a newline is written in its quoted escaped spelling. Corpus case 030 pins all three.
-		- Test case: corpus `030-init-edge`. A `[#N]` path is now refused, pinned by cli-regress `init-index-required`.
+		- Test case: corpus `030-init-edge` (`dacvh`). A `[#N]` path is now refused, pinned by cli-regress `init-index-required` (`dc3tt`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-171744
 
@@ -14881,7 +14981,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: comment stripping is quote-aware, so `listen: "0.0.0.0:443  # note` eats the author's comment into the value.
 		- One of the commonest hand-authoring mistakes, and the exact class of error the product markets itself as catching. Path position already diagnoses it; only value position is silent.
 		- Fixed: a value or array element that opens with a quote it never closes now draws `E017` (value kept as written, fails strict) in all four parsers - field values and stacked `*` elements both. Mid-text apostrophes (`it's fine`) stay legal prose. Corpus case 031.
-		- Test case: corpus `031-unterm-quote`.
+		- Test case: corpus `031-unterm-quote` (`dacw6`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-173852
 
@@ -14890,7 +14990,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: `--set=server[*].port=1`, `--set==v` and a typo'd path all print the untouched document and exit 0.
 		- For the mechanism the spec designates as the override route, a typo that silently does not apply is the worst available failure mode.
 		- Fixed: `place` pre-validates the whole path before creating anything (wildcard, missing `[#N]`, value part, past the depth cap). Every setter reports whether the write applied, and the CLIs exit 1 on a rejected op or `--set` instead of printing the untouched document.
-		- Test case: `cli-regress.bash` row `usage-bad-write-path`, all four CLIs; `write-bad.ops` in corpus 029 and 103.
+		- Test case: `cli-regress.bash` row `usage-bad-write-path` (`dc0ah`), all four CLIs; `write-bad.ops` in corpus 029 (`dacv3`) and 103.
 		- Opened: 20260725-152141
 		- Closed: 20260725-170306
 
@@ -14898,7 +14998,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: the Writer deliberately skips the parser's merge index and nothing else applies the merge rule, so re-reading its output collapses the pair and loses an instance.
 		- The existing fuzz misses it because it always starts from an empty document and never has a sibling to collide with.
 		- Fixed: after a value write, a merge-rule collision with a sibling folds the pair the way a reparse would (earlier survives; children and trivia fold in), in all four bindings.
-		- Test case: corpus `062-write-fold-deep` and `169-write-fold-nested`; fuzz `writes_on_structural_soup_stay_fixpoint`.
+		- Test case: corpus `062-write-fold-deep` (`dbzb1`) and `169-write-fold-nested` (`dbzb2`); fuzz `writes_on_structural_soup_stay_fixpoint` (`dc26d`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-170306
 
@@ -14906,7 +15006,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: past 64 the C CLI exits 1 with empty stdout while the others exit 0 and print the merged document.
 		- The cap appears in neither the spec nor the usage text, on an option the spec expects programs to generate in bulk.
 		- Fixed: layers, sets, and positional args all grow dynamically now (the fixed 64/65/8 arrays are gone); verified with a 70-layer merge.
-		- Test case: `cli-regress.bash` rows `many-layers` and `many-sets`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `many-layers` (`dd50w`) and `many-sets` (`dd50x`), all four CLIs.
 		- Opened: 20260725-152141
 		- Closed: 20260725-170306
 
@@ -14915,7 +15015,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Not reachable from parsed input, since the parser bounds every component, so this is a defensiveness gap in a public API, not an input-driven hole.
 		- Fixed: the frac copy is capped so the render always fits the documented 64 bytes; header doc states the truncation.
 		- Pinned since 20260831 by the C runner's `dt_clamp` fixture, with the same round's item 7.
-		- Test case: C runner `datetime_render_clamps`.
+		- Test case: C runner `datetime_render_clamps` (`dc119`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-170306
 
@@ -14924,7 +15024,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Also silently ignored: `--schema` on `get`, `--slots` on `count`, `--int` on `fmt`.
 		- Either implement `set --write` or reject it; silently dropping it is the one case that must not stay.
 		- Fixed: `set --write` is implemented (atomic in-place rewrite, `-` rejected), and every subcommand now validates its options against an allow-list - an option it does not use is a usage error (exit 1), in all four CLIs.
-		- Test case: `cli-regress.bash` rows `check-layer-hint` and `write-stdin-set`, all four CLIs; crosscheck `set --write` rows.
+		- Test case: `cli-regress.bash` rows `check-layer-hint` (`dd3z7`) and `write-stdin-set` (`dcvdv`), all four CLIs; crosscheck `set --write` rows.
 		- Opened: 20260725-152141
 		- Closed: 20260725-170306
 
@@ -14932,7 +15032,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: both files' diagnostics interleave in one list with nothing marking which file a line belongs to.
 		- `init` already prefixes `schema line N`, so the same fault renders two ways in two commands.
 		- Fixed with the cheap half: the stderr prose says `schema line N` for `V090`-`V093` (whose numbers are schema-file lines per the code table) in all four CLIs; the compared stdout keeps the uniform form since the code already names the space. The structural `source`/`column` fields stay future work.
-		- Test case: `cli-regress.bash` rows `check-schema-line-v090` to `v093`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `check-schema-line-v090` (`dd50y`) to `v093`, all four CLIs.
 		- Opened: 20260725-152141
 		- Closed: 20260725-171744
 
@@ -14966,7 +15066,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: `shcl_generate` signals failure with a bare `ok` flag and discards the fault list the other three return, so C `init` prints only the summary.
 		- Reachable today through `shcl_validate` against an empty document, so the CLI can be fixed without reshaping the API.
 		- Fixed via the review's own suggestion: on a generation failure the C CLI validates an empty document against the schema and prints the reproduced V09x fault list; the veneer documents the same trick. No API reshape.
-		- Test case: `cli-regress.bash` row `init-raw-default` (schema line 3: Error: V092), all four CLIs.
+		- Test case: `cli-regress.bash` row `init-raw-default` (`dc43d`) (schema line 3: Error: V092), all four CLIs.
 		- Opened: 20260725-152141
 		- Closed: 20260725-171744
 
@@ -14974,7 +15074,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Exit 1 is documented as "usage or I/O error", which a semantically broken schema is neither.
 		- A pipeline that reads 1 as "invoked wrong" and 6 as "config is bad" gets the wrong answer from `init`.
 		- Fixed: `init` exits 6 for a schema that fails to load or has faults, in all four CLIs; exit 1 stays usage/IO.
-		- Test case: `cli-regress.bash` rows `init-build-fault`, `init-raw-default` and the other `init-*` rows exiting 6, all four CLIs.
+		- Test case: `cli-regress.bash` rows `init-build-fault` (`dc26b`), `init-raw-default` (`dc43d`) and the other `init-*` rows exiting 6, all four CLIs.
 		- Opened: 20260725-152141
 		- Closed: 20260725-171744
 
@@ -14991,14 +15091,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 1: C CLI reads freed memory on typed array output.
 		- Reproduced: `get --int|--float|--datetime --array` with more than 8 elements prints from a stale pointer after the line buffer grows; large arrays segfault.
 		- Fixed: owned line entries no longer store a pointer into the growable array; corpus case 008 pins 10-element typed arrays of every kind.
-		- Test case: corpus `008-typed-arrays`, 10-element typed arrays of every kind.
+		- Test case: corpus `008-typed-arrays` (`da31a`), 10-element typed arrays of every kind.
 		- Opened: 20260718-165550
 		- Closed: 20260718-174231
 
 	- ✅ Item 2: Rust parser panics on a multibyte char in the timezone tail of a datetime value.
 		- A garbled or hostile config aborts the consumer (exit 134) instead of returning BadType.
 		- Fixed: zone tail is now checked byte-wise, so no str slice can fall mid-char; corpus 007 `bad5` pins BadType across all bindings.
-		- Test case: corpus `007-dates` row `bad5`.
+		- Test case: corpus `007-dates` (`d9tnk`) row `bad5`.
 		- Opened: 20260718-165550
 		- Closed: 20260718-174231
 
@@ -15006,7 +15106,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: a missing sub-path yields a silent zero with status Good - the exact trap the fallback design exists to prevent.
 		- `count` and `instances` also disagree on the same wildcard path, breaking index alignment.
 		- Fixed in all four bindings: array reads have per-slot statuses, aggregate = worst slot, `instances` keeps unresolved slots as "", CLI grows `--slots` and per-slot `--default` substitution. Spec pinned, corpus case 009 + a slots column in reads.tsv, crosscheck replays `--slots`.
-		- Test case: corpus `009-wildcard-slots`, its slots column, and the crosscheck's `--slots` replay.
+		- Test case: corpus `009-wildcard-slots` (`da31r`), its slots column, and the crosscheck's `--slots` replay.
 		- Opened: 20260718-165550
 		- Closed: 20260718-175628
 
@@ -15018,25 +15118,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Item 8: mixed `*`/field child lines silently build a block array.
 		- Fixed: uniform-or-nothing enforced in all four parsers - first mixed field diagnoses an Error (field kept), later `*` lines under that parent are Errors and dropped. Corpus case 010.
-		- Test case: corpus `010-mixed-star`.
+		- Test case: corpus `010-mixed-star` (`da49d`).
 		- Opened: 20260718-165550
 		- Closed: 20260719-150545
 
 	- ✅ Item 9: `field[disc]` matches differently at parse-time vs query-time.
 		- Fixed: parse-side selectors match the display form like queries do; create only when nothing matches. Corpus case 011; spec's selector bullet updated.
-		- Test case: corpus `011-array-selector`.
+		- Test case: corpus `011-array-selector` (`da49e`).
 		- Opened: 20260718-165550
 		- Closed: 20260719-150545
 
 	- ✅ Item 10: raw-block merge identity ignores the info-string.
 		- Decided: info-string is part of a block's identity (fence style is not); equal bodies with different infos stay two instances. All four parsers; corpus case 012; spec updated.
-		- Test case: corpus `012-raw-info`.
+		- Test case: corpus `012-raw-info` (`da49f`).
 		- Opened: 20260718-165550
 		- Closed: 20260719-150545
 
 	- ✅ Item 11: reading an array as a string drops quoting and escapes.
 		- Fixed: array-as-string is the canonical inline form (minimal quoting, escapes intact, re-parses to the same array) in all four bindings. Corpus rows in case 011; spec's Strings section updated.
-		- Test case: corpus `011-array-selector`, its array-as-string rows.
+		- Test case: corpus `011-array-selector` (`da49e`), its array-as-string rows.
 		- Opened: 20260718-165550
 		- Closed: 20260719-150545
 
@@ -15048,7 +15148,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Item 13: Python formatter recurses and crashes on deep nesting.
 		- Fixed: emit walks an explicit stack; the CLI recursion-limit bump is gone. Depth 25000 formats fine from both the CLI and library callers.
-		- Test case: Python runner's deep-caller check (merge and emit at the depth cap from 900 frames deep); `cli-regress.bash` row `deep-nesting`.
+		- Test case: Python runner's deep-caller check (merge and emit at the depth cap from 900 frames deep); `cli-regress.bash` row `deep-nesting` (`dbzbv`).
 		- Opened: 20260718-165550
 		- Closed: 20260719-163626
 
@@ -15083,21 +15183,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 21: `fmt --write -` silently drops `--write` and exits 0.
 		- Should be a usage error pointing at piping stdout instead. Same in all four CLIs.
 		- Fixed: `--write` with stdin is a usage error (exit 1) in all four CLIs; `--write FILE` still rewrites.
-		- Test case: `cli-regress.bash` rows `write-stdin-fmt` and `write-stdin-set`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `write-stdin-fmt` (`dcvdt`) and `write-stdin-set` (`dcvdv`), all four CLIs.
 		- Opened: 20260718-165550
 		- Closed: 20260721-110039
 
 	- ✅ Item 23: `field[sel]: value` is grammar-legal but has no spec'd meaning.
 		- The value is dropped with an Error diagnostic, so strict loads fail on a line the grammar allows. Align spec, grammar, and code.
 		- Fixed by spec'ing the code's existing behavior: a value after a last-segment selector is defined as an `error` (instance kept from the discriminator, value dropped; fails Strict). spec.md Selectors + grammar.abnf note updated; corpus case 018.
-		- Test case: corpus `018-selector-value`.
+		- Test case: corpus `018-selector-value` (`da6w4`).
 		- Opened: 20260718-165550
 		- Closed: 20260721-111149
 
 	- ✅ Item 24: invalid-UTF-8 command-line args abort the reference.
 		- Reproduced: Rust exits 134 (panic); Go/Python/C all exit 3. The reference is the outlier on its own exit-code contract.
 		- Fixed: all four validate argv as UTF-8 up front and exit 1 (`invalid argument encoding`); the reference uses `args_os` instead of the panicking `args`.
-		- Test case: `cli-regress.bash` rows `argv-not-utf8` and `argv-not-utf8-value`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `argv-not-utf8` (`dd512`) and `argv-not-utf8-value` (`dd513`), all four CLIs.
 		- Opened: 20260718-165550
 		- Closed: 20260721-110039
 
@@ -15125,7 +15225,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 30: NUL-joined merge key conflates distinct values.
 		- Reproduced: `x: a, b` and `x: "a<NUL>b"` merge to one instance; the second value is silently lost. Make the key injective.
 		- Fixed in all four parsers: each cell element (and the raw info-string) is length-prefixed, so the key is injective. Corpus case 017 (count = 2) pins it; the crosscheck skips it (bash can't pass a NUL) and the native runners do the pinning.
-		- Test case: corpus `017-nul-merge-key` (count 2) in the four native runners.
+		- Test case: corpus `017-nul-merge-key` (`da6w3`) (count 2) in the four native runners.
 		- Opened: 20260718-165550
 		- Closed: 20260721-111149
 
@@ -15159,7 +15259,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Wanted: a read that returns the comment lines above a node, or a `clear_comments` form that only takes lines matching given text.
 		- Note: they comment a key only when it is first made, so a reworded summary never reaches a key already set.
 		- Done: `comments(path)` in all four and the veneer. It returns the lines `clear_comments` would take, each from its `#` on. A line given back to `set_comment` is written as it was. Library only, like `instance_paths`.
-		- Pinned by: corpus 162 in all four runners.
+		- Pinned by: corpus 162 (`dd47p`) in all four runners.
 		- Opened: 20260925-190824
 		- Closed: 20260925-210051
 
@@ -15180,7 +15280,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: it still falls back to canonical for a child under flat dotted lines, a value a selector elsewhere names, folded blocks and merges.
 	- Verified: corpus 150 to 152 plus an `expected-keep.shcl` beside every write case, and every input saves back unchanged with no edits. Crosscheck runs three `set` edits per input too, 24609 agree. New fuzz property, clean at 2M. A save forced to canonical fails crosscheck, cli-regress and the corpus.
 	- Swept: help text, man page, spec, design.md, README, changelog. perf-gate got a `keeps` workload.
-	- Test case: corpus `150-keep-lines` to `152-keep-lines-fallback`, an `expected-keep.shcl` beside every write case, Rust `keeping_lines_without_edits_writes_the_input` and Go `TestKeepingLinesWithoutEditsWritesTheInput`, the Rust fuzz `keeping_lines_reloads_as_the_document`, crosscheck `fKeepEdits`, and perf-gate `keeps`.
+	- Test case: corpus `150-keep-lines` (`dd3t5`) to `152-keep-lines-fallback` (`dd3t7`), an `expected-keep.shcl` beside every write case, Rust `keeping_lines_without_edits_writes_the_input` (`dd3t8`) and Go `TestKeepingLinesWithoutEditsWritesTheInput` (`dd3w7`), the Rust fuzz `keeping_lines_reloads_as_the_document` (`dd3t9`), crosscheck `fKeepEdits`, and perf-gate `keeps` (`dd3w8`).
 	- Opened: 20260925-095454
 	- Closed: 20260925-142720
 
@@ -15193,7 +15293,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Done: `clear_comments(path)` in all four and the veneer, and a `clear-comments` op. Takes every comment line above the node, returns how many. The comment on the node's own line stays, and so does a kept malformed line. The blank above the run stays with the node.
 		- Verified: corpus 148 in all four runners, crosscheck, cli-regress. The shared edit-and-reload fixture and the Rust fuzz both pick it now, 2M clean.
 		- Swept: the eight op dispatch sites, help in four CLIs, man page, spec, changelog.
-		- Test case: corpus `148-clear-comments` in all four runners and the crosscheck, and cli-regress `clear-comments-extra-field` and `ops-clear-comments-bad-path`.
+		- Test case: corpus `148-clear-comments` (`dd3qz`) in all four runners and the crosscheck, and cli-regress `clear-comments-extra-field` (`dd3r3`) and `ops-clear-comments-bad-path` (`dd3zk`).
 		- Opened: 20260925-115006
 		- Closed: 20260925-121058
 
@@ -15204,7 +15304,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Done: `set_banner(on)` in all four and the veneer, and a `banner on|off` op. It drops any `##` run in the footer holding the SHCL line or a `Format` line, `migrate`'s stamp included, then with on adds the current block. Returns how many it took off.
 		- Note: only the footer is searched. A block at the top of a file is left alone.
 		- Verified: corpus 149 (an old block, a stamp, a user `##` note kept, twice in a row) and its bad ops, cli-regress rows for off and a bad value, a probe of seven edge cases agreeing in all four CLIs.
-		- Test case: corpus `149-banner` and its bad ops, and cli-regress `banner-on-off` and `banner-bad-value`.
+		- Test case: corpus `149-banner` (`dd3r0`) and its bad ops, and cli-regress `banner-on-off` (`dd3r1`) and `banner-bad-value` (`dd3r2`).
 		- Opened: 20260925-115006
 		- Closed: 20260925-121058
 
@@ -15232,7 +15332,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: reported from SilkTerm.
 	- Done: an `E012` line whose indent holds a space is written back as it was, and so is an `E018` line under it, with a lost count of 0. An indent of tabs alone would bind on a reload, so that line is still lost. Where a merge or an edit moves a kept line to a spot where it would bind, it is written as a comment. `misplaced` and `settle_kept` in Rust, Python and C, `misplaced` and `settleKept` in Go.
 	- Done: `migrate` still refuses at exit 7 while such a line is left, since 2.x read some of them.
-	- Pinned by: corpus cases `145-kept-misplaced`, `061`, `075` and `137`, the save-gate fixture in all four runners, and the fuzz lost-count property, which now works the kept lines out from the source.
+	- Pinned by: corpus cases `145-kept-misplaced` (`dd2kg`), `061`, `075` and `137`, the save-gate fixture in all four runners, and the fuzz lost-count property, which now works the kept lines out from the source.
 	- Opened: 20260924-142912
 	- Closed: 20260924-180219
 
@@ -15247,7 +15347,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 - ✅ `.ps1` scripts that can run on Windows should have no unicode in them, so that they don't need a BOM. (Unless a BOM is needed for other reasons.)
 	- Done: every `.ps1` is ASCII with no BOM. The copyright line takes the plain `(C)` form, as `install.ps1` already did, and section rules are `#===`. `check-docs.bash` refuses a BOM or a non-ASCII byte in any PowerShell file.
-	- Test case: `check-docs.bash` `install-ps1-ascii-no-bom`, over every tracked PowerShell file.
+	- Test case: `check-docs.bash` `install-ps1-ascii-no-bom` (`dcv3m`), over every tracked PowerShell file.
 	- Opened: 20260924-124420
 	- Closed: 20260924-124904
 
@@ -15278,7 +15378,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: `shcl fmt --zzzzzz f` prints `unknown option: --zzzzzz`, where `shcl zzzzzz f` prints `unknown command: zzzzzz (see --help)` and `--lossy` without `--write` ends the same way. The did-you-mean form, `unknown option: --stricness=strict; did you mean '--strictness'?`, has no pointer either.
 	- Note: found writing `project/style-guide_ui-ux.md`, which says a usage error ends with the pointer. It is a message change in all four CLIs, plus any `cli-regress` row that pins the old text.
 	- Fixed: the pointer is on the unknown-option message and on the four bad-value messages from the same option parser (`--on-bad`, `--strictness`, `--remove`, `--set` and its three siblings), in `parse_opts` and `set_value_opt` in Rust and C, `parse_opts` and `_set_value_opt` in Python, and `parseOpts` and `setValueOpt` in Go. A message that names its own fix, like `missing value for X (try X=VALUE)`, is left as it is, and the guide says so.
-	- Pinned by: six `cli-regress.bash` rows, `help-ptr-*`, which fail on the old Rust, Go and C builds.
+	- Pinned by: six `cli-regress.bash` rows, `help-ptr-*` (`dcs06`, `dcs08`, `dcs09`, `dcs07`, `dcs05`, `dcs04`), which fail on the old Rust, Go and C builds.
 	- Opened: 20260917-202211
 	- Closed: 20260917-202504
 
@@ -15327,7 +15427,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Fixed in all four CLIs: the `creating` branch of `do_set` (`doSet` in Go, `do_set` in Python and C) seeds the new document's text with the block instead of the empty string, so comments in an otherwise empty document become its trailing trivia, the edits land above them, and the write still runs through the library's save gate. `--no-banner` is valid on `set` now.
 	- Fixed in all four generators: `generate` writes its own prose as `##` (`desc` lines, the annotation line, the not-generated block and the block itself) and a commented-out setting as `# `. Convention only - both are ordinary comments, and a config author may write one however they like.
 	- The block is a public constant now (`GEN_BANNER`, `GenBanner` in Go, `SHCL_GEN_BANNER` in C), since the CLI writes the same bytes and a second copy of a byte-for-byte contract drifts.
-	- Pinned by `cli-regress.bash` rows `create-info-block` and `create-no-banner`, which assert the created file's text; the rows take a new optional seventh field, since a write that prints nothing had nothing to match on before. Both were watched to fail under an injection, one per arm. The eight `expected-init.shcl` goldens have the new prefixes, and `073`'s input follows since it is a copy of one.
+	- Pinned by `cli-regress.bash` rows `create-info-block` (`dcc9t`) and `create-no-banner` (`dcc9v`), which assert the created file's text; the rows take a new optional seventh field, since a write that prints nothing had nothing to match on before. Both were watched to fail under an injection, one per arm. The eight `expected-init.shcl` goldens have the new prefixes, and `073`'s input follows since it is a copy of one.
 	- Test case: cli-regress `create-info-block` and `create-no-banner`, and the `expected-init.shcl` goldens.
 	- Opened: 20260908-024440
 	- Closed: 20260908-193729
@@ -15394,7 +15494,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decided: an unterminated quote is a character, so the comma or comment after it still ends the piece; 2.x swallowed the rest of the line, and `migrate` quotes such a piece whole so the tree stays. And `migrate` leaves a line 2.x could not read, a bracket array 2.x counted lost, and a fence label holding a whitespace-`#` as written; the load names each of them.
 	- Note: the module path and the two per-binding README constraints move at the cut, per the release recipe, not here.
 	- Note: the comment-rule and carriage-return sub-bullets above are superseded; the rules are in `design.md` under Lexical edges. Churn on a subtle design interpretation.
-	- Test case: `check-migrate.bash` (migrated text reads as 2.x read it, corpus and fuzz), and `migrate_matches_expected` and its twins over the migrate goldens.
+	- Test case: `check-migrate.bash` (migrated text reads as 2.x read it, corpus and fuzz), and `migrate_matches_expected` (`dcmf1`) and its twins over the migrate goldens.
 	- Opened: 20260906-090943
 	- Closed: 20260908-000000
 
@@ -15451,7 +15551,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Most were already covered, several by a fixture whose item text never named it. Four behavior gaps were left, and each now has a row: `-h` after FILE, load diagnostics on stderr without `--write`, `--set` splitting at an `=` inside a selector, and a pre-release suffix ordered numerically rather than as text in both installers.
 	- A symlink cycle joins the file tier's fixtures in all four runners. The save has to fail and say why, and must not "fix" the cycle by dropping a regular file over one of the links.
 	- Not reachable and deliberately left: prose and wording items, and the Python CLI's Windows stdout encoding, which only the hosted Windows job can exercise.
-	- Test case: `cli-regress.bash` rows `help-after-file`, `fmt-diags-without-write`, `set-diags-without-write` and `set-eq-in-selector`; `shell-regress.bash` installer `alpha.10` rows; `save_reports_a_symlink_cycle_instead_of_replacing_it` and its twins.
+	- Test case: `cli-regress.bash` rows `help-after-file` (`dbzrd`), `fmt-diags-without-write` (`dbzrf`), `set-diags-without-write` (`dbzrg`) and `set-eq-in-selector` (`dbzrh`); `shell-regress.bash` installer `alpha.10` rows; `save_reports_a_symlink_cycle_instead_of_replacing_it` (`dbzr9`, `dbzrc`, `dbzrb`) and its twins.
 	- Opened: n/a
 	- Closed: 20260830-215127
 
@@ -15463,7 +15563,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- `perf-gate.bash` times bulk writes and absent-path defaults against the same binding's parse-only baseline, so it has no wall-clock constant. The two superlinear write regressions of the last fortnight came in at 15x and 160x over budget.
 	- `shell-regress.bash` covers the wrappers, the one-liner's scope hygiene, and scans every errexit script for the trap that has now bit four times: a `grep` in an assigned command substitution with no `|| true`.
 	- All three gates are in the test stage, so `--ci` and the hosted gate run them.
-	- Test case: corpus `063-remove-then-default` and `064-raw-info-hash`, the set-id check in `file_tier_load_save` and its twins, `cli-regress.bash`, `perf-gate.bash`, `shell-regress.bash`.
+	- Test case: corpus `063-remove-then-default` (`dbzb6`) and `064-raw-info-hash` (`dbzb7`), the set-id check in `file_tier_load_save` (`dbcwv`, `dd6h9`, `dd5h6`) and its twins, `cli-regress.bash`, `perf-gate.bash`, `shell-regress.bash`.
 	- Opened: 20260830-145320
 	- Closed: 20260830-163000
 
@@ -15500,7 +15600,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Python's time half moved only a little. The cost is spread across the interpreter's per-line work with no single hot spot left, so a real cut would mean restructuring the parser away from the reference's structure. Left there deliberately: the Python CLI exists for the differential check and stays well inside its gate ceiling.
 	- Done: the largedoc gate's memory ceilings were lowered to match, so the gains can't silently regress.
 	- Verified: confirmed independently by the format comparison below, which measured the reference on four document kinds and put a number on the time half too. Its published numbers predated this work and were refreshed by the rerun item below.
-	- Test case: `largedoc.bash` `bindings within their time and memory limits`, with the lowered ceilings.
+	- Test case: `largedoc.bash` `bindings within their time and memory limits` (`dcz6f`), with the lowered ceilings.
 	- Opened: 20260819-100700
 	- Closed: 20260821-150025
 
@@ -15555,7 +15655,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: all four bindings, none of them taking a dependency for it: the reference declares the one function it needs, C already had `windows.h`, Python goes through `ctypes`. Go could not, since `shcl.go` promises to work when copied out on its own and can't name a windows-only symbol - so the publish step became a hook and a small windows-only file swaps it in. Compiled, vetted and staticchecked in the cross stage, which is the only place that sees `GOOS=windows` at all.
 	- Separately, the `fsync` on the file only ever promised the contents; the move is a directory change. All four now sync the directory after it, so a power cut can't lose the publish and leave the old content. Best effort, POSIX-only.
 	- What still does not survive a save is written down rather than papered over - other hard links, POSIX ACLs, xattrs and SELinux labels among them. Spec and `design.md`.
-	- Test case: `TestSaveKeepsHiddenAndSystem` in Go and its twins (Rust `save_rewrites_a_read_only_file`, C `attrs`) on the hosted windows job; the directory sync cannot be tested.
+	- Test case: `TestSaveKeepsHiddenAndSystem` (`dc3vv`) in Go and its twins (Rust `save_rewrites_a_read_only_file` (`dbxk3`, `dbxkq`, `dbxm2`), C `attrs`) on the hosted windows job; the directory sync cannot be tested.
 	- Opened: n/a
 	- Closed: 20260820-154417
 
@@ -15571,7 +15671,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- From convert-base-v2, still open at v1.2.0: the scalar `"a, b"` and the list `a, b` met the same selector (display-form matching), so the read could only come back Multiple.
 	- Done, all four bindings: `x["a, b"]` matches only a single-element value whose logical string equals the text; bare selectors keep the whole-display match, so existing paths behave identically. The quoted flag rides the scanner's selector, the parser accelerator gets a rare fallback scan, and the generator re-emits quoted selectors quoted.
 	- Root cause of one C-only corpus failure en route: the flag was uninitialized on the bare path - fixed at the single declaration site. New case 050; spec selector prose updated in both places; decision in `design.md`.
-	- Test case: corpus `050-quoted-selector`.
+	- Test case: corpus `050-quoted-selector` (`dbd6f`).
 	- Opened: n/a
 	- Closed: 20260817-171503
 
@@ -15581,7 +15681,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the fuzzer caught the one retention hole (a BOM-led line, rewritten by the file-start strip) - those count as lost. Long soak green.
 	- Goldens 004 and 013 now keep their malformed lines; new case 049 pins retention in and out of blocks; fixtures in every runner. Spec (Diagnostics + File tier) and `design.md` updated. CLI `--write` behavior was left unchanged at the time, on the grounds that the stderr diagnostics are visible.
 		- Superseded by Code review 20260817 item 8: the CLI `--write` now consults the save gate and refuses a rewrite that would drop a line unless `--lossy` is passed.
-	- Test case: corpus `049-retained-lines`, the moved `004-strict-load` and `013-comments` goldens, `lost_and_save_gate` in Rust and Python, and `TestLostAndSaveGate` in Go.
+	- Test case: corpus `049-retained-lines` (`dbcxd`), the moved `004-strict-load` (`d9t9r`) and `013-comments` (`da4hk`) goldens, `lost_and_save_gate` (`dbcxe`, `dbee1`) in Rust and Python, and `TestLostAndSaveGate` (`dbcxf`) in Go.
 	- Opened: n/a
 	- Closed: 20260817-122516
 
@@ -15589,14 +15689,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- From nemo-anywhere: every consumer that persists a config re-implemented the same load/save dance and repeated the same mistakes - absent confused with unreadable, torn writes.
 	- Done, all four bindings + veneer. Load never fails (usable document plus Clean / HadErrors / NotFound / Unreadable status). Save writes canonical text through the atomic temp-and-rename that moved from the CLIs into the libraries, so the CLIs now call the same code and can't drift. C guards the tier behind `SHCL_NO_FILE_IO` so the core stays free of file I/O.
 	- Verified: fixture in every runner (missing file, directory, broken file, save round-trip); spec gained a File tier section; decision recorded in `design.md`.
-	- Test case: `file_tier_load_save` in all four runners.
+	- Test case: `file_tier_load_save` (`dbcwv`, `dd6h9`, `dd5h6`) in all four runners.
 	- Opened: n/a
 	- Closed: 20260817-120726
 
 - ✅ `AuthoredName(path)`: the field name as the author wrote it.
 	- From convert-base-v2: names store folded, so a message could only echo `symbols` when the file said `SYMBOLS`.
 	- Done, all four bindings + veneer: the parser and writer keep the as-authored spelling (unfolded, outer quotes stripped, escapes left as written; see Code review 20260817 item 15) beside the folded name. Resolution mirrors `Line(path)`, merged instances keep the first binding's spelling, a writer-built node keeps the setter path's. Fixture extended in every runner; spec Accessor section updated.
-	- Test case: `read_surface_line_quoted_children` and its twins in the other runners.
+	- Test case: `read_surface_line_quoted_children` (`daqsz`, `dbxkn`, `daqt1`) and its twins in the other runners.
 	- Opened: n/a
 	- Closed: 20260818-154310
 
@@ -15605,7 +15705,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done, all four bindings: the parser passes the re-open line down, so merges under a hinted container hint too, each naming its own earlier line; content the re-opened region itself wrote stays silent, and adjacent re-mentions stay silent as before.
 	- Done: new schema key `reopen: true` (a dedicated key, not a `repeat` overload) disavows the hint by leaf name, dropped at `check --schema` and the one-shot exactly like the H001 suppression; a bad value is a V092 fault.
 	- Verified: golden 001 gained the previously-invisible nested hint; new case 048 pins three-level reporting plus the disavowal. Spec vocabulary table and `design.md` updated.
-	- Test case: corpus `048-merge-hint-nested`, and the nested hint in `001-messy-cities`.
+	- Test case: corpus `048-merge-hint-nested` (`dbcw1`), and the nested hint in `001-messy-cities` (`d9s1g`).
 	- Opened: n/a
 	- Closed: 20260817-114152
 
@@ -15613,7 +15713,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- From gitniblet, round two of the same trap: v1.2.0 let surviving constraints check through faults, but the sweep still skipped on any fault, so their schema self-check probe was still required.
 	- Done, all four bindings: only two fault classes actually lose a name chain, an unreadable `field:` path (V093) and a mount naming no declared fragment (V095), so the sweep now skips only on those. Every key-level fault keeps its entry, whose path still legalizes its chain.
 	- Verified: case 046 gained the previously-invisible V001; new case 047 pins that a path-losing fault still holds the sweep back. Spec, `design.md`, and the veneer smoke test updated.
-	- Test case: corpus `046-schema-partial` and `047-schema-path-fault`.
+	- Test case: corpus `046-schema-partial` (`datt6`) and `047-schema-path-fault` (`dbcvk`).
 	- Opened: n/a
 	- Closed: 20260817-112718
 
@@ -15638,7 +15738,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reported from convert-base-v2, which skipped line-pinning its config errors over this. `line()` returns 0 unless the path resolves to exactly one node, so a repeated field, resolved as many, got 0, even though the parser's own repeat hint for that field has a line.
 	- Done: `lines(path)` in all four bindings plus the veneer, mirroring `instances()`. File order, unresolved wildcard slots as 0 so indices keep matching `count()`, a miss is the empty list. The same fixture was extended in every runner.
 	- A line-bearing `children()` variant was skipped: `children()` gives the names and `lines(parent.name)` gives that name's lines, so the composition already answers the walk-a-section case without a second parallel-array accessor.
-	- Test case: `read_surface_line_quoted_children` and its twins in the other runners.
+	- Test case: `read_surface_line_quoted_children` (`daqsz`, `dbxkn`, `daqt1`) and its twins in the other runners.
 	- Opened: 20260804-143741
 	- Closed: 20260804-153849
 
@@ -15648,7 +15748,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- The substantive gap was real though: one broken constraint turned off validation for the whole file, even though the schema builder already drops broken constraints one by one before deciding to bail.
 	- Done, as a three-way split. Faults report first, the surviving constraints still check the document, and only the unknown-field sweep needs a fault-free schema - a dropped constraint would turn its own fields into false unknowns. Generation still fails on any fault.
 	- Verified: all four bindings, case 046 pins it, and goldens 023/040 turned out to be unchanged (their survivors trigger nothing).
-	- Test case: corpus `046-schema-partial`.
+	- Test case: corpus `046-schema-partial` (`datt6`).
 	- Opened: n/a
 	- Closed: 20260804-175129
 
@@ -15677,7 +15777,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Both spellings share one ordered list, so the last option to touch a path wins.
 	- Investigated and deliberately not built: a "force this value to be a string" option. Quoting is a rule about canonical output, not a type marker: `fmt` normalizes `ver: "8"` to `ver: 8`, and values are typed by the reader, so there is nothing to force.
 	- No C++ veneer change: the veneer exposes reads only, so adding one setter there would have been the odd one out.
-	- Test case: corpus `044-write-literal`, and crosscheck "set --write applies --set-literal".
+	- Test case: corpus `044-write-literal` (`datds`), and crosscheck "set --write applies --set-literal".
 	- Opened: n/a
 	- Closed: 20260804-085353
 
@@ -15686,21 +15786,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Deliberately no new typed options: `--set` writes the value as literal config text, so `workers=8` already reads as an integer. A `--int`/`--string` family was compared against the op script and produced byte-identical output, so it would have been a redundant second way to do what `--set` already does.
 	- Known gap at the time, now closed by the item below: an array value could not be written as an option, because a comma made it a quoted string.
 	- Given any `--set`, `set` no longer reads stdin - otherwise passing edits as options blocks on the console, which is the hang this was meant to remove.
-	- Test case: `cli-regress.bash` row `set-option-skips-stdin`, all four CLIs.
+	- Test case: `cli-regress.bash` row `set-option-skips-stdin` (`dd5gy`), all four CLIs.
 	- Opened: n/a
 	- Closed: 20260804-082647
 
 - ✅ The schema can't declare an open section. From TradeClanker: wildcards select instances (`server[*].port`), but there's no way to say "any child name under `indicators`, each built like this". So a config with one map-like section can't use schema validation at all, and they keep a hand-maintained known-paths map instead. Everything else in their config would express cleanly as a schema.
 	- A name-position wildcard is the missing construct. Distinct from the schema-fragments item below (structure reuse), but they'd be designed together - both grow the schema language, so both go through the same design-first gate.
 	- Done: bare `*` name segment in lookup paths, all four bindings. Works in schemas (per-child contexts, unknown-sweep pattern match) and in reads (slots like `[*]`); writer refuses it; quoted `"*"` stays a literal name; document lines unchanged. Cases 037/038; spec + design.md updated.
-	- Test case: corpus `037-star-name` and `038-schema-open`.
+	- Test case: corpus `037-star-name` (`dact1`) and `038-schema-open` (`daqzg`).
 	- Opened: 20260802-110332
 	- Closed: 20260802-150827
 
 - ✅ Schema fragments. From gitniblet, the top feature request: the schema language can't express recursion or path aliases. Arbitrarily-nesting layout blocks are generated to a fixed depth, past which validation silently stops and correct keys start reporting as unknown. Wrapped vs flat spellings force dozens of lines of string surgery over their own schema file at init. Both are the same missing idea, "this subtree is built like that one", and a single fragment/reference construct closes both, taking dozens of hand-written field entries plus two generators down to something reviewable.
 	- Big. Design first, post-1.0. Weigh hard against keeping the schema language small, but two independent workarounds in the most rigorous consumer argue it earns its keep.
 	- Done: `fragment: <name>` declares (children are ordinary `field:` instances with relative paths), `inherits: <name>` mounts, all four bindings. Recursion/mutual refs legal with no depth limit (demand-driven expansion); `init` expands mounts and cuts where a fragment re-enters; H001 disavowal covers fragment-declared repeats; new V094/V095 faults. Cases 039-041; spec + design.md updated.
-	- Test case: corpus `039-schema-fragment`, `040-schema-fragment-faults` and `041-init-fragment`.
+	- Test case: corpus `039-schema-fragment` (`dar0d`), `040-schema-fragment-faults` (`dar0e`) and `041-init-fragment` (`dar0f`).
 	- Opened: n/a
 	- Closed: 20260804-080545
 
@@ -15746,20 +15846,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - ✅ Writer output has no blank lines between top-level sections.
 	- Done, default on with no knob: writer-created top-level nodes set blank_before (the emitter never blanks line 1). Write goldens 014/016/029 regenerated; spec Writer section documents the layout. From TradeClanker: hand-written examples and writer output disagree on layout, so they post-process the library's output with string surgery - which is what using the writer was meant to end. Blank-before already exists as parsed trivia, so the writer setting it when it creates a new top-level node (or a knob to) keeps the fixpoint property intact.
 	- Write-corpus goldens would churn; decide the default deliberately since written output is contract.
-	- Test case: the write goldens of corpus `014-write-build`, `016-write-raw-escapes` and `029-write-gate`.
+	- Test case: the write goldens of corpus `014-write-build` (`da6qb`), `016-write-raw-escapes` (`da6qd`) and `029-write-gate` (`dacv3`).
 	- Opened: 20260802-110332
 	- Closed: 20260802-123956
 
 - ✅ to_canonical() drops blank lines between comment-only regions. It shouldn't do that.
 	- Fixed: each held comment records its own preceding blank (runs still collapse to one; never as first output line). Blanks between comment regions (leading, merged, and end-of-file) now round-trip.
-	- Test case: corpus `013-comments` (blank between leading comment runs and before the trailing orphans) and `001-messy-cities`.
+	- Test case: corpus `013-comments` (`da4hk`) (blank between leading comment runs and before the trailing orphans) and `001-messy-cities` (`d9s1g`).
 	- Opened: 20260802-105223
 	- Closed: 20260802-123956
 
 - ✅ to_canonical() also loses comment indentation two ways, from the SilkTerm devs: a comment run trailing a block's last child re-attaches to the following node and de-indents to column 0, and orphan comments after the last binding always emit unindented. Together with the blank-line item above, fixing these lets them delete most of their save-repair pass.
 	- Fixed structurally rather than by storing verbatim indent: a comment written deeper than the next binding hangs on the block it sits in (new after-trivia, emitted after the block's last child at the block's indent). The same rule keeps indented tail-of-file comments with their block. Corpus case 034 pins it; fmt stays a fixpoint under the fuzz soak.
 	- Means recording indent (and probably original attachment) as trivia; fmt must stay a fixpoint. All four parsers + emit, golden churn expected.
-	- Test case: corpus `034-comment-indent`, and the Rust fuzz `mutated_inputs_never_panic_and_format_is_fixpoint`.
+	- Test case: corpus `034-comment-indent` (`daqtv`), and the Rust fuzz `mutated_inputs_never_panic_and_format_is_fixpoint` (`d9tnp`).
 	- Opened: 20260802-105223
 	- Closed: 20260802-123956
 
@@ -15767,21 +15867,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Done: `quoted` on the read result (rust/go/python; C read structs stay value+status by design) - true for a quoted single scalar element, false for arrays/raw/empty.
 		- From gitniblet: `a: @null` and `a: "@null"` read identically, so a language built on shcl can't reserve a sentinel value and still let a user write it literally. They had to make `@null` unconditionally reserved and walk back docs that promised quoting would escape it.
 		- The parser already tracks quoted per element and drops it at the read boundary; one field on the read result makes "quoting is the escape" true for every downstream language.
-	- Test case: `read_surface_line_quoted_children` in Rust and its twins in Go, Python and C (`shcl_quoted`).
+	- Test case: `read_surface_line_quoted_children` (`daqsz`, `dbxkn`, `daqt1`) in Rust and its twins in Go, Python and C (`shcl_quoted`).
 	- Opened: n/a
 	- Closed: 20260802-121147
 
 - ✅ Line numbers on the read path.
 	- Done both ways as filed: `Line(path)` accessor in all four bindings + veneer, and `line` on the read result itself (rust/go/python). 0 = unresolved or writer-built; merged instances cite the first binding, matching diagnostics. From gitniblet: node line is populated and never exported, so any consumer check the schema can't express can only name the entity, never the line - their warnings degraded from `line 81: ...` to `table issue: ...`. A Line(path) accessor is the cheapest high-value ask in their list.
 	- Second consumer, same gap (TradeClanker): parser diagnostics have a line and reads don't, so half the errors a user sees cite a line and half don't. A bad value reports nothing while a malformed line one field above reports `line 12`. They want the line on the read result itself, not just a separate accessor; do both, it's the same code path.
-	- Test case: `read_surface_line_quoted_children` in Rust and its twins in Go, Python and C (`shcl_line`).
+	- Test case: `read_surface_line_quoted_children` (`daqsz`, `dbxkn`, `daqt1`) in Rust and its twins in Go, Python and C (`shcl_line`).
 	- Opened: n/a
 	- Closed: 20260802-121147
 
 - ✅ Enumerate a node's children.
 	- Done: `Children(path)` in all four bindings + veneer: file order, duplicates included, empty path = top level; names as stored, QuoteSegment for splicing. From gitniblet: Paths() dedupes, so there is no way to ask "what keys are under this section?". They hardcode a ten-name hook list purely because they can't ask what's under `code:`, and any open-ended or map-like section is unmodellable. Children(path) returning child names in file order, duplicates included, deletes more of their workaround code than anything else they asked for.
 	- TradeClanker asks for the same thing for the same reason (reading an open section means scanning all of Paths() and prefix-matching), and notes it also sidesteps the Paths() quoted-name bug for that use.
-	- Test case: `read_surface_line_quoted_children` and `children_and_instance_paths_walk_a_repeated_key` in Rust and their twins in the other runners.
+	- Test case: `read_surface_line_quoted_children` (`daqsz`, `dbxkn`, `daqt1`) and `children_and_instance_paths_walk_a_repeated_key` (`dd2kk`, `dd2mk`, `dd2mj`) in Rust and their twins in the other runners.
 	- Opened: n/a
 	- Closed: 20260802-121147
 
@@ -15791,7 +15891,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- From gitniblet: merge-by-(name, value) means two separately-written `table: t` sections silently become one combined table, and only the parser can know it happened - their consumer-side "already defined; first wins" check was unreachable and got deleted as dead code.
 		- A hint-severity diagnostic with both line numbers makes that class of check possible without touching the documented merge semantics.
 	- New H-code; diagnostics are contract, so all four bindings plus the expected-diags goldens move together.
-	- Test case: corpus `035-merge-hint`, and the `001-messy-cities` and `013-comments` diagnostics goldens.
+	- Test case: corpus `035-merge-hint` (`daqvf`), and the `001-messy-cities` (`d9s1g`) and `013-comments` (`da4hk`) diagnostics goldens.
 	- Opened: 20260802-105223
 	- Closed: 20260802-125957
 
@@ -15800,7 +15900,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- From gitniblet: the repeated-bare-leaf hint is structurally a false positive for any field whose repetition is the instance mechanism (`unique:`, `index:`, `row:`). So every correct file warns on load and users learn to ignore warnings; they filter it by hand for exactly three names.
 		- When a schema is present and a path declares repeat with an upper bound above 1, H001 is dropped there - the information already exists and would otherwise go unused.
 	- H001 is parse-time and the schema arrives at validate, so the suppression belongs where check --schema assembles output, not in the parser.
-	- Test case: corpus `036-h001-suppress`.
+	- Test case: corpus `036-h001-suppress` (`daqvg`).
 	- Opened: 20260802-105223
 	- Closed: 20260802-125957
 
@@ -15810,7 +15910,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- That matters, since recover-and-continue means a mixed-indentation file otherwise returns no error at all.
 		- A combined entry point (text + schema + strictness in, doc + one diagnostic list out) plus an error count removes a whole class of consumer mistake.
 	- TradeClanker independently hand-rolled the same thing. No strictness level means "forgiving about spelling, loud about a dropped line", so at Standard an error diagnostic comes back beside a nil error and the line is silently skipped, and every consumer writes the same fifteen lines. An Errors() helper on the document is the smallest form of this ask, from a second consumer.
-	- Test case: `one_shot_load_and_validate` in Rust (error_count included) and `TestOneShotLoadAndValidate` with its twins in Python and C.
+	- Test case: `one_shot_load_and_validate` (`daqvh`, `daqvm`, `daqvk`) in Rust (error_count included) and `TestOneShotLoadAndValidate` (`daqvj`) with its twins in Python and C.
 	- Opened: 20260802-105223
 	- Closed: 20260802-125957
 
@@ -15828,7 +15928,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- From TradeClanker: Set* accepts segments that aren't valid bare names, and a dotted name is silently reinterpreted as nesting - a consumer concatenating a user-typed indicator name into a path is doing path injection without knowing it.
 		- Export a quote-segment helper (the escaping the path scanner already understands), or segment-wise setters taking a list that can't be injected into.
 		- Pairs naturally with the Paths() quoted-name bug above - same escaping code both directions.
-	- Test case: `paths_enumeration_shape` and `quote_segment_backslash_round_trips` in Rust, and their twins in the other runners.
+	- Test case: `paths_enumeration_shape` (`dacx2`, `daqry`, `daqrx`) and `quote_segment_backslash_round_trips` (`das9v`) in Rust, and their twins in the other runners.
 	- Opened: 20260802-110332
 	- Closed: 20260802-113718
 
@@ -15883,47 +15983,47 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - ✅ Schema-as-SHCL validation. The schema is a plain SHCL file (type, required, allowed values). `Validate(doc, schemaDoc)` returns structured diagnostics and catches unknown or misspelled fields. See `design.md` "Schema validation".
 	- Done: flat `field: <path>` schema layout, no grammar change; `Validate` in all four drop-ins plus the C++ veneer; `shcl check --schema` in all four CLIs; `V###` diagnostic codes; corpus cases 021-024 with a validate golden per case; crosscheck replays `check --schema`. Regex constraints and datetime ranges rejected for cross-binding parity; normative section in `spec.md`.
 	- Note: needs the reference parser first, then spec the schema vocabulary alongside it.
-	- Test case: corpus `021-schema-valid` to `024-schema-noload`, with the crosscheck's `check --schema` replay.
+	- Test case: corpus `021-schema-valid` (`da9vx`) to `024-schema-noload` (`da9w0`), with the crosscheck's `check --schema` replay.
 	- Opened: 20260713-065600
 	- Closed: 20260723-143512
 
 - ✅ Expand the conformance corpus (`conformance/`) to cover the hard edges: dates and ambiguity, coercion, quoting and escapes, indentation errors, raw blocks, selectors and wildcards, strictness levels.
 	- Done: cases for stacked arrays, coercion bundles, strict-load behavior, forgiving commas, raw blocks, and the full date whitelist.
 	- ✅ Model diagnostic expectations (count, severity, the mandatory repeated-leaf hint). Every case now has an `expected-diags.txt` golden (exact `check` stdout at standard: line/severity/code per diagnostic + the summary line), verified natively by all four runners. Pins the `H001` repeated-leaf hint and the zero-diagnostic cases too.
-		- Test case: `expected-diags.txt` in every corpus case, checked by `diagnostics_match_expected` in Rust and its twins in Go, Python and C.
-	- Test case: corpus `002-stacked-array`, `003-coercions`, `004-strict-load`, `005-raw-blocks`, `006-comma-edges`, `007-dates`.
+		- Test case: `expected-diags.txt` in every corpus case, checked by `diagnostics_match_expected` (`da8s1`) in Rust and its twins in Go, Python and C.
+	- Test case: corpus `002-stacked-array` (`d9t7b`), `003-coercions` (`d9t9q`), `004-strict-load` (`d9t9r`), `005-raw-blocks` (`d9tb1`), `006-comma-edges` (`d9tmc`), `007-dates` (`d9tnk`).
 	- Opened: 20260711-150807
 	- Closed: 20260722-194151
 
 - ✅ Layered loading. `Load(defaults, site, user, ...)` merges later over earlier via the existing merge rule, with CLI and env overrides on top.
 	- Done: `merge(base, over)` in all four drop-ins plus the C++ veneer; leaf names override, containers merge by `(name, value)`. CLI `--layer=FILE` (repeatable) on get/fmt/count/instances/set, `--set=PATH=VALUE` as the top layer; `fmt` doubles as merge. Env mapping dropped (belongs to the consuming program). Corpus case `025-layered` + `expected-merged.shcl` golden, all four native runners, crosscheck replays `fmt --layer/--set`; normative spec section.
-	- Test case: corpus `025-layered` and its `expected-merged.shcl`, with the crosscheck's `fmt --layer` and `--set` replay.
+	- Test case: corpus `025-layered` (`dab70`) and its `expected-merged.shcl`, with the crosscheck's `fmt --layer` and `--set` replay.
 	- Opened: 20260713-065600
 	- Closed: 20260724-131644
 
 - ✅ Schema-driven generation. Writer plus schema emits a commented, typed starter config (`shcl init --schema ...`). Depends on schema validation.
 	- Done: `generate(schema)` in all four drop-ins plus the C++ veneer; `shcl init --schema=FILE` in all four CLIs. Required fields live, optional commented, wildcards in a trailing block; `desc` -> comment, a fixed-format annotation line summarizes type/constraints (byte-for-byte parity contract). Uses the schema's `default`/`desc` vocabulary. Corpus case `026-init-schema` + `expected-init.shcl` golden, all four native runners assert output + clean reload, crosscheck replays `init --schema`; normative spec section.
-	- Test case: corpus `026-init-schema` and its `expected-init.shcl`, with the crosscheck's `init --schema` replay.
+	- Test case: corpus `026-init-schema` (`dab7k`) and its `expected-init.shcl`, with the crosscheck's `init --schema` replay.
 	- Opened: 20260713-065600
 	- Closed: 20260724-133500
 
 - ✅ Language spec rationalized from `notes.txt`: terminology, model, types, accessor and writer API, formatter, raw blocks. See `spec.md` and `grammar.abnf`.
 	- ✅ stacked (`*`) block-array form alongside inline commas. Both spellings read the same and canonicalize to inline.
-		- Test case: corpus `002-stacked-array` and `010-mixed-star`.
+		- Test case: corpus `002-stacked-array` (`d9t7b`) and `010-mixed-star` (`da49d`).
 	- ✅ date and time formats pinned to a closed whitelist (year-first or named-month only, then calendar-validated).
-		- Test case: corpus `007-dates`.
+		- Test case: corpus `007-dates` (`d9tnk`).
 	- ✅ adoption sweep. Cut the currency, percent, float-to-int rounding, and extra boolean tokens from default behavior. Case folding restricted to ASCII. Repeated-leaf hint made mandatory.
-		- Test case: corpus `003-coercions` (currency, percent, rounding and yes/enabled refused at standard, read at loose).
+		- Test case: corpus `003-coercions` (`d9t9q`) (currency, percent, rounding and yes/enabled refused at standard, read at loose).
 	- ✅ three strictness levels (loose, standard, strict) as a per-document knob, default standard. Loose re-admits the cut coercions; strict fails the load on any error.
-		- Test case: corpus `004-strict-load` and the per-level rows in `003-coercions` reads.tsv.
+		- Test case: corpus `004-strict-load` (`d9t9r`) and the per-level rows in `003-coercions` (`d9t9q`) reads.tsv.
 	- ✅ bindings re-tiered. Tier 1 reference plus CLI; Tier 2 Go, C, Python; Tier 3 the rest, post-v1.0.
 		- Test case: None, docs and process (tiering).
 	- ✅ raw-block binding reworked. A fence is a value line for its parent field. Child-indent spelling is canonical.
-		- Test case: corpus `005-raw-blocks` and `058-raw-indent`.
+		- Test case: corpus `005-raw-blocks` (`d9tb1`) and `058-raw-indent` (`dbxjw`).
 	- ✅ inline-array commas made fully forgiving. Stray commas drop their empty slots and never error.
-		- Test case: corpus `006-comma-edges`.
+		- Test case: corpus `006-comma-edges` (`d9tmc`).
 	- ✅ Model diagnostic expectations (count, severity, the mandatory repeated-leaf hint) in the corpus. See conformance item below.
-		- Test case: `expected-diags.txt` in every corpus case, checked by `diagnostics_match_expected` in Rust and its twins in Go, Python and C.
+		- Test case: `expected-diags.txt` in every corpus case, checked by `diagnostics_match_expected` (`da8s1`) in Rust and its twins in Go, Python and C.
 	- Test case: None, docs only (spec and grammar).
 	- Opened: 20260711-150807
 	- Closed: 20260722-194151
@@ -15975,7 +16075,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 - ✅ Accessor: two-tier junior-friendly API (convenience default plus full status), consistent across all bindings. A supplied default implies default mode.
 	- Done alongside review item 6: the full status tier (`Read`/`read_*`) was already there; the convenience default tier is now in every library binding (`GetIntOr`/`get_*(default=)`/`shcl_get_*`/`get_or<T>`/native `unwrap_or`), plus the CLI `--default` for the wrapper bindings. Supplying the fallback is Default mode - value on `Good`, fallback otherwise.
-	- Test case: `convenience_tier_falls_back_only_on_good` in Rust and `TestConvenienceTierFallsBackOnlyOnGood` with its twins in Python and C.
+	- Test case: `convenience_tier_falls_back_only_on_good` (`da6yp`, `dbeg4`, `dbeg3`) in Rust and `TestConvenienceTierFallsBackOnlyOnGood` (`da6yq`) with its twins in Python and C.
 	- Opened: 20260711-195150
 	- Closed: 20260721-123412
 
@@ -16032,14 +16132,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: started directly under 5.1, `$IsWindows` is empty, so it searches the Linux dirs and says no build is held.
 		- Fix: Make it work under 5.1.
 		- Done: it runs under 5.1. The platform is asked once, since 5.1 has no `$IsWindows` and strict mode refuses an unset name, and the ISO week is worked out by hand, since .NET Framework has no `ISOWeek`. The `.cmd` launcher falls back to `powershell.exe`.
-		- Test case: `win-runners.bash` step `dogfood runner`, under both shells in the hosted windows job. The hand ISO week matched .NET's for every day from 2020 to 2027.
+		- Test case: `win-runners.bash` step `dogfood runner` (`dd71z`), under both shells in the hosted windows job. The hand ISO week matched .NET's for every day from 2020 to 2027.
 		- Opened: 20260924-190225
 		- Closed: 20260927-214242
 
 	- ✅ Idea 2: `install.bash --uninstall` says it removed shcl when nothing was there.
 		- Note: seen in an empty scratch HOME. With `user` now the default, a 1.0-era system install gets the same message and stays.
 		- Done: with nothing of an install at the target, it says so and exits 0, and names a system install in /opt/shcl when the target was user.
-		- Test case: `shell-regress.bash` row `20260924d-idea2-uninstall-nothing-there`. It fails on the old installer. The no-terminal row now gives its scratch home an install dir, so it still reaches the prompt.
+		- Test case: `shell-regress.bash` row `20260924d-idea2-uninstall-nothing-there` (`dd70b`). It fails on the old installer. The no-terminal row now gives its scratch home an install dir, so it still reaches the prompt.
 		- Done: `install.ps1` says so too, and `Update-ShclPath -Remove` reports no write when the folder is not on PATH; it used to rewrite a PATH ending in `;` and say it had. Installer 1.1.3.
 		- Test case: `win-runners.bash` step `uninstall nothing`, under 5.1 in the hosted windows job.
 		- Opened: 20260924-190225
@@ -16049,7 +16149,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: `fInstallAtomic` there would replace the runner's link with a regular file, which the runner and `install.bash` then both refuse. Dropping `~/.local/bin` from `DOGFOOD_FIXED_DESTS` avoids it. Not run.
 		- Reproduced: 20260926, stage 7 lifted into a scratch HOME with no synced dir. It printed `OK: installed`, and the runner's link was a regular file after. Code review 20260926.
 		- Done: `~/.local/bin` is out of `DOGFOOD_FIXED_DESTS`. With no synced dir, stage 7 now skips and says so.
-		- Test case: `shell-regress.bash` row `20260924d-idea1-dogfood-dests`. It fails with the old list.
+		- Test case: `shell-regress.bash` row `20260924d-idea1-dogfood-dests` (`dd6yz`). It fails with the old list.
 		- Opened: 20260924-190225
 		- Closed: 20260927-191725
 
@@ -16145,7 +16245,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Idea 14: nothing checked `pyproject.toml`'s version against `Cargo.toml`.
 		- Fixed: `check-docs.bash` fails when they differ. Watched to fail with the Python version bumped alone.
-		- Test case: `check-docs.bash` `python-version-matches-cargo`.
+		- Test case: `check-docs.bash` `python-version-matches-cargo` (`dd2ds`).
 		- Opened: 20260924-133723
 		- Closed: 20260924-133723
 
@@ -16196,7 +16296,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the order matters. A deeper parent folded before its ancestor puts two demoted trailing comments in the other order.
 		- Note: survivors are marked beside the kept list rather than sorted and deduplicated, which kept Rust's binary 4 KB smaller.
 		- Measured: `fmt` on the 16 MB document, Rust from about 916 to 820 ms, Go 1016 to 900, C 640 to 570. The comment-heavy document in Rust, 711 to 613. Output identical.
-		- Pinned by: corpus case `141-nested-late-fold`, a fold inside a fold with a trailing comment on each side. A build that folds deepest first fails it. Old and new Rust also gave the same output on 20,000 random documents built around fences and stacked lists, some merged.
+		- Pinned by: corpus case `141-nested-late-fold` (`dd0tq`), a fold inside a fold with a trailing comment on each side. A build that folds deepest first fails it. Old and new Rust also gave the same output on 20,000 random documents built around fences and stacked lists, some merged.
 		- Origin: `f127185` (2026-08-03).
 		- Opened: 20260922-120717
 		- Closed: 20260923-102629
@@ -16207,7 +16307,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the parser sizes the arena and the two maps beside it from a count of the lines that can make a node. The count is taken in the loop that already strips each line's carriage return, and blank, comment and list-element lines are left out. An arena left more than half empty is copied down to size before the document keeps it.
 		- Measured: `fmt` on the 16 MB document went from about 1130 to 990 ms, and peak memory from about 600 to 480 MiB. On the comment-heavy document, 820 to 770 ms, with peak memory level or lower.
 		- Note: the version the review measured, sized to every line, failed `TestDiagnosticCapBoundsTheParse`. A 200,000-line list kept an arena of 200,000 nodes it never filled.
-		- Pinned by: `TestArenaSizedToTheDocument` in `mem_test.go`, which fails on the old code.
+		- Pinned by: `TestArenaSizedToTheDocument` (`dczzb`) in `mem_test.go`, which fails on the old code.
 		- Origin: `e2a57f7` (2026-08-17).
 		- Opened: 20260922-120717
 		- Closed: 20260922-195049
@@ -16243,7 +16343,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note, found while fixing: C already hashed and verified this map. Three bindings, not four.
 		- Fixed: the map is keyed on the (name, merge key) hash and checked on a hit, in Rust and Go, the way the fold does it. Python keys it on the exact tuple `_merge_key` builds from the value's own strings. The value's `key()` had no other caller and is gone, with its injectivity note moved to the hash. Rust also borrows the over side's names rather than copying them.
 		- Measured: 5 to 7 alternating runs against dev. Rust `fmt --layer` on the 16 MB document 2.64 s to 2.43, on the 32 MB comment-heavy one 2.20 to 1.91, on the 250 KB pair 62 ms to 51. Go 2 to 6 percent faster, Python 1 to 3. Plain `fmt` did not move.
-		- Pinned by: nothing new. Output was byte-identical against dev on the four timing merges and on raw-fill edge cases in all three bindings. `056-merge-empty-fill` fails with the fill taken out.
+		- Pinned by: nothing new. Output was byte-identical against dev on the four timing merges and on raw-fill edge cases in all three bindings. `056-merge-empty-fill` (`dbep0`) fails with the fill taken out.
 		- Origin: `66c7e5e` (2026-07-25). 20260918b item 58 added the name index beside it and left this map alone.
 		- Test case: None, perf idea with no number to pin; merge output held by corpus merge cases.
 		- Opened: 20260922-120717
@@ -16297,7 +16397,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: one `goto` that is not a cleanup unwind, in the windows `shcl_resolve_target`.
 		- Note: `shcl_narrow`, `shcl_widen` and `shcl_backup_name` allocate without saying who frees.
 		- Fixed: `f64_neighbor` copies with `memcpy`, `shcl_datetime_str` and the temp name use `snprintf` against their buffers, and the windows prefix is built with `wmemcpy`. The `goto` became an `else` arm. `shcl_widen` and `shcl_backup_name` now say the caller frees; `shcl_narrow` already did.
-		- Pinned by: nothing new. The conformance suite, `mem_bounds`, `oom_hook` and `oom_recover` pass, and the windows build saved a new file, an existing one, a `\\?\` path and a path past `MAX_PATH` under wine.
+		- Pinned by: nothing new. The conformance suite, `mem_bounds` (`dc25j`), `oom_hook` (`dbwdx`) and `oom_recover` (`dc114`) pass, and the windows build saved a new file, an existing one, a `\\?\` path and a path past `MAX_PATH` under wine.
 		- Origin: 2026-07-13 to 2026-09-19, all before the rules.
 		- Test case: `check-docs.bash` check that `shcl.h`, `shcl.hpp` and the C CLI call no `sprintf`, `strcpy`, `strcat` or their wide forms, and use no `goto` but the cleanup unwind.
 		- Opened: 20260922-120717
@@ -16362,7 +16462,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: `oneLine` shares one replacer. `pathScan.valueText` is a string plus `hasValue`. `cellOfTokens` and the maps in `foldLateDups` and `foldDupsBelow` are sized. `hangDeeperPending` filters the pending list in place. `namesKey` writes through `strconv`, and each of `Generate`'s two value maps builds its key once.
 		- Fixed: the profile showed one site the idea did not list. `emitRepeatedLeafHints` made a node list for every child, and makes one now only when a name repeats.
 		- Measured: 5,000 blocks (45,000 lines) parse with 37% fewer allocations, 285k to 180k. 6,000 range faults validate 23% faster in half the bytes, 88 MB to 46 MB. `init` over 4,000 fields is 13% faster with 23% fewer allocations.
-		- Pinned by: `TestRangeFaultsCostTheirMessage` in `mem_test.go`, which lets a range fault cost 2 KB over the same document in range. It measures 428 bytes now and 7,259 with the replacer built per call.
+		- Pinned by: `TestRangeFaultsCostTheirMessage` (`dcygq`) in `mem_test.go`, which lets a range fault cost 2 KB over the same document in range. It measures 428 bytes now and 7,259 with the replacer built per call.
 		- Left alone: `Generate`'s rank and key loops stay two passes, as in the reference, and only the key got cheaper. The biggest site left is `pathOf`'s segment slice, which the round deferred.
 		- Opened: 20260921-132543
 		- Closed: 20260921-185850
@@ -16451,7 +16551,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: five corpus cases, one per group. `132-space-indent` is the space and tab-then-spaces file. `133-bom-and-case` is the BOM, the fold and the non-ASCII names. `134-merge-raw-array` is the merge dimension over a raw block and an inline array. `135-schema-selector-arrays` is the value-selector schema path with `bool-array` and `datetime-array`. `136-number-and-path-edges` is the number spellings, the glued quote and the path spellings that resolve to nothing.
 		- Note: the fold worry was the right one to have and the answer was already right. All four fold A-Z only, so `"CLÉ"` folds to `"clÉ"` and is a different field from `"clé"`, while `"Clé"` is the same one. A bare non-ASCII name never gets that far: it is `E014` at the byte column where the name stops being bare, which is the one place C's byte counting and the other three's had to agree.
 		- Note: a value selector in a schema path narrows, so a `max` written for `srv[web1].port` leaves `srv[web2]`'s larger port alone. That is the half a wildcard reading would get wrong quietly.
-		- Pinned by: the five cases. Each was watched to fail on its own: a Unicode fold reddens `133`, a raw over-value that cannot override reddens `134`, a value selector read as a wildcard reddens `135`, and refusing a leading-zero integer reddens `136`. `132` was watched against an indent scan that takes tabs only, which flattens its whole tree and loses every read - that injection also reddens `061-dedent-error`, so it was read off the case directly rather than off the suite.
+		- Pinned by: the five cases. Each was watched to fail on its own: a Unicode fold reddens `133`, a raw over-value that cannot override reddens `134`, a value selector read as a wildcard reddens `135`, and refusing a leading-zero integer reddens `136`. `132` was watched against an indent scan that takes tabs only, which flattens its whole tree and loses every read - that injection also reddens `061-dedent-error` (`dbxjz`), so it was read off the case directly rather than off the suite.
 		- Opened: 20260920-174959
 		- Closed: 20260921-082651
 
@@ -16477,7 +16577,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Idea 5: a misspelled op in `write-bad.ops` counts as a rejection in all four runners.
 		- Note: every bad-ops loop takes any error as the expected refusal, so a future row spelled `itn` would assert nothing. All 51 rows are spelled right today.
 		- Fixed: an op name the runner does not have is told apart from a refusal. Rust and Python pass it as a fixed message prefix, Go wraps a sentinel error that `errors.Is` finds, and the C runner returns 2 where a refusal returns 1. Each bad-ops loop reports `names no op` instead of counting it as the rejection the row asserts.
-		- Pinned by: the four loops themselves. Watched to fail by spelling `029-write-gate`'s first op `itn`, which all four now name and none of them did before.
+		- Pinned by: the four loops themselves. Watched to fail by spelling `029-write-gate` (`dacv3`)'s first op `itn`, which all four now name and none of them did before.
 		- Test case: a misspelled-op probe in all four runners: `itn` comes back as an unknown op and `int a x` as a refusal.
 		- Opened: 20260920-174959
 		- Closed: 20260920-204500
@@ -16545,7 +16645,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: every target is marked, then each touched child list is rebuilt once. The mark is the node's parent link set to DEAD, and a rebuild puts the link back on each node it drops, so a mark still standing also answers "has this parent been done yet" and nothing has to dedupe the parents. All four bindings; C writes the one vector of pairs as two parallel vectors.
 		- Left alone: the name index. Its chain is walked once per target, but resolve hands the targets back in file order, which is chain order, so every unlink takes the head and costs nothing. Dropping the index instead would rebuild it on the next lookup, which makes a script of single removes the quadratic that was just taken out.
 		- Measured: 40,000 instances of one name among 80,000 top-level nodes, release Rust: 839 ms before, 93 ms after, against a 77 ms parse of the same file. The other three move the same way.
-		- Pinned by: the `removes` workload in `perf-gate.bash`, watched to fail in all four (rust 12713 ms against a 1014 ms budget, go 1086 against 309, python 15463 against 2178, c 396 against 288). Its document is half again the key count, because C's budget is the baseline-plus-250 floor and at the plain key count the old code cleared it by only 40 percent. Corpus case `129-remove-many` pins the semantics four ways.
+		- Pinned by: the `removes` (`dcwn7`) workload in `perf-gate.bash`, watched to fail in all four (rust 12713 ms against a 1014 ms budget, go 1086 against 309, python 15463 against 2178, c 396 against 288). Its document is half again the key count, because C's budget is the baseline-plus-250 floor and at the plain key count the old code cleared it by only 40 percent. Corpus case `129-remove-many` (`dcwn6`) pins the semantics four ways.
 		- Opened: 20260920-055406
 		- Closed: 20260920-113000
 
@@ -16655,14 +16755,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 54: `fmt --check`.
 		- `migrate --check` exists and `fmt --check` is "not valid for fmt". rustfmt, gofmt, black, prettier and taplo all have one, and a CI user will type it. Today it takes `shcl fmt f | cmp -s - f`. Exit 6 is there to reuse.
 		- Fixed: `fmt --check` in all four CLIs. It prints nothing, exits 6 when the canonical form differs from the file's bytes and 0 when it does not, and names the file on stderr. `--check` with `--write` is the usage error it already was for `migrate`. Help, man page, completions and spec say so.
-		- Pinned by: `cli-regress.bash` rows `fmt-check-noncanonical`, `fmt-check-canonical` and `fmt-check-write`. All three fail on the old code (exit 1, "option --check not valid for fmt").
+		- Pinned by: `cli-regress.bash` rows `fmt-check-noncanonical` (`dcvgm`), `fmt-check-canonical` (`dcvgn`) and `fmt-check-write` (`dcvgp`). All three fail on the old code (exit 1, "option --check not valid for fmt").
 		- Opened: 20260918-193000
 		- Closed: 20260919-152715
 
 	- ✅ Item 55: `set --write` says nothing when it creates FILE.
 		- A typo in the file name exits 0 with empty stderr and leaves a new file, where `migrate --write` reports what it did. The create itself is decided. A `FILE: created` note on stderr is what is missing.
 		- Fixed: a `--write` that created FILE says `FILE: created` on stderr, in all four CLIs. A write over an existing file still says nothing.
-		- Pinned by: `cli-regress.bash` rows `create-says` and `write-existing-quiet`. The first fails on the old code with an empty stderr.
+		- Pinned by: `cli-regress.bash` rows `create-says` (`dcvgq`) and `write-existing-quiet`. The first fails on the old code with an empty stderr.
 		- Opened: 20260918-193000
 		- Closed: 20260919-152715
 
@@ -16670,7 +16770,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A new inode and mtime on every run, so an idempotent `--set-default` in a provisioning script reports a change each time, watchers fire, and other hard links break for nothing. A canonical file in a read-only directory fails at exit 8 with nothing to write. `migrate --write` already skips a current file.
 		- Note: pairs with bug item 16's second look.
 		- Fixed: a `--write` whose canonical text equals the bytes read back publishes nothing and exits 0, in all four CLIs. The file keeps its inode, mtime and hard links. The library's save is unchanged, since its caller may want the publish. A load that dropped content still refuses first.
-		- Pinned by: `cli-regress.bash` save-target cases `same` and `differs`, which compare the inode across the run. `same` fails on the old code.
+		- Pinned by: `cli-regress.bash` save-target cases `same` (`dcvgr`) and `differs` (`dcvgs`), which compare the inode across the run. `same` fails on the old code.
 		- Note: the new Save outcomes table in `design.md` has both rows.
 		- Opened: 20260918-193000
 		- Closed: 20260919-152715
@@ -16681,7 +16781,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: the group is kept, best effort, and the owner still is not. A save that is not root cannot set the owner, and 20260829 item 8 stands. A saver outside the old group leaves its own group on the file, which is what happened before.
 		- Fixed: all four bindings chown the group on the temp file before the mode, since a chown clears setuid and setgid. Go reads the gid through reflect, because `syscall.Stat_t` does not exist on windows and `shcl.go` has to compile there.
 		- Fixed: the spec's ownership sentence now says owner rather than ownership, and says the group is kept. `design.md`'s "What is kept" bullet and the Save outcomes table say the same.
-		- Pinned by: `cli-regress.bash` save-target case `group`, which rewrites a `0640` file owned by a second group and reads the group back. It fails on the old code (the group comes back as the caller's own). The case drops out where the caller is in one group only.
+		- Pinned by: `cli-regress.bash` save-target case `group` (`dcvgt`), which rewrites a `0640` file owned by a second group and reads the group back. It fails on the old code (the group comes back as the caller's own). The case drops out where the caller is in one group only.
 		- Opened: 20260918-193000
 		- Closed: 20260919-152956
 
@@ -16690,7 +16790,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Origin: `157b9aa` (2026-09-05). The comment above `overlay` says the quadratic terms at one parent were removed, and this put one back.
 		- Fixed: the base pass builds a name to children index alongside the two maps it already built, and the override arm reads the replaced leaf's comments off it. All four bindings. C keeps one posting list per name, which the map entries index. Merge output is byte-identical before and after, on the small shapes and on the big one.
 		- Measured: 32,000 leaves overridden by the same 32,000, `fmt --layer`. C 2.93 s to 0.05 s, rust debug 13.2 s to 0.70 s.
-		- Pinned by: `perf-gate.bash` workload `merge`, two flat files naming the same keys at half the key count. On the old code it is 1041 ms against a 283 ms budget in C and 5161 ms against 969 ms in rust. New code: c 34, go 74, rust 417, python 760, all well inside.
+		- Pinned by: `perf-gate.bash` workload `merge` (`dcvgv`), two flat files naming the same keys at half the key count. On the old code it is 1041 ms against a 283 ms budget in C and 5161 ms against 969 ms in rust. New code: c 34, go 74, rust 417, python 760, all well inside.
 		- Opened: 20260918-193000
 		- Closed: 20260919-153822
 
@@ -16755,7 +16855,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed, the count: one `iter_count(floor)` for all ten reads of `SHCL_FUZZ_ITERS`. A value that does not parse panics with what it read, and 0 panics rather than looping zero times and passing. An absent variable still means 300, and `tokens_follow_the_grammar` keeps its 2000 floor.
 		- Fixed, the shapes: `fence()` builds a raw block in any of the forms shape 7 could not - the same-line and the block spelling, backticks or tildes, a run of three to five, an info string (including the `c#` that ends at the comment), a body of one line, of a field line and a comment line, or of a blank, a flush-left line and a deeper one, and a closer at the body's indent, at the field's, flush left, or missing.
 		- Fixed, `raw_bodies_stay_content`: the property knew only shape 7's geometry, two body lines and a closer. It now works out each block's extent by the spec's own rule - the first later line whose trimmed text is a run of the same character, at least as long as the opener's - so it covers every new shape, unterminated blocks included.
-		- Pinned by: `the_iteration_count_refuses_a_value_that_is_not_one`, over `""`, `0`, `2OO`, `-1`, `1e5` and `20 000`. It fails on the old `.and_then(|v| v.parse().ok()).unwrap_or(300)` at the first case and passes on the new one.
+		- Pinned by: `the_iteration_count_refuses_a_value_that_is_not_one` (`dcvfj`), over `""`, `0`, `2OO`, `-1`, `1e5` and `20 000`. It fails on the old `.and_then(|v| v.parse().ok()).unwrap_or(300)` at the first case and passes on the new one.
 		- Measured: 200000 iterations in release. Ten of the eleven properties pass. The eleventh found a defect the new shapes reach at iteration 49124, filed and closed as a loose bug under Done - Bugs: a capped `*` line reading `E021` where the open parse drops it as `E008`. The two gates that read the soup are green on it: `crosscheck.bash` has all four bindings agreeing on 16308 comparisons over the corpus and a 500-document dump, and `check-migrate.bash` compares 563 documents (124 corpus, 439 dumped) with its 8 lost counts matching. So the new shapes are parity-clean and migrate the same way.
 		- Left alone: the mutated-seed half of `generated_starters_load_and_validate_clean` still has no iteration floor. Giving it one would multiply the default `cargo test` cost of that test by about seven, and with 0 and a typo now refused the floor is no longer what stands between the test and running nothing.
 		- Opened: 20260918-193000
@@ -16780,7 +16880,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Done in part: the block has a `Format` line naming the format's major, added with item 4, which needed it to tell a 3.0 file from a 2.x one.
 		- Decided: the `Syntax` link names the tag of the release that opened the format major, `v3.0.0` for format 3, and moves only with the `Format` line. The link is dead until 3.0.0 is cut.
 		- Fixed: the banner in all four bindings, the spec, the README and the `init` goldens.
-		- Test case: corpus `026-init-schema` expected-init.shcl (Format line and tagged Syntax link) and `cli-regress.bash` row `create-info-block`, all four CLIs.
+		- Test case: corpus `026-init-schema` (`dab7k`) expected-init.shcl (Format line and tagged Syntax link) and `cli-regress.bash` row `create-info-block` (`dcc9t`), all four CLIs.
 		- Opened: 20260909-105600
 		- Closed: 20260918-111153
 
@@ -16805,7 +16905,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Both are cases where the CLI knows more than it says.
 		- Fixed: an option in front of the subcommand that is a real option now reads `option --schema goes after the subcommand`. It used to be called unknown and then handed its own spelling back as a did-you-mean.
 		- Fixed: a value option in space form records the word it took when that word was the last on the line. With no positional left, the refusal names the option, the word it ate and the `=VALUE` spelling. `init` is exempt, since it is the one command that wants no FILE.
-		- Pinned by: `cli-regress.bash` rows `opt-before-cmd`, `unknown-opt-before-cmd`, `opt-space-ate-file` and `opt-space-init-ok`. The first and third were watched to fail against the old code; the last holds the space form that has to keep working.
+		- Pinned by: `cli-regress.bash` rows `opt-before-cmd` (`dcrtc`), `unknown-opt-before-cmd` (`dcrtd`), `opt-space-ate-file` (`dcrte`) and `opt-space-init-ok` (`dcrtf`). The first and third were watched to fail against the old code; the last holds the space form that has to keep working.
 		- Opened: 20260909-105800
 		- Closed: 20260917-233000
 
@@ -16814,7 +16914,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the `raw` op's refusal names the half and its causes. Which half is asked of the library rather than re-derived in the CLI - an empty info string always reads back, so a write that still fails with one is the body's fault - through `raw_refusal` in each of the four.
 		- Fixed: the `needs_quotes` comment in all four. It claimed the parser trims the whole Unicode whitespace set, which `is_wsp`'s own comment three screens up contradicts. The real reason is the carriage return, which is a blank and is trimmed; the wide test stays, since it only ever adds quoting.
 		- Note: the fence-close cause is all but unreachable, because `choose_fence` always picks a fence longer than any run in the body. It is named anyway, since a body line ending in a carriage return can reach it.
-		- Pinned by: `cli-regress.bash` rows `ops-raw-bad-info` and `ops-raw-bad-body`, both watched to fail against the one old message.
+		- Pinned by: `cli-regress.bash` rows `ops-raw-bad-info` (`dcrtg`) and `ops-raw-bad-body`, both watched to fail against the one old message.
 		- Opened: 20260909-105900
 		- Closed: 20260917-233000
 
@@ -16851,7 +16951,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Already done, by the fix for bug item 1. Corpus `116-selector-open-quote` holds four unclosed selector quotes across three shapes, with the fmt golden, the diagnostics and the reads, and a strict `load` row.
 		- Checked rather than assumed: dropping the `E017` the selector half emits was watched to fail the corpus with `116` present and `126` absent. A case written for this was drafted and thrown away as a duplicate - it asserted nothing `116` did not, and a corpus change costs a fuzz-seed round.
 		- Note: the finding named `105-quote-in-selector`, which is the all-clean case and stays that way.
-		- Test case: corpus `116-selector-open-quote`.
+		- Test case: corpus `116-selector-open-quote` (`dcdj9`).
 		- Opened: 20260909-105300
 		- Closed: 20260917-220000
 
@@ -16870,7 +16970,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: that `mem_bounds.c` half was done with bug item 22.
 		- Fixed: `sanitize-c.bash` runs `tokens`, `migrate`, `migrate --check` and the four write paths - `fmt --write`, `migrate --write`, `set --write`, and a `set --write` that creates the file - on its own copies. 2,486 CLI runs where there were 920.
 		- Note: all clean, as the finding predicted. The whole file tier had never run under the sanitizers, which is what this closes.
-		- Test case: `sanitize-c.bash` `every corpus CLI run under ASan and UBSan`, which now runs `tokens`, `migrate` and the four write paths.
+		- Test case: `sanitize-c.bash` `every corpus CLI run under ASan and UBSan` (`dbz3a`), which now runs `tokens`, `migrate` and the four write paths.
 		- Opened: 20260909-105100
 		- Closed: 20260917-213000
 
@@ -16880,7 +16980,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: `star_legal` and `chain_parts_legal` each walk their whole list per document node. Both are element-wise, so a path can only match a chain whose first part its own first segment accepts.
 		- Fixed: the two matchers take an index bucketing paths by first segment, with one bucket for `*`, built once per constraint list. `first_index` and `FirstIndex` (Rust), `firstIndex` and `firstIdx` (Go), `_first_index` and `_candidates` (Python), `fidx_add` and `fidx_bucket` (C). Both curves are linear now and sit at the no-schema control's cost: star paths 1.387 s to 0.141 s, mounts 0.974 s to 0.135 s.
 		- Note: C indexes the per-fragment lists by position rather than by fragment name, because its `dead` array is already numbered that way. The comment says so.
-		- Pinned by: two `perf-gate.bash` workloads, `stars` and `mounts`, each timed against the binding's own parse baseline. Watched to fail: on the old code 5 of the 6 go red, by 4.4x (rust), 2.3x (c) and 1.3x (go). Correctness is pinned by the corpus, which was watched to fail too - a dropped star bucket fails `validation_matches_expected`, and a fragment reading the top-level bucket fails that and `init_generation_matches_expected`.
+		- Pinned by: two `perf-gate.bash` workloads, `stars` (`dcrm2`) and `mounts` (`dcrm3`), each timed against the binding's own parse baseline. Watched to fail: on the old code 5 of the 6 go red, by 4.4x (rust), 2.3x (c) and 1.3x (go). Correctness is pinned by the corpus, which was watched to fail too - a dropped star bucket fails `validation_matches_expected` (`da9w1`), and a fragment reading the top-level bucket fails that and `init_generation_matches_expected` (`dab7m`).
 		- Note: the workload shape matters twice over. The document's names sit at the end of the schema's list, since a name near the front ends the scan early and hid four fifths of the cost; and each instance is one dotted line, since the block spelling costs three times the parse for the same chains and pushed the new code near its own budget.
 		- Note: checked against the old code over 3,000 random schema and document pairs in the reference, and 800 each for the three ports, comparing `check --schema` stdout and exit code. No divergence. The harness was falsified first: with the star bucket dropped it reports one.
 		- Decided: the three schema builds are deferred, not fixed. They are a 2x constant on a schema-heavy run, not a curve, and both ways to fix it cost more than that. Moved to Future and/or deferred with the measurement.
@@ -16893,7 +16993,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: the refusal stays. `spec.md` says a must-exist path nothing can write is a `V097` fault rather than a line in the trailing block, so generating the rest would contradict the spec. What was missing is what the fault says.
 		- Fixed: `why_unwritable` in each binding gives the reason and the old `unwritable` predicate is now one line reading it, so the refusal can never name a path for a reason generation did not act on. Three reasons: a `[#N]` selector, a `*` name segment, and a path past the depth cap. Every blocked path gets its own fault line instead of only the first, so one run says how much of the schema is unreachable.
 		- Note: a separate line saying the rest generated fine was declined. Naming every blocker already says it, and the V09x lines are machine-read.
-		- Pinned by: `cli-regress.bash` rows `init-blocked-first` and `init-blocked-second` on a schema with two blocked paths either side of one that generates, plus the reason added to `init-star-repeat1` and `init-index-required`. All four watched to fail against the old code.
+		- Pinned by: `cli-regress.bash` rows `init-blocked-first` (`dcrrh`) and `init-blocked-second` (`dcrrj`) on a schema with two blocked paths either side of one that generates, plus the reason added to `init-star-repeat1` (`dc269`) and `init-index-required` (`dc3tt`). All four watched to fail against the old code.
 		- Opened: 20260909-104800
 		- Closed: 20260917-210000
 
@@ -16902,7 +17002,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: the message follows V004's shape, with the bound inserted: `value above max 10 at 'port': 99`. The value is the source text of the element that broke the bound, not the first element, so an array says which slot.
 		- Decided: a float bound is written through the shared float formatter, the one the generated annotation line uses, so `min: 1.0` reads as 1 in every binding and no libc gets a say.
 		- Fixed: the four int and float range arms in each binding. `position` (Rust), `firstIntBelow`/`firstIntAbove`/`firstFloatBelow`/`firstFloatAbove` replacing the `any*` predicates (Go), `_first_where` (Python), and `v_out_of_range` beside `v_not_allowed` (C).
-		- Pinned by: `cli-regress.bash` rows `range-max-names-value` and `range-min-names-bound`, watched to fail against the old wording. The `init-optional-bad-default` row had the old text inside its V097 and was updated.
+		- Pinned by: `cli-regress.bash` rows `range-max-names-value` (`dcrnt`) and `range-min-names-bound` (`dcrnv`), watched to fail against the old wording. The `init-optional-bad-default` (`dcnky`) row had the old text inside its V097 and was updated.
 		- Opened: 20260909-104700
 		- Closed: 20260917-170000
 
@@ -16919,7 +17019,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: a created file is seeded with the block alone, so the blank line above it is the document's first, and the parse clears those on purpose - a document that kept one would not survive its own canonical form.
 		- Decided: put the blank back in the CLI, after the edits land, rather than changing the parse rule or taking `init`'s blank away. The spec already says the footer is separated by one blank line.
 		- Fixed: the create path in the four CLIs re-parses `head + "\n" + banner` before the save, so the saved text is still a formatter fixpoint and still goes through the save gate.
-		- Pinned by: the `create-info-block` row in `cli-regress.bash`, which asserts the created file's whole text.
+		- Pinned by: the `create-info-block` (`dcc9t`) row in `cli-regress.bash`, which asserts the created file's whole text.
 		- Opened: 20260909-105500
 		- Closed: 20260917-170000
 
@@ -16970,7 +17070,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: `migrate --check` prints nothing, names each line a rewrite would change, and exits 6 when there is one. 7 still wins when `migrate` could not finish. It can't be combined with `--write`. One FILE per run, so a tree is a shell loop.
 		- Fixed: the check is in the four CLIs, which compare the file with the migrated text line by line. `migrate --write` now says how many lines it rewrote.
 		- Fixed: the completion files never offered `--from-2x`, so `check-completions.bash` had been red on dev since it went in, and its option pattern dropped digits. Both are fixed.
-		- Pinned by: seven `cli-regress.bash` rows, `migrate-check-*` and `migrate-write-says`, watched to fail on a line number off by one, a missing exit 6 and a missing write report.
+		- Pinned by: seven `cli-regress.bash` rows, `migrate-check-*` and `migrate-write-says` (`dcqag`), watched to fail on a line number off by one, a missing exit 6 and a missing write report.
 		- Opened: 20260909-104000
 		- Closed: 20260916-160434
 
@@ -16980,7 +17080,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Measured: `a: [80]` reports `E019` and then `E003`, and the lost count is 2 for one line. `a: [*]` does the same with `E019` and `E004`. `LostCount()` is documented as "how many lines or values were dropped", so a consumer showing the number to a user overstates it.
 		- Note: nothing keys on the exact number today - the save gate only asks whether it is nonzero - so this is a number worth correcting rather than a behavior to change.
 		- Fixed: by item 1's rule. A bracket body with no unquoted comma is a hint that counts nothing, so `a: [80]` and `a: [*]` are counted once each, by `E003` and `E004`.
-		- Pinned by: corpus `108-bracket-index-lost` - the two lines, the hint and error each reports, and a lost count of 2. The count read 4 before this round.
+		- Pinned by: corpus `108-bracket-index-lost` (`dc81x`) - the two lines, the hint and error each reports, and a lost count of 2. The count read 4 before this round.
 		- Note: churn on a subtle design interpretation. The rule this item turned on is settled the other way in `design.md` under Lexical edges, so the item is no longer relevant.
 		- Test case: corpus `108-bracket-index-lost`, which now pins one retained E019 per line under the E019 rule.
 		- Opened: 20260905-142100
@@ -16990,7 +17090,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `sel-char` range is "any char but `]`", which includes `#`, and its note names quotes and non-ASCII as passing through verbatim without mentioning `#`. The spec's `E003` row says the opposite and describes the real behavior: "the `#` opens a comment before the selector is read". `a[x#y].b: 1` is `E014`.
 		- Note: worth settling alongside item 2, since both are about how far a bare selector body runs.
 		- Fixed: the grammar. `sel-char` excludes `#` and its note says an unquoted `#` opens a comment wherever it sits, a bare selector included, which is what the spec's `E003` row and every binding already did. Settled with item 2: a bare selector runs to the first `]`, quotes mid-text are text, and `#` is the one character that ends it early.
-		- Pinned by: corpus `109-hash-in-selector` - `a[x#y].b: 1` and `b[#5].c: x` are `E014`, retained, lost 0.
+		- Pinned by: corpus `109-hash-in-selector` (`dc81y`) - `a[x#y].b: 1` and `b[#5].c: x` are `E014`, retained, lost 0.
 		- Opened: 20260905-142200
 		- Closed: 20260905-193823
 
@@ -17006,7 +17106,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reproduced: a schema whose fragment mounts under a field generates `opt.srv:` and then `opt.srv.a:` as separate flat lines, so the second re-opens `opt` and the load hints `H002`. The spec promises generated output "loads with no error diagnostics", which holds - a hint is not an error - but a starter config that hints on its own first line trains a reader to ignore hints.
 		- Note: the flat dotted form is deliberate and `reopen:` is the declared way to disavow the hint, so the fix is probably a `reopen` on what generation re-opens rather than a change of shape.
 		- Fixed: the generator lays its blocks out in tree order in all four bindings - every path prefix ranked by first appearance, a parent before its children, siblings in schema order - so a parent listed after its child is never re-opened behind another field. A schema already in tree order generates the same text; corpus `026`'s golden regrouped its `server` lines. Not `reopen`: that key disavows the hint under validation and does nothing for the file loaded on its own.
-		- Pinned by: corpus `110-init-tree-order` (the shape from the review, a parent listed after its child with a field between), and every runner now requires a generated starter to load with no diagnostics at all, hints included, where it used to allow anything short of an error.
+		- Pinned by: corpus `110-init-tree-order` (`dacv6`) (the shape from the review, a parent listed after its child with a field between), and every runner now requires a generated starter to load with no diagnostics at all, hints included, where it used to allow anything short of an error.
 		- Opened: 20260905-142400
 		- Closed: 20260905-194914
 
@@ -17016,7 +17116,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Measured `check --schema` on a tiny document against N fragments, rust debug / go / c: 2,000 fragments 0.06 / 0.03 / 0.02 s; 8,000 0.28 / 0.05 / 0.34; 16,000 0.61 / 0.14 / 0.90; 32,000 1.15 / 0.24 / 3.93.
 		- Cause: the C fragment lookup is a linear scan and the duplicate check calls it once per fragment. The reference uses a map. Disabling the duplicate check in a scratch copy drops 32,000 fragments from 4.02 s to 0.20 s. It is paid three times per `check --schema`, once for validation and once for each suppressor.
 		- Fixed: `ShclVSchemaDef` has a name index (`fmap`), so `v_frag_index` and `v_frag_get` are a hash lookup rather than a scan. 32,000 fragments: 3.31 s to 0.23 s.
-		- Pinned by: the `perf-gate.bash` `frags` workload, 16,000 unused fragments against one failing line, which the scan misses by 903 ms against a 286 ms budget.
+		- Pinned by: the `perf-gate.bash` `frags` (`dcbbn`) workload, 16,000 unused fragments against one failing line, which the scan misses by 903 ms against a 286 ms budget.
 		- Opened: 20260904-173100
 		- Closed: 20260908-130000
 
@@ -17042,7 +17142,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Two bait CLIs, one exiting 1 instantly and one printing nothing, and two assertions, in the shape `shell-regress.bash`'s own scan self-test already uses. That closes item 26's first bullet properly rather than leaving the checks to be deleted by the next person tidying the script.
 		- Fixed: two bait CLIs at the top of the run, one exiting 1 and one printing nothing, each asserted to be refused rather than timed.
 		- Note: the first draft passed with the exit-code check deleted, because a bait that exits 1 also prints nothing and the line-count check caught it instead. The rc bait prints its line now, so each guard is the only thing standing between its bait and a pass.
-		- Test case: perf-gate `self-test-exit-code` and `self-test-quiet`.
+		- Test case: perf-gate `self-test-exit-code` (`dcbc3`) and `self-test-quiet` (`dcvfe`).
 		- Opened: 20260904-173400
 		- Closed: 20260908-153000
 
@@ -17057,7 +17157,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `check-docs.bash` already greps the spec for a dozen phrases. The datetime tolerance paragraph, the five merge behaviors and the two remaining merge facts are three more greps. Where a round's whole deliverable is prose, a grep is what makes it a fix rather than a note.
 		- Already done, by the 20260905 round the day after this one was filed: `check-docs.bash` has all eight phrases - the datetime tolerance paragraph, the five merge behaviors and the two merge facts. Checked by editing the spec and watching the gate fail.
 		- This is the cadence item in miniature: a review filed against a tree the next round was already fixing.
-		- Test case: `check-docs.bash` `merge-facts-in-spec`, which holds the eight phrases.
+		- Test case: `check-docs.bash` `merge-facts-in-spec` (`dc40f`), which holds the eight phrases.
 		- Opened: 20260904-173600
 		- Closed: 20260908-151000
 
@@ -17130,7 +17230,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Note: the failure is safe but not deterministic - a name in that band saves on a machine with a short pid and fails on one with a long pid. A fixed-width temp stem removes the band.
 		- Fixed: the temp name borrows at most the first 64 characters of the target's, in all four (`write_file_atomic` in the reference, Go and Python, `shcl_write_file_atomic` in C). Width is fixed, so the band is gone and the same name behaves the same on every machine.
 		- Decided: 64 rather than a computed remaining budget, so the rule does not depend on the pid or the platform. A truncated name can collide; the exclusive create and the eight attempts already cover that.
-		- Pinned by: the `cli-regress.bash` row `long-name-write`, a 250-character basename rewritten in place, which is exit 8 in every binding without the cap.
+		- Pinned by: the `cli-regress.bash` row `long-name-write` (`dcbbr`), a 250-character basename rewritten in place, which is exit 8 in every binding without the cap.
 		- Opened: 20260904-174500
 		- Closed: 20260908-134500
 
@@ -17153,7 +17253,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 50: a setter refused for its value reports the message written for `set_literal`.
 		- A `raw` op with an unquoted `#` in its info string reports "the value text is not one value". The real reason is the info string. Prose is not part of the contract, but the wording sends a reader to the wrong half of the line.
 		- Fixed with the setter round-trip item: the op names the half that had no spelling, so a `raw` op says the info string or the block body, a `comment` op says the comment text, and a typed op says the value.
-		- Test case: `cli-regress.bash` rows `ops-raw-bad-info` and `ops-raw-bad-body`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `ops-raw-bad-info` (`dcrtg`) and `ops-raw-bad-body`, all four CLIs.
 		- Opened: 20260904-174800
 		- Closed: 20260908-015200
 
@@ -17386,7 +17486,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: a property, not a golden. Every read of the merged document has to agree with the same read on a reparse of its text, which is an oracle the suite already trusts - and it needs no new corpus files, so it covers every merged case there is and every shape the fuzz generates rather than the rows somebody thought to write.
 		- Fixed: all four runners compare `paths`, `count`, `children`, a string read and a string-array read with its slots between the merged document and a reparse of its canonical form, over every merged case; the reference's merge fuzz does the same every eighth iteration.
 		- Note: `instances` is deliberately not compared. It hands back the source spelling, and canonical output legitimately rewrites a value - escaping a quote to keep it on one line - so the two differ for a reason that has nothing to do with merging. The property found that difference on an input with both quote kinds behind an `E017`, and it is the documented behavior of that call, not a defect.
-		- Test case: the merged-read check in all four corpus runners (paths, count, children and string reads against a reparse, e.g. `TestLayeredMergeMatchesExpected` in Go) and `merge_never_panics_and_stays_fixpoint` in the Rust fuzz.
+		- Test case: the merged-read check in all four corpus runners (paths, count, children and string reads against a reparse, e.g. `TestLayeredMergeMatchesExpected` (`dab73`) in Go) and `merge_never_panics_and_stays_fixpoint` (`dab72`) in the Rust fuzz.
 		- Opened: 20260901-192400
 		- Closed: 20260903-180000
 
@@ -17445,7 +17545,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A directory as the input expects "is a directory"; Windows says access denied, invalid function or permission denied depending on the binding, because none of the three stats the path first. The closed-stdin row can't be judged under wine at all. Either give the rows a per-platform expectation or report the directory case from a stat.
 		- Decided: stat the path. A per-platform expectation would only have written down four spellings of the same thing, and the four CLIs disagreed with each other on Linux too - `Is a directory (os error 21)`, `read PATH: is a directory`, `[Errno 21] Is a directory: 'PATH'` and `PATH: Is a directory`.
 		- Fixed: all four CLIs answer `PATH: Is a directory` before the open, on every platform.
-		- Pinned by the `read-dir-names-error` row, which now expects that one line anchored rather than a loose match on three words. The closed-stdin row says in a comment that it is POSIX-only, since closing fd 0 has no windows equivalent.
+		- Pinned by the `read-dir-names-error` (`dbzbk`) row, which now expects that one line anchored rather than a loose match on three words. The closed-stdin row says in a comment that it is POSIX-only, since closing fd 0 has no windows equivalent.
 		- Test case: cli-regress `read-dir-names-error`.
 		- Opened: 20260901-193100
 		- Closed: 20260903-234500
@@ -17578,7 +17678,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- It does contradict the reasoning behind the 20260830b decision on the loose float-to-int read, which stopped saturating at 2^63 because no double holds that value and the path could not honestly produce it. The same sentence applies to a float literal the double can't hold.
 		- It also feeds item 4: read the value, write it back unchanged, and the field no longer reads.
 		- Done: the float reader refuses a non-finite parse result in all four bindings, at every strictness, so `1e400` is `BadType` like any text that is not a number. Underflow (`1e-400`) still reads as zero, and the largest double still reads. Spec: the float section states the range. Changelog entry under Changed, since a read that answered now refuses.
-		- Pinned by corpus `074-float-range`: scalar, array and loose-currency spellings at three strictness levels, plus the largest double and an underflow. Fails on the old code in all four runners.
+		- Pinned by corpus `074-float-range` (`dc26g`): scalar, array and loose-currency spellings at three strictness levels, plus the largest double and an underflow. Fails on the old code in all four runners.
 		- Test case: corpus `074-float-range`.
 		- Opened: 20260901-140600
 		- Closed: 20260901-190000
@@ -17613,7 +17713,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Against it: a read in a loop would start emitting per-call noise, which the write subcommands do not have. A quiet flag, or emitting once per process, covers that.
 		- Decided: every subcommand that loads a document reports, once per run, in the shape fmt and set already use. One CLI run is one load, so the loop case is one line per call and no quiet flag was added. This supersedes the "get stays quiet" half of item 47 of the 20260830 round, noted there.
 		- Fixed: in all four bindings. Help text, man page and design updated; the four help texts still match byte for byte.
-		- Pinned by `cli-regress.bash` rows `get-diags`, `count-diags` and `instances-diags`, which fail in all four bindings without the fix.
+		- Pinned by `cli-regress.bash` rows `get-diags` (`dc09d`), `count-diags` (`dc09e`) and `instances-diags` (`dc09f`), which fail in all four bindings without the fix.
 		- Left alone: `check` builds its own diagnostic list and is unchanged, and the crosscheck discards stderr so it neither sees nor is moved by this.
 		- Test case: cli-regress `get-diags`, `count-diags` and `instances-diags`.
 		- Opened: 20260830-140346
@@ -17628,7 +17728,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: `children FILE [PATH]` and `paths FILE` in all four CLIs, with PATH left out enumerating the top level. Both take the read options the other enumeration subcommands take.
 		- Decided: names print in the form a path accepts, quoted where a bare name will not do, matching what `paths` already emitted. Enumerating keys is only worth doing if what comes back can be read straight back, and for an ordinary name the output is identical either way, so no option was added to choose.
 		- Also: help, man page, both completion files, both wrappers (`shcl_children`, `shcl_paths`), and a README example.
-		- Pinned by three layers, each verified by backing the code out: corpus case `069-traversal` through the four runners (new `children` and `paths` reads.tsv kinds), `cli-regress.bash` rows `children-top`, `children-quoted`, `children-missing` and `paths-all` against fixed output, and the crosscheck replaying both kinds through all four CLIs.
+		- Pinned by three layers, each verified by backing the code out: corpus case `069-traversal` (`dc09p`) through the four runners (new `children` and `paths` reads.tsv kinds), `cli-regress.bash` rows `children-top` (`dc09q`), `children-quoted` (`dc09r`), `children-missing` (`dc09s`) and `paths-all` (`dc09t`) against fixed output, and the crosscheck replaying both kinds through all four CLIs.
 		- Also fixed: `check-completions.bash` read the command list with a single-line grep, which read nothing once rustfmt wrapped the array at nine entries.
 		- Test case: corpus `069-traversal`, cli-regress `children-top`, `children-quoted`, `children-missing` and `paths-all`, and the crosscheck replay of both kinds.
 		- Opened: 20260830-140346
@@ -17683,7 +17783,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- C and the veneer keep the status tier alone. That is the existing recorded deviation for every read handing back borrowed memory; the spec and style guide now name raw-info in it rather than leaving it to be read into "raw".
 		- Pinned in each binding's convenience-tier fixture, which gained a raw block: the three assert the new calls read through and fall back, C asserts the status-tier route. Verified by removing the methods and watching each runner fail.
 		- No output changed, so the corpus and crosscheck are untouched.
-		- Test case: `convenience_tier_falls_back_only_on_good` in Rust, Python and C and `TestConvenienceTierFallsBackOnlyOnGood` in Go.
+		- Test case: `convenience_tier_falls_back_only_on_good` (`da6yp`, `dbeg4`, `dbeg3`) in Rust, Python and C and `TestConvenienceTierFallsBackOnlyOnGood` (`da6yq`) in Go.
 		- Opened: 20260830-140346
 		- Closed: 20260831-110000
 
@@ -17694,7 +17794,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: a length-one branch in `_Value.display` and in `_merge_key`, which is the shape of every scalar field.
 		- Pinned in the Python runner by a counting sequence: a one-element cell must not be walked at all, a two-element one must be walked twice. That is exact, where a wall-clock threshold on a constant-factor win either flakes or never fires.
 		- Output is byte-identical, verified over a 1.7 MB document and the whole corpus.
-		- Test case: the counting-sequence check in the Python runner's `hot_path_shortcuts_hold`.
+		- Test case: the counting-sequence check in the Python runner's `hot_path_shortcuts_hold` (`dc0aj`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-113000
 
@@ -17703,7 +17803,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- An identity check first took another 2% off, and skips the work entirely when the flag is already set. With item 24 the pair is about 10%, output unchanged.
 		- Fixed: an identity test before the key compare. The bound node holds the object just parsed in the common case, so neither key is built.
 		- Pinned in the Python runner: parsing 200 plain lines must build zero value keys. It built 400 before.
-		- Test case: the zero-value-keys check in the Python runner's `hot_path_shortcuts_hold`.
+		- Test case: the zero-value-keys check in the Python runner's `hot_path_shortcuts_hold` (`dc0aj`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-113000
 
@@ -17714,7 +17814,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the two helpers are module level now, taking the buffer and its length. The reference writes them as inner functions; the deviation is that Python rebuilds a closure per call and the scanner runs once per document line.
 		- Pinned in the Python runner: the scanner's code object must have no inner code objects.
 		- Measured with items 24 and 25: parse-plus-emit of a large document got about 17% faster, output byte-identical.
-		- Test case: Python runner `tokenizer_helpers_are_module_level`, which now checks the tokenizer that replaced the path scanner.
+		- Test case: Python runner `tokenizer_helpers_are_module_level` (`dcb20`), which now checks the tokenizer that replaced the path scanner.
 		- Opened: 20260830-140346
 		- Closed: 20260831-113000
 
@@ -17726,7 +17826,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The behavior the corrected comment describes is corpus-visible, so it is pinned rather than just described: case `070-selector-fallback` has a raw block and a scalar sibling with the same display, and `x[hi]` binds the raw while `x["hi"]` binds the scalar. The read path fans out to both, which the same case pins.
 		- Left alone: the unquoted path would create a spurious instance if the accelerator entry were ever dropped while a sibling still satisfied it. A second attempt to build that input failed too, so it stays recorded rather than fixed.
 		- Note: making the unquoted path scan on a miss is not the answer. A miss is the ordinary create path, so scanning there is quadratic in siblings - the regression class the perf gate exists for.
-		- Test case: corpus `070-selector-fallback`.
+		- Test case: corpus `070-selector-fallback` (`dc0am`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-120000
 
@@ -17738,7 +17838,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Internal tooling, not shipped code.
 		- Fixed: all four. A non-numeric or non-positive ITERS is the usage line at exit 2, the listing catches any loader failure rather than only a missing import, and the shcl loader only pushes its path when it is not already there.
 		- Pinned in `shell-regress.bash`, whose purpose already covers the tooling the corpus can't reach: three bad ITERS spellings and a duplicate-path check. Seven checks fail without the fix.
-		- Test case: `shell-regress.bash` `comparison-worker-arguments`.
+		- Test case: `shell-regress.bash` `comparison-worker-arguments` (`dc0an`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-123000
 
@@ -17798,7 +17898,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Harmless, but it is the dead-condition class the review directive asks for, and the same shape is flagged on the C side.
 		- Fixed: removed in all four, with a comment saying why the length test is enough - the opening fence is three characters or more, so nothing empty can reach the all-same-character loop.
 		- The invariant the length test now checks alone is already pinned by corpus case `053-raw-blank-line`. Dropping the length test instead of the emptiness test fails it in every binding, which is what says the remaining condition is the load-bearing one.
-		- Test case: corpus `053-raw-blank-line`.
+		- Test case: corpus `053-raw-blank-line` (`dbe9f`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-140000
 
@@ -17842,7 +17942,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Both greps are guarded now, and `shell-regress.bash` scans for the shape repo-wide. The option-less subcommand half is still open.
 		- Fixed: the completion side keeps a row with an empty option list, the way the CLI side always did. Its `*)` default arm is still excluded, since the pattern only matches subcommand words.
 		- Pinned in `shell-regress.bash` by a fixture built from the real files with an option-less subcommand added to all three, so the check runs against the extractors as shipped. It fails without the fix even though the completions are correct, and still catches a genuinely missing completion arm.
-		- Test case: `shell-regress.bash` `check-completions-option-less-subcommand`.
+		- Test case: `shell-regress.bash` `check-completions-option-less-subcommand` (`dc0b5`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-153000
 
@@ -17861,7 +17961,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The fallback already treats the exit code as non-fatal, so keeping stderr costs nothing.
 		- Fixed: stderr is kept, and the fallback line now points at the reason above it rather than standing alone.
 		- Pinned in `shell-regress.bash` two ways: the report must still say something usable about a missing directory, and the stage must not redirect its stderr away. Restoring the redirect makes it fail.
-		- Test case: `shell-regress.bash` `flame-report-names-a-missing-dir`.
+		- Test case: `shell-regress.bash` `flame-report-names-a-missing-dir` (`dc3zv`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-161000
 
@@ -17871,7 +17971,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Tab-indented help renders raggedly wherever tab width is not 8.
 		- Fixed: both rewritten as plain prose with space indentation, so all three installers now read the same way. The source headers are unchanged; only what `--help` prints moved.
 		- Pinned in `shell-regress.bash`: neither installer's help may have a comment prefix or a hard tab, and neither may print nothing. Restoring either old heredoc makes it fail.
-		- Test case: `shell-regress.bash` `installers-help-version-refusals`.
+		- Test case: `shell-regress.bash` `installers-help-version-refusals` (`dc0bt`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-163000
 
@@ -17880,7 +17980,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The PowerShell installer handles the same case properly and says so.
 		- Fixed: the install dir is removed only when it is empty, and when it is not the script says what it did remove and names the directory it left, in the same words the PowerShell installer already used.
 		- Pinned in `shell-regress.bash` under a fake HOME, both ways: an empty dir still reports a clean removal, a stray file gets named, and the stray file is still there afterwards.
-		- Test case: `shell-regress.bash` `install-bash-uninstall-names-leftovers`.
+		- Test case: `shell-regress.bash` `install-bash-uninstall-names-leftovers` (`dc0bv`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-164500
 
@@ -17889,7 +17989,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The script's own message is clear, so this costs a failed run rather than a bad install. One clause fixes it.
 		- Fixed: one clause under the Windows one-liner, naming the Windows versions that include `tar` and pointing at the setup .exe for anything older - the same escape the script's own message gives.
 		- Pinned in `check-docs.bash`: while `install.ps1` has that refusal, the README has to name `tar` on the Windows side. A loose match was not enough, since the README says "starter" and "start" in several places.
-		- Test case: `check-docs.bash` `installer-tar-prerequisite`.
+		- Test case: `check-docs.bash` `installer-tar-prerequisite` (`dc0bw`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-170000
 
@@ -17899,7 +17999,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Read, not reproduced, since no failing binary was available.
 		- Fixed: the smoke run happens from the temp dir before anything is written, matching the Linux installer, and its output is captured with the exit status tested rather than called bare. The line at the end now prints what that run already produced, so a failing binary can't reach a success message.
 		- Pinned in `shell-regress.bash` as a source-order check: the smoke run must appear before the publish, and must test `$LASTEXITCODE`. Running the real installer needs a network and a release, so order is what can honestly be asserted here.
-		- Test case: `shell-regress.bash` `install-ps1-smoke-before-publish`, a source-order check.
+		- Test case: `shell-regress.bash` `install-ps1-smoke-before-publish` (`dc0bx`), a source-order check.
 		- Opened: 20260830-140346
 		- Closed: 20260831-172000
 
@@ -17918,7 +18018,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The spec, style guide, trademark and both package READMEs have none. The README's only hits are inside generated table-of-contents blocks, where the tool strips blank lines.
 		- Fixed: all 26 spaced, 25 in the design document and the one in the changelog.
 		- Pinned in `check-docs.bash` over every markdown file in the repo, skipping generated TOC regions and bare anchor-link lists, which is what the tool strips blank lines out of. Restoring the design document makes it report 25.
-		- Test case: `check-docs.bash` `blank-line-between-bullets`.
+		- Test case: `check-docs.bash` `blank-line-between-bullets` (`dc0bz`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-175000
 
@@ -17929,7 +18029,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Decided: noted rather than dropped. The row stays, since the code is real in the source's message-to-code mapping, but it now says it is unreachable and why, so nobody keys a gate on it.
 		- Reproduced both halves, and one was wrong in the earlier note: a file reports `E014` (empty selector), not `E012`, and quoting the `#` makes it an ordinary discriminator. On a write path the same situation comes back as the `NoSuchIndex` write reason rather than as a diagnostic, which is what makes the code unreachable rather than merely hard to reach.
 		- Nothing new proves this one: the whole finding is that no input reaches the code, so there is nothing to assert. What the note prevents is a gate being written against it.
-		- Test case: corpus `086-index-no-instance` (E003 does fire from a bare index, which reversed this note in 622ef60) and the `check-docs.bash` E003 spec-row check.
+		- Test case: corpus `086-index-no-instance` (`dc461`) (E003 does fire from a bare index, which reversed this note in 622ef60) and the `check-docs.bash` E003 spec-row check.
 		- Opened: 20260830-140346
 		- Closed: 20260831-181000
 
@@ -17939,7 +18039,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Say the code is on both and that only stdout is the contract.
 		- Fixed: both say it the way it works now - both streams have the code, only stdout is the contract, and the stderr line adds the prose. Checked against real output rather than rewritten from the item text.
 		- Pinned in `check-docs.bash`: no document may say the prose alone goes to stderr. Restoring the README sentence makes it fail.
-		- Test case: `check-docs.bash` `prose-to-stderr-claim`.
+		- Test case: `check-docs.bash` `prose-to-stderr-claim` (`dc0c1`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-182000
 
@@ -17949,7 +18049,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: Go, Python and C check all three setters and name the write reason, the way the Rust example does.
 		- The C example still builds, which `check-readme-c.bash` proves; the Python block parses and the Go block is well-formed Go using the accessor it already called once.
 		- Pinned in `check-docs.bash`: in each language block the number of setter calls and the number of checked calls have to match. Restoring the README makes it name all three blocks.
-		- Test case: `check-docs.bash` `setter-examples-check-the-result`.
+		- Test case: `check-docs.bash` `setter-examples-check-the-result` (`dc0c2`).
 		- Opened: 20260830-140346
 		- Closed: 20260831-184000
 
@@ -18039,14 +18139,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Item 25: the `bool` op gate from 20260829 item 5 is not in the four conformance runners, so no corpus row can pin it.
 		- The runners still write `false` for `yes`. Port the gate and add a bad-bool row to a `write-bad.ops`.
-		- Test case: corpus `029-write-gate`, `write-bad.ops` row `bool k yes`, all four runners.
+		- Test case: corpus `029-write-gate` (`dacv3`), `write-bad.ops` row `bool k yes`, all four runners.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 26: stderr diagnostics still come in three forms, and 20260829 item 59 was only half applied.
 		- `check` and `init` print schema faults without the code, so a script can't key on `V091`. A strict-load failure prints each diagnostic twice (once as a line, again in the summary). Four messages have a `shcl:` prefix and the rest do not.
 		- One line form everywhere, and one prefix rule.
-		- Test case: `cli-regress.bash` rows `init-build-fault`, `check-strict-summary` and `strict-load-list`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `init-build-fault` (`dc26b`), `check-strict-summary` (`dct50`) and `strict-load-list` (`dbzbm`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18057,13 +18157,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Closed: 20260830-124432
 
 	- ✅ Item 28: a `set_raw` test asserts on a document parsed before the refused writes, so the assertion can't fail.
-		- Test case: `set_raw_keeps_a_shared_indent_and_trims_the_info` in conformance.rs (reparses after each write) and `setters_write_only_what_reads_back` in all four runners.
+		- Test case: `set_raw_keeps_a_shared_indent_and_trims_the_info` (`dbxk1`, `dbxkt`, `dbxm0`) in conformance.rs (reparses after each write) and `setters_write_only_what_reads_back` (`dcb5r`, `dcb81`, `dcb80`) in all four runners.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 29: a symlink cycle is silently replaced by a regular file on write.
 		- The 40-hop walk gives up and the rename falls on whichever link it stopped at. Refuse it as every other tool does.
-		- Test case: `cli-regress.bash` save-table row `cycle`, all four CLIs, and Go `TestSaveReportsASymlinkCycleInsteadOfReplacingIt`.
+		- Test case: `cli-regress.bash` save-table row `cycle` (`dcvat`), all four CLIs, and Go `TestSaveReportsASymlinkCycleInsteadOfReplacingIt` (`dbzra`).
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18090,7 +18190,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `Document.__init__` and its attributes are unhinted; `_Value.fence_char` is typed `str` but starts as `None`.
 		- The pipeline's three Python utilities are still unhinted and on `os.path`, as 20260829 item 54 listed.
 		- `_resolve_target` differs from the reference on an empty name (creates the temp file in the parent of the cwd) and on a lexical `..` through a missing directory.
-		- Test case: `cli-regress.bash` save row `missdir`, all four CLIs. The empty-name half has no row, since the is-a-directory check refuses it even with the old resolver.
+		- Test case: `cli-regress.bash` save row `missdir` (`dd5h4`), all four CLIs. The empty-name half has no row, since the is-a-directory check refuses it even with the old resolver.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18109,13 +18209,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Rust prints the source spelling escaped, Go escapes differently, Python and C print the resolved text raw, so a raw block or a tab breaks C's message across lines. C also gates the rawinfo case differently.
 		- Decision: parity on this line, or at least keep it on one line.
 		- Decided: one shared quoting for the reason line in every CLI; C reports the logical value (its read structs have no source text, by standing decision) and uses the same resolve gate.
-		- Test case: `cli-regress.bash` row `bad-int-raw-one-line`, all four CLIs.
+		- Test case: `cli-regress.bash` row `bad-int-raw-one-line` (`dd5h2`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
 	- ✅ Item 35: `-h` and `--help` after the FILE argument are an unknown option, although every other option is accepted there.
 		- The guard's stated reason never applies. Drop it in all four.
-		- Test case: `cli-regress.bash` rows `help-after-file` and `help-after-file-long`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `help-after-file` (`dbzrd`) and `help-after-file-long` (`dbzre`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18125,7 +18225,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Option validation runs before the command name is checked, so `shcl foo --int` complains about `--int`.
 		- `--strictness` values are case-insensitive, `--on-bad` values are not.
 		- `--set==5` and `--set "it's=1"` get messages that do not name the problem.
-		- Test case: `cli-regress.bash` rows `unknown-cmd-before-opts`, `onbad-same-mode-ok`, `help-ptr-set` and `set-open-quote-refused`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `unknown-cmd-before-opts` (`dbzbn`), `onbad-same-mode-ok` (`dcwz0`), `help-ptr-set` (`dcs09`) and `set-open-quote-refused` (`dc81b`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18199,7 +18299,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `fmt --write` prints it and `check` exits 6, but `fmt file > new` never learns a line was dropped. Decision.
 		- Decided: fmt and set print the load's diagnostics in both modes; get stays quiet.
 		- Superseded 20260831 by item 18 of the 20260830b round: the read subcommands print them too. A read below strict returns the value and reported nothing at all, which is the case where the silence costs most.
-		- Test case: `cli-regress.bash` rows `fmt-diags-without-write` and `set-diags-without-write`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `fmt-diags-without-write` (`dbzrf`) and `set-diags-without-write` (`dbzrg`), all four CLIs.
 		- Opened: 20260830-093632
 		- Closed: 20260830-124432
 
@@ -18261,7 +18361,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 27: tool pins are copied by hand into the hosted CI file, with nothing checking the two lists agree.
 		- They match today. The last time they did not, hosted CI stayed red for days. A lint-stage check that greps each pin out of the workflow file would catch the next one.
 		- Fixed: `check-pins.bash` in the lint stage greps every pin out of the workflow file.
-		- Test case: `check-pins.bash` `tool-pins-match-ci`.
+		- Test case: `check-pins.bash` `tool-pins-match-ci` (`dbz38`).
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18348,7 +18448,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 39: nine load-time diagnostic codes are pinned by no corpus case or unit test.
 		- E003 to E007 and E009 to E012 appear nowhere in the corpus or the test files. Item 1 lived in that gap. One case per code.
 		- Fixed: cases 057 to 061 pin E004 to E007, E009 to E012 and the new E018. E003 can't come from a file (the `#` of `[#N]` always opens a comment there), so there is nothing to pin.
-		- Test case: corpus `057-skipped-parent` to `061-dedent-error`.
+		- Test case: corpus `057-skipped-parent` (`dbxjv`) to `061-dedent-error` (`dbxjz`).
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18386,7 +18486,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A string read copies the value into the never-freed arena even with no escape to resolve: a long loop of reads of one field grew a document by tens of megabytes. A save retains a full copy of the output each time.
 		- Return the element slice when there is no backslash, as Python does; emit from scratch for a save.
 		- Fixed: a read with no backslash returns a view of the element, and a save emits into scratch. Fixture pins the arena size over a long loop of reads and saves.
-		- Test case: C runner `reads_and_saves_do_not_retain`.
+		- Test case: C runner `reads_and_saves_do_not_retain` (`dbxm4`).
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18394,7 +18494,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reading a flat document key by key takes seconds at a few thousand keys and tens of seconds at tens of thousands. design.md recommends exactly that loader pattern. The parse-time index is thrown away after the parse.
 		- Keep a per-parent name index (built lazily, invalidated by the writer), or document the cost per read.
 		- Fixed: a lazily built name index (first child per parent and name, chained to the next same-named sibling), dropped by every write. Tens of thousands of keys now read in well under a second. All four bindings.
-		- Test case: `perf-gate.bash` workload `reads` (every key looked up through int-default), all four CLIs.
+		- Test case: `perf-gate.bash` workload `reads` (`dbzqm`) (every key looked up through int-default), all four CLIs.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18450,7 +18550,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 53: the datetime type is `ShclDateTime` in Rust and Python and `DateTime` in Go, and the style guide records neither as the deviation.
 		- Renaming the Rust type is a breaking change; recording the Go name and adding an alias is not.
 		- Fixed: `DateTime` is an alias in Rust and Python, and the style guide records the Go name as the deviation.
-		- Test case: `standard_trait_surface` in the Rust tests builds a `shcl::DateTime`. Python's alias is held by ruff F822 through `__all__`.
+		- Test case: `standard_trait_surface` (`dbegt`) in the Rust tests builds a `shcl::DateTime`. Python's alias is held by ruff F822 through `__all__`.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18490,7 +18590,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- ✅ Item 59: strict-failure lines on stderr omit the diagnostic code that every other stderr line has.
 		- Fixed: the code is printed, in the same form as the write-back lines.
-		- Test case: `cli-regress.bash` rows `layer-strict-names-the-layer` and `check-strict-summary`, all four CLIs, and check-docs' "prose to stderr" check.
+		- Test case: `cli-regress.bash` rows `layer-strict-names-the-layer` (`dc451`) and `check-strict-summary` (`dct50`), all four CLIs, and check-docs' "prose to stderr" check.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
@@ -18798,7 +18898,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The four CLIs stopped sniffing `lost_count() > 0` to guess which failure they were looking at and branch on the value. Output is byte-identical.
 		- The veneer's `save_file` returned a bool, which folded the same two cases, so it returns the result type now - and gained `save_file_lossy`, since a refusal it can't override is a dead end. The rest of item 21's veneer list closed under item 21.
 		- Verified: new shared fixture in all four runners: the gate answers before any i/o, so a lost document saved to an unwritable path still reports the refusal, and a clean one reports the write failure. Nothing here is visible on stdout, so the corpus can't see it.
-		- Test case: `lost_and_save_gate` in Rust and its twins (Go `TestLostAndSaveGate`, the Python and C `lost` fixtures), plus `veneer_smoke.cpp` save_file_lossy.
+		- Test case: `lost_and_save_gate` (`dbcxe`, `dbee1`) in Rust and its twins (Go `TestLostAndSaveGate` (`dbcxf`), the Python and C `lost` fixtures), plus `veneer_smoke.cpp` save_file_lossy.
 		- Opened: 20260817-204524
 		- Closed: 20260818-142148
 
@@ -18835,7 +18935,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed that way. Rust and python gained all eleven `get_*_or`, c the three its convenience tier covers; go already had them. Nothing was removed - the native idiom still reads the same (`get_int(p).unwrap_or(0)`, `get_int(p, default=0)`), and the plain `get_*` keeps whatever it meant in each binding.
 		- `_or` now means "with a fallback" in all four with no exception to remember, which is the property that makes the spec's table portable rather than a per-binding lookup. The table and its surrounding paragraph say so.
 		- Verified: pinned by extending the existing convenience-tier fixture rather than adding a second one, and that fixture now exists in all four runners - it was rust and go only.
-		- Test case: `convenience_tier_falls_back_only_on_good` in Rust, Python and C and `TestConvenienceTierFallsBackOnlyOnGood` in Go.
+		- Test case: `convenience_tier_falls_back_only_on_good` (`da6yp`, `dbeg4`, `dbeg3`) in Rust, Python and C and `TestConvenienceTierFallsBackOnlyOnGood` (`da6yq`) in Go.
 		- Opened: 20260817-204524
 		- Closed: 20260818-152706
 
@@ -18850,7 +18950,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- C got the same load-status name function, since `shcl_status_name` exists and a file status had nothing - the gap the item names in go was in c too.
 		- Also fixed while in there: c's doc comment for the lost count was the error count's, so the lost count was undocumented and the error count read as describing the wrong call. The same defect item 16 fixed in go.
 		- Verified: the veneer smoke now covers the file tier at all, which it did not before.
-		- Test case: `veneer_smoke.cpp` for the veneer's quoted accessor, per-slot statuses and file tier, and C runner `read_surface_line_quoted_children` for `shcl_quoted`.
+		- Test case: `veneer_smoke.cpp` for the veneer's quoted accessor, per-slot statuses and file tier, and C runner `read_surface_line_quoted_children` (`daqsz`, `dbxkn`, `daqt1`) for `shcl_quoted`.
 		- Opened: 20260817-204524
 		- Closed: 20260818-152706
 
@@ -18873,7 +18973,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Not doc-only in the end for `ok`: it existed in rust, python and the veneer only, so go gained `Ok` and c a `shcl_status_ok` predicate. A status predicate rather than a per-struct helper, since all five read structs have the same status. Documenting a distinction two bindings could not express would have been the wrong half of the fix.
 		- The suppressor sentence says the hints live on the parse's diagnostics, which validation does not touch, and names both the manual calls and the one-shot that runs them.
 		- Verified: the divergence is pinned in all four runners, not just described.
-		- Test case: `convenience_tier_falls_back_only_on_good` in Rust, `TestConvenienceTierFallsBackOnlyOnGood` in Go, and the `status_ok` twins in the Python and C runners.
+		- Test case: `convenience_tier_falls_back_only_on_good` (`da6yp`, `dbeg4`, `dbeg3`) in Rust, `TestConvenienceTierFallsBackOnlyOnGood` (`da6yq`) in Go, and the `status_ok` twins in the Python and C runners.
 		- Opened: 20260817-204524
 		- Closed: 20260818-153553
 
@@ -18883,7 +18983,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The first is unreleased, so renaming costs nothing today. The second can be fixed additively by adding clear names and retiring the old pair at a major.
 		- ✅ First half done: `SourceName` is `AuthoredName` in all four bindings plus the veneer, with no alias, since no release includes it. "Authored" says what it returns without borrowing a word the api already spends on the source text and the source line.
 		- ✅ Second half done, with the names major as planned: `read_datetime` is the structured read it is in every other binding, `read_datetime_str` is the textual one, and `read_datetime_raw` is gone. The parity defect underneath the naming one goes with it.
-		- Test case: `veneer_smoke.cpp` checks on `authored_name`, `read_datetime` and `read_datetime_str`; the authored_name fixture in the four runners.
+		- Test case: `veneer_smoke.cpp` checks on `authored_name` (`dbegk`), `read_datetime` and `read_datetime_str`; the authored_name fixture in the four runners.
 		- Opened: 20260817-204524
 		- Closed: 20260818-172643
 
@@ -18895,7 +18995,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `FromStr` uses `Infallible` as its error, not a load error, because parsing at Standard genuinely can't fail - a malformed line is a diagnostic. The fallible load is still `parse_with` at Strict.
 		- `format_f64` is a wrapper over rust's own Display, which already prints floats the way the contract requires. The two setter sites call it now, so the rule has one home rather than a `format!` at each.
 		- Verified: Rust-only fixture, deliberately: nothing here is new behavior, and the other three already export the same capabilities under their own names.
-		- Test case: `standard_trait_surface` in the Rust conformance tests (Clone deep copy, FromStr, Display, Status Display, format_float).
+		- Test case: `standard_trait_surface` (`dbegt`) in the Rust conformance tests (Clone deep copy, FromStr, Display, Status Display, format_float).
 		- Opened: 20260817-204524
 		- Closed: 20260818-155051
 
@@ -18949,7 +19049,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- ✅ Uninstall: `--uninstall`/`-Uninstall` removes exactly what the matching install laid down (binary, symlink or PATH entry, and the two payload dirs), and the success message names it. It runs before any network call, so removing does not need a release to exist.
 		- ✅ The no-terminal guard now asks the question it means: it tries the read and treats failure as the abort. Testing `/dev/tty` for readability passed in plenty of unattended contexts where the read then died on a raw shell error.
 		- ✋ Deferred: the man page and shell completions. Those are a new deliverable with packaging consequences (.deb/.rpm placement, a completions dir per shell), not polish on an existing one - filed on their own under Features, where they are now done.
-		- Test case: `cli-regress.bash` bare-and-short-v block and `set-stdin-notice` check, all four CLIs. Silent reads, `check --layer` and the uninstall are held by rows `escape-unknown-read`, `check-layer-hint` and the shell-regress uninstall rows.
+		- Test case: `cli-regress.bash` bare-and-short-v block and `set-stdin-notice` check, all four CLIs. Silent reads, `check --layer` and the uninstall are held by rows `escape-unknown-read`, `check-layer-hint` (`dd3z7`) and the shell-regress uninstall rows.
 		- Opened: 20260817-204524
 		- Closed: 20260819-084518
 
@@ -18985,7 +19085,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- One restriction fell away: a line break in a name is writable now, since the name escaper writes it `\n` and reads it back. One in a `[value]` selector is still refused, since the value emitter has no such spelling, so nothing downstream could rescue it. The write-reason fixture in all four runners pins both halves.
 		- The schema's two-level path quoting needed no code change: the outer level is an ordinary string read and the inner is the path scanner, which now resolves. Corpus case 054 pins it along with the merge of two spellings, a tab, a backslash and an apostrophe in a name, and the H001 that now fires because the two spellings are one repeated leaf.
 		- Done: the version identity went in at the 2.0.0 cut. 2.0.0 across the eight bump files, the Go module path moved to `source/go/v2` (go.mod, the CLI import, and every README reference), the per-binding dependency constraints, and the changelog entry for everything since 1.2.0.
-		- Test case: corpus `054-name-escapes`, and `a_line_break_in_a_path_writes_and_reads_back` in all four runners.
+		- Test case: corpus `054-name-escapes` (`dbekt`), and `a_line_break_in_a_path_writes_and_reads_back` (`dcb7v`, `dcb83`, `dcb7z`) in all four runners.
 		- Opened: 20260818-124653
 		- Closed: 20260818-172643
 
@@ -19040,7 +19140,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 30: repeat-hint suppression reads the field name out of the hint text.
 		- Cause: it splits the hint's wording on quotes to recover the name, so a behavior of the public interface depends on how a message is phrased.
 		- Fixed: the wording is built in one place and both the hint and the filter use it, so a reword moves them together. A stored field was the stricter fix but would have broken every caller that builds a diagnostic.
-		- Test case: corpus `036-h001-suppress`, plus `repeat_suppression_uses_parsed_leaf` in Rust.
+		- Test case: corpus `036-h001-suppress` (`daqvg`), plus `repeat_suppression_uses_parsed_leaf` (`das9w`) in Rust.
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
@@ -19058,7 +19158,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Unknown escape pairs are kept as written rather than rejected, and a backslash shields the next character in more places than the grammar shows.
 		- Needs a call on each: tighten the parser, or widen the grammar to match it.
 		- Decided: the parser is the contract, since it is released, so the grammar and spec were widened to describe what it accepts. Quoting is now stated as a rule about what the formatter writes, not about what input is legal.
-		- Test case: corpus `136-number-and-path-edges` rows `srv[+0].port` and `srv[#+0].port`, and `check-abnf.py` `index-sel` samples.
+		- Test case: corpus `136-number-and-path-edges` (`dcxx5`) rows `srv[+0].port` and `srv[#+0].port`, and `check-abnf.py` `index-sel` samples.
 		- Opened: 20260803-111610
 		- Closed: 20260803-134341
 
@@ -19107,7 +19207,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All four bindings recover the code from about 30 hand-ordered message prefixes, so rewording a message can change a code, and the ordering matters.
 		- Large, mechanical and invisible to users. Every corpus case pins the code per line, so the exposure is limited to messages no case exercises.
 		- Fixed: every diagnostic site names its code directly and the prefix maps are gone, in all four bindings. Message wording is now free for real, which is what the code field's doc comment already claimed.
-		- Pinned by: corpus 071 and 072, new, covering the schema-fault and typed-allowed arms nothing exercised before. With them the suite reaches every diagnostic site except the two below.
+		- Pinned by: corpus 071 (`dc1xd`) and 072, new, covering the schema-fault and typed-allowed arms nothing exercised before. With them the suite reaches every diagnostic site except the two below.
 		- Note: two sites are unreachable from any input and stay as defensive code - a duplicate fragment name (same-name nodes merge at parse, so the check can never see one) and the second empty-list-element check (its input was already trimmed and tested non-empty). Same class as E003.
 		- Opened: 20260725-152141
 		- Closed: 20260901-105524
@@ -19120,7 +19220,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- One grouping pass per side, with every merge key computed once, and a single children rebuild per parent.
 			- The same merge now takes milliseconds in the reference and in C. Output is byte-identical, and instance order is unchanged.
 			- The stacked-list key rebuild in the reference, Go and Python went the same way, reusing the deferred flush C already had.
-		- Test case: `perf-gate.bash` workload `merge` (two flat documents of the same names), all four CLIs.
+		- Test case: `perf-gate.bash` workload `merge` (`dcvgv`) (two flat documents of the same names), all four CLIs.
 		- Opened: 20260725-152141
 		- Closed: 20260725-184454
 
@@ -19129,7 +19229,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Both spellings are spec-equal, so the user hits a cliff of two orders of magnitude for a cosmetic choice.
 		- The read and write paths scan siblings the same way, since the parser's child index is deliberately dropped at load. That part is fine at hand-authored sizes. If it ever needs touching, name interning is the low-risk option: a cached side index has to be invalidated at five mutation sites in four bindings, and a missed invalidation is a silent wrong value rather than a slow one.
 		- Fixed at parse in all four: a display-keyed sibling map beside the merge-key map (same first-wins discipline, same mutation sites, flushed with the stacked-list deferral before any lookup). The inline-selector case now parses as fast as the block form. The read/write-path scans stay linear on purpose, as the item itself recommended.
-		- Test case: `perf-gate.bash` workload `selectors` (a `[value]` selector per line naming a new instance), all four CLIs.
+		- Test case: `perf-gate.bash` workload `selectors` (`dcvbs`) (a `[value]` selector per line naming a new instance), all four CLIs.
 		- Opened: 20260725-152141
 		- Closed: 20260725-184454
 
@@ -19138,7 +19238,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- C compounds it with a linear scan of the legal-chain set where the other three use a hash set.
 		- Output is stderr prose, so the fix needs no corpus change.
 		- Fixed in all four: legal chains and per-parent-chain sibling-name lists are built once per validate and handed to the suggester; C also swapped its linear legal-chain scan for the hash set the other three use.
-		- Test case: `perf-gate.bash` workload `unknowns` (every document name unknown against a 8000-field schema), all four CLIs.
+		- Test case: `perf-gate.bash` workload `unknowns` (`dcvcb`) (every document name unknown against a 8000-field schema), all four CLIs.
 		- Opened: 20260725-152141
 		- Closed: 20260725-184454
 
@@ -19146,7 +19246,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: each raw node rescans the parent's children to decide whether it merges with the line above; the parent's own walk already has that information.
 		- Reproduced: tens of thousands of raw blocks under one field take seconds to format against a near-instant parse. Narrow, but free to fix and behavior-preserving.
 		- Fixed in all four: the parent's walk keeps a seen-empties set and passes each child its would-merge flag, so no node rescans its siblings. Formatting now matches the parse time.
-		- Test case: `perf-gate.bash` workload `raws`, 20000 raw blocks under one parent, all four CLIs.
+		- Test case: `perf-gate.bash` workload `raws` (`dd5h7`), 20000 raw blocks under one parent, all four CLIs.
 		- Opened: 20260725-152141
 		- Closed: 20260725-184454
 
@@ -19155,7 +19255,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A consuming program handed a config path from a user, a shared directory or a container volume had no way to refuse something unreasonable.
 		- Done: a fixed 512-level depth cap and `E016`, alongside item 2. That closes the crash class.
 		- The remaining knobs are deferred - see Future and/or deferred.
-		- Test case: corpus `028-depth-cap` (E016) and `depth_cap_boundary_and_writer` in Rust.
+		- Test case: corpus `028-depth-cap` (`dactb`) (E016) and `depth_cap_boundary_and_writer` (`dactc`) in Rust.
 		- Opened: 20260725-152141
 		- Closed: 20260725-163911
 
@@ -19172,7 +19272,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Field names are also folded to lowercase and the spec never says so, which makes `fmt --write` a surprise.
 		- The trivia model already exists, so this is a per-node flag and one emit line per binding.
 		- Fixed: a `blank_before` trivia flag in all four parsers preserves one blank line before a binding (runs collapse; a blank before a comment group rides with it; fixpoint holds). Four goldens regenerated, case 032 pins it. The name folding was decided as correct-and-documented: the spec's formatter section now states lowercase is the canonical spelling.
-		- Test case: corpus `032-blank-lines`.
+		- Test case: corpus `032-blank-lines` (`dacxn`).
 		- Opened: 20260725-152141
 		- Closed: 20260725-182548
 
@@ -19180,7 +19280,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Go, Python and C consumers handed an unknown document can't enumerate it; `Count` and `Instances` both require knowing the path already.
 		- Straight violation of the guide's "same function inventory" rule on a public method, and about 20 lines per port.
 		- Fixed: `Paths()`/`paths()`/`shcl_paths` (and the veneer's `paths()`) now exist in every binding, mirroring the reference's walk (file order, deduplicated, bare-name-safe segments only); a shared fixture is pinned in all four native runners.
-		- Test case: `paths_enumeration_shape` in Rust, `TestPathsEnumerationShape` in Go, and the shcl_paths twins in the Python and C runners.
+		- Test case: `paths_enumeration_shape` (`dacx2`, `daqry`, `daqrx`) in Rust, `TestPathsEnumerationShape` (`dacx3`) in Go, and the shcl_paths twins in the Python and C runners.
 		- Opened: 20260725-152141
 		- Closed: 20260725-180643
 
@@ -19256,7 +19356,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: it still says exit 6 means a strict load failure; the prior review's item 36 made `check` exit 6 on any error diagnostic, at any strictness.
 		- `help`, `version`, a bare invocation and an unknown subcommand are the largest user-visible output in the project and the crosscheck never runs them.
 		- Fixed: the exit-code sentence now says `6 check failed or strict load failure` in all four, and the crosscheck pins the whole usage output: `help`, `version`, a bare invocation, and an unknown subcommand are compared byte-for-byte across bindings on every run.
-		- Test case: crosscheck `usage and option behavior`, which compares `help`, `version`, a bare run and an unknown subcommand.
+		- Test case: crosscheck `usage and option behavior` (`d9tsx`), which compares `help`, `version`, a bare run and an unknown subcommand.
 		- Opened: 20260725-152141
 		- Closed: 20260725-180134
 
@@ -19274,21 +19374,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Direct hit on the hand-author audience; retrofitting comment storage later touches all five codebases.
 		- Decide before 1.0: preserve comments as trivia, or spec the loss and warn on `fmt --write`.
 		- Done: comments survive `fmt` in all four parsers - whole-line comments re-emit above the node the next line binds, trailing ones stay on their line, end-of-file comments stay at the end. Spec'd under Comments + Canonical formatter; corpus case 013 pins it and the older cases' expected files now keep their comments.
-		- Test case: corpus `013-comments`.
+		- Test case: corpus `013-comments` (`da4hk`).
 		- Opened: 20260718-165550
 		- Closed: 20260719-192715
 
 	- ✅ Item 5: the Writer half of the spec'd API exists in no binding and has no backlog item.
 		- Spec presents Accessor+Writer as the two halves; schema-driven generation depends on it.
 		- Done: Writer implemented in all four bindings (full CRUD - typed `set_<T>`/arrays/`raw`/`empty`, `_default` only-if-absent forms, `exists`, `set_comment`, `remove`), each setter the exact inverse of its read. New `shcl set` CLI applies a tab-delimited write-ops script from stdin. Corpus cases 014-016 pair `write.ops` with golden `expected-write.shcl` (matched by every binding's runner + a fixpoint check), the cross-binding differential replays `set`, and a reference fuzz run pins the string round-trip. Spec Writer bullet updated.
-		- Test case: corpus `014-write-build` to `016-write-raw-escapes` with their `expected-write.shcl`, the crosscheck `set` replay, and the Rust fuzz `writer_roundtrips_and_stays_fixpoint`.
+		- Test case: corpus `014-write-build` (`da6qb`) to `016-write-raw-escapes` (`da6qd`) with their `expected-write.shcl`, the crosscheck `set` replay, and the Rust fuzz `writer_roundtrips_and_stays_fixpoint` (`da6rk`).
 		- Opened: 20260718-165550
 		- Closed: 20260721-091902
 
 	- ✅ Item 6: README lead code examples call APIs that do not exist.
 		- Cause: `GetIntOr(...)` (Go), `get_int(..., default=)` (Python), `get_or<T>` (C++) are all missing; a new user's first copy-paste fails.
 		- Done: implemented the spec's convenience tier (not gutted the examples), so the README calls are now real as written. Go `GetIntOr`/`Get*Or` + array forms; Python `get_*`/`get_*_array` gained a `default=` param (must-exist and raises without one); C `shcl_get_int/float/bool`; C++ `get_or<T>`. Rust's is the native `get_int(path).unwrap_or(def)` and gained matching `get_*_array` so arrays have the same tier. Semantic pinned everywhere: value only on `Good`, else the call-site fallback (Empty falls back too). Reference unit test + Go test + C++ veneer CHECKs added.
-		- Test case: `convenience_tier_falls_back_only_on_good` in Rust, `TestConvenienceTierFallsBackOnlyOnGood` in Go, and the `get_or` CHECKs in `veneer_smoke.cpp`.
+		- Test case: `convenience_tier_falls_back_only_on_good` (`da6yp`, `dbeg4`, `dbeg3`) in Rust, `TestConvenienceTierFallsBackOnlyOnGood` (`da6yq`) in Go, and the `get_or` CHECKs in `veneer_smoke.cpp`.
 		- Opened: 20260718-165550
 		- Closed: 20260721-123412
 
@@ -19296,7 +19396,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- No corpus rows for wildcards, on-bad modes, or defaults; the fuzz differential compares `fmt` only.
 		- The accessor side is where five hand-written ports diverge most easily.
 		- Done: added a `--rawinfo` CLI type (+ the `rawinfo` reads.tsv type in all four runners) so the info-string read is pinnable. The reference `Document::paths()` drives a fuzz-dump-derived `<name>.reads.tsv` that the crosscheck `--extra` replays (reads over fuzz soup, not just fmt). Every scalar read row is also replayed under `--on-bad=error` and `--default=<x>`. Corpus case 020-accessor-surface pins wildcards (with a missing slot), a `[value]` selector, and both raw reads. Crosscheck comparisons roughly doubled.
-		- Test case: corpus `020-accessor-surface`, and the crosscheck's `fuzz inputs agree` replay of the fuzz-derived reads.
+		- Test case: corpus `020-accessor-surface` (`da702`), and the crosscheck's `fuzz inputs agree` (`d9tsz`) replay of the fuzz-derived reads.
 		- Opened: 20260718-165550
 		- Closed: 20260721-131824
 
@@ -19304,7 +19404,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: `check` prints prose to stdout and crosscheck compares it, so every English message is frozen across bindings - contradicting design.md's per-binding-voice rule.
 		- Give diagnostics stable codes; compare codes, free the prose.
 		- Done: `Diagnostic` has a stable `code` (`E001..`/`H001..`) in all four bindings; `check` prints `line N: severity: CODE` to stdout and the prose to stderr, so the differential check compares codes (not wording). C exposes `shcl_diag_code`. Includes item 36 (below).
-		- Test case: `diagnostics_match_expected` (expected-diags.txt codes) in Rust and its twins in the other runners, plus crosscheck's check comparison.
+		- Test case: `diagnostics_match_expected` (`da8s1`) (expected-diags.txt codes) in Rust and its twins in the other runners, plus crosscheck's check comparison.
 		- Opened: 20260718-165550
 		- Closed: 20260721-130525
 
@@ -19318,7 +19418,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 22: `--on-bad=error` messages are bare enum names.
 		- Reproduced: `app.name: BadType` - no value, no requested type, no file, no suggested fix. Stderr is not contract, so this is free to improve.
 		- Done in all four CLIs: `shcl: can't read <path> as <type>: <reason> (in <file>)`, where a BadType names the offending raw value (`value "$1200" is not a valid int`), and NotFound/Empty/Multiple get a plain-English reason. Array reads say `<type> array`. Stderr, so not crosscheck-pinned.
-		- Test case: `cli-regress.bash` row `onbad-error-names-value`, all four CLIs.
+		- Test case: `cli-regress.bash` row `onbad-error-names-value` (`dd5h1`), all four CLIs.
 		- Opened: 20260718-165550
 		- Closed: 20260721-125256
 
@@ -19340,28 +19440,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Prose says only reserved chars need quotes (and uses `Strasse` with a sharp s as an example); grammar and parser reject them.
 		- Also: hex `-0x8000000000000000` (i64 min) reads BadType while the decimal spelling works.
 		- Done: aligned prose to the code (grammar, `is_bare_name_char`, and the emit predicate already agreed) - a bare field name is ASCII letters/digits/`-`/`_` only; anything else, including non-ASCII, must be quoted, and the `Straße` examples are now shown quoted. Hex fixed in all four parsers: parse the magnitude as u64, then range-check against the sign, so `-0x8000000000000000` reads i64-min like its decimal spelling and `+0x8000000000000000` stays BadType. Corpus case 019-hex-int-bounds pins it.
-		- Test case: corpus `019-hex-int-bounds` for the hex bound. The prose change has none.
+		- Test case: corpus `019-hex-int-bounds` (`da6yz`) for the hex bound. The prose change has none.
 		- Opened: 20260718-165550
 		- Closed: 20260721-124351
 
 	- ✅ Item 35: value-taking options reject the space-separated form with a misleading error.
 		- Reproduced: `--default 99` reports "unknown option: --default". Accept the space form or explain the `=` requirement.
 		- Done: all four CLIs now accept both `--default=VALUE` and `--default VALUE` (same for `--on-bad`/`--strictness`), via an index loop that consumes the next arg; a value option with nothing after it says `missing value for --default (try --default=VALUE)`. Help text notes both spellings.
-		- Test case: `cli-regress.bash` row `version-flag-as-default` (space-separated `--default VALUE`), all four CLIs.
+		- Test case: `cli-regress.bash` row `version-flag-as-default` (`dd50s`) (space-separated `--default VALUE`), all four CLIs.
 		- Opened: 20260718-165550
 		- Closed: 20260721-125256
 
 	- ✅ Item 36: `check` reports "ok" and exits 0 even when diagnostics include Errors.
 		- A CI gate on `check` passes configs whose lines were dropped. Nonzero exit or clearer wording; note it is corpus-pinned, so change everywhere at once.
 		- Done (folded into item 19): `check` exits 6 whenever any error diagnostic is present, at any strictness - `failed: N diagnostic(s), M error(s)` for a standard/loose load that dropped lines, `strict load failed: N diagnostic(s)` for a strict failure, `ok (N diagnostic(s))` + exit 0 only when clean. Same strings and exit in all four bindings.
-		- Test case: `cli-regress.bash` rows `diag-name-dotted` and `check-strict-summary`, all four CLIs.
+		- Test case: `cli-regress.bash` rows `diag-name-dotted` (`dcq4f`) and `check-strict-summary` (`dct50`), all four CLIs.
 		- Opened: 20260718-165550
 		- Closed: 20260721-130525
 
 	- ✅ Item 37: `--version`/`-h` are undiscoverable.
 		- Help text never mentions them; `shcl help` and `shcl version` are rejected; `-w` is accepted but undocumented.
 		- Done in all four CLIs: the usage block gained a `shcl help | version` line noting `-h/--help` and `-V/--version`; `shcl help` and `shcl version` are now accepted subcommands; the `fmt` line shows `[--write|-w]`.
-		- Test case: crosscheck `usage help` and `usage version`, plus `cli-regress.bash` rows `help-help-flag` and `help-h-flag`.
+		- Test case: crosscheck `usage help` and `usage version`, plus `cli-regress.bash` rows `help-help-flag` (`dct4n`) and `help-h-flag` (`dct4p`).
 		- Opened: 20260718-165550
 		- Closed: 20260721-125256
 
