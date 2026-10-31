@@ -78,6 +78,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261031: at start, a run removes the run folders under `${HOST_TEMP}/shcl/` more than 2 days old, by the stamp in the name, whose `run.pid` names no live process. The cleanup line counts them.
 		- 20261031: `cicd/utility/include/safe-rm.bash` holds `fSafeRm`, the shared guard, and `fSafeRmUnder` for a folder under one named parent. The run folder, the frozen copy's fallback, the stale sweep, and the crosscheck dump and release artifact folders under `cicd/artifacts` go through them. contributing.md says where a run's scratch goes.
 		- Verified: check-push-gate passes whole, with `dephe` and `dephf`. On the old engine `dephe` fails, and so do the new name asserts of `dee5k`, `decz2` and `ded0y`. With the guard's whole-folder check taken out, `dephf` fails, having removed `HOST_TEMP`. shell-regress passes whole, `de89c` included. shellcheck is clean on the changed scripts.
+		- Verified: `cicd.bash --backlog-run-quick cicd` passed all 5 steps in the image, with the frozen copy at the run folder's `tree/` mounted there. The run folder and the copy's worktree were gone after.
 		- Not run: a real docker run with `HOST_TEMP` under `/tmp`, which the mount point fix is for. This box sets `HOST_TEMP` elsewhere.
 	- Decisions:
 		- me: a folder with no `run.pid` stays, since hand-made temp folders share the layout and only a run writes one.
