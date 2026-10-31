@@ -33,6 +33,60 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Other hosts: timed work, such as perf-gate, on vm925w
+	- ID: 2026103016433965
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026103016433921
+	- Requirements:
+		- Anything timed, such as perf-gate, runs on vm925w through the box step rather than here.
+
+- Other hosts: win-runners.bash and winpath-regress.ps1 on b29w
+	- ID: 2026103016433943
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026103016433921
+	- Requirements:
+		- `win-runners.bash`, which runs `winpath-regress.ps1`, on b29w through the box step, from a copy of the tracked source. b29w has git-bash, cargo, go, mingw gcc and g++, and Python 3.14.
+
+- Other hosts: the windows-x86_64 release over the CLI cases on b29w
+	- ID: 2026103016433921
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- The parent's first half: the windows-x86_64 release over the CLI cases on b29w, through the box step, against the Linux release. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
+		- `b29w`, never `b29w-wif`.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has a b29w row on the windows-x86_64 release, as `collierjr`, CLI cases only. A row whose build ends in `.exe` is a Windows box: `check-boxes.bash` makes a work folder under the box's `HOST_TEMP` or `TEMP`, copies the cases and `cicd/utility/box-cases.ps1` there by scp, runs that with `pwsh -File`, fetches `out.tar` by scp and removes the folder. Only the code of an OS error is compared, as under wine. A `suites` word on a Windows row is a SKIP for now.
+		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and windows-x86_64 release builds (build `den0r`), through the real host lock: `decyk` passed, 4471 CLI runs in 40 s. The box's work folders were gone after every run, failed ones included.
+		- Verified: with the OS error wording left as it is, 2 runs differ and `decyk` fails at exit 1. With the Linux build sent as the `.exe`, the box can't start it and `decyk` fails at exit 1.
+		- Verified: over the stand-in boxes, a Windows box that doesn't answer is a SKIP, and the old pass, skip and fail cases come out as before.
+	- Decisions:
+		- A build ending in `.exe` means a Windows box (me). The row's os-arch already says so, so there's no second word to keep in step.
+		- As `collierjr`, not `wintest` (me). The registry tests in 2026103016433943 need an administrator, and `wintest` reaches one only through Windows Sandbox.
+		- The box half is a tracked `.ps1`, linted with the others, copied by scp and run with `-File` (me). cmd caps a command at 8191 characters, so an encoded script is kept to the short mkdir and remove steps.
+		- Each case runs with its arguments as a list and a closed stdin pipe, in place of the sh driver's `< /dev/null`, and the bytes are kept as they came (me). Half the box's CPUs at a time, a quarter when its CPU load is over half, at BelowNormal priority.
+		- Every run (me). It adds about 45 s to a full run, and it is the only real Windows run outside the hosted job.
+	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`, `fArtOf` for windows-x86_64), `--list` (name only), check-push-gate (empties it), shell-regress's row check, and the stand-in rows. Every tracked `.ps1` is in the lint list.
+	- Test case: check-boxes `decyk` for b29w.
+	- Branch: `r1030b`
+	- Verified: `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` passed all 5 steps, PSScriptAnalyzer on `box-cases.ps1` included, and so did shell-regress and `lint-report.bash --check --no-mark`. check-docs fails only `dcbc2`, red on dev until the installer sync to main.
+	- Acceptance signoff: Self-closed: b29w passed through the real host lock, and a changed output and a wrong build were each seen to fail.
+	- Closed: 20261030-170201
+
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
@@ -214,7 +268,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Other hosts: Windows on b29w, timed work on vm925w
 	- ID: 2026102419263432
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261024-192634
 	- Opened by: 2026102416250010
@@ -224,6 +278,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The windows-x86_64 release over the CLI cases, and `win-runners.bash` and `winpath-regress.ps1`, on b29w through the box step. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
 		- Anything timed, such as perf-gate, goes to vm925w.
 		- `b29w`, never `b29w-wif`.
+	- Progress log:
+		- 20261030: split into 3 children: 2026103016433921 (first, the CLI cases on b29w), 2026103016433943 (win-runners.bash and winpath-regress.ps1 on b29w) and 2026103016433965 (timed work on vm925w). This one closes with the last of them.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070

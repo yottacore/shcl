@@ -171,6 +171,7 @@ LINT_EXTRA=(
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/packaging/shclpath.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/winpath-regress.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/winpath-sandbox.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
+	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/box-cases.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'cicd/utility/check-completions.bash'
 	'cicd/utility/check-wheel.bash'
 	## The examples doc's C example is the first thing a C consumer copies, and it is
@@ -588,13 +589,16 @@ BACKLOG_AREAS=(
 ## and cli. vmDebARM64 runs under TCG, so it runs Go every run, about 3 minutes,
 ## and the rest under --long (2026102419263422). The Macs are Intel, so they run
 ## the x86_64 half of the universal build, and the hosted macos job the arm64
-## half (2026102419263427).
+## half (2026102419263427). b29w runs the windows-x86_64 build, through
+## box-cases.ps1 since its ssh opens in cmd, as collierjr, the administrator the
+## registry tests there will need (2026103016433921).
 ## --no-remote leaves them out, and a box that isn't there is a SKIP.
 REMOTE_BOXES=(
 	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64|suites"
 	"vmDebARM64|tester@vmDebARM64|linux-arm64|suites=go|suites-long"
 	"vmKt6m|mactest@vmKt6m|macos-universal"
 	"b26|mactest@b26|macos-universal"
+	"b29w|collierjr@b29w|windows-x86_64"
 )
 
 ## ci.yml's macos job, on GitHub's free arm64 Mac runner: it builds the
