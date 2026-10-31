@@ -961,6 +961,32 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest depgq 20260920b-18-publish-keeps-quotes-in-message
+##	20260920b item 18: fParseArgs ran every argument through two quote
+##	substitutions, so `--message "it's done"` committed `it's done` with a prime.
+##	The function is cut out of the script and run alone, since the message only
+##	shows at a real commit. dcnmr checks the same through a scratch commit.
+nBadBefore="${nBad}"
+(
+	pubFn="$(sed -n '/^fParseArgs(){$/,/^:;}/p' "${repoDir}/cicd/utility/n8git_backup-and-publish")"
+	[[ "${pubFn}" == *$'\n:;}'* ]] || fBad "n8git_backup-and-publish: fParseArgs not found to cut out"
+	## Read by the eval'd function, which shellcheck can't see.
+	# shellcheck disable=SC2329
+	fThrowError(){ echo "fThrowError: $*" >&2; exit 9 ;}
+	eval "${pubFn}"
+	# shellcheck disable=SC2034
+	declare -i parseArgs_maxPositionalArgCount=0 doQuietly=0 doPromptToContinue=1
+	commitMessage=""
+	fMsg(){ commitMessage=""; fParseArgs "$@"; printf '%s' "${commitMessage}" ;}
+	for want in "it's done" "it's \"done\"" "a \`b\` \$c \\d" "'quoted' and ' alone" "pass -v through"; do
+		[[ "$(fMsg --message "${want}")" == "${want}" ]] || fBad "n8git_backup-and-publish changed --message ${want@Q}"
+		[[ "$(fMsg -m "${want}")" == "${want}" ]] || fBad "n8git_backup-and-publish changed -m ${want@Q}"
+		[[ "$(fMsg --msg="${want}")" == "${want}" ]] || fBad "n8git_backup-and-publish changed --msg=${want@Q}"
+		[[ "$(fMsg -q --message "${want}")" == "${want}" ]] || fBad "n8git_backup-and-publish changed --message ${want@Q} after -q"
+	done
+	exit $((nBad - nBadBefore))
+) || nBad=$((nBad + 1))
+
 fTest dd51n 20260901b-18-on-path-trailing-slash
 ##	20260901b item 18: the "not on your PATH" note compared strings against
 ##	`:dir:`, so a PATH element written with a trailing slash was not seen. Both

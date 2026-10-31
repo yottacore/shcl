@@ -126,7 +126,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A test that the publish helper keeps quotes in `--message`
 	- ID: 2026103111123585
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -134,6 +134,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- The legacy Done item "the publish helper rewrites every quote in a `--message` before committing it" (20260920) says none, since the message only shows at a real commit. Its argument parse can be run alone, as shell-regress does for other scripts, and `--message "it's done"` has to come out unchanged.
 		- The legacy item's Test case row then names the new test's ID.
+	- Test case: shell-regress `depgq`.
+	- Decisions:
+		- me: the test cuts `fParseArgs` out of the script with sed and runs it with a stub `fThrowError`, rather than a second scratch commit, so it needs no git or rar and runs in milliseconds.
+	- Verified: `depgq` fails with the quote substitution put back in the helper and passes on the current one. shell-regress passes whole.
+	- Branch: `r1031b`
+	- Closed: 20261031-144904
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
@@ -11607,7 +11613,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: a stale block in the project copy. The canonical copy under the synced tree has the bare assignment, so this was not a local customization anyone chose.
 		- Fixed: the two substitutions are out, matching the canonical copy. `--help` still runs and the script still parses.
 		- Left alone: the other project copies were not touched. The rule is a patch of the changed block per copy, and that needs a go-ahead for trees outside this one.
-		- Test case: None, copied helper; the message only shows at a real commit and push, past the refusal rows shell-regress runs.
+		- Test case: shell-regress `20260920b-18-publish-keeps-quotes-in-message` (`depgq`), which runs `fParseArgs` alone. It fails with the substitution back. dcnmr checks the same through a scratch commit.
 		- Opened: 20260920-174959
 		- Closed: 20260920-183510
 
