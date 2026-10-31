@@ -33,78 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Other hosts: timed work, such as perf-gate, on vm925w
-	- ID: 2026103016433965
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261030-164339
-	- Opened by: 2026102419263432
-	- Parent ID: 2026102419263432
-	- Prereq IDs: 2026103016433921
-	- Requirements:
-		- Anything timed, such as perf-gate, runs on vm925w through the box step rather than here.
-
-- Other hosts: win-runners.bash and winpath-regress.ps1 on b29w
-	- ID: 2026103016433943
-	- Type: Enhancement
-	- Status: Done
-	- Needs external testing: No
-	- Priority: High
-	- Opened: 20261030-164339
-	- Opened by: 2026102419263432
-	- Parent ID: 2026102419263432
-	- Prereq IDs: 2026103016433921
-	- Requirements:
-		- `win-runners.bash`, which runs `winpath-regress.ps1`, on b29w through the box step, from a copy of the tracked source. b29w has git-bash, cargo, go, mingw gcc and g++, and Python 3.14.
-	- Progress log:
-		- 20261031: a Windows row's `suites` sends the tracked source, plus what `win-runners.bash` and `winpath-regress.ps1` read, in the same visit as the CLI cases. `box-cases.ps1` runs `win-runners.bash` there under git's bash, with its caches and temp files in the work folder, Python from `C:\Python314`, and the box's CPU cap. Its log and exit code come back. `check-boxes.bash` prints the box's status lines with the box's name, and passes or fails the new test `den85`. A Windows row refuses `suites=LIST`, since `win-runners.bash` runs whole.
-		- 20261031: b29w's row is `suites-long`, so this runs under `--long` only. `--list` puts `win-runners.bash`'s and `winpath-regress.ps1`'s IDs under b29w then. design.md says so.
-		- Verified: the first b29w run (1537 s) passed the CLI cases, every `winpath-regress.ps1` check and every Windows-only row, and failed only cli-regress `ddaj0`. The binding's migrate was fine. Windows PowerShell 5.1, started from pwsh 7 through git's bash, can't load `Get-Acl`'s module, since pwsh 7's module path is passed down. Reproduced on b29w, and fixed there by setting the machine's `PSModulePath` before bash starts, for the Rust and Python CLIs. `box-cases.ps1` now does that.
-		- Verified: shell-regress `den87` (a LIST refused on a Windows row, and `--list`'s box steps) fails on the old scripts and passes now. The whole of shell-regress, `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` (all 5 steps), `lint-report.bash --check --no-mark`, `test-ids.py check` (2069 tests), shellcheck, and PSScriptAnalyzer on `box-cases.ps1` and `winpath-regress.ps1` pass.
-		- Verified: 20261031 check-boxes.bash on b29w's row with suites, through the host lock, at af3ebc16: den85 passed, ddaj0 passed, no FAIL line, exit 0 in 1562 s.
-	- Decisions:
-		- A Windows box's `suites` means `win-runners.bash`, with no LIST, not a new row word (me). It runs the same 4 bindings' runners and cli-regress the other boxes' suites do, plus the Windows-only rows.
-		- `suites-long` for b29w (me). The run took about 25 minutes, past the 5-minute limit for every run. The hosted windows job still runs it on every hosted run.
-		- `winpath-regress.ps1` runs straight on b29w as `collierjr`, an administrator, not in Windows Sandbox (me). It puts both PATH values back in a `finally`. Filed as a `Check:`.
-		- The box's status lines are printed with the box's name, so a run's log holds each test ID (me).
-	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`), `--list` (now through `fBoxListStep`), check-push-gate (empties it), shell-regress's row checks. Every place that starts Windows PowerShell 5.1 from the box: cli-regress's `fDacl` and the 5.1 rows of `win-runners.bash` all inherit the fixed path.
-	- Test case: check-boxes `den85` on b29w under `--long`; shell-regress `den87`.
-	- Branch: `r1030b`
-	- Acceptance signoff: Self-closed: the whole b29w suite run passed after the PSModulePath fix.
-	- Closed: 20261031
-
-- Other hosts: the windows-x86_64 release over the CLI cases on b29w
-	- ID: 2026103016433921
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Opened: 20261030-164339
-	- Opened by: 2026102419263432
-	- Parent ID: 2026102419263432
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- The parent's first half: the windows-x86_64 release over the CLI cases on b29w, through the box step, against the Linux release. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
-		- `b29w`, never `b29w-wif`.
-	- Progress log:
-		- 20261030: config.bash's `REMOTE_BOXES` has a b29w row on the windows-x86_64 release, as `collierjr`, CLI cases only. A row whose build ends in `.exe` is a Windows box: `check-boxes.bash` makes a work folder under the box's `HOST_TEMP` or `TEMP`, copies the cases and `cicd/utility/box-cases.ps1` there by scp, runs that with `pwsh -File`, fetches `out.tar` by scp and removes the folder. Only the code of an OS error is compared, as under wine. A `suites` word on a Windows row is a SKIP for now.
-		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and windows-x86_64 release builds (build `den0r`), through the real host lock: `decyk` passed, 4471 CLI runs in 40 s. The box's work folders were gone after every run, failed ones included.
-		- Verified: with the OS error wording left as it is, 2 runs differ and `decyk` fails at exit 1. With the Linux build sent as the `.exe`, the box can't start it and `decyk` fails at exit 1.
-		- Verified: over the stand-in boxes, a Windows box that doesn't answer is a SKIP, and the old pass, skip and fail cases come out as before.
-		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: PASS b29w, 4471 CLI runs in 38 s; den85 a SKIP there, as a full run sends b29w the CLI cases only.
-	- Decisions:
-		- A build ending in `.exe` means a Windows box (me). The row's os-arch already says so, so there's no second word to keep in step.
-		- As `collierjr`, not `wintest` (me). The registry tests in 2026103016433943 need an administrator, and `wintest` reaches one only through Windows Sandbox.
-		- The box half is a tracked `.ps1`, linted with the others, copied by scp and run with `-File` (me). cmd caps a command at 8191 characters, so an encoded script is kept to the short mkdir and remove steps.
-		- Each case runs with its arguments as a list and a closed stdin pipe, in place of the sh driver's `< /dev/null`, and the bytes are kept as they came (me). Half the box's CPUs at a time, a quarter when its CPU load is over half, at BelowNormal priority.
-		- Every run (me). It adds about 45 s to a full run, and it is the only real Windows run outside the hosted job.
-	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`, `fArtOf` for windows-x86_64), `--list` (name only), check-push-gate (empties it), shell-regress's row check, and the stand-in rows. Every tracked `.ps1` is in the lint list.
-	- Test case: check-boxes `decyk` for b29w.
-	- Branch: `r1030b`
-	- Verified: `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` passed all 5 steps, PSScriptAnalyzer on `box-cases.ps1` included, and so did shell-regress and `lint-report.bash --check --no-mark`. check-docs fails only `dcbc2`, red on dev until the installer sync to main.
-	- Acceptance signoff: Self-closed: b29w passed through the real host lock, and a changed output and a wrong build were each seen to fail.
-	- Closed: 20261030-170201
-
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
@@ -233,6 +161,182 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
 
+- Other hosts: Windows on b29w, timed work on vm925w
+	- ID: 2026102419263432
+	- Type: Enhancement
+	- Status: Started
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- The windows-x86_64 release over the CLI cases, and `win-runners.bash` and `winpath-regress.ps1`, on b29w through the box step. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
+		- Anything timed, such as perf-gate, goes to vm925w.
+		- `b29w`, never `b29w-wif`.
+	- Progress log:
+		- 20261030: split into 3 children: 2026103016433921 (first, the CLI cases on b29w), 2026103016433943 (win-runners.bash and winpath-regress.ps1 on b29w) and 2026103016433965 (timed work on vm925w). This one closes with the last of them.
+
+- Other hosts: timed work, such as perf-gate, on vm925w
+	- ID: 2026103016433965
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026103016433921
+	- Requirements:
+		- Anything timed, such as perf-gate, runs on vm925w through the box step rather than here.
+
+- CICD reset: a test for every Done item
+	- ID: 2026102416250070
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026102416250080
+	- Requirements:
+		- Per the regression bullet in `Testing` in the shared CICD rules. check-docs already wants a `Test case:` row on every closed item.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
+		- A Done item that says none where a test could exist and would make sense gets one.
+
+- CICD reset: temp files and safe removal
+	- ID: 2026102416250090
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `Temp files` and `Safe removal` in the shared CICD rules. Each run already has a temp dir of its own, with `TMPDIR` pointed at it and a trap that removes it.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- The run's folder is `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, made with a plain `mkdir`, with `TEMP` and `TMP` pointed there too.
+		- `--keep-temp` keeps it and prints its path.
+		- Each run removes the project's own run folders older than 2 days whose `run.pid` names no live process.
+		- A copy of the shared safe removal guard in the repo, for every recursive removal in cicd.bash, the hook, the gate scripts and the installers, and a guard of the same kind for the PowerShell ones. File list in the private notes.
+
+- CICD reset: version line
+	- ID: 2026102416250100
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026102319430000
+	- Requirements:
+		- Per the build number bullets in `Branches and releases` in the shared CICD rules. The build number and the dev build's date are in already.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides 2026102319430000's decision that unstamped builds stay `shcl vX.Y.Z`, and the private notes' rule that `--version` stays one line.
+		- Every build prints `shcl v<version> build <build>`, then the copyright line, in `--version`, `--about` and the release notes. Today only release builds are stamped, and the copyright line is only in `--about`.
+		- A non-release build adds its date after the build number.
+		- Only the Rust CLI ships. The C, Go and Python CLIs are for testing, so crosscheck leaves the version line out of its compare, and the four stay byte-identical everywhere else.
+		- Need to work out ambiguities: whether the one shipped CLI should be the Rust one, as today, or Go.
+
+- CICD reset: CICD process gaps
+	- ID: 2026102416250120
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- What else in the shared CICD rules' `CICD process` shcl doesn't do yet.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides the deferred `BSD package` item.
+		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
+		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
+
+- `shcl explain E008` says the item is dropped
+	- ID: 2026102919222300
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261029-192223
+	- Opened by: 2026102821334970's sweep
+	- Related IDs: 2026102307143752
+	- Steps to reproduce: `shcl explain E008`, in each of the 4 CLIs.
+	- Incorrect behavior: "The parent already holds named children, so the item is dropped." `E008` is kept as written since 2026102307143752.
+	- Expected behavior: the text says the item is kept and binds nothing, byte for byte in all 4, with cli-regress's explain row to match. `E011`'s "the item is ignored" could say the same.
+	- Estimated effort: Low
+
+- Three fuzz guards are thin at Miri's 100 iterations
+	- ID: 2026102418441478
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261024-184414
+	- Opened by: 2026102413172941's sweep
+	- Related IDs: 2026102413172941
+	- Problem description:
+		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `de116`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
+		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
+	- Requirements:
+		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
+	- Estimated effort: Low
+
+- Other hosts: win-runners.bash and winpath-regress.ps1 on b29w
+	- ID: 2026103016433943
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026103016433921
+	- Requirements:
+		- `win-runners.bash`, which runs `winpath-regress.ps1`, on b29w through the box step, from a copy of the tracked source. b29w has git-bash, cargo, go, mingw gcc and g++, and Python 3.14.
+	- Progress log:
+		- 20261031: a Windows row's `suites` sends the tracked source, plus what `win-runners.bash` and `winpath-regress.ps1` read, in the same visit as the CLI cases. `box-cases.ps1` runs `win-runners.bash` there under git's bash, with its caches and temp files in the work folder, Python from `C:\Python314`, and the box's CPU cap. Its log and exit code come back. `check-boxes.bash` prints the box's status lines with the box's name, and passes or fails the new test `den85`. A Windows row refuses `suites=LIST`, since `win-runners.bash` runs whole.
+		- 20261031: b29w's row is `suites-long`, so this runs under `--long` only. `--list` puts `win-runners.bash`'s and `winpath-regress.ps1`'s IDs under b29w then. design.md says so.
+		- Verified: the first b29w run (1537 s) passed the CLI cases, every `winpath-regress.ps1` check and every Windows-only row, and failed only cli-regress `ddaj0`. The binding's migrate was fine. Windows PowerShell 5.1, started from pwsh 7 through git's bash, can't load `Get-Acl`'s module, since pwsh 7's module path is passed down. Reproduced on b29w, and fixed there by setting the machine's `PSModulePath` before bash starts, for the Rust and Python CLIs. `box-cases.ps1` now does that.
+		- Verified: shell-regress `den87` (a LIST refused on a Windows row, and `--list`'s box steps) fails on the old scripts and passes now. The whole of shell-regress, `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` (all 5 steps), `lint-report.bash --check --no-mark`, `test-ids.py check` (2069 tests), shellcheck, and PSScriptAnalyzer on `box-cases.ps1` and `winpath-regress.ps1` pass.
+		- Verified: 20261031 check-boxes.bash on b29w's row with suites, through the host lock, at af3ebc16: den85 passed, ddaj0 passed, no FAIL line, exit 0 in 1562 s.
+	- Decisions:
+		- A Windows box's `suites` means `win-runners.bash`, with no LIST, not a new row word (me). It runs the same 4 bindings' runners and cli-regress the other boxes' suites do, plus the Windows-only rows.
+		- `suites-long` for b29w (me). The run took about 25 minutes, past the 5-minute limit for every run. The hosted windows job still runs it on every hosted run.
+		- `winpath-regress.ps1` runs straight on b29w as `collierjr`, an administrator, not in Windows Sandbox (me). It puts both PATH values back in a `finally`. Filed as a `Check:`.
+		- The box's status lines are printed with the box's name, so a run's log holds each test ID (me).
+	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`), `--list` (now through `fBoxListStep`), check-push-gate (empties it), shell-regress's row checks. Every place that starts Windows PowerShell 5.1 from the box: cli-regress's `fDacl` and the 5.1 rows of `win-runners.bash` all inherit the fixed path.
+	- Test case: check-boxes `den85` on b29w under `--long`; shell-regress `den87`.
+	- Branch: `r1030b`
+	- Acceptance signoff: Self-closed: the whole b29w suite run passed after the PSModulePath fix.
+	- Closed: 20261031
+
+- Other hosts: the windows-x86_64 release over the CLI cases on b29w
+	- ID: 2026103016433921
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- The parent's first half: the windows-x86_64 release over the CLI cases on b29w, through the box step, against the Linux release. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
+		- `b29w`, never `b29w-wif`.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has a b29w row on the windows-x86_64 release, as `collierjr`, CLI cases only. A row whose build ends in `.exe` is a Windows box: `check-boxes.bash` makes a work folder under the box's `HOST_TEMP` or `TEMP`, copies the cases and `cicd/utility/box-cases.ps1` there by scp, runs that with `pwsh -File`, fetches `out.tar` by scp and removes the folder. Only the code of an OS error is compared, as under wine. A `suites` word on a Windows row is a SKIP for now.
+		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and windows-x86_64 release builds (build `den0r`), through the real host lock: `decyk` passed, 4471 CLI runs in 40 s. The box's work folders were gone after every run, failed ones included.
+		- Verified: with the OS error wording left as it is, 2 runs differ and `decyk` fails at exit 1. With the Linux build sent as the `.exe`, the box can't start it and `decyk` fails at exit 1.
+		- Verified: over the stand-in boxes, a Windows box that doesn't answer is a SKIP, and the old pass, skip and fail cases come out as before.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: PASS b29w, 4471 CLI runs in 38 s; den85 a SKIP there, as a full run sends b29w the CLI cases only.
+	- Decisions:
+		- A build ending in `.exe` means a Windows box (me). The row's os-arch already says so, so there's no second word to keep in step.
+		- As `collierjr`, not `wintest` (me). The registry tests in 2026103016433943 need an administrator, and `wintest` reaches one only through Windows Sandbox.
+		- The box half is a tracked `.ps1`, linted with the others, copied by scp and run with `-File` (me). cmd caps a command at 8191 characters, so an encoded script is kept to the short mkdir and remove steps.
+		- Each case runs with its arguments as a list and a closed stdin pipe, in place of the sh driver's `< /dev/null`, and the bytes are kept as they came (me). Half the box's CPUs at a time, a quarter when its CPU load is over half, at BelowNormal priority.
+		- Every run (me). It adds about 45 s to a full run, and it is the only real Windows run outside the hosted job.
+	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`, `fArtOf` for windows-x86_64), `--list` (name only), check-push-gate (empties it), shell-regress's row check, and the stand-in rows. Every tracked `.ps1` is in the lint list.
+	- Test case: check-boxes `decyk` for b29w.
+	- Branch: `r1030b`
+	- Verified: `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` passed all 5 steps, PSScriptAnalyzer on `box-cases.ps1` included, and so did shell-regress and `lint-report.bash --check --no-mark`. check-docs fails only `dcbc2`, red on dev until the installer sync to main.
+	- Acceptance signoff: Self-closed: b29w passed through the real host lock, and a changed output and a wrong build were each seen to fail.
+	- Closed: 20261030-170201
+
 - Hosted macos job fails: the macos-14 runner image is retired on 2026-11-02
 	- ID: 2026103014303616
 	- Type: Bug
@@ -287,36 +391,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: both Macs passed through the real host lock, and a wrong build on b26 was seen to fail.
 	- Closed: 20261030-163100
 
-- Other hosts: Windows on b29w, timed work on vm925w
-	- ID: 2026102419263432
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- The windows-x86_64 release over the CLI cases, and `win-runners.bash` and `winpath-regress.ps1`, on b29w through the box step. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
-		- Anything timed, such as perf-gate, goes to vm925w.
-		- `b29w`, never `b29w-wif`.
-	- Progress log:
-		- 20261030: split into 3 children: 2026103016433921 (first, the CLI cases on b29w), 2026103016433943 (win-runners.bash and winpath-regress.ps1 on b29w) and 2026103016433965 (timed work on vm925w). This one closes with the last of them.
-
-- CICD reset: a test for every Done item
-	- ID: 2026102416250070
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Related IDs: 2026102416250080
-	- Requirements:
-		- Per the regression bullet in `Testing` in the shared CICD rules. check-docs already wants a `Test case:` row on every closed item.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
-		- A Done item that says none where a test could exist and would make sense gets one.
-
 - Other hosts: Linux arm64 on vmDebARM64
 	- ID: 2026102419263422
 	- Type: Enhancement
@@ -357,38 +431,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault. 20261030: the Go row passed on the real box, and demzb was seen to fail with each old file.
 	- Closed: 20261030-163100
 
-- CICD reset: temp files and safe removal
-	- ID: 2026102416250090
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per `Temp files` and `Safe removal` in the shared CICD rules. Each run already has a temp dir of its own, with `TMPDIR` pointed at it and a trap that removes it.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- The run's folder is `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, made with a plain `mkdir`, with `TEMP` and `TMP` pointed there too.
-		- `--keep-temp` keeps it and prints its path.
-		- Each run removes the project's own run folders older than 2 days whose `run.pid` names no live process.
-		- A copy of the shared safe removal guard in the repo, for every recursive removal in cicd.bash, the hook, the gate scripts and the installers, and a guard of the same kind for the PowerShell ones. File list in the private notes.
-
-- CICD reset: version line
-	- ID: 2026102416250100
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Related IDs: 2026102319430000
-	- Requirements:
-		- Per the build number bullets in `Branches and releases` in the shared CICD rules. The build number and the dev build's date are in already.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides 2026102319430000's decision that unstamped builds stay `shcl vX.Y.Z`, and the private notes' rule that `--version` stays one line.
-		- Every build prints `shcl v<version> build <build>`, then the copyright line, in `--version`, `--about` and the release notes. Today only release builds are stamped, and the copyright line is only in `--about`.
-		- A non-release build adds its date after the build number.
-		- Only the Rust CLI ships. The C, Go and Python CLIs are for testing, so crosscheck leaves the version line out of its compare, and the four stay byte-identical everywhere else.
-		- Need to work out ambiguities: whether the one shipped CLI should be the Rust one, as today, or Go.
-
 - CICD reset: macOS runner
 	- ID: 2026102416250110
 	- Type: Enhancement
@@ -419,20 +461,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written.
 	- Closed: 20261031
 
-- CICD reset: CICD process gaps
-	- ID: 2026102416250120
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- What else in the shared CICD rules' `CICD process` shcl doesn't do yet.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides the deferred `BSD package` item.
-		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
-		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
-
 - check-push-gate `dee74` failed once under load and passed on a rerun
 	- ID: 2026102821264857
 	- Type: Bug
@@ -456,34 +484,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: `dena0` fails without the fix and passes with it.
 	- Closed: 20261030-193745
 	- Branch: `r1030b`
-
-- `shcl explain E008` says the item is dropped
-	- ID: 2026102919222300
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261029-192223
-	- Opened by: 2026102821334970's sweep
-	- Related IDs: 2026102307143752
-	- Steps to reproduce: `shcl explain E008`, in each of the 4 CLIs.
-	- Incorrect behavior: "The parent already holds named children, so the item is dropped." `E008` is kept as written since 2026102307143752.
-	- Expected behavior: the text says the item is kept and binds nothing, byte for byte in all 4, with cli-regress's explain row to match. `E011`'s "the item is ignored" could say the same.
-	- Estimated effort: Low
-
-- Three fuzz guards are thin at Miri's 100 iterations
-	- ID: 2026102418441478
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261024-184414
-	- Opened by: 2026102413172941's sweep
-	- Related IDs: 2026102413172941
-	- Problem description:
-		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `de116`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
-		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
-	- Requirements:
-		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
-	- Estimated effort: Low
 
 - The profiler attribution check fails every run since its status word became PASS
 	- ID: 2026103011015050
