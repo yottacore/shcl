@@ -159,6 +159,7 @@ REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIS
 ## builds the cross target it tests.
 HOSTED_WORKFLOW=""; HOSTED_JOB=""; HOSTED_TARGET=""
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
+BACKLOG_ALONE=()    ## steps fRunSide runs one at a time, by text
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
 ## cargo reads CARGO_TERM_QUIET from the environment instead. Empty otherwise.
@@ -192,6 +193,39 @@ fRunExtras(){
 	for c in "$@"; do fCpuStep "${c}" "${hard}"; fEcho_Clean "extra: ${c}"; eval "${c}"; done
 }
 fStep(){ fCpuStep "$*"; "$@"; }
+## fRunSide STEP...: a backlog quick run's steps, up to 4 side by side, each
+## with its share of the run's cores, so the run fits in about 4 minutes
+## (2026102515494624). Each one's output is held and printed in order, and the
+## first failure stops the run there. The ones BACKLOG_ALONE names go first,
+## one at a time.
+fRunSide(){
+	local c i rc slots=4 share logDir pat
+	local -a pids=() side=()
+	for c in "$@"; do
+		for pat in "${BACKLOG_ALONE[@]}"; do
+			if [[ "${c}" == *"${pat}"* ]]; then fRunExtras "${c}"; continue 2; fi
+		done
+		side+=("${c}")
+	done
+	((${#side[@]})) || return 0
+	fCpuCap
+	if ((slots > CPU_CAP)); then slots="${CPU_CAP}"; fi
+	share=$((CPU_CAP / slots))
+	cpu_said=""
+	fEcho_Clean "jobs: ${slots} steps side by side, ${share} of ${cpuCount} CPUs each"
+	logDir="$(mktemp -d)"
+	for c in "${side[@]}"; do
+		while (($(jobs -rp | wc -l) >= slots)); do sleep 0.2; done
+		( trap - ERR; SHCL_CPU_FIXED="${share}" fCpuCap; eval "${c}" ) > "${logDir}/${#pids[@]}" 2>&1 &
+		pids+=("$!")
+	done
+	for i in "${!side[@]}"; do
+		rc=0; wait "${pids[i]}" || rc=$?
+		fEcho_Clean "extra: ${side[i]}"
+		cat "${logDir}/${i}"
+		((rc == 0)) || fDie "exit ${rc}: ${side[i]}"
+	done
+}
 
 ## shellcheck source=config.bash
 source "${here}/config.bash"
@@ -1290,13 +1324,24 @@ else
 	## any other bash config lists), so the pipeline can't rot silently. shellcheck
 	## is optional locally (warn if missing) but present on GitHub runners.
 	if fStepOn lint; then fStepStart lint; fi
+	shellcheck_side=0
 	if ((${#LINT_CMD[@]})); then
 		fStep "${LINT_CMD[@]}"
-		fRunExtras "${LINT_EXTRA[@]}"
+		if ((backlog_quick)); then
+			lintSide=()
+			if ((${#SHELLCHECK_TARGETS[@]})) && command -v shellcheck >/dev/null 2>&1; then
+				lintSide=('shellcheck "${SHELLCHECK_TARGETS[@]}"'); shellcheck_side=1
+			fi
+			fRunSide "${lintSide[@]}" "${LINT_EXTRA[@]}"
+		else
+			fRunExtras "${LINT_EXTRA[@]}"
+		fi
 		fEcho "OK: lint clean"
 	fi
 	if ((${#SHELLCHECK_TARGETS[@]})); then
-		if command -v shellcheck >/dev/null 2>&1; then
+		if ((shellcheck_side)); then
+			fEcho "OK: shellcheck clean (${#SHELLCHECK_TARGETS[@]} file(s))"
+		elif command -v shellcheck >/dev/null 2>&1; then
 			shellcheck "${SHELLCHECK_TARGETS[@]}"
 			fEcho "OK: shellcheck clean (${#SHELLCHECK_TARGETS[@]} file(s))"
 		elif ((gate_mode)); then
@@ -1317,8 +1362,14 @@ else
 	if fStepOn tests; then fStepStart tests; fi
 	## A backlog run's areas can leave the one or the other.
 	if ((${#TEST_CMD[@]} + ${#TEST_EXTRA[@]})); then
-		if ((${#TEST_CMD[@]})); then fStep "${TEST_CMD[@]}"; fi
-		fRunExtras "${TEST_EXTRA[@]}"
+		if ((backlog_quick)); then
+			testSide=()
+			if ((${#TEST_CMD[@]})); then printf -v testCmd '%q ' "${TEST_CMD[@]}"; testSide=("${testCmd% }"); fi
+			fRunSide "${testSide[@]}" "${TEST_EXTRA[@]}"
+		else
+			if ((${#TEST_CMD[@]})); then fStep "${TEST_CMD[@]}"; fi
+			fRunExtras "${TEST_EXTRA[@]}"
+		fi
 		fEcho "OK: tests passed"
 	fi
 	if ((${#BINDING_CLIS[@]})) && ((! xcheck_enable)); then

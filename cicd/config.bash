@@ -578,6 +578,13 @@ BACKLOG_AREAS=(
 	"cli|cli-regress.bash|check-doc-examples.bash|perf-gate.bash|check-locale.bash|check-migrate.bash|crosscheck.bash"
 	"cicd|shell-regress.bash|check-install-dev.bash|check-push-gate.bash"
 )
+## --backlog-run-quick runs the lint and test steps side by side, but not
+## these, matched as text: pwsh runs at once corrupt its startup cache, and
+## check-wheel writes build/ into source/python while ruff and mypy read it.
+BACKLOG_ALONE=(
+	'pwsh '
+	'check-wheel.bash'
+)
 
 ## Test boxes, after the release builds, on this box rather than in the image,
 ## since the host lock and the ssh keys are here (2026102419263412). One row per
@@ -757,3 +764,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-30 JC: HOSTED_WORKFLOW, HOSTED_JOB and HOSTED_TARGET, the hosted macos job a full run starts.
 ##		- 2026-10-30 JC: REMOTE_BOXES: vmDebARM64 runs the Go suite every run, and vmKt6m and b26 run the macOS build.
 ##		- 2026-10-31: REMOTE_BOXES: b29w runs win-runners.bash, under --long.
+##		- 2026-10-31 JC: BACKLOG_ALONE, the steps --backlog-run-quick runs one at a time.

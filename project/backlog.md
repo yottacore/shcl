@@ -160,7 +160,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: backlog runs
 	- ID: 2026102515494624
 	- Type: Enhancement
-	- Status: Started
+	- Status: Done
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -177,7 +177,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261028: split into children 2026102813104060 (the backlog run flags), 2026102813104371 (the hosted workflow on `--merge-gate`, then `--gate` as another name for `--backlog-run-quick`) and 2026102813104377 (install-dev's gate lines and the docs-only sync to main), in that order. The hosted workflow runs `--gate` today, and would lose the slow checks if `--gate` changed first.
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
+		- 20261031: timed one step at a time with no area named, at a load of 3 to 7: lint 108 s (shellcheck 37, check-readme 21, check-wheel 13, check-veneer 11), tests about 290 s (Python soak 56, the 5 C programs 62, Python conformance 51, cargo test 45, Go 32 and its race run 24), about 7 minutes in all. check-push-gate, which only the cicd area runs, takes about 4 minutes by itself on this box and over 15 in the main image.
+		- 20261031: `--backlog-run-quick` runs its lint and test steps up to 4 side by side, shellcheck included, each with a quarter of the run's cores. Each step's output is held and printed in order, and the first failure stops the run. pwsh and check-wheel run one at a time first (`BACKLOG_ALONE` in config.bash). design.md and contributing.md say so.
+		- Verified: `cicd.bash --backlog-run-quick` with no area passed all 5 steps in 3 min 57 s start to end, at a load of 6 to 20: lint 56 s, tests 124 s, 1888 test lines and no FAIL.
+		- Verified: check-push-gate `dep78` (the 2 stub steps meet side by side, print in order, a failed one stops the run with its name, `--merge-gate` stays one at a time) failed on the old engine and passes. The rest of check-push-gate passed with the new engine, the stop test `de8j7` included. Also shell-regress, shellcheck over every target, test-ids and markdownlint.
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
+	- Decisions:
+		- me: no check moved out of the quick run. Running its steps side by side cut the time without dropping one.
+		- me: only `--backlog-run-quick` runs side by side. The other runs keep one step at a time, since their logs are read step by step and their hard steps get a quarter of the cores each.
+		- me: 4 at once, each with a quarter of the run's cap, so the run stays inside half the cores. cargo test, the longest at 83 s with 4 jobs, starts first.
+		- me: with every area named it stays over 4 minutes, since check-push-gate runs its 74 cases one at a time. Per the note, the run with no area meets the aim. A faster check-push-gate is its own item, 2026103109485020.
+	- Test case: check-push-gate `dep78`, and the children's tests: check-push-gate `dej6y`, `dej6z`, `dej8h`, `dekgv`, `dekgw`, shell-regress `dej8g`.
+	- Acceptance signoff: me, 20261031: the run with no area fits in 4 minutes, which the note accepts.
+	- Closed: 20261031-0957
+
+- check-push-gate in about 2 minutes
+	- ID: 2026103109485020
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261031-094850
+	- Opened by: 2026102515494624
+	- Related IDs: 2026102515494624
+	- Requirements:
+		- check-push-gate runs its cases one at a time, so `--backlog-run-quick cicd` and a run with every area stay over 4 minutes. It took about 4 minutes on this box and over 15 in the main image on 2026-10-31, where its output waits until the end.
+		- Find what each case spends its time on, and run the independent ones side by side, each on its own stub repo, without losing a case.
 
 - Other hosts: Windows on b29w, timed work on vm925w
 	- ID: 2026102419263432
