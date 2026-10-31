@@ -354,12 +354,14 @@ E006|error|raw-block fence with no parent field to bind to
 E007|error|stacked '- ' list item with no parent field
   A '- value' line is an item of the field above it.
 E008|error|stacked '- ' list item under a parent with field children
-  The parent already holds named children, so the item is dropped.
+  The parent already holds named children, so the item is kept as
+  written and binds nothing. What is written under it goes with it
+  (E018).
 E009|error|empty stacked '- ' list item
   A '-' with nothing after it has no value to add.
 E011|error|stacked '- ' item for a field that already has a value
-  The field's value is kept and the item is ignored. A field is written
-  one way or the other, not both.
+  The field's value is kept. The item is kept as written and binds
+  nothing. A field is written one way or the other, not both.
 E012|error|indentation matches no open level
   The line is skipped, and anything written deeper is skipped with it
   (E018). A save writes them back as they were when the indent holds a

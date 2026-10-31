@@ -463,7 +463,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `shcl explain E008` says the item is dropped
 	- ID: 2026102919222300
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261029-192223
 	- Opened by: 2026102821334970's sweep
@@ -472,6 +472,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: "The parent already holds named children, so the item is dropped." `E008` is kept as written since 2026102307143752.
 	- Expected behavior: the text says the item is kept and binds nothing, byte for byte in all 4, with cli-regress's explain row to match. `E011`'s "the item is ignored" could say the same.
 	- Estimated effort: Low
+	- Decisions:
+		- me, 20261031: `E011` says the same, since its item is kept as written too.
+	- Test case: cli-regress `dfe08` (`explain E008`) and `dfe11` (`explain E011`), run against all 4 CLIs.
+		- 20261031: cli-regress passed, 643 rows across 4 bindings.
+	- Swept: the `CODES` text in the 4 CLIs, and the other explain rows. No other text says dropped or ignored for a kept line.
+	- Closed: 20261031
 
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
