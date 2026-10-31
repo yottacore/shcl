@@ -267,7 +267,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A Done item that says none where a test could exist and would make sense gets one.
 	- Progress log:
 		- 20261031: `test-ids.py backlog` lists each closed bug, feature or enhancement whose test row names no test's ID and gives no reason, with the IDs it could name, and a count. A reason is a row that starts with "none" or "no ". A parent passes by naming children that pass. check-docs `dep9w` runs it for items closed from 2026-11-01 on, so no new gap gets in.
-		- 20261031: of 1303 closed items, 893 named no ID. IDs went in beside the test names that match a test exactly, on 417 items, and reasons or IDs by hand on 10 more. 466 are left, split into children by part of the backlog: 2026103111123554, 2026103111123559, 2026103111123564 and 2026103111123569. Then 2026103111123574 drops the date from `dep9w`.
+		- 20261031: of 1303 closed items, 893 named no ID. IDs went in beside the test names that match a test exactly, on 417 items, and reasons or IDs by hand on 10 more. 466 are left, split into children by part of the backlog: 2026103111123554, 2026103111123559, 2026103111123564 and 2026103111123569. Then 2026103111123574 dropped the date from `dep9w`.
 		- 20261031: two items that give none, where a test makes sense, get one: 2026103111123580 and 2026103111123585.
 		- Verified: shell-regress `dep9x` passes, and fails with a Test environment row read as a test row, with a parent passing on any one child, or with `--since` ignored. check-docs `dep9w` fails on a Done item closed 2026-11-01 that names no ID, and passes on this backlog. Also the whole of shell-regress, check-docs, `test-ids.py check` (2076 tests), shellcheck over the lint targets, ruff and mypy.
 	- Decisions:
@@ -360,20 +360,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-docs `dep9w` checks every closed item
 	- ID: 2026103111123574
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
 	- Parent ID: 2026102416250070
 	- Prereq IDs: 2026103111123554, 2026103111123559, 2026103111123564, 2026103111123569
 	- Estimated effort: Low
+	- Actual effort: Low
 	- Requirements:
 		- Once `test-ids.py backlog` lists nothing, `dep9w` drops its `--since` date, so every closed item is held to the rule.
+	- Progress log:
+		- 20261031: `test-ids.py backlog` lists nothing on all 1303 closed items, so check-docs `dep9w` runs it with no `--since` and holds every closed item to the rule.
+		- Verified: `dep9w` fails on a clone whose old Done item 2026100115403384 names no ID, and passed there with the dated check. It passes on this backlog, with the rest of check-docs and shellcheck.
+	- Decisions:
+		- me: `test-ids.py backlog` keeps `--since`, since shell-regress `dep9x` tests it and it costs nothing.
+	- Test case: check-docs `dep9w`.
+	- Branch: `r1031`
+	- Closed: 20261031-120544
 
 - A test that `-q` reaches each tool's quiet flag
 	- ID: 2026103111123580
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -381,6 +390,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- The legacy Done item "`-q` does not flow through to the stage commands" (20260829) says none, "verbosity only". A stub tool that records its arguments can show `-q` reaching cargo, go, ruff and the packagers, and a step that drops it would fail.
 		- The legacy item's Test case row then names the new test's ID.
+	- Actual effort: Low
+	- Progress log:
+		- 20261031: check-push-gate `depbf` runs cicd.bash with `-q` and with `-y`. A stub step, the gif renderer and the publisher write down what they get: `-q` for the config's command strings, `CARGO_TERM_QUIET` for cargo, and `--quiet` for the other two. Then each ruff line in config.bash runs with a stub ruff, and each has to get `-q`.
+		- Verified: `depbf` fails with cargo's setting dropped, with the renderer's `--quiet` dropped, with the publisher's `--quiet` dropped, and with `-q` taken off one ruff line. It passes now, with the rest of check-push-gate.
+	- Decisions:
+		- me: go and the packagers get no quiet flag, so the test checks they aren't needed rather than that they get one. go has none for vet, build or test. package.bash sends nfpm's output to /dev/null and runs makensis at `-V2`, warnings and errors only, on every run. The legacy fix said "where one exists", and the help names cargo, ruff and the gif renderer.
+		- me: the publisher is in the test too, since `-q` hands it `--quiet`.
+	- Swept: every `QUIET_FLAG` and `quiet` use in cicd.bash and config.bash. The image and frozen-copy runs pass `-q` on as their own flag, and are not in this test.
+	- Test case: check-push-gate `depbf`.
+	- Branch: `r1031`
+	- Closed: 20261031-120544
 
 - A test that the publish helper keeps quotes in `--message`
 	- ID: 2026103111123585
@@ -18432,7 +18452,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ✅ Item 33: `-q` does not flow through to the stage commands.
 		- It only suppresses the preflight block; cargo, go, ruff and the packagers run at normal verbosity either way. Either pass each tool's quiet flag or document `-q` as "no prompt".
 		- Fixed: `-q` passes each tool's quiet flag where one exists; the usage text says what it means.
-		- Test case: None, verbosity only.
+		- Test case: check-push-gate `depbf`, added 20261031 under 2026103111123580.
 		- Opened: 20260829-071126
 		- Closed: 20260829-093755
 
