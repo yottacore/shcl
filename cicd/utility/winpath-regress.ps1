@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 ## winpath-regress.ps1 - the Windows installers' PATH handling, against the real
-## registry, so it only runs on the hosted windows job (win-runners.bash guards
-## that). Two subjects, both the shipped text rather than a copy of the logic:
+## registry, so it runs only where win-runners.bash runs it on Windows: the
+## hosted windows job and a Windows test box (2026103016433943). Two subjects, both the shipped text rather than a copy of the logic:
 ## install.ps1's Update-ShclPath, lifted from the script by name and run against
 ## HKCU, and the setup's shclpath.ps1 run as the installer runs it, against
 ## HKLM. What they must preserve: %VAR% references (read unexpanded), the

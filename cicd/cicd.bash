@@ -40,9 +40,9 @@
 ##	                       leak checks, packages, profiler and demo gif. Tests
 ##	                       run at the shorter fuzz depth when the config has
 ##	                       TEST_QUICK_CMD
-##	   --long, --slow      also the leak checks that take hours, and the suites on
-##	                       a box whose REMOTE_BOXES row says suites-long. Not
-##	                       with --quick
+##	   --long, --slow      also the leak checks that take hours, and the suites a
+##	                       REMOTE_BOXES row names with suites-long. Not with
+##	                       --quick
 ##	   --leakcheck         every leak check config.bash lists, at the end of the
 ##	                       tests stage, the ones that take hours included
 ##	   --no-leakcheck      no leak check or sanitizer run. Not with --leakcheck
@@ -64,7 +64,8 @@
 ##	   --no-dogfood        skip installing the release builds locally
 ##	   --no-gif            skip the demo gif refresh
 ##	   --no-publish        skip the git backup + publish stage
-##	   --no-remote         skip the test boxes config.bash lists in REMOTE_BOXES
+##	   --no-remote         skip the test boxes config.bash lists in REMOTE_BOXES,
+##	                       and the GitHub job HOSTED_JOB
 ##	   --skip TEXT         leave out each step whose command holds TEXT; record nothing
 ##	   --keep-temp         keep the run's temp folder and containers, and say where
 ##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
@@ -81,6 +82,13 @@
 ##	  tested (utility/green-tree.bash), which the pre-push hook then lets through
 ##	  without the gate. --quick, --no-fmt, --no-lint, --no-tests, --no-cross and
 ##	  a skipped tool keep a run from recording.
+##	- A run with no flags, --long, --merge-gate and --backlog-run-full start the
+##	  GitHub job config.bash names in HOSTED_JOB first, for this branch as
+##	  pushed, and wait for it last. The macos job takes about 3 minutes. It runs
+##	  the commit, not uncommitted edits, and it's a SKIP, with the reason, when
+##	  the remote's branch isn't at HEAD or there's no gh. --quick,
+##	  --backlog-run-quick, --no-remote and a run that doesn't build
+##	  HOSTED_TARGET leave it out. SHCL_GH names a gh to call in place of gitsby's.
 ##	- Each run works in a temp dir of its own, removed at the end even when it
 ##	  fails or is stopped. A whole run also sweeps the pipeline's stale leftovers.
 ##	- When docker (or SHCL_DOCKER) answers on x86_64, stages 1-6 run in the main
@@ -146,7 +154,10 @@ FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); 
 LEAKCHECK_FAST=(); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=(); LEAKCHECK_TESTS=()
 FROZEN_LINKS=()     ## build dirs the frozen copy shares with the checkout
 RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
-REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites|suites-long]" test boxes, after the release builds
+REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIST]]" test boxes, after the release builds
+## A job of a GitHub workflow, started first and waited for last, when the run
+## builds the cross target it tests.
+HOSTED_WORKFLOW=""; HOSTED_JOB=""; HOSTED_TARGET=""
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
@@ -247,16 +258,16 @@ while (($#)); do case "$1" in
 	--no-fmt)                 FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; fOff fmt "$1"; ctr_pass+=("$1"); shift ;;
 	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; fOff lint "$1"; ctr_pass+=("$1"); shift ;;
 	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); LEAKCHECK_STEPS=(); BINDING_CLIS=(); LARGEDOC_MIB=0; no_tests=1; gate_partial=1; fOff tests "$1"; ctr_pass+=("$1"); shift ;;
-	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; fOff release "$1"; ctr_pass+=("$1"); shift ;;
+	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; for s in release hosted hostedwait; do fOff "${s}" "$1"; done; ctr_pass+=("$1"); shift ;;
 	--no-package)             PACKAGE_ENABLE=0; ctr_pass+=("$1"); shift ;;
 	--no-largedoc)            LARGEDOC_MIB=0; ctr_pass+=("$1"); shift ;;
 	--no-profile)             PROFILE_ENABLE=0; fOff profile "$1"; ctr_pass+=("$1"); shift ;;
 	## Dogfood and the gif take the release binary, so a stale one would go out.
-	--no-release)             RELEASE_NATIVE_CMD=(); PACKAGE_ENABLE=0; DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; for s in release boxes dogfood gif; do fOff "${s}" "$1"; done; ctr_pass+=("$1"); shift ;;
+	--no-release)             RELEASE_NATIVE_CMD=(); PACKAGE_ENABLE=0; DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; for s in release boxes hosted hostedwait dogfood gif; do fOff "${s}" "$1"; done; ctr_pass+=("$1"); shift ;;
 	--no-dogfood)             DOGFOOD_FIXED_DESTS=(); fOff dogfood "$1"; shift ;;
 	--no-gif)                 GIF_ENABLE=0; fOff gif "$1"; shift ;;
 	--no-publish)             GIT_PUBLISH=(); fOff publish "$1"; shift ;;
-	--no-remote)              no_remote=1; fOff boxes "$1"; shift ;;
+	--no-remote)              no_remote=1; for s in boxes hosted hostedwait; do fOff "${s}" "$1"; done; shift ;;
 	--skip=*)                 skip_texts+=("${1#*=}"); ctr_pass+=("$1"); shift ;;
 	--skip)                   skip_texts+=("${2-}"); ctr_pass+=(--skip="${2-}"); shift; (($#)) && shift ;;
 	--keep-temp)              keep_temp=1; ctr_pass+=("$1"); shift ;;
@@ -440,11 +451,35 @@ done
 record_green=1
 if ((quick || gate_partial || skip_partial)); then record_green=0; fi
 
+## The GitHub job, by how long it takes (2026102416250110). The macos job is
+## about 3 minutes, more in GitHub's queue, and it runs the pushed commit, so a
+## run that tests edits in progress has no use for it. A quick run leaves it out,
+## and a run with no flags or a longer one starts it before anything else.
+hosted_off=""
+fHostedBuilt(){   ## -> 0 when this run builds HOSTED_TARGET
+	local t
+	((${#RELEASE_NATIVE_CMD[@]})) || return 1
+	for t in "${CROSS_TARGETS[@]}"; do
+		if [[ "${t}" == *"|${HOSTED_TARGET}|"* ]]; then return 0; fi
+	done
+	return 1
+}
+if [[ -n "${HOSTED_JOB}" ]]; then
+	if   [[ "${GITHUB_ACTIONS:-}" == true ]]; then hosted_off="already on a GitHub runner"
+	elif ((no_remote)); then hosted_off=--no-remote
+	## The push the hook gates starts ci.yml, macos job and all.
+	elif [[ -n "${frozen_given}" ]]; then hosted_off="the pre-push hook's run"
+	elif ((quick)); then hosted_off="${quick_flag}"
+	elif ! fHostedBuilt; then hosted_off="no ${HOSTED_TARGET} build this run"
+	fi
+	if [[ -n "${hosted_off}" ]]; then fOff hosted "${hosted_off}"; fOff hostedwait "${hosted_off}"; fi
+fi
+
 ## The steps this run takes, by id, in order. A step that's off isn't counted,
 ## and the first section names it with the flag or the reason. A run another run
 ## started takes that run's list, so the two number the steps alike, and runs
 ## only its own part of it.
-step_order=(sync fmt build lint tests profile release boxes dogfood gif publish)
+step_order=(sync hosted fmt build lint tests profile release boxes hostedwait dogfood gif publish)
 step_inner=" fmt build lint tests profile release "
 step_ids=(); steps_off=(); step_open=""
 fStepWanted(){   ## fStepWanted ID -> 0 when this run's settings take the step
@@ -457,6 +492,7 @@ fStepWanted(){   ## fStepWanted ID -> 0 when this run's settings take the step
 		profile) ((PROFILE_ENABLE)) || { ((gate_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); } ;;
 		release) ((${#CROSS_CHECKS[@]} + ${#RELEASE_NATIVE_CMD[@]})) ;;
 		boxes)   ((! no_remote && ! inner_run && ${#REMOTE_BOXES[@]} && ${#RELEASE_NATIVE_CMD[@]})) ;;
+		hosted|hostedwait) ((! inner_run)) && [[ -n "${HOSTED_JOB}" && -z "${hosted_off}" ]] ;;
 		dogfood) ((${#DOGFOOD_FIXED_DESTS[@]} && ${#RELEASE_NATIVE_CMD[@]})) ;;
 		gif)     ((GIF_ENABLE)) ;;
 		publish) ((${#GIT_PUBLISH[@]})) ;;
@@ -473,6 +509,8 @@ fStepTitle(){   ## fStepTitle ID -> the step's name in its lines
 		profile) echo "Profiler" ;;
 		release) echo "Release builds" ;;
 		boxes)   echo "Test boxes" ;;
+		hosted)  echo "GitHub ${HOSTED_JOB} job: start" ;;
+		hostedwait) echo "GitHub ${HOSTED_JOB} job: result" ;;
 		dogfood) echo "Dogfood" ;;
 		gif)     echo "Demo gif" ;;
 		publish) echo "Backup + publish" ;;
@@ -492,6 +530,15 @@ fi
 ## the test IDs each one runs under it, and nothing run, made or asked.
 ## test-ids.py finds the IDs. A step whose label isn't its command carries the
 ## command after a \x1f, for it to match, and the label alone is printed.
+## fBoxListStep ROW: a REMOTE_BOXES row as --list takes it, the box's name and
+## the command whose tests it runs. A Windows box's suites are win-runners.bash
+## (2026103016433943).
+fBoxListStep(){
+	local oa w
+	IFS='|' read -r _ _ oa w <<< "$1"; w="|${w}|"; ((long_run)) || w="${w//|suites-long/|}"
+	if [[ "${oa}" == windows-* && "${w}" == *'|suites'* ]]; then printf '%s\x1fcheck-boxes.bash && win-runners.bash\n' "${1%%|*}"
+	else printf '%s\x1fcheck-boxes.bash\n' "${1%%|*}"; fi
+}
 if ((list_only)); then
 	fListStage(){   ## fListStage TITLE STEP... (empty steps dropped)
 		local step n=0
@@ -528,8 +575,12 @@ if ((list_only)); then
 		fi
 		fListStage "6/9  Release builds" "${lsSteps[@]}"
 		lsSteps=()
-		if ((! no_remote && ${#RELEASE_NATIVE_CMD[@]})); then for c in "${REMOTE_BOXES[@]}"; do lsSteps+=("${c%%|*}"$'\x1fcheck-boxes.bash'); done; fi
+		if ((! no_remote && ${#RELEASE_NATIVE_CMD[@]})); then for c in "${REMOTE_BOXES[@]}"; do lsSteps+=("$(fBoxListStep "${c}")"); done; fi
 		fListStage "6/9  Test boxes" "${lsSteps[@]}"
+		if [[ -n "${HOSTED_JOB}" ]]; then
+			lsSteps=(); if fStepWanted hosted; then lsSteps=("${HOSTED_JOB} job of ${HOSTED_WORKFLOW}, started before stage 1"); fi
+			fListStage "6/9  GitHub ${HOSTED_JOB} job" "${lsSteps[@]}"
+		fi
 		lsSteps=(); if ((${#DOGFOOD_FIXED_DESTS[@]} && ${#RELEASE_NATIVE_CMD[@]})); then lsSteps=("${DOGFOOD_FIXED_DESTS[@]}"); fi
 		fListStage "7/9  Dogfood" "${lsSteps[@]}"
 		lsSteps=(); if ((GIF_ENABLE)); then lsSteps=("${GIF_OUT}"); fi
@@ -609,7 +660,20 @@ fRunTmpGone(){
 	fRmRunTmp
 	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files, about %s ]\n' "$(fSize "${kb:-0}")" >&2; fi
 }
-trap 'if declare -F fStepFail >/dev/null; then fStepFail || true; fi; fRunTmpGone || true' EXIT
+## The tee the run logs through. Bash doesn't wait for it, so a caller that
+## reads the log as soon as the run exits can miss the last lines, as a loaded
+## box showed (2026102821264857). Bounded, in case something the run left
+## outside its own tree still holds the pipe.
+run_tee=""
+# shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
+fTeeDone(){
+	local pid="${run_tee}" i
+	run_tee=""
+	[[ -n "${pid}" ]] || return 0
+	exec >/dev/null 2>&1
+	for ((i = 0; i < 200; i++)); do fStopAlive "${pid}" || break; sleep 0.05 || true; done
+}
+trap 'if declare -F fStepFail >/dev/null; then fStepFail || true; fi; fRunTmpGone || true; fTeeDone || true' EXIT
 export SHCL_GATE_SKIPS="$(mktemp)"
 
 ## Publish commit message: -m wins, then config, then a default when unattended.
@@ -922,11 +986,14 @@ esac
 if ((quick && ! backlog_quick)); then run_title+=", quick"; fi
 ## The steps that are off, with the flag or reason for each.
 fStepsOff(){
-	local id
+	local id title
 	((! inner_run)) || return 0
 	fEcho_Clean "Steps ..........: ${#step_ids[@]}"
 	for id in "${steps_off[@]}"; do
-		fEcho_Clean "Off ............: $(fStepTitle "${id}") (${step_why[${id}]:-not configured})"
+		## The GitHub job's 2 steps are on or off together, so one line says it.
+		if [[ "${id}" == hostedwait ]]; then continue; fi
+		title="$(fStepTitle "${id}")"
+		fEcho_Clean "Off ............: ${title%: start} (${step_why[${id}]:-not configured})"
 	done
 	for id in "${skip_texts[@]}"; do fEcho_Clean "Off ............: each step with ${id} (--skip)"; done
 }
@@ -988,7 +1055,7 @@ if ((! gate_mode)) && ((! inner_run)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -
 	gfs_rotate "${root}/${LINT_LOG_DIR}" run log >/dev/null 2>&1 || true
 	exec > >(tee "${root}/${LINT_LOG_DIR}/run_${stamp}.log") 2>&1
 	## It has to outlive the stop, or the cleanup lines are lost.
-	stop_keep+=("$!")
+	run_tee="$!"; stop_keep+=("${run_tee}")
 fi
 
 ## Warn (non-gating) when a pinned helper tool has drifted from TOOL_PINS, so a
@@ -1050,6 +1117,56 @@ if fStepOn sync; then
 			fEcho "OK: fast-forwarded ${behind} commit(s) from ${upstream}"
 		elif ((ahead)); then fEcho "OK: ${ahead} commit(s) ahead of ${upstream}, nothing to take"
 		else                 fEcho "OK: level with ${upstream}"
+		fi
+	fi
+	fStepEnd
+fi
+
+## The GitHub job starts here and is waited for after the test boxes, so the
+## two overlap. GitHub runs what it has, so the remote's branch has to be at
+## HEAD. As with a test box, anything short of a finished run that failed is a
+## SKIP, and the run goes on; the summary at the end names it again.
+## SHCL_GH, for a test, then gitsby, which brings the account the repo's folder
+## belongs to, then a plain gh.
+fHostedGh(){
+	( cd "${root}" || exit 2
+	if [[ -n "${SHCL_GH:-}" ]]; then "${SHCL_GH}" "$@"
+	elif command -v gitsby >/dev/null 2>&1; then gitsby -q raw gh "$@"
+	else gh "$@"; fi )
+}
+remote_skips=()
+hosted_branch=""; hosted_sha=""; hosted_run=""; hosted_since=""; hosted_skip=""
+if fStepOn hosted; then
+	fStepStart hosted
+	hosted_sha="$(git -C "${root}" rev-parse -q --verify HEAD || true)"
+	h_branch="$(git -C "${root}" symbolic-ref --quiet --short HEAD || true)"
+	h_remote=""; h_remote_sha=""; h_out=""
+	if   [[ -z "${hosted_sha}" ]]; then hosted_skip="no commit to run"
+	elif [[ ! -f "${root}/.github/workflows/${HOSTED_WORKFLOW}" ]]; then hosted_skip="no .github/workflows/${HOSTED_WORKFLOW}"
+	elif [[ -z "${SHCL_GH:-}" ]] && ! command -v gh >/dev/null 2>&1; then hosted_skip="no gh"
+	elif [[ -z "${h_branch}" ]]; then hosted_skip="HEAD is detached, so there's no branch to run it on"
+	elif ! h_remote="$(git -C "${root}" config "branch.${h_branch}.remote")"; then hosted_skip="${h_branch} tracks no remote"
+	elif ! h_remote_sha="$(git -C "${root}" ls-remote "${h_remote}" "refs/heads/${h_branch}" 2>/dev/null)"; then hosted_skip="could not reach ${h_remote}"
+	elif [[ "${h_remote_sha%%[[:space:]]*}" != "${hosted_sha}" ]]; then hosted_skip="${h_remote}/${h_branch} isn't at HEAD ${hosted_sha:0:12}, so push first"
+	else
+		## A minute early, for a clock that runs ahead of GitHub's.
+		hosted_since="$(date -u -d "@$((EPOCHSECONDS - 60))" +%Y-%m-%dT%H:%M:%SZ)"
+		if h_out="$(fHostedGh workflow run "${HOSTED_WORKFLOW}" --ref "${h_branch}" -f job="${HOSTED_JOB}" 2>&1)"; then
+			hosted_branch="${h_branch}"
+			## gh prints the run's URL when GitHub gives it one.
+			if [[ "${h_out}" =~ /actions/runs/([0-9]+) ]]; then hosted_run="${BASH_REMATCH[1]}"; fi
+		else
+			printf '%s\n' "${h_out}"
+			hosted_skip="gh could not start it, and said why above"
+		fi
+	fi
+	if [[ -n "${hosted_skip}" ]]; then
+		remote_skips+=("SKIP GitHub ${HOSTED_JOB} job: ${hosted_skip}")
+		printf '%s\n' "${remote_skips[-1]}"
+	else
+		fEcho_Clean "started: the ${HOSTED_JOB} job of ${HOSTED_WORKFLOW}, on ${h_remote}/${h_branch} at ${hosted_sha:0:12}"
+		if [[ -n "$(git -C "${root}" status --porcelain --untracked-files=no || true)" ]]; then
+			fEcho_Clean "note: it runs that commit, not the uncommitted edits here"
 		fi
 	fi
 	fStepEnd
@@ -1404,28 +1521,84 @@ fi
 ## the ssh keys are on this box (2026102419263412). A box that isn't there is a
 ## SKIP, and the run goes on; the summary at the end names it again.
 ## fBoxRow ROW: a REMOTE_BOXES row as check-boxes.bash takes it, the os-arch
-## swapped for its build. suites-long is suites under --long and nothing
-## otherwise, for a box too slow to run its suites every run (2026102419263422).
+## swapped for its build and its suites words made one: suites for all of them,
+## or suites=LIST. suites-long[=LIST] counts only under --long, for a box too
+## slow to run them all every run (2026102419263422). A word it doesn't know
+## goes on as it is, for check-boxes.bash to refuse.
 fBoxRow(){
-	local box target osarch suites
-	IFS='|' read -r box target osarch suites <<< "$1"
-	if [[ "${suites}" == suites-long ]]; then if ((long_run)); then suites=suites; else suites=""; fi; fi
-	printf '%s\n' "${box}|${target}|$(fArtOf "${osarch}")${suites:+|${suites}}"
+	local box target osarch rest w n all=0 list="" other=""
+	local -a words=() names=()
+	IFS='|' read -r box target osarch rest <<< "$1"
+	IFS='|' read -ra words <<< "${rest}"
+	for w in "${words[@]}"; do
+		case "${w}" in suites-long|suites-long=*) if ((long_run)); then w="suites${w#suites-long}"; else continue; fi ;; esac
+		case "${w}" in
+			suites) all=1 ;;
+			suites=?*) IFS=',' read -ra names <<< "${w#suites=}"
+				for n in "${names[@]}"; do [[ ",${list}," == *",${n},"* ]] || list+="${list:+,}${n}"; done ;;
+			*) other+="|${w}" ;;
+		esac
+	done
+	if ((all)); then list=suites; elif [[ -n "${list}" ]]; then list="suites=${list}"; fi
+	printf '%s\n' "${box}|${target}|$(fArtOf "${osarch}")${list:+|${list}}${other}"
 }
-remote_skips=()
 if fStepOn boxes; then
 	fStepStart boxes
 	if [[ ! -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]] || ((${#built_arts[@]} == 0)); then
-		for r in "${REMOTE_BOXES[@]}"; do remote_skips+=("SKIP ${r%%|*}: no release builds this run"); done
-		printf '%s\n' "${remote_skips[@]}"
+		for r in "${REMOTE_BOXES[@]}"; do
+			remote_skips+=("SKIP ${r%%|*}: no release builds this run")
+			printf '%s\n' "${remote_skips[-1]}"
+		done
 	else
 		box_rows=()
 		for r in "${REMOTE_BOXES[@]}"; do box_rows+=("$(fBoxRow "${r}")"); done
 		box_rc=0; fCpuStep check-boxes.bash
 		"${here}/utility/check-boxes.bash" "${RELEASE_NATIVE_BIN}" "${box_rows[@]}" 2>&1 | tee "${run_tmp}/boxes.out" || box_rc=$?
-		mapfile -t remote_skips < <(grep '^SKIP ' "${run_tmp}/boxes.out" || true)
+		mapfile -t box_skips < <(grep '^SKIP ' "${run_tmp}/boxes.out" || true)
+		remote_skips+=("${box_skips[@]}")
 		((box_rc == 0)) || fDie "a test box check failed"
 		fEcho "OK: test boxes"
+	fi
+	fStepEnd
+fi
+
+## The GitHub job started before stage 1. HOSTED_WAIT_MINS caps the wait, and
+## SHCL_HOSTED_POLL sets the seconds between looks, for a test.
+if fStepOn hostedwait; then
+	fStepStart hostedwait
+	h_state=""; h_status=""; h_conclusion=""; h_url=""; h_waited=0; h_poll="${SHCL_HOSTED_POLL:-30}"
+	h_cap=$((${HOSTED_WAIT_MINS:-60} * 60))
+	[[ "${h_poll}" =~ ^[0-9]{1,4}$ ]] || h_poll=30
+	if [[ -n "${hosted_branch}" ]]; then
+		## GitHub lists a dispatched run some seconds after it's asked for.
+		while [[ -z "${hosted_run}" ]]; do
+			hosted_run="$(fHostedGh run list --workflow "${HOSTED_WORKFLOW}" --branch "${hosted_branch}" --event workflow_dispatch --commit "${hosted_sha}" \
+				--json databaseId,createdAt --jq "map(select(.createdAt >= \"${hosted_since}\")) | .[0].databaseId // empty" 2>/dev/null)" || hosted_run=""
+			[[ -z "${hosted_run}" ]] || break
+			if ((h_waited >= 120)); then hosted_skip="GitHub listed no run of it 2 minutes after it was started"; break; fi
+			sleep "${h_poll}"; h_waited=$((h_waited + (h_poll > 0 ? h_poll : 10)))
+		done
+	fi
+	h_waited=0
+	while [[ -n "${hosted_branch}" && -z "${hosted_skip}" ]]; do
+		h_state="$(fHostedGh run view "${hosted_run}" --json status,conclusion,url --jq '.status + "|" + .conclusion + "|" + .url' 2>/dev/null)" || h_state=""
+		IFS='|' read -r h_status h_conclusion h_url <<< "${h_state}" || true
+		[[ "${h_status}" != completed ]] || break
+		if ((h_waited == 0)); then fEcho_Clean "waiting on ${h_url:-run ${hosted_run}}"; fi
+		if ((h_waited >= h_cap)); then hosted_skip="still ${h_status:-unknown} after $((h_cap / 60)) minutes: ${h_url:-run ${hosted_run}}"; break; fi
+		sleep "${h_poll}"; h_waited=$((h_waited + (h_poll > 0 ? h_poll : 30)))
+	done
+	## The workflow cancels a run on the branch when a newer one of it starts.
+	## GitHub's word for it has the British spelling, which check-docs refuses.
+	if [[ -z "${hosted_skip}" && "${h_conclusion}" == cancel* ]]; then hosted_skip="canceled on GitHub: ${h_url}"; fi
+	if [[ -n "${hosted_branch}" && -n "${hosted_skip}" ]]; then
+		remote_skips+=("SKIP GitHub ${HOSTED_JOB} job: ${hosted_skip}")
+		printf '%s\n' "${remote_skips[-1]}"
+	elif [[ -n "${hosted_skip}" ]]; then
+		fEcho_Clean "not started: ${hosted_skip}"
+	else
+		[[ "${h_conclusion}" == success ]] || fDie "the ${HOSTED_JOB} job ended ${h_conclusion:-unknown} on GitHub: ${h_url}"
+		fEcho "OK: the ${HOSTED_JOB} job on GitHub: ${h_url}"
 	fi
 	fStepEnd
 fi
@@ -1643,3 +1816,5 @@ exit 0
 ##		- 2026-10-29 JC: --gate is another name for --backlog-run-quick, so it records no tree.
 ##		- 2026-10-30 JC: --list prints the test IDs each step runs under it.
 ##		- 2026-10-30 JC: A REMOTE_BOXES row's suites-long runs that box's suites only under --long.
+##		- 2026-10-30 JC: suites=LIST and suites-long=LIST name some of a box's suites, so vmDebARM64 runs Go every run.
+##		- 2026-10-30 JC: A run with no flags, --long and the full run modes start HOSTED_JOB on GitHub first and wait for it last.

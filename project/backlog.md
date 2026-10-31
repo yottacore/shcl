@@ -161,36 +161,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: the backlog run flags are in (Waiting on automated testing).
 	- 2026-10-28: 2 of 4 children are Done. Still open: --backlog-run-quick near 4 minutes at a normal load, 2026102814013272 and 2026102813104377.
 
-- Hosted macos job fails: the macos-14 runner image is retired on 2026-11-02
-	- ID: 2026103014303616
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261030-143036
-	- Opened by:
-	- Related IDs: 2026102416250110
-	- Progress log:
-		- 20261030: hosted ci.yml run 41120869306 on r1030 cancelled the macos job in 1 s, with the annotation that a scheduled macOS 14 runner image brownout failed it. ci.yml line 310 says runs-on: macos-14. Every other job passed. From 2026-11-02 the job can't run at all.
-		- Fix: move the job to a supported arm64 macOS label and check the macOS 13 floor still holds, since the universal binary targets macOS 13.
-
-- Other hosts: macOS on b26 and vmKt6m
-	- ID: 2026102419263427
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- The macos-universal release over the CLI cases, as `mactest`, through the box step. Both Macs are Intel, so only the x86_64 slice runs. The hosted macOS job stays for arm64.
-		- A non-interactive ssh there has the stock bash 3.2 and a bare PATH, so the box half is plain sh.
-		- The outputs come back as a tar on ssh's stdout, so anything a login file prints there breaks it, as `collierjr`'s `.bashrc` on b26 does. Check `mactest`'s.
-
 - Other hosts: Windows on b29w, timed work on vm925w
 	- ID: 2026102419263432
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261024-192634
 	- Opened by: 2026102416250010
@@ -200,6 +174,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The windows-x86_64 release over the CLI cases, and `win-runners.bash` and `winpath-regress.ps1`, on b29w through the box step. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
 		- Anything timed, such as perf-gate, goes to vm925w.
 		- `b29w`, never `b29w-wif`.
+	- Progress log:
+		- 20261030: split into 3 children: 2026103016433921 (first, the CLI cases on b29w), 2026103016433943 (win-runners.bash and winpath-regress.ps1 on b29w) and 2026103016433965 (timed work on vm925w). This one closes with the last of them.
+
+- Other hosts: timed work, such as perf-gate, on vm925w
+	- ID: 2026103016433965
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026103016433921
+	- Requirements:
+		- Anything timed, such as perf-gate, runs on vm925w through the box step rather than here.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
@@ -214,37 +202,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
 		- A Done item that says none where a test could exist and would make sense gets one.
-
-- Other hosts: Linux arm64 on vmDebARM64
-	- ID: 2026102419263422
-	- Type: Enhancement
-	- Status: Queued
-	- Needs local test suite run?: No
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
-		- It runs under TCG, so keep its share of the run short.
-	- Progress log:
-		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its fourth field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
-		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
-		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
-		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
-		- check-docs' two header checks read 120 lines, not 100, since the `--long` help line pushed cicd.bash's SPDX line to line 102 (`dcv6f`).
-		- shellcheck -x on the changed scripts passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed, and without the skip only `dcbc2` was red, as on dev.
-		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
-		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk with PASS vmDebARM64, 4471 CLI runs in 79 s.
-		- 20261030: JC: the Go suite runs on every run, about 3 minutes more; Python, C and cli-regress stay under `--long`. Reopened for that change, since the row sends the CLI cases only today.
-	- Decisions:
-		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
-		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
-		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
-	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
-	- Test case: check-boxes `decyk` for vmDebARM64; `demxk` to `demxp` under `--long`; shell-regress `demzb` for the row mapping.
-	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault.
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
@@ -278,18 +235,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Only the Rust CLI ships. The C, Go and Python CLIs are for testing, so crosscheck leaves the version line out of its compare, and the four stay byte-identical everywhere else.
 		- Need to work out ambiguities: whether the one shipped CLI should be the Rust one, as today, or Go.
 
-- CICD reset: macOS runner
-	- ID: 2026102416250110
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per `macOS builds on GitHub` in the shared CICD rules. The hosted `macos` job already builds, runs the tests and checks the CLI on the arm64 runner.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Pick which cicd.bash flags start that job, by how long it takes, and have them start it.
-
 - CICD reset: CICD process gaps
 	- ID: 2026102416250120
 	- Type: Enhancement
@@ -303,17 +248,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Overrides the deferred `BSD package` item.
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
-
-- check-push-gate `dee74` failed once under load and passed on a rerun
-	- ID: 2026102821264857
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261028-212648
-	- Opened by: me
-	- Estimated effort: Low
-	- Reproduced: 20261028, once, in `--backlog-run-quick rust go python c cli cicd` on `r1028b` at a load near 22. Its no-sync case said "exit 0, step 5 never closed", with `Starting Release builds` as the last line, and its alpine case counted no steps. A rerun of check-push-gate alone passed, at a load near 10.
-	- Possible cause: a stub run whose step 5 had not closed when it was read, so the test reads before the run ends, or a timeout in the stub that only a loaded box hits.
 
 - `shcl explain E008` says the item is dropped
 	- ID: 2026102919222300
@@ -342,6 +276,214 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Other hosts: win-runners.bash and winpath-regress.ps1 on b29w
+	- ID: 2026103016433943
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026103016433921
+	- Requirements:
+		- `win-runners.bash`, which runs `winpath-regress.ps1`, on b29w through the box step, from a copy of the tracked source. b29w has git-bash, cargo, go, mingw gcc and g++, and Python 3.14.
+	- Progress log:
+		- 20261031: a Windows row's `suites` sends the tracked source, plus what `win-runners.bash` and `winpath-regress.ps1` read, in the same visit as the CLI cases. `box-cases.ps1` runs `win-runners.bash` there under git's bash, with its caches and temp files in the work folder, Python from `C:\Python314`, and the box's CPU cap. Its log and exit code come back. `check-boxes.bash` prints the box's status lines with the box's name, and passes or fails the new test `den85`. A Windows row refuses `suites=LIST`, since `win-runners.bash` runs whole.
+		- 20261031: b29w's row is `suites-long`, so this runs under `--long` only. `--list` puts `win-runners.bash`'s and `winpath-regress.ps1`'s IDs under b29w then. design.md says so.
+		- Verified: the first b29w run (1537 s) passed the CLI cases, every `winpath-regress.ps1` check and every Windows-only row, and failed only cli-regress `ddaj0`. The binding's migrate was fine. Windows PowerShell 5.1, started from pwsh 7 through git's bash, can't load `Get-Acl`'s module, since pwsh 7's module path is passed down. Reproduced on b29w, and fixed there by setting the machine's `PSModulePath` before bash starts, for the Rust and Python CLIs. `box-cases.ps1` now does that.
+		- Verified: shell-regress `den87` (a LIST refused on a Windows row, and `--list`'s box steps) fails on the old scripts and passes now. The whole of shell-regress, `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` (all 5 steps), `lint-report.bash --check --no-mark`, `test-ids.py check` (2069 tests), shellcheck, and PSScriptAnalyzer on `box-cases.ps1` and `winpath-regress.ps1` pass.
+		- Verified: 20261031 check-boxes.bash on b29w's row with suites, through the host lock, at af3ebc16: den85 passed, ddaj0 passed, no FAIL line, exit 0 in 1562 s.
+	- Decisions:
+		- A Windows box's `suites` means `win-runners.bash`, with no LIST, not a new row word (me). It runs the same 4 bindings' runners and cli-regress the other boxes' suites do, plus the Windows-only rows.
+		- `suites-long` for b29w (me). The run took about 25 minutes, past the 5-minute limit for every run. The hosted windows job still runs it on every hosted run.
+		- `winpath-regress.ps1` runs straight on b29w as `collierjr`, an administrator, not in Windows Sandbox (me). It puts both PATH values back in a `finally`. Filed as a `Check:`.
+		- The box's status lines are printed with the box's name, so a run's log holds each test ID (me).
+	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`), `--list` (now through `fBoxListStep`), check-push-gate (empties it), shell-regress's row checks. Every place that starts Windows PowerShell 5.1 from the box: cli-regress's `fDacl` and the 5.1 rows of `win-runners.bash` all inherit the fixed path.
+	- Test case: check-boxes `den85` on b29w under `--long`; shell-regress `den87`.
+	- Branch: `r1030b`
+	- Acceptance signoff: Self-closed: the whole b29w suite run passed after the PSModulePath fix.
+	- Closed: 20261031
+
+- Other hosts: the windows-x86_64 release over the CLI cases on b29w
+	- ID: 2026103016433921
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- The parent's first half: the windows-x86_64 release over the CLI cases on b29w, through the box step, against the Linux release. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
+		- `b29w`, never `b29w-wif`.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has a b29w row on the windows-x86_64 release, as `collierjr`, CLI cases only. A row whose build ends in `.exe` is a Windows box: `check-boxes.bash` makes a work folder under the box's `HOST_TEMP` or `TEMP`, copies the cases and `cicd/utility/box-cases.ps1` there by scp, runs that with `pwsh -File`, fetches `out.tar` by scp and removes the folder. Only the code of an OS error is compared, as under wine. A `suites` word on a Windows row is a SKIP for now.
+		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and windows-x86_64 release builds (build `den0r`), through the real host lock: `decyk` passed, 4471 CLI runs in 40 s. The box's work folders were gone after every run, failed ones included.
+		- Verified: with the OS error wording left as it is, 2 runs differ and `decyk` fails at exit 1. With the Linux build sent as the `.exe`, the box can't start it and `decyk` fails at exit 1.
+		- Verified: over the stand-in boxes, a Windows box that doesn't answer is a SKIP, and the old pass, skip and fail cases come out as before.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: PASS b29w, 4471 CLI runs in 38 s; den85 a SKIP there, as a full run sends b29w the CLI cases only.
+	- Decisions:
+		- A build ending in `.exe` means a Windows box (me). The row's os-arch already says so, so there's no second word to keep in step.
+		- As `collierjr`, not `wintest` (me). The registry tests in 2026103016433943 need an administrator, and `wintest` reaches one only through Windows Sandbox.
+		- The box half is a tracked `.ps1`, linted with the others, copied by scp and run with `-File` (me). cmd caps a command at 8191 characters, so an encoded script is kept to the short mkdir and remove steps.
+		- Each case runs with its arguments as a list and a closed stdin pipe, in place of the sh driver's `< /dev/null`, and the bytes are kept as they came (me). Half the box's CPUs at a time, a quarter when its CPU load is over half, at BelowNormal priority.
+		- Every run (me). It adds about 45 s to a full run, and it is the only real Windows run outside the hosted job.
+	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`, `fArtOf` for windows-x86_64), `--list` (name only), check-push-gate (empties it), shell-regress's row check, and the stand-in rows. Every tracked `.ps1` is in the lint list.
+	- Test case: check-boxes `decyk` for b29w.
+	- Branch: `r1030b`
+	- Verified: `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` passed all 5 steps, PSScriptAnalyzer on `box-cases.ps1` included, and so did shell-regress and `lint-report.bash --check --no-mark`. check-docs fails only `dcbc2`, red on dev until the installer sync to main.
+	- Acceptance signoff: Self-closed: b29w passed through the real host lock, and a changed output and a wrong build were each seen to fail.
+	- Closed: 20261030-170201
+
+- Hosted macos job fails: the macos-14 runner image is retired on 2026-11-02
+	- ID: 2026103014303616
+	- Type: Bug
+	- Status: Done
+	- Needs external testing: No
+	- Severity: High
+	- Opened: 20261030-143036
+	- Opened by:
+	- Related IDs: 2026102416250110
+	- Progress log:
+		- 20261030: hosted ci.yml run 41120869306 on r1030 cancelled the macos job in 1 s, with the annotation that a scheduled macOS 14 runner image brownout failed it. ci.yml line 310 says runs-on: macos-14. Every other job passed. From 2026-11-02 the job can't run at all.
+		- Fix: move the job to a supported arm64 macOS label and check the macOS 13 floor still holds, since the universal binary targets macOS 13.
+		- 20261030: the job runs on `macos-15`. After `lipo`, it reads each half's floor with `vtool -show-build` and fails unless both say `MACOS_FLOOR` from config.bash, 13.0. The floor comes from the zig build's own `-target`, so the runner can't move it, but nothing checked it before.
+		- Verified: 20261030 hosted ci.yml 41143471789 on r1030b, job=macos: the job passed on image macos-15-arm64 and printed x86_64 and arm64 macOS 13.0 and up.
+		- Verified: 20261031 hosted ci.yml 41155448447 on r1030b at 64bd33fe passed every job, macos on macos-15 included.
+	- Decisions:
+		- me: `macos-15`, the supported arm64 runner nearest the 13.0 floor, as zuid's macos workflow chose. `macos-latest` moves to a new macOS with no commit here, and `macos-26` is further from the floor. `macos-15` is GitHub's older supported image, so it is the next one retired.
+	- Actual fix: ci.yml's `macos` job on `macos-15`, with a floor check of both halves.
+	- Test case: ci.yml's `macos` job, its floor check included. Its rows can only run on GitHub's Mac runner.
+	- Swept: every `macos-14` in the tree, which was only ci.yml's runs-on and old backlog notes.
+	- Verified: both halves of the last local `macos-universal` build carry `LC_BUILD_VERSION` with `minos 13.0`, the field the check reads. check-pins, shellcheck and check-docs pass on the job, less `dcbc2`, which is red on dev until the installer sync to main.
+	- Acceptance signoff: Self-closed: both hosted runs passed.
+	- Closed: 20261031
+
+- Other hosts: macOS on b26 and vmKt6m
+	- ID: 2026102419263427
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- The macos-universal release over the CLI cases, as `mactest`, through the box step. Both Macs are Intel, so only the x86_64 slice runs. The hosted macOS job stays for arm64.
+		- A non-interactive ssh there has the stock bash 3.2 and a bare PATH, so the box half is plain sh.
+		- The outputs come back as a tar on ssh's stdout, so anything a login file prints there breaks it, as `collierjr`'s `.bashrc` on b26 does. Check `mactest`'s.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has rows for vmKt6m and b26, as `mactest`, on the macos-universal release, CLI cases only. The box half needed no change: it was plain sh already, and on both Macs it works under the `TMPDIR` sshd sets, in `/var/folders/.../T/shcl`.
+		- Verified: a non-interactive ssh as `mactest` prints 0 bytes on stdout on both Macs, through the host lock. b26's login shell is zsh, vmKt6m's is bash.
+		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and macos-universal release builds (build `den0r`), through the real host lock: `decyk` passed, 4471 CLI runs on each, vmKt6m in 51 s from paused and b26 in 24 s. vmKt6m ended paused, as found, and both work folders were gone.
+		- Verified: with the linux-x86_64 build sent to b26 in place of the macOS one, all 4471 runs differed and `decyk` failed, at exit 1.
+		- Verified: shellcheck -x on the changed scripts, shell-regress `demzb`, and `check-boxes-stub/run.bash`, which passes, skips and fails over the stand-in boxes as before.
+		- Not run: the step inside a whole run. The round's full run shows a `PASS vmKt6m` and a `PASS b26` line there.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: PASS vmKt6m and PASS b26, 4471 CLI runs each, and decyk passed.
+	- Decisions:
+		- Both Macs, every run (me). They add about 75 s to a full run, and b26 is the one real Mac. A box that's asleep or held is a `SKIP`.
+		- CLI cases only, no suites, as 2026102419263417 decided for the Macs (me). The hosted `macos` job runs the Rust tests, crosscheck and cli-regress on arm64.
+		- No guard against a login file's output in the box half (me). Neither `mactest` prints anything, and a broken tar is already a loud `nothing came back` failure.
+	- Swept: `REMOTE_BOXES` readers: the step (`fBoxRow`, `fArtOf` for macos-universal), `--list` (name only), check-push-gate (empties it), and the stub rows.
+	- Test case: check-boxes `decyk` for vmKt6m and b26.
+	- Acceptance signoff: Self-closed: both Macs passed through the real host lock, and a wrong build on b26 was seen to fail.
+	- Closed: 20261030-163100
+
+- Other hosts: Linux arm64 on vmDebARM64
+	- ID: 2026102419263422
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- vmDebARM64 runs the linux-arm64 release over the CLI cases through the box step, and the suites as far as its toolchains go.
+		- It runs under TCG, so keep its share of the run short.
+	- Progress log:
+		- 20261030: config.bash's `REMOTE_BOXES` has a vmDebARM64 row for the linux-arm64 release. Its fourth field is `suites-long`, which cicd.bash's `fBoxRow` turns into `suites` under `--long` and drops otherwise, so a default or full run sends the CLI cases only.
+		- Verified: `check-boxes.bash` on the Oct 29 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with the suites: `decyk`, `demxk`, `demxm`, `demxn` and `demxp` passed, `demxj` a `SKIP` (no cargo there). CLI cases and visit about 82 s, Go 169 s, Python 1344 s, C 407 s, cli-regress over the Go and C CLIs 342 s, 2344 s in all. The VM ended paused, and `/tmp/shcl` there was empty.
+		- Verified: the same without the suites passed `decyk`, 4471 CLI runs in 92 s, so the row adds about 1.5 minutes to a full run.
+		- Verified: shell-regress `demzb` passes, and fails with the `suites-long` line taken out of `fBoxRow`, and with config.bash's vmDebARM64 row set to `suites`.
+		- check-docs' two header checks read 120 lines, not 100, since the `--long` help line pushed cicd.bash's SPDX line to line 102 (`dcv6f`).
+		- shellcheck -x on the changed scripts passed. `--backlog-run-quick cicd --skip=check-docs.bash` passed, and without the skip only `dcbc2` was red, as on dev.
+		- Not run: a `--long` run, which takes hours. The suites half is the same `|suites` row run above.
+		- Verified: 20261030 cicd.bash --backlog-run-full --skip=check-docs.bash (r1030 at ec3afe1c) passed all 7 steps; its Test boxes step passed decyk with PASS vmDebARM64, 4471 CLI runs in 79 s.
+		- 20261030: JC: the Go suite runs on every run, about 3 minutes more; Python, C and cli-regress stay under `--long`. Reopened for that change, since the row sends the CLI cases only today.
+		- 20261030: a row's suites words take a list, `suites=LIST` and `suites-long=LIST`, out of rust, go, python, c and cli. vmDebARM64's row is `suites=go|suites-long`. `fBoxRow` makes the words one for check-boxes.bash, `suites` or `suites=LIST`, and check-boxes.bash sends the list to box-suites.bash, which runs only those.
+		- Verified: `check-boxes.bash` on the Oct 30 linux-x86_64 and linux-arm64 release builds, on the real vmDebARM64 through the host lock, from paused, with `suites=go`: `decyk` and `demxk` passed, and Python, C and cli-regress gave no line. 278 s in all, Go 174 s, against 92 s for the CLI cases alone. The VM ended paused, and its work folder was gone.
+		- Verified: the same over a stand-in box with `suites=go,c` ran only those two.
+		- Verified: shell-regress `demzb` passes, and fails with cicd.bash's old `fBoxRow`, with check-boxes.bash's old row check, and with config.bash's old vmDebARM64 row.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: PASS vmDebARM64 CLI runs and the go suite (182 s), demxk passed, 273 s in all.
+	- Decisions:
+		- The suites go only under `--long` (me). At 39 minutes they would more than double a full run, and Python alone is 22 of them. The CLI cases run every time.
+		- `suites-long` is a row value, mapped in cicd.bash, so check-boxes.bash still takes only `suites` and needs no `--long` of its own (me).
+		- 20261030: JC moved Go into every run, so the row lists it (`suites=go`) and keeps `suites-long` for the rest. A list beside the two words, not a third word such as `suites-go`, so any box can name any of the 5 (me).
+		- No fault run of the suites on this box (me). `suites-fault.bash` showed each row going red on vmFreeBSD, the box half is the same, and a run here costs 39 minutes.
+	- Swept: `REMOTE_BOXES` readers: the step (now through `fBoxRow`), `--list` (name only), check-push-gate (empties it), and the stub rows (3 fields). The `FNR > 100` window had 2 sites in check-docs, both moved.
+		- 20261030: each use of the suites field in check-boxes.bash (row check, source copy, the no-bash and nothing-came-back lines) and box-suites.bash (each suite, cli-regress), `suites-fault.bash`'s `|suites` (still valid), cicd.bash's help and comment, config.bash's comment, and design.md's `--long` line.
+	- Test case: check-boxes `decyk` and `demxk` for vmDebARM64; `demxm` to `demxp` under `--long`; shell-regress `demzb` for the row mapping and check-boxes.bash's row check.
+		- 20261030: `demzb`'s config check wanted vmDebARM64's row to end in `|suites-long`, and now wants `|suites=go|suites-long`.
+	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault. 20261030: the Go row passed on the real box, and demzb was seen to fail with each old file.
+	- Closed: 20261030-163100
+
+- CICD reset: macOS runner
+	- ID: 2026102416250110
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `macOS builds on GitHub` in the shared CICD rules. The hosted `macos` job already builds, runs the tests and checks the CLI on the arm64 runner.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Pick which cicd.bash flags start that job, by how long it takes, and have them start it.
+	- Progress log:
+		- 20261030: the hosted `macos` job took 2 to 3 minutes in runs 40779407541 and 40993114853.
+		- 20261030: a run with no flags, `--long`, `--merge-gate` and `--backlog-run-full` start the job first, right after the sync, through ci.yml's new `job` input, and wait for it after the test boxes. A failed job fails the run. A branch the remote doesn't have at HEAD, no gh, or a canceled job is a SKIP with the reason, named again at the end, like a test box. `--quick`, `--backlog-run-quick`, `--no-remote`, `--no-cross`, `--no-release`, a `--skip` that takes out the macOS target, and the pre-push hook's run leave it out, each with an Off line. `--list` shows it.
+		- 20261030: ci.yml's `job` input runs one job alone. Every other job has `if: ${{ !inputs.job }}`, and the concurrency group takes the input, so a run of the job alone and a full run on one branch don't cancel each other.
+		- Verified: 20261031 hosted ci.yml 41143471789 with job=macos ran only macos, every other job skipped; 41155448447 with no input ran and passed every job.
+		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: step 1 started the macos job (41155899490), step 9 waited and passed, and den5e passed.
+	- Decisions:
+		- me: the job by length is about 3 minutes plus GitHub's queue, which a run with no flags or a longer one hides by starting it first. The quick runs test edits in progress, which GitHub can't see, so they leave it out, as zuid's quick runs do.
+		- me: a `job` input on ci.yml, not a workflow of its own, so `check-pins.bash` keeps reading every pin from one file.
+		- me: the hook's run leaves it out, since the push it gates runs ci.yml, the `macos` job included, and its frozen copy has no branch.
+		- me: config.bash names the job in `HOSTED_WORKFLOW`, `HOSTED_JOB` and `HOSTED_TARGET`, so the engine stays generic. `SHCL_GH` names a gh in place of gitsby's, for the test.
+	- Test case: check-push-gate `den5e`.
+		- 20261030: `dee74` counts the Off lines of a run with no sync. The GitHub job's one line took it from 6 to 7.
+	- Verified: check-push-gate `den5e` passes, and fails against the cicd.bash from before. The whole of check-push-gate and shell-regress pass, and `--backlog-run-quick cicd --skip=check-docs.bash` passed format, build and lint. check-docs fails only `dcbc2`, which is red on dev until the installer sync to main.
+	- Swept: every flag that takes out the release, the cross targets or the remote hosts (`--no-release`, `--no-cross`, `--skip`, `--no-remote`), the run modes, `--list`, the container and frozen-copy runs, which never start it, and the end summary's SKIP lines, which the test boxes step now adds to rather than replaces.
+	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written.
+	- Closed: 20261031
+
+- check-push-gate `dee74` failed once under load and passed on a rerun
+	- ID: 2026102821264857
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: check-push-gate `dena0` against the cicd.bash from before this fix (af3ebc16), to see it fail; it passes with the fix.
+	- Severity: Low
+	- Opened: 20261028-212648
+	- Opened by: me
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Reproduced: 20261028, once, in `--backlog-run-quick rust go python c cli cicd` on `r1028b` at a load near 22. Its no-sync case said "exit 0, step 5 never closed", with `Starting Release builds` as the last line, and its alpine case counted no steps. A rerun of check-push-gate alone passed, at a load near 10.
+	- Possible cause: a stub run whose step 5 had not closed when it was read, so the test reads before the run ends, or a timeout in the stub that only a loaded box hits.
+	- Actual cause: a run that isn't a gate run logs through `exec > >(tee ...)`, and bash doesn't wait for a process substitution. cicd.bash exited while its tee still held the last lines, and the test read the log first. Only the runs with the tee failed: the no-sync and alpine cases, not `--gate`.
+	- Actual fix: the EXIT trap, after the cleanup lines, lets go of the pipe and waits for the tee to end, up to 10 s in case something the run left outside its own tree still holds it.
+	- Decisions:
+		- me: a bounded wait through `fStopAlive`, not `wait`, since a process left holding the pipe would hang the run's exit. Without `/proc` it waits for nothing, as `fStopDescendants` does.
+	- Swept: every `>(...)` in cicd/: the one tee, and `XCHECK_GEN`'s stderr filter, which a step's own pipe waits for. check-boxes.bash's `| tee` is a plain pipe.
+	- Test case: check-push-gate `dena0` (a tee that holds the log a second stands in for the load), with `dee74`.
+		- Verified: with the fix, the whole of check-push-gate (`dena0` and `dee74` included), shell-regress, `test-ids.py check` (2070 tests), shellcheck, `lint-report.bash --check --no-mark`, and `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` (all 5 steps) pass. `dena0` failing on the old cicd.bash is unverified.
+	- Verified: 20261030, check-push-gate run whole on a copy of HEAD with cicd.bash from af3ebc16: `dena0` FAIL ("a run whose log is slow to write: exit 0, of 5 steps ran"), `dee74` PASS. With HEAD's cicd.bash: `dena0` PASS, `dee74` PASS. The one other failure (`dct5a`, cannot clone the copy) is the same in both and comes from the copy having no git history.
+	- Acceptance signoff: Self-closed: `dena0` fails without the fix and passes with it.
+	- Closed: 20261030-193745
+	- Branch: `r1030b`
 
 - The profiler attribution check fails every run since its status word became PASS
 	- ID: 2026103011015050

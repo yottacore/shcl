@@ -468,6 +468,7 @@ chmod +x "${eng}/cicd/utility/stub-ids.bash"
 cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" \
 	"${root}/cicd/utility/include/stop-descendants.bash" "${root}/cicd/utility/include/cpu-cap.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
+mkdir -p "${eng}/.github/workflows"; : > "${eng}/.github/workflows/ci.yml"
 cat > "${eng}/cicd/utility/crosscheck.bash" <<'EOF'
 #!/usr/bin/env bash
 echo ran > "${STUB_XCHECK}"
@@ -501,6 +502,12 @@ PROFILE_CHECK_BUILD_CMD=(); CTR_PREP=''
 ## A release build that leaves a file, with nothing collected or checked.
 if [[ -n "${STUB_RELEASE:-}" ]]; then
 	RELEASE_NATIVE_CMD=(touch "${STUB_RELEASE}"); RELEASE_NATIVE_BIN="${STUB_RELEASE}"
+	RELEASE_CHECKS=(); RELEASE_ARTIFACT_DIR=""; REMOTE_BOXES=(); PACKAGE_ENABLE=0
+fi
+## A release with a cross target for the GitHub job to test.
+if [[ -n "${STUB_HOSTED:-}" ]]; then
+	RELEASE_NATIVE_CMD=(touch "${STUB_HOSTED}.bin"); RELEASE_NATIVE_BIN="${STUB_HOSTED}.bin"
+	CROSS_TARGETS=("stub mac|stub-mac|${STUB_HOSTED}.mac|touch '${STUB_HOSTED}.mac'"); HOSTED_TARGET=stub-mac
 	RELEASE_CHECKS=(); RELEASE_ARTIFACT_DIR=""; REMOTE_BOXES=(); PACKAGE_ENABLE=0
 fi
 ## The profiler, with a calibration that leaves a file behind when it runs.
@@ -673,6 +680,78 @@ fi
 rm -f "${work}/eng.release"
 fEngine STUB_RELEASE="${work}/eng.release" -- --gate
 [[ ! -e "${work}/eng.release" ]] || fail "a --gate run built the release"
+fTest den5e a full run starts the GitHub macos job first and waits for it last
+## 2026102416250110: a run with no flags, --merge-gate and --backlog-run-full
+## start config.bash's HOSTED_JOB for the branch as pushed, and a failed job
+## fails the run. A quick run leaves it out, and so does --no-remote. A branch
+## the remote doesn't have at HEAD, or a canceled job, is a SKIP.
+cat > "${work}/fake-gh" <<'GH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${FAKE_GH_LOG}"
+case "$1 $2" in
+	"workflow run") if [[ -z "${FAKE_GH_NOURL:-}" ]]; then echo "https://github.com/a/b/actions/runs/4242"; fi ;;
+	"run list")     echo 4242 ;;
+	"run view")     end="${FAKE_GH_END:-success}"
+	                ## GitHub's spelling, which check-docs refuses in the source.
+	                if [[ "${end}" == canceled ]]; then end="${end%ed}led"; fi
+	                echo "completed|${end}|https://github.com/a/b/actions/runs/4242" ;;
+esac
+GH
+chmod +x "${work}/fake-gh"
+fHosted(){  ## fHosted [VAR=VALUE ...] -- ARGS... -> engRc, ghRan (the gh calls, one per line)
+	local envs=()
+	while [[ "$1" != "--" ]]; do envs+=("$1"); shift; done; shift
+	: > "${work}/gh.log"
+	fEngine GITHUB_ACTIONS= SHCL_GH="${work}/fake-gh" FAKE_GH_LOG="${work}/gh.log" SHCL_HOSTED_POLL=0 STUB_HOSTED="${work}/eng.hosted" "${envs[@]}" -- "$@"
+	ghRan="$(cat "${work}/gh.log")"
+}
+fHosted -- --merge-gate
+if ((engRc != 0)) || [[ -n "${ghRan}" ]] || ! grep -qF 'SKIP GitHub macos job: dev tracks no remote' "${work}/eng.log"; then
+	fail "a branch with no remote: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
+fi
+if git init -q --bare "${work}/eng-remote.git" && git -C "${eng}" remote add origin "${work}/eng-remote.git" \
+	&& git -C "${eng}" push -q -u origin dev 2>/dev/null; then
+	fHosted -- --merge-gate
+	if ((engRc != 0)) || [[ "${ghRan}" != "workflow run ci.yml --ref dev -f job=macos"$'\n'"run view 4242 "* ]]; then
+		fail "a --merge-gate run: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
+	fi
+	## Started before the format check, and waited for after the release builds.
+	hostedOrder="$(grep -oE 'Starting (GitHub macos job: start|Format \(check only\)|Release builds|GitHub macos job: result)' "${work}/eng.log" | paste -sd '|' || true)"
+	[[ "${hostedOrder}" == "Starting GitHub macos job: start|Starting Format (check only)|Starting Release builds|Starting GitHub macos job: result" ]] \
+		|| fail "the GitHub job's steps ran out of order: ${hostedOrder}"
+	grep -qF 'OK: the macos job on GitHub: https://github.com/a/b/actions/runs/4242' "${work}/eng.log" || fail "a passing GitHub job didn't say so: $(tail -3 "${work}/eng.log")"
+	fHosted FAKE_GH_END=failure -- --merge-gate
+	{ ((engRc != 0)) && grep -qF 'the macos job ended failure on GitHub' "${work}/eng.log"; } || fail "a failed GitHub job passed the run: exit ${engRc}: $(tail -3 "${work}/eng.log")"
+	fHosted FAKE_GH_END=canceled -- --backlog-run-full
+	{ ((engRc == 0)) && grep -qF 'SKIP GitHub macos job: canceled on GitHub' "${work}/eng.log"; } || fail "a canceled GitHub job: exit ${engRc}: $(tail -3 "${work}/eng.log")"
+	## With no URL from gh, the run is found by the list.
+	fHosted FAKE_GH_NOURL=1 -- -y --no-sync
+	{ ((engRc == 0)) && grep -qF 'run list --workflow ci.yml --branch dev --event workflow_dispatch' <<< "${ghRan}"; } \
+		|| fail "a run with no flags didn't find the GitHub job by the list: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
+	for hostedArgs in "--quick -y --no-sync" "--backlog-run-quick" "--merge-gate --no-remote" "--merge-gate --no-cross" "--merge-gate --skip=stub-mac"; do
+		# shellcheck disable=SC2086  ## the flags split on purpose
+		fHosted -- ${hostedArgs}
+		if ((engRc != 0)) || [[ -n "${ghRan}" ]] || ! grep -qE '^Off \.+: GitHub macos job \(' "${work}/eng.log"; then
+			fail "cicd.bash ${hostedArgs} started the GitHub job, or didn't say it was off: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
+		fi
+	done
+	## The hook's run, whose push starts the whole of ci.yml.
+	fHosted SHCL_FROZEN=1 -- --merge-gate
+	if ((engRc != 0)) || [[ -n "${ghRan}" ]] || ! grep -qF "Off ............: GitHub macos job (the pre-push hook's run)" "${work}/eng.log"; then
+		fail "the hook's run started the GitHub job: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
+	fi
+	## A branch the remote has at another commit.
+	otherSha="$(git -C "${work}/eng-remote.git" commit-tree "$(git -C "${work}/eng-remote.git" hash-object -t tree -w /dev/null)" -m other)"
+	git -C "${work}/eng-remote.git" update-ref refs/heads/dev "${otherSha}"
+	fHosted -- --merge-gate
+	if ((engRc != 0)) || [[ -n "${ghRan}" ]] || ! grep -qF "SKIP GitHub macos job: origin/dev isn't at HEAD" "${work}/eng.log"; then
+		fail "a branch the remote has at another commit: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
+	fi
+	git -C "${eng}" branch -q --unset-upstream dev
+	git -C "${eng}" remote remove origin
+else
+	fail "could not give the stub repo a remote"
+fi
 fTest dcv65 cicd.bash clears GIT_DIR before its gates
 ## 20260918b item 2: a direct run with GIT_DIR exported clears it too.
 fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --gate
@@ -1141,7 +1220,7 @@ fStepLines(){  ## fStepLines WANT -> "" when eng.log's step lines are whole, num
 fEngine -- -y --no-sync
 stepErr="$(fStepLines 5)"
 if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qxF 'Steps ..........: 5' "${work}/eng.log" \
-	|| ! grep -qxF 'Off ............: Remote sync (--no-sync)' "${work}/eng.log" || (($(grep -c '^Off \.' "${work}/eng.log" || true) != 6)) \
+	|| ! grep -qxF 'Off ............: Remote sync (--no-sync)' "${work}/eng.log" || (($(grep -c '^Off \.' "${work}/eng.log" || true) != 7)) \
 	|| ! grep -qE '^\[ [0-9.-]+: Step 5 of 5; PASS Release builds \]$' "${work}/eng.log"; then
 	fail "a run with no sync: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
 fi
@@ -1166,6 +1245,21 @@ if [[ -d "${eng}/cicd/container" ]]; then
 		|| ! grep -qE '^\[ [0-9.-]+: Step 2 of 2; PASS Tests \]$' "${work}/eng.log"; then
 		fail "an alpine run: exit ${engRc}, ${stepErr:-step lines whole}: $(grep -E '^Off|Step [0-9]' "${work}/eng.log" | tail -8 || true)"
 	fi
+fi
+fTest dena0 a run exits only once its log has every line
+## 2026102821264857: the run logs through a tee bash doesn't wait for, so on a
+## loaded box the caller read the log before its last lines were in it. A tee
+## that holds everything for a second stands in for the load.
+mkdir -p "${work}/slowtee"
+cat > "${work}/slowtee/tee" <<SLOWTEE
+#!/usr/bin/env bash
+mapfile -t teeLines; sleep 1; printf '%s\n' "\${teeLines[@]}" | "$(command -v tee)" "\$@"
+SLOWTEE
+chmod +x "${work}/slowtee/tee"
+fEngine PATH="${work}/slowtee:${PATH}" -- -y --no-sync
+stepErr="$(fStepLines 5)"
+if ((engRc != 0)) || [[ -n "${stepErr}" ]] || ! grep -qF 'CI/CD: done.' "${work}/eng.log"; then
+	fail "a run whose log is slow to write: exit ${engRc}, ${stepErr:-step lines whole}, last line '$(tail -1 "${work}/eng.log")'"
 fi
 fTest de634 a whole run removes a profiler sample file whose graph is gone
 ## 2026101920461153: the rotation prunes a graph and leaves the sample count
@@ -1389,3 +1483,4 @@ exit "${rc}"
 ##		- 2026-10-25 JC: A push to main of docs alone, and --keep-temp.
 ##		- 2026-10-28 JC: The backlog runs, their areas, and one run mode per run.
 ##		- 2026-10-29 JC: --gate is another name for --backlog-run-quick, so the gate checks run --merge-gate.
+##		- 2026-10-30 JC: The GitHub macos job a full run starts and waits for.

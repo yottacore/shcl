@@ -6,10 +6,14 @@
 ##		there: builds the 4 bindings with that box's own toolchains and runs
 ##		their conformance suites, then cli-regress over the compiled CLIs that
 ##		built (2026102419263417). A suite whose tool the box lacks is skipped.
+##		A box can run only some of them, such as the Go suite on a slow one
+##		(2026102419263422).
 ##		Everything it writes stays under OUT_DIR and the tree's parent, which
 ##		the box half removes after.
 ##	Syntax:
-##		box-suites.bash OUT_DIR   run from the tree's root
+##		box-suites.bash OUT_DIR [SUITES]   run from the tree's root
+##		  SUITES                  all (the default), or a comma list of rust,
+##		                          go, python, c and cli. The rest get no line
 ##		  OUT_DIR/suites.lst      one line per suite: "pass NAME SECS s", "fail
 ##		                          NAME exit RC, SECS s" or "skip NAME WHY"
 ##		  OUT_DIR/NAME.log        each suite's output
@@ -25,6 +29,7 @@
 set -uo pipefail
 
 out="${1:?OUT_DIR}"; mkdir -p "${out}" || exit 2
+want="${2:-all}"
 scratch="$(cd -- .. && pwd)"
 
 ##	The same cap rule as the build box, from this box's CPU count and load:
@@ -42,10 +47,13 @@ mkdir -p "${TMPDIR}"
 cFlags=(-std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c)
 clis=()
 
+fWants(){ [[ "${want}" == all || ",${want}," == *",$1,"* ]] ;}
+
 ##	fSuite NAME TOOL CLI_NAME CLI_PATH COMMAND: runs COMMAND when TOOL is here,
 ##	and adds the binding's CLI for cli-regress once it's built, pass or fail.
 fSuite(){
 	local name="$1" tool="$2" cliName="$3" cliPath="$4" cmd="$5" rc=0 t0="${SECONDS}"
+	fWants "${name}" || return 0
 	if ! command -v "${tool}" > /dev/null 2>&1; then echo "skip ${name} no ${tool} on the box" >> "${out}/suites.lst"; return 0; fi
 	( eval "${cmd}" ) > "${out}/${name}.log" 2>&1 || rc=$?
 	if [[ "${cliPath}" != - && -x "${cliPath}" ]]; then clis+=("${cliName}|${cliPath}"); fi
@@ -64,9 +72,11 @@ fSuite python python3 - - \
 	'python3 -X dev -W error::ResourceWarning source/python/tests/conformance.py'
 fSuite c cc c source/c/shcl \
 	'cc "${cFlags[@]}" source/c/cmd/shcl/main.c -o source/c/shcl -lm && cc "${cFlags[@]}" source/c/tests/conformance.c -o "${TMPDIR}/cconf" -lm -lpthread && "${TMPDIR}/cconf" project/conformance'
-if ((${#clis[@]} == 0)); then echo "skip cli no binding CLI built" >> "${out}/suites.lst"
+if ! fWants cli; then :
+elif ((${#clis[@]} == 0)); then echo "skip cli no binding CLI built" >> "${out}/suites.lst"
 else fSuite cli bash - - 'bash cicd/utility/cli-regress.bash "${clis[@]}"'; fi
 exit 0
 
 ##	History:
 ##		2026-10-30  Created, for 2026102419263417.
+##		2026-10-30  SUITES picks some of them, for 2026102419263422.
