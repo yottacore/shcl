@@ -1869,3 +1869,4 @@ exit 0
 ##		- 2026-10-30 JC: A REMOTE_BOXES row's suites-long runs that box's suites only under --long.
 ##		- 2026-10-30 JC: suites=LIST and suites-long=LIST name some of a box's suites, so vmDebARM64 runs Go every run.
 ##		- 2026-10-30 JC: A run with no flags, --long and the full run modes start HOSTED_JOB on GitHub first and wait for it last.
+##		- 2026-10-31 JC: --backlog-run-quick runs its lint and test steps up to 4 side by side, and prints them in order.
