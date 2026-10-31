@@ -172,6 +172,7 @@ LINT_EXTRA=(
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/winpath-regress.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/winpath-sandbox.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/box-cases.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
+	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/cpu-time.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'cicd/utility/check-completions.bash'
 	'cicd/utility/check-wheel.bash'
 	## The examples doc's C example is the first thing a C consumer copies, and it is
@@ -578,10 +579,17 @@ BACKLOG_AREAS=(
 	"cli|cli-regress.bash|check-doc-examples.bash|perf-gate.bash|check-locale.bash|check-migrate.bash|crosscheck.bash"
 	"cicd|shell-regress.bash|check-install-dev.bash|check-push-gate.bash"
 )
+## --backlog-run-quick runs the lint and test steps side by side, but not
+## these, matched as text: pwsh runs at once corrupt its startup cache, and
+## check-wheel writes build/ into source/python while ruff and mypy read it.
+BACKLOG_ALONE=(
+	'pwsh '
+	'check-wheel.bash'
+)
 
 ## Test boxes, after the release builds, on this box rather than in the image,
 ## since the host lock and the ssh keys are here (2026102419263412). One row per
-## box: "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIST]]", the
+## box: "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIST]][|perf]", the
 ## os-arch naming the release build it runs. "suites" also builds the 4
 ## bindings there and runs their conformance suites and cli-regress
 ## (2026102419263417); "suites-long" does that only under --long, for a box too
@@ -593,7 +601,9 @@ BACKLOG_AREAS=(
 ## box-cases.ps1 since its ssh opens in cmd, as collierjr, the administrator the
 ## registry tests there need (2026103016433921). Its suites are win-runners.bash,
 ## winpath-regress.ps1 included, which takes too long for every run, so they run
-## under --long (2026103016433943).
+## under --long (2026103016433943). Timed work goes to vm925w, not the slower
+## b29w: a Windows row's perf runs perf-gate.bash over its build there. Only
+## the release build is timed, since it's the one CLI shipped (2026103016433965).
 ## --no-remote leaves them out, and a box that isn't there is a SKIP.
 REMOTE_BOXES=(
 	"vmFreeBSD|bsdtest@vmFreeBSD|freebsd-x86_64|suites"
@@ -601,6 +611,7 @@ REMOTE_BOXES=(
 	"vmKt6m|mactest@vmKt6m|macos-universal"
 	"b26|mactest@b26|macos-universal"
 	"b29w|collierjr@b29w|windows-x86_64|suites-long"
+	"vm925w|collierjr@vm925w|windows-x86_64|perf"
 )
 
 ## ci.yml's macos job, on GitHub's free arm64 Mac runner: it builds the
@@ -757,3 +768,5 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-30 JC: HOSTED_WORKFLOW, HOSTED_JOB and HOSTED_TARGET, the hosted macos job a full run starts.
 ##		- 2026-10-30 JC: REMOTE_BOXES: vmDebARM64 runs the Go suite every run, and vmKt6m and b26 run the macOS build.
 ##		- 2026-10-31: REMOTE_BOXES: b29w runs win-runners.bash, under --long.
+##		- 2026-10-31: REMOTE_BOXES: vm925w runs perf-gate.bash over the windows-x86_64 build.
+##		- 2026-10-31 JC: BACKLOG_ALONE, the steps --backlog-run-quick runs one at a time.

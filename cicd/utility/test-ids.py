@@ -12,6 +12,9 @@
 ##		test-ids.py check         every test has an ID, and no two share one
 ##		test-ids.py list          put the IDs each step runs under it, in the
 ##		                          step list `cicd.bash --list` feeds it
+##		test-ids.py backlog [--since=YYYYmmDD] [FILE]
+##		                          every closed bug, feature or enhancement
+##		                          names a test ID, or says why it has none
 ##	Exit: 0 = clean, 1 = a check failed, 2 = usage.
 ##	History: At bottom of script.
 
@@ -312,6 +315,154 @@ def fCheck() -> int:
 	return 0
 
 
+##	Each test's name, as a backlog row is likely to give it: a corpus folder,
+##	a script's test or row name, a runner's name string, or a Rust or Go test
+##	function's name.
+def fNames(found: list[tuple[str, str, int]]) -> dict[str, list[str]]:
+	names: dict[str, list[str]] = {}
+	cache: dict[str, list[str]] = {}
+	for tid, file, n in found:
+		if file.startswith(CORPUS + "/"):
+			names.setdefault(file.split("/")[2], []).append(tid)
+			continue
+		if file not in cache:
+			cache[file] = (repo / file).read_text(encoding="utf-8").splitlines()
+		lines = cache[file]
+		text = lines[n - 1]
+		hit = re.search(rf"""(?:\b{tid}", "|\bfTest {tid} |--id {tid} "|-Id '{tid}' .*\s'|['"]{tid}\|)([^"'|\s][^"'|]*)""", text)
+		if hit is None:
+			for back in range(n - 2, max(n - 8, -1), -1):
+				hit = re.match(r"^\s*(?:pub )?(?:fn|func) (\w+)\(", lines[back])
+				if hit:
+					break
+		if hit:
+			names.setdefault(hit.group(1).strip(), []).append(tid)
+	return names
+
+
+##	The closed items of a backlog, for `backlog`: each Done bug, feature or
+##	enhancement, and each checkmark item under a legacy Done heading. Gives the
+##	line, the title, the Closed date and the text of its test row with that
+##	row's sub-bullets. A legacy item with no row of its own takes the one of the
+##	nearest item it sits in that has one, as check-docs `dd72g` does.
+ROW = re.compile(r"^(\t*)- (?:Test case:|Test:|Pinned by\b:?|Pinned:)\s*(.*)$")
+
+
+def fClosedItems(path: Path) -> tuple[list[tuple[int, str, str, str]], dict[str, str]]:
+	lines = path.read_text(encoding="utf-8").split("\n")
+	inside = template = False
+	for i, line in enumerate(lines):
+		if line.startswith("<!--"):
+			inside = True
+		if line.startswith("## "):
+			template = line.rstrip() == "## Template"
+		if inside or template:
+			lines[i] = ""
+		if "-->" in line:
+			inside = False
+
+	def depth(line: str) -> int:
+		return len(line) - len(line.lstrip("\t"))
+
+	def body(i: int) -> list[str]:
+		out = []
+		for line in lines[i + 1 :]:
+			if line.startswith("#") or (line.strip() and depth(line) <= depth(lines[i])):
+				break
+			if line.strip():
+				out.append(line)
+		return out
+
+	def testRow(rows: list[str], d: int) -> str | None:
+		for k, line in enumerate(rows):
+			m = ROW.match(line)
+			if m and len(m.group(1)) == d + 1:
+				text = [m.group(2)]
+				for more in rows[k + 1 :]:
+					if depth(more) <= d + 1:
+						break
+					text.append(more.strip())
+				return " ".join(text)
+		return None
+
+	items: list[tuple[int, str, str, str]] = []
+	byId: dict[str, str] = {}
+	heading = ""
+	legacy: dict[int, str | None] = {}
+	for i, line in enumerate(lines):
+		if line.startswith("#"):
+			heading = line.lstrip("#").strip()
+			continue
+		if re.match(r"^- \S", line) and not line.startswith("- \u2705"):
+			rows = body(i)
+			field = {m.group(1): m.group(2) for m in (re.match(r"^\t- ([^:]+): (.*)$", r) for r in rows) if m}
+			row = testRow(rows, 0)
+			if "ID" in field and row is not None:
+				byId[field["ID"]] = row
+			if field.get("Status") == "Done" and field.get("Type") in ("Bug", "Feature", "Enhancement"):
+				items.append((i + 1, line[2:], field.get("Closed", ""), row or ""))
+			continue
+		m = re.match(r"^(\t*)- \u2705 ", line)
+		if m and heading.startswith("Done"):
+			d = len(m.group(1))
+			legacy[i] = testRow(body(i), d)
+			row = legacy[i]
+			up = d
+			for j in range(i - 1, -1, -1):
+				if row is not None or up == 0 or lines[j].startswith("#"):
+					break
+				if lines[j].strip() and depth(lines[j]) < up:
+					up = depth(lines[j])
+					row = legacy.get(j)
+			closed = next((r.split(": ", 1)[1] for r in body(i) if r.startswith("\t" * (d + 1) + "- Closed: ")), "")
+			items.append((i + 1, line.strip()[2:], closed, row or ""))
+	return items, byId
+
+
+##	A row passes when it names a test's ID, says why there is none by starting
+##	with "none" or "no ", or names backlog items whose rows each pass, as a
+##	parent naming its children does.
+def fRowPasses(row: str, known: set[str], byId: dict[str, str], seen: frozenset[str] = frozenset()) -> bool:
+	if any(w in known for w in re.findall(rf"\b{ID}\b", row)):
+		return True
+	if re.match(r"(?i)(none|no )", row.strip()):
+		return True
+	refs = [r for r in re.findall(r"\b\d{16}\b", row) if r not in seen]
+	return bool(refs) and all(r in byId and fRowPasses(byId[r], known, byId, seen | {r}) for r in refs)
+
+
+def fBacklog(path: Path, since: str) -> int:
+	if not path.is_file():
+		print(f"test-ids: {path}: missing", file=sys.stderr)
+		return 2
+	found = fScan()[0]
+	known = {tid for tid, _, _ in found}
+	names = fNames(found)
+	items, byId = fClosedItems(path)
+	gaps = 0
+	for n, title, closed, row in items:
+		day = re.sub(r"\D", "", closed)[:8]
+		if since and not day >= since:
+			continue
+		if fRowPasses(row, known, byId):
+			continue
+		gaps += 1
+		print(f"{path.name}:{n}: {title[:70]}")
+		could: list[str] = []
+		for word in re.findall(r"`([^`]+)`", row) + [f"{c}-*" for c in re.findall(r"\bcorpus (?:cases? )?(\d{3})\b", row)]:
+			if len(word.replace("*", "")) < 4:
+				continue
+			for name in sorted(fnmatch.filter(names, word) if "*" in word else [word] if word in names else []):
+				could += [f"{tid} ({name})" for tid in names[name]]
+		if could:
+			print(f"\tcould name: {', '.join(dict.fromkeys(could))}")
+	if gaps:
+		print(f"test-ids: {gaps} closed item(s) name no test ID and give no reason.", file=sys.stderr)
+		return 1
+	print(f"test-ids: OK ({len(items)} closed items)")
+	return 0
+
+
 def fNew(count: int) -> int:
 	used = {tid for tid, _, _ in fScan()[0]}
 	minute = fNow()
@@ -356,6 +507,12 @@ def main() -> int:
 		return fCheck()
 	if cmd == "list" and not rest:
 		return fList()
+	if cmd == "backlog" and len(rest) <= 2:
+		since = ""
+		if rest and rest[0].startswith("--since="):
+			since = rest.pop(0).split("=", 1)[1]
+		if re.fullmatch(r"(\d{8})?", since) and len(rest) <= 1:
+			return fBacklog(Path(rest[0]) if rest else repo / "project/backlog.md", since)
 	print(f"test-ids: bad arguments: {' '.join(args)} (try --help)", file=sys.stderr)
 	return 2
 
@@ -370,3 +527,4 @@ if __name__ == "__main__":
 ##		2026-10-30  Crockford base 32 minutes, per the shared CICD rules. Every
 ##		            base 62 millisecond ID converted once, from its own time.
 ##		            `list`, for the test IDs `cicd.bash --list` prints.
+##		2026-10-31  `backlog`, for closed items that name no test ID.

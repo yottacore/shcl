@@ -491,6 +491,10 @@ TEST_EXTRA+=('if [[ -n "${STUB_HANG:-}" ]]; then echo "${TMPDIR}" > "${STUB_HANG
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
 BACKLOG_AREAS=("slow|STUB_SLOW" "other|STUB_GITDIR" "xcheck|crosscheck.bash" "bskip|STUB_BSKIP")
 BACKLOG_SKIP=(STUB_BSKIP); TEST_EXTRA+=('echo b > "${STUB_BSKIP:-/dev/null}"')
+## 2 steps that each wait for the other. The first one only meets the second
+## side by side; one at a time, the second still finds what the first left.
+TEST_EXTRA+=('if [[ -n "${STUB_SIDE:-}" ]]; then : > "${STUB_SIDE}.a"; for i in {1..50}; do [[ -e "${STUB_SIDE}.b" ]] && break; sleep 0.1; done; [[ -e "${STUB_SIDE}.b" ]] && echo side-a-met-b; fi; true'
+	'if [[ -n "${STUB_SIDE:-}" ]]; then : > "${STUB_SIDE}.b"; for i in {1..50}; do [[ -e "${STUB_SIDE}.a" ]] && break; sleep 0.1; done; [[ -e "${STUB_SIDE}.a" ]] && echo side-b-met-a; [[ -z "${STUB_SIDE_FAIL:-}" ]]; fi')
 LEAKCHECK_STEPS=('echo leak > "${STUB_LEAK:-/dev/null}"')
 LEAKCHECK_FAST=('echo fast > "${STUB_LEAK_FAST:-/dev/null}"'); LEAKCHECK_LONG=('echo long > "${STUB_LEAK_LONG:-/dev/null}"')
 LEAKCHECK_TESTS=(STUB_LEAK_TEST); TEST_EXTRA+=('echo t > "${STUB_LEAK_TEST:-/dev/null}"')
@@ -517,7 +521,22 @@ if [[ -n "${STUB_PROFILE:-}" ]]; then
 	PROFILE_CHECK='echo ran > "${STUB_PROFILE}"'
 	PROFILE_CHECK_PROBE_CMD=(true); PROFILE_CHECK_BUILD_CMD=(true); PROFILE_CHECK_BIN=cicd/cicd.bash
 fi
+## A step that writes down what the eval'd strings and cargo see of -q, and the
+## gif renderer and publisher as stubs that write down their arguments.
+TEST_EXTRA+=('echo "step ${QUIET_FLAG}|${CARGO_TERM_QUIET:-}" >> "${STUB_QUIET:-/dev/null}"')
+if [[ -n "${STUB_QUIET:-}" ]]; then GIF_ENABLE=1; GIT_PUBLISH=(cicd/utility/stub-publish.bash); fi
 CFG
+## The renderer fails, so the run renders and rotates nothing.
+cat > "${eng}/cicd/utility/gen-demo-gif.py" <<'EOF'
+#!/usr/bin/env bash
+echo "gen $*" >> "${STUB_QUIET:-/dev/null}"
+exit 1
+EOF
+cat > "${eng}/cicd/utility/stub-publish.bash" <<'EOF'
+#!/usr/bin/env bash
+echo "stub $*" >> "${STUB_QUIET:-/dev/null}"
+EOF
+chmod +x "${eng}/cicd/utility/gen-demo-gif.py" "${eng}/cicd/utility/stub-publish.bash"
 { git -C "${eng}" add --all && git -C "${eng}" commit -q -m base; } || { echo "check-push-gate: engine repo commit failed" >&2; exit 2; }
 engTree="$(git -C "${eng}" rev-parse 'HEAD^{tree}')"
 engRecords="${eng}/.git/shcl-green-trees"
@@ -680,6 +699,44 @@ fi
 rm -f "${work}/eng.release"
 fEngine STUB_RELEASE="${work}/eng.release" -- --gate
 [[ ! -e "${work}/eng.release" ]] || fail "a --gate run built the release"
+fTest depbf -q reaches each tool that has a quiet flag
+## 20260829 item 33: -q gives ruff -q, cargo CARGO_TERM_QUIET, and the gif
+## renderer and the publisher --quiet. go, nfpm and NSIS get nothing, since go
+## has no quiet flag and package.bash keeps the packagers to warnings and
+## errors on every run. -y alone gives none of them.
+fQuiet(){  ## fQuiet ARGS... -> engRc, quietSeen (the stubs' lines, joined by ;)
+	: > "${work}/eng.quiet"
+	fEngine STUB_QUIET="${work}/eng.quiet" -- "$@"
+	quietSeen="$(paste -sd ';' "${work}/eng.quiet")"
+}
+fQuiet -q --no-sync
+if ((engRc != 0)) || [[ "${quietSeen}" != "step -q|true;gen "*" --quiet;stub --quiet" ]]; then
+	fail "cicd.bash -q: exit ${engRc}, the stubs saw '${quietSeen}': $(tail -3 "${work}/eng.log")"
+fi
+fQuiet -y --no-sync
+if ((engRc != 0)) || [[ "${quietSeen}" != "step |;gen "*";stub --no-prompt" || "${quietSeen}" == *--quiet* ]]; then
+	fail "cicd.bash -y: exit ${engRc}, the stubs saw '${quietSeen}': $(tail -3 "${work}/eng.log")"
+fi
+## Every ruff line in the real config.bash, run with a stub ruff and -q.
+: > "${work}/ruff.quiet"
+ruffLines="$(grep -cE '\<ruff (check|format)\>' "${root}/cicd/config.bash" || true)"
+(
+	## shellcheck source=../config.bash
+	source "${root}/cicd/config.bash"
+	cd "${root}"
+	# shellcheck disable=SC2329  ## the eval below calls it
+	ruff(){ echo "ruff $*" >> "${work}/ruff.quiet"; }
+	export QUIET_FLAG=-q CPU_CAP=1
+	ruffRe='\<ruff (check|format)\>'
+	for step in "${FMT_EXTRA[@]}" "${FMT_CHECK_EXTRA[@]}" "${BUILD_EXTRA[@]}" "${LINT_EXTRA[@]}" "${TEST_EXTRA[@]}"; do
+		if [[ "${step}" =~ ${ruffRe} ]]; then eval "${step}"; fi
+	done
+) || fail "a ruff line in config.bash failed under a stub ruff"
+ruffRan="$(grep -c '^ruff ' "${work}/ruff.quiet" || true)"
+ruffQuiet="$(grep -c '^ruff .* -q\( \|$\)' "${work}/ruff.quiet" || true)"
+if ((ruffLines < 1 || ruffRan != ruffLines || ruffQuiet != ruffLines)); then
+	fail "config.bash has ${ruffLines} ruff lines, ${ruffRan} ran from the step lists and ${ruffQuiet} got -q: $(cat "${work}/ruff.quiet")"
+fi
 fTest den5e a full run starts the GitHub macos job first and waits for it last
 ## 2026102416250110: a run with no flags, --merge-gate and --backlog-run-full
 ## start config.bash's HOSTED_JOB for the branch as pushed, and a failed job
@@ -844,6 +901,24 @@ fQuick --gate slow
 if ((engRc != 0 || slowRan != 0 || otherRan != 0)) || ! grep -qF 'shcl backlog run, quick: slow' "${work}/eng.log"; then
 	fail "--gate slow: exit ${engRc}, the named step ran ${slowRan}, another step ${otherRan}: $(tail -3 "${work}/eng.log")"
 fi
+fTest dep78 --backlog-run-quick runs its steps side by side, prints them in order, and stops on a failed one
+## 2026102515494624: one at a time it took about 7 minutes with no area named.
+## The 2 stub steps only meet when they run at once.
+rm -f "${work}/side".*
+fEngine SHCL_CPU_FIXED=4 STUB_SIDE="${work}/side" -- --backlog-run-quick
+sideOrder="$(grep -oE '^(side-a-met-b|side-b-met-a)$' "${work}/eng.log" | paste -sd' ' || true)"
+if ((engRc != 0)) || [[ "${sideOrder}" != "side-a-met-b side-b-met-a" ]] || ! grep -qF 'steps side by side' "${work}/eng.log"; then
+	fail "--backlog-run-quick side by side: exit ${engRc}, the steps said '${sideOrder}', want 'side-a-met-b side-b-met-a': $(tail -3 "${work}/eng.log")"
+fi
+rm -f "${work}/side".*
+fEngine SHCL_CPU_FIXED=4 STUB_SIDE="${work}/side" STUB_SIDE_FAIL=1 -- --backlog-run-quick
+if ((engRc != 1)) || ! grep -qxF 'side-b-met-a' "${work}/eng.log" || ! grep -F 'FAILED: exit 1: ' "${work}/eng.log" | grep -qF '.b"; for i in' \
+	|| grep -qF 'OK: tests passed' "${work}/eng.log"; then
+	fail "--backlog-run-quick with a failed step side by side: exit ${engRc}, want 1 and the step named: $(tail -3 "${work}/eng.log")"
+fi
+rm -f "${work}/side".*
+fEngine STUB_SIDE="${work}/side" -- --merge-gate
+grep -qxF 'side-a-met-b' "${work}/eng.log" && fail "--merge-gate ran its steps side by side: exit ${engRc}"
 rm -f "${work}/eng.bskip"
 fEngine STUB_BSKIP="${work}/eng.bskip" -- --gate
 ((engRc == 0)) && [[ ! -e "${work}/eng.bskip" ]] || fail "--gate ran the step BACKLOG_SKIP names: exit ${engRc}"
@@ -1484,3 +1559,5 @@ exit "${rc}"
 ##		- 2026-10-28 JC: The backlog runs, their areas, and one run mode per run.
 ##		- 2026-10-29 JC: --gate is another name for --backlog-run-quick, so the gate checks run --merge-gate.
 ##		- 2026-10-30 JC: The GitHub macos job a full run starts and waits for.
+##		- 2026-10-31 JC: --backlog-run-quick runs its steps side by side.
+##		- 2026-10-31 JC: -q reaches each tool's quiet flag.

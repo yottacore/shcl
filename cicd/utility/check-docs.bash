@@ -978,6 +978,22 @@ while IFS= read -r hit; do
 	fBad "backlog.md: a closed item names no test: ${hit}"
 done <<<"${hits}"
 
+fTest dep9w backlog-closed-items-name-a-test-id
+##	2026102416250070: a closed bug, feature or enhancement names its test's ID,
+##	or says why it has none. Every closed item, however old. Exit 1 with no gap
+##	count is a crash.
+fIdGaps(){
+	local r=0 out
+	out="$(python3 "${repoDir}/cicd/utility/test-ids.py" backlog "${backlog}" 2>&1)" || r=$?
+	printf '%s\n' "${out}"
+	[[ "${r}" == 0 || ( "${r}" == 1 && "${out}" == *" give no reason." ) ]] || return "${r}"
+}
+hits="$(fIdGaps)" || fFeedBad $?
+while IFS= read -r hit; do
+	[[ "${hit}" == backlog.md:* ]] || continue
+	fBad "backlog.md: a closed item names no test ID and gives no reason: ${hit#backlog.md:}"
+done <<<"${hits}"
+
 fTest dc0c8 no-found-by-bullets
 ##	How a defect was found is not what changed. The gate that caught it belongs
 ##	in the cause line where it is the point, not in a bullet of its own.
@@ -1518,3 +1534,5 @@ echo "check-docs: OK"
 ##		2026-10-19  Its scratch files go in one dir, removed on any exit.
 ##		2026-10-24  A missing install.ps1 fails by name, not silently.
 ##		2026-10-30  The header checks read 120 lines, since cicd.bash's help grew past 95.
+##		2026-10-31  A closed item from 2026-11-01 on names its test's ID or says why none.
+##		2026-10-31  Every closed item names its test's ID or says why none, however old.
