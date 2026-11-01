@@ -36,7 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -48,7 +48,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every build prints `shcl v<version> build <build>`, then the copyright line, in `--version`, `--about` and the release notes. Today only release builds are stamped, and the copyright line is only in `--about`.
 		- A non-release build adds its date after the build number.
 		- Only the Rust CLI ships. The C, Go and Python CLIs are for testing, so crosscheck leaves the version line out of its compare, and the four stay byte-identical everywhere else.
-		- Need to work out ambiguities: whether the one shipped CLI should be the Rust one, as today, or Go.
+	- Decisions:
+		- The one released CLI stays Rust (JC, 20261101). Go's stripped build was 2.3 times the size of Rust's, used about 1.5 times the CPU and 40% more memory on the profiler workload, and Rust is the reference the other bindings mirror.
 
 - CICD reset: CICD process gaps
 	- ID: 2026102416250120
