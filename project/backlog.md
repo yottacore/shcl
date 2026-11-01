@@ -51,6 +51,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261031, test batch: not run. vm925w is off and can't start while vmKt6m holds SPICE port 5900, and vmKt6m was found running, so it was left alone. Still needs a box step with vm925w up, judged by `dep83`.
 		- 20261101: still not run. The full run on r1031b skipped vm925w again, since vmKt6m holds SPICE port 5900.
 		- 20261101: JC's no-flag run on `a4f40c69` passed all 13 steps, and skipped vm925w for the same reason.
+		- 20261101: with vmKt6m off, vm925w still can't start. Its disk is on `zf10/vm/vm925w`, which is encrypted and not mounted, with its key not loaded. That takes a root step by hand, then a box step with the vm925w row alone.
 	- Decisions:
 		- perf-gate stays in the local test step too, over the 4 bindings' Linux CLIs (me). Its budgets are ratios to the same CLI's own parse in CPU time, so this box's load doesn't move them, and only the local run covers Go, Python and C. vm925w adds the Windows release build, which nothing timed before.
 		- Only the release build on vm925w, not the 4 bindings built there (me). It's the one CLI shipped, and a build of all 4 there would cost minutes every run.
