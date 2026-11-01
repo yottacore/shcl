@@ -222,7 +222,7 @@ fSrcTree(){
 		| tar -C "${root}" --null --ignore-failed-read -T - -cf - | tar -C "${d}" -xf -
 }
 ##	What win-runners.bash and winpath-regress.ps1 read besides.
-winSrc=(cicd/utility/win-runners.bash cicd/utility/winpath-regress.ps1 cicd/utility/winpath-sandbox.ps1 cicd/packaging/shclpath.ps1 install.ps1 utility/dogfood_shcl.ps1 utility/dogfood_shcl.cmd)
+winSrc=(cicd/utility/win-runners.bash cicd/utility/winpath-regress.ps1 cicd/utility/winpath-sandbox.ps1 cicd/utility/include/safe-rm.ps1 cicd/packaging/shclpath.ps1 install.ps1 utility/dogfood_shcl.ps1 utility/dogfood_shcl.cmd)
 ##	fSuiteRows NAME: one line per box for that suite, out of suites.all.
 fSuiteRows(){
 	local s="$1" bx st nm rest
@@ -381,3 +381,4 @@ echo "check-boxes: OK"
 ##		2026-10-30  A Windows box runs the cases through box-cases.ps1, for 2026103016433921.
 ##		2026-10-31  A Windows box's |suites runs win-runners.bash there, for 2026103016433943.
 ##		2026-10-31  A Windows box's |perf runs perf-gate.bash there, for 2026103016433965.
+##		2026-10-31  A Windows box gets the PowerShell guard with win-runners' source, for 2026103114555334.

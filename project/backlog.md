@@ -68,7 +68,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: a safe removal guard for the PowerShell scripts
 	- ID: 2026103114555334
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml on the round branch, the `windows` job: win-runners `depma` (the guard under 5.1, with junctions) and the `windows path` row, whose winpath-regress.ps1 loads the include and removes its scratch through it, on a TEMP with an 8.3 name. winpath-sandbox.ps1 runs only where Windows Sandbox is, as on b29w's `den85` under `--long`.
 	- Priority: Avg
 	- Opened: 20261031-145553
 	- Opened by: 2026102416250090
@@ -76,6 +77,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026103114555299
 	- Requirements:
 		- The parent's third part: a guard of the same kind for the recursive `Remove-Item` calls in `install.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1`.
+	- Progress log:
+		- 20261031: `Remove-SafeTree -Parent P -Path X`, new in `cicd/utility/include/safe-rm.ps1`, removes X strictly under P. It refuses what `fSafeRmUnder` refuses: an empty path, `.`, `..`, a doubled separator, a relative path, a link, a path through a link below P, and one not there. A link or junction inside is removed, not followed.
+		- 20261031: winpath-regress.ps1 and winpath-sandbox.ps1 dot-source it and remove their scratch through it. install.ps1 has a copy of its own, since under `irm` there's no file beside it to load. check-boxes ships the include to a Windows box with the rest of win-runners' source, and the lint list has it.
+		- 20261031: install.ps1 reaches users only from main, so it needs the docs-only sync to main after the round's merge, as install.bash does.
+		- Verified: shell-regress passes whole, `depm0` included. `depm0` fails on the old scripts (the bare removals, and no copy in install.ps1), on a guard that follows a link inside, on one with no link check on the way down, and on one that takes a `.` segment. PSScriptAnalyzer is clean on all four changed `.ps1` files, and shellcheck on the changed scripts. `test-ids.py check` passes.
+		- Not run: the guard on Windows. `depma` was only parsed here.
+	- Decisions:
+		- me: one guard in the include, with install.ps1's copy held to the same text by `depm0`, as install.bash keeps its own.
+		- me: the guard walks the tree with .NET calls rather than `Remove-Item -Recurse`, so a link inside is treated the same on 5.1 and 7.
+		- me: the path check goes by segment, not `GetFullPath`, since 5.1 can spell out an 8.3 name, and the hosted runner's TEMP is one.
+		- me: a refusal or a failed removal is a non-terminating error, and the callers pass `-ErrorAction Continue`, so a folder left behind is reported but never fails an install or a test.
+		- me: the scratch folders stay where they were made, right under the temp path, which is the one parent named. In a run that's the run's own folder.
+		- me: check-boxes' box-side `fWinRm` stays its own guard, as its `gone()` does, naming the one folder shape it may remove. It runs as an encoded command, which cmd caps at 8191 characters.
+	- Swept: every `Remove-Item`, `]::Delete`, `rmdir` and `rd /s` in the tracked `.ps1` files, and the PowerShell text in the bash scripts. 3 were recursive and bare, and none are now. install.ps1's file and empty-dir removals and dogfood_shcl.ps1's file removals aren't recursive, so they stay. box-cases.ps1 and cpu-time.ps1 remove nothing. `project/legacy/shcl.ps1` is frozen.
+	- Test case: shell-regress `depm0` (the guard's refusals and removal, install.ps1's copy the same as the include's, and no bare recursive removal in a tracked `.ps1`), and win-runners `depma` (the guard under 5.1 with junctions, on Windows).
+	- Branch: `r1031b`
 
 - CICD reset: the run folder and its guard
 	- ID: 2026103114555299

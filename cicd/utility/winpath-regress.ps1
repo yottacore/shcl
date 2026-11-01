@@ -35,6 +35,7 @@ if (-not ($env:OS -eq 'Windows_NT')) {
 	exit 2
 }
 
+. (Join-Path -Path $PSScriptRoot -ChildPath 'include\safe-rm.ps1')
 $root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath '..\..')
 $failures = 0
 ## One status line per check, with its test ID.
@@ -142,7 +143,8 @@ try {
 	$shipped = [IO.File]::ReadAllText($script)
 	$keyText = "'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', `$true)"
 	if (-not $shipped.Contains($keyText)) { Write-Output 'winpath-regress: shclpath.ps1 no longer opens the key as expected'; exit 2 }
-	$broken = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath ('shclpath-fail-' + [IO.Path]::GetRandomFileName())
+	$tmpParent = [IO.Path]::GetTempPath()
+	$broken = Join-Path -Path $tmpParent -ChildPath ('shclpath-fail-' + [IO.Path]::GetRandomFileName())
 	New-Item -ItemType Directory -Path $broken | Out-Null
 	try {
 		$noKey = Join-Path -Path $broken -ChildPath 'nokey.ps1'
@@ -155,7 +157,7 @@ try {
 		Test-Check -Id 'dcr60' ($LASTEXITCODE -ne 0) 'setup add fails when the write throws'
 		Test-Check -Id 'dcr61' ((Get-RawPath $lm) -eq ($before -join ';')) 'a failed setup add changes nothing'
 	} finally {
-		Remove-Item -Recurse -Force -LiteralPath $broken -ErrorAction SilentlyContinue
+		Remove-SafeTree -Parent $tmpParent -Path $broken -ErrorAction Continue
 	}
 } finally {
 	Restore-PathValue -Key $lm -Value $savedLm -Kind $savedLmKind

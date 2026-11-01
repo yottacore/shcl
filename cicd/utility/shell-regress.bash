@@ -486,6 +486,47 @@ SRVEOF
 	# shellcheck disable=SC2016  ## install.ps1's own $dest, matched literally
 	grep -qF 'Remove-OldWrapper -Dest $dest' "${repoDir}/install.ps1" || fBad "install.ps1 no longer calls Remove-OldWrapper on an install"
 
+	fTest depm0 2026103114555334-ps1-safe-remove
+	##	The PowerShell scripts take a folder down only through Remove-SafeTree,
+	##	install.ps1's copy is the include's text, and the guard refuses what
+	##	fSafeRmUnder refuses and never follows a link inside.
+	sr="${tmpDir}/psrm"
+	mkdir -p "${sr}/par/a/b" "${sr}/par/ro" "${sr}/out/sub"
+	printf 'keep\n' > "${sr}/out/keep"; printf 'x\n' > "${sr}/par/a/b/f"; printf 'r\n' > "${sr}/par/ro/r"
+	ln -s "${sr}/out" "${sr}/par/a/dl"; ln -s "${sr}/out/keep" "${sr}/par/a/fl"; ln -s "${sr}/out" "${sr}/par/L"
+	chmod 444 "${sr}/par/ro/r"; chmod 555 "${sr}/par/ro"
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$ErrorActionPreference = "Stop"'
+		echo ". '${repoDir}/cicd/utility/include/safe-rm.ps1'"
+		echo "\$par = '${sr}/par'"
+		echo "foreach (\$c in '', \$par, '${sr}/out', \"\$par/../out\", \"\$par//a\", \"\$par/./a\", 'par/a', \"\$par/L\", \"\$par/L/sub\", \"\$par/nope\", \"\$par/a\`nb\") {"
+		echo '	$e = $null'
+		echo '	Remove-SafeTree -Parent $par -Path $c -ErrorAction SilentlyContinue -ErrorVariable e'
+		echo '	if (-not $e) { Write-Output "took [$c]" }'
+		echo '}'
+		echo 'Remove-SafeTree -Parent "$par/" -Path "$par/a" -ErrorAction Continue'
+		echo 'Remove-SafeTree -Parent $par -Path "$par/ro/" -ErrorAction Continue'
+		echo 'Write-Output "done"'
+	} > "${tmpDir}/psrm.ps1"
+	out="$(cd "${sr}" && pwsh -NoProfile -File "${tmpDir}/psrm.ps1" 2>&1 || true)"
+	[[ -d "${sr}/par/ro" ]] && chmod 755 "${sr}/par/ro"
+	[[ "${out}" == "done" ]] || fBad "Remove-SafeTree took or refused the wrong path: ${out@Q}"
+	[[ ! -e "${sr}/par/a" && ! -e "${sr}/par/ro" && -L "${sr}/par/L" && -f "${sr}/out/keep" && -d "${sr}/out/sub" ]] \
+		|| fBad "Remove-SafeTree removed the wrong things, or followed a link"
+	if ! diff <(sed -n '/^function Remove-SafeTree/,/^}/p' "${repoDir}/cicd/utility/include/safe-rm.ps1") \
+		<(sed -n '/^\tfunction Remove-SafeTree/,/^\t}/p' "${repoDir}/install.ps1" | sed 's/^\t//') > /dev/null; then
+		fBad "install.ps1's Remove-SafeTree is not the include's"
+	fi
+	[[ -n "$(sed -n '/^function Remove-SafeTree/p' "${repoDir}/cicd/utility/include/safe-rm.ps1")" ]] || fBad "the include has no Remove-SafeTree"
+	psRm="$(git -C "${repoDir}" ls-files -z -- '*.ps1' ':!project/legacy' | (cd "${repoDir}" && xargs -0 grep -niE 'Remove-Item[^#]*-Recurse|\]::Delete\([^)]*,|rmdir|\brd[[:space:]]+/s' --) || true)"
+	[[ -z "${psRm}" ]] || fBad "a bare recursive removal in PowerShell: ${psRm//$'\n'/; }"
+	for f in install.ps1 cicd/utility/winpath-regress.ps1 cicd/utility/winpath-sandbox.ps1; do
+		# shellcheck disable=SC2016  ## the scripts' own $tmpParent, matched literally
+		grep -qF 'Remove-SafeTree -Parent $tmpParent -Path' "${repoDir}/${f}" || fBad "${f} no longer removes its scratch through Remove-SafeTree"
+	done
+
 	fTest dcr5x 20260909-38-shclpath-fails-without-registry
 	##	20260909 item 38: the setup's PATH script exited 0 when it could not
 	##	write, so the setup's fallback message never showed. There is no
@@ -4214,3 +4255,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-30  suites=LIST rows, and check-boxes.bash's pattern takes what fBoxRow makes.
 ##		2026-10-31  A Windows box's suites are win-runners.bash, in check-boxes.bash and --list.
 ##		2026-10-31  A Windows row's perf runs perf-gate.bash, in check-boxes.bash, fBoxRow and --list.
+##		2026-10-31  The PowerShell safe removal guard, for 2026103114555334.

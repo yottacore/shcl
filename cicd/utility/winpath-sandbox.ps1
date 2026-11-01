@@ -47,8 +47,10 @@ if (Get-Process -Name 'WindowsSandboxRemoteSession' -ErrorAction SilentlyContinu
 	Exit-Setup 'a sandbox is already running; not touching it'
 }
 
+. (Join-Path -Path $PSScriptRoot -ChildPath 'include\safe-rm.ps1')
 $root = (Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath '..\..')).Path
-$work = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath ('shcl-wsb-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+$tmpParent = [IO.Path]::GetTempPath()
+$work = Join-Path -Path $tmpParent -ChildPath ('shcl-wsb-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 $out = Join-Path -Path $work -ChildPath 'out'
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 
@@ -123,7 +125,7 @@ finally {
 	Get-Process -Name 'WindowsSandboxRemoteSession' -ErrorAction SilentlyContinue |
 		Stop-Process -Force -ErrorAction SilentlyContinue
 	Start-Sleep -Seconds 3
-	Remove-Item -Recurse -Force -LiteralPath $work -ErrorAction SilentlyContinue
+	Remove-SafeTree -Parent $tmpParent -Path $work -ErrorAction Continue
 }
 
 if ($failed -eq 0) { Write-Output 'winpath-sandbox: OK'; exit 0 }
