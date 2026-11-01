@@ -281,6 +281,77 @@ fTimeMs(){
 	printf '%s' "${best}"
 }
 
+## CPU ms for workload $2 through CLI $1.
+fWorkMs(){
+	local cli="$1" w="$2"
+	case "${w}" in
+		keeps)     fTimeMs "${cli}" "${keepDoc}" keeps "$((keys / 2))" ;;
+		badlines)  fTimeMs "${cli}" "${badDoc}" check 2 ;;
+		suggest)   fTimeMs "${cli}" "${sugDoc}" suggest 2 ;;
+		recurse)   fTimeMs "${cli}" "${recDoc}" recurse 2 ;;
+		frags)     fTimeMs "${cli}" "${fragDoc}" frags 2 ;;
+		stars)     fTimeMs "${cli}" "${starDoc}" stars 2 ;;
+		mounts)    fTimeMs "${cli}" "${mountDoc}" mounts 2 ;;
+		selectors) fTimeMs "${cli}" "${selDoc}" selectors 1 ;;
+		unknowns)  fTimeMs "${cli}" "${unkDoc}" unknowns 4000 ;;
+		merge)     fTimeMs "${cli}" "${mergeOver}" merge "$((keys / 2))" ;;
+		removes)   fTimeMs "${cli}" "${rmDoc}" removes 6 ;;
+		raws)      fTimeMs "${cli}" "${rawDoc}" raws "$((keys * 2))" ;;
+		fills)     fTimeMs "${cli}" "${fillDoc}" fills "$((keys * 2))" ;;
+		*)         fTimeMs "${cli}" "${tmpDir}/${w}.ops" set "${keys}" ;;
+	esac
+}
+
+## What workload $2 is judged against: the parse-only run, or for fills a
+## spread-out twin of itself. Each default leaves a note line above its field,
+## and the spread-out one a parent line too. Linear code runs at about three
+## quarters of the twin, and the old scan at 1.4 to 4 times, in every binding.
+fBaseMs(){
+	if [[ "$2" == fills ]]; then fTimeMs "$1" "${apartDoc}" apart "$((keys * 3))"
+	else fTimeMs "$1" "${tmpDir}/base.ops" set "${keys}"; fi
+}
+fBudget(){
+	local w="$1" base="$2" budget
+	[[ "${w}" == fills ]] && { printf '%s' "${base}"; return; }
+	## A floor, so a binding fast enough to come near the clock's resolution is
+	## not judged on noise.
+	budget=$(( base * factor ))
+	if ((budget < base + 250)); then budget=$(( base + 250 )); fi
+	## keeps parses 3 times by design, the source, the edited text and the
+	## reload check, so it ran at up to 85 percent of its budget in Python.
+	## Half again more room; anything worse than linear still blows through
+	## it (20260926 idea 4).
+	[[ "${w}" == keeps ]] && budget=$(( budget * 3 / 2 ))
+	printf '%s' "${budget}"
+}
+
+##	Times workload $3 through binding $1 (CLI $2) against baseline $4 ms, or
+##	-1 to time one. Sets judgeMs, judgeBudget and judgeAgainst. Returns 1 over
+##	budget, 2 when a run did no work.
+##	One over budget is timed again with its baseline next to it, and the best
+##	of each is judged. A spike on the other hyperthread or the memory bus
+##	moves CPU time too, and one over Python's reads and not its baseline put
+##	it at 3.08 times (2026110110325317). A path that went superlinear is slow
+##	both times.
+fJudge(){
+	local name="$1" cli="$2" w="$3" base="$4" again
+	judgeMs=-1; judgeBudget=-1; judgeAgainst=""
+	if ((base < 0)); then base="$(fBaseMs "${cli}" "${w}")"; ((base >= 0)) || return 2; fi
+	judgeMs="$(fWorkMs "${cli}" "${w}")"; ((judgeMs >= 0)) || return 2
+	judgeBudget="$(fBudget "${w}" "${base}")"
+	if ((judgeMs > judgeBudget)); then
+		echo "perf-gate: ${name}: ${w} took ${judgeMs} ms of CPU against ${judgeBudget}, timing it and its baseline again"
+		again="$(fBaseMs "${cli}" "${w}")"; ((again >= 0)) || return 2
+		((again < base)) && base="${again}"
+		again="$(fWorkMs "${cli}" "${w}")"; ((again >= 0)) || return 2
+		((again < judgeMs)) && judgeMs="${again}"
+		judgeBudget="$(fBudget "${w}" "${base}")"
+	fi
+	if [[ "${w}" == fills ]]; then judgeAgainst="the same defaults one per parent"
+	else judgeAgainst="parse-only baseline ${base} ms"; fi
+	((judgeMs <= judgeBudget)) || return 1
+}
+
 ##	The three checks inside fTimeMs are the gate's own guards: a run that exits
 ##	wrong, one that prints too little, and one that never comes back are all
 ##	failures rather than fast times. The first two went in after a CLI that
@@ -349,6 +420,34 @@ if [[ -n "${winTimer}" ]]; then
 	done
 fi
 ((nNative)) || fTestSkip
+## The second timing (2026110110325317). The bait parses in about 20 ms and
+## burns 500 ms of CPU on its first BAIT_SPIKES workload runs, 20 after. One
+## spike is let off by the second timing; slow every time still fails.
+cat > "${tmpDir}/bait-spike" <<'EOF'
+#!/usr/bin/env bash
+ms=20
+if [[ -s /dev/stdin ]]; then
+	n=$(( $(cat "${BAIT_DIR}/count" 2>/dev/null || echo 0) + 1 )); echo "${n}" > "${BAIT_DIR}/count"
+	((n <= BAIT_SPIKES)) && ms=500
+fi
+t="${BAIT_DIR}/times.$$"
+while :; do
+	for ((i = 0; i < 2000; i++)); do :; done
+	times > "${t}"; read -r u _ < "${t}"
+	[[ "${u}" =~ ^([0-9]+)m([0-9]+)[^0-9]([0-9]{3}) ]] || break
+	((BASH_REMATCH[1] * 60000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]} >= ms)) && break
+done
+rm -f "${t}"; yes x | head -n "${BAIT_LINES}"
+EOF
+chmod +x "${tmpDir}/bait-spike"
+fTest deqqr self-test-retry-spike
+rm -f "${tmpDir}/count"; jrc=0
+BAIT_DIR="${tmpDir}" BAIT_SPIKES=2 BAIT_LINES="${keys}" fJudge bait "${tmpDir}/bait-spike" writes -1 > /dev/null 2>&1 || jrc=$?
+((jrc == 0)) || { echo "perf-gate: self-test: one spike over a workload failed it (${judgeMs} of ${judgeBudget} ms, rc ${jrc})" >&2; nBad+=1; }
+fTest deqqs self-test-retry-steady
+rm -f "${tmpDir}/count"; jrc=0
+BAIT_DIR="${tmpDir}" BAIT_SPIKES=99 BAIT_LINES="${keys}" fJudge bait "${tmpDir}/bait-spike" writes -1 > /dev/null 2>&1 || jrc=$?
+((jrc == 1)) || { echo "perf-gate: self-test: a workload slow every time came back rc ${jrc} (${judgeMs} of ${judgeBudget} ms)" >&2; nBad+=1; }
 ## A gate whose own guards are down judges nothing after them.
 if ((nBad)); then fTestEnd; exit 1; fi
 
@@ -356,17 +455,12 @@ if ((nBad)); then fTestEnd; exit 1; fi
 ##	count; `check` prints one line per diagnostic plus a summary. A binding
 ##	whose baseline would not run has no budget, and sits out the workloads.
 fTest dd6hr baseline
-declare -A baseOf=() budgetOf=()
+declare -A baseOf=()
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
-	baseMs="$(fTimeMs "${cli}" "${tmpDir}/base.ops" set "${keys}")"
+	baseMs="$(fBaseMs "${cli}" set)"
 	if ((baseMs < 0)); then nBad+=1; continue; fi
-	## A floor, so a binding fast enough to come near the clock's resolution is
-	## not judged on noise.
-	budget=$(( baseMs * factor ))
-	floor=$(( baseMs + 250 ))
-	if ((budget < floor)); then budget="${floor}"; fi
-	baseOf["${name}"]="${baseMs}"; budgetOf["${name}"]="${budget}"
+	baseOf["${name}"]="${baseMs}"
 done
 
 ## One test per workload, run by every binding before its line goes out.
@@ -394,59 +488,18 @@ for row in "${workloads[@]}"; do
 	times=""; ran=0
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
-		[[ -n "${budgetOf[${name}]:-}" ]] || continue
+		[[ -n "${baseOf[${name}]:-}" ]] || continue
 		ran=$((ran + 1))
-		budget="${budgetOf[${name}]}"; baseMs="${baseOf[${name}]}"
-		against="parse-only baseline ${baseMs} ms"
-		if [[ "${w}" == keeps ]]; then
-			## Three parses by design, the source, the edited text and the
-			## reload check, against a one-parse baseline, so the row ran at up
-			## to 85 percent of its budget in Python. Half again more room;
-			## anything worse than linear still blows through it (20260926
-			## idea 4).
-			budget=$(( budget * 3 / 2 ))
-			ms="$(fTimeMs "${cli}" "${keepDoc}" keeps "$((keys / 2))")"
-		elif [[ "${w}" == badlines ]]; then
-			ms="$(fTimeMs "${cli}" "${badDoc}" check 2)"
-		elif [[ "${w}" == suggest ]]; then
-			ms="$(fTimeMs "${cli}" "${sugDoc}" suggest 2)"
-		elif [[ "${w}" == recurse ]]; then
-			ms="$(fTimeMs "${cli}" "${recDoc}" recurse 2)"
-		elif [[ "${w}" == frags ]]; then
-			ms="$(fTimeMs "${cli}" "${fragDoc}" frags 2)"
-		elif [[ "${w}" == stars ]]; then
-			ms="$(fTimeMs "${cli}" "${starDoc}" stars 2)"
-		elif [[ "${w}" == mounts ]]; then
-			ms="$(fTimeMs "${cli}" "${mountDoc}" mounts 2)"
-		elif [[ "${w}" == selectors ]]; then
-			ms="$(fTimeMs "${cli}" "${selDoc}" selectors 1)"
-		elif [[ "${w}" == unknowns ]]; then
-			ms="$(fTimeMs "${cli}" "${unkDoc}" unknowns 4000)"
-		elif [[ "${w}" == merge ]]; then
-			ms="$(fTimeMs "${cli}" "${mergeOver}" merge "$((keys / 2))")"
-		elif [[ "${w}" == removes ]]; then
-			ms="$(fTimeMs "${cli}" "${rmDoc}" removes 6)"
-		elif [[ "${w}" == raws ]]; then
-			ms="$(fTimeMs "${cli}" "${rawDoc}" raws "$((keys * 2))")"
-		elif [[ "${w}" == fills ]]; then
-			## Each default leaves a note line above its field, and the
-			## spread-out one a parent line too. The budget is the
-			## spread-out run. Linear code runs at about three quarters of
-			## it, and the old scan at 1.4 to 4 times, in every binding.
-			budget="$(fTimeMs "${cli}" "${apartDoc}" apart "$((keys * 3))")"
-			if ((budget < 0)); then nBad+=1; continue; fi
-			against="the same defaults one per parent"
-			ms="$(fTimeMs "${cli}" "${fillDoc}" fills "$((keys * 2))")"
-		else
-			ms="$(fTimeMs "${cli}" "${tmpDir}/${w}.ops" set "${keys}")"
-		fi
-		if ((ms < 0)); then
+		base="${baseOf[${name}]}"
+		[[ "${w}" == fills ]] && base=-1
+		jrc=0; fJudge "${name}" "${cli}" "${w}" "${base}" || jrc=$?
+		if ((jrc == 2)); then
 			nBad+=1
-		elif ((ms > budget)); then
-			echo "perf-gate: ${name}: ${w} took ${ms} ms of CPU against a ${budget} ms budget (${against})" >&2
+		elif ((jrc)); then
+			echo "perf-gate: ${name}: ${w} took ${judgeMs} ms of CPU against a ${judgeBudget} ms budget (${judgeAgainst})" >&2
 			nBad+=1
 		else
-			times+="${times:+, }${name} ${ms}/${budget} ms"
+			times+="${times:+, }${name} ${judgeMs}/${judgeBudget} ms"
 		fi
 	done
 	## The timings ride on the status line, as time against budget. With no
@@ -536,3 +589,5 @@ echo "perf-gate: OK: ${keys} keys, ${#bindings[@]} binding(s) within ${factor}x 
 ##		            a workload adn not its baseline failed it.
 ##		2026-10-31  write-counts skips off Linux, for a Windows box (2026103016433965).
 ##		2026-10-31  A .exe on Windows is timed through cpu-time.ps1, for 2026103016433965.
+##		2026-11-01  A workload over budget is timed again with its baseline,
+##		            since a spike on the other hyperthread moves CPU time too.
