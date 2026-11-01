@@ -1613,6 +1613,32 @@ lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --check --dir "${tmpD
 [[ "${lintOut}" == "FAILED run_20260103-000000.log"* ]] || fBad "lint-report.bash did not report the run once it failed: ${lintOut@Q}"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --check --dir "${tmpDir}/lintseen" 2>&1 || true)"
 [[ "${lintOut}" == "SEEN "* ]] || fBad "lint-report.bash did not mark a finished failed run seen: ${lintOut@Q}"
+fTest deqyq 2026103109184125-lint-report-skips-after-done
+##	2026103109184125: cicd.bash recapped the box skips after its done line, so
+##	lint-report read every run that skipped a box as INCOMPLETE. The recap now
+##	comes first, and a done line followed only by SKIP lines still finishes a run.
+printf 'OK: lint\n[ shcl CI/CD: done. ]\nSKIP vm925w: not taken or not up\nSKIP den85 check-boxes x\n\n' > "${tmpDir}/run_20260104-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260104-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash read a done line followed by SKIP lines as unfinished: ${lintOut@Q}"
+printf '[ 9/9  Publish ]\n' >> "${tmpDir}/run_20260104-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260104-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "INCOMPLETE "* ]] || fBad "lint-report.bash took a done line with more steps after its SKIP lines for the end: ${lintOut@Q}"
+doneBlock="$(sed -n '/^if ((! inner_run)); then$/,/^fi$/p' "${repoDir}/cicd/cicd.bash")"
+if [[ "${doneBlock}" != *'CI/CD: done.'* ]]; then
+	fBad "cicd.bash's done block is not where this row lifts it from"
+else
+	out="$(
+		# shellcheck disable=SC2329  ## called by the lifted block
+		fSection() { echo "[ ${1} ]"; }
+		# shellcheck disable=SC2329  ## called by the lifted block
+		fEcho_Clean() { echo "${1:-}"; }
+		# shellcheck disable=SC2034  ## read by the lifted block
+		inner_run=0 APP_NAME=shcl remote_skips=('SKIP vm925w: x' 'SKIP den85 y')
+		eval "${doneBlock}"
+	)"
+	[[ "$(grep -v '^$' <<< "${out}" | tail -n 1)" == '[ shcl CI/CD: done. ]' ]] || fBad "cicd.bash printed something after its done line: ${out@Q}"
+	[[ "${out}" == *'SKIP den85 y'* ]] || fBad "cicd.bash dropped the box skip recap: ${out@Q}"
+fi
 fTest dcvfh 20260918b-63-lint-report-age
 ##	20260918b item 63, the other half: same silence about the log's age.
 touch -d '16 days ago' "${tmpDir}/lintseen/run_20260103-000000.log"
