@@ -33,73 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Other hosts: timed work, such as perf-gate, on vm925w
-	- ID: 2026103016433965
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: vm925w in a full run's box step, check-boxes `dep83` with its perf-gate lines. It was off on 20261031 and couldn't start, since vmKt6m held its SPICE port.
-	- Priority: High
-	- Opened: 20261030-164339
-	- Opened by: 2026102419263432
-	- Parent ID: 2026102419263432
-	- Prereq IDs: 2026103016433921
-	- Requirements:
-		- Anything timed, such as perf-gate, runs on vm925w through the box step rather than here.
-	- Progress log:
-		- 20261031: config.bash's `REMOTE_BOXES` has `vm925w|collierjr@vm925w|windows-x86_64|perf`. On a Windows row, `perf` sends `perf-gate.bash` to the box with the CLI cases, and `box-cases.ps1` runs it under git's bash over the windows-x86_64 release build, at 400,000 keys and a factor of 4. check-boxes `dep83` passes or fails it, and the box's own status lines come back with its name. `perf` on any other row is a usage error.
-		- 20261031: git bash's `time` counts only its own processes, so the release build read 30 to 75 ms of CPU at 40,000 and 400,000 keys alike. On Windows a `.exe` now runs under `cpu-time.ps1`, which writes the CPU time the CLI itself used, and perf-gate `dep84` checks that 8 times the keys reads as more than 3 times the time. perf-gate's `write-counts` is a SKIP off Linux, since git bash's strace counts no system calls.
-		- 20261031, test batch: not run. vm925w is off and can't start while vmKt6m holds SPICE port 5900, and vmKt6m was found running, so it was left alone. Still needs a box step with vm925w up, judged by `dep83`.
-		- 20261101: still not run. The full run on r1031b skipped vm925w again, since vmKt6m holds SPICE port 5900.
-		- 20261101: JC's no-flag run on `a4f40c69` passed all 13 steps, and skipped vm925w for the same reason.
-		- 20261101: with vmKt6m off, vm925w still can't start. Its disk is on `zf10/vm/vm925w`, which is encrypted and not mounted, with its key not loaded. That takes a root step by hand, then a box step with the vm925w row alone.
-	- Decisions:
-		- perf-gate stays in the local test step too, over the 4 bindings' Linux CLIs (me). Its budgets are ratios to the same CLI's own parse in CPU time, so this box's load doesn't move them, and only the local run covers Go, Python and C. vm925w adds the Windows release build, which nothing timed before.
-		- Only the release build on vm925w, not the 4 bindings built there (me). It's the one CLI shipped, and a build of all 4 there would cost minutes every run.
-		- User time only on Windows (me). A write call costs far more kernel time there, and `badlines` makes one per diagnostic, so its kernel time alone was over 4 times the parse, linear all the same.
-		- 400,000 keys and a factor of 4 on the box (me). Windows counts CPU time in 15.6 ms ticks, and the release build reads 40,000 keys in about 3 of them. `reads` ran at 2.7 to 3.5 times the parse from 100,000 to 400,000 keys, too close to 3. A quadratic path at that size is still far over 4.
-		- Every run, not only under `--long` (me). perf-gate added about 60 s to b29w's visit. vm925w's start from off is not timed yet.
-	- Swept: `REMOTE_BOXES` readers: check-boxes.bash's row checks (both loops, through `fRowWords`), `fBoxRow` (passes `perf` on), `fBoxListStep` (`--list`), check-push-gate (empties it), shell-regress's row checks. perf-gate's other Linux-only part is `write-counts`; `timeout` is bypassed for a `.exe` there, and `cpu-time.ps1` takes the cap. Every tracked `.ps1` is in the lint list, `cpu-time.ps1` included.
-		- Verified: check-boxes over the Oct 30 linux-x86_64 and windows-x86_64 release builds, with a `perf` row for b29w through the real host lock: `decyk`, `dep83` and `dep84` passed, `reads` at 1203 of 1936 ms, 104 s for the visit. Before `cpu-time.ps1`, the baseline read 30 to 46 ms at 40,000 and 400,000 keys alike.
-		- Verified: shell-regress `dep89` fails with `--list`'s perf-gate line or check-boxes' Windows-only check taken out, and passes with them.
-	- Test case: check-boxes `dep83`, perf-gate `dep84`, shell-regress `dep89`.
-	- Branch: `r1031`
-	- Verified: `cicd.bash --backlog-run-quick cicd` passed all 5 steps, and so did shell-regress, perf-gate over the Rust CLI, `lint-report.bash --check --no-mark`, PSScriptAnalyzer on `box-cases.ps1` and `cpu-time.ps1`, and `test-ids.py check`.
-
-- CICD reset: other hosts and VMs
-	- ID: 2026102416250010
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per `Other hosts and VMs` in the shared CICD rules.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides the private notes' `Test boxes` line that the hosted windows job covers Windows, so most items need no box visit.
-		- The default run builds and tests on the test boxes, as far as shcl needs them: Windows on b29w, with vm925w for timed work, plus macOS, FreeBSD and Linux arm64. Today Windows runs under wine and hosted, FreeBSD in a local qemu boot, and macOS and arm64 only hosted.
-		- Each box is held through the shared host lock for the whole time it's used, by `wrap`, and a VM is put back the way it was found through the VM state helper.
-		- `--no-remote` skips them. A box that isn't there is a `SKIP` in its step and in the summary, and the run goes on, `--merge-gate` included.
-		- A work folder of its own on each box, under that box's temp root.
-		- `b29w`, never `b29w-wif`. No script names either yet.
-	- Progress log:
-		- 20261024: split into 5 children, one per box plus the step they share: 2026102419263412 (first), 2026102419263417, 2026102419263422, 2026102419263427 and 2026102419263432. This one closes with the last of them.
-
-- Other hosts: Windows on b29w, timed work on vm925w
-	- ID: 2026102419263432
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261024-192634
-	- Opened by: 2026102416250010
-	- Parent ID: 2026102416250010
-	- Prereq IDs: 2026102419263412
-	- Requirements:
-		- The windows-x86_64 release over the CLI cases, and `win-runners.bash` and `winpath-regress.ps1`, on b29w through the box step. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
-		- Anything timed, such as perf-gate, goes to vm925w.
-		- `b29w`, never `b29w-wif`.
-	- Progress log:
-		- 20261030: split into 3 children: 2026103016433921 (first, the CLI cases on b29w), 2026103016433943 (win-runners.bash and winpath-regress.ps1 on b29w) and 2026103016433965 (timed work on vm925w). This one closes with the last of them.
-
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
@@ -157,6 +90,84 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Other hosts: timed work, such as perf-gate, on vm925w
+	- ID: 2026103016433965
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: vm925w in a full run's box step, check-boxes `dep83` with its perf-gate lines. It was off on 20261031 and couldn't start, since vmKt6m held its SPICE port.
+	- Priority: High
+	- Opened: 20261030-164339
+	- Opened by: 2026102419263432
+	- Parent ID: 2026102419263432
+	- Prereq IDs: 2026103016433921
+	- Requirements:
+		- Anything timed, such as perf-gate, runs on vm925w through the box step rather than here.
+	- Progress log:
+		- 20261031: config.bash's `REMOTE_BOXES` has `vm925w|collierjr@vm925w|windows-x86_64|perf`. On a Windows row, `perf` sends `perf-gate.bash` to the box with the CLI cases, and `box-cases.ps1` runs it under git's bash over the windows-x86_64 release build, at 400,000 keys and a factor of 4. check-boxes `dep83` passes or fails it, and the box's own status lines come back with its name. `perf` on any other row is a usage error.
+		- 20261031: git bash's `time` counts only its own processes, so the release build read 30 to 75 ms of CPU at 40,000 and 400,000 keys alike. On Windows a `.exe` now runs under `cpu-time.ps1`, which writes the CPU time the CLI itself used, and perf-gate `dep84` checks that 8 times the keys reads as more than 3 times the time. perf-gate's `write-counts` is a SKIP off Linux, since git bash's strace counts no system calls.
+		- 20261031, test batch: not run. vm925w is off and can't start while vmKt6m holds SPICE port 5900, and vmKt6m was found running, so it was left alone. Still needs a box step with vm925w up, judged by `dep83`.
+		- 20261101: still not run. The full run on r1031b skipped vm925w again, since vmKt6m holds SPICE port 5900.
+		- 20261101: JC's no-flag run on `a4f40c69` passed all 13 steps, and skipped vm925w for the same reason.
+		- 20261101: with vmKt6m off, vm925w still can't start. Its disk is on `zf10/vm/vm925w`, which is encrypted and not mounted, with its key not loaded. That takes a root step by hand, then a box step with the vm925w row alone.
+		- 20261101: JC mounted the dataset and started vm925w. The box step with its row alone passed in 122 s: the 4471 CLI cases matched the Linux build, `dep84` passed, and every perf-gate workload stayed under its factor of 4, `reads` at 1234 of 1936 ms and `fills` at 2578 of 4016.
+	- Decisions:
+		- perf-gate stays in the local test step too, over the 4 bindings' Linux CLIs (me). Its budgets are ratios to the same CLI's own parse in CPU time, so this box's load doesn't move them, and only the local run covers Go, Python and C. vm925w adds the Windows release build, which nothing timed before.
+		- Only the release build on vm925w, not the 4 bindings built there (me). It's the one CLI shipped, and a build of all 4 there would cost minutes every run.
+		- User time only on Windows (me). A write call costs far more kernel time there, and `badlines` makes one per diagnostic, so its kernel time alone was over 4 times the parse, linear all the same.
+		- 400,000 keys and a factor of 4 on the box (me). Windows counts CPU time in 15.6 ms ticks, and the release build reads 40,000 keys in about 3 of them. `reads` ran at 2.7 to 3.5 times the parse from 100,000 to 400,000 keys, too close to 3. A quadratic path at that size is still far over 4.
+		- Every run, not only under `--long` (me). perf-gate added about 60 s to b29w's visit. vm925w's start from off is not timed yet.
+	- Swept: `REMOTE_BOXES` readers: check-boxes.bash's row checks (both loops, through `fRowWords`), `fBoxRow` (passes `perf` on), `fBoxListStep` (`--list`), check-push-gate (empties it), shell-regress's row checks. perf-gate's other Linux-only part is `write-counts`; `timeout` is bypassed for a `.exe` there, and `cpu-time.ps1` takes the cap. Every tracked `.ps1` is in the lint list, `cpu-time.ps1` included.
+		- Verified: check-boxes over the Oct 30 linux-x86_64 and windows-x86_64 release builds, with a `perf` row for b29w through the real host lock: `decyk`, `dep83` and `dep84` passed, `reads` at 1203 of 1936 ms, 104 s for the visit. Before `cpu-time.ps1`, the baseline read 30 to 46 ms at 40,000 and 400,000 keys alike.
+		- Verified: shell-regress `dep89` fails with `--list`'s perf-gate line or check-boxes' Windows-only check taken out, and passes with them.
+	- Test case: check-boxes `dep83` and `decyk`, perf-gate `dep84`, shell-regress `dep89`.
+	- Branch: `r1031`
+	- Verified: `cicd.bash --backlog-run-quick cicd` passed all 5 steps, and so did shell-regress, perf-gate over the Rust CLI, `lint-report.bash --check --no-mark`, PSScriptAnalyzer on `box-cases.ps1` and `cpu-time.ps1`, and `test-ids.py check`.
+	- Acceptance signoff: Self-closed: vm925w's box step passed over the dev release build.
+	- Closed: 20261101-145822
+
+- CICD reset: other hosts and VMs
+	- ID: 2026102416250010
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `Other hosts and VMs` in the shared CICD rules.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides the private notes' `Test boxes` line that the hosted windows job covers Windows, so most items need no box visit.
+		- The default run builds and tests on the test boxes, as far as shcl needs them: Windows on b29w, with vm925w for timed work, plus macOS, FreeBSD and Linux arm64. Today Windows runs under wine and hosted, FreeBSD in a local qemu boot, and macOS and arm64 only hosted.
+		- Each box is held through the shared host lock for the whole time it's used, by `wrap`, and a VM is put back the way it was found through the VM state helper.
+		- `--no-remote` skips them. A box that isn't there is a `SKIP` in its step and in the summary, and the run goes on, `--merge-gate` included.
+		- A work folder of its own on each box, under that box's temp root.
+		- `b29w`, never `b29w-wif`. No script names either yet.
+	- Progress log:
+		- 20261024: split into 5 children, one per box plus the step they share: 2026102419263412 (first), 2026102419263417, 2026102419263422, 2026102419263427 and 2026102419263432. This one closes with the last of them.
+		- 20261101: closed with its last child.
+	- Test case: the children's, 2026102419263412, 2026102419263417, 2026102419263422, 2026102419263427 and 2026102419263432.
+	- Acceptance signoff: Self-closed: every child is Done.
+	- Closed: 20261101-145822
+
+- Other hosts: Windows on b29w, timed work on vm925w
+	- ID: 2026102419263432
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-192634
+	- Opened by: 2026102416250010
+	- Parent ID: 2026102416250010
+	- Prereq IDs: 2026102419263412
+	- Requirements:
+		- The windows-x86_64 release over the CLI cases, and `win-runners.bash` and `winpath-regress.ps1`, on b29w through the box step. Its ssh opens in cmd, so the box half is pwsh, sent as a file.
+		- Anything timed, such as perf-gate, goes to vm925w.
+		- `b29w`, never `b29w-wif`.
+	- Progress log:
+		- 20261030: split into 3 children: 2026103016433921 (first, the CLI cases on b29w), 2026103016433943 (win-runners.bash and winpath-regress.ps1 on b29w) and 2026103016433965 (timed work on vm925w). This one closes with the last of them.
+		- 20261101: closed with its last child.
+	- Test case: the children's, 2026103016433921, 2026103016433943 and 2026103016433965.
+	- Acceptance signoff: Self-closed: every child is Done.
+	- Closed: 20261101-145822
 
 - lint-report reads a passing run as INCOMPLETE when box SKIP lines follow the done line
 	- ID: 2026103109184125
