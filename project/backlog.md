@@ -167,6 +167,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
 
+- write_file_atomic replaces a link to a missing file with a regular file
+	- ID: 2026110114120156
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: No
+	- Severity: Avg
+	- Opened: 20261101-141201
+	- Opened by: JC, from tukzmon
+	- Version and build: shcl 2.0.0 from crates.io, tukzmon's pin
+	- Incorrect behavior: From tukzmon: "shcl: write_file_atomic replaces a link to a missing file with a regular file. tukzmon now works around it."
+	- Expected behavior: the file is created where the link points, and the link stays a link.
+	- Actual cause: 2.0.0 fell back to the link's own path when `canonicalize` failed, which it does for a link to a missing file, so the rename went over the link.
+	- Actual fix: already on dev since `19332a43` (20260919, before this was filed). The save follows each link's text to its end before it writes. No tag has it yet, so 3.0.0-beta1 is the first release with it.
+	- Progress log:
+		- 20261101: Verified on dev with the Rust CLI: two `set --write` saves through `t.shcl -> mid.shcl -> <absolute>/real/t.shcl`, a relative hop then an absolute one, as tukzmon's test has it. The first created `real/t.shcl` and the second rewrote it. Both links stayed links.
+	- Test case: conformance `dbxk2` (a save through a dangling link creates its file and keeps the link), in every POSIX runner.
+	- Acceptance signoff: Self-closed: fixed before this was filed, and tukzmon's case passes on dev.
+	- Closed: 20261101-141500
+
 - perf-gate fails Python's reads when a load spike raises its CPU time and not its baseline's
 	- ID: 2026110110325317
 	- Type: Bug
