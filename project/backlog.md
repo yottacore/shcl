@@ -184,6 +184,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261101, branch `perfretry`:
 			- Verified: perf-gate on all 4 bindings, exit 0. `deqqr` failed with the second timing taken out (509 of 278 ms), and `deqqs` failed with a second timing that lets everything through.
+			- Verified 20261101: a no-flag `cicd.bash -q` on dev at `150b6572` passed all 13 steps, Python's reads at 2673 of 3624 ms, with no second timing needed. vm925w was a SKIP, since vmKt6m held its SPICE port.
 	- Branch: `perfretry`
 	- Test case: perf-gate `deqqr` (one spike over a workload is let off) and `deqqs` (a workload slow every time still fails).
 	- Swept: every budget in perf-gate goes through `fJudge`, `fills` included, which retimes its spread-out twin. `write-counts` is a count, not a clock. No other gate holds a CLI to a timed budget.
