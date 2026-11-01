@@ -50,6 +50,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261031: git bash's `time` counts only its own processes, so the release build read 30 to 75 ms of CPU at 40,000 and 400,000 keys alike. On Windows a `.exe` now runs under `cpu-time.ps1`, which writes the CPU time the CLI itself used, and perf-gate `dep84` checks that 8 times the keys reads as more than 3 times the time. perf-gate's `write-counts` is a SKIP off Linux, since git bash's strace counts no system calls.
 		- 20261031, test batch: not run. vm925w is off and can't start while vmKt6m holds SPICE port 5900, and vmKt6m was found running, so it was left alone. Still needs a box step with vm925w up, judged by `dep83`.
 		- 20261101: still not run. The full run on r1031b skipped vm925w again, since vmKt6m holds SPICE port 5900.
+		- 20261101: JC's no-flag run on `a4f40c69` passed all 13 steps, and skipped vm925w for the same reason.
 	- Decisions:
 		- perf-gate stays in the local test step too, over the 4 bindings' Linux CLIs (me). Its budgets are ratios to the same CLI's own parse in CPU time, so this box's load doesn't move them, and only the local run covers Go, Python and C. vm925w adds the Windows release build, which nothing timed before.
 		- Only the release build on vm925w, not the 4 bindings built there (me). It's the one CLI shipped, and a build of all 4 there would cost minutes every run.
@@ -129,17 +130,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 
-- lint-report reads a passing run as INCOMPLETE when box SKIP lines follow the done line
-	- ID: 2026103109184125
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261031-091841
-	- Opened by: me
-	- Progress log:
-		- 20261031: JC's bare run `run_20261031-070351` passed all 13 steps and printed `[ shcl CI/CD: done. ]`, then 6 more lines: the vmFreeBSD SKIP and the `demxj` to `den85` SKIP lines, which the box step had already printed at lines 3499 to 3511. `lint-report.bash --check` checks only the last line for the done text, so it says INCOMPLETE and never marks the log seen.
-		- Find what prints the box SKIP lines a second time after the done line, such as a trap or a late tee, and fix it there. lint-report should also accept a done line followed only by SKIP lines, or the next late line will do the same.
-
 - check-push-gate in about 2 minutes
 	- ID: 2026103109485020
 	- Type: Enhancement
@@ -166,6 +156,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- lint-report reads a passing run as INCOMPLETE when box SKIP lines follow the done line
+	- ID: 2026103109184125
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261031-091841
+	- Opened by: me
+	- Progress log:
+		- 20261031: JC's bare run `run_20261031-070351` passed all 13 steps and printed `[ shcl CI/CD: done. ]`, then 6 more lines: the vmFreeBSD SKIP and the `demxj` to `den85` SKIP lines, which the box step had already printed at lines 3499 to 3511. `lint-report.bash --check` checks only the last line for the done text, so it says INCOMPLETE and never marks the log seen.
+		- Find what prints the box SKIP lines a second time after the done line, such as a trap or a late tee, and fix it there. lint-report should also accept a done line followed only by SKIP lines, or the next late line will do the same.
+		- 20261101: JC's run `run_20261101-120609` did the same with the vm925w skips.
+	- Actual cause: cicd.bash recaps the box skips on purpose, but it printed the recap after the done line.
+	- Actual fix: the recap comes just before the done line. lint-report skips SKIP lines when it looks for the last line, so older logs read as finished too.
+	- Swept: the only other line after the done section is a blank one, which lint-report already skips. The nested run a publish echoes still reads INCOMPLETE when a step line follows its SKIP lines.
+	- Test case: shell-regress `deqyq`, red on the old cicd.bash and lint-report, both halves.
+	- Acceptance signoff: Self-closed: `lint-report.bash --check` now reads `run_20261101-120609` as CLEAN. shell-regress, check-docs and check-push-gate pass.
+	- Closed: 20261101-143128
 
 - write_file_atomic replaces a link to a missing file with a regular file
 	- ID: 2026110114120156

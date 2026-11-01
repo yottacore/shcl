@@ -1864,10 +1864,11 @@ fCleanup(){
 }
 fCleanup
 
-## The run that started this one says it's done, after its own steps.
+## The run that started this one says it's done, after its own steps. The box
+## skips are recapped just before, since lint-report wants the done line last.
 if ((! inner_run)); then
-	fSection "${APP_NAME} CI/CD: done."
 	for s in "${remote_skips[@]}"; do fEcho_Clean "${s}"; done
+	fSection "${APP_NAME} CI/CD: done."
 	fEcho_Clean
 fi
 exit 0
