@@ -32,6 +32,8 @@ repoDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 testWhere="cli-regress" testCounter="nBad"
 # shellcheck disable=SC1091
 source "${repoDir}/cicd/utility/include/test-id.bash"
+# shellcheck disable=SC1091
+source "${repoDir}/cicd/utility/include/safe-rm.bash"
 bindings=()
 while (($#)); do case "$1" in
 	-h|--help) grep -E '^##' "$0" | sed 's/^##\t\?//'; exit 0 ;;
@@ -68,9 +70,9 @@ fCleanup(){
 		MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "${tmpDir}/nowrite")" /remove:d '*S-1-1-0' >/dev/null 2>&1 || true
 	fi
 	chmod -R u+w "${tmpDir}" 2>/dev/null || true
-	rm -rf "${tmpDir}"
+	fSafeRm "${tmpDir}"
 }
-tmpDir="$(mktemp -d)"; trap fCleanup EXIT
+tmpDir=''; fSafeTmpDir tmpDir; trap fCleanup EXIT
 printf 'a: 1\n'          > "${tmpDir}/ok.shcl"
 printf 'a: 1\n  bad\nb 2\n' > "${tmpDir}/bad.shcl"
 ## A second damaged file, so a layered load has two to tell apart.
@@ -2381,7 +2383,7 @@ if [[ "${onWindows}" == 1 ]]; then
 	aclDir="${tmpDir}/migacl"
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
-		rm -rf "${aclDir}"; mkdir -p "${aclDir}"
+		fSafeRmUnder_IfThere "${tmpDir}" "${aclDir}"; mkdir -p "${aclDir}"
 		printf 'base:[Boston]\n\tlat: 42\n' > "${aclDir}/f.shcl"
 		winDir="$(cygpath -w "${aclDir}")"
 		MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' icacls "${winDir}" /grant '*S-1-5-32-545:(OI)(CI)(R)' >/dev/null
@@ -2406,7 +2408,7 @@ if [[ "${onWindows}" == 1 ]]; then
 	roDir="${tmpDir}/migro"
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
-		rm -rf "${roDir}"; mkdir -p "${roDir}"
+		fSafeRmUnder_IfThere "${tmpDir}" "${roDir}"; mkdir -p "${roDir}"
 		printf 'base:[Boston]\n\tlat: 42\n' > "${roDir}/f.shcl"
 		winDir="$(cygpath -w "${roDir}")"
 		MSYS_NO_PATHCONV=1 attrib +r "${winDir}\\f.shcl" >/dev/null
@@ -2431,7 +2433,7 @@ if [[ "${onWindows}" == 1 ]]; then
 	drelDir="${tmpDir}/migdrel"
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
-		rm -rf "${drelDir}"; mkdir -p "${drelDir}"
+		fSafeRmUnder_IfThere "${tmpDir}" "${drelDir}"; mkdir -p "${drelDir}"
 		printf 'base:[Boston]\n\tlat: 42\n' > "${drelDir}/.shclrc"
 		drive="$(cygpath -w "${drelDir}")"; drive="${drive:0:2}"
 		rc=0; (cd "${drelDir}" && MSYS2_ARG_CONV_EXCL="${drive}" timeout "${rowSecs}" "${cli}" migrate --write "${drive}.shclrc" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
@@ -2738,7 +2740,7 @@ for sc in "${saveCases[@]}"; do
 		## Absolute, since the run is from inside the fixture directory.
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
 		if [[ -d "${saveDir}" ]]; then chmod -R u+w "${saveDir}"; fi
-		rm -rf "${saveDir}"; mkdir -p "${saveDir}"
+		fSafeRmUnder_IfThere "${tmpDir}" "${saveDir}"; mkdir -p "${saveDir}"
 		(cd "${saveDir}" && fSaveSetup "${id}")
 		rc=0
 		(cd "${saveDir}" && timeout 20 "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null) || rc=$?
@@ -2808,7 +2810,7 @@ for de in "${diagExits[@]}"; do
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
 		if [[ -d "${diagDir}" ]]; then chmod -R u+w "${diagDir}"; fi
-		rm -rf "${diagDir}"; mkdir -p "${diagDir}/ro"
+		fSafeRmUnder_IfThere "${tmpDir}" "${diagDir}"; mkdir -p "${diagDir}/ro"
 		case "${setup}" in
 			ro)    printf '%b' "${diagText}" > "${diagDir}/ro/f.shcl"; chmod 0555 "${diagDir}/ro" ;;
 			taken) printf '%b' "${diagText}" > "${diagDir}/f.shcl"; printf 'x\n' > "${diagDir}/f_backup_20261004-001500_format-v2.shcl" ;;
@@ -2836,7 +2838,7 @@ for bc in 'ddf5t|stamp|p: 1\n## Owner: ops team\n' 'ddf5v|stamp-note|base:[Bosto
 	want="$(printf '%b' "${text}" | sed 's/:\[Boston\]/: Boston/')"
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
-		rm -rf "${banDir}"; mkdir -p "${banDir}"
+		fSafeRmUnder_IfThere "${tmpDir}" "${banDir}"; mkdir -p "${banDir}"
 		printf '%b' "${text}" > "${banDir}/f.shcl"
 		rc=0
 		"${cli}" migrate --from-2x --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
@@ -2867,7 +2869,7 @@ else
 	printf 'base:[Boston]\n\tlat: 42\n%s\n' "${pad}" > "${tmpDir}/migfail.src"
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
-		rm -rf "${failDir}"; mkdir -p "${failDir}"
+		fSafeRmUnder_IfThere "${tmpDir}" "${failDir}"; mkdir -p "${failDir}"
 		cp "${tmpDir}/migfail.src" "${failDir}/f.shcl"
 		rc=0
 		(trap '' XFSZ; ulimit -f 1; exec "${cli}" migrate --write "${failDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
@@ -2890,7 +2892,7 @@ if [[ "${onWindows}" == 1 ]]; then
 else
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
-		rm -rf "${failDir}"; mkdir -p "${failDir}"
+		fSafeRmUnder_IfThere "${tmpDir}" "${failDir}"; mkdir -p "${failDir}"
 		cp "${tmpDir}/migfail.src" "${failDir}/f.shcl"
 		rc=0
 		(trap '' XFSZ; ulimit -f 1; exec "${cli}" upgrade --write "${failDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?

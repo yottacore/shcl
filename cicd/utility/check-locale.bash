@@ -26,6 +26,8 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 testWhere=check-locale; testCounter=nBad
 
 repoDir="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -46,7 +48,7 @@ if ! command -v localedef >/dev/null 2>&1 || [[ ! -e /usr/share/i18n/locales/POS
 	exit 0
 fi
 
-work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work; trap 'fSafeRm "${work}"' EXIT
 
 ##	POSIX for every category except the numeric one, which is the whole point.
 ##	A real locale (de_DE and friends) would do, but none is guaranteed present.

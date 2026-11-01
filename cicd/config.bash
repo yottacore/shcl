@@ -171,6 +171,7 @@ LINT_EXTRA=(
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/packaging/shclpath.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/winpath-regress.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/winpath-sandbox.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
+	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/include/safe-rm.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/box-cases.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/utility/cpu-time.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'cicd/utility/check-completions.bash'
@@ -247,6 +248,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/include/ctr-image.bash
 	cicd/utility/include/frozen-tree.bash
 	cicd/utility/include/stop-descendants.bash
+	cicd/utility/include/safe-rm.bash
 	cicd/utility/include/gfs-rotate.bash
 	cicd/utility/include/largedoc-gen.bash
 	cicd/utility/include/test-id.bash
@@ -770,3 +772,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-31: REMOTE_BOXES: b29w runs win-runners.bash, under --long.
 ##		- 2026-10-31: REMOTE_BOXES: vm925w runs perf-gate.bash over the windows-x86_64 build.
 ##		- 2026-10-31 JC: BACKLOG_ALONE, the steps --backlog-run-quick runs one at a time.
+##		- 2026-10-31: PSScriptAnalyzer over the PowerShell guard include.

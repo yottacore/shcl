@@ -39,7 +39,9 @@ while (($#)); do case "$1" in
 esac; done
 [[ -x "${cli}" ]] || { echo "shell-regress: no shcl binary at ${cli}" >&2; exit 2; }
 
-tmpDir="$(mktemp -d)"; trap 'rm -rf "${tmpDir}"' EXIT
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
+tmpDir=''; fSafeTmpDir tmpDir; trap 'fSafeRm "${tmpDir}"' EXIT
 printf 'a: 1\n' > "${tmpDir}/t.shcl"
 declare -i nBad=0
 fBad(){ echo "shell-regress: $1" >&2; nBad+=1 ;}
@@ -483,6 +485,47 @@ SRVEOF
 	[[ -e "${ow}/none/scripts" ]] && fBad "install.ps1 update made a scripts dir where there was none"
 	# shellcheck disable=SC2016  ## install.ps1's own $dest, matched literally
 	grep -qF 'Remove-OldWrapper -Dest $dest' "${repoDir}/install.ps1" || fBad "install.ps1 no longer calls Remove-OldWrapper on an install"
+
+	fTest depm0 2026103114555334-ps1-safe-remove
+	##	The PowerShell scripts take a folder down only through Remove-SafeTree,
+	##	install.ps1's copy is the include's text, and the guard refuses what
+	##	fSafeRmUnder refuses and never follows a link inside.
+	sr="${tmpDir}/psrm"
+	mkdir -p "${sr}/par/a/b" "${sr}/par/ro" "${sr}/out/sub"
+	printf 'keep\n' > "${sr}/out/keep"; printf 'x\n' > "${sr}/par/a/b/f"; printf 'r\n' > "${sr}/par/ro/r"
+	ln -s "${sr}/out" "${sr}/par/a/dl"; ln -s "${sr}/out/keep" "${sr}/par/a/fl"; ln -s "${sr}/out" "${sr}/par/L"
+	chmod 444 "${sr}/par/ro/r"; chmod 555 "${sr}/par/ro"
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$ErrorActionPreference = "Stop"'
+		echo ". '${repoDir}/cicd/utility/include/safe-rm.ps1'"
+		echo "\$par = '${sr}/par'"
+		echo "foreach (\$c in '', \$par, '${sr}/out', \"\$par/../out\", \"\$par//a\", \"\$par/./a\", 'par/a', \"\$par/L\", \"\$par/L/sub\", \"\$par/nope\", \"\$par/a\`nb\") {"
+		echo '	$e = $null'
+		echo '	Remove-SafeTree -Parent $par -Path $c -ErrorAction SilentlyContinue -ErrorVariable e'
+		echo '	if (-not $e) { Write-Output "took [$c]" }'
+		echo '}'
+		echo 'Remove-SafeTree -Parent "$par/" -Path "$par/a" -ErrorAction Continue'
+		echo 'Remove-SafeTree -Parent $par -Path "$par/ro/" -ErrorAction Continue'
+		echo 'Write-Output "done"'
+	} > "${tmpDir}/psrm.ps1"
+	out="$(cd "${sr}" && pwsh -NoProfile -File "${tmpDir}/psrm.ps1" 2>&1 || true)"
+	[[ -d "${sr}/par/ro" ]] && chmod 755 "${sr}/par/ro"
+	[[ "${out}" == "done" ]] || fBad "Remove-SafeTree took or refused the wrong path: ${out@Q}"
+	[[ ! -e "${sr}/par/a" && ! -e "${sr}/par/ro" && -L "${sr}/par/L" && -f "${sr}/out/keep" && -d "${sr}/out/sub" ]] \
+		|| fBad "Remove-SafeTree removed the wrong things, or followed a link"
+	if ! diff <(sed -n '/^function Remove-SafeTree/,/^}/p' "${repoDir}/cicd/utility/include/safe-rm.ps1") \
+		<(sed -n '/^\tfunction Remove-SafeTree/,/^\t}/p' "${repoDir}/install.ps1" | sed 's/^\t//') > /dev/null; then
+		fBad "install.ps1's Remove-SafeTree is not the include's"
+	fi
+	[[ -n "$(sed -n '/^function Remove-SafeTree/p' "${repoDir}/cicd/utility/include/safe-rm.ps1")" ]] || fBad "the include has no Remove-SafeTree"
+	psRm="$(git -C "${repoDir}" ls-files -z -- '*.ps1' ':!project/legacy' | (cd "${repoDir}" && xargs -0 grep -niE 'Remove-Item[^#]*-Recurse|\]::Delete\([^)]*,|rmdir|\brd[[:space:]]+/s' --) || true)"
+	[[ -z "${psRm}" ]] || fBad "a bare recursive removal in PowerShell: ${psRm//$'\n'/; }"
+	for f in install.ps1 cicd/utility/winpath-regress.ps1 cicd/utility/winpath-sandbox.ps1; do
+		# shellcheck disable=SC2016  ## the scripts' own $tmpParent, matched literally
+		grep -qF 'Remove-SafeTree -Parent $tmpParent -Path' "${repoDir}/${f}" || fBad "${f} no longer removes its scratch through Remove-SafeTree"
+	done
 
 	fTest dcr5x 20260909-38-shclpath-fails-without-registry
 	##	20260909 item 38: the setup's PATH script exited 0 when it could not
@@ -958,6 +1001,32 @@ nBadBefore="${nBad}"
 		|| fBad "n8git_backup-and-publish took a -h inside -m for a help request: rc=${rc} ${out@Q}"
 	rc=0; out="$(fPublish --message x -v)" || rc=$?
 	[[ "${rc}" == 0 && "${out}" == *"Copyright"* ]] || fBad "n8git_backup-and-publish no longer answers a real -v: rc=${rc} ${out@Q}"
+	exit $((nBad - nBadBefore))
+) || nBad=$((nBad + 1))
+
+fTest depgq 20260920b-18-publish-keeps-quotes-in-message
+##	20260920b item 18: fParseArgs ran every argument through two quote
+##	substitutions, so `--message "it's done"` committed `it's done` with a prime.
+##	The function is cut out of the script and run alone, since the message only
+##	shows at a real commit. dcnmr checks the same through a scratch commit.
+nBadBefore="${nBad}"
+(
+	pubFn="$(sed -n '/^fParseArgs(){$/,/^:;}/p' "${repoDir}/cicd/utility/n8git_backup-and-publish")"
+	[[ "${pubFn}" == *$'\n:;}'* ]] || fBad "n8git_backup-and-publish: fParseArgs not found to cut out"
+	## Read by the eval'd function, which shellcheck can't see.
+	# shellcheck disable=SC2329
+	fThrowError(){ echo "fThrowError: $*" >&2; exit 9 ;}
+	eval "${pubFn}"
+	# shellcheck disable=SC2034
+	declare -i parseArgs_maxPositionalArgCount=0 doQuietly=0 doPromptToContinue=1
+	commitMessage=""
+	fMsg(){ commitMessage=""; fParseArgs "$@"; printf '%s' "${commitMessage}" ;}
+	for want in "it's done" "it's \"done\"" "a \`b\` \$c \\d" "'quoted' and ' alone" "pass -v through"; do
+		[[ "$(fMsg --message "${want}")" == "${want}" ]] || fBad "n8git_backup-and-publish changed --message ${want@Q}"
+		[[ "$(fMsg -m "${want}")" == "${want}" ]] || fBad "n8git_backup-and-publish changed -m ${want@Q}"
+		[[ "$(fMsg --msg="${want}")" == "${want}" ]] || fBad "n8git_backup-and-publish changed --msg=${want@Q}"
+		[[ "$(fMsg -q --message "${want}")" == "${want}" ]] || fBad "n8git_backup-and-publish changed --message ${want@Q} after -q"
+	done
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
@@ -2261,7 +2330,7 @@ fTest dcwg7 20260920-2-gate-runs-the-cross-checks
 stubDir="${tmpDir}/cicd-stub"
 mkdir -p "${stubDir}/cicd/utility/include"
 cp "${repoDir}/cicd/cicd.bash" "${stubDir}/cicd/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${stubDir}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${stubDir}/cicd/utility/include/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${stubDir}/cicd/utility/"
 cat > "${stubDir}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
@@ -2951,7 +3020,7 @@ fTest ddzwm 20261014b-2-check-docs-feeds-keep-their-exit
 ##	name, and the old form may not come back.
 cdFeed="${tmpDir}/cdfeed"
 mkdir -p "${cdFeed}/include"
-cp "${repoDir}/cicd/utility/include/test-id.bash" "${cdFeed}/include/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${cdFeed}/include/"
 : > "${cdFeed}/sites"
 awk -v sites="${cdFeed}/sites" '
 	$1 == "fTest" { name = $3 }
@@ -3018,7 +3087,7 @@ fTest de113 20261015-15-fenced-hash-is-no-heading
 ##	repo, where a fenced `# typo anchor` has to make no anchor for either.
 cdAnc="${tmpDir}/cdanchor"
 mkdir -p "${cdAnc}/include" "${cdAnc}/repo/project"
-cp "${repoDir}/cicd/utility/include/test-id.bash" "${cdAnc}/include/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${cdAnc}/include/"
 awk 'BEGIN {on = 1} $1 == "fTest" {on = ($2 == "ddzx2" || $2 == "ddymm")} on' "${docs}" > "${cdAnc}/check-docs.bash"
 printf '\nfTestEnd\n((nBad == 0))\n' >> "${cdAnc}/check-docs.bash"
 ancUrl="https://github.com/yottacore/shcl/blob/main/project/install.md"
@@ -3579,7 +3648,7 @@ fTest de82q 2026102106592600-miri-test-time-limit
 miriT="${tmpDir}/miri-limit"
 mkdir -p "${miriT}/cicd/utility/include" "${miriT}/source/rust/tests" "${miriT}/bin"
 cp "${repoDir}/cicd/utility/sanitize-rust.bash" "${miriT}/cicd/utility/"
-cp "${repoDir}/cicd/utility/include/test-id.bash" "${miriT}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${miriT}/cicd/utility/include/"
 : > "${miriT}/source/rust/tests/lone.rs"
 printf '[nightly]\nchannel = "nightly-stub"\n' > "${miriT}/rust-toolchain.toml"
 printf '#!/usr/bin/env bash\necho nightly-stub-x86_64-unknown-linux-gnu\n' > "${miriT}/bin/rustup"
@@ -3889,7 +3958,7 @@ frz="${tmpDir}/frozen"; frzLive="${frz}/live"; frzOut="${frz}/out"
 mkdir -p "${frzLive}/cicd/utility/include" "${frzLive}/cicd/artifacts" "${frz}/tmp" "${frzOut}"
 cp "${repoDir}/cicd/cicd.bash" "${frzLive}/cicd/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${frzLive}/cicd/utility/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${frzLive}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${frzLive}/cicd/utility/include/"
 cp "${repoDir}/.gitignore" "${frzLive}/"
 cat > "${frzLive}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
@@ -3927,11 +3996,11 @@ if (
 ); then
 	frzHeadTree="$(git -C "${frzLive}" rev-parse 'HEAD^{tree}')"
 	frzRc=0
-	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
+	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" HOST_TEMP="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
 		bash cicd/cicd.bash -y --no-sync --no-container ) > "${frz}/run.log" 2>&1 || frzRc=$?
 	if ((frzRc)) || ! grep -qF 'CI/CD: done.' "${frz}/run.log"; then fBad "a run whose checkout and engine were edited mid-run failed (exit ${frzRc}): $(tail -n 5 "${frz}/run.log")"; fi
 	frzWhere="$(cat "${frzOut}/where" 2>/dev/null || true)"
-	[[ "${frzWhere}" == "${frz}/tmp/stub-tree."* ]] || fBad "the tests stage ran in ${frzWhere@Q}, not a frozen copy beside the run's temp dir"
+	[[ "${frzWhere}" == "${frz}/tmp/stub/"[0-9]*_[0-9][0-9][0-9]/tree ]] || fBad "the tests stage ran in ${frzWhere@Q}, not a frozen copy in the run's folder"
 	[[ "$(cat "${frzOut}/edited-before" 2>/dev/null || true)" == dirty ]] || fBad "the frozen copy lacks the checkout's uncommitted edit"
 	[[ "$(cat "${frzOut}/edited-after" 2>/dev/null || true)" == dirty ]] || fBad "an edit to the checkout mid-run reached the frozen copy"
 	[[ -f "${frzOut}/untracked" ]] || fBad "the frozen copy lacks the checkout's untracked file"
@@ -3943,7 +4012,7 @@ if (
 		fBad "the run doesn't say what it copied: $(grep -A5 'Frozen copy' "${frz}/run.log" || true)"
 	fi
 	[[ "$(git -C "${frzLive}" worktree list --porcelain | grep -c '^worktree ')" == 1 ]] || fBad "the frozen copy is still registered after the run: $(git -C "${frzLive}" worktree list)"
-	if compgen -G "${frz}/tmp/stub-tree.*" >/dev/null; then fBad "the frozen copy's folder is still there after the run"; fi
+	if compgen -G "${frz}/tmp/stub/*/tree" >/dev/null; then fBad "the frozen copy's folder is still there after the run"; fi
 	##	The record names the tree that was tested: the checkout as the format
 	##	stage left it, never HEAD's, and never what it held at the end.
 	cp "${frz}/eng.orig" "${frzLive}/cicd/cicd.bash"; printf 'dirty\n' > "${frzLive}/edited"; rm -f "${frzLive}/late"
@@ -3952,7 +4021,7 @@ if (
 	if bash "${repoDir}/cicd/utility/green-tree.bash" passed "${frzLive}" "${frzHeadTree}"; then fBad "HEAD's tree was recorded for a run that tested uncommitted work"; fi
 	##	--no-freeze runs in place, as before.
 	: > "${frzOut}/where"
-	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
+	( cd "${frzLive}" && env -u SHCL_FROZEN -u SHCL_RUN_PART -u SHCL_GATE_STRICT TMPDIR="${frz}/tmp" HOST_TEMP="${frz}/tmp" STUB_PROBE="${frz}/probe.bash" STUB_OUT="${frzOut}" STUB_LIVE="${frzLive}" \
 		bash cicd/cicd.bash -y --no-sync --no-container --no-freeze ) > "${frz}/run2.log" 2>&1 || true
 	[[ "$(cat "${frzOut}/where")" == "$(cd "${frzLive}" && pwd -P)" ]] || fBad "a --no-freeze run's tests ran in $(cat "${frzOut}/where"), not the checkout"
 else
@@ -4186,3 +4255,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-30  suites=LIST rows, and check-boxes.bash's pattern takes what fBoxRow makes.
 ##		2026-10-31  A Windows box's suites are win-runners.bash, in check-boxes.bash and --list.
 ##		2026-10-31  A Windows row's perf runs perf-gate.bash, in check-boxes.bash, fBoxRow and --list.
+##		2026-10-31  The PowerShell safe removal guard, for 2026103114555334.

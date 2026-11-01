@@ -45,6 +45,8 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 testWhere=sanitize-c; testCounter=nJobBad
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/c-flags.bash"
@@ -62,7 +64,7 @@ corpus="${1:-project/conformance}"
 export ASAN_OPTIONS="exitcode=77:${ASAN_OPTIONS:-}" UBSAN_OPTIONS="exitcode=77:print_stacktrace=1:${UBSAN_OPTIONS:-}"
 export LSAN_OPTIONS="suppressions=${root}/cicd/utility/lsan.supp:${LSAN_OPTIONS:-}"
 
-work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work; trap 'fSafeRm "${work}"' EXIT
 ## compiler, language standard, source, output, then any extra flags.
 fBuild(){
 	local cc="$1" std="$2" src="$3" out="$4"; shift 4

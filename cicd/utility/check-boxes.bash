@@ -188,6 +188,8 @@ declare -i nBad=0 nRan=0
 # shellcheck source-path=SCRIPTDIR
 source "${meDir}/include/test-id.bash"
 # shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/safe-rm.bash"
+# shellcheck source-path=SCRIPTDIR
 source "${meDir}/include/corpus-cases.bash"
 
 fBad(){ echo "check-boxes: $1" >&2; nBad+=1 ;}
@@ -216,11 +218,11 @@ fWants(){ [[ "$1" == all || ",$1," == *",$2,"* ]] ;}
 fSrcTree(){
 	local d="$1"; shift
 	mkdir -p "${d}"
-	git -C "${root}" ls-files -z --cached --others --exclude-standard -- source project cicd/utility/box-suites.bash cicd/utility/cli-regress.bash cicd/utility/include/test-id.bash "$@" \
+	git -C "${root}" ls-files -z --cached --others --exclude-standard -- source project cicd/utility/box-suites.bash cicd/utility/cli-regress.bash cicd/utility/include/test-id.bash cicd/utility/include/safe-rm.bash "$@" \
 		| tar -C "${root}" --null --ignore-failed-read -T - -cf - | tar -C "${d}" -xf -
 }
 ##	What win-runners.bash and winpath-regress.ps1 read besides.
-winSrc=(cicd/utility/win-runners.bash cicd/utility/winpath-regress.ps1 cicd/utility/winpath-sandbox.ps1 cicd/packaging/shclpath.ps1 install.ps1 utility/dogfood_shcl.ps1 utility/dogfood_shcl.cmd)
+winSrc=(cicd/utility/win-runners.bash cicd/utility/winpath-regress.ps1 cicd/utility/winpath-sandbox.ps1 cicd/utility/include/safe-rm.ps1 cicd/packaging/shclpath.ps1 install.ps1 utility/dogfood_shcl.ps1 utility/dogfood_shcl.cmd)
 ##	fSuiteRows NAME: one line per box for that suite, out of suites.all.
 fSuiteRows(){
 	local s="$1" bx st nm rest
@@ -252,7 +254,7 @@ boxWait="${SHCL_BOX_WAIT:-900}"
 [[ "${boxWait}" =~ ^[0-9]+$ ]] || boxWait=900
 
 startDir="${PWD}"
-work="$(mktemp -d)"; trap 'rm -rf -- "${work}"' EXIT
+work=''; fSafeTmpDir work; trap 'fSafeRm "${work}"' EXIT
 cd "${work}"
 mkdir -p g/c
 for d in "${root}"/project/conformance/*/; do cp -r "${d%/}" g/c/; done
@@ -281,7 +283,7 @@ for row in "$@"; do
 	cp -r g/. "${b}/g/"; cp "${bin}" "${b}/g/shcl${exe}"
 	if [[ -n "${want}" ]]; then fSrcTree "${b}/g/src"; echo "${want}" > "${b}/g/want"; fi
 	((winRun == 0)) || fSrcTree "${b}/g/src" "${winSrc[@]}"
-	if ((perf)); then mkdir -p "${b}/g/p/include"; cp "${meDir}/perf-gate.bash" "${meDir}/cpu-time.ps1" "${b}/g/p/"; cp "${meDir}/include/test-id.bash" "${b}/g/p/include/"; fi
+	if ((perf)); then mkdir -p "${b}/g/p/include"; cp "${meDir}/perf-gate.bash" "${meDir}/cpu-time.ps1" "${b}/g/p/"; cp "${meDir}/include/test-id.bash" "${meDir}/include/safe-rm.bash" "${b}/g/p/include/"; fi
 	tar -C "${b}/g" --format=pax -cf "${b}/in.tar" .
 	SECONDS=0; wrapRc=0
 	"${vmState}" wrap "${box}" --wait "${boxWait}" -- "${self}" "${onBox}" "${target}" "${work}/${b}/in.tar" "${work}/${b}" < /dev/null > "${b}/wrap.out" 2>&1 || wrapRc=$?
@@ -379,3 +381,4 @@ echo "check-boxes: OK"
 ##		2026-10-30  A Windows box runs the cases through box-cases.ps1, for 2026103016433921.
 ##		2026-10-31  A Windows box's |suites runs win-runners.bash there, for 2026103016433943.
 ##		2026-10-31  A Windows box's |perf runs perf-gate.bash there, for 2026103016433965.
+##		2026-10-31  A Windows box gets the PowerShell guard with win-runners' source, for 2026103114555334.

@@ -23,12 +23,14 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 testWhere=check-c-compilers; testCounter=nKindBad
 
 repoDir="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"
 [[ -d "${repoDir}" ]] || { echo "check-c-compilers: no such directory: ${repoDir}" >&2; exit 2 ;}
 
-tmpDir="$(mktemp -d)"; trap 'rm -rf "${tmpDir}"' EXIT
+tmpDir=''; fSafeTmpDir tmpDir; trap 'fSafeRm "${tmpDir}"' EXIT
 declare -i nBad=0 nRun=0
 
 ## Whatever is installed: the named versions plus the two default front ends.

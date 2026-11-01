@@ -28,6 +28,8 @@ pyDir="${root}/source/python"
 testWhere="check-wheel"; testCounter="nBad"; nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "${meDir}/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/safe-rm.bash"
 
 command -v pyproject-build >/dev/null 2>&1 \
 	|| { echo "check-wheel: pyproject-build not installed (pipx install build)" >&2; exit 1; }
@@ -35,8 +37,10 @@ command -v pyproject-build >/dev/null 2>&1 \
 ## Build into a temp dir, and take the build's own leavings with it: an sdist
 ## build writes shcl.egg-info and build/ back into the source tree, which is
 ## exactly the stale-artifact litter this repo keeps having to sweep up.
-outDir="$(mktemp -d)"
-trap 'rm -rf "${outDir}" "${pyDir}/build" "${pyDir}/shcl.egg-info"' EXIT
+wheelTmp=''; fSafeTmpDir wheelTmp
+outDir="${wheelTmp}/out"; mkdir -- "${outDir}"
+fDropLeavings(){ fSafeRmUnder_IfThere "${pyDir}" "${pyDir}/build" && fSafeRmUnder_IfThere "${pyDir}" "${pyDir}/shcl.egg-info"; }
+trap 'fSafeRm "${wheelTmp}"; fDropLeavings' EXIT
 
 ## The isolated environment fetches the build backend, and until it was pinned
 ## it fetched whatever setuptools PyPI served that day - into a build the gate
@@ -69,7 +73,7 @@ for attempt in 1 2 3; do
 		exit 1
 	fi
 	echo "check-wheel: build attempt ${attempt} failed, retrying" >&2
-	rm -rf "${outDir:?}"/* "${pyDir}/build" "${pyDir}/shcl.egg-info"
+	fSafeRmUnder "${wheelTmp}" "${outDir}" && mkdir -- "${outDir}" && fDropLeavings
 	sleep $((attempt * 5))
 done
 

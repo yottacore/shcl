@@ -38,6 +38,8 @@ declare -i nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "${meDir}/include/test-id.bash"
 # shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/safe-rm.bash"
+# shellcheck source-path=SCRIPTDIR
 source "${meDir}/include/corpus-cases.bash"
 
 ##	A new release here needs both lines from its CHECKSUM.SHA256.
@@ -121,7 +123,7 @@ elif ((nBad == 0)); then
 	fTestSkip
 fi
 if ((haveImage)); then
-	work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
+	work=''; fSafeTmpDir work; trap 'fSafeRm "${work}"' EXIT
 	cd "${work}"
 	mkdir -p g/c ci
 	for d in "${root}"/project/conformance/*/; do cp -r "${d%/}" g/c/; done

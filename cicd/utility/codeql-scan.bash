@@ -57,6 +57,8 @@ cd "${root}"
 # shellcheck source-path=SCRIPTDIR
 source "${here}/include/test-id.bash"
 # shellcheck source-path=SCRIPTDIR
+source "${here}/include/safe-rm.bash"
+# shellcheck source-path=SCRIPTDIR
 source "${here}/include/stop-descendants.bash"
 testWhere=codeql-scan; testCounter=nBad; nBad=0
 
@@ -88,7 +90,7 @@ art="${root}/cicd/artifacts/codeql"
 scratch="${CTR_CACHE}"
 if [[ -n "${SHCL_IN_IMAGE:-}" ]]; then scratch="${TMPDIR:?}"; fi
 mkdir -p "${art}" "${scratch}"
-work="$(mktemp -d "${scratch}/codeql.XXXXXX")"; trap 'fStopDescendants; rm -rf "${work}"' EXIT
+work="$(mktemp -d "${scratch}/codeql.XXXXXX")"; trap 'fStopDescendants; fSafeRmUnder "${scratch}" "${work}"' EXIT
 
 skipping=0
 missing=()

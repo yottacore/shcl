@@ -41,6 +41,8 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 testWhere=sanitize-rust; testCounter=nBad; nBad=0
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -79,7 +81,7 @@ if ! grep -q -- "^${nightly}-" <<<"${installed}"; then
 	exit 0
 fi
 
-work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work; trap 'fSafeRm "${work}"' EXIT
 
 ## The suite's own status lines were shown by the tests stage, so only a FAIL
 ## line comes through here, then whatever a sanitizer or Miri said.

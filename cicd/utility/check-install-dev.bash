@@ -21,6 +21,8 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 testWhere=check-install-dev; testCounter=nFail
 
 ## With GIT_DIR set, the clone and `git init` below act on the real repository.
@@ -30,8 +32,8 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="${root}/install-dev.bash"
 [[ -r "${script}" ]] || { echo "check-install-dev: cannot read ${script}" >&2; exit 2; }
 
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work
+trap 'fSafeRm "${work}"' EXIT
 ## --no-hardlinks: /tmp is routinely a different filesystem from the repo.
 git clone -q --no-hardlinks --local "${root}" "${work}/clone" || { echo "check-install-dev: local clone failed" >&2; exit 2; }
 

@@ -32,6 +32,8 @@ set -Eeuo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/largedoc-gen.bash"   ## largedoc_gen()
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 testWhere=largedoc; testCounter=nBad
 
 mib=100
@@ -78,8 +80,8 @@ fLimit() {   ## $1 = binding name, $2 = field (2=secs, 3=rss, 4=rss floor, 5=max
 	return 0   ## an unlisted binding is measured and reported, just not gated
 }
 
-work="$(mktemp -d "${TMPDIR:-/tmp}/shcl-largedoc.XXXXXX")"
-((keep)) || trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work
+((keep)) || trap 'fSafeRm "${work}"' EXIT
 
 ## Room for the document plus every binding's formatted copy, since the runs
 ## overlap, with slack.

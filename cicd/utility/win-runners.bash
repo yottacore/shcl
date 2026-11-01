@@ -30,6 +30,8 @@
 set -Eeuo pipefail
 
 meDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/safe-rm.bash"
 root="${1:-$(cd -- "${meDir}/../.." && pwd)}"
 cd -- "${root}"
 
@@ -67,8 +69,8 @@ fHave() {   ## fHave TOOL [TOOL ...] - false if any is in the missing list
 	return 0
 }
 
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work
+trap 'fSafeRm "${work}"' EXIT
 
 echo "win-runners: root ${root}"
 echo "win-runners: $(uname -s 2>/dev/null || echo unknown), cc=${cc} cxx=${cxx} py=${py}"
@@ -282,6 +284,38 @@ fRunUninstallLock() {
 	[[ ! -e "${dir}/code" ]] || { echo "win-runners: uninstall lock: the emptied code dir was left" >&2; return 1; }
 }
 
+## 2026103114555334: install.ps1's Remove-SafeTree, the include's twin, under
+## 5.1, where the one-liner runs. A junction inside is removed and its target
+## kept, a read-only file goes, and a path through a junction is refused.
+fRunSafeRm51() {
+	local top="${work}/saferm" ps="${work}/saferm.ps1" win out
+	mkdir -p "${top}/par/w/d" "${top}/out/sub"
+	printf 'keep\n' > "${top}/out/keep"; printf 'x\n' > "${top}/par/w/d/locked"
+	win="$(cygpath -w "${top}")" || return 1
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$ErrorActionPreference = "Stop"'
+		sed -n '/^\tfunction Remove-SafeTree/,/^\t}/p' install.ps1
+		echo "\$top = '${win}'"
+		echo '$par = Join-Path -Path $top -ChildPath "par"'
+		echo '$out = Join-Path -Path $top -ChildPath "out"'
+		echo 'cmd /c mklink /J "$par\w\j" "$out" | Out-Null'
+		echo 'cmd /c mklink /J "$par\jt" "$out" | Out-Null'
+		echo 'Set-ItemProperty -LiteralPath "$par\w\d\locked" -Name IsReadOnly -Value $true'
+		echo '$e = $null'
+		echo 'Remove-SafeTree -Parent $par -Path "$par\jt\sub" -ErrorAction SilentlyContinue -ErrorVariable e'
+		echo 'if (-not $e) { Write-Output "took a path through a junction" }'
+		echo 'Remove-SafeTree -Parent $par -Path "$par\w" -ErrorAction Continue'
+		echo 'if (Test-Path -LiteralPath "$par\w") { Write-Output "left the folder" }'
+		echo 'if (-not (Test-Path -LiteralPath "$out\keep") -or -not (Test-Path -LiteralPath "$out\sub")) { Write-Output "went into the junction" }'
+		echo 'Write-Output "done"'
+	} > "${ps}"
+	out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "${ps}")" 2>&1)" \
+		|| { echo "win-runners: safe remove 5.1: ${out}" >&2; return 1; }
+	[[ "${out//$'\r'/}" == "done" ]] || { echo "win-runners: safe remove 5.1: ${out@Q}" >&2; return 1; }
+}
+
 ## 20260924 item 7: Windows PowerShell 5.1 puts a BOM in front of text it pipes
 ## to a program when $OutputEncoding has one, as it does on a UTF-8 console,
 ## and `set` then read the first op as unknown. Piped the way a user types it.
@@ -459,6 +493,7 @@ case "$(uname -s 2>/dev/null || true)" in
 		fRun --id dd71z "dogfood runner" "cargo" fRunDogfood
 		fRun --id ddg6q "ps args" "cargo" fRunPsArgs
 		fRun --id dd720 "uninstall nothing" "" fRunUninstallNothing
+		fRun --id depma "safe remove 5.1" "" fRunSafeRm51
 		fRun --id dd71s "ops bom 5.1" "cargo" fRunOpsBom51
 		if [[ -n "${WINRUN_PARTIAL:-}" ]]; then fRunWinpathSandbox
 		else fRun "windows path" "" powershell -NoProfile -ExecutionPolicy Bypass -File cicd/utility/winpath-regress.ps1
@@ -492,3 +527,4 @@ fi
 ##		  sandbox, instead of being skipped there.
 ##		- 20261008: The shcl.ps1 rows went with the retired wrapper.
 ##		- 20261031: Runs on the b29w test box too, through check-boxes.bash.
+##		- 20261031: The guard under 5.1, for 2026103114555334.

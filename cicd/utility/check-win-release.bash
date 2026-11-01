@@ -30,6 +30,8 @@ declare -i nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "${meDir}/include/test-id.bash"
 # shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/safe-rm.bash"
+# shellcheck source-path=SCRIPTDIR
 source "${meDir}/include/corpus-cases.bash"
 
 fBad(){ echo "check-win-release: $1" >&2; nBad+=1 ;}
@@ -58,7 +60,7 @@ fRunAll(){
 missing=""
 for t in wine wineserver wineboot timeout; do command -v "${t}" >/dev/null 2>&1 || missing+=" ${t}"; done
 if [[ -z "${missing}" ]]; then
-	work="$(mktemp -d)"
+	work=''; fSafeTmpDir work
 	##	With no /run/user/UID, as in the image, wine 10 falls back to a server dir
 	##	under TMPDIR and aborts with "free(): invalid pointer" when TMPDIR is set.
 	unset TMPDIR
@@ -66,7 +68,7 @@ if [[ -z "${missing}" ]]; then
 	##	gecko install prompts.
 	export WINEPREFIX="${work}/wp" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
 	unset DISPLAY WAYLAND_DISPLAY
-	trap 'wineserver -k >/dev/null 2>&1 || true; rm -rf "${work}"' EXIT
+	trap 'wineserver -k >/dev/null 2>&1 || true; fSafeRm "${work}"' EXIT
 	cd "${work}"
 	mkdir c && for d in "${root}"/project/conformance/*/; do cp -r "${d%/}" c/; done
 	cp "${winBin}" shcl.exe

@@ -49,6 +49,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261031: config.bash's `REMOTE_BOXES` has `vm925w|collierjr@vm925w|windows-x86_64|perf`. On a Windows row, `perf` sends `perf-gate.bash` to the box with the CLI cases, and `box-cases.ps1` runs it under git's bash over the windows-x86_64 release build, at 400,000 keys and a factor of 4. check-boxes `dep83` passes or fails it, and the box's own status lines come back with its name. `perf` on any other row is a usage error.
 		- 20261031: git bash's `time` counts only its own processes, so the release build read 30 to 75 ms of CPU at 40,000 and 400,000 keys alike. On Windows a `.exe` now runs under `cpu-time.ps1`, which writes the CPU time the CLI itself used, and perf-gate `dep84` checks that 8 times the keys reads as more than 3 times the time. perf-gate's `write-counts` is a SKIP off Linux, since git bash's strace counts no system calls.
 		- 20261031, test batch: not run. vm925w is off and can't start while vmKt6m holds SPICE port 5900, and vmKt6m was found running, so it was left alone. Still needs a box step with vm925w up, judged by `dep83`.
+		- 20261101: still not run. The full run on r1031b skipped vm925w again, since vmKt6m holds SPICE port 5900.
 	- Decisions:
 		- perf-gate stays in the local test step too, over the 4 bindings' Linux CLIs (me). Its budgets are ratios to the same CLI's own parse in CPU time, so this box's load doesn't move them, and only the local run covers Go, Python and C. vm925w adds the Windows release build, which nothing timed before.
 		- Only the release build on vm925w, not the 4 bindings built there (me). It's the one CLI shipped, and a build of all 4 there would cost minutes every run.
@@ -96,59 +97,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `b29w`, never `b29w-wif`.
 	- Progress log:
 		- 20261030: split into 3 children: 2026103016433921 (first, the CLI cases on b29w), 2026103016433943 (win-runners.bash and winpath-regress.ps1 on b29w) and 2026103016433965 (timed work on vm925w). This one closes with the last of them.
-
-- CICD reset: a test for every Done item
-	- ID: 2026102416250070
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Related IDs: 2026102416250080
-	- Requirements:
-		- Per the regression bullet in `Testing` in the shared CICD rules. check-docs already wants a `Test case:` row on every closed item.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
-		- A Done item that says none where a test could exist and would make sense gets one.
-	- Progress log:
-		- 20261031: `test-ids.py backlog` lists each closed bug, feature or enhancement whose test row names no test's ID and gives no reason, with the IDs it could name, and a count. A reason is a row that starts with "none" or "no ". A parent passes by naming children that pass. check-docs `dep9w` runs it for items closed from 2026-11-01 on, so no new gap gets in.
-		- 20261031: of 1303 closed items, 893 named no ID. IDs went in beside the test names that match a test exactly, on 417 items, and reasons or IDs by hand on 10 more. 466 are left, split into children by part of the backlog: 2026103111123554, 2026103111123559, 2026103111123564 and 2026103111123569. Then 2026103111123574 dropped the date from `dep9w`.
-		- 20261031: two items that give none, where a test makes sense, get one: 2026103111123580 and 2026103111123585.
-		- Verified: shell-regress `dep9x` passes, and fails with a Test environment row read as a test row, with a parent passing on any one child, or with `--since` ignored. check-docs `dep9w` fails on a Done item closed 2026-11-01 that names no ID, and passes on this backlog. Also the whole of shell-regress, check-docs, `test-ids.py check` (2076 tests), shellcheck over the lint targets, ruff and mypy.
-	- Decisions:
-		- me: the check is a `test-ids.py` command, since it needs the list of IDs that file builds. check-docs runs it, as it runs the other backlog checks.
-		- me: `dep9w` checks only items closed from 2026-11-01 on until the children are done, so check-docs stays green meanwhile and a new close can't add a gap.
-		- me: an ID goes in brackets after the test's name, and the row's wording stays. A name used for a subcommand in prose, such as `migrate` or `check`, gets no ID by name alone, and a glob gets only the tests there when the item closed.
-		- me: a hosted job with no test ID of its own counts as a reason, written as "none by ID, since the hosted job is the test".
-	- Test case: check-docs `dep9w`, shell-regress `dep9x`, and the children's.
-	- Branch: `r1031`
-
-- A test that the publish helper keeps quotes in `--message`
-	- ID: 2026103111123585
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261031-111235
-	- Opened by: 2026102416250070
-	- Parent ID: 2026102416250070
-	- Requirements:
-		- The legacy Done item "the publish helper rewrites every quote in a `--message` before committing it" (20260920) says none, since the message only shows at a real commit. Its argument parse can be run alone, as shell-regress does for other scripts, and `--message "it's done"` has to come out unchanged.
-		- The legacy item's Test case row then names the new test's ID.
-
-- CICD reset: temp files and safe removal
-	- ID: 2026102416250090
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- Per `Temp files` and `Safe removal` in the shared CICD rules. Each run already has a temp dir of its own, with `TMPDIR` pointed at it and a trap that removes it.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- The run's folder is `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, made with a plain `mkdir`, with `TEMP` and `TMP` pointed there too.
-		- `--keep-temp` keeps it and prints its path.
-		- Each run removes the project's own run folders older than 2 days whose `run.pid` names no live process.
-		- A copy of the shared safe removal guard in the repo, for every recursive removal in cicd.bash, the hook, the gate scripts and the installers, and a guard of the same kind for the PowerShell ones. File list in the private notes.
 
 - CICD reset: version line
 	- ID: 2026102416250100
@@ -218,6 +166,178 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: the safe removal guard in the hook, gate scripts and installers
+	- ID: 2026103114560029
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Needs external testing: No
+	- Priority: Avg
+	- Opened: 20261031-145600
+	- Opened by: 2026102416250090
+	- Parent ID: 2026102416250090
+	- Prereq IDs: 2026103114555299
+	- Requirements:
+		- The parent's second part: every recursive removal in the pre-push hook, the gate scripts under `cicd/utility/` and `install.bash` goes through the repo's copy of the safe removal guard, or one of the same kind naming the one parent it may remove under. File list in the private notes.
+		- install.bash keeps to Bash 3.2, so it has a copy of its own.
+	- Progress log:
+		- 20261031: the hook and every gate script under `cicd/utility/` take their scratch from `fSafeTmpDir`, new in `cicd/utility/include/safe-rm.bash`, and remove it with `fSafeRm`. In a run it's a folder inside the run's own. Run by hand it's a run folder of its own, `${HOST_TEMP}/shcl/<stamp>_<NNN>` with a `run.pid`, and `TMPDIR`, `TEMP` and `TMP` point there, so a killed script's folder goes in the stale sweep.
+		- 20261031: the hook's worktree is the `tree/` of its folder, and check-migrate's 2.x tree the same. Folders inside a scratch, cli-regress' 8 and one each in check-migrate and check-cpu-floor, go through `fSafeRmUnder_IfThere`, and so do check-wheel's leavings in `source/python`. codeql-scan's folder under the container cache goes through `fSafeRmUnder`. package.bash stages its payload and check-wheel its output a level down, so a `run.pid` or a tool's temp file never ends up in a package.
+		- 20261031: the include has no GNU realpath or rm now, since cli-regress, crosscheck, perf-gate, win-runners and package.bash run on macOS, BSD and Windows boxes and hosted jobs. check-boxes ships it to the boxes beside test-id.bash.
+		- 20261031: install.bash resolves its `mktemp -d` folder once and `fRmTmp` takes down only that folder, in Bash 3.2.
+		- 20261031: contributing.md says where a script run by hand keeps its scratch.
+		- 20261031: install.bash reaches users only from main, so it needs a docs-only sync to main after the round's merge, which check-docs `dcbc2` watches for.
+		- Verified: check-push-gate passes whole, `depk3` and `depk4` included. `depk4` finds 38 bare removals in the old files. `depk3`'s EXIT trap case fails on a first cut of the guard whose link resolver ended in a bare `return`, which also failed `de633` and shell-regress `dct58`, `dd51c`, `ddca8` and `ddg86`. shell-regress passes whole. `cicd.bash --backlog-run-quick`, every area, passed all 5 steps. check-readme, check-locale and check-veneer pass run by hand, and leave no folder behind.
+		- Not run: the guard's BSD and Windows branches, and the gate scripts only a full run starts.
+		- Verified 20261101: --backlog-run-full on r1031b passed (PASS depk3, depk4, demxp on b26, vmFreeBSD, vmDebARM64, vmKt6m, b29w), and hosted ci.yml 41256236902 passed every job, macos, windows, setup-test and winarm-test included. den85 runs only under --long, so it was a SKIP; the hosted windows job ran win-runners with the guard.
+	- Decisions:
+		- me: the scratch maker went in the include rather than in each script, since by hand a `mktemp -d` right under `/tmp` with no `HOST_TEMP` is a folder the guard refuses as a whole project folder.
+		- me: check-boxes' box-side `gone()` stays its own guard, in POSIX sh, naming the one parent it may remove under. A path-through-link check there would refuse macOS's `/tmp`, which is a link.
+		- me: the guard stays on one filesystem with GNU rm's flag or BSD's `-x`, and with neither, as on busybox, it goes without.
+		- me: install-dev.bash has no recursive removal, so it's unchanged.
+	- Swept: every `rm -r` form in the hook, the 39 scripts under `cicd/utility/` and both installers. 38 were bare; none are now, apart from the two guards of their own above. Every `mktemp -d` that held a recursive removal makes its folder through `fSafeTmpDir` now, except codeql-scan's, under the container cache. The stub trees in check-push-gate and shell-regress that copy a gate script copy the include too, and so does check-boxes for a box. The image recipes' removals are build steps, outside this item.
+	- Test case: check-push-gate `depk3` (the scratch folder by hand and in a run, its counter, `TMPDIR`, removal from a failed script's EXIT trap, and install.bash's `fRmTmp` refusals) and `depk4` (no bare recursive removal in the hook, the gate scripts or install.bash), plus `dephe`, `dephf` and `de633`, and shell-regress `dct58`, `dd51c`, `ddca8` and `ddg86`, which exit 2 through the new trap.
+	- Branch: `r1031b`
+	- Acceptance signoff: me, full run and every hosted job passed
+	- Closed: 20261101
+
+- CICD reset: a safe removal guard for the PowerShell scripts
+	- ID: 2026103114555334
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: Avg
+	- Opened: 20261031-145553
+	- Opened by: 2026102416250090
+	- Parent ID: 2026102416250090
+	- Prereq IDs: 2026103114555299
+	- Requirements:
+		- The parent's third part: a guard of the same kind for the recursive `Remove-Item` calls in `install.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1`.
+	- Progress log:
+		- 20261031: `Remove-SafeTree -Parent P -Path X`, new in `cicd/utility/include/safe-rm.ps1`, removes X strictly under P. It refuses what `fSafeRmUnder` refuses: an empty path, `.`, `..`, a doubled separator, a relative path, a link, a path through a link below P, and one not there. A link or junction inside is removed, not followed.
+		- 20261031: winpath-regress.ps1 and winpath-sandbox.ps1 dot-source it and remove their scratch through it. install.ps1 has a copy of its own, since under `irm` there's no file beside it to load. check-boxes ships the include to a Windows box with the rest of win-runners' source, and the lint list has it.
+		- 20261031: install.ps1 reaches users only from main, so it needs the docs-only sync to main after the round's merge, as install.bash does.
+		- Verified: shell-regress passes whole, `depm0` included. `depm0` fails on the old scripts (the bare removals, and no copy in install.ps1), on a guard that follows a link inside, on one with no link check on the way down, and on one that takes a `.` segment. PSScriptAnalyzer is clean on all four changed `.ps1` files, and shellcheck on the changed scripts. `test-ids.py check` passes. `cicd.bash --backlog-run-quick cicd` passed all 5 steps.
+		- Not run: the guard on Windows. `depma` was only parsed here.
+		- Verified 20261101: hosted ci.yml 41256236902 windows job: PASS depma win-runners safe remove 5.1, and winpath-regress (dc1zb and on) passed. The full run passed depm0. winpath-sandbox.ps1 runs only on b29w under --long.
+	- Decisions:
+		- me: one guard in the include, with install.ps1's copy held to the same text by `depm0`, as install.bash keeps its own.
+		- me: the guard walks the tree with .NET calls rather than `Remove-Item -Recurse`, so a link inside is treated the same on 5.1 and 7.
+		- me: the path check goes by segment, not `GetFullPath`, since 5.1 can spell out an 8.3 name, and the hosted runner's TEMP is one.
+		- me: a refusal or a failed removal is a non-terminating error, and the callers pass `-ErrorAction Continue`, so a folder left behind is reported but never fails an install or a test.
+		- me: the scratch folders stay where they were made, right under the temp path, which is the one parent named. In a run that's the run's own folder.
+		- me: check-boxes' box-side `fWinRm` stays its own guard, as its `gone()` does, naming the one folder shape it may remove. It runs as an encoded command, which cmd caps at 8191 characters.
+	- Swept: every `Remove-Item`, `]::Delete`, `rmdir` and `rd /s` in the tracked `.ps1` files, and the PowerShell text in the bash scripts. 3 were recursive and bare, and none are now. install.ps1's file and empty-dir removals and dogfood_shcl.ps1's file removals aren't recursive, so they stay. box-cases.ps1 and cpu-time.ps1 remove nothing. `project/legacy/shcl.ps1` is frozen.
+	- Test case: shell-regress `depm0` (the guard's refusals and removal, install.ps1's copy the same as the include's, and no bare recursive removal in a tracked `.ps1`), and win-runners `depma` (the guard under 5.1 with junctions, on Windows).
+	- Branch: `r1031b`
+	- Acceptance signoff: me, hosted windows job passed depma and the windows path row
+	- Closed: 20261101
+
+- CICD reset: the run folder and its guard
+	- ID: 2026103114555299
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: Avg
+	- Opened: 20261031-145552
+	- Opened by: 2026102416250090
+	- Parent ID: 2026102416250090
+	- Requirements:
+		- The parent's first part: the run's folder is `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, made with a plain `mkdir`, with `TMPDIR`, `TEMP` and `TMP` pointed there, and a `run.pid` in it.
+		- `--keep-temp` keeps it and prints its path.
+		- Each run removes the project's own run folders older than 2 days whose `run.pid` names no live process.
+		- A copy of the shared safe removal guard in the repo, and every recursive removal in cicd.bash goes through it.
+	- Progress log:
+		- 20261031: cicd.bash makes `${HOST_TEMP}/shcl/<stamp>_<NNN>` with a plain `mkdir`, counting up past a taken name, writes `run.pid` in it and points `TMPDIR`, `TEMP` and `TMP` there. Without `HOST_TEMP` it uses `TMPDIR`, then `/tmp`, resolved once. The part run in the frozen copy nests in its starter's folder, as before, and the run in the image makes its own under the `/tmp` it's given. `dev.run` and the container names follow the new folder name.
+		- 20261031: the frozen copy is the run folder's `tree/`, so a stale sweep takes a leftover one too, after `worktree remove`. Docker's mount points under `/tmp` are made in the scratch dir first, since a root-owned one with another in it can't be removed.
+		- 20261031: at start, a run removes the run folders under `${HOST_TEMP}/shcl/` more than 2 days old, by the stamp in the name, whose `run.pid` names no live process. The cleanup line counts them.
+		- 20261031: `cicd/utility/include/safe-rm.bash` holds `fSafeRm`, the shared guard, and `fSafeRmUnder` for a folder under one named parent. The run folder, the frozen copy's fallback, the stale sweep, and the crosscheck dump and release artifact folders under `cicd/artifacts` go through them. contributing.md says where a run's scratch goes.
+		- Verified: check-push-gate passes whole, with `dephe` and `dephf`. On the old engine `dephe` fails, and so do the new name asserts of `dee5k`, `decz2` and `ded0y`. With the guard's whole-folder check taken out, `dephf` fails, having removed `HOST_TEMP`. shell-regress passes whole, `de89c` included. shellcheck is clean on the changed scripts.
+		- Verified: `cicd.bash --backlog-run-quick cicd` passed all 5 steps in the image, with the frozen copy at the run folder's `tree/` mounted there. The run folder and the copy's worktree were gone after.
+		- Not run: a real docker run with `HOST_TEMP` under `/tmp`, which the mount point fix is for. This box sets `HOST_TEMP` elsewhere.
+		- Verified 20261101: --backlog-run-full on r1031b passed all 9 steps (run.log of 20261101-001930_002): PASS dephe, dephf; no run folder or worktree of it left after.
+	- Decisions:
+		- me: a folder with no `run.pid` stays, since hand-made temp folders share the layout and only a run writes one.
+		- me: age comes from the name's stamp, not mtime, which moves while a run writes.
+		- me: the repo's `fSafeRm` prints nothing on success, unlike the shared one, since the run's cleanup line already says what went.
+		- me: `fSafeRmUnder`'s parent may sit behind a link, as a checkout often does, but nothing below it may.
+		- me: two runs that start in the same second under different `HOST_TEMP` folders would share a `dev.run` label. A box has one `HOST_TEMP`, so that's left.
+		- me: old `shcl-run.XXXXXX` folders under `TMPDIR` aren't swept. Only a killed run left one, and the new name is the one the rule names.
+	- Swept: every `rm -rf` and `mktemp -d` in cicd.bash (5 removals, now 0 bare). `mktemp -d` users there make dirs inside the run folder. The includes it sources have no recursive removal. The stub engines in check-push-gate and shell-regress copy the new include. The hook, the gate scripts and the installers are the next child, 2026103114560029, and the PowerShell ones 2026103114555334.
+	- Test case: check-push-gate `dephe` (the folder, its counter, `TEMP` and `TMP`, and the stale sweep) and `dephf` (the guard's refusals), plus `de633`, `dee5k`, `dee5y`, `decz2`, `ded0y` and shell-regress `de89c` with the new folder.
+		- 20261031: `dee5k`'s, `decz2`'s and `ded0y`'s `dev.run` asserts went from `shcl-run.XXXXXX` to `<stamp>_<NNN>`, `dee5y`'s folder list from `shcl-run.*` to `shcl/*_NNN`, and `de89c`'s frozen copy from beside the folder (`stub-tree.*`) to its `tree/`.
+	- Branch: `r1031b`
+	- Acceptance signoff: me, full run passed with the run folder in the image and nothing left after
+	- Closed: 20261101
+
+- CICD reset: a test for every Done item
+	- ID: 2026102416250070
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026102416250080
+	- Requirements:
+		- Per the regression bullet in `Testing` in the shared CICD rules. check-docs already wants a `Test case:` row on every closed item.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Each Done feature and bug names its test's ID, or says in a few words why it has none. Some rows name a test only by its name.
+		- A Done item that says none where a test could exist and would make sense gets one.
+	- Progress log:
+		- 20261031: `test-ids.py backlog` lists each closed bug, feature or enhancement whose test row names no test's ID and gives no reason, with the IDs it could name, and a count. A reason is a row that starts with "none" or "no ". A parent passes by naming children that pass. check-docs `dep9w` runs it for items closed from 2026-11-01 on, so no new gap gets in.
+		- 20261031: of 1303 closed items, 893 named no ID. IDs went in beside the test names that match a test exactly, on 417 items, and reasons or IDs by hand on 10 more. 466 are left, split into children by part of the backlog: 2026103111123554, 2026103111123559, 2026103111123564 and 2026103111123569. Then 2026103111123574 dropped the date from `dep9w`.
+		- 20261031: two items that give none, where a test makes sense, get one: 2026103111123580 and 2026103111123585.
+		- Verified: shell-regress `dep9x` passes, and fails with a Test environment row read as a test row, with a parent passing on any one child, or with `--since` ignored. check-docs `dep9w` fails on a Done item closed 2026-11-01 that names no ID, and passes on this backlog. Also the whole of shell-regress, check-docs, `test-ids.py check` (2076 tests), shellcheck over the lint targets, ruff and mypy.
+		- 20261031: last children closed (2026103111123585 added depgq), so the parent closes.
+	- Decisions:
+		- me: the check is a `test-ids.py` command, since it needs the list of IDs that file builds. check-docs runs it, as it runs the other backlog checks.
+		- me: `dep9w` checks only items closed from 2026-11-01 on until the children are done, so check-docs stays green meanwhile and a new close can't add a gap.
+		- me: an ID goes in brackets after the test's name, and the row's wording stays. A name used for a subcommand in prose, such as `migrate` or `check`, gets no ID by name alone, and a glob gets only the tests there when the item closed.
+		- me: a hosted job with no test ID of its own counts as a reason, written as "none by ID, since the hosted job is the test".
+	- Test case: check-docs `dep9w`, shell-regress `dep9x`, and the children's.
+	- Branch: `r1031`
+	- Acceptance signoff: me, every child closed and test-ids.py backlog passes over every closed item
+	- Closed: 20261031
+
+- A test that the publish helper keeps quotes in `--message`
+	- ID: 2026103111123585
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261031-111235
+	- Opened by: 2026102416250070
+	- Parent ID: 2026102416250070
+	- Requirements:
+		- The legacy Done item "the publish helper rewrites every quote in a `--message` before committing it" (20260920) says none, since the message only shows at a real commit. Its argument parse can be run alone, as shell-regress does for other scripts, and `--message "it's done"` has to come out unchanged.
+		- The legacy item's Test case row then names the new test's ID.
+	- Test case: shell-regress `depgq`.
+	- Decisions:
+		- me: the test cuts `fParseArgs` out of the script with sed and runs it with a stub `fThrowError`, rather than a second scratch commit, so it needs no git or rar and runs in milliseconds.
+	- Verified: `depgq` fails with the quote substitution put back in the helper and passes on the current one. shell-regress passes whole.
+	- Branch: `r1031b`
+	- Closed: 20261031-144904
+
+- CICD reset: temp files and safe removal
+	- ID: 2026102416250090
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- Per `Temp files` and `Safe removal` in the shared CICD rules. Each run already has a temp dir of its own, with `TMPDIR` pointed at it and a trap that removes it.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- The run's folder is `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, made with a plain `mkdir`, with `TEMP` and `TMP` pointed there too.
+		- `--keep-temp` keeps it and prints its path.
+		- Each run removes the project's own run folders older than 2 days whose `run.pid` names no live process.
+		- A copy of the shared safe removal guard in the repo, for every recursive removal in cicd.bash, the hook, the gate scripts and the installers, and a guard of the same kind for the PowerShell ones. File list in the private notes.
+	- Progress log:
+		- 20261031: split into children 2026103114555299 (the run folder, the stale sweep and the guard in cicd.bash), 2026103114560029 (the guard in the hook, the gate scripts and install.bash) and 2026103114555334 (the PowerShell guard). The first is in on `r1031b`.
+		- 20261101: all 3 children closed, so the parent closes.
+	- Test case: the children's: 2026103114555299, 2026103114560029, 2026103114555334
+	- Acceptance signoff: me, every child closed
+	- Closed: 20261101
 
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
@@ -11607,7 +11727,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Cause: a stale block in the project copy. The canonical copy under the synced tree has the bare assignment, so this was not a local customization anyone chose.
 		- Fixed: the two substitutions are out, matching the canonical copy. `--help` still runs and the script still parses.
 		- Left alone: the other project copies were not touched. The rule is a patch of the changed block per copy, and that needs a go-ahead for trees outside this one.
-		- Test case: None, copied helper; the message only shows at a real commit and push, past the refusal rows shell-regress runs.
+		- Test case: shell-regress `20260920b-18-publish-keeps-quotes-in-message` (`depgq`), which runs `fParseArgs` alone. It fails with the substitution back. dcnmr checks the same through a scratch commit.
 		- Opened: 20260920-174959
 		- Closed: 20260920-183510
 

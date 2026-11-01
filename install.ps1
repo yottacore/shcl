@@ -385,6 +385,64 @@ installed.
 		if (@(Get-ChildItem -Force -LiteralPath $dir).Count -eq 0) { Remove-Item -Force -LiteralPath $dir -ErrorAction SilentlyContinue }
 	}
 
+	## A copy of cicd/utility/include/safe-rm.ps1's, since under irm there is no
+	## file beside this one to load. shell-regress holds the two to the same text.
+	function Remove-SafeTree {
+		[CmdletBinding()]
+		[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+		param([string]$Parent, [string]$Path)
+		$reparse = [IO.FileAttributes]::ReparsePoint
+		$readOnly = [IO.FileAttributes]::ReadOnly
+		$sep = [IO.Path]::DirectorySeparatorChar
+		$case = [StringComparison]::Ordinal
+		if ($sep -eq '\') { $case = [StringComparison]::OrdinalIgnoreCase }
+		$top = "$Parent".TrimEnd('\', '/')
+		$p = "$Path".TrimEnd('\', '/')
+		## By segment, not GetFullPath, which on 5.1 can spell out an 8.3 name.
+		$full = $p -notmatch '[\r\n]'
+		foreach ($q in $p, $top) {
+			if ($sep -eq '\' -and $q -match '^[A-Za-z]:\\') { $q = $q.Substring(3) }
+			elseif ($sep -eq '\' -and $q -match '^\\\\[^\\]') { $q = $q.Substring(2) }
+			elseif ($sep -eq '/' -and $q.StartsWith('/')) { $q = $q.Substring(1) }
+			else { $full = $false }
+			foreach ($seg in $q -split '[\\/]') { if ($seg -in '', '.', '..') { $full = $false } }
+		}
+		$why = ''
+		if (-not $full) { $why = 'bad path' }
+		elseif (-not $p.StartsWith($top + $sep, $case)) { $why = "not under $top" }
+		else {
+			for ($x = $p; $x.Length -gt $top.Length; $x = $x.Substring(0, $x.LastIndexOf($sep))) {
+				$info = [IO.DirectoryInfo]::new($x)
+				if (-not $info.Exists) { $why = 'not there'; break }
+				if ($info.Attributes -band $reparse) {
+					$why = 'goes through a link'
+					if ($x -eq $p) { $why = 'a link' }
+					break
+				}
+			}
+		}
+		if ($why) { Write-Error "safe-rm: refused, ${why}: $Path"; return }
+		try {
+			$dirs = [Collections.Generic.List[IO.DirectoryInfo]]::new()
+			$dirs.Add([IO.DirectoryInfo]::new($p))
+			for ($i = 0; $i -lt $dirs.Count; $i++) {
+				$d = $dirs[$i]
+				if ($d.Attributes -band $readOnly) { $d.Attributes = $d.Attributes -bxor $readOnly }
+				foreach ($entry in $d.GetFileSystemInfos()) {
+					if ($entry.Attributes -band $reparse) { $entry.Delete() }
+					elseif ($entry -is [IO.DirectoryInfo]) { $dirs.Add($entry) }
+					else {
+						if ($entry.IsReadOnly) { $entry.IsReadOnly = $false }
+						$entry.Delete()
+					}
+				}
+			}
+			for ($i = $dirs.Count - 1; $i -ge 0; $i--) { $dirs[$i].Delete() }
+		} catch {
+			Write-Error "safe-rm: could not remove ${Path}: $($_.Exception.Message)"
+		}
+	}
+
 	## Windows only; elsewhere install.bash (Linux, macOS, FreeBSD) or build from source.
 	if (($PSVersionTable.PSVersion.Major -ge 6) -and -not $IsWindows) {
 		Exit-Install 'this installer is for Windows - on Linux, macOS or FreeBSD use install.bash, elsewhere build from source (see https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install)'
@@ -555,7 +613,8 @@ installed.
 		Exit-Install "$targetProblem (check that the folder is not read-only, and that antivirus is not blocking it)"
 	}
 
-	$tmp = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath ('shcl-install-' + [IO.Path]::GetRandomFileName())
+	$tmpParent = [IO.Path]::GetTempPath()
+	$tmp = Join-Path -Path $tmpParent -ChildPath ('shcl-install-' + [IO.Path]::GetRandomFileName())
 	New-Item -ItemType Directory -Path $tmp | Out-Null
 	try {
 		## Download and verify the binary.
@@ -668,6 +727,6 @@ installed.
 		Write-Output $smokeOut
 		Write-Output ''
 	} finally {
-		Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue
+		Remove-SafeTree -Parent $tmpParent -Path $tmp -ErrorAction Continue
 	}
 } $Release $Target $Yes $Uninstall $Version $Help ($MyInvocation.MyCommand -is [Management.Automation.ExternalScriptInfo] -and $MyInvocation.MyCommand.Path -eq $PSCommandPath) $PSCommandPath

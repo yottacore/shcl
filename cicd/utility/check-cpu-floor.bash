@@ -42,6 +42,8 @@ testWhere=check-cpu-floor; testCounter=nBad
 declare -i nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "${meDir}/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/safe-rm.bash"
 
 fBad(){ echo "check-cpu-floor: $1" >&2; nBad+=1 ;}
 fUsage(){ echo "usage: check-cpu-floor.bash [--run LINUX_BIN] BIN..." >&2; exit 2 ;}
@@ -57,7 +59,7 @@ if [[ -n "${runBin}" && " ${scanBins[*]} " != *" ${runBin} "* ]]; then scanBins+
 ((${#scanBins[@]})) || fUsage
 for f in "${scanBins[@]}"; do [[ -f "${f}" ]] || { echo "check-cpu-floor: no such file: ${f}" >&2; exit 2 ;}; done
 
-work="$(mktemp -d)"; trap 'rm -rf "${work}"' EXIT
+work=''; fSafeTmpDir work; trap 'fSafeRm "${work}"' EXIT
 
 ##	Instructions past v1, by extension. Mnemonics are objdump's AT&T ones.
 ##	tzcnt is left out on purpose: LLVM writes `rep bsf` for a count whose input
@@ -259,7 +261,7 @@ if [[ -n "${runBin}" ]]; then
 		##	A list missing its sums would compare exit codes alone.
 		nSums="$(grep -c '\.[oe]$' "${ir}/exp.lst" || true)"
 		((nSums == 2 * nCases)) || fBad "the host run summed ${nSums} outputs of $((2 * nCases))"
-		rm -rf "${ir}/o"
+		fSafeRmUnder_IfThere "${work}" "${ir}/o"
 		cat > "${ir}/init" <<EOF
 #!/bin/busybox sh
 /bin/busybox --install -s /bin

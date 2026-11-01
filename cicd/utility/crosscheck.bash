@@ -44,6 +44,8 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
 testWhere=crosscheck; testCounter=nKindBad
 
 corpus=""; extra=""; bindings=(); declare -i minCompared=1
@@ -59,7 +61,7 @@ while (($#)); do case "$1" in
 esac; done
 
 [[ -d "$corpus" ]] || { echo "crosscheck: no corpus dir: $corpus" >&2; exit 2; }
-tmpDir="$(mktemp -d)"; trap 'rm -rf "$tmpDir"' EXIT
+tmpDir=''; fSafeTmpDir tmpDir; trap 'fSafeRm "${tmpDir}"' EXIT
 if ((${#bindings[@]} < 2)); then
 	echo "crosscheck: ${#bindings[@]} binding(s) configured - differential comparison activates when a second binding arrives"
 	exit 0

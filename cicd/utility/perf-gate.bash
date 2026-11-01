@@ -36,6 +36,8 @@ set -Eeuo pipefail
 testWhere="perf-gate" testCounter="nBad"
 # shellcheck disable=SC1091
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/include/test-id.bash"
+# shellcheck disable=SC1091
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/include/safe-rm.bash"
 
 declare -i keys=40000 factor=3 nBad=0
 bindings=()
@@ -51,7 +53,7 @@ for b in "${bindings[@]}"; do
 	[[ -x "${cli}" ]] || { echo "perf-gate: binding CLI not executable: ${cli}" >&2; exit 2; }
 done
 
-tmpDir="$(mktemp -d)"; trap 'rm -rf "${tmpDir}"' EXIT
+tmpDir=''; fSafeTmpDir tmpDir; trap 'fSafeRm "${tmpDir}"' EXIT
 doc="${tmpDir}/doc.shcl"
 awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "k%d: %d\n", i, i }' > "${doc}"
 : > "${tmpDir}/base.ops"
