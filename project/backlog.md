@@ -167,6 +167,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
 
+- perf-gate fails Python's reads when a load spike raises its CPU time and not its baseline's
+	- ID: 2026110110325317
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: N. perf-gate alone, all 4 bindings.
+	- Severity: Low
+	- Opened: 20261101-103253
+	- Opened by: JC's full cicd.bash run on dev at `0ad9d3d0`
+	- Version and build: dev at `0ad9d3d0`
+	- Steps to reproduce: a no-flag `cicd.bash` run at load 12 to 14.
+	- Incorrect behavior: `FAIL dbzqm perf-gate reads`: Python took 3788 ms of CPU against a 3684 ms budget, 3.08 times its 1228 ms baseline. Its other rows, and every other binding, were at their usual times.
+	- Expected behavior: a linear workload passes whatever the load. A real slowdown still fails.
+	- Actual cause: Python's reads normally runs at 2.0 to 2.35 times its baseline, so 75 to 80 percent of the budget. CPU time still moves with a spike on the other hyperthread or the memory bus (2026101914014130), and each side was timed once, best of 2. Run alone right after, it was 2.17 times.
+	- Actual fix: a workload over budget is timed again with its baseline next to it, best of each, and judged on that. One line says it was timed again.
+	- Progress log:
+		- 20261101, branch `perfretry`:
+			- Verified: perf-gate on all 4 bindings, exit 0. `deqqr` failed with the second timing taken out (509 of 278 ms), and `deqqs` failed with a second timing that lets everything through.
+	- Branch: `perfretry`
+	- Test case: perf-gate `deqqr` (one spike over a workload is let off) and `deqqs` (a workload slow every time still fails).
+	- Swept: every budget in perf-gate goes through `fJudge`, `fills` included, which retimes its spread-out twin. `write-counts` is a count, not a clock. No other gate holds a CLI to a timed budget.
+	- Acceptance signoff: Self-closed: each new self-test was seen red, and the gate passes whole.
+	- Closed: 20261101-104500
+
 - CICD reset: the safe removal guard in the hook, gate scripts and installers
 	- ID: 2026103114560029
 	- Type: Enhancement
