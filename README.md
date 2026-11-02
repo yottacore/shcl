@@ -96,7 +96,7 @@ SHCL makes a contract:
 
 - Types live in your code, not in the file. The file stores text. You ask for a type when you read a value. Nothing is guessed at parse time, so there is no "Norway problem".
 
-- One broken line never takes down the file. It is skipped with a note. Everything else that can still be loaded safely, is.
+- One broken line never takes down the file. It is skipped with a note. Everything else that can still be loaded safely is.
 
 - Every convenience read states a fallback at the call site. A missing value cannot sneak in as a silent zero.
 
@@ -121,7 +121,7 @@ When you do want zero-tolerance rigor: schema validation, plus a strict mode tha
 | Hand-editable by a non-programmer     | ✅                          | Risky           | Risky                                     | ✅ Mostly                       | 🚫
 | Tells you what it fixed               | ✅ Structured diagnostics   | 🚫               | 🚫                                         | 🚫                              | 🚫
 
-> *A note on types, because it is the big design difference: JSON and TOML store types in the file, so the author has to get them right. YAML infers types from the text, which is where `NO` becomes `false`. SHCL stores plain text and coerces when **you** ask for a type; the only code that decides a value is an int (for example), is the code that needed an int.*
+> *A note on types, because it is the big design difference: JSON and TOML store types in the file, so the author has to get them right. YAML infers types from the text, which is where `NO` becomes `false`. SHCL stores plain text and coerces when **you** ask for a type; the only code that decides a value is an int (for example) is the code that needed an int.*
 
 The benchmark numbers, and how SHCL differs from Pkl, CUE, and Dhall, are in [Compared to other config languages](project/comparison.md).
 
@@ -266,7 +266,7 @@ The full list of escapes is in [the spec](project/spec.md#escapes).
 
 ## Installation
 
-Packages for Debian, Fedora, and Windows, the install scripts for the stable and dev channels, the language packages, and a DIY route are in [Installation](project/install.md).
+Packages for Debian, Fedora, FreeBSD, and Windows, the install scripts for the stable and dev channels, the language packages, and a DIY route are in [Installation](project/install.md).
 
 ## Usage and examples
 

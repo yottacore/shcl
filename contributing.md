@@ -135,7 +135,7 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/yottac
 
 ## How to develop
 
-Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/cicd.bash --merge-gate` run locally covers what GitHub CI runs on Linux. GitHub also runs a Windows job that it does not.
+Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/cicd.bash --merge-gate` run locally covers what GitHub CI runs on Linux. GitHub also runs jobs on Windows, Windows on ARM, Linux on ARM, and macOS, which a local run doesn't.
 
 The pipeline fast-forwards from the remote before it builds anything, so what it tests is what you would push. It stops and says so if your branch and its upstream have both moved. `--no-sync` skips that.
 
@@ -195,7 +195,7 @@ Two more images are there for now and then:
 
 - In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. A quick run never counts as a pass for the hook.
 
-- Before a commit in a backlog round: `cicd/cicd.bash --backlog-run-quick` runs the format check, build, lint, tests and cross checks, less what `--quick` leaves out, with no leak checks or profiler calibration, in about 4 minutes. `--gate` is another name for it. It also leaves out the slow tests `BACKLOG_SKIP` in `cicd/config.bash` lists, and records no tree. Area names after it, such as `--backlog-run-quick go cli`, keep only those areas' tests, `BACKLOG_SKIP`'s included. `--help` lists them, and `BACKLOG_AREAS` says which steps each holds. Its lint and test steps run up to 4 at once, and print in order. `--backlog-run-full`, for the round's last run, runs the merge gate's checks. Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts.
+- Before a commit: `cicd/cicd.bash --backlog-run-quick` runs the format check, build, lint, tests and cross checks, less what `--quick` leaves out, with no leak checks or profiler calibration, in about 4 minutes. `--gate` is another name for it. It also leaves out the slow tests `BACKLOG_SKIP` in `cicd/config.bash` lists, and records no tree. Area names after it, such as `--backlog-run-quick go cli`, keep only those areas' tests, `BACKLOG_SKIP`'s included. `--help` lists them, and `BACKLOG_AREAS` says which steps each holds. Its lint and test steps run up to 4 at once, and print in order. `--backlog-run-full`, for a last run before a merge, runs the merge gate's checks. Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts.
 
 - Each run keeps its scratch in a folder of its own, `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, with `TMPDIR`, `TEMP` and `TMP` pointed there. Without `HOST_TEMP` it goes under `TMPDIR`, or `/tmp`. The folder goes when the run ends, failed or stopped too, unless `--keep-temp` was given. A run also removes the run folders under `${HOST_TEMP}/shcl/` more than 2 days old whose run has stopped. A folder with no `run.pid` in it isn't a run's, and stays. A script under `cicd/utility/` run by hand makes a folder of its own the same way, with a `run.pid`, and in a run it works in a folder inside the run's.
 
@@ -251,7 +251,7 @@ Behavior the corpus cannot see, because it is not stdout, belongs in `cicd/utili
 
 - Versions: the pipeline pins each of these tools, and hosted CI installs the same versions. The pins live in one place, `TOOL_PINS` in `cicd/config.bash`; install those versions and the run stays quiet (a drifted tool gets a warning at the top of every run, and a lint-stage check fails the run if the workflow file's copy of a pin ever disagrees).
 
-- Installed-but-optional: `shfmt` and `clang-tidy`/`clang-format` are useful interactively but do not gate (shfmt's output differs from the house shell style, so it never rewrites files here).
+- Installed-but-optional: `shfmt` and `clang-format` are useful interactively but don't gate (shfmt's output differs from the house shell style, so it never rewrites files here). clang-tidy does gate, through `cicd/utility/analyze-c.bash` in the build image.
 
 ### Style
 

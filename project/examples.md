@@ -166,7 +166,7 @@ workers: 4
 ##
 ~~~
 
-Two hashes is what shcl writes its own prose with, one is a setting left commented out - a convention, not a rule, so your users can comment however they like. The block at the bottom tells whoever opens that file later what it is and where the syntax is written down; `--no-banner` leaves it out. `set --write` writes the same block when it creates a file that was not there. Rounding out the verbs, `fmt` normalizes a file and `set` edits one, leaving the lines it did not change as they were. Both write in place with `--write`:
+Two hashes is what shcl writes its own prose with; one is a setting left commented out - a convention, not a rule, so your users can comment however they like. The block at the bottom tells whoever opens that file later what it is and where the syntax is written down; `--no-banner` leaves it out. `set --write` writes the same block when it creates a file that was not there. Rounding out the verbs, `fmt` normalizes a file and `set` edits one, leaving the lines it did not change as they were. Both write in place with `--write`:
 
 ~~~sh
 shcl fmt --write server.shcl

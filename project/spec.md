@@ -488,7 +488,7 @@ The library is uniform across languages; each binding realizes the same concepts
 
 - **Tier 2**: Go, C (+ C++ veneer), Python - independent parsers, released when corpus-green.
 
-- **Tier 3**: everything else (C#, Java (+ Kotlin), JavaScript, ...) - after v1.0, corpus-gated, designed-for from the start.
+- **Tier 3**: everything else (C#, Java (+ Kotlin), JavaScript, ...) - deferred for now, corpus-gated, designed-for from the start.
 
 - **Shell scripts**: Bash and PowerShell call the `shcl` CLI directly, so they inherit conformance from Tier 1 for free.
 

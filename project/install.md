@@ -155,7 +155,7 @@ NetBSD and OpenBSD have no prebuilt binaries yet. Use `cargo install shcl`, a dr
 
 	The macOS binary is not notarized by Apple, so one saved from a web browser is quarantined and Gatekeeper refuses to run it. After checking it, clear that with `xattr -d com.apple.quarantine shcl`. The install script fetches with curl, which sets no quarantine.
 
-- **Drop-in source**. Copy one file into your project. No dependency, no build step. Rust `source/rust/src/lib.rs`, Go `source/go/shcl.go`, Python `source/python/shcl.py`, C `source/c/shcl.h`.
+- **Drop-in source**. Copy one file into your project. No dependency, no build step. Rust `source/rust/src/lib.rs`, Go `source/go/shcl.go`, Python `source/python/shcl.py`, C `source/c/shcl.h`, and for C++ `source/c/shcl.hpp` beside it.
 
 - **Build the CLI**. The reference lives in `source/rust/` and has zero dependencies:
 
@@ -182,6 +182,6 @@ The pipeline runs on Linux. macOS is untested for it, and some checks need Linux
 cicd/cicd.bash --merge-gate --no-remote
 ~~~
 
-`--merge-gate` is the whole gate: format check, build, lint, tests, the cross-binding differential, the release builds and the leak checks. `--no-remote` leaves out the test boxes on the maintainer's network. GitHub runs the same on Linux, less CodeQL and the cross targets, and also runs a Windows job. `--gate` is a check of about 4 minutes that leaves out the slow steps.
+`--merge-gate` is the whole gate: format check, build, lint, tests, the cross-binding differential, the release builds and the leak checks. `--no-remote` leaves out the test boxes on the maintainer's network. GitHub runs the same on Linux, less CodeQL and the cross targets, and also runs jobs on Windows, Windows on ARM, Linux on ARM, and macOS. `--gate` is a check of about 4 minutes that leaves out the slow steps.
 
 [`contributing.md`](../contributing.md) has the full list - every toolchain and linter with its install command, the per-binding test commands, the extra tools a full cross-and-package run wants, and how to add a conformance case.

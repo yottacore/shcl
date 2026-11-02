@@ -30,8 +30,8 @@
 ##		  suites            also run the suites there
 ##		  LIST              a comma list of rust, go, python, c and cli
 ##		  perf              also run perf-gate.bash there, Windows boxes only
-##		  SHCL_VM_STATE     the VM state helper (default claude_vm-state.bash in
-##		                    the synced util tree, then on PATH)
+##		  SHCL_VM_STATE     the VM state helper (default: the one in the synced
+##		                    util tree, then on PATH)
 ##		  SHCL_BOX_WAIT     seconds to wait for a box another session holds
 ##		                    (default 900)
 ##	Exit: 0 = clean or skipped, 1 = a check failed, 2 = usage.
@@ -272,7 +272,7 @@ for row in "$@"; do
 	[[ -z "${bin}" || "${bin}" == /* ]] || bin="${startDir}/${bin}"
 	b="b_${box}"; mkdir -p "${b}/g" "${b}/back"
 	if [[ ! -f "${bin}" ]]; then echo "SKIP ${box}: no release build for it"; continue; fi
-	if [[ -z "${vmState}" ]]; then echo "SKIP ${box}: no claude_vm-state.bash, so no host lock"; continue; fi
+	if [[ -z "${vmState}" ]]; then echo "SKIP ${box}: no VM state helper, so no host lock"; continue; fi
 	##	A Windows build means a Windows box, which runs the cases through
 	##	box-cases.ps1, and win-runners.bash for its suites (2026103016433943).
 	onBox=--on-box; exe=""; cmp=h; winRun=0
