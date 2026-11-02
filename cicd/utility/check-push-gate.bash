@@ -492,6 +492,8 @@ TEST_EXTRA=('cicd/utility/stub-ids.bash' 'if [[ -n "${STUB_SKIP:-}" ]]; then ech
 ## background.
 TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TMPDIR}"; echo "${TEMP:-}|${TMP:-}" > "${STUB_TMPDIR}.vars"; mkdir -p "${TMPDIR}/left/deep" "${TMPDIR}/left/ro"; : > "${TMPDIR}/left/deep/f"; : > "${TMPDIR}/left/ro/f"; chmod 555 "${TMPDIR}/left/ro"; fi' 'if [[ -n "${STUB_STOP:-}" ]]; then kill -TERM $$; fi')
 ## A test that hangs in a child process, which a stop has to take down.
+## A cargo target dir the run makes (der3w).
+TEST_EXTRA+=('if [[ -n "${STUB_CARGO_MK:-}" ]]; then mkdir -p "${STUB_CARGO_MK}"; fi')
 TEST_EXTRA+=('if [[ -n "${STUB_HANG:-}" ]]; then echo "${TMPDIR}" > "${STUB_HANG}.tmp"; sleep 300 & echo "$!" > "${STUB_HANG}"; wait "$!"; fi')
 QUICK_SKIP=(STUB_SLOW crosscheck.bash)
 BACKLOG_AREAS=("slow|STUB_SLOW" "other|STUB_GITDIR" "xcheck|crosscheck.bash" "bskip|STUB_BSKIP")
@@ -1282,6 +1284,47 @@ for stKeep in "${stDir}/20200101-000000_002/run.pid" "${stDir}/20200101-000000_0
 done
 [[ -L "${stDir}/20200101-000000_004" ]] || fail "the stale sweep took a link"
 if [[ -n "${runTmp}" && -d "${runTmp%/*}" ]]; then chmod -R u+rwX -- "${runTmp%/*}"; fi
+fTest der3w a cargo target dir filled under another toolchain or lockfile is emptied
+## 2026110116125880: the stamp names rust-toolchain.toml's channel lines and
+## the lockfile. Units built under this pair stay, the rest go before the
+## build, a stopped run's line counts them too, and a live run of ours holds
+## the prune back. Its own HOST_TEMP, since dephe leaves a live run folder.
+cgT="${eng}/source/rust/target"; cgM="${eng}/source/rust/target-migrate"; cgHt="${work}/cg"; mkdir -p "${cgHt}/keep"
+## The image tests after this read the toolchain file the tree has.
+for f in rust-toolchain.toml source/rust/Cargo.lock; do if [[ -e "${eng}/${f}" ]]; then cp -p "${eng}/${f}" "${cgHt}/keep/${f##*/}"; fi; done
+printf '[toolchain]\nchannel = "1.0.0"\n' > "${eng}/rust-toolchain.toml"; printf 'lock a\n' > "${eng}/source/rust/Cargo.lock"
+mkdir -p "${cgT}/debug/deps/ro"; : > "${cgT}/debug/deps/old.rlib"; chmod 555 "${cgT}/debug/deps/ro"
+fCgRun(){ fEngine HOST_TEMP="${cgHt}" "$@" -- --gate; cgLine="$(grep -F 'cleanup: removed' "${work}/eng.log" || true)"; }
+## target-migrate isn't there, and a step makes it.
+fCgRun STUB_CARGO_MK="${cgM}"
+if ((engRc != 0)) || [[ -e "${cgT}/debug" || ! -s "${cgT}/built-by.stamp" || ! -s "${cgM}/built-by.stamp" ]] || ! grep -qF '1 stale cargo target dir(s)' <<<"${cgLine}"; then
+	fail "an unstamped target dir: exit ${engRc}, $(find "${cgT}" "${cgM}" -mindepth 1 -printf '%P ' 2>/dev/null)| ${cgLine}"
+fi
+mkdir -p "${cgT}/debug"; : > "${cgT}/debug/warm"; : > "${cgM}/warm"
+## A comment in the toolchain file isn't a new toolchain.
+printf '# bump with care\n' >> "${eng}/rust-toolchain.toml"
+fCgRun
+if ((engRc != 0)) || [[ ! -e "${cgT}/debug/warm" || ! -e "${cgM}/warm" ]] || grep -qF 'stale cargo' <<<"${cgLine}"; then
+	fail "a target dir built under this pair lost its units: exit ${engRc}, ${cgLine}"
+fi
+printf 'lock b\n' > "${eng}/source/rust/Cargo.lock"
+fCgRun STUB_STOP=1
+if ((engRc != 143)) || [[ -e "${cgT}/debug/warm" || ! -e "${cgM}/warm" ]] || ! grep -qF '1 stale cargo target dir(s)' <<<"${cgLine}"; then
+	fail "a new lockfile, in a stopped run: exit ${engRc}, the units $([[ -e "${cgT}/debug/warm" ]] && echo stayed || echo went), the 2.x ones $([[ -e "${cgM}/warm" ]] && echo stayed || echo went): ${cgLine}"
+fi
+: > "${cgT}/warm"
+mkdir -p "${cgHt}/shcl/20200101-000000_001"; echo "$$" > "${cgHt}/shcl/20200101-000000_001/run.pid"
+sed -i 's/1\.0\.0/1.0.1/' "${eng}/rust-toolchain.toml"
+fCgRun
+if ((engRc != 0)) || [[ ! -e "${cgT}/warm" || ! -e "${cgM}/warm" ]]; then fail "a live run of ours didn't hold the prune back: exit ${engRc}, ${cgLine}"; fi
+rm -f "${cgHt}/shcl/20200101-000000_001/run.pid"
+fCgRun
+if ((engRc != 0)) || [[ -e "${cgT}/warm" || -e "${cgM}/warm" ]] || ! grep -qF '2 stale cargo target dir(s)' <<<"${cgLine}"; then
+	fail "a new toolchain: exit ${engRc}, $(find "${cgT}" "${cgM}" -mindepth 1 -printf '%P ' 2>/dev/null)| ${cgLine}"
+fi
+for f in rust-toolchain.toml source/rust/Cargo.lock; do
+	rm -f "${eng}/${f}"; if [[ -e "${cgHt}/keep/${f##*/}" ]]; then cp -p "${cgHt}/keep/${f##*/}" "${eng}/${f}"; fi
+done
 fTest dephf the safe removal guard refuses what a run may not remove
 ## 2026103114555299: the repo's copy of the shared guard, and its form for a
 ## build folder in the repo.

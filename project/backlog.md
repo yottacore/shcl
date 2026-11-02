@@ -116,7 +116,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: prune build caches on a toolchain or lockfile change
 	- ID: 2026110116125880
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: 2 bare runs in the image, the second stopped partway. The first's cleanup line names the stale cargo target dirs, the second's names none, `source/rust/target` and `target-migrate` each hold a `built-by.stamp`, and nothing new piles up in them.
 	- Priority: Avg
 	- Opened: 20261101-161258
 	- Opened by: 2026102416250120
@@ -125,6 +126,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The build caches bullet of `Cleanup after a run`: the cargo target dirs and the image caches drop what an older toolchain or lockfile built, and keep a warm cache for the current ones.
 		- The run's cleanup line counts what went.
 		- Checked the way a gate is: 2 runs, one killed partway, and nothing new piles up.
+	- Progress log:
+		- 20261101: a cargo target dir holds a `built-by.stamp`, a hash of the channel lines in `rust-toolchain.toml` and of the lockfile that filled it. At run start, a dir whose stamp is missing or names another pair is emptied through the in-repo guard, then stamped. A dir the run makes gets its stamp at the end. That covers `source/rust/target` (in a gate worktree, its link reaches `target-gate`), `target-migrate`, and an extra image's copies of both under the cache dir, just before they're mounted. A live run of ours holds the prune back. Both cleanup lines, a whole run's and a stopped one's, count the dirs and their size. contributing.md says so.
+		- Verified: check-push-gate `der3w` passes, and went red with the prune taken out. shell-regress and shellcheck pass.
+	- Decisions:
+		- 20261101: a dir filled under another pair is emptied whole, not unit by unit. A new toolchain rebuilds every unit anyway, and a new lockfile costs one cold build. Telling units apart would need cargo's fingerprint internals or a third-party sweeper (me).
+		- 20261101: the prune runs before the build, not after it, so a run stopped partway leaves a stamped dir that holds only what the current pair built (me).
+		- 20261101: the first run after this empties every target dir once, since nothing says what filled it (me).
+		- 20261101: the other image caches stay as they are. Cargo's registry is downloads, which cargo ages out after 3 months, Go trims its own build cache, whose keys carry the Go version, and the Zig volume has its own rule (me).
+		- 20261101: `target-migrate` goes by the toolchain only, since it builds the pinned 2.x tree, whose lockfile doesn't move. The comparison tool's target dir is left alone, since it's built by hand outside the pipeline (me).
+	- Swept: every cargo target dir a run builds into: `target`, `target-gate` through a gate worktree's link, `target-migrate`, the frozen copy's links to both, and the extra images' `private/` copies. check-readme's scratch target sits in the run folder already. Both cleanup lines.
+	- Branch: `r1101`
+	- Test case: check-push-gate `der3w`.
 
 - CICD reset: Rust ThreadSanitizer run
 	- ID: 2026110116125885

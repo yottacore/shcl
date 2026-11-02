@@ -700,6 +700,15 @@ CTR_PRIVATE=(source/rust/target/ source/rust/target-migrate/ source/c/shcl sourc
 ## artifacts and reports land where dogfood, the gif and a release cut look.
 ## The C and Go CLIs build in the copy; they take seconds.
 FROZEN_LINKS=(source/rust/target source/rust/target-migrate cicd/artifacts)
+## Cargo target dirs, as "DIR|FILE...": the files that say what built it.
+## rust-toolchain.toml counts by its channel lines only. A dir filled under
+## other ones is emptied before the run builds into it, an extra image's copy
+## of it too. target-migrate builds the pinned 2.x tree, whose lockfile never
+## moves.
+CARGO_CACHE_DIRS=(
+	"source/rust/target|rust-toolchain.toml source/rust/Cargo.lock"
+	"source/rust/target-migrate|rust-toolchain.toml"
+)
 ## The merge gate's profiler check builds offline from the cache, and a new cache dir is
 ## empty. Fetched before the gate, the way a full run here fetches them.
 CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 || cargo fetch --quiet --manifest-path "${MANIFEST}"'
@@ -773,3 +782,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-31: REMOTE_BOXES: vm925w runs perf-gate.bash over the windows-x86_64 build.
 ##		- 2026-10-31 JC: BACKLOG_ALONE, the steps --backlog-run-quick runs one at a time.
 ##		- 2026-10-31: PSScriptAnalyzer over the PowerShell guard include.
+##		- 2026-11-01: CARGO_CACHE_DIRS, the target dirs a toolchain or lockfile change empties.
