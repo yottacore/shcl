@@ -33,16 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
-	- ID: 2026110119584589
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261101-195845
-	- Opened by:
-	- Progress log:
-		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever the tail holds.
-
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
@@ -97,60 +87,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 	- Progress log:
 		- 20261101: the gaps left, against the shared rules, are in 3 children: the FreeBSD package (2026110116125875), pruning build caches on a toolchain or lockfile change (2026110116125880), and a Rust ThreadSanitizer run (2026110116125885). The rest of `CICD process` is in place, through the other reset items.
+		- 20261101: the FreeBSD pkg and cache prune children are Done. The Rust ThreadSanitizer child 2026110116125885 is still open.
 
-- CICD reset: FreeBSD package
-	- ID: 2026110116125875
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: a full run's release stage, which builds the FreeBSD binary, then the `.pkg` and its read-back, in the image.
-	- Priority: Avg
-	- Opened: 20261101-161258
-	- Opened by: 2026102416250120
-	- Parent ID: 2026102416250120
-	- Target OS: FreeBSD
-	- Requirements:
-		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`, from the `freebsd-x86_64` release binary, with the same payload under `/usr/local`.
-		- It installs with `pkg add` on vmFreeBSD, and its listing is checked in the package step, as the `.deb` and `.rpm` are.
+- check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
+	- ID: 2026110119584589
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261101-195845
+	- Opened by:
 	- Progress log:
-		- 20261101: package.bash writes `shcl-<version>-freebsd-x86_64.pkg` beside the binary, in the release stage: the binary, the drop-ins, the man page, the bash and zsh completions and the docs under `/usr/local`, then reads it back. It's in the same file family, so the signed sums cover it. design.md, install.md and the changelog say so.
-		- Verified: on vmFreeBSD (pkg 2.7.5, 15.1), a package built from the 2.0.0 freebsd binary as 3.0.0-beta1 showed in `pkg info -F`, installed with `pkg add`, ran `shcl --version`, `man -w shcl` found its page, `pkg check -s shcl` passed, and `pkg delete` took every file and folder back out. The VM ended paused, as found.
-		- Verified: shell-regress `der2e` passes, and fails with the modes, the manifest order, or the version's hyphen each broken in package.bash. shell-regress passes whole, and `cicd.bash --backlog-run-quick cicd` passed all 5 steps.
-		- Not run: the package on FreeBSD 14, and pkg refusing it on 13.
-	- Decisions:
-		- me: package.bash writes the tar itself. nfpm has no FreeBSD format, `pkg create` on vmFreeBSD would leave a release short whenever the box is down, and pkg built from source would be a new image tool.
-		- me: the ABI is `FreeBSD:*:amd64`, with `FreeBSD_version` 1400000 for the floor. A `FreeBSD:14:amd64` package was refused on 15 as the wrong architecture.
-		- me: a prerelease tail joins with a dot (`3.0.0.beta1`), since pkg splits a name from its version at the last hyphen.
-		- me: no install in the box step every run, since `pkg add` needs root there and the box user has none. The read-back runs on every release build.
-	- Swept: the other package lists, in cicd.bash's header, `--no-package` text and plan line, config.bash, package.bash's header, design.md and install.md. release-table.bash already ranks `.pkg`, and ci.yml builds no FreeBSD binary, so its packages are unchanged.
-	- Branch: `r1101`
-	- Test case: shell-regress `der2e`.
-
-- CICD reset: prune build caches on a toolchain or lockfile change
-	- ID: 2026110116125880
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: a bare run in the image, stopped partway. Its cleanup line names no stale cargo target dir, and nothing new piles up in `source/rust/target` or `target-migrate`.
-	- Priority: Avg
-	- Opened: 20261101-161258
-	- Opened by: 2026102416250120
-	- Parent ID: 2026102416250120
-	- Requirements:
-		- The build caches bullet of `Cleanup after a run`: the cargo target dirs and the image caches drop what an older toolchain or lockfile built, and keep a warm cache for the current ones.
-		- The run's cleanup line counts what went.
-		- Checked the way a gate is: 2 runs, one killed partway, and nothing new piles up.
-	- Progress log:
-		- 20261101: a cargo target dir holds a `built-by.stamp`, a hash of the channel lines in `rust-toolchain.toml` and of the lockfile that filled it. At run start, a dir whose stamp is missing or names another pair is emptied through the in-repo guard, then stamped. A dir the run makes gets its stamp at the end. That covers `source/rust/target` (in a gate worktree, its link reaches `target-gate`), `target-migrate`, and an extra image's copies of both under the cache dir, just before they're mounted. A live run of ours holds the prune back. Both cleanup lines, a whole run's and a stopped one's, count the dirs and their size. contributing.md says so.
-		- Verified: check-push-gate `der3w` passes, and went red with the prune taken out. shell-regress and shellcheck pass.
-		- Verified: `--backlog-run-quick cicd` in the image on `378d085f` passed, and its cleanup line began `cleanup: removed 2 stale cargo target dir(s), this run's temp files, about 1.4 GB`. Both dirs hold a `built-by.stamp` now. That's the first of the 2 runs.
-	- Decisions:
-		- 20261101: a dir filled under another pair is emptied whole, not unit by unit. A new toolchain rebuilds every unit anyway, and a new lockfile costs one cold build. Telling units apart would need cargo's fingerprint internals or a third-party sweeper (me).
-		- 20261101: the prune runs before the build, not after it, so a run stopped partway leaves a stamped dir that holds only what the current pair built (me).
-		- 20261101: the first run after this empties every target dir once, since nothing says what filled it (me).
-		- 20261101: the other image caches stay as they are. Cargo's registry is downloads, which cargo ages out after 3 months, Go trims its own build cache, whose keys carry the Go version, and the Zig volume has its own rule (me).
-		- 20261101: `target-migrate` goes by the toolchain only, since it builds the pinned 2.x tree, whose lockfile doesn't move. The comparison tool's target dir is left alone, since it's built by hand outside the pipeline (me).
-	- Swept: every cargo target dir a run builds into: `target`, `target-gate` through a gate worktree's link, `target-migrate`, the frozen copy's links to both, and the extra images' `private/` copies. check-readme's scratch target sits in the run folder already. Both cleanup lines.
-	- Branch: `r1101`
-	- Test case: check-push-gate `der3w`.
+		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever the tail holds.
 
 - CICD reset: Rust ThreadSanitizer run
 	- ID: 2026110116125885
@@ -189,6 +136,66 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: FreeBSD package
+	- ID: 2026110116125875
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: Avg
+	- Opened: 20261101-161258
+	- Opened by: 2026102416250120
+	- Parent ID: 2026102416250120
+	- Target OS: FreeBSD
+	- Requirements:
+		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`, from the `freebsd-x86_64` release binary, with the same payload under `/usr/local`.
+		- It installs with `pkg add` on vmFreeBSD, and its listing is checked in the package step, as the `.deb` and `.rpm` are.
+	- Progress log:
+		- 20261101: package.bash writes `shcl-<version>-freebsd-x86_64.pkg` beside the binary, in the release stage: the binary, the drop-ins, the man page, the bash and zsh completions and the docs under `/usr/local`, then reads it back. It's in the same file family, so the signed sums cover it. design.md, install.md and the changelog say so.
+		- Verified: on vmFreeBSD (pkg 2.7.5, 15.1), a package built from the 2.0.0 freebsd binary as 3.0.0-beta1 showed in `pkg info -F`, installed with `pkg add`, ran `shcl --version`, `man -w shcl` found its page, `pkg check -s shcl` passed, and `pkg delete` took every file and folder back out. The VM ended paused, as found.
+		- Verified: shell-regress `der2e` passes, and fails with the modes, the manifest order, or the version's hyphen each broken in package.bash. shell-regress passes whole, and `cicd.bash --backlog-run-quick cicd` passed all 5 steps.
+		- Not run: the package on FreeBSD 14, and pkg refusing it on 13.
+		- Verified 20261101: the round's --backlog-run-full (run 20261101-181257_002) built shcl-2.0.0-freebsd-x86_64.pkg in the image with its read-back OK, and der2e passed.
+	- Decisions:
+		- me: package.bash writes the tar itself. nfpm has no FreeBSD format, `pkg create` on vmFreeBSD would leave a release short whenever the box is down, and pkg built from source would be a new image tool.
+		- me: the ABI is `FreeBSD:*:amd64`, with `FreeBSD_version` 1400000 for the floor. A `FreeBSD:14:amd64` package was refused on 15 as the wrong architecture.
+		- me: a prerelease tail joins with a dot (`3.0.0.beta1`), since pkg splits a name from its version at the last hyphen.
+		- me: no install in the box step every run, since `pkg add` needs root there and the box user has none. The read-back runs on every release build.
+	- Swept: the other package lists, in cicd.bash's header, `--no-package` text and plan line, config.bash, package.bash's header, design.md and install.md. release-table.bash already ranks `.pkg`, and ci.yml builds no FreeBSD binary, so its packages are unchanged.
+	- Branch: `r1101`
+	- Test case: shell-regress `der2e`.
+	- Acceptance signoff: me, 20261101
+	- Closed: 20261101
+
+- CICD reset: prune build caches on a toolchain or lockfile change
+	- ID: 2026110116125880
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No
+	- Priority: Avg
+	- Opened: 20261101-161258
+	- Opened by: 2026102416250120
+	- Parent ID: 2026102416250120
+	- Requirements:
+		- The build caches bullet of `Cleanup after a run`: the cargo target dirs and the image caches drop what an older toolchain or lockfile built, and keep a warm cache for the current ones.
+		- The run's cleanup line counts what went.
+		- Checked the way a gate is: 2 runs, one killed partway, and nothing new piles up.
+	- Progress log:
+		- 20261101: a cargo target dir holds a `built-by.stamp`, a hash of the channel lines in `rust-toolchain.toml` and of the lockfile that filled it. At run start, a dir whose stamp is missing or names another pair is emptied through the in-repo guard, then stamped. A dir the run makes gets its stamp at the end. That covers `source/rust/target` (in a gate worktree, its link reaches `target-gate`), `target-migrate`, and an extra image's copies of both under the cache dir, just before they're mounted. A live run of ours holds the prune back. Both cleanup lines, a whole run's and a stopped one's, count the dirs and their size. contributing.md says so.
+		- Verified: check-push-gate `der3w` passes, and went red with the prune taken out. shell-regress and shellcheck pass.
+		- Verified: `--backlog-run-quick cicd` in the image on `378d085f` passed, and its cleanup line began `cleanup: removed 2 stale cargo target dir(s), this run's temp files, about 1.4 GB`. Both dirs hold a `built-by.stamp` now. That's the first of the 2 runs.
+		- Verified 20261101: the round's --backlog-run-full in the image ended partway, at step 8, and its cleanup line named no stale cargo dir. Both stamps kept their 17:18 time, so nothing was pruned again, and der3w passed in check-push-gate.
+	- Decisions:
+		- 20261101: a dir filled under another pair is emptied whole, not unit by unit. A new toolchain rebuilds every unit anyway, and a new lockfile costs one cold build. Telling units apart would need cargo's fingerprint internals or a third-party sweeper (me).
+		- 20261101: the prune runs before the build, not after it, so a run stopped partway leaves a stamped dir that holds only what the current pair built (me).
+		- 20261101: the first run after this empties every target dir once, since nothing says what filled it (me).
+		- 20261101: the other image caches stay as they are. Cargo's registry is downloads, which cargo ages out after 3 months, Go trims its own build cache, whose keys carry the Go version, and the Zig volume has its own rule (me).
+		- 20261101: `target-migrate` goes by the toolchain only, since it builds the pinned 2.x tree, whose lockfile doesn't move. The comparison tool's target dir is left alone, since it's built by hand outside the pipeline (me).
+	- Swept: every cargo target dir a run builds into: `target`, `target-gate` through a gate worktree's link, `target-migrate`, the frozen copy's links to both, and the extra images' `private/` copies. check-readme's scratch target sits in the run folder already. Both cleanup lines.
+	- Branch: `r1101`
+	- Test case: check-push-gate `der3w`.
+	- Acceptance signoff: me, 20261101
+	- Closed: 20261101
 
 - Other hosts: timed work, such as perf-gate, on vm925w
 	- ID: 2026103016433965
