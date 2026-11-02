@@ -117,7 +117,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110116125880
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: 2 bare runs in the image, the second stopped partway. The first's cleanup line names the stale cargo target dirs, the second's names none, `source/rust/target` and `target-migrate` each hold a `built-by.stamp`, and nothing new piles up in them.
+	- Needs local test suite run?: a bare run in the image, stopped partway. Its cleanup line names no stale cargo target dir, and nothing new piles up in `source/rust/target` or `target-migrate`.
 	- Priority: Avg
 	- Opened: 20261101-161258
 	- Opened by: 2026102416250120
@@ -129,6 +129,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261101: a cargo target dir holds a `built-by.stamp`, a hash of the channel lines in `rust-toolchain.toml` and of the lockfile that filled it. At run start, a dir whose stamp is missing or names another pair is emptied through the in-repo guard, then stamped. A dir the run makes gets its stamp at the end. That covers `source/rust/target` (in a gate worktree, its link reaches `target-gate`), `target-migrate`, and an extra image's copies of both under the cache dir, just before they're mounted. A live run of ours holds the prune back. Both cleanup lines, a whole run's and a stopped one's, count the dirs and their size. contributing.md says so.
 		- Verified: check-push-gate `der3w` passes, and went red with the prune taken out. shell-regress and shellcheck pass.
+		- Verified: `--backlog-run-quick cicd` in the image on `378d085f` passed, and its cleanup line began `cleanup: removed 2 stale cargo target dir(s), this run's temp files, about 1.4 GB`. Both dirs hold a `built-by.stamp` now. That's the first of the 2 runs.
 	- Decisions:
 		- 20261101: a dir filled under another pair is emptied whole, not unit by unit. A new toolchain rebuilds every unit anyway, and a new lockfile costs one cold build. Telling units apart would need cargo's fingerprint internals or a third-party sweeper (me).
 		- 20261101: the prune runs before the build, not after it, so a run stopped partway leaves a stamped dir that holds only what the current pair built (me).
