@@ -36,7 +36,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
-	- Status: Started
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `--backlog-run-full`, for the release stage's stamp and check-win-release `de7an` comparing the 2-line output under wine.
+	- Needs external testing: hosted ci.yml, the `setup-test` job for check-win-setup `de7c3`, and the `windows` job.
+	- Needs hand testing: on Windows PowerShell 5.1, a look at install.ps1's receipt line, whether the copyright line reads right.
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -48,8 +51,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every build prints `shcl v<version> build <build>`, then the copyright line, in `--version`, `--about` and the release notes. Today only release builds are stamped, and the copyright line is only in `--about`.
 		- A non-release build adds its date after the build number.
 		- Only the Rust CLI ships. The C, Go and Python CLIs are for testing, so crosscheck leaves the version line out of its compare, and the four stay byte-identical everywhere else.
+	- Progress log:
+		- 20261101: `--version` prints the version line, then the copyright line, in all 4 CLIs, and `--about` opens with the same two lines. The man page, design.md and changelog say so.
+		- Verified: the 4 CLIs give identical `--version`, `--about` and `--version --donate` bytes. A stamped Rust build printed `shcl v2.0.0 build hjkmn (2035-01-19)` and the copyright line. After a `--backlog-run-quick`, the debug CLI it built in the image printed `build der0h (2026-11-01)`.
+		- Verified: crosscheck passed with a stamped Rust as the reference (22944 compares), and HEAD's crosscheck failed it on `--about`. cli-regress `der1c` failed on HEAD's Python CLI and passed on all 4 and the stamped build.
+		- Verified: shell-regress `debjb`, `der1d` and `der1e` failed against HEAD's cicd.bash and release-table.bash and pass now. Plus the whole shell-regress, check-push-gate, cli-regress, check-docs, `test-ids.py check`, cargo fmt, clippy and test, go vet and test, ruff, shellcheck, markdownlint-cli2, lint-report and `--backlog-run-quick`.
 	- Decisions:
 		- The one released CLI stays Rust (JC, 20261101). Go's stripped build was 2.3 times the size of Rust's, used about 1.5 times the CPU and 40% more memory on the profiler workload, and Rust is the reference the other bindings mirror.
+		- me: cicd.bash stamps every build at run start, after the sync, and hands the stamp to the image and the frozen copy. It is dated, except a cut's release builds (a version with no tag yet), which stage 6 builds undated. The debug build of a cut stays dated, since it isn't a release.
+		- me: a build outside the pipeline, such as `cargo install` or a hand `cargo build`, stays `shcl vX.Y.Z` with no build. It has no commit to read, and the issue's rule that the number comes from the commit wins over "every build".
+		- me: only the Rust CLI is stamped. The C, Go and Python CLIs keep the version alone, as the issue says they're for testing.
+		- me: crosscheck takes only the build number and date off the version line, not the whole line, so a binding that missed a version bump still diverges. This departs from "leaves the version line out" but meets its intent.
+		- me: the release notes get the line from `release-table.bash --version-of BIN`, which opens the notes with BIN's two lines and fails on a dated build or another version. The cut recipe in the private notes needs to call it.
+		- me: check-win-setup compares only the version line, since powershell.exe can pass the copyright line's non-ASCII through the console code page. install.ps1 is unchanged: its smoke reads the exit code, and its receipt prints both lines.
+		- Dated 20261101: shell-regress `debjb` now also checks that a cut clears a run's date, so its expected text went from `untagged= tagged=1` to `untagged= cut= tagged=1`.
+	- Swept: every `--version` reader: check-win-release (whole output, both builds stamped alike), check-win-setup (now the first line), install.ps1 and install.bash smokes (exit code only), ci.yml's windows print, cli-regress `dd5h3`, `dd853`, `dd854`. Every `SHCL_BUILD` reader: build.rs, the C and Go hooks, the release stage, shell-regress `dd2fp`. The other 3 CLIs' version and about code.
+	- Branch: `r1101`
+	- Commit: `0bdc2529`
+	- Test case: cli-regress `der1c`, shell-regress `der1d`, `der1e` and `debjb`, crosscheck `d9tsx` (usage, now with `--version`).
 
 - CICD reset: CICD process gaps
 	- ID: 2026102416250120
