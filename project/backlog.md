@@ -43,6 +43,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever the tail holds.
 
+- A kept index line makes every edit re-emit the whole document
+	- ID: 2026110114020101
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261101-140201
+	- Opened by: Code review 20261101 item 1
+	- Related IDs: 2026102821334970
+	- Steps to reproduce:
+		- A document of 3000 `srv: sN` instances, each with a `port` child, and one `srv(99999).port: 1` line at the end. It loads as a kept `E003`.
+		- `shcl set FILE` with 3000 `int<TAB>srv(N).port<TAB>M` ops on stdin.
+	- Incorrect behavior: 1.72 s in Rust, 2.60 in Go and 2.36 in C. Without that one line it's 0.07, 0.12 and 0.05. At 1500, 3000 and 6000 instances Rust takes 0.43, 1.74 and 6.92 s, so it's quadratic. Even 3000 new top-level keys on a 2-line file with the kept line take 0.36 s.
+	- Expected behavior: linear. perf-gate's header says a rewalk of the retained lines is what it fails on.
+	- Reproduced: 20261101, release builds of the 4 CLIs at `a4f40c69`. Kept `E001`, `E004`, `E007`, `E009` and `E011` lines don't do it.
+	- Actual cause: since 2026102821334970, while a kept line has an index in its path, `resettle_kept` runs the whole-document settle after every edit (`walked`). The comment on `walked` says so. Same in all 4.
+	- Requirements:
+		- Settle only when an edit changes what a kept index line was judged by, the way `kept_near` already does for the lines around a kept line.
+		- A perf-gate workload with a kept index line and bulk writes. None of today's has a kept line and writes together, so nothing failed.
+	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
+	- Estimated effort: Avg
+
 - check-push-gate in about 2 minutes
 	- ID: 2026103109485020
 	- Type: Enhancement
@@ -54,6 +75,35 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- check-push-gate runs its cases one at a time, so `--backlog-run-quick cicd` and a run with every area stay over 4 minutes. It took about 4 minutes on this box and about 21 in the main image on 2026-10-31, both runs at a load near 10 of 32. Find out why the image is 5 times slower first.
 		- Find what each case spends its time on, and run the independent ones side by side, each on its own stub repo, without losing a case.
+
+- Rust clones taken for the borrow checker don't say why
+	- ID: 2026110114020102
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261101-140201
+	- Opened by: Code review 20261101 item 2
+	- Problem description: Code style's Rust section says to restructure rather than clone to get past the borrow checker, and to give a needed clone a reason. Most of the 85 or so clones outside tests in `lib.rs` and `main.rs` build an owned return value, which is fine. A handful copy a name or a child list only so a `&mut self` call can follow, such as the name passed to `settle_fence_name` in the remove path, the child lists copied to seed the tree walks, and `base_kids` in the merge. The list is in details.md.
+	- Requirements:
+		- Each one borrows instead, or gets a one-line reason.
+		- Rust only. The ports have no such copy, so parity isn't touched.
+	- Origin: Confirmed, by reading. Spread over many commits since 2026-07.
+	- Estimated effort: Low
+
+- About 460 bash expansions are unbraced
+	- ID: 2026110114020103
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261101-140201
+	- Opened by: Code review 20261101 item 3
+	- Problem description: Code style's Bash section wants every expansion braced and quoted, `"${var}"`. About 460 bare `$var` forms are left outside single-quoted text, most in the older scripts: crosscheck.bash has about 140, then shell-regress, sanitize-c, cicd.bash, lint-report and win-runners. shellcheck doesn't ask for braces, so a new one goes unseen.
+	- Requirements:
+		- Brace them, a script or 2 per commit.
+		- shell-regress lifts functions out of other scripts by sed pattern, so run it after each one.
+		- Then a check that fails on a new bare expansion, leaving out single-quoted text, awk programs and scripts written for another shell.
+	- Origin: Confirmed, by count. Mostly from 2026-07 and 2026-08.
+	- Estimated effort: Avg
 
 - Three fuzz guards are thin at Miri's 100 iterations
 	- ID: 2026102418441478
@@ -19924,6 +19974,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Dropped: strictness and on-bad are the consuming program's contract, not the user's. A user-level override would silently weaken guarantees an app makes about its own config handling, and would make the same `shcl` command mean different things on different machines. Nothing else the CLI exposes is presentation-only, so there is nothing left for a config file to hold. Rationale in `design.md`; runtime options and the library's per-document strictness argument stay as they are.
 	- Opened: 20260711-150807
 	- Closed: 20260723-134323
+
+- Code review 20261101:
+	- Decided against: refiling the selector lookups that walk every instance of a name. 2026100307163919 has them, and JC's 20261023 call moves the fix to v4's node handles. Timed again at `a4f40c69`: 12000 index-selector sets on 12000 instances take 1.0 s in Rust, and 4000 by-value reads in Python 4.8 s.
+	- Decided against: `pathlib` in the Python binding. It rewrites path text, so `a//b` comes back as `a/b` and a trailing `/` goes away. The save's path checks compare the text as the other 3 bindings do.
+	- Decided against: acting on pedantic clippy's 737 hints in `src/`. Most are `use_self`, `doc_markdown` and `uninlined_format_args`, and the style guide declines pedantic as a gate. None of the perf ones is on a hot path in the profile.
+	- Decided against: hints on the Python binding's private helpers. The public surface has them all, and the style guide asks for no more.
+	- Decided against: renaming the bash functions that aren't `fCamelCase`, such as in gfs-rotate.bash and check-docs' `check` and `report`. Committed names stay, per Code style. The completion script follows bash-completion's own naming.
+	- Decided against: `[[` in check-boxes, check-freebsd, check-install-dev and ctr-image's `[ ]` tests. They're `sh` text run on a box or in an image.
+	- Decided against: the forks inside gate loops. The ones a scan found are in failure messages, or in loops over a few items. A per-case loop runs the CLI under test anyway.
+	- Opened: 20261101-140201
+	- Closed: 20261101-140201
 
 - Code review 20261015:
 	- Decided against: `upgrade --from-2x` damaging the good lines of a beta file with one error, such as a backtick-quoted `#fff` cut at the `#`. It's the class 2026101419280001 closed as docs only: `from_v2` is for a file known to be old. JC kept that call on 2026-10-15; the docs say what it can do (2026101514324708).
