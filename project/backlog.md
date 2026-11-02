@@ -33,6 +33,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The dogfood launcher expands wildcards and `~` in arguments, and exits 0 on Ctrl+C
+	- ID: 2026110215202340
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261102-152023
+	- Opened by: tukfs-hash 2026102814341409
+	- Target OS: Linux, macOS
+	- Steps to reproduce:
+		- In a folder holding `a1`, `a[1]` and `b2`, run `dogfood_shcl 'a[1]' 'a?' '*' '~' 'x y'` with a stand-in shcl that prints its arguments.
+		- With a stand-in that exits 6 on INT, send INT to the launcher's process group while it runs.
+	- Incorrect behavior: shcl gets `a1`, `a1`, `a[1] a1 b2`, the home folder and `x y`. After the INT the launcher exits 0.
+	- Expected behavior: shcl gets each argument as typed, and its exit code comes back.
+	- Reproduced: 20261102, on b23 with pwsh 7.6.9, through the bash launcher under a scratch HOME.
+	- Possible cause: the .ps1 runs shcl with `& $exe @nativeArgs`, and pwsh on Linux and macOS expands wildcards and `~` in a native command's arguments.
+	- Progress log:
+		- 20261102: tukfs-hash copied this launcher and had the same bug. Its fix splits the work. The .ps1 only takes in a new build, rotates the pool and prints the path to run. The bash launcher then `exec`s that path with the arguments as typed, so they never go through pwsh.
+
 - check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
 	- ID: 2026110119584589
 	- Type: Bug
@@ -119,6 +137,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- The publish script wants rar with the backup off
+	- ID: 2026110215202335
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261102-152023
+	- Opened by: tukfs-hash 2026102814341411
+	- Steps to reproduce:
+		- In an empty git project, with no rar on PATH, run `GIT_BACKUP_AND_PUBLISH_NOBACKUP=1 cicd/utility/n8git_backup-and-publish --no-prompt`.
+	- Incorrect behavior: it stops with "Not found in path: rar", exit 1.
+	- Expected behavior: with the backup off it publishes, since only the backup uses rar.
+	- Actual fix: it checks for rar only when the backup is on. The canonical copy in the synced `linux/bash` folder has the same change.
+	- Progress log:
+		- Verified 20261102: with rar hidden, the old script asks for it with the backup off and the new one doesn't. Both still ask with the backup on. `desdr` fails on the old script. shellcheck and test-ids check pass.
+	- Test case: shell-regress `desdr`.
+	- Acceptance signoff: Self-closed: `desdr` passes, and failed on the old script.
+	- Closed: 20261102-152023
 
 - CICD reset: version line
 	- ID: 2026102416250100
