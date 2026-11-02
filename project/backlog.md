@@ -87,7 +87,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
 	- Progress log:
 		- 20261101: the gaps left, against the shared rules, are in 3 children: the FreeBSD package (2026110116125875), pruning build caches on a toolchain or lockfile change (2026110116125880), and a Rust ThreadSanitizer run (2026110116125885). The rest of `CICD process` is in place, through the other reset items.
-		- 20261101: the FreeBSD pkg and cache prune children are Done. The Rust ThreadSanitizer child 2026110116125885 is still open.
+		- 20261101: the FreeBSD pkg and cache prune children are Done. The Rust ThreadSanitizer child 2026110116125885 is in, waiting on the hosted run.
 
 - check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
 	- ID: 2026110119584589
@@ -102,13 +102,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: Rust ThreadSanitizer run
 	- ID: 2026110116125885
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml, its tests half, for `des2x` on the hosted runner
 	- Priority: Low
 	- Opened: 20261101-161258
 	- Opened by: 2026102416250120
 	- Parent ID: 2026102416250120
 	- Requirements:
 		- The Rust tests that spawn threads run under ThreadSanitizer in the leak checks, beside the ASan and Miri runs, on the same pinned nightly.
+	- Progress log:
+		- 20261102: `sanitize-rust.bash --tsan` runs the whole suite under TSan, built with `-Zbuild-std` and its own target dir, on the `[nightly]` pin. It's in the script's default share with ASan and Miri, so it runs where they do and `--no-leakcheck` drops it. The 3 tests that time a ratio skip under TSan through a `shcl_tsan` cfg, as they do under Miri.
+		- Verified: `des2x` passes on the host and in the main image, about 1 minute cold at 8 jobs. A planted data race fails it in both, with the race named.
+		- Verified: `--backlog-run-quick rust`, shell-regress, test-ids check, shellcheck, rustfmt and lint-report.
+	- Decisions:
+		- me, 20261102: the whole suite runs under TSan, not just the one test that starts threads on Linux (the create-only save race). libtest runs tests side by side, so tests sharing a static are checked too, and the whole run costs about a minute.
+		- me, 20261102: `index_rebuild_ignores_removed_nodes` (`dc412`) failed its ratio under TSan, so it and the other 2 ratio tests skip there. Timing under instrumentation isn't what the run checks.
+	- Test case: sanitize-rust `des2x`.
 
 - check-push-gate in about 2 minutes
 	- ID: 2026103109485020

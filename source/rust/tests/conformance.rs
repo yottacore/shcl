@@ -3031,6 +3031,10 @@ fn written_spelling_matches_its_reload() {
 	miri,
 	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
 )]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
 #[test]
 fn index_rebuild_ignores_removed_nodes() {
 	let _id = test_id("dc412");
@@ -3088,6 +3092,10 @@ fn index_rebuild_ignores_removed_nodes() {
 	miri,
 	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
 )]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
 #[test]
 fn merge_settles_only_what_it_touched() {
 	let _id = test_id("dd29m");
@@ -3132,6 +3140,10 @@ fn merge_settles_only_what_it_touched() {
 #[cfg_attr(
 	miri,
 	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
 )]
 #[test]
 fn a_far_kept_line_costs_an_edit_nothing() {

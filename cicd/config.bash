@@ -331,8 +331,9 @@ TEST_EXTRA=(
 	## sanitizers, plus the CLI over the corpus. A read past a buffer that does
 	## not change stdout passes every gate above; this one sees it.
 	'cicd/utility/sanitize-c.bash'
-	## The Rust suite under ASan and LSan, then under Miri without the tests
-	## that take minutes each there, on the dated nightly in rust-toolchain.toml.
+	## The Rust suite under ASan and LSan, then TSan, then under Miri without
+	## the tests that take minutes each there, on the dated nightly in
+	## rust-toolchain.toml.
 	## Its --miri-all, every test under Miri, is hours, so it's in
 	## LEAKCHECK_LONG below.
 	'cicd/utility/sanitize-rust.bash'
