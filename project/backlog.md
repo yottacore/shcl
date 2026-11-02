@@ -29,9 +29,40 @@
 
 Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. Refer to '## Reference' for sort order. Issues in the old format (with the status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to gitniblet anyway. This new template is an intermediate effort to make issues more structured and importable.)
 
+- Note: new-format items are under `## Issues`, and the sort order is in the template's notes at the bottom.
+
 Outside reports use GitHub Issues (see `contributing.md`), but the work itself is tracked here.
 
 ## Issues
+
+- Apply the 2026-11-02 doc suggestions that are accepted
+	- ID: 2026110215285723
+	- Type: Task
+	- Status: Waiting for answers
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 23
+	- Problem description: a dated list of suggestions, kept outside the repo, for README.md, examples.md, install.md, contributing.md and the GitHub About text. Nothing in it is applied.
+	- Estimated effort: Low
+
+- check-boxes names a private helper script by its file name
+	- ID: 2026110215285701
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 1
+	- Steps to reproduce:
+		- Read `cicd/utility/check-boxes.bash` where it sets `vmState`.
+	- Incorrect behavior: the default path and the `command -v` fallback name the VM state helper's file, from this box's synced util tree. That name and path belong to one machine's private setup, not to the repo.
+	- Expected behavior: the repo names no private helper. The path comes from a setting outside the repo, and with none set the box step is a SKIP, as now.
+	- Reproduced: 20261102, by reading. The SKIP message and the help comment were reworded the same day, so only the 2 lines that find the helper are left.
+	- Origin: Confirmed. `1fd57671`.
+	- Requirements:
+		- `SHCL_VM_STATE` alone, set where this box's login env sets its other per-machine values.
+		- check-push-gate and shell-regress already pass the variable to their stubs, so check they still do.
+	- Question: set `SHCL_VM_STATE` in the login env outside the repo, or keep a short neutral link to the helper on PATH?
+	- Estimated effort: Low
 
 - The dogfood launcher expands wildcards and `~` in arguments, and exits 0 on Ctrl+C
 	- ID: 2026110215202340
@@ -50,6 +81,139 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the .ps1 runs shcl with `& $exe @nativeArgs`, and pwsh on Linux and macOS expands wildcards and `~` in a native command's arguments.
 	- Progress log:
 		- 20261102: tukfs-hash copied this launcher and had the same bug. Its fix splits the work. The .ps1 only takes in a new build, rotates the pool and prints the path to run. The bash launcher then `exec`s that path with the arguments as typed, so they never go through pwsh.
+
+- `--quick` runs every test box
+	- ID: 2026110215285702
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 2
+	- Related IDs: 2026101816034794
+	- Steps to reproduce:
+		- `cicd/cicd.bash --list --quick`.
+	- Incorrect behavior: the box step is listed with all 6 boxes, about 9 minutes, against a quick run's 10.
+	- Expected behavior: `--quick` leaves out a step that reaches another host, as its help and 2026101816034794 say. The hosted macos job is already left out for that reason.
+	- Reproduced: 20261102, by reading `fStepWanted`'s `boxes` arm, which doesn't look at `quick`.
+	- Origin: Confirmed.
+	- Estimated effort: Low
+
+- A failed image build stops the run instead of falling back to the host
+	- ID: 2026110215285703
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 3
+	- Related IDs: 2026101920461174
+	- Steps to reproduce:
+		- A recipe change that fails to build, such as a bad package pin, then a run with no flags.
+	- Incorrect behavior: `fDie "could not build ..."` ends the run.
+	- Expected behavior: one line saying the image couldn't be built, then the run goes on on the host, as it does when docker is missing.
+	- Note: JC's 20261019 call in 2026101920461174 covers a docker that answers. A failed build wasn't part of it.
+	- Origin: Confirmed, by reading.
+	- Estimated effort: Low
+
+- The dev setup script doesn't check everything the merge gate needs
+	- ID: 2026110215285716
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 16
+	- Steps to reproduce:
+		- `install-dev.bash` on a box with only what it checks, then `cicd/cicd.bash --merge-gate --no-remote`, as install.md says.
+	- Incorrect behavior: the gate fails or skips on what the script never checked:
+		- zig 0.16.0 and Pillow 11.1.0, which check-readme and shell-regress need.
+		- docker, which runs the C analyzers, heaptrack and CodeQL.
+		- cargo-zigbuild, mingw, nfpm and makensis, which contributing.md lists.
+		- shellcheck, go and PSScriptAnalyzer are checked for being there, not for the pinned version. PowerShell 7 is treated as optional, where contributing.md says it's needed.
+	- Expected behavior: the script names each missing or wrong-version tool, with how to get it.
+	- Origin: Confirmed, by reading.
+	- Estimated effort: Avg
+
+- The default run takes over an hour
+	- ID: 2026110215285706
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 6
+	- Related IDs: 2026102515494614
+	- Problem description: `run_20261101-103838` took 76 minutes and `run_20261101-120609` 72, with tests 49 of them. The run lengths item closed on a 59-minute run, before the box step and the hosted job were added.
+	- Requirements:
+		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
+	- Estimated effort: Avg
+
+- `install.ps1` refuses pwsh on Linux and macOS
+	- ID: 2026110215285715
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 15
+	- Problem description: `install.ps1` exits off Windows and points at install.bash. The shared installer rules want it to work wherever PowerShell runs, as silkterm's does. The original item was titled cross-platform, and shell-regress `dc0bt` pins the refusal, but no recorded call covers it.
+	- Question: port it, using install.bash's paths, or record the refusal as decided?
+	- Estimated effort: Avg
+
+- Running the pipeline prunes every project's docker build cache on a contributor's box
+	- ID: 2026110215285719
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 19
+	- Problem description: contributing.md says a run removes old shcl image tags and runs `docker builder prune -f --filter until=168h`, which keeps a week of build cache for every project and drops the rest. That's this box's house rule. An outside contributor running the gate wouldn't expect a run to touch other projects' cache.
+	- Question: make the prune opt-in, such as on when `HOST_TEMP` is set, or say it up front in contributing.md?
+	- Estimated effort: Low
+
+- A failed run skips most of the cleanup and the closing blank line
+	- ID: 2026110215285704
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 4
+	- Steps to reproduce:
+		- Any run that fails a step, such as `run_20261101-092811`.
+	- Incorrect behavior: the EXIT trap removes the run's containers only. The image sweep, the Zig volume trim and `docker builder prune` run only at the end of a clean run. The log ends on the cleanup line, with no blank line after it.
+	- Expected behavior: the same cleanup on failure and Ctrl+C, and a blank line last.
+	- Also:
+		- Gate scripts' own containers and the helper containers run with `--rm` even under `--keep-temp`.
+		- A box's work folder is removed only by the box's own trap, so a dropped ssh leaves it there. Nothing sweeps stale ones on the box.
+	- Origin: Confirmed, by reading and from the 2 logs.
+	- Estimated effort: Avg
+
+- `--no-leakcheck` still runs the soak tests
+	- ID: 2026110215285705
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 5
+	- Steps to reproduce:
+		- `cicd/cicd.bash --list --no-leakcheck`.
+	- Incorrect behavior: the Rust dhat soak and the Go soak run inside the ordinary test suites, and the Python soak is a test step of its own. `LEAKCHECK_TESTS` lists only the 2 sanitizer scripts, so all 3 soaks run in `--quick`, `--gate` and `--no-leakcheck`.
+	- Expected behavior: a soak counts as a leak check, so `--no-leakcheck` drops it and its length decides which runs take it.
+	- Origin: Confirmed, by reading.
+	- Estimated effort: Low
+
+- Installer odds and ends
+	- ID: 2026110215285718
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 18
+	- Incorrect behavior:
+		- A policy-locked `HKCU\Environment` makes `Update-ShclPath` throw a raw error, after the files are written.
+		- `install.ps1` downloads the binary before the sums file, so a release with no `windows-arm64` build fails as an HTTP 404. install.bash checks the sums first and says the release has no build for the platform.
+		- `install.ps1` prints its plan and receipt with `Write-Output`, so they go into a caller's pipeline when the script block is captured.
+		- `--help` is missing from the option lists in `install.bash` and `install-dev.bash`'s usage text.
+		- The installer versions haven't moved since `cee64cc4` (20261008), though 3 behavior changes went in since.
+	- Expected behavior: a plain message on the registry refusal, the sums file first, console-only UI text, `--help` listed, and a version bump with each change.
+	- Origin: Confirmed, by reading.
+	- Estimated effort: Low
 
 - check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
 	- ID: 2026110119584589
@@ -80,6 +244,178 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Settle only when an edit changes what a kept index line was judged by, the way `kept_near` already does for the lines around a kept line.
 		- A perf-gate workload with a kept index line and bulk writes. None of today's has a kept line and writes together, so nothing failed.
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
+	- Estimated effort: Avg
+
+- Cache cleanup leaves some caches to grow
+	- ID: 2026110215285707
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 7
+	- Problem description:
+		- The image cache dir under `~/.cache/shcl-cicd` has no cap. It was 5 GB on 20261102, 2.5 GB of it the main image's.
+		- The FreeBSD qcow2 is kept twice, once for the host and once for the image, and an older pin's image is never removed when the pin moves.
+		- `source/rust/target-gate`, the pre-push gate's target dir, isn't in `CARGO_CACHE_DIRS`, so a toolchain change never empties it. It was 1.3 GB.
+	- Requirements:
+		- The 2 GB rule the Zig caches follow, or a reason for another cap.
+		- One copy of the FreeBSD image, and the old pin's image removed.
+		- `target-gate` in the toolchain prune.
+	- Estimated effort: Low
+
+- Machine use: a few steps don't take the job count or priority
+	- ID: 2026110215285708
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 8
+	- Problem description:
+		- cppcheck is passed `-j 2` in config.bash, not the step's share.
+		- The image build's 3 `go install` lines have no job limit, and `fCtrBuild` passes none either.
+		- `box-cases.ps1` sets BelowNormal for everything, the win-runners suites included. Those are hard steps, which should run at Idle.
+		- The sync and the hosted job check call bare `git fetch` and `git ls-remote`, where the publisher goes through `gitsby raw git` with a fallback.
+	- Estimated effort: Low
+
+- Nothing checks that release builds reproduce, or that the Windows builds keep their icon
+	- ID: 2026110215285709
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 9
+	- Problem description: design.md and install.md say the release builds are byte-identical, and nothing rebuilds and compares. `build.rs` falls back to a cargo warning when it finds no resource compiler, so a Windows build could lose its icon and version info with nothing failing. Both older items gave "the gate builds no Windows or release binary" as the reason for no test, and `--merge-gate` builds both now.
+	- Requirements:
+		- A full run builds the native release twice from clean dirs and compares the hashes.
+		- A check that each Windows exe has its icon and version resource.
+	- Estimated effort: Avg
+
+- The hosted workflow runs on any pull request, and more jobs than the merge gate needs
+	- ID: 2026110215285710
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 10
+	- Problem description: `pull_request:` in ci.yml has no branch filter, so a PR to dev runs the whole hosted gate. The windows, linux-arm, setup and winarm jobs and go-floor also run, beside the macOS one. b29w and vmDebARM64 cover windows and linux-arm locally now, and no call since the 2026-10-24 reset says to keep them.
+	- Requirements:
+		- `pull_request` filtered to main.
+		- Record a call on each extra job, with the reason.
+	- Question: keep the windows, linux-arm, winarm and setup jobs? winarm has no test box, and the setup jobs test the installer on a clean Windows.
+	- Estimated effort: Low
+
+- No dependabot config for the Go toolchain and the Actions pins
+	- ID: 2026110215285711
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 11
+	- Problem description: the shared Go pipeline notes ask for one where a hosted workflow exists, with PRs against dev and minor and patch bumps grouped. The Rust notes ask for none, so this covers only Go and the workflow's actions.
+	- Requirements:
+		- If the Go module has no dependencies, only the actions and the toolchain pin are left. Say so and keep it to those.
+	- Estimated effort: Low
+
+- clang-tidy runs only the bug checks on the C++ interface
+	- ID: 2026110215285712
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 12
+	- Problem description: `analyze-c.bash` runs `clang-analyzer-*` and `bugprone-*`. The shared rules also want a short list from `cppcoreguidelines-*` and `performance-*` on first-party C++.
+	- Requirements:
+		- Pick the few that fit a single-header veneer, fix or suppress each finding at the line with a reason, and see each go red on a bait.
+	- Note: clang-tidy as a style gate over the C binding was declined earlier. This is about the C++ veneer's correctness checks.
+	- Estimated effort: Avg
+
+- The C++ interface has no heap-growth soak
+	- ID: 2026110215285713
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 13
+	- Problem description: `soak-c.bash` soaks the C library only. The veneer's own strings and vectors are never looped under heaptrack, and no growing-heap bait was seen to fail for it. The decline of heaptrack for the other bindings didn't name the veneer.
+	- Requirements:
+		- A veneer soak with a growth bait, beside the C one.
+	- Estimated effort: Low
+
+- Dogfood leftovers and gaps
+	- ID: 2026110215285714
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 14
+	- Problem description:
+		- The cross builds' dogfood copies skip the in-use check the native one has.
+		- Copies of the wrappers retired in 2026100818251401 are still in the synced util tree: `shcl.ps1` in the cross-platform dir, `include/shcl.bash` under the linux, macos and wsl bash dirs, and an Oct 4 `util/wsl/bin/shcl` no dogfood setting writes now. Nothing found still uses them.
+		- On macOS the dogfood runner keeps its pool in `~/.local/bin`, where the shared rules name `~/Applications/shcl_versions` and `~/Applications/shcl`.
+	- Question: trash the retired wrapper copies from the synced tree? It's outside the repo.
+	- Question: move the macOS pool to `~/Applications`, or keep `~/.local/bin` as on Linux?
+	- Estimated effort: Low
+
+- Some install paths differ from the shared install table
+	- ID: 2026110215285717
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 17
+	- Problem description: a FreeBSD system install goes to `/opt/shcl`, where the table has `/usr/local/shcl/`. A macOS user install goes to `~/.local/share/shcl`, where it has `~/Library/Application Support/shcl/`. The `~/.local/bin` link matches. The Linux layout call came before the macOS and FreeBSD builds.
+	- Requirements:
+		- A move finds the old install and replaces it, so nobody ends up with 2.
+	- Question: move them to the table's paths, or keep today's?
+	- Estimated effort: Low
+
+- User-facing text skips contractions and has a few words from the style list
+	- ID: 2026110215285720
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 20
+	- Problem description:
+		- The CLIs' help has 16 long forms such as "does not" and none contracted. The Rust error strings have 44, against 1 contracted.
+		- Help says "holds" twice. install.ps1 says "ship it" and "ships no signed drop-in payload". Both installers say "it holds files this installer did not put there". package.bash says "must never ship", check-migrate "nothing spells now", and install-dev.bash's help "just point git at".
+	- Requirements:
+		- All 4 CLIs at once, with the help parity check and the cli-regress goldens.
+	- Estimated effort: Avg
+
+- Comments and test names in the bindings are long and use a few coined words
+	- ID: 2026110215285721
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 21
+	- Problem description:
+		- `lib.rs`, `shcl.go` and `shcl.py` have about 17, 17 and 12 `---- Public surface ----` style banners, and `shcl.h` and `shcl.hpp` one each.
+		- "owed" and "owes" are used 21 times for the kept lines a save must keep. "spells", "carries", "ships" and "lands" another 56.
+		- About 20% of each binding is comment, with over 100 blocks of 6 lines or more in each of the 3 biggest.
+		- 83 Rust and 47 Go test names are 7 words or more, and many start with an article. shell-regress gives 71 labels the same `YYYYmmDD-NN-slug` form.
+	- Requirements:
+		- Banners and word changes in all 4 at once, for parity. Long comments move to design.md or a backlog ID.
+		- Test renames keep their test IDs.
+	- Estimated effort: High
+
+- Public docs: formatting leftovers and style-list words
+	- ID: 2026110215285722
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 22
+	- Problem description:
+		- 56 lines inside `~~~` fences start with `#` at column 0: 34 in examples.md, 11 in README.md, 11 in the Python README. 7 fences have no language tag.
+		- Table separator rows are `:--`, and 4 tables in spec.md aren't padded.
+		- design.md has 20 bold-lead bullets in a row from line 442, and 47 overall. spec.md has 56.
+		- design.md and spec.md: "it was decided" 21 times, "holds" about 80, "genuinely" 5, contrast forms about 50, a few lands, ships, carries and owed. Number words and long forms are common.
+		- design.md's pipeline section names the LAN boxes with timings that go stale. That detail belongs in private notes.
+	- Requirements:
+		- A comment in a shcl sample can't move off column 0 unchecked, since indent means something in shcl. Check with check-readme and check-doc-examples first.
+		- Agent-written text only. JC's README opening, the escapes section and ai_policy.md get spelling fixes alone.
 	- Estimated effort: Avg
 
 - check-push-gate in about 2 minutes
@@ -271,7 +607,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1101`
 	- Test case: shell-regress `der2e`.
 	- Acceptance signoff: me, 20261101
-	- Closed: 20261101
+	- Closed: 20261101-203121
 
 - CICD reset: prune build caches on a toolchain or lockfile change
 	- ID: 2026110116125880
@@ -301,7 +637,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1101`
 	- Test case: check-push-gate `der3w`.
 	- Acceptance signoff: me, 20261101
-	- Closed: 20261101
+	- Closed: 20261101-203121
 
 - Other hosts: timed work, such as perf-gate, on vm925w
 	- ID: 2026103016433965
@@ -475,7 +811,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `depk3` (the scratch folder by hand and in a run, its counter, `TMPDIR`, removal from a failed script's EXIT trap, and install.bash's `fRmTmp` refusals) and `depk4` (no bare recursive removal in the hook, the gate scripts or install.bash), plus `dephe`, `dephf` and `de633`, and shell-regress `dct58`, `dd51c`, `ddca8` and `ddg86`, which exit 2 through the new trap.
 	- Branch: `r1031b`
 	- Acceptance signoff: me, full run and every hosted job passed
-	- Closed: 20261101
+	- Closed: 20261031-185525
 
 - CICD reset: a safe removal guard for the PowerShell scripts
 	- ID: 2026103114555334
@@ -507,7 +843,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `depm0` (the guard's refusals and removal, install.ps1's copy the same as the include's, and no bare recursive removal in a tracked `.ps1`), and win-runners `depma` (the guard under 5.1 with junctions, on Windows).
 	- Branch: `r1031b`
 	- Acceptance signoff: me, hosted windows job passed depma and the windows path row
-	- Closed: 20261101
+	- Closed: 20261031-185525
 
 - CICD reset: the run folder and its guard
 	- ID: 2026103114555299
@@ -544,7 +880,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261031: `dee5k`'s, `decz2`'s and `ded0y`'s `dev.run` asserts went from `shcl-run.XXXXXX` to `<stamp>_<NNN>`, `dee5y`'s folder list from `shcl-run.*` to `shcl/*_NNN`, and `de89c`'s frozen copy from beside the folder (`stub-tree.*`) to its `tree/`.
 	- Branch: `r1031b`
 	- Acceptance signoff: me, full run passed with the run folder in the image and nothing left after
-	- Closed: 20261101
+	- Closed: 20261031-185525
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
@@ -573,7 +909,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-docs `dep9w`, shell-regress `dep9x`, and the children's.
 	- Branch: `r1031`
 	- Acceptance signoff: me, every child closed and test-ids.py backlog passes over every closed item
-	- Closed: 20261031
+	- Closed: 20261031-145343
 
 - A test that the publish helper keeps quotes in `--message`
 	- ID: 2026103111123585
@@ -591,6 +927,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: the test cuts `fParseArgs` out of the script with sed and runs it with a stub `fThrowError`, rather than a second scratch commit, so it needs no git or rar and runs in milliseconds.
 	- Verified: `depgq` fails with the quote substitution put back in the helper and passes on the current one. shell-regress passes whole.
 	- Branch: `r1031b`
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-144904
 
 - CICD reset: temp files and safe removal
@@ -612,7 +949,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261101: all 3 children closed, so the parent closes.
 	- Test case: the children's: 2026103114555299, 2026103114560029, 2026103114555334
 	- Acceptance signoff: me, every child closed
-	- Closed: 20261101
+	- Closed: 20261031-185525
 
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
@@ -636,7 +973,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: no new test. check-docs `dcbc2` (installers match main) covers the sync.
 	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so no twin there.
 	- Acceptance signoff: me, 20261031: dcbc2 is green on dev with main synced, which is all this item asked.
-	- Closed: 20261031
+	- Closed: 20261031-091854
 	- 20261029: the round is on dev (`93ac745a`), so check-docs `dcbc2` is red there until main has the new text. The sync commit is ready on a local branch, `installsync` at `58231025`, off origin/main.
 
 - CICD builds and tests in a container if one is available
@@ -683,7 +1020,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `bd0415a7`
 	- Test case: check-push-gate `de61k` (no docker, a silent one, or aarch64: local with a note, and it records), `de61m` (`--no-container` asks no docker), `de61n` (the refused pairs exit 2), `de61p` (docker answering: one run in the main image, which records), `de61q` (`--container` with a silent docker fails). check-pins `de61r`, shell-regress `de61s` and `de61t`.
 	- Acceptance signoff: me, 20261031: the hook has no code of its own here and follows the default, and check-push-gate `de61p` covers that path. The cut push is gated, so a failure there stops the cut.
-	- Closed: 20261031
+	- Closed: 20261031-091854
 	- Held for the next push that moves main, which is the only thing left to watch.
 
 - CICD reset: standard flags
@@ -710,7 +1047,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261031: every child is Done, the last being the backlog runs (2026102515494624), whose no-area quick run now takes about 4 minutes.
 	- Test case: the Test case rows of its children 2026102515494614, 2026102515494619, 2026102515494624, 2026102515494629 and 2026102515494634.
 	- Acceptance signoff: me, 20261031: each requirement is met by a closed child.
-	- Closed: 20261031
+	- Closed: 20261031-100512
 
 - CICD reset: backlog runs
 	- ID: 2026102515494624
@@ -745,7 +1082,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: with every area named it stays over 4 minutes, since check-push-gate runs its 74 cases one at a time. Per the note, the run with no area meets the aim. A faster check-push-gate is its own item, 2026103109485020.
 	- Test case: check-push-gate `dep78`, and the children's tests: check-push-gate `dej6y`, `dej6z`, `dej8h`, `dekgv`, `dekgw`, shell-regress `dej8g`.
 	- Acceptance signoff: me, 20261031: the run with no area fits in 4 minutes, which the note accepts.
-	- Closed: 20261031-0957
+	- Closed: 20261031-095700
 
 - Closed items name a test ID: new format, and legacy bugs before the 20260904 review
 	- ID: 2026103111123554
@@ -762,7 +1099,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: a row that named a test only by what it checks gets the ID of the closest test by name. The tool fills exact names only.
 	- Test case: `test-ids.py backlog` lists none of its 135 items, and check-docs `dep9w` runs it.
 	- Branch: `r1031`
-	- Closed: 20261031
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261031-114917
 	- Requirements:
 		- Only edits backlog rows. Light-tier work.
 		- Each item `test-ids.py backlog` lists from the top of the backlog down to the `Code review 20260904:` bullet under `Done - Bugs` names its test's ID, or says in a few words why it has none, starting the row with "none". About 135 items.
@@ -784,7 +1122,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: a row that named a test only by what it checks gets the ID of the closest test by name. The tool fills exact names only.
 	- Test case: `test-ids.py backlog` lists none of its 128 items, and check-docs `dep9w` runs it.
 	- Branch: `r1031`
-	- Closed: 20261031
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261031-114917
 	- Requirements:
 		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Bugs` from the `Code review 20260904:` bullet to the end of that heading. About 128 items.
 
@@ -803,7 +1142,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: a row for a retired test says so and starts with "none". The shell wrapper rows went with the wrappers. A lint-stage or hosted-job check with no ID of its own says "none by ID" and why.
 	- Test case: `test-ids.py backlog` lists none of its 98 items, and check-docs `dep9w` runs it.
 	- Branch: `r1031`
-	- Closed: 20261031
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261031-115311
 	- Requirements:
 		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Features and enhancements` down to its `Code review 20260904:` bullet. About 98 items.
 
@@ -822,7 +1162,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: a row for a retired test says so and starts with "none". The shell wrapper rows went with the wrappers. A lint-stage or hosted-job check with no ID of its own says "none by ID" and why.
 	- Test case: `test-ids.py backlog` lists none of its 105 items, and check-docs `dep9w` runs it.
 	- Branch: `r1031`
-	- Closed: 20261031
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261031-115311
 	- Requirements:
 		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Features and enhancements` from its `Code review 20260904:` bullet to the end. About 105 items.
 
@@ -846,6 +1187,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: `test-ids.py backlog` keeps `--since`, since shell-regress `dep9x` tests it and it costs nothing.
 	- Test case: check-docs `dep9w`.
 	- Branch: `r1031`
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-120544
 
 - A test that `-q` reaches each tool's quiet flag
@@ -869,6 +1211,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `QUIET_FLAG` and `quiet` use in cicd.bash and config.bash. The image and frozen-copy runs pass `-q` on as their own flag, and are not in this test.
 	- Test case: check-push-gate `depbf`.
 	- Branch: `r1031`
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-120544
 
 - `shcl explain E008` says the item is dropped
@@ -888,7 +1231,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `depcx` (`explain E008`) and `depcy` (`explain E011`), run against all 4 CLIs.
 		- 20261031: cli-regress passed, 643 rows across 4 bindings.
 	- Swept: the `CODES` text in the 4 CLIs, and the other explain rows. No other text says dropped or ignored for a kept line.
-	- Closed: 20261031
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261031-123846
 
 - Other hosts: win-runners.bash and winpath-regress.ps1 on b29w
 	- ID: 2026103016433943
@@ -917,7 +1261,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-boxes `den85` on b29w under `--long`; shell-regress `den87`.
 	- Branch: `r1030b`
 	- Acceptance signoff: Self-closed: the whole b29w suite run passed after the PSModulePath fix.
-	- Closed: 20261031
+	- Closed: 20261030-193825
 
 - Other hosts: the windows-x86_64 release over the CLI cases on b29w
 	- ID: 2026103016433921
@@ -972,7 +1316,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `macos-14` in the tree, which was only ci.yml's runs-on and old backlog notes.
 	- Verified: both halves of the last local `macos-universal` build carry `LC_BUILD_VERSION` with `minos 13.0`, the field the check reads. check-pins, shellcheck and check-docs pass on the job, less `dcbc2`, which is red on dev until the installer sync to main.
 	- Acceptance signoff: Self-closed: both hosted runs passed.
-	- Closed: 20261031
+	- Closed: 20261030-193808
 
 - Other hosts: macOS on b26 and vmKt6m
 	- ID: 2026102419263427
@@ -1072,7 +1416,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: check-push-gate `den5e` passes, and fails against the cicd.bash from before. The whole of check-push-gate and shell-regress pass, and `--backlog-run-quick cicd --skip=check-docs.bash` passed format, build and lint. check-docs fails only `dcbc2`, which is red on dev until the installer sync to main.
 	- Swept: every flag that takes out the release, the cross targets or the remote hosts (`--no-release`, `--no-cross`, `--skip`, `--no-remote`), the run modes, `--list`, the container and frozen-copy runs, which never start it, and the end summary's SKIP lines, which the test boxes step now adds to rather than replaces.
 	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written.
-	- Closed: 20261031
+	- Closed: 20261030-193808
 
 - check-push-gate `dee74` failed once under load and passed on a rerun
 	- ID: 2026102821264857
@@ -1120,6 +1464,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: config.bash and cicd/ for other compares against the old status words (`ok`, `FAIL` as a returned word). None left. check-readme's `ok (0 diagnostic(s))` is a tool's output, not a status line.
 	- Verified: shell-regress `demx9` runs config.bash's own `PROFILE_CHECK` with a stand-in that exits 0 and then 1, and checks exit code and status line. It fails with the compare on `ok` (exit 1 on the pass) and passes with the fix. Also the whole of shell-regress, `test-ids.py check` and shellcheck.
 	- Test case: shell-regress `demx9`.
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261030-112322
 
 - CICD reset: keep-temp and list
@@ -1241,7 +1586,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dekgv` and `dekgw`.
 	- Verified: 20261029, `cicd.bash --container=ubuntu` on `r1029b` at `d67cc4fd` passed all 7 steps, the tests stage in 20 minutes. The first try failed check-c-compilers' musl row (`de1aa`) in strict mode, since the ubuntu image had no zig while the hosted runner installs it. The image installs the pinned zig now, with its cache in the run's `/tmp`, and check-pins passes.
 	- Acceptance signoff: me, 20261029, the ubuntu image passes with its new arguments
-	- Closed: 20261029
+	- Closed: 20261029-194055
 
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
@@ -1272,7 +1617,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261029: both children are Done.
 	- Test case: the children's, 2026102307143752 and 2026102307143758.
 	- Acceptance signoff: me, 20261029, both children are Done
-	- Closed: 20261029
+	- Closed: 20261029-193147
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
@@ -1299,7 +1644,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261028: the sentence names a third case for those 2, a line that would bind written back as it was, where no comment stands for it, rather than leave them as unstated exceptions. It goes in with 2026102820321403.
 	- Test case: the children's, 2026102820320485 and 2026102820321403.
 	- Acceptance signoff: me, 20261029, both children are Done
-	- Closed: 20261029
+	- Closed: 20261029-193147
 
 - `E003`, `E007` and `E011` are retained, and dropping follows one test
 	- ID: 2026102820321403
@@ -1321,7 +1666,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261029: both children are Done.
 	- Test case: the children's, 2026102821334870 and 2026102821334970.
 	- Acceptance signoff: me, 20261029, both children are Done
-	- Closed: 20261029
+	- Closed: 20261029-193147
 
 - `E003` is retained, and dropping follows one test
 	- ID: 2026102821334970
@@ -1362,7 +1707,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029b-e003`
 	- Commit: `90870748`
 	- Acceptance signoff: me, 20261029, each new test failed on the old library, and the 2,000,000 fuzz and the quick run passed
-	- Closed: 20261029
+	- Closed: 20261029-193147
 
 - A merge writes a layer's kept line from inside a merged block at the root
 	- ID: 2026102821530643
@@ -1392,7 +1737,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029b-e003`
 	- Commit: `dffd891d`
 	- Acceptance signoff: me, 20261029, the repro and corpus 091 keep the line in its block, and each new test failed on the old library
-	- Closed: 20261029
+	- Closed: 20261029-193147
 
 - Hosted ci.yml tests half runs past its 60-minute timeout
 	- ID: 2026102915235852
@@ -1412,7 +1757,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `dektk`.
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, the hosted run passed with room to spare
-	- Closed: 20261029
+	- Closed: 20261029-181922
 
 - Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102913213704
@@ -1439,7 +1784,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a618835c`, `276abbc8`
 	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
 	- Acceptance signoff: me, 20261029, cppcheck and the hosted Windows job pass
-	- Closed: 20261029
+	- Closed: 20261029-181922
 
 - Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102912203343
@@ -1473,7 +1818,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `c271967d`, `42a12d0d`, `276abbc8`
 	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
 	- Acceptance signoff: me, 20261029, cppcheck and the hosted Windows job pass
-	- Closed: 20261029
+	- Closed: 20261029-181922
 
 - Refuse a save over a file that changed since the load
 	- ID: 2026102910482342
@@ -1505,7 +1850,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261029: all 3 children are Done (2026102912203339, 2026102912203341 and 2026102912203343).
 	- Test case: the children's, one per binding: 2026102912203339, 2026102912203341 and 2026102912203343.
 	- Acceptance signoff: me, 20261029, every child is Done
-	- Closed: 20261029
+	- Closed: 20261029-181922
 
 - Let a save create a new file only, and give a new file its mode
 	- ID: 2026102910482343
@@ -1533,7 +1878,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261029: all 3 children are Done (2026102913213663, 2026102913213683 and 2026102913213704).
 	- Test case: the children's, one per binding: 2026102913213663, 2026102913213683 and 2026102913213704.
 	- Acceptance signoff: me, 20261029, every child is Done
-	- Closed: 20261029
+	- Closed: 20261029-181922
 
 - Open a newer format's file read-only
 	- ID: 2026102910482344
@@ -1568,7 +1913,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029b-ro`
 	- Commit: `7f2aa27c`, `ddfe3333`
 	- Acceptance signoff: me, 20261029, every save of a newer doc is refused in all 4, and each new test failed with it off
-	- Closed: 20261029
+	- Closed: 20261029-181655
 
 - The C runner's swap test leaves its folder behind on windows
 	- ID: 2026102915173442
@@ -1592,7 +1937,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: C runner `de4bd`.
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, 2 runs in a row pass under wine
-	- Closed: 20261029
+	- Closed: 20261029-165629
 
 - A kept line under an `E028` array line moves out of its block when an `E011` item follows it
 	- ID: 2026102820592074
@@ -1616,7 +1961,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `dektp`.
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, the case keeps `* 7` under `srv` in all 4
-	- Closed: 20261029
+	- Closed: 20261029-165346
 
 - Create-only save and a new file's mode, in Go
 	- ID: 2026102913213683
@@ -1640,7 +1985,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029`
 	- Commit: `a618835c`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
-	- Closed: 20261029
+	- Closed: 20261029-154325
 
 - Create-only save and a new file's mode, in Rust and Python
 	- ID: 2026102913213663
@@ -1664,7 +2009,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029`
 	- Commit: `a618835c`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
-	- Closed: 20261029
+	- Closed: 20261029-154325
 
 - CICD reset: CPU and priority on the test boxes
 	- ID: 2026102421025788
@@ -1679,17 +2024,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- check-boxes' box half works out its cap from that box's CPU count and load, by the same rule as this box.
 		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
 	- Progress log:
-		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins in `private/claude_simple/tools/check-boxes-stub/`.
+		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins, kept outside the repo.
 		- 20261029: the box half sets `ionice -c 3` before `nice -n 19` when the box has an ionice that takes the class, found by absolute path since `env -i` clears PATH. A box without one, such as FreeBSD, runs at nice only. The cap needs no code: one case at a time is the rule's floor.
 		- Verified: 20261029, cicd.bash --backlog-run-full --no-lint --no-tests on ee700b61: ok decyk, PASS vmFreeBSD 4471 CLI runs.
 	- Decisions:
 		- The ionice is a prefix on the `env -i` line, not on the box's own `sh`, so the check doesn't need `$$` and the line still holds no single quote (me).
 	- Swept: the one `nice -n 19` in the box half. The host run in check-boxes.bash, and check-freebsd's run, are on this box and already under cicd.bash's ionice. The other 3 bindings have no box step.
-	- Verified: `private/claude_simple/tools/check-boxes-stub/ionice-probe.bash` runs the box half alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). `check-boxes-stub/run.bash` passes, skips and fails as before over the stand-in boxes (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
+	- Verified: the box half run alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). The stand-in boxes pass, skip and fail as before (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
 	- Needs external testing: No
 	- Test case: check-boxes `decyk` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
 	- Acceptance signoff: me, 20261029, decyk passed with vmFreeBSD in the full run
-	- Closed: 20261029
+	- Closed: 20261029-154325
 
 - Refuse a changed file's save, in Rust and Python
 	- ID: 2026102912203339
@@ -1715,7 +2060,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029`
 	- Commit: `e799b7c6`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
-	- Closed: 20261029
+	- Closed: 20261029-154325
 
 - CICD reset: CPU and priority
 	- ID: 2026102416250040
@@ -1738,7 +2083,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261029: 2026102421025788 closed on r1029, the last child.
 	- Test case: its children's tests: 2026102421025778, 2026102421025783, and decyk with ionice-probe.bash for 2026102421025788.
 	- Acceptance signoff: me, 20261029, all 3 children closed
-	- Closed: 20261029
+	- Closed: 20261029-154325
 
 - Refuse a changed file's save, in Go
 	- ID: 2026102912203341
@@ -1795,7 +2140,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: fuzz `deav0`'s comment assert went from `\n\t# c: 1\n` to `\n\tc: 1\n`. The wildcard line it starts with is kept now, so the item after it is the lost line (`E011`), no list forms, and the field binds. Its lost count of 1 and its no-list-with-a-field check stay.
 		- 20261028: cli-regress `dd6zj`'s line for a `-` alone went from `4:1 name=0-1` to `4:1 item value=1-1 elem=1-1`.
 		- Swept: the `E004` and `E009` arms, `is_item`, the parser's item test and the tokens dump in all 4 bindings and CLIs. `attach_path`'s wildcard arm stays, unreachable from a load, with a comment. Go, Python and C have no twin of the fuzz properties.
-	- Closed: 20261028-2345
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261028-234500
 	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
 
 - `E007` and `E011` are retained
@@ -1826,7 +2172,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: cli-regress `dd6wm` went from exit 7 and the file unchanged to exit 0 and `val: 9` / `\t- e` / `z: 2`. `ddp0q` went from exit 7 and no output to exit 0 and the same text. `ddp0s`'s output went from `val: 9` / `z: 2` to the same text, with no canonical-form note.
 		- 20261028: cli-regress `ddp0w` and `ddp0x` read the `%KL%` file, which still loses a line, where `%KE%` no longer does. The diag-exit `lost` fixture is a tab-only line now, and `de11m` and `de11n` remove `val.m`, which makes the save fall back, where `--set=val=9` now keeps every line.
 		- Swept: the item arm, `add_star_element` and the emitter's kept-line check in all 4 bindings and the 4 CLIs' explain text. The fuzz outcome table and `REFUSING` list. No other site filed an `E007` or `E011`.
-	- Closed: 20261028-2345
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261028-234500
 	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
 
 - CICD reset: backlog run flags
@@ -1858,7 +2205,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: a real `cicd.bash --backlog-run-quick` in the main image, before `BACKLOG_SKIP`, passed its 5 steps in 10.5 minutes at a load of 10 to 13, recorded nothing and left no tracked file changed. Without check-push-gate that's about 6.5 minutes.
 		- Swept: every reader of the run mode (`mode_flag`, `gate_mode`, `merge_gate`, `quick`) in cicd.bash, the tests step's `TEST_CMD`-only guard, and check-push-gate's stub config.
 	- Test case: check-push-gate `dej6y` and `dej6z`.
-	- Closed: 20261028-1625
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261028-162500
 	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, as the round's full run. dcv3m, dct5a and shell-regress passed there with pwsh working again. `--backlog-run-quick` with every area named took 12 min at load 13 to 27, and the worker timed it at 6.5 min with none named, so the 4-minute aim is still the parent's to meet.
 
 - CICD reset: hosted workflow on the merge gate, and --gate as a backlog run
@@ -1889,7 +2237,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: makensis stays unpinned in ci.yml, since the hosted run builds no Windows release and so no setup.
 	- Test case: check-push-gate `dej8h`, shell-regress `dej8g`, plus the changed rows of `ddwkm`.
 		- 20261028: `ddwkm`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
-	- Closed: 20261028-1625
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261028-162500
 	- Verified: 2026-10-28, hosted ci.yml run 40779407541 on r1028 passed after the runner's kernel was made readable (commit after 9d0943c1). Lint half 12 min, tests half 50 min. The tests half built the release, booted it on Penryn and Phenom (ddwpp to ddwpt), built packages and passed the leak checks. CodeQL and the test boxes were off.
 
 - CICD reset: CPU and priority in containers
@@ -1913,7 +2262,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Needs local test suite run?: No
 	- Branch: `r1024c`
 	- Test case: check-push-gate `ded2j`.
-	- Closed: 20261028-1625
+	- Acceptance signoff: Self-closed: its test passes.
+	- Closed: 20261028-162500
 	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, in the main image with the CPU limits on.
 
 - Upgrade drops and folds blank lines, so every line after them moves
@@ -1943,7 +2293,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff:
 		- Waits on JC: it keeps the whole layout rather than only the blank lines, which changes what `upgrade` writes (questions.md Check line).
 	- Acceptance signoff: me, 2026-10-28, per the standing call that a behavior change that fits the project better is made, not parked. Keeping each line where it was is what the item asks, and shclwrap needs it. The Check: entry in questions.md stays open for a veto.
-	- Closed: 20261028-1200
+	- Closed: 20261028-120000
 
 - Step lines from inside the image print UTC, while the host's print local time
 	- ID: 2026102520122877
@@ -2360,14 +2710,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: 2026102416250010
 	- Parent ID: 2026102416250010
 	- Requirements:
-		- One step on this box, after the release builds, that runs each box in config.bash's list through `claude_vm-state.bash wrap`, so the host lock is held and a VM is put back the way it was found.
+		- One step on this box, after the release builds, that runs each box in config.bash's list through the VM state helper's `wrap`, so the host lock is held and a VM is put back the way it was found.
 		- A work folder of its own on each box, under its temp root, removed after.
 		- A box that isn't there, or no lock tool, is a `SKIP` in the step and in the run's summary, and the run goes on.
 		- `--no-remote` leaves the step out.
 		- First box: vmFreeBSD runs the freebsd-x86_64 release over the CLI cases, against the Linux release.
 	- Progress log:
 		- 20261024: `cicd/utility/check-boxes.bash`, and config.bash's `REMOTE_BOXES`, one row per box. cicd.bash runs it as `6/9  Test boxes` after stages 1-6, on this box whichever way they ran, and lists its `SKIP` lines again at the end. `--no-remote` leaves it out. A run with no release builds, such as `--gate`, is a `SKIP` per box.
-		- Each box goes through `claude_vm-state.bash wrap BOX --wait 900`, and the lock is held only while the box works. The comparison runs after it's let go. The box half makes `${HOST_TEMP:-${TMPDIR:-/tmp}}/shcl/<stamp>_<NNN>`, runs the cases under `nice -n 19`, and removes the folder on exit.
+		- Each box goes through the VM state helper's `wrap BOX --wait 900`, and the lock is held only while the box works. The comparison runs after it's let go. The box half makes `${HOST_TEMP:-${TMPDIR:-/tmp}}/shcl/<stamp>_<NNN>`, runs the cases under `nice -n 19`, and removes the folder on exit.
 		- Verified, with a stand-in VM state helper and ssh that run the box half here: a matching build passes 4416 CLI runs; a box that doesn't answer, no build, no helper and a refused lock are each a `SKIP` at exit 0; one changed output fails naming the case; a down box beside a good one skips the first and passes the second. The box folder was gone after each run. shellcheck over `SHELLCHECK_TARGETS`, shell-regress and `test-ids.py check` passed.
 		- Verified: `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` prints `SKIP vmFreeBSD: no release builds this run` in the step and again at the end, at exit 0, and with `--no-remote` the step says it was skipped. The step's block, run alone over stand-in boxes with release builds given, passed one, skipped the other 2, listed the 2 at the end, and stopped the run on a build with one changed output.
 		- Not run: the step inside a whole run with release builds, and any real box.
@@ -3181,7 +3531,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026102106592600
 	- Type: Bug
 	- Status: Done
-	- Priority: High
+	- Severity: High
 	- Opened: 20261021-065926
 	- Related IDs: 2026101711273980
 	- Version and build: dev at `db311c7a`
@@ -4560,6 +4910,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every-start advice: dropped. `from_v2` is now documented as for a file the caller knows is old. Without it the call is still meant for every start.
 		- Consumers: none calls `upgrade` or `upgrade_file`. gitsby, nemo and slodworld gate their own `migrate` calls on `format_version` and never migrate a file naming Format 3. silkterm converts only an unstamped file, slodworld2 stamps and converts with its own code, convert-base-v2 only prints a `migrate --from-2x` hint, and tradeclanker and gitniblet are on v1.2.0. The bug needs a person passing `--from-2x` for a file that isn't old.
 	- Actual fix: docs only, no behavior change, since `upgrade` stays simple and doesn't chase every 2.x edge case (JC, 20261015). The `upgrade` doc comment in all four bindings and the C++ interface, spec.md's `UpgradeFile` text, design.md's `upgrade_file` entry, and the man page. The man page had no word of the beta-file rule at all, and has it now.
+	- Swept: Go `Upgrade`, Python `upgrade`, C `shcl_upgrade`, the C++ interface, and spec.md, as the Actual fix row lists.
 	- Verified: check-docs, markdownlint, and the four bindings' lint and format checks pass.
 	- Test case: none. Docs only, and 2026101407100010's tests pin the rule, which is unchanged.
 	- Branch: `upfix`
@@ -5986,6 +6337,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `liststat`
 	- Commit: `76bb2bb1`
 	- Test case: `list_reads_say_bad_path` in all four runners (Rust `ddq60`, Go `ddq61`, Python `ddq62`, C `ddq63`), list-read checks in the C++ `veneer_smoke` (`d9v59`), and the corpus rows in `081` and `203`.
+	- Acceptance signoff: signed off 20261009.
 	- Closed: 20261009-084449
 
 - Retire the bash and PowerShell wrappers
@@ -6011,6 +6363,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `ddpcx` runs install.bash over an older install with the wrappers in `scripts/`, and `ddpcy` runs install.ps1's `Remove-OldWrapper` the same way. Both fail on the old installers and pass now. check-readme `ddp6d` and `ddp6e` run the new README examples.
 	- Branch: nowrap
 	- Commit: `cee64cc4`
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261008-184153
 
 - `fmt` leaves a value bare that a reader could misread
@@ -7142,6 +7495,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: schemaline
 	- Commit: 27d73efb
 	- Test case: cli-regress `schema-line-device` (`dd83m`) and `schema-line-fifo` (`dd83n`), both failing on dev, and `schema-line-share` (`dd83s`), which runs on Windows only, in the hosted windows job with all four.
+	- Acceptance signoff: signed off 20260930.
+	- Closed: 20260930-143350
 
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
@@ -7166,6 +7521,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: schemaline
 	- Commit: 27d73efb
 	- Test case: corpus 182 (`dd83j`), cli-regress `schema-line-indented` (`dd83k`) and `migrate-indented-stamp-noop` (`dd83r`). Each fails on dev.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - A line-keeping save deletes lines the load dropped, at exit 0
@@ -7195,6 +7551,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every place the keep save writes a source line, in all four. The C++ veneer only wraps the C call.
 	- Branch: `keepdrop`
 	- Test case: cli-regress `set-write-keeps-dropped-element` (`dd6wm`) and `set-write-keeps-dropped-between`. The Rust fuzz `keeping_lines_reloads_as_the_document` (`dd3t9`) and the shared fixture `edits_and_merges_match_a_reload` (`dd16k`, `dd16n`, `dc474`) in Go, Python and C now check the reload loses as many lines as the source. Each fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `clear-comments` deletes a misplaced line kept as written
 	- ID: 2026092620255202
@@ -7221,6 +7579,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line` (`dd6ww`), both routes, with `comments` reads. It fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - A CICD test that makes old shcl files and checks the automatic conversion
 	- ID: 2026100313461650
@@ -7469,6 +7829,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: check-c-compilers (120 builds over gcc 12 to 15 and clang) failed before and passes after; `gcc-14 -O3` on `mem_bounds.c` builds. cli-regress against Rust passes. The windows row runs at the next hosted run.
 	- Branch: `cifix`
 	- Test case: check-c-compilers `dc25g` and `dc112`; cli-regress `ddgj0` on the hosted windows job.
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261005-143000
 
 - Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
@@ -7733,6 +8094,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: schemaline
 	- Commit: 27d73efb
 	- Test case: none for the time. perf-gate's ratio catches worse than linear, not a constant factor like this. H005 itself stays pinned by corpus 176 and cli-regress `unit-hint`.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - The `_old_v2` copy takes the directory's group, so a private config gets a backup that group can read
@@ -7758,6 +8120,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: oldcopy
 	- Commit: 4dbe70af
 	- Test case: cli-regress save case `migrate-setgid` (`dd84g`), which fails on dev in all four.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
@@ -7778,6 +8141,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: compaction is C only. The C++ `compact` calls it.
 	- Branch: `compact`
 	- Test case: `oom_recover.c` (`dc114`) runs a compaction of a document with a kept line under every allocation budget and checks the canonical text is unchanged. It reached the hook on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - An unknown escape in double quotes loads silently, with the known escapes around it decoded
 	- ID: 2026092616330237
@@ -7841,6 +8206,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: escblock
 	- Commit: c29f08fa
 	- Test case: corpus `187-value-fault-opens-block` (`ddcdm`); cli-regress `sugar-check-block` (`ddceb`), `sugar-block-read` (`ddcec`), `sugar-write-kept` (`ddced`), `path-escape-block` (`ddcee`).
+	- Acceptance signoff: signed off 20261003.
+	- Closed: 20261003-080056
 
 - A kept line under a kept value-only line is saved at column 0
 	- ID: 2026100213205957
@@ -8035,6 +8402,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: on vmFreeBSD the cross-built binary gave the same `fmt` and `check` output as Linux over all 189 corpus cases, and a `set --write` worked. `install.bash` ran there end to end against a local stand-in release: install, `man shcl`, the `bash <(...)` form, uninstall, and the no-binary message. The system target was not run there.
 	- Branch: `bsdbin`
 	- Test case: shell-regress `ddgev` (FreeBSD plan line and the arm64 refusal), `ddgew` (a release with no binary for the platform is named and nothing is fetched), and `dd51j` (the FreeBSD floor). Each failed with its fix taken out.
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261004-131915
 
 - Read the lock script and add b26
@@ -8047,9 +8415,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026100313461652
 	- Requirements:
 		- Read the lock script and add b26.
-	- Note: 20261003, the script is `claude_windows-host-lock.bash` in the synced util bash dir. Whether it already takes b26 is not known yet. The b26 notes would go beside the Windows boxes in the per-machine `~/.claude/CLAUDE.md`, so other projects find them too.
+	- Note: 20261003, the host lock script is in the synced util bash dir. Whether it already takes b26 is not known yet. The b26 notes would go beside the Windows boxes in the per-machine notes, so other projects find them too.
 	- Estimated effort: Low
-	- Done: 20261004, outside this repo. The lock script takes b26 by name, with `vmDebARM64` and `vmFreeBSD`, and `~/.claude/CLAUDE.md` says so beside the Windows boxes.
+	- Done: 20261004, outside this repo. The lock script takes b26 by name, with `vmDebARM64` and `vmFreeBSD`, and the per-machine notes say so beside the Windows boxes.
 	- Test case: none in this repo. The script and its notes live in the synced util dir.
 	- Acceptance signoff: Self-closed: done elsewhere.
 	- Closed: 20261004-095708
@@ -8073,6 +8441,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `generate` returns this call's faults and leaves the schema as it was, as in Rust.
 	- Branch: `cxxveneer`
 	- Test case: `veneer_smoke.cpp` covers the new surface. `check-veneer.bash` fails when the public half names C, when a consumer file can reach `shcl_parse`, or when a consumer and the implementation built apart do not link and run. Each was watched to fail. `check-readme.bash` builds the new C++ README example the same way and compares the file it saves.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - Make sure the benchmark comparisons in README.md are current
 	- ID: 2026100219565400
@@ -8091,6 +8461,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The "minimap" in the request was taken as a SilkTerm leftover. Nothing here has one.
 	- Branch: benchrerun
 	- Test case: check-docs `dcwgc` performance-numbers-match-results. It works out the ratios, places, gzip gap and schema sentence from the newest run and fails when a document does not match.
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261002-212153
 
 - Every closed backlog item gets a Test line
@@ -8109,6 +8480,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: every name in backticks on those lines exists in the repo.
 	- Branch: `windev`
 	- Test case: `check-docs.bash` `backlog-closed-items-name-a-test` (`dd72g`), which refuses a closed item with no Test line, legacy or new format. It finds 78 on the old backlog.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `set` says when it wrote the canonical form instead of keeping lines
 	- ID: 2026092620255217
@@ -8127,6 +8500,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `write_back` in all four CLIs says "rewritten in the canonical form; the lines could not be kept as they were" after a save meant to keep lines that did not.
 	- Branch: `setkeep`
 	- Test case: cli-regress `set-write-says-canonical` (`dd71c`). It fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `fmt` keeps the quotes on a number with a leading zero
 	- ID: 2026092621211801
@@ -8147,6 +8522,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `is_data_format` in all four no longer counts a number with a leading zero, so its quotes stay.
 	- Branch: `conv`
 	- Test case: corpus `172-leading-zero-quotes` (`dd5pd`). It fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `0o` and `0b` integer spellings
 	- ID: 2026092621211802
@@ -8165,6 +8542,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `radix_body` in the int parser and the wide float read, in all four.
 	- Branch: `conv`
 	- Test case: corpus `173-octal-binary` (`dd5ph`). It fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - Duration read
 	- ID: 2026092621211803
@@ -8192,6 +8571,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `read_duration` and `get_duration_or` in all four and the veneer, `get_duration` in Rust, Go and Python, `H005` in the parser, schema type `duration` with `unit`, `min` and `max`, and `get --duration` with `--unit`. Spec, design, man page, completions, changelog.
 	- Branch: `conv`
 	- Test case: corpus `176-durations-sizes` (`dd5s7`) and `177-schema-durations-sizes` (`dd5s8`), a `duration` row type in all four runners, crosscheck and sanitize-c, cli-regress `duration-*` and `unit-*` rows, veneer smoke checks. Each fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - Byte size read
 	- ID: 2026092621211804
@@ -8215,6 +8596,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `read_size` and `get_size_or` in all four and the veneer, `get_size` in Rust, Go and Python, schema type `size`, and `get --size` with `--unit` and `--decimal`. Shares the duration work.
 	- Branch: `conv`
 	- Test case: corpus `176-durations-sizes` (`dd5s7`) and `177-schema-durations-sizes` (`dd5s8`), a `size` row type in all four runners, cli-regress `size-*` rows. Each fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `\u` escapes, with invisible characters escaped on output
 	- ID: 2026092621211805
@@ -8241,6 +8624,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `174-unicode-escapes` (`dd5qb`) and five regenerated goldens in four cases, cli-regress `escape-unicode-*` rows, check-abnf samples, and check-migrate, which now reads a 2.x name the way the current CLI writes it. Each fails on the old code, except the `--from-2x` migrate row, which pins behavior that did not change.
 	- Progress log:
 		- 20260928: the hosted run found two things this left red: `strings.ContainsFunc` is newer than the Go floor (1.20), and two `escape-unicode` rows wrote their text with `\u`, which msys printf leaves as written under the windows runner's locale. `strings.IndexFunc` and raw UTF-8 bytes in the rows, on `windev`.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - A schema pointer in the config file
 	- ID: 2026092621211806
@@ -8263,6 +8648,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `schema_ref` and `SCHEMA_LINE_HEAD` in all four and the veneer, and `schema_for` in the four CLIs. Help, man page, spec, design, README.
 	- Branch: `conv`
 	- Test case: corpus `175-schema-line` (`dd5qr`) with a new `schema` read in all four runners, cli-regress `schema-line-*` rows. Each fails on the old code, except the `--schema` override row.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `migrate --write` keeps the original file beside the migrated one
 	- ID: 2026092709243678
@@ -8313,6 +8700,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint` (now `171-windows-path-escape`, `dd5en`), cli-regress `path-hint-*` rows (retired). The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+	- Acceptance signoff: signed off 20260926.
+	- Closed: 20260926-174804
 
 - A file stamped Format 3 during the beta is never migrated
 	- ID: 2026100115403385
@@ -8503,6 +8892,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `psargs`
 	- Commit: `a63bb9d6`
 	- Test case: shell-regress `ddgt6` (`shcl.ps1` dot-sourced, a typed helper, `& shcl.ps1`, a user's wrapper, piped input, a statement over two lines, the fallback, and Legacy mode) and `ddgt5` (`dogfood_shcl.ps1` called with `&`); win-runners `ddg6q` under 5.1 and 7.
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261005-151500
 
 - A crosscheck run aborted the Python CLI with exit 134 under load
@@ -8960,6 +9350,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: winfollow
 	- Commit: 50ceb521
 	- Test case: `save_writes_lf_bytes` (Python, ddaxv), a byte check of a create and an overwrite, in the hosted windows job.
+	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20260930-161101
 
 - A Schema line naming `/proc/self/pagemap` makes `check` read until memory runs out
@@ -9130,6 +9521,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: psfix
 	- Commit: c63a6ace
 	- Test case: none hosted. The list URL comes from the repo name, so a redirect needs an edited copy of the installer. The Verified line above is that run.
+	- Acceptance signoff: signed off 20260930.
+	- Closed: 20260930-143350
 
 - On Windows, the `_old_v2` copy may take the directory's ACL rather than the original's
 	- ID: 2026092815155546
@@ -9154,6 +9547,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: winbatch
 	- Commit: 5e1f1eaf
 	- Test case: cli-regress `windows-migrate-acl` (`ddaj0`), in the hosted windows job. It failed on dev in all four and passes with the fix.
+	- Acceptance signoff: signed off 20260930.
+	- Closed: 20260930-143350
 
 - The hosted ci job runs close to its 45-minute timeout
 	- ID: 2026093010155541
@@ -9191,6 +9586,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: `old_copy_name` in all four CLIs.
 	- Estimated effort: Low
 	- Actual fix: `name_start` starts the name after a drive, so the copy of `C:.shclrc` is `C:.shclrc_old_v2`. All four.
+	- Swept: `old_copy_name` in all four CLIs.
 	- Verified: Rust, Go and C under wine, with `Z:.shclrc`.
 	- Verified: on Windows 11, all four keep the copy of `C:.shclrc` as `C:.shclrc_old_v2`. Python before the fix wrote `C:_old_v2.shclrc`.
 	- Branch: schemaline
@@ -9239,6 +9635,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: schemaline
 	- Commit: 27d73efb
 	- Test case: cli-regress `schema-line-nul` (`dd83p`). C exits 6 on dev.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - `check` without `--schema` got about three times slower on large escaped files in C
@@ -9260,6 +9657,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: schemaline
 	- Commit: 27d73efb
 	- Test case: corpus 182 (`dd83j`) holds a quoted fence run that opens nothing and a value fence that opens a block. The time has no gate, as in item 5.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - The Schema line's directory is split at a backslash on Linux and macOS
@@ -9280,6 +9678,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: schemaline
 	- Commit: 27d73efb
 	- Test case: cli-regress `schema-line-backslash-name` (`dd83q`), which fails on dev.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
@@ -9300,6 +9699,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: oldcopy
 	- Commit: 4dbe70af
 	- Test case: cli-regress save case `migrate-setid` (`dd84h`) at 6755, which fails on dev for Go and Python.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - Go's `_old_v2` copy errors name the path twice
@@ -9321,6 +9721,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: oldcopy
 	- Commit: 4dbe70af
 	- Test case: cli-regress save case `migrate-rodir` (`dd84j`), which fails on dev for Go.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - `about --version` and `version --donate` are usage errors now
@@ -9348,6 +9749,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: infoflags2
 	- Commit: 74cc8fdd
 	- Test case: cli-regress `version-word-gone` (`dd850`), `about-word-gone` (`dd851`), `donate-word-gone` (`dd852`), `help-topic-version-word` (`dd855`), `info-flags-in-order` (`dd853`) and `info-about-covers-version` (`dd854`). Each fails on dev.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - Help leaves out `kB` and the `--duration` and `--size` refusals with `--array`
@@ -9367,6 +9769,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: infoflags2
 	- Commit: 74cc8fdd
 	- Test case: none new. cli-regress keeps the four helps identical and within 80 columns, and check-completions ties the completions to the CLI's tables.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - The dogfood runner's header still says stamps are UTC
@@ -9386,6 +9789,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: psfix
 	- Commit: c63a6ace
 	- Test case: none, a comment.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - One pool file with an impossible date stops the dogfood runner on every run
@@ -9405,6 +9809,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: psfix
 	- Commit: c63a6ace
 	- Test case: shell-regress `20260928-item16-dogfood-impossible-date` (`dd85m`), which fails on dev.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - The closed-items Test check borrows a Test line from an unrelated item
@@ -9426,6 +9831,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: gatefix
 	- Commit: 530f8deb
 	- Test case: shell-regress `20260928-item18-closed-items-test-parent` (`dd86e`), which lifts the check out of check-docs and runs it on a small backlog. It fails on dev.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - Gate status lines can say `ok` for a test that failed or did not run
@@ -9450,6 +9856,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: gatefix
 	- Commit: 530f8deb
 	- Test case: shell-regress `20260928-item19-skipped-block-names-its-tests` (`dd86p`) for the helper. The floors and skips were checked by hand, as above.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - `config.bash` says the hosted gate does not install makensis, but it does, unpinned
@@ -9469,6 +9876,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: gatefix
 	- Commit: 530f8deb
 	- Test case: none, comments.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - Style: three small leftovers in the range
@@ -9494,6 +9902,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: tidy21
 	- Commit: c6e40940
 	- Test case: none new. Comments and structure only; corpus `176-durations-sizes` and `177-schema-durations-sizes` and the crosscheck pin the behavior.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - The dogfood runner stamps builds in local time and the current culture
@@ -9518,6 +9927,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `ToString` and `ParseExact` in the runner.
 	- Branch: `dogfood`, reopened on `stamplocal`
 	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture` (`dd6yq`), under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-120852
 
 - A merge result depends on whether the lower layer writes a list stacked or inline
 	- ID: 2026092620255204
@@ -9541,6 +9952,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the flag is read only by `stacks()` and the parser. The merge's clone of an unmatched node copies the higher layer's own flag, which that layer's reload keeps.
 	- Branch: `stackmerge`
 	- Test case: corpus `179-merge-stacked-spelling` (`dd6xs`). It fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `banner on` adds a second info block when the old one sits under the first field
 	- ID: 2026092620255205
@@ -9565,6 +9978,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the rule is stated only in the four doc comments. The spec, man page and README do not give it.
 	- Branch: `stackmerge`
 	- Test case: corpus `180-banner-first-child` (`dd6y1`) pins that the block stays and a new one goes at the end.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - C `shcl_compact` turns earlier generation faults into ordinary diagnostics
 	- ID: 2026092620255206
@@ -9584,6 +9999,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: compaction is C only.
 	- Branch: `compact`
 	- Test case: C runner `compact_keeps_generation_faults` (`dd6xj`). It fails on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - C++ `const` reads on one document race each other
 	- ID: 2026092620255207
@@ -9606,6 +10023,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every const member and every free function taking a `const Document &`.
 	- Branch: `cxxlock`
 	- Test case: `check-veneer.bash` `const-reads-share-across-threads` (`dd75a`), two threads of mixed const reads under ThreadSanitizer. It fails on the old header.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
 	- ID: 2026092620255208
@@ -9627,6 +10046,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: hosted windows job on `windev`, all four CLIs.
 	- Branch: `windev`
 	- Test case: cli-regress `windows-volume-path-create` (`dd71r`), which runs on windows only.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
 	- ID: 2026092620255209
@@ -9649,6 +10070,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the version parse in all four; `migrate` goes through the same helper.
 	- Branch: `fmtver`
 	- Test case: `format_version_caps_at_32_bits` (`dd6yh`, `dd6yk`, `dd6ym`) in all four runners. The Go and Python ones fail on the old code.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - Man page and README lag three changes
 	- ID: 2026092620255210
@@ -9669,6 +10092,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: help text, spec and design.md already said the same.
 	- Branch: `fmtver`
 	- Test case: none. Prose, checked against the spec by reading.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - The drop-ins tarball's file modes follow the checkout's umask
 	- ID: 2026092620255212
@@ -9688,6 +10113,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: `package.bash` already sets its payload's modes outright.
 	- Branch: `tarmode`
 	- Test case: `shell-regress.bash` row `20260829-26-dropins-tarball-reproducible` (`dd5hf`) now takes the second copy's group and other bits away. It fails on the old tar line.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - The pre-push green-tree skip passes over the main-push installer check
 	- ID: 2026092620255213
@@ -9707,6 +10134,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the installer check is the only one that reads refs; `green-tree.bash`'s header says the hook makes it.
 	- Branch: `tarmode`
 	- Test case: `check-push-gate.bash` row "a recorded tree whose installers differ from dev is gated on main" (`dd6zd`). It fails on the old hook.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `conformance.c` does not build at `-Os` with the gate's warnings
 	- ID: 2026092620255214
@@ -9726,6 +10155,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `char` buffer given to `snprintf` in the C tests builds at all five levels on gcc 12 to 15 and clang 19.
 	- Branch: `compact`
 	- Test case: `check-c-compilers.bash` now builds `conformance.c` and `mem_bounds.c` at every `-O` level (`dc0dd`, `dc25g`). It fails with the old buffer.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - shell-regress's sourced wrapper mode runs `shcl.bash` as a script
 	- ID: 2026092917233341
@@ -10013,6 +10444,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 216,000 lines, one edit, release build: 0.44 s before, 0.35 s after.
 	- Branch: `setkeep`
 	- Test case: none of its own. The cli-regress keep rows and the fallback refusal rows cover the write and the refusal, and perf-gate's `keeps` row the time.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `perf-gate`'s Python `keeps` row runs close to its budget
 	- ID: 2026092620255219
@@ -10030,6 +10463,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: a quadratic loop injected into Python's keep save still fails the row.
 	- Branch: `setkeep`
 	- Test case: perf-gate `keeps` (`dd3w8`) itself.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `cli-regress` rows have no timeout
 	- ID: 2026092620255220
@@ -10047,6 +10482,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: a stub CLI that sleeps, with the limit at 1 s, times out row by row by name.
 	- Branch: `setkeep`
 	- Test case: none standing, since a row that must hang costs the full limit on every run.
+	- Acceptance signoff: signed off 20260928.
+	- Closed: 20260928-100140
 
 - `"C:\temp"` loads with a tab and only a hint says so
 	- ID: 2026100115323227
@@ -10158,6 +10595,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: gatefix
 	- Commit: 530f8deb
 	- Test case: shell-regress `20260928-idea6-test-ids-strays` (`dd86w`), a fake tree with three misplaced tests. It fails on dev.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - The drop-ins tarball mode row passes on a checkout made under umask 077
@@ -10172,6 +10610,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: gatefix
 	- Commit: 530f8deb
 	- Test case: shell-regress `20260829-26-dropins-tarball-reproducible` (`dd5hf`). With `--mode` taken off the tar line it fails on the modes.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - The dropped-line bookkeeping has an arm that cannot run
@@ -10188,6 +10627,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: tidy21
 	- Commit: c6e40940
 	- Test case: none new, since no input reaches the removed code. The keep-dropped cli-regress rows, the Rust fuzz and the shared fixtures pass unchanged.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - Escape more invisible characters on output
@@ -10216,6 +10656,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `183-invisible-escapes` (`dd8eg`), cli-regress `escape-ignorable-fmt` (`dd8ek`), `escape-tags-fmt` (`dd8em`), `escape-tags-set` (`dd8en`), `escape-selector-run` (`dd8er`) (each fails on dev) and `escape-flag-kept` (`dd8ep`), `escape-selector-kept` (`dd8eq`) (unchanged behavior), seven check-abnf `fmt-bareword` samples (five fail on the old grammar), and check-docs `escape-tables-match` (`dd8es`), seen red on a changed Go table. The fuzz alphabet gained a selector, a black flag and two tags.
 	- Swept: every `invisible` call site in the four bindings (the two quoting checks and the name and value escape loops each), `QuoteSegment` and `diag_name` through `escape_name`, the grammar's bare class, check-migrate's copy, the C++ veneer (no copy), and the bash and PowerShell wrappers (no copy).
 	- Verified: the four conformance suites, cargo test, go test per module, crosscheck with a fuzz dump, cli-regress, shell-regress, check-migrate, check-abnf, check-docs, check-veneer, perf-gate, test-ids check, the fuzz at 2,000,000 in release, clippy, go vet, staticcheck, cppcheck, ruff, mypy, shellcheck and markdownlint. Random selector and tag text through all four CLIs gave the same output and a fixpoint.
+	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
 
 - A schema `min` and `max` could take the unit from the field name
@@ -12750,7 +13191,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fixed: the audit-scratch exclude's comment and its history line no longer name the tool or say how it runs. The `-x*/panoplia/working/audit-*` pattern stays, since it is what keeps those trees out of the archive. Same block patched in the canonical copy and all 20 project copies; slodworld2's comment had its own wording and was replaced too.
 		- The other half (the two template-credit lines in `code_of_conduct.md` and `contributing.md`) was not in this branch's scope.
 		- Fixed: the generator credit lines are gone. The Contributor Covenant attribution stays.
-		- Pinned by: none checked in, on purpose. A repo check for template or generator wording is a tell-scanner. The pattern belongs in the private scrub script.
+		- Pinned by: none checked in, on purpose. The content scrub covers it.
 		- Note: the item stays open for its `n8git_backup-and-publish` half.
 		- Test case: None, repo hygiene with no behavior to run.
 		- Opened: 20260918-193000
@@ -20154,11 +20595,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
 
-	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on UAT means automated testing passed and a person has to accept it (user acceptance testing). Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting for a full CICD run means all that's left is a full `cicd.bash` run with no flags, which either of us can start. Waiting on automated testing means the fix is in and waits on testing the next round runs and reads itself, such as an outside test host or a run stopped partway. Can't reproduce means a real attempt to reproduce it failed.
+	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on UAT means automated testing passed and a person has to accept it (user acceptance testing). Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting for a full CICD run means all that's left is a full `cicd.bash` run with no flags, which either of us can start. Waiting for a partial CICD run means all that's left is some stages of it, such as a `--quick` run, which either of us can start. Waiting on automated testing means the fix is in and waits on testing the next round runs and reads itself, such as an outside test host or a run stopped partway. Can't reproduce means a real attempt to reproduce it failed.
 		- An item with nothing left for a person to judge skips Waiting on UAT and goes straight to Done. `Clean up the backlog` in the directives says when.
 
 	- As issues are worked, and statuses change, place them in correct sorting order within the list:
-		- First by status: Waiting for answers, Waiting on UAT, Waiting for a full CICD run, Testing, Waiting on automated testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
+		- First by status: Waiting for answers, Waiting on UAT, Waiting for a full CICD run, Waiting for a partial CICD run, Testing, Waiting on automated testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
 		- Then by severity|priority: Critical, High, Avg, Low
 		- Then by type: Bugs, [not bugs together]
 
@@ -20169,7 +20610,7 @@ Template:
 - Title
 	- ID: YYYYmmDDHHMMSSNN
 	- Type: [Bug|Feature|Enhancement|Task]
-	- Status: [Queued|Waiting for answers|Waiting on UAT|Waiting for a full CICD run|Waiting on automated testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
+	- Status: [Queued|Waiting for answers|Waiting on UAT|Waiting for a full CICD run|Waiting for a partial CICD run|Waiting on automated testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
 	- Needs local test suite run?:
 	- Needs external testing:
 	- Priority [Feature|Enhancement] | Severity [Bug]: [Critical|High|Avg|Low]
