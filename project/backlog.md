@@ -33,6 +33,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
+	- ID: 2026110119584589
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261101-195845
+	- Opened by:
+	- Progress log:
+		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever the tail holds.
+
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
