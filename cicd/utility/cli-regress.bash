@@ -2276,7 +2276,7 @@ for b in "${bindings[@]}"; do
 	"${cli}" --about >"${tmpDir}/a" 2>/dev/null </dev/null || true
 	nRun+=1
 	if [[ "${rc}" != 0 || -s "${tmpDir}/err" ]] \
-		|| [[ "$(wc -l <"${tmpDir}/v")" != 2 ]] \
+		|| [[ "$(wc -l <"${tmpDir}/v" | tr -d ' ')" != 2 ]] \
 		|| ! sed -n 1p "${tmpDir}/v" | grep -Eq '^shcl v[0-9][^ ]*( build [0-9a-z]+( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?)?$' \
 		|| [[ "$(sed -n 2p "${tmpDir}/v")" != "Copyright © "* ]] \
 		|| [[ "$(sed -n 2,3p "${tmpDir}/a")" != "$(cat "${tmpDir}/v")" ]]; then
@@ -3307,3 +3307,4 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-10-10  2.x escape forms (\n, \t, two backslashes) fail in the help,
 ##		            the code texts, the man page and every row's output.
 ##		2026-11-01  --version is the version line, then the copyright line.
+##		2026-11-01  version-then-copyright counts lines on BSD wc, which pads.

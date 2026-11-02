@@ -46,9 +46,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `--backlog-run-full`, for the release stage's stamp and check-win-release `de7an` comparing the 2-line output under wine.
-	- Needs external testing: hosted ci.yml, the `setup-test` job for check-win-setup `de7c3`, and the `windows` job.
+	- Status: Waiting on UAT
+		- Only the hand test below is left.
 	- Needs hand testing: on Windows PowerShell 5.1, a look at install.ps1's receipt line, whether the copyright line reads right.
 	- Priority: Avg
 	- Opened: 20261024-162500
@@ -66,6 +65,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: the 4 CLIs give identical `--version`, `--about` and `--version --donate` bytes. A stamped Rust build printed `shcl v2.0.0 build hjkmn (2035-01-19)` and the copyright line. After a `--backlog-run-quick`, the debug CLI it built in the image printed `build der0h (2026-11-01)`.
 		- Verified: crosscheck passed with a stamped Rust as the reference (22944 compares), and HEAD's crosscheck failed it on `--about`. cli-regress `der1c` failed on HEAD's Python CLI and passed on all 4 and the stamped build.
 		- Verified: shell-regress `debjb`, `der1d` and `der1e` failed against HEAD's cicd.bash and release-table.bash and pass now. Plus the whole shell-regress, check-push-gate, cli-regress, check-docs, `test-ids.py check`, cargo fmt, clippy and test, go vet and test, ruff, shellcheck, markdownlint-cli2, lint-report and `--backlog-run-quick`.
+		- 20261101: the round's `--backlog-run-full` passed steps 1 to 7, the release stage and check-win-release `de7an` and `de7ap` included, and hosted ci.yml 41376506469 passed every job, `setup-test` and `windows` included. Step 8 failed on vmFreeBSD's cli suite, 3 of 2871 checks: `der1c` read the line count from `wc -l`, which BSD pads with spaces, so it failed for the rust, go and c CLIs there. It strips the spaces now.
+		- Verified: cli-regress under a `wc` that pads like BSD's failed `der1c` for all 3 CLIs before the fix and passed after. vmFreeBSD's box suites (rust, go, c and cli) passed through check-boxes, `demxp` included.
 	- Decisions:
 		- The one released CLI stays Rust (JC, 20261101). Go's stripped build was 2.3 times the size of Rust's, used about 1.5 times the CPU and 40% more memory on the profiler workload, and Rust is the reference the other bindings mirror.
 		- me: cicd.bash stamps every build at run start, after the sync, and hands the stamp to the image and the frozen copy. It is dated, except a cut's release builds (a version with no tag yet), which stage 6 builds undated. The debug build of a cut stays dated, since it isn't a release.
@@ -76,6 +77,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: check-win-setup compares only the version line, since powershell.exe can pass the copyright line's non-ASCII through the console code page. install.ps1 is unchanged: its smoke reads the exit code, and its receipt prints both lines.
 		- Dated 20261101: shell-regress `debjb` now also checks that a cut clears a run's date, so its expected text went from `untagged= tagged=1` to `untagged= cut= tagged=1`.
 	- Swept: every `--version` reader: check-win-release (whole output, both builds stamped alike), check-win-setup (now the first line), install.ps1 and install.bash smokes (exit code only), ci.yml's windows print, cli-regress `dd5h3`, `dd853`, `dd854`. Every `SHCL_BUILD` reader: build.rs, the C and Go hooks, the release stage, shell-regress `dd2fp`. The other 3 CLIs' version and about code.
+		- `wc` counts compared as text in the scripts a box runs: cli-regress' other sites already strip the spaces or compare in arithmetic, and box-suites.bash has none.
 	- Branch: `r1101`
 	- Commit: `0bdc2529`
 	- Test case: cli-regress `der1c`, shell-regress `der1d`, `der1e` and `debjb`, crosscheck `d9tsx` (usage, now with `--version`).
