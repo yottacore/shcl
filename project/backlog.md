@@ -36,9 +36,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
-	- Status: Waiting on UAT
-		- Only the hand test below is left.
-	- Needs hand testing: on Windows PowerShell 5.1, a look at install.ps1's receipt line, whether the copyright line reads right.
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -57,6 +55,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: shell-regress `debjb`, `der1d` and `der1e` failed against HEAD's cicd.bash and release-table.bash and pass now. Plus the whole shell-regress, check-push-gate, cli-regress, check-docs, `test-ids.py check`, cargo fmt, clippy and test, go vet and test, ruff, shellcheck, markdownlint-cli2, lint-report and `--backlog-run-quick`.
 		- 20261101: the round's `--backlog-run-full` passed steps 1 to 7, the release stage and check-win-release `de7an` and `de7ap` included, and hosted ci.yml 41376506469 passed every job, `setup-test` and `windows` included. Step 8 failed on vmFreeBSD's cli suite, 3 of 2871 checks: `der1c` read the line count from `wc -l`, which BSD pads with spaces, so it failed for the rust, go and c CLIs there. It strips the spaces now.
 		- Verified: cli-regress under a `wc` that pads like BSD's failed `der1c` for all 3 CLIs before the fix and passed after. vmFreeBSD's box suites (rust, go, c and cli) passed through check-boxes, `demxp` included.
+		- 20261102: on b29w, Windows PowerShell 5.1 and pwsh 7 both decoded the receipt's copyright line with the console's 437 code page, so the sign and the ID came out as box-drawing junk. install.ps1's smoke now reads shcl's output as UTF-8 and puts the caller's console encoding back after.
+		- Verified: on b29w, under 5.1 and 7, a fresh console showing install.ps1's own smoke and receipt with the round's stamped windows build (`der59`) holds both lines exactly as the build prints them, and the console is still on 437 after. HEAD's install.ps1 showed the junk there.
+		- Verified: shell-regress `des49` failed on HEAD's install.ps1 and passes now. Plus the whole shell-regress, check-docs, `test-ids.py check`, shellcheck and PSScriptAnalyzer.
 	- Decisions:
 		- The one released CLI stays Rust (JC, 20261101). Go's stripped build was 2.3 times the size of Rust's, used about 1.5 times the CPU and 40% more memory on the profiler workload, and Rust is the reference the other bindings mirror.
 		- me: cicd.bash stamps every build at run start, after the sync, and hands the stamp to the image and the frozen copy. It is dated, except a cut's release builds (a version with no tag yet), which stage 6 builds undated. The debug build of a cut stays dated, since it isn't a release.
@@ -65,12 +66,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me: crosscheck takes only the build number and date off the version line, not the whole line, so a binding that missed a version bump still diverges. This departs from "leaves the version line out" but meets its intent.
 		- me: the release notes get the line from `release-table.bash --version-of BIN`, which opens the notes with BIN's two lines and fails on a dated build or another version. The cut recipe in the private notes needs to call it.
 		- me: check-win-setup compares only the version line, since powershell.exe can pass the copyright line's non-ASCII through the console code page. install.ps1 is unchanged: its smoke reads the exit code, and its receipt prints both lines.
+		- me, 20261102: the hand test found that receipt garbled, so install.ps1's smoke now sets the console's output encoding to UTF-8 for the one call and restores it. The printed text depends on the console font, which the box check can't judge; the console holds the right characters.
 		- Dated 20261101: shell-regress `debjb` now also checks that a cut clears a run's date, so its expected text went from `untagged= tagged=1` to `untagged= cut= tagged=1`.
 	- Swept: every `--version` reader: check-win-release (whole output, both builds stamped alike), check-win-setup (now the first line), install.ps1 and install.bash smokes (exit code only), ci.yml's windows print, cli-regress `dd5h3`, `dd853`, `dd854`. Every `SHCL_BUILD` reader: build.rs, the C and Go hooks, the release stage, shell-regress `dd2fp`. The other 3 CLIs' version and about code.
 		- `wc` counts compared as text in the scripts a box runs: cli-regress' other sites already strip the spaces or compare in arithmetic, and box-suites.bash has none.
-	- Branch: `r1101`
+	- Branch: `r1101`, `r1102`
 	- Commit: `0bdc2529`
-	- Test case: cli-regress `der1c`, shell-regress `der1d`, `der1e` and `debjb`, crosscheck `d9tsx` (usage, now with `--version`).
+	- Test case: cli-regress `der1c`, shell-regress `der1d`, `der1e`, `debjb` and `des49`, crosscheck `d9tsx` (usage, now with `--version`).
+	- Acceptance signoff: Self-closed: the receipt in a 5.1 console on b29w holds the build's exact two lines.
+	- Closed: 20261102-102209
 
 - CICD reset: CICD process gaps
 	- ID: 2026102416250120
