@@ -2,10 +2,10 @@
 
 ##	Purpose:
 ##		Build installable packages from the versioned release artifacts:
-##		.deb + .rpm via nfpm (x86_64 and arm64, whichever binaries exist) and an
-##		NSIS setup .exe per Windows binary. Payload mirrors install.bash: binary,
+##		.deb + .rpm via nfpm (x86_64 and arm64, whichever binaries exist), a
+##		FreeBSD .pkg, and an NSIS setup .exe per Windows binary. Payload mirrors install.bash: binary,
 ##		code/ drop-ins (lib.rs, shcl.go, shcl.py, shcl.h, shcl.hpp), and for the
-##		Linux packages only the man/ page and completions/ for bash and zsh. Packages go beside the raw
+##		Linux and FreeBSD packages only the man/ page and completions/ for bash and zsh. Packages go beside the raw
 ##		binaries in the artifact dir, named into the same shcl-<version>-* family
 ##		so the engine's sha256sums rewrite picks them up. Two builds of one
 ##		commit give the same bytes (mtimes and build metadata are pinned to the
@@ -142,12 +142,14 @@ fCheckDeps(){
 ## Linux: .deb + .rpm per arch with a binary present. nfpm arch names are
 ## GOARCH-style; the artifact names use the uname-style spelling. The config
 ## template is sed-rendered per build (nfpm won't expand env vars in src paths).
-if command -v nfpm >/dev/null 2>&1; then
-	## The man page and the shell completions have a home only on Linux, so they
-	## join the payload here and never reach the Windows setup. Both package
-	## formats want the man page compressed; -n keeps the timestamp and the
-	## original name out of the gzip header, so the same source gives the same
-	## bytes on every build.
+## The man page and the shell completions have a home only on Linux and
+## FreeBSD, so they join the payload once, for the first of those packages,
+## and never reach the Windows setup. Every format wants the man page
+## compressed; -n keeps the timestamp and the original name out of the gzip
+## header, so the same source gives the same bytes on every build.
+unixDocs=0
+fStageUnixDocs(){
+	((unixDocs)) && return 0
 	mkdir -p "${payload}/man" "${payload}/completions" "${payload}/doc"
 	gzip -9 -n -c "${root}/source/man/shcl.1" > "${payload}/man/shcl.1.gz"
 	cp "${root}/source/completions/shcl.bash" "${root}/source/completions/_shcl" "${payload}/completions/"
@@ -155,6 +157,11 @@ if command -v nfpm >/dev/null 2>&1; then
 	gzip -9 -n -c "${root}/changelog.md" > "${payload}/doc/changelog.gz"
 	chmod 644 "${payload}/man/shcl.1.gz" "${payload}"/completions/* "${payload}"/doc/*
 	fPinMtime "${payload}/man" "${payload}/man/shcl.1.gz" "${payload}/completions" "${payload}"/completions/* "${payload}/doc" "${payload}"/doc/*
+	unixDocs=1
+}
+
+if command -v nfpm >/dev/null 2>&1; then
+	fStageUnixDocs
 	for pair in "x86_64|amd64" "arm64|arm64"; do
 		osarch="${pair%%|*}"; goarch="${pair#*|}"
 		bin="${artDir}/shcl-${ver}-linux-${osarch}"
@@ -187,6 +194,75 @@ if command -v nfpm >/dev/null 2>&1; then
 	done
 else
 	fWarn "nfpm not installed; .deb/.rpm skipped"
+fi
+
+##	FreeBSD's pkg format is a tar of +COMPACT_MANIFEST, then +MANIFEST, then
+##	the files at their installed paths, and no packager on Linux writes one.
+##	The ABI and FreeBSD_version name the floor install.bash checks, 14.
+##	pkg takes no hyphen in a version, so a prerelease tail joins with a dot,
+##	the way ports spell one.
+fbAbi='FreeBSD:*:amd64'; fbArch='freebsd:*:x86:64'; fbOsVersion=1400000
+fFreebsdPkg(){   ## fFreebsdPkg BIN OUT
+	local bin="$1" out="$2" stage="${pkgTmp}/freebsd" pre=/usr/local flat=0 files='' size sum path meta
+	mkdir -p "${stage}${pre}/bin" "${stage}${pre}/share/shcl/code" "${stage}${pre}/share/man/man1" "${stage}${pre}/share/doc/shcl" \
+		"${stage}${pre}/share/bash-completion/completions" "${stage}${pre}/share/zsh/site-functions"
+	cp "${bin}" "${stage}${pre}/bin/shcl"
+	cp "${payload}"/code/* "${stage}${pre}/share/shcl/code/"
+	cp "${payload}/man/shcl.1.gz" "${stage}${pre}/share/man/man1/"
+	cp "${payload}/doc/copyright" "${payload}/doc/changelog.gz" "${stage}${pre}/share/doc/shcl/"
+	cp "${payload}/completions/shcl.bash" "${stage}${pre}/share/bash-completion/completions/shcl"
+	cp "${payload}/completions/_shcl" "${stage}${pre}/share/zsh/site-functions/_shcl"
+	## Modes set outright, so a checkout under umask 077 gives the same package.
+	find "${stage}" -type f -exec chmod 644 {} +; chmod 755 "${stage}${pre}/bin/shcl"
+	find "${stage}" -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
+	(cd "${stage}" && find . -type f | LC_ALL=C sort | sed 's|^\.||') > "${pkgTmp}/fb.list"
+	while read -r size sum path; do
+		flat=$((flat + size))
+		files+="${files:+,}\"${path}\":\"1\$${sum}\""
+	done < <(cd "${stage}" && paste -d' ' <(sed 's|^|.|' "${pkgTmp}/fb.list" | xargs stat -c %s --) \
+		<(sed 's|^|.|' "${pkgTmp}/fb.list" | xargs sha256sum -- | sed 's|  \./| /|'))
+	meta="{\"name\":\"shcl\",\"origin\":\"textproc/shcl\",\"version\":\"${ver//[-+]/.}\""
+	meta+=",\"comment\":\"Simple Hierarchical Config Language\",\"maintainer\":\"32471972+jim-collier@users.noreply.github.com\""
+	meta+=",\"www\":\"https://github.com/yottacore/shcl\",\"abi\":\"${fbAbi}\",\"arch\":\"${fbArch}\",\"prefix\":\"${pre}\""
+	meta+=",\"flatsize\":${flat},\"licenselogic\":\"single\",\"licenses\":[\"MIT\"]"
+	meta+=",\"desc\":\"Reference parser, accessor, writer, and CLI for SHCL, with drop-in\\nlanguage bindings (Rust, Go, Python, C/C++).\""
+	meta+=",\"categories\":[\"textproc\"],\"annotations\":{\"FreeBSD_version\":\"${fbOsVersion}\"}"
+	printf '%s}' "${meta}" > "${stage}/+COMPACT_MANIFEST"
+	printf '%s,"files":{%s}}' "${meta}" "${files}" > "${stage}/+MANIFEST"
+	touch -d "@${SOURCE_DATE_EPOCH}" "${stage}/+COMPACT_MANIFEST" "${stage}/+MANIFEST"
+	chmod 644 "${stage}/+COMPACT_MANIFEST" "${stage}/+MANIFEST"
+	## -P and the transform give the files their leading slash, as pkg's own do.
+	{ printf '%s\n' +COMPACT_MANIFEST +MANIFEST; sed 's|^/||' "${pkgTmp}/fb.list"; } \
+		| tar -C "${stage}" -P --transform 's|^usr/|/usr/|' --no-recursion --format=ustar \
+			--owner=root:0 --group=wheel:0 --mtime="@${SOURCE_DATE_EPOCH}" -cf - -T - \
+		| xz -6 -T1 -c > "${out}"
+}
+
+##	What pkg reads first has to come first, and the files +MANIFEST lists,
+##	with their sums, have to be the ones in the archive.
+fCheckFreebsdPkg(){   ## fCheckFreebsdPkg PKG
+	local p="$1" listing manifest want got
+	listing="$(xz -dc "${p}" | tar -P -tf -)"
+	[[ "$(head -n 2 <<<"${listing}")" == $'+COMPACT_MANIFEST\n+MANIFEST' ]] || fDie "$(basename "${p}"): the manifests are not first"
+	grep -qx '/usr/local/bin/shcl' <<<"${listing}" || fDie "$(basename "${p}"): no /usr/local/bin/shcl"
+	manifest="$(xz -dc "${p}" | tar -P -xOf - +MANIFEST)"
+	want="$({ grep -o '"/usr/local/[^"]*":"1\$[0-9a-f]\{64\}"' <<<"${manifest}" || true; } | sed 's|^"\([^"]*\)":"1\$\(.*\)"$|\2  \1|' | LC_ALL=C sort -k2)"
+	[[ -n "${want}" ]] || fDie "$(basename "${p}"): +MANIFEST lists no files"
+	got="$(xz -dc "${p}" | tar -P -xOf - '/usr/local/bin/shcl' | sha256sum | cut -d' ' -f1)"
+	grep -qx "${got}  /usr/local/bin/shcl" <<<"${want}" || fDie "$(basename "${p}"): the binary's sum is not the one +MANIFEST gives"
+	[[ "$(cut -d' ' -f3 <<<"${want}")" == "$(sed -n '3,$p' <<<"${listing}" | LC_ALL=C sort)" ]] \
+		|| fDie "$(basename "${p}"): +MANIFEST and the archive list other files"
+}
+
+bin="${artDir}/shcl-${ver}-freebsd-x86_64"
+if [[ -f "${bin}" ]]; then
+	fStageUnixDocs
+	fPinMtime "${bin}"
+	out="${bin}.pkg"
+	fFreebsdPkg "${bin}" "${out}"
+	fCheckFreebsdPkg "${out}"
+	fEcho "OK: package: $(basename "${out}") ($(du -h --apparent-size "${out}" | cut -f1))"
+	built=$((built + 1))
 fi
 
 ## The setup's uninstaller removes the payload by name, one NSIS Delete line
@@ -238,3 +314,4 @@ fi
 ##		- 2026-09-02: Dependencies read off the binary, Debian copyright and changelog
 ##		  files, and a check of both against every package built.
 ##		- 2026-10-08: The shell wrappers are retired; no scripts/ in any payload.
+##		- 2026-11-01: A FreeBSD .pkg, written here, with its read-back.

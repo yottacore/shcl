@@ -317,9 +317,13 @@ an error, 8 a file or stream could not be read or written.
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
 // concatenates from the const above so it cannot drift from `shcl --version`.
-var about = versionLine + `
-Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
-Project: https://github.com/yottacore/shcl
+// copyrightLine is the second line of --version and --about.
+const copyrightLine = "Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]."
+
+// versionText is what --version prints, and what --about opens with.
+var versionText = versionLine + "\n" + copyrightLine + "\n"
+
+var about = versionText + `Project: https://github.com/yottacore/shcl
 Licensed under the MIT License. Full text at:
   https://spdx.org/licenses/MIT.html
 No warranty.
@@ -3652,8 +3656,8 @@ func run() int {
 	}
 	// One convention: each output asked for prints once, in the order asked,
 	// and the run succeeds. Blank lines go before, between and after, to set
-	// the text off from the prompts around it. A lone version line is one line
-	// a script reads, so it goes out bare.
+	// the text off from the prompts around it. A lone `--version` is what a
+	// script reads, so it goes out bare.
 	if len(asked) > 0 {
 		var blocks []string
 		for _, want := range asked {
@@ -3669,7 +3673,7 @@ func run() int {
 					blocks = append(blocks, helpFor(topic))
 				}
 			case "version":
-				blocks = append(blocks, versionLine+"\n")
+				blocks = append(blocks, versionText)
 			case "about":
 				blocks = append(blocks, about)
 			default:
@@ -3677,7 +3681,7 @@ func run() int {
 			}
 		}
 		if len(asked) == 1 && asked[0] == "version" {
-			outf("%s\n", versionLine)
+			outf("%s", versionText)
 		} else {
 			outf("\n%s\n", strings.Join(blocks, "\n"))
 		}

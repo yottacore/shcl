@@ -22,6 +22,7 @@ The latest release, `v2.0.0`, has packages, prebuilt CLI binaries, and a checksu
 - [Packages and installers](#packages-and-installers)
 	- [Debian](#debian)
 	- [Fedora, RHEL, openSUSE](#fedora-rhel-opensuse)
+	- [FreeBSD](#freebsd)
 	- [Windows setup](#windows-setup)
 - [Install scripts, stable or dev](#install-scripts-stable-or-dev)
 	- [Linux, macOS, WSL and FreeBSD](#linux-macos-wsl-and-freebsd)
@@ -67,7 +68,7 @@ For version pinning and the dependency line per ecosystem, see [Example use-case
 
 ## Packages and installers
 
-The simplest route, if your system has a package manager. Download the `.deb`, `.rpm`, or Windows setup for your architecture (`x86_64` or `arm64`) from the releases page.
+The simplest route, if your system has a package manager. Download the `.deb`, `.rpm`, or Windows setup for your architecture (`x86_64` or `arm64`), or the FreeBSD `.pkg` (`x86_64` only), from the releases page.
 
 Packages put the binary at `/usr/bin/shcl`, and the drop-in sources under `/usr/share/shcl/`. They also install the man page and the bash and zsh completions where each shell already looks, so `man shcl` and tab completion work with nothing to configure.
 
@@ -81,6 +82,14 @@ sudo dpkg -i shcl-2.0.0-linux-x86_64.deb
 
 ~~~sh
 sudo rpm -i shcl-2.0.0-linux-x86_64.rpm
+~~~
+
+### FreeBSD
+
+FreeBSD 14 or newer, run as root. The package puts everything under `/usr/local` rather than `/usr`, as FreeBSD packages do. The first release to have it is 3.0.0-beta1.
+
+~~~sh
+pkg add shcl-3.0.0-beta1-freebsd-x86_64.pkg
 ~~~
 
 ### Windows setup

@@ -90,9 +90,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A save over the file a load read refuses, and writes nothing, when another program changed that file since: Rust `SaveError::Changed`, Go `*SaveChanged`, Python `SaveChanged`, C `SHCL_SAVE_CHANGED` and C++ `SaveResult::Changed`. A save records what it wrote, so the next one is checked against that. Rust's saves take `&mut self`, and the C++ veneer's are not `const`. `force` in the save options writes anyway.
 
-- `shcl --version` prints `shcl v3.0.0`, plus a build number on a release binary. The words `version`, `about` and `donate` are gone: use `--version`, `--about` and `--donate`. Several of them in one run each print once, in order.
+- `shcl --version` prints `shcl v3.0.0` and its build number, then the copyright line. The words `version`, `about` and `donate` are gone: use `--version`, `--about` and `--donate`. Several of them in one run each print once, in order.
 
-- A dev build from the pipeline prints its date after the build number, in your own time zone, as in `shcl v3.0.0 build dd2f6 (2026-10-23)`. A release leaves the date off.
+- A build from the pipeline that isn't a release prints its date after the build number, in your own time zone, as in `shcl v3.0.0 build dd2f6 (2026-10-23)`. A release leaves the date off.
 
 - `shcl set` writes back the lines its edits leave alone, printing or with `--write`, where it wrote the canonical form. `shcl fmt` still writes the canonical form.
 
@@ -111,6 +111,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A prebuilt macOS binary, one universal file for Intel and Apple silicon, for macOS 13 and later. `install.bash` installs it.
 
 - A prebuilt FreeBSD x86_64 binary. `install.bash` installs it, and names a release that has no binary for the platform it runs on.
+
+- A FreeBSD package, `shcl-<version>-freebsd-x86_64.pkg`, for FreeBSD 14 and later. `pkg add` installs it under `/usr/local`, with the man page and the bash and zsh completions.
 
 - `parse_keep_lines()`, `load_file_keep_lines()`, `to_text_keep_lines()` and `save_file_keep_lines()` in every binding save a file with the lines no edit touched left as they were, dropped lines included, and fall back to the canonical form when that would not load back the same.
 

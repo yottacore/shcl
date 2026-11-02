@@ -302,7 +302,7 @@ an error, 8 a file or stream could not be read or written.
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
 // interpolates from the crate so it cannot drift from Cargo.toml, and the build
-// number is empty unless the pipeline stamped one (build.rs).
+// number is empty for a build outside the pipeline (build.rs).
 const VERSION_LINE: &str = concat!(
 	"shcl v",
 	env!("CARGO_PKG_VERSION"),
@@ -459,8 +459,15 @@ fn local_civil(epoch: i64) -> (i64, u32, u32) {
 	civil_from_days(epoch.div_euclid(86_400))
 }
 
-const ABOUT_BODY: &str = "
-Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
+// The second line of `--version` and `--about`.
+const COPYRIGHT_LINE: &str = "Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].";
+
+// What `--version` prints, and what `--about` opens with.
+fn version_text() -> String {
+	format!("{}\n{COPYRIGHT_LINE}\n", version_line())
+}
+
+const ABOUT_BODY: &str = "\
 Project: https://github.com/yottacore/shcl
 Licensed under the MIT License. Full text at:
   https://spdx.org/licenses/MIT.html
@@ -3844,8 +3851,8 @@ fn run_cli() -> u8 {
 	}
 	// One convention: each output asked for prints once, in the order asked,
 	// and the run succeeds. Blank lines go before, between and after, to set
-	// the text off from the prompts around it. A lone version line is one line
-	// a script reads, so it goes out bare.
+	// the text off from the prompts around it. A lone `--version` is what a
+	// script reads, so it goes out bare.
 	if !asked.is_empty() {
 		let mut blocks: Vec<String> = Vec::new();
 		for want in &asked {
@@ -3855,13 +3862,13 @@ fn run_cli() -> u8 {
 					Ok(None) => blocks.push(HELP.to_string()),
 					Err(code) => return code,
 				},
-				"version" => blocks.push(format!("{}\n", version_line())),
-				"about" => blocks.push(format!("{}{ABOUT_BODY}", version_line())),
+				"version" => blocks.push(version_text()),
+				"about" => blocks.push(format!("{}{ABOUT_BODY}", version_text())),
 				_ => blocks.push(DONATE.to_string()),
 			}
 		}
 		if asked == ["version"] {
-			outln!("{}", version_line());
+			out!("{}", version_text());
 		} else {
 			out!("\n{}\n", blocks.join("\n"));
 		}

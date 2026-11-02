@@ -289,9 +289,14 @@ static const char *HELP =
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
 // concatenates from the VERSION macro so it cannot drift from `shcl --version`.
+// The second line of --version and --about.
+#define COPYRIGHT_LINE "Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]."
+
+// What --version prints, and what --about opens with.
+#define VERSION_TEXT VERSION_LINE "\n" COPYRIGHT_LINE "\n"
+
 static const char *ABOUT =
-	VERSION_LINE "\n"
-	"Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].\n"
+	VERSION_TEXT
 	"Project: https://github.com/yottacore/shcl\n"
 	"Licensed under the MIT License. Full text at:\n"
 	"  https://spdx.org/licenses/MIT.html\n"
@@ -3014,18 +3019,18 @@ static int cli_main(int argc, char **argv) {
 	}
 	/* One convention: each output asked for prints once, in the order asked,
 	   and the run succeeds. Blank lines go before, between and after, to set
-	   the text off from the prompts around it. A lone version line is one line
-	   a script reads, so it goes out bare. The topic is settled before anything
+	   the text off from the prompts around it. A lone --version is what a
+	   script reads, so it goes out bare. The topic is settled before anything
 	   prints, since a bad one is a usage error with nothing on stdout. */
 	if (nasked) {
 		const char *topic = NULL;
 		for (size_t k = 0; k < nasked; k++)
 			if (!strcmp(asked[k], "help")) { int code = help_topic(argc, argv, &topic); if (code) return code; }
-		if (nasked == 1 && !strcmp(asked[0], "version")) { printf("%s\n", VERSION_LINE); return 0; }
+		if (nasked == 1 && !strcmp(asked[0], "version")) { fputs(VERSION_TEXT, stdout); return 0; }
 		for (size_t k = 0; k < nasked; k++) {
 			putchar('\n');
 			if (!strcmp(asked[k], "help")) { if (topic) print_help_for(topic); else fputs(HELP, stdout); }
-			else if (!strcmp(asked[k], "version")) printf("%s\n", VERSION_LINE);
+			else if (!strcmp(asked[k], "version")) fputs(VERSION_TEXT, stdout);
 			else if (!strcmp(asked[k], "about")) fputs(ABOUT, stdout);
 			else fputs(DONATE, stdout);
 		}

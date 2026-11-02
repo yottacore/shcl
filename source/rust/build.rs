@@ -21,9 +21,9 @@ fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-changed=../../assets/shcl.ico");
 
-	// The pipeline stamps a release build with a build number worked out from
-	// the commit time, so a rebuild of the same commit gets the same one. Any
-	// other build, `cargo install` from crates.io included, has none. A bad
+	// The pipeline stamps every build it makes with a build number worked out
+	// from the commit time, so a rebuild of the same commit gets the same one.
+	// A build outside it, `cargo install` from crates.io included, has none. A bad
 	// value is a pipeline bug, and a wrong number in a release would be worse
 	// than a failed build.
 	println!("cargo:rerun-if-env-changed=SHCL_BUILD");

@@ -18,7 +18,7 @@
 ##	   4. tests (conformance corpus + fuzz smoke + cross-binding differential check)
 ##	   5. profiler (flamegraph SVG + hot-spot report; non-gating artifact, local only)
 ##	   6. release + cross-compile + checks over the release binaries + versioned
-##	      artifacts + packages (.deb/.rpm/NSIS setup) + sha256sums (local only)
+##	      artifacts + packages (.deb/.rpm/FreeBSD .pkg/NSIS setup) + sha256sums (local only)
 ##	   7. dogfood (install the release builds to fixed local dirs; local only)
 ##	   8. demo gif for the README (local only; non-gating)
 ##	   9. backup + publish to git (local only)
@@ -56,7 +56,7 @@
 ##	   --no-tests          skip the tests stage (crosscheck and large document
 ##	                       included) and the gates' profiler calibration
 ##	   --no-cross          skip the cross targets and checks; native release builds
-##	   --no-package        skip building installer packages (.deb/.rpm/NSIS setup)
+##	   --no-package        skip building installer packages (.deb/.rpm/.pkg/NSIS setup)
 ##	   --no-largedoc       skip the large-document gate in the tests stage
 ##	   --no-profile        skip the profiler stage
 ##	   --no-release        skip the release builds, and the packages, dogfood and
@@ -678,6 +678,67 @@ fStaleRuns(){
 	done
 }
 if ((! inner_run)); then fStaleRuns; fi
+## Cargo never drops what an older toolchain or lockfile built, so a target dir
+## grows with each bump. A stamp in it names the pair that filled it, and one
+## filled under another pair is emptied before the build. A new toolchain
+## rebuilds every unit anyway, and a new lockfile costs one cold build. Not
+## while another run of ours is live, since it may be reading the dir.
+cargo_pruned=0; cargo_kb=0; cargo_stamp=built-by.stamp; cargo_fresh=()
+fCargoKey(){  ## fCargoKey FILE... -> a hash of what they say, or 1 when one is missing
+	local f
+	for f in "$@"; do [[ -f "${root}/${f}" ]] || return 1; done
+	for f in "$@"; do
+		if [[ "${f##*/}" == rust-toolchain.toml ]]; then grep -E '^[[:space:]]*channel[[:space:]]*=' -- "${root}/${f}" || true; else cat -- "${root}/${f}"; fi
+	done | sha256sum | cut -c1-16
+}
+fOtherRunLive(){
+	local d pid
+	for d in "${run_tmp_root}"/[0-9]*_[0-9][0-9][0-9]; do
+		[[ "${d}" != "${run_tmp}" && -f "${d}/run.pid" ]] || continue
+		pid=""; read -r pid < "${d}/run.pid" 2>/dev/null || true
+		if [[ "${pid}" =~ ^[0-9]+$ ]] && { kill -0 "${pid}" 2>/dev/null || ps -p "${pid}" >/dev/null 2>&1; }; then return 0; fi
+	done
+	return 1
+}
+fCargoPrune(){  ## fCargoPrune DIR KEY
+	local dir="${1%/}" key="$2" stamp="" kb="" e
+	local -a entries=()
+	[[ -n "${key}" ]] || return 0
+	if [[ -L "${dir}" && ! -e "${dir}" ]]; then return 0; fi
+	## A dir this run makes gets its stamp at the end, or the next run would
+	## take what this one built.
+	if [[ ! -e "${dir}" ]]; then cargo_fresh+=("${key}|${dir}"); return 0; fi
+	[[ -d "${dir}" ]] || return 0
+	read -r stamp < "${dir}/${cargo_stamp}" 2>/dev/null || true
+	if [[ "${stamp}" == "${key}" ]]; then return 0; fi
+	mapfile -d '' -t entries < <(find "${dir}/" -mindepth 1 -maxdepth 1 ! -name "${cargo_stamp}" -print0 2>/dev/null)
+	if ((${#entries[@]})); then
+		kb="$(du -sk -- "${dir}/" 2>/dev/null | cut -f1)" || kb=0
+		## A unit cargo left read-only.
+		chmod -R u+rwX -- "${dir}/" 2>/dev/null || true
+		for e in "${entries[@]}"; do fSafeRmUnder "${dir}" "${dir}/${e##*/}" || return 0; done
+		cargo_pruned=$((cargo_pruned + 1)); cargo_kb=$((cargo_kb + ${kb:-0}))
+	fi
+	printf '%s\n' "${key}" > "${dir}/${cargo_stamp}" || true
+}
+## fCargoPruneAll [BASE]: each of CARGO_CACHE_DIRS under BASE, the tree by default.
+fCargoPruneAll(){
+	local base="${1:-${root}}" row key
+	if fOtherRunLive; then return 0; fi
+	for row in ${CARGO_CACHE_DIRS[@]+"${CARGO_CACHE_DIRS[@]}"}; do
+		# shellcheck disable=SC2086  ## the file list splits on blanks
+		key="$(fCargoKey ${row#*|})" || continue
+		fCargoPrune "${base}/${row%%|*}" "${key}"
+	done
+}
+fCargoStampFresh(){
+	local row
+	for row in ${cargo_fresh[@]+"${cargo_fresh[@]}"}; do
+		if [[ -d "${row#*|}" && ! -L "${row#*|}" && ! -e "${row#*|}/${cargo_stamp}" ]]; then printf '%s\n' "${row%%|*}" > "${row#*|}/${cargo_stamp}" || true; fi
+	done
+	cargo_fresh=()
+}
+if ((! inner_run)); then fCargoPruneAll; fi
 ## Only the dir this run made: still at its path, a real dir that's ours, with
 ## this run's mark in it.
 fRmRunTmp(){
@@ -725,12 +786,14 @@ fRunTmpGone(){
 		if [[ -n "${n}" ]]; then printf '[ cleanup: stopped and removed %s container(s) of this run ]\n' "${n}" >&2; fi
 	fi
 	fFrozenGone || true
+	fCargoStampFresh
 	[[ -n "${run_tmp}" ]] || return 0
 	if ((keep_temp)); then fRmRunTmp; return 0; fi
 	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
 	fRmRunTmp
 	if ((stale_runs)); then n=" and ${stale_runs} stale run folder(s)"; else n=""; fi
-	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files%s, about %s ]\n' "${n}" "$(fSize "$((${kb:-0} + stale_kb))")" >&2; fi
+	if ((cargo_pruned)); then n+=" and ${cargo_pruned} stale cargo target dir(s)"; fi
+	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files%s, about %s ]\n' "${n}" "$(fSize "$((${kb:-0} + stale_kb + cargo_kb))")" >&2; fi
 }
 ## The tee the run logs through. Bash doesn't wait for it, so a caller that
 ## reads the log as soon as the run exits can miss the last lines, as a loaded
@@ -906,6 +969,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	local -a standIns=()
 	local priv="" dest="" ctrRc=0
 	if [[ "${ctr_image}" != main ]]; then
+		fCargoPruneAll "${cache}/private"
 		for link in "${CTR_PRIVATE[@]}"; do
 			private["${link%/}"]=1
 			priv="${cache}/private/${link%/}"
@@ -961,6 +1025,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 
 	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}" -e "SHCL_CPU_FIXED=${SHCL_CPU_FIXED}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
+	env+=(-e "SHCL_BUILD=${SHCL_BUILD:-}" -e "SHCL_BUILD_DATED=${SHCL_BUILD_DATED:-}")
 	if [[ -n "${part}" ]]; then env+=(-e "SHCL_RUN_PART=${part}"); fi
 	env+=(-e "SHCL_STEP_PLAN=${step_ids[*]}")
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
@@ -1097,7 +1162,7 @@ if ((! quiet)); then
 			fEcho_Clean "Release ........: (skipped)"
 		fi
 		fEcho_Clean "Cross checks ...: $( ((${#CROSS_CHECKS[@]})) && echo "${#CROSS_CHECKS[@]} (no artifact; run whether or not a release is built)" || echo '(skipped)')"
-		fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + NSIS setup (per built binary)' || echo '(skipped)')"
+		fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + FreeBSD .pkg + NSIS setup (per built binary)' || echo '(skipped)')"
 		if ((quick)) && ((${#QUICK_SKIP[@]})); then
 			_qs="$(printf '%s, ' "${QUICK_SKIP[@]}")"
 			fEcho_Clean "Quick skips ....: ${_qs%, }"
@@ -1331,6 +1396,22 @@ fCollectBuilt(){
 	fi
 }
 
+## Every build the run makes is stamped, from the commit rather than the clock,
+## so a rebuild of one commit gives the same bytes. Taken after the sync, which
+## can move HEAD. A run this one starts takes the stamp it is handed. A build
+## that isn't a release shows its date; stage 6 leaves it off a cut's release
+## builds. Only the Rust CLI reads these (build.rs).
+if ((inner_run)) && [[ -n "${SHCL_BUILD:-}" ]]; then
+	SHCL_BUILD_DATED="${SHCL_BUILD_DATED:-}"
+elif SHCL_BUILD="$(fBuildNumber "$(git -C "${root}" log -1 --format=%ct 2>/dev/null)" 2>/dev/null)"; then
+	SHCL_BUILD_DATED=1
+else
+	SHCL_BUILD=""; SHCL_BUILD_DATED=""
+	fEcho "WARNING: no commit to take a build number from; the builds are unstamped"
+fi
+export SHCL_BUILD
+export SHCL_BUILD_DATED
+
 ## Stages 1-6 run here, or in the container, which hands back its release
 ## builds for dogfood and the gif. With a frozen copy, stage 1 runs on the
 ## checkout first, and 2-6 in the copy, here or in the container.
@@ -1543,16 +1624,12 @@ else
 		fi
 	fi
 	if ((${#RELEASE_NATIVE_CMD[@]})); then
-		## Stamped from the commit, not the clock, so a rebuild of one commit gives
-		## the same bytes. Only these builds have it: the gate's own builds stay
-		## unstamped, the same as the other three CLIs they are compared against.
-		SHCL_BUILD="$(fBuildNumber "$(git -C "${root}" log -1 --format=%ct)")" || fDie "no build number from the commit time"
-		export SHCL_BUILD
+		## A wrong number in a release would be worse than a failed build.
+		[[ -n "${SHCL_BUILD:-}" ]] || fDie "no build number for the release builds"
 		## A build whose version is already tagged is a dev build, so it shows its
 		## date. A release is built from the bump commit, before its tag exists.
-		SHCL_BUILD_DATED=""
-		if git -C "${root}" rev-parse -q --verify "refs/tags/v$(fVersion)" >/dev/null; then SHCL_BUILD_DATED=1; fi
-		export SHCL_BUILD_DATED
+		dated_run="${SHCL_BUILD_DATED:-}"
+		if git -C "${root}" rev-parse -q --verify "refs/tags/v$(fVersion)" >/dev/null; then SHCL_BUILD_DATED=1; else SHCL_BUILD_DATED=""; fi
 		fEcho "build ${SHCL_BUILD}${SHCL_BUILD_DATED:+ (dated)}"
 		fStep "${RELEASE_NATIVE_CMD[@]}"
 		[[ -f "${RELEASE_NATIVE_BIN}" ]] || fDie "native release binary missing: ${RELEASE_NATIVE_BIN}"
@@ -1566,7 +1643,7 @@ else
 			fEcho "OK: ${t_label}: ${t_art} ($(du -h --apparent-size "${t_art}" | cut -f1))"
 			built_arts+=("${t_osarch}|${t_art}")
 		done
-		unset SHCL_BUILD SHCL_BUILD_DATED
+		SHCL_BUILD_DATED="${dated_run}"
 		## Before anything is collected, so a build that fails one never reaches
 		## the artifact dir. built_arts is in scope for the commands.
 		for c in "${RELEASE_CHECKS[@]}"; do
@@ -1837,6 +1914,8 @@ fCleanup(){
 		if ((sidecars)); then gone+=("${sidecars} profiler sample file(s) whose graph is gone"); fi
 	fi
 	if ((stale_runs)); then gone+=("${stale_runs} stale run folder(s)"); kb+=stale_kb; fi
+	if ((cargo_pruned)); then gone+=("${cargo_pruned} stale cargo target dir(s)"); kb+=cargo_kb; fi
+	fCargoStampFresh
 	## --keep-temp keeps this run's containers, which the sweep would take.
 	if [[ -n "${ctr_image}" ]] && ((! keep_temp)); then
 		mkdir -p "${run_tmp}/sweep"
@@ -1921,3 +2000,5 @@ exit 0
 ##		- 2026-10-30 JC: A run with no flags, --long and the full run modes start HOSTED_JOB on GitHub first and wait for it last.
 ##		- 2026-10-31 JC: --backlog-run-quick runs its lint and test steps up to 4 side by side, and prints them in order.
 ##		- 2026-10-31: A REMOTE_BOXES row's perf runs perf-gate.bash on that Windows box.
+##		- 2026-11-01: Every build is stamped at run start, the image included; a cut leaves the date off its release builds.
+##		- 2026-11-01: A cargo target dir filled under another toolchain or lockfile is emptied before the build, an extra image's copy too, and the cleanup line counts it.

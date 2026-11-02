@@ -161,13 +161,25 @@ fCompareStdin(){
 }
 
 ##	Compare every other binding against the reference for one invocation.
+##	Only the Rust CLI ships, so only its build is stamped. The build number and
+##	date come off the version line before the compare; the version stays in, so
+##	a binding that missed a bump still diverges.
+fDropBuild(){
+	local -n text_ref="$1"
+	[[ "${text_ref}" == *"shcl v"*" build "* ]] || return 0
+	text_ref="$(sed -E 's/^(shcl v[^ ]+) build [0-9a-z]+( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?$/\1/' <<<"${text_ref}"; echo .)"
+	text_ref="${text_ref%?.}"
+}
+
 fCompare(){
 	local what="$1"; shift
 	local want got b name cli
 	runErr=ref.err; fRun "$refCli" "$@"; want="${runOut}"; runErr=run.err
+	fDropBuild want
 	for b in "${bindings[@]:1}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		fRun "$cli" "$@"; got="${runOut}"
+		fDropBuild got
 		nCompared+=1
 		if [[ "$got" != "$want" ]]; then
 			nBad+=1
@@ -540,6 +552,8 @@ fUsage(){
 	fCompare "usage help" help
 	fCompare "usage help flag" --help
 	fCompare "usage version" version
+	fCompare "usage version flag" --version
+	fCompare "usage version and donate" --version --donate
 	fCompare "usage bare"
 	fCompare "usage unknown" definitely-not-a-subcommand
 	# The diagnostic code table and the per-subcommand help are hand-duplicated per
@@ -850,3 +864,5 @@ echo "crosscheck: ${#bindings[@]} bindings agree on ${nCompared} comparison(s)"
 ##		               every binding agrees on it.
 ##		- 20261016: The save gate rows check the reference's exit and file, not
 ##		               only that the bindings agree.
+##		- 20261101: The build number and date come off the version line before a
+##		               compare, and --version is compared.
