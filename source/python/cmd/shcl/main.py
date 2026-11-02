@@ -305,9 +305,13 @@ an error, 8 a file or stream could not be read or written.
 # About and donate are stdout, so they are byte-for-byte contracts across the
 # bindings the same way the help text and the init banner are. The version
 # concatenates from the constant above so it cannot drift from `shcl --version`.
-ABOUT = VERSION_LINE + """
-Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
-Project: https://github.com/yottacore/shcl
+# The second line of --version and --about.
+COPYRIGHT_LINE = "Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]."
+
+# What --version prints, and what --about opens with.
+VERSION_TEXT = VERSION_LINE + "\n" + COPYRIGHT_LINE + "\n"
+
+ABOUT = VERSION_TEXT + """Project: https://github.com/yottacore/shcl
 Licensed under the MIT License. Full text at:
   https://spdx.org/licenses/MIT.html
 No warranty.
@@ -2663,8 +2667,8 @@ def run(argv):
 		asked.insert(0, "help")
 	# One convention: each output asked for prints once, in the order asked,
 	# and the run succeeds. Blank lines go before, between and after, to set
-	# the text off from the prompts around it. A lone version line is one line
-	# a script reads, so it goes out bare.
+	# the text off from the prompts around it. A lone --version is what a
+	# script reads, so it goes out bare.
 	if asked:
 		blocks = []
 		for want in asked:
@@ -2674,13 +2678,13 @@ def run(argv):
 					return code
 				blocks.append(HELP if topic is None else help_for(topic))
 			elif want == "version":
-				blocks.append(VERSION_LINE + "\n")
+				blocks.append(VERSION_TEXT)
 			elif want == "about":
 				blocks.append(ABOUT)
 			else:
 				blocks.append(DONATE)
 		if asked == ["version"]:
-			print(VERSION_LINE)
+			sys.stdout.write(VERSION_TEXT)
 		else:
 			sys.stdout.write("\n" + "\n".join(blocks) + "\n")
 		return 0

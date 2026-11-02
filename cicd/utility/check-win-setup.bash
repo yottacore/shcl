@@ -66,9 +66,12 @@ fOnPath "${dirWin}" || fBad "${dirWin} isn't on the machine PATH"
 fHasKey || fBad "no ${regKey}, in either view"
 
 fTest de7c3 shcl from the machine PATH is the installed one and runs
+## Only the version line is compared. The copyright line under it is not
+## ASCII, and powershell.exe can pass it through the console code page.
 want="$("${dirU}/shcl.exe" --version 2>&1 | tr -d '\r' || true)"
+want="${want%%$'\n'*}"
 got="$(fPs "\$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine'); (Get-Command shcl).Source; shcl --version" 2>&1 || true)"
-[[ "${got,,}" == "${dirWin,,}\\shcl.exe"$'\n'"${want,,}" && "${want}" == "shcl v"* ]] \
+[[ "${got,,}" == "${dirWin,,}\\shcl.exe"$'\n'"${want,,}"$'\n'* && "${want}" == "shcl v"* ]] \
 	|| fBad "shcl from the machine PATH gave ${got@Q}, the installed one ${want@Q}"
 
 fTest de7c4 the uninstaller takes off the PATH entry, the files and the uninstall key
@@ -90,3 +93,4 @@ echo "check-win-setup: OK"
 
 ##	History:
 ##		2026-10-20  Created, for 2026101921290791.
+##		2026-11-01  The version line alone is compared, since --version has the copyright line under it.

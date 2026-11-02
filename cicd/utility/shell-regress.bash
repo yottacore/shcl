@@ -1234,6 +1234,23 @@ rtRc=0; rtOut="$(printf 'shcl-3.0.0-sha256sums.txt\n' | bash "${repoDir}/cicd/ut
 rtRc=0; rtOut="$(bash "${repoDir}/cicd/utility/release-table.bash" --names /dev/null 2>&1)" || rtRc=$?
 [[ "${rtRc}" == "2" ]] || fBad "release-table.bash ran with no tag (rc ${rtRc}): ${rtOut@Q}"
 
+fTest der1e 2026102416250100-release-notes-version-line
+##	The notes open with the release build's version line and copyright line,
+##	two lines in markdown. A dated build, another version or a lone version
+##	line is not the release's.
+mkdir -p "${tmpDir}/rtv"
+printf '#!/bin/sh\nprintf "shcl v3.0.0 build dd2f6\\nCopyright X.\\n"\n' > "${tmpDir}/rtv/ok"
+printf '#!/bin/sh\nprintf "shcl v3.0.0 build dd2f6 (2026-10-23)\\nCopyright X.\\n"\n' > "${tmpDir}/rtv/dated"
+printf '#!/bin/sh\nprintf "shcl v2.9.9 build dd2f6\\nCopyright X.\\n"\n' > "${tmpDir}/rtv/other"
+printf '#!/bin/sh\nprintf "shcl v3.0.0 build dd2f6\\n"\n' > "${tmpDir}/rtv/one"
+chmod +x "${tmpDir}/rtv/ok" "${tmpDir}/rtv/dated" "${tmpDir}/rtv/other" "${tmpDir}/rtv/one"
+rtOut="$(printf 'shcl-3.0.0-linux-x86_64\n' | bash "${repoDir}/cicd/utility/release-table.bash" v3.0.0 --names - --version-of "${tmpDir}/rtv/ok" 2>&1 || true)"
+[[ "${rtOut}" == "shcl v3.0.0 build dd2f6\\"$'\n'"Copyright X."$'\n\n'"| OS "* ]] || fBad "release-table.bash --version-of did not open with the two lines: ${rtOut@Q}"
+for bad in dated other one; do
+	rtRc=0; rtOut="$(printf 'shcl-3.0.0-linux-x86_64\n' | bash "${repoDir}/cicd/utility/release-table.bash" v3.0.0 --names - --version-of "${tmpDir}/rtv/${bad}" 2>&1)" || rtRc=$?
+	[[ "${rtRc}" == "1" && "${rtOut}" != *"| OS "* ]] || fBad "release-table.bash --version-of took the ${bad} build (rc ${rtRc}): ${rtOut@Q}"
+done
+
 fTest ddkcm 2026100313461652-release-table-stage6-names
 ##	Every binary stage 6 builds gets a cell, named the way stage 6 names it,
 ##	so a new target cannot drop to the "Other files" line unnoticed. macOS is
@@ -2474,10 +2491,46 @@ elif command -v git >/dev/null 2>&1; then
 		# shellcheck disable=SC2329  ## called by the lifted line
 		fVersion(){ echo 1.2.3; }
 		eval "SHCL_BUILD_DATED=''; ${datedLine}"; printf 'untagged=%s ' "${SHCL_BUILD_DATED}"
+		eval "SHCL_BUILD_DATED=1; ${datedLine}"; printf 'cut=%s ' "${SHCL_BUILD_DATED}"
 		git tag v1.2.3
 		eval "SHCL_BUILD_DATED=''; ${datedLine}"; printf 'tagged=%s' "${SHCL_BUILD_DATED}"
 	)"
-	[[ "${out}" == "untagged= tagged=1" ]] || fBad "cicd.bash's dated-build test gave ${out@Q}, want 'untagged= tagged=1'"
+	[[ "${out}" == "untagged= cut= tagged=1" ]] || fBad "cicd.bash's dated-build test gave ${out@Q}, want 'untagged= cut= tagged=1'"
+fi
+
+fTest der1d 2026102416250100-every-build-is-stamped
+##	The pipeline stamps every build, not only the release ones: the stamp is
+##	exported before the debug build, after the sync, and the image is handed
+##	it. Dated unless a cut's release build takes the date off.
+buildLine="$( { grep -n '^[[:space:]]*export SHCL_BUILD$' "${repoDir}/cicd/cicd.bash" || true; } | head -n1 | cut -d: -f1)"
+debugLine="$( { grep -n '^[[:space:]]*fStepStart build$' "${repoDir}/cicd/cicd.bash" || true; } | head -n1 | cut -d: -f1)"
+syncLine="$( { grep -n '^[[:space:]]*fStepStart sync$' "${repoDir}/cicd/cicd.bash" || true; } | head -n1 | cut -d: -f1)"
+if [[ -z "${buildLine}" || -z "${debugLine}" || -z "${syncLine}" ]] || ((buildLine > debugLine || buildLine < syncLine)); then
+	fBad "cicd.bash does not export SHCL_BUILD after the sync and before the debug build"
+fi
+# shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
+grep -qF 'env+=(-e "SHCL_BUILD=${SHCL_BUILD:-}" -e "SHCL_BUILD_DATED=${SHCL_BUILD_DATED:-}")' "${repoDir}/cicd/cicd.bash" \
+	|| fBad "cicd.bash does not hand SHCL_BUILD and SHCL_BUILD_DATED to the image"
+# shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
+stampBlock="$(sed -n '/^if ((inner_run)) && \[\[ -n "${SHCL_BUILD:-}" \]\]; then$/,/^fi$/p' "${repoDir}/cicd/cicd.bash")"
+if [[ -z "${stampBlock}" ]] || ! declare -F fBuildNumber >/dev/null; then
+	fBad "cicd.bash has no run-start stamp block"
+elif command -v git >/dev/null 2>&1; then
+	out="$(
+		unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX GIT_CONFIG_COUNT
+		# shellcheck disable=SC2329  ## called by the lifted block
+		fEcho(){ :; }
+		root="${tmpDir}/stamped"
+		git init -q -b main "${root}" || exit
+		inner_run=0; SHCL_BUILD=""; eval "${stampBlock}"; printf 'empty=%s|%s ' "${SHCL_BUILD}" "${SHCL_BUILD_DATED}"
+		git -C "${root}" config user.name t; git -C "${root}" config user.email t@t.invalid
+		echo x > "${root}/f"; git -C "${root}" add f
+		GIT_COMMITTER_DATE='@2052828780 +0000' git -C "${root}" commit -qm one
+		inner_run=0; SHCL_BUILD=zz; SHCL_BUILD_DATED=""; eval "${stampBlock}"; printf 'outer=%s|%s ' "${SHCL_BUILD}" "${SHCL_BUILD_DATED}"
+		# shellcheck disable=SC2034  ## read by the lifted block
+		inner_run=1; SHCL_BUILD=abc; SHCL_BUILD_DATED=""; eval "${stampBlock}"; printf 'inner=%s|%s' "${SHCL_BUILD}" "${SHCL_BUILD_DATED}"
+	)"
+	[[ "${out}" == "empty=| outer=hjkmn|1 inner=abc|" ]] || fBad "cicd.bash's run-start stamp gave ${out@Q}, want 'empty=| outer=hjkmn|1 inner=abc|'"
 fi
 
 fTest dc7gs 20260904-28-gates-read-the-strict-flag
@@ -4282,3 +4335,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-31  A Windows box's suites are win-runners.bash, in check-boxes.bash and --list.
 ##		2026-10-31  A Windows row's perf runs perf-gate.bash, in check-boxes.bash, fBoxRow and --list.
 ##		2026-10-31  The PowerShell safe removal guard, for 2026103114555334.
+##		2026-11-01  cicd.bash stamps every build before the debug build and hands the stamp to the image; a cut drops the date.

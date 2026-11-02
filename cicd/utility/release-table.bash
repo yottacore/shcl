@@ -7,14 +7,18 @@
 ##		platform (sums, signature, drop-in sources) goes in a line under it.
 ##		Reads only; it never edits a release.
 ##	Syntax:
-##		release-table.bash TAG [--repo OWNER/NAME] [--dir DIR | --names FILE]
+##		release-table.bash TAG [--repo OWNER/NAME] [--dir DIR | --names FILE] [--version-of BIN]
 ##		  TAG           the release tag, such as v3.0.0-beta1
 ##		  --repo        the GitHub repo the links point at (default yottacore/shcl)
 ##		  --dir DIR     take the asset names from a local artifact dir, such as
 ##		                cicd/artifacts/release, before anything is uploaded
 ##		  --names FILE  one asset name per line; - for stdin
 ##		  With neither, the names come from the published release, through gh.
-##	Exit: 0 table written, 1 nothing to tabulate or a name clash, 2 usage.
+##		  --version-of BIN  open the notes with what BIN --version prints, the
+##		                version line and the copyright line. BIN is the release
+##		                build, so a line with another version or a date fails.
+##	Exit: 0 table written, 1 nothing to tabulate, a name clash or a BIN that
+##		isn't this release's, 2 usage.
 ##	History: At bottom of script.
 
 ##	Copyright (c) 2026 Bubbles
@@ -36,19 +40,23 @@ fUsage(){
 ##		platform (sums, signature, drop-in sources) goes in a line under it.
 ##		Reads only; it never edits a release.
 ##	Syntax:
-##		release-table.bash TAG [--repo OWNER/NAME] [--dir DIR | --names FILE]
+##		release-table.bash TAG [--repo OWNER/NAME] [--dir DIR | --names FILE] [--version-of BIN]
 ##		  TAG           the release tag, such as v3.0.0-beta1
 ##		  --repo        the GitHub repo the links point at (default yottacore/shcl)
 ##		  --dir DIR     take the asset names from a local artifact dir, such as
 ##		                cicd/artifacts/release, before anything is uploaded
 ##		  --names FILE  one asset name per line; - for stdin
 ##		  With neither, the names come from the published release, through gh.
-##	Exit: 0 table written, 1 nothing to tabulate or a name clash, 2 usage.
+##		  --version-of BIN  open the notes with what BIN --version prints, the
+##		                version line and the copyright line. BIN is the release
+##		                build, so a line with another version or a date fails.
+##	Exit: 0 table written, 1 nothing to tabulate, a name clash or a BIN that
+##		isn't this release's, 2 usage.
 
 EOF
 }
 
-tag=""; repo="yottacore/shcl"; dir=""; namesFile=""
+tag=""; repo="yottacore/shcl"; dir=""; namesFile=""; versionOf=""
 while (( $# )); do
 	case "$1" in
 		--repo=*)  repo="${1#*=}" ;;
@@ -57,6 +65,8 @@ while (( $# )); do
 		--dir)     (( $# >= 2 )) || fDie "missing value for --dir" 2; shift; dir="$1" ;;
 		--names=*) namesFile="${1#*=}" ;;
 		--names)   (( $# >= 2 )) || fDie "missing value for --names" 2; shift; namesFile="$1" ;;
+		--version-of=*) versionOf="${1#*=}" ;;
+		--version-of)   (( $# >= 2 )) || fDie "missing value for --version-of" 2; shift; versionOf="$1" ;;
 		-h|--help) fUsage; exit 0 ;;
 		-?*)       fDie "unknown option: $1" 2 ;;
 		*)         [[ -z "${tag}" ]] || fDie "one tag only: $1" 2; tag="$1" ;;
@@ -149,6 +159,20 @@ mapfile -t archCols < <(fOrder x86_64 arm64 -- "${!archSeen[@]}")
 declare -A osName=([linux]=Linux [windows]=Windows [macos]=macOS [darwin]=macOS [freebsd]=FreeBSD
 	[netbsd]=NetBSD [openbsd]=OpenBSD [android]=Android)
 
+## The release's own version line, then the copyright line, joined by a hard
+## line break so the two stay two lines (2026102416250100). A cut's release
+## build has a build number and no date.
+if [[ -n "${versionOf}" ]]; then
+	[[ -x "${versionOf}" ]] || fDie "not an executable: ${versionOf}" 2
+	verText="$("${versionOf}" --version 2>/dev/null)" || fDie "${versionOf} --version failed"
+	verText="${verText//$'\r'/}"
+	verLine="${verText%%$'\n'*}"; copyLine="${verText#*$'\n'}"
+	[[ "${verLine}" =~ ^shcl\ v([^ ]+)\ build\ [0-9a-z]+$ && "${BASH_REMATCH[1]}" == "${tag#v}" ]] \
+		|| fDie "${versionOf} is not the ${tag} release build: ${verLine@Q}"
+	[[ "${copyLine}" == "Copyright "* && "${copyLine}" != *$'\n'* ]] || fDie "${versionOf} --version has no copyright line under its version line"
+	printf '%s\\\n%s\n\n' "${verLine}" "${copyLine}"
+fi
+
 ## Grid of display text, header first, then the widths that pad it.
 declare -a grid=() widths=()
 nCols=$(( ${#archCols[@]} + 1 ))
@@ -188,3 +212,4 @@ printf '%s\n' "${refs[@]}"
 
 ##	History:
 ##		- 2026-10-05 JC: Written, for the downloads table in a release's notes.
+##		- 2026-11-01: --version-of opens the notes with the release's version and copyright lines.

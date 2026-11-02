@@ -961,6 +961,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 
 	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}" -e "SHCL_CPU_FIXED=${SHCL_CPU_FIXED}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
+	env+=(-e "SHCL_BUILD=${SHCL_BUILD:-}" -e "SHCL_BUILD_DATED=${SHCL_BUILD_DATED:-}")
 	if [[ -n "${part}" ]]; then env+=(-e "SHCL_RUN_PART=${part}"); fi
 	env+=(-e "SHCL_STEP_PLAN=${step_ids[*]}")
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
@@ -1331,6 +1332,22 @@ fCollectBuilt(){
 	fi
 }
 
+## Every build the run makes is stamped, from the commit rather than the clock,
+## so a rebuild of one commit gives the same bytes. Taken after the sync, which
+## can move HEAD. A run this one starts takes the stamp it is handed. A build
+## that isn't a release shows its date; stage 6 leaves it off a cut's release
+## builds. Only the Rust CLI reads these (build.rs).
+if ((inner_run)) && [[ -n "${SHCL_BUILD:-}" ]]; then
+	SHCL_BUILD_DATED="${SHCL_BUILD_DATED:-}"
+elif SHCL_BUILD="$(fBuildNumber "$(git -C "${root}" log -1 --format=%ct 2>/dev/null)" 2>/dev/null)"; then
+	SHCL_BUILD_DATED=1
+else
+	SHCL_BUILD=""; SHCL_BUILD_DATED=""
+	fEcho "WARNING: no commit to take a build number from; the builds are unstamped"
+fi
+export SHCL_BUILD
+export SHCL_BUILD_DATED
+
 ## Stages 1-6 run here, or in the container, which hands back its release
 ## builds for dogfood and the gif. With a frozen copy, stage 1 runs on the
 ## checkout first, and 2-6 in the copy, here or in the container.
@@ -1543,16 +1560,12 @@ else
 		fi
 	fi
 	if ((${#RELEASE_NATIVE_CMD[@]})); then
-		## Stamped from the commit, not the clock, so a rebuild of one commit gives
-		## the same bytes. Only these builds have it: the gate's own builds stay
-		## unstamped, the same as the other three CLIs they are compared against.
-		SHCL_BUILD="$(fBuildNumber "$(git -C "${root}" log -1 --format=%ct)")" || fDie "no build number from the commit time"
-		export SHCL_BUILD
+		## A wrong number in a release would be worse than a failed build.
+		[[ -n "${SHCL_BUILD:-}" ]] || fDie "no build number for the release builds"
 		## A build whose version is already tagged is a dev build, so it shows its
 		## date. A release is built from the bump commit, before its tag exists.
-		SHCL_BUILD_DATED=""
-		if git -C "${root}" rev-parse -q --verify "refs/tags/v$(fVersion)" >/dev/null; then SHCL_BUILD_DATED=1; fi
-		export SHCL_BUILD_DATED
+		dated_run="${SHCL_BUILD_DATED:-}"
+		if git -C "${root}" rev-parse -q --verify "refs/tags/v$(fVersion)" >/dev/null; then SHCL_BUILD_DATED=1; else SHCL_BUILD_DATED=""; fi
 		fEcho "build ${SHCL_BUILD}${SHCL_BUILD_DATED:+ (dated)}"
 		fStep "${RELEASE_NATIVE_CMD[@]}"
 		[[ -f "${RELEASE_NATIVE_BIN}" ]] || fDie "native release binary missing: ${RELEASE_NATIVE_BIN}"
@@ -1566,7 +1579,7 @@ else
 			fEcho "OK: ${t_label}: ${t_art} ($(du -h --apparent-size "${t_art}" | cut -f1))"
 			built_arts+=("${t_osarch}|${t_art}")
 		done
-		unset SHCL_BUILD SHCL_BUILD_DATED
+		SHCL_BUILD_DATED="${dated_run}"
 		## Before anything is collected, so a build that fails one never reaches
 		## the artifact dir. built_arts is in scope for the commands.
 		for c in "${RELEASE_CHECKS[@]}"; do
@@ -1921,3 +1934,4 @@ exit 0
 ##		- 2026-10-30 JC: A run with no flags, --long and the full run modes start HOSTED_JOB on GitHub first and wait for it last.
 ##		- 2026-10-31 JC: --backlog-run-quick runs its lint and test steps up to 4 side by side, and prints them in order.
 ##		- 2026-10-31: A REMOTE_BOXES row's perf runs perf-gate.bash on that Windows box.
+##		- 2026-11-01: Every build is stamped at run start, the image included; a cut leaves the date off its release builds.

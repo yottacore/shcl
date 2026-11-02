@@ -2267,6 +2267,22 @@ for b in "${bindings[@]}"; do
 		fi
 	done
 done
+## 2026102416250100: --version is the version line, then the copyright line,
+## and --about opens with the same two. It was the version line alone.
+fTest der1c version-then-copyright
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	rc=0; "${cli}" --version >"${tmpDir}/v" 2>"${tmpDir}/err" </dev/null || rc=$?
+	"${cli}" --about >"${tmpDir}/a" 2>/dev/null </dev/null || true
+	nRun+=1
+	if [[ "${rc}" != 0 || -s "${tmpDir}/err" ]] \
+		|| [[ "$(wc -l <"${tmpDir}/v")" != 2 ]] \
+		|| ! sed -n 1p "${tmpDir}/v" | grep -Eq '^shcl v[0-9][^ ]*( build [0-9a-z]+( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?)?$' \
+		|| [[ "$(sed -n 2p "${tmpDir}/v")" != "Copyright © "* ]] \
+		|| [[ "$(sed -n 2,3p "${tmpDir}/a")" != "$(cat "${tmpDir}/v")" ]]; then
+		echo "cli-regress: version-then-copyright [${name}]: 'shcl --version' exit ${rc}, expected the version line, then the copyright line that --about opens with" >&2; nBad+=1
+	fi
+done
 ## The notice went out whatever stdin was until 2026100717500018, so a script
 ## piping ops in got it on every run. Only a terminal gets it now.
 #fTest dd52a set-stdin-notice
@@ -3290,3 +3306,4 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-10-06  broken-pipe, migrate-taken and man-width run on BSD tools.
 ##		2026-10-10  2.x escape forms (\n, \t, two backslashes) fail in the help,
 ##		            the code texts, the man page and every row's output.
+##		2026-11-01  --version is the version line, then the copyright line.
