@@ -123,8 +123,9 @@ fMain(){
 		esac
 	done
 
-	## Validate dependencies
-	fMustBeInPath rar
+	## Validate dependencies. rar only for the backup, so a box without it can
+	## still publish with the backup off.
+	if ((! skipBackup)); then fMustBeInPath rar; fi
 	fMustBeInPath git
 
 	## Arguments. This script takes no positional args; a stray one is a typo, so throw.
@@ -771,3 +772,4 @@ fMain  "${@}"
 ##		  installed.
 ##		- 20261004: Dir links inside the repo, and links back into the project, are
 ##		  left out of the backup. Linked asset packs had grown one to 72 GB.
+##		- 20261102: rar is required only when the backup is on.

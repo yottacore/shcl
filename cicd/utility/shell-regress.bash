@@ -1027,6 +1027,27 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest desdr 2026110215202335-publish-rar-only-for-backup
+##	The publish script wanted rar with the backup off, so a box without rar
+##	could not publish at all. A stub `which` hides rar, since the script looks
+##	for it that way. Run from a directory that is not a repo, so the run stops
+##	at the refusal that comes right after the dependency checks.
+nBadBefore="${nBad}"
+(
+	pdir="${tmpDir}/publish-norar"; mkdir -p "${pdir}/bin" "${pdir}/work"
+	realWhich="$(command -v which)"
+	# shellcheck disable=SC2016  ## the $1 and $@ are for the stub
+	printf '#!/bin/sh\n[ "$1" = rar ] && exit 1\nexec %q "$@"\n' "${realWhich}" > "${pdir}/bin/which"; chmod 755 "${pdir}/bin/which"
+	fPublish(){ (cd "${pdir}/work" && GIT_BACKUP_AND_PUBLISH_NOBACKUP="$1" PATH="${pdir}/bin:${PATH}" bash "${repoDir}/cicd/utility/n8git_backup-and-publish" --quiet 2>&1) ;}
+	rc=0; out="$(fPublish 1)" || rc=$?
+	[[ "${rc}" != 0 && "${out}" == *"Not in git project base directory"* ]] \
+		|| fBad "n8git_backup-and-publish wants rar with the backup off: rc=${rc} ${out@Q}"
+	rc=0; out="$(fPublish 0)" || rc=$?
+	[[ "${rc}" != 0 && "${out}" == *"Not found in path: rar"* ]] \
+		|| fBad "n8git_backup-and-publish no longer wants rar with the backup on: rc=${rc} ${out@Q}"
+	exit $((nBad - nBadBefore))
+) || nBad=$((nBad + 1))
+
 fTest depgq 20260920b-18-publish-keeps-quotes-in-message
 ##	20260920b item 18: fParseArgs ran every argument through two quote
 ##	substitutions, so `--message "it's done"` committed `it's done` with a prime.
