@@ -33,62 +33,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- CICD reset: version line
-	- ID: 2026102416250100
-	- Type: Enhancement
-	- Status: Waiting on UAT
-		- Only the hand test below is left.
-	- Needs hand testing: on Windows PowerShell 5.1, a look at install.ps1's receipt line, whether the copyright line reads right.
-	- Priority: Avg
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Related IDs: 2026102319430000
-	- Requirements:
-		- Per the build number bullets in `Branches and releases` in the shared CICD rules. The build number and the dev build's date are in already.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides 2026102319430000's decision that unstamped builds stay `shcl vX.Y.Z`, and the private notes' rule that `--version` stays one line.
-		- Every build prints `shcl v<version> build <build>`, then the copyright line, in `--version`, `--about` and the release notes. Today only release builds are stamped, and the copyright line is only in `--about`.
-		- A non-release build adds its date after the build number.
-		- Only the Rust CLI ships. The C, Go and Python CLIs are for testing, so crosscheck leaves the version line out of its compare, and the four stay byte-identical everywhere else.
-	- Progress log:
-		- 20261101: `--version` prints the version line, then the copyright line, in all 4 CLIs, and `--about` opens with the same two lines. The man page, design.md and changelog say so.
-		- Verified: the 4 CLIs give identical `--version`, `--about` and `--version --donate` bytes. A stamped Rust build printed `shcl v2.0.0 build hjkmn (2035-01-19)` and the copyright line. After a `--backlog-run-quick`, the debug CLI it built in the image printed `build der0h (2026-11-01)`.
-		- Verified: crosscheck passed with a stamped Rust as the reference (22944 compares), and HEAD's crosscheck failed it on `--about`. cli-regress `der1c` failed on HEAD's Python CLI and passed on all 4 and the stamped build.
-		- Verified: shell-regress `debjb`, `der1d` and `der1e` failed against HEAD's cicd.bash and release-table.bash and pass now. Plus the whole shell-regress, check-push-gate, cli-regress, check-docs, `test-ids.py check`, cargo fmt, clippy and test, go vet and test, ruff, shellcheck, markdownlint-cli2, lint-report and `--backlog-run-quick`.
-		- 20261101: the round's `--backlog-run-full` passed steps 1 to 7, the release stage and check-win-release `de7an` and `de7ap` included, and hosted ci.yml 41376506469 passed every job, `setup-test` and `windows` included. Step 8 failed on vmFreeBSD's cli suite, 3 of 2871 checks: `der1c` read the line count from `wc -l`, which BSD pads with spaces, so it failed for the rust, go and c CLIs there. It strips the spaces now.
-		- Verified: cli-regress under a `wc` that pads like BSD's failed `der1c` for all 3 CLIs before the fix and passed after. vmFreeBSD's box suites (rust, go, c and cli) passed through check-boxes, `demxp` included.
-	- Decisions:
-		- The one released CLI stays Rust (JC, 20261101). Go's stripped build was 2.3 times the size of Rust's, used about 1.5 times the CPU and 40% more memory on the profiler workload, and Rust is the reference the other bindings mirror.
-		- me: cicd.bash stamps every build at run start, after the sync, and hands the stamp to the image and the frozen copy. It is dated, except a cut's release builds (a version with no tag yet), which stage 6 builds undated. The debug build of a cut stays dated, since it isn't a release.
-		- me: a build outside the pipeline, such as `cargo install` or a hand `cargo build`, stays `shcl vX.Y.Z` with no build. It has no commit to read, and the issue's rule that the number comes from the commit wins over "every build".
-		- me: only the Rust CLI is stamped. The C, Go and Python CLIs keep the version alone, as the issue says they're for testing.
-		- me: crosscheck takes only the build number and date off the version line, not the whole line, so a binding that missed a version bump still diverges. This departs from "leaves the version line out" but meets its intent.
-		- me: the release notes get the line from `release-table.bash --version-of BIN`, which opens the notes with BIN's two lines and fails on a dated build or another version. The cut recipe in the private notes needs to call it.
-		- me: check-win-setup compares only the version line, since powershell.exe can pass the copyright line's non-ASCII through the console code page. install.ps1 is unchanged: its smoke reads the exit code, and its receipt prints both lines.
-		- Dated 20261101: shell-regress `debjb` now also checks that a cut clears a run's date, so its expected text went from `untagged= tagged=1` to `untagged= cut= tagged=1`.
-	- Swept: every `--version` reader: check-win-release (whole output, both builds stamped alike), check-win-setup (now the first line), install.ps1 and install.bash smokes (exit code only), ci.yml's windows print, cli-regress `dd5h3`, `dd853`, `dd854`. Every `SHCL_BUILD` reader: build.rs, the C and Go hooks, the release stage, shell-regress `dd2fp`. The other 3 CLIs' version and about code.
-		- `wc` counts compared as text in the scripts a box runs: cli-regress' other sites already strip the spaces or compare in arithmetic, and box-suites.bash has none.
-	- Branch: `r1101`
-	- Commit: `0bdc2529`
-	- Test case: cli-regress `der1c`, shell-regress `der1d`, `der1e` and `debjb`, crosscheck `d9tsx` (usage, now with `--version`).
-
-- CICD reset: CICD process gaps
-	- ID: 2026102416250120
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261024-162500
-	- Opened by: JC
-	- Requirements:
-		- What else in the shared CICD rules' `CICD process` shcl doesn't do yet.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Overrides the deferred `BSD package` item.
-		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
-		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
-	- Progress log:
-		- 20261101: the gaps left, against the shared rules, are in 3 children: the FreeBSD package (2026110116125875), pruning build caches on a toolchain or lockfile change (2026110116125880), and a Rust ThreadSanitizer run (2026110116125885). The rest of `CICD process` is in place, through the other reset items.
-		- 20261101: the FreeBSD pkg and cache prune children are Done. The Rust ThreadSanitizer child 2026110116125885 is still open.
-
 - check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
 	- ID: 2026110119584589
 	- Type: Bug
@@ -98,17 +42,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by:
 	- Progress log:
 		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever the tail holds.
-
-- CICD reset: Rust ThreadSanitizer run
-	- ID: 2026110116125885
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261101-161258
-	- Opened by: 2026102416250120
-	- Parent ID: 2026102416250120
-	- Requirements:
-		- The Rust tests that spawn threads run under ThreadSanitizer in the leak checks, beside the ASan and Miri runs, on the same pinned nightly.
 
 - check-push-gate in about 2 minutes
 	- ID: 2026103109485020
@@ -136,6 +69,93 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- CICD reset: version line
+	- ID: 2026102416250100
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Related IDs: 2026102319430000
+	- Requirements:
+		- Per the build number bullets in `Branches and releases` in the shared CICD rules. The build number and the dev build's date are in already.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides 2026102319430000's decision that unstamped builds stay `shcl vX.Y.Z`, and the private notes' rule that `--version` stays one line.
+		- Every build prints `shcl v<version> build <build>`, then the copyright line, in `--version`, `--about` and the release notes. Today only release builds are stamped, and the copyright line is only in `--about`.
+		- A non-release build adds its date after the build number.
+		- Only the Rust CLI ships. The C, Go and Python CLIs are for testing, so crosscheck leaves the version line out of its compare, and the four stay byte-identical everywhere else.
+	- Progress log:
+		- 20261101: `--version` prints the version line, then the copyright line, in all 4 CLIs, and `--about` opens with the same two lines. The man page, design.md and changelog say so.
+		- Verified: the 4 CLIs give identical `--version`, `--about` and `--version --donate` bytes. A stamped Rust build printed `shcl v2.0.0 build hjkmn (2035-01-19)` and the copyright line. After a `--backlog-run-quick`, the debug CLI it built in the image printed `build der0h (2026-11-01)`.
+		- Verified: crosscheck passed with a stamped Rust as the reference (22944 compares), and HEAD's crosscheck failed it on `--about`. cli-regress `der1c` failed on HEAD's Python CLI and passed on all 4 and the stamped build.
+		- Verified: shell-regress `debjb`, `der1d` and `der1e` failed against HEAD's cicd.bash and release-table.bash and pass now. Plus the whole shell-regress, check-push-gate, cli-regress, check-docs, `test-ids.py check`, cargo fmt, clippy and test, go vet and test, ruff, shellcheck, markdownlint-cli2, lint-report and `--backlog-run-quick`.
+		- 20261101: the round's `--backlog-run-full` passed steps 1 to 7, the release stage and check-win-release `de7an` and `de7ap` included, and hosted ci.yml 41376506469 passed every job, `setup-test` and `windows` included. Step 8 failed on vmFreeBSD's cli suite, 3 of 2871 checks: `der1c` read the line count from `wc -l`, which BSD pads with spaces, so it failed for the rust, go and c CLIs there. It strips the spaces now.
+		- Verified: cli-regress under a `wc` that pads like BSD's failed `der1c` for all 3 CLIs before the fix and passed after. vmFreeBSD's box suites (rust, go, c and cli) passed through check-boxes, `demxp` included.
+		- 20261102: on b29w, Windows PowerShell 5.1 and pwsh 7 both decoded the receipt's copyright line with the console's 437 code page, so the sign and the ID came out as box-drawing junk. install.ps1's smoke now reads shcl's output as UTF-8 and puts the caller's console encoding back after.
+		- Verified: on b29w, under 5.1 and 7, a fresh console showing install.ps1's own smoke and receipt with the round's stamped windows build (`der59`) holds both lines exactly as the build prints them, and the console is still on 437 after. HEAD's install.ps1 showed the junk there.
+		- Verified: shell-regress `des49` failed on HEAD's install.ps1 and passes now. Plus the whole shell-regress, check-docs, `test-ids.py check`, shellcheck and PSScriptAnalyzer.
+	- Decisions:
+		- The one released CLI stays Rust (JC, 20261101). Go's stripped build was 2.3 times the size of Rust's, used about 1.5 times the CPU and 40% more memory on the profiler workload, and Rust is the reference the other bindings mirror.
+		- me: cicd.bash stamps every build at run start, after the sync, and hands the stamp to the image and the frozen copy. It is dated, except a cut's release builds (a version with no tag yet), which stage 6 builds undated. The debug build of a cut stays dated, since it isn't a release.
+		- me: a build outside the pipeline, such as `cargo install` or a hand `cargo build`, stays `shcl vX.Y.Z` with no build. It has no commit to read, and the issue's rule that the number comes from the commit wins over "every build".
+		- me: only the Rust CLI is stamped. The C, Go and Python CLIs keep the version alone, as the issue says they're for testing.
+		- me: crosscheck takes only the build number and date off the version line, not the whole line, so a binding that missed a version bump still diverges. This departs from "leaves the version line out" but meets its intent.
+		- me: the release notes get the line from `release-table.bash --version-of BIN`, which opens the notes with BIN's two lines and fails on a dated build or another version. The cut recipe in the private notes needs to call it.
+		- me: check-win-setup compares only the version line, since powershell.exe can pass the copyright line's non-ASCII through the console code page. install.ps1 is unchanged: its smoke reads the exit code, and its receipt prints both lines.
+		- me, 20261102: the hand test found that receipt garbled, so install.ps1's smoke now sets the console's output encoding to UTF-8 for the one call and restores it. The printed text depends on the console font, which the box check can't judge; the console holds the right characters.
+		- Dated 20261101: shell-regress `debjb` now also checks that a cut clears a run's date, so its expected text went from `untagged= tagged=1` to `untagged= cut= tagged=1`.
+	- Swept: every `--version` reader: check-win-release (whole output, both builds stamped alike), check-win-setup (now the first line), install.ps1 and install.bash smokes (exit code only), ci.yml's windows print, cli-regress `dd5h3`, `dd853`, `dd854`. Every `SHCL_BUILD` reader: build.rs, the C and Go hooks, the release stage, shell-regress `dd2fp`. The other 3 CLIs' version and about code.
+		- `wc` counts compared as text in the scripts a box runs: cli-regress' other sites already strip the spaces or compare in arithmetic, and box-suites.bash has none.
+	- Branch: `r1101`, `r1102`
+	- Commit: `0bdc2529`
+	- Test case: cli-regress `der1c`, shell-regress `der1d`, `der1e`, `debjb` and `des49`, crosscheck `d9tsx` (usage, now with `--version`).
+	- Acceptance signoff: Self-closed: the receipt in a 5.1 console on b29w holds the build's exact two lines.
+	- Closed: 20261102-102209
+
+- CICD reset: CICD process gaps
+	- ID: 2026102416250120
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261024-162500
+	- Opened by: JC
+	- Requirements:
+		- What else in the shared CICD rules' `CICD process` shcl doesn't do yet.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Overrides the deferred `BSD package` item.
+		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
+		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
+	- Progress log:
+		- 20261101: the gaps left, against the shared rules, are in 3 children: the FreeBSD package (2026110116125875), pruning build caches on a toolchain or lockfile change (2026110116125880), and a Rust ThreadSanitizer run (2026110116125885). The rest of `CICD process` is in place, through the other reset items.
+		- 20261101: the FreeBSD pkg and cache prune children are Done. The Rust ThreadSanitizer child 2026110116125885 is in, waiting on the hosted run.
+		- 20261102: the TSan child is Done, so every gap is closed.
+	- Test case: children 2026110116125875, 2026110116125880 and 2026110116125885 (shell-regress der2e, check-push-gate der3w, sanitize-rust des2x).
+	- Acceptance signoff: Self-closed: every child is Done.
+	- Closed: 20261102-112931
+
+- CICD reset: Rust ThreadSanitizer run
+	- ID: 2026110116125885
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: Low
+	- Opened: 20261101-161258
+	- Opened by: 2026102416250120
+	- Parent ID: 2026102416250120
+	- Requirements:
+		- The Rust tests that spawn threads run under ThreadSanitizer in the leak checks, beside the ASan and Miri runs, on the same pinned nightly.
+	- Progress log:
+		- 20261102: `sanitize-rust.bash --tsan` runs the whole suite under TSan, built with `-Zbuild-std` and its own target dir, on the `[nightly]` pin. It's in the script's default share with ASan and Miri, so it runs where they do and `--no-leakcheck` drops it. The 3 tests that time a ratio skip under TSan through a `shcl_tsan` cfg, as they do under Miri.
+		- Verified: `des2x` passes on the host and in the main image, about 1 minute cold at 8 jobs. A planted data race fails it in both, with the race named.
+		- Verified: `--backlog-run-quick rust`, shell-regress, test-ids check, shellcheck, rustfmt and lint-report.
+		- Verified 20261102: hosted ci.yml 41500153471 on r1102, tests half: PASS des2x.
+	- Decisions:
+		- me, 20261102: the whole suite runs under TSan, not just the one test that starts threads on Linux (the create-only save race). libtest runs tests side by side, so tests sharing a static are checked too, and the whole run costs about a minute.
+		- me, 20261102: `index_rebuild_ignores_removed_nodes` (`dc412`) failed its ratio under TSan, so it and the other 2 ratio tests skip there. Timing under instrumentation isn't what the run checks.
+	- Test case: sanitize-rust `des2x`.
+	- Acceptance signoff: Self-closed: des2x passes on the host, in the main image and on the hosted runner.
+	- Closed: 20261102-112922
 
 - CICD reset: FreeBSD package
 	- ID: 2026110116125875

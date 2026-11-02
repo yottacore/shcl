@@ -37,9 +37,9 @@ profiling = ["dep:pprof"]
 dhat = "0.3.3"
 
 [lints.rust]
-# Set by sanitize-rust.bash --miri-all, which runs the tests too slow for Miri's
-# share of a full run.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(shcl_miri_all)"] }
+# Set by sanitize-rust.bash: shcl_miri_all by --miri-all, which runs the tests
+# too slow for Miri's share of a full run, and shcl_tsan by --tsan.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(shcl_miri_all)", "cfg(shcl_tsan)"] }
 
 [lints.clippy]
 # A forgotten value is a leak by hand, and unsafe without a reason is a guess.

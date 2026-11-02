@@ -169,7 +169,7 @@ jobs:
           tar -xzf /tmp/cargo-deny.tar.gz -C /tmp
           sudo install -m 0755 /tmp/cargo-deny-0.19.9-x86_64-unknown-linux-musl/cargo-deny /usr/local/bin/cargo-deny
       ## The dated nightly under [nightly] in rust-toolchain.toml, for
-      ## sanitize-rust.bash's ASan and Miri runs. Read from the file, as the
+      ## sanitize-rust.bash's ASan, TSan and Miri runs. Read from the file, as the
       ## stable one is, so the pin is in one place.
       - run: |
           nightly="$(sed -n '/^\[nightly\]/,/^\[/s/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"

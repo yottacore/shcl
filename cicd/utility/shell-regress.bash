@@ -290,6 +290,29 @@ if fHave pwsh; then
 	[[ "${out}" == *"three=3"* ]]    || fBad "install.ps1 smoke test lost a nonzero exit: ${out@Q}"
 	[[ "${out}" == *"good=0"* ]]     || fBad "install.ps1 smoke test failed a working binary: ${out@Q}"
 
+	fTest des49 install-ps1-receipt-reads-utf-8
+	##	2026102416250100: Windows PowerShell 5.1 decoded the receipt's
+	##	copyright line with the console's 437 code page, so its sign and
+	##	the ID read as box-drawing junk. A Latin-1 console stands in for 437
+	##	here, and the caller's encoding has to come back after.
+	printf '#!/bin/sh\nprintf "shcl v9.9.9\\nCopyright \\302\\251 2026\\n"\n' > "${tmpDir}/utf8.exe"
+	chmod 755 "${tmpDir}/utf8.exe"
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$ErrorActionPreference = "Stop"'
+		sed -n '/^\tfunction Invoke-ShclSmoke/,/^\t}/p' "${repoDir}/install.ps1"
+		echo '[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(28591)'
+		echo "\$r = Invoke-ShclSmoke \"${tmpDir}/utf8.exe\""
+		echo '$cps = ((@($r.Out)[1]).ToCharArray() | ForEach-Object { "{0:X4}" -f [int]$_ }) -join " "'
+		echo '$enc = [Console]::OutputEncoding.CodePage'
+		echo '[Console]::OutputEncoding = [Text.Encoding]::UTF8'
+		echo 'Write-Output "code=$($r.Code) cps=$cps enc=$enc"'
+	} > "${tmpDir}/smoke-utf8.ps1"
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY pwsh -NoProfile -File "${tmpDir}/smoke-utf8.ps1" 2>&1 || true)"
+	[[ "${out}" == *"code=0 cps=0043 006F 0070 0079 0072 0069 0067 0068 0074 0020 00A9 0020 0032 0030 0032 0036 enc=28591"* ]] \
+		|| fBad "install.ps1 smoke test did not read shcl's UTF-8, or left the console's encoding changed: ${out@Q}"
+
 	fTest dcv6a 20260918b-5-install-ps1-shadow-check
 	##	20260918b item 5: on a first install nothing named shcl is on the
 	##	session's PATH yet, and reading .Source off that nothing threw under
