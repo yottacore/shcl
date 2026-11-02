@@ -33,6 +33,43 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
+	- ID: 2026110119584589
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261101-195845
+	- Opened by:
+	- Progress log:
+		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever the tail holds.
+
+- check-push-gate in about 2 minutes
+	- ID: 2026103109485020
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261031-094850
+	- Opened by: 2026102515494624
+	- Related IDs: 2026102515494624
+	- Requirements:
+		- check-push-gate runs its cases one at a time, so `--backlog-run-quick cicd` and a run with every area stay over 4 minutes. It took about 4 minutes on this box and about 21 in the main image on 2026-10-31, both runs at a load near 10 of 32. Find out why the image is 5 times slower first.
+		- Find what each case spends its time on, and run the independent ones side by side, each on its own stub repo, without losing a case.
+
+- Three fuzz guards are thin at Miri's 100 iterations
+	- ID: 2026102418441478
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261024-184414
+	- Opened by: 2026102413172941's sweep
+	- Related IDs: 2026102413172941
+	- Problem description:
+		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `de116`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
+		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
+	- Requirements:
+		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
+	- Estimated effort: Low
+
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
@@ -79,7 +116,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: CICD process gaps
 	- ID: 2026102416250120
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -92,22 +129,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261101: the gaps left, against the shared rules, are in 3 children: the FreeBSD package (2026110116125875), pruning build caches on a toolchain or lockfile change (2026110116125880), and a Rust ThreadSanitizer run (2026110116125885). The rest of `CICD process` is in place, through the other reset items.
 		- 20261101: the FreeBSD pkg and cache prune children are Done. The Rust ThreadSanitizer child 2026110116125885 is in, waiting on the hosted run.
-
-- check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
-	- ID: 2026110119584589
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261101-195845
-	- Opened by:
-	- Progress log:
-		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever the tail holds.
+		- 20261102: the TSan child is Done, so every gap is closed.
+	- Test case: children 2026110116125875, 2026110116125880 and 2026110116125885 (shell-regress der2e, check-push-gate der3w, sanitize-rust des2x).
+	- Acceptance signoff: Self-closed: every child is Done.
+	- Closed: 20261102-112931
 
 - CICD reset: Rust ThreadSanitizer run
 	- ID: 2026110116125885
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml, its tests half, for `des2x` on the hosted runner
+	- Status: Done
+	- Needs external testing: No
 	- Priority: Low
 	- Opened: 20261101-161258
 	- Opened by: 2026102416250120
@@ -118,37 +149,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261102: `sanitize-rust.bash --tsan` runs the whole suite under TSan, built with `-Zbuild-std` and its own target dir, on the `[nightly]` pin. It's in the script's default share with ASan and Miri, so it runs where they do and `--no-leakcheck` drops it. The 3 tests that time a ratio skip under TSan through a `shcl_tsan` cfg, as they do under Miri.
 		- Verified: `des2x` passes on the host and in the main image, about 1 minute cold at 8 jobs. A planted data race fails it in both, with the race named.
 		- Verified: `--backlog-run-quick rust`, shell-regress, test-ids check, shellcheck, rustfmt and lint-report.
+		- Verified 20261102: hosted ci.yml 41500153471 on r1102, tests half: PASS des2x.
 	- Decisions:
 		- me, 20261102: the whole suite runs under TSan, not just the one test that starts threads on Linux (the create-only save race). libtest runs tests side by side, so tests sharing a static are checked too, and the whole run costs about a minute.
 		- me, 20261102: `index_rebuild_ignores_removed_nodes` (`dc412`) failed its ratio under TSan, so it and the other 2 ratio tests skip there. Timing under instrumentation isn't what the run checks.
 	- Test case: sanitize-rust `des2x`.
-
-- check-push-gate in about 2 minutes
-	- ID: 2026103109485020
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261031-094850
-	- Opened by: 2026102515494624
-	- Related IDs: 2026102515494624
-	- Requirements:
-		- check-push-gate runs its cases one at a time, so `--backlog-run-quick cicd` and a run with every area stay over 4 minutes. It took about 4 minutes on this box and about 21 in the main image on 2026-10-31, both runs at a load near 10 of 32. Find out why the image is 5 times slower first.
-		- Find what each case spends its time on, and run the independent ones side by side, each on its own stub repo, without losing a case.
-
-- Three fuzz guards are thin at Miri's 100 iterations
-	- ID: 2026102418441478
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261024-184414
-	- Opened by: 2026102413172941's sweep
-	- Related IDs: 2026102413172941
-	- Problem description:
-		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `de116`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
-		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
-	- Requirements:
-		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
-	- Estimated effort: Low
+	- Acceptance signoff: Self-closed: des2x passes on the host, in the main image and on the hosted runner.
+	- Closed: 20261102-112922
 
 - CICD reset: FreeBSD package
 	- ID: 2026110116125875
