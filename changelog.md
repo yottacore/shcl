@@ -112,6 +112,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A prebuilt FreeBSD x86_64 binary. `install.bash` installs it, and names a release that has no binary for the platform it runs on.
 
+- A FreeBSD package, `shcl-<version>-freebsd-x86_64.pkg`, for FreeBSD 14 and later. `pkg add` installs it under `/usr/local`, with the man page and the bash and zsh completions.
+
 - `parse_keep_lines()`, `load_file_keep_lines()`, `to_text_keep_lines()` and `save_file_keep_lines()` in every binding save a file with the lines no edit touched left as they were, dropped lines included, and fall back to the canonical form when that would not load back the same.
 
 - `save_file_with()` in every binding takes the save options, `lossy`, `keep_lines` and `force`, and the other saves are its short forms. `force` writes over a file that changed since the load.

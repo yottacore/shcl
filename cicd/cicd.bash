@@ -18,7 +18,7 @@
 ##	   4. tests (conformance corpus + fuzz smoke + cross-binding differential check)
 ##	   5. profiler (flamegraph SVG + hot-spot report; non-gating artifact, local only)
 ##	   6. release + cross-compile + checks over the release binaries + versioned
-##	      artifacts + packages (.deb/.rpm/NSIS setup) + sha256sums (local only)
+##	      artifacts + packages (.deb/.rpm/FreeBSD .pkg/NSIS setup) + sha256sums (local only)
 ##	   7. dogfood (install the release builds to fixed local dirs; local only)
 ##	   8. demo gif for the README (local only; non-gating)
 ##	   9. backup + publish to git (local only)
@@ -56,7 +56,7 @@
 ##	   --no-tests          skip the tests stage (crosscheck and large document
 ##	                       included) and the gates' profiler calibration
 ##	   --no-cross          skip the cross targets and checks; native release builds
-##	   --no-package        skip building installer packages (.deb/.rpm/NSIS setup)
+##	   --no-package        skip building installer packages (.deb/.rpm/.pkg/NSIS setup)
 ##	   --no-largedoc       skip the large-document gate in the tests stage
 ##	   --no-profile        skip the profiler stage
 ##	   --no-release        skip the release builds, and the packages, dogfood and
@@ -1098,7 +1098,7 @@ if ((! quiet)); then
 			fEcho_Clean "Release ........: (skipped)"
 		fi
 		fEcho_Clean "Cross checks ...: $( ((${#CROSS_CHECKS[@]})) && echo "${#CROSS_CHECKS[@]} (no artifact; run whether or not a release is built)" || echo '(skipped)')"
-		fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + NSIS setup (per built binary)' || echo '(skipped)')"
+		fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + FreeBSD .pkg + NSIS setup (per built binary)' || echo '(skipped)')"
 		if ((quick)) && ((${#QUICK_SKIP[@]})); then
 			_qs="$(printf '%s, ' "${QUICK_SKIP[@]}")"
 			fEcho_Clean "Quick skips ....: ${_qs%, }"

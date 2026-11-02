@@ -83,6 +83,59 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Overrides the deferred `BSD package` item.
 		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`.
 		- 20261024: `goleak` and memray stay decided against, per 2026101711273980. Both reasons still hold: `goleak` would be the Go library's first dependency, and there's no pytest or C extension for memray.
+	- Progress log:
+		- 20261101: the gaps left, against the shared rules, are in 3 children: the FreeBSD package (2026110116125875), pruning build caches on a toolchain or lockfile change (2026110116125880), and a Rust ThreadSanitizer run (2026110116125885). The rest of `CICD process` is in place, through the other reset items.
+
+- CICD reset: FreeBSD package
+	- ID: 2026110116125875
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: a full run's release stage, which builds the FreeBSD binary, then the `.pkg` and its read-back, in the image.
+	- Priority: Avg
+	- Opened: 20261101-161258
+	- Opened by: 2026102416250120
+	- Parent ID: 2026102416250120
+	- Target OS: FreeBSD
+	- Requirements:
+		- A FreeBSD `.pkg` beside the `.deb` and `.rpm`, from the `freebsd-x86_64` release binary, with the same payload under `/usr/local`.
+		- It installs with `pkg add` on vmFreeBSD, and its listing is checked in the package step, as the `.deb` and `.rpm` are.
+	- Progress log:
+		- 20261101: package.bash writes `shcl-<version>-freebsd-x86_64.pkg` beside the binary, in the release stage: the binary, the drop-ins, the man page, the bash and zsh completions and the docs under `/usr/local`, then reads it back. It's in the same file family, so the signed sums cover it. design.md, install.md and the changelog say so.
+		- Verified: on vmFreeBSD (pkg 2.7.5, 15.1), a package built from the 2.0.0 freebsd binary as 3.0.0-beta1 showed in `pkg info -F`, installed with `pkg add`, ran `shcl --version`, `man -w shcl` found its page, `pkg check -s shcl` passed, and `pkg delete` took every file and folder back out. The VM ended paused, as found.
+		- Verified: shell-regress `der2e` passes, and fails with the modes, the manifest order, or the version's hyphen each broken in package.bash. shell-regress passes whole, and `cicd.bash --backlog-run-quick cicd` passed all 5 steps.
+		- Not run: the package on FreeBSD 14, and pkg refusing it on 13.
+	- Decisions:
+		- me: package.bash writes the tar itself. nfpm has no FreeBSD format, `pkg create` on vmFreeBSD would leave a release short whenever the box is down, and pkg built from source would be a new image tool.
+		- me: the ABI is `FreeBSD:*:amd64`, with `FreeBSD_version` 1400000 for the floor. A `FreeBSD:14:amd64` package was refused on 15 as the wrong architecture.
+		- me: a prerelease tail joins with a dot (`3.0.0.beta1`), since pkg splits a name from its version at the last hyphen.
+		- me: no install in the box step every run, since `pkg add` needs root there and the box user has none. The read-back runs on every release build.
+	- Swept: the other package lists, in cicd.bash's header, `--no-package` text and plan line, config.bash, package.bash's header, design.md and install.md. release-table.bash already ranks `.pkg`, and ci.yml builds no FreeBSD binary, so its packages are unchanged.
+	- Branch: `r1101`
+	- Test case: shell-regress `der2e`.
+
+- CICD reset: prune build caches on a toolchain or lockfile change
+	- ID: 2026110116125880
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261101-161258
+	- Opened by: 2026102416250120
+	- Parent ID: 2026102416250120
+	- Requirements:
+		- The build caches bullet of `Cleanup after a run`: the cargo target dirs and the image caches drop what an older toolchain or lockfile built, and keep a warm cache for the current ones.
+		- The run's cleanup line counts what went.
+		- Checked the way a gate is: 2 runs, one killed partway, and nothing new piles up.
+
+- CICD reset: Rust ThreadSanitizer run
+	- ID: 2026110116125885
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261101-161258
+	- Opened by: 2026102416250120
+	- Parent ID: 2026102416250120
+	- Requirements:
+		- The Rust tests that spawn threads run under ThreadSanitizer in the leak checks, beside the ASan and Miri runs, on the same pinned nightly.
 
 - check-push-gate in about 2 minutes
 	- ID: 2026103109485020

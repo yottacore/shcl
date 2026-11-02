@@ -2131,6 +2131,46 @@ else
 	fTestSkip
 fi
 
+fTest der2e 2026110116125875-freebsd-pkg
+##	The FreeBSD package is written by package.bash itself, not by a packager,
+##	so its layout is held here: two builds a second apart under umask 077 give
+##	the same bytes, every file is root's at 644 or the binary at 755, the
+##	version has no hyphen, and the read-back refuses a package whose
+##	manifests aren't first.
+if fHave xz; then
+	fbDir="${tmpDir}/fbpkg"
+	for r in r1 r2; do
+		mkdir -p "${fbDir}/${r}"; cp /bin/true "${fbDir}/${r}/shcl-9.9.9-rc1-freebsd-x86_64"
+		( umask 077; "${repoDir}/cicd/utility/package.bash" "${repoDir}" "${fbDir}/${r}" 9.9.9-rc1 ) > "${fbDir}/${r}.log" 2>&1 \
+			|| fBad "package.bash failed on a FreeBSD stand-in: $(tail -n 3 "${fbDir}/${r}.log")"
+		[[ "${r}" == r1 ]] && sleep 1
+	done
+	fbPkg="${fbDir}/r1/shcl-9.9.9-rc1-freebsd-x86_64.pkg"
+	if [[ -f "${fbPkg}" ]]; then
+		cmp -s "${fbPkg}" "${fbDir}/r2/shcl-9.9.9-rc1-freebsd-x86_64.pkg" || fBad "two builds of the same FreeBSD .pkg a second apart differ"
+		while read -r perm owner _ _ _ name; do
+			want="-rw-r--r--"; [[ "${name}" == /usr/local/bin/shcl ]] && want="-rwxr-xr-x"
+			[[ "${perm} ${owner}" == "${want} root/wheel" ]] || fBad "the FreeBSD .pkg has ${name} as ${perm} ${owner}"
+		done < <(xz -dc "${fbPkg}" | tar -P -tvf -)
+		grep -qF '"version":"9.9.9.rc1"' <(xz -dc "${fbPkg}" | tar -P -xOf - +COMPACT_MANIFEST) \
+			|| fBad "the FreeBSD .pkg's version is not 9.9.9.rc1"
+		eval "$(sed -n '/^fCheckFreebsdPkg()/,/^}/p' "${repoDir}/cicd/utility/package.bash")"
+		# shellcheck disable=SC2329  ## called from the lifted fCheckFreebsdPkg
+		( fDie(){ echo "shell-regress: $*" >&2; exit 1; }; fCheckFreebsdPkg "${fbPkg}" ) \
+			|| fBad "the shipped FreeBSD .pkg does not read back"
+		mkdir -p "${fbDir}/x"; xz -dc "${fbPkg}" | tar -C "${fbDir}/x" -xf - 2>/dev/null
+		(cd "${fbDir}/x" && tar -P --transform 's|^usr/|/usr/|' --format=ustar -cf - usr +COMPACT_MANIFEST +MANIFEST) | xz -c > "${fbDir}/late.pkg"
+		# shellcheck disable=SC2329  ## called from the lifted fCheckFreebsdPkg
+		if ( fDie(){ exit 1; }; fCheckFreebsdPkg "${fbDir}/late.pkg" ); then
+			fBad "the FreeBSD .pkg read-back passed a package with its manifests last"
+		fi
+	else
+		fBad "package.bash built no FreeBSD .pkg"
+	fi
+else
+	fTestSkip
+fi
+
 fTest dd5hf 20260829-26-dropins-tarball-reproducible
 ##	The same item's other half: the drop-ins tarball recorded the checkout's
 ##	mtimes and the local owner, so a fresh clone gave another sum. The tar line

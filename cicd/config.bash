@@ -626,7 +626,7 @@ HOSTED_WORKFLOW="ci.yml"; HOSTED_JOB="macos"; HOSTED_TARGET="macos-universal"
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored
 
 ## Stage 6b: installer packages over the artifact dir (utility/package.bash):
-## .deb + .rpm via nfpm per Linux binary, an NSIS setup per Windows binary, all
+## .deb + .rpm via nfpm per Linux binary, a FreeBSD .pkg, an NSIS setup per Windows binary, all
 ## named into the shcl-<version>-* family so the sha256sums rewrite covers them.
 ## Config template: cicd/packaging/nfpm.yaml; installer script: packaging/shcl.nsi.
 ## Off under --backlog-run-quick (no release builds there) and --quick (installers, not checks).
