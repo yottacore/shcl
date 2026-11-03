@@ -9602,7 +9602,8 @@ func realNearest(p string) string {
 		}
 		if real, err := filepath.EvalSymlinks(dir); err == nil {
 			// at is p up to some separator, so its last part starts the rest.
-			rest := p[len(at)-len(rawBase(at)):]
+			// FromSlash so it reads as EvalSymlinks writes a file that's there.
+			rest := filepath.FromSlash(p[len(at)-len(rawBase(at)):])
 			out := absReal(real)
 			if !os.IsPathSeparator(out[len(out)-1]) {
 				out += string(filepath.Separator)
@@ -9619,7 +9620,9 @@ func realNearest(p string) string {
 
 // absReal makes a path EvalSymlinks gave absolute. Getwd can answer with $PWD,
 // which may run through a link, so the working folder is resolved too, or a
-// file named relative and absolute would get 2 spellings.
+// file named relative and absolute would get 2 spellings. On windows the
+// working folder can be a short name, and EvalSymlinks of the absolute path
+// gives the long one, as it does for a file that's there.
 func absReal(p string) string {
 	if filepath.IsAbs(p) {
 		return p
@@ -9632,6 +9635,9 @@ func absReal(p string) string {
 		}
 	}
 	if abs, err := filepath.Abs(p); err == nil {
+		if real, err := filepath.EvalSymlinks(abs); err == nil {
+			return real
+		}
 		return abs
 	}
 	return p

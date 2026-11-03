@@ -10726,7 +10726,11 @@ def _real_nearest(p):
 		d = os.path.dirname(at)
 		if os.path.exists(d or "."):
 			# at is p up to some separator, so its last part starts the rest.
-			return os.path.join(os.path.realpath(d or "."), p[len(at) - len(os.path.basename(at)):])
+			# On windows with the separator realpath gives a file that's there.
+			rest = p[len(at) - len(os.path.basename(at)):]
+			if os.altsep:
+				rest = rest.replace(os.altsep, os.sep)
+			return os.path.join(os.path.realpath(d or "."), rest)
 		if not d or d == at:
 			return p
 		at = d
