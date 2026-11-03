@@ -67,7 +67,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The dogfood launcher expands wildcards and `~` in arguments, and exits 0 on Ctrl+C
 	- ID: 2026110215202340
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: the hosted windows job. win-runners `ddg6q` and `dd71z` run the .ps1's new native call under 5.1 and 7, and through the `.cmd` launcher.
 	- Severity: Avg
 	- Opened: 20261102-152023
 	- Opened by: tukfs-hash 2026102814341409
@@ -79,8 +80,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: shcl gets each argument as typed, and its exit code comes back.
 	- Reproduced: 20261102, on b23 with pwsh 7.6.9, through the bash launcher under a scratch HOME.
 	- Possible cause: the .ps1 runs shcl with `& $exe @nativeArgs`, and pwsh on Linux and macOS expands wildcards and `~` in a native command's arguments.
+	- Actual cause [Bug]:
+		- pwsh on Linux and macOS expands wildcards and `~` in a native command's arguments, splatted ones too. Only a quoted literal is left alone.
+		- On a terminal, pwsh's Ctrl+C stops the script before its `exit $LASTEXITCODE`, and pwsh exits 0. With stdin from /dev/null the 6 came back.
 	- Progress log:
 		- 20261102: tukfs-hash copied this launcher and had the same bug. Its fix splits the work. The .ps1 only takes in a new build, rotates the pool and prints the path to run. The bash launcher then `exec`s that path with the arguments as typed, so they never go through pwsh.
+		- 20261102: reproduced both on b23, the INT row on a terminal. Fixed. shell-regress `desp5` failed on the old scripts at every check and passes now.
+		- 20261102: the launcher under bash 3.2, as on macOS, with a stand-in pwsh: no arguments, `--no-update` alone, and a mix all came through.
+	- Decisions:
+		- tukfs-hash's split: `dogfood_shcl.ps1 --print-path` prints what would run, and the bash launcher `exec`s it. The .ps1 still runs shcl itself for the `.cmd` launcher and from a session, since Windows has no exec and a session wants shcl's output in its own pipeline.
+		- In that run mode each string goes to shcl as a quoted literal. So from a pwsh session on Linux or macOS a bare `*` doesn't expand either, the same as for any script pwsh calls. Leaving it would keep this bug's twin.
+		- A Ctrl+C in that run mode still ends at exit 0. On Linux and macOS the bash launcher is the way in, and pwsh has no clean hook for it.
+		- `--print-path` refuses any other argument but `--no-update`, rather than dropping it quietly.
+	- Actual fix [Bug]: `utility/dogfood_shcl` asks `dogfood_shcl.ps1 --print-path` for the build, with stdin from /dev/null so shcl keeps it, then runs it with every argument but `--no-update` as typed. The .ps1's own run mode passes each string argument as a quoted literal.
+	- Swept: `utility/dogfood_shcl`, the one native call in `dogfood_shcl.ps1`, and `dogfood_shcl.cmd`, left as is since Windows expands no wildcards. `install.ps1` passes only `--version`, and `box-cases.ps1` fixed strings. No other `.ps1` passes arguments on.
+	- Verified: the whole shell-regress (184 rows), `cicd.bash --backlog-run-quick cicd` with check-docs skipped for `dcbc2`, `test-ids.py check`, `lint-report.bash --check --no-mark`.
+	- Branch: `r1103`
+	- Commit: `d0e43489`
+	- Test case: shell-regress `desp5`; win-runners `ddg6q` and `dd71z` for the Windows run mode.
 
 - `--quick` runs every test box
 	- ID: 2026110215285702
