@@ -5518,7 +5518,7 @@ def main():
 
 			if os.name != "nt":
 				# A missing folder named with `..` is refused, as the kernel
-				# refuses it, rather than cancelled as text. Windows cancels it
+				# refuses it, rather than canceled as text. Windows cancels it
 				# itself.
 				sthrough, _ = shcl.Document.load_file("q2.shcl")
 				try:

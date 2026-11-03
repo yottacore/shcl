@@ -7089,7 +7089,7 @@ int main(int argc, char **argv) {
 		if (!file_is("sub/k.shcl", "b: 2\n")) fail(at, "a refused save through a link wrote");
 		shcl_free(linked);
 		/* A missing folder named with `..` is refused, as the kernel refuses
-		   it, rather than cancelled as text. Windows cancels it itself. */
+		   it, rather than canceled as text. Windows cancels it itself. */
 		shcl_doc *through = shcl_load_file("q2.shcl", NULL);
 		if (shcl_save_file(through, "nodir/../q.shcl", NULL) != SHCL_SAVE_FAILED) fail(at, "missing folder");
 		if (access("q.shcl", F_OK) == 0) fail(at, "missing folder: q.shcl is there");

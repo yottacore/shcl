@@ -7272,7 +7272,7 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 		return
 	}
 	// A missing folder named with `..` is refused, as the kernel refuses it,
-	// rather than cancelled as text. Windows cancels it itself.
+	// rather than canceled as text. Windows cancels it itself.
 	through, _ := LoadFile("q2.shcl")
 	if err := through.SaveFile("nodir/../q.shcl"); err == nil {
 		t.Error("missing folder: saved")
