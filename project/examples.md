@@ -6,6 +6,8 @@
 
 This page shows the `shcl` command from a shell first, then the library from code. Every example here reads `server.shcl`, the small web server config the README shows under [What a .shcl file looks like](../README.md#what-a-shcl-file-looks-like), and the line numbers in the output are that file's.
 
+This page describes 3.0.0-beta1. Until it's out, the published packages are 2.0.0, which read files by the 2.x rules.
+
 <!-- TOC ignore:true -->
 ## Table of contents
 
@@ -563,7 +565,7 @@ PowerShell 7 turns a value that looks like a date into a `DateTime`. On 7.5 and 
 
 ### What saving does
 
-Three behaviors of the write half are easy to miss, and they are the same in every binding.
+A few behaviors of the write half are easy to miss, and they're the same in every binding.
 
 Setters build whatever is missing along the path, so the `tls.hsts` and `blog.example.com` lines in the examples above arrive as a nested block and a new site instance without you assembling either.
 

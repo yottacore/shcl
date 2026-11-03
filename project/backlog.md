@@ -35,16 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Apply the 2026-11-02 doc suggestions that are accepted
-	- ID: 2026110215285723
-	- Type: Task
-	- Status: Waiting for answers
-	- Priority: Low
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 23
-	- Problem description: a dated list of suggestions, kept outside the repo, for README.md, examples.md, install.md, contributing.md and the GitHub About text. Nothing in it is applied.
-	- Estimated effort: Low
-
 - check-boxes names a private helper script by its file name
 	- ID: 2026110215285701
 	- Type: Bug
@@ -245,6 +235,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A perf-gate workload with a kept index line and bulk writes. None of today's has a kept line and writes together, so nothing failed.
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
 	- Estimated effort: Avg
+
+- README: the demo gif opens on an empty prompt, and one table cell needs a check
+	- ID: 2026110216254301
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261102-162543
+	- Opened by: 2026110215285723
+	- Problem description:
+		- The gif's first frame is a blank prompt, so a reduced-motion viewer or a link preview sees an empty terminal. It should open on a frame that already shows a command and its output.
+		- The projects table marks GitNiblet Enterprise Edition as open source, and its link goes to a product page.
+	- Question: is GitNiblet Enterprise Edition open source?
+	- Estimated effort: Low
 
 - Cache cleanup leaves some caches to grow
 	- ID: 2026110215285707
@@ -473,6 +476,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Apply the 2026-11-02 doc suggestions that are accepted
+	- ID: 2026110215285723
+	- Type: Task
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 23
+	- Problem description: a dated list of suggestions, kept outside the repo, for README.md, examples.md, install.md, contributing.md and the GitHub About text.
+	- Estimated effort: Low
+	- Actual fix: README's opening bullets, the save and CLI features, the badges and gif alt text, the projects table, and the support line. A 3.0.0-beta1 note at the top of examples.md, and contributing.md's docker paragraph as bullets. The GitHub About text and a 20th topic.
+	- Note: left for 2026110216254301: the gif's first frame and one table cell.
+	- Note: examples.md's `init` output links the `v3.0.0-beta1` tag, which is a 404 until the cut and then right.
+	- Test case: none, docs only. check-readme, check-docs and markdownlint pass.
+	- Acceptance signoff: JC asked for the changes, 20261102.
+	- Closed: 20261102-162543
 
 - The publish script wants rar with the backup off
 	- ID: 2026110215202335
