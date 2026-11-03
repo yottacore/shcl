@@ -48,6 +48,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Held for v4 (JC, 2026-11-02).
 
+- The changed check misses an edit when the load and the save spell the path differently, so another program's edit is lost
+	- ID: 2026110312163201
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 1
+	- Related IDs: 2026102910482342, 2026102912203339, 2026102912203341, 2026102912203343
+	- Steps to reproduce:
+		- Rust, Python or C: write `a: 1` to `i.shcl`, load `i.shcl`, delete the file, then save to `i.shcl`.
+		- Rust, Python or C: load `h.shcl` when it isn't there, have another program write it, then save to `h.shcl`.
+		- Go: load `sub/l.shcl`, have another program edit it, then save to the same file by its absolute path.
+	- Incorrect behavior:
+		- Rust, Python and C save with no error in the first 2 cases, over the other program's file. So a program that loads a missing file, saves it, and saves again after the user edits it loses the user's edit.
+		- Go saves with no error when the load and the save name one file as relative and absolute. It refuses a save to a different file of the same relative name after a `chdir`.
+		- With `./i.shcl` and `./h.shcl`, Rust, Python and C refuse as they should.
+	- Expected behavior: spec.md's save text. A file gone since the load is a change, and so is one made where the load found nothing. A save anywhere else isn't checked. One file gives one answer, however its path is spelled.
+	- Reproduced: 20261103, a probe per binding against dev `be299ccb`.
+	- Possible cause: the check compares 2 resolved path strings. Rust, Python and C make a bare name absolute only while the file exists, so a missing file's record stays relative and never matches. Go keeps a relative path relative and compares the text. A load whose folder doesn't exist yet records a relative path the same way (read only).
+	- Origin: Confirmed, all 4. The check came in on 20261029 (`e799b7c6` Rust and Python, `34536e68` Go, `c271967d` C). The path resolve is older. What's new is using its answer as the file's identity. No earlier round saw it.
+	- Sweep: every place a resolved path is stored or compared, in all 4 and the C++ interface. That's the load's file record, the save's compare, `upgrade_file`'s own changed check, and the create check.
+	- Note: a test over path spellings in each binding's runner would cover the class: bare, `./`, absolute, through a link, and after a `chdir`.
+	- Estimated effort: Avg
+
 - Go back to docker's default builder for the images
 	- ID: 2026110311291920
 	- Type: Enhancement
@@ -64,6 +88,67 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- The own builder was there so a run pruned only its own cache. With docker's GC doing the trimming, nothing needs pruning, and the builder only costs time and disk: a cold build of the 2 GB test image took 299 s against 266 s, and its cache kept a second 3 GB copy of the layers. (JC, me)
 	- Estimated effort: Low
+
+- The changed check hangs on a FIFO, and saves over a file it can't read
+	- ID: 2026110312163202
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 2
+	- Related IDs: 2026102910482342, 2026100307163911
+	- Steps to reproduce:
+		- Load `./f.shcl`, replace the file with a FIFO, then save to `./f.shcl`.
+		- Load `./p.shcl`, have another program write new text to it and set its mode to 0200, then save to `./p.shcl`.
+	- Incorrect behavior:
+		- The first save blocks forever.
+		- The second save succeeds, and the file holds the old text, so the other program's edit is gone.
+	- Expected behavior: the FIFO gets the save's "not a regular file" error, as a save to a path the load didn't read does. A file the check can't read is refused as changed, since the write needs no read access to replace it.
+	- Reproduced: 20261103, probes in Rust and Python.
+	- Possible cause: the check opens the path with a plain blocking read, before the write's regular-file test. It takes every read error but not-found as "unchanged". Its comment says the write fails the same way, but a rename over the file needs no read access.
+	- Origin: Confirmed in Rust and Python, Plausible in Go and C (read). Same commits as item 1. The FIFO half is the class 2026100307163911 fixed for the Schema read with a no-wait open, which the new read doesn't use.
+	- Sweep: every read of a path another program can swap, in all 4. That's the changed check, `upgrade_file`'s read, and `read_file`.
+	- Estimated effort: Low
+
+- A newer Format line after a `Format 3` line is ignored, so a save writes the file anyway
+	- ID: 2026110312163203
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 3
+	- Related IDs: 2026102910482344, 2026102309053667
+	- Steps to reproduce:
+		- `printf '##    Format   3\np: x\n##    Format   4\n' > n.shcl`, then `shcl set --set p=y --write n.shcl`.
+	- Incorrect behavior: exit 0 and the file is rewritten, in all 4 CLIs. There's no `H006`, `check` says ok, and `fmt --check` exits 0. `upgrade --from-2x --write` on the same file with `p: a, b` converts it and drops the `Format 4` line. With the 2 Format lines swapped, `H006` fires and the write exits 7.
+	- Expected behavior: spec.md says "Where a file names more than one format, the highest decides." So `H006`, exit 7 on the write, and `upgrade` leaves the file alone.
+	- Reproduced: 20261103, all 4 CLIs.
+	- Possible cause: the Format line reader returns the first line naming 3 or more, rather than reading on for the highest. Its own doc comment says the highest decides.
+	- Origin: Confirmed. The early return is from `4fcfec0b` (20261003) and `be88796f` (20261009). 2026102309053667 named this reading as a cause and fixed only its symptom. The newer-format refusal (`7f2aa27c`, 20261029) was built on it.
+	- Sweep: every reader of Format lines, in all 4: the newer-format test, `H006` and `H007`, `migrate`'s stamp test, and `upgrade_file`.
+	- Estimated effort: Low
+
+- A set that makes a second instance with an existing value moves kept lines, and can comment one out
+	- ID: 2026110312163204
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 4
+	- Related IDs: 2026100117214802, 2026100307163901, 2026100307163907, 2026100307310000
+	- Steps to reproduce:
+		- `printf 'a:\n\tb: y\n\tc: 1\n\t- 1\n' > f.shcl`, then `shcl set --write '--set=a.b(z)=y' f.shcl`.
+		- At the root: `printf 'c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n' > g.shcl`, then `shcl set '--set=b(a)=y' g.shcl`.
+	- Incorrect behavior: in all 4 CLIs, at exit 0.
+		- The first file becomes `a:`, `# - 1`, `b: y`, `c: 1`. The kept `E008` line is now a comment, and `check` says ok. With `a: v` as the parent, the line moves above `b` and reloads as `E011`.
+		- In the second, the kept `E007` line moves from the end of the file to above `b: y`.
+		- The other setters do the same, and so do kept `E003`, `E004` and `E009` lines.
+	- Expected behavior: the data doesn't change, so the file doesn't either, as with `--set=a.b=y`. design.md's "Kept lines under edits" says a kept line beside the target stays.
+	- Reproduced: 20261103, all 4 CLIs.
+	- Possible cause: a set that adds a field takes the block's trailing kept lines as the new node's leading lines. When its value then matches an existing instance, the 2 are merged, and the merge puts those lines above the survivor.
+	- Origin: Confirmed. Older code: the tail takeover (`f97003c8`, 20261004), the duplicate merge (`279862ae`), and the leading-line append when 2 nodes fold (`082c9172`). The codes kept since 20261028 reach it more often. 2026100307163907's sweep checked the duplicate merge for lost lines, not moved ones.
+	- Note: kept lines lost or moved by an edit is a class that has come back over many rounds, one site at a time. The kept-lines fuzz (2026100307310000) checks that each line survives, not that it stays in its block. Adding that check is part of the fix.
+	- Estimated effort: Avg
 
 - `--quick` runs every test box
 	- ID: 2026110215285702
@@ -128,6 +213,91 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
 	- Estimated effort: Avg
+
+- Setting a list field twice gives 2 different files when a kept line sits among its items
+	- ID: 2026110312163205
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 5
+	- Related IDs: 2026110312163204
+	- Steps to reproduce:
+		- `printf 'a:\n\t- 1\n\ta: [1, 2\n\t- 2\n' > s.shcl`, then `shcl set --set=a=1 s.shcl > s1.shcl`, then the same set on `s1.shcl`.
+	- Incorrect behavior: in all 4 CLIs. The first set moves the kept `E019` line to the root as `a: [1, 2`, above `a: 1`. The second set turns it into a comment with a note. In between, a hand fix to `a: [1, 2]` makes `a` read as Multiple, which is what the comment rule is there to stop.
+	- Expected behavior: the first set writes the comment, and the second changes nothing.
+	- Reproduced: 20261103, all 4 CLIs.
+	- Possible cause: the comment pass runs before the lines among the items move up to the field's level.
+	- Origin: Confirmed. That move came in with `d0b200c5` (20260924). No earlier round saw it.
+	- Estimated effort: Low
+
+- `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
+	- ID: 2026110312163206
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 6
+	- Related IDs: 2026102620591100
+	- Steps to reproduce:
+		- `printf 'host: example.com\xc2\xa0\nports: 80,\xc2\xa0443\n' > u.shcl`, then `shcl upgrade --write u.shcl`.
+	- Incorrect behavior: exit 0 in all 4. `host` reads `example.com` with a no-break space after it, and `ports` holds the text `"<NBSP>443"`. 2.0.0 read `example.com` and `[80, 443]`. A vertical tab goes the same way.
+	- Expected behavior: spec.md says the conversion writes the file so the current parser reads the tree 2.x read. Failing that, it's a hard case and refused.
+	- Reproduced: 20261103, the dev CLIs against 2.0.0's Python CLI.
+	- Possible cause: the 2.x scan trims only space, tab and CR, where 2.0.0 trimmed all Unicode white space. check-migrate compares with the pinned build `7be348d0`, which came after `0f818d71` changed the trim, so it agrees with the bug.
+	- Origin: Confirmed. The same class as 2026102620591100: the pin isn't 2.0.0, and that item's sweep checked only quotes inside a piece.
+	- Sweep: the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2` and `6b776f9a`. Or compare against `v2.0.0` itself.
+	- Decisions: 2.x conversion is low stakes (JC, 20261015). Keep the easy conversions and refuse hard cases.
+	- Estimated effort: Low
+
+- A create-only save writes through a dangling link at the path
+	- ID: 2026110312163207
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 7
+	- Related IDs: 2026102910482343
+	- Steps to reproduce:
+		- `ln -s target.shcl link.shcl` with no `target.shcl`, then save a document to `link.shcl` with `create` set.
+	- Incorrect behavior: the save succeeds and makes `target.shcl`.
+	- Expected behavior: spec.md says a create-only save "is refused when anything is at the path". A link is something at the path, and an exclusive create refuses one. It matters for what `create` and `mode` are for, such as a new 0600 file with tokens in it, since a planted link picks where that file goes.
+	- Reproduced: 20261103, Python.
+	- Possible cause: the create check looks at the resolved target, not at the path as given.
+	- Origin: Confirmed in Python, Plausible in the other 3 (read). `a618835c` (20261029). No earlier round saw it.
+	- Estimated effort: Low
+
+- The C++ interface saves to a cut-off path when the path holds a NUL
+	- ID: 2026110312163208
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 8
+	- Related IDs: 2026092813365307
+	- Steps to reproduce:
+		- `Document::parse("a: 1\n").save_file(std::string("real.shcl\0evil", 14))`.
+	- Incorrect behavior: the save succeeds and writes `real.shcl`. `load_file` and `save_file_with` pass the path the same way.
+	- Expected behavior: refused, as Rust, Go and Python refuse a NUL in a path.
+	- Reproduced: 20261103, a probe built against `shcl.hpp`.
+	- Origin: Confirmed. Older than this window (`74a2e5d0`), and the new `save_file_with` (`a618835c`) repeats it. The same class as 2026092813365307 in the C CLI.
+	- Sweep: every C++ interface call that takes a `std::string` path.
+	- Estimated effort: Low
+
+- The man page leaves the newer-format refusal out of exit 7
+	- ID: 2026110312163209
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 9
+	- Related IDs: 2026102910482344
+	- Incorrect behavior: the man page's exit status list gives 7 for lost lines and the migrate and upgrade cases only, and never names `H006`.
+	- Expected behavior: it lists the newer-format refusal, as `--help` and spec.md do.
+	- Reproduced: 20261103, by reading `source/man/shcl.1`.
+	- Origin: Confirmed. `7f2aa27c` updated the help, the spec and `explain H006`, not the man page.
+	- Note: check-docs could compare the man page's exit list with `--help`'s, so the next gap is caught.
+	- Estimated effort: Low
 
 - A failed run skips most of the cleanup and the closing blank line
 	- ID: 2026110215285704
@@ -10846,6 +11016,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
 
+- Bulk edits slow down with the square of the count when many blocks hold a kept line
+	- ID: 2026110312163210
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 10
+	- Related IDs: 2026110114020101
+	- Problem description: 3000 `set` ops on a file where every block holds a kept `E011` line take 0.65 s, against 9 ms without the kept lines, and 4 times as long for each doubling. Rust, Go and C are alike, and Python takes 14 s at 2000. One kept line in the file, or one in 100 blocks, costs nothing.
+	- Reason: rare, since such a file is broken in every block. Each edit hashes every node near a kept line again.
+	- Note: with v4, since no new performance work goes in before 3.0.0. v4's text-first storage drops the step.
+	- Estimated effort: Avg
+
 - A bare number in a selector picks by position, so a file line can bind under the wrong instance
 	- ID: 2026110217340701
 	- Type: Bug
@@ -20775,6 +20958,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Dropped: strictness and on-bad are the consuming program's contract, not the user's. A user-level override would silently weaken guarantees an app makes about its own config handling, and would make the same `shcl` command mean different things on different machines. Nothing else the CLI exposes is presentation-only, so there is nothing left for a config file to hold. Rationale in `design.md`; runtime options and the library's per-document strictness argument stay as they are.
 	- Opened: 20260711-150807
 	- Closed: 20260723-134323
+
+- Code review 20261103:
+	- Decided against: refiling the 20261102 design review's findings on the format against YAML, TOML and JSON, on least surprise, and on the API a junior programmer sees. JC moved all 13 to v4 (2026110217340701 to 13).
+	- Decided against: the copy of the loaded text a document keeps for the changed check, 2 copies with kept lines. 2026102910482342 decided it.
+	- Decided against: an edit lost between the changed check and the rename. The check isn't a lock, per 2026102910482342.
+	- Opened: 20261103-121632
+	- Closed: 20261103-121632
 
 - Code review 20261101:
 	- Decided against: refiling the selector lookups that walk every instance of a name. 2026100307163919 has them, and JC's 20261023 call moves the fix to v4's node handles. Timed again at `a4f40c69`: 12000 index-selector sets on 12000 instances take 1.0 s in Rust, and 4000 by-value reads in Python 4.8 s.
