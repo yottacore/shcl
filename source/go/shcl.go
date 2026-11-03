@@ -9141,7 +9141,13 @@ func writeFileHow(file, data string, newOnly bool, mode os.FileMode) error {
 	if terr != nil {
 		return writeFailed(terr, "%s: %w", file, terr)
 	}
-	dir := filepath.Dir(target)
+	// As written, since a clean would put the temp beside `nodir/..` rather
+	// than in the missing folder the kernel refuses.
+	dir := rawDir(target)
+	inDir := dir + string(filepath.Separator)
+	if os.IsPathSeparator(dir[len(dir)-1]) {
+		inDir = dir
+	}
 	base := filepath.Base(target)
 	// At most the first 64 bytes of the name, cut where a character starts, so the
 	// temp's own length is fixed. Keeping the whole name put the temp over the
@@ -9208,7 +9214,7 @@ func writeFileHow(file, data string, newOnly bool, mode os.FileMode) error {
 	var tmp string
 	var last error
 	for attempt := 0; attempt < 8; attempt++ {
-		tmp = filepath.Join(dir, "."+base+".tmp"+strconv.Itoa(os.Getpid())+"."+strconv.Itoa(attempt))
+		tmp = inDir + "." + base + ".tmp" + strconv.Itoa(os.Getpid()) + "." + strconv.Itoa(attempt)
 		from := ""
 		if existErr == nil {
 			from = target
@@ -9582,21 +9588,23 @@ func resolveTarget(file string) (string, error) {
 // the nearest folder above it that is there, the rest as written. So one file
 // has one spelling whether it's there or not, and however the path names it:
 // bare, `./`, absolute, through a link, or relative to another working folder.
+// The rest isn't cleaned, since a clean cancels `nodir/..` as text where the
+// kernel refuses the missing folder, and the save would create the file.
 func realNearest(p string) string {
-	var rest []string
 	at := p
 	for {
 		dir := rawDir(at)
 		if dir == at {
 			break
 		}
-		rest = append(rest, filepath.Base(at))
 		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			// at is p up to some separator, so its last part starts the rest.
+			rest := p[len(at)-len(rawBase(at)):]
 			out := absReal(real)
-			for i := len(rest) - 1; i >= 0; i-- {
-				out = filepath.Join(out, rest[i])
+			if !os.IsPathSeparator(out[len(out)-1]) {
+				out += string(filepath.Separator)
 			}
-			return out
+			return out + rest
 		}
 		at = dir
 	}
@@ -9624,6 +9632,16 @@ func absReal(p string) string {
 		return abs
 	}
 	return p
+}
+
+// rawBase is the last part of p as written, the half rawDir leaves.
+func rawBase(p string) string {
+	vol := filepath.VolumeName(p)
+	i := len(p)
+	for i > len(vol) && !os.IsPathSeparator(p[i-1]) {
+		i--
+	}
+	return p[i:]
 }
 
 // rawDir is the directory half of p as written. filepath.Dir cleans it, and a

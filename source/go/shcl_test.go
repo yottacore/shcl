@@ -7216,6 +7216,15 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		return
 	}
+	// A missing folder named with `..` is refused, as the kernel refuses it,
+	// rather than cancelled as text. Windows cancels it itself.
+	through, _ := LoadFile("q2.shcl")
+	if err := through.SaveFile("nodir/../q.shcl"); err == nil {
+		t.Error("missing folder: saved")
+	}
+	if _, err := os.Lstat("q.shcl"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("missing folder: q.shcl is there (%v)", err)
+	}
 	// A FIFO swapped in is refused as the write refuses it, with no wait.
 	write("f.shcl", "a: 1\n")
 	fifo, _ := LoadFile("./f.shcl")

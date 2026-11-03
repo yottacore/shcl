@@ -5463,6 +5463,18 @@ def main():
 			ssame("moved", sread("m.shcl"), "a: 1\n")
 			os.chdir(sd)
 
+			if os.name != "nt":
+				# A missing folder named with `..` is refused, as the kernel
+				# refuses it, rather than cancelled as text. Windows cancels it
+				# itself.
+				sthrough, _ = shcl.Document.load_file("q2.shcl")
+				try:
+					sthrough.save_file("nodir/../q.shcl")
+					raise SystemExit("missing folder: saved")
+				except shcl.SaveFailed:
+					pass
+				ssame("missing folder left", os.path.exists("q.shcl"), False)
+
 			if hasattr(os, "mkfifo"):
 				# A FIFO swapped in is refused as the write refuses it, with no
 				# wait.

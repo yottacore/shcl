@@ -100,6 +100,11 @@ fn a_changed_check_knows_its_file_by_any_spelling() {
 	{
 		use shcl::WriteStatus;
 		use std::os::unix::fs::PermissionsExt;
+		// A missing folder named with `..` is refused, as the kernel refuses
+		// it, rather than cancelled as text. Windows cancels it itself.
+		let (mut through, _) = Document::load_file("q2.shcl");
+		assert!(through.save_file("nodir/../q.shcl").is_err());
+		assert!(!std::path::Path::new("q.shcl").exists());
 		// A FIFO swapped in is refused as the write refuses it, with no wait.
 		std::fs::write("f.shcl", "a: 1\n").unwrap();
 		let (mut fifo, _) = Document::load_file("./f.shcl");

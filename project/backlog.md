@@ -85,10 +85,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1103b`
 	- Commit: `2f38f68b`
 
+- Two spellings of one path under a missing folder can resolve apart in C, Go and Python
+	- ID: 2026110314240418
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-142404
+	- Opened by: 2026110314064292's sweep
+	- Related IDs: 2026110314064292, 2026110312163201
+	- Steps to reproduce:
+		- Load `new/./n.shcl` while `new` isn't there, make `new`, have another program write `new/n.shcl`, then save to `new/n.shcl`.
+	- Incorrect behavior: C, and Go and Python since 2026110314064292, keep the part under the missing folder as written, so the load records `.../new/./n.shcl` and the save resolves `.../new/n.shcl`. The changed check sees 2 files and the save goes through. Rust drops `.` and doubled separators there, so it refuses.
+	- Expected behavior: one answer however the path is spelled, as spec.md's save text says. `..` has to stay as written, since the kernel refuses it through a missing folder.
+	- Reproduced: No, from reading.
+	- Possible cause: the resolve's rest after the nearest folder that's there drops neither `.` nor an empty part.
+	- Sweep: the resolve's rest in all 4, and the detp* tests.
+	- Estimated effort: Low
+
 - Go and Python create a file through a missing folder named with `..`
 	- ID: 2026110314064292
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261103-140642
 	- Opened by: 2026110312163203
@@ -101,6 +118,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the path resolve from 2026110312163201 (`2f38f68b`) folds `nodir/..` away by text in Go and Python, so the missing folder is never seen.
 	- Sweep: the path resolve in all 4 and every save path that uses it.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. Python's resolve took `realpath` of the whole path, and Go's joined the rest onto the nearest folder with `filepath.Join`. Both cancel `nodir/..` as text, where the kernel refuses the missing folder, so the save named the file beside it. Go's write also put its temp file in the cleaned folder, so its refusal came from the rename, with other wording.
+	- Actual fix: Go and Python keep the rest of the path as written after the nearest folder that's there, as C does, so the write meets the missing folder. Go's write makes its temp file in the target's folder as written. 01's always-absolute answer is unchanged.
+	- Decisions:
+		- me, 20261103: Rust is left as is. It stops at the `..` and makes the whole path absolute, which keeps the `..` too and fails the same way.
+		- me, 20261103: windows cancels `nodir\..` itself, in every binding and before `2f38f68b` too, so the new test rows are POSIX only.
+	- Swept: the resolve in all 4 (`resolve_target`/`real_nearest` in Rust, `shcl_resolve_target` in C, `resolveTarget`/`realNearest` in Go, `_resolve_target` in Python) and their callers: the load's record, the save's compare, the create check and the write. C's windows resolve and Rust's `std::path::absolute` keep `..`. Python's write splits with `os.path.dirname`, which doesn't clean. Go's `filepath.Dir` and `filepath.Join` in the write were the only other cleans of the target.
+	- Verified: the new missing-folder rows in `detpp` and `detpq` fail with Go's and Python's resolve from `2f38f68b` put back and pass with the fix. `detpn` and `detpr` pass. The 4 CLIs exit 8 on the issue's command and leave the folder empty, and all 4 now say `cannot create temporary file`. Also cli-regress over all 4 CLIs (743 rows, `dd5h4` included), go test, go vet, staticcheck, gofmt, ruff, mypy, the Python and C runners, and `cicd.bash --skip=check-docs.bash --backlog-run-quick` for `rust go python c cli`, all 5 steps, and again for `go cli` after the last Go change.
+	- Test case: cli-regress `dd5h4` (`missdir`), and the missing-folder rows in `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go (`detpq`) and the C runner (`detpr`).
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed on the old resolve and pass on the new, `dd5h4` passes in all 4 CLIs, and the gates are green.
+	- Branch: `r1103b`
+	- Closed: 20261103-142339
 
 - Go back to docker's default builder for the images
 	- ID: 2026110311291920

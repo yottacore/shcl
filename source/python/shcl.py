@@ -10662,11 +10662,25 @@ def _resolve_target(file):
 			p = os.path.join(os.path.dirname(p) or ".", nxt)
 	if os.path.islink(p):
 		raise OSError("too many levels of symbolic links")
-	# Absolute through the real path of the nearest folder that is there, so
-	# one file has one spelling whether it's there or not, and however the
-	# path names it: bare, `./`, absolute, through a link, or relative to
-	# another working folder.
-	return os.path.realpath(p)
+	return _real_nearest(p)
+
+
+def _real_nearest(p):
+	"""P, with nothing at it, made absolute through the real path of the
+	nearest folder above it that is there, the rest as written. So one file
+	has one spelling whether it's there or not, and however the path names it:
+	bare, `./`, absolute, through a link, or relative to another working
+	folder. realpath alone would cancel `nodir/..` as text where the kernel
+	refuses the missing folder, and the save would create the file."""
+	at = p
+	while True:
+		d = os.path.dirname(at)
+		if os.path.exists(d or "."):
+			# at is p up to some separator, so its last part starts the rest.
+			return os.path.join(os.path.realpath(d or "."), p[len(at) - len(os.path.basename(at)):])
+		if not d or d == at:
+			return p
+		at = d
 
 
 def _set_read_only(path, on):
