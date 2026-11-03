@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-boxes names a private helper script by its file name
 	- ID: 2026110215285701
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 1
@@ -54,6 +54,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Question: set `SHCL_VM_STATE` in the login env outside the repo, or keep a short neutral link to the helper on PATH?
 		- The latter option
 	- Estimated effort: Low
+	- Actual fix: check-boxes takes `SHCL_VM_STATE`, then `vm-state` on PATH. A setting that isn't an executable file counts as none, so the box step is a SKIP, as before. On b23 `~/.local/bin/vm-state` is a link to the helper, outside the repo.
+	- Decisions:
+		- me: the link is named `vm-state`, which says what it is and names no machine's setup.
+		- me: the Requirements' check of check-push-gate and shell-regress found that neither passes `SHCL_VM_STATE`. check-push-gate empties `REMOTE_BOXES`, so its runs never look for the helper. The stub rig outside the repo sets it, and its 7 cases pass and skip as before.
+	- Test case: shell-regress `desjj`.
+		- 20261102: fails against the check-boxes.bash from before, since it found no `vm-state` on PATH, and passes after.
+	- Swept: every tracked file under `cicd/`, `.github/` and the installers names no private helper now.
+	- Acceptance signoff: Self-closed: the helper is found by the setting or the link, and the box is a SKIP with neither.
+	- Closed: 20261102-180031
 
 - The dogfood launcher expands wildcards and `~` in arguments, and exits 0 on Ctrl+C
 	- ID: 2026110215202340

@@ -4332,6 +4332,22 @@ brWant+="a|u@a|/r/arm|suites b|u@b|/r/bsd|suites c|u@c|/r/arm d|u@d|/r/arm|suite
 brRc=0; "${repoDir}/cicd/utility/check-boxes.bash" /bin/true "x|u@x||suites=go,perl" > /dev/null 2>&1 || brRc=$?
 [[ "${brRc}" == 2 ]] || fBad "check-boxes.bash took suites=go,perl: exit ${brRc}"
 
+fTest desjj 2026110215285701-boxes-helper-from-path
+##	The VM state helper is SHCL_VM_STATE or vm-state on PATH, never a path
+##	from one machine's private setup. With neither, a box is a SKIP.
+mkdir -p "${tmpDir}/vms/none" "${tmpDir}/vms/bin"
+# shellcheck disable=SC2016  ## the stand-in's own arguments
+printf '#!/bin/sh\necho "vm-state ran: $1 $2" >&2\nexit 1\n' > "${tmpDir}/vms/bin/vm-state"
+chmod +x "${tmpDir}/vms/bin/vm-state"; : > "${tmpDir}/vms/box.bin"
+for vmsDir in none bin; do
+	vmsOut="$(env -u SHCL_VM_STATE HOME="${tmpDir}/vms" PATH="${tmpDir}/vms/${vmsDir}:/usr/bin:/bin" \
+		"${repoDir}/cicd/utility/check-boxes.bash" /bin/true "x|u@x|${tmpDir}/vms/box.bin" 2>&1 || true)"
+	case "${vmsDir}" in
+		none) [[ "${vmsOut}" == *"SKIP x: no VM state helper"* ]] || fBad "check-boxes.bash found a VM state helper off PATH: ${vmsOut##*$'\n'}" ;;
+		bin)  [[ "${vmsOut}" == *"vm-state ran: wrap x"* ]] || fBad "check-boxes.bash didn't run vm-state from PATH: ${vmsOut##*$'\n'}" ;;
+	esac
+done
+
 fTest den87 2026103016433943-winbox-suites
 ##	A Windows box's suites are win-runners.bash, run whole: check-boxes.bash
 ##	refuses a LIST on one, and --list puts win-runners.bash beside

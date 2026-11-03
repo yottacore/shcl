@@ -30,8 +30,7 @@
 ##		  suites            also run the suites there
 ##		  LIST              a comma list of rust, go, python, c and cli
 ##		  perf              also run perf-gate.bash there, Windows boxes only
-##		  SHCL_VM_STATE     the VM state helper (default: the one in the synced
-##		                    util tree, then on PATH)
+##		  SHCL_VM_STATE     the VM state helper (default: vm-state on PATH)
 ##		  SHCL_BOX_WAIT     seconds to wait for a box another session holds
 ##		                    (default 900)
 ##	Exit: 0 = clean or skipped, 1 = a check failed, 2 = usage.
@@ -248,8 +247,8 @@ for row in "$@"; do
 	((perf == 0)) || [[ "${bin}" == *.exe ]] || { echo "check-boxes: perf runs on a Windows box only: ${row}" >&2; exit 2 ;}
 done
 
-vmState="${SHCL_VM_STATE:-${HOME}/synced/0-0/common/exec/util/linux/bash/claude_vm-state.bash}"
-[[ -x "${vmState}" ]] || vmState="$(command -v claude_vm-state.bash || true)"
+vmState="${SHCL_VM_STATE:-$(command -v vm-state || true)}"
+[[ -x "${vmState}" ]] || vmState=""
 boxWait="${SHCL_BOX_WAIT:-900}"
 [[ "${boxWait}" =~ ^[0-9]+$ ]] || boxWait=900
 
@@ -382,3 +381,4 @@ echo "check-boxes: OK"
 ##		2026-10-31  A Windows box's |suites runs win-runners.bash there, for 2026103016433943.
 ##		2026-10-31  A Windows box's |perf runs perf-gate.bash there, for 2026103016433965.
 ##		2026-10-31  A Windows box gets the PowerShell guard with win-runners' source, for 2026103114555334.
+##		2026-11-02  The VM state helper is SHCL_VM_STATE or vm-state on PATH, for 2026110215285701.
