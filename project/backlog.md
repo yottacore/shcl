@@ -10745,6 +10745,197 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
 
+- A bare number in a selector picks by position, so a file line can bind under the wrong instance
+	- ID: 2026110217340701
+	- Type: Bug
+	- Status: Deferred
+	- Severity: High
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `node: 1`, `node: 2` and `node: 3`, each with an `ip` under it, then `node(2).role: primary`.
+		- `shcl fmt` and `shcl check` on it, then `shcl get FILE 'node(2).ip'`.
+	- Incorrect behavior: `role` goes under `node: 3`, and `check` says `ok (0 diagnostic(s))`. The get gives node 3's `ip`. With `vlan: 10` to `vlan: 300`, `vlan(10)` is the 11th one. `E003` catches it only when the index is past the last instance.
+	- Expected behavior: a bare body names an instance by its value, since IDs, ports, years and VLANs are the usual discriminators. An index has a spelling of its own.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Possible fix, any of:
+		- An index mark in every path, such as `node(@2)`, and bare bodies match by value only. `upgrade` rewrites a bare index.
+		- An index selector on a binding line is refused and kept, as a wildcard is (`E004`). Lookups keep `(2)`.
+		- A hint where a bare number selects by index and some instance's value is that number, on a binding line or a lookup.
+	- Question: the first 2 change what a 3.0 file means, which v4's goals rule out (no Format 4, every clean 3.0 file reads the same). Make it a Format 4 change, or take the hint?
+	- Estimated effort: Avg
+	- Note: with v4 (JC).
+
+- `shcl get` prints the type's zero when the read isn't Good
+	- ID: 2026110217340702
+	- Type: Bug
+	- Status: Deferred
+	- Severity: High
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `x=$(shcl get --int app.shcl port)` on a file with no `port`.
+	- Incorrect behavior: `x` is `0`, exit 3. A script without `set -e` goes on with a zero, which README.md says can't happen ("A missing value cannot sneak in as a silent zero").
+	- Expected behavior: the default `--on-bad=flag` prints nothing when the read isn't `Good`. `--default=0` is how a script asks for a zero, the same rule as the library's `_or` reads.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Question: `get` on an empty field exits 2, where spec.md calls `Empty` informational and not a failure, so a `set -e` script stops on a field left empty on purpose. Exit 0 with an empty line, or keep 2 and say so in the spec?
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+
+- An int read takes a leading zero as decimal
+	- ID: 2026110217340703
+	- Type: Bug
+	- Status: Deferred
+	- Severity: High
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `mode: 0644`, then `shcl get --int FILE mode`.
+	- Incorrect behavior: 644, with no diagnostic. File modes and umasks are some of the most common numbers in a Unix config, and `0644` means octal to whoever wrote it.
+	- Expected behavior: `BadType` at Standard and Strict, with a message naming `0o644`. Loose stays as it is (JC, 2026-10-15). TOML and JSON refuse a leading zero for the same reason.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Note: `zip: 02134` read as an int goes from 2134 to `BadType`, so spec.md's zip example and its corpus case change with it. It's a second exception to v4's goal that every 3.0 file reads the same, beside the unit from a field name.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+
+- A Format or Schema line with other spacing is a plain comment
+	- ID: 2026110217340704
+	- Type: Bug
+	- Status: Deferred
+	- Severity: Avg
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `p: a,b`, then `## Format 3`. `shcl check`, then `shcl migrate`.
+	- Incorrect behavior: no hint, and `migrate` exits 7 as for a file with no Format line. Tidying the info block's spacing turns off `H006`, `H007` and the newer-format save guard, with nothing to say so.
+	- Expected behavior: any run of `#` and blanks reads, as in `^#+[ \t]*Format[ \t]+N`, and the writer keeps its one form. The same goes for the Schema line.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`. `##    Format   3` reads as stamped.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+
+- `check` prints each diagnostic twice, with no file or column
+	- ID: 2026110217340705
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: on a terminal, `shcl check` shows stdout's `line 1: Error: E025` and then stderr's `line 1: Error: E025 a quote in a bare value; quote it`. No line names the file or a column, and `check` takes no `--json`, though `get`, `instances`, `children` and `paths` do.
+	- Requirements:
+		- One line per diagnostic, `FILE:LINE:COL: error: message [E025]`, the form gcc, rustc and shellcheck's gcc format write and editors and CI problem matchers read. The tokenizer has the spans for the column.
+		- `check --json` for tools. The cross-binding check compares it with the messages left out.
+	- Estimated effort: Avg
+	- Note: with v4 (JC).
+
+- A bracket element takes no space or apostrophe, where a `- ` item does
+	- ID: 2026110217340706
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: `- New York` and `- O'Brien` load, and `[New York, O'Brien]` is `E025`. One array in its 2 spellings follows 2 rules, and moving a list from one to the other turns a good line into an error. In brackets a comma already ends an element, so a space inside one reads one way only.
+	- Requirements:
+		- An element follows the `- ` item rule: spaces inside it, and an apostrophe with text on both sides.
+		- Selector bodies keep their stricter rule, since they get typed on command lines.
+	- Note: only lines that are `E025` now start to load, so no clean file reads differently. It's still a value syntax change, which v4 lists as a non-goal.
+	- Estimated effort: Avg
+	- Note: with v4 (JC).
+
+- Two adjacent blocks with the same name and value merge with no hint
+	- ID: 2026110217340707
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: under `table: users`, `column: id` with `type: int`, then `column: id` again with `nullable: no`, comes out as one column, and `check` is clean. `H002` fires only when the 2 aren't next to each other, and a schema can't refuse it. For config a reopen is a feature. For DDL a second `column: id` is nearly always a copy-paste slip.
+	- Requirements:
+		- `H002` for every reopen of an instance with a value, adjacent or not. Wrappers stay quiet.
+		- A schema `reopen: no` makes a reopen at that path a `V` error.
+	- Note: the second is a schema vocabulary change, which v4 lists as a non-goal, so it may wait for after v4.0.
+	- Estimated effort: Avg
+	- Note: with v4 (JC).
+
+- Build a document with many setters in one re-read
+	- ID: 2026110217340708
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: v4 reads the whole document again after each edit. A program that builds a config from `Document::new()` with setters then costs the square of its size, at any file size: `init`, gitniblet's DDL output, and any program writing a config from scratch. At about 1 microsecond a line, from comparison.md's 2 KB config in 0.04 ms, 5,000 setters re-read about 12.5 million lines, around 12 seconds.
+	- Requirements:
+		- A batch scope that re-reads once at its end and checks every value then. A `NoReadBack` undoes the whole batch and names the setter.
+		- Settled before v4.0's API is set, since it's cheap to add then and costly after.
+	- Note: v4's Deferred partial re-read stays "measure first". This is the case that hits without a big file.
+	- Estimated effort: Avg
+	- Note: with v4 (JC).
+
+- A schema constraint for a value that names another instance
+	- ID: 2026110217340709
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: a DDL can't say that `fk: orders` has to name a `table` the file defines. The schema checks a value's type, range and `allowed` list, never another part of the document.
+	- Requirements:
+		- A `ref` key, such as `ref: table(*)`, where the value has to equal one of the values of the instances at that path.
+		- It's a set lookup, so the 4 bindings agree on it byte for byte, unlike the regex that was turned down.
+	- Note: a schema vocabulary change, which v4 lists as a non-goal, so after v4.0.
+	- Estimated effort: Avg
+	- Note: with v4 (JC).
+
+- `shcl --help` is about 230 lines
+	- ID: 2026110217340710
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: the help has every option, the refused option pairs and every exit code. git, cargo and docker print a short list there, and the detail under `help CMD`.
+	- Requirements:
+		- `--help` lists the subcommands and the common options. `help CMD` and the man page have the rest.
+	- Estimated effort: Avg
+	- Note: with v4 (JC).
+
+- Exit 6 has 4 meanings
+	- ID: 2026110217340711
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: 6 is a failed check, a strict load that failed, `init`'s schema with faults, and `--check` finding a rewrite. v4 leaves 7 with one meaning. 6 could get the same pass.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+
+- A schema message names a field without the instance it's in
+	- ID: 2026110217340712
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: an unknown `nullable` under `table: users` and `column: id` is `V001 unknown field 'table.column.nullable'`. With repeated instances that path doesn't say which one. The line helps, but the path could name it, `table(users).column(id).nullable`.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+
+- README's bad-line bullet leaves out the lines under a line whose name can't be read
+	- ID: 2026110217340713
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: "One bad line costs you that line, not the file" is true for a bad value. A line whose name can't be read (`E014` unreadable, `E023` in a name, `E013`, `E004`) takes what's indented under it too. Those lines are kept, but they don't load.
+	- Requirements:
+		- Something like "One bad line costs you that line, and the lines under it when its name can't be read."
+	- Note: v4's Docs section already rewrites README's first 2 bullets.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+
 - Fill in a commented default line when its key is set
 	- ID: 2026102910482345
 	- Type: Enhancement
@@ -11032,6 +11223,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Probably not a newly invented text structure to fully design, create, and debug (JC).
 	- Note: after the next cut, with v4 (JC).
 	- Note: v4's drivers (`project/design_docs/20261015-072055_v4.md` -> Drivers in place of CLIs) and `set`'s write-ops script already cover part of this (me).
+
+- Bring v4's upgrade API into 3.0
+	- ID: 2026110217340714
+	- Type: Enhancement
+	- Status: Canceled
+	- Priority: Avg
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Problem description: 3.0's 2.x upgrade surface is `migrate`, `migrate_unstamped`, `upgrade`, `upgrade_file` with `from_v2`, `write_backup`, `backup_file_name`, `Migration`, `UpgradeError`, `Rules`, `MIGRATED_LINE` and `--from-2x`, in 4 bindings. v4 cuts it to `upgrade(text, from)` and `upgrade_file(path, from)`.
+	- Decisions:
+		- JC, 20261102: do it in 3.0 only if it's less work than fixing 3.0's.
+		- Decided against (me): keeping 3.0's is less work. No item on it is open, so there's nothing to fix. The port is 4 bindings, the veneer, the CLI, tests and docs, and silkterm, convert-base-v2 and nemo-anywhere call `migrate_unstamped`, so each would need a change too. v4 does it.
+	- Closed: 20261102-173407
 
 - A merge that replaces a leaf drops a kept line the settle turned into a comment
 	- ID: 2026092718195400
