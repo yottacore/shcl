@@ -619,9 +619,9 @@ REMOTE_BOXES=(
 
 ## ci.yml's macos job, on GitHub's free arm64 Mac runner: it builds the
 ## macos-universal target, runs the Rust tests, and runs crosscheck and
-## cli-regress on the arm64 half (2026102416250110). About 3 minutes, so a run
-## with no flags and the longer ones start it first and wait for it last, and
-## the quick ones leave it out. It runs the branch as pushed.
+## cli-regress on the arm64 half (2026102416250110). About 3 minutes, so --long
+## starts it first and waits for it last, and every other run leaves it out. It
+## runs the branch as pushed.
 HOSTED_WORKFLOW="ci.yml"; HOSTED_JOB="macos"; HOSTED_TARGET="macos-universal"
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored
@@ -689,6 +689,10 @@ CTR_CACHE="${SHCL_CTR_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/${APP_NAME}-cicd}
 ## This box's ~/.cache/zig is every project's, and nothing here empties it.
 CTR_ZIG_VOLUME="${APP_NAME}-zig-cache"
 CTR_ZIG_CAP_KB=$((2 * 1024 * 1024))
+## The images build on a buildx builder of our own, since docker's default one
+## keeps one cache for every project on the box, and no prune can tell ours
+## apart. A run prunes only this one's.
+CTR_BUILDER="${APP_NAME}-cicd"
 ## A gate worktree's target dir is a link into the main checkout, which the the
 ## container has to see too.
 CTR_LINKS=(source/rust/target)
@@ -784,3 +788,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-31 JC: BACKLOG_ALONE, the steps --backlog-run-quick runs one at a time.
 ##		- 2026-10-31: PSScriptAnalyzer over the PowerShell guard include.
 ##		- 2026-11-01: CARGO_CACHE_DIRS, the target dirs a toolchain or lockfile change empties.
+##		- 2026-11-02 JC: The hosted macos job runs under --long only.

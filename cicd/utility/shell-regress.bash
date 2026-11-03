@@ -3116,6 +3116,71 @@ else
 	fTestSkip
 fi
 
+fTest desp5 2026110215202340-dogfood-literal-args-and-int
+##	2026110215202340: pwsh on Linux and macOS expanded wildcards and ~ in what
+##	the runner passed to shcl, through the bash launcher and from a session
+##	alike. And on a terminal, the launcher said 0 after a Ctrl+C stopped shcl.
+if fHave pwsh; then
+	dh="${tmpDir}/dfliteral"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	dwork="${tmpDir}/dfliteral-work"
+	mkdir -p "${dsrc}" "${dh}/.local/bin" "${dwork}"
+	touch "${dwork}/a1" "${dwork}/a[1]" "${dwork}/b2"
+	#  shellcheck disable=2016  ## the stub's own $@ and $a.
+	printf '#!/bin/sh\nfor a in "$@"; do printf "[%%s]\\n" "$a"; done\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	#  shellcheck disable=2088  ## a ~ that stays a ~ is the point.
+	litArgs=('a[1]' 'a?' '*' '~' '~/x' 'x y' '' "it's" -- '--%')
+	want="$(printf '[%s]\n' "${litArgs[@]}")"
+	got="$(cd "${dwork}" && env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" bash "${repoDir}/utility/dogfood_shcl" "${litArgs[@]}" 2>/dev/null </dev/null || true)"
+	[[ "${got}" == "${want}" ]] || fBad "dogfood_shcl changed its arguments on the way to shcl: ${got@Q} against ${want@Q}"
+	cat > "${tmpDir}/dfliteral.ps1" <<'PSEOF'
+Set-StrictMode -Version Latest
+Set-Location -LiteralPath $args[1]
+$o = @(& $args[0] --no-update 'a[1]' 'a?' '*' '~' "it's" a,b)
+$want = @('[a[1]]', '[a?]', '[*]', '[~]', "[it's]", '[a]', '[b]')
+if (($o -join '|') -cne ($want -join '|')) { "lost: came back [$($o -join '|')]" } else { 'done' }
+PSEOF
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${tmpDir}/dfliteral.ps1" "${repoDir}/utility/dogfood_shcl.ps1" "${dwork}" 2>&1 </dev/null || true)"
+	[[ "${out}" == "done" ]] || fBad "dogfood_shcl.ps1 from a session changed an argument: ${out@Q}"
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" --print-path --no-update 2>/dev/null </dev/null || true)"
+	[[ "${out}" == "${dh}/.local/bin/shcl" ]] || fBad "dogfood_shcl.ps1 --print-path gave ${out@Q}"
+	rc=0; out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" --print-path get 2>&1 </dev/null)" || rc=$?
+	[[ "${rc}" == 1 && "${out}" == *"takes no argument"* ]] || fBad "dogfood_shcl.ps1 --print-path took an argument for shcl: ${out@Q} rc ${rc}"
+
+	## pwsh's own Ctrl+C handling needs a terminal, so script gives it one. A
+	## background job starts with INT ignored, which the helper puts back.
+	if script --version 2>&1 | grep -q util-linux && fHave python3; then
+		dh="${tmpDir}/dfint"
+		dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+		mkdir -p "${dsrc}" "${dh}/.local/bin"
+		#  shellcheck disable=2016  ## the stub's own $1.
+		printf '#!/bin/sh\ntrap "exit 6" INT\n: > "$1"\nsleep 60\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+		cat > "${tmpDir}/dfint.py" <<'PYEOF'
+import os, signal, subprocess, sys
+pgidFile, home, launcher, marker, rcFile = sys.argv[1:6]
+open(pgidFile, 'w').write(str(os.getpgrp()))
+os.environ['HOME'] = home
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+rc = subprocess.call(['bash', launcher, marker], preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+open(rcFile, 'w').write(str(rc))
+PYEOF
+		env -u DISPLAY -u WAYLAND_DISPLAY script -qec "python3 -I '${tmpDir}/dfint.py' '${tmpDir}/dfint.pgid' '${dh}' '${repoDir}/utility/dogfood_shcl' '${tmpDir}/dfint.up' '${tmpDir}/dfint.rc'" /dev/null </dev/null >/dev/null 2>&1 &
+		scriptPid=$!
+		for ((i = 0; i < 600; i++)); do [[ -e "${tmpDir}/dfint.up" ]] && break; sleep 0.2; done
+		if [[ -e "${tmpDir}/dfint.up" && -s "${tmpDir}/dfint.pgid" ]]; then
+			kill -INT -- "-$(cat "${tmpDir}/dfint.pgid")" 2>/dev/null || true
+			wait "${scriptPid}" || true
+			[[ "$(cat "${tmpDir}/dfint.rc" 2>/dev/null)" == 6 ]] || fBad "dogfood_shcl did not give back shcl's exit code after an INT: $(cat "${tmpDir}/dfint.rc" 2>/dev/null)"
+		else
+			kill -- "${scriptPid}" 2>/dev/null || true
+			wait "${scriptPid}" || true
+			fBad "dogfood_shcl never started the build for the INT row"
+		fi
+	fi
+else
+	fTestSkip
+fi
+
 fTest dd6yz 20260924d-idea1-dogfood-dests
 ##	20260924d idea 1: stage 7 fell back to ~/.local/bin, where shcl is the
 ##	dogfood runner's link and the installer's, and a copy there replaced the
@@ -4331,6 +4396,22 @@ brWant+="a|u@a|/r/arm|suites b|u@b|/r/bsd|suites c|u@c|/r/arm d|u@d|/r/arm|suite
 ## check-boxes.bash refuses a suite it has no name for.
 brRc=0; "${repoDir}/cicd/utility/check-boxes.bash" /bin/true "x|u@x||suites=go,perl" > /dev/null 2>&1 || brRc=$?
 [[ "${brRc}" == 2 ]] || fBad "check-boxes.bash took suites=go,perl: exit ${brRc}"
+
+fTest desjj 2026110215285701-boxes-helper-from-path
+##	The VM state helper is SHCL_VM_STATE or vm-state on PATH, never a path
+##	from one machine's private setup. With neither, a box is a SKIP.
+mkdir -p "${tmpDir}/vms/none" "${tmpDir}/vms/bin"
+# shellcheck disable=SC2016  ## the stand-in's own arguments
+printf '#!/bin/sh\necho "vm-state ran: $1 $2" >&2\nexit 1\n' > "${tmpDir}/vms/bin/vm-state"
+chmod +x "${tmpDir}/vms/bin/vm-state"; : > "${tmpDir}/vms/box.bin"
+for vmsDir in none bin; do
+	vmsOut="$(env -u SHCL_VM_STATE HOME="${tmpDir}/vms" PATH="${tmpDir}/vms/${vmsDir}:/usr/bin:/bin" \
+		"${repoDir}/cicd/utility/check-boxes.bash" /bin/true "x|u@x|${tmpDir}/vms/box.bin" 2>&1 || true)"
+	case "${vmsDir}" in
+		none) [[ "${vmsOut}" == *"SKIP x: no VM state helper"* ]] || fBad "check-boxes.bash found a VM state helper off PATH: ${vmsOut##*$'\n'}" ;;
+		bin)  [[ "${vmsOut}" == *"vm-state ran: wrap x"* ]] || fBad "check-boxes.bash didn't run vm-state from PATH: ${vmsOut##*$'\n'}" ;;
+	esac
+done
 
 fTest den87 2026103016433943-winbox-suites
 ##	A Windows box's suites are win-runners.bash, run whole: check-boxes.bash

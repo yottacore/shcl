@@ -35,43 +35,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- check-boxes names a private helper script by its file name
-	- ID: 2026110215285701
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
+- `install.ps1` refuses pwsh on Linux and macOS
+	- ID: 2026110215285715
+	- Type: Enhancement
+	- Status: Stalled
+	- Priority: Avg
 	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 1
-	- Steps to reproduce:
-		- Read `cicd/utility/check-boxes.bash` where it sets `vmState`.
-	- Incorrect behavior: the default path and the `command -v` fallback name the VM state helper's file, from this box's synced util tree. That name and path belong to one machine's private setup, not to the repo.
-	- Expected behavior: the repo names no private helper. The path comes from a setting outside the repo, and with none set the box step is a SKIP, as now.
-	- Reproduced: 20261102, by reading. The SKIP message and the help comment were reworded the same day, so only the 2 lines that find the helper are left.
-	- Origin: Confirmed. `1fd57671`.
-	- Requirements:
-		- `SHCL_VM_STATE` alone, set where this box's login env sets its other per-machine values.
-		- check-push-gate and shell-regress already pass the variable to their stubs, so check they still do.
-	- Question: set `SHCL_VM_STATE` in the login env outside the repo, or keep a short neutral link to the helper on PATH?
-		- The latter option
-	- Estimated effort: Low
-
-- The dogfood launcher expands wildcards and `~` in arguments, and exits 0 on Ctrl+C
-	- ID: 2026110215202340
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261102-152023
-	- Opened by: tukfs-hash 2026102814341409
-	- Target OS: Linux, macOS
-	- Steps to reproduce:
-		- In a folder holding `a1`, `a[1]` and `b2`, run `dogfood_shcl 'a[1]' 'a?' '*' '~' 'x y'` with a stand-in shcl that prints its arguments.
-		- With a stand-in that exits 6 on INT, send INT to the launcher's process group while it runs.
-	- Incorrect behavior: shcl gets `a1`, `a1`, `a[1] a1 b2`, the home folder and `x y`. After the INT the launcher exits 0.
-	- Expected behavior: shcl gets each argument as typed, and its exit code comes back.
-	- Reproduced: 20261102, on b23 with pwsh 7.6.9, through the bash launcher under a scratch HOME.
-	- Possible cause: the .ps1 runs shcl with `& $exe @nativeArgs`, and pwsh on Linux and macOS expands wildcards and `~` in a native command's arguments.
-	- Progress log:
-		- 20261102: tukfs-hash copied this launcher and had the same bug. Its fix splits the work. The .ps1 only takes in a new build, rotates the pool and prints the path to run. The bash launcher then `exec`s that path with the arguments as typed, so they never go through pwsh.
+	- Opened by: Code review 20261102 item 15
+	- Problem description: `install.ps1` exits off Windows and points at install.bash. The shared installer rules want it to work wherever PowerShell runs, as silkterm's does. The original item was titled cross-platform, and shell-regress `dc0bt` pins the refusal, but no recorded call covers it.
+	- Question: port it, using install.bash's paths, or record the refusal as decided?
+		- Port it, but v4.
+	- Estimated effort: Avg
+	- Held for v4 (JC, 2026-11-02).
 
 - `--quick` runs every test box
 	- ID: 2026110215285702
@@ -136,31 +111,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
 	- Estimated effort: Avg
 
-- `install.ps1` refuses pwsh on Linux and macOS
-	- ID: 2026110215285715
-	- Type: Enhancement
-	- Status: Stalled
-	- Priority: Avg
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 15
-	- Problem description: `install.ps1` exits off Windows and points at install.bash. The shared installer rules want it to work wherever PowerShell runs, as silkterm's does. The original item was titled cross-platform, and shell-regress `dc0bt` pins the refusal, but no recorded call covers it.
-	- Question: port it, using install.bash's paths, or record the refusal as decided?
-		- Port it, but v4.
-	- Estimated effort: Avg
-	- Held for v4 (JC, 2026-11-02).
-
-- Running the pipeline prunes every project's docker build cache on a contributor's box
-	- ID: 2026110215285719
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 19
-	- Problem description: contributing.md says a run removes old shcl image tags and runs `docker builder prune -f --filter until=168h`, which keeps a week of build cache for every project and drops the rest. That's this box's house rule. An outside contributor running the gate wouldn't expect a run to touch other projects' cache.
-	- Question: make the prune opt-in, such as on when `HOST_TEMP` is set, or say it up front in contributing.md?
-		- Never prune another project's cache. Make sure other projects don't do the same. Is there any way to only prune own cache?
-	- Estimated effort: Low
-
 - A failed run skips most of the cleanup and the closing blank line
 	- ID: 2026110215285704
 	- Type: Bug
@@ -175,7 +125,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Also:
 		- Gate scripts' own containers and the helper containers run with `--rm` even under `--keep-temp`.
 		- A box's work folder is removed only by the box's own trap, so a dropped ssh leaves it there. Nothing sweeps stale ones on the box.
+		- Those 2 are in child 2026110218511914.
 	- Origin: Confirmed, by reading and from the 2 logs.
+	- Estimated effort: Avg
+	- Actual cause: the docker part of fCleanup ran only at the end of a whole run, and the EXIT trap's cleanup line printed nothing after it.
+	- Progress log:
+		- 20261102: the sweep, the Zig volume trim and the build cache prune are one function, `fCtrTidy`, which a whole run and the EXIT trap of a failed or stopped one both call. The trap's cleanup line names what went and docker's sizes before and after, as a whole run's does, and a blank line follows it, and the kept-folder lines under `--keep-temp`.
+		- Verified: check-push-gate `desm7` and `de8j8` pass. Against the scripts from before, `desm7` fails, with nothing swept or pruned and no blank line last, and so does `de8j8`'s new prune check. A real `--backlog-run-quick cicd` that failed on `dcbc2` in the image ended on its cleanup line, with docker's sizes, and a blank line.
+	- Swept: both cleanup lines, a whole run's and the trap's, and every caller of fCtrSweep, fCtrZigTrim and fCtrPrune. The run inside the image and the frozen copy's run leave all of it to the run outside, as before.
+	- Branch: `r1103`
+	- Test case: check-push-gate `desm7` (a failed run sweeps, trims, prunes, and ends on a blank line) and `de8j8` (a stopped run prunes too).
+
+- Gate containers under `--keep-temp`, and stale work folders on the test boxes
+	- ID: 2026110218511914
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261102-185119
+	- Opened by: 2026110215285704
+	- Parent ID: 2026110215285704
+	- Steps to reproduce:
+		- Run a gate script that starts the image, such as analyze-c, with `--keep-temp` on the run. Its container goes with `--rm`, as do the `-passwd` and `-group` reads in cicd.bash.
+		- Drop the ssh link to a test box during check-boxes. Its work folder stays on the box.
+	- Incorrect behavior: `--keep-temp` keeps only the run's main containers, and nothing on a box sweeps a work folder its trap didn't get to remove.
+	- Expected behavior: `--keep-temp` keeps every container the run starts. Each box run removes that box's own stale work folders, by the same rule as the run folders here: older than 2 days, with no live process left.
 	- Estimated effort: Avg
 
 - `--no-leakcheck` still runs the soak tests
@@ -485,6 +458,101 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- check-boxes names a private helper script by its file name
+	- ID: 2026110215285701
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 1
+	- Steps to reproduce:
+		- Read `cicd/utility/check-boxes.bash` where it sets `vmState`.
+	- Incorrect behavior: the default path and the `command -v` fallback name the VM state helper's file, from this box's synced util tree. That name and path belong to one machine's private setup, not to the repo.
+	- Expected behavior: the repo names no private helper. The path comes from a setting outside the repo, and with none set the box step is a SKIP, as now.
+	- Reproduced: 20261102, by reading. The SKIP message and the help comment were reworded the same day, so only the 2 lines that find the helper are left.
+	- Origin: Confirmed. `1fd57671`.
+	- Requirements:
+		- `SHCL_VM_STATE` alone, set where this box's login env sets its other per-machine values.
+		- check-push-gate and shell-regress already pass the variable to their stubs, so check they still do.
+	- Question: set `SHCL_VM_STATE` in the login env outside the repo, or keep a short neutral link to the helper on PATH?
+		- The latter option
+	- Estimated effort: Low
+	- Actual fix: check-boxes takes `SHCL_VM_STATE`, then `vm-state` on PATH. A setting that isn't an executable file counts as none, so the box step is a SKIP, as before. On b23 `~/.local/bin/vm-state` is a link to the helper, outside the repo.
+	- Decisions:
+		- me: the link is named `vm-state`, which says what it is and names no machine's setup.
+		- me: the Requirements' check of check-push-gate and shell-regress found that neither passes `SHCL_VM_STATE`. check-push-gate empties `REMOTE_BOXES`, so its runs never look for the helper. The stub rig outside the repo sets it, and its 7 cases pass and skip as before.
+	- Test case: shell-regress `desjj`.
+		- 20261102: fails against the check-boxes.bash from before, since it found no `vm-state` on PATH, and passes after.
+	- Swept: every tracked file under `cicd/`, `.github/` and the installers names no private helper now.
+	- Acceptance signoff: Self-closed: the helper is found by the setting or the link, and the box is a SKIP with neither.
+	- Closed: 20261102-180031
+
+- The dogfood launcher expands wildcards and `~` in arguments, and exits 0 on Ctrl+C
+	- ID: 2026110215202340
+	- Type: Bug
+	- Status: Done
+	- Needs external testing: No
+	- Severity: Avg
+	- Opened: 20261102-152023
+	- Opened by: tukfs-hash 2026102814341409
+	- Target OS: Linux, macOS
+	- Steps to reproduce:
+		- In a folder holding `a1`, `a[1]` and `b2`, run `dogfood_shcl 'a[1]' 'a?' '*' '~' 'x y'` with a stand-in shcl that prints its arguments.
+		- With a stand-in that exits 6 on INT, send INT to the launcher's process group while it runs.
+	- Incorrect behavior: shcl gets `a1`, `a1`, `a[1] a1 b2`, the home folder and `x y`. After the INT the launcher exits 0.
+	- Expected behavior: shcl gets each argument as typed, and its exit code comes back.
+	- Reproduced: 20261102, on b23 with pwsh 7.6.9, through the bash launcher under a scratch HOME.
+	- Possible cause: the .ps1 runs shcl with `& $exe @nativeArgs`, and pwsh on Linux and macOS expands wildcards and `~` in a native command's arguments.
+	- Actual cause [Bug]:
+		- pwsh on Linux and macOS expands wildcards and `~` in a native command's arguments, splatted ones too. Only a quoted literal is left alone.
+		- On a terminal, pwsh's Ctrl+C stops the script before its `exit $LASTEXITCODE`, and pwsh exits 0. With stdin from /dev/null the 6 came back.
+	- Progress log:
+		- 20261102: tukfs-hash copied this launcher and had the same bug. Its fix splits the work. The .ps1 only takes in a new build, rotates the pool and prints the path to run. The bash launcher then `exec`s that path with the arguments as typed, so they never go through pwsh.
+		- 20261102: reproduced both on b23, the INT row on a terminal. Fixed. shell-regress `desp5` failed on the old scripts at every check and passes now.
+		- 20261102: the launcher under bash 3.2, as on macOS, with a stand-in pwsh: no arguments, `--no-update` alone, and a mix all came through.
+	- Decisions:
+		- tukfs-hash's split: `dogfood_shcl.ps1 --print-path` prints what would run, and the bash launcher `exec`s it. The .ps1 still runs shcl itself for the `.cmd` launcher and from a session, since Windows has no exec and a session wants shcl's output in its own pipeline.
+		- In that run mode each string goes to shcl as a quoted literal. So from a pwsh session on Linux or macOS a bare `*` doesn't expand either, the same as for any script pwsh calls. Leaving it would keep this bug's twin.
+		- A Ctrl+C in that run mode still ends at exit 0. On Linux and macOS the bash launcher is the way in, and pwsh has no clean hook for it.
+		- `--print-path` refuses any other argument but `--no-update`, rather than dropping it quietly.
+	- Actual fix [Bug]: `utility/dogfood_shcl` asks `dogfood_shcl.ps1 --print-path` for the build, with stdin from /dev/null so shcl keeps it, then runs it with every argument but `--no-update` as typed. The .ps1's own run mode passes each string argument as a quoted literal.
+	- Swept: `utility/dogfood_shcl`, the one native call in `dogfood_shcl.ps1`, and `dogfood_shcl.cmd`, left as is since Windows expands no wildcards. `install.ps1` passes only `--version`, and `box-cases.ps1` fixed strings. No other `.ps1` passes arguments on.
+	- Verified: the whole shell-regress (184 rows), `cicd.bash --backlog-run-quick cicd` with check-docs skipped for `dcbc2`, `test-ids.py check`, `lint-report.bash --check --no-mark`.
+	- Verified: 20261103 hosted ci.yml 41577566944 on r1103: the windows job passed, win-runners dd71z and ddg6q PASS. Gate quick run 20261102-202034_001 passed desp5.
+	- Branch: `r1103`
+	- Commit: `d0e43489`
+	- Test case: shell-regress `desp5`; win-runners `ddg6q` and `dd71z` for the Windows run mode.
+	- Acceptance signoff: Self-closed: the bash launcher path is covered by desp5, and the Windows run mode passed hosted under 5.1 and 7.
+	- Closed: 20261102-205537
+
+- Running the pipeline prunes every project's docker build cache on a contributor's box
+	- ID: 2026110215285719
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 19
+	- Problem description: contributing.md says a run removes old shcl image tags and runs `docker builder prune -f --filter until=168h`, which keeps a week of build cache for every project and drops the rest. That's this box's house rule. An outside contributor running the gate wouldn't expect a run to touch other projects' cache.
+	- Question: make the prune opt-in, such as on when `HOST_TEMP` is set, or say it up front in contributing.md?
+		- Never prune another project's cache. Make sure other projects don't do the same. Is there any way to only prune own cache?
+	- Estimated effort: Low
+	- Progress log:
+		- 20261102: the images build on a buildx builder of our own, `shcl-cicd` (`CTR_BUILDER` in config.bash), made the first time with the `docker-container` driver and loaded into docker after the build. A run in the image prunes only that builder's cache unused for a week, then stops the builder, unless another run of ours is live. `docker builder prune` is gone, so docker's default builder is never pruned. With no buildx, or a builder that can't be made, the image builds on the default builder as before, with a line saying its cache is left alone. contributing.md says so.
+		- Verified: check-push-gate `desm6` and `de635` pass, and both fail against the scripts from before, which prune docker's default builder. A real build of a small image through `fCtrBuild` on a builder of its own kept both labels, and `fCtrPrune` started the stopped builder, pruned it and stopped it, and made no builder when there was none.
+		- Verified: `--backlog-run-quick cicd --skip=check-docs.bash` passed all 5 steps in the image, and made no builder, since the image was there. check-docs' only red is `dcbc2`, which is red on dev until the installers' docs-only sync to main.
+		- Measured on a 2 GB test image, at a load of 42 to 50 on 32 cores: 266 s on the default builder, 299 s on our builder with the load into docker, and 53 s to load it again from a warm cache. Starting a stopped builder for the prune takes about 4 s, once per run in the image. The builder's cache holds its own copy of the image's layers, 3.0 GB here, for up to a week after a build.
+	- Decisions:
+		- 20261102: a builder of our own, since docker offers no other way. A prune filter on the default builder can't tell projects apart: `description` matches whole, and `id` would need a list of the records our builds made, taken from a diff that another project's build at the same time would spoil (me).
+		- 20261102: the builder's cache follows the week rule, not the 2 GB one. One main image is 10 GB, so a 2 GB cap would empty it every run (me).
+		- 20261102: buildx's default buildkit image, not a pinned one. It only builds, and the images' own toolchains stay pinned in their recipes (me).
+		- 20261102: the old `shcl-cicd` image tags built on the default builder left cache there. A run doesn't prune it, and docker's own cache limit or the box's owner does (me).
+	- Swept: every `docker build` and `builder prune` under `cicd/`, the hook and `.github/`: fCtrBuild is the one build, used by cicd.bash and fCtrRunSelf, and cicd.bash had the one prune. check-push-gate's fake docker takes `buildx` now. Sister projects with the same box-wide prune are listed in the round report.
+	- Branch: `r1103`
+	- Test case: check-push-gate `desm6` (a run makes our builder and builds on it, and with no buildx it builds on the default one and prunes nothing) and `de635` (the prune is our builder's, held back from stopping it under a live run, and named on the cleanup line).
+		- 20261102: `de635`'s prune assert went from `builder prune -f --filter until=168h` to `buildx prune --builder shcl-cicd -f --filter until=168h`.
+	- Acceptance signoff: Self-closed: JC's answer asked for a prune of only our own cache, and docker's own way to keep one is a builder of the project's own.
+	- Closed: 20261102-194240
 
 - Apply the 2026-11-02 doc suggestions that are accepted
 	- ID: 2026110215285723
@@ -1434,17 +1502,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261030: ci.yml's `job` input runs one job alone. Every other job has `if: ${{ !inputs.job }}`, and the concurrency group takes the input, so a run of the job alone and a full run on one branch don't cancel each other.
 		- Verified: 20261031 hosted ci.yml 41143471789 with job=macos ran only macos, every other job skipped; 41155448447 with no input ran and passed every job.
 		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: step 1 started the macos job (41155899490), step 9 waited and passed, and den5e passed.
+		- 20261103: JC answered the Check: start the hosted macos job from --long only, not from a no-flag run, --merge-gate or --backlog-run-full.
+		- 20261102: only `--long` starts the job now. Every other run has an Off line for it, `no --long` where no other reason applies. The help, config.bash's note and both script histories say so.
+		- Verified: 20261102 check-push-gate passes whole, `den5e` included, and `den5e` fails against the cicd.bash from before, which started the job from `-y --no-sync` and `--merge-gate`.
 	- Decisions:
 		- me: the job by length is about 3 minutes plus GitHub's queue, which a run with no flags or a longer one hides by starting it first. The quick runs test edits in progress, which GitHub can't see, so they leave it out, as zuid's quick runs do.
+			- 2026-11-02 JC: `--long` only. A run with no flags, `--merge-gate` and `--backlog-run-full` leave it out too.
 		- me: a `job` input on ci.yml, not a workflow of its own, so `check-pins.bash` keeps reading every pin from one file.
 		- me: the hook's run leaves it out, since the push it gates runs ci.yml, the `macos` job included, and its frozen copy has no branch.
 		- me: config.bash names the job in `HOSTED_WORKFLOW`, `HOSTED_JOB` and `HOSTED_TARGET`, so the engine stays generic. `SHCL_GH` names a gh in place of gitsby's, for the test.
 	- Test case: check-push-gate `den5e`.
 		- 20261030: `dee74` counts the Off lines of a run with no sync. The GitHub job's one line took it from 6 to 7.
+		- 20261102: `den5e`'s runs that start the job add `--long`, and a run with no flags, `--merge-gate` and `--backlog-run-full` joined the runs that must leave it out.
 	- Verified: check-push-gate `den5e` passes, and fails against the cicd.bash from before. The whole of check-push-gate and shell-regress pass, and `--backlog-run-quick cicd --skip=check-docs.bash` passed format, build and lint. check-docs fails only `dcbc2`, which is red on dev until the installer sync to main.
 	- Swept: every flag that takes out the release, the cross targets or the remote hosts (`--no-release`, `--no-cross`, `--skip`, `--no-remote`), the run modes, `--list`, the container and frozen-copy runs, which never start it, and the end summary's SKIP lines, which the test boxes step now adds to rather than replaces.
-	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written.
-	- Closed: 20261030-193808
+		- 20261102: the help, config.bash's note, `--list`'s Off lines and `dee74`'s count of them, which stays 7.
+	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written. The 2026-11-02 change follows JC's answer, and `den5e` covers it.
+	- Closed: 20261102-180031
 
 - check-push-gate `dee74` failed once under load and passed on a rerun
 	- ID: 2026102821264857
