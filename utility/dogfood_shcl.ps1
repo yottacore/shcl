@@ -13,6 +13,11 @@
 ##	Usage:
 ##		dogfood_shcl get --int app.shcl server.port
 ##		dogfood_shcl --no-update --version   ## run what is held, copy nothing
+##		dogfood_shcl.ps1 --print-path        ## print what would run, run nothing
+##
+##	On Linux and macOS the bash launcher takes --print-path's answer and runs
+##	it itself, so the arguments as typed and a Ctrl+C's exit code reach shcl
+##	without going through pwsh.
 ##
 ##	Where things go:
 ##		Linux, macOS  ~/.local/bin/shcl_versions/, fixed name ~/.local/bin/shcl
@@ -50,7 +55,7 @@
 .SYNOPSIS
 Runs the newest dogfood build of shcl, taking a new one from the synced dogfood dir first.
 .DESCRIPTION
-Every argument but --no-update goes to shcl as it came, and shcl's exit code comes back. --no-update runs the newest build already held and copies nothing. For shcl's own help, run it with --help.
+Every argument but --no-update and --print-path goes to shcl as it came, and shcl's exit code comes back. --no-update runs the newest build already held and copies nothing. --print-path prints the path that would run instead of running it, and takes no other argument but --no-update. For shcl's own help, run it with --help.
 .EXAMPLE
 dogfood_shcl get --int app.shcl server.port
 .EXAMPLE
@@ -473,6 +478,21 @@ function ConvertTo-NativeArgument {
 	}
 }
 
+## pwsh on Linux and macOS expands wildcards and ~ in a native command's
+## arguments, splatted ones too, and leaves only a quoted literal alone. So
+## each string goes on a built command line in single quotes. Anything else,
+## such as an array from a session, is passed by reference as before.
+function Invoke-NativeLiteral {
+	[CmdletBinding()]
+	param([string]$Path, [object[]]$Argument)
+	$line = [Text.StringBuilder]::new('& $args[0]')
+	for ($i = 0; $i -lt $Argument.Count; $i++) {
+		if ($Argument[$i] -is [string]) { $null = $line.Append(" '").Append([Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($Argument[$i])).Append("'") }
+		else { $null = $line.Append(" `$args[1][$i]") }
+	}
+	& ([scriptblock]::Create($line.ToString())) $Path $Argument
+}
+
 #==============================================================================
 # Main
 #==============================================================================
@@ -480,8 +500,8 @@ function ConvertTo-NativeArgument {
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-## Its own flag is taken out; everything else goes to shcl as it came, `-v` and
-## `-h` included, which is why there is no param() block to bind them.
+## Its own flags are taken out; everything else goes to shcl as it came, `-v`
+## and `-h` included, which is why there is no param() block to bind them.
 $given = @(Join-ColonArgument -Argument $args)
 if (-not $MyInvocation.Line) {
 	$fromFile = Get-FileArgument -Self $PSCommandPath
@@ -490,10 +510,14 @@ if (-not $MyInvocation.Line) {
 ## The flag goes on the left. A `$true` from `-k:$true` on the left equals any
 ## word, so that run copied nothing and then found no build.
 $noUpdate = $false
+$printPath = $false
 $passArgs = @()
 foreach ($arg in $given) {
-	if ('--no-update' -ceq $arg) { $noUpdate = $true } else { $passArgs += $arg }
+	if ('--no-update' -ceq $arg) { $noUpdate = $true }
+	elseif ('--print-path' -ceq $arg) { $printPath = $true }
+	else { $passArgs += $arg }
 }
+if ($printPath -and $passArgs.Count -gt 0) { Exit-Launcher "--print-path runs nothing, so it takes no argument for $ProgramName, such as '$($passArgs[0])'" }
 
 if (-not $noUpdate) {
 	$fresh = Copy-NewBuild
@@ -503,8 +527,12 @@ if (-not $noUpdate) {
 
 $exe = Get-RunTarget
 if (-not $exe) { Exit-Launcher "no $ProgramName build held, and none in $($SourceDirs -join ' or ')" }
+if ($printPath) {
+	Write-Output -InputObject $exe
+	exit 0
+}
 $nativeArgs = @(ConvertTo-NativeArgument -Argument $passArgs)
-& $exe @nativeArgs
+Invoke-NativeLiteral -Path $exe -Argument $nativeArgs
 exit $LASTEXITCODE
 
 ##	History:
@@ -513,3 +541,4 @@ exit $LASTEXITCODE
 ##		- 2026-09-28 JC: Stamps back in local time. A pool name holding an impossible date is skipped rather than stopping every run.
 ##		- 2026-10-04 JC: Takes its arguments from the process when started by -File, which split a `-x:y` one. Quotes them for 5.1 the way shcl.ps1 does.
 ##		- 2026-10-04 JC: Called from a session, keeps an unquoted `-x:y` whole rather than passing on only the `y`.
+##		- 2026-11-02 JC: --print-path, for the bash launcher to run the build itself. Passes each argument as a quoted literal, so pwsh on Linux and macOS no longer expands wildcards and ~ in them.
