@@ -689,6 +689,10 @@ CTR_CACHE="${SHCL_CTR_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/${APP_NAME}-cicd}
 ## This box's ~/.cache/zig is every project's, and nothing here empties it.
 CTR_ZIG_VOLUME="${APP_NAME}-zig-cache"
 CTR_ZIG_CAP_KB=$((2 * 1024 * 1024))
+## The images build on a buildx builder of our own, since docker's default one
+## keeps one cache for every project on the box, and no prune can tell ours
+## apart. A run prunes only this one's.
+CTR_BUILDER="${APP_NAME}-cicd"
 ## A gate worktree's target dir is a link into the main checkout, which the the
 ## container has to see too.
 CTR_LINKS=(source/rust/target)

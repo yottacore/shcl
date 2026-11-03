@@ -775,10 +775,32 @@ fFrozenGone(){
 	[[ "${d}" == "${run_tmp_root}/"*/tree && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
 	fSafeRm "${d}" || echo "cleanup: could not remove all of ${d}" >&2
 }
+## At the end of a run in the image, whole or not: our stale images and
+## containers, Zig's volume past its rule, and our builder's cache unused for a
+## week. Adds to GONE and KB, and sets DF to docker's sizes before and after.
+## --keep-temp keeps this run's containers, which the sweep would take.
+fCtrTidy(){  ## fCtrTidy GONE KB DF
+	local -n gone_t8q="$1" kb_t8q="$2" df_t8q="$3"
+	local bytes what before after keep=""
+	df_t8q=""
+	if ((inner_run || keep_temp)) || [[ -z "${ctr_image:-}" || -z "${run_tmp}" ]] || ! declare -F fCtrSweep >/dev/null; then return 0; fi
+	mkdir -p "${run_tmp}/sweep" || return 0
+	if fOtherRunLive; then keep=keep; fi
+	before="$(fCtrDf)"
+	while IFS=$'\t' read -r bytes what; do
+		gone_t8q+=("${what}")
+		if [[ "${bytes}" =~ ^[0-9]{1,15}$ ]]; then kb_t8q=$((kb_t8q + bytes / 1024)); fi
+	done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true; fCtrPrune "${keep}" || true)
+	after="$(fCtrDf)"
+	df_t8q="$(paste <(printf '%s\n' "${before}") <(printf '%s\n' "${after}") \
+		| awk -F'\t' '$1 != "" && $1 == $3 { t = tolower($1); sub(/^local /, "", t); printf "%s%s %s -> %s", (n++ ? ", " : "; docker "), t, $2, $4 }')"
+}
 ## A run that stops early. fCleanup has already done it on a whole run.
 # shellcheck disable=SC2329  ## runs from the EXIT trap; the whole-run braces hide that
 fRunTmpGone(){
-	local kb=0 n=""
+	local n="" dfLine=""
+	local -i kb=0
+	local -a gone=()
 	## First, or what's still running reads a copy and a temp dir already gone.
 	fStopDescendants || true
 	if ((! inner_run && ! keep_temp)) && [[ -n "${ctr_image:-}" ]] && declare -F fCtrRunGone >/dev/null; then
@@ -788,12 +810,22 @@ fRunTmpGone(){
 	fFrozenGone || true
 	fCargoStampFresh
 	[[ -n "${run_tmp}" ]] || return 0
-	if ((keep_temp)); then fRmRunTmp; return 0; fi
-	kb="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1)" || kb=0
+	if ((keep_temp)); then
+		fRmRunTmp
+		if ((! inner_run)); then echo >&2; fi
+		return 0
+	fi
+	## Only once the run has used the image. One that stopped before has
+	## nothing of its own in docker.
+	if [[ -n "${ctr_tag:-}" ]]; then fCtrTidy gone kb dfLine || true; fi
+	kb+="$(du -sk -- "${run_tmp}" 2>/dev/null | cut -f1 || true)"
 	fRmRunTmp
-	if ((stale_runs)); then n=" and ${stale_runs} stale run folder(s)"; else n=""; fi
-	if ((cargo_pruned)); then n+=" and ${cargo_pruned} stale cargo target dir(s)"; fi
-	if ((! inner_run)); then printf '[ cleanup: removed this run'\''s temp files%s, about %s ]\n' "${n}" "$(fSize "$((${kb:-0} + stale_kb + cargo_kb))")" >&2; fi
+	gone+=("this run's temp files")
+	if ((stale_runs)); then gone+=("${stale_runs} stale run folder(s)"); fi
+	if ((cargo_pruned)); then gone+=("${cargo_pruned} stale cargo target dir(s)"); fi
+	if ((! inner_run)); then
+		printf '[ cleanup: removed %s, about %s%s ]\n\n' "$(printf '%s, ' "${gone[@]}" | sed 's/, $//')" "$(fSize "$((kb + stale_kb + cargo_kb))")" "${dfLine}" >&2
+	fi
 }
 ## The tee the run logs through. Bash doesn't wait for it, so a caller that
 ## reads the log as soon as the run exits can miss the last lines, as a loaded
@@ -1894,7 +1926,7 @@ fi
 fCleanup(){
 	local -a gone=()
 	local -i kb=0 sidecars=0 kbTmp=0
-	local f stamp size profDir bytes what dfBefore="" dfAfter="" dfLine=""
+	local f stamp size profDir dfLine=""
 	if ((inner_run)); then fRmRunTmp; return 0; fi
 	fFrozenGone || true
 	## A graph the rotation pruned leaves its sample count behind, under the
@@ -1916,20 +1948,7 @@ fCleanup(){
 	if ((stale_runs)); then gone+=("${stale_runs} stale run folder(s)"); kb+=stale_kb; fi
 	if ((cargo_pruned)); then gone+=("${cargo_pruned} stale cargo target dir(s)"); kb+=cargo_kb; fi
 	fCargoStampFresh
-	## --keep-temp keeps this run's containers, which the sweep would take.
-	if [[ -n "${ctr_image}" ]] && ((! keep_temp)); then
-		mkdir -p "${run_tmp}/sweep"
-		dfBefore="$(fCtrDf)"
-		while IFS=$'\t' read -r bytes what; do
-			gone+=("${what}")
-			if [[ "${bytes}" =~ ^[0-9]{1,15}$ ]]; then kb+=$((bytes / 1024)); fi
-		done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true)
-		## A week of build cache stays, for every project on the box.
-		"${SHCL_DOCKER:-docker}" builder prune -f --filter until=168h >/dev/null 2>&1 || true
-		dfAfter="$(fCtrDf)"
-		dfLine="$(paste <(printf '%s\n' "${dfBefore}") <(printf '%s\n' "${dfAfter}") \
-			| awk -F'\t' '$1 != "" && $1 == $3 { t = tolower($1); sub(/^local /, "", t); printf "%s%s %s -> %s", (n++ ? ", " : "; docker "), t, $2, $4 }')"
-	fi
+	fCtrTidy gone kb dfLine || true
 	if ((keep_temp)); then
 		if ((${#gone[@]})); then fEcho_Clean "cleanup: removed $(printf '%s, ' "${gone[@]}" | sed 's/, $//'), about $(fSize "${kb}")"; fi
 		fRmRunTmp
@@ -2003,3 +2022,4 @@ exit 0
 ##		- 2026-11-01: Every build is stamped at run start, the image included; a cut leaves the date off its release builds.
 ##		- 2026-11-01: A cargo target dir filled under another toolchain or lockfile is emptied before the build, an extra image's copy too, and the cleanup line counts it.
 ##		- 2026-11-02 JC: Only --long starts HOSTED_JOB.
+##		- 2026-11-02: A run that fails or is stopped tidies docker as a whole run does. Only our own builder's cache is pruned.

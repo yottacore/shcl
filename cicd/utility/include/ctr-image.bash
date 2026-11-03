@@ -23,8 +23,12 @@
 ##			                        and SHCL_CTR_CARGO, when set, goes in as is.
 ##			                        Returns the script's exit, or 2.
 ##			fCtrBuild TAG DIR       build TAG from the context in DIR, labeled
-##			                        as ours, then remove the other tags of its
+##			                        as ours, on our own builder when there can
+##			                        be one, then remove the other tags of its
 ##			                        name but the one before it
+##			fCtrPrune [keep]        prune our builder's cache unused for a week,
+##			                        then stop it, unless keep is given. Prints
+##			                        "BYTES<TAB>WHAT" when something went
 ##			fCtrSweep WORK          remove our images and containers a run
 ##			                        won't use again; see the function. WORK is
 ##			                        a scratch dir the caller removes
@@ -141,14 +145,30 @@ fCtrRunSelf(){
 	return "${rc}"
 }
 
+## Our own buildx builder, made the first time. Docker's default builder keeps
+## one cache for every project on the box, and no prune filter tells ours
+## apart, so a run would have to prune everyone's or none (2026110215285719).
+## Another run may make it first.
+fCtrBuilder(){
+	local engine="${SHCL_DOCKER:-docker}" b="${CTR_BUILDER:-${APP_NAME}-cicd}"
+	"${engine}" buildx inspect "${b}" >/dev/null 2>&1 && return 0
+	"${engine}" buildx create --name "${b}" --driver docker-container >/dev/null 2>&1 && return 0
+	"${engine}" buildx inspect "${b}" >/dev/null 2>&1
+}
+
 ## The label is what lets fCtrSweep find a dangling image or a stopped
 ## container of ours, and only ours.
 fCtrBuild(){
-	local engine="${SHCL_DOCKER:-docker}" tag="$1" ctx="$2" old
+	local engine="${SHCL_DOCKER:-docker}" tag="$1" ctx="$2" old b="${CTR_BUILDER:-${APP_NAME}-cicd}"
 	local -a labels=()
 	local -A keep=()
 	fCtrLabelArgs labels
-	"${engine}" build -q "${labels[@]}" -t "${tag}" "${ctx}" >/dev/null || return 1
+	if fCtrBuilder; then
+		"${engine}" buildx build --builder "${b}" --load -q "${labels[@]}" -t "${tag}" "${ctx}" >/dev/null || return 1
+	else
+		echo "no buildx builder ${b} here, so docker's default builder keeps this build's cache, and no run prunes it"
+		"${engine}" build -q "${labels[@]}" -t "${tag}" "${ctx}" >/dev/null || return 1
+	fi
 	keep["${tag}"]=1
 	while IFS= read -r old; do keep["${old}"]=1; done < <(fCtrPrev "${tag}")
 	while IFS= read -r old; do
@@ -232,6 +252,21 @@ fCtrRunGone(){
 	echo "${#ids[@]}"
 }
 
+## Only when our builder is there: a prune doesn't make one. A stopped one
+## refuses a prune, so it's started first. Buildx leaves it running after a
+## build, so it's stopped after, but not under a run of ours that may be
+## building on it.
+fCtrPrune(){
+	local engine="${SHCL_DOCKER:-docker}" b="${CTR_BUILDER:-${APP_NAME}-cicd}" total=""
+	"${engine}" buildx inspect --bootstrap "${b}" >/dev/null 2>&1 || return 0
+	total="$("${engine}" buildx prune --builder "${b}" -f --filter until=168h 2>/dev/null | sed -n 's/^Total:[[:space:]]*//p' | tail -n 1)" || total=""
+	if [[ "${1:-}" != keep ]]; then "${engine}" buildx stop "${b}" >/dev/null 2>&1 || true; fi
+	[[ -n "${total}" && "${total}" != 0B ]] || return 0
+	printf '%s\t%s\n' "$(awk -v t="${total}" 'BEGIN { n = t + 0; u = t; sub(/^[0-9.]+/, "", u); m = 1
+		if (u == "kB" || u == "KB") m = 1e3; else if (u == "MB") m = 1e6; else if (u == "GB") m = 1e9; else if (u == "TB") m = 1e12
+		printf "%d", n * m }')" "the ${b} builder's cache unused for a week"
+}
+
 fCtrDf(){
 	local engine="${SHCL_DOCKER:-docker}"
 	"${engine}" system df --format '{{.Type}}\t{{.Size}}' 2>/dev/null || true
@@ -274,3 +309,4 @@ fCtrZigTrim(){
 ##		- 2026-10-24 JC: dev.project and dev.run labels, container names, fCtrRunGone and fCtrDf.
 ##		  The tag before the current one stays.
 ##		- 2026-10-28 JC: fCtrZoneArgs, so a run in the image keeps this box's local time.
+##		- 2026-11-02: The images build on our own buildx builder, and fCtrPrune prunes only its cache.
