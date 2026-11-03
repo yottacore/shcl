@@ -1419,7 +1419,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: macOS runner
 	- ID: 2026102416250110
 	- Type: Enhancement
-	- Status: Done
+	- Status: Re-opened
 	- Needs external testing: No
 	- Priority: Avg
 	- Opened: 20261024-162500
@@ -1434,6 +1434,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261030: ci.yml's `job` input runs one job alone. Every other job has `if: ${{ !inputs.job }}`, and the concurrency group takes the input, so a run of the job alone and a full run on one branch don't cancel each other.
 		- Verified: 20261031 hosted ci.yml 41143471789 with job=macos ran only macos, every other job skipped; 41155448447 with no input ran and passed every job.
 		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: step 1 started the macos job (41155899490), step 9 waited and passed, and den5e passed.
+		- 20261103: JC answered the Check: start the hosted macos job from --long only, not from a no-flag run, --merge-gate or --backlog-run-full.
 	- Decisions:
 		- me: the job by length is about 3 minutes plus GitHub's queue, which a run with no flags or a longer one hides by starting it first. The quick runs test edits in progress, which GitHub can't see, so they leave it out, as zuid's quick runs do.
 		- me: a `job` input on ci.yml, not a workflow of its own, so `check-pins.bash` keeps reading every pin from one file.
