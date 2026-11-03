@@ -6,9 +6,9 @@
 <!-- markdownlint-disable MD026 -- Trailing punctuation in heading; the "compares to..." ellipsis is deliberate -->
 <div align="center">
 
-[![CI](https://github.com/yottacore/shcl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yottacore/shcl/actions/workflows/ci.yml)
+[![CI](https://github.com/yottacore/shcl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yottacore/shcl/actions/workflows/ci.yml?query=branch%3Amain)
 [![Latest release](https://img.shields.io/github/v/release/yottacore/shcl?sort=semver&include_prereleases)](https://github.com/yottacore/shcl/releases)
-[![Languages](https://img.shields.io/badge/languages-Rust%20%7C%20Go%20%7C%20Python%20%7C%20C%2FC%2B%2B%20%7C%20Zig-blue)](project/examples.md#example-use-cases-in-your-code)
+[![Needs](https://img.shields.io/badge/needs-Rust%201.88%2B%20%7C%20Go%201.20%2B%20%7C%20Python%203.9%2B%20%7C%20C11%20%7C%20C%2B%2B17-blue)](project/examples.md#example-use-cases-in-your-code)
 
 <!-- TOC ignore:true -->
 # SHCL
@@ -18,7 +18,7 @@
 *A config format for files people edit by hand. Forgiving to write, predictable to read.*
 
 <!-- width = the gif's own pixel width, so it never renders larger than 1:1; no height attr, so a narrow column can still shrink it without squashing -->
-<img src="assets/demo.gif" alt="SHCL demo" width="960"/>
+<img src="assets/demo.gif" alt="SHCL demo: a messy config file, a typed read from it, check reporting the bad lines while the rest loads, and fmt rewriting it with nothing lost" width="960"/>
 
 <!-- [Watch the walkthrough](https://www.youtube.com/watch?v=VIDEO_ID) -->
 
@@ -26,9 +26,11 @@
 
 </div>
 
-- A save never deletes a line you typed. If the write would delete a line or value from the file, the save refuses rather than dropping it.
+- A save never deletes a line you typed unless you ask it to. If a write would delete a line or value from the file, the save refuses rather than dropping it.
 
 - Comments and blank lines survive a rewrite, attached to what they documented.
+
+- A program can change one value and leave every other line as the person wrote it, spacing and all. `shcl set` saves that way.
 
 - One bad line costs you that line, not the file.
 
@@ -36,9 +38,9 @@
 
 - The same file reads the same in every language. The Rust reference and the Go, Python, and C/C++ bindings produce byte-for-byte identical output for valid UTF-8, held to one conformance corpus. Zig uses the C header as is.
 
-- Each binding is one drop-in source file with no dependencies. The CLI is a single binary, and shell scripts call it directly.
+- Each binding is one drop-in source file with no dependencies. C++ adds `shcl.hpp` beside `shcl.h`, and Go has an optional Windows file. The CLI is a single binary, and shell scripts call it directly.
 
-- Prebuilt for Linux, macOS and Windows, x86_64 and ARM64, and for FreeBSD on x86_64. Everything else builds from source with `cargo install shcl`.
+- Prebuilt for Linux and Windows, x86_64 and ARM64. From 3.0.0-beta1, also macOS as one universal binary, and FreeBSD on x86_64. Everything else builds from source with `cargo install shcl`.
 
 - Releases are signed, and the binaries are reproducible from the tag.
 
@@ -75,12 +77,12 @@ You have probably lived some version of this:
 
 - YAML turned `country: NO` into `false`. (Norway. It really does that.)
 
-- JSON needed a comment, and JSON does not do comments.
+- JSON needed a comment, and JSON doesn't do comments.
 	- Or a trailing comma killed the parse.
 
 - TOML was pleasant right up until the data nested three levels deep.
 
-- You wanted an integer. You got a string, or an exception, or a silent zero you did not notice until production.
+- You wanted an integer. You got a string, or an exception, or a silent zero you didn't notice until production.
 
 - That one project that stored a complex nested config in XML. You still have PTSD from it.
 
@@ -90,7 +92,7 @@ Every mainstream format makes you do the careful work, and punishes the whole fi
 
 SHCL (canonically pronounced "SHiCkLe") flips the burden around. Modern CPU cycles are cheap, even on embedded systems. Brainpower isn't.
 
-So the parser does the hard work - not the person writing the file, and not the programmer consuming the configuration.
+So the parser does the hard work, and the person writing the file and the programmer reading it don't have to.
 
 SHCL makes a contract:
 
@@ -155,7 +157,15 @@ Beyond the list at the top:
 
 - `shcl fmt --check app.shcl` exits 6 when the file is not in canonical form. One line gates formatting in CI.
 
-- A save keeps the file's mode and group, and writes through symlinks. On Windows it also keeps the ACLs and the hidden flag.
+- A save keeps the file's mode and group, and writes through symlinks. On Windows it also keeps the ACLs and the hidden flag. It writes a temp file and renames it, so a crash can't leave half a config behind.
+
+- A save won't write over a change another program made after the load. It can also refuse to replace a file that's already there, and give a new file exact permission bits, such as 0600 for one with tokens in it.
+
+- A file written for a newer format version still reads, and no save overwrites it.
+
+- Reads and lists print JSON lines with `--json`, for jq or `ConvertFrom-Json`. `shcl explain E014` prints the rule behind a code, and a typo in a command, an option, or a schema field name gets a suggestion. A man page and bash and zsh completions are included.
+
+- The C binding builds without file IO for embedded targets, and frees a whole document with one call.
 
 - The release gate runs the corpus, a fuzzer, and a four-way check that feeds the same inputs to all four parsers and compares the bytes.
 
@@ -165,17 +175,17 @@ These projects use SHCL today, and harden it in the process:
 
 | Project                                                                                    | OSS? | Release status | Used for
 | :--                                                                                        | :--: | :--            | :--
-| [SilkTerm](https://github.com/jim-collier/silkterm)                                        |  Y   | beta           | Config & UI language
-| [GitNiblet OSS Edition](https://github.com/yottacore/gitniblet)                            |  Y   | beta           | Config & DDL
-| [GitNiblet Enterprise Edition](https://www.yottacore.com/product/nano-git-db-enterprise)   |  Y   | beta           | Config
-| [convert-base-v2](https://github.com/jim-collier/convert-base-v2)                          |  Y   | **stable**     | Config
-| [TradeClanker](https://www.yottacore.com/product/tradeclanker)                             |  n   | beta           | Config & User's rules
+| [SilkTerm](https://github.com/jim-collier/silkterm)                                        | Yes  | beta           | Config & UI language
+| [GitNiblet OSS Edition](https://github.com/yottacore/gitniblet)                            | Yes  | beta           | Config & DDL
+| [GitNiblet Enterprise Edition](https://www.yottacore.com/product/nano-git-db-enterprise)   | Yes  | beta           | Config
+| [convert-base-v2](https://github.com/jim-collier/convert-base-v2)                          | Yes  | **stable**     | Config
+| [TradeClanker](https://www.yottacore.com/product/tradeclanker)                             |  No  | beta           | Config & User's rules
 
 <!--
-| [Rapid Photo Downloader Pro](https://github.com/jim-collier/rapid-photo-downloader-pro)    |  Y   | alpha          | Config
-| [Nemo Anywhere](https://www.yottacore.com/product/nemo-anywhere)                           |  Y   | beta           | Config
-| SlodWorld                                                                                  |  n   | beta           | Config
-| [SlodWorld2](https://www.yottacore.com/product/slodworld2)                                 |  n   | beta           | Config
+| [Rapid Photo Downloader Pro](https://github.com/jim-collier/rapid-photo-downloader-pro)    | Yes  | alpha          | Config
+| [Nemo Anywhere](https://www.yottacore.com/product/nemo-anywhere)                           | Yes  | beta           | Config
+| SlodWorld                                                                                  |  No  | beta           | Config
+| [SlodWorld2](https://www.yottacore.com/product/slodworld2)                                 |  No  | beta           | Config
 -->
 
 (Most of these are by the same author.)
@@ -214,7 +224,7 @@ maintenance-page:
 	~~~
 ~~~~
 
-Field names are case-insensitive. Repeated paths merge. `site` here is not one key but a set of instances (example.com, blog.example.com), each with its own children - arrays of objects without inventing syntax for them.
+Field names are case-insensitive, and repeated paths merge. `site` here is a set of instances, example.com and blog.example.com, each with its own children.
 
 ## Escapes
 
@@ -304,7 +314,7 @@ Generated API reference, per binding: [docs.rs](https://docs.rs/shcl) for Rust, 
 
 A config parser gets trusted with other people's files, so help and scrutiny are both welcome. Bug reports, spec edge cases, and new-language bindings all count. See [`contributing.md`](contributing.md) to get started.
 
-If SHCL helps but code and issue reports aren't your thing, a star or a mention still helps other people find it - and if it is saving you real time, sponsorship through [GitHub](https://github.com/sponsors/jim-collier) or [Ko-fi](https://ko-fi.com/jimcollier) is welcome.
+If SHCL is useful to you and code or issue reports aren't your thing, a star or a mention helps other people find it. If it saves you time, you can sponsor it through [GitHub](https://github.com/sponsors/jim-collier) or [Ko-fi](https://ko-fi.com/jimcollier).
 
 ## Legal stuff
 
