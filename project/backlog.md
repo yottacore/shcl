@@ -80,6 +80,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261102, by reading `fStepWanted`'s `boxes` arm, which doesn't look at `quick`.
 	- Origin: Confirmed.
 	- Estimated effort: Low
+	- Update: No - `--quick` should not run tests on external hosts.
 
 - A failed image build stops the run instead of falling back to the host
 	- ID: 2026110215285703
