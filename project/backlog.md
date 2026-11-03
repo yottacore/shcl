@@ -52,6 +52,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `SHCL_VM_STATE` alone, set where this box's login env sets its other per-machine values.
 		- check-push-gate and shell-regress already pass the variable to their stubs, so check they still do.
 	- Question: set `SHCL_VM_STATE` in the login env outside the repo, or keep a short neutral link to the helper on PATH?
+		- The latter option
 	- Estimated effort: Low
 
 - The dogfood launcher expands wildcards and `~` in arguments, and exits 0 on Ctrl+C
@@ -138,13 +139,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `install.ps1` refuses pwsh on Linux and macOS
 	- ID: 2026110215285715
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Stalled
 	- Priority: Avg
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 15
 	- Problem description: `install.ps1` exits off Windows and points at install.bash. The shared installer rules want it to work wherever PowerShell runs, as silkterm's does. The original item was titled cross-platform, and shell-regress `dc0bt` pins the refusal, but no recorded call covers it.
 	- Question: port it, using install.bash's paths, or record the refusal as decided?
+		- Port it, but v4.
 	- Estimated effort: Avg
+	- Held for v4 (JC, 2026-11-02).
 
 - Running the pipeline prunes every project's docker build cache on a contributor's box
 	- ID: 2026110215285719
@@ -155,6 +158,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: Code review 20261102 item 19
 	- Problem description: contributing.md says a run removes old shcl image tags and runs `docker builder prune -f --filter until=168h`, which keeps a week of build cache for every project and drops the rest. That's this box's house rule. An outside contributor running the gate wouldn't expect a run to touch other projects' cache.
 	- Question: make the prune opt-in, such as on when `HOST_TEMP` is set, or say it up front in contributing.md?
+		- Never prune another project's cache. Make sure other projects don't do the same. Is there any way to only prune own cache?
 	- Estimated effort: Low
 
 - A failed run skips most of the cleanup and the closing blank line
@@ -247,6 +251,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The gif's first frame is a blank prompt, so a reduced-motion viewer or a link preview sees an empty terminal. It should open on a frame that already shows a command and its output.
 		- The projects table marks GitNiblet Enterprise Edition as open source, and its link goes to a product page.
 	- Question: is GitNiblet Enterprise Edition open source?
+		- No
 	- Estimated effort: Low
 
 - Cache cleanup leaves some caches to grow
@@ -305,6 +310,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `pull_request` filtered to main.
 		- Record a call on each extra job, with the reason.
 	- Question: keep the windows, linux-arm, winarm and setup jobs? winarm has no test box, and the setup jobs test the installer on a clean Windows.
+		- Yes, keep. vmDebARM64 has wine. Might be painfully slow. If too slow for a normal cicd run, put on `--slow`.
 	- Estimated effort: Low
 
 - No dependabot config for the Go toolchain and the Actions pins
@@ -356,7 +362,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Copies of the wrappers retired in 2026100818251401 are still in the synced util tree: `shcl.ps1` in the cross-platform dir, `include/shcl.bash` under the linux, macos and wsl bash dirs, and an Oct 4 `util/wsl/bin/shcl` no dogfood setting writes now. Nothing found still uses them.
 		- On macOS the dogfood runner keeps its pool in `~/.local/bin`, where the shared rules name `~/Applications/shcl_versions` and `~/Applications/shcl`.
 	- Question: trash the retired wrapper copies from the synced tree? It's outside the repo.
+		- Yes
 	- Question: move the macOS pool to `~/Applications`, or keep `~/.local/bin` as on Linux?
+		- Whichever makes the most sense for a CLI utility.
 	- Estimated effort: Low
 
 - Some install paths differ from the shared install table
@@ -370,6 +378,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- A move finds the old install and replaces it, so nobody ends up with 2.
 	- Question: move them to the table's paths, or keep today's?
+		- Use your best judgement that makes sense for each platform.
 	- Estimated effort: Low
 
 - User-facing text skips contractions and has a few words from the style list
