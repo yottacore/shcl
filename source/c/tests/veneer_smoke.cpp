@@ -311,6 +311,53 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 #endif
 
 #ifndef SHCL_NO_FILE_IO
+// A bare name is the same file as its absolute spelling, whether it was there
+// at the load or not (2026110312163201). The C runner's fixture, in part,
+// through the veneer.
+static int a_changed_check_knows_its_file_by_any_spelling() {
+	test_id("detps", "a_changed_check_knows_its_file_by_any_spelling");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-spelled-" + std::to_string((long)getpid());
+	char back[1024];
+	using R = shcl::SaveResult;
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+	CHECK(_getcwd(back, sizeof back) && _chdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+	CHECK(getcwd(back, sizeof back) && chdir(dir.c_str()) == 0);
+#endif
+	auto put_text = [](const std::string &p, const std::string &t) { CHECK(shcl::write_file_atomic(p, t) == shcl::WriteStatus::Ok); };
+	auto has = [](const std::string &p, const std::string &t) { return shcl::read_file(p) == std::make_pair(t, shcl::FileStatus::Clean); };
+	// A bare name, gone since the load.
+	put_text("i.shcl", "a: 1\n");
+	auto gone = shcl::Document::load_file("i.shcl").first;
+	std::remove("i.shcl");
+	CHECK(gone.save_file("i.shcl") == R::Changed);
+	CHECK(shcl::read_file("i.shcl").second == shcl::FileStatus::NotFound);
+	// A bare name made where the load found nothing, by any spelling.
+	auto [fresh, freshSt] = shcl::Document::load_file("h.shcl");
+	CHECK(freshSt == shcl::FileStatus::NotFound);
+	CHECK(fresh.set_int("a", 1) == shcl::SetStatus::Ok);
+	put_text("h.shcl", "b: 2\n");
+	CHECK(fresh.save_file("h.shcl") == R::Changed);
+	CHECK(fresh.save_file(dir + "/h.shcl") == R::Changed);
+	CHECK(has("h.shcl", "b: 2\n"));
+	std::remove("h.shcl");
+#ifdef _WIN32
+	CHECK(_chdir(back) == 0);
+	_rmdir(dir.c_str());
+#else
+	CHECK(chdir(back) == 0);
+	rmdir(dir.c_str());
+#endif
+	return test_id_end(fails);
+}
+#endif
+
+#ifndef SHCL_NO_FILE_IO
 // A create-only save refuses a file that's there, and a new file takes the
 // mode asked for while one already there keeps its own (2026102910482343).
 // The C runner's fixture, through the veneer.
@@ -1175,9 +1222,11 @@ int main() {
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
+	const int spellings = a_changed_check_knows_its_file_by_any_spelling();
+	fails = 0;
 	const int created = a_create_only_save_refuses_a_file_already_there();
 	fails = 0;
-	return changed | created | a_newer_format_document_saves_nowhere() | threads | smoke;
+	return changed | spellings | created | a_newer_format_document_saves_nowhere() | threads | smoke;
 #else
 	return threads | smoke;
 #endif

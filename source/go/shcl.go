@@ -9500,8 +9500,8 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeErrorsLeft, Path: path, Lines: up.ErrorsLeft}
 	}
 	same := func() bool {
-		now, rerr := os.ReadFile(path)
-		return rerr == nil && string(now) == text
+		now, regular, rerr := readRegular(path)
+		return rerr == nil && regular && string(now) == text
 	}
 	if !same() {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteOther, Err: fmt.Errorf("%s: changed since it was read; nothing written", path)}}
@@ -9550,7 +9550,7 @@ func namesADirectory(file string) bool {
 // would be the exact replacement the symlink walk exists to avoid.
 func resolveTarget(file string) (string, error) {
 	if p, err := filepath.EvalSymlinks(file); err == nil {
-		return p, nil
+		return absReal(p), nil
 	}
 	p := file
 	for hop := 0; hop < 40; hop++ {
@@ -9572,10 +9572,55 @@ func resolveTarget(file string) (string, error) {
 	if _, err := os.Readlink(p); err == nil {
 		return "", errors.New("too many levels of symbolic links")
 	}
-	if dir, err := filepath.EvalSymlinks(rawDir(p)); err == nil {
-		return filepath.Join(dir, filepath.Base(p)), nil
+	return realNearest(p), nil
+}
+
+// realNearest is p, with nothing at it, made absolute through the real path of
+// the nearest folder above it that is there, the rest as written. So one file
+// has one spelling whether it's there or not, and however the path names it:
+// bare, `./`, absolute, through a link, or relative to another working folder.
+func realNearest(p string) string {
+	var rest []string
+	at := p
+	for {
+		dir := rawDir(at)
+		if dir == at {
+			break
+		}
+		rest = append(rest, filepath.Base(at))
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			out := absReal(real)
+			for i := len(rest) - 1; i >= 0; i-- {
+				out = filepath.Join(out, rest[i])
+			}
+			return out
+		}
+		at = dir
 	}
-	return p, nil
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
+}
+
+// absReal makes a path EvalSymlinks gave absolute. Getwd can answer with $PWD,
+// which may run through a link, so the working folder is resolved too, or a
+// file named relative and absolute would get 2 spellings.
+func absReal(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if runtime.GOOS != "windows" {
+		if wd, err := os.Getwd(); err == nil {
+			if real, err := filepath.EvalSymlinks(wd); err == nil {
+				return filepath.Join(real, p)
+			}
+		}
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 // rawDir is the directory half of p as written. filepath.Dir cleans it, and a
@@ -9878,17 +9923,40 @@ func (f *loadedFile) over(path string) bool {
 }
 
 // holds is true when the file at path still holds the text, byte for byte, or
-// is still not there. Content only, so a touch alone is no change. A read that
-// fails another way is left to the write, which fails the same way.
+// is still not there. Content only, so a touch alone is no change. Something
+// that isn't a regular file is left to the write, which refuses it. A file
+// that can't be read is a change, since the rename that replaces it needs no
+// read access.
 func (f *loadedFile) holds(path string) bool {
-	now, err := os.ReadFile(path)
+	now, regular, err := readRegular(path)
 	switch {
+	case err == nil && !regular:
+		return true
 	case err == nil:
 		return f.text != nil && *f.text == string(now)
 	case errors.Is(err, os.ErrNotExist):
 		return f.text == nil
 	}
-	return true
+	return false
+}
+
+// readRegular gives the bytes of the regular file at path, for a check that it
+// didn't change, and false when something else is there, such as a FIFO
+// swapped in, which the open doesn't wait on.
+func readRegular(path string) ([]byte, bool, error) {
+	if st, err := os.Stat(path); err != nil || !st.Mode().IsRegular() {
+		return nil, false, err
+	}
+	fh, err := openNoWait(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer fh.Close()
+	if st, err := fh.Stat(); err != nil || !st.Mode().IsRegular() {
+		return nil, false, err
+	}
+	now, err := io.ReadAll(fh)
+	return now, err == nil, err
 }
 
 // SaveFile is the file tier's save half: write this document's canonical text

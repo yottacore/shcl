@@ -5375,6 +5375,125 @@ def main():
 		shcl.Document.parse("a: 5\n").save_file(cother)
 		same("parsed", cread(cother), "a: 5\n")
 
+	test_id("detpp", "a_changed_check_knows_its_file_by_any_spelling")
+	# One file gives one answer however its path is spelled: bare, `./`,
+	# absolute, through a link, in a folder made after the load, or from
+	# another working folder. A FIFO swapped in gets the write's own refusal
+	# rather than a wait, and a file the check can't read is a change
+	# (2026110312163201, 2026110312163202).
+	with tempfile.TemporaryDirectory() as sd:
+		def sread(p):
+			with open(p, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def swrite(p, t):
+			with open(p, "w", encoding="utf-8", newline="") as fh:
+				fh.write(t)
+
+		def srefused(what, call, p):
+			try:
+				call()
+			except shcl.SaveChanged as e:
+				if e.path != p:
+					raise SystemExit(f"{what}: path {e.path!r}") from None
+				return
+			raise SystemExit(f"{what}: saved")
+
+		def ssame(what, got, want):
+			if got != want:
+				raise SystemExit(f"{what}: {got!r}, want {want!r}")
+
+		def sabs(name):
+			return os.path.join(sd, name)
+
+		sback = os.getcwd()
+		os.chdir(sd)
+		try:
+			os.mkdir("sub")
+			# A bare name, gone since the load.
+			swrite("i.shcl", "a: 1\n")
+			sgone, _ = shcl.Document.load_file("i.shcl")
+			os.remove("i.shcl")
+			srefused("bare gone", lambda: sgone.save_file("i.shcl"), "i.shcl")
+			ssame("bare gone left", os.path.exists("i.shcl"), False)
+
+			# A bare name made where the load found nothing, by any spelling.
+			sfresh, st = shcl.Document.load_file("h.shcl")
+			ssame("bare new status", st, shcl.FileStatus.NotFound)
+			sfresh.set_int("a", 1)
+			swrite("h.shcl", "b: 2\n")
+			srefused("bare new", lambda: sfresh.save_file("h.shcl"), "h.shcl")
+			srefused("dot new", lambda: sfresh.save_file("./h.shcl"), "./h.shcl")
+			srefused("abs new", lambda: sfresh.save_file(sabs("h.shcl")), sabs("h.shcl"))
+			ssame("bare new left", sread("h.shcl"), "b: 2\n")
+
+			# Relative at the load, absolute at the save, and the other way.
+			swrite("sub/l.shcl", "a: 1\n")
+			srel, _ = shcl.Document.load_file("sub/l.shcl")
+			sfull, _ = shcl.Document.load_file(sabs("sub/l.shcl"))
+			swrite("sub/l.shcl", "a: 9\n")
+			srefused("rel then abs", lambda: srel.save_file(sabs("sub/l.shcl")), sabs("sub/l.shcl"))
+			srefused("abs then rel", lambda: sfull.save_file("sub/l.shcl"), "sub/l.shcl")
+			ssame("rel left", sread("sub/l.shcl"), "a: 9\n")
+
+			# A folder made after the load.
+			slater, st = shcl.Document.load_file("new/n.shcl")
+			ssame("new folder status", st, shcl.FileStatus.NotFound)
+			os.mkdir("new")
+			swrite("new/n.shcl", "b: 2\n")
+			srefused("new folder", lambda: slater.save_file(sabs("new/n.shcl")), sabs("new/n.shcl"))
+			ssame("new folder left", sread("new/n.shcl"), "b: 2\n")
+
+			# Through a link to the folder, with nothing there at the load.
+			if os.name != "nt":
+				os.symlink("sub", "ln")
+				slinked, _ = shcl.Document.load_file("ln/k.shcl")
+				swrite("sub/k.shcl", "b: 2\n")
+				srefused("link", lambda: slinked.save_file("sub/k.shcl"), "sub/k.shcl")
+				ssame("link left", sread("sub/k.shcl"), "b: 2\n")
+
+			# The same name from another working folder is another file, so
+			# it isn't checked.
+			swrite("m.shcl", "a: 1\n")
+			smoved, _ = shcl.Document.load_file("m.shcl")
+			os.chdir("sub")
+			swrite("m.shcl", "z: 0\n")
+			smoved.save_file("m.shcl")
+			ssame("moved", sread("m.shcl"), "a: 1\n")
+			os.chdir(sd)
+
+			if hasattr(os, "mkfifo"):
+				# A FIFO swapped in is refused as the write refuses it, with no
+				# wait.
+				swrite("f.shcl", "a: 1\n")
+				sfifo, _ = shcl.Document.load_file("./f.shcl")
+				os.remove("f.shcl")
+				os.mkfifo("f.shcl")
+				try:
+					sfifo.save_file("./f.shcl")
+					raise SystemExit("fifo: saved")
+				except shcl.SaveFailed as e:
+					ssame("fifo", e.status, shcl.WriteStatus.NotRegular)
+
+				# A file the check can't read, since another program wrote it
+				# and took the read bit off, is a change. Root reads it anyway,
+				# so it's only asked where the read fails.
+				swrite("p.shcl", "a: 1\n")
+				sshut, _ = shcl.Document.load_file("./p.shcl")
+				swrite("p.shcl", "a: 9\n")
+				os.chmod("p.shcl", 0o200)
+				try:
+					with open("p.shcl", "rb"):
+						shut_reads = True
+				except OSError:
+					shut_reads = False
+				if not shut_reads:
+					srefused("unreadable", lambda: sshut.save_file("./p.shcl"), "./p.shcl")
+				os.chmod("p.shcl", 0o600)
+				ssame("unreadable left", sread("p.shcl"), "a: 9\n")
+		finally:
+			os.chdir(sback)
+
 	test_id("dekm6", "a_create_only_save_refuses_a_file_already_there")
 	# A create-only save refuses a file that's there, and only one of several
 	# saves at once makes it. A new file takes the mode asked for, whatever the

@@ -13977,20 +13977,35 @@ static char *shcl_resolve_target(const char *file) {
 		char probe[1];
 		if (readlink(p, probe, sizeof probe) >= 0) { free(p); errno = ELOOP; return NULL; }
 	}
-	const char *slash = strrchr(p, '/');
-	if (!slash) return p;
-	size_t dn = (size_t)(slash - p);
-	char *dir = (char *)malloc(dn ? dn + 1 : 2);
-	if (!dir) return p;
-	if (dn) { memcpy(dir, p, dn); dir[dn] = '\0'; } else { dir[0] = '/'; dir[1] = '\0'; }
-	char *rd = realpath(dir, NULL);
+	// Absolute through the real path of the nearest folder that is there, the
+	// rest as written. So one file has one spelling whether it's there or not,
+	// and however the path names it: bare, `./`, absolute, through a link, or
+	// relative to another working folder.
+	pn = strlen(p);
+	char *dir = (char *)malloc(pn + 2);
+	if (!dir) { free(p); errno = ENOMEM; return NULL; }
+	for (size_t i = pn;;) {
+		while (i > 0 && p[i - 1] != '/') i--;
+		const char *rest = p + i;
+		size_t dn = i;
+		while (dn > 1 && p[dn - 1] == '/') dn--;
+		if (dn == 0) { dir[0] = '.'; dir[1] = '\0'; }
+		else { memcpy(dir, p, dn); dir[dn] = '\0'; }
+		char *rd = realpath(dir, NULL);
+		if (rd) {
+			free(dir);
+			size_t rn = strlen(rd), nn = strlen(rest);
+			if (rn == 1 && rd[0] == '/') rn = 0; // the root already ends in the separator
+			char *out = (char *)malloc(rn + nn + 2);
+			if (out) { memcpy(out, rd, rn); out[rn] = '/'; memcpy(out + rn + 1, rest, nn + 1); } // NOLINT(bugprone-not-null-terminated-result): the last copy brings the NUL
+			else errno = ENOMEM;
+			free(rd); free(p);
+			return out;
+		}
+		if (dn == 0 || (dn == 1 && p[0] == '/')) break;
+		i = dn - 1;
+	}
 	free(dir);
-	if (!rd) return p;
-	size_t rn = strlen(rd), nn = strlen(slash + 1);
-	if (rn == 1 && rd[0] == '/') rn = 0; // the root already ends in the separator
-	char *out = (char *)malloc(rn + nn + 2);
-	if (out) { memcpy(out, rd, rn); out[rn] = '/'; memcpy(out + rn + 1, slash + 1, nn + 1); free(p); p = out; } // NOLINT(bugprone-not-null-terminated-result): the last copy brings the NUL
-	free(rd);
 	return p;
 }
 
@@ -14265,11 +14280,52 @@ const char *shcl_write_status_name(shcl_write_status s) {
 // that needs the exact bytes it last saw - to tell its own save coming back as
 // a change notification from somebody else's edit - or a bound on how much it
 // will read before a parse, calls this and parses the text itself.
+/* The regular file at PATH opened to read, for a check that it didn't change,
+   or NULL with *NOT_REGULAR set when something else is there, such as a FIFO
+   swapped in, which the open doesn't wait on. */
+static FILE *s_fopen_regular(const char *path, int *not_regular) {
+	*not_regular = 0;
+#ifdef _WIN32
+	// A folder won't open to read there, so it's asked first. Windows has no
+	// FIFO at a path.
+	wchar_t *w = shcl_widen(path);
+	if (!w) { errno = ENOMEM; return NULL; }
+	DWORD a = GetFileAttributesW(w);
+	free(w);
+	if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) { *not_regular = 1; return NULL; }
+	return shcl_fopen_rb(path);
+#else
+	// The open doesn't wait, and the fstat after it decides, so nothing is
+	// asked of the path before it.
+	struct stat st;
+	int oflags = O_RDONLY | O_NONBLOCK;
+#ifdef O_CLOEXEC
+	oflags |= O_CLOEXEC;
+#endif
+	int fd = open(path, oflags);
+	if (fd < 0) return NULL;
+	int fl = fcntl(fd, F_GETFL);
+	if (fl == -1 || fcntl(fd, F_SETFL, fl & ~O_NONBLOCK) == -1 || fstat(fd, &st) != 0) {
+		int e = errno; close(fd); errno = e;
+		return NULL;
+	}
+	if (!S_ISREG(st.st_mode)) { close(fd); *not_regular = 1; return NULL; }
+	FILE *f = fdopen(fd, "rb");
+	if (!f) { int e = errno; close(fd); errno = e; }
+	return f;
+#endif
+}
+
 // shcl_read_file, with *err the errno when the open or a read failed, and 0
-// for a file over the cap or not UTF-8.
-static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status, int *err) {
+// for a file over the cap or not UTF-8. With NOT_REGULAR, only a regular file
+// is read, as s_fopen_regular says.
+static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status, int *err, int *not_regular) {
 	*err = 0;
-	FILE *f = shcl_fopen_rb(path);
+	FILE *f = not_regular ? s_fopen_regular(path, not_regular) : shcl_fopen_rb(path);
+	if (!f && not_regular && *not_regular) {
+		if (status) *status = SHCL_FILE_UNREADABLE;
+		return NULL;
+	}
 	if (!f) {
 		*err = errno;
 		if (status) *status = (*err == ENOENT) ? SHCL_FILE_NOT_FOUND : SHCL_FILE_UNREADABLE;
@@ -14320,7 +14376,7 @@ static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_f
 
 char *shcl_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status) {
 	int err;
-	return s_read_file(path, max_bytes, len, status, &err);
+	return s_read_file(path, max_bytes, len, status, &err, NULL);
 }
 
 const char *shcl_schema_status_name(shcl_schema_status s) {
@@ -14633,21 +14689,23 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 
 /* The file at PATH still holds the text the document recorded, byte for byte,
    or is still not there. Content only, so a touch alone is no change. Text
-   that is no longer UTF-8 is a change; a read that fails another way is left
-   to the write, which fails the same way. */
+   that is no longer UTF-8 is a change. Something that isn't a regular file is
+   left to the write, which refuses it. A file that can't be read is a change,
+   since the rename that replaces it needs no read access. */
 static int s_file_holds(const shcl_doc *d, const char *path) {
 	size_t n = 0;
 	shcl_file_status st = SHCL_FILE_UNREADABLE;
-	int err = 0;
-	char *now = s_read_file(path, 0, &n, &st, &err);
+	int err = 0, not_regular = 0;
+	char *now = s_read_file(path, 0, &n, &st, &err, &not_regular);
 	if (now) {
 		int same = d->file_text && n == d->file_len && (n == 0 || memcmp(now, d->file_text, n) == 0);
 		free(now);
 		return same;
 	}
+	if (not_regular) return 1;
 	if (st == SHCL_FILE_NOT_FOUND) return d->file_text == NULL;
 	if (err == ENOMEM) { SHCL_OOM(); abort(); }
-	return err != 0;
+	return 0;
 }
 
 shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_options opts, int *kept, shcl_write_status *why) {
@@ -14733,7 +14791,8 @@ static char *upgrade_lines(const size_t *lines, size_t n) {
 /* The file still holds the bytes last read from it. */
 static int upgrade_holds(const char *path, const char *text, size_t len) { // NOLINT(bugprone-easily-swappable-parameters): path, then the text read from it; a swap refuses
 	size_t n = 0;
-	char *now = shcl_read_file(path, 0, &n, NULL);
+	int err = 0, not_regular = 0;
+	char *now = s_read_file(path, 0, &n, NULL, &err, &not_regular);
 	int same = now && n == len && (len == 0 || memcmp(now, text, len) == 0);
 	free(now);
 	return same;
@@ -14859,7 +14918,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 	int rerr = 0;
 	/* The errno too, since the status alone would hide the system's reason
 	   (2026101514324707). */
-	char *text = s_read_file(path, 0, &len, &fst, &rerr);
+	char *text = s_read_file(path, 0, &len, &fst, &rerr, NULL);
 	if (!text) {
 		if (fst == SHCL_FILE_NOT_FOUND) return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
 		if (rerr) return upgrade_why(why, s_write_status_of(rerr), upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(rerr)));

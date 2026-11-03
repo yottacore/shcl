@@ -448,16 +448,39 @@ class _LoadedFile:
 
 	def holds(self, path: str | os.PathLike[str]) -> bool:
 		"""The file at path still holds the text, byte for byte, or is still
-		not there. Content only, so a touch alone is no change. A read that
-		fails another way is left to the write, which fails the same way."""
+		not there. Content only, so a touch alone is no change. Something that
+		isn't a regular file is left to the write, which refuses it. A file
+		that can't be read is a change, since the rename that replaces it needs
+		no read access."""
 		try:
-			with open(os.fspath(path), "rb") as f:
-				now = f.read()
+			now = _read_regular(os.fspath(path))
 		except FileNotFoundError:
 			return self.text is None
-		except (OSError, ValueError):
+		except ValueError:
+			# A NUL in the path, which the write refuses the same way.
+			return True
+		except OSError:
+			return False
+		if now is None:
 			return True
 		return self.text is not None and self.text.encode("utf-8") == now
+
+
+def _read_regular(path: str) -> bytes | None:
+	"""The bytes of the regular file at path, for a check that it didn't
+	change. None when something else is there, such as a FIFO swapped in,
+	which the open doesn't wait on. Raises OSError as the open or read does."""
+	if not stat.S_ISREG(os.stat(path).st_mode):
+		return None
+	no_wait = getattr(os, "O_NONBLOCK", 0)
+	# codeql[py/file-not-closed] the with just below owns the descriptor and closes it
+	fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
+	with open(fd, "rb") as f:
+		if no_wait:
+			os.set_blocking(fd, True)
+		if not stat.S_ISREG(os.fstat(fd).st_mode):
+			return None
+		return f.read()
 
 
 class ShclDateTime:
@@ -10583,8 +10606,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 
 	def same():
 		try:
-			with open(path, "rb") as f:
-				return f.read() == raw
+			return _read_regular(path) == raw
 		except (OSError, ValueError):
 			return False
 
@@ -10637,11 +10659,11 @@ def _resolve_target(file):
 			p = os.path.join(os.path.dirname(p) or ".", nxt)
 	if os.path.islink(p):
 		raise OSError("too many levels of symbolic links")
-	d = os.path.dirname(p)
-	n = os.path.basename(p)
-	if d != "" and n != "" and os.path.exists(d):
-		return os.path.join(os.path.realpath(d), n)
-	return p
+	# Absolute through the real path of the nearest folder that is there, so
+	# one file has one spelling whether it's there or not, and however the
+	# path names it: bare, `./`, absolute, through a link, or relative to
+	# another working folder.
+	return os.path.realpath(p)
 
 
 def _set_read_only(path, on):

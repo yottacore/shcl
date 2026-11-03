@@ -6958,6 +6958,124 @@ int main(int argc, char **argv) {
 		shcl_free(parsed);
 		dir_clear(cdir);
 	}
+	test_id("detpr", "a_changed_check_knows_its_file_by_any_spelling");
+	{
+		/* One file gives one answer however its path is spelled: bare, `./`,
+		   absolute, through a link, in a folder made after the load, or from
+		   another working folder. A FIFO swapped in gets the write's own
+		   refusal rather than a wait, and a file the check can't read is a
+		   change (2026110312163201, 2026110312163202). Same fixture in every
+		   runner. */
+		const char *at = "spelled";
+		char sdir[256], back[1024], ah[320], al[320], an[320], sub[320], nd[320];
+		up_dir(sdir, sizeof sdir, "spelled");
+		snprintf(ah, sizeof ah, "%s/h.shcl", sdir);
+		snprintf(al, sizeof al, "%s/sub/l.shcl", sdir);
+		snprintf(an, sizeof an, "%s/new/n.shcl", sdir);
+		snprintf(sub, sizeof sub, "%s/sub", sdir);
+		snprintf(nd, sizeof nd, "%s/new", sdir);
+#ifdef _WIN32
+		int moved_in = _getcwd(back, sizeof back) && _chdir(sdir) == 0 && _mkdir("sub") == 0;
+#else
+		int moved_in = getcwd(back, sizeof back) && chdir(sdir) == 0 && mkdir("sub", 0700) == 0;
+#endif
+		if (!moved_in) fail(at, "chdir failed");
+		shcl_file_status st = SHCL_FILE_CLEAN;
+		/* A bare name, gone since the load. */
+		put_file("i.shcl", "a: 1\n");
+		shcl_doc *gone = shcl_load_file("i.shcl", NULL);
+		remove("i.shcl");
+		if (shcl_save_file(gone, "i.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "bare, gone");
+		free(shcl_read_file("i.shcl", 0, NULL, &st));
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "bare, gone: the save made the file");
+		shcl_free(gone);
+		/* A bare name made where the load found nothing, by any spelling. */
+		shcl_doc *fresh = shcl_load_file("h.shcl", &st);
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "bare, new: want NotFound");
+		(void)shcl_set_int(fresh, "a", 1, 1);
+		put_file("h.shcl", "b: 2\n");
+		if (shcl_save_file(fresh, "h.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "bare, new");
+		if (shcl_save_file(fresh, "./h.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "dot, new");
+		if (shcl_save_file(fresh, ah, NULL) != SHCL_SAVE_CHANGED) fail(at, "absolute, new");
+		if (!file_is("h.shcl", "b: 2\n")) fail(at, "a refused save over a bare name wrote");
+		shcl_free(fresh);
+		/* Relative at the load, absolute at the save, and the other way round. */
+		put_file("sub/l.shcl", "a: 1\n");
+		shcl_doc *rel = shcl_load_file("sub/l.shcl", NULL);
+		shcl_doc *full = shcl_load_file(al, NULL);
+		put_file("sub/l.shcl", "a: 9\n");
+		if (shcl_save_file(rel, al, NULL) != SHCL_SAVE_CHANGED) fail(at, "relative then absolute");
+		if (shcl_save_file(full, "sub/l.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "absolute then relative");
+		if (!file_is("sub/l.shcl", "a: 9\n")) fail(at, "a refused relative save wrote");
+		shcl_free(rel);
+		shcl_free(full);
+		/* A folder made after the load. */
+		shcl_doc *later = shcl_load_file("new/n.shcl", NULL);
+#ifdef _WIN32
+		if (_mkdir("new") != 0) fail(at, "mkdir new failed");
+#else
+		if (mkdir("new", 0700) != 0) fail(at, "mkdir new failed");
+#endif
+		put_file("new/n.shcl", "b: 2\n");
+		if (shcl_save_file(later, an, NULL) != SHCL_SAVE_CHANGED) fail(at, "new folder");
+		if (!file_is("new/n.shcl", "b: 2\n")) fail(at, "a refused save in a new folder wrote");
+		shcl_free(later);
+		/* The same name from another working folder is another file, so it
+		   isn't checked. */
+		put_file("m.shcl", "a: 1\n");
+		shcl_doc *moved = shcl_load_file("m.shcl", NULL);
+#ifdef _WIN32
+		int in_sub = _chdir("sub") == 0;
+#else
+		int in_sub = chdir("sub") == 0;
+#endif
+		if (!in_sub) fail(at, "chdir sub failed");
+		put_file("m.shcl", "z: 0\n");
+		if (shcl_save_file(moved, "m.shcl", NULL) != SHCL_SAVE_OK) fail(at, "another folder");
+		if (!file_is("m.shcl", "a: 1\n")) fail(at, "another folder text");
+		shcl_free(moved);
+#ifdef _WIN32
+		if (_chdir(sdir) != 0) fail(at, "chdir back failed");
+#else
+		if (chdir(sdir) != 0) fail(at, "chdir back failed");
+		/* Through a link to the folder, with nothing there at the load. */
+		if (symlink("sub", "ln") != 0) fail(at, "symlink failed");
+		shcl_doc *linked = shcl_load_file("ln/k.shcl", NULL);
+		put_file("sub/k.shcl", "b: 2\n");
+		if (shcl_save_file(linked, "sub/k.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "link");
+		if (!file_is("sub/k.shcl", "b: 2\n")) fail(at, "a refused save through a link wrote");
+		shcl_free(linked);
+		/* A FIFO swapped in is refused as the write refuses it, with no wait. */
+		put_file("f.shcl", "a: 1\n");
+		shcl_doc *fifo = shcl_load_file("./f.shcl", NULL);
+		remove("f.shcl");
+		if (mkfifo("f.shcl", 0600) != 0) fail(at, "mkfifo failed");
+		shcl_write_status why = SHCL_WRITE_OK;
+		if (shcl_save_file(fifo, "./f.shcl", &why) != SHCL_SAVE_FAILED || why != SHCL_WRITE_NOT_REGULAR) fail(at, "fifo");
+		shcl_free(fifo);
+		/* A file the check can't read, since another program wrote it and took
+		   the read bit off, is a change. Root reads it anyway, so it's only
+		   asked where the read fails. */
+		put_file("p.shcl", "a: 1\n");
+		shcl_doc *shut = shcl_load_file("./p.shcl", NULL);
+		put_file("p.shcl", "a: 9\n");
+		if (chmod("p.shcl", 0200) != 0) fail(at, "chmod failed");
+		FILE *probe = fopen("p.shcl", "rb");
+		if (probe) fclose(probe);
+		else if (shcl_save_file(shut, "./p.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "unreadable");
+		if (chmod("p.shcl", 0600) != 0) fail(at, "chmod back failed");
+		if (!file_is("p.shcl", "a: 9\n")) fail(at, "a refused save over an unreadable file wrote");
+		shcl_free(shut);
+#endif
+#ifdef _WIN32
+		if (_chdir(back) != 0) fail(at, "chdir home failed");
+#else
+		if (chdir(back) != 0) fail(at, "chdir home failed");
+#endif
+		dir_clear(sub);
+		dir_clear(nd);
+		dir_clear(sdir);
+	}
 	test_id("dekmj", "a_create_only_save_refuses_a_file_already_there");
 	{
 		/* A create-only save refuses a file that's there, and only one of
