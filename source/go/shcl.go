@@ -3096,7 +3096,7 @@ func formatLineRead(text string) Read[int] {
 	}
 	now := newRawLines(RulesCurrent)
 	then := newRawLines(RulesV2)
-	var found, unread Read[int]
+	var found, newest, unread Read[int]
 	for i, line := range strings.Split(text, "\n") {
 		current, inNow := now.step(line)
 		old, inThen := then.step(line)
@@ -3137,12 +3137,15 @@ func formatLineRead(text string) Read[int] {
 			v = math.MaxUint32
 		}
 		if v >= FormatMajor {
-			if inNow {
-				return Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+			if inNow && (newest.Line == 0 || v > newest.Value) {
+				newest = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
 			}
 		} else if inThen && (found.Line == 0 || v > found.Value) {
 			found = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
 		}
+	}
+	if newest.Line != 0 {
+		return newest
 	}
 	if found.Line != 0 {
 		return found

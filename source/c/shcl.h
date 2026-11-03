@@ -3718,7 +3718,7 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	ShclStamp none; none.value = 0; none.status = SHCL_NOT_FOUND; none.line = 0; none.digits = s_empty();
 	/* Most documents have no Format line, and every load asks. */
 	if (!s_has(text, s_lit(SHCL_FORMAT_WORD))) return none;
-	ShclStamp found = none, unread = none;
+	ShclStamp found = none, newest = none, unread = none;
 	ShclRawLines now, then;
 	raw_lines_init(&now, SHCL_RULES_CURRENT);
 	raw_lines_init(&then, SHCL_RULES_V2);
@@ -3750,11 +3750,14 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 		   `upgrade --from-2x` takes for a beta one. */
 		int64_t v = big ? (int64_t)UINT32_MAX : (int64_t)u;
 		if (v >= SHCL_FORMAT_MAJOR) {
-			if (in_now) { ShclStamp r; r.value = v; r.status = SHCL_GOOD; r.line = lineno; r.digits = n; return r; }
+			if (in_now && (!newest.line || v > newest.value)) {
+				newest.value = v; newest.status = SHCL_GOOD; newest.line = lineno; newest.digits = n;
+			}
 		} else if (in_then && (!found.line || v > found.value)) {
 			found.value = v; found.status = SHCL_GOOD; found.line = lineno; found.digits = n;
 		}
 	}
+	if (newest.line) return newest;
 	if (found.line) return found;
 	return unread;
 }

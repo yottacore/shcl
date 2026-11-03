@@ -4162,6 +4162,10 @@ func TestStampReadsSayWhy(t *testing.T) {
 		// in the parser (2026101514324701).
 		{"~x: ```\n\tb\n\t```\n##    Format   4\n", 4, Good, 4, "H006"},
 		{"`y: ```\n##    Format   4\n```\n", 0, NotFound, 0, ""},
+		// The highest of several decides, wherever it is (2026110312163203).
+		{"##    Format   3\np: x\n##    Format   4\n", 4, Good, 3, "H006"},
+		{"##    Format   5\n##    Format   4\n", 5, Good, 1, "H006"},
+		{"##    Format   2\n##    Format   4\n##    Format   3\n", 4, Good, 2, "H006"},
 	}
 	for _, c := range formats {
 		r := ReadFormatVersion(c.text)

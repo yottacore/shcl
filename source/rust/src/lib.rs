@@ -2776,6 +2776,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 	let mut now = RawLines::new(Rules::Current);
 	let mut then = RawLines::new(Rules::V2);
 	let mut found: Option<(u32, usize, &str)> = None;
+	let mut newest: Option<(u32, usize, &str)> = None;
 	let mut unread: Option<(Status, usize, &str)> = None;
 	for (i, line) in text.split('\n').enumerate() {
 		let current = now.step(line);
@@ -2803,14 +2804,14 @@ fn format_line_read(text: &str) -> Read<u32> {
 		// `upgrade --from-2x` takes for a beta one.
 		let v = n.parse().unwrap_or(u32::MAX);
 		if v >= FORMAT_MAJOR {
-			if current.is_some() {
-				return Read::new(v, Status::Good, Some(n.to_string())).at(i + 1, None);
+			if current.is_some() && newest.is_none_or(|(f, _, _)| v > f) {
+				newest = Some((v, i + 1, n));
 			}
 		} else if old.is_some() && found.is_none_or(|(f, _, _)| v > f) {
 			found = Some((v, i + 1, n));
 		}
 	}
-	if let Some((v, line, n)) = found {
+	if let Some((v, line, n)) = newest.or(found) {
 		return Read::new(v, Status::Good, Some(n.to_string())).at(line, None);
 	}
 	match unread {

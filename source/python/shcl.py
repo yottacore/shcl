@@ -2606,6 +2606,7 @@ def _format_line_read(text: str) -> Read[int]:
 	now = _RawLines(Rules.Current)
 	then = _RawLines(Rules.V2)
 	found: Read[int] | None = None
+	newest: Read[int] | None = None
 	unread: Read[int] | None = None
 	for i, line in enumerate(text.split("\n")):
 		current = now.step(line)
@@ -2630,10 +2631,12 @@ def _format_line_read(text: str) -> Read[int]:
 		digits = n.lstrip("0") or "0"
 		v = 0xFFFFFFFF if len(digits) > 10 or int(digits) > 0xFFFFFFFF else int(digits)
 		if v >= FORMAT_MAJOR:
-			if current is not None:
-				return Read(v, Status.Good, n)._at(i + 1, None)
+			if current is not None and (newest is None or v > newest.value):
+				newest = Read(v, Status.Good, n)._at(i + 1, None)
 		elif old is not None and (found is None or v > found.value):
 			found = Read(v, Status.Good, n)._at(i + 1, None)
+	if newest is not None:
+		return newest
 	if found is not None:
 		return found
 	if unread is not None:

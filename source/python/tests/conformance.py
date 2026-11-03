@@ -3993,6 +3993,10 @@ def main():
 		# in the parser (2026101514324701).
 		("~x: ```\n\tb\n\t```\n##    Format   4\n", 4, G, 4, "H006"),
 		("`y: ```\n##    Format   4\n```\n", 0, NF, 0, ""),
+		# The highest of several decides, wherever it is (2026110312163203).
+		("##    Format   3\np: x\n##    Format   4\n", 4, G, 3, "H006"),
+		("##    Format   5\n##    Format   4\n", 5, G, 1, "H006"),
+		("##    Format   2\n##    Format   4\n##    Format   3\n", 4, G, 2, "H006"),
 	):
 		stamp = shcl.read_format_version(ftext)
 		if (stamp.value, stamp.status, stamp.line) != (fvalue, fstatus, fline):
@@ -5067,17 +5071,14 @@ def main():
 	test_id("debk7", "a_block_kept_at_the_top_names_this_format_too")
 	# The lone stamp comes off, and the block kept above the first field's
 	# child named another format, which the fresh text then read as its own
-	# (2026102309053667).
+	# (2026102309053667). Since 2026110312163203 the highest line decides,
+	# so this file names format 4 and is left alone.
 	up_top = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n"
-	if shcl.format_version(up_top) != 3:
+	if shcl.format_version(up_top) != 4:
 		raise SystemExit(f"kept top: input names {shcl.format_version(up_top)}")
 	up = shcl.upgrade(up_top, True)
-	if up.current or up.errors_left or up.ambiguous:
-		raise SystemExit(f"kept top: {up.current} {up.errors_left} {up.ambiguous}")
-	if shcl.format_version(up.text) != 3 or "Format   4" in up.text:
-		raise SystemExit(f"kept top: fresh text names {shcl.format_version(up.text)}: {up.text!r}")
-	if not shcl.upgrade(up.text, False).current:
-		raise SystemExit(f"kept top: a second run made it over again: {up.text!r}")
+	if not up.current or up.errors_left or up.ambiguous or up.text != up_top:
+		raise SystemExit(f"kept top: made over {up.current} {up.errors_left} {up.ambiguous}")
 	# set_banner takes the same path.
 	up_doc = shcl.Document.parse("a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n")
 	up_doc.set_banner(True)

@@ -85,6 +85,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1103b`
 	- Commit: `2f38f68b`
 
+- Go and Python create a file through a missing folder named with `..`
+	- ID: 2026110314064292
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261103-140642
+	- Opened by: 2026110312163203
+	- Related IDs: 2026110312163201
+	- Steps to reproduce:
+		- In an empty folder, `shcl set --write --set b=2 nodir/../f.shcl` with the Go or Python CLI.
+	- Incorrect behavior: exit 0, `nodir/../f.shcl: created`, and `f.shcl` is there. cli-regress `dd5h4` (`save-missdir`) fails for go and python.
+	- Expected behavior: exit 8 and nothing written, as Rust and C do and as Python did before `2f38f68b`.
+	- Reproduced: 20261103, the Python CLI at `2f38f68b` creates the file, and at `2f38f68b^` exits 8. Go fails `dd5h4` the same way.
+	- Possible cause: the path resolve from 2026110312163201 (`2f38f68b`) folds `nodir/..` away by text in Go and Python, so the missing folder is never seen.
+	- Sweep: the path resolve in all 4 and every save path that uses it.
+	- Estimated effort: Low
+
 - Go back to docker's default builder for the images
 	- ID: 2026110311291920
 	- Type: Enhancement
@@ -157,7 +174,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A newer Format line after a `Format 3` line is ignored, so a save writes the file anyway
 	- ID: 2026110312163203
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 3
@@ -171,6 +188,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed. The early return is from `4fcfec0b` (20261003) and `be88796f` (20261009). 2026102309053667 named this reading as a cause and fixed only its symptom. The newer-format refusal (`7f2aa27c`, 20261029) was built on it.
 	- Sweep: every reader of Format lines, in all 4: the newer-format test, `H006` and `H007`, `migrate`'s stamp test, and `upgrade_file`.
 	- Estimated effort: Low
+	- Actual cause: confirmed. The reader returned the first line naming this format or a newer one under the current rules, so a later, higher line was never read.
+	- Actual fix: the reader reads every line and keeps the highest that names this format or a newer one, the first of equals. An older line still counts only when none does. All 4. The newer-format refusal, `H006` and `H007`, `migrate`, `upgrade` and `upgrade_file` all read through it, so none of them changed.
+	- Decisions:
+		- me, 20261103: the first of 2 lines naming the same highest format is the one read, so `restamp` and the hint line stay where they were for a file that names one format twice.
+		- me, 20261103: the kept-top rewrite in `swap_banner` from 2026102309053667 stays. With the highest deciding it no longer changes what an older or current file reads as, and on a newer document it only changes the text in memory, which no save writes.
+		- 20261103: `a_block_kept_at_the_top_names_this_format_too` (`debk5` to `debk8`) had its input naming format 3 and `upgrade` making it over. The same input names 4 now, and `upgrade` leaves it alone with the text unchanged, as this item asks. Its `set_banner` half is unchanged.
+	- Swept: `format_line_read` in Rust and C, `formatLineRead` in Go and `_format_line_read` in Python, the one reader per binding. Its callers: `read_format_version`, the load's hint and newer flag, `migrate_text`, `upgrade` and `restamp`. The C++ veneer wraps the C call. No CLI reads the line itself. spec.md, design.md and the doc comments already said the highest decides.
+	- Verified: the new rows in `stamp_reads_say_why` fail in all 4 with the early return put back, and so do `debk6` and `debk8`. All pass with the fix. The 4 new cli-regress rows fail in all 4 CLIs built that way and pass with the fix. Also cargo test, go test, the Python and C runners, the veneer smoke, cli-regress (only `dd5h4` red, which 2026110314064292 has), crosscheck (22944 comparisons), check-docs (only the known `dcbc2`), check-abnf, test-ids check, rustfmt, gofmt, clippy, go vet, staticcheck, ruff and mypy.
+	- Test case: new rows in `stamp_reads_say_why` in Rust (`ddqh8`), Go (`ddqh9`), Python (`ddqha`) and C (`ddqhb`), `debk5` to `debk8`, and cli-regress `detr1` (`check-newer-after-current`), `detr2` (`set-print-newer-after-current`), `detr3` (`fmt-check-newer-after-current`) and `detr4` (`upgrade-newer-after-current`).
+	- Branch: `r1103b`
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the reading is what spec.md already says.
+	- Closed: 20261103-140642
 
 - A set that makes a second instance with an existing value moves kept lines, and can comment one out
 	- ID: 2026110312163204
@@ -331,7 +360,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The man page leaves the newer-format refusal out of exit 7
 	- ID: 2026110312163209
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 9
@@ -342,6 +371,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed. `7f2aa27c` updated the help, the spec and `explain H006`, not the man page.
 	- Note: check-docs could compare the man page's exit list with `--help`'s, so the next gap is caught.
 	- Estimated effort: Low
+	- Actual fix: the man page's exit 7 entry names a file that names a newer format, with `H006`, and says nothing overrides it.
+	- Decisions:
+		- me, 20261103: no check-docs compare of the man page's exit list with `--help`'s for now. The man page gives each code in prose and the help in one sentence, so a check would match words, and would break on any rewording of either.
+	- Swept: the man page is the only copy of that text. `--help`, spec.md and `explain H006` already name the refusal.
+	- Verified: the man page at 80 columns reads as above. cli-regress `man-width` (`dcbc4`) passes.
+	- Test case: cli-regress `man-width` (`dcbc4`) for its width. No content test, docs only.
+	- Branch: `r1103b`
+	- Acceptance signoff: Self-closed: docs only, and the line says what `--help` and spec.md say.
+	- Closed: 20261103-140642
 
 - A failed run skips most of the cleanup and the closing blank line
 	- ID: 2026110215285704

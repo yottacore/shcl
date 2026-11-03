@@ -4265,6 +4265,22 @@ fn stamp_reads_say_why() {
 			"H006",
 		),
 		("`y: ```\n##    Format   4\n```\n", 0, NotFound, 0, ""),
+		// The highest of several decides, wherever it is (2026110312163203).
+		(
+			"##    Format   3\np: x\n##    Format   4\n",
+			4,
+			Good,
+			3,
+			"H006",
+		),
+		("##    Format   5\n##    Format   4\n", 5, Good, 1, "H006"),
+		(
+			"##    Format   2\n##    Format   4\n##    Format   3\n",
+			4,
+			Good,
+			2,
+			"H006",
+		),
 	];
 	for (text, value, status, line, hint) in formats {
 		let r = read_format_version(text);

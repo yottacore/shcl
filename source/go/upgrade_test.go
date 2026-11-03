@@ -158,20 +158,15 @@ func TestABlockKeptAtTheTopNamesThisFormatToo(t *testing.T) {
 	defer testID(t, "debk6")
 	// The lone stamp comes off, and the block kept above the first field's
 	// child named another format, which the fresh text then read as its own
-	// (2026102309053667).
+	// (2026102309053667). Since 2026110312163203 the highest line decides,
+	// so this file names format 4 and is left alone.
 	text := "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n"
-	if v, ok := FormatVersion(text); !ok || v != 3 {
+	if v, ok := FormatVersion(text); !ok || v != 4 {
 		t.Fatalf("input names %d, %v", v, ok)
 	}
 	up := Upgrade(text, true)
-	if up.Current || len(up.ErrorsLeft) != 0 || up.Ambiguous != 0 {
-		t.Fatalf("not made over: %+v", up)
-	}
-	if v, ok := FormatVersion(up.Text); !ok || v != 3 || strings.Contains(up.Text, "Format   4") {
-		t.Fatalf("fresh text names %d, %v: %q", v, ok, up.Text)
-	}
-	if !Upgrade(up.Text, false).Current {
-		t.Fatalf("a second run made it over again: %q", up.Text)
+	if !up.Current || len(up.ErrorsLeft) != 0 || up.Ambiguous != 0 || up.Text != text {
+		t.Fatalf("made over: %+v", up)
 	}
 	// SetBanner takes the same path.
 	d := Parse("a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n")

@@ -4579,6 +4579,10 @@ int main(int argc, char **argv) {
 			   does in the parser (2026101514324701). */
 			{"~x: ```\n\tb\n\t```\n##    Format   4\n", 4, SHCL_GOOD, 4, "H006"},
 			{"`y: ```\n##    Format   4\n```\n", 0, SHCL_NOT_FOUND, 0, ""},
+			/* The highest of several decides, wherever it is (2026110312163203). */
+			{"##    Format   3\np: x\n##    Format   4\n", 4, SHCL_GOOD, 3, "H006"},
+			{"##    Format   5\n##    Format   4\n", 5, SHCL_GOOD, 1, "H006"},
+			{"##    Format   2\n##    Format   4\n##    Format   3\n", 4, SHCL_GOOD, 2, "H006"},
 		};
 		for (size_t k = 0; k < sizeof ft / sizeof ft[0]; k++) {
 			size_t n = strlen(ft[k].text);
@@ -6063,15 +6067,13 @@ int main(int argc, char **argv) {
 	{
 		/* The lone stamp comes off, and the block kept above the first field's
 		   child named another format, which the fresh text then read as its
-		   own (2026102309053667). */
+		   own (2026102309053667). Since 2026110312163203 the highest line
+		   decides, so this file names format 4 and is left alone. */
 		const char *top = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n";
-		if (shcl_format_version(top, strlen(top)) != 3) fail("upgrade_kept_top", "input");
+		if (shcl_format_version(top, strlen(top)) != 4) fail("upgrade_kept_top", "input");
 		shcl_upgraded up = shcl_upgrade(top, strlen(top), 1);
-		if (up.current || up.errors_left || up.ambiguous) fail("upgrade_kept_top", "not made over");
-		if (shcl_format_version(up.text, up.len) != 3 || strstr(up.text, "Format   4")) fail("upgrade_kept_top", "the fresh text names another format");
-		shcl_upgraded again = shcl_upgrade(up.text, up.len, 0);
-		if (!again.current) fail("upgrade_kept_top", "a second run made it over again");
-		shcl_upgraded_free(&again);
+		if (!up.current || up.errors_left || up.ambiguous) fail("upgrade_kept_top", "made over");
+		else if (up.len != strlen(top) || memcmp(up.text, top, up.len) != 0) fail("upgrade_kept_top", "text changed");
 		shcl_upgraded_free(&up);
 		/* shcl_set_banner takes the same path. */
 		const char *sb = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n";
