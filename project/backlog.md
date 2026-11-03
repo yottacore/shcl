@@ -51,7 +51,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The changed check misses an edit when the load and the save spell the path differently, so another program's edit is lost
 	- ID: 2026110312163201
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: the hosted ci.yml windows job, for `detpn`, `detpp`, `detpq`, `detpr` and `detps`, and `dekj6`, `dekk8` and `dekkm` again under the runner's short-name TEMP, since the resolve changed for windows in Rust, Python and Go.
 	- Severity: High
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 1
@@ -71,6 +72,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every place a resolved path is stored or compared, in all 4 and the C++ interface. That's the load's file record, the save's compare, `upgrade_file`'s own changed check, and the create check.
 	- Note: a test over path spellings in each binding's runner would cover the class: bare, `./`, absolute, through a link, and after a `chdir`.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause: the resolve made a path with nothing at it absolute only through its own folder, and Rust, Python and C skipped that for a bare name or a folder not there yet. Go returned EvalSymlinks' answer, which stays relative for a relative path. So the load's record and the save's target were 2 strings for one file.
+	- Actual fix: the resolve's answer is always absolute. A path with nothing at it goes through the real path of the nearest folder above it that's there, and the rest as written. Go makes EvalSymlinks' answer absolute against the working folder's real path. All 4. C's windows resolve already gave full paths.
+	- Decisions:
+		- me, 20261103: the fix is in the resolve the write uses, not a second one for the check, so the record, the compare, the create check and the write can't disagree. The write's target was relative only where its folder was `.` or not there, so it writes where it did.
+		- me, 20261103: a relative path is taken from the working folder at the time. After a `chdir` the same relative name is another file, and isn't checked. spec.md and design.md say so now.
+		- me, 20261103: Go resolves the working folder too, since `Getwd` can answer with a `$PWD` that runs through a link.
+	- Swept: Rust, Python, Go and C, every caller of the resolve: the load's record, the save's compare, the create check and the write. `upgrade_file`'s check compares no paths. The veneer wraps the C save. C's windows resolve gives a full path in every mode, so it's unchanged. The CLIs keep their own check, by the path they read.
+	- Verified: `detpn`, `detpp`, `detpq`, `detpr` and `detps` fail on the old code and pass on the new. Under wine, `detpn`, `detpq`, `detpr`, `dekk8` and `dekkm` pass, which doesn't cover the hosted runner's short-name TEMP. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, and again for `c` after the last C change. check-docs alone fails only the known `dcbc2`. codeql-scan alone passes all 17 checks, and the C runner passes under ASan and UBSan.
+	- Test case: `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go `TestAChangedCheckKnowsItsFileByAnySpelling` (`detpq`), the C runner (`detpr`) and the veneer smoke (`detps`).
+	- Branch: `r1103b`
+	- Commit: `2f38f68b`
 
 - Go back to docker's default builder for the images
 	- ID: 2026110311291920
@@ -92,7 +105,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The changed check hangs on a FIFO, and saves over a file it can't read
 	- ID: 2026110312163202
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 2
@@ -108,6 +121,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the check opens the path with a plain blocking read, before the write's regular-file test. It takes every read error but not-found as "unchanged". Its comment says the write fails the same way, but a rename over the file needs no read access.
 	- Origin: Confirmed in Rust and Python, Plausible in Go and C (read). Same commits as item 1. The FIFO half is the class 2026100307163911 fixed for the Schema read with a no-wait open, which the new read doesn't use.
 	- Sweep: every read of a path another program can swap, in all 4. That's the changed check, `upgrade_file`'s read, and `read_file`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: the check read the path with a plain open, which waits on a FIFO, before the write's regular-file test. It took any failed read as no change.
+	- Actual fix: the check reads only a regular file, through the no-wait open the Schema read uses, and leaves anything else to the write, which refuses it. A read that fails is a change. `upgrade_file`'s 2 reads again of the file use the same read. All 4.
+	- Decisions:
+		- me, 20261103: a FIFO or a folder at the path is left to the write rather than called a change, so the save gives the write's own error, as the expected behavior asks.
+		- me, 20261103: `read_file`, the load's read and `upgrade_file`'s first read keep their plain open. They read the path the caller named, when it's named, as 2026100307163911 left `--write FILE`, and a pipe such as a process substitution still reads.
+		- me, 20261103: on windows a file another program holds open with no read sharing is a change now, where the write used to decide. `force` still writes.
+	- Swept: the changed check and `upgrade_file`'s reads again in all 4. The veneer's saves reach C's. `read_file` and the first reads are left, as above. The 4 CLIs' own check before `--write` reads the same way, filed as 2026110313211991.
+	- Verified: `detpn` with only the old check, and `detpq` and `detpr` on the old code, hang on the FIFO until killed, and a Python probe on the old code hangs the same way. All 4 pass with the new check, the unreadable part included. Also the gate runs on 2026110312163201.
+	- Test case: the FIFO and unreadable parts of `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go (`detpq`) and the C runner (`detpr`). POSIX only, since windows has no FIFO at a path.
+	- Acceptance signoff: Self-closed: each new test hung on the old check and passes with the new, and the gates are green.
+	- Branch: `r1103b`
+	- Commit: `2f38f68b`
+	- Closed: 20261103-135026
+
+- The CLI's changed-since-read check hangs on a FIFO swapped in during `set`'s stdin wait
+	- ID: 2026110313211991
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-132119
+	- Opened by: 2026110312163202's sweep
+	- Related IDs: 2026110312163202, 2026100307163911
+	- Steps to reproduce:
+		- Run `shcl set --write f.shcl` with its ops on stdin. While it waits, replace `f.shcl` with a FIFO, then end the input.
+	- Incorrect behavior: the CLI reads `f.shcl` again before the save with a plain open, which waits for a writer.
+	- Expected behavior: exit 8 with the not-a-regular-file error, as the library's save gives since 2026110312163202.
+	- Reproduced: No, from reading.
+	- Possible cause: `unchanged_since_read` in all 4 CLIs opens the path to read with a plain open. The library's no-wait read is private, and the CLIs have none of their own.
+	- Sweep: `unchanged_since_read` and the re-read after a failed `upgrade --write`, in all 4 CLIs.
 	- Estimated effort: Low
 
 - A newer Format line after a `Format 3` line is ignored, so a save writes the file anyway
