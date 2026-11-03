@@ -1419,7 +1419,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CICD reset: macOS runner
 	- ID: 2026102416250110
 	- Type: Enhancement
-	- Status: Re-opened
+	- Status: Done
 	- Needs external testing: No
 	- Priority: Avg
 	- Opened: 20261024-162500
@@ -1435,17 +1435,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: 20261031 hosted ci.yml 41143471789 with job=macos ran only macos, every other job skipped; 41155448447 with no input ran and passed every job.
 		- Verified: 20261031 cicd.bash --backlog-run-full --skip=check-docs.bash at 64bd33fe, log 20261030-183308_002: step 1 started the macos job (41155899490), step 9 waited and passed, and den5e passed.
 		- 20261103: JC answered the Check: start the hosted macos job from --long only, not from a no-flag run, --merge-gate or --backlog-run-full.
+		- 20261102: only `--long` starts the job now. Every other run has an Off line for it, `no --long` where no other reason applies. The help, config.bash's note and both script histories say so.
+		- Verified: 20261102 check-push-gate passes whole, `den5e` included, and `den5e` fails against the cicd.bash from before, which started the job from `-y --no-sync` and `--merge-gate`.
 	- Decisions:
 		- me: the job by length is about 3 minutes plus GitHub's queue, which a run with no flags or a longer one hides by starting it first. The quick runs test edits in progress, which GitHub can't see, so they leave it out, as zuid's quick runs do.
+			- 2026-11-02 JC: `--long` only. A run with no flags, `--merge-gate` and `--backlog-run-full` leave it out too.
 		- me: a `job` input on ci.yml, not a workflow of its own, so `check-pins.bash` keeps reading every pin from one file.
 		- me: the hook's run leaves it out, since the push it gates runs ci.yml, the `macos` job included, and its frozen copy has no branch.
 		- me: config.bash names the job in `HOSTED_WORKFLOW`, `HOSTED_JOB` and `HOSTED_TARGET`, so the engine stays generic. `SHCL_GH` names a gh in place of gitsby's, for the test.
 	- Test case: check-push-gate `den5e`.
 		- 20261030: `dee74` counts the Off lines of a run with no sync. The GitHub job's one line took it from 6 to 7.
+		- 20261102: `den5e`'s runs that start the job add `--long`, and a run with no flags, `--merge-gate` and `--backlog-run-full` joined the runs that must leave it out.
 	- Verified: check-push-gate `den5e` passes, and fails against the cicd.bash from before. The whole of check-push-gate and shell-regress pass, and `--backlog-run-quick cicd --skip=check-docs.bash` passed format, build and lint. check-docs fails only `dcbc2`, which is red on dev until the installer sync to main.
 	- Swept: every flag that takes out the release, the cross targets or the remote hosts (`--no-release`, `--no-cross`, `--skip`, `--no-remote`), the run modes, `--list`, the container and frozen-copy runs, which never start it, and the end summary's SKIP lines, which the test boxes step now adds to rather than replaces.
-	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written.
-	- Closed: 20261030-193808
+		- 20261102: the help, config.bash's note, `--list`'s Off lines and `dee74`'s count of them, which stays 7.
+	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written. The 2026-11-02 change follows JC's answer, and `den5e` covers it.
+	- Closed: 20261102-180031
 
 - check-push-gate `dee74` failed once under load and passed on a rerun
 	- ID: 2026102821264857

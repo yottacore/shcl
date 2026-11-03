@@ -745,11 +745,11 @@ ruffQuiet="$(grep -c '^ruff .* -q\( \|$\)' "${work}/ruff.quiet" || true)"
 if ((ruffLines < 1 || ruffRan != ruffLines || ruffQuiet != ruffLines)); then
 	fail "config.bash has ${ruffLines} ruff lines, ${ruffRan} ran from the step lists and ${ruffQuiet} got -q: $(cat "${work}/ruff.quiet")"
 fi
-fTest den5e a full run starts the GitHub macos job first and waits for it last
-## 2026102416250110: a run with no flags, --merge-gate and --backlog-run-full
-## start config.bash's HOSTED_JOB for the branch as pushed, and a failed job
-## fails the run. A quick run leaves it out, and so does --no-remote. A branch
-## the remote doesn't have at HEAD, or a canceled job, is a SKIP.
+fTest den5e a --long run starts the GitHub macos job first and waits for it last
+## 2026102416250110: --long starts config.bash's HOSTED_JOB for the branch as
+## pushed, and a failed job fails the run. A run without --long leaves it out,
+## and so does --no-remote. A branch the remote doesn't have at HEAD, or a
+## canceled job, is a SKIP.
 cat > "${work}/fake-gh" <<'GH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FAKE_GH_LOG}"
@@ -770,30 +770,32 @@ fHosted(){  ## fHosted [VAR=VALUE ...] -- ARGS... -> engRc, ghRan (the gh calls,
 	fEngine GITHUB_ACTIONS= SHCL_GH="${work}/fake-gh" FAKE_GH_LOG="${work}/gh.log" SHCL_HOSTED_POLL=0 STUB_HOSTED="${work}/eng.hosted" "${envs[@]}" -- "$@"
 	ghRan="$(cat "${work}/gh.log")"
 }
-fHosted -- --merge-gate
+fHosted -- --merge-gate --long
 if ((engRc != 0)) || [[ -n "${ghRan}" ]] || ! grep -qF 'SKIP GitHub macos job: dev tracks no remote' "${work}/eng.log"; then
 	fail "a branch with no remote: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
 fi
 if git init -q --bare "${work}/eng-remote.git" && git -C "${eng}" remote add origin "${work}/eng-remote.git" \
 	&& git -C "${eng}" push -q -u origin dev 2>/dev/null; then
-	fHosted -- --merge-gate
+	fHosted -- --merge-gate --long
 	if ((engRc != 0)) || [[ "${ghRan}" != "workflow run ci.yml --ref dev -f job=macos"$'\n'"run view 4242 "* ]]; then
-		fail "a --merge-gate run: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
+		fail "a --merge-gate --long run: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
 	fi
 	## Started before the format check, and waited for after the release builds.
 	hostedOrder="$(grep -oE 'Starting (GitHub macos job: start|Format \(check only\)|Release builds|GitHub macos job: result)' "${work}/eng.log" | paste -sd '|' || true)"
 	[[ "${hostedOrder}" == "Starting GitHub macos job: start|Starting Format (check only)|Starting Release builds|Starting GitHub macos job: result" ]] \
 		|| fail "the GitHub job's steps ran out of order: ${hostedOrder}"
 	grep -qF 'OK: the macos job on GitHub: https://github.com/a/b/actions/runs/4242' "${work}/eng.log" || fail "a passing GitHub job didn't say so: $(tail -3 "${work}/eng.log")"
-	fHosted FAKE_GH_END=failure -- --merge-gate
+	fHosted FAKE_GH_END=failure -- --merge-gate --long
 	{ ((engRc != 0)) && grep -qF 'the macos job ended failure on GitHub' "${work}/eng.log"; } || fail "a failed GitHub job passed the run: exit ${engRc}: $(tail -3 "${work}/eng.log")"
-	fHosted FAKE_GH_END=canceled -- --backlog-run-full
+	fHosted FAKE_GH_END=canceled -- --backlog-run-full --long
 	{ ((engRc == 0)) && grep -qF 'SKIP GitHub macos job: canceled on GitHub' "${work}/eng.log"; } || fail "a canceled GitHub job: exit ${engRc}: $(tail -3 "${work}/eng.log")"
 	## With no URL from gh, the run is found by the list.
-	fHosted FAKE_GH_NOURL=1 -- -y --no-sync
+	fHosted FAKE_GH_NOURL=1 -- --long -y --no-sync
 	{ ((engRc == 0)) && grep -qF 'run list --workflow ci.yml --branch dev --event workflow_dispatch' <<< "${ghRan}"; } \
-		|| fail "a run with no flags didn't find the GitHub job by the list: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
-	for hostedArgs in "--quick -y --no-sync" "--backlog-run-quick" "--merge-gate --no-remote" "--merge-gate --no-cross" "--merge-gate --skip=stub-mac"; do
+		|| fail "a --long run didn't find the GitHub job by the list: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
+	## 2026-11-02 JC: a run with no flags, --merge-gate and --backlog-run-full
+	## leave it out too.
+	for hostedArgs in "-y --no-sync" "--merge-gate" "--backlog-run-full" "--quick -y --no-sync" "--backlog-run-quick" "--merge-gate --long --no-remote" "--merge-gate --long --no-cross" "--merge-gate --long --skip=stub-mac"; do
 		# shellcheck disable=SC2086  ## the flags split on purpose
 		fHosted -- ${hostedArgs}
 		if ((engRc != 0)) || [[ -n "${ghRan}" ]] || ! grep -qE '^Off \.+: GitHub macos job \(' "${work}/eng.log"; then
@@ -801,14 +803,14 @@ if git init -q --bare "${work}/eng-remote.git" && git -C "${eng}" remote add ori
 		fi
 	done
 	## The hook's run, whose push starts the whole of ci.yml.
-	fHosted SHCL_FROZEN=1 -- --merge-gate
+	fHosted SHCL_FROZEN=1 -- --merge-gate --long
 	if ((engRc != 0)) || [[ -n "${ghRan}" ]] || ! grep -qF "Off ............: GitHub macos job (the pre-push hook's run)" "${work}/eng.log"; then
 		fail "the hook's run started the GitHub job: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
 	fi
 	## A branch the remote has at another commit.
 	otherSha="$(git -C "${work}/eng-remote.git" commit-tree "$(git -C "${work}/eng-remote.git" hash-object -t tree -w /dev/null)" -m other)"
 	git -C "${work}/eng-remote.git" update-ref refs/heads/dev "${otherSha}"
-	fHosted -- --merge-gate
+	fHosted -- --merge-gate --long
 	if ((engRc != 0)) || [[ -n "${ghRan}" ]] || ! grep -qF "SKIP GitHub macos job: origin/dev isn't at HEAD" "${work}/eng.log"; then
 		fail "a branch the remote has at another commit: exit ${engRc}, gh ran: ${ghRan:-nothing}: $(tail -3 "${work}/eng.log")"
 	fi

@@ -82,13 +82,12 @@
 ##	  tested (utility/green-tree.bash), which the pre-push hook then lets through
 ##	  without the gate. --quick, --no-fmt, --no-lint, --no-tests, --no-cross and
 ##	  a skipped tool keep a run from recording.
-##	- A run with no flags, --long, --merge-gate and --backlog-run-full start the
-##	  GitHub job config.bash names in HOSTED_JOB first, for this branch as
-##	  pushed, and wait for it last. The macos job takes about 3 minutes. It runs
-##	  the commit, not uncommitted edits, and it's a SKIP, with the reason, when
-##	  the remote's branch isn't at HEAD or there's no gh. --quick,
-##	  --backlog-run-quick, --no-remote and a run that doesn't build
-##	  HOSTED_TARGET leave it out. SHCL_GH names a gh to call in place of gitsby's.
+##	- --long starts the GitHub job config.bash names in HOSTED_JOB first, for
+##	  this branch as pushed, and waits for it last. The macos job takes about 3
+##	  minutes. It runs the commit, not uncommitted edits, and it's a SKIP, with
+##	  the reason, when the remote's branch isn't at HEAD or there's no gh. A run
+##	  without --long, --no-remote and a run that doesn't build HOSTED_TARGET
+##	  leave it out. SHCL_GH names a gh to call in place of gitsby's.
 ##	- Each run works in a temp dir of its own, removed at the end even when it
 ##	  fails or is stopped. A whole run also sweeps the pipeline's stale leftovers.
 ##	- When docker (or SHCL_DOCKER) answers on x86_64, stages 1-6 run in the main
@@ -488,8 +487,8 @@ if ((quick || gate_partial || skip_partial)); then record_green=0; fi
 
 ## The GitHub job, by how long it takes (2026102416250110). The macos job is
 ## about 3 minutes, more in GitHub's queue, and it runs the pushed commit, so a
-## run that tests edits in progress has no use for it. A quick run leaves it out,
-## and a run with no flags or a longer one starts it before anything else.
+## run that tests edits in progress has no use for it. Only --long starts it,
+## before anything else (JC, 2026-11-02).
 hosted_off=""
 fHostedBuilt(){   ## -> 0 when this run builds HOSTED_TARGET
 	local t
@@ -506,6 +505,7 @@ if [[ -n "${HOSTED_JOB}" ]]; then
 	elif [[ -n "${frozen_given}" ]]; then hosted_off="the pre-push hook's run"
 	elif ((quick)); then hosted_off="${quick_flag}"
 	elif ! fHostedBuilt; then hosted_off="no ${HOSTED_TARGET} build this run"
+	elif ((! long_run)); then hosted_off="no --long"
 	fi
 	if [[ -n "${hosted_off}" ]]; then fOff hosted "${hosted_off}"; fOff hostedwait "${hosted_off}"; fi
 fi
@@ -2002,3 +2002,4 @@ exit 0
 ##		- 2026-10-31: A REMOTE_BOXES row's perf runs perf-gate.bash on that Windows box.
 ##		- 2026-11-01: Every build is stamped at run start, the image included; a cut leaves the date off its release builds.
 ##		- 2026-11-01: A cargo target dir filled under another toolchain or lockfile is emptied before the build, an extra image's copy too, and the cleanup line counts it.
+##		- 2026-11-02 JC: Only --long starts HOSTED_JOB.

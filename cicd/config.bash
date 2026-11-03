@@ -619,9 +619,9 @@ REMOTE_BOXES=(
 
 ## ci.yml's macos job, on GitHub's free arm64 Mac runner: it builds the
 ## macos-universal target, runs the Rust tests, and runs crosscheck and
-## cli-regress on the arm64 half (2026102416250110). About 3 minutes, so a run
-## with no flags and the longer ones start it first and wait for it last, and
-## the quick ones leave it out. It runs the branch as pushed.
+## cli-regress on the arm64 half (2026102416250110). About 3 minutes, so --long
+## starts it first and waits for it last, and every other run leaves it out. It
+## runs the branch as pushed.
 HOSTED_WORKFLOW="ci.yml"; HOSTED_JOB="macos"; HOSTED_TARGET="macos-universal"
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored
@@ -784,3 +784,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-10-31 JC: BACKLOG_ALONE, the steps --backlog-run-quick runs one at a time.
 ##		- 2026-10-31: PSScriptAnalyzer over the PowerShell guard include.
 ##		- 2026-11-01: CARGO_CACHE_DIRS, the target dirs a toolchain or lockfile change empties.
+##		- 2026-11-02 JC: The hosted macos job runs under --long only.
