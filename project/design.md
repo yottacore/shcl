@@ -717,9 +717,11 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 
 - The kept lines beside a target that was the last field in its block stay at the end of that block. A misplaced line among them has no level there, so it goes down to just above the next field line, with the comments after it, which is where a reload files them.
 
-- A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes. A move is not a loss.
+- A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes. A move is not a loss. A line among them that names the list is then a comment, as the next bullet says, on that set and not a later one.
 
 - A setter writing a field writes every kept line at that level of its block that names just that field as a comment. That includes the one heading it when the field was opened from a kept line. So once those lines are fixed by hand, the field does not read as Multiple. Only a field line refused for its value alone counts, since its name reads, and not one with a raw body, which cannot be commented out as one line. Then the setter changes the field in place. Where there is no field of that name, the new one goes right under the first of those comments. The lines written under that kept line go under the new field, where a reload files them. A field made on the way to the target does the same. Two valid lines of one name stay as they are, since a setter on that name is refused (`Multiple`) where a read of it would give `Multiple`.
+
+- A setter whose `(value)` selector finds no instance, writing a value another instance of that name has, sets that one, as a set with no selector does, since the instance it would make folds into it. So the lines beside it stay where they were. A fold of 2 instances, such as a setter giving one the value of an earlier one, leaves the kept lines beside the one that goes where they were, as a remove does. The comments written against it go along to the one that stays.
 
 - Two kinds of kept line stay as they are. One has a kept line written under it and is not where a new field goes, since as a comment it would leave that line under the field above. The other has a misplaced line under it, since a misplaced line is filed by its own text and cannot move with it. The first comment is then the first of the others. `SetComment` makes a missing field without touching any of these lines.
 

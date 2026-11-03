@@ -300,6 +300,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A setter writing a field writes each malformed line of that name in its block as a comment, with a note giving the path, the local time and the reason. A new field goes right under the first of them. It wrote a second line for the field, which read as two once the malformed line was fixed.
 
+- A setter whose `(value)` selector finds no instance, writing a value another instance has, sets that one, as a set with no selector does. It moved the malformed lines that ended the block above that instance, where one became a comment or read differently.
+
+- A setter that folds 2 instances into one leaves the malformed lines beside the one that goes where they were.
+
+- A setter replacing a stacked list writes a malformed line of the list's name from among its items as a comment the first time. It moved the line above the list as written, and wrote the comment on the next set.
+
 - A setter writes only what reads back, and refuses anything else.
 
 - C and Python setters refuse text that is not valid UTF-8, as Go's do. They took it, and the save wrote a file every reader refuses (C) or failed (Python).

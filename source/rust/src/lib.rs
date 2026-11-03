@@ -7588,21 +7588,19 @@ fn restep(leads: &mut [Lead]) {
 /// table: the kept lines beside it, with the comments that sit with them.
 /// Above it that is everything up to its last kept line, below it everything
 /// from its first, so a comment written against the node goes with it. The
-/// kept line written in place of its `name:` line goes too.
+/// kept line written in place of its `name:` line goes too. What goes stays
+/// on the node, where a fold of two instances still wants it.
 fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
 	let heads = heads_block(nd);
 	let Some(t) = nd.trivia.as_deref_mut() else {
 		return Vec::new();
 	};
 	let mut left = std::mem::take(&mut t.leading);
-	if heads {
-		left.pop();
-	}
-	left.truncate(
-		left.iter()
-			.rposition(Lead::is_kept_line)
-			.map_or(0, |k| k + 1),
-	);
+	let end = left[..left.len() - usize::from(heads)]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	t.leading = left.split_off(end);
 	let from = t
 		.after
 		.iter()
@@ -11898,13 +11896,14 @@ impl Document {
 		{
 			return SetStatus::HasChildren;
 		}
-		match self.place(path, true) {
+		// A new instance with a value one already has would fold into that
+		// one, so the set is a set of that one, which leaves its lines be.
+		let placed = match self.same_instance(path, &value) {
+			Some(n) => Ok(n),
+			None => self.place(path, true),
+		};
+		match placed {
 			Ok(node) => {
-				// place() has already done it for a field it created.
-				if node < fresh && self.kept_owed > 0 {
-					let (parent, name) = (self.arena[node].parent, self.arena[node].name.clone());
-					self.comment_out_kept(parent, &name, path, false);
-				}
 				if keep_quotes {
 					keep_mark(&self.arena[node].value, &mut value);
 				}
@@ -11917,6 +11916,13 @@ impl Document {
 				// No longer the list the lines among its elements sat in.
 				unstack(&mut self.arena[node]);
 				self.arena[node].star_list = stacked;
+				// place() has already done it for a field it created. After
+				// the unstack, so a line of its name from among the items,
+				// now above it, is a comment too.
+				if node < fresh && self.kept_owed > 0 {
+					let (parent, name) = (self.arena[node].parent, self.arena[node].name.clone());
+					self.comment_out_kept(parent, &name, path, false);
+				}
 				// An empty binding or a raw block can put a fence after an
 				// empty sibling of its name.
 				let fence_side = matches!(self.arena[node].value, Value::Empty | Value::Raw(_));
@@ -11931,6 +11937,28 @@ impl Document {
 			}
 			Err(why) => why,
 		}
+	}
+
+	/// The instance a write of `value` at `path` would fold into: one with
+	/// that value, beside the one a `(value)` selector at the end of the path
+	/// would make. None when the selector finds one, or the path is not Ok.
+	fn same_instance(&self, path: &str, value: &Value) -> Option<usize> {
+		let scan = scan_lookup(path).ok()?;
+		let last = scan.segments.last()?;
+		if !matches!(last.selector, Some(Selector::ByValue { .. })) {
+			return None;
+		}
+		let mut trail = Vec::new();
+		if self.probe_write(&scan, &mut trail) != SetStatus::Ok || trail.last()?.is_some() {
+			return None;
+		}
+		let parent = match trail.len() {
+			1 => ROOT,
+			n => trail[n - 2]?,
+		};
+		self.children_named(parent, &last.name)
+			.into_iter()
+			.find(|&c| merge_eq(&self.arena[c].name, &self.arena[c].value, &last.name, value))
 	}
 
 	/// A setter writing a field writes every kept line of its name in the
@@ -12113,15 +12141,25 @@ impl Document {
 				.position(|&c| c == n)
 				.unwrap_or(usize::MAX)
 		};
-		let (survivor, loser) = if pos(other) < pos(node) {
-			(other, node)
+		let (survivor, loser, at) = if pos(other) < pos(node) {
+			(other, node, pos(node))
 		} else {
-			(node, other)
+			(node, other, pos(other))
 		};
+		// The data does not change, so the kept lines beside the loser stay
+		// where they were, as a remove leaves them. Only the comments written
+		// against it go with it.
+		let left = beside_kept(&mut self.arena[loser]);
 		// The fold appends, so what moved is the survivor's new tail.
 		let kept = self.arena[survivor].children.len();
 		fold_node_into(&mut self.arena, survivor, loser);
 		self.arena[parent].children.retain(|&c| c != loser);
+		if !left.is_empty() {
+			match self.arena[parent].children.get(at) {
+				Some(&next) => self.leave_above(next, left),
+				None => self.leave_last(parent, left),
+			}
+		}
 		self.settle(parent, 1);
 		if let Some(ix) = self.index.get_mut() {
 			ix.unlink(name_key(parent, &self.arena[loser].name), loser);
@@ -12172,6 +12210,9 @@ impl Document {
 			let mut first: U64Map<Slot> =
 				U64Map::with_capacity_and_hasher(kids.len(), Default::default());
 			let mut keep: Vec<usize> = Vec::with_capacity(kids.len());
+			// What a folded node leaves, as in collapse_dup(), for the next
+			// node that stays.
+			let mut left: Vec<Lead> = Vec::new();
 			for c in kids {
 				let h = merge_hash(&self.arena[c].name, &self.arena[c].value);
 				let survivor = first.get(&h).and_then(|s| {
@@ -12186,6 +12227,7 @@ impl Document {
 				});
 				match survivor {
 					Some(s) => {
+						left.append(&mut beside_kept(&mut self.arena[c]));
 						let kept = self.arena[s].children.len();
 						fold_node_into(&mut self.arena, s, c);
 						if let Some(ix) = self.index.get_mut() {
@@ -12203,11 +12245,17 @@ impl Document {
 							.entry(h)
 							.and_modify(|s| s.push(c))
 							.or_insert(Slot::One(c));
+						if !left.is_empty() {
+							self.leave_above(c, std::mem::take(&mut left));
+						}
 						keep.push(c);
 					}
 				}
 			}
 			self.arena[parent].children = keep;
+			if !left.is_empty() {
+				self.leave_last(parent, left);
+			}
 			self.settle(parent, 1);
 		}
 	}

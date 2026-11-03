@@ -6645,6 +6645,7 @@ func restep(leads []lead) {
 // that sit with them. Above it that is everything up to its last kept line,
 // below it everything from its first, so a comment written against the node
 // goes with it. The kept line written in place of its `name:` line goes too.
+// What goes stays on the node, where a fold of two instances still wants it.
 func besideKept(nd *nodeData) []lead {
 	heads := headsBlock(nd)
 	t := nd.trivia
@@ -6652,17 +6653,19 @@ func besideKept(nd *nodeData) []lead {
 		return nil
 	}
 	left := t.leading
-	t.leading = nil
+	last := len(left)
 	if heads {
-		left = left[:len(left)-1]
+		last--
 	}
 	end := 0
-	for k := len(left) - 1; k >= 0; k-- {
+	for k := last - 1; k >= 0; k-- {
 		if left[k].isKeptLine() {
 			end = k + 1
 			break
 		}
 	}
+	// A copy, since the caller appends to what is left.
+	t.leading = append([]lead(nil), left[end:]...)
 	left = left[:end]
 	from := len(t.after)
 	for k := range t.after {
@@ -11469,13 +11472,14 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 			return SetHasChildren
 		}
 	}
-	idx, st := d.place(path, true)
+	// A new instance with a value one already has would fold into that one,
+	// so the set is a set of that one, which leaves its lines be.
+	idx, st := d.sameInstance(path, &v), SetOk
+	if idx < 0 {
+		idx, st = d.place(path, true)
+	}
 	if st != SetOk {
 		return st
-	}
-	// place has already done it for a field it created.
-	if idx < fresh && d.keptOwed > 0 {
-		d.commentOutKept(d.arena[idx].parent, d.arena[idx].name, path, false)
 	}
 	if keepQuotes {
 		keepMark(&d.arena[idx].value, &v)
@@ -11488,6 +11492,12 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 	// No longer the list the lines among its elements sat in.
 	unstack(&d.arena[idx])
 	d.arena[idx].starList = stacked
+	// place has already done it for a field it created. After the unstack,
+	// so a line of its name from among the items, now above it, is a
+	// comment too.
+	if idx < fresh && d.keptOwed > 0 {
+		d.commentOutKept(d.arena[idx].parent, d.arena[idx].name, path, false)
+	}
 	// An empty binding or a raw block can put a fence after an empty sibling
 	// of its name.
 	fenceSide := v.kind == vEmpty || v.kind == vRaw
@@ -11499,6 +11509,36 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
 	return SetOk
+}
+
+// sameInstance is the instance a write of v at path would fold into: one with
+// that value, beside the one a (value) selector at the end of the path would
+// make. -1 when the selector finds one, or the path is not Ok.
+func (d *Document) sameInstance(path string, v *value) int {
+	scan, err := scanLookup(path)
+	if err != nil || len(scan.segments) == 0 {
+		return -1
+	}
+	last := &scan.segments[len(scan.segments)-1]
+	if last.sel == nil || last.sel.kind != selByValue {
+		return -1
+	}
+	st, trail := d.probeWrite(scan)
+	if st != SetOk || trail[len(trail)-1] >= 0 {
+		return -1
+	}
+	parent := root
+	if n := len(trail); n > 1 {
+		if parent = trail[n-2]; parent < 0 {
+			return -1
+		}
+	}
+	for _, c := range d.childrenNamed(parent, last.name) {
+		if mergeEq(d.arena[c].name, &d.arena[c].value, last.name, v) {
+			return c
+		}
+	}
+	return -1
 }
 
 // keptAt is where a lead sits: its list, the node that list is on, and its
@@ -11688,6 +11728,11 @@ func (d *Document) collapseDup(node int) {
 	if pos(node) < pos(other) {
 		survivor, loser = node, other
 	}
+	at := pos(loser)
+	// The data does not change, so the kept lines beside the loser stay
+	// where they were, as a remove leaves them. Only the comments written
+	// against it go with it.
+	left := besideKept(&d.arena[loser])
 	moved := append([]int(nil), d.arena[loser].children...)
 	foldNodeInto(d.arena, survivor, loser)
 	keep := d.arena[parent].children[:0]
@@ -11697,6 +11742,13 @@ func (d *Document) collapseDup(node int) {
 		}
 	}
 	d.arena[parent].children = keep
+	if len(left) > 0 {
+		if at < len(keep) {
+			d.leaveAbove(keep[at], left)
+		} else {
+			d.leaveLast(parent, left)
+		}
+	}
 	d.settle(parent, 1)
 	if ix := d.index.Load(); ix != nil {
 		ix.unlink(nameKey(parent, d.arena[loser].name), loser)
@@ -11765,11 +11817,15 @@ func (d *Document) foldDupsBelow(start int) {
 		d.arena[parent].children = nil
 		first := make(map[uint64]slot, len(kids))
 		keep := make([]int, 0, len(kids))
+		// What a folded node leaves, as in collapseDup, for the next node
+		// that stays.
+		var left []lead
 		for _, c := range kids {
 			h := mergeHash(d.arena[c].name, &d.arena[c].value)
 			if survivor, ok := slotFirstMatch(first, h, func(x int) bool {
 				return mergeEq(d.arena[x].name, &d.arena[x].value, d.arena[c].name, &d.arena[c].value)
 			}); ok {
+				left = append(left, besideKept(&d.arena[c])...)
 				moved := append([]int(nil), d.arena[c].children...)
 				foldNodeInto(d.arena, survivor, c)
 				if ix := d.index.Load(); ix != nil {
@@ -11783,10 +11839,17 @@ func (d *Document) foldDupsBelow(start int) {
 				stack = append(stack, survivor)
 			} else {
 				slotInsert(first, h, c)
+				if len(left) > 0 {
+					d.leaveAbove(c, left)
+					left = nil
+				}
 				keep = append(keep, c)
 			}
 		}
 		d.arena[parent].children = keep
+		if len(left) > 0 {
+			d.leaveLast(parent, left)
+		}
 		d.settle(parent, 1)
 	}
 }

@@ -233,7 +233,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A set that makes a second instance with an existing value moves kept lines, and can comment one out
 	- ID: 2026110312163204
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 4
@@ -251,6 +251,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed. Older code: the tail takeover (`f97003c8`, 20261004), the duplicate merge (`279862ae`), and the leading-line append when 2 nodes fold (`082c9172`). The codes kept since 20261028 reach it more often. 2026100307163907's sweep checked the duplicate merge for lost lines, not moved ones.
 	- Note: kept lines lost or moved by an edit is a class that has come back over many rounds, one site at a time. The kept-lines fuzz (2026100307310000) checks that each line survives, not that it stays in its block. Adding that check is part of the fix.
 	- Estimated effort: Avg
+	- Actual cause [Bug]: as above. The new node took the kept lines ending the block, and the fold put them above the old instance. A fold of 2 existing instances moved the kept lines beside the later one the same way.
+	- Progress log:
+		- 20261103, all 4 bindings:
+			- A setter whose `(value)` selector finds no instance, writing a value another instance has, sets that one (`same_instance`), so nothing is made and nothing moves, as with no selector.
+			- `collapse_dup` and `fold_dups_below` leave the kept lines beside the instance that folds where they were, through `beside_kept` and `leave_above` / `leave_last`, as a remove does. The comments written against it still go along. `beside_kept` now leaves those comments on the node rather than dropping them, which a remove never saw.
+			- The kept-lines fuzz `dderx` now holds a setter to leaving kept lines where they sat (`setter_moved`), outside the blocks of the target's name. Every eighth step adds a `(q)` selector, so a set makes a second instance. On the old library it fails at iteration 7815 at 200,000.
+			- design.md's "Kept lines under edits" has a bullet for it, and the changelog a line.
+	- Decisions:
+		- me, 20261103: the set goes to the instance with that value rather than making one and folding it, since the data is the same and that is what `--set=a.b=y` does. Kept lines named `b` in the block then become comments, as for any setter writing `b`.
+		- me, 20261103: when 2 instances fold, a kept line beside the one that goes stays above the next field, or at the end of the block. The fold of their fields puts such a line after the merged block.
+		- me, 20261103: the selector in the fuzz comes off the iteration and step counters, so the other steps draw what they did.
+	- Actual fix [Bug]: `same_instance` / `sameInstance` / `_same_instance` / `w_same_instance` in front of `place`, and the kept-line handling in `collapse_dup` and `fold_dups_below`, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`.
+	- Swept: `set_value_as` and its twins, the one path every setter and default form takes to a fold. `fold_dups_below` in all 4. `remove`, the other `beside_kept` caller. `settle_fence_name`'s join is a list onto an empty binding, which the table already covers. The load's own fold has the same shape, filed as 2026110315051536.
+	- Verified: the 4 conformance suites, cli-regress (649 rows), crosscheck over the corpus and a 2000-iteration dump (54180 comparisons), the 2,000,000-iteration release fuzz (31 properties, 513 s), check-docs (red only on `dcbc2`, `dd40z` and `dcv66`, from other items' commits), check-abnf, test-ids check, shell-regress, rustfmt, gofmt, clippy for both targets, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, gcc 14 and 15 and clang at `-Werror`, and the C runner under ASan and UBSan.
+	- Verified: `detsb`, `detsc`, `detsd` and `detse` fail on the old library in each runner, `dderx` fails on the old Rust library, and the commands of cli-regress `detsf` and `detsg` give the old output with the review's CLIs, in all 4.
+	- Branch: `r1103b`
+	- Test case: `a_set_that_folds_leaves_kept_lines` (`detsb` Rust, `detsc` Go, `detsd` Python, `detse` C); cli-regress `detsf` (`set-fold-keeps-kept-lines`); fuzz `dderx`.
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the result is what design.md's table already says.
+	- Closed: 20261103-150515
 
 - `--quick` runs every test box
 	- ID: 2026110215285702
@@ -319,7 +338,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Setting a list field twice gives 2 different files when a kept line sits among its items
 	- ID: 2026110312163205
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 5
@@ -332,6 +351,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the comment pass runs before the lines among the items move up to the field's level.
 	- Origin: Confirmed. That move came in with `d0b200c5` (20260924). No earlier round saw it.
 	- Estimated effort: Low
+	- Actual cause [Bug]: as above.
+	- Actual fix [Bug]: a setter on a field it didn't make writes the kept lines of its name as comments after the unstack, not before, in all 4 bindings. design.md's bullet on a stacked list's lines says so, and the changelog has a line.
+	- Swept: the one call to `comment_out_kept` for a field that was there, in `set_value_as` and its twins. `place`'s call for a field it makes has no list to unstack.
+	- Verified: with 2026110312163204's runs. The fixture fails on the old library in each runner.
+	- Branch: `r1103b`
+	- Test case: the last case of `a_set_that_folds_leaves_kept_lines` (`detsb`, `detsc`, `detsd`, `detse`), which sets twice; cli-regress `detsg` (`set-stacked-kept-name-once`).
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after.
+	- Closed: 20261103-150515
+
+- `fmt` moves a kept line above an earlier instance when the load merges 2 of one name and value
+	- ID: 2026110315051536
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261103-150515
+	- Opened by: found while working 2026110312163204
+	- Related IDs: 2026110312163204
+	- Steps to reproduce:
+		- `printf 'a:\n\tb: y\n\tc: 1\n\t- 1\n\tb: y\n\td: 2\n' | shcl fmt -`
+		- `printf 'b: y\nc: 1\nq: [1\nb: y\n' | shcl fmt -`
+	- Incorrect behavior: in all 4 CLIs, at exit 0. The first writes `a:`, `# - 1`, `b: y`, `c: 1`, `d: 2`, so the kept `E008` line is now a comment. The second moves the kept `q: [1` above `b: y`.
+	- Expected behavior: a kept line stays where it was, as a setter's fold now leaves it (2026110312163204).
+	- Reproduced: 20261103, all 4 CLIs on `r1103b`.
+	- Possible cause: the load's fold of a second instance (`H002`) appends its leading lines to the first one's, the same shape 2026110312163204 fixed in the setter's fold.
+	- Estimated effort: Avg
 
 - `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
 	- ID: 2026110312163206

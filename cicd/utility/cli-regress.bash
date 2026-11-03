@@ -770,6 +770,11 @@ rows=(
 	## not above them (2026100117214802).
 	'ddghw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1\n# end\n|0|x: 1\na:   [1\n\nb: 1\n# end\n|-'
 	'ddghx|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1\n    # c\n|0|s:\n    a:   [1\n    b: 1\n    # c\n|-'
+	## A set whose new instance folds into an old one leaves the kept lines
+	## where they were, and a kept line of a stacked list's name among its
+	## items is commented out on the first set (2026110312163204, 05).
+	'detsf|set-fold-keeps-kept-lines|set --set=a.b(z)=y -|a:\n\tb: y\n\tc: 1\n\t- 1\n|0|a:\n\tb: y\n\tc: 1\n\t- 1\n|-'
+	'detsg|set-stacked-kept-name-once|set --set=a=1 -|a:\n\t- 1\n\ta: [1, 2\n\t- 2\n|0|# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 1\n|-'
 	## Arrays are written in brackets, and a list item is `- ` then one value
 	## (2026100207032800). Each error names what is wrong.
 	'ddhny|array-e019-text-after|check -|log: [INFO] started\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, text after .\].; quote the value if it is text$'

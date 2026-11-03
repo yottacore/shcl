@@ -5380,16 +5380,16 @@ def _beside_kept(nd):
 	kept-lines table: the kept lines beside it, with the comments that sit
 	with them. Above it that is everything up to its last kept line, below it
 	everything from its first, so a comment written against the node goes
-	with it. The kept line written in place of its `name:` line goes too."""
+	with it. The kept line written in place of its `name:` line goes too.
+	What goes stays on the node, where a fold of two instances still wants it."""
 	heads = _heads_block(nd)
 	t = nd.trivia
 	if t is None:
 		return []
 	left = t.leading
-	t.leading = []
-	if heads:
-		left.pop()
-	end = next((k + 1 for k in range(len(left) - 1, -1, -1) if left[k].is_kept_line()), 0)
+	last = len(left) - 1 if heads else len(left)
+	end = next((k + 1 for k in range(last - 1, -1, -1) if left[k].is_kept_line()), 0)
+	t.leading = left[end:]
 	del left[end:]
 	start = next((k for k, c in enumerate(t.after) if c.is_kept_line()), len(t.after))
 	left.extend(t.after[start:])
@@ -7779,12 +7779,13 @@ class Document:
 			n = self._write_target(path)
 			if n is not None and self.arena[n].children:
 				return SetStatus.HasChildren
-		idx, why = self._place(path, True)
+		# A new instance with a value one already has would fold into that
+		# one, so the set is a set of that one, which leaves its lines be.
+		idx, why = self._same_instance(path, value), SetStatus.Ok
+		if idx < 0:
+			idx, why = self._place(path, True)
 		if why is not SetStatus.Ok:
 			return why
-		# _place() has already done it for a field it created.
-		if idx < fresh and self._kept_owed > 0:
-			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
 		if keep_quotes:
 			_keep_mark(self.arena[idx].value, value)
 		# A list written stacked stays stacked, as an overwrite keeps quotes,
@@ -7795,6 +7796,11 @@ class Document:
 		# No longer the list the lines among its elements sat in.
 		_unstack(self.arena[idx])
 		self.arena[idx].star_list = stacked
+		# _place() has already done it for a field it created. After the
+		# unstack, so a line of its name from among the items, now above it,
+		# is a comment too.
+		if idx < fresh and self._kept_owed > 0:
+			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
 		# An empty binding or a raw block can put a fence after an empty
 		# sibling of its name.
 		fence_side = value.kind == "raw" or value.is_empty()
@@ -7805,6 +7811,29 @@ class Document:
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
 		return SetStatus.Ok
+
+	def _same_instance(self, path, value) -> int:
+		"""The instance a write of `value` at `path` would fold into: one with
+		that value, beside the one a `(value)` selector at the end of the path
+		would make. -1 when the selector finds one, or the path is not Ok."""
+		try:
+			segments, value_text = _scan_lookup(path)
+		except _PathError:
+			return -1
+		if not segments or segments[-1].selector is None or segments[-1].selector[0] != "val":
+			return -1
+		trail: list = []
+		if self._probe_write(segments, value_text, trail) != SetStatus.Ok or trail[-1] is not None:
+			return -1
+		parent = _ROOT if len(trail) == 1 else trail[-2]
+		if parent is None:
+			return -1
+		name = segments[-1].name
+		key = _merge_key(name, value)
+		for c in self._children_named(parent, name):
+			if _merge_key(self.arena[c].name, self.arena[c].value) == key:
+				return c
+		return -1
 
 	def _comment_out_kept(self, parent, name, path, anchor):
 		"""A setter writing a field writes every kept line of its name in the
@@ -7919,9 +7948,20 @@ class Document:
 			survivor, loser = other, node
 		else:
 			survivor, loser = node, other
+		at = siblings.index(loser)
+		# The data does not change, so the kept lines beside the loser stay
+		# where they were, as a remove leaves them. Only the comments written
+		# against it go with it.
+		left = _beside_kept(self.arena[loser])
 		moved = list(self.arena[loser].children)
 		_fold_node_into(self.arena, survivor, loser)
-		self.arena[parent].children = [c for c in self.arena[parent].children if c != loser]
+		keep = [c for c in self.arena[parent].children if c != loser]
+		self.arena[parent].children = keep
+		if left:
+			if at < len(keep):
+				self._leave_above(keep[at], left)
+			else:
+				self._leave_last(parent, left)
 		self._settle(parent, 1)
 		ix = self._index
 		if ix is not None:
@@ -7973,10 +8013,14 @@ class Document:
 			kids = self.arena[parent].children
 			first: dict = {}
 			keep = []
+			# What a folded node leaves, as in _collapse_dup(), for the next
+			# node that stays.
+			left: list[_Lead] = []
 			for c in kids:
 				key = _merge_key(self.arena[c].name, self.arena[c].value)
 				survivor = first.get(key)
 				if survivor is not None:
+					left.extend(_beside_kept(self.arena[c]))
 					moved = list(self.arena[c].children)
 					_fold_node_into(self.arena, survivor, c)
 					ix = self._index
@@ -7989,8 +8033,13 @@ class Document:
 					stack.append(survivor)
 				else:
 					first[key] = c
+					if left:
+						self._leave_above(c, left)
+						left = []
 					keep.append(c)
 			self.arena[parent].children = keep
+			if left:
+				self._leave_last(parent, left)
 			self._settle(parent, 1)
 
 	def _targets_at(self, path):

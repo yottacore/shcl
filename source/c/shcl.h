@@ -7865,6 +7865,9 @@ static void w_settle_fence_name(shcl_doc *d, size_t parent, ShclStr name) {
 /* Folding moves the loser's children up a level, where they can collide with
    the survivor's own. The parser's fold is depth-first for the same reason;
    only a node that just received children can hold a new pair. */
+static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left);
+static void leave_above(shcl_doc *d, size_t node, ShclVecLead *left);
+static void leave_last(shcl_doc *d, size_t parent, ShclVecLead *left);
 static void w_fold_dups_below(shcl_doc *d, size_t start) {
 	ShclArena *t = &d->scratch;
 	ShclVecSize stack = {0};
@@ -7875,6 +7878,9 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 		ShclVecSize *ch = &NODE(d, parent).children;
 		if (ch->len) cmap_reserve(t, &first, ch->len);
 		size_t w = 0;
+		/* What a folded node leaves, as in w_collapse_dup, for the next node
+		   that stays. */
+		ShclVecLead left = {0};
 		for (size_t k = 0; k < ch->len; k++) {
 			size_t c = ch->data[k];
 			uint64_t h = merge_hash(NODE(d, c).name, &NODE(d, c).value);
@@ -7882,6 +7888,7 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 			for (ShclCMapEnt *e = cmap_first(&first, h); e; e = cmap_next(e, h))
 				if (merge_eq(NODE(d, e->val).name, &NODE(d, e->val).value, NODE(d, c).name, &NODE(d, c).value)) { survivor = e->val; break; }
 			if (survivor != (size_t)-1) {
+				beside_kept(d, &NODE(d, c), &left);
 				ShclVecSize moved = NODE(d, c).children;
 				fold_node_into(d, survivor, c);
 				if (d->index_built == 1) {
@@ -7895,10 +7902,12 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 				ShclVecSize_push(t, &stack, survivor);
 			} else {
 				cmap_put(t, &first, h, c);
+				if (left.len) leave_above(d, c, &left);
 				ch->data[w++] = c;
 			}
 		}
 		ch->len = w;
+		if (left.len) leave_last(d, parent, &left);
 		w_settle(d, parent, 1);
 	}
 }
@@ -7926,12 +7935,22 @@ static void w_collapse_dup(shcl_doc *d, size_t node) {
 	}
 	size_t survivor = (pos_other < pos_node) ? other : node;
 	size_t loser = (survivor == node) ? other : node;
+	size_t at = (survivor == node) ? pos_other : pos_node;
+	/* The data does not change, so the kept lines beside the loser stay where
+	   they were, as a remove leaves them. Only the comments written against
+	   it go with it. */
+	ShclVecLead left = {0};
+	beside_kept(d, &NODE(d, loser), &left);
 	ShclVecSize moved = NODE(d, loser).children;
 	fold_node_into(d, survivor, loser);
 	ShclVecSize *pk = &NODE(d, parent).children;
 	size_t w = 0;
 	for (size_t k = 0; k < pk->len; k++) if (pk->data[k] != loser) pk->data[w++] = pk->data[k];
 	pk->len = w;
+	if (left.len) {
+		if (at < pk->len) leave_above(d, pk->data[at], &left);
+		else leave_last(d, parent, &left);
+	}
 	w_settle(d, parent, 1);
 	if (d->index_built == 1) {
 		index_unlink(d, name_key(parent, NODE(d, loser).name), loser);
@@ -7951,6 +7970,28 @@ static void w_collapse_dup(shcl_doc *d, size_t node) {
    mark. The mark is taken by the caller, before it encodes. A value refused
    by its read-back is checked in scratch, and nothing resets scratch after a
    refusal, so it goes back here. */
+/* The instance a write of v at path would fold into: one with that value,
+   beside the one a (value) selector at the end of the path would make.
+   (size_t)-1 when the selector finds one, or the path is not Ok. Its work
+   goes through scratch, as w_place's does. */
+static size_t w_same_instance(shcl_doc *d, ShclStr path, const ShclValue *v) {
+	ShclArena *t = &d->scratch;
+	arena_reset(t);
+	ShclPathScan ps = scan_lookup(t, path);
+	if (!ps.ok || !ps.segs.len) return (size_t)-1;
+	const ShclSegment *last = &ps.segs.data[ps.segs.len - 1];
+	if (last->sel.tag != SEL_VALUE) return (size_t)-1;
+	size_t *trail = (size_t *)arena_alloc(t, ps.segs.len * sizeof(size_t));
+	if (w_probe_write(d, t, &ps, trail) != SHCL_SET_OK || trail[ps.segs.len - 1] != (size_t)-1) return (size_t)-1;
+	size_t parent = ps.segs.len > 1 ? trail[ps.segs.len - 2] : ROOT;
+	if (parent == (size_t)-1) return (size_t)-1;
+	ShclVecSize cands = {0};
+	children_named(d, t, parent, last->name, &cands);
+	for (size_t k = 0; k < cands.len; k++)
+		if (merge_eq(NODE(d, cands.data[k]).name, &NODE(d, cands.data[k]).value, last->name, v)) return cands.data[k];
+	return (size_t)-1;
+}
+
 /* Which trivia list a line sits in. */
 typedef enum { SITE_LEADING, SITE_INSIDE, SITE_AFTER, SITE_AMONG, SITE_ORPHANS } ShclSite;
 /* Where a lead sits: its list, the node that list is on, and its place in it. */
@@ -8010,10 +8051,12 @@ static shcl_set_status w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, S
 		size_t n;
 		if (w_write_target(d, path, &n) && NODE(d, n).children.len) { arena_release(&d->arena, m); return SHCL_SET_HAS_CHILDREN; }
 	}
-	shcl_set_status placed = w_place(d, path, 1, &idx);
+	/* A new instance with a value one already has would fold into that one,
+	   so the set is a set of that one, which leaves its lines be. */
+	shcl_set_status placed = SHCL_SET_OK;
+	idx = w_same_instance(d, path, &v);
+	if (idx == (size_t)-1) placed = w_place(d, path, 1, &idx);
 	if (placed != SHCL_SET_OK) { arena_release(&d->arena, m); return placed; }
-	/* w_place has already done it for a field it created. */
-	if (idx < fresh && d->kept_owed > 0) comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
 	if (keep_quotes) keep_mark(&d->scratch, &NODE(d, idx).value, &v);
 	/* A list written stacked stays stacked, as an overwrite keeps quotes,
 	   unless there is nothing left to stack. */
@@ -8023,6 +8066,10 @@ static shcl_set_status w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, S
 	/* No longer the list the lines among its elements sat in. */
 	unstack(d, &NODE(d, idx));
 	NODE(d, idx).star_list = stacked;
+	/* w_place has already done it for a field it created. After the unstack,
+	   so a line of its name from among the items, now above it, is a comment
+	   too. */
+	if (idx < fresh && d->kept_owed > 0) comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
 	/* An empty binding or a raw block can put a fence after an empty sibling
 	   of its name. */
 	int fence_side = v.kind == V_EMPTY || v.kind == V_RAW;
@@ -8084,7 +8131,8 @@ static void restep(ShclVecLead *v) {
    that sit with them. Above it that is everything up to its last kept line,
    below it everything from its first, so a comment written against the node
    goes with it. The kept line written in place of its `name:` line goes
-   too. */
+   too. What goes stays on the node, where a fold of two instances still
+   wants it. */
 static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 	int heads = heads_block(&d->scratch, nd);
 	ShclTrivia *t = nd->trivia;
@@ -8093,7 +8141,10 @@ static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 	for (size_t k = t->leading.len - (heads ? 1 : 0); k > 0; k--)
 		if (lead_is_kept_line(&t->leading.data[k - 1])) { end = k; break; }
 	for (size_t k = 0; k < end; k++) ShclVecLead_push(&d->arena, left, t->leading.data[k]);
-	t->leading.len = 0;
+	if (end) {
+		memmove(t->leading.data, t->leading.data + end, (t->leading.len - end) * sizeof *t->leading.data);
+		t->leading.len -= end;
+	}
 	size_t from = t->after.len;
 	for (size_t k = 0; k < t->after.len; k++)
 		if (lead_is_kept_line(&t->after.data[k])) { from = k; break; }

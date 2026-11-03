@@ -2742,6 +2742,77 @@ fn setter_left_behind(before: &str, after: &str, path: &str, listed: &[String]) 
 	out
 }
 
+/// The kept lines a setter on `path` moved out of the stretch they sat in,
+/// as written or as the comment a settle or the setter made of them. By
+/// design.md's table a setter leaves the lines beside its target where they
+/// were. One in a block of the target's name may move, since a fold of two
+/// instances takes it along, and so may a misplaced line, which goes with
+/// the next field line. A set that folded a new instance into an old one
+/// moved the lines ending the block above the old one (2026110312163204).
+fn setter_moved(before: &str, after: &str, path: &str, kept: &[String]) -> Vec<String> {
+	if kept.is_empty() {
+		return Vec::new();
+	}
+	let had: Vec<&str> = before.lines().map(|l| noteless(l).0).collect();
+	let now: Vec<&str> = after.lines().map(|l| noteless(l).0).collect();
+	let raw: Vec<&str> = before.lines().collect();
+	let is_kept = |t: &str| kept.iter().any(|k| k == t);
+	let indent = |l: &str| l.len() - l.trim_start_matches([' ', '\t']).len();
+	let misplaced = |k: usize| raw[k][..indent(raw[k])].contains(' ');
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	// Every instance of each segment, with the selector the fuzz adds off.
+	let bare = path.strip_suffix("(q)").unwrap_or(path);
+	let (mut every, mut quoted, mut escaped) = (String::new(), false, false);
+	for c in bare.chars() {
+		if c == '.' && !quoted {
+			every.push_str("(*)");
+		}
+		every.push(c);
+		(quoted, escaped) = match c {
+			'\\' if quoted && !escaped => (quoted, true),
+			'"' if !escaped => (!quoted, false),
+			_ => (quoted, false),
+		};
+	}
+	every.push_str("(*)");
+	let mut own: Vec<std::ops::Range<usize>> = Vec::new();
+	for n in Document::parse(before).lines(&every) {
+		if n == 0 || n > raw.len() {
+			continue;
+		}
+		let depth = tabs(raw[n - 1]);
+		let end = (n..raw.len())
+			.find(|&j| {
+				let l = raw[j];
+				!l.trim_matches(BLANKS).is_empty() && !misplaced(j) && tabs(l) <= depth
+			})
+			.unwrap_or(raw.len());
+		own.push(n - 1..end);
+	}
+	let in_own = |k: usize| own.iter().any(|r| r.contains(&k));
+	let mut out = Vec::new();
+	for (from, to) in stretches(&had, &now, |k| !in_own(k) && !is_kept(had[k])) {
+		let mut texts: Vec<&str> = from
+			.clone()
+			.map(|k| had[k])
+			.filter(|t| is_kept(t))
+			.collect();
+		texts.sort_unstable();
+		texts.dedup();
+		for t in texts {
+			let was = from
+				.clone()
+				.filter(|&k| had[k] == t && !in_own(k) && !misplaced(k))
+				.count();
+			let still = now[to.clone()].iter().filter(|l| **l == t).count();
+			if still < was {
+				out.push(t.to_string());
+			}
+		}
+	}
+	out
+}
+
 /// The lines of canonical text a remove of `path` takes by design.md's
 /// table: each line the path names, which is the field's own line or the kept
 /// line written in its place, and every line after it written deeper, up to
@@ -3421,11 +3492,17 @@ fn kept_lines_survive_edits() {
 		let mut merged = false;
 		for step in 0..rng.below(4) {
 			let paths = doc.paths();
-			let path = if paths.is_empty() || rng.below(4) == 0 {
+			let mut path = if paths.is_empty() || rng.below(4) == 0 {
 				format!("z{step}")
 			} else {
 				paths[rng.below(paths.len())].clone()
 			};
+			// Now and then a value no instance has, so a setter makes a
+			// second one, which folds into a first with the value it writes.
+			// Off the counter, so the other steps draw what they did.
+			if (i + step) % 8 == 7 {
+				path.push_str("(q)");
+			}
 			let before = doc.to_canonical();
 			let op = rng.below(15);
 			let (took, line) = match op {
@@ -3568,6 +3645,11 @@ fn kept_lines_survive_edits() {
 				assert!(
 					moved.is_empty(),
 					"iteration {i}: setting {path:?} commented out or dropped {moved:?} away from its block:\n{log}op {op} at {path:?}\n--- before\n{before}--- after\n{after}"
+				);
+				let moved = setter_moved(&before, &after, &path, &want);
+				assert!(
+					moved.is_empty(),
+					"iteration {i}: setting {path:?} moved kept line(s) {moved:?} from where they sat:\n{log}op {op} at {path:?}\n--- before\n{before}--- after\n{after}"
 				);
 			}
 			log.push_str(&format!("op {op} at {path:?}\n"));

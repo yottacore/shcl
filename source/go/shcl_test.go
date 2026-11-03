@@ -6263,6 +6263,61 @@ func TestAnIndexWithNoInstanceStaysKept(t *testing.T) {
 	check(doc, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
 }
 
+// A set that makes a second instance with a value one already has folds it
+// into that one. The data is as it was, so the text is too: the kept lines
+// beside it stay, and only a comment written against it goes along. The lines
+// that ended the block went above the old instance, where one read as a
+// comment or bound (2026110312163204). A kept line among a stacked list's
+// items that names the list goes above it as the noted comment on the first
+// set, not the second (2026110312163205). Same fixture in every runner.
+func TestASetThatFoldsLeavesKeptLines(t *testing.T) {
+	defer testID(t, "detsc")
+	set := func(src, path, text string) string {
+		t.Helper()
+		doc := Parse(src)
+		if st := doc.SetLiteral(path, text); st != SetOk {
+			t.Fatalf("set %q on %q: %v", path, src, st)
+		}
+		out := doc.ToCanonical()
+		back := Parse(out)
+		if back.ToCanonical() != out || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
+			t.Fatalf("reload differs: %q", out)
+		}
+		if back.LostCount() != 0 {
+			t.Fatalf("reload lost %d: %q", back.LostCount(), out)
+		}
+		return out
+	}
+	expect := func(got, want string) {
+		t.Helper()
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+	for _, src := range []string{
+		"a:\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a: v\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a:\n\tb: y\n\tc: 1\n\tx(3).y: 1\n",
+		"a:\n\tb: y\n\tc: 1\n\t-\n",
+		"a:\n\tb: y\n\tc: 1\n\tq: [1\n",
+		"a:\n\tb: y\n\tq: [1\n\t# note\nz: 1\n",
+	} {
+		expect(set(src, "a.b(z)", "y"), src)
+	}
+	src := "c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n"
+	expect(set(src, "b(a)", "y"), src)
+	// An instance set to an earlier one's value.
+	expect(set("a:\n\tb: y\n\t# note\n\tq: [1\n\t# against\n\tb: x\n\tz: 1\n", "a.b(x)", "y"),
+		"a:\n\t# against\n\tb: y\n\t# note\n\tq: [1\n\tz: 1\n")
+	// The two instances' fields fold too. A kept line beside one stays beside
+	// it, after the block it folded into.
+	expect(set("b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\nb: x\n\tp: [2\n\tk:\n\t\tm: 1\n\t\t- 2\n", "b(x)", "y"),
+		"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\n\t\t- 2\n\tp: [2\n")
+	once := set("a:\n\t- 1\n\ta: [1, 2\n\t- 2\n", "a", "1")
+	expect(once, "# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 1\n")
+	expect(set(once, "a", "1"), once)
+}
+
 // A line kept in a leaf's block stays in the merged block when the other layer
 // replaces the leaf, as it does when a setter changes the leaf in place. It
 // went to the root, above the field, where an item reloaded as E007. Same

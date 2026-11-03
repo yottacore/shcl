@@ -3574,6 +3574,65 @@ fn an_index_with_no_instance_stays_kept() {
 	);
 }
 
+/// A set that makes a second instance with a value one already has folds it
+/// into that one. The data is as it was, so the text is too: the kept lines
+/// beside it stay, and only a comment written against it goes along. The
+/// lines that ended the block went above the old instance, where one read as
+/// a comment or bound (2026110312163204). A kept line among a stacked list's
+/// items that names the list goes above it as the noted comment on the first
+/// set, not the second (2026110312163205). Same fixture in every runner.
+#[test]
+fn a_set_that_folds_leaves_kept_lines() {
+	let _id = test_id("detsb");
+	let set = |src: &str, path: &str, text: &str| -> String {
+		let mut doc = Document::parse(src);
+		assert_eq!(doc.set_literal(path, text), shcl::SetStatus::Ok, "{src:?}");
+		let out = doc.to_canonical();
+		let back = Document::parse(&out);
+		assert_eq!(back.to_canonical(), out);
+		assert_eq!(doc.paths(), back.paths(), "{out:?}");
+		assert_eq!(back.lost_count(), 0, "{out:?}");
+		out
+	};
+	for src in [
+		"a:\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a: v\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a:\n\tb: y\n\tc: 1\n\tx(3).y: 1\n",
+		"a:\n\tb: y\n\tc: 1\n\t-\n",
+		"a:\n\tb: y\n\tc: 1\n\tq: [1\n",
+		"a:\n\tb: y\n\tq: [1\n\t# note\nz: 1\n",
+	] {
+		assert_eq!(set(src, "a.b(z)", "y"), src);
+	}
+	let src = "c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n";
+	assert_eq!(set(src, "b(a)", "y"), src);
+	// An instance set to an earlier one's value.
+	assert_eq!(
+		set(
+			"a:\n\tb: y\n\t# note\n\tq: [1\n\t# against\n\tb: x\n\tz: 1\n",
+			"a.b(x)",
+			"y"
+		),
+		"a:\n\t# against\n\tb: y\n\t# note\n\tq: [1\n\tz: 1\n"
+	);
+	// The two instances' fields fold too. A kept line beside one stays
+	// beside it, after the block it folded into.
+	assert_eq!(
+		set(
+			"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\nb: x\n\tp: [2\n\tk:\n\t\tm: 1\n\t\t- 2\n",
+			"b(x)",
+			"y"
+		),
+		"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\n\t\t- 2\n\tp: [2\n"
+	);
+	let once = set("a:\n\t- 1\n\ta: [1, 2\n\t- 2\n", "a", "1");
+	assert_eq!(
+		once,
+		"# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 1\n"
+	);
+	assert_eq!(set(&once, "a", "1"), once);
+}
+
 /// A line kept in a leaf's block stays in the merged block when the other
 /// layer replaces the leaf, as it does when a setter changes the leaf in
 /// place. It went to the root, above the field, where an item reloaded as

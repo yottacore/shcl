@@ -5338,6 +5338,47 @@ int main(int argc, char **argv) {
 			shcl_free(cb); shcl_free(cd);
 		}
 	}
+	test_id("detse", "a_set_that_folds_leaves_kept_lines");
+	/* A set that makes a second instance with a value one already has folds
+	   it into that one. The data is as it was, so the text is too: the kept
+	   lines beside it stay, and only a comment written against it goes
+	   along. The lines that ended the block went above the old instance,
+	   where one read as a comment or bound (2026110312163204). A kept line
+	   among a stacked list's items that names the list goes above it as the
+	   noted comment on the first set, not the second (2026110312163205). An
+	   instance set to an earlier one's value, and the two instances' fields
+	   folding, where a kept line beside one stays beside it, after the block
+	   it folded into. Same fixture in every runner. */
+	{
+		const char *once = "# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 1\n";
+		struct { const char *src, *path, *want; } fc[] = {
+			{"a:\n\tb: y\n\tc: 1\n\t- 1\n", "a.b(z)", NULL},
+			{"a: v\n\tb: y\n\tc: 1\n\t- 1\n", "a.b(z)", NULL},
+			{"a:\n\tb: y\n\tc: 1\n\tx(3).y: 1\n", "a.b(z)", NULL},
+			{"a:\n\tb: y\n\tc: 1\n\t-\n", "a.b(z)", NULL},
+			{"a:\n\tb: y\n\tc: 1\n\tq: [1\n", "a.b(z)", NULL},
+			{"a:\n\tb: y\n\tq: [1\n\t# note\nz: 1\n", "a.b(z)", NULL},
+			{"c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n", "b(a)", NULL},
+			{"a:\n\tb: y\n\t# note\n\tq: [1\n\t# against\n\tb: x\n\tz: 1\n", "a.b(x)", "a:\n\t# against\n\tb: y\n\t# note\n\tq: [1\n\tz: 1\n"},
+			{"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\nb: x\n\tp: [2\n\tk:\n\t\tm: 1\n\t\t- 2\n", "b(x)", "b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\n\t\t- 2\n\tp: [2\n"},
+			{"a:\n\t- 1\n\ta: [1, 2\n\t- 2\n", "a", once},
+			{once, "a", NULL},
+		};
+		for (size_t k = 0; k < sizeof fc / sizeof fc[0]; k++) {
+			const char *want = fc[k].want ? fc[k].want : fc[k].src;
+			int a = fc[k].path[0] == 'a' && fc[k].path[1] == '\0';
+			const char *text = a ? "1" : "y";
+			shcl_doc *cd = shcl_parse(fc[k].src, strlen(fc[k].src));
+			if (shcl_set_literal(cd, fc[k].path, strlen(fc[k].path), text, 1) != SHCL_SET_OK) fail("set_folds", fc[k].src);
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, want)) { fail("set_folds", want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("set_folds", "reload differs");
+			if (shcl_lost_count(cb) != 0) fail("set_folds", "reload lost");
+			shcl_free(cb); shcl_free(cd);
+		}
+	}
 	test_id("dekz4", "a_replaced_leaf_keeps_the_lines_kept_in_its_block");
 	/* A line kept in a leaf's block stays in the merged block when the other
 	   layer replaces the leaf, as it does when a setter changes the leaf in
