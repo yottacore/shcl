@@ -48,6 +48,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Held for v4 (JC, 2026-11-02).
 
+- Go back to docker's default builder for the images
+	- ID: 2026110311291920
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261103-112919
+	- Opened by: JC
+	- Related IDs: 2026110215285719, common 2026110311291900
+	- Requirements:
+		- Build the images on docker's default builder again, and drop `CTR_BUILDER`, `fCtrPrune` and the `shcl-cicd` builder. A run removes that builder once if it finds it.
+		- The pipeline never prunes docker's build cache. Docker trims the cache itself on b23, through `builder.gc` in `/etc/docker/daemon.json`. Cache unused for a week goes first, then the rest is cut to 120 GB, or further when the disk is under 10% free, but never below 20 GB.
+		- contributing.md says a run leaves docker's build cache alone.
+		- Do it once b23's `/etc/docker/daemon.json` has the `builder.gc` block. `grep -q '"gc"' /etc/docker/daemon.json` checks. Until then the own builder stays.
+	- Decisions:
+		- The own builder was there so a run pruned only its own cache. With docker's GC doing the trimming, nothing needs pruning, and the builder only costs time and disk: a cold build of the 2 GB test image took 299 s against 266 s, and its cache kept a second 3 GB copy of the layers. (JC, me)
+	- Estimated effort: Low
+
 - `--quick` runs every test box
 	- ID: 2026110215285702
 	- Type: Bug
