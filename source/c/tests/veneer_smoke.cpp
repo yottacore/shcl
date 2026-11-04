@@ -387,6 +387,14 @@ static int a_create_only_save_refuses_a_file_already_there() {
 	CHECK(doc.save_file_with(f, forced).first == R::Exists);
 	CHECK(has(f, "a: 1\n"));
 #ifndef _WIN32
+	// A link to nowhere is something at the path, so where it points isn't
+	// made (2026110312163207).
+	const std::string dangling = dir + "/dangling.shcl", nowhere = dir + "/nowhere.shcl";
+	struct stat ns;
+	CHECK(symlink(nowhere.c_str(), dangling.c_str()) == 0);
+	CHECK(doc.save_file_with(dangling, create).first == R::Exists);
+	CHECK(lstat(nowhere.c_str(), &ns) != 0);
+	std::remove(dangling.c_str());
 	shcl::SaveOptions mode = create;
 	mode.mode = 0604;
 	CHECK(doc.save_file_with(m, mode).first == R::Ok);

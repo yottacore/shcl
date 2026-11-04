@@ -14226,6 +14226,16 @@ static int shcl_names_a_directory(const char *path) {
 // *not_regular set when that is why, since EINVAL could be anything.
 // new_only and mode are shcl_save_options' create and mode, and *exists is set
 // when create found something there.
+#ifndef _WIN32
+// A link at the path as given, which a create-only save refuses. The resolve
+// follows a link to nowhere and finds nothing where it points. Windows is left
+// as it was (2026110312163207).
+static int s_link_at(const char *path) {
+	struct stat st;
+	return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
+}
+#endif
+
 static int s_write_file_atomic(const char *path, const char *data, size_t n, int new_only, unsigned mode, int *not_regular, int *exists) { // NOLINT(bugprone-easily-swappable-parameters): path, then data, as in shcl_write_file_atomic; see 2026101807501110
 	if (shcl_names_a_directory(path)) { errno = EISDIR; return 0; }
 #ifndef _WIN32
@@ -14270,7 +14280,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 #ifndef _WIN32
 	struct stat st;
 	int have_st = (stat(target, &st) == 0);
-	if (new_only && (have_st || lstat(target, &st) == 0)) {
+	if (new_only && (have_st || lstat(target, &st) == 0 || s_link_at(path))) {
 		errno = EEXIST; *exists = 1;
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
 	}
@@ -14737,9 +14747,11 @@ static char *s_save_target(const char *path, int *oom) {
 	return t;
 }
 
-// Anything at all at a resolved save target, a dangling link included.
-static int s_something_at(const char *target) {
+// Anything at all at a resolved save target, or a link at the path as given,
+// since the resolve follows one to nowhere.
+static int s_something_at(const char *path, const char *target) {
 #ifdef _WIN32
+	(void)path;
 	wchar_t *w = shcl_widen(target);
 	if (!w) { SHCL_OOM(); abort(); }
 	int there = GetFileAttributesW(w) != INVALID_FILE_ATTRIBUTES;
@@ -14747,7 +14759,7 @@ static int s_something_at(const char *target) {
 	return there;
 #else
 	struct stat st;
-	return lstat(target, &st) == 0;
+	return s_link_at(path) || lstat(target, &st) == 0;
 #endif
 }
 
@@ -14868,7 +14880,7 @@ shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_op
 		if (oom) { SHCL_OOM(); abort(); }
 		// Before the changed check, so a create that loses to another program
 		// is told the file is there.
-		if (opts.create && target && s_something_at(target)) { free(target); return SHCL_SAVE_EXISTS; }
+		if (opts.create && target && s_something_at(path, target)) { free(target); return SHCL_SAVE_EXISTS; }
 		// The file the load read has to be as the load or this document's last
 		// save there left it. That's a check and not a lock: an edit between it
 		// and the rename is still lost.

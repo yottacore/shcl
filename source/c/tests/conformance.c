@@ -7172,6 +7172,15 @@ int main(int argc, char **argv) {
 		snprintf(link, sizeof link, "%s/link.shcl", xdir);
 		if (symlink(n, link) != 0) fail(at, "symlink failed");
 		if (shcl_save_file_with(fresh, link, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link");
+		/* A link to nowhere is something at the path, so where it points
+		   isn't made (2026110312163207). */
+		char dangling[320], nowhere[320];
+		struct stat ns;
+		snprintf(dangling, sizeof dangling, "%s/dangling.shcl", xdir);
+		snprintf(nowhere, sizeof nowhere, "%s/nowhere.shcl", xdir);
+		if (symlink(nowhere, dangling) != 0) fail(at, "symlink failed");
+		if (shcl_save_file_with(fresh, dangling, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link to nowhere");
+		if (lstat(nowhere, &ns) == 0) fail(at, "a refused create made the file a link to nowhere names");
 #endif
 		shcl_free(fresh);
 

@@ -5614,6 +5614,13 @@ def main():
 			xlink = os.path.join(xd, "link.shcl")
 			os.symlink(xn, xlink)
 			xrefused("link", lambda: xfresh.save_file_with(xlink, create), xlink)
+			# A link to nowhere is something at the path, so where it points
+			# isn't made (2026110312163207).
+			xdangling = os.path.join(xd, "dangling.shcl")
+			xnowhere = os.path.join(xd, "nowhere.shcl")
+			os.symlink(xnowhere, xdangling)
+			xrefused("link to nowhere", lambda: xfresh.save_file_with(xdangling, create), xdangling)
+			xsame("link to nowhere made", os.path.lexists(xnowhere), False)
 
 		# Several saves at once: one makes the file and the rest are told it's there.
 		import threading

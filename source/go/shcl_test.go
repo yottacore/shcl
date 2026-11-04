@@ -7380,6 +7380,17 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 		}
 		_, err = fresh.SaveFileWith(link, create)
 		exists("create through a link", err, link)
+		// A link to nowhere is something at the path, so where it points
+		// isn't made (2026110312163207).
+		dangling, nowhere := at("dangling.shcl"), at("nowhere.shcl")
+		if err := os.Symlink(nowhere, dangling); err != nil {
+			t.Fatal(err)
+		}
+		_, err = fresh.SaveFileWith(dangling, create)
+		exists("create through a link to nowhere", err, dangling)
+		if _, err := os.Lstat(nowhere); err == nil {
+			t.Errorf("a refused create made %s", nowhere)
+		}
 	}
 
 	// Several saves at once: one makes the file and the rest are told it's there.

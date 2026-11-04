@@ -9225,7 +9225,7 @@ func writeFileHow(file, data string, newOnly bool, mode os.FileMode) error {
 	// caller gave one.
 	existing, existErr := os.Stat(target)
 	if newOnly {
-		if _, lerr := os.Lstat(target); existErr == nil || lerr == nil {
+		if _, lerr := os.Lstat(target); existErr == nil || lerr == nil || linkAt(file) {
 			return &SaveExists{Path: file}
 		}
 	}
@@ -9599,6 +9599,17 @@ func namesADirectory(file string) bool {
 	}
 	last := file[i:]
 	return last == "." || last == ".."
+}
+
+// linkAt reports a link at the path as given, which a create-only save
+// refuses. The resolve follows a link to nowhere and finds nothing where it
+// points. Windows is left as it was (2026110312163207).
+func linkAt(file string) bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	fi, err := os.Lstat(file)
+	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
 
 // resolveTarget is the path a save actually rewrites. A symlink is followed so
@@ -10087,6 +10098,9 @@ func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
 	// Before the changed check, so a create that loses to another program is
 	// told the file is there.
 	if opts.Create {
+		if linkAt(path) {
+			return false, &SaveExists{Path: path}
+		}
 		if target, err := resolveTarget(path); err == nil {
 			if _, err := os.Lstat(target); err == nil {
 				return false, &SaveExists{Path: path}

@@ -254,7 +254,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A create-only save writes through a dangling link at the path
 	- ID: 2026110312163207
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 7
@@ -266,6 +266,36 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261103, Python.
 	- Possible cause: the create check looks at the resolved target, not at the path as given.
 	- Origin: Confirmed in Python, Plausible in the other 3 (read). `a618835c` (20261029). No earlier round saw it.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed, all 4. The resolve follows a link to nowhere to where it points, and both create checks, the save's and the write's, asked only there.
+	- Actual fix: both create checks also refuse a link at the path as given, in all 4 (`link_at`, `linkAt`, `_link_at`, `s_link_at`). The veneer wraps the C save. design.md's Save outcomes row and spec.md say a link to nowhere counts.
+	- Decisions:
+		- me, 20261104: only a link at the path counts, not anything the path as given reaches, so no other answer moves, such as a path ending in `.`.
+		- me, 20261104: Windows is left as it was, since its link tests skip and no Windows run checked it. 2026110408432594 has that part.
+	- Swept: the save's create check and the write's in Rust, Go, Python and C. The publish of a new file already fails on anything at the target, and the target is the path as given when nothing is there, so a link planted after the check is refused there.
+	- Verified: the new rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` fail on the old code and pass on the new. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, analyze-c.bash and codeql-scan.bash. check-docs alone fails only the known `dcbc2`.
+	- Test case: the link-to-nowhere rows in `a_create_only_save_refuses_a_file_already_there`: Rust `dekm5`, Python `dekm6`, Go `dekmf`, the C runner `dekmj` and the veneer smoke `dekmk`.
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and the gates are green.
+	- Branch: `r1104`
+	- Closed: 20261104-090220
+
+- On Windows a create-only save through a link to nowhere is unchecked
+	- ID: 2026110408432594
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261104-084325
+	- Opened by: 2026110312163207's fix
+	- Related IDs: 2026110312163207
+	- Target OS: Windows
+	- Steps to reproduce:
+		- On Windows, make a symlink to a file that isn't there, then save a document to the link with `create` set.
+	- Incorrect behavior: not seen. 2026110312163207's fix leaves Windows as it was, and the link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` skip there, so the save may still make the file the link names.
+	- Expected behavior: refused with `Exists` and nothing made, as on POSIX.
+	- Reproduced: No, from reading.
+	- Possible cause: `link_at`, `linkAt`, `_link_at` and `s_link_at` answer only off Windows. C's windows resolve and `s_something_at` there are their own code.
+	- Note: needs b29w with a short-name TEMP, as `private/claude_simple/tools/winbox-savetests/` runs it.
 	- Estimated effort: Low
 
 - The C++ interface saves to a cut-off path when the path holds a NUL

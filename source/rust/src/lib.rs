@@ -6819,9 +6819,10 @@ impl Document {
 		// Before the changed check, so a create that loses to another program
 		// is told the file is there.
 		if opts.create
-			&& target
-				.as_ref()
-				.is_some_and(|t| std::fs::symlink_metadata(t).is_ok())
+			&& (link_at(path)
+				|| target
+					.as_ref()
+					.is_some_and(|t| std::fs::symlink_metadata(t).is_ok()))
 		{
 			return Err(SaveError::Exists {
 				path: path.to_string(),
@@ -9458,7 +9459,9 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 	// the umask, like every other file the user's tools produce, unless the
 	// caller gave one.
 	let existing = std::fs::metadata(&target).ok();
-	if new_only && (existing.is_some() || std::fs::symlink_metadata(&target).is_ok()) {
+	if new_only
+		&& (existing.is_some() || link_at(file) || std::fs::symlink_metadata(&target).is_ok())
+	{
 		return Err(exists());
 	}
 	let mode = mode & 0o777;
@@ -9871,6 +9874,13 @@ fn names_a_directory(file: &str) -> bool {
 	}
 	let last = file.rsplit(sep).next().unwrap_or("");
 	last == "." || last == ".."
+}
+
+/// A link at the path as given, which a create-only save refuses. The resolve
+/// follows a link to nowhere and finds nothing where it points. Windows is
+/// left as it was (2026110312163207).
+fn link_at(file: &str) -> bool {
+	cfg!(unix) && std::fs::symlink_metadata(file).is_ok_and(|m| m.file_type().is_symlink())
 }
 
 /// The path a save actually rewrites. A symlink is followed so the write goes

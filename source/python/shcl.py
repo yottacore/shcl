@@ -9867,7 +9867,16 @@ def _save_text(path, text, new_only=False, mode=0):
 		raise SaveFailed(str(e), e.status) from None
 
 
+def _link_at(path) -> bool:
+	"""A link at the path as given, which a create-only save refuses. The
+	resolve follows a link to nowhere and finds nothing where it points.
+	Windows is left as it was (2026110312163207)."""
+	return os.name != "nt" and os.path.islink(path)
+
+
 def _something_at(path) -> bool:
+	if _link_at(path):
+		return True
 	try:
 		return os.path.lexists(_resolve_target(os.fspath(path)))
 	except (OSError, ValueError):
@@ -10408,7 +10417,7 @@ def _write_file_how(file, data, new_only, mode):
 		existing = os.stat(target)
 	except (OSError, ValueError):
 		existing = None
-	if new_only and (existing is not None or os.path.lexists(target)):
+	if new_only and (existing is not None or _link_at(file) or os.path.lexists(target)):
 		raise SaveExists(file)
 	mode &= 0o777
 	# Only a regular file is replaced. A rename over a FIFO or a device node
