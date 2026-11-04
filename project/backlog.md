@@ -35,6 +35,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- check-migrate diverges on the 2.x Unicode trim fix, and fuzz_00150 changes its exit code
+	- ID: 2026110410134605
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261104-101346
+	- Opened by: round r1104, worker for 2026110312163206
+	- Related IDs: 2026110312163206
+	- Progress log:
+		- 2026-11-04: the trim fix in all 4 bindings is on wip/r1104-2026110312163206 (65e88185). check-migrate diverges on corpus 094, 215 and some fuzz cases, since its pinned build 7be348d0 keeps the blanks 2.0 trimmed. It needs those lines filtered before comparing, as fMidQuote2x does.
+		- fuzz_00150 gives a different exit code from 2.x's result on the wip code. Not looked at yet, so it may be a real regression.
+		- crosscheck, cli-regress and analyze-c weren't run on the wip commit.
+
 - `install.ps1` refuses pwsh on Linux and macOS
 	- ID: 2026110215285715
 	- Type: Enhancement
@@ -272,8 +285,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: corpus `215-migrate-unicode-trim` fails on the old C header and passes on the fix in all 4 runners. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
 	- Progress log:
 		- 20261104: the fix is on `wip/r1104-2026110312163206`, not the round branch. check-migrate diverges on 094, 215 and fuzz cases, since the pinned build keeps the edge blanks. It needs those lines taken out before comparing, as `fMidQuote2x` does for a mid-piece quote. fuzz_00150 also differs in exit codes and needs a look. crosscheck, cli-regress and analyze-c not run yet.
+		- 2026-11-04: one try in round r1104, fix held on wip/r1104-2026110312163206 until 2026110410134605 closes.
 	- Branch: `wip/r1104-2026110312163206`
 	- Test case: corpus `devxe` (`215-migrate-unicode-trim`) in all 4 runners.
+	- Prereq IDs: 2026110410134605
 
 - check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
 	- ID: 2026110409565662
