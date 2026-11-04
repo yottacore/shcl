@@ -259,8 +259,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the 2.x scan trims only space, tab and CR, where 2.0.0 trimmed all Unicode white space. check-migrate compares with the pinned build `7be348d0`, which came after `0f818d71` changed the trim, so it agrees with the bug.
 	- Origin: Confirmed. The same class as 2026102620591100: the pin isn't 2.0.0, and that item's sweep checked only quotes inside a piece.
 	- Sweep: the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2` and `6b776f9a`. Or compare against `v2.0.0` itself.
+		- That part is in child 2026110409565662.
 	- Decisions: 2.x conversion is low stakes (JC, 20261015). Keep the easy conversions and refuse hard cases.
+		- Convert, not refuse: 2.0 trimmed the full Unicode `White_Space` set at a piece's edges, so the 2.x scan in `migrate` and `upgrade` trims it too, and a run of blanks around a piece that holds one is written as a space, or dropped at the line end. One inside a value stays and gets quoted (me).
+		- The set is Unicode `White_Space`, what 2.0's Rust `trim()` used. 2.0's Python `strip()` also took U+001C to U+001F; those are left alone (me).
+		- Left as is: a no-break space in a name or indent. 2.0 trimmed those too, but no case of it has turned up (me).
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: `0f818d71` cut the trim to a space, a tab and a CR for the current rules, and the 2.x scan kept that, since it copies the pinned build.
+	- Actual fix: under the 2.x rules `scan_piece` counts any `White_Space` character as a blank at a piece's edges, and `value_edits` writes the blanks around a piece that hold one as a space. A 2.x array is rebuilt from its pieces, so it gets the trim with no more. Same change in Rust, Go, Python and C. spec.md, value-syntax.md's Migration table, the changelog and the corpus README say so.
+	- Swept: `scan_piece`, `value_edits` and the open-quote arm in all 4 bindings. `*` items, array elements and selector bodies go through the same scan.
+	- Verified: corpus `215-migrate-unicode-trim` fails on the old C header and passes on the fix in all 4 runners. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
+	- Progress log:
+		- 20261104: the fix is on `wip/r1104-2026110312163206`, not the round branch. check-migrate diverges on 094, 215 and fuzz cases, since the pinned build keeps the edge blanks. It needs those lines taken out before comparing, as `fMidQuote2x` does for a mid-piece quote. fuzz_00150 also differs in exit codes and needs a look. crosscheck, cli-regress and analyze-c not run yet.
+	- Branch: `wip/r1104-2026110312163206`
+	- Test case: corpus `devxe` (`215-migrate-unicode-trim`) in all 4 runners.
+
+- check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
+	- ID: 2026110409565662
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261104-095656
+	- Opened by: me, from 2026110312163206
+	- Parent ID: 2026110312163206
+	- Related IDs: 2026102620591100
+	- Problem description:
+		- The pinned build `7be348d0` came after reads changed from 2.0.0, so check-migrate agrees with any 2.x read the dev line changed. The trim and the mid-piece quote were two of them.
+	- Requirements:
+		- Check the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2` and `6b776f9a`, against what `migrate` writes. Or compare against `v2.0.0` itself.
+		- Each one that reads apart either converts or is refused.
+	- Estimated effort: Avg
 
 - A create-only save writes through a dangling link at the path
 	- ID: 2026110312163207
