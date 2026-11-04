@@ -14373,7 +14373,7 @@ static FILE *s_fopen_regular(const char *path, int *not_regular) {
 // shcl_read_file, with *err the errno when the open or a read failed, and 0
 // for a file over the cap or not UTF-8. With NOT_REGULAR, only a regular file
 // is read, as s_fopen_regular says.
-static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status, int *err, int *not_regular) {
+static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status, int *err, int *not_regular) { // NOLINT(bugprone-easily-swappable-parameters): err is always set, not_regular is NULL for a plain read
 	*err = 0;
 	FILE *f = not_regular ? s_fopen_regular(path, not_regular) : shcl_fopen_rb(path);
 	if (!f && not_regular && *not_regular) {

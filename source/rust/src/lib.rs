@@ -9248,7 +9248,7 @@ pub fn read_named_schema(text: &str, file: &str) -> NamedSchema {
 /// FIFO waits for a writer. So on POSIX the open does not wait, and the flag
 /// comes straight back off: only the open waits, and the caller's fstat
 /// refuses a FIFO before any read.
-#[cfg(unix)]
+#[cfg(all(unix, not(miri)))]
 fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
 	use std::os::fd::AsRawFd;
 	use std::os::unix::fs::OpenOptionsExt;
@@ -9276,7 +9276,8 @@ fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
 	}
 	Ok(f)
 }
-#[cfg(not(unix))]
+// Miri refuses O_NONBLOCK on an open, and its tests make no FIFO.
+#[cfg(any(not(unix), miri))]
 fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
 	std::fs::File::open(path)
 }

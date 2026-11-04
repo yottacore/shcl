@@ -682,6 +682,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261103: on windows a file another program holds open with no read sharing is a change now, where the write used to decide. `force` still writes.
 	- Swept: the changed check and `upgrade_file`'s reads again in all 4. The veneer's saves reach C's. `read_file` and the first reads are left, as above. The 4 CLIs' own check before `--write` reads the same way, filed as 2026110313211991.
 	- Verified: `detpn` with only the old check, and `detpq` and `detpr` on the old code, hang on the FIFO until killed, and a Python probe on the old code hangs the same way. All 4 pass with the new check, the unreadable part included. Also the gate runs on 2026110312163201.
+	- Progress log:
+		- 20261103: hosted ci.yml 41741462062 failed 2 checks on `2f38f68b`. Miri `de2pc` refused the no-wait open's flag in `upgrade_file_never_writes_over_a_backup`, so under Miri only the Rust read opens plainly, since Miri makes no FIFO. clang-tidy `de2x4` flagged `s_read_file`'s 2 `int *` out-parameters, suppressed at the line: `err` is always set and `not_regular` is NULL for a plain read, so a swap crashes on the first line.
+		- Verified: the Miri test fails on the old cfg and passes now, `de2pc` with `--only` over the upgrade and changed tests, `de2x4` and the rest of analyze-c, `detpn`, cargo fmt and clippy.
 	- Test case: the FIFO and unreadable parts of `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go (`detpq`) and the C runner (`detpr`). POSIX only, since windows has no FIFO at a path.
 	- Acceptance signoff: Self-closed: each new test hung on the old check and passes with the new, and the gates are green.
 	- Branch: `r1103b`
