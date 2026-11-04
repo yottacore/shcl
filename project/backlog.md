@@ -116,10 +116,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed, by reading.
 	- Estimated effort: Avg
 
+- Fuzz `dd3t9` fails at iteration 32783: a save that keeps lines reloads with an `E011` the document didn't have
+	- ID: 2026110407313888
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261104-073138
+	- Opened by: found while working 2026110315051536
+	- Related IDs: 2026110315051536, 2026102821334870
+	- Steps to reproduce:
+		- `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke keeping_lines_reloads_as_the_document`, on a corpus holding `213-load-fold-keeps-kept-lines`.
+		- The base is `sies:`, `` 	`s`mall ``, `calor: red`, `	- medium` with a tag character then `shape:`, `	side: 4`, `	- rou#nd`. The ops remove `calor.side` and set `sies`.
+	- Incorrect behavior: the kept text is `calor: red`, `	- medium...shape:`, `	- rou#nd`. Its reload gives `E011` for the last item, which the base read as `E008`, so the property fails. It fails within the gate's 200,000 iterations.
+	- Expected behavior: to be judged. Either the save writes the item so it reloads with a code the base had, or the property takes `E008` turning into `E011` once the fields beside the item are gone.
+	- Reproduced: 20261104, Rust, on `r1104` and on the library before 2026110315051536 with the same corpus. The new corpus case shifted the seeds onto it.
+	- Estimated effort: Avg
+
 - `fmt` moves a kept line above an earlier instance when the load merges 2 of one name and value
 	- ID: 2026110315051536
 	- Type: Bug
-	- Status: Queued
+	- Status: Testing
+		- The fix is on `wip/r1104-2026110315051536`, not on `r1104`. The 2,000,000-iteration release fuzz fails `dab72` at iteration 578115 on it: merging layer B as written puts a blank line before `a:` that merging its canonical form does not. B is corpus 145's input with a blank line before its second `a:`, so it is likely this change. To judge and fix, then merge.
+		- The same run fails `dd3t9` at iteration 32783, which the library before this change fails the same way on this corpus, filed as 2026110407313888. It is within the gate's 200,000, so this branch's corpus case makes the merge gate red until that one is fixed.
 	- Severity: Avg
 	- Opened: 20261103-150515
 	- Opened by: found while working 2026110312163204
@@ -132,6 +150,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261103, all 4 CLIs on `r1103b`.
 	- Possible cause: the load's fold of a second instance (`H002`) appends its leading lines to the first one's, the same shape 2026110312163204 fixed in the setter's fold.
 	- Estimated effort: Avg
+	- Actual cause [Bug]: as above. A line that binds to an instance already there, and the late fold of 2 instances, hand the pending lines to the earlier one, so they were written above it.
+	- Actual effort: Avg
+	- Progress log:
+		- 20261104, all 4 bindings: the load notes each node a re-mention or a fold gives a later line's lines to. Once the tree is built, the kept lines among them, with the comments before them, go above the next line of the block read after them, or to the end of the block, through `leave_above` / `leave_last`, as the setter's fold does.
+		- Corpus `145-kept-misplaced`: its `expected.shcl` had the misplaced `  e: 1` above the first `a:`, as `# e: 1`. It now stays at the end of the file, where it was. The case's README note says so.
+		- New corpus case `213-load-fold-keeps-kept-lines` and cli-regress row `devrb` (the issue's commands). design.md's "Kept lines under edits" has a bullet for it, and the changelog a line.
+	- Decisions:
+		- me, 20261104: placement goes by the source line of each moved line against the siblings' lines, so 2 folds that fill one place keep file order.
+		- me, 20261104: a kept line before a dotted line still goes to the path's first segment, as before, since that is where the dotted line is written. Only a re-mention of the node itself and the late fold count.
+		- me, 20261104: no new fuzz property. The fix is one pass at the end of every load, and the fixpoint fuzz already caught one slip in it while it was written.
+	- Actual fix [Bug]: `refile_folded` and `folded_kept` (Go `refileFolded`, `foldedKept`; Python `_refile_folded`, `_folded_kept`), fed by the field-line bind and `fold_dups_from`, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`.
+	- Swept: the field-line bind, the only parse site that binds a line to an instance already there, and `fold_dups_from`, the late fold. A fence bind and a dotted line checked by hand. The setter's folds were 2026110312163204.
+	- Verified: on the branch, the 4 conformance suites (Rust and Go with a 20,000-iteration fuzz), cli-regress (650 rows), check-docs (red only on `dcbc2`), analyze-c (`de2x3`, `de2x4`), gofmt, go vet, gcc 15 and clang at `-Werror`, and the lint step of `--backlog-run-quick`.
+	- Verified: `devra`, `devrb` and the new `dd2kg` golden fail on the library before the change in all 4, and pass after.
+	- Branch: `wip/r1104-2026110315051536`
+	- Test case: corpus `213-load-fold-keeps-kept-lines` (`devra`), cli-regress `fmt-fold-keeps-kept-lines` (`devrb`), corpus `145-kept-misplaced` (`dd2kg`).
 
 - The default run takes over an hour
 	- ID: 2026110215285706
