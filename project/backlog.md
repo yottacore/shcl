@@ -156,6 +156,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261104, all 4 bindings: the load notes each node a re-mention or a fold gives a later line's lines to. Once the tree is built, the kept lines among them, with the comments before them, go above the next line of the block read after them, or to the end of the block, through `leave_above` / `leave_last`, as the setter's fold does.
 		- Corpus `145-kept-misplaced`: its `expected.shcl` had the misplaced `  e: 1` above the first `a:`, as `# e: 1`. It now stays at the end of the file, where it was. The case's README note says so.
 		- New corpus case `213-load-fold-keeps-kept-lines` and cli-regress row `devrb` (the issue's commands). design.md's "Kept lines under edits" has a bullet for it, and the changelog a line.
+		- 2026-11-04: fix and corpus 213, 214 on wip/r1104-2026110315051536 (5afa789e), 2M fuzz and check-migrate pass there. Waits on 2026110407313888, since the new cases shift fuzz seeds onto dd3t9 inside the gate's 200,000.
 	- Decisions:
 		- me, 20261104: placement goes by the source line of each moved line against the siblings' lines, so 2 folds that fill one place keep file order.
 		- me, 20261104: a kept line before a dotted line still goes to the path's first segment, as before, since that is where the dotted line is written. Only a re-mention of the node itself and the late fold count.
@@ -166,6 +167,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `devra`, `devrb` and the new `dd2kg` golden fail on the library before the change in all 4, and pass after.
 	- Branch: `wip/r1104-2026110315051536`
 	- Test case: corpus `213-load-fold-keeps-kept-lines` (`devra`), cli-regress `fmt-fold-keeps-kept-lines` (`devrb`), corpus `145-kept-misplaced` (`dd2kg`).
+	- Prereq IDs: 2026110407313888
 
 - The default run takes over an hour
 	- ID: 2026110215285706
