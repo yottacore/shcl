@@ -119,7 +119,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Fuzz `dd3t9` fails at iteration 32783: a save that keeps lines reloads with an `E011` the document didn't have
 	- ID: 2026110407313888
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261104-073138
 	- Opened by: found while working 2026110315051536
@@ -131,14 +131,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: to be judged. Either the save writes the item so it reloads with a code the base had, or the property takes `E008` turning into `E011` once the fields beside the item are gone.
 	- Reproduced: 20261104, Rust, on `r1104` and on the library before 2026110315051536 with the same corpus. The new corpus case shifted the seeds onto it.
 	- Estimated effort: Avg
+	- Actual cause [Bug]: the property, not the save. The item is kept as written and reloads as the same document, kept again and losing nothing, as design.md says for a clean kept item under a field with a value. Only its code moved from `E008` to `E011`, since the field beside it was removed. The property counted each code apart.
+	- Actual effort: Low
+	- Progress log:
+		- 20261104: the check for a new error counts `E001`, `E003`, `E007`, `E008` and `E011` as one code (`placed`), in Rust's `dd3t9` and in the Go, Python and C twins of it in their edits-and-merges fuzz (`noNewErrors`, `no_new_errors`). Any other new code still fails.
+	- Decisions:
+		- me, 20261104: the property changes, not the emitter. design.md names those 5 as the codes refused only for where they sit, and has the emitter keep such a line as written wherever the reload keeps it again. Writing the item as a comment would turn a kept line into a comment where nothing binds it, which design.md keeps for where it would bind.
+	- Actual fix [Bug]: `placed` in `fuzz_smoke.rs`, `shcl_test.go`, `conformance.py` and `conformance.c`.
+	- Swept: every check of a reload's error codes against the base's: Rust's `dd3t9` (its edits-and-merges fuzz has none), and `noNewErrors` / `no_new_errors` in Go, Python and C. The fuzz outcome table (`dcavy`) counts codes per line, so a move can't change it.
+	- Verified: with corpus 213 and not 214, as it failed, `dd3t9` at 40,000 iterations fails at iteration 32783 on the old property and passes at 200,000 on the new one. The 4 conformance suites on `r1104` with 2026110315051536's commits, analyze-c (`de2x3`, `de2x4`), rustfmt, clippy, gofmt, go vet, staticcheck, ruff and mypy.
+	- Branch: `r1104`
+	- Commit: `9f75a96e`
+	- Test case: fuzz `dd3t9`, and the edits-and-merges fuzz in Go (`dd16m`), Python (`dd16n`) and C (`dc474`).
+	- Acceptance signoff: Self-closed: its test failed before and passes after, and the result is what design.md's table says.
+	- Closed: 20261104-082609
 
 - `fmt` moves a kept line above an earlier instance when the load merges 2 of one name and value
 	- ID: 2026110315051536
 	- Type: Bug
-	- Status: Testing
-		- The fix is on `wip/r1104-2026110315051536`, not on `r1104`.
-		- 20261104: the 2,000,000-iteration release fuzz failed `dab72` at iteration 578115: merging layer B as written put a blank line before `a:` that merging its canonical form did not. It was this change. The first node kept the blank a re-mention gave it after the kept line above it went to the end of the file. The refile now settles the document's first blank again, in all 4. Corpus `214-fold-first-blank-merge` (`devsm`) fails before that and passes after.
-		- The same run fails `dd3t9` at iteration 32783, which the library before this change fails the same way on this corpus, filed as 2026110407313888. It is within the gate's 200,000, so this branch's corpus case makes the merge gate red until that one is fixed.
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261103-150515
 	- Opened by: found while working 2026110312163204
@@ -157,7 +168,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261104, all 4 bindings: the load notes each node a re-mention or a fold gives a later line's lines to. Once the tree is built, the kept lines among them, with the comments before them, go above the next line of the block read after them, or to the end of the block, through `leave_above` / `leave_last`, as the setter's fold does.
 		- Corpus `145-kept-misplaced`: its `expected.shcl` had the misplaced `  e: 1` above the first `a:`, as `# e: 1`. It now stays at the end of the file, where it was. The case's README note says so.
 		- New corpus case `213-load-fold-keeps-kept-lines` and cli-regress row `devrb` (the issue's commands). design.md's "Kept lines under edits" has a bullet for it, and the changelog a line.
-		- 2026-11-04: fix and corpus 213, 214 on wip/r1104-2026110315051536 (5afa789e), 2M fuzz and check-migrate pass there. Waits on 2026110407313888, since the new cases shift fuzz seeds onto dd3t9 inside the gate's 200,000.
+		- 20261104: on `wip/r1104-2026110315051536`, the 2,000,000-iteration release fuzz failed `dab72` at iteration 578115: merging layer B as written put a blank line before `a:` that merging its canonical form did not. It was this change. The first node kept the blank a re-mention gave it after the kept line above it went to the end of the file. The refile now settles the document's first blank again, in all 4. Corpus `214-fold-first-blank-merge` (`devsm`) fails before that and passes after.
+		- 20261104: corpus 213 alone shifted the fuzz seeds onto `dd3t9` at iteration 32783, which the library before this change fails the same way, filed as 2026110407313888. 214 shifted them off again. With 2026110407313888 fixed, the branch's 2 commits are on `r1104` (`5922ef64`, `d769a02b`).
 	- Decisions:
 		- me, 20261104: placement goes by the source line of each moved line against the siblings' lines, so 2 folds that fill one place keep file order.
 		- me, 20261104: a kept line before a dotted line still goes to the path's first segment, as before, since that is where the dotted line is written. Only a re-mention of the node itself and the late fold count.
@@ -166,8 +178,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the field-line bind, the only parse site that binds a line to an instance already there, and `fold_dups_from`, the late fold. A fence bind and a dotted line checked by hand. The setter's folds were 2026110312163204.
 	- Verified: on the branch, the 4 conformance suites (Rust and Go with a 20,000-iteration fuzz), cli-regress (650 rows), check-docs (red only on `dcbc2`), analyze-c (`de2x3`, `de2x4`), gofmt, go vet, gcc 15 and clang at `-Werror`, and the lint step of `--backlog-run-quick`.
 	- Verified: `devra`, `devrb` and the new `dd2kg` golden fail on the library before the change in all 4, and pass after.
-	- Branch: `wip/r1104-2026110315051536`
-	- Test case: corpus `213-load-fold-keeps-kept-lines` (`devra`), cli-regress `fmt-fold-keeps-kept-lines` (`devrb`), corpus `145-kept-misplaced` (`dd2kg`).
+	- Verified: on `r1104` at `d769a02b`, the 4 conformance suites, cli-regress (650 rows), check-migrate (660 documents), the 2,000,000-iteration release fuzz (31 properties, 573 s), analyze-c (`de2x3`, `de2x4`), clippy, staticcheck, ruff and mypy.
+	- Branch: `r1104`
+	- Commit: `5922ef64`, `d769a02b`
+	- Test case: corpus `213-load-fold-keeps-kept-lines` (`devra`), corpus `214-fold-first-blank-merge` (`devsm`), cli-regress `fmt-fold-keeps-kept-lines` (`devrb`), corpus `145-kept-misplaced` (`dd2kg`).
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the named gates pass.
+	- Closed: 20261104-082609
 
 - The default run takes over an hour
 	- ID: 2026110215285706
