@@ -48,95 +48,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Held for v4 (JC, 2026-11-02).
 
-- The changed check misses an edit when the load and the save spell the path differently, so another program's edit is lost
-	- ID: 2026110312163201
-	- Type: Bug
-	- Status: Done
-	- Needs external testing: No
-	- Severity: High
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 1
-	- Related IDs: 2026102910482342, 2026102912203339, 2026102912203341, 2026102912203343
-	- Steps to reproduce:
-		- Rust, Python or C: write `a: 1` to `i.shcl`, load `i.shcl`, delete the file, then save to `i.shcl`.
-		- Rust, Python or C: load `h.shcl` when it isn't there, have another program write it, then save to `h.shcl`.
-		- Go: load `sub/l.shcl`, have another program edit it, then save to the same file by its absolute path.
-	- Incorrect behavior:
-		- Rust, Python and C save with no error in the first 2 cases, over the other program's file. So a program that loads a missing file, saves it, and saves again after the user edits it loses the user's edit.
-		- Go saves with no error when the load and the save name one file as relative and absolute. It refuses a save to a different file of the same relative name after a `chdir`.
-		- With `./i.shcl` and `./h.shcl`, Rust, Python and C refuse as they should.
-	- Expected behavior: spec.md's save text. A file gone since the load is a change, and so is one made where the load found nothing. A save anywhere else isn't checked. One file gives one answer, however its path is spelled.
-	- Reproduced: 20261103, a probe per binding against dev `be299ccb`.
-	- Possible cause: the check compares 2 resolved path strings. Rust, Python and C make a bare name absolute only while the file exists, so a missing file's record stays relative and never matches. Go keeps a relative path relative and compares the text. A load whose folder doesn't exist yet records a relative path the same way (read only).
-	- Origin: Confirmed, all 4. The check came in on 20261029 (`e799b7c6` Rust and Python, `34536e68` Go, `c271967d` C). The path resolve is older. What's new is using its answer as the file's identity. No earlier round saw it.
-	- Sweep: every place a resolved path is stored or compared, in all 4 and the C++ interface. That's the load's file record, the save's compare, `upgrade_file`'s own changed check, and the create check.
-	- Note: a test over path spellings in each binding's runner would cover the class: bare, `./`, absolute, through a link, and after a `chdir`.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Actual cause: the resolve made a path with nothing at it absolute only through its own folder, and Rust, Python and C skipped that for a bare name or a folder not there yet. Go returned EvalSymlinks' answer, which stays relative for a relative path. So the load's record and the save's target were 2 strings for one file.
-	- Actual fix: the resolve's answer is always absolute. A path with nothing at it goes through the real path of the nearest folder above it that's there, and the rest as written. Go makes EvalSymlinks' answer absolute against the working folder's real path. All 4. C's windows resolve already gave full paths.
-	- Decisions:
-		- me, 20261103: the fix is in the resolve the write uses, not a second one for the check, so the record, the compare, the create check and the write can't disagree. The write's target was relative only where its folder was `.` or not there, so it writes where it did.
-		- me, 20261103: a relative path is taken from the working folder at the time. After a `chdir` the same relative name is another file, and isn't checked. spec.md and design.md say so now.
-		- me, 20261103: Go resolves the working folder too, since `Getwd` can answer with a `$PWD` that runs through a link.
-	- Swept: Rust, Python, Go and C, every caller of the resolve: the load's record, the save's compare, the create check and the write. `upgrade_file`'s check compares no paths. The veneer wraps the C save. C's windows resolve gives a full path in every mode, so it's unchanged. The CLIs keep their own check, by the path they read.
-	- Verified: `detpn`, `detpp`, `detpq`, `detpr` and `detps` fail on the old code and pass on the new. Under wine, `detpn`, `detpq`, `detpr`, `dekk8` and `dekkm` pass, which doesn't cover the hosted runner's short-name TEMP. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, and again for `c` after the last C change. check-docs alone fails only the known `dcbc2`. codeql-scan alone passes all 17 checks, and the C runner passes under ASan and UBSan.
-	- Verified: 20261103 hosted ci.yml run 41741462062 on r1103b at cd340bf7, windows job: PASS detpn, detpp, detpq, detpr, detps, dekj6, dekk8 and dekkm. That runner had a long TEMP; the short-name case passed on b29w for Go and Python with 2026110314064292's fix.
-	- Test case: `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go `TestAChangedCheckKnowsItsFileByAnySpelling` (`detpq`), the C runner (`detpr`) and the veneer smoke (`detps`).
-	- Branch: `r1103b`
-	- Commit: `2f38f68b`
-	- Acceptance signoff: me 20261103, hosted windows job and b29w short-name TEMP run above.
-	- Closed: 20261103
-
-- Two spellings of one path under a missing folder can resolve apart in C, Go and Python
-	- ID: 2026110314240418
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261103-142404
-	- Opened by: 2026110314064292's sweep
-	- Related IDs: 2026110314064292, 2026110312163201
-	- Steps to reproduce:
-		- Load `new/./n.shcl` while `new` isn't there, make `new`, have another program write `new/n.shcl`, then save to `new/n.shcl`.
-	- Incorrect behavior: C, and Go and Python since 2026110314064292, keep the part under the missing folder as written, so the load records `.../new/./n.shcl` and the save resolves `.../new/n.shcl`. The changed check sees 2 files and the save goes through. Rust drops `.` and doubled separators there, so it refuses.
-	- Expected behavior: one answer however the path is spelled, as spec.md's save text says. `..` has to stay as written, since the kernel refuses it through a missing folder.
-	- Reproduced: No, from reading.
-	- Possible cause: the resolve's rest after the nearest folder that's there drops neither `.` nor an empty part.
-	- Sweep: the resolve's rest in all 4, and the detp* tests.
-	- Estimated effort: Low
-
-- Go and Python create a file through a missing folder named with `..`
-	- ID: 2026110314064292
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261103-140642
-	- Opened by: 2026110312163203
-	- Related IDs: 2026110312163201
-	- Steps to reproduce:
-		- In an empty folder, `shcl set --write --set b=2 nodir/../f.shcl` with the Go or Python CLI.
-	- Incorrect behavior: exit 0, `nodir/../f.shcl: created`, and `f.shcl` is there. cli-regress `dd5h4` (`save-missdir`) fails for go and python.
-	- Expected behavior: exit 8 and nothing written, as Rust and C do and as Python did before `2f38f68b`.
-	- Reproduced: 20261103, the Python CLI at `2f38f68b` creates the file, and at `2f38f68b^` exits 8. Go fails `dd5h4` the same way.
-	- Possible cause: the path resolve from 2026110312163201 (`2f38f68b`) folds `nodir/..` away by text in Go and Python, so the missing folder is never seen.
-	- Sweep: the path resolve in all 4 and every save path that uses it.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual cause: confirmed. Python's resolve took `realpath` of the whole path, and Go's joined the rest onto the nearest folder with `filepath.Join`. Both cancel `nodir/..` as text, where the kernel refuses the missing folder, so the save named the file beside it. Go's write also put its temp file in the cleaned folder, so its refusal came from the rename, with other wording.
-	- Actual fix: Go and Python keep the rest of the path as written after the nearest folder that's there, as C does, so the write meets the missing folder. Go's write makes its temp file in the target's folder as written. 01's always-absolute answer is unchanged.
-		- 20261103: hosted ci.yml 41737912626 failed the windows job in `detpq` and `detpp`, the "new folder" row. The rest as written kept a `/`, where a file that's there resolves with `\`. Go and Python now turn the rest's `/` into `\` on windows. Go's resolve also took the working folder as `Getwd` gave it, a short name under a short TEMP, where a file that's there resolves long. It now resolves that folder the same way.
-	- Decisions:
-		- me, 20261103: Rust is left as is. It stops at the `..` and makes the whole path absolute, which keeps the `..` too and fails the same way.
-		- me, 20261103: on windows only `/` in the rest is changed, not the case of a name, since a folder that isn't there has no stored case to match.
-		- me, 20261103: windows cancels `nodir\..` itself, in every binding and before `2f38f68b` too, so the new test rows are POSIX only.
-	- Swept: the resolve in all 4 (`resolve_target`/`real_nearest` in Rust, `shcl_resolve_target` in C, `resolveTarget`/`realNearest` in Go, `_resolve_target` in Python) and their callers: the load's record, the save's compare, the create check and the write. C's windows resolve and Rust's `std::path::absolute` keep `..`. Python's write splits with `os.path.dirname`, which doesn't clean. Go's `filepath.Dir` and `filepath.Join` in the write were the only other cleans of the target.
-	- Verified: the new missing-folder rows in `detpp` and `detpq` fail with Go's and Python's resolve from `2f38f68b` put back and pass with the fix. `detpn` and `detpr` pass. The 4 CLIs exit 8 on the issue's command and leave the folder empty, and all 4 now say `cannot create temporary file`. Also cli-regress over all 4 CLIs (743 rows, `dd5h4` included), go test, go vet, staticcheck, gofmt, ruff, mypy, the Python and C runners, and `cicd.bash --skip=check-docs.bash --backlog-run-quick` for `rust go python c cli`, all 5 steps, and again for `go cli` after the last Go change.
-		- 20261103, the windows fix: on b29w with a short-name TEMP, `detpq` and `detpp` pass. With the code from `2c878191`, Go fails "new folder", "absolute, new" and the 2 relative and absolute rows, and Python fails "new folder". Also go test, staticcheck, ruff, mypy, the Python runner, cli-regress over all 4 CLIs (745 rows, `dd5h4` included) and `--backlog-run-quick` for `go python cli`.
-	- Test case: cli-regress `dd5h4` (`missdir`), and the missing-folder rows in `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go (`detpq`) and the C runner (`detpr`).
-	- Acceptance signoff: Self-closed: reproduced, the new rows failed on the old resolve and pass on the new, `dd5h4` passes in all 4 CLIs, and the gates are green.
-	- Branch: `r1103b`
-	- Closed: 20261103-142339
-
 - Go back to docker's default builder for the images
 	- ID: 2026110311291920
 	- Type: Enhancement
@@ -153,129 +64,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- The own builder was there so a run pruned only its own cache. With docker's GC doing the trimming, nothing needs pruning, and the builder only costs time and disk: a cold build of the 2 GB test image took 299 s against 266 s, and its cache kept a second 3 GB copy of the layers. (JC, me)
 	- Estimated effort: Low
-
-- The changed check hangs on a FIFO, and saves over a file it can't read
-	- ID: 2026110312163202
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 2
-	- Related IDs: 2026102910482342, 2026100307163911
-	- Steps to reproduce:
-		- Load `./f.shcl`, replace the file with a FIFO, then save to `./f.shcl`.
-		- Load `./p.shcl`, have another program write new text to it and set its mode to 0200, then save to `./p.shcl`.
-	- Incorrect behavior:
-		- The first save blocks forever.
-		- The second save succeeds, and the file holds the old text, so the other program's edit is gone.
-	- Expected behavior: the FIFO gets the save's "not a regular file" error, as a save to a path the load didn't read does. A file the check can't read is refused as changed, since the write needs no read access to replace it.
-	- Reproduced: 20261103, probes in Rust and Python.
-	- Possible cause: the check opens the path with a plain blocking read, before the write's regular-file test. It takes every read error but not-found as "unchanged". Its comment says the write fails the same way, but a rename over the file needs no read access.
-	- Origin: Confirmed in Rust and Python, Plausible in Go and C (read). Same commits as item 1. The FIFO half is the class 2026100307163911 fixed for the Schema read with a no-wait open, which the new read doesn't use.
-	- Sweep: every read of a path another program can swap, in all 4. That's the changed check, `upgrade_file`'s read, and `read_file`.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual cause: the check read the path with a plain open, which waits on a FIFO, before the write's regular-file test. It took any failed read as no change.
-	- Actual fix: the check reads only a regular file, through the no-wait open the Schema read uses, and leaves anything else to the write, which refuses it. A read that fails is a change. `upgrade_file`'s 2 reads again of the file use the same read. All 4.
-	- Decisions:
-		- me, 20261103: a FIFO or a folder at the path is left to the write rather than called a change, so the save gives the write's own error, as the expected behavior asks.
-		- me, 20261103: `read_file`, the load's read and `upgrade_file`'s first read keep their plain open. They read the path the caller named, when it's named, as 2026100307163911 left `--write FILE`, and a pipe such as a process substitution still reads.
-		- me, 20261103: on windows a file another program holds open with no read sharing is a change now, where the write used to decide. `force` still writes.
-	- Swept: the changed check and `upgrade_file`'s reads again in all 4. The veneer's saves reach C's. `read_file` and the first reads are left, as above. The 4 CLIs' own check before `--write` reads the same way, filed as 2026110313211991.
-	- Verified: `detpn` with only the old check, and `detpq` and `detpr` on the old code, hang on the FIFO until killed, and a Python probe on the old code hangs the same way. All 4 pass with the new check, the unreadable part included. Also the gate runs on 2026110312163201.
-	- Test case: the FIFO and unreadable parts of `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go (`detpq`) and the C runner (`detpr`). POSIX only, since windows has no FIFO at a path.
-	- Acceptance signoff: Self-closed: each new test hung on the old check and passes with the new, and the gates are green.
-	- Branch: `r1103b`
-	- Commit: `2f38f68b`
-	- Closed: 20261103-135026
-
-- The CLI's changed-since-read check hangs on a FIFO swapped in during `set`'s stdin wait
-	- ID: 2026110313211991
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261103-132119
-	- Opened by: 2026110312163202's sweep
-	- Related IDs: 2026110312163202, 2026100307163911
-	- Steps to reproduce:
-		- Run `shcl set --write f.shcl` with its ops on stdin. While it waits, replace `f.shcl` with a FIFO, then end the input.
-	- Incorrect behavior: the CLI reads `f.shcl` again before the save with a plain open, which waits for a writer.
-	- Expected behavior: exit 8 with the not-a-regular-file error, as the library's save gives since 2026110312163202.
-	- Reproduced: No, from reading.
-	- Possible cause: `unchanged_since_read` in all 4 CLIs opens the path to read with a plain open. The library's no-wait read is private, and the CLIs have none of their own.
-	- Sweep: `unchanged_since_read` and the re-read after a failed `upgrade --write`, in all 4 CLIs.
-	- Estimated effort: Low
-
-- A newer Format line after a `Format 3` line is ignored, so a save writes the file anyway
-	- ID: 2026110312163203
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 3
-	- Related IDs: 2026102910482344, 2026102309053667
-	- Steps to reproduce:
-		- `printf '##    Format   3\np: x\n##    Format   4\n' > n.shcl`, then `shcl set --set p=y --write n.shcl`.
-	- Incorrect behavior: exit 0 and the file is rewritten, in all 4 CLIs. There's no `H006`, `check` says ok, and `fmt --check` exits 0. `upgrade --from-2x --write` on the same file with `p: a, b` converts it and drops the `Format 4` line. With the 2 Format lines swapped, `H006` fires and the write exits 7.
-	- Expected behavior: spec.md says "Where a file names more than one format, the highest decides." So `H006`, exit 7 on the write, and `upgrade` leaves the file alone.
-	- Reproduced: 20261103, all 4 CLIs.
-	- Possible cause: the Format line reader returns the first line naming 3 or more, rather than reading on for the highest. Its own doc comment says the highest decides.
-	- Origin: Confirmed. The early return is from `4fcfec0b` (20261003) and `be88796f` (20261009). 2026102309053667 named this reading as a cause and fixed only its symptom. The newer-format refusal (`7f2aa27c`, 20261029) was built on it.
-	- Sweep: every reader of Format lines, in all 4: the newer-format test, `H006` and `H007`, `migrate`'s stamp test, and `upgrade_file`.
-	- Estimated effort: Low
-	- Actual cause: confirmed. The reader returned the first line naming this format or a newer one under the current rules, so a later, higher line was never read.
-	- Actual fix: the reader reads every line and keeps the highest that names this format or a newer one, the first of equals. An older line still counts only when none does. All 4. The newer-format refusal, `H006` and `H007`, `migrate`, `upgrade` and `upgrade_file` all read through it, so none of them changed.
-	- Decisions:
-		- me, 20261103: the first of 2 lines naming the same highest format is the one read, so `restamp` and the hint line stay where they were for a file that names one format twice.
-		- me, 20261103: the kept-top rewrite in `swap_banner` from 2026102309053667 stays. With the highest deciding it no longer changes what an older or current file reads as, and on a newer document it only changes the text in memory, which no save writes.
-		- 20261103: `a_block_kept_at_the_top_names_this_format_too` (`debk5` to `debk8`) had its input naming format 3 and `upgrade` making it over. The same input names 4 now, and `upgrade` leaves it alone with the text unchanged, as this item asks. Its `set_banner` half is unchanged.
-	- Swept: `format_line_read` in Rust and C, `formatLineRead` in Go and `_format_line_read` in Python, the one reader per binding. Its callers: `read_format_version`, the load's hint and newer flag, `migrate_text`, `upgrade` and `restamp`. The C++ veneer wraps the C call. No CLI reads the line itself. spec.md, design.md and the doc comments already said the highest decides.
-	- Verified: the new rows in `stamp_reads_say_why` fail in all 4 with the early return put back, and so do `debk6` and `debk8`. All pass with the fix. The 4 new cli-regress rows fail in all 4 CLIs built that way and pass with the fix. Also cargo test, go test, the Python and C runners, the veneer smoke, cli-regress (only `dd5h4` red, which 2026110314064292 has), crosscheck (22944 comparisons), check-docs (only the known `dcbc2`), check-abnf, test-ids check, rustfmt, gofmt, clippy, go vet, staticcheck, ruff and mypy.
-	- Test case: new rows in `stamp_reads_say_why` in Rust (`ddqh8`), Go (`ddqh9`), Python (`ddqha`) and C (`ddqhb`), `debk5` to `debk8`, and cli-regress `detr1` (`check-newer-after-current`), `detr2` (`set-print-newer-after-current`), `detr3` (`fmt-check-newer-after-current`) and `detr4` (`upgrade-newer-after-current`).
-	- Branch: `r1103b`
-	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the reading is what spec.md already says.
-	- Closed: 20261103-140642
-
-- A set that makes a second instance with an existing value moves kept lines, and can comment one out
-	- ID: 2026110312163204
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 4
-	- Related IDs: 2026100117214802, 2026100307163901, 2026100307163907, 2026100307310000
-	- Steps to reproduce:
-		- `printf 'a:\n\tb: y\n\tc: 1\n\t- 1\n' > f.shcl`, then `shcl set --write '--set=a.b(z)=y' f.shcl`.
-		- At the root: `printf 'c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n' > g.shcl`, then `shcl set '--set=b(a)=y' g.shcl`.
-	- Incorrect behavior: in all 4 CLIs, at exit 0.
-		- The first file becomes `a:`, `# - 1`, `b: y`, `c: 1`. The kept `E008` line is now a comment, and `check` says ok. With `a: v` as the parent, the line moves above `b` and reloads as `E011`.
-		- In the second, the kept `E007` line moves from the end of the file to above `b: y`.
-		- The other setters do the same, and so do kept `E003`, `E004` and `E009` lines.
-	- Expected behavior: the data doesn't change, so the file doesn't either, as with `--set=a.b=y`. design.md's "Kept lines under edits" says a kept line beside the target stays.
-	- Reproduced: 20261103, all 4 CLIs.
-	- Possible cause: a set that adds a field takes the block's trailing kept lines as the new node's leading lines. When its value then matches an existing instance, the 2 are merged, and the merge puts those lines above the survivor.
-	- Origin: Confirmed. Older code: the tail takeover (`f97003c8`, 20261004), the duplicate merge (`279862ae`), and the leading-line append when 2 nodes fold (`082c9172`). The codes kept since 20261028 reach it more often. 2026100307163907's sweep checked the duplicate merge for lost lines, not moved ones.
-	- Note: kept lines lost or moved by an edit is a class that has come back over many rounds, one site at a time. The kept-lines fuzz (2026100307310000) checks that each line survives, not that it stays in its block. Adding that check is part of the fix.
-	- Estimated effort: Avg
-	- Actual cause [Bug]: as above. The new node took the kept lines ending the block, and the fold put them above the old instance. A fold of 2 existing instances moved the kept lines beside the later one the same way.
-	- Progress log:
-		- 20261103, all 4 bindings:
-			- A setter whose `(value)` selector finds no instance, writing a value another instance has, sets that one (`same_instance`), so nothing is made and nothing moves, as with no selector.
-			- `collapse_dup` and `fold_dups_below` leave the kept lines beside the instance that folds where they were, through `beside_kept` and `leave_above` / `leave_last`, as a remove does. The comments written against it still go along. `beside_kept` now leaves those comments on the node rather than dropping them, which a remove never saw.
-			- The kept-lines fuzz `dderx` now holds a setter to leaving kept lines where they sat (`setter_moved`), outside the blocks of the target's name. Every eighth step adds a `(q)` selector, so a set makes a second instance. On the old library it fails at iteration 7815 at 200,000.
-			- design.md's "Kept lines under edits" has a bullet for it, and the changelog a line.
-	- Decisions:
-		- me, 20261103: the set goes to the instance with that value rather than making one and folding it, since the data is the same and that is what `--set=a.b=y` does. Kept lines named `b` in the block then become comments, as for any setter writing `b`.
-		- me, 20261103: when 2 instances fold, a kept line beside the one that goes stays above the next field, or at the end of the block. The fold of their fields puts such a line after the merged block.
-		- me, 20261103: the selector in the fuzz comes off the iteration and step counters, so the other steps draw what they did.
-	- Actual fix [Bug]: `same_instance` / `sameInstance` / `_same_instance` / `w_same_instance` in front of `place`, and the kept-line handling in `collapse_dup` and `fold_dups_below`, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`.
-	- Swept: `set_value_as` and its twins, the one path every setter and default form takes to a fold. `fold_dups_below` in all 4. `remove`, the other `beside_kept` caller. `settle_fence_name`'s join is a list onto an empty binding, which the table already covers. The load's own fold has the same shape, filed as 2026110315051536.
-	- Verified: the 4 conformance suites, cli-regress (649 rows), crosscheck over the corpus and a 2000-iteration dump (54180 comparisons), the 2,000,000-iteration release fuzz (31 properties, 513 s), check-docs (red only on `dcbc2`, `dd40z` and `dcv66`, from other items' commits), check-abnf, test-ids check, shell-regress, rustfmt, gofmt, clippy for both targets, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, gcc 14 and 15 and clang at `-Werror`, and the C runner under ASan and UBSan.
-	- Verified: `detsb`, `detsc`, `detsd` and `detse` fail on the old library in each runner, `dderx` fails on the old Rust library, and the commands of cli-regress `detsf` and `detsg` give the old output with the review's CLIs, in all 4.
-	- Branch: `r1103b`
-	- Test case: `a_set_that_folds_leaves_kept_lines` (`detsb` Rust, `detsc` Go, `detsd` Python, `detse` C); cli-regress `detsf` (`set-fold-keeps-kept-lines`); fuzz `dderx`.
-	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the result is what design.md's table already says.
-	- Closed: 20261103-150515
 
 - `--quick` runs every test box
 	- ID: 2026110215285702
@@ -328,44 +116,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed, by reading.
 	- Estimated effort: Avg
 
-- The default run takes over an hour
-	- ID: 2026110215285706
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 6
-	- Related IDs: 2026102515494614
-	- Problem description: `run_20261101-103838` took 76 minutes and `run_20261101-120609` 72, with tests 49 of them. The run lengths item closed on a 59-minute run, before the box step and the hosted job were added.
-	- Requirements:
-		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
-	- Estimated effort: Avg
-
-- Setting a list field twice gives 2 different files when a kept line sits among its items
-	- ID: 2026110312163205
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 5
-	- Related IDs: 2026110312163204
-	- Steps to reproduce:
-		- `printf 'a:\n\t- 1\n\ta: [1, 2\n\t- 2\n' > s.shcl`, then `shcl set --set=a=1 s.shcl > s1.shcl`, then the same set on `s1.shcl`.
-	- Incorrect behavior: in all 4 CLIs. The first set moves the kept `E019` line to the root as `a: [1, 2`, above `a: 1`. The second set turns it into a comment with a note. In between, a hand fix to `a: [1, 2]` makes `a` read as Multiple, which is what the comment rule is there to stop.
-	- Expected behavior: the first set writes the comment, and the second changes nothing.
-	- Reproduced: 20261103, all 4 CLIs.
-	- Possible cause: the comment pass runs before the lines among the items move up to the field's level.
-	- Origin: Confirmed. That move came in with `d0b200c5` (20260924). No earlier round saw it.
-	- Estimated effort: Low
-	- Actual cause [Bug]: as above.
-	- Actual fix [Bug]: a setter on a field it didn't make writes the kept lines of its name as comments after the unstack, not before, in all 4 bindings. design.md's bullet on a stacked list's lines says so, and the changelog has a line.
-	- Swept: the one call to `comment_out_kept` for a field that was there, in `set_value_as` and its twins. `place`'s call for a field it makes has no list to unstack.
-	- Verified: with 2026110312163204's runs. The fixture fails on the old library in each runner.
-	- Branch: `r1103b`
-	- Test case: the last case of `a_set_that_folds_leaves_kept_lines` (`detsb`, `detsc`, `detsd`, `detse`), which sets twice; cli-regress `detsg` (`set-stacked-kept-name-once`).
-	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after.
-	- Closed: 20261103-150515
-
 - `fmt` moves a kept line above an earlier instance when the load merges 2 of one name and value
 	- ID: 2026110315051536
 	- Type: Bug
@@ -382,6 +132,53 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261103, all 4 CLIs on `r1103b`.
 	- Possible cause: the load's fold of a second instance (`H002`) appends its leading lines to the first one's, the same shape 2026110312163204 fixed in the setter's fold.
 	- Estimated effort: Avg
+
+- The default run takes over an hour
+	- ID: 2026110215285706
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 6
+	- Related IDs: 2026102515494614
+	- Problem description: `run_20261101-103838` took 76 minutes and `run_20261101-120609` 72, with tests 49 of them. The run lengths item closed on a 59-minute run, before the box step and the hosted job were added.
+	- Requirements:
+		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
+	- Estimated effort: Avg
+
+- Two spellings of one path under a missing folder can resolve apart in C, Go and Python
+	- ID: 2026110314240418
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-142404
+	- Opened by: 2026110314064292's sweep
+	- Related IDs: 2026110314064292, 2026110312163201
+	- Steps to reproduce:
+		- Load `new/./n.shcl` while `new` isn't there, make `new`, have another program write `new/n.shcl`, then save to `new/n.shcl`.
+	- Incorrect behavior: C, and Go and Python since 2026110314064292, keep the part under the missing folder as written, so the load records `.../new/./n.shcl` and the save resolves `.../new/n.shcl`. The changed check sees 2 files and the save goes through. Rust drops `.` and doubled separators there, so it refuses.
+	- Expected behavior: one answer however the path is spelled, as spec.md's save text says. `..` has to stay as written, since the kernel refuses it through a missing folder.
+	- Reproduced: No, from reading.
+	- Possible cause: the resolve's rest after the nearest folder that's there drops neither `.` nor an empty part.
+	- Sweep: the resolve's rest in all 4, and the detp* tests.
+	- Estimated effort: Low
+
+- The CLI's changed-since-read check hangs on a FIFO swapped in during `set`'s stdin wait
+	- ID: 2026110313211991
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261103-132119
+	- Opened by: 2026110312163202's sweep
+	- Related IDs: 2026110312163202, 2026100307163911
+	- Steps to reproduce:
+		- Run `shcl set --write f.shcl` with its ops on stdin. While it waits, replace `f.shcl` with a FIFO, then end the input.
+	- Incorrect behavior: the CLI reads `f.shcl` again before the save with a plain open, which waits for a writer.
+	- Expected behavior: exit 8 with the not-a-regular-file error, as the library's save gives since 2026110312163202.
+	- Reproduced: No, from reading.
+	- Possible cause: `unchanged_since_read` in all 4 CLIs opens the path to read with a plain open. The library's no-wait read is private, and the CLIs have none of their own.
+	- Sweep: `unchanged_since_read` and the re-read after a failed `upgrade --write`, in all 4 CLIs.
+	- Estimated effort: Low
 
 - `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
 	- ID: 2026110312163206
@@ -435,30 +232,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed. Older than this window (`74a2e5d0`), and the new `save_file_with` (`a618835c`) repeats it. The same class as 2026092813365307 in the C CLI.
 	- Sweep: every C++ interface call that takes a `std::string` path.
 	- Estimated effort: Low
-
-- The man page leaves the newer-format refusal out of exit 7
-	- ID: 2026110312163209
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 9
-	- Related IDs: 2026102910482344
-	- Incorrect behavior: the man page's exit status list gives 7 for lost lines and the migrate and upgrade cases only, and never names `H006`.
-	- Expected behavior: it lists the newer-format refusal, as `--help` and spec.md do.
-	- Reproduced: 20261103, by reading `source/man/shcl.1`.
-	- Origin: Confirmed. `7f2aa27c` updated the help, the spec and `explain H006`, not the man page.
-	- Note: check-docs could compare the man page's exit list with `--help`'s, so the next gap is caught.
-	- Estimated effort: Low
-	- Actual fix: the man page's exit 7 entry names a file that names a newer format, with `H006`, and says nothing overrides it.
-	- Decisions:
-		- me, 20261103: no check-docs compare of the man page's exit list with `--help`'s for now. The man page gives each code in prose and the help in one sentence, so a check would match words, and would break on any rewording of either.
-	- Swept: the man page is the only copy of that text. `--help`, spec.md and `explain H006` already name the refusal.
-	- Verified: the man page at 80 columns reads as above. cli-regress `man-width` (`dcbc4`) passes.
-	- Test case: cli-regress `man-width` (`dcbc4`) for its width. No content test, docs only.
-	- Branch: `r1103b`
-	- Acceptance signoff: Self-closed: docs only, and the line says what `--help` and spec.md say.
-	- Closed: 20261103-140642
 
 - A failed run skips most of the cleanup and the closing blank line
 	- ID: 2026110215285704
@@ -807,6 +580,233 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- The changed check misses an edit when the load and the save spell the path differently, so another program's edit is lost
+	- ID: 2026110312163201
+	- Type: Bug
+	- Status: Done
+	- Needs external testing: No
+	- Severity: High
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 1
+	- Related IDs: 2026102910482342, 2026102912203339, 2026102912203341, 2026102912203343
+	- Steps to reproduce:
+		- Rust, Python or C: write `a: 1` to `i.shcl`, load `i.shcl`, delete the file, then save to `i.shcl`.
+		- Rust, Python or C: load `h.shcl` when it isn't there, have another program write it, then save to `h.shcl`.
+		- Go: load `sub/l.shcl`, have another program edit it, then save to the same file by its absolute path.
+	- Incorrect behavior:
+		- Rust, Python and C save with no error in the first 2 cases, over the other program's file. So a program that loads a missing file, saves it, and saves again after the user edits it loses the user's edit.
+		- Go saves with no error when the load and the save name one file as relative and absolute. It refuses a save to a different file of the same relative name after a `chdir`.
+		- With `./i.shcl` and `./h.shcl`, Rust, Python and C refuse as they should.
+	- Expected behavior: spec.md's save text. A file gone since the load is a change, and so is one made where the load found nothing. A save anywhere else isn't checked. One file gives one answer, however its path is spelled.
+	- Reproduced: 20261103, a probe per binding against dev `be299ccb`.
+	- Possible cause: the check compares 2 resolved path strings. Rust, Python and C make a bare name absolute only while the file exists, so a missing file's record stays relative and never matches. Go keeps a relative path relative and compares the text. A load whose folder doesn't exist yet records a relative path the same way (read only).
+	- Origin: Confirmed, all 4. The check came in on 20261029 (`e799b7c6` Rust and Python, `34536e68` Go, `c271967d` C). The path resolve is older. What's new is using its answer as the file's identity. No earlier round saw it.
+	- Sweep: every place a resolved path is stored or compared, in all 4 and the C++ interface. That's the load's file record, the save's compare, `upgrade_file`'s own changed check, and the create check.
+	- Note: a test over path spellings in each binding's runner would cover the class: bare, `./`, absolute, through a link, and after a `chdir`.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause: the resolve made a path with nothing at it absolute only through its own folder, and Rust, Python and C skipped that for a bare name or a folder not there yet. Go returned EvalSymlinks' answer, which stays relative for a relative path. So the load's record and the save's target were 2 strings for one file.
+	- Actual fix: the resolve's answer is always absolute. A path with nothing at it goes through the real path of the nearest folder above it that's there, and the rest as written. Go makes EvalSymlinks' answer absolute against the working folder's real path. All 4. C's windows resolve already gave full paths.
+	- Decisions:
+		- me, 20261103: the fix is in the resolve the write uses, not a second one for the check, so the record, the compare, the create check and the write can't disagree. The write's target was relative only where its folder was `.` or not there, so it writes where it did.
+		- me, 20261103: a relative path is taken from the working folder at the time. After a `chdir` the same relative name is another file, and isn't checked. spec.md and design.md say so now.
+		- me, 20261103: Go resolves the working folder too, since `Getwd` can answer with a `$PWD` that runs through a link.
+	- Swept: Rust, Python, Go and C, every caller of the resolve: the load's record, the save's compare, the create check and the write. `upgrade_file`'s check compares no paths. The veneer wraps the C save. C's windows resolve gives a full path in every mode, so it's unchanged. The CLIs keep their own check, by the path they read.
+	- Verified: `detpn`, `detpp`, `detpq`, `detpr` and `detps` fail on the old code and pass on the new. Under wine, `detpn`, `detpq`, `detpr`, `dekk8` and `dekkm` pass, which doesn't cover the hosted runner's short-name TEMP. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, and again for `c` after the last C change. check-docs alone fails only the known `dcbc2`. codeql-scan alone passes all 17 checks, and the C runner passes under ASan and UBSan.
+	- Verified: 20261103 hosted ci.yml run 41741462062 on r1103b at cd340bf7, windows job: PASS detpn, detpp, detpq, detpr, detps, dekj6, dekk8 and dekkm. That runner had a long TEMP; the short-name case passed on b29w for Go and Python with 2026110314064292's fix.
+	- Test case: `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go `TestAChangedCheckKnowsItsFileByAnySpelling` (`detpq`), the C runner (`detpr`) and the veneer smoke (`detps`).
+	- Branch: `r1103b`
+	- Commit: `2f38f68b`
+	- Acceptance signoff: me 20261103, hosted windows job and b29w short-name TEMP run above.
+	- Closed: 20261103
+
+- Go and Python create a file through a missing folder named with `..`
+	- ID: 2026110314064292
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261103-140642
+	- Opened by: 2026110312163203
+	- Related IDs: 2026110312163201
+	- Steps to reproduce:
+		- In an empty folder, `shcl set --write --set b=2 nodir/../f.shcl` with the Go or Python CLI.
+	- Incorrect behavior: exit 0, `nodir/../f.shcl: created`, and `f.shcl` is there. cli-regress `dd5h4` (`save-missdir`) fails for go and python.
+	- Expected behavior: exit 8 and nothing written, as Rust and C do and as Python did before `2f38f68b`.
+	- Reproduced: 20261103, the Python CLI at `2f38f68b` creates the file, and at `2f38f68b^` exits 8. Go fails `dd5h4` the same way.
+	- Possible cause: the path resolve from 2026110312163201 (`2f38f68b`) folds `nodir/..` away by text in Go and Python, so the missing folder is never seen.
+	- Sweep: the path resolve in all 4 and every save path that uses it.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. Python's resolve took `realpath` of the whole path, and Go's joined the rest onto the nearest folder with `filepath.Join`. Both cancel `nodir/..` as text, where the kernel refuses the missing folder, so the save named the file beside it. Go's write also put its temp file in the cleaned folder, so its refusal came from the rename, with other wording.
+	- Actual fix: Go and Python keep the rest of the path as written after the nearest folder that's there, as C does, so the write meets the missing folder. Go's write makes its temp file in the target's folder as written. 01's always-absolute answer is unchanged.
+		- 20261103: hosted ci.yml 41737912626 failed the windows job in `detpq` and `detpp`, the "new folder" row. The rest as written kept a `/`, where a file that's there resolves with `\`. Go and Python now turn the rest's `/` into `\` on windows. Go's resolve also took the working folder as `Getwd` gave it, a short name under a short TEMP, where a file that's there resolves long. It now resolves that folder the same way.
+	- Decisions:
+		- me, 20261103: Rust is left as is. It stops at the `..` and makes the whole path absolute, which keeps the `..` too and fails the same way.
+		- me, 20261103: on windows only `/` in the rest is changed, not the case of a name, since a folder that isn't there has no stored case to match.
+		- me, 20261103: windows cancels `nodir\..` itself, in every binding and before `2f38f68b` too, so the new test rows are POSIX only.
+	- Swept: the resolve in all 4 (`resolve_target`/`real_nearest` in Rust, `shcl_resolve_target` in C, `resolveTarget`/`realNearest` in Go, `_resolve_target` in Python) and their callers: the load's record, the save's compare, the create check and the write. C's windows resolve and Rust's `std::path::absolute` keep `..`. Python's write splits with `os.path.dirname`, which doesn't clean. Go's `filepath.Dir` and `filepath.Join` in the write were the only other cleans of the target.
+	- Verified: the new missing-folder rows in `detpp` and `detpq` fail with Go's and Python's resolve from `2f38f68b` put back and pass with the fix. `detpn` and `detpr` pass. The 4 CLIs exit 8 on the issue's command and leave the folder empty, and all 4 now say `cannot create temporary file`. Also cli-regress over all 4 CLIs (743 rows, `dd5h4` included), go test, go vet, staticcheck, gofmt, ruff, mypy, the Python and C runners, and `cicd.bash --skip=check-docs.bash --backlog-run-quick` for `rust go python c cli`, all 5 steps, and again for `go cli` after the last Go change.
+		- 20261103, the windows fix: on b29w with a short-name TEMP, `detpq` and `detpp` pass. With the code from `2c878191`, Go fails "new folder", "absolute, new" and the 2 relative and absolute rows, and Python fails "new folder". Also go test, staticcheck, ruff, mypy, the Python runner, cli-regress over all 4 CLIs (745 rows, `dd5h4` included) and `--backlog-run-quick` for `go python cli`.
+	- Test case: cli-regress `dd5h4` (`missdir`), and the missing-folder rows in `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go (`detpq`) and the C runner (`detpr`).
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed on the old resolve and pass on the new, `dd5h4` passes in all 4 CLIs, and the gates are green.
+	- Branch: `r1103b`
+	- Closed: 20261103-142339
+
+- The changed check hangs on a FIFO, and saves over a file it can't read
+	- ID: 2026110312163202
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 2
+	- Related IDs: 2026102910482342, 2026100307163911
+	- Steps to reproduce:
+		- Load `./f.shcl`, replace the file with a FIFO, then save to `./f.shcl`.
+		- Load `./p.shcl`, have another program write new text to it and set its mode to 0200, then save to `./p.shcl`.
+	- Incorrect behavior:
+		- The first save blocks forever.
+		- The second save succeeds, and the file holds the old text, so the other program's edit is gone.
+	- Expected behavior: the FIFO gets the save's "not a regular file" error, as a save to a path the load didn't read does. A file the check can't read is refused as changed, since the write needs no read access to replace it.
+	- Reproduced: 20261103, probes in Rust and Python.
+	- Possible cause: the check opens the path with a plain blocking read, before the write's regular-file test. It takes every read error but not-found as "unchanged". Its comment says the write fails the same way, but a rename over the file needs no read access.
+	- Origin: Confirmed in Rust and Python, Plausible in Go and C (read). Same commits as item 1. The FIFO half is the class 2026100307163911 fixed for the Schema read with a no-wait open, which the new read doesn't use.
+	- Sweep: every read of a path another program can swap, in all 4. That's the changed check, `upgrade_file`'s read, and `read_file`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: the check read the path with a plain open, which waits on a FIFO, before the write's regular-file test. It took any failed read as no change.
+	- Actual fix: the check reads only a regular file, through the no-wait open the Schema read uses, and leaves anything else to the write, which refuses it. A read that fails is a change. `upgrade_file`'s 2 reads again of the file use the same read. All 4.
+	- Decisions:
+		- me, 20261103: a FIFO or a folder at the path is left to the write rather than called a change, so the save gives the write's own error, as the expected behavior asks.
+		- me, 20261103: `read_file`, the load's read and `upgrade_file`'s first read keep their plain open. They read the path the caller named, when it's named, as 2026100307163911 left `--write FILE`, and a pipe such as a process substitution still reads.
+		- me, 20261103: on windows a file another program holds open with no read sharing is a change now, where the write used to decide. `force` still writes.
+	- Swept: the changed check and `upgrade_file`'s reads again in all 4. The veneer's saves reach C's. `read_file` and the first reads are left, as above. The 4 CLIs' own check before `--write` reads the same way, filed as 2026110313211991.
+	- Verified: `detpn` with only the old check, and `detpq` and `detpr` on the old code, hang on the FIFO until killed, and a Python probe on the old code hangs the same way. All 4 pass with the new check, the unreadable part included. Also the gate runs on 2026110312163201.
+	- Test case: the FIFO and unreadable parts of `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go (`detpq`) and the C runner (`detpr`). POSIX only, since windows has no FIFO at a path.
+	- Acceptance signoff: Self-closed: each new test hung on the old check and passes with the new, and the gates are green.
+	- Branch: `r1103b`
+	- Commit: `2f38f68b`
+	- Closed: 20261103-135026
+
+- A newer Format line after a `Format 3` line is ignored, so a save writes the file anyway
+	- ID: 2026110312163203
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 3
+	- Related IDs: 2026102910482344, 2026102309053667
+	- Steps to reproduce:
+		- `printf '##    Format   3\np: x\n##    Format   4\n' > n.shcl`, then `shcl set --set p=y --write n.shcl`.
+	- Incorrect behavior: exit 0 and the file is rewritten, in all 4 CLIs. There's no `H006`, `check` says ok, and `fmt --check` exits 0. `upgrade --from-2x --write` on the same file with `p: a, b` converts it and drops the `Format 4` line. With the 2 Format lines swapped, `H006` fires and the write exits 7.
+	- Expected behavior: spec.md says "Where a file names more than one format, the highest decides." So `H006`, exit 7 on the write, and `upgrade` leaves the file alone.
+	- Reproduced: 20261103, all 4 CLIs.
+	- Possible cause: the Format line reader returns the first line naming 3 or more, rather than reading on for the highest. Its own doc comment says the highest decides.
+	- Origin: Confirmed. The early return is from `4fcfec0b` (20261003) and `be88796f` (20261009). 2026102309053667 named this reading as a cause and fixed only its symptom. The newer-format refusal (`7f2aa27c`, 20261029) was built on it.
+	- Sweep: every reader of Format lines, in all 4: the newer-format test, `H006` and `H007`, `migrate`'s stamp test, and `upgrade_file`.
+	- Estimated effort: Low
+	- Actual cause: confirmed. The reader returned the first line naming this format or a newer one under the current rules, so a later, higher line was never read.
+	- Actual fix: the reader reads every line and keeps the highest that names this format or a newer one, the first of equals. An older line still counts only when none does. All 4. The newer-format refusal, `H006` and `H007`, `migrate`, `upgrade` and `upgrade_file` all read through it, so none of them changed.
+	- Decisions:
+		- me, 20261103: the first of 2 lines naming the same highest format is the one read, so `restamp` and the hint line stay where they were for a file that names one format twice.
+		- me, 20261103: the kept-top rewrite in `swap_banner` from 2026102309053667 stays. With the highest deciding it no longer changes what an older or current file reads as, and on a newer document it only changes the text in memory, which no save writes.
+		- 20261103: `a_block_kept_at_the_top_names_this_format_too` (`debk5` to `debk8`) had its input naming format 3 and `upgrade` making it over. The same input names 4 now, and `upgrade` leaves it alone with the text unchanged, as this item asks. Its `set_banner` half is unchanged.
+	- Swept: `format_line_read` in Rust and C, `formatLineRead` in Go and `_format_line_read` in Python, the one reader per binding. Its callers: `read_format_version`, the load's hint and newer flag, `migrate_text`, `upgrade` and `restamp`. The C++ veneer wraps the C call. No CLI reads the line itself. spec.md, design.md and the doc comments already said the highest decides.
+	- Verified: the new rows in `stamp_reads_say_why` fail in all 4 with the early return put back, and so do `debk6` and `debk8`. All pass with the fix. The 4 new cli-regress rows fail in all 4 CLIs built that way and pass with the fix. Also cargo test, go test, the Python and C runners, the veneer smoke, cli-regress (only `dd5h4` red, which 2026110314064292 has), crosscheck (22944 comparisons), check-docs (only the known `dcbc2`), check-abnf, test-ids check, rustfmt, gofmt, clippy, go vet, staticcheck, ruff and mypy.
+	- Test case: new rows in `stamp_reads_say_why` in Rust (`ddqh8`), Go (`ddqh9`), Python (`ddqha`) and C (`ddqhb`), `debk5` to `debk8`, and cli-regress `detr1` (`check-newer-after-current`), `detr2` (`set-print-newer-after-current`), `detr3` (`fmt-check-newer-after-current`) and `detr4` (`upgrade-newer-after-current`).
+	- Branch: `r1103b`
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the reading is what spec.md already says.
+	- Closed: 20261103-140642
+
+- A set that makes a second instance with an existing value moves kept lines, and can comment one out
+	- ID: 2026110312163204
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 4
+	- Related IDs: 2026100117214802, 2026100307163901, 2026100307163907, 2026100307310000
+	- Steps to reproduce:
+		- `printf 'a:\n\tb: y\n\tc: 1\n\t- 1\n' > f.shcl`, then `shcl set --write '--set=a.b(z)=y' f.shcl`.
+		- At the root: `printf 'c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n' > g.shcl`, then `shcl set '--set=b(a)=y' g.shcl`.
+	- Incorrect behavior: in all 4 CLIs, at exit 0.
+		- The first file becomes `a:`, `# - 1`, `b: y`, `c: 1`. The kept `E008` line is now a comment, and `check` says ok. With `a: v` as the parent, the line moves above `b` and reloads as `E011`.
+		- In the second, the kept `E007` line moves from the end of the file to above `b: y`.
+		- The other setters do the same, and so do kept `E003`, `E004` and `E009` lines.
+	- Expected behavior: the data doesn't change, so the file doesn't either, as with `--set=a.b=y`. design.md's "Kept lines under edits" says a kept line beside the target stays.
+	- Reproduced: 20261103, all 4 CLIs.
+	- Possible cause: a set that adds a field takes the block's trailing kept lines as the new node's leading lines. When its value then matches an existing instance, the 2 are merged, and the merge puts those lines above the survivor.
+	- Origin: Confirmed. Older code: the tail takeover (`f97003c8`, 20261004), the duplicate merge (`279862ae`), and the leading-line append when 2 nodes fold (`082c9172`). The codes kept since 20261028 reach it more often. 2026100307163907's sweep checked the duplicate merge for lost lines, not moved ones.
+	- Note: kept lines lost or moved by an edit is a class that has come back over many rounds, one site at a time. The kept-lines fuzz (2026100307310000) checks that each line survives, not that it stays in its block. Adding that check is part of the fix.
+	- Estimated effort: Avg
+	- Actual cause [Bug]: as above. The new node took the kept lines ending the block, and the fold put them above the old instance. A fold of 2 existing instances moved the kept lines beside the later one the same way.
+	- Progress log:
+		- 20261103, all 4 bindings:
+			- A setter whose `(value)` selector finds no instance, writing a value another instance has, sets that one (`same_instance`), so nothing is made and nothing moves, as with no selector.
+			- `collapse_dup` and `fold_dups_below` leave the kept lines beside the instance that folds where they were, through `beside_kept` and `leave_above` / `leave_last`, as a remove does. The comments written against it still go along. `beside_kept` now leaves those comments on the node rather than dropping them, which a remove never saw.
+			- The kept-lines fuzz `dderx` now holds a setter to leaving kept lines where they sat (`setter_moved`), outside the blocks of the target's name. Every eighth step adds a `(q)` selector, so a set makes a second instance. On the old library it fails at iteration 7815 at 200,000.
+			- design.md's "Kept lines under edits" has a bullet for it, and the changelog a line.
+	- Decisions:
+		- me, 20261103: the set goes to the instance with that value rather than making one and folding it, since the data is the same and that is what `--set=a.b=y` does. Kept lines named `b` in the block then become comments, as for any setter writing `b`.
+		- me, 20261103: when 2 instances fold, a kept line beside the one that goes stays above the next field, or at the end of the block. The fold of their fields puts such a line after the merged block.
+		- me, 20261103: the selector in the fuzz comes off the iteration and step counters, so the other steps draw what they did.
+	- Actual fix [Bug]: `same_instance` / `sameInstance` / `_same_instance` / `w_same_instance` in front of `place`, and the kept-line handling in `collapse_dup` and `fold_dups_below`, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`.
+	- Swept: `set_value_as` and its twins, the one path every setter and default form takes to a fold. `fold_dups_below` in all 4. `remove`, the other `beside_kept` caller. `settle_fence_name`'s join is a list onto an empty binding, which the table already covers. The load's own fold has the same shape, filed as 2026110315051536.
+	- Verified: the 4 conformance suites, cli-regress (649 rows), crosscheck over the corpus and a 2000-iteration dump (54180 comparisons), the 2,000,000-iteration release fuzz (31 properties, 513 s), check-docs (red only on `dcbc2`, `dd40z` and `dcv66`, from other items' commits), check-abnf, test-ids check, shell-regress, rustfmt, gofmt, clippy for both targets, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, gcc 14 and 15 and clang at `-Werror`, and the C runner under ASan and UBSan.
+	- Verified: `detsb`, `detsc`, `detsd` and `detse` fail on the old library in each runner, `dderx` fails on the old Rust library, and the commands of cli-regress `detsf` and `detsg` give the old output with the review's CLIs, in all 4.
+	- Branch: `r1103b`
+	- Test case: `a_set_that_folds_leaves_kept_lines` (`detsb` Rust, `detsc` Go, `detsd` Python, `detse` C); cli-regress `detsf` (`set-fold-keeps-kept-lines`); fuzz `dderx`.
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the result is what design.md's table already says.
+	- Closed: 20261103-150515
+
+- Setting a list field twice gives 2 different files when a kept line sits among its items
+	- ID: 2026110312163205
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 5
+	- Related IDs: 2026110312163204
+	- Steps to reproduce:
+		- `printf 'a:\n\t- 1\n\ta: [1, 2\n\t- 2\n' > s.shcl`, then `shcl set --set=a=1 s.shcl > s1.shcl`, then the same set on `s1.shcl`.
+	- Incorrect behavior: in all 4 CLIs. The first set moves the kept `E019` line to the root as `a: [1, 2`, above `a: 1`. The second set turns it into a comment with a note. In between, a hand fix to `a: [1, 2]` makes `a` read as Multiple, which is what the comment rule is there to stop.
+	- Expected behavior: the first set writes the comment, and the second changes nothing.
+	- Reproduced: 20261103, all 4 CLIs.
+	- Possible cause: the comment pass runs before the lines among the items move up to the field's level.
+	- Origin: Confirmed. That move came in with `d0b200c5` (20260924). No earlier round saw it.
+	- Estimated effort: Low
+	- Actual cause [Bug]: as above.
+	- Actual fix [Bug]: a setter on a field it didn't make writes the kept lines of its name as comments after the unstack, not before, in all 4 bindings. design.md's bullet on a stacked list's lines says so, and the changelog has a line.
+	- Swept: the one call to `comment_out_kept` for a field that was there, in `set_value_as` and its twins. `place`'s call for a field it makes has no list to unstack.
+	- Verified: with 2026110312163204's runs. The fixture fails on the old library in each runner.
+	- Branch: `r1103b`
+	- Test case: the last case of `a_set_that_folds_leaves_kept_lines` (`detsb`, `detsc`, `detsd`, `detse`), which sets twice; cli-regress `detsg` (`set-stacked-kept-name-once`).
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after.
+	- Closed: 20261103-150515
+
+- The man page leaves the newer-format refusal out of exit 7
+	- ID: 2026110312163209
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 9
+	- Related IDs: 2026102910482344
+	- Incorrect behavior: the man page's exit status list gives 7 for lost lines and the migrate and upgrade cases only, and never names `H006`.
+	- Expected behavior: it lists the newer-format refusal, as `--help` and spec.md do.
+	- Reproduced: 20261103, by reading `source/man/shcl.1`.
+	- Origin: Confirmed. `7f2aa27c` updated the help, the spec and `explain H006`, not the man page.
+	- Note: check-docs could compare the man page's exit list with `--help`'s, so the next gap is caught.
+	- Estimated effort: Low
+	- Actual fix: the man page's exit 7 entry names a file that names a newer format, with `H006`, and says nothing overrides it.
+	- Decisions:
+		- me, 20261103: no check-docs compare of the man page's exit list with `--help`'s for now. The man page gives each code in prose and the help in one sentence, so a check would match words, and would break on any rewording of either.
+	- Swept: the man page is the only copy of that text. `--help`, spec.md and `explain H006` already name the refusal.
+	- Verified: the man page at 80 columns reads as above. cli-regress `man-width` (`dcbc4`) passes.
+	- Test case: cli-regress `man-width` (`dcbc4`) for its width. No content test, docs only.
+	- Branch: `r1103b`
+	- Acceptance signoff: Self-closed: docs only, and the line says what `--help` and spec.md say.
+	- Closed: 20261103-140642
 
 - check-boxes names a private helper script by its file name
 	- ID: 2026110215285701
