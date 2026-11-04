@@ -1920,14 +1920,74 @@ fn write_back(doc: &mut Document, file: &str, o: &Opts, read: Option<&str>, keep
 /// FILE still holds the bytes the load read. `set` waits on stdin between the
 /// load and the save, and an edit made in that wait was reverted at exit 0.
 /// A gap is left between this read and the publish, the width of one save.
+/// Something swapped in that isn't a regular file gets the save's own error
+/// here, since the write after this may find nothing to do.
 fn unchanged_since_read(file: &str, before: &str) -> bool {
-	match std::fs::read(file) {
-		Ok(now) if now == before.as_bytes() => true,
+	match read_regular(file) {
+		Ok(Some(now)) if now == before.as_bytes() => true,
+		Ok(None) => {
+			errln!("{}: not a regular file", file);
+			false
+		}
 		_ => {
 			errln!("{}: changed since it was read; nothing written", file);
 			false
 		}
 	}
+}
+
+/// The bytes of the regular file at PATH, or Ok(None) when something else is
+/// there, such as a FIFO swapped in, which the open doesn't wait on. The
+/// library's copy is private.
+fn read_regular(path: &str) -> std::io::Result<Option<Vec<u8>>> {
+	use std::io::Read;
+	if !std::fs::metadata(path)?.is_file() {
+		return Ok(None);
+	}
+	let mut f = open_no_wait(path)?;
+	if !f.metadata()?.is_file() {
+		return Ok(None);
+	}
+	let mut bytes = Vec::new();
+	f.read_to_end(&mut bytes)?;
+	Ok(Some(bytes))
+}
+
+/// Opening a FIFO waits for a writer, and the path can turn into one between
+/// the stat and the open. So on POSIX the open does not wait, and the flag
+/// comes straight back off.
+#[cfg(all(unix, not(miri)))]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	use std::os::fd::AsRawFd;
+	use std::os::unix::fs::OpenOptionsExt;
+	const F_GETFL: i32 = 3;
+	const F_SETFL: i32 = 4;
+	// Linux on mips and sparc has its own values; no release builds for either.
+	#[cfg(any(target_os = "linux", target_os = "android"))]
+	const O_NONBLOCK: i32 = 0o4000;
+	#[cfg(not(any(target_os = "linux", target_os = "android")))]
+	const O_NONBLOCK: i32 = 0x4;
+	unsafe extern "C" {
+		fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+	}
+	let f = std::fs::OpenOptions::new()
+		.read(true)
+		.custom_flags(O_NONBLOCK)
+		.open(path)?;
+	let fd = f.as_raw_fd();
+	// SAFETY: fd is open for as long as f lives, and these two commands take
+	// an int or nothing, so the variadic call passes what fcntl reads.
+	let flags = unsafe { fcntl(fd, F_GETFL) };
+	// SAFETY: as above.
+	if flags == -1 || unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } == -1 {
+		return Err(std::io::Error::last_os_error());
+	}
+	Ok(f)
+}
+// Miri refuses O_NONBLOCK on an open, and its tests make no FIFO.
+#[cfg(any(not(unix), miri))]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	std::fs::File::open(path)
 }
 
 /// A file or stream that could not be read or written. Its own code since a
@@ -2584,7 +2644,7 @@ fn do_migrate(o: &Opts) -> u8 {
 				// windows can leave nothing at FILE, and then the copy is all
 				// there is.
 				if let Some(old) = &old {
-					if std::fs::read(file).is_ok_and(|now| now == text.as_bytes()) {
+					if matches!(read_regular(file), Ok(Some(now)) if now == text.as_bytes()) {
 						let _ = std::fs::remove_file(old);
 					} else {
 						errln!("{}: the original is {}", file, old);

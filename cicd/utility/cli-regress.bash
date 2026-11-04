@@ -456,8 +456,9 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	temp dir), %NA% a value outside ASCII, %XF% a byte that is not UTF-8.
 ##	stdin: printf %b text, '-' none, '@closedin' / '@closedout' close that
 ##	stream, '@wronlyin' opens stdin for writing only, '@fullout' / '@fullerr'
-##	point it at a device that is always full, '@appear' / '@change' make %C%
-##	or change it while the command waits on stdin for its ops, '@asciilocale'
+##	point it at a device that is always full, '@appear' / '@change' / '@fifo'
+##	make %C%, change it or turn it into a FIFO while the command waits on
+##	stdin for its ops, '@asciilocale'
 ##	none, with an ASCII-only locale and PYTHONIOENCODING, '@memcap' none,
 ##	under a 2 GB address-space cap so a read that never ends fails fast.
 ##	stdout and stderr: '-' means unchecked; an empty stdout field means exactly empty.
@@ -1613,6 +1614,10 @@ rows=(
 	## 20260918b item 16: the same wait on a file that was there. Another edit
 	## made meanwhile was reverted at exit 0.
 	'dcvb4|write-changed-during-wait|set --write %C%|@change|8|-|changed since it was read|a: 1\nb: 2\n'
+	## 2026110313211991: a FIFO swapped in during the wait. The check read it
+	## with a plain open, which waits for a writer, before the save could
+	## refuse it.
+	'devy8|write-fifo-during-wait|set --write %C%|@fifo|8|-|created\.shcl: not a regular file$|-'
 	## Literal text is read the way a file line is, so a # opens a comment
 	## there too and only what comes before it is written.
 	'dcegf|literal-hash|set --write --no-banner %C% --set-literal=color=red#ff0000|-|0|-|-|color: red\n'
@@ -1993,7 +1998,7 @@ for row in "${rows[@]}"; do
 		echo "cli-regress ${id}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 		fTestSkip; continue
 	fi
-	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @wronlyin || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
+	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @wronlyin || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${stdinSpec}" == @fifo || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
 		echo "cli-regress: skipping ${id} (POSIX fixture; not judged on windows)"
 		fTestSkip; continue
 	fi
@@ -2065,9 +2070,11 @@ for row in "${rows[@]}"; do
 			## @change: the file is there first and changes during the wait.
 			## The notice used to say when; a pipe gets none since
 			## 2026100717500018. A write of more script comments than any pipe
-			## holds returns only once the command is reading them.
-			@appear|@change)
-				[[ "${stdinSpec}" == @change ]] && printf 'a: 1\n' >"${tmpDir}/created.shcl"
+			## holds returns only once the command is reading them. @fifo: the
+			## file is there first and turns into a FIFO during the wait, which
+			## nothing writes to, and it goes before the next row.
+			@appear|@change|@fifo)
+				[[ "${stdinSpec}" != @appear ]] && printf 'a: 1\n' >"${tmpDir}/created.shcl"
 				rm -f "${tmpDir}/in.fifo"; mkfifo "${tmpDir}/in.fifo"
 				timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" <"${tmpDir}/in.fifo" &
 				appearPid=$!
@@ -2075,12 +2082,15 @@ for row in "${rows[@]}"; do
 				cat "${tmpDir}/opsfill" >&"${fifoFd}" || true
 				if [[ "${stdinSpec}" == @change ]]; then
 					printf 'a: 1\nb: 2\n' >"${tmpDir}/created.shcl"
+				elif [[ "${stdinSpec}" == @fifo ]]; then
+					rm -f "${tmpDir}/created.shcl"; mkfifo "${tmpDir}/created.shcl"
 				else
 					printf 'b: 2\n' >"${tmpDir}/created.shcl"
 				fi
 				printf 'int\tk\t1\n' >&"${fifoFd}"
 				exec {fifoFd}>&-
 				wait "${appearPid}" || rc=$?
+				[[ "${stdinSpec}" == @fifo ]] && rm -f "${tmpDir}/created.shcl"
 				;;
 			*)          printf '%b' "${stdinSpec}" | timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" || rc=$? ;;
 		esac

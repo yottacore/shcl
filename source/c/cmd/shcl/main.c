@@ -1244,9 +1244,11 @@ static int dir_takes_a_temp(const char *file) {
 
 // FILE still holds the bytes the load read. `set` waits on stdin between the
 // load and the save, and an edit made in that wait was reverted at exit 0. A
-// gap is left between this read and the publish, the width of one save.
-static int holds_bytes(const char *file, const char *before, size_t n) {
-	FILE *f = open_rb(file);
+// gap is left between this read and the publish, the width of one save. Only
+// a regular file is read, through the library's open that doesn't wait on a
+// FIFO swapped in, and *NOT_REGULAR says when something else is there.
+static int holds_bytes(const char *file, const char *before, size_t n, int *not_regular) {
+	FILE *f = s_fopen_regular(file, not_regular);
 	int same = f != NULL;
 	if (f) {
 		char buf[65536]; size_t got, at = 0;
@@ -1261,9 +1263,13 @@ static int holds_bytes(const char *file, const char *before, size_t n) {
 	return same;
 }
 
+// Something swapped in that isn't a regular file gets the save's own error
+// here, since the write after this may find nothing to do.
 static int unchanged_since_read(const char *file, const char *before, size_t n) {
-	int same = holds_bytes(file, before, n);
-	if (!same) fprintf(stderr, "%s: changed since it was read; nothing written\n", file);
+	int not_regular = 0;
+	int same = holds_bytes(file, before, n, &not_regular);
+	if (not_regular) fprintf(stderr, "%s: not a regular file\n", file);
+	else if (!same) fprintf(stderr, "%s: changed since it was read; nothing written\n", file);
 	return same;
 }
 
@@ -1492,7 +1498,8 @@ static int do_migrate(const Opts *o) {
 				// in the way of the next run. A replace that fails part way on
 				// windows can leave nothing at FILE, and then the copy is all
 				// there is.
-				if (old && holds_bytes(file, text, len)) {
+				int not_regular = 0;
+				if (old && holds_bytes(file, text, len, &not_regular)) {
 					upgrade_remove(old);
 				} else if (old) {
 					fprintf(stderr, "%s: the original is %s\n", file, old);

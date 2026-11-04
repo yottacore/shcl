@@ -1661,14 +1661,70 @@ const exitIO = 8
 // unchangedSinceRead says whether FILE still holds the bytes the load read.
 // `set` waits on stdin between the load and the save, and an edit made in that
 // wait was reverted at exit 0. A gap is left between this read and the
-// publish, the width of one save.
+// publish, the width of one save. Something swapped in that isn't a regular
+// file gets the save's own error here, since the write after this may find
+// nothing to do.
 func unchangedSinceRead(file, before string) bool {
-	now, err := os.ReadFile(file)
+	now, regular, err := readRegular(file)
+	if err == nil && !regular {
+		fmt.Fprintf(os.Stderr, "%s: not a regular file\n", file)
+		return false
+	}
 	if err == nil && string(now) == before {
 		return true
 	}
 	fmt.Fprintf(os.Stderr, "%s: changed since it was read; nothing written\n", file)
 	return false
+}
+
+// readRegular gives the bytes of the regular file at path, with false and no
+// error when something else is there, such as a FIFO swapped in, which the
+// open doesn't wait on. The library's copy is unexported.
+func readRegular(path string) ([]byte, bool, error) {
+	if st, err := os.Stat(path); err != nil || !st.Mode().IsRegular() {
+		return nil, false, err
+	}
+	fh, err := openNoWait(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer fh.Close()
+	if st, err := fh.Stat(); err != nil || !st.Mode().IsRegular() {
+		return nil, false, err
+	}
+	now, err := io.ReadAll(fh)
+	return now, err == nil, err
+}
+
+// openNoWait opens path to read. Opening a FIFO waits for a writer, and the
+// path can turn into one between the stat and the open. So off windows the
+// open does not wait, and the flag comes straight back off.
+func openNoWait(path string) (*os.File, error) {
+	if runtime.GOOS == "windows" {
+		return os.Open(path)
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	rc, err := f.SyscallConn()
+	if err == nil {
+		if cerr := rc.Control(func(fd uintptr) { err = setBlocking(syscall.SetNonblock, fd) }); cerr != nil {
+			err = cerr
+		}
+	}
+	if err != nil {
+		_ = f.Close() // nothing was read, so nothing is lost
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	return f, nil
+}
+
+// setBlocking clears the flag. syscall.SetNonblock takes an int on POSIX and
+// a Handle on windows, and the type parameter is what lets this build for
+// both without a file per platform.
+func setBlocking[T ~int | ~uintptr](set func(T, bool) error, fd uintptr) error {
+	return set(T(fd), false)
 }
 
 // writeTargetOK says whether a --write FILE is a regular file or nothing yet.
@@ -2421,7 +2477,7 @@ func doMigrate(o *opts) int {
 			// windows can leave nothing at FILE, and then the copy is all
 			// there is.
 			if old != "" {
-				if now, rerr := os.ReadFile(file); rerr == nil && string(now) == text {
+				if now, regular, rerr := readRegular(file); rerr == nil && regular && string(now) == text {
 					_ = os.Remove(old)
 				} else {
 					fmt.Fprintf(os.Stderr, "%s: the original is %s\n", file, old)

@@ -242,7 +242,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The CLI's changed-since-read check hangs on a FIFO swapped in during `set`'s stdin wait
 	- ID: 2026110313211991
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261103-132119
 	- Opened by: 2026110312163202's sweep
@@ -251,10 +251,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Run `shcl set --write f.shcl` with its ops on stdin. While it waits, replace `f.shcl` with a FIFO, then end the input.
 	- Incorrect behavior: the CLI reads `f.shcl` again before the save with a plain open, which waits for a writer.
 	- Expected behavior: exit 8 with the not-a-regular-file error, as the library's save gives since 2026110312163202.
-	- Reproduced: No, from reading.
+	- Reproduced: 20261104, all 4 CLIs hang until killed.
 	- Possible cause: `unchanged_since_read` in all 4 CLIs opens the path to read with a plain open. The library's no-wait read is private, and the CLIs have none of their own.
 	- Sweep: `unchanged_since_read` and the re-read after a failed `upgrade --write`, in all 4 CLIs.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: the check read the path with a plain open, which waits on a FIFO.
+	- Actual fix: the check reads only a regular file, through a no-wait open, and refuses anything else at exit 8 with "not a regular file". The re-read after a failed `upgrade --write` uses the same read. All 4 CLIs.
+	- Decisions:
+		- me, 20261104: the CLI refuses a FIFO itself rather than leave it to the write, as the library's check does. A `set` with nothing to change ends before the write at exit 0, so a FIFO left to the write would pass.
+		- me, 20261104: Rust, Go and Python get their own copy of the library's no-wait read, as the Rust CLI already does for `not_a_disk_file`, so no library call is added in 4 bindings. C calls the header's `s_fopen_regular`, which `main.c` already sees.
+	- Swept: `unchanged_since_read` / `unchangedSinceRead`, which also guards `upgrade --write` before the backup, and the re-read after a failed upgrade write, in all 4 CLIs. The first read of `--write FILE` keeps its plain open, as 2026110312163202 decided, and `write_target_ok` asks before it.
+	- Verified: cli-regress `devy8` timed out on all 4 old CLIs and passes on the new ones. Rust clippy for the host and windows, cargo fmt, Go vet and staticcheck for the host and windows, ruff, mypy, the C CLI under gcc, clang and mingw, shellcheck, `test-ids.py check`, cli-regress (651 rows), analyze-c, lint-report, and the quick run over `rust go python c cli` with check-docs left out for its known `dcbc2` red.
+	- Test case: cli-regress `devy8` (`write-fifo-during-wait`). POSIX only. The failed-upgrade re-read has no test, since it needs a failed write and a swap at once.
+	- Acceptance signoff: Self-closed: the new row hung on the old CLIs and passes on the new, and the gates are green.
+	- Branch: `r1104`
+	- Closed: 20261104-103248
 
 - `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
 	- ID: 2026110312163206
