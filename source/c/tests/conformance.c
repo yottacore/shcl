@@ -4579,6 +4579,10 @@ int main(int argc, char **argv) {
 			   does in the parser (2026101514324701). */
 			{"~x: ```\n\tb\n\t```\n##    Format   4\n", 4, SHCL_GOOD, 4, "H006"},
 			{"`y: ```\n##    Format   4\n```\n", 0, SHCL_NOT_FOUND, 0, ""},
+			/* The highest of several decides, wherever it is (2026110312163203). */
+			{"##    Format   3\np: x\n##    Format   4\n", 4, SHCL_GOOD, 3, "H006"},
+			{"##    Format   5\n##    Format   4\n", 5, SHCL_GOOD, 1, "H006"},
+			{"##    Format   2\n##    Format   4\n##    Format   3\n", 4, SHCL_GOOD, 2, "H006"},
 		};
 		for (size_t k = 0; k < sizeof ft / sizeof ft[0]; k++) {
 			size_t n = strlen(ft[k].text);
@@ -5334,6 +5338,47 @@ int main(int argc, char **argv) {
 			shcl_free(cb); shcl_free(cd);
 		}
 	}
+	test_id("detse", "a_set_that_folds_leaves_kept_lines");
+	/* A set that makes a second instance with a value one already has folds
+	   it into that one. The data is as it was, so the text is too: the kept
+	   lines beside it stay, and only a comment written against it goes
+	   along. The lines that ended the block went above the old instance,
+	   where one read as a comment or bound (2026110312163204). A kept line
+	   among a stacked list's items that names the list goes above it as the
+	   noted comment on the first set, not the second (2026110312163205). An
+	   instance set to an earlier one's value, and the two instances' fields
+	   folding, where a kept line beside one stays beside it, after the block
+	   it folded into. Same fixture in every runner. */
+	{
+		const char *once = "# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 1\n";
+		struct { const char *src, *path, *want; } fc[] = {
+			{"a:\n\tb: y\n\tc: 1\n\t- 1\n", "a.b(z)", NULL},
+			{"a: v\n\tb: y\n\tc: 1\n\t- 1\n", "a.b(z)", NULL},
+			{"a:\n\tb: y\n\tc: 1\n\tx(3).y: 1\n", "a.b(z)", NULL},
+			{"a:\n\tb: y\n\tc: 1\n\t-\n", "a.b(z)", NULL},
+			{"a:\n\tb: y\n\tc: 1\n\tq: [1\n", "a.b(z)", NULL},
+			{"a:\n\tb: y\n\tq: [1\n\t# note\nz: 1\n", "a.b(z)", NULL},
+			{"c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n", "b(a)", NULL},
+			{"a:\n\tb: y\n\t# note\n\tq: [1\n\t# against\n\tb: x\n\tz: 1\n", "a.b(x)", "a:\n\t# against\n\tb: y\n\t# note\n\tq: [1\n\tz: 1\n"},
+			{"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\nb: x\n\tp: [2\n\tk:\n\t\tm: 1\n\t\t- 2\n", "b(x)", "b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\n\t\t- 2\n\tp: [2\n"},
+			{"a:\n\t- 1\n\ta: [1, 2\n\t- 2\n", "a", once},
+			{once, "a", NULL},
+		};
+		for (size_t k = 0; k < sizeof fc / sizeof fc[0]; k++) {
+			const char *want = fc[k].want ? fc[k].want : fc[k].src;
+			int a = fc[k].path[0] == 'a' && fc[k].path[1] == '\0';
+			const char *text = a ? "1" : "y";
+			shcl_doc *cd = shcl_parse(fc[k].src, strlen(fc[k].src));
+			if (shcl_set_literal(cd, fc[k].path, strlen(fc[k].path), text, 1) != SHCL_SET_OK) fail("set_folds", fc[k].src);
+			shcl_str ct = shcl_to_canonical(cd);
+			if (!str_is(ct, want)) { fail("set_folds", want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			shcl_doc *cb = shcl_parse(ct.p, ct.n);
+			shcl_str cbt = shcl_to_canonical(cb);
+			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("set_folds", "reload differs");
+			if (shcl_lost_count(cb) != 0) fail("set_folds", "reload lost");
+			shcl_free(cb); shcl_free(cd);
+		}
+	}
 	test_id("dekz4", "a_replaced_leaf_keeps_the_lines_kept_in_its_block");
 	/* A line kept in a leaf's block stays in the merged block when the other
 	   layer replaces the leaf, as it does when a setter changes the leaf in
@@ -6063,15 +6108,13 @@ int main(int argc, char **argv) {
 	{
 		/* The lone stamp comes off, and the block kept above the first field's
 		   child named another format, which the fresh text then read as its
-		   own (2026102309053667). */
+		   own (2026102309053667). Since 2026110312163203 the highest line
+		   decides, so this file names format 4 and is left alone. */
 		const char *top = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n";
-		if (shcl_format_version(top, strlen(top)) != 3) fail("upgrade_kept_top", "input");
+		if (shcl_format_version(top, strlen(top)) != 4) fail("upgrade_kept_top", "input");
 		shcl_upgraded up = shcl_upgrade(top, strlen(top), 1);
-		if (up.current || up.errors_left || up.ambiguous) fail("upgrade_kept_top", "not made over");
-		if (shcl_format_version(up.text, up.len) != 3 || strstr(up.text, "Format   4")) fail("upgrade_kept_top", "the fresh text names another format");
-		shcl_upgraded again = shcl_upgrade(up.text, up.len, 0);
-		if (!again.current) fail("upgrade_kept_top", "a second run made it over again");
-		shcl_upgraded_free(&again);
+		if (!up.current || up.errors_left || up.ambiguous) fail("upgrade_kept_top", "made over");
+		else if (up.len != strlen(top) || memcmp(up.text, top, up.len) != 0) fail("upgrade_kept_top", "text changed");
 		shcl_upgraded_free(&up);
 		/* shcl_set_banner takes the same path. */
 		const char *sb = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n";
@@ -6957,6 +7000,130 @@ int main(int argc, char **argv) {
 		if (!file_is(other, "a: 5\n")) fail(at, "save of a parse text");
 		shcl_free(parsed);
 		dir_clear(cdir);
+	}
+	test_id("detpr", "a_changed_check_knows_its_file_by_any_spelling");
+	{
+		/* One file gives one answer however its path is spelled: bare, `./`,
+		   absolute, through a link, in a folder made after the load, or from
+		   another working folder. A FIFO swapped in gets the write's own
+		   refusal rather than a wait, and a file the check can't read is a
+		   change (2026110312163201, 2026110312163202). Same fixture in every
+		   runner. */
+		const char *at = "spelled";
+		char sdir[256], back[1024], ah[320], al[320], an[320], sub[320], nd[320];
+		up_dir(sdir, sizeof sdir, "spelled");
+		snprintf(ah, sizeof ah, "%s/h.shcl", sdir);
+		snprintf(al, sizeof al, "%s/sub/l.shcl", sdir);
+		snprintf(an, sizeof an, "%s/new/n.shcl", sdir);
+		snprintf(sub, sizeof sub, "%s/sub", sdir);
+		snprintf(nd, sizeof nd, "%s/new", sdir);
+#ifdef _WIN32
+		int moved_in = _getcwd(back, sizeof back) && _chdir(sdir) == 0 && _mkdir("sub") == 0;
+#else
+		int moved_in = getcwd(back, sizeof back) && chdir(sdir) == 0 && mkdir("sub", 0700) == 0;
+#endif
+		if (!moved_in) fail(at, "chdir failed");
+		shcl_file_status st = SHCL_FILE_CLEAN;
+		/* A bare name, gone since the load. */
+		put_file("i.shcl", "a: 1\n");
+		shcl_doc *gone = shcl_load_file("i.shcl", NULL);
+		remove("i.shcl");
+		if (shcl_save_file(gone, "i.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "bare, gone");
+		free(shcl_read_file("i.shcl", 0, NULL, &st));
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "bare, gone: the save made the file");
+		shcl_free(gone);
+		/* A bare name made where the load found nothing, by any spelling. */
+		shcl_doc *fresh = shcl_load_file("h.shcl", &st);
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "bare, new: want NotFound");
+		(void)shcl_set_int(fresh, "a", 1, 1);
+		put_file("h.shcl", "b: 2\n");
+		if (shcl_save_file(fresh, "h.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "bare, new");
+		if (shcl_save_file(fresh, "./h.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "dot, new");
+		if (shcl_save_file(fresh, ah, NULL) != SHCL_SAVE_CHANGED) fail(at, "absolute, new");
+		if (!file_is("h.shcl", "b: 2\n")) fail(at, "a refused save over a bare name wrote");
+		shcl_free(fresh);
+		/* Relative at the load, absolute at the save, and the other way round. */
+		put_file("sub/l.shcl", "a: 1\n");
+		shcl_doc *rel = shcl_load_file("sub/l.shcl", NULL);
+		shcl_doc *full = shcl_load_file(al, NULL);
+		put_file("sub/l.shcl", "a: 9\n");
+		if (shcl_save_file(rel, al, NULL) != SHCL_SAVE_CHANGED) fail(at, "relative then absolute");
+		if (shcl_save_file(full, "sub/l.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "absolute then relative");
+		if (!file_is("sub/l.shcl", "a: 9\n")) fail(at, "a refused relative save wrote");
+		shcl_free(rel);
+		shcl_free(full);
+		/* A folder made after the load. */
+		shcl_doc *later = shcl_load_file("new/n.shcl", NULL);
+#ifdef _WIN32
+		if (_mkdir("new") != 0) fail(at, "mkdir new failed");
+#else
+		if (mkdir("new", 0700) != 0) fail(at, "mkdir new failed");
+#endif
+		put_file("new/n.shcl", "b: 2\n");
+		if (shcl_save_file(later, an, NULL) != SHCL_SAVE_CHANGED) fail(at, "new folder");
+		if (!file_is("new/n.shcl", "b: 2\n")) fail(at, "a refused save in a new folder wrote");
+		shcl_free(later);
+		/* The same name from another working folder is another file, so it
+		   isn't checked. */
+		put_file("m.shcl", "a: 1\n");
+		shcl_doc *moved = shcl_load_file("m.shcl", NULL);
+#ifdef _WIN32
+		int in_sub = _chdir("sub") == 0;
+#else
+		int in_sub = chdir("sub") == 0;
+#endif
+		if (!in_sub) fail(at, "chdir sub failed");
+		put_file("m.shcl", "z: 0\n");
+		if (shcl_save_file(moved, "m.shcl", NULL) != SHCL_SAVE_OK) fail(at, "another folder");
+		if (!file_is("m.shcl", "a: 1\n")) fail(at, "another folder text");
+		shcl_free(moved);
+#ifdef _WIN32
+		if (_chdir(sdir) != 0) fail(at, "chdir back failed");
+#else
+		if (chdir(sdir) != 0) fail(at, "chdir back failed");
+		/* Through a link to the folder, with nothing there at the load. */
+		if (symlink("sub", "ln") != 0) fail(at, "symlink failed");
+		shcl_doc *linked = shcl_load_file("ln/k.shcl", NULL);
+		put_file("sub/k.shcl", "b: 2\n");
+		if (shcl_save_file(linked, "sub/k.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "link");
+		if (!file_is("sub/k.shcl", "b: 2\n")) fail(at, "a refused save through a link wrote");
+		shcl_free(linked);
+		/* A missing folder named with `..` is refused, as the kernel refuses
+		   it, rather than canceled as text. Windows cancels it itself. */
+		shcl_doc *through = shcl_load_file("q2.shcl", NULL);
+		if (shcl_save_file(through, "nodir/../q.shcl", NULL) != SHCL_SAVE_FAILED) fail(at, "missing folder");
+		if (access("q.shcl", F_OK) == 0) fail(at, "missing folder: q.shcl is there");
+		shcl_free(through);
+		/* A FIFO swapped in is refused as the write refuses it, with no wait. */
+		put_file("f.shcl", "a: 1\n");
+		shcl_doc *fifo = shcl_load_file("./f.shcl", NULL);
+		remove("f.shcl");
+		if (mkfifo("f.shcl", 0600) != 0) fail(at, "mkfifo failed");
+		shcl_write_status why = SHCL_WRITE_OK;
+		if (shcl_save_file(fifo, "./f.shcl", &why) != SHCL_SAVE_FAILED || why != SHCL_WRITE_NOT_REGULAR) fail(at, "fifo");
+		shcl_free(fifo);
+		/* A file the check can't read, since another program wrote it and took
+		   the read bit off, is a change. Root reads it anyway, so it's only
+		   asked where the read fails. */
+		put_file("p.shcl", "a: 1\n");
+		shcl_doc *shut = shcl_load_file("./p.shcl", NULL);
+		put_file("p.shcl", "a: 9\n");
+		if (chmod("p.shcl", 0200) != 0) fail(at, "chmod failed");
+		FILE *probe = fopen("p.shcl", "rb");
+		if (probe) fclose(probe);
+		else if (shcl_save_file(shut, "./p.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "unreadable");
+		if (chmod("p.shcl", 0600) != 0) fail(at, "chmod back failed");
+		if (!file_is("p.shcl", "a: 9\n")) fail(at, "a refused save over an unreadable file wrote");
+		shcl_free(shut);
+#endif
+#ifdef _WIN32
+		if (_chdir(back) != 0) fail(at, "chdir home failed");
+#else
+		if (chdir(back) != 0) fail(at, "chdir home failed");
+#endif
+		dir_clear(sub);
+		dir_clear(nd);
+		dir_clear(sdir);
 	}
 	test_id("dekmj", "a_create_only_save_refuses_a_file_already_there");
 	{

@@ -3718,7 +3718,7 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	ShclStamp none; none.value = 0; none.status = SHCL_NOT_FOUND; none.line = 0; none.digits = s_empty();
 	/* Most documents have no Format line, and every load asks. */
 	if (!s_has(text, s_lit(SHCL_FORMAT_WORD))) return none;
-	ShclStamp found = none, unread = none;
+	ShclStamp found = none, newest = none, unread = none;
 	ShclRawLines now, then;
 	raw_lines_init(&now, SHCL_RULES_CURRENT);
 	raw_lines_init(&then, SHCL_RULES_V2);
@@ -3750,11 +3750,14 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 		   `upgrade --from-2x` takes for a beta one. */
 		int64_t v = big ? (int64_t)UINT32_MAX : (int64_t)u;
 		if (v >= SHCL_FORMAT_MAJOR) {
-			if (in_now) { ShclStamp r; r.value = v; r.status = SHCL_GOOD; r.line = lineno; r.digits = n; return r; }
+			if (in_now && (!newest.line || v > newest.value)) {
+				newest.value = v; newest.status = SHCL_GOOD; newest.line = lineno; newest.digits = n;
+			}
 		} else if (in_then && (!found.line || v > found.value)) {
 			found.value = v; found.status = SHCL_GOOD; found.line = lineno; found.digits = n;
 		}
 	}
+	if (newest.line) return newest;
 	if (found.line) return found;
 	return unread;
 }
@@ -7862,6 +7865,9 @@ static void w_settle_fence_name(shcl_doc *d, size_t parent, ShclStr name) {
 /* Folding moves the loser's children up a level, where they can collide with
    the survivor's own. The parser's fold is depth-first for the same reason;
    only a node that just received children can hold a new pair. */
+static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left);
+static void leave_above(shcl_doc *d, size_t node, ShclVecLead *left);
+static void leave_last(shcl_doc *d, size_t parent, ShclVecLead *left);
 static void w_fold_dups_below(shcl_doc *d, size_t start) {
 	ShclArena *t = &d->scratch;
 	ShclVecSize stack = {0};
@@ -7872,6 +7878,9 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 		ShclVecSize *ch = &NODE(d, parent).children;
 		if (ch->len) cmap_reserve(t, &first, ch->len);
 		size_t w = 0;
+		/* What a folded node leaves, as in w_collapse_dup, for the next node
+		   that stays. */
+		ShclVecLead left = {0};
 		for (size_t k = 0; k < ch->len; k++) {
 			size_t c = ch->data[k];
 			uint64_t h = merge_hash(NODE(d, c).name, &NODE(d, c).value);
@@ -7879,6 +7888,7 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 			for (ShclCMapEnt *e = cmap_first(&first, h); e; e = cmap_next(e, h))
 				if (merge_eq(NODE(d, e->val).name, &NODE(d, e->val).value, NODE(d, c).name, &NODE(d, c).value)) { survivor = e->val; break; }
 			if (survivor != (size_t)-1) {
+				beside_kept(d, &NODE(d, c), &left);
 				ShclVecSize moved = NODE(d, c).children;
 				fold_node_into(d, survivor, c);
 				if (d->index_built == 1) {
@@ -7892,10 +7902,12 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 				ShclVecSize_push(t, &stack, survivor);
 			} else {
 				cmap_put(t, &first, h, c);
+				if (left.len) leave_above(d, c, &left);
 				ch->data[w++] = c;
 			}
 		}
 		ch->len = w;
+		if (left.len) leave_last(d, parent, &left);
 		w_settle(d, parent, 1);
 	}
 }
@@ -7923,12 +7935,22 @@ static void w_collapse_dup(shcl_doc *d, size_t node) {
 	}
 	size_t survivor = (pos_other < pos_node) ? other : node;
 	size_t loser = (survivor == node) ? other : node;
+	size_t at = (survivor == node) ? pos_other : pos_node;
+	/* The data does not change, so the kept lines beside the loser stay where
+	   they were, as a remove leaves them. Only the comments written against
+	   it go with it. */
+	ShclVecLead left = {0};
+	beside_kept(d, &NODE(d, loser), &left);
 	ShclVecSize moved = NODE(d, loser).children;
 	fold_node_into(d, survivor, loser);
 	ShclVecSize *pk = &NODE(d, parent).children;
 	size_t w = 0;
 	for (size_t k = 0; k < pk->len; k++) if (pk->data[k] != loser) pk->data[w++] = pk->data[k];
 	pk->len = w;
+	if (left.len) {
+		if (at < pk->len) leave_above(d, pk->data[at], &left);
+		else leave_last(d, parent, &left);
+	}
 	w_settle(d, parent, 1);
 	if (d->index_built == 1) {
 		index_unlink(d, name_key(parent, NODE(d, loser).name), loser);
@@ -7948,6 +7970,28 @@ static void w_collapse_dup(shcl_doc *d, size_t node) {
    mark. The mark is taken by the caller, before it encodes. A value refused
    by its read-back is checked in scratch, and nothing resets scratch after a
    refusal, so it goes back here. */
+/* The instance a write of v at path would fold into: one with that value,
+   beside the one a (value) selector at the end of the path would make.
+   (size_t)-1 when the selector finds one, or the path is not Ok. Its work
+   goes through scratch, as w_place's does. */
+static size_t w_same_instance(shcl_doc *d, ShclStr path, const ShclValue *v) {
+	ShclArena *t = &d->scratch;
+	arena_reset(t);
+	ShclPathScan ps = scan_lookup(t, path);
+	if (!ps.ok || !ps.segs.len) return (size_t)-1;
+	const ShclSegment *last = &ps.segs.data[ps.segs.len - 1];
+	if (last->sel.tag != SEL_VALUE) return (size_t)-1;
+	size_t *trail = (size_t *)arena_alloc(t, ps.segs.len * sizeof(size_t));
+	if (w_probe_write(d, t, &ps, trail) != SHCL_SET_OK || trail[ps.segs.len - 1] != (size_t)-1) return (size_t)-1;
+	size_t parent = ps.segs.len > 1 ? trail[ps.segs.len - 2] : ROOT;
+	if (parent == (size_t)-1) return (size_t)-1;
+	ShclVecSize cands = {0};
+	children_named(d, t, parent, last->name, &cands);
+	for (size_t k = 0; k < cands.len; k++)
+		if (merge_eq(NODE(d, cands.data[k]).name, &NODE(d, cands.data[k]).value, last->name, v)) return cands.data[k];
+	return (size_t)-1;
+}
+
 /* Which trivia list a line sits in. */
 typedef enum { SITE_LEADING, SITE_INSIDE, SITE_AFTER, SITE_AMONG, SITE_ORPHANS } ShclSite;
 /* Where a lead sits: its list, the node that list is on, and its place in it. */
@@ -8007,10 +8051,12 @@ static shcl_set_status w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, S
 		size_t n;
 		if (w_write_target(d, path, &n) && NODE(d, n).children.len) { arena_release(&d->arena, m); return SHCL_SET_HAS_CHILDREN; }
 	}
-	shcl_set_status placed = w_place(d, path, 1, &idx);
+	/* A new instance with a value one already has would fold into that one,
+	   so the set is a set of that one, which leaves its lines be. */
+	shcl_set_status placed = SHCL_SET_OK;
+	idx = w_same_instance(d, path, &v);
+	if (idx == (size_t)-1) placed = w_place(d, path, 1, &idx);
 	if (placed != SHCL_SET_OK) { arena_release(&d->arena, m); return placed; }
-	/* w_place has already done it for a field it created. */
-	if (idx < fresh && d->kept_owed > 0) comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
 	if (keep_quotes) keep_mark(&d->scratch, &NODE(d, idx).value, &v);
 	/* A list written stacked stays stacked, as an overwrite keeps quotes,
 	   unless there is nothing left to stack. */
@@ -8020,6 +8066,10 @@ static shcl_set_status w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, S
 	/* No longer the list the lines among its elements sat in. */
 	unstack(d, &NODE(d, idx));
 	NODE(d, idx).star_list = stacked;
+	/* w_place has already done it for a field it created. After the unstack,
+	   so a line of its name from among the items, now above it, is a comment
+	   too. */
+	if (idx < fresh && d->kept_owed > 0) comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
 	/* An empty binding or a raw block can put a fence after an empty sibling
 	   of its name. */
 	int fence_side = v.kind == V_EMPTY || v.kind == V_RAW;
@@ -8081,7 +8131,8 @@ static void restep(ShclVecLead *v) {
    that sit with them. Above it that is everything up to its last kept line,
    below it everything from its first, so a comment written against the node
    goes with it. The kept line written in place of its `name:` line goes
-   too. */
+   too. What goes stays on the node, where a fold of two instances still
+   wants it. */
 static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 	int heads = heads_block(&d->scratch, nd);
 	ShclTrivia *t = nd->trivia;
@@ -8090,7 +8141,10 @@ static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 	for (size_t k = t->leading.len - (heads ? 1 : 0); k > 0; k--)
 		if (lead_is_kept_line(&t->leading.data[k - 1])) { end = k; break; }
 	for (size_t k = 0; k < end; k++) ShclVecLead_push(&d->arena, left, t->leading.data[k]);
-	t->leading.len = 0;
+	if (end) {
+		memmove(t->leading.data, t->leading.data + end, (t->leading.len - end) * sizeof *t->leading.data);
+		t->leading.len -= end;
+	}
 	size_t from = t->after.len;
 	for (size_t k = 0; k < t->after.len; k++)
 		if (lead_is_kept_line(&t->after.data[k])) { from = k; break; }
@@ -13977,20 +14031,35 @@ static char *shcl_resolve_target(const char *file) {
 		char probe[1];
 		if (readlink(p, probe, sizeof probe) >= 0) { free(p); errno = ELOOP; return NULL; }
 	}
-	const char *slash = strrchr(p, '/');
-	if (!slash) return p;
-	size_t dn = (size_t)(slash - p);
-	char *dir = (char *)malloc(dn ? dn + 1 : 2);
-	if (!dir) return p;
-	if (dn) { memcpy(dir, p, dn); dir[dn] = '\0'; } else { dir[0] = '/'; dir[1] = '\0'; }
-	char *rd = realpath(dir, NULL);
+	// Absolute through the real path of the nearest folder that is there, the
+	// rest as written. So one file has one spelling whether it's there or not,
+	// and however the path names it: bare, `./`, absolute, through a link, or
+	// relative to another working folder.
+	pn = strlen(p);
+	char *dir = (char *)malloc(pn + 2);
+	if (!dir) { free(p); errno = ENOMEM; return NULL; }
+	for (size_t i = pn;;) {
+		while (i > 0 && p[i - 1] != '/') i--;
+		const char *rest = p + i;
+		size_t dn = i;
+		while (dn > 1 && p[dn - 1] == '/') dn--;
+		if (dn == 0) { dir[0] = '.'; dir[1] = '\0'; }
+		else { memcpy(dir, p, dn); dir[dn] = '\0'; }
+		char *rd = realpath(dir, NULL);
+		if (rd) {
+			free(dir);
+			size_t rn = strlen(rd), nn = strlen(rest);
+			if (rn == 1 && rd[0] == '/') rn = 0; // the root already ends in the separator
+			char *out = (char *)malloc(rn + nn + 2);
+			if (out) { memcpy(out, rd, rn); out[rn] = '/'; memcpy(out + rn + 1, rest, nn + 1); } // NOLINT(bugprone-not-null-terminated-result): the last copy brings the NUL
+			else errno = ENOMEM;
+			free(rd); free(p);
+			return out;
+		}
+		if (dn == 0 || (dn == 1 && p[0] == '/')) break;
+		i = dn - 1;
+	}
 	free(dir);
-	if (!rd) return p;
-	size_t rn = strlen(rd), nn = strlen(slash + 1);
-	if (rn == 1 && rd[0] == '/') rn = 0; // the root already ends in the separator
-	char *out = (char *)malloc(rn + nn + 2);
-	if (out) { memcpy(out, rd, rn); out[rn] = '/'; memcpy(out + rn + 1, slash + 1, nn + 1); free(p); p = out; } // NOLINT(bugprone-not-null-terminated-result): the last copy brings the NUL
-	free(rd);
 	return p;
 }
 
@@ -14265,11 +14334,52 @@ const char *shcl_write_status_name(shcl_write_status s) {
 // that needs the exact bytes it last saw - to tell its own save coming back as
 // a change notification from somebody else's edit - or a bound on how much it
 // will read before a parse, calls this and parses the text itself.
+/* The regular file at PATH opened to read, for a check that it didn't change,
+   or NULL with *NOT_REGULAR set when something else is there, such as a FIFO
+   swapped in, which the open doesn't wait on. */
+static FILE *s_fopen_regular(const char *path, int *not_regular) {
+	*not_regular = 0;
+#ifdef _WIN32
+	// A folder won't open to read there, so it's asked first. Windows has no
+	// FIFO at a path.
+	wchar_t *w = shcl_widen(path);
+	if (!w) { errno = ENOMEM; return NULL; }
+	DWORD a = GetFileAttributesW(w);
+	free(w);
+	if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) { *not_regular = 1; return NULL; }
+	return shcl_fopen_rb(path);
+#else
+	// The open doesn't wait, and the fstat after it decides, so nothing is
+	// asked of the path before it.
+	struct stat st;
+	int oflags = O_RDONLY | O_NONBLOCK;
+#ifdef O_CLOEXEC
+	oflags |= O_CLOEXEC;
+#endif
+	int fd = open(path, oflags);
+	if (fd < 0) return NULL;
+	int fl = fcntl(fd, F_GETFL);
+	if (fl == -1 || fcntl(fd, F_SETFL, fl & ~O_NONBLOCK) == -1 || fstat(fd, &st) != 0) {
+		int e = errno; close(fd); errno = e;
+		return NULL;
+	}
+	if (!S_ISREG(st.st_mode)) { close(fd); *not_regular = 1; return NULL; }
+	FILE *f = fdopen(fd, "rb");
+	if (!f) { int e = errno; close(fd); errno = e; }
+	return f;
+#endif
+}
+
 // shcl_read_file, with *err the errno when the open or a read failed, and 0
-// for a file over the cap or not UTF-8.
-static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status, int *err) {
+// for a file over the cap or not UTF-8. With NOT_REGULAR, only a regular file
+// is read, as s_fopen_regular says.
+static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status, int *err, int *not_regular) { // NOLINT(bugprone-easily-swappable-parameters): err is always set, not_regular is NULL for a plain read
 	*err = 0;
-	FILE *f = shcl_fopen_rb(path);
+	FILE *f = not_regular ? s_fopen_regular(path, not_regular) : shcl_fopen_rb(path);
+	if (!f && not_regular && *not_regular) {
+		if (status) *status = SHCL_FILE_UNREADABLE;
+		return NULL;
+	}
 	if (!f) {
 		*err = errno;
 		if (status) *status = (*err == ENOENT) ? SHCL_FILE_NOT_FOUND : SHCL_FILE_UNREADABLE;
@@ -14320,7 +14430,7 @@ static char *s_read_file(const char *path, size_t max_bytes, size_t *len, shcl_f
 
 char *shcl_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status) {
 	int err;
-	return s_read_file(path, max_bytes, len, status, &err);
+	return s_read_file(path, max_bytes, len, status, &err, NULL);
 }
 
 const char *shcl_schema_status_name(shcl_schema_status s) {
@@ -14633,21 +14743,23 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 
 /* The file at PATH still holds the text the document recorded, byte for byte,
    or is still not there. Content only, so a touch alone is no change. Text
-   that is no longer UTF-8 is a change; a read that fails another way is left
-   to the write, which fails the same way. */
+   that is no longer UTF-8 is a change. Something that isn't a regular file is
+   left to the write, which refuses it. A file that can't be read is a change,
+   since the rename that replaces it needs no read access. */
 static int s_file_holds(const shcl_doc *d, const char *path) {
 	size_t n = 0;
 	shcl_file_status st = SHCL_FILE_UNREADABLE;
-	int err = 0;
-	char *now = s_read_file(path, 0, &n, &st, &err);
+	int err = 0, not_regular = 0;
+	char *now = s_read_file(path, 0, &n, &st, &err, &not_regular);
 	if (now) {
 		int same = d->file_text && n == d->file_len && (n == 0 || memcmp(now, d->file_text, n) == 0);
 		free(now);
 		return same;
 	}
+	if (not_regular) return 1;
 	if (st == SHCL_FILE_NOT_FOUND) return d->file_text == NULL;
 	if (err == ENOMEM) { SHCL_OOM(); abort(); }
-	return err != 0;
+	return 0;
 }
 
 shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_options opts, int *kept, shcl_write_status *why) {
@@ -14733,7 +14845,8 @@ static char *upgrade_lines(const size_t *lines, size_t n) {
 /* The file still holds the bytes last read from it. */
 static int upgrade_holds(const char *path, const char *text, size_t len) { // NOLINT(bugprone-easily-swappable-parameters): path, then the text read from it; a swap refuses
 	size_t n = 0;
-	char *now = shcl_read_file(path, 0, &n, NULL);
+	int err = 0, not_regular = 0;
+	char *now = s_read_file(path, 0, &n, NULL, &err, &not_regular);
 	int same = now && n == len && (len == 0 || memcmp(now, text, len) == 0);
 	free(now);
 	return same;
@@ -14859,7 +14972,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 	int rerr = 0;
 	/* The errno too, since the status alone would hide the system's reason
 	   (2026101514324707). */
-	char *text = s_read_file(path, 0, &len, &fst, &rerr);
+	char *text = s_read_file(path, 0, &len, &fst, &rerr, NULL);
 	if (!text) {
 		if (fst == SHCL_FILE_NOT_FOUND) return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
 		if (rerr) return upgrade_why(why, s_write_status_of(rerr), upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(rerr)));

@@ -448,16 +448,39 @@ class _LoadedFile:
 
 	def holds(self, path: str | os.PathLike[str]) -> bool:
 		"""The file at path still holds the text, byte for byte, or is still
-		not there. Content only, so a touch alone is no change. A read that
-		fails another way is left to the write, which fails the same way."""
+		not there. Content only, so a touch alone is no change. Something that
+		isn't a regular file is left to the write, which refuses it. A file
+		that can't be read is a change, since the rename that replaces it needs
+		no read access."""
 		try:
-			with open(os.fspath(path), "rb") as f:
-				now = f.read()
+			now = _read_regular(os.fspath(path))
 		except FileNotFoundError:
 			return self.text is None
-		except (OSError, ValueError):
+		except ValueError:
+			# A NUL in the path, which the write refuses the same way.
+			return True
+		except OSError:
+			return False
+		if now is None:
 			return True
 		return self.text is not None and self.text.encode("utf-8") == now
+
+
+def _read_regular(path: str) -> bytes | None:
+	"""The bytes of the regular file at path, for a check that it didn't
+	change. None when something else is there, such as a FIFO swapped in,
+	which the open doesn't wait on. Raises OSError as the open or read does."""
+	if not stat.S_ISREG(os.stat(path).st_mode):
+		return None
+	no_wait = getattr(os, "O_NONBLOCK", 0)
+	# codeql[py/file-not-closed] the with just below owns the descriptor and closes it
+	fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
+	with open(fd, "rb") as f:
+		if no_wait:
+			os.set_blocking(fd, True)
+		if not stat.S_ISREG(os.fstat(fd).st_mode):
+			return None
+		return f.read()
 
 
 class ShclDateTime:
@@ -2583,6 +2606,7 @@ def _format_line_read(text: str) -> Read[int]:
 	now = _RawLines(Rules.Current)
 	then = _RawLines(Rules.V2)
 	found: Read[int] | None = None
+	newest: Read[int] | None = None
 	unread: Read[int] | None = None
 	for i, line in enumerate(text.split("\n")):
 		current = now.step(line)
@@ -2607,10 +2631,12 @@ def _format_line_read(text: str) -> Read[int]:
 		digits = n.lstrip("0") or "0"
 		v = 0xFFFFFFFF if len(digits) > 10 or int(digits) > 0xFFFFFFFF else int(digits)
 		if v >= FORMAT_MAJOR:
-			if current is not None:
-				return Read(v, Status.Good, n)._at(i + 1, None)
+			if current is not None and (newest is None or v > newest.value):
+				newest = Read(v, Status.Good, n)._at(i + 1, None)
 		elif old is not None and (found is None or v > found.value):
 			found = Read(v, Status.Good, n)._at(i + 1, None)
+	if newest is not None:
+		return newest
 	if found is not None:
 		return found
 	if unread is not None:
@@ -5354,16 +5380,16 @@ def _beside_kept(nd):
 	kept-lines table: the kept lines beside it, with the comments that sit
 	with them. Above it that is everything up to its last kept line, below it
 	everything from its first, so a comment written against the node goes
-	with it. The kept line written in place of its `name:` line goes too."""
+	with it. The kept line written in place of its `name:` line goes too.
+	What goes stays on the node, where a fold of two instances still wants it."""
 	heads = _heads_block(nd)
 	t = nd.trivia
 	if t is None:
 		return []
 	left = t.leading
-	t.leading = []
-	if heads:
-		left.pop()
-	end = next((k + 1 for k in range(len(left) - 1, -1, -1) if left[k].is_kept_line()), 0)
+	last = len(left) - 1 if heads else len(left)
+	end = next((k + 1 for k in range(last - 1, -1, -1) if left[k].is_kept_line()), 0)
+	t.leading = left[end:]
 	del left[end:]
 	start = next((k for k, c in enumerate(t.after) if c.is_kept_line()), len(t.after))
 	left.extend(t.after[start:])
@@ -7753,12 +7779,13 @@ class Document:
 			n = self._write_target(path)
 			if n is not None and self.arena[n].children:
 				return SetStatus.HasChildren
-		idx, why = self._place(path, True)
+		# A new instance with a value one already has would fold into that
+		# one, so the set is a set of that one, which leaves its lines be.
+		idx, why = self._same_instance(path, value), SetStatus.Ok
+		if idx < 0:
+			idx, why = self._place(path, True)
 		if why is not SetStatus.Ok:
 			return why
-		# _place() has already done it for a field it created.
-		if idx < fresh and self._kept_owed > 0:
-			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
 		if keep_quotes:
 			_keep_mark(self.arena[idx].value, value)
 		# A list written stacked stays stacked, as an overwrite keeps quotes,
@@ -7769,6 +7796,11 @@ class Document:
 		# No longer the list the lines among its elements sat in.
 		_unstack(self.arena[idx])
 		self.arena[idx].star_list = stacked
+		# _place() has already done it for a field it created. After the
+		# unstack, so a line of its name from among the items, now above it,
+		# is a comment too.
+		if idx < fresh and self._kept_owed > 0:
+			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
 		# An empty binding or a raw block can put a fence after an empty
 		# sibling of its name.
 		fence_side = value.kind == "raw" or value.is_empty()
@@ -7779,6 +7811,29 @@ class Document:
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
 		return SetStatus.Ok
+
+	def _same_instance(self, path, value) -> int:
+		"""The instance a write of `value` at `path` would fold into: one with
+		that value, beside the one a `(value)` selector at the end of the path
+		would make. -1 when the selector finds one, or the path is not Ok."""
+		try:
+			segments, value_text = _scan_lookup(path)
+		except _PathError:
+			return -1
+		if not segments or segments[-1].selector is None or segments[-1].selector[0] != "val":
+			return -1
+		trail: list = []
+		if self._probe_write(segments, value_text, trail) != SetStatus.Ok or trail[-1] is not None:
+			return -1
+		parent = _ROOT if len(trail) == 1 else trail[-2]
+		if parent is None:
+			return -1
+		name = segments[-1].name
+		key = _merge_key(name, value)
+		for c in self._children_named(parent, name):
+			if _merge_key(self.arena[c].name, self.arena[c].value) == key:
+				return c
+		return -1
 
 	def _comment_out_kept(self, parent, name, path, anchor):
 		"""A setter writing a field writes every kept line of its name in the
@@ -7893,9 +7948,20 @@ class Document:
 			survivor, loser = other, node
 		else:
 			survivor, loser = node, other
+		at = siblings.index(loser)
+		# The data does not change, so the kept lines beside the loser stay
+		# where they were, as a remove leaves them. Only the comments written
+		# against it go with it.
+		left = _beside_kept(self.arena[loser])
 		moved = list(self.arena[loser].children)
 		_fold_node_into(self.arena, survivor, loser)
-		self.arena[parent].children = [c for c in self.arena[parent].children if c != loser]
+		keep = [c for c in self.arena[parent].children if c != loser]
+		self.arena[parent].children = keep
+		if left:
+			if at < len(keep):
+				self._leave_above(keep[at], left)
+			else:
+				self._leave_last(parent, left)
 		self._settle(parent, 1)
 		ix = self._index
 		if ix is not None:
@@ -7947,10 +8013,14 @@ class Document:
 			kids = self.arena[parent].children
 			first: dict = {}
 			keep = []
+			# What a folded node leaves, as in _collapse_dup(), for the next
+			# node that stays.
+			left: list[_Lead] = []
 			for c in kids:
 				key = _merge_key(self.arena[c].name, self.arena[c].value)
 				survivor = first.get(key)
 				if survivor is not None:
+					left.extend(_beside_kept(self.arena[c]))
 					moved = list(self.arena[c].children)
 					_fold_node_into(self.arena, survivor, c)
 					ix = self._index
@@ -7963,8 +8033,13 @@ class Document:
 					stack.append(survivor)
 				else:
 					first[key] = c
+					if left:
+						self._leave_above(c, left)
+						left = []
 					keep.append(c)
 			self.arena[parent].children = keep
+			if left:
+				self._leave_last(parent, left)
 			self._settle(parent, 1)
 
 	def _targets_at(self, path):
@@ -10583,8 +10658,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 
 	def same():
 		try:
-			with open(path, "rb") as f:
-				return f.read() == raw
+			return _read_regular(path) == raw
 		except (OSError, ValueError):
 			return False
 
@@ -10637,11 +10711,29 @@ def _resolve_target(file):
 			p = os.path.join(os.path.dirname(p) or ".", nxt)
 	if os.path.islink(p):
 		raise OSError("too many levels of symbolic links")
-	d = os.path.dirname(p)
-	n = os.path.basename(p)
-	if d != "" and n != "" and os.path.exists(d):
-		return os.path.join(os.path.realpath(d), n)
-	return p
+	return _real_nearest(p)
+
+
+def _real_nearest(p):
+	"""P, with nothing at it, made absolute through the real path of the
+	nearest folder above it that is there, the rest as written. So one file
+	has one spelling whether it's there or not, and however the path names it:
+	bare, `./`, absolute, through a link, or relative to another working
+	folder. realpath alone would cancel `nodir/..` as text where the kernel
+	refuses the missing folder, and the save would create the file."""
+	at = p
+	while True:
+		d = os.path.dirname(at)
+		if os.path.exists(d or "."):
+			# at is p up to some separator, so its last part starts the rest.
+			# On windows with the separator realpath gives a file that's there.
+			rest = p[len(at) - len(os.path.basename(at)):]
+			if os.altsep:
+				rest = rest.replace(os.altsep, os.sep)
+			return os.path.join(os.path.realpath(d or "."), rest)
+		if not d or d == at:
+			return p
+		at = d
 
 
 def _set_read_only(path, on):

@@ -770,6 +770,11 @@ rows=(
 	## not above them (2026100117214802).
 	'ddghw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1\n# end\n|0|x: 1\na:   [1\n\nb: 1\n# end\n|-'
 	'ddghx|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1\n    # c\n|0|s:\n    a:   [1\n    b: 1\n    # c\n|-'
+	## A set whose new instance folds into an old one leaves the kept lines
+	## where they were, and a kept line of a stacked list's name among its
+	## items is commented out on the first set (2026110312163204, 05).
+	'detsf|set-fold-keeps-kept-lines|set --set=a.b(z)=y -|a:\n\tb: y\n\tc: 1\n\t- 1\n|0|a:\n\tb: y\n\tc: 1\n\t- 1\n|-'
+	'detsg|set-stacked-kept-name-once|set --set=a=1 -|a:\n\t- 1\n\ta: [1, 2\n\t- 2\n|0|# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 1\n|-'
 	## Arrays are written in brackets, and a list item is `- ` then one value
 	## (2026100207032800). Each error names what is wrong.
 	'ddhny|array-e019-text-after|check -|log: [INFO] started\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, text after .\].; quote the value if it is text$'
@@ -1081,6 +1086,12 @@ rows=(
 	'dekw1|set-print-newer-refused|set --set=a=2 -|a: 1\n##    Format   4\n|7||refusing to print: the document holds lines from a newer format'
 	'dekw2|fmt-check-newer-refused|fmt --check -|a: 1\n##    Format   4\n|7||fmt --write would refuse: the document holds lines from a newer format'
 	'dekw3|fmt-print-newer|fmt -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|!refus'
+	## 2026110312163203: the highest Format line decides, so a newer one
+	## after a current one still makes the file newer.
+	'detr1|check-newer-after-current|check -|##    Format   3\np: x\n##    Format   4\n|0|line 3: Hint: H006\nok (1 diagnostic(s))\n|-'
+	'detr2|set-print-newer-after-current|set --set=p=y -|##    Format   3\np: x\n##    Format   4\n|7||refusing to print: the document holds lines from a newer format'
+	'detr3|fmt-check-newer-after-current|fmt --check -|##    Format   3\np: x\n##    Format   4\n|7||fmt --write would refuse: the document holds lines from a newer format'
+	'detr4|upgrade-newer-after-current|upgrade --from-2x -|##    Format   3\np: a, b\n##    Format   4\n|0|##    Format   3\np: a, b\n##    Format   4\n|^line 3: Hint: H006 the file names format 4, newer'
 	## 2026102307035776: a '#' against text opens a comment as any other does,
 	## and the load hints H008 so the cut is not silent. A blank before it gets
 	## none, and Strict still passes. The prose is the same in all four.

@@ -3993,6 +3993,10 @@ def main():
 		# in the parser (2026101514324701).
 		("~x: ```\n\tb\n\t```\n##    Format   4\n", 4, G, 4, "H006"),
 		("`y: ```\n##    Format   4\n```\n", 0, NF, 0, ""),
+		# The highest of several decides, wherever it is (2026110312163203).
+		("##    Format   3\np: x\n##    Format   4\n", 4, G, 3, "H006"),
+		("##    Format   5\n##    Format   4\n", 5, G, 1, "H006"),
+		("##    Format   2\n##    Format   4\n##    Format   3\n", 4, G, 2, "H006"),
 	):
 		stamp = shcl.read_format_version(ftext)
 		if (stamp.value, stamp.status, stamp.line) != (fvalue, fstatus, fline):
@@ -4643,6 +4647,59 @@ def main():
 		raise SystemExit("set back refused")
 	nx_check(nx_doc, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
 
+	test_id("detsd", "a_set_that_folds_leaves_kept_lines")
+	# A set that makes a second instance with a value one already has folds it
+	# into that one. The data is as it was, so the text is too: the kept lines
+	# beside it stay, and only a comment written against it goes along. The
+	# lines that ended the block went above the old instance, where one read
+	# as a comment or bound (2026110312163204). A kept line among a stacked
+	# list's items that names the list goes above it as the noted comment on
+	# the first set, not the second (2026110312163205). Same fixture in every
+	# runner.
+
+	def fo_set(src, path, text):
+		doc = shcl.Document.parse(src)
+		st = doc.set_literal(path, text)
+		if st is not shcl.SetStatus.Ok:
+			raise SystemExit(f"set {path!r} on {src!r}: {st}")
+		out = doc.to_canonical()
+		back = shcl.Document.parse(out)
+		if back.to_canonical() != out or doc.paths() != back.paths():
+			raise SystemExit(f"reload differs: {out!r}")
+		if back.lost_count() != 0:
+			raise SystemExit(f"reload lost {back.lost_count()}: {out!r}")
+		return out
+
+	def fo_expect(got, want):
+		if got != want:
+			raise SystemExit(f"got {got!r}, want {want!r}")
+
+	for fo_src in (
+		"a:\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a: v\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a:\n\tb: y\n\tc: 1\n\tx(3).y: 1\n",
+		"a:\n\tb: y\n\tc: 1\n\t-\n",
+		"a:\n\tb: y\n\tc: 1\n\tq: [1\n",
+		"a:\n\tb: y\n\tq: [1\n\t# note\nz: 1\n",
+	):
+		fo_expect(fo_set(fo_src, "a.b(z)", "y"), fo_src)
+	fo_src = "c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n"
+	fo_expect(fo_set(fo_src, "b(a)", "y"), fo_src)
+	# An instance set to an earlier one's value.
+	fo_expect(
+		fo_set("a:\n\tb: y\n\t# note\n\tq: [1\n\t# against\n\tb: x\n\tz: 1\n", "a.b(x)", "y"),
+		"a:\n\t# against\n\tb: y\n\t# note\n\tq: [1\n\tz: 1\n",
+	)
+	# The two instances' fields fold too. A kept line beside one stays beside
+	# it, after the block it folded into.
+	fo_expect(
+		fo_set("b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\nb: x\n\tp: [2\n\tk:\n\t\tm: 1\n\t\t- 2\n", "b(x)", "y"),
+		"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\n\t\t- 2\n\tp: [2\n",
+	)
+	fo_once = fo_set("a:\n\t- 1\n\ta: [1, 2\n\t- 2\n", "a", "1")
+	fo_expect(fo_once, "# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 1\n")
+	fo_expect(fo_set(fo_once, "a", "1"), fo_once)
+
 	test_id("dekz3", "a_replaced_leaf_keeps_the_lines_kept_in_its_block")
 	# A line kept in a leaf's block stays in the merged block when the other
 	# layer replaces the leaf, as it does when a setter changes the leaf in
@@ -5067,17 +5124,14 @@ def main():
 	test_id("debk7", "a_block_kept_at_the_top_names_this_format_too")
 	# The lone stamp comes off, and the block kept above the first field's
 	# child named another format, which the fresh text then read as its own
-	# (2026102309053667).
+	# (2026102309053667). Since 2026110312163203 the highest line decides,
+	# so this file names format 4 and is left alone.
 	up_top = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n"
-	if shcl.format_version(up_top) != 3:
+	if shcl.format_version(up_top) != 4:
 		raise SystemExit(f"kept top: input names {shcl.format_version(up_top)}")
 	up = shcl.upgrade(up_top, True)
-	if up.current or up.errors_left or up.ambiguous:
-		raise SystemExit(f"kept top: {up.current} {up.errors_left} {up.ambiguous}")
-	if shcl.format_version(up.text) != 3 or "Format   4" in up.text:
-		raise SystemExit(f"kept top: fresh text names {shcl.format_version(up.text)}: {up.text!r}")
-	if not shcl.upgrade(up.text, False).current:
-		raise SystemExit(f"kept top: a second run made it over again: {up.text!r}")
+	if not up.current or up.errors_left or up.ambiguous or up.text != up_top:
+		raise SystemExit(f"kept top: made over {up.current} {up.errors_left} {up.ambiguous}")
 	# set_banner takes the same path.
 	up_doc = shcl.Document.parse("a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b: 2\n")
 	up_doc.set_banner(True)
@@ -5374,6 +5428,137 @@ def main():
 		# A parse has no file behind it.
 		shcl.Document.parse("a: 5\n").save_file(cother)
 		same("parsed", cread(cother), "a: 5\n")
+
+	test_id("detpp", "a_changed_check_knows_its_file_by_any_spelling")
+	# One file gives one answer however its path is spelled: bare, `./`,
+	# absolute, through a link, in a folder made after the load, or from
+	# another working folder. A FIFO swapped in gets the write's own refusal
+	# rather than a wait, and a file the check can't read is a change
+	# (2026110312163201, 2026110312163202).
+	with tempfile.TemporaryDirectory() as sd:
+		def sread(p):
+			with open(p, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def swrite(p, t):
+			with open(p, "w", encoding="utf-8", newline="") as fh:
+				fh.write(t)
+
+		def srefused(what, call, p):
+			try:
+				call()
+			except shcl.SaveChanged as e:
+				if e.path != p:
+					raise SystemExit(f"{what}: path {e.path!r}") from None
+				return
+			raise SystemExit(f"{what}: saved")
+
+		def ssame(what, got, want):
+			if got != want:
+				raise SystemExit(f"{what}: {got!r}, want {want!r}")
+
+		def sabs(name):
+			return os.path.join(sd, name)
+
+		sback = os.getcwd()
+		os.chdir(sd)
+		try:
+			os.mkdir("sub")
+			# A bare name, gone since the load.
+			swrite("i.shcl", "a: 1\n")
+			sgone, _ = shcl.Document.load_file("i.shcl")
+			os.remove("i.shcl")
+			srefused("bare gone", lambda: sgone.save_file("i.shcl"), "i.shcl")
+			ssame("bare gone left", os.path.exists("i.shcl"), False)
+
+			# A bare name made where the load found nothing, by any spelling.
+			sfresh, st = shcl.Document.load_file("h.shcl")
+			ssame("bare new status", st, shcl.FileStatus.NotFound)
+			sfresh.set_int("a", 1)
+			swrite("h.shcl", "b: 2\n")
+			srefused("bare new", lambda: sfresh.save_file("h.shcl"), "h.shcl")
+			srefused("dot new", lambda: sfresh.save_file("./h.shcl"), "./h.shcl")
+			srefused("abs new", lambda: sfresh.save_file(sabs("h.shcl")), sabs("h.shcl"))
+			ssame("bare new left", sread("h.shcl"), "b: 2\n")
+
+			# Relative at the load, absolute at the save, and the other way.
+			swrite("sub/l.shcl", "a: 1\n")
+			srel, _ = shcl.Document.load_file("sub/l.shcl")
+			sfull, _ = shcl.Document.load_file(sabs("sub/l.shcl"))
+			swrite("sub/l.shcl", "a: 9\n")
+			srefused("rel then abs", lambda: srel.save_file(sabs("sub/l.shcl")), sabs("sub/l.shcl"))
+			srefused("abs then rel", lambda: sfull.save_file("sub/l.shcl"), "sub/l.shcl")
+			ssame("rel left", sread("sub/l.shcl"), "a: 9\n")
+
+			# A folder made after the load.
+			slater, st = shcl.Document.load_file("new/n.shcl")
+			ssame("new folder status", st, shcl.FileStatus.NotFound)
+			os.mkdir("new")
+			swrite("new/n.shcl", "b: 2\n")
+			srefused("new folder", lambda: slater.save_file(sabs("new/n.shcl")), sabs("new/n.shcl"))
+			ssame("new folder left", sread("new/n.shcl"), "b: 2\n")
+
+			# Through a link to the folder, with nothing there at the load.
+			if os.name != "nt":
+				os.symlink("sub", "ln")
+				slinked, _ = shcl.Document.load_file("ln/k.shcl")
+				swrite("sub/k.shcl", "b: 2\n")
+				srefused("link", lambda: slinked.save_file("sub/k.shcl"), "sub/k.shcl")
+				ssame("link left", sread("sub/k.shcl"), "b: 2\n")
+
+			# The same name from another working folder is another file, so
+			# it isn't checked.
+			swrite("m.shcl", "a: 1\n")
+			smoved, _ = shcl.Document.load_file("m.shcl")
+			os.chdir("sub")
+			swrite("m.shcl", "z: 0\n")
+			smoved.save_file("m.shcl")
+			ssame("moved", sread("m.shcl"), "a: 1\n")
+			os.chdir(sd)
+
+			if os.name != "nt":
+				# A missing folder named with `..` is refused, as the kernel
+				# refuses it, rather than canceled as text. Windows cancels it
+				# itself.
+				sthrough, _ = shcl.Document.load_file("q2.shcl")
+				try:
+					sthrough.save_file("nodir/../q.shcl")
+					raise SystemExit("missing folder: saved")
+				except shcl.SaveFailed:
+					pass
+				ssame("missing folder left", os.path.exists("q.shcl"), False)
+
+			if hasattr(os, "mkfifo"):
+				# A FIFO swapped in is refused as the write refuses it, with no
+				# wait.
+				swrite("f.shcl", "a: 1\n")
+				sfifo, _ = shcl.Document.load_file("./f.shcl")
+				os.remove("f.shcl")
+				os.mkfifo("f.shcl")
+				try:
+					sfifo.save_file("./f.shcl")
+					raise SystemExit("fifo: saved")
+				except shcl.SaveFailed as e:
+					ssame("fifo", e.status, shcl.WriteStatus.NotRegular)
+
+				# A file the check can't read, since another program wrote it
+				# and took the read bit off, is a change. Root reads it anyway,
+				# so it's only asked where the read fails.
+				swrite("p.shcl", "a: 1\n")
+				sshut, _ = shcl.Document.load_file("./p.shcl")
+				swrite("p.shcl", "a: 9\n")
+				os.chmod("p.shcl", 0o200)
+				try:
+					with open("p.shcl", "rb"):
+						shut_reads = True
+				except OSError:
+					shut_reads = False
+				if not shut_reads:
+					srefused("unreadable", lambda: sshut.save_file("./p.shcl"), "./p.shcl")
+				os.chmod("p.shcl", 0o600)
+				ssame("unreadable left", sread("p.shcl"), "a: 9\n")
+		finally:
+			os.chdir(sback)
 
 	test_id("dekm6", "a_create_only_save_refuses_a_file_already_there")
 	# A create-only save refuses a file that's there, and only one of several

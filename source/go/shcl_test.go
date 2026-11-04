@@ -4162,6 +4162,10 @@ func TestStampReadsSayWhy(t *testing.T) {
 		// in the parser (2026101514324701).
 		{"~x: ```\n\tb\n\t```\n##    Format   4\n", 4, Good, 4, "H006"},
 		{"`y: ```\n##    Format   4\n```\n", 0, NotFound, 0, ""},
+		// The highest of several decides, wherever it is (2026110312163203).
+		{"##    Format   3\np: x\n##    Format   4\n", 4, Good, 3, "H006"},
+		{"##    Format   5\n##    Format   4\n", 5, Good, 1, "H006"},
+		{"##    Format   2\n##    Format   4\n##    Format   3\n", 4, Good, 2, "H006"},
 	}
 	for _, c := range formats {
 		r := ReadFormatVersion(c.text)
@@ -6259,6 +6263,61 @@ func TestAnIndexWithNoInstanceStaysKept(t *testing.T) {
 	check(doc, "p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n")
 }
 
+// A set that makes a second instance with a value one already has folds it
+// into that one. The data is as it was, so the text is too: the kept lines
+// beside it stay, and only a comment written against it goes along. The lines
+// that ended the block went above the old instance, where one read as a
+// comment or bound (2026110312163204). A kept line among a stacked list's
+// items that names the list goes above it as the noted comment on the first
+// set, not the second (2026110312163205). Same fixture in every runner.
+func TestASetThatFoldsLeavesKeptLines(t *testing.T) {
+	defer testID(t, "detsc")
+	set := func(src, path, text string) string {
+		t.Helper()
+		doc := Parse(src)
+		if st := doc.SetLiteral(path, text); st != SetOk {
+			t.Fatalf("set %q on %q: %v", path, src, st)
+		}
+		out := doc.ToCanonical()
+		back := Parse(out)
+		if back.ToCanonical() != out || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
+			t.Fatalf("reload differs: %q", out)
+		}
+		if back.LostCount() != 0 {
+			t.Fatalf("reload lost %d: %q", back.LostCount(), out)
+		}
+		return out
+	}
+	expect := func(got, want string) {
+		t.Helper()
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+	for _, src := range []string{
+		"a:\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a: v\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a:\n\tb: y\n\tc: 1\n\tx(3).y: 1\n",
+		"a:\n\tb: y\n\tc: 1\n\t-\n",
+		"a:\n\tb: y\n\tc: 1\n\tq: [1\n",
+		"a:\n\tb: y\n\tq: [1\n\t# note\nz: 1\n",
+	} {
+		expect(set(src, "a.b(z)", "y"), src)
+	}
+	src := "c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n"
+	expect(set(src, "b(a)", "y"), src)
+	// An instance set to an earlier one's value.
+	expect(set("a:\n\tb: y\n\t# note\n\tq: [1\n\t# against\n\tb: x\n\tz: 1\n", "a.b(x)", "y"),
+		"a:\n\t# against\n\tb: y\n\t# note\n\tq: [1\n\tz: 1\n")
+	// The two instances' fields fold too. A kept line beside one stays beside
+	// it, after the block it folded into.
+	expect(set("b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\nb: x\n\tp: [2\n\tk:\n\t\tm: 1\n\t\t- 2\n", "b(x)", "y"),
+		"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\n\t\t- 2\n\tp: [2\n")
+	once := set("a:\n\t- 1\n\ta: [1, 2\n\t- 2\n", "a", "1")
+	expect(once, "# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 1\n")
+	expect(set(once, "a", "1"), once)
+}
+
 // A line kept in a leaf's block stays in the merged block when the other layer
 // replaces the leaf, as it does when a setter changes the leaf in place. It
 // went to the root, above the field, where an item reloaded as E007. Same
@@ -7101,6 +7160,156 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	// A parse has no file behind it.
 	ok("save of a parse", Parse("a: 5\n").SaveFile(other))
 	has(other, "a: 5\n")
+}
+
+// One file gives one answer however its path is spelled: bare, `./`,
+// absolute, through a link, in a folder made after the load, or from another
+// working folder. A FIFO swapped in gets the write's own refusal rather than a
+// wait, and a file the check can't read is a change (2026110312163201,
+// 2026110312163202). Same fixture in every runner.
+func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
+	defer testID(t, "detpq")
+	dir := t.TempDir()
+	back, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(back) }()
+	abs := func(name string) string { return filepath.Join(dir, name) }
+	write := func(p, s string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	has := func(p, want string) {
+		t.Helper()
+		if got, err := os.ReadFile(p); err != nil || string(got) != want {
+			t.Errorf("%s holds %q (%v), want %q", p, got, err, want)
+		}
+	}
+	changed := func(what string, err error, p string) {
+		t.Helper()
+		var c *SaveChanged
+		if !errors.As(err, &c) || c.Path != p {
+			t.Errorf("%s: got %v, want *SaveChanged for %s", what, err, p)
+		}
+	}
+	if err := os.Mkdir("sub", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A bare name, gone since the load.
+	write("i.shcl", "a: 1\n")
+	gone, _ := LoadFile("i.shcl")
+	_ = os.Remove("i.shcl")
+	changed("bare, gone", gone.SaveFile("i.shcl"), "i.shcl")
+	if _, err := os.Stat("i.shcl"); err == nil {
+		t.Error("bare, gone: the save made the file")
+	}
+
+	// A bare name made where the load found nothing, by any spelling.
+	fresh, st := LoadFile("h.shcl")
+	if st != FileNotFound {
+		t.Errorf("bare, new: status %v", st)
+	}
+	fresh.SetInt("a", 1)
+	write("h.shcl", "b: 2\n")
+	changed("bare, new", fresh.SaveFile("h.shcl"), "h.shcl")
+	changed("dot, new", fresh.SaveFile("./h.shcl"), "./h.shcl")
+	changed("absolute, new", fresh.SaveFile(abs("h.shcl")), abs("h.shcl"))
+	has("h.shcl", "b: 2\n")
+
+	// Relative at the load, absolute at the save, and the other way round.
+	write("sub/l.shcl", "a: 1\n")
+	rel, _ := LoadFile("sub/l.shcl")
+	full, _ := LoadFile(abs("sub/l.shcl"))
+	write("sub/l.shcl", "a: 9\n")
+	changed("relative then absolute", rel.SaveFile(abs("sub/l.shcl")), abs("sub/l.shcl"))
+	changed("absolute then relative", full.SaveFile("sub/l.shcl"), "sub/l.shcl")
+	has("sub/l.shcl", "a: 9\n")
+
+	// A folder made after the load.
+	later, _ := LoadFile("new/n.shcl")
+	if err := os.Mkdir("new", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write("new/n.shcl", "b: 2\n")
+	changed("new folder", later.SaveFile(abs("new/n.shcl")), abs("new/n.shcl"))
+	has("new/n.shcl", "b: 2\n")
+
+	// Through a link to the folder, with nothing there at the load.
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink("sub", "ln"); err != nil {
+			t.Fatal(err)
+		}
+		linked, _ := LoadFile("ln/k.shcl")
+		write("sub/k.shcl", "b: 2\n")
+		changed("link", linked.SaveFile("sub/k.shcl"), "sub/k.shcl")
+		has("sub/k.shcl", "b: 2\n")
+	}
+
+	// The same name from another working folder is another file, so it isn't
+	// checked.
+	write("m.shcl", "a: 1\n")
+	moved, _ := LoadFile("m.shcl")
+	if err := os.Chdir("sub"); err != nil {
+		t.Fatal(err)
+	}
+	write("m.shcl", "z: 0\n")
+	if err := moved.SaveFile("m.shcl"); err != nil {
+		t.Errorf("another folder: %v", err)
+	}
+	has("m.shcl", "a: 1\n")
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if runtime.GOOS == "windows" {
+		return
+	}
+	// A missing folder named with `..` is refused, as the kernel refuses it,
+	// rather than canceled as text. Windows cancels it itself.
+	through, _ := LoadFile("q2.shcl")
+	if err := through.SaveFile("nodir/../q.shcl"); err == nil {
+		t.Error("missing folder: saved")
+	}
+	if _, err := os.Lstat("q.shcl"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("missing folder: q.shcl is there (%v)", err)
+	}
+	// A FIFO swapped in is refused as the write refuses it, with no wait.
+	write("f.shcl", "a: 1\n")
+	fifo, _ := LoadFile("./f.shcl")
+	_ = os.Remove("f.shcl")
+	if err := exec.Command("mkfifo", "f.shcl").Run(); err != nil {
+		t.Fatal(err)
+	}
+	var we *WriteError
+	if err := fifo.SaveFile("./f.shcl"); !errors.As(err, &we) || we.Status != WriteNotRegular {
+		t.Errorf("fifo: got %v, want WriteNotRegular", err)
+	}
+
+	// A file the check can't read, since another program wrote it and took
+	// the read bit off, is a change. Root reads it anyway, so it's only asked
+	// where the read fails.
+	write("p.shcl", "a: 1\n")
+	shut, _ := LoadFile("./p.shcl")
+	write("p.shcl", "a: 9\n")
+	if err := os.Chmod("p.shcl", 0o200); err != nil {
+		t.Fatal(err)
+	}
+	if fh, err := os.Open("p.shcl"); err == nil {
+		_ = fh.Close()
+	} else {
+		changed("unreadable", shut.SaveFile("./p.shcl"), "./p.shcl")
+	}
+	if err := os.Chmod("p.shcl", 0o600); err != nil {
+		t.Fatal(err)
+	}
+	has("p.shcl", "a: 9\n")
 }
 
 // A create-only save refuses a file that's there, and only one of several

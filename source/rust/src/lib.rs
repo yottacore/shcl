@@ -237,13 +237,16 @@ impl LoadedFile {
 	}
 
 	/// The file at PATH still holds the text, byte for byte, or is still
-	/// not there. Content only, so a touch alone is no change. A read that
-	/// fails another way is left to the write, which fails the same way.
+	/// not there. Content only, so a touch alone is no change. Something
+	/// that isn't a regular file is left to the write, which refuses it. A
+	/// file that can't be read is a change, since the rename that replaces it
+	/// needs no read access.
 	fn holds(&self, path: &str) -> bool {
-		match std::fs::read(path) {
-			Ok(now) => self.text.as_deref().is_some_and(|t| t.as_bytes() == now),
+		match read_regular(path) {
+			Ok(Some(now)) => self.text.as_deref().is_some_and(|t| t.as_bytes() == now),
+			Ok(None) => true,
 			Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.text.is_none(),
-			Err(_) => true,
+			Err(_) => false,
 		}
 	}
 }
@@ -2773,6 +2776,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 	let mut now = RawLines::new(Rules::Current);
 	let mut then = RawLines::new(Rules::V2);
 	let mut found: Option<(u32, usize, &str)> = None;
+	let mut newest: Option<(u32, usize, &str)> = None;
 	let mut unread: Option<(Status, usize, &str)> = None;
 	for (i, line) in text.split('\n').enumerate() {
 		let current = now.step(line);
@@ -2800,14 +2804,14 @@ fn format_line_read(text: &str) -> Read<u32> {
 		// `upgrade --from-2x` takes for a beta one.
 		let v = n.parse().unwrap_or(u32::MAX);
 		if v >= FORMAT_MAJOR {
-			if current.is_some() {
-				return Read::new(v, Status::Good, Some(n.to_string())).at(i + 1, None);
+			if current.is_some() && newest.is_none_or(|(f, _, _)| v > f) {
+				newest = Some((v, i + 1, n));
 			}
 		} else if old.is_some() && found.is_none_or(|(f, _, _)| v > f) {
 			found = Some((v, i + 1, n));
 		}
 	}
-	if let Some((v, line, n)) = found {
+	if let Some((v, line, n)) = newest.or(found) {
 		return Read::new(v, Status::Good, Some(n.to_string())).at(line, None);
 	}
 	match unread {
@@ -7584,21 +7588,19 @@ fn restep(leads: &mut [Lead]) {
 /// table: the kept lines beside it, with the comments that sit with them.
 /// Above it that is everything up to its last kept line, below it everything
 /// from its first, so a comment written against the node goes with it. The
-/// kept line written in place of its `name:` line goes too.
+/// kept line written in place of its `name:` line goes too. What goes stays
+/// on the node, where a fold of two instances still wants it.
 fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
 	let heads = heads_block(nd);
 	let Some(t) = nd.trivia.as_deref_mut() else {
 		return Vec::new();
 	};
 	let mut left = std::mem::take(&mut t.leading);
-	if heads {
-		left.pop();
-	}
-	left.truncate(
-		left.iter()
-			.rposition(Lead::is_kept_line)
-			.map_or(0, |k| k + 1),
-	);
+	let end = left[..left.len() - usize::from(heads)]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	t.leading = left.split_off(end);
 	let from = t
 		.after
 		.iter()
@@ -9246,7 +9248,7 @@ pub fn read_named_schema(text: &str, file: &str) -> NamedSchema {
 /// FIFO waits for a writer. So on POSIX the open does not wait, and the flag
 /// comes straight back off: only the open waits, and the caller's fstat
 /// refuses a FIFO before any read.
-#[cfg(unix)]
+#[cfg(all(unix, not(miri)))]
 fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
 	use std::os::fd::AsRawFd;
 	use std::os::unix::fs::OpenOptionsExt;
@@ -9274,9 +9276,27 @@ fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
 	}
 	Ok(f)
 }
-#[cfg(not(unix))]
+// Miri refuses O_NONBLOCK on an open, and its tests make no FIFO.
+#[cfg(any(not(unix), miri))]
 fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
 	std::fs::File::open(path)
+}
+
+/// The bytes of the regular file at PATH, for a check that it didn't change.
+/// Ok(None) when something else is there, such as a FIFO swapped in, which
+/// the open doesn't wait on.
+fn read_regular(path: &str) -> std::io::Result<Option<Vec<u8>>> {
+	use std::io::Read;
+	if !std::fs::metadata(path)?.is_file() {
+		return Ok(None);
+	}
+	let mut f = open_no_wait(path)?;
+	if !f.metadata()?.is_file() {
+		return Ok(None);
+	}
+	let mut bytes = Vec::new();
+	f.read_to_end(&mut bytes)?;
+	Ok(Some(bytes))
 }
 
 /// read_named_schema()'s read: only a regular file, and no more of it than
@@ -9780,8 +9800,8 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 			lines: up.errors_left,
 		});
 	}
-	let same = |now: Vec<u8>| now == text.as_bytes();
-	if !std::fs::read(path).is_ok_and(same) {
+	let same = || matches!(read_regular(path), Ok(Some(now)) if now == text.as_bytes());
+	if !same() {
 		return Err(UpgradeError::Io(WriteError::new(
 			WriteStatus::Other,
 			format!("{}: changed since it was read; nothing written", path),
@@ -9792,7 +9812,7 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 		// With the original still in place the backup would only stand in the
 		// way of the next run. A replace that fails part way on windows can
 		// leave nothing at the path, and then the backup is all there is.
-		if std::fs::read(path).is_ok_and(same) {
+		if same() {
 			let _ = std::fs::remove_file(&up.backup);
 			return Err(UpgradeError::Io(e));
 		}
@@ -9853,12 +9873,29 @@ fn resolve_target(file: &str) -> Result<std::path::PathBuf, (WriteStatus, &'stat
 	if std::fs::read_link(&p).is_ok() {
 		return Err((WriteStatus::Other, "too many levels of symbolic links"));
 	}
-	Ok(match (p.parent(), p.file_name()) {
-		(Some(d), Some(n)) if !d.as_os_str().is_empty() => {
-			std::fs::canonicalize(d).map(|d| d.join(n)).unwrap_or(p)
+	Ok(real_nearest(p))
+}
+
+/// P, with nothing at it, made absolute through the real path of the nearest
+/// folder above it that is there, the rest as written. So one file has one
+/// spelling whether it's there or not, and however the path names it: bare,
+/// `./`, absolute, through a link, or relative to another working folder.
+fn real_nearest(p: std::path::PathBuf) -> std::path::PathBuf {
+	let mut rest = Vec::new();
+	let mut at = p.as_path();
+	while let (Some(d), Some(n)) = (at.parent(), at.file_name()) {
+		rest.push(n);
+		let dir = if d.as_os_str().is_empty() {
+			std::path::Path::new(".")
+		} else {
+			d
+		};
+		if let Ok(real) = std::fs::canonicalize(dir) {
+			return rest.iter().rev().fold(real, |a, n| a.join(n));
 		}
-		_ => p,
-	})
+		at = d;
+	}
+	std::path::absolute(&p).unwrap_or(p)
 }
 
 #[cfg(windows)]
@@ -11860,13 +11897,14 @@ impl Document {
 		{
 			return SetStatus::HasChildren;
 		}
-		match self.place(path, true) {
+		// A new instance with a value one already has would fold into that
+		// one, so the set is a set of that one, which leaves its lines be.
+		let placed = match self.same_instance(path, &value) {
+			Some(n) => Ok(n),
+			None => self.place(path, true),
+		};
+		match placed {
 			Ok(node) => {
-				// place() has already done it for a field it created.
-				if node < fresh && self.kept_owed > 0 {
-					let (parent, name) = (self.arena[node].parent, self.arena[node].name.clone());
-					self.comment_out_kept(parent, &name, path, false);
-				}
 				if keep_quotes {
 					keep_mark(&self.arena[node].value, &mut value);
 				}
@@ -11879,6 +11917,13 @@ impl Document {
 				// No longer the list the lines among its elements sat in.
 				unstack(&mut self.arena[node]);
 				self.arena[node].star_list = stacked;
+				// place() has already done it for a field it created. After
+				// the unstack, so a line of its name from among the items,
+				// now above it, is a comment too.
+				if node < fresh && self.kept_owed > 0 {
+					let (parent, name) = (self.arena[node].parent, self.arena[node].name.clone());
+					self.comment_out_kept(parent, &name, path, false);
+				}
 				// An empty binding or a raw block can put a fence after an
 				// empty sibling of its name.
 				let fence_side = matches!(self.arena[node].value, Value::Empty | Value::Raw(_));
@@ -11893,6 +11938,28 @@ impl Document {
 			}
 			Err(why) => why,
 		}
+	}
+
+	/// The instance a write of `value` at `path` would fold into: one with
+	/// that value, beside the one a `(value)` selector at the end of the path
+	/// would make. None when the selector finds one, or the path is not Ok.
+	fn same_instance(&self, path: &str, value: &Value) -> Option<usize> {
+		let scan = scan_lookup(path).ok()?;
+		let last = scan.segments.last()?;
+		if !matches!(last.selector, Some(Selector::ByValue { .. })) {
+			return None;
+		}
+		let mut trail = Vec::new();
+		if self.probe_write(&scan, &mut trail) != SetStatus::Ok || trail.last()?.is_some() {
+			return None;
+		}
+		let parent = match trail.len() {
+			1 => ROOT,
+			n => trail[n - 2]?,
+		};
+		self.children_named(parent, &last.name)
+			.into_iter()
+			.find(|&c| merge_eq(&self.arena[c].name, &self.arena[c].value, &last.name, value))
 	}
 
 	/// A setter writing a field writes every kept line of its name in the
@@ -12075,15 +12142,25 @@ impl Document {
 				.position(|&c| c == n)
 				.unwrap_or(usize::MAX)
 		};
-		let (survivor, loser) = if pos(other) < pos(node) {
-			(other, node)
+		let (survivor, loser, at) = if pos(other) < pos(node) {
+			(other, node, pos(node))
 		} else {
-			(node, other)
+			(node, other, pos(other))
 		};
+		// The data does not change, so the kept lines beside the loser stay
+		// where they were, as a remove leaves them. Only the comments written
+		// against it go with it.
+		let left = beside_kept(&mut self.arena[loser]);
 		// The fold appends, so what moved is the survivor's new tail.
 		let kept = self.arena[survivor].children.len();
 		fold_node_into(&mut self.arena, survivor, loser);
 		self.arena[parent].children.retain(|&c| c != loser);
+		if !left.is_empty() {
+			match self.arena[parent].children.get(at) {
+				Some(&next) => self.leave_above(next, left),
+				None => self.leave_last(parent, left),
+			}
+		}
 		self.settle(parent, 1);
 		if let Some(ix) = self.index.get_mut() {
 			ix.unlink(name_key(parent, &self.arena[loser].name), loser);
@@ -12134,6 +12211,9 @@ impl Document {
 			let mut first: U64Map<Slot> =
 				U64Map::with_capacity_and_hasher(kids.len(), Default::default());
 			let mut keep: Vec<usize> = Vec::with_capacity(kids.len());
+			// What a folded node leaves, as in collapse_dup(), for the next
+			// node that stays.
+			let mut left: Vec<Lead> = Vec::new();
 			for c in kids {
 				let h = merge_hash(&self.arena[c].name, &self.arena[c].value);
 				let survivor = first.get(&h).and_then(|s| {
@@ -12148,6 +12228,7 @@ impl Document {
 				});
 				match survivor {
 					Some(s) => {
+						left.append(&mut beside_kept(&mut self.arena[c]));
 						let kept = self.arena[s].children.len();
 						fold_node_into(&mut self.arena, s, c);
 						if let Some(ix) = self.index.get_mut() {
@@ -12165,11 +12246,17 @@ impl Document {
 							.entry(h)
 							.and_modify(|s| s.push(c))
 							.or_insert(Slot::One(c));
+						if !left.is_empty() {
+							self.leave_above(c, std::mem::take(&mut left));
+						}
 						keep.push(c);
 					}
 				}
 			}
 			self.arena[parent].children = keep;
+			if !left.is_empty() {
+				self.leave_last(parent, left);
+			}
 			self.settle(parent, 1);
 		}
 	}

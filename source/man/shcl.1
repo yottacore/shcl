@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-11-01 shcl "User Commands"
+.TH SHCL 1 2026-11-03 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -1035,7 +1035,9 @@ without
 .B \-\-write
 would have refused one
 .RB ( \-\-lossy
-overrides), or
+overrides), or because the file names a newer format than this shcl reads
+.RB ( H006 ,
+which nothing overrides), or
 .B migrate
 left something behind: values it cannot decide between the two rule sets
 .RB ( \-\-from\-2x

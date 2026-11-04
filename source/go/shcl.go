@@ -3096,7 +3096,7 @@ func formatLineRead(text string) Read[int] {
 	}
 	now := newRawLines(RulesCurrent)
 	then := newRawLines(RulesV2)
-	var found, unread Read[int]
+	var found, newest, unread Read[int]
 	for i, line := range strings.Split(text, "\n") {
 		current, inNow := now.step(line)
 		old, inThen := then.step(line)
@@ -3137,12 +3137,15 @@ func formatLineRead(text string) Read[int] {
 			v = math.MaxUint32
 		}
 		if v >= FormatMajor {
-			if inNow {
-				return Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+			if inNow && (newest.Line == 0 || v > newest.Value) {
+				newest = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
 			}
 		} else if inThen && (found.Line == 0 || v > found.Value) {
 			found = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
 		}
+	}
+	if newest.Line != 0 {
+		return newest
 	}
 	if found.Line != 0 {
 		return found
@@ -6642,6 +6645,7 @@ func restep(leads []lead) {
 // that sit with them. Above it that is everything up to its last kept line,
 // below it everything from its first, so a comment written against the node
 // goes with it. The kept line written in place of its `name:` line goes too.
+// What goes stays on the node, where a fold of two instances still wants it.
 func besideKept(nd *nodeData) []lead {
 	heads := headsBlock(nd)
 	t := nd.trivia
@@ -6649,17 +6653,19 @@ func besideKept(nd *nodeData) []lead {
 		return nil
 	}
 	left := t.leading
-	t.leading = nil
+	last := len(left)
 	if heads {
-		left = left[:len(left)-1]
+		last--
 	}
 	end := 0
-	for k := len(left) - 1; k >= 0; k-- {
+	for k := last - 1; k >= 0; k-- {
 		if left[k].isKeptLine() {
 			end = k + 1
 			break
 		}
 	}
+	// A copy, since the caller appends to what is left.
+	t.leading = append([]lead(nil), left[end:]...)
 	left = left[:end]
 	from := len(t.after)
 	for k := range t.after {
@@ -9138,7 +9144,13 @@ func writeFileHow(file, data string, newOnly bool, mode os.FileMode) error {
 	if terr != nil {
 		return writeFailed(terr, "%s: %w", file, terr)
 	}
-	dir := filepath.Dir(target)
+	// As written, since a clean would put the temp beside `nodir/..` rather
+	// than in the missing folder the kernel refuses.
+	dir := rawDir(target)
+	inDir := dir + string(filepath.Separator)
+	if os.IsPathSeparator(dir[len(dir)-1]) {
+		inDir = dir
+	}
 	base := filepath.Base(target)
 	// At most the first 64 bytes of the name, cut where a character starts, so the
 	// temp's own length is fixed. Keeping the whole name put the temp over the
@@ -9205,7 +9217,7 @@ func writeFileHow(file, data string, newOnly bool, mode os.FileMode) error {
 	var tmp string
 	var last error
 	for attempt := 0; attempt < 8; attempt++ {
-		tmp = filepath.Join(dir, "."+base+".tmp"+strconv.Itoa(os.Getpid())+"."+strconv.Itoa(attempt))
+		tmp = inDir + "." + base + ".tmp" + strconv.Itoa(os.Getpid()) + "." + strconv.Itoa(attempt)
 		from := ""
 		if existErr == nil {
 			from = target
@@ -9500,8 +9512,8 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeErrorsLeft, Path: path, Lines: up.ErrorsLeft}
 	}
 	same := func() bool {
-		now, rerr := os.ReadFile(path)
-		return rerr == nil && string(now) == text
+		now, regular, rerr := readRegular(path)
+		return rerr == nil && regular && string(now) == text
 	}
 	if !same() {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteOther, Err: fmt.Errorf("%s: changed since it was read; nothing written", path)}}
@@ -9550,7 +9562,7 @@ func namesADirectory(file string) bool {
 // would be the exact replacement the symlink walk exists to avoid.
 func resolveTarget(file string) (string, error) {
 	if p, err := filepath.EvalSymlinks(file); err == nil {
-		return p, nil
+		return absReal(p), nil
 	}
 	p := file
 	for hop := 0; hop < 40; hop++ {
@@ -9572,10 +9584,73 @@ func resolveTarget(file string) (string, error) {
 	if _, err := os.Readlink(p); err == nil {
 		return "", errors.New("too many levels of symbolic links")
 	}
-	if dir, err := filepath.EvalSymlinks(rawDir(p)); err == nil {
-		return filepath.Join(dir, filepath.Base(p)), nil
+	return realNearest(p), nil
+}
+
+// realNearest is p, with nothing at it, made absolute through the real path of
+// the nearest folder above it that is there, the rest as written. So one file
+// has one spelling whether it's there or not, and however the path names it:
+// bare, `./`, absolute, through a link, or relative to another working folder.
+// The rest isn't cleaned, since a clean cancels `nodir/..` as text where the
+// kernel refuses the missing folder, and the save would create the file.
+func realNearest(p string) string {
+	at := p
+	for {
+		dir := rawDir(at)
+		if dir == at {
+			break
+		}
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			// at is p up to some separator, so its last part starts the rest.
+			// FromSlash so it reads as EvalSymlinks writes a file that's there.
+			rest := filepath.FromSlash(p[len(at)-len(rawBase(at)):])
+			out := absReal(real)
+			if !os.IsPathSeparator(out[len(out)-1]) {
+				out += string(filepath.Separator)
+			}
+			return out + rest
+		}
+		at = dir
 	}
-	return p, nil
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
+}
+
+// absReal makes a path EvalSymlinks gave absolute. Getwd can answer with $PWD,
+// which may run through a link, so the working folder is resolved too, or a
+// file named relative and absolute would get 2 spellings. On windows the
+// working folder can be a short name, and EvalSymlinks of the absolute path
+// gives the long one, as it does for a file that's there.
+func absReal(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if runtime.GOOS != "windows" {
+		if wd, err := os.Getwd(); err == nil {
+			if real, err := filepath.EvalSymlinks(wd); err == nil {
+				return filepath.Join(real, p)
+			}
+		}
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		if real, err := filepath.EvalSymlinks(abs); err == nil {
+			return real
+		}
+		return abs
+	}
+	return p
+}
+
+// rawBase is the last part of p as written, the half rawDir leaves.
+func rawBase(p string) string {
+	vol := filepath.VolumeName(p)
+	i := len(p)
+	for i > len(vol) && !os.IsPathSeparator(p[i-1]) {
+		i--
+	}
+	return p[i:]
 }
 
 // rawDir is the directory half of p as written. filepath.Dir cleans it, and a
@@ -9878,17 +9953,40 @@ func (f *loadedFile) over(path string) bool {
 }
 
 // holds is true when the file at path still holds the text, byte for byte, or
-// is still not there. Content only, so a touch alone is no change. A read that
-// fails another way is left to the write, which fails the same way.
+// is still not there. Content only, so a touch alone is no change. Something
+// that isn't a regular file is left to the write, which refuses it. A file
+// that can't be read is a change, since the rename that replaces it needs no
+// read access.
 func (f *loadedFile) holds(path string) bool {
-	now, err := os.ReadFile(path)
+	now, regular, err := readRegular(path)
 	switch {
+	case err == nil && !regular:
+		return true
 	case err == nil:
 		return f.text != nil && *f.text == string(now)
 	case errors.Is(err, os.ErrNotExist):
 		return f.text == nil
 	}
-	return true
+	return false
+}
+
+// readRegular gives the bytes of the regular file at path, for a check that it
+// didn't change, and false when something else is there, such as a FIFO
+// swapped in, which the open doesn't wait on.
+func readRegular(path string) ([]byte, bool, error) {
+	if st, err := os.Stat(path); err != nil || !st.Mode().IsRegular() {
+		return nil, false, err
+	}
+	fh, err := openNoWait(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer fh.Close()
+	if st, err := fh.Stat(); err != nil || !st.Mode().IsRegular() {
+		return nil, false, err
+	}
+	now, err := io.ReadAll(fh)
+	return now, err == nil, err
 }
 
 // SaveFile is the file tier's save half: write this document's canonical text
@@ -11380,13 +11478,14 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 			return SetHasChildren
 		}
 	}
-	idx, st := d.place(path, true)
+	// A new instance with a value one already has would fold into that one,
+	// so the set is a set of that one, which leaves its lines be.
+	idx, st := d.sameInstance(path, &v), SetOk
+	if idx < 0 {
+		idx, st = d.place(path, true)
+	}
 	if st != SetOk {
 		return st
-	}
-	// place has already done it for a field it created.
-	if idx < fresh && d.keptOwed > 0 {
-		d.commentOutKept(d.arena[idx].parent, d.arena[idx].name, path, false)
 	}
 	if keepQuotes {
 		keepMark(&d.arena[idx].value, &v)
@@ -11399,6 +11498,12 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 	// No longer the list the lines among its elements sat in.
 	unstack(&d.arena[idx])
 	d.arena[idx].starList = stacked
+	// place has already done it for a field it created. After the unstack,
+	// so a line of its name from among the items, now above it, is a
+	// comment too.
+	if idx < fresh && d.keptOwed > 0 {
+		d.commentOutKept(d.arena[idx].parent, d.arena[idx].name, path, false)
+	}
 	// An empty binding or a raw block can put a fence after an empty sibling
 	// of its name.
 	fenceSide := v.kind == vEmpty || v.kind == vRaw
@@ -11410,6 +11515,36 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
 	return SetOk
+}
+
+// sameInstance is the instance a write of v at path would fold into: one with
+// that value, beside the one a (value) selector at the end of the path would
+// make. -1 when the selector finds one, or the path is not Ok.
+func (d *Document) sameInstance(path string, v *value) int {
+	scan, err := scanLookup(path)
+	if err != nil || len(scan.segments) == 0 {
+		return -1
+	}
+	last := &scan.segments[len(scan.segments)-1]
+	if last.sel == nil || last.sel.kind != selByValue {
+		return -1
+	}
+	st, trail := d.probeWrite(scan)
+	if st != SetOk || trail[len(trail)-1] >= 0 {
+		return -1
+	}
+	parent := root
+	if n := len(trail); n > 1 {
+		if parent = trail[n-2]; parent < 0 {
+			return -1
+		}
+	}
+	for _, c := range d.childrenNamed(parent, last.name) {
+		if mergeEq(d.arena[c].name, &d.arena[c].value, last.name, v) {
+			return c
+		}
+	}
+	return -1
 }
 
 // keptAt is where a lead sits: its list, the node that list is on, and its
@@ -11599,6 +11734,11 @@ func (d *Document) collapseDup(node int) {
 	if pos(node) < pos(other) {
 		survivor, loser = node, other
 	}
+	at := pos(loser)
+	// The data does not change, so the kept lines beside the loser stay
+	// where they were, as a remove leaves them. Only the comments written
+	// against it go with it.
+	left := besideKept(&d.arena[loser])
 	moved := append([]int(nil), d.arena[loser].children...)
 	foldNodeInto(d.arena, survivor, loser)
 	keep := d.arena[parent].children[:0]
@@ -11608,6 +11748,13 @@ func (d *Document) collapseDup(node int) {
 		}
 	}
 	d.arena[parent].children = keep
+	if len(left) > 0 {
+		if at < len(keep) {
+			d.leaveAbove(keep[at], left)
+		} else {
+			d.leaveLast(parent, left)
+		}
+	}
 	d.settle(parent, 1)
 	if ix := d.index.Load(); ix != nil {
 		ix.unlink(nameKey(parent, d.arena[loser].name), loser)
@@ -11676,11 +11823,15 @@ func (d *Document) foldDupsBelow(start int) {
 		d.arena[parent].children = nil
 		first := make(map[uint64]slot, len(kids))
 		keep := make([]int, 0, len(kids))
+		// What a folded node leaves, as in collapseDup, for the next node
+		// that stays.
+		var left []lead
 		for _, c := range kids {
 			h := mergeHash(d.arena[c].name, &d.arena[c].value)
 			if survivor, ok := slotFirstMatch(first, h, func(x int) bool {
 				return mergeEq(d.arena[x].name, &d.arena[x].value, d.arena[c].name, &d.arena[c].value)
 			}); ok {
+				left = append(left, besideKept(&d.arena[c])...)
 				moved := append([]int(nil), d.arena[c].children...)
 				foldNodeInto(d.arena, survivor, c)
 				if ix := d.index.Load(); ix != nil {
@@ -11694,10 +11845,17 @@ func (d *Document) foldDupsBelow(start int) {
 				stack = append(stack, survivor)
 			} else {
 				slotInsert(first, h, c)
+				if len(left) > 0 {
+					d.leaveAbove(c, left)
+					left = nil
+				}
 				keep = append(keep, c)
 			}
 		}
 		d.arena[parent].children = keep
+		if len(left) > 0 {
+			d.leaveLast(parent, left)
+		}
 		d.settle(parent, 1)
 	}
 }
