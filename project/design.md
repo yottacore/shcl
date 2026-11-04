@@ -723,6 +723,8 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 
 - A setter whose `(value)` selector finds no instance, writing a value another instance of that name has, sets that one, as a set with no selector does, since the instance it would make folds into it. So the lines beside it stay where they were. A fold of 2 instances, such as a setter giving one the value of an earlier one, leaves the kept lines beside the one that goes where they were, as a remove does. The comments written against it go along to the one that stays.
 
+- The load folds a second instance of one name and value into the first the same way. The kept lines read beside the second one stay above the next line of the block read after them, or at the end of the block, and the comments written against it go along to the first. A kept line before a dotted line still goes to the line's first segment, where the dotted line is written.
+
 - Two kinds of kept line stay as they are. One has a kept line written under it and is not where a new field goes, since as a comment it would leave that line under the field above. The other has a misplaced line under it, since a misplaced line is filed by its own text and cannot move with it. The first comment is then the first of the others. `SetComment` makes a missing field without touching any of these lines.
 
 - A line the load dropped right after the kept line a new field goes under is not placed by the save that keeps lines, since the lines before it are all new. That save falls back to canonical and refuses, as for any dropped line, and `--lossy` writes it.

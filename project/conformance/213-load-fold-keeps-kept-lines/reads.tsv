@@ -1,0 +1,9 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+	children	a|e|f|m	-
+a	children	b|c|d	-
+m	children	n|s|t	-
+e	string	y	Good
+e	comments	# about e	-

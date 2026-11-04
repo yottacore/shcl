@@ -4299,6 +4299,9 @@ struct Parser<'a> {
 	// Parents where a remap ended up on a key a sibling already held: the only
 	// places a duplicate can survive the keyed lookup, so the fold starts here.
 	late_dups: Vec<usize>,
+	// Nodes a fold or a re-mention gave a later line's leading lines to,
+	// for refile_folded().
+	folded: Vec<usize>,
 	// Node -> line of the re-open that H002-hinted it. A merge under a hinted
 	// container combines the same two textual regions, so it hints too even
 	// when it ends up on the newest child at its own scope - that is how every
@@ -4427,6 +4430,7 @@ impl<'a> Parser<'a> {
 			saw_blank: false,
 			star_open: None,
 			late_dups: Vec::new(),
+			folded: Vec::new(),
 			reentered: HashMap::new(),
 			lost: 0,
 			kept_owed: 0,
@@ -4781,6 +4785,7 @@ impl<'a> Parser<'a> {
 						// as a merge at parse time asks of the newest child.
 						self.hint_fold(parent, keep[i], c, i + 1 != keep.len());
 						fold_node_into(&mut self.arena, keep[i], c);
+						self.folded.push(keep[i]);
 						grew[i] = true;
 					}
 					None => {
@@ -6407,6 +6412,9 @@ impl<'a> Parser<'a> {
 				{
 					self.give_pending(self.head_of(node, nsegs), indent, k + 1, false);
 				}
+				if self.arena[node].line != lineno {
+					self.folded.push(node);
+				}
 				self.attach_trivia(node, indent, comment);
 				self.stack.push((indent, node));
 				if tok.array.is_some() {
@@ -6474,6 +6482,7 @@ impl<'a> Parser<'a> {
 				),
 			});
 		}
+		let folded = std::mem::take(&mut self.folded);
 		let mut doc = Document {
 			arena: self.arena,
 			diags: self.diags,
@@ -6496,6 +6505,7 @@ impl<'a> Parser<'a> {
 			file: None,
 			newer,
 		};
+		doc.refile_folded(folded);
 		doc.settle_kept();
 		doc
 	}
@@ -7582,6 +7592,29 @@ fn restep(leads: &mut [Lead]) {
 			room = l.depth + 1;
 		}
 	}
+}
+
+/// The kept lines a load's fold gave this node from a later instance of
+/// it, with the comments before them: what beside_kept() takes, from the
+/// first line read after the node's own. Only a fold puts those there.
+fn folded_kept(nd: &mut NodeData) -> Vec<Lead> {
+	let (line, heads) = (nd.line, heads_block(nd));
+	let Some(t) = nd.trivia.as_deref_mut() else {
+		return Vec::new();
+	};
+	let Some(from) = t.leading.iter().position(|l| l.line > line) else {
+		return Vec::new();
+	};
+	let end = t.leading[..t.leading.len() - usize::from(heads)]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	if end <= from {
+		return Vec::new();
+	}
+	let left = t.leading.drain(from..end).collect();
+	restep(&mut t.leading);
+	left
 }
 
 /// What a remove of this node leaves of its lines, by design.md's kept-lines
@@ -12431,6 +12464,49 @@ impl Document {
 		settle_first_blank(&mut self.arena, &mut self.orphans);
 		self.resettle_kept();
 		Read::new(targets.len(), status, None).at(line, None)
+	}
+
+	/// A load that folds 2 instances leaves the kept lines read beside the
+	/// later one where they were, as a setter's fold does: above the next
+	/// sibling read after them, or at the end of the block. `folded` holds
+	/// the nodes a fold or a re-mention gave lines to.
+	fn refile_folded(&mut self, mut folded: Vec<usize>) {
+		folded.sort_unstable();
+		folded.dedup();
+		// Parent, the child they go above (past the last, the block's end),
+		// line, the line. All first, since 2 folds can fill one place.
+		let mut moves: Vec<(usize, usize, usize, Lead)> = Vec::new();
+		for c in folded {
+			let p = self.arena[c].parent;
+			let Some(at) = self.arena[p].children.iter().position(|&k| k == c) else {
+				continue;
+			};
+			let (mut j, mut line) = (at + 1, 0);
+			for l in folded_kept(&mut self.arena[c]) {
+				line = line.max(l.line);
+				let kids = &self.arena[p].children;
+				while j < kids.len() && self.arena[kids[j]].line <= line {
+					j += 1;
+				}
+				moves.push((p, j, line, l));
+			}
+		}
+		// Stable, so the lines of one fold keep their order.
+		moves.sort_by_key(|m| (m.0, m.1, m.2));
+		let mut moves = moves.into_iter().peekable();
+		while let Some((p, j, _, l)) = moves.next() {
+			let mut group = vec![l];
+			while let Some(m) = moves.next_if(|m| m.0 == p && m.1 == j) {
+				group.push(m.3);
+			}
+			match self.arena[p].children.get(j) {
+				Some(&next) => self.leave_above(next, group),
+				None => self.leave_last(p, group),
+			}
+			if moves.peek().is_none_or(|m| m.0 != p) {
+				settle_block(&mut self.arena, p, 1);
+			}
+		}
 	}
 
 	/// Lines a remove left, put above the sibling that followed them.

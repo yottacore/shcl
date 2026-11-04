@@ -775,6 +775,9 @@ rows=(
 	## items is commented out on the first set (2026110312163204, 05).
 	'detsf|set-fold-keeps-kept-lines|set --set=a.b(z)=y -|a:\n\tb: y\n\tc: 1\n\t- 1\n|0|a:\n\tb: y\n\tc: 1\n\t- 1\n|-'
 	'detsg|set-stacked-kept-name-once|set --set=a=1 -|a:\n\t- 1\n\ta: [1, 2\n\t- 2\n|0|# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 1\n|-'
+	## A load that folds 2 instances of one name and value leaves the kept
+	## lines read beside the later one where they were (2026110315051536).
+	'devrb|fmt-fold-keeps-kept-lines|fmt -|a:\n\tb: y\n\tc: 1\n\t- 1\n\tb: y\n\td: 2\nb: y\nc: 1\nq: [1\nb: y\n|0|a:\n\tb: y\n\tc: 1\n\t- 1\n\td: 2\nb: y\nc: 1\nq: [1\n|-'
 	## Arrays are written in brackets, and a list item is `- ` then one value
 	## (2026100207032800). Each error names what is wrong.
 	'ddhny|array-e019-text-after|check -|log: [INFO] started\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, text after .\].; quote the value if it is text$'

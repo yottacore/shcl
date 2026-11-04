@@ -4567,6 +4567,9 @@ type parser struct {
 	// Parents where a remap ended up on a key a sibling already held: the only
 	// places a duplicate can survive the keyed lookup, so the fold starts here.
 	lateDups []int
+	// Nodes a fold or a re-mention gave a later line's leading lines to, for
+	// refileFolded().
+	folded []int
 	// Node -> line of the re-open that H002-hinted it. A merge under a hinted
 	// container combines the same two textual regions, so it hints too even
 	// when it ends up on the newest child at its own scope - that is how every
@@ -4838,6 +4841,7 @@ func (p *parser) foldDupsFrom(start int) {
 				// merge at parse time asks of the newest child.
 				p.hintFold(parent, keep[i], c, i+1 != len(keep))
 				foldNodeInto(p.arena, keep[i], c)
+				p.folded = append(p.folded, keep[i])
 				grew[i] = true
 			} else {
 				slotInsert(first, h, len(keep))
@@ -6410,6 +6414,9 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					}
 				}
 			}
+			if p.arena[node].line != lineno {
+				p.folded = append(p.folded, node)
+			}
 			p.attachTrivia(node, indent, comment)
 			p.stack = append(p.stack, stackEnt{indent: indent, node: node})
 			if tok.Array >= 0 {
@@ -6466,6 +6473,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		p.arena = append([]nodeData(nil), p.arena...)
 	}
 	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, keptOwed: p.keptOwed, kept: p.keptAny, arrays: p.keptArrays, ends: p.ends, dropped: p.dropped, newer: newer}
+	doc.refileFolded(p.folded)
 	doc.settleKept()
 	return doc
 }
@@ -6638,6 +6646,45 @@ func restep(leads []lead) {
 			room = leads[k].depth + 1
 		}
 	}
+}
+
+// foldedKept is the kept lines a load's fold gave this node from a later
+// instance of it, with the comments before them: what besideKept takes, from
+// the first line read after the node's own. Only a fold puts those there.
+func foldedKept(nd *nodeData) []lead {
+	heads := headsBlock(nd)
+	t := nd.trivia
+	if t == nil {
+		return nil
+	}
+	from := -1
+	for k := range t.leading {
+		if t.leading[k].line > nd.line {
+			from = k
+			break
+		}
+	}
+	if from < 0 {
+		return nil
+	}
+	last := len(t.leading)
+	if heads {
+		last--
+	}
+	end := 0
+	for k := last - 1; k >= 0; k-- {
+		if t.leading[k].isKeptLine() {
+			end = k + 1
+			break
+		}
+	}
+	if end <= from {
+		return nil
+	}
+	left := append([]lead(nil), t.leading[from:end]...)
+	t.leading = append(t.leading[:from], t.leading[end:]...)
+	restep(t.leading)
+	return left
 }
 
 // besideKept is what a remove of this node leaves of its lines, by
@@ -12046,6 +12093,71 @@ func (d *Document) TryRemove(path string) Read[int] {
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
 	return Read[int]{Value: len(targets), Status: status}.at(line, nil)
+}
+
+// refileFolded: a load that folds 2 instances leaves the kept lines read
+// beside the later one where they were, as a setter's fold does: above the
+// next sibling read after them, or at the end of the block. folded holds the
+// nodes a fold or a re-mention gave lines to.
+func (d *Document) refileFolded(folded []int) {
+	sort.Ints(folded)
+	// Parent, the child they go above (past the last, the block's end), line,
+	// the line. All first, since 2 folds can fill one place.
+	type move struct {
+		parent, at, line int
+		l                lead
+	}
+	var moves []move
+	for x, c := range folded {
+		if x > 0 && folded[x-1] == c {
+			continue
+		}
+		p := d.arena[c].parent
+		at := -1
+		for k, kid := range d.arena[p].children {
+			if kid == c {
+				at = k
+				break
+			}
+		}
+		if at < 0 {
+			continue
+		}
+		j, line := at+1, 0
+		for _, l := range foldedKept(&d.arena[c]) {
+			line = maxInt(line, l.line)
+			kids := d.arena[p].children
+			for j < len(kids) && d.arena[kids[j]].line <= line {
+				j++
+			}
+			moves = append(moves, move{p, j, line, l})
+		}
+	}
+	// Stable, so the lines of one fold keep their order.
+	sort.SliceStable(moves, func(a, b int) bool {
+		if moves[a].parent != moves[b].parent {
+			return moves[a].parent < moves[b].parent
+		}
+		if moves[a].at != moves[b].at {
+			return moves[a].at < moves[b].at
+		}
+		return moves[a].line < moves[b].line
+	})
+	for k := 0; k < len(moves); {
+		p, j := moves[k].parent, moves[k].at
+		var group []lead
+		for ; k < len(moves) && moves[k].parent == p && moves[k].at == j; k++ {
+			group = append(group, moves[k].l)
+		}
+		if j < len(d.arena[p].children) {
+			d.leaveAbove(d.arena[p].children[j], group)
+		} else {
+			d.leaveLast(p, group)
+		}
+		if k == len(moves) || moves[k].parent != p {
+			settleBlock(d.arena, p, 1)
+		}
+	}
 }
 
 // leaveAbove puts lines a remove left above the sibling that followed them.
