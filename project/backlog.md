@@ -51,8 +51,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The changed check misses an edit when the load and the save spell the path differently, so another program's edit is lost
 	- ID: 2026110312163201
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: the hosted ci.yml windows job, for `detpn`, `detpp`, `detpq`, `detpr` and `detps`, and `dekj6`, `dekk8` and `dekkm` again under the runner's short-name TEMP, since the resolve changed for windows in Rust, Python and Go.
+	- Status: Done
+	- Needs external testing: No
 	- Severity: High
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 1
@@ -81,9 +81,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261103: Go resolves the working folder too, since `Getwd` can answer with a `$PWD` that runs through a link.
 	- Swept: Rust, Python, Go and C, every caller of the resolve: the load's record, the save's compare, the create check and the write. `upgrade_file`'s check compares no paths. The veneer wraps the C save. C's windows resolve gives a full path in every mode, so it's unchanged. The CLIs keep their own check, by the path they read.
 	- Verified: `detpn`, `detpp`, `detpq`, `detpr` and `detps` fail on the old code and pass on the new. Under wine, `detpn`, `detpq`, `detpr`, `dekk8` and `dekkm` pass, which doesn't cover the hosted runner's short-name TEMP. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, and again for `c` after the last C change. check-docs alone fails only the known `dcbc2`. codeql-scan alone passes all 17 checks, and the C runner passes under ASan and UBSan.
+	- Verified: 20261103 hosted ci.yml run 41741462062 on r1103b at cd340bf7, windows job: PASS detpn, detpp, detpq, detpr, detps, dekj6, dekk8 and dekkm. That runner had a long TEMP; the short-name case passed on b29w for Go and Python with 2026110314064292's fix.
 	- Test case: `a_changed_check_knows_its_file_by_any_spelling` in Rust (`detpn`), Python (`detpp`), Go `TestAChangedCheckKnowsItsFileByAnySpelling` (`detpq`), the C runner (`detpr`) and the veneer smoke (`detps`).
 	- Branch: `r1103b`
 	- Commit: `2f38f68b`
+	- Acceptance signoff: me 20261103, hosted windows job and b29w short-name TEMP run above.
+	- Closed: 20261103
 
 - Two spellings of one path under a missing folder can resolve apart in C, Go and Python
 	- ID: 2026110314240418
