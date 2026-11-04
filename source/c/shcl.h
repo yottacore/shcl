@@ -14586,7 +14586,7 @@ static void s_schema_refuse(shcl_named_schema *ns, shcl_schema_status status, co
 	if (!tail) { SHCL_OOM(); abort(); }
 	tail[0] = ':'; tail[1] = ' ';
 	memcpy(tail + 2, why, wn + 1);
-	ns->message = s_join_n(ns->path, ns->path_len, tail, wn + 2, &ns->message_len);
+	ns->message = s_join_n(ns->path, ns->path_len, tail, wn + 2, &ns->message_len); // NOLINT(clang-analyzer-unix.Malloc): ns owns path and message, and shcl_named_schema_free frees both
 	free(tail);
 }
 

@@ -1137,7 +1137,23 @@ std::string backup_file_name(const std::string &file, std::uint32_t format) {
 const char *to_string(FileStatus s) { return shcl_file_status_name(static_cast<shcl_file_status>(s)); }
 const char *to_string(WriteStatus s) { return shcl_write_status_name(static_cast<shcl_write_status>(s)); }
 
+namespace detail {
+// A NUL ends a C string, so a path holding one would reach the C call cut
+// short and name another file. Rust, Go and Python refuse such a path, and so
+// does every call here that opens one: unreadable for a read, Other for a
+// write, before the call (2026110312163208).
+static bool cut_short(const std::string &path) { return path.find('\0') != std::string::npos; }
+static SaveResult nul_save(WriteStatus *why) {
+	if (why) *why = WriteStatus::Other;
+	return SaveResult::Failed;
+}
+static UpgradeError nul_in(const std::string &path) {
+	return UpgradeError{UpgradeErrorKind::Io, path + ": file name contained an unexpected NUL byte", 0, WriteStatus::Other, {}};
+}
+} // namespace detail
+
 std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_t max_bytes) {
+	if (detail::cut_short(path)) return {std::string(), FileStatus::Unreadable};
 	// Initialized: the status should never depend on the callee having written it.
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
 	std::size_t n = 0;
@@ -1148,6 +1164,7 @@ std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_
 }
 
 WriteStatus write_file_atomic(const std::string &path, std::string_view data) {
+	if (detail::cut_short(path)) return WriteStatus::Other;
 	shcl_write_status st = SHCL_WRITE_OTHER;
 	shcl_write_file_atomic(path.c_str(), data.data(), data.size(), &st);
 	return static_cast<WriteStatus>(st);
@@ -1156,14 +1173,34 @@ WriteStatus write_file_atomic(const std::string &path, std::string_view data) {
 const char *to_string(SchemaStatus s) { return shcl_schema_status_name(static_cast<shcl_schema_status>(s)); }
 
 NamedSchema read_named_schema(std::string_view text, const std::string &file) {
-	shcl_named_schema c = shcl_read_named_schema(text.data(), text.size(), file.c_str());
+	// Only file's folder says where a relative path starts. A NUL in it would
+	// reach the C call cut short and start in another folder, so the call gets
+	// no folder, and a relative path's read is refused as the others refuse it
+	// (2026110312163208). A NUL in the name itself changes nothing.
+#ifdef _WIN32
+	const char *seps = "/\\";
+#else
+	const char *seps = "/";
+#endif
+	const std::size_t nul = file.find('\0');
+	const bool cut = nul != std::string::npos && file.find_first_of(seps, nul) != std::string::npos;
+	shcl_named_schema c = shcl_read_named_schema(text.data(), text.size(), cut ? "" : file.c_str());
 	NamedSchema out{static_cast<SchemaStatus>(c.status), std::string(c.text, c.len), std::string(c.path, c.path_len), c.line,
 		std::string(c.message, c.message_len)};
 	shcl_named_schema_free(&c);
+	// With no folder, a relative path comes back under `./`, and an absolute
+	// one never does.
+	if (cut && out.path.rfind("./", 0) == 0) {
+		out.status = SchemaStatus::Unreadable;
+		out.text.clear();
+		out.path = file.substr(0, file.find_last_of(seps) + 1) + out.path.substr(2);
+		out.message = out.path + ": file name contained an unexpected NUL byte";
+	}
 	return out;
 }
 
 std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format) {
+	if (detail::cut_short(file)) return {std::string(), detail::nul_in(file)};
 	char *name = nullptr, *why = nullptr;
 	shcl_write_status st = SHCL_WRITE_OK;
 	shcl_upgrade_error e = shcl_write_backup(file.c_str(), text.data(), text.size(), format, &name, &why, &st);
@@ -1173,9 +1210,11 @@ std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::stri
 }
 
 std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2) {
+	if (detail::cut_short(path)) return {Upgrade{}, detail::nul_in(path)};
 	detail::UpgradedOwn own;
 	char *why = nullptr;
 	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, &own.c, &why, &st);
 	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
 	if (e != SHCL_UPGRADE_OK) {
@@ -1206,23 +1245,29 @@ Document Document::load_and_validate_with(std::string_view text, const Document 
 
 #ifndef SHCL_NO_FILE_IO
 std::pair<Document, FileStatus> Document::load_file(const std::string &path) {
+	if (detail::cut_short(path)) return {Access::wrap(shcl_parse_with("", 0, SHCL_STANDARD)), FileStatus::Unreadable};
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	Document d = Access::wrap(shcl_load_file(path.c_str(), &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
 std::pair<Document, FileStatus> Document::load_file_with(const std::string &path, Strictness s) {
+	if (detail::cut_short(path)) return {Access::wrap(shcl_parse_with("", 0, static_cast<shcl_strictness>(s))), FileStatus::Unreadable};
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	Document d = Access::wrap(shcl_load_file_with(path.c_str(), static_cast<shcl_strictness>(s), &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
 std::pair<Document, FileStatus> Document::load_file_keep_lines(const std::string &path, Strictness s) {
+	// A load that can't read the file keeps no lines, as the C load gives it.
+	if (detail::cut_short(path)) return {Access::wrap(shcl_parse_with("", 0, static_cast<shcl_strictness>(s))), FileStatus::Unreadable};
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	Document d = Access::wrap(shcl_load_file_keep_lines(path.c_str(), static_cast<shcl_strictness>(s), &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
 SaveResult Document::save_file(const std::string &path, WriteStatus *why) {
+	if (detail::cut_short(path)) return detail::nul_save(why);
 	shcl_write_status st = SHCL_WRITE_OK;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	SaveResult r = static_cast<SaveResult>(shcl_save_file(detail::held(*this), path.c_str(), &st));
@@ -1230,6 +1275,7 @@ SaveResult Document::save_file(const std::string &path, WriteStatus *why) {
 	return r;
 }
 SaveResult Document::save_file_lossy(const std::string &path, WriteStatus *why) {
+	if (detail::cut_short(path)) return detail::nul_save(why);
 	shcl_write_status st = SHCL_WRITE_OK;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	SaveResult r = static_cast<SaveResult>(shcl_save_file_lossy(detail::held(*this), path.c_str(), &st));
@@ -1237,6 +1283,7 @@ SaveResult Document::save_file_lossy(const std::string &path, WriteStatus *why) 
 	return r;
 }
 std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &path, WriteStatus *why) {
+	if (detail::cut_short(path)) return {detail::nul_save(why), false};
 	int k = 0;
 	shcl_write_status st = SHCL_WRITE_OK;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
@@ -1245,6 +1292,7 @@ std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &pa
 	return {r, k != 0};
 }
 std::pair<SaveResult, bool> Document::save_file_with(const std::string &path, const SaveOptions &opts, WriteStatus *why) {
+	if (detail::cut_short(path)) return {detail::nul_save(why), false};
 	shcl_save_options o{};
 	o.lossy = opts.lossy; o.keep_lines = opts.keep_lines; o.force = opts.force;
 	o.create = opts.create; o.mode = opts.mode;

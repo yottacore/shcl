@@ -313,7 +313,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The C++ interface saves to a cut-off path when the path holds a NUL
 	- ID: 2026110312163208
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 8
@@ -326,6 +326,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed. Older than this window (`74a2e5d0`), and the new `save_file_with` (`a618835c`) repeats it. The same class as 2026092813365307 in the C CLI.
 	- Sweep: every C++ interface call that takes a `std::string` path.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. Every veneer call that opens a path hands C `path.c_str()`, which ends at the NUL. `write_backup` made its backup under the cut name too.
+	- Actual fix: the veneer refuses a path holding a NUL before the C call: `read_file` and the 3 loads give Unreadable and an empty document, `write_file_atomic` gives Other, the 4 saves give Failed with Other, and `upgrade_file` and `write_backup` give an Io error with Other. `read_named_schema` gives a relative Schema path Unreadable when the NUL is in the config's folder, as Python does. Not in a release, so no changelog line.
+	- Decisions:
+		- me, 20261104: the refusal comes before the C call, since a C string can't carry the NUL. So a save to such a path is Failed even where Rust would answer `TooNew` or `Refused` first. Nothing is written either way.
+		- me, 20261104: `backup_file_name` is left as it is. It opens nothing, and `write_backup` and `upgrade_file`, which would open the name, refuse the path.
+		- me, 20261104: a NUL in the config's name, after its folder, changes nothing in `read_named_schema`, since only the folder says where a relative path starts.
+		- me, 20261104: the veneer smoke's first call of `read_named_schema` let clang-tidy reach `s_schema_refuse` in `shcl.h`, where it reports a leak (`de2x4`). The result owns its path and message, and `shcl_named_schema_free` frees both, so it's suppressed at the line with that reason.
+		- me, 20261104: `devwa` is the first test to hand `load_file_with` and `upgrade_file` a path from the environment, so CodeQL now flags both C calls as `cpp/path-injection`, and each gets the suppression the other veneer file calls have.
+	- Swept: every `std::string` path in `shcl.hpp`: `read_file`, `write_file_atomic`, `read_named_schema`, `write_backup`, `upgrade_file`, `backup_file_name`, the 3 loads and the 4 saves. The C CLI's Schema path is 2026092813365307.
+	- Verified: `devwa` fails on the old veneer, in every call it covers, and passes on the new. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick c`, check-veneer.bash, and after the suppressions analyze-c.bash and codeql-scan.bash. Not run on Windows, where `read_named_schema` also takes `\` as a separator.
+	- Test case: veneer smoke `a_path_holding_a_nul_is_refused` (`devwa`).
+	- Acceptance signoff: Self-closed: reproduced, `devwa` failed before and passes after, and the gates are green.
+	- Branch: `r1104`
+	- Closed: 20261104-094647
 
 - A failed run skips most of the cleanup and the closing blank line
 	- ID: 2026110215285704
