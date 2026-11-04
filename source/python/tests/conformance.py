@@ -1032,10 +1032,18 @@ class SeqGen:
 SEQ_NAMES = ["a", "b", "m"]
 
 
+def placed(code):
+	"""A line refused only for where it sits, as one code. An edit around it
+	can change which it gets, and it stays kept either way. Removing the field
+	before an E008 item under a field with a value leaves it E011."""
+	return "placed" if code in ("E001", "E003", "E007", "E008", "E011") else code
+
+
 def no_new_errors(text, base):
-	"""Every error code text loads with, base loaded with at least as often."""
-	count = collections.Counter(d.code for d in shcl.Document.parse(base).diagnostics() if d.severity == shcl.Severity.Error)
-	count.subtract(d.code for d in shcl.Document.parse(text).diagnostics() if d.severity == shcl.Severity.Error)
+	"""Every error code text loads with, base loaded with at least as often,
+	with placed's codes as one."""
+	count = collections.Counter(placed(d.code) for d in shcl.Document.parse(base).diagnostics() if d.severity == shcl.Severity.Error)
+	count.subtract(placed(d.code) for d in shcl.Document.parse(text).diagnostics() if d.severity == shcl.Severity.Error)
 	return min(count.values(), default=0) >= 0
 
 

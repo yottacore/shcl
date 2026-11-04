@@ -4512,19 +4512,31 @@ func (g *seqGen) doc() string {
 	return out.String()
 }
 
+// placed: a line refused only for where it sits, as one code. An edit around
+// it can change which it gets, and it stays kept either way. Removing the
+// field before an E008 item under a field with a value leaves it E011.
+func placed(code string) string {
+	switch code {
+	case "E001", "E003", "E007", "E008", "E011":
+		return "placed"
+	}
+	return code
+}
+
 // noNewErrors: every error code text loads with, base loaded with at least as
-// often.
+// often, with placed's codes as one.
 func noNewErrors(text, base string) bool {
 	count := map[string]int{}
 	for _, d := range Parse(base).Diagnostics() {
 		if d.Severity == SeverityError {
-			count[d.Code]++
+			count[placed(d.Code)]++
 		}
 	}
 	for _, d := range Parse(text).Diagnostics() {
 		if d.Severity == SeverityError {
-			count[d.Code]--
-			if count[d.Code] < 0 {
+			c := placed(d.Code)
+			count[c]--
+			if count[c] < 0 {
 				return false
 			}
 		}

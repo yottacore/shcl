@@ -942,16 +942,27 @@ static void seq_doc(SeqBuf *b) {
 	}
 }
 
-/* Every error code `d` loads with, `of` loaded with at least as often. */
+/* A line refused only for where it sits, as one code. An edit around it can
+   change which it gets, and it stays kept either way. Removing the field
+   before an E008 item under a field with a value leaves it E011. */
+static const char *placed(const char *code) {
+	static const char *const where[] = {"E001", "E003", "E007", "E008", "E011"};
+	for (size_t i = 0; i < sizeof where / sizeof where[0]; i++)
+		if (strcmp(code, where[i]) == 0) return "placed";
+	return code;
+}
+
+/* Every error code `d` loads with, `of` loaded with at least as often, with
+   placed's codes as one. */
 static int no_new_errors(const shcl_doc *d, const shcl_doc *of) {
 	for (size_t i = 0; i < shcl_diag_count(d); i++) {
 		if (shcl_diag_severity(d, i) != SHCL_SEV_ERROR) continue;
-		const char *code = shcl_diag_code(d, i);
+		const char *code = placed(shcl_diag_code(d, i));
 		size_t mine = 0, theirs = 0;
 		for (size_t j = 0; j < shcl_diag_count(d); j++)
-			mine += shcl_diag_severity(d, j) == SHCL_SEV_ERROR && strcmp(shcl_diag_code(d, j), code) == 0;
+			mine += shcl_diag_severity(d, j) == SHCL_SEV_ERROR && strcmp(placed(shcl_diag_code(d, j)), code) == 0;
 		for (size_t j = 0; j < shcl_diag_count(of); j++)
-			theirs += shcl_diag_severity(of, j) == SHCL_SEV_ERROR && strcmp(shcl_diag_code(of, j), code) == 0;
+			theirs += shcl_diag_severity(of, j) == SHCL_SEV_ERROR && strcmp(placed(shcl_diag_code(of, j)), code) == 0;
 		if (mine > theirs) return 0;
 	}
 	return 1;
