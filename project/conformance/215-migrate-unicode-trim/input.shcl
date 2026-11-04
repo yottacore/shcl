@@ -1,0 +1,11 @@
+host: example.com 
+ports: 80, 443
+vt: a
+lead: z
+note: n # c
+mid: x y
+wide: 　w　
+q: "a b" 
+list:
+	* x 
+last: 1

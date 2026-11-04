@@ -1454,6 +1454,35 @@ fn skip_wsp(s: &[u8], pos: &mut usize) {
 	}
 }
 
+/// Byte length of the blank at `i`, or 0. 2.x trimmed every Unicode
+/// `White_Space` character at a piece's edges, a no-break space and a
+/// vertical tab included, so its rules count those as blanks too.
+fn blank_len(s: &[u8], i: usize, rules: Rules) -> usize {
+	if is_wsp_byte(s[i]) {
+		return 1;
+	}
+	if rules != Rules::V2 || s[i] < 0x0B || (s[i] > 0x0C && s[i] < 0x80) {
+		return 0;
+	}
+	let n = utf8_len(s[i]).min(s.len() - i);
+	match std::str::from_utf8(&s[i..i + n])
+		.ok()
+		.and_then(|c| c.chars().next())
+	{
+		Some(c) if white_space(c) => n,
+		_ => 0,
+	}
+}
+
+fn skip_blank(s: &[u8], pos: &mut usize, rules: Rules) {
+	while *pos < s.len() {
+		match blank_len(s, *pos, rules) {
+			0 => break,
+			n => *pos += n,
+		}
+	}
+}
+
 /// Byte length of the UTF-8 character that starts with `b`. The scan only
 /// ever compares against ASCII structure characters, which UTF-8 guarantees
 /// cannot appear inside a multibyte sequence, so it advances by whole
@@ -1539,7 +1568,10 @@ fn scan_piece(
 	comments: bool,
 	array: bool,
 ) -> (Piece, usize) {
-	skip_wsp(s, &mut pos);
+	// 2.x's wider trim is taken for a value piece only. The selector arm
+	// of `migrate` cuts a body by its own offsets.
+	let edges = if term == b',' { rules } else { Rules::Current };
+	skip_blank(s, &mut pos, edges);
 	let start = pos;
 	let mut quote = Quote::None;
 	let every_comma = term != b',' || array || rules == Rules::V2;
@@ -1554,7 +1586,7 @@ fn scan_piece(
 				// A value piece may also end at a comment or the line end;
 				// a selector body ends at its bracket and nowhere else.
 				let mut i = close + 1;
-				skip_wsp(s, &mut i);
+				skip_blank(s, &mut i, edges);
 				let ended = if i < s.len() {
 					ends_at(s, i) || (array && s[i] == b']') || (term == b',' && comment_at(s, i))
 				} else {
@@ -1587,9 +1619,16 @@ fn scan_piece(
 				quote = Quote::Open;
 				if rules == Rules::V2 {
 					// 2.x: an open quote swallowed the rest of the line.
-					let mut end = s.len();
-					while end > start && is_wsp_byte(s[end - 1]) {
-						end -= 1;
+					let mut end = start;
+					let mut i = start;
+					while i < s.len() {
+						match blank_len(s, i, edges) {
+							0 => {
+								i += utf8_len(s[i]);
+								end = i.min(s.len());
+							}
+							n => i += n,
+						}
 					}
 					return (Piece { start, end, quote }, s.len());
 				}
@@ -1622,8 +1661,9 @@ fn scan_piece(
 		if ends_at(s, pos) || (array && b == b']') || (comments && comment_at(s, pos)) {
 			break;
 		}
+		let blank = blank_len(s, pos, edges) > 0;
 		pos += utf8_len(b);
-		if !is_wsp_byte(b) {
+		if !blank {
 			content_end = pos.min(s.len());
 		}
 	}
@@ -3421,6 +3461,7 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		} else {
 			(p.start, p.end)
 		};
+		v2_edge_edits(text, a, b, edits);
 		// A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if p.quote == Quote::None
 			&& !raw.contains(['\\', ',', '#'])
@@ -3436,6 +3477,29 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		}
 		let spelling = migrate_spelling(&logical, !(quoted || p.quote == Quote::Open));
 		edits.push((a, b, spelling));
+	}
+}
+
+/// 2.x trimmed a blank the current rules keep, such as a no-break space or a
+/// vertical tab, at a piece's edges. A run of blanks on either side of the
+/// piece from `a` to `b` that holds one becomes a space, or nothing at the
+/// end of the line.
+fn v2_edge_edits(text: &str, a: usize, b: usize, edits: &mut Vec<Edit>) {
+	let kept = |run: &str| run.chars().any(|c| !is_wsp(c));
+	let mut i = a;
+	while let Some(c) = text[..i].chars().next_back().filter(|&c| white_space(c)) {
+		i -= c.len_utf8();
+	}
+	if kept(&text[i..a]) {
+		edits.push((i, a, " ".to_string()));
+	}
+	let mut j = b;
+	while let Some(c) = text[j..].chars().next().filter(|&c| white_space(c)) {
+		j += c.len_utf8();
+	}
+	if kept(&text[b..j]) {
+		let with = if j == text.len() { "" } else { " " };
+		edits.push((b, j, with.to_string()));
 	}
 }
 

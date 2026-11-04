@@ -1572,6 +1572,33 @@ def _skip_wsp(s, pos):
 	return pos
 
 
+def _blank_len(s, i, rules):
+	"""Byte length of the blank at s[i], or 0. 2.x trimmed every Unicode
+	White_Space character at a piece's edges, a no-break space and a vertical
+	tab included, so its rules count those as blanks too."""
+	b = s[i]
+	if b in (_B_SPACE, _B_TAB, _B_CR):
+		return 1
+	if rules is not Rules.V2 or b < 0x0B or 0x0C < b < 0x80:
+		return 0
+	n = _utf8_len(b) if b >= 0x80 else 1
+	try:
+		c = s[i : i + n].decode("utf-8")
+	except UnicodeDecodeError:
+		return 0
+	return n if len(c) == 1 and _white_space(c) else 0
+
+
+def _skip_blank(s, pos, rules):
+	n = len(s)
+	while pos < n:
+		k = _blank_len(s, pos, rules)
+		if not k:
+			break
+		pos += k
+	return pos
+
+
 def _utf8_len(b):
 	"""Byte length of the UTF-8 character that starts with b. The scan only
 	ever compares against ASCII structure bytes, which UTF-8 guarantees cannot
@@ -1644,10 +1671,14 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 	`]` that closes it ends a value element too, and every comma does;
 	elsewhere only a loose one does, 2.x aside."""
 	n = len(s)
-	pos = _skip_wsp(s, pos)
+	# 2.x's wider trim is taken for a value piece only. The selector arm of
+	# migrate cuts a body by its own offsets.
+	edges = rules if term == _B_COMMA else Rules.Current
+	pos = _skip_blank(s, pos, edges)
 	start = pos
 	quote = Quote.None_
 	every_comma = term != _B_COMMA or array or rules is Rules.V2
+	v2 = edges is Rules.V2
 	# A backtick quotes a raw value element. 2.x had none, a selector body
 	# takes none, and a run of three opens a raw block instead.
 	tick = rules is Rules.Current and term == _B_COMMA and not s.startswith(b"```", min(pos, n))
@@ -1656,7 +1687,7 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 		if close is not None:
 			# A value piece may also end at a comment or the line end; a
 			# selector body ends at its bracket and nowhere else.
-			i = _skip_wsp(s, close + 1)
+			i = _skip_blank(s, close + 1, edges)
 			if i < n:
 				c = s[i]
 				ended = ((c == term and (every_comma or _loose_comma(s, i)))
@@ -1682,9 +1713,15 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 			quote = Quote.Open
 			if rules is Rules.V2:
 				# 2.x: an open quote swallowed the rest of the line.
-				end = n
-				while end > start and _is_wsp_byte(s[end - 1]):
-					end -= 1
+				end = start
+				i = start
+				while i < n:
+					k = _blank_len(s, i, edges)
+					if k:
+						i += k
+					else:
+						i += 1 if s[i] < 0x80 else _utf8_len(s[i])
+						end = min(i, n)
 				return Piece(start, end, quote), n
 	# 2.x shielded a backslash in value text only. A bare selector body ran to
 	# its first `]`, the same as now, so shielding one here would hide the `]`.
@@ -1714,8 +1751,9 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 				break
 		elif (array and b == _B_RBRACKET) or (comments and b == _B_HASH):
 			break
+		blank = b in (_B_SPACE, _B_TAB, _B_CR) or (v2 and _blank_len(s, pos, edges))
 		pos += 1 if b < 0x80 else _utf8_len(b)
-		if b != _B_SPACE and b != _B_TAB and b != _B_CR:
+		if not blank:
 			content_end = pos
 	# 2.x judged a value piece quoted by its shape after the scan: a quote at
 	# both ends, the last one not escaped, however many closes sat between. A
@@ -3117,6 +3155,7 @@ def _value_edits(s, tok, edits):
 			a, b = p.start - 1, p.end + 1
 		else:
 			a, b = p.start, p.end
+		_v2_edge_edits(s, a, b, edits)
 		# A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if (
 			p.quote is Quote.None_
@@ -3133,6 +3172,27 @@ def _value_edits(s, tok, edits):
 			continue
 		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.Open))
 		edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
+
+
+def _v2_edge_edits(s, a, b, edits):
+	"""2.x trimmed a blank the current rules keep, such as a no-break space or
+	a vertical tab, at a piece's edges. A run of blanks on either side of the
+	piece from a to b that holds one becomes a space, or nothing at the end of
+	the line."""
+	before = s[:a].decode("utf-8", "surrogatepass")
+	i = len(before)
+	while i > 0 and _white_space(before[i - 1]):
+		i -= 1
+	run = before[i:]
+	if any(c not in _WSP for c in run):
+		edits.append((a - len(run.encode("utf-8", "surrogatepass")), a, b" "))
+	after = s[b:].decode("utf-8", "surrogatepass")
+	j = 0
+	while j < len(after) and _white_space(after[j]):
+		j += 1
+	run = after[:j]
+	if any(c not in _WSP for c in run):
+		edits.append((b, b + len(run.encode("utf-8", "surrogatepass")), b"" if j == len(after) else b" "))
 
 
 def _v2_array_text(s, tok):

@@ -1531,6 +1531,33 @@ func skipWsp(s string, pos int) int {
 	return pos
 }
 
+// blankLen is the byte length of the blank at s[i], or 0. 2.x trimmed every
+// Unicode White_Space character at a piece's edges, a no-break space and a
+// vertical tab included, so its rules count those as blanks too.
+func blankLen(s string, i int, rules Rules) int {
+	if isWspByte(s[i]) {
+		return 1
+	}
+	if rules != RulesV2 || s[i] < 0x0B || (s[i] > 0x0C && s[i] < 0x80) {
+		return 0
+	}
+	if r, n := utf8.DecodeRuneInString(s[i:]); r != utf8.RuneError && whiteSpace(r) {
+		return n
+	}
+	return 0
+}
+
+func skipBlank(s string, pos int, rules Rules) int {
+	for pos < len(s) {
+		n := blankLen(s, pos, rules)
+		if n == 0 {
+			break
+		}
+		pos += n
+	}
+	return pos
+}
+
 // utf8Len is the byte length of the UTF-8 character at s[i]. The scan only
 // ever compares against ASCII structure characters, which UTF-8 guarantees
 // cannot appear inside a multibyte sequence, so it advances by whole
@@ -1620,13 +1647,19 @@ func looseComma(s string, at int) bool {
 // `]` that closes it ends a value element too, and every comma does;
 // elsewhere only a loose one does, 2.x aside.
 func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) (Piece, int) {
+	// 2.x's wider trim is taken for a value piece only. The selector arm
+	// of migrate cuts a body by its own offsets.
+	edges := rules
+	if term != ',' {
+		edges = RulesCurrent
+	}
 	clamp := func(i int) int {
 		if i > len(s) {
 			return len(s)
 		}
 		return i
 	}
-	pos = skipWsp(s, pos)
+	pos = skipBlank(s, pos, edges)
 	start := pos
 	quote := QuoteNone
 	everyComma := term != ',' || array || rules == RulesV2
@@ -1640,7 +1673,7 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 		if close := quoteClose(s, pos, rules); close >= 0 {
 			// A value piece may also end at a comment or the line end;
 			// a selector body ends at its bracket and nowhere else.
-			i := skipWsp(s, close+1)
+			i := skipBlank(s, close+1, edges)
 			var ended bool
 			if i < len(s) {
 				ended = endsAt(i) || (array && s[i] == ']') || (term == ',' && commentAt(s, i))
@@ -1668,9 +1701,14 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 			quote = QuoteOpen
 			if rules == RulesV2 {
 				// 2.x: an open quote swallowed the rest of the line.
-				end := len(s)
-				for end > start && isWspByte(s[end-1]) {
-					end--
+				end := start
+				for i := start; i < len(s); {
+					if n := blankLen(s, i, edges); n > 0 {
+						i += n
+					} else {
+						i += utf8Len(s, i)
+						end = clamp(i)
+					}
 				}
 				return Piece{Start: start, End: end, Quote: quote}, len(s)
 			}
@@ -1701,8 +1739,9 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 		if endsAt(pos) || (array && b == ']') || (comments && commentAt(s, pos)) {
 			break
 		}
+		blank := blankLen(s, pos, edges) > 0
 		pos += utf8Len(s, pos)
-		if !isWspByte(b) {
+		if !blank {
 			contentEnd = clamp(pos)
 		}
 	}
@@ -3646,6 +3685,7 @@ func valueEdits(text string, tok *Tokens, edits *[]edit) {
 		if quoted {
 			a, b = p.Start-1, p.End+1
 		}
+		v2EdgeEdits(text, a, b, edits)
 		// A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if p.Quote == QuoteNone && !strings.ContainsAny(raw, "\\,#") && !strings.ContainsRune(raw, escapeMark) && raw != "" {
 			if _, bad := bareTrouble(raw, bareValue); !bad {
@@ -3658,6 +3698,40 @@ func valueEdits(text string, tok *Tokens, edits *[]edit) {
 		}
 		spelling := migrateSpelling(logical, !(quoted || p.Quote == QuoteOpen))
 		*edits = append(*edits, edit{start: a, end: b, with: spelling})
+	}
+}
+
+// v2EdgeEdits: 2.x trimmed a blank the current rules keep, such as a no-break
+// space or a vertical tab, at a piece's edges. A run of blanks on either side
+// of the piece from a to b that holds one becomes a space, or nothing at the
+// end of the line.
+func v2EdgeEdits(text string, a, b int, edits *[]edit) {
+	kept := func(run string) bool { return strings.IndexFunc(run, func(c rune) bool { return !isWsp(c) }) >= 0 }
+	i := a
+	for i > 0 {
+		c, n := utf8.DecodeLastRuneInString(text[:i])
+		if c == utf8.RuneError || !whiteSpace(c) {
+			break
+		}
+		i -= n
+	}
+	if kept(text[i:a]) {
+		*edits = append(*edits, edit{start: i, end: a, with: " "})
+	}
+	j := b
+	for j < len(text) {
+		c, n := utf8.DecodeRuneInString(text[j:])
+		if c == utf8.RuneError || !whiteSpace(c) {
+			break
+		}
+		j += n
+	}
+	if kept(text[b:j]) {
+		with := " "
+		if j == len(text) {
+			with = ""
+		}
+		*edits = append(*edits, edit{start: b, end: j, with: with})
 	}
 }
 
