@@ -8245,6 +8245,10 @@ class Document:
 				self._leave_last(p, group)
 		for p in sorted({m[0] for m in moves}):
 			_settle_block(self.arena, p, 1)
+		# The first node can have lost the lines above it, and with them the
+		# room for a blank a re-mention left it.
+		if moves:
+			_settle_first_blank(self.arena, self.orphans)
 
 	def _leave_above(self, node: int, left: list[_Lead]) -> None:
 		"""Lines a remove left, put above the sibling that followed them."""

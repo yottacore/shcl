@@ -12491,6 +12491,9 @@ impl Document {
 				moves.push((p, j, line, l));
 			}
 		}
+		if moves.is_empty() {
+			return;
+		}
 		// Stable, so the lines of one fold keep their order.
 		moves.sort_by_key(|m| (m.0, m.1, m.2));
 		let mut moves = moves.into_iter().peekable();
@@ -12507,6 +12510,9 @@ impl Document {
 				settle_block(&mut self.arena, p, 1);
 			}
 		}
+		// The first node can have lost the lines above it, and with them the
+		// room for a blank a re-mention left it.
+		settle_first_blank(&mut self.arena, &mut self.orphans);
 	}
 
 	/// Lines a remove left, put above the sibling that followed them.

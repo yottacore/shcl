@@ -1,0 +1,5 @@
+query	type	expected	status
+-	load	ok	-
+-	lost	0	-
+	children	a|c	-
+a	children	b|f	-

@@ -12158,6 +12158,11 @@ func (d *Document) refileFolded(folded []int) {
 			settleBlock(d.arena, p, 1)
 		}
 	}
+	// The first node can have lost the lines above it, and with them the room
+	// for a blank a re-mention left it.
+	if len(moves) > 0 {
+		settleFirstBlank(d.arena, d.orphans)
+	}
 }
 
 // leaveAbove puts lines a remove left above the sibling that followed them.

@@ -136,7 +136,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110315051536
 	- Type: Bug
 	- Status: Testing
-		- The fix is on `wip/r1104-2026110315051536`, not on `r1104`. The 2,000,000-iteration release fuzz fails `dab72` at iteration 578115 on it: merging layer B as written puts a blank line before `a:` that merging its canonical form does not. B is corpus 145's input with a blank line before its second `a:`, so it is likely this change. To judge and fix, then merge.
+		- The fix is on `wip/r1104-2026110315051536`, not on `r1104`.
+		- 20261104: the 2,000,000-iteration release fuzz failed `dab72` at iteration 578115: merging layer B as written put a blank line before `a:` that merging its canonical form did not. It was this change. The first node kept the blank a re-mention gave it after the kept line above it went to the end of the file. The refile now settles the document's first blank again, in all 4. Corpus `214-fold-first-blank-merge` (`devsm`) fails before that and passes after.
 		- The same run fails `dd3t9` at iteration 32783, which the library before this change fails the same way on this corpus, filed as 2026110407313888. It is within the gate's 200,000, so this branch's corpus case makes the merge gate red until that one is fixed.
 	- Severity: Avg
 	- Opened: 20261103-150515
@@ -167,7 +168,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `devra`, `devrb` and the new `dd2kg` golden fail on the library before the change in all 4, and pass after.
 	- Branch: `wip/r1104-2026110315051536`
 	- Test case: corpus `213-load-fold-keeps-kept-lines` (`devra`), cli-regress `fmt-fold-keeps-kept-lines` (`devrb`), corpus `145-kept-misplaced` (`dd2kg`).
-	- Prereq IDs: 2026110407313888
 
 - The default run takes over an hour
 	- ID: 2026110215285706

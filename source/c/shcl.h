@@ -8266,6 +8266,9 @@ static void refile_folded(shcl_doc *d, ShclVecSize *folded) {
 		else leave_last(d, p, &group);
 		if (k == n || moves[k].parent != p) settle_block(d, p, 1);
 	}
+	/* The first node can have lost the lines above it, and with them the room
+	   for a blank a re-mention left it. */
+	settle_first_blank(d);
 }
 
 /* Lines a remove left after the last of parent's children: the document's
