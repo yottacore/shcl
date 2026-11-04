@@ -5525,6 +5525,17 @@ def main():
 			os.chdir(sd)
 
 			if os.name != "nt":
+				# `.` and a doubled separator under a folder made after the
+				# load name no other file (2026110314240418).
+				sdotted, _ = shcl.Document.load_file("dn/./d.shcl")
+				os.mkdir("dn")
+				swrite("dn/d.shcl", "b: 2\n")
+				srefused("dot under a new folder", lambda: sdotted.save_file("dn/d.shcl"), "dn/d.shcl")
+				sdoubled, _ = shcl.Document.load_file("dd//d.shcl")
+				os.mkdir("dd")
+				swrite("dd/d.shcl", "b: 2\n")
+				srefused("doubled under a new folder", lambda: sdoubled.save_file(sabs("dd/d.shcl")), sabs("dd/d.shcl"))
+				ssame("dotted left", sread("dn/d.shcl") + sread("dd/d.shcl"), "b: 2\nb: 2\n")
 				# A missing folder named with `..` is refused, as the kernel
 				# refuses it, rather than canceled as text. Windows cancels it
 				# itself.

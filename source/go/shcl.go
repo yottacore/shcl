@@ -9662,6 +9662,9 @@ func realNearest(p string) string {
 			// at is p up to some separator, so its last part starts the rest.
 			// FromSlash so it reads as EvalSymlinks writes a file that's there.
 			rest := filepath.FromSlash(p[len(at)-len(rawBase(at)):])
+			if runtime.GOOS != "windows" {
+				rest = tidyRest(rest)
+			}
 			out := absReal(real)
 			if !os.IsPathSeparator(out[len(out)-1]) {
 				out += string(filepath.Separator)
@@ -9674,6 +9677,22 @@ func realNearest(p string) string {
 		return abs
 	}
 	return p
+}
+
+// tidyRest is the rest of a path under a missing folder, less its `.` and empty
+// parts. Neither changes what the kernel reaches, and a file that's there
+// resolves with neither, so a load of `new/./n.shcl` and a save to
+// `new/n.shcl` name one file. `..` stays, since the kernel refuses it through a
+// missing folder. Windows is left as it was (2026110314240418).
+func tidyRest(rest string) string {
+	parts := strings.Split(rest, "/")
+	kept := parts[:0]
+	for _, n := range parts {
+		if n != "" && n != "." {
+			kept = append(kept, n)
+		}
+	}
+	return strings.Join(kept, "/")
 }
 
 // absReal makes a path EvalSymlinks gave absolute. Getwd can answer with $PWD,

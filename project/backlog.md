@@ -201,7 +201,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Two spellings of one path under a missing folder can resolve apart in C, Go and Python
 	- ID: 2026110314240418
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261103-142404
 	- Opened by: 2026110314064292's sweep
@@ -214,6 +214,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the resolve's rest after the nearest folder that's there drops neither `.` nor an empty part.
 	- Sweep: the resolve's rest in all 4, and the detp* tests.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed in C, Go and Python by the new rows. The cause was as given.
+	- Actual fix: C's POSIX resolve, Go's `realNearest` and Python's `_real_nearest` drop `.` and empty parts from the rest (`tidyRest`, `_tidy_rest`), and keep `..`. Rust already did. The write's target loses the same parts, which name the same file.
+	- Decisions:
+		- me, 20261104: Windows is left as it was, since no Windows run checked it. C's windows resolve gives a full path already. Go and Python there may still keep `.` under a missing folder, and 2026110408432594 now holds that part.
+	- Swept: the resolve's rest in all 4 (`real_nearest`, `realNearest`, `_real_nearest`, `shcl_resolve_target`) and their callers: the load's record, the save's compare, the create check, the write, and C's `dir_takes_a_temp`. `nodir/..` still fails, as `dd5h4` and the `..` rows check.
+	- Verified: the new rows in `detpp`, `detpq` and `detpr` fail on the old resolve and pass on the new, and `detpn` passes both ways. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, and analyze-c.bash.
+	- Test case: the `.` and doubled-separator rows in `a_changed_check_knows_its_file_by_any_spelling`: Rust `detpn`, Python `detpp`, Go `detpq` and the C runner `detpr`.
+	- Acceptance signoff: Self-closed: the new rows failed on the old code and pass on the new, and the gates are green.
+	- Branch: `r1104`
+	- Closed: 20261104-091417
 
 - The CLI's changed-since-read check hangs on a FIFO swapped in during `set`'s stdin wait
 	- ID: 2026110313211991
@@ -280,21 +291,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1104`
 	- Closed: 20261104-090220
 
-- On Windows a create-only save through a link to nowhere is unchecked
+- On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
 	- ID: 2026110408432594
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
 	- Opened: 20261104-084325
 	- Opened by: 2026110312163207's fix
-	- Related IDs: 2026110312163207
+	- Related IDs: 2026110312163207, 2026110314240418
 	- Target OS: Windows
 	- Steps to reproduce:
 		- On Windows, make a symlink to a file that isn't there, then save a document to the link with `create` set.
-	- Incorrect behavior: not seen. 2026110312163207's fix leaves Windows as it was, and the link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` skip there, so the save may still make the file the link names.
-	- Expected behavior: refused with `Exists` and nothing made, as on POSIX.
+		- On Windows, the steps of 2026110314240418 in Go or Python.
+	- Incorrect behavior: not seen. Both fixes leave Windows as it was. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` and the `.` rows in `detpp` and `detpq` skip there. So the save may still make the file the link names, and a load of `new/./n.shcl` may not know `new/n.shcl`.
+	- Expected behavior: as on POSIX: refused with `Exists` and nothing made, and refused with `Changed`.
 	- Reproduced: No, from reading.
-	- Possible cause: `link_at`, `linkAt`, `_link_at` and `s_link_at` answer only off Windows. C's windows resolve and `s_something_at` there are their own code.
+	- Possible cause: `link_at`, `linkAt`, `_link_at` and `s_link_at` answer only off Windows, and `tidyRest` and `_tidy_rest` run only off Windows. C's windows resolve and `s_something_at` there are their own code.
 	- Note: needs b29w with a short-name TEMP, as `private/claude_simple/tools/winbox-savetests/` runs it.
 	- Estimated effort: Low
 

@@ -14120,9 +14120,12 @@ static char *shcl_resolve_target(const char *file) {
 		if (readlink(p, probe, sizeof probe) >= 0) { free(p); errno = ELOOP; return NULL; }
 	}
 	// Absolute through the real path of the nearest folder that is there, the
-	// rest as written. So one file has one spelling whether it's there or not,
-	// and however the path names it: bare, `./`, absolute, through a link, or
-	// relative to another working folder.
+	// rest as written less its `.` and empty parts. So one file has one
+	// spelling whether it's there or not, and however the path names it: bare,
+	// `./`, absolute, through a link, or relative to another working folder.
+	// Neither part changes what the kernel reaches, and a file that's there
+	// resolves with neither. `..` stays, since the kernel refuses it through a
+	// missing folder (2026110314240418).
 	pn = strlen(p);
 	char *dir = (char *)malloc(pn + 2);
 	if (!dir) { free(p); errno = ENOMEM; return NULL; }
@@ -14139,7 +14142,18 @@ static char *shcl_resolve_target(const char *file) {
 			size_t rn = strlen(rd), nn = strlen(rest);
 			if (rn == 1 && rd[0] == '/') rn = 0; // the root already ends in the separator
 			char *out = (char *)malloc(rn + nn + 2);
-			if (out) { memcpy(out, rd, rn); out[rn] = '/'; memcpy(out + rn + 1, rest, nn + 1); } // NOLINT(bugprone-not-null-terminated-result): the last copy brings the NUL
+			if (out) {
+				memcpy(out, rd, rn);
+				size_t on = rn;
+				for (const char *s = rest; *s;) {
+					const char *e = strchr(s, '/');
+					size_t len = e ? (size_t)(e - s) : strlen(s);
+					if (len && !(len == 1 && s[0] == '.')) { out[on++] = '/'; memcpy(out + on, s, len); on += len; }
+					s += len + (e ? 1 : 0);
+				}
+				if (on == 0) out[on++] = '/';
+				out[on] = '\0';
+			}
 			else errno = ENOMEM;
 			free(rd); free(p);
 			return out;

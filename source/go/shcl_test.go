@@ -7283,6 +7283,22 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		return
 	}
+	// `.` and a doubled separator under a folder made after the load name no
+	// other file (2026110314240418).
+	for _, c := range []struct{ dir, load, save string }{
+		{"dn", "dn/./d.shcl", "dn/d.shcl"},
+		{"dd", "dd//d.shcl", abs("dd/d.shcl")},
+	} {
+		odd, _ := LoadFile(c.load)
+		if err := os.Mkdir(c.dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(c.dir+"/d.shcl", "b: 2\n")
+		if err := odd.SaveFile(c.save); !errors.As(err, new(*SaveChanged)) {
+			t.Errorf("%s then %s: %v, want *SaveChanged", c.load, c.save, err)
+		}
+		has(c.dir+"/d.shcl", "b: 2\n")
+	}
 	// A missing folder named with `..` is refused, as the kernel refuses it,
 	// rather than canceled as text. Windows cancels it itself.
 	through, _ := LoadFile("q2.shcl")

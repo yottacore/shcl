@@ -10803,10 +10803,21 @@ def _real_nearest(p):
 			rest = p[len(at) - len(os.path.basename(at)):]
 			if os.altsep:
 				rest = rest.replace(os.altsep, os.sep)
+			if os.name != "nt":
+				rest = _tidy_rest(rest)
 			return os.path.join(os.path.realpath(d or "."), rest)
 		if not d or d == at:
 			return p
 		at = d
+
+
+def _tidy_rest(rest):
+	"""The rest of a path under a missing folder, less its `.` and empty
+	parts. Neither changes what the kernel reaches, and a file that's there
+	resolves with neither, so a load of `new/./n.shcl` and a save to
+	`new/n.shcl` name one file. `..` stays, since the kernel refuses it through
+	a missing folder. Windows is left as it was (2026110314240418)."""
+	return "/".join(n for n in rest.split("/") if n not in ("", "."))
 
 
 def _set_read_only(path, on):

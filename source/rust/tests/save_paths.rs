@@ -100,6 +100,18 @@ fn a_changed_check_knows_its_file_by_any_spelling() {
 	{
 		use shcl::WriteStatus;
 		use std::os::unix::fs::PermissionsExt;
+		// `.` and a doubled separator under a folder made after the load
+		// name no other file (2026110314240418).
+		for (dir, load, save) in [
+			("dn", "dn/./d.shcl", "dn/d.shcl".to_string()),
+			("dd", "dd//d.shcl", abs("dd/d.shcl")),
+		] {
+			let (mut odd, _) = Document::load_file(load);
+			std::fs::create_dir(dir).unwrap();
+			std::fs::write(format!("{dir}/d.shcl"), "b: 2\n").unwrap();
+			assert_eq!(odd.save_file(&save), changed(&save), "{load} then {save}");
+			assert_eq!(read(&format!("{dir}/d.shcl")), "b: 2\n");
+		}
 		// A missing folder named with `..` is refused, as the kernel refuses
 		// it, rather than canceled as text. Windows cancels it itself.
 		let (mut through, _) = Document::load_file("q2.shcl");

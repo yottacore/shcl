@@ -7099,6 +7099,21 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(linked, "sub/k.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "link");
 		if (!file_is("sub/k.shcl", "b: 2\n")) fail(at, "a refused save through a link wrote");
 		shcl_free(linked);
+		/* `.` and a doubled separator under a folder made after the load name
+		   no other file (2026110314240418). */
+		shcl_doc *dotted = shcl_load_file("dn/./d.shcl", NULL);
+		if (mkdir("dn", 0700) != 0) fail(at, "mkdir dn failed");
+		put_file("dn/d.shcl", "b: 2\n");
+		if (shcl_save_file(dotted, "dn/d.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "dot under a new folder");
+		shcl_doc *doubled = shcl_load_file("dd//d.shcl", NULL);
+		if (mkdir("dd", 0700) != 0) fail(at, "mkdir dd failed");
+		put_file("dd/d.shcl", "b: 2\n");
+		if (shcl_save_file(doubled, "dd/d.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "doubled under a new folder");
+		if (!file_is("dn/d.shcl", "b: 2\n") || !file_is("dd/d.shcl", "b: 2\n")) fail(at, "a refused save under a new folder wrote");
+		shcl_free(dotted);
+		shcl_free(doubled);
+		dir_clear("dn");
+		dir_clear("dd");
 		/* A missing folder named with `..` is refused, as the kernel refuses
 		   it, rather than canceled as text. Windows cancels it itself. */
 		shcl_doc *through = shcl_load_file("q2.shcl", NULL);
