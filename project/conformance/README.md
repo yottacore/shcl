@@ -314,7 +314,7 @@ Case `143` pins where comments go once a merge or a write changes a block, which
 
 Case `144` pinned the `H003` hint, now retired. A stacked item written `name: value` is `E027` and kept as written, so is `- flag:`, text with a colon and no blank reads as a plain item, and the list stays stacked around the kept lines.
 
-Case `145` pins which misplaced lines a save keeps. An `E012` line whose indent holds a space is written back as it was, and so is an `E018` line under it. An `E012` line indented with tabs alone would bind on a reload, so it is lost. A kept line that a re-opened block moves up to the top of the file would bind there as written, so it is written as a comment instead.
+Case `145` pins which misplaced lines a save keeps. An `E012` line whose indent holds a space is written back as it was, and so is an `E018` line under it. An `E012` line indented with tabs alone would bind on a reload, so it is lost. A kept line read beside the block opened again at the end stays at the end of the file, where it was, rather than going up to the top with the block (2026110315051536).
 
 Case `146` pins a stacked list holding kept lines among its items and after the last one, here `*` lines in the old marker (`E013`). The list stays stacked with each line where it was, so a line fixed by hand is still inside the list.
 
@@ -447,6 +447,10 @@ Case `210` pins how `migrate` reads a quote in the middle of a 2.x value piece. 
 Case `211` pins the two codes kept for their content wherever they sit. A wildcard selector on a binding line (`E004`) is kept, opens none of its path's fields, and keeps the raw block it opens. A `-` alone is an empty item (`E009`) with or without a blank after it, kept at the root before the `E007` it used to get, and kept among a list's items. A bare name that breaks the spelling rule is still `E014` with a wildcard after it, and the lines under it go with it.
 
 Case `212` pins the two items kept for where they sit, beside `E008`. An item at the root (`E007`) and an item under a field that has a value (`E011`) are kept as written, and nothing is lost. An edit that empties the field writes its item as a comment, since as written the field would take it, and a field that keeps a value keeps its item as written.
+
+Case `213` pins where the load puts the kept lines read beside a second instance of one name and value, which folds into the first. Each stays above the next line of its block read after it, or at the end of the block, and the lines of 2 folds keep their order. The comments written against the second instance go along to the first.
+
+Case `214` pins a fold that leaves the first line of the file without the kept line it had above it. The blank line before the second `a:` has nothing left to separate at the top, so merging the file under a layer gives what merging its canonical form gives.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

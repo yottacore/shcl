@@ -387,6 +387,14 @@ static int a_create_only_save_refuses_a_file_already_there() {
 	CHECK(doc.save_file_with(f, forced).first == R::Exists);
 	CHECK(has(f, "a: 1\n"));
 #ifndef _WIN32
+	// A link to nowhere is something at the path, so where it points isn't
+	// made (2026110312163207).
+	const std::string dangling = dir + "/dangling.shcl", nowhere = dir + "/nowhere.shcl";
+	struct stat ns;
+	CHECK(symlink(nowhere.c_str(), dangling.c_str()) == 0);
+	CHECK(doc.save_file_with(dangling, create).first == R::Exists);
+	CHECK(lstat(nowhere.c_str(), &ns) != 0);
+	std::remove(dangling.c_str());
 	shcl::SaveOptions mode = create;
 	mode.mode = 0604;
 	CHECK(doc.save_file_with(m, mode).first == R::Ok);
@@ -454,6 +462,59 @@ static int a_newer_format_document_saves_nowhere() {
 	CHECK(base.newer_format() && base.save_file(other) == R::TooNew);
 	std::remove(f.c_str());
 	std::remove(other.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+
+// A path holding a NUL is refused, as Rust, Go and Python refuse it, rather
+// than cut short at the NUL into another file's name (2026110312163208).
+static int a_path_holding_a_nul_is_refused() {
+	test_id("devwa", "a_path_holding_a_nul_is_refused");
+	using namespace std::string_literals;
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-nul-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	using W = shcl::WriteStatus;
+	using F = shcl::FileStatus;
+	const std::string real = dir + "/real.shcl", cut = real + "\0evil"s;
+	auto doc = shcl::Document::parse("a: 1\n");
+	W why = W::Ok;
+	CHECK(doc.save_file(cut, &why) == R::Failed && why == W::Other);
+	CHECK(doc.save_file_lossy(cut) == R::Failed);
+	CHECK(doc.save_file_keep_lines(cut) == std::make_pair(R::Failed, false));
+	why = W::Ok;
+	CHECK(doc.save_file_with(cut, shcl::SaveOptions{}, &why) == std::make_pair(R::Failed, false) && why == W::Other);
+	CHECK(shcl::write_file_atomic(cut, "a: 1\n") == W::Other);
+	CHECK(shcl::read_file(real).second == F::NotFound);
+	// Nor is the file before the NUL read, or kept and replaced.
+	CHECK(shcl::write_file_atomic(real, "b: 2\n") == W::Ok);
+	CHECK(shcl::read_file(cut) == std::make_pair(std::string(), F::Unreadable));
+	for (const auto &loaded : {shcl::Document::load_file(cut), shcl::Document::load_file_with(cut, shcl::Strictness::Strict),
+		     shcl::Document::load_file_keep_lines(cut, shcl::Strictness::Standard)}) {
+		CHECK(loaded.second == F::Unreadable && loaded.first.read_int("b").status == shcl::Status::NotFound);
+	}
+	auto up = shcl::upgrade_file(cut, true).second;
+	CHECK(up && up->kind == shcl::UpgradeErrorKind::Io && up->status == W::Other);
+	auto kept = shcl::write_backup(cut, "b: 2\n", 2).second;
+	CHECK(kept && kept->kind == shcl::UpgradeErrorKind::Io && kept->status == W::Other);
+	CHECK(shcl::read_file(real) == std::make_pair(std::string("b: 2\n"), F::Clean));
+	// A config path with a NUL in its folder doesn't start a Schema line's
+	// relative path in the folder before the NUL. One in the name is no part
+	// of where it starts.
+	const std::string line = "##    Schema   real.shcl\n";
+	auto in = shcl::read_named_schema(line, dir + "\0x/c.shcl"s);
+	CHECK(in.status == shcl::SchemaStatus::Unreadable && in.text.empty() && in.line == 1 && in.path == dir + "\0x/real.shcl"s);
+	CHECK(shcl::read_named_schema("##    Schema   /nowhere.shcl\n", dir + "\0x/c.shcl"s).status == shcl::SchemaStatus::FileNotFound);
+	auto named = shcl::read_named_schema(line, dir + "/c.shcl\0x"s);
+	CHECK(named.status == shcl::SchemaStatus::Good && named.text == "b: 2\n");
+	std::remove(real.c_str());
 	rmdir(dir.c_str());
 	return test_id_end(fails);
 }
@@ -1226,7 +1287,9 @@ int main() {
 	fails = 0;
 	const int created = a_create_only_save_refuses_a_file_already_there();
 	fails = 0;
-	return changed | spellings | created | a_newer_format_document_saves_nowhere() | threads | smoke;
+	const int newer = a_newer_format_document_saves_nowhere();
+	fails = 0;
+	return changed | spellings | created | newer | a_path_holding_a_nul_is_refused() | threads | smoke;
 #else
 	return threads | smoke;
 #endif

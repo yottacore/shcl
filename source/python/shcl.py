@@ -3894,6 +3894,9 @@ class _Parser:
 		# Parents where a remap ended up on a key a sibling already held: the only
 		# places a duplicate can survive the keyed lookup, so the fold starts here.
 		self.late_dups = []
+		# Nodes a fold or a re-mention gave a later line's leading lines to,
+		# for _refile_folded().
+		self.folded: list[int] = []
 		# Node -> line of the re-open that H002-hinted it. A merge under a hinted
 		# container combines the same two textual regions, so it hints too even
 		# when it ends up on the newest child at its own scope - that is how every
@@ -4105,6 +4108,7 @@ class _Parser:
 					# merge at parse time asks of the newest child.
 					self._hint_fold(parent, keep[i], c, i + 1 != len(keep))
 					_fold_node_into(self.arena, keep[i], c)
+					self.folded.append(keep[i])
 					grew[i] = True
 				else:
 					first[key] = len(keep)
@@ -5156,6 +5160,8 @@ class _Parser:
 					k = next((j for j in range(len(self.pending) - 1, -1, -1) if _is_field(self.pending[j].text)), None)
 					if k is not None:
 						self._give_pending(self._head_of(node, nsegs), indent, k + 1, False)
+				if self.arena[node].line != lineno:
+					self.folded.append(node)
 				self._attach_trivia(node, indent, comment)
 				self.stack.append((indent, node))
 				if tok.array is not None:
@@ -5200,6 +5206,7 @@ class _Parser:
 		doc._arrays = self.kept_arrays
 		doc._kept_owed = self.kept_owed
 		doc._newer = newer
+		doc._refile_folded(self.folded)
 		doc._settle_kept()
 		return doc
 
@@ -5373,6 +5380,28 @@ def _restep(leads):
 			room = c.depth + 1
 		elif _is_field(c.text):
 			room = c.depth + 1
+
+
+def _folded_kept(nd):
+	"""The kept lines a load's fold gave this node from a later instance of
+	it, with the comments before them: what _beside_kept() takes, from the
+	first line read after the node's own. Only a fold puts those there."""
+	heads = _heads_block(nd)
+	t = nd.trivia
+	if t is None:
+		return []
+	lead = t.leading
+	start = next((k for k, c in enumerate(lead) if c.line > nd.line), None)
+	if start is None:
+		return []
+	last = len(lead) - 1 if heads else len(lead)
+	end = next((k + 1 for k in range(last - 1, -1, -1) if lead[k].is_kept_line()), 0)
+	if end <= start:
+		return []
+	left = lead[start:end]
+	del lead[start:end]
+	_restep(lead)
+	return left
 
 
 def _beside_kept(nd):
@@ -8186,6 +8215,41 @@ class Document:
 		self._resettle_kept()
 		return Read(len(targets), status, None)._at(line, None)
 
+	def _refile_folded(self, folded: list[int]) -> None:
+		"""A load that folds 2 instances leaves the kept lines read beside
+		the later one where they were, as a setter's fold does: above the
+		next sibling read after them, or at the end of the block. `folded`
+		holds the nodes a fold or a re-mention gave lines to."""
+		# Parent, the child they go above (past the last, the block's end),
+		# line, the line. All first, since 2 folds can fill one place.
+		moves: list[tuple[int, int, int, _Lead]] = []
+		for c in sorted(set(folded)):
+			p = self.arena[c].parent
+			kids = self.arena[p].children
+			if c not in kids:
+				continue
+			j, line = kids.index(c) + 1, 0
+			for x in _folded_kept(self.arena[c]):
+				line = max(line, x.line)
+				while j < len(kids) and self.arena[kids[j]].line <= line:
+					j += 1
+				moves.append((p, j, line, x))
+		# Stable, so the lines of one fold keep their order.
+		moves.sort(key=lambda m: m[:3])
+		for (p, j), run in itertools.groupby(moves, key=lambda m: m[:2]):
+			group = [m[3] for m in run]
+			kids = self.arena[p].children
+			if j < len(kids):
+				self._leave_above(kids[j], group)
+			else:
+				self._leave_last(p, group)
+		for p in sorted({m[0] for m in moves}):
+			_settle_block(self.arena, p, 1)
+		# The first node can have lost the lines above it, and with them the
+		# room for a blank a re-mention left it.
+		if moves:
+			_settle_first_blank(self.arena, self.orphans)
+
 	def _leave_above(self, node: int, left: list[_Lead]) -> None:
 		"""Lines a remove left, put above the sibling that followed them."""
 		t = self.arena[node]._triv()
@@ -9803,7 +9867,16 @@ def _save_text(path, text, new_only=False, mode=0):
 		raise SaveFailed(str(e), e.status) from None
 
 
+def _link_at(path) -> bool:
+	"""A link at the path as given, which a create-only save refuses. The
+	resolve follows a link to nowhere and finds nothing where it points.
+	Windows is left as it was (2026110312163207)."""
+	return os.name != "nt" and os.path.islink(path)
+
+
 def _something_at(path) -> bool:
+	if _link_at(path):
+		return True
 	try:
 		return os.path.lexists(_resolve_target(os.fspath(path)))
 	except (OSError, ValueError):
@@ -10344,7 +10417,7 @@ def _write_file_how(file, data, new_only, mode):
 		existing = os.stat(target)
 	except (OSError, ValueError):
 		existing = None
-	if new_only and (existing is not None or os.path.lexists(target)):
+	if new_only and (existing is not None or _link_at(file) or os.path.lexists(target)):
 		raise SaveExists(file)
 	mode &= 0o777
 	# Only a regular file is replaced. A rename over a FIFO or a device node
@@ -10730,10 +10803,21 @@ def _real_nearest(p):
 			rest = p[len(at) - len(os.path.basename(at)):]
 			if os.altsep:
 				rest = rest.replace(os.altsep, os.sep)
+			if os.name != "nt":
+				rest = _tidy_rest(rest)
 			return os.path.join(os.path.realpath(d or "."), rest)
 		if not d or d == at:
 			return p
 		at = d
+
+
+def _tidy_rest(rest):
+	"""The rest of a path under a missing folder, less its `.` and empty
+	parts. Neither changes what the kernel reaches, and a file that's there
+	resolves with neither, so a load of `new/./n.shcl` and a save to
+	`new/n.shcl` name one file. `..` stays, since the kernel refuses it through
+	a missing folder. Windows is left as it was (2026110314240418)."""
+	return "/".join(n for n in rest.split("/") if n not in ("", "."))
 
 
 def _set_read_only(path, on):

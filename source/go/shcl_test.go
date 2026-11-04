@@ -4512,19 +4512,31 @@ func (g *seqGen) doc() string {
 	return out.String()
 }
 
+// placed: a line refused only for where it sits, as one code. An edit around
+// it can change which it gets, and it stays kept either way. Removing the
+// field before an E008 item under a field with a value leaves it E011.
+func placed(code string) string {
+	switch code {
+	case "E001", "E003", "E007", "E008", "E011":
+		return "placed"
+	}
+	return code
+}
+
 // noNewErrors: every error code text loads with, base loaded with at least as
-// often.
+// often, with placed's codes as one.
 func noNewErrors(text, base string) bool {
 	count := map[string]int{}
 	for _, d := range Parse(base).Diagnostics() {
 		if d.Severity == SeverityError {
-			count[d.Code]++
+			count[placed(d.Code)]++
 		}
 	}
 	for _, d := range Parse(text).Diagnostics() {
 		if d.Severity == SeverityError {
-			count[d.Code]--
-			if count[d.Code] < 0 {
+			c := placed(d.Code)
+			count[c]--
+			if count[c] < 0 {
 				return false
 			}
 		}
@@ -7271,6 +7283,22 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		return
 	}
+	// `.` and a doubled separator under a folder made after the load name no
+	// other file (2026110314240418).
+	for _, c := range []struct{ dir, load, save string }{
+		{"dn", "dn/./d.shcl", "dn/d.shcl"},
+		{"dd", "dd//d.shcl", abs("dd/d.shcl")},
+	} {
+		odd, _ := LoadFile(c.load)
+		if err := os.Mkdir(c.dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(c.dir+"/d.shcl", "b: 2\n")
+		if err := odd.SaveFile(c.save); !errors.As(err, new(*SaveChanged)) {
+			t.Errorf("%s then %s: %v, want *SaveChanged", c.load, c.save, err)
+		}
+		has(c.dir+"/d.shcl", "b: 2\n")
+	}
 	// A missing folder named with `..` is refused, as the kernel refuses it,
 	// rather than canceled as text. Windows cancels it itself.
 	through, _ := LoadFile("q2.shcl")
@@ -7368,6 +7396,17 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 		}
 		_, err = fresh.SaveFileWith(link, create)
 		exists("create through a link", err, link)
+		// A link to nowhere is something at the path, so where it points
+		// isn't made (2026110312163207).
+		dangling, nowhere := at("dangling.shcl"), at("nowhere.shcl")
+		if err := os.Symlink(nowhere, dangling); err != nil {
+			t.Fatal(err)
+		}
+		_, err = fresh.SaveFileWith(dangling, create)
+		exists("create through a link to nowhere", err, dangling)
+		if _, err := os.Lstat(nowhere); err == nil {
+			t.Errorf("a refused create made %s", nowhere)
+		}
 	}
 
 	// Several saves at once: one makes the file and the rest are told it's there.

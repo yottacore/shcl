@@ -1,0 +1,18 @@
+# A second instance with the name and value of an earlier one folds into it.
+# The kept lines read beside it stay where they were.
+a:
+	b: y
+	c: 1
+	- 1
+	d: 2
+# about e
+e: y
+f: 1
+m:
+	n: 1
+	s: 2
+	t: 3
+-x:1
+	# under it
+q: [1
+r: [2

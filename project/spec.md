@@ -691,7 +691,7 @@ Every consumer that persists a config re-implements the same load/save dance, an
 
 - A save that **creates** a file has no mode to preserve, so the file gets the `0666 & ~umask` an ordinary create would produce - the same bits the user's editor or shell redirect would have given it. An existing file keeps the permission bits it already had, which is the case the temp file is born private for. The `mode` save option gives a file the save creates those permission bits (`0777`) exactly, set on the file so the umask doesn't narrow them, and 0 is the ordinary create. It does nothing to a file already there, and nothing on Windows.
 
-- The `create` save option makes a **create-only** save: it is refused when anything is at the path, a file another save makes at the same time included, and nothing is written. It is checked after the lost-content gate and before the changed check, and `force` doesn't override it.
+- The `create` save option makes a **create-only** save: it is refused when anything is at the path, a link to nowhere and a file another save makes at the same time included, and nothing is written. It is checked after the lost-content gate and before the changed check, and `force` doesn't override it.
 
 - A document whose text names a **newer format** (`H006`) reads and edits as usual, and no save writes it: it would write the lines by these rules under a Format line that says otherwise. `NewerFormat` (each binding's spelling) says so, for a load, a parse, or a merge with such a layer, and every save of it is refused, wherever it goes, with nothing written. It is checked first, before the lost-content gate, and no option overrides it. `WriteFileAtomic` writes the text it is given, and `UpgradeFile` leaves such a file alone.
 

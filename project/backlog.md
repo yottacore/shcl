@@ -116,23 +116,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed, by reading.
 	- Estimated effort: Avg
 
-- `fmt` moves a kept line above an earlier instance when the load merges 2 of one name and value
-	- ID: 2026110315051536
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261103-150515
-	- Opened by: found while working 2026110312163204
-	- Related IDs: 2026110312163204
-	- Steps to reproduce:
-		- `printf 'a:\n\tb: y\n\tc: 1\n\t- 1\n\tb: y\n\td: 2\n' | shcl fmt -`
-		- `printf 'b: y\nc: 1\nq: [1\nb: y\n' | shcl fmt -`
-	- Incorrect behavior: in all 4 CLIs, at exit 0. The first writes `a:`, `# - 1`, `b: y`, `c: 1`, `d: 2`, so the kept `E008` line is now a comment. The second moves the kept `q: [1` above `b: y`.
-	- Expected behavior: a kept line stays where it was, as a setter's fold now leaves it (2026110312163204).
-	- Reproduced: 20261103, all 4 CLIs on `r1103b`.
-	- Possible cause: the load's fold of a second instance (`H002`) appends its leading lines to the first one's, the same shape 2026110312163204 fixed in the setter's fold.
-	- Estimated effort: Avg
-
 - The default run takes over an hour
 	- ID: 2026110215285706
 	- Type: Enhancement
@@ -146,39 +129,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
 	- Estimated effort: Avg
 
-- Two spellings of one path under a missing folder can resolve apart in C, Go and Python
-	- ID: 2026110314240418
+- check-migrate diverges on the 2.x Unicode trim fix, and fuzz_00150 changes its exit code
+	- ID: 2026110410134605
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Opened: 20261103-142404
-	- Opened by: 2026110314064292's sweep
-	- Related IDs: 2026110314064292, 2026110312163201
-	- Steps to reproduce:
-		- Load `new/./n.shcl` while `new` isn't there, make `new`, have another program write `new/n.shcl`, then save to `new/n.shcl`.
-	- Incorrect behavior: C, and Go and Python since 2026110314064292, keep the part under the missing folder as written, so the load records `.../new/./n.shcl` and the save resolves `.../new/n.shcl`. The changed check sees 2 files and the save goes through. Rust drops `.` and doubled separators there, so it refuses.
-	- Expected behavior: one answer however the path is spelled, as spec.md's save text says. `..` has to stay as written, since the kernel refuses it through a missing folder.
-	- Reproduced: No, from reading.
-	- Possible cause: the resolve's rest after the nearest folder that's there drops neither `.` nor an empty part.
-	- Sweep: the resolve's rest in all 4, and the detp* tests.
-	- Estimated effort: Low
-
-- The CLI's changed-since-read check hangs on a FIFO swapped in during `set`'s stdin wait
-	- ID: 2026110313211991
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261103-132119
-	- Opened by: 2026110312163202's sweep
-	- Related IDs: 2026110312163202, 2026100307163911
-	- Steps to reproduce:
-		- Run `shcl set --write f.shcl` with its ops on stdin. While it waits, replace `f.shcl` with a FIFO, then end the input.
-	- Incorrect behavior: the CLI reads `f.shcl` again before the save with a plain open, which waits for a writer.
-	- Expected behavior: exit 8 with the not-a-regular-file error, as the library's save gives since 2026110312163202.
-	- Reproduced: No, from reading.
-	- Possible cause: `unchanged_since_read` in all 4 CLIs opens the path to read with a plain open. The library's no-wait read is private, and the CLIs have none of their own.
-	- Sweep: `unchanged_since_read` and the re-read after a failed `upgrade --write`, in all 4 CLIs.
-	- Estimated effort: Low
+	- Opened: 20261104-101346
+	- Opened by: round r1104, worker for 2026110312163206
+	- Related IDs: 2026110312163206
+	- Progress log:
+		- 2026-11-04: the trim fix in all 4 bindings is on wip/r1104-2026110312163206 (65e88185). check-migrate diverges on corpus 094, 215 and some fuzz cases, since its pinned build 7be348d0 keeps the blanks 2.0 trimmed. It needs those lines filtered before comparing, as fMidQuote2x does.
+		- fuzz_00150 gives a different exit code from 2.x's result on the wip code. Not looked at yet, so it may be a real regression.
+		- crosscheck, cli-regress and analyze-c weren't run on the wip commit.
 
 - `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
 	- ID: 2026110312163206
@@ -196,41 +158,41 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the 2.x scan trims only space, tab and CR, where 2.0.0 trimmed all Unicode white space. check-migrate compares with the pinned build `7be348d0`, which came after `0f818d71` changed the trim, so it agrees with the bug.
 	- Origin: Confirmed. The same class as 2026102620591100: the pin isn't 2.0.0, and that item's sweep checked only quotes inside a piece.
 	- Sweep: the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2` and `6b776f9a`. Or compare against `v2.0.0` itself.
+		- That part is in child 2026110409565662.
 	- Decisions: 2.x conversion is low stakes (JC, 20261015). Keep the easy conversions and refuse hard cases.
+		- Convert, not refuse: 2.0 trimmed the full Unicode `White_Space` set at a piece's edges, so the 2.x scan in `migrate` and `upgrade` trims it too, and a run of blanks around a piece that holds one is written as a space, or dropped at the line end. One inside a value stays and gets quoted (me).
+		- The set is Unicode `White_Space`, what 2.0's Rust `trim()` used. 2.0's Python `strip()` also took U+001C to U+001F; those are left alone (me).
+		- Left as is: a no-break space in a name or indent. 2.0 trimmed those too, but no case of it has turned up (me).
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: `0f818d71` cut the trim to a space, a tab and a CR for the current rules, and the 2.x scan kept that, since it copies the pinned build.
+	- Actual fix: under the 2.x rules `scan_piece` counts any `White_Space` character as a blank at a piece's edges, and `value_edits` writes the blanks around a piece that hold one as a space. A 2.x array is rebuilt from its pieces, so it gets the trim with no more. Same change in Rust, Go, Python and C. spec.md, value-syntax.md's Migration table, the changelog and the corpus README say so.
+	- Swept: `scan_piece`, `value_edits` and the open-quote arm in all 4 bindings. `*` items, array elements and selector bodies go through the same scan.
+	- Verified: corpus `215-migrate-unicode-trim` fails on the old C header and passes on the fix in all 4 runners. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
+	- Progress log:
+		- 20261104: the fix is on `wip/r1104-2026110312163206`, not the round branch. check-migrate diverges on 094, 215 and fuzz cases, since the pinned build keeps the edge blanks. It needs those lines taken out before comparing, as `fMidQuote2x` does for a mid-piece quote. fuzz_00150 also differs in exit codes and needs a look. crosscheck, cli-regress and analyze-c not run yet.
+		- 2026-11-04: one try in round r1104, fix held on wip/r1104-2026110312163206 until 2026110410134605 closes.
+	- Branch: `wip/r1104-2026110312163206`
+	- Test case: corpus `devxe` (`215-migrate-unicode-trim`) in all 4 runners.
+	- Prereq IDs: 2026110410134605
 
-- A create-only save writes through a dangling link at the path
-	- ID: 2026110312163207
+- On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
+	- ID: 2026110408432594
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 7
-	- Related IDs: 2026102910482343
+	- Opened: 20261104-084325
+	- Opened by: 2026110312163207's fix
+	- Related IDs: 2026110312163207, 2026110314240418
+	- Target OS: Windows
 	- Steps to reproduce:
-		- `ln -s target.shcl link.shcl` with no `target.shcl`, then save a document to `link.shcl` with `create` set.
-	- Incorrect behavior: the save succeeds and makes `target.shcl`.
-	- Expected behavior: spec.md says a create-only save "is refused when anything is at the path". A link is something at the path, and an exclusive create refuses one. It matters for what `create` and `mode` are for, such as a new 0600 file with tokens in it, since a planted link picks where that file goes.
-	- Reproduced: 20261103, Python.
-	- Possible cause: the create check looks at the resolved target, not at the path as given.
-	- Origin: Confirmed in Python, Plausible in the other 3 (read). `a618835c` (20261029). No earlier round saw it.
-	- Estimated effort: Low
-
-- The C++ interface saves to a cut-off path when the path holds a NUL
-	- ID: 2026110312163208
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 8
-	- Related IDs: 2026092813365307
-	- Steps to reproduce:
-		- `Document::parse("a: 1\n").save_file(std::string("real.shcl\0evil", 14))`.
-	- Incorrect behavior: the save succeeds and writes `real.shcl`. `load_file` and `save_file_with` pass the path the same way.
-	- Expected behavior: refused, as Rust, Go and Python refuse a NUL in a path.
-	- Reproduced: 20261103, a probe built against `shcl.hpp`.
-	- Origin: Confirmed. Older than this window (`74a2e5d0`), and the new `save_file_with` (`a618835c`) repeats it. The same class as 2026092813365307 in the C CLI.
-	- Sweep: every C++ interface call that takes a `std::string` path.
+		- On Windows, make a symlink to a file that isn't there, then save a document to the link with `create` set.
+		- On Windows, the steps of 2026110314240418 in Go or Python.
+	- Incorrect behavior: not seen. Both fixes leave Windows as it was. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` and the `.` rows in `detpp` and `detpq` skip there. So the save may still make the file the link names, and a load of `new/./n.shcl` may not know `new/n.shcl`.
+	- Expected behavior: as on POSIX: refused with `Exists` and nothing made, and refused with `Changed`.
+	- Reproduced: No, from reading.
+	- Possible cause: `link_at`, `linkAt`, `_link_at` and `s_link_at` answer only off Windows, and `tidyRest` and `_tidy_rest` run only off Windows. C's windows resolve and `s_something_at` there are their own code.
+	- Note: needs b29w with a short-name TEMP, as `private/claude_simple/tools/winbox-savetests/` runs it.
 	- Estimated effort: Low
 
 - A failed run skips most of the cleanup and the closing blank line
@@ -333,6 +295,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Settle only when an edit changes what a kept index line was judged by, the way `kept_near` already does for the lines around a kept line.
 		- A perf-gate workload with a kept index line and bulk writes. None of today's has a kept line and writes together, so nothing failed.
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
+	- Estimated effort: Avg
+
+- check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
+	- ID: 2026110409565662
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261104-095656
+	- Opened by: me, from 2026110312163206
+	- Parent ID: 2026110312163206
+	- Related IDs: 2026102620591100
+	- Problem description:
+		- The pinned build `7be348d0` came after reads changed from 2.0.0, so check-migrate agrees with any 2.x read the dev line changed. The trim and the mid-piece quote were two of them.
+	- Requirements:
+		- Check the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2` and `6b776f9a`, against what `migrate` writes. Or compare against `v2.0.0` itself.
+		- Each one that reads apart either converts or is refused.
 	- Estimated effort: Avg
 
 - README: the demo gif opens on an empty prompt, and one table cell needs a check
@@ -580,6 +558,193 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Fuzz `dd3t9` fails at iteration 32783: a save that keeps lines reloads with an `E011` the document didn't have
+	- ID: 2026110407313888
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261104-073138
+	- Opened by: found while working 2026110315051536
+	- Related IDs: 2026110315051536, 2026102821334870
+	- Steps to reproduce:
+		- `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke keeping_lines_reloads_as_the_document`, on a corpus holding `213-load-fold-keeps-kept-lines`.
+		- The base is `sies:`, `` 	`s`mall ``, `calor: red`, `	- medium` with a tag character then `shape:`, `	side: 4`, `	- rou#nd`. The ops remove `calor.side` and set `sies`.
+	- Incorrect behavior: the kept text is `calor: red`, `	- medium...shape:`, `	- rou#nd`. Its reload gives `E011` for the last item, which the base read as `E008`, so the property fails. It fails within the gate's 200,000 iterations.
+	- Expected behavior: to be judged. Either the save writes the item so it reloads with a code the base had, or the property takes `E008` turning into `E011` once the fields beside the item are gone.
+	- Reproduced: 20261104, Rust, on `r1104` and on the library before 2026110315051536 with the same corpus. The new corpus case shifted the seeds onto it.
+	- Estimated effort: Avg
+	- Actual cause [Bug]: the property, not the save. The item is kept as written and reloads as the same document, kept again and losing nothing, as design.md says for a clean kept item under a field with a value. Only its code moved from `E008` to `E011`, since the field beside it was removed. The property counted each code apart.
+	- Actual effort: Low
+	- Progress log:
+		- 20261104: the check for a new error counts `E001`, `E003`, `E007`, `E008` and `E011` as one code (`placed`), in Rust's `dd3t9` and in the Go, Python and C twins of it in their edits-and-merges fuzz (`noNewErrors`, `no_new_errors`). Any other new code still fails.
+	- Decisions:
+		- me, 20261104: the property changes, not the emitter. design.md names those 5 as the codes refused only for where they sit, and has the emitter keep such a line as written wherever the reload keeps it again. Writing the item as a comment would turn a kept line into a comment where nothing binds it, which design.md keeps for where it would bind.
+	- Actual fix [Bug]: `placed` in `fuzz_smoke.rs`, `shcl_test.go`, `conformance.py` and `conformance.c`.
+	- Swept: every check of a reload's error codes against the base's: Rust's `dd3t9` (its edits-and-merges fuzz has none), and `noNewErrors` / `no_new_errors` in Go, Python and C. The fuzz outcome table (`dcavy`) counts codes per line, so a move can't change it.
+	- Verified: with corpus 213 and not 214, as it failed, `dd3t9` at 40,000 iterations fails at iteration 32783 on the old property and passes at 200,000 on the new one. The 4 conformance suites on `r1104` with 2026110315051536's commits, analyze-c (`de2x3`, `de2x4`), rustfmt, clippy, gofmt, go vet, staticcheck, ruff and mypy.
+	- Branch: `r1104`
+	- Commit: `9f75a96e`
+	- Test case: fuzz `dd3t9`, and the edits-and-merges fuzz in Go (`dd16m`), Python (`dd16n`) and C (`dc474`).
+	- Acceptance signoff: Self-closed: its test failed before and passes after, and the result is what design.md's table says.
+	- Closed: 20261104-082609
+
+- `fmt` moves a kept line above an earlier instance when the load merges 2 of one name and value
+	- ID: 2026110315051536
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261103-150515
+	- Opened by: found while working 2026110312163204
+	- Related IDs: 2026110312163204
+	- Steps to reproduce:
+		- `printf 'a:\n\tb: y\n\tc: 1\n\t- 1\n\tb: y\n\td: 2\n' | shcl fmt -`
+		- `printf 'b: y\nc: 1\nq: [1\nb: y\n' | shcl fmt -`
+	- Incorrect behavior: in all 4 CLIs, at exit 0. The first writes `a:`, `# - 1`, `b: y`, `c: 1`, `d: 2`, so the kept `E008` line is now a comment. The second moves the kept `q: [1` above `b: y`.
+	- Expected behavior: a kept line stays where it was, as a setter's fold now leaves it (2026110312163204).
+	- Reproduced: 20261103, all 4 CLIs on `r1103b`.
+	- Possible cause: the load's fold of a second instance (`H002`) appends its leading lines to the first one's, the same shape 2026110312163204 fixed in the setter's fold.
+	- Estimated effort: Avg
+	- Actual cause [Bug]: as above. A line that binds to an instance already there, and the late fold of 2 instances, hand the pending lines to the earlier one, so they were written above it.
+	- Actual effort: Avg
+	- Progress log:
+		- 20261104, all 4 bindings: the load notes each node a re-mention or a fold gives a later line's lines to. Once the tree is built, the kept lines among them, with the comments before them, go above the next line of the block read after them, or to the end of the block, through `leave_above` / `leave_last`, as the setter's fold does.
+		- Corpus `145-kept-misplaced`: its `expected.shcl` had the misplaced `  e: 1` above the first `a:`, as `# e: 1`. It now stays at the end of the file, where it was. The case's README note says so.
+		- New corpus case `213-load-fold-keeps-kept-lines` and cli-regress row `devrb` (the issue's commands). design.md's "Kept lines under edits" has a bullet for it, and the changelog a line.
+		- 20261104: on `wip/r1104-2026110315051536`, the 2,000,000-iteration release fuzz failed `dab72` at iteration 578115: merging layer B as written put a blank line before `a:` that merging its canonical form did not. It was this change. The first node kept the blank a re-mention gave it after the kept line above it went to the end of the file. The refile now settles the document's first blank again, in all 4. Corpus `214-fold-first-blank-merge` (`devsm`) fails before that and passes after.
+		- 20261104: corpus 213 alone shifted the fuzz seeds onto `dd3t9` at iteration 32783, which the library before this change fails the same way, filed as 2026110407313888. 214 shifted them off again. With 2026110407313888 fixed, the branch's 2 commits are on `r1104` (`5922ef64`, `d769a02b`).
+	- Decisions:
+		- me, 20261104: placement goes by the source line of each moved line against the siblings' lines, so 2 folds that fill one place keep file order.
+		- me, 20261104: a kept line before a dotted line still goes to the path's first segment, as before, since that is where the dotted line is written. Only a re-mention of the node itself and the late fold count.
+		- me, 20261104: no new fuzz property. The fix is one pass at the end of every load, and the fixpoint fuzz already caught one slip in it while it was written.
+	- Actual fix [Bug]: `refile_folded` and `folded_kept` (Go `refileFolded`, `foldedKept`; Python `_refile_folded`, `_folded_kept`), fed by the field-line bind and `fold_dups_from`, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`.
+	- Swept: the field-line bind, the only parse site that binds a line to an instance already there, and `fold_dups_from`, the late fold. A fence bind and a dotted line checked by hand. The setter's folds were 2026110312163204.
+	- Verified: on the branch, the 4 conformance suites (Rust and Go with a 20,000-iteration fuzz), cli-regress (650 rows), check-docs (red only on `dcbc2`), analyze-c (`de2x3`, `de2x4`), gofmt, go vet, gcc 15 and clang at `-Werror`, and the lint step of `--backlog-run-quick`.
+	- Verified: `devra`, `devrb` and the new `dd2kg` golden fail on the library before the change in all 4, and pass after.
+	- Verified: on `r1104` at `d769a02b`, the 4 conformance suites, cli-regress (650 rows), check-migrate (660 documents), the 2,000,000-iteration release fuzz (31 properties, 573 s), analyze-c (`de2x3`, `de2x4`), clippy, staticcheck, ruff and mypy.
+	- Branch: `r1104`
+	- Commit: `5922ef64`, `d769a02b`
+	- Test case: corpus `213-load-fold-keeps-kept-lines` (`devra`), corpus `214-fold-first-blank-merge` (`devsm`), cli-regress `fmt-fold-keeps-kept-lines` (`devrb`), corpus `145-kept-misplaced` (`dd2kg`).
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the named gates pass.
+	- Closed: 20261104-082609
+
+- Two spellings of one path under a missing folder can resolve apart in C, Go and Python
+	- ID: 2026110314240418
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261103-142404
+	- Opened by: 2026110314064292's sweep
+	- Related IDs: 2026110314064292, 2026110312163201
+	- Steps to reproduce:
+		- Load `new/./n.shcl` while `new` isn't there, make `new`, have another program write `new/n.shcl`, then save to `new/n.shcl`.
+	- Incorrect behavior: C, and Go and Python since 2026110314064292, keep the part under the missing folder as written, so the load records `.../new/./n.shcl` and the save resolves `.../new/n.shcl`. The changed check sees 2 files and the save goes through. Rust drops `.` and doubled separators there, so it refuses.
+	- Expected behavior: one answer however the path is spelled, as spec.md's save text says. `..` has to stay as written, since the kernel refuses it through a missing folder.
+	- Reproduced: No, from reading.
+	- Possible cause: the resolve's rest after the nearest folder that's there drops neither `.` nor an empty part.
+	- Sweep: the resolve's rest in all 4, and the detp* tests.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed in C, Go and Python by the new rows. The cause was as given.
+	- Actual fix: C's POSIX resolve, Go's `realNearest` and Python's `_real_nearest` drop `.` and empty parts from the rest (`tidyRest`, `_tidy_rest`), and keep `..`. Rust already did. The write's target loses the same parts, which name the same file.
+	- Decisions:
+		- me, 20261104: Windows is left as it was, since no Windows run checked it. C's windows resolve gives a full path already. Go and Python there may still keep `.` under a missing folder, and 2026110408432594 now holds that part.
+	- Swept: the resolve's rest in all 4 (`real_nearest`, `realNearest`, `_real_nearest`, `shcl_resolve_target`) and their callers: the load's record, the save's compare, the create check, the write, and C's `dir_takes_a_temp`. `nodir/..` still fails, as `dd5h4` and the `..` rows check.
+	- Verified: the new rows in `detpp`, `detpq` and `detpr` fail on the old resolve and pass on the new, and `detpn` passes both ways. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, and analyze-c.bash.
+	- Test case: the `.` and doubled-separator rows in `a_changed_check_knows_its_file_by_any_spelling`: Rust `detpn`, Python `detpp`, Go `detpq` and the C runner `detpr`.
+	- Acceptance signoff: Self-closed: the new rows failed on the old code and pass on the new, and the gates are green.
+	- Branch: `r1104`
+	- Closed: 20261104-091417
+
+- The CLI's changed-since-read check hangs on a FIFO swapped in during `set`'s stdin wait
+	- ID: 2026110313211991
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261103-132119
+	- Opened by: 2026110312163202's sweep
+	- Related IDs: 2026110312163202, 2026100307163911
+	- Steps to reproduce:
+		- Run `shcl set --write f.shcl` with its ops on stdin. While it waits, replace `f.shcl` with a FIFO, then end the input.
+	- Incorrect behavior: the CLI reads `f.shcl` again before the save with a plain open, which waits for a writer.
+	- Expected behavior: exit 8 with the not-a-regular-file error, as the library's save gives since 2026110312163202.
+	- Reproduced: 20261104, all 4 CLIs hang until killed.
+	- Possible cause: `unchanged_since_read` in all 4 CLIs opens the path to read with a plain open. The library's no-wait read is private, and the CLIs have none of their own.
+	- Sweep: `unchanged_since_read` and the re-read after a failed `upgrade --write`, in all 4 CLIs.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: the check read the path with a plain open, which waits on a FIFO.
+	- Actual fix: the check reads only a regular file, through a no-wait open, and refuses anything else at exit 8 with "not a regular file". The re-read after a failed `upgrade --write` uses the same read. All 4 CLIs.
+	- Decisions:
+		- me, 20261104: the CLI refuses a FIFO itself rather than leave it to the write, as the library's check does. A `set` with nothing to change ends before the write at exit 0, so a FIFO left to the write would pass.
+		- me, 20261104: Rust, Go and Python get their own copy of the library's no-wait read, as the Rust CLI already does for `not_a_disk_file`, so no library call is added in 4 bindings. C calls the header's `s_fopen_regular`, which `main.c` already sees.
+	- Swept: `unchanged_since_read` / `unchangedSinceRead`, which also guards `upgrade --write` before the backup, and the re-read after a failed upgrade write, in all 4 CLIs. The first read of `--write FILE` keeps its plain open, as 2026110312163202 decided, and `write_target_ok` asks before it.
+	- Verified: cli-regress `devy8` timed out on all 4 old CLIs and passes on the new ones. Rust clippy for the host and windows, cargo fmt, Go vet and staticcheck for the host and windows, ruff, mypy, the C CLI under gcc, clang and mingw, shellcheck, `test-ids.py check`, cli-regress (651 rows), analyze-c, lint-report, and the quick run over `rust go python c cli` with check-docs left out for its known `dcbc2` red.
+	- Test case: cli-regress `devy8` (`write-fifo-during-wait`). POSIX only. The failed-upgrade re-read has no test, since it needs a failed write and a swap at once.
+	- Acceptance signoff: Self-closed: the new row hung on the old CLIs and passes on the new, and the gates are green.
+	- Branch: `r1104`
+	- Closed: 20261104-103248
+
+- A create-only save writes through a dangling link at the path
+	- ID: 2026110312163207
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 7
+	- Related IDs: 2026102910482343
+	- Steps to reproduce:
+		- `ln -s target.shcl link.shcl` with no `target.shcl`, then save a document to `link.shcl` with `create` set.
+	- Incorrect behavior: the save succeeds and makes `target.shcl`.
+	- Expected behavior: spec.md says a create-only save "is refused when anything is at the path". A link is something at the path, and an exclusive create refuses one. It matters for what `create` and `mode` are for, such as a new 0600 file with tokens in it, since a planted link picks where that file goes.
+	- Reproduced: 20261103, Python.
+	- Possible cause: the create check looks at the resolved target, not at the path as given.
+	- Origin: Confirmed in Python, Plausible in the other 3 (read). `a618835c` (20261029). No earlier round saw it.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed, all 4. The resolve follows a link to nowhere to where it points, and both create checks, the save's and the write's, asked only there.
+	- Actual fix: both create checks also refuse a link at the path as given, in all 4 (`link_at`, `linkAt`, `_link_at`, `s_link_at`). The veneer wraps the C save. design.md's Save outcomes row and spec.md say a link to nowhere counts.
+	- Decisions:
+		- me, 20261104: only a link at the path counts, not anything the path as given reaches, so no other answer moves, such as a path ending in `.`.
+		- me, 20261104: Windows is left as it was, since its link tests skip and no Windows run checked it. 2026110408432594 has that part.
+	- Swept: the save's create check and the write's in Rust, Go, Python and C. The publish of a new file already fails on anything at the target, and the target is the path as given when nothing is there, so a link planted after the check is refused there.
+	- Verified: the new rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` fail on the old code and pass on the new. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, analyze-c.bash and codeql-scan.bash. check-docs alone fails only the known `dcbc2`.
+	- Test case: the link-to-nowhere rows in `a_create_only_save_refuses_a_file_already_there`: Rust `dekm5`, Python `dekm6`, Go `dekmf`, the C runner `dekmj` and the veneer smoke `dekmk`.
+	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and the gates are green.
+	- Branch: `r1104`
+	- Closed: 20261104-090220
+
+- The C++ interface saves to a cut-off path when the path holds a NUL
+	- ID: 2026110312163208
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 8
+	- Related IDs: 2026092813365307
+	- Steps to reproduce:
+		- `Document::parse("a: 1\n").save_file(std::string("real.shcl\0evil", 14))`.
+	- Incorrect behavior: the save succeeds and writes `real.shcl`. `load_file` and `save_file_with` pass the path the same way.
+	- Expected behavior: refused, as Rust, Go and Python refuse a NUL in a path.
+	- Reproduced: 20261103, a probe built against `shcl.hpp`.
+	- Origin: Confirmed. Older than this window (`74a2e5d0`), and the new `save_file_with` (`a618835c`) repeats it. The same class as 2026092813365307 in the C CLI.
+	- Sweep: every C++ interface call that takes a `std::string` path.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. Every veneer call that opens a path hands C `path.c_str()`, which ends at the NUL. `write_backup` made its backup under the cut name too.
+	- Actual fix: the veneer refuses a path holding a NUL before the C call: `read_file` and the 3 loads give Unreadable and an empty document, `write_file_atomic` gives Other, the 4 saves give Failed with Other, and `upgrade_file` and `write_backup` give an Io error with Other. `read_named_schema` gives a relative Schema path Unreadable when the NUL is in the config's folder, as Python does. Not in a release, so no changelog line.
+	- Decisions:
+		- me, 20261104: the refusal comes before the C call, since a C string can't carry the NUL. So a save to such a path is Failed even where Rust would answer `TooNew` or `Refused` first. Nothing is written either way.
+		- me, 20261104: `backup_file_name` is left as it is. It opens nothing, and `write_backup` and `upgrade_file`, which would open the name, refuse the path.
+		- me, 20261104: a NUL in the config's name, after its folder, changes nothing in `read_named_schema`, since only the folder says where a relative path starts.
+		- me, 20261104: the veneer smoke's first call of `read_named_schema` let clang-tidy reach `s_schema_refuse` in `shcl.h`, where it reports a leak (`de2x4`). The result owns its path and message, and `shcl_named_schema_free` frees both, so it's suppressed at the line with that reason.
+		- me, 20261104: `devwa` is the first test to hand `load_file_with` and `upgrade_file` a path from the environment, so CodeQL now flags both C calls as `cpp/path-injection`, and each gets the suppression the other veneer file calls have.
+	- Swept: every `std::string` path in `shcl.hpp`: `read_file`, `write_file_atomic`, `read_named_schema`, `write_backup`, `upgrade_file`, `backup_file_name`, the 3 loads and the 4 saves. The C CLI's Schema path is 2026092813365307.
+	- Verified: `devwa` fails on the old veneer, in every call it covers, and passes on the new. Also `cicd.bash --skip=check-docs.bash --backlog-run-quick c`, check-veneer.bash, and after the suppressions analyze-c.bash and codeql-scan.bash. Not run on Windows, where `read_named_schema` also takes `\` as a separator.
+	- Test case: veneer smoke `a_path_holding_a_nul_is_refused` (`devwa`).
+	- Acceptance signoff: Self-closed: reproduced, `devwa` failed before and passes after, and the gates are green.
+	- Branch: `r1104`
+	- Closed: 20261104-094647
 
 - The changed check misses an edit when the load and the save spell the path differently, so another program's edit is lost
 	- ID: 2026110312163201

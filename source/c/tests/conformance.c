@@ -942,16 +942,27 @@ static void seq_doc(SeqBuf *b) {
 	}
 }
 
-/* Every error code `d` loads with, `of` loaded with at least as often. */
+/* A line refused only for where it sits, as one code. An edit around it can
+   change which it gets, and it stays kept either way. Removing the field
+   before an E008 item under a field with a value leaves it E011. */
+static const char *placed(const char *code) {
+	static const char *const where[] = {"E001", "E003", "E007", "E008", "E011"};
+	for (size_t i = 0; i < sizeof where / sizeof where[0]; i++)
+		if (strcmp(code, where[i]) == 0) return "placed";
+	return code;
+}
+
+/* Every error code `d` loads with, `of` loaded with at least as often, with
+   placed's codes as one. */
 static int no_new_errors(const shcl_doc *d, const shcl_doc *of) {
 	for (size_t i = 0; i < shcl_diag_count(d); i++) {
 		if (shcl_diag_severity(d, i) != SHCL_SEV_ERROR) continue;
-		const char *code = shcl_diag_code(d, i);
+		const char *code = placed(shcl_diag_code(d, i));
 		size_t mine = 0, theirs = 0;
 		for (size_t j = 0; j < shcl_diag_count(d); j++)
-			mine += shcl_diag_severity(d, j) == SHCL_SEV_ERROR && strcmp(shcl_diag_code(d, j), code) == 0;
+			mine += shcl_diag_severity(d, j) == SHCL_SEV_ERROR && strcmp(placed(shcl_diag_code(d, j)), code) == 0;
 		for (size_t j = 0; j < shcl_diag_count(of); j++)
-			theirs += shcl_diag_severity(of, j) == SHCL_SEV_ERROR && strcmp(shcl_diag_code(of, j), code) == 0;
+			theirs += shcl_diag_severity(of, j) == SHCL_SEV_ERROR && strcmp(placed(shcl_diag_code(of, j)), code) == 0;
 		if (mine > theirs) return 0;
 	}
 	return 1;
@@ -7088,6 +7099,21 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(linked, "sub/k.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "link");
 		if (!file_is("sub/k.shcl", "b: 2\n")) fail(at, "a refused save through a link wrote");
 		shcl_free(linked);
+		/* `.` and a doubled separator under a folder made after the load name
+		   no other file (2026110314240418). */
+		shcl_doc *dotted = shcl_load_file("dn/./d.shcl", NULL);
+		if (mkdir("dn", 0700) != 0) fail(at, "mkdir dn failed");
+		put_file("dn/d.shcl", "b: 2\n");
+		if (shcl_save_file(dotted, "dn/d.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "dot under a new folder");
+		shcl_doc *doubled = shcl_load_file("dd//d.shcl", NULL);
+		if (mkdir("dd", 0700) != 0) fail(at, "mkdir dd failed");
+		put_file("dd/d.shcl", "b: 2\n");
+		if (shcl_save_file(doubled, "dd/d.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "doubled under a new folder");
+		if (!file_is("dn/d.shcl", "b: 2\n") || !file_is("dd/d.shcl", "b: 2\n")) fail(at, "a refused save under a new folder wrote");
+		shcl_free(dotted);
+		shcl_free(doubled);
+		dir_clear("dn");
+		dir_clear("dd");
 		/* A missing folder named with `..` is refused, as the kernel refuses
 		   it, rather than canceled as text. Windows cancels it itself. */
 		shcl_doc *through = shcl_load_file("q2.shcl", NULL);
@@ -7161,6 +7187,15 @@ int main(int argc, char **argv) {
 		snprintf(link, sizeof link, "%s/link.shcl", xdir);
 		if (symlink(n, link) != 0) fail(at, "symlink failed");
 		if (shcl_save_file_with(fresh, link, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link");
+		/* A link to nowhere is something at the path, so where it points
+		   isn't made (2026110312163207). */
+		char dangling[320], nowhere[320];
+		struct stat ns;
+		snprintf(dangling, sizeof dangling, "%s/dangling.shcl", xdir);
+		snprintf(nowhere, sizeof nowhere, "%s/nowhere.shcl", xdir);
+		if (symlink(nowhere, dangling) != 0) fail(at, "symlink failed");
+		if (shcl_save_file_with(fresh, dangling, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link to nowhere");
+		if (lstat(nowhere, &ns) == 0) fail(at, "a refused create made the file a link to nowhere names");
 #endif
 		shcl_free(fresh);
 

@@ -304,6 +304,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A setter that folds 2 instances into one leaves the malformed lines beside the one that goes where they were.
 
+- `fmt` and the canonical save leave the malformed lines beside a second instance of a name and value where they were, when the load folds it into the first. They went above the first one, where a list item became a comment.
+
 - A setter replacing a stacked list writes a malformed line of the list's name from among its items as a comment the first time. It moved the line above the list as written, and wrote the comment on the next set.
 
 - A setter writes only what reads back, and refuses anything else.

@@ -6103,14 +6103,25 @@ fn a_create_only_save_refuses_a_file_already_there() {
 	assert_eq!(read(&n), "b: 2\n");
 	#[cfg(unix)]
 	{
-		// A link to nowhere makes the file where it points, so a link to a
-		// file is the file.
+		// A link to a file is the file.
 		let link = at("link.shcl");
 		std::os::unix::fs::symlink(&n, &link).unwrap();
 		assert_eq!(
 			fresh.save_file_with(&link, &create),
 			Err(SaveError::Exists { path: link.clone() })
 		);
+		// And a link to nowhere is something at the path, so where it points
+		// isn't made (2026110312163207).
+		let dangling = at("dangling.shcl");
+		let nowhere = at("nowhere.shcl");
+		std::os::unix::fs::symlink(&nowhere, &dangling).unwrap();
+		assert_eq!(
+			fresh.save_file_with(&dangling, &create),
+			Err(SaveError::Exists {
+				path: dangling.clone()
+			})
+		);
+		assert!(std::fs::symlink_metadata(&nowhere).is_err());
 	}
 
 	// Several saves at once: one makes the file and the rest are told it's there.

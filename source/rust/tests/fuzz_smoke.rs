@@ -2083,6 +2083,16 @@ fn tidy(rng: &mut Rng) -> String {
 	out
 }
 
+/// A line refused only for where it sits, as one code: an edit around it can
+/// change which it gets, and it stays kept either way. Removing the field
+/// before an `E008` item under a field with a value leaves it `E011`.
+fn placed(code: &str) -> &str {
+	match code {
+		"E001" | "E003" | "E007" | "E008" | "E011" => "placed",
+		c => c,
+	}
+}
+
 /// The save that keeps lines writes text that reloads as the document with
 /// no error the base did not have, or the canonical form when it cannot; a
 /// load with no edits writes its own text back. On tidy configs, plain
@@ -2180,7 +2190,7 @@ fn keeping_lines_reloads_as_the_document() {
 					.diagnostics()
 					.iter()
 					.filter(|d| d.severity == Severity::Error)
-					.map(|d| d.code)
+					.map(|d| placed(d.code))
 					.collect();
 				c.sort_unstable();
 				c

@@ -1070,15 +1070,37 @@ def unchanged_since_read(file, before):
 	# FILE still holds the bytes the load read. `set` waits on stdin between the
 	# load and the save, and an edit made in that wait was reverted at exit 0.
 	# A gap is left between this read and the publish, the width of one save.
+	# Something swapped in that isn't a regular file gets the save's own error
+	# here, since the write after this may find nothing to do.
 	try:
-		with open(file, "rb") as fh:
-			if fh.read() == before.encode("utf-8"):
-				return True
+		now = read_regular(file)
+		if now is None:
+			sys.stderr.write(f"{file}: not a regular file\n")
+			return False
+		if now == before.encode("utf-8"):
+			return True
 	except (OSError, ValueError):
 		# A file that can't be read now counts as changed.
 		pass
 	sys.stderr.write(f"{file}: changed since it was read; nothing written\n")
 	return False
+
+
+def read_regular(path):
+	# The bytes of the regular file at PATH, or None when something else is
+	# there, such as a FIFO swapped in, which the open doesn't wait on. Raises
+	# OSError as the open or read does. The library's copy is private.
+	if not stat.S_ISREG(os.stat(path).st_mode):
+		return None
+	no_wait = getattr(os, "O_NONBLOCK", 0)
+	# codeql[py/file-not-closed] the with just below owns the descriptor and closes it
+	fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
+	with open(fd, "rb") as f:
+		if no_wait:
+			os.set_blocking(fd, True)
+		if not stat.S_ISREG(os.fstat(fd).st_mode):
+			return None
+		return f.read()
 
 
 def write_back(doc, file, o, read=None, keep=False):
@@ -1798,8 +1820,7 @@ def do_migrate(o):
 			# can leave nothing at FILE, and then the copy is all there is.
 			if old is not None:
 				try:
-					with open(file, "rb") as fh:
-						same = fh.read() == text.encode("utf-8")
+					same = read_regular(file) == text.encode("utf-8")
 				except (OSError, ValueError):
 					same = False
 				if same:
