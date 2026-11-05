@@ -145,7 +145,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-migrate diverges on the 2.x Unicode trim fix, and fuzz_00150 changes its exit code
 	- ID: 2026110410134605
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261104-101346
 	- Opened by: round r1104, worker for 2026110312163206
@@ -154,11 +154,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 2026-11-04: the trim fix in all 4 bindings is on wip/r1104-2026110312163206 (65e88185). check-migrate diverges on corpus 094, 215 and some fuzz cases, since its pinned build 7be348d0 keeps the blanks 2.0 trimmed. It needs those lines filtered before comparing, as fMidQuote2x does.
 		- fuzz_00150 gives a different exit code from 2.x's result on the wip code. Not looked at yet, so it may be a real regression.
 		- crosscheck, cli-regress and analyze-c weren't run on the wip commit.
+		- 2026-11-04, r1105: the fix cherry-picked onto r1105. check-migrate without the filter diverged on 094, 215 and 15 fuzz documents, all with a blank other than a space, a tab or a CR at a value piece's edge.
+	- Actual cause: the pinned build keeps a blank such as a no-break space at a piece's edge, where 2.0 and the fix trim it, so every line with one reads apart. fuzz_00150 is one of them, not a regression: its `f:` holds only a U+0085, which the pinned build reads as the value (string Good, raw and info BadType 4), and the fix reads as empty (exit 2 for each).
+		- The new corpus case shifts the fuzz seeds, and fuzz_00216 came up: taking out its fence label holding a `#` leaves a raw block open to the end, upgrade closes it, and the old info block in its body counted as a second one.
+	- Actual fix: check-migrate takes out lines with such a blank at a value piece's edge before comparing (`fEdgeBlank2x`), found in the 2.x text by the scan `fMidQuote2x` already used, now shared as `fValue2x`. The White_Space set comes from gen-escapes.py. The info block is counted only at the line start.
+	- Decisions:
+		- Only a blank at a piece's edge takes the line out, not any line holding one, so a no-break space inside a value, such as 215's `mid`, is still compared (me).
+	- Swept: the one count of the info block in check-migrate; fTrim is the one place lines come out.
+	- Verified: check-migrate passes on 652 documents with the filter, `dewb9` included, and diverged on 17 without it. crosscheck (54570 comparisons), cli-regress (651 rows), analyze-c, the 2,000,000 release fuzz (31 tests) and shellcheck pass. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
+	- Branch: `r1105`
+	- Commit: `71783654`
+	- Test case: check-migrate `dewb9` (215's edge lines found) and `dcqf3` over the corpus and fuzz documents.
+	- Acceptance signoff: Self-closed: check-migrate failed on the fix before the filter and passes after.
+	- Closed: 20261104-180734
 
 - `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
 	- ID: 2026110312163206
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 6
@@ -180,13 +193,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Actual cause: `0f818d71` cut the trim to a space, a tab and a CR for the current rules, and the 2.x scan kept that, since it copies the pinned build.
 	- Actual fix: under the 2.x rules `scan_piece` counts any `White_Space` character as a blank at a piece's edges, and `value_edits` writes the blanks around a piece that hold one as a space. A 2.x array is rebuilt from its pieces, so it gets the trim with no more. Same change in Rust, Go, Python and C. spec.md, value-syntax.md's Migration table, the changelog and the corpus README say so.
-	- Swept: `scan_piece`, `value_edits` and the open-quote arm in all 4 bindings. `*` items, array elements and selector bodies go through the same scan.
+	- Swept: `scan_piece`, `value_edits` and the open-quote arm in all 4 bindings. `*` items and array elements go through the same scan. Selector bodies do too, but keep the narrow trim, since `migrate` cuts them by their own offsets.
 	- Verified: corpus `215-migrate-unicode-trim` fails on the old C header and passes on the fix in all 4 runners. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
 	- Progress log:
 		- 20261104: the fix is on `wip/r1104-2026110312163206`, not the round branch. check-migrate diverges on 094, 215 and fuzz cases, since the pinned build keeps the edge blanks. It needs those lines taken out before comparing, as `fMidQuote2x` does for a mid-piece quote. fuzz_00150 also differs in exit codes and needs a look. crosscheck, cli-regress and analyze-c not run yet.
 		- 2026-11-04: one try in round r1104, fix held on wip/r1104-2026110312163206 until 2026110410134605 closes.
-	- Branch: `wip/r1104-2026110312163206`
+		- 2026-11-04, r1105: cherry-picked onto r1105. A value that is only such a blank, as in `f:` and a U+0085, came out as `f: ` with a blank left at the line end. That run is dropped there too now, in all 4. Corpus 215 has the line, and fails without it in Python and C.
+		- Verified on r1105: the 4 conformance suites, the Rust upgrade tests, cli-regress (651 rows), crosscheck (54570 comparisons), check-migrate (652 documents, with 2026110410134605's filter), analyze-c, the 2,000,000 release fuzz (31 tests), clippy, rustfmt, gofmt, go vet, staticcheck, ruff and mypy.
+	- Branch: `r1105`
+	- Commit: `912e864e`, `6c01482a`
 	- Test case: corpus `devxe` (`215-migrate-unicode-trim`) in all 4 runners.
+	- Acceptance signoff: Self-closed: corpus 215 failed before and passes after, and the named gates pass.
+	- Closed: 20261104-180734
 	- Prereq IDs: 2026110410134605
 
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
