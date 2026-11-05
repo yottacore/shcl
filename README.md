@@ -308,7 +308,7 @@ Packages for Debian, Fedora, FreeBSD, and Windows, the install scripts for the s
 
 - [`project/style-guide_ui-ux.md`](project/style-guide_ui-ux.md): how the command line behaves. Option spelling, the help layout, what goes to stdout and what to stderr, and the exit codes.
 
-Generated API reference, per binding: [docs.rs](https://docs.rs/shcl) for Rust, [pkg.go.dev](https://pkg.go.dev/github.com/yottacore/shcl/source/go/v2) for Go.
+Generated API reference, per binding: [docs.rs](https://docs.rs/shcl) for Rust, [pkg.go.dev](https://pkg.go.dev/github.com/yottacore/shcl/source/go/v3) for Go.
 
 ## Contributing and support
 

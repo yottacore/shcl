@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "shcl"
-version = "2.0.0"
+version = "3.0.0-beta1"
 dependencies = [
  "dhat",
  "pprof",

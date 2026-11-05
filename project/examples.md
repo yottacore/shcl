@@ -6,7 +6,7 @@
 
 This page shows the `shcl` command from a shell first, then the library from code. Every example here reads `server.shcl`, the small web server config the README shows under [What a .shcl file looks like](../README.md#what-a-shcl-file-looks-like), and the line numbers in the output are that file's.
 
-This page describes 3.0.0-beta1. Until it's out, the published packages are 2.0.0, which read files by the 2.x rules.
+This page describes 3.0.0-beta1. It's a beta, and the newest full release is still 2.0.0, which reads files by the 2.x rules. Package managers skip a beta unless it's named, so the install and dependency lines below name it.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -185,15 +185,15 @@ If you have files written for 2.x, run `migrate --from-2x` over them once and re
 
 ## Example use-cases in your code
 
-Bindings are versioned in lockstep, so `2.x` means the same behavior and the same conformance corpus in every language. Each ecosystem's usual compatible-version operator is all you need: it picks up minor and patch releases on its own, and never crosses a major version without you editing the line yourself.
+Bindings are versioned in lockstep, so `3.x` means the same behavior and the same conformance corpus in every language. Each ecosystem's usual compatible-version operator is all you need: it picks up minor and patch releases on its own, and never crosses a major version without you editing the line yourself.
 
 Every binding is one file with no dependencies. You can optionally just copy it out of `source/` and commit it - see [DIY install](install.md#diy-install).
 
 ### Rust
 
-- Install: `cargo add shcl`
+- Install: `cargo add shcl@3.0.0-beta1`
 
-- Dependency line: `shcl = "2"`
+- Dependency line: `shcl = "3.0.0-beta1"`
 
 - Toolchain: Rust 1.88 or newer.
 
@@ -246,14 +246,14 @@ doc.save_file("server.shcl")?;
 
 ### Go
 
-- Install the module: `go get github.com/yottacore/shcl/source/go/v2`
+- Install the module: `go get github.com/yottacore/shcl/source/go/v3@v3.0.0-beta1`
 
-- Dependency line: `require github.com/yottacore/shcl/source/go/v2 v2.0.0`
+- Dependency line: `require github.com/yottacore/shcl/source/go/v3 v3.0.0-beta1`
 
-- Notes: this repo keeps the Go module in a subdirectory, so the import path ends in `/source/go` and the module's own tags have a matching `source/go/` prefix. From 2.0 the major goes in the path too, as Go requires, so the import ends `/source/go/v2` and `go get -u` tracks `2.x` without ever crossing to a 3.x. A 1.x consumer keeps working on the old path until it edits the import.
+- Notes: this repo keeps the Go module in a subdirectory, so the import path ends in `/source/go` and the module's own tags have a matching `source/go/` prefix. From 2.0 the major goes in the path too, as Go requires, so the import ends `/source/go/v3` and `go get -u` tracks `3.x` without ever crossing to a 4.x. A 2.x consumer keeps working on the old path until it edits the import.
 
 ~~~go
-import shcl "github.com/yottacore/shcl/source/go/v2"
+import shcl "github.com/yottacore/shcl/source/go/v3"
 
 // One call reads and parses, and never fails (see the Rust example).
 doc, fileStatus := shcl.LoadFile("server.shcl")
@@ -292,9 +292,9 @@ if err := doc.SaveFile("server.shcl"); err != nil {
 
 ### Python
 
-- Install: `pip install shcl`
+- Install: `pip install --pre shcl`
 
-- Dependency line: `shcl~=2.0`
+- Dependency line: `shcl==3.0.0b1`
 
 - Toolchain: Python 3.9 or newer.
 

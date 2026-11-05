@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"unicode/utf8"
 
-	shcl "github.com/yottacore/shcl/source/go/v2"
+	shcl "github.com/yottacore/shcl/source/go/v3"
 )
 
 // Every stdout write goes through these. A reader that closed early is not an
@@ -64,7 +64,7 @@ func writeFailed(err error) {
 }
 
 // Keep in step with source/rust/Cargo.toml, the canonical version source.
-const version = "2.0.0"
+const version = "3.0.0-beta1"
 
 // The build number, set only for a stamped build (-ldflags "-X main.build=ID").
 // The Rust CLI is the one the pipeline stamps; see its build.rs.

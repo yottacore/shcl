@@ -39,7 +39,7 @@
 #endif
 
 // Keep in step with source/rust/Cargo.toml, the canonical version source.
-#define VERSION "2.0.0"
+#define VERSION "3.0.0-beta1"
 
 // The build number, set only for a stamped build (-DSHCL_BUILD=ID, unquoted).
 // The Rust CLI is the one the pipeline stamps; see its build.rs.

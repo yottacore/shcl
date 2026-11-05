@@ -158,9 +158,9 @@ mkdir -p "${tmpDir}/goex"
 	echo
 	echo 'go 1.24'
 	echo
-	echo 'require github.com/yottacore/shcl/source/go/v2 v2.0.0'
+	echo 'require github.com/yottacore/shcl/source/go/v3 v3.0.0-beta1'
 	echo
-	echo "replace github.com/yottacore/shcl/source/go/v2 => ${repoDir}/source/go"
+	echo "replace github.com/yottacore/shcl/source/go/v3 => ${repoDir}/source/go"
 } > "${tmpDir}/goex/go.mod"
 if ! ( cd "${tmpDir}/goex" && GOFLAGS=-mod=mod go build -o goex . ) 2> "${tmpDir}/go.err"; then
 	echo "check-readme: the Go example in ${docNames} does not build:" >&2
@@ -181,7 +181,7 @@ fRunExample Python "${tmpDir}/pyex" python3 example.py
 
 ##	Rust. The block is statements plus its own use line, so a reader adds a
 ##	main(); the `?` on the save makes that main return the save's error type.
-##	The dependency is a path rather than the doc's `shcl = "2"`, since the
+##	The dependency is a path rather than the doc.s `shcl = "3.0.0-beta1"`, since the
 ##	gate must not need crates.io - what is being checked is the code, and the
 ##	crate it resolves to is this tree's.
 fTest dcwqw rust-example
