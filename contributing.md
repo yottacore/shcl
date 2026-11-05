@@ -162,7 +162,9 @@ GitHub CI runs on pushes to `main`, on pull requests, and by hand from the Actio
 
 - PowerShell 7+ - required: the lint stage runs PSScriptAnalyzer through `pwsh` on every run, including `--gate`.
 
-`install-dev.bash` at the repo root sets up as much of this as it can without sudo, and prints package-manager hints for the rest.
+- Zig and Pillow - `check-readme` and `check-c-compilers` build with zig, and `shell-regress` reads the demo gif with Pillow. These run on your box even when docker answers.
+
+`install-dev.bash` at the repo root sets up as much of this as it can without sudo, and prints package-manager hints for the rest. It checks each tool against its pin in `cicd/config.bash`, the cross, packaging and analyzer tools below included, and names each one that is missing or at another version.
 
 A run without `--gate` also wants the cross and packaging tools. `--quick` builds the cross targets too, but no packages:
 
@@ -174,11 +176,11 @@ None of this is needed for `--gate`.
 
 With docker you may not need any of it.
 
-- When docker answers on an x86_64 box, `cicd/cicd.bash` runs stages 1 to 6 in a Debian image with every tool at its pinned version, and builds the image from `cicd/container/` the first time. Without it they run on your box, with a one-line note saying why. `--no-container` keeps them on your box anyway, and `--container` fails rather than run without the image. The sync, dogfood, demo gif and publish stages always run on your box. The stage flags pass through, so `cicd/cicd.bash --merge-gate` is the merge gate in the image, and so is the pre-push hook's.
+- When docker answers on an x86_64 box, `cicd/cicd.bash` runs stages 1 to 6 in a Debian image with every tool at its pinned version, and builds the image from `cicd/container/` the first time. Without it, or when the image fails to build, they run on your box, with a one-line note saying why. `--no-container` keeps them on your box anyway, and `--container` fails rather than run without the image. The sync, dogfood, demo gif and publish stages always run on your box. The stage flags pass through, so `cicd/cicd.bash --merge-gate` is the merge gate in the image, and so is the pre-push hook's.
 
 - Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points. Zig's cache is the exception: it's a docker volume of its own, `shcl-zig-cache`, and a run empties it at the end once it's over 2 GB or another Zig version filled it. Your own `~/.cache/zig` is never touched. Cargo's target dirs, `source/rust/target` and `source/rust/target-migrate`, hold a stamp naming the toolchain in `rust-toolchain.toml` and the lockfile that filled them. When either has changed, a run empties the dir before it builds, so an old toolchain's units don't pile up, and an extra image's copy goes the same way. It waits while another run is going.
 
-- What a run starts in docker is labeled `dev.project=shcl`, plus `dev.run` with the name of the run's temp folder, and the run's containers go when it ends, failed or stopped too. A run in the image, failed or stopped too, also removes our image tags but the current one and the one before it. The images build on a buildx builder of our own, `shcl-cicd`, made the first time a run needs it, and a run prunes only that builder's cache unused for a week, then stops it. Docker's default builder, which other projects share, is never pruned. Without buildx the image builds on the default builder, and that cache is left alone.
+- What a run starts in docker is labeled `dev.project=shcl`, plus `dev.run` with the name of the run's temp folder, and the run's containers go when it ends, failed or stopped too. A run in the image, failed or stopped too, also removes our image tags but the current one and the one before it. The images build on docker's default builder, and a run leaves docker's build cache alone. Docker can trim that cache itself, through `builder.gc` in `/etc/docker/daemon.json`. A run removes the `shcl-cicd` buildx builder that runs from early November 2026 made, with its cache, the first time it finds it.
 
 - `--keep-temp` keeps the run's temp folder and its containers, and says where they are. `--list` prints the steps the other flags would run, by stage, with the test IDs each step runs under it, and runs nothing.
 
@@ -201,7 +203,7 @@ Two more images are there for now and then:
 
 - Everything at once: `cicd/cicd.bash --merge-gate` - format check, build, lint, tests, the cross-binding crosscheck, the release builds and the leak checks. Every binding must match the reference byte for byte on stdout and exit codes; stderr text is not part of the contract.
 
-- In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. A quick run never counts as a pass for the hook.
+- In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. It leaves out the test boxes too, since they are other hosts. A quick run never counts as a pass for the hook.
 
 - Before a commit: `cicd/cicd.bash --backlog-run-quick` runs the format check, build, lint, tests and cross checks, less what `--quick` leaves out, with no leak checks or profiler calibration, in about 4 minutes. `--gate` is another name for it. It also leaves out the slow tests `BACKLOG_SKIP` in `cicd/config.bash` lists, and records no tree. Area names after it, such as `--backlog-run-quick go cli`, keep only those areas' tests, `BACKLOG_SKIP`'s included. `--help` lists them, and `BACKLOG_AREAS` says which steps each holds. Its lint and test steps run up to 4 at once, and print in order. `--backlog-run-full`, for a last run before a merge, runs the merge gate's checks. Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts.
 

@@ -20,16 +20,19 @@
 ##		as a binding now, which is a gain, not a migration; a bracket array it
 ##		counted lost was refused by 2.x itself; a dropped line of any kind says
 ##		nothing. So those lines come out of the document first, and the rest is
-##		compared, as long as 2.x then reads it cleanly. Three more kinds of line
+##		compared, as long as 2.x then reads it cleanly. Four more kinds of line
 ##		come out the same way: a fence label holding a `#`, which 2.x ran to
 ##		the end of the line and which ends at the `#` now, with no quoting to
 ##		write it; a carriage return in the middle of a line, which 2.x kept
-##		as content and which is a blank at a piece's edge now; and a quote in
+##		as content and which is a blank at a piece's edge now; a quote in
 ##		the middle of a value piece that closes past a comma or a `#`, which
-##		2.0 read as one piece and the pinned build cut there. These are found
-##		in the 2.x text, never in migrate's output. Each is asserted on a
-##		corpus case, so the list cannot rot. A backslash pair 2.x read as an
-##		escape is written as the text 2.x read, so reads compare exactly.
+##		2.0 read as one piece and the pinned build cut there; and a blank
+##		other than a space, a tab or a CR at a value piece's edge, such as a
+##		no-break space, which 2.0 trimmed and the pinned build kept. These
+##		are found in the 2.x text, never in migrate's output. Each is
+##		asserted on a corpus case, so the list cannot rot. A backslash pair
+##		2.x read as an escape is written as the text 2.x read, so reads
+##		compare exactly.
 ##
 ##		A compared document also has to migrate at exit 0, unless 2.x read a
 ##		raw block that never closes: the Format line would be more of its body,
@@ -398,16 +401,38 @@ for n, line in enumerate(text.split("\n"), 1):
 		| awk 'NR == FNR { if (index($0, ",")) comma[FNR] = 1; next } comma[$1]' "$1" -
 }
 
-##	Lines where the pinned build and 2.0 read a value apart: a quote in the
-##	middle of a piece, with a comma or a `#` before its close. 2.0 kept the
-##	piece whole, and migrate does too (2026102620591100), while the pinned
-##	build cut it there. Found in the 2.x text, the way 2.x reads a value: a
-##	backslash shields the next character, and a quote that opens a piece runs
-##	to its close. A raw body is passed over, as in fLostNow.
-fMidQuote2x(){
+##	Lines where the pinned build and 2.0 read a value apart, found in the 2.x
+##	text the way 2.x reads a value: a backslash shields the next character,
+##	and a quote that opens a piece runs to its close. A raw body is passed
+##	over, as in fLostNow. Two kinds, by the first argument:
+##	  midquote  a quote in the middle of a piece, with a comma or a `#`
+##	            before its close. 2.0 kept the piece whole, and migrate does
+##	            too (2026102620591100), while the pinned build cut it there.
+##	  edge      a run of blanks at a piece's edge holding one other than a
+##	            space, a tab or a CR, such as a no-break space. 2.0 trimmed
+##	            every Unicode White_Space character there, and migrate does
+##	            too (2026110312163206), while the pinned build kept it.
+fValue2x(){
 	python3 -c '
-import re, sys
-text = open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape")
+import importlib.util, re, sys
+mode = sys.argv[1]
+text = open(sys.argv[2], "rb").read().decode("utf-8", "surrogateescape")
+spec = importlib.util.spec_from_file_location("gen_escapes", sys.argv[3])
+gen = importlib.util.module_from_spec(spec); spec.loader.exec_module(gen)
+blank = {chr(c) for lo, hi in gen.WHITE_SPACE for c in range(lo, hi + 1)}
+def edges(s, first, cuts, end):
+	runs = []
+	for a in [first] + [k + 1 for k in cuts]:
+		b = a
+		while b < end and s[b] in blank:
+			b += 1
+		runs.append(s[a:b])
+	for b in cuts + [end]:
+		a = b
+		while a > first and s[a - 1] in blank:
+			a -= 1
+		runs.append(s[a:b])
+	return any(c not in " \t\r" for run in runs for c in run)
 fence = None
 def opens(v):
 	m = re.match(r"(`{3,}|~{3,})", v.lstrip(" \t"))
@@ -443,14 +468,18 @@ for n, line in enumerate(text.split("\n"), 1):
 		fence = opens(s[i:])
 		if fence:
 			continue
-	start = True
+	if i > len(s):
+		continue
+	first, start, cuts, end = i, True, [], len(s)
 	while i < len(s):
 		c = s[i]
 		if c == "\\":
 			i, start = i + 2, False
 		elif c == "#":
+			end = i
 			break
 		elif c == ",":
+			cuts.append(i)
 			i, start = i + 1, True
 		elif c in "\"\x27":
 			j = close(s, i)
@@ -459,14 +488,18 @@ for n, line in enumerate(text.split("\n"), 1):
 					break
 				i, start = i + 1, False
 				continue
-			if not start and ("," in s[i + 1:j] or "#" in s[i + 1:j]):
+			if mode == "midquote" and not start and ("," in s[i + 1:j] or "#" in s[i + 1:j]):
 				print(n)
 				break
 			i, start = j + 1, False
 		else:
 			i, start = i + 1, start and c in " \t"
-' "$1"
+	if mode == "edge" and edges(s, first, cuts, end):
+		print(n)
+' "$1" "$2" "${meDir}/gen-escapes.py"
 }
+fMidQuote2x(){ fValue2x midquote "$1"; }
+fEdgeBlank2x(){ fValue2x edge "$1"; }
 
 ##	A document that names this format is not a 2.x file, whatever 2.x makes of
 ##	it: migrate leaves it as written, and so does upgrade but for one case,
@@ -494,6 +527,7 @@ fTrim(){
 			fUnplaced "${dst}"
 			fLostNow "${dst}"
 			fMidQuote2x "${dst}"
+			fEdgeBlank2x "${dst}"
 			grep -anE '(```|~~~)[^#]*#' "${dst}" | cut -d: -f1
 			grep -an $'\r[^\r]' "${dst}" | cut -d: -f1; } | sort -un)"
 		if [[ -z "${lines}" ]]; then [[ -s "${dst}" ]]; return; fi
@@ -555,7 +589,9 @@ fUpRewritten(){
 	cmp -s "${upSrc}" "${upDir}/${upBackup}" || fUpBad "${how}: no backup ${upBackup} with the original bytes"
 	[[ "$(fUpEntries)" == 2 ]] || fUpBad "${how}: $(fUpEntries) entries, not the file and its backup"
 	n="$(fErrors "${fresh}")"; ((n == 0)) || fUpBad "${how}: the fresh file loads with ${n} error(s)"
-	n="$(grep -c 'This config file format is SHCL\.' "${fresh}" || true)"
+	## At the line start only: a raw block 2.x read to the end of the file
+	## can hold an old info block as body, which upgrade closes and indents.
+	n="$(grep -c '^## This config file format is SHCL\.' "${fresh}" || true)"
 	[[ "${n}" == 1 ]] || fUpBad "${how}: the info block is there ${n} time(s)"
 	cp "${fresh}" "${tmpDir}/fresh.again"
 	for opt in --from-2x ""; do
@@ -789,6 +825,10 @@ fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 fTest dej4h 210 still has a quote in a piece that closes past a comma and a hash
 [[ "$(fMidQuote2x "${corpus}/210-migrate-mid-quote-comma/input.shcl" | paste -sd ' ')" == "1 2 3 4 5" ]] \
 	|| { echo "check-migrate: 210-migrate-mid-quote-comma no longer has a quote in a piece closing past a comma or a # on lines 1 to 5" >&2; nBad+=1; }
+fTest dewb9 215 still has blanks at a piece edge that the pinned build keeps
+## Lines 6 and 9 hold one inside a piece and none at all, and stay compared.
+[[ "$(fEdgeBlank2x "${corpus}/215-migrate-unicode-trim/input.shcl" | paste -sd ' ')" == "1 2 3 4 5 7 8 10 11" ]] \
+	|| { echo "check-migrate: 215-migrate-unicode-trim no longer has blanks at a piece's edge on lines 1 to 5, 7, 8, 10 and 11 only" >&2; nBad+=1; }
 fTest ddrgm 149 names format 3 and is passed over as current
 fNamesFormat3 "${corpus}/149-banner/input.shcl" \
 	|| { echo "check-migrate: 149-banner no longer names format 3 in a way migrate passes over" >&2; nBad+=1; }
@@ -864,3 +904,7 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		2026-10-28  A quote in the middle of a value piece that closes past a
 ##		            comma or a `#` reads as 2.0 read it, so such a line comes
 ##		            out of the comparison with the pinned build.
+##		2026-11-04  migrate trims every White_Space character at a value
+##		            piece's edges, as 2.0 did, so a line with one there the
+##		            pinned build keeps comes out of the comparison. An info
+##		            block is counted at the line start only.

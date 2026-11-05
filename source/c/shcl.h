@@ -2007,6 +2007,23 @@ size_t shcl_tokens_element_count(const shcl_tokens *t) {
 
 static void skip_wsp(ShclStr s, size_t *pos) { while (*pos < s.n && is_wsp((unsigned char)s.p[*pos])) (*pos)++; }
 
+static int white_space(uint32_t c);
+/* Byte length of the blank at s.p[i], or 0. 2.x trimmed every Unicode
+   White_Space character at a piece's edges, a no-break space and a vertical
+   tab included, so its rules count those as blanks too. */
+static size_t blank_len(ShclStr s, size_t i, ShclRules rules) {
+	unsigned char b = (unsigned char)s.p[i];
+	if (is_wsp(b)) return 1;
+	if (rules != SHCL_RULES_V2 || b < 0x0B || (b > 0x0C && b < 0x80)) return 0;
+	uint32_t c;
+	size_t n = utf8_decode(s.p, s.n, i, &c);
+	return (n > 1 || b < 0x80) && white_space(c) ? n : 0;
+}
+static void skip_blank(ShclStr s, size_t *pos, ShclRules rules) {
+	size_t n;
+	while (*pos < s.n && (n = blank_len(s, *pos, rules)) != 0) *pos += n;
+}
+
 /* Byte length of the UTF-8 character at s.p[i]. The scan only ever compares
    against ASCII structure characters, which UTF-8 guarantees cannot appear
    inside a multibyte sequence, so it advances by whole characters and every
@@ -2079,7 +2096,10 @@ static int loose_comma(ShclStr s, size_t at) {
    `]` that closes it ends a value element too, and every comma does;
    elsewhere only a loose one does, 2.x aside. */
 static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int comments, int array, ShclPiece *out) {
-	skip_wsp(s, &pos);
+	/* 2.x's wider trim is taken for a value piece only. The selector arm of
+	   migrate cuts a body by its own offsets. */
+	ShclRules edges = term == ',' ? rules : SHCL_RULES_CURRENT;
+	skip_blank(s, &pos, edges);
 	size_t start = pos;
 	ShclQuote quote = SHCL_QUOTE_NONE;
 	int every_comma = term != ',' || array || rules == SHCL_RULES_V2;
@@ -2092,7 +2112,7 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 			/* A value piece may also end at a comment or the line end; a
 			   selector body ends at its bracket and nowhere else. */
 			size_t i = close + 1;
-			skip_wsp(s, &i);
+			skip_blank(s, &i, edges);
 			int ended;
 			if (i < s.n) {
 				char c = s.p[i];
@@ -2112,8 +2132,12 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 			quote = SHCL_QUOTE_OPEN;
 			if (rules == SHCL_RULES_V2) {
 				/* 2.x: an open quote swallowed the rest of the line. */
-				size_t end = s.n;
-				while (end > start && is_wsp((unsigned char)s.p[end - 1])) end--;
+				size_t end = start;
+				for (size_t i = start; i < s.n;) {
+					size_t k = blank_len(s, i, edges);
+					if (k) i += k;
+					else { i += utf8_len(s, i); end = min_sz(i, s.n); }
+				}
 				out->start = start; out->end = end; out->quote = quote;
 				return s.n;
 			}
@@ -2137,8 +2161,9 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 		if (b == (unsigned char)term) {
 			if (every_comma || loose_comma(s, pos)) break;
 		} else if ((array && b == ']') || (comments && comment_at(s, pos))) break;
+		int blank = blank_len(s, pos, edges) != 0;
 		pos += utf8_len(s, pos);
-		if (!is_wsp(b)) content_end = min_sz(pos, s.n);
+		if (!blank) content_end = min_sz(pos, s.n);
 	}
 	/* 2.x judged a value piece quoted by its shape after the scan: a quote at
 	   both ends, the last one not escaped, however many closes sat between. A
@@ -3383,6 +3408,32 @@ static int v2_bracket_array(ShclArena *a, ShclStr body) {
    not a correct 3.0 line, whatever the file is. */
 typedef struct { int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; } ShclMigrating;
 
+/* 2.x trimmed a blank the current rules keep, such as a no-break space or a
+   vertical tab, at a piece's edges. A run of blanks on either side of the
+   piece from ea to eb that holds one becomes a space, or nothing at the end
+   of the line. */
+static void v2_edge_edits(ShclArena *a, ShclStr text, size_t ea, size_t eb, ShclVecEdit *edits) {
+	size_t i = ea, j = eb;
+	int kept = 0;
+	while (i > 0) {
+		uint32_t c;
+		size_t n = utf8_last(s_slice(text, 0, i), &c);
+		if (!white_space(c)) break;
+		if (!is_wsp(c)) kept = 1;
+		i -= n;
+	}
+	if (kept) edit_push(a, edits, i, ea, s_lit(ea == text.n ? "" : " "));
+	kept = 0;
+	while (j < text.n) {
+		uint32_t c;
+		size_t n = utf8_decode(text.p, text.n, j, &c);
+		if (!white_space(c)) break;
+		if (!is_wsp(c)) kept = 1;
+		j += n;
+	}
+	if (kept) edit_push(a, edits, eb, j, s_lit(j == text.n ? "" : " "));
+}
+
 /* The re-spellings a value's pieces need. Each piece is cut the 2.x way (a
    backslash shields the next character, an open quote is kept whole, a quote
    at both ends makes it quoted) and rewritten only where the current rules
@@ -3394,6 +3445,7 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		ShclStr raw = s_slice(text, p->start, p->end), why;
 		int quoted = piece_quoted(p->quote);
 		size_t ea = quoted ? p->start - 1 : p->start, eb = quoted ? p->end + 1 : p->end;
+		v2_edge_edits(a, text, ea, eb, edits);
 		/* A comma or a `#` in a bare piece sat inside a quote 2.0 paired. */
 		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && !memchr(raw.p, ',', raw.n) && !memchr(raw.p, '#', raw.n) && !has_mark(raw) && raw.n && !bare_trouble(a, raw, BARE_VALUE, &why)) continue;
 		ShclStr logical = v2_text(a, raw);

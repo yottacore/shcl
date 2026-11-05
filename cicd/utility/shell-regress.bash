@@ -2508,7 +2508,7 @@ fTest dd51q pin-drift-quoted-commands
 ##	a quoted argument arrived with its quotes as text and the PSScriptAnalyzer
 ##	pin reported drift on every run. The lifted loop, on a pin whose tool
 ##	answers with its version only when the quoting survives.
-driftLoop="$(sed -n '/^if declare -p TOOL_PINS &>\/dev\/null; then$/,/^fi$/p' "${repoDir}/cicd/cicd.bash")"
+driftLoop="$(sed -n '/^fToolPins()/,/^}$/p' "${repoDir}/cicd/cicd.bash")"
 # shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
 if [[ "${driftLoop}" != *'for pin in "${TOOL_PINS[@]}"'* ]]; then
 	fBad "cicd.bash's pin drift loop is not where this row lifts it from"
@@ -2526,6 +2526,7 @@ else
 		# shellcheck disable=SC2329  ## called from the lifted loop
 		fEcho(){ printf '%s\n' "$*" ;}
 		eval "${driftLoop}"
+		fToolPins
 	)"
 	[[ -z "${out}" ]] || fBad "cicd.bash's pin drift check misreads a pin whose command is quoted: ${out@Q}"
 fi

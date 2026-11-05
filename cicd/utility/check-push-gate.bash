@@ -521,6 +521,8 @@ if [[ -n "${STUB_HOSTED:-}" ]]; then
 	CROSS_TARGETS=("stub mac|stub-mac|${STUB_HOSTED}.mac|touch '${STUB_HOSTED}.mac'"); HOSTED_TARGET=stub-mac
 	RELEASE_CHECKS=(); RELEASE_ARTIFACT_DIR=""; REMOTE_BOXES=(); PACKAGE_ENABLE=0
 fi
+## A test box, which only --list reaches.
+if [[ -n "${STUB_BOXES:-}" ]]; then REMOTE_BOXES=("stubbox|u@stubbox|linux-x86_64"); fi
 ## The profiler, with a calibration that leaves a file behind when it runs.
 if [[ -n "${STUB_PROFILE:-}" ]]; then
 	PROFILE_ENABLE=1; PROFILE_BUILD_CMD=(true); PROFILE_BIN=cicd/cicd.bash; PROFILE_TIMED=()
@@ -598,6 +600,20 @@ fQuick --merge-gate
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a --merge-gate run left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
 fQuick -y --no-sync
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a run with no flags left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
+fTest dewd9 --quick leaves out the test boxes
+## 2026110215285702: a box is another host, as the GitHub job is. A run with
+## no flags lists it.
+for boxCase in "-y --no-sync --list|	stubbox" "-y --no-sync --quick --list|	(none)"; do
+	read -r -a boxArgs <<< "${boxCase%%|*}"
+	fEngine STUB_RELEASE="${work}/eng.rel" STUB_BOXES=1 -- "${boxArgs[@]}"
+	boxListed="$(grep -A1 -xF '6/9  Test boxes' "${work}/eng.log" | sed -n 2p || true)"
+	{ ((engRc == 0)) && [[ "${boxListed}" == "${boxCase#*|}" ]]; } || fail "cicd.bash ${boxCase%%|*} listed '${boxListed}' under the test boxes: exit ${engRc}: $(tail -3 "${work}/eng.log")"
+done
+fEngine STUB_RELEASE="${work}/eng.rel" STUB_BOXES=1 -- -y --no-sync --quick
+if ((engRc != 0)) || ! grep -qxF 'Off ............: Test boxes (--quick)' "${work}/eng.log" || grep -qF 'Starting Test boxes' "${work}/eng.log"; then
+	fail "a --quick run took the test boxes, or didn't say they were off: exit ${engRc}: $(tail -3 "${work}/eng.log")"
+fi
+rm -f "${work}/eng.rel"
 fTest de582 --leakcheck adds the leak checks a run with no flags already has
 ## 2026101707582803: JC, 2026-10-18, a run with no flags does everything.
 ## --gate and --quick leave the slow leak checks out, --leakcheck adds them
@@ -980,10 +996,10 @@ cfgAreas="$( source "${root}/cicd/config.bash"; for def in "${BACKLOG_AREAS[@]}"
 ## A volume create goes in STUB_DOCKER_VOLS. With STUB_DOCKER_ZIG it has Zig's
 ## cache volume, and a run that mounts it without bash prints that, as
 ## fCtrZigTrim's would: "KB<TAB>STAMP<TAB>VERSION". With STUB_DOCKER_NOBUILDX
-## it has no buildx. STUB_DOCKER_BUILDER is a file that's there while our
-## builder is, and with it unset the builder is always there. A buildx prune or
-## stop, or a builder prune, goes in STUB_DOCKER_PRUNE, and a buildx prune
-## frees STUB_DOCKER_PRUNED, such as 1.5GB.
+## it has no buildx. STUB_DOCKER_BUILDER is a file that's there while the old
+## shcl-cicd builder is, and with it unset the builder is always there. A buildx
+## prune, stop or rm, or a builder prune, goes in STUB_DOCKER_PRUNE, and a
+## buildx rm removes STUB_DOCKER_BUILDER.
 cat > "${work}/fake-docker" <<'EOF'
 #!/usr/bin/env bash
 if [[ -n "${STUB_DOCKER_LOG:-}" ]]; then echo "${1:-}" >> "${STUB_DOCKER_LOG}"; fi
@@ -1005,7 +1021,7 @@ case "${1:-}" in
 				elif [[ -n "${STUB_DOCKER_NOIMAGE:-}" ]]; then exit 1; fi ;;
 		esac
 		exit 0 ;;
-	build) exit 0 ;;
+	build) [[ -z "${STUB_DOCKER_BUILDFAIL:-}" ]]; exit ;;
 	volume)
 		case "${2:-}" in
 			create)  echo "$*" >> "${STUB_DOCKER_VOLS:-/dev/null}"; exit 0 ;;
@@ -1021,8 +1037,8 @@ case "${1:-}" in
 			inspect) [[ -z "${STUB_DOCKER_BUILDER:-}" || -e "${STUB_DOCKER_BUILDER}" ]]; exit ;;
 			create)  if [[ -n "${STUB_DOCKER_BUILDER:-}" ]]; then echo "$*" > "${STUB_DOCKER_BUILDER}"; fi; exit 0 ;;
 			build)   exit 0 ;;
-			prune)   echo "$*" >> "${STUB_DOCKER_PRUNE:-/dev/null}"; printf 'ID\tRECLAIMABLE\tSIZE\tLAST ACCESSED\nTotal:\t%s\n' "${STUB_DOCKER_PRUNED:-0B}"; exit 0 ;;
-			stop)    echo "$*" >> "${STUB_DOCKER_PRUNE:-/dev/null}"; exit 0 ;;
+			prune|stop) echo "$*" >> "${STUB_DOCKER_PRUNE:-/dev/null}"; exit 0 ;;
+			rm)      echo "$*" >> "${STUB_DOCKER_PRUNE:-/dev/null}"; if [[ -n "${STUB_DOCKER_BUILDER:-}" ]]; then rm -f "${STUB_DOCKER_BUILDER}"; fi; exit 0 ;;
 		esac
 		exit 1 ;;
 	system)
@@ -1227,6 +1243,19 @@ fTest de61q --container with a silent docker fails rather than run here
 fCtr STUB_DOCKER_DOWN=1 -- -y --no-sync --container
 if ((engRc != 1 || ran != 0)) || ! grep -qF "can't run: ${work}/fake-docker doesn't answer" "${work}/eng.log"; then
 	fail "--container with docker down: exit ${engRc}, ran ${ran}: $(tail -3 "${work}/eng.log")"
+fi
+fTest dewda an image that fails to build sends a run here, but stops a --container run
+## 2026110215285703: a run that picked the image itself goes on here with one
+## note, as with no docker. --container asked for the image, so it stops.
+fCtr STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDFAIL=1 -- --merge-gate
+## The tree with de61p's recipes in it.
+engRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${ctrTree}"; then engRecorded=1; fi
+if ((engRc != 0 || ran != 1 || noted != 1 || engRecorded != 1)) || [[ " ${docker} " == *" run "* ]] || ! grep -qxF "note: stages 1-6 run on this box, since the main image could not be built" "${work}/eng.log"; then
+	fail "a run whose image didn't build: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}, docker calls '${docker}': $(tail -3 "${work}/eng.log")"
+fi
+fCtr STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDFAIL=1 -- -y --no-sync --container
+if ((engRc != 1 || ran != 0 || noted != 0)) || ! grep -qF "could not build shcl-cicd" "${work}/eng.log"; then
+	fail "--container with an image that didn't build: exit ${engRc}, ran ${ran}, ${noted} note(s): $(tail -3 "${work}/eng.log")"
 fi
 fTest de633 a run removes its temp dir, failed or stopped too
 ## 2026101920461153: a gate or test that fails or is killed leaves its scratch
@@ -1544,39 +1573,44 @@ mapfile -t ctrNow < <(bash "${work}/ctr-image-on.bash" "${eng}" tags || true)
 printf '%s\n' shcl-cicd:000000000000 shcl-cicd-alpine:000000000000 shcl-cicd-gone:000000000000 shcl-cicd:111111111111 \
 	shcl-cicd-alpine:111111111111 shcl-cicd-gone:111111111111 "${ctrNow[@]}" shclwrap-c-tools:1 other-cicd:1 shcl-cicd-x:y:1 '<none>:<none>' > "${work}/images.txt"
 rm -f "${work}/gone.txt" "${work}/prune.txt"
-## Another run of ours is live, so the builder isn't stopped under it.
+## Another run of ours is live, so the old builder isn't removed under it.
 mkdir -p "${work}/ht635/shcl/20990101-000000_001"; echo "$$" > "${work}/ht635/shcl/20990101-000000_001/run.pid"
-fCtr HOST_TEMP="${work}/ht635" STUB_DOCKER_IMAGES="${work}/images.txt" STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_DANGLING=d0d0 STUB_DOCKER_STOPPED=c0c0 STUB_DOCKER_PRUNE="${work}/prune.txt" STUB_DOCKER_PRUNED=1.5GB -- --gate
+fCtr HOST_TEMP="${work}/ht635" STUB_DOCKER_IMAGES="${work}/images.txt" STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_DANGLING=d0d0 STUB_DOCKER_STOPPED=c0c0 STUB_DOCKER_PRUNE="${work}/prune.txt" -- --gate
 sweptGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
 sweptWant="rm c0c0 rmi d0d0 rmi shcl-cicd-alpine:000000000000 rmi shcl-cicd-gone:000000000000 rmi shcl-cicd-gone:111111111111 rmi shcl-cicd:000000000000"
 if ((engRc != 0)) || [[ "${sweptGot}" != "${sweptWant}" ]]; then
 	fail "the sweep after a run in the image: exit ${engRc}, removed '${sweptGot}', want '${sweptWant}': $(tail -3 "${work}/eng.log")"
 fi
 grep -qF "shcl-cicd:000000000000" <(grep -F 'cleanup: removed' "${work}/eng.log") || fail "the cleanup line doesn't name the image it removed"
-## After the sweep, a week of build cache stays, and the line has docker's
-## sizes from before and after. 2026110215285719: only our builder's cache.
+## After the sweep the build cache is left alone, and the line has docker's
+## sizes from before and after.
 pruneGot="$(paste -sd'|' "${work}/prune.txt" 2>/dev/null || true)"
-[[ "${pruneGot}" == "buildx prune --builder shcl-cicd -f --filter until=168h" ]] || fail "the build cache prune after the sweep, with another run live: '${pruneGot}'"
+[[ -z "${pruneGot}" ]] || fail "the tidy after the sweep, with another run live, touched the build cache or the old builder: '${pruneGot}'"
 grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "; docker images 2GB -> 1GB, containers 0B -> 0B, volumes 119MB -> 119MB, build cache 5GB -> 5GB" \
 	|| fail "the cleanup line doesn't compare docker system df before and after: $(grep -F 'cleanup:' "${work}/eng.log" || true)"
-grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "the shcl-cicd builder's cache unused for a week" || fail "the cleanup line doesn't name the builder's cache it pruned"
-fTest desm6 the images build on our own builder, and a run never prunes the build cache docker shares
-## 2026110215285719: docker's default builder keeps every project's cache, and
-## no prune filter tells ours apart. With no builder of ours, a run makes one
-## and builds on it. With no buildx, it builds on the default one and prunes
-## nothing.
-rm -f "${work}/args.txt" "${work}/prune.txt" "${work}/builder"
-fCtr STUB_DOCKER_ARGS="${work}/args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDER="${work}/builder" STUB_DOCKER_PRUNE="${work}/prune.txt" -- --gate
-bxBuilds="$(grep -c '^buildx build --builder shcl-cicd --load ' "${work}/args.txt" || true)"
+fTest desm6 the images build on the default docker builder, a run never prunes the build cache, and the old builder goes once
+## 2026110311291920: docker trims its build cache itself. A run builds on the
+## default builder, makes no builder, and removes the old shcl-cicd one, with
+## its cache, the first time it finds it. Its own HOST_TEMP, since dephe
+## leaves a live run folder, and a live run keeps the builder.
+rm -f "${work}/args.txt" "${work}/prune.txt"
+echo old > "${work}/builder"
+fCtr HOST_TEMP="${work}/htsm6" STUB_DOCKER_ARGS="${work}/args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDER="${work}/builder" STUB_DOCKER_PRUNE="${work}/prune.txt" -- --gate
+plainBuilds="$(grep -c '^build ' "${work}/args.txt" || true)"; bxBuilds="$(grep -c '^buildx ' "${work}/args.txt" || true)"
 pruneGot="$(paste -sd'|' "${work}/prune.txt" 2>/dev/null || true)"
-if ((engRc != 0 || bxBuilds < 1)) || [[ "$(cat "${work}/builder" 2>/dev/null)" != "buildx create --name shcl-cicd --driver docker-container" || "${pruneGot}" != *"buildx prune --builder shcl-cicd "* ]]; then
-	fail "a run with no builder of ours: exit ${engRc}, ${bxBuilds} build(s) on it, made '$(cat "${work}/builder" 2>/dev/null || true)', pruned '${pruneGot}': $(tail -3 "${work}/eng.log")"
+if ((engRc != 0 || plainBuilds < 1 || bxBuilds)) || [[ -e "${work}/builder" || "${pruneGot}" != "buildx rm shcl-cicd" ]] || ! grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "the old shcl-cicd builder and its cache"; then
+	fail "a run with the old builder there: exit ${engRc}, ${plainBuilds} build(s) on the default builder, ${bxBuilds} on buildx, builder $([[ -e "${work}/builder" ]] && echo kept || echo gone), docker asked '${pruneGot}': $(tail -3 "${work}/eng.log")"
+fi
+rm -f "${work}/args.txt" "${work}/prune.txt"
+fCtr HOST_TEMP="${work}/htsm6" STUB_DOCKER_ARGS="${work}/args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDER="${work}/builder" STUB_DOCKER_PRUNE="${work}/prune.txt" -- --gate
+if ((engRc != 0)) || [[ -e "${work}/builder" || -s "${work}/prune.txt" ]]; then
+	fail "a run with no old builder: exit ${engRc}, builder $([[ -e "${work}/builder" ]] && echo made || echo none), docker asked '$(paste -sd'|' "${work}/prune.txt" 2>/dev/null || true)': $(tail -3 "${work}/eng.log")"
 fi
 rm -f "${work}/args.txt" "${work}/prune.txt"
 fCtr STUB_DOCKER_ARGS="${work}/args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_NOBUILDX=1 STUB_DOCKER_PRUNE="${work}/prune.txt" -- --gate
-bxBuilds="$(grep -c '^build ' "${work}/args.txt" || true)"
-if ((engRc != 0 || bxBuilds < 1)) || [[ -s "${work}/prune.txt" ]] || ! grep -qF "no buildx builder shcl-cicd here" "${work}/eng.log"; then
-	fail "a run with no buildx: exit ${engRc}, ${bxBuilds} build(s) on the default builder, pruned '$(paste -sd'|' "${work}/prune.txt" 2>/dev/null || true)': $(tail -3 "${work}/eng.log")"
+plainBuilds="$(grep -c '^build ' "${work}/args.txt" || true)"
+if ((engRc != 0 || plainBuilds < 1)) || [[ -s "${work}/prune.txt" ]]; then
+	fail "a run with no buildx: exit ${engRc}, ${plainBuilds} build(s) on the default builder, docker asked '$(paste -sd'|' "${work}/prune.txt" 2>/dev/null || true)': $(tail -3 "${work}/eng.log")"
 fi
 fTest de636 a gate that builds the image removes the tags it replaces
 ## 2026101920461153: the leak checks build the image when it's missing, and
@@ -1615,7 +1649,7 @@ lblRun="$(grep -oE 'dev\.run=[^ ]*' "${work}/args.txt" 2>/dev/null | sed -n '1s/
 lblBad="$(grep -vF -- "--label dev.project=shcl --label dev.run=${lblRun} " "${work}/args.txt" || true)"
 mapfile -t lblNames < <(grep -oE -- '--name [^ ]+' "${work}/args.txt" | cut -d' ' -f2 | LC_ALL=C sort)
 lblWant="$(printf "shcl-${lblRun}-%s\n" build build-group build-passwd fmt fmt-group fmt-passwd zig-trim | LC_ALL=C sort | paste -sd' ')"
-lblBuilds="$(grep -cE '^(buildx )?build ' "${work}/args.txt" || true)"; lblVols="$(grep -c '^volume create ' "${work}/args.txt" || true)"
+lblBuilds="$(grep -c '^build ' "${work}/args.txt" || true)"; lblVols="$(grep -c '^volume create ' "${work}/args.txt" || true)"
 if ((engRc != 0 || lblBuilds < 1 || lblVols < 1)) || [[ ! "${lblRun}" =~ ^[0-9]{8}-[0-9]{6}_[0-9]{3}$ || -n "${lblBad}" ]]; then
 	fail "the labels on what a run makes: exit ${engRc}, run '${lblRun}', ${lblBuilds} build(s), ${lblVols} volume(s), without both labels: ${lblBad:-none}: $(tail -2 "${work}/eng.log")"
 fi
@@ -1675,14 +1709,14 @@ fTest desm7 a run that fails tidies docker as a whole run does, and ends on a bl
 ## 2026110215285704: the sweep, Zig's volume and the prune ran only at the end
 ## of a whole run.
 rm -f "${work}/gone.txt" "${work}/prune.txt"
-## No other run live, so the builder is stopped after the prune.
+## No other run live, so the old builder goes.
 fCtr HOST_TEMP="${work}/htsm7" STUB_DOCKER_RUNFAIL=1 STUB_DOCKER_IMAGES="${work}/images.txt" STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_DANGLING=d0d0 STUB_DOCKER_STOPPED=c0c0 \
 	STUB_DOCKER_ZIG='2097153\t0.16.0\t0.16.0' STUB_DOCKER_PRUNE="${work}/prune.txt" -- --gate
 sweptGot="$(sort "${work}/gone.txt" 2>/dev/null | paste -sd ' ' || true)"
 sweptWant="rm c0c0 rmi d0d0 rmi shcl-cicd-alpine:000000000000 rmi shcl-cicd-gone:000000000000 rmi shcl-cicd-gone:111111111111 rmi shcl-cicd:000000000000 volume rm shcl-zig-cache"
 pruneGot="$(paste -sd'|' "${work}/prune.txt" 2>/dev/null || true)"
-if ((engRc != 1)) || [[ "${sweptGot}" != "${sweptWant}" || "${pruneGot}" != "buildx prune --builder shcl-cicd -f --filter until=168h|buildx stop shcl-cicd" ]]; then
-	fail "a failed run's tidy: exit ${engRc}, removed '${sweptGot}', want '${sweptWant}', pruned '${pruneGot}': $(tail -3 "${work}/eng.log")"
+if ((engRc != 1)) || [[ "${sweptGot}" != "${sweptWant}" || "${pruneGot}" != "buildx rm shcl-cicd" ]]; then
+	fail "a failed run's tidy: exit ${engRc}, removed '${sweptGot}', want '${sweptWant}', docker asked '${pruneGot}': $(tail -3 "${work}/eng.log")"
 fi
 grep -F 'cleanup: removed' "${work}/eng.log" | grep -qF "shcl-cicd:000000000000" || fail "a failed run's cleanup line doesn't name the image it removed: $(grep -F 'cleanup:' "${work}/eng.log" || true)"
 [[ -n "$(tail -n 2 "${work}/eng.log" | head -n 1)" && -z "$(tail -n 1 "${work}/eng.log")" ]] || fail "a failed run's log doesn't end on its cleanup line and a blank one: $(tail -n 2 "${work}/eng.log" | cat -A)"
@@ -1717,13 +1751,13 @@ fTest de8j8 a stopped run in the image kills a container whose client will not s
 ## container up, so the run kills it by the ID docker wrote down.
 rm -f "${work}/gone.txt"
 rm -f "${work}/prune.txt"
-fStopRun "${work}/dhang.pid" SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_HANG="${work}/dhang.pid" STUB_DOCKER_STUBBORN=1 STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_RUNNING=r2r2 STUB_DOCKER_PRUNE="${work}/prune.txt" \
+fStopRun "${work}/dhang.pid" HOST_TEMP="${work}/htj8" SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_HANG="${work}/dhang.pid" STUB_DOCKER_STUBBORN=1 STUB_DOCKER_GONE="${work}/gone.txt" STUB_DOCKER_RUNNING=r2r2 STUB_DOCKER_PRUNE="${work}/prune.txt" \
 	SHCL_STOP_WAIT=2 SHCL_CTR_CACHE="${work}/ctrcache" PATH="${work}/x86_64:${PATH}" -- --gate
 stopKilled="$(grep -c '^kill c1d0c1d0c1d0$' "${work}/gone.txt" 2>/dev/null || true)"
 ## 2026102416250030: and then what's left of this run, by its label.
 grep -qx 'stop r2r2' "${work}/gone.txt" 2>/dev/null || fail "a stopped run in the image didn't stop its containers by its run label: $(paste -sd' ' "${work}/gone.txt" 2>/dev/null || true)"
 ## 2026110215285704: and tidies docker as a whole run does.
-grep -qF 'buildx prune --builder shcl-cicd ' "${work}/prune.txt" 2>/dev/null || fail "a stopped run in the image didn't prune its builder's cache: '$(paste -sd'|' "${work}/prune.txt" 2>/dev/null || true)'"
+grep -qxF 'buildx rm shcl-cicd' "${work}/prune.txt" 2>/dev/null || fail "a stopped run in the image didn't remove the old builder: '$(paste -sd'|' "${work}/prune.txt" 2>/dev/null || true)'"
 if ((stopRc != 143 || stopLeft || stopKilled != 1)) || [[ -z "${stopPid}" ]] || ! grep -qF "by KILL after 2 s" "${work}/stop.log"; then
 	fail "a stopped run in the image: exit ${stopRc}, the client $( ((stopLeft)) && echo 'outlived it' || echo "'${stopPid}' went"), ${stopKilled:-0} kill(s) of its container: $(tail -3 "${work}/stop.log")"
 fi
@@ -1768,3 +1802,5 @@ exit "${rc}"
 ##		- 2026-10-31 JC: --backlog-run-quick runs its steps side by side.
 ##		- 2026-10-31 JC: -q reaches each tool's quiet flag.
 ##		- 2026-11-02: Our own buildx builder and its prune, and a failed or stopped run tidies docker too.
+##		- 2026-11-04: Builds on docker's default builder, no build cache prune, and the old builder removed once.
+##		- 2026-11-04: --quick and the test boxes, and an image that won't build.

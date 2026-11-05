@@ -390,6 +390,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `migrate` writes a 2.x list with one element left, such as `k: s,`, as the plain value `k: s`, as 2.x read it. It wrote `k: [s]`, which split it from a `k: s` beside it and reads as the string `[s]`.
 
+- `migrate` and `upgrade` drop a no-break space, a vertical tab or any other whitespace at the edge of a 2.x value or element, as 2.0 did. They kept it, so `host: example.com` with a no-break space after it read differently, and `80,` then a no-break space and `443` became the text of the second element.
+
 - `get`, `count`, `instances`, `fmt` and `set` print the load's diagnostics to stderr, once, before any edit runs.
 
 - Diagnostics under `--layer` name their file, and every layer's are printed.
@@ -529,6 +531,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `install-dev.bash` puts a fresh clone on `dev`.
 
 - With wget, a download redirected to plain http is refused. `install-dev.bash` runs the rustup installer from a file.
+
+- `install-dev.bash` checks every tool the merge gate needs against its pin, and names each one that is missing or at another version, with how to get it.
 
 - `install.ps1` piped into `iex` inside another script no longer ends that script on a failure.
 

@@ -34,12 +34,12 @@
 ##	                       format check, build, lint, tests and cross checks,
 ##	                       strict, less --quick's cuts, in about 4 minutes,
 ##	                       recording nothing. AREAs keep only their tests
-##	   --quick             the fast loop: leaves out the slow steps, and the ones
-##	                       that need another host, that config.bash lists in
-##	                       QUICK_SKIP, plus the large-document gate, the slow
-##	                       leak checks, packages, profiler and demo gif. Tests
-##	                       run at the shorter fuzz depth when the config has
-##	                       TEST_QUICK_CMD
+##	   --quick             the fast loop: leaves out the slow and online steps
+##	                       config.bash lists in QUICK_SKIP, the test boxes and
+##	                       the GitHub job, plus the large-document gate, the
+##	                       slow leak checks, packages, profiler and demo gif.
+##	                       Tests run at the shorter fuzz depth when the config
+##	                       has TEST_QUICK_CMD
 ##	   --long, --slow      also the leak checks that take hours, and the suites a
 ##	                       REMOTE_BOXES row names with suites-long. Not with
 ##	                       --quick
@@ -92,10 +92,10 @@
 ##	  fails or is stopped. A whole run also sweeps the pipeline's stale leftovers.
 ##	- When docker (or SHCL_DOCKER) answers on x86_64, stages 1-6 run in the main
 ##	  image as if --container were given, the pre-push hook's gate included.
-##	  Otherwise they run here, with a one-line note saying why. Sync, dogfood,
-##	  gif and publish stay on this box. An extra image runs what CTR_ARGS_NAME in
-##	  config.bash picks, and nothing runs here after it. The repo is mounted at
-##	  its own path, so a run records its tree like any other.
+##	  Otherwise, or when the image won't build, they run here, with a note
+##	  saying why. Sync, dogfood, gif and publish stay on this box. An extra
+##	  image runs what CTR_ARGS_NAME in config.bash picks, and nothing runs here
+##	  after it. The repo is mounted at its own path, so its tree is recorded.
 ##	- Stages 2-6 run from a copy of the tree taken after formatting, uncommitted
 ##	  work included, so a merge, checkout or edit during a run can't reach them.
 ##	  FROZEN_LINKS in config.bash share build dirs. --no-freeze runs in place.
@@ -388,7 +388,8 @@ if ((quick)); then
 	PACKAGE_ENABLE=0   ## installers, not checks
 	PROFILE_ENABLE=0
 	GIF_ENABLE=0
-	fOff profile "${quick_flag}"; fOff gif "${quick_flag}"
+	REMOTE_BOXES=()    ## another host, as the GitHub job is (2026110215285702)
+	fOff profile "${quick_flag}"; fOff gif "${quick_flag}"; fOff boxes "${quick_flag}"
 	((${#TEST_QUICK_CMD[@]})) && TEST_CMD=("${TEST_QUICK_CMD[@]}")
 	for list in LINT_EXTRA TEST_EXTRA CROSS_CHECKS CROSS_TARGETS RELEASE_CHECKS; do fQuickDrop "${list}"; done
 	if fQuickSkips crosscheck.bash; then xcheck_enable=0; fi
@@ -776,9 +777,10 @@ fFrozenGone(){
 	fSafeRm "${d}" || echo "cleanup: could not remove all of ${d}" >&2
 }
 ## At the end of a run in the image, whole or not: our stale images and
-## containers, Zig's volume past its rule, and our builder's cache unused for a
-## week. Adds to GONE and KB, and sets DF to docker's sizes before and after.
-## --keep-temp keeps this run's containers, which the sweep would take.
+## containers, Zig's volume past its rule, and the builder older runs made.
+## Docker's build cache is docker's to trim. Adds to GONE and KB, and sets DF
+## to docker's sizes before and after. --keep-temp keeps this run's
+## containers, which the sweep would take.
 fCtrTidy(){  ## fCtrTidy GONE KB DF
 	local -n gone_t8q="$1" kb_t8q="$2" df_t8q="$3"
 	local bytes what before after keep=""
@@ -790,7 +792,7 @@ fCtrTidy(){  ## fCtrTidy GONE KB DF
 	while IFS=$'\t' read -r bytes what; do
 		gone_t8q+=("${what}")
 		if [[ "${bytes}" =~ ^[0-9]{1,15}$ ]]; then kb_t8q=$((kb_t8q + bytes / 1024)); fi
-	done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true; fCtrPrune "${keep}" || true)
+	done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true; fCtrOldBuilderGone "${keep}" || true)
 	after="$(fCtrDf)"
 	df_t8q="$(paste <(printf '%s\n' "${before}") <(printf '%s\n' "${after}") \
 		| awk -F'\t' '$1 != "" && $1 == $3 { t = tolower($1); sub(/^local /, "", t); printf "%s%s %s -> %s", (n++ ? ", " : "; docker "), t, $2, $4 }')"
@@ -951,32 +953,41 @@ fInstallAtomic(){
 	fi
 }
 
-## Stages 1-6 in the --container image, built first if it's not here. The repo
-## and its git dir are mounted at their own paths, so the tree it records and a
-## worktree's .git file still mean something. TREE is the checkout or the frozen
-## copy, and PART is SHCL_RUN_PART for the run in there.
+## The image stages 1-6 run in, built first if it's not here, as ctr_tag. It's
+## built from a copy of its recipe dir plus the files the config adds, and
+## tagged by their hash, so an edit can't run on an old one. A build that fails
+## stops a --container run. A run that chose the image itself goes on here,
+## as it does with no docker (2026110215285703), so this returns 1.
+fCtrImage(){
+	local engine="${SHCL_DOCKER:-docker}" ctx tag
+	ctx="$(mktemp -d)"
+	fCtrContext "${ctr_recipe}" "${ctx}" || fDie "could not copy the ${ctr_image} image's build context"
+	tag="$(fCtrTag "${ctx}" "${ctr_image}")"
+	if ! "${engine}" image inspect "${tag}" >/dev/null 2>&1; then
+		fSection "Container: ${ctr_image}"
+		## Quiet, since a first build is minutes of download lines. A failure
+		## still prints the step that failed.
+		fEcho_Clean "building ${tag}, which takes several minutes the first time"
+		if ! fCtrBuild "${tag}" "${ctx}"; then
+			((ctr_auto)) || fDie "could not build ${tag}"
+			return 1
+		fi
+	fi
+	ctr_tag="${tag}"
+}
+
+## Stages 1-6 in the --container image. The repo and its git dir are mounted at
+## their own paths, so the tree it records and a worktree's .git file still
+## mean something. TREE is the checkout or the frozen copy, and PART is
+## SHCL_RUN_PART for the run in there.
 fRunContainer(){   ## fRunContainer TREE [PART]
 	local tree="$1" part="${2:-}"
-	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" link="" real="" step="${2:-stages}"
+	local engine="${SHCL_DOCKER:-docker}" tag="${ctr_tag}" link="" real="" step="${2:-stages}"
 	local -a mounts=() groups=() env=() inner=() labels=() zone=()
 	fSection "Container: ${ctr_image}"
 	fCtrLabelArgs labels
 	fCtrZoneArgs zone
-
-	## The image is built from a copy of its recipe dir plus the files the
-	## config adds, and tagged by their hash, so an edit can't run on an old one.
-	ctx="$(mktemp -d)"
-	fCtrContext "${ctr_recipe}" "${ctx}" || fDie "could not copy the ${ctr_image} image's build context"
-	tag="$(fCtrTag "${ctx}" "${ctr_image}")"
-	if "${engine}" image inspect "${tag}" >/dev/null 2>&1; then
-		fEcho_Clean "image ${tag}"
-	else
-		## Quiet, since a first build is minutes of download lines. A failure
-		## still prints the step that failed.
-		fEcho_Clean "building ${tag}, which takes several minutes the first time"
-		fCtrBuild "${tag}" "${ctx}" || fDie "could not build ${tag}"
-	fi
-	ctr_tag="${tag}"
+	fEcho_Clean "image ${tag}"
 
 	local cache="${CTR_CACHE:-${HOME}/.cache/${APP_NAME}-cicd}/${ctr_image}"
 	mkdir -p "${cache}" || fDie "could not make the cache dir ${cache}"
@@ -1094,7 +1105,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 
 ## --container: stages 1-6 go to the image. An extra image builds nothing this
 ## box should install or publish, so nothing runs here after it.
-ctr_recipe=""; ctr_note=""; ctr_tag=""
+ctr_recipe=""; ctr_note=""; ctr_tag=""; ctr_auto=0
 fCtrRecipe(){
 	ctr_recipe="${CTR_DIR:-cicd/container}/${ctr_image}.Dockerfile"
 	[[ "${ctr_image}" == main ]] && ctr_recipe="${CTR_DIR:-cicd/container}/Dockerfile"
@@ -1113,7 +1124,7 @@ if ((! no_container && ! in_container)); then
 	if [[ -n "${ctr_image}" && -n "${ctr_why}" ]]; then fDie "--container can't run: ${ctr_why}"; fi
 	if [[ -z "${ctr_image}" ]]; then
 		if [[ -n "${ctr_why}" ]]; then ctr_note="stages 1-6 run on this box, since ${ctr_why}"
-		else ctr_image=main; fCtrRecipe; fi
+		else ctr_image=main; ctr_auto=1; fCtrRecipe; fi
 	fi
 fi
 if [[ -n "${ctr_image}" && "${ctr_image}" != main ]]; then
@@ -1236,9 +1247,11 @@ fi
 
 ## Warn (non-gating) when a pinned helper tool has drifted from TOOL_PINS, so a
 ## box update can't silently change results. Format: "name|version|command...".
-## Under --container this box's tools don't run, and the run inside checks its own.
-if [[ -n "${ctr_image}" ]]; then TOOL_PINS=(); fi
-if declare -p TOOL_PINS &>/dev/null; then
+## Under --container this box's tools don't run, and the run inside checks its
+## own. A run whose image didn't build checks them then.
+fToolPins(){
+	local pin pin_name rest pin_ver pin_cmd have
+	declare -p TOOL_PINS &>/dev/null || return 0
 	for pin in "${TOOL_PINS[@]}"; do
 		pin_name="${pin%%|*}"; rest="${pin#*|}"; pin_ver="${rest%%|*}"; pin_cmd="${rest#*|}"
 		## Scan the first few lines, not just one: some tools (shellcheck) lead
@@ -1253,7 +1266,8 @@ if declare -p TOOL_PINS &>/dev/null; then
 			fEcho "WARNING: ${pin_name} drifted from pin ${pin_ver}: ${have}"
 		fi
 	done
-fi
+}
+if [[ -z "${ctr_image}" ]]; then fToolPins; fi
 
 ## Stage 0: take the remote's work before anything is built, so the pipeline
 ## validates the tree that will be pushed. The publish stage pulls too, but that
@@ -1447,6 +1461,11 @@ export SHCL_BUILD_DATED
 ## Stages 1-6 run here, or in the container, which hands back its release
 ## builds for dogfood and the gif. With a frozen copy, stage 1 runs on the
 ## checkout first, and 2-6 in the copy, here or in the container.
+if [[ -n "${ctr_image}" ]] && ! fCtrImage; then
+	fEcho_Clean "note: stages 1-6 run on this box, since the ${ctr_image} image could not be built"
+	ctr_image=""
+	fToolPins
+fi
 if [[ -n "${ctr_note}" ]]; then fEcho_Clean "note: ${ctr_note}"; fi
 if ((freeze)); then
 	if ((${#FMT_CMD[@]})); then
@@ -2023,3 +2042,5 @@ exit 0
 ##		- 2026-11-01: A cargo target dir filled under another toolchain or lockfile is emptied before the build, an extra image's copy too, and the cleanup line counts it.
 ##		- 2026-11-02 JC: Only --long starts HOSTED_JOB.
 ##		- 2026-11-02: A run that fails or is stopped tidies docker as a whole run does. Only our own builder's cache is pruned.
+##		- 2026-11-04: The images build on docker's default builder again, and a run prunes no build cache.
+##		- 2026-11-04: --quick leaves out the test boxes. A run that picked the main image itself goes on here when it won't build.
