@@ -323,11 +323,27 @@ installed.
 		$ErrorActionPreference = 'Continue'
 		## The global is the one a native command sets; a local would shadow it.
 		$global:LASTEXITCODE = -1
+		## shcl writes UTF-8, and PowerShell decodes a native command's output
+		## with the console's code page, so under the usual 437 the copyright
+		## line in the receipt came back garbled. Put back after, since under
+		## iex this is the caller's own console. A host with no console can
+		## refuse the set, and then the output stays as it was.
+		$oldEncoding = $null
+		try {
+			$oldEncoding = [Console]::OutputEncoding
+			[Console]::OutputEncoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+		} catch {
+			$oldEncoding = $null
+		}
 		try {
 			$out = & $Exe --version 2>&1
 			return @{ Code = $global:LASTEXITCODE; Out = $out }
 		} catch {
 			return @{ Code = -1; Out = $_.Exception.Message }
+		} finally {
+			if ($oldEncoding) {
+				try { [Console]::OutputEncoding = $oldEncoding } catch { $null = $_ }
+			}
 		}
 	}
 
