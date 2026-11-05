@@ -776,9 +776,10 @@ fFrozenGone(){
 	fSafeRm "${d}" || echo "cleanup: could not remove all of ${d}" >&2
 }
 ## At the end of a run in the image, whole or not: our stale images and
-## containers, Zig's volume past its rule, and our builder's cache unused for a
-## week. Adds to GONE and KB, and sets DF to docker's sizes before and after.
-## --keep-temp keeps this run's containers, which the sweep would take.
+## containers, Zig's volume past its rule, and the builder older runs made.
+## Docker's build cache is docker's to trim. Adds to GONE and KB, and sets DF
+## to docker's sizes before and after. --keep-temp keeps this run's
+## containers, which the sweep would take.
 fCtrTidy(){  ## fCtrTidy GONE KB DF
 	local -n gone_t8q="$1" kb_t8q="$2" df_t8q="$3"
 	local bytes what before after keep=""
@@ -790,7 +791,7 @@ fCtrTidy(){  ## fCtrTidy GONE KB DF
 	while IFS=$'\t' read -r bytes what; do
 		gone_t8q+=("${what}")
 		if [[ "${bytes}" =~ ^[0-9]{1,15}$ ]]; then kb_t8q=$((kb_t8q + bytes / 1024)); fi
-	done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true; fCtrPrune "${keep}" || true)
+	done < <(fCtrSweep "${run_tmp}/sweep" || true; fCtrZigTrim "${ctr_tag}" || true; fCtrOldBuilderGone "${keep}" || true)
 	after="$(fCtrDf)"
 	df_t8q="$(paste <(printf '%s\n' "${before}") <(printf '%s\n' "${after}") \
 		| awk -F'\t' '$1 != "" && $1 == $3 { t = tolower($1); sub(/^local /, "", t); printf "%s%s %s -> %s", (n++ ? ", " : "; docker "), t, $2, $4 }')"
@@ -2023,3 +2024,4 @@ exit 0
 ##		- 2026-11-01: A cargo target dir filled under another toolchain or lockfile is emptied before the build, an extra image's copy too, and the cleanup line counts it.
 ##		- 2026-11-02 JC: Only --long starts HOSTED_JOB.
 ##		- 2026-11-02: A run that fails or is stopped tidies docker as a whole run does. Only our own builder's cache is pruned.
+##		- 2026-11-04: The images build on docker's default builder again, and a run prunes no build cache.

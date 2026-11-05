@@ -51,7 +51,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Go back to docker's default builder for the images
 	- ID: 2026110311291920
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261103-112919
 	- Opened by: JC
@@ -61,9 +61,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The pipeline never prunes docker's build cache. Docker trims the cache itself on b23, through `builder.gc` in `/etc/docker/daemon.json`. Cache unused for a week goes first, then the rest is cut to 120 GB, or further when the disk is under 10% free, but never below 20 GB.
 		- contributing.md says a run leaves docker's build cache alone.
 		- Do it once b23's `/etc/docker/daemon.json` has the `builder.gc` block. `grep -q '"gc"' /etc/docker/daemon.json` checks. Until then the own builder stays.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261104: `fCtrBuild` builds on docker's default builder with a plain `docker build`, and makes no builder. `CTR_BUILDER`, `fCtrBuilder` and `fCtrPrune` are gone. At the end of a run in the image, `fCtrOldBuilderGone` removes the old `shcl-cicd` buildx builder with its cache, once, when it finds it and no other run of ours is live. Nothing prunes docker's build cache. contributing.md says so.
+		- Verified: check-push-gate passes, with `desm6` (a build on the default builder, no buildx call, the old builder removed and named on the cleanup line, then nothing on the next run, and nothing with no buildx), `de635` (no prune or removal under a live run), `desm7` and `de8j8` (a failed or stopped run removes the old builder). shellcheck passes over the 4 scripts.
+		- Verified: against real docker, a stopped `shcl-cicd` builder stayed under `keep`, went on the next call, and a third call found nothing.
 	- Decisions:
 		- The own builder was there so a run pruned only its own cache. With docker's GC doing the trimming, nothing needs pruning, and the builder only costs time and disk: a cold build of the 2 GB test image took 299 s against 266 s, and its cache kept a second 3 GB copy of the layers. (JC, me)
-	- Estimated effort: Low
+		- 20261104: the old builder goes with `buildx rm`, which takes its cache volume too. It holds a second copy of the layers, and the default builder's cache is the one kept (me).
+		- 20261104: no removal while another run of ours is live, since a run on the scripts from before may be building on it. The next run removes it (me).
+		- 20261104: the cleanup line names the builder but adds no size, since `buildx rm` reports none. docker's volume sizes before and after show it (me).
+	- Swept: every `buildx`, `builder prune`, `CTR_BUILDER` and `fCtrPrune` under `cicd/`, the hook, `.github/` and the docs. fCtrBuild is the one build, used by cicd.bash and fCtrRunSelf. shell-regress copies none of them.
+	- Branch: `r1105`
+	- Test case: check-push-gate `desm6`, plus `de635`, `desm7` and `de8j8`.
+		- 20261104: `de635`'s prune assert went from `buildx prune --builder shcl-cicd -f --filter until=168h` to nothing asked of docker. `desm7`'s went from that prune and `buildx stop shcl-cicd` to `buildx rm shcl-cicd`, and `de8j8`'s from the prune to `buildx rm shcl-cicd`. `ded0y` counts plain builds only.
+	- Acceptance signoff: Self-closed: each requirement has a check that passed, and b23's daemon.json has the `builder.gc` block.
+	- Closed: 20261104-163500
 
 - `--quick` runs every test box
 	- ID: 2026110215285702
