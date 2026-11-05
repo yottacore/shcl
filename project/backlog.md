@@ -81,7 +81,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `--quick` runs every test box
 	- ID: 2026110215285702
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 2
@@ -94,11 +94,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed.
 	- Estimated effort: Low
 	- Update: No - `--quick` should not run tests on external hosts.
+	- Actual cause: `--quick`'s cuts emptied the slow lists but left `REMOTE_BOXES` alone, and only `--no-remote` and the run modes turned the box step off.
+	- Actual fix: `--quick` empties `REMOTE_BOXES` and names the box step off with the flag, so the run, `--list` and the first section agree. The help, contributing.md and design.md say so.
+	- Progress log:
+		- 20261104: Verified: `cicd/cicd.bash --list --quick` shows `(none)` under the test boxes, and `--list` still lists all 6.
+		- 20261104: Verified: check-push-gate `dewd9` passes, and fails against the engine from before, which lists the box under `--quick` and runs the step.
+	- Swept: every reader of `REMOTE_BOXES` and `no_remote` in cicd.bash (`fStepWanted`, `--list`, the box step, the GitHub job's off reason). The GitHub job was already off under `--quick`. `--backlog-run-quick` already turned the boxes off as a run mode.
+	- Branch: `r1105`
+	- Test case: check-push-gate `dewd9` (`--list --quick` lists no box, a `--quick` run says the box step is off and doesn't take it, and `--list` alone lists the box).
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the expected behavior is the item's own.
+	- Closed: 20261104-184500
 
 - A failed image build stops the run instead of falling back to the host
 	- ID: 2026110215285703
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 3
@@ -110,6 +120,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: JC's 20261019 call in 2026101920461174 covers a docker that answers. A failed build wasn't part of it.
 	- Origin: Confirmed, by reading.
 	- Estimated effort: Low
+	- Actual cause: the image was built inside `fRunContainer`, after the run had committed to the image, so a failed build could only stop the run.
+	- Actual fix: `fCtrImage` builds the image once, after the sync and before stage 1. When a run picked the image itself and the build fails, it prints `note: stages 1-6 run on this box, since the main image could not be built`, checks the tool pins it had skipped for the image, and runs on the host. `--container` still stops with `could not build`.
+	- Progress log:
+		- 20261104: Verified: check-push-gate `dewda` passes, and fails against the engine from before, which exits 1 with no note. shell-regress `dd51q` lifts the pin check from its new function.
+		- 20261104: shell-regress `dd51q` now lifts `fToolPins` rather than the bare `if declare -p TOOL_PINS` block, since the pin check is a function the fallback calls again. What it checks is unchanged.
+	- Decisions:
+		- me: only a run that picked the image itself falls back. `--container` asks for the image by name, and its help says it fails when docker can't, so it still stops.
+		- me: the build moved out of `fRunContainer` to one call before stage 1, after the sync, which can change the recipe. A frozen run asked for the image twice before, once per part.
+		- me: a fallen-back run doesn't tidy docker at the end, since it ran nothing there. The next run in the image sweeps what the failed build left.
+	- Swept: the other image builds. `fCtrRunSelf` in ctr-image.bash, used by analyze-c, soak-c and codeql-scan when their tools are missing here, returns 2 on a failed build. It has no host to fall back to, since it runs only when the tool isn't on this box. Every caller of `fRunContainer` (the 3 dispatch sites) now runs after `fCtrImage`.
+	- Branch: `r1105`
+	- Test case: check-push-gate `dewda` (a run with neither flag whose image fails to build goes on here with one note and records, and `--container` stops with `could not build`).
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the expected behavior is the item's own.
+	- Closed: 20261104-184500
 
 - The dev setup script doesn't check everything the merge gate needs
 	- ID: 2026110215285716

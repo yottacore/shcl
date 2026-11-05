@@ -521,6 +521,8 @@ if [[ -n "${STUB_HOSTED:-}" ]]; then
 	CROSS_TARGETS=("stub mac|stub-mac|${STUB_HOSTED}.mac|touch '${STUB_HOSTED}.mac'"); HOSTED_TARGET=stub-mac
 	RELEASE_CHECKS=(); RELEASE_ARTIFACT_DIR=""; REMOTE_BOXES=(); PACKAGE_ENABLE=0
 fi
+## A test box, which only --list reaches.
+if [[ -n "${STUB_BOXES:-}" ]]; then REMOTE_BOXES=("stubbox|u@stubbox|linux-x86_64"); fi
 ## The profiler, with a calibration that leaves a file behind when it runs.
 if [[ -n "${STUB_PROFILE:-}" ]]; then
 	PROFILE_ENABLE=1; PROFILE_BUILD_CMD=(true); PROFILE_BIN=cicd/cicd.bash; PROFILE_TIMED=()
@@ -598,6 +600,20 @@ fQuick --merge-gate
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a --merge-gate run left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
 fQuick -y --no-sync
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a run with no flags left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
+fTest dewd9 --quick leaves out the test boxes
+## 2026110215285702: a box is another host, as the GitHub job is. A run with
+## no flags lists it.
+for boxCase in "-y --no-sync --list|	stubbox" "-y --no-sync --quick --list|	(none)"; do
+	read -r -a boxArgs <<< "${boxCase%%|*}"
+	fEngine STUB_RELEASE="${work}/eng.rel" STUB_BOXES=1 -- "${boxArgs[@]}"
+	boxListed="$(grep -A1 -xF '6/9  Test boxes' "${work}/eng.log" | sed -n 2p || true)"
+	{ ((engRc == 0)) && [[ "${boxListed}" == "${boxCase#*|}" ]]; } || fail "cicd.bash ${boxCase%%|*} listed '${boxListed}' under the test boxes: exit ${engRc}: $(tail -3 "${work}/eng.log")"
+done
+fEngine STUB_RELEASE="${work}/eng.rel" STUB_BOXES=1 -- -y --no-sync --quick
+if ((engRc != 0)) || ! grep -qxF 'Off ............: Test boxes (--quick)' "${work}/eng.log" || grep -qF 'Starting Test boxes' "${work}/eng.log"; then
+	fail "a --quick run took the test boxes, or didn't say they were off: exit ${engRc}: $(tail -3 "${work}/eng.log")"
+fi
+rm -f "${work}/eng.rel"
 fTest de582 --leakcheck adds the leak checks a run with no flags already has
 ## 2026101707582803: JC, 2026-10-18, a run with no flags does everything.
 ## --gate and --quick leave the slow leak checks out, --leakcheck adds them
@@ -1005,7 +1021,7 @@ case "${1:-}" in
 				elif [[ -n "${STUB_DOCKER_NOIMAGE:-}" ]]; then exit 1; fi ;;
 		esac
 		exit 0 ;;
-	build) exit 0 ;;
+	build) [[ -z "${STUB_DOCKER_BUILDFAIL:-}" ]]; exit ;;
 	volume)
 		case "${2:-}" in
 			create)  echo "$*" >> "${STUB_DOCKER_VOLS:-/dev/null}"; exit 0 ;;
@@ -1227,6 +1243,19 @@ fTest de61q --container with a silent docker fails rather than run here
 fCtr STUB_DOCKER_DOWN=1 -- -y --no-sync --container
 if ((engRc != 1 || ran != 0)) || ! grep -qF "can't run: ${work}/fake-docker doesn't answer" "${work}/eng.log"; then
 	fail "--container with docker down: exit ${engRc}, ran ${ran}: $(tail -3 "${work}/eng.log")"
+fi
+fTest dewda an image that fails to build sends a run here, but stops a --container run
+## 2026110215285703: a run that picked the image itself goes on here with one
+## note, as with no docker. --container asked for the image, so it stops.
+fCtr STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDFAIL=1 -- --merge-gate
+## The tree with de61p's recipes in it.
+engRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${ctrTree}"; then engRecorded=1; fi
+if ((engRc != 0 || ran != 1 || noted != 1 || engRecorded != 1)) || [[ " ${docker} " == *" run "* ]] || ! grep -qxF "note: stages 1-6 run on this box, since the main image could not be built" "${work}/eng.log"; then
+	fail "a run whose image didn't build: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}, docker calls '${docker}': $(tail -3 "${work}/eng.log")"
+fi
+fCtr STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDFAIL=1 -- -y --no-sync --container
+if ((engRc != 1 || ran != 0 || noted != 0)) || ! grep -qF "could not build shcl-cicd" "${work}/eng.log"; then
+	fail "--container with an image that didn't build: exit ${engRc}, ran ${ran}, ${noted} note(s): $(tail -3 "${work}/eng.log")"
 fi
 fTest de633 a run removes its temp dir, failed or stopped too
 ## 2026101920461153: a gate or test that fails or is killed leaves its scratch
@@ -1774,3 +1803,4 @@ exit "${rc}"
 ##		- 2026-10-31 JC: -q reaches each tool's quiet flag.
 ##		- 2026-11-02: Our own buildx builder and its prune, and a failed or stopped run tidies docker too.
 ##		- 2026-11-04: Builds on docker's default builder, no build cache prune, and the old builder removed once.
+##		- 2026-11-04: --quick and the test boxes, and an image that won't build.
