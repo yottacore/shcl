@@ -211,6 +211,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Question: is GitNiblet Enterprise Edition open source?
 		- No
 	- Estimated effort: Low
+	- Progress log:
+		- 20261105: the table cell now says No. The gif is left for its next render.
 
 - Cache cleanup leaves some caches to grow
 	- ID: 2026110215285707

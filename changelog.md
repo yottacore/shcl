@@ -6,8 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Upgrading from 2.x
 
-- Go consumers change the import path to `github.com/yottacore/shcl/source/go/v3`.
-
 - `children` on a path with several instances lists each one's children, where it listed nothing.
 
 - A backslash is plain text everywhere, bare or in either quote, so `path: "C:\temp\new"` reads as written. `\n`, `\t`, `\\`, `\"`, `\uXXXX` and the rest are not escapes any more, and `\,` and `\#` no longer protect a comma or a `#`.
@@ -60,7 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Two options asking for different answers are a usage error, in either order.
 
-- The project moved to `github.com/yottacore/shcl`. Go imports change to match. Old links redirect.
+- The project moved to `github.com/yottacore/shcl`. Old links redirect. The Go import path is `github.com/yottacore/shcl/source/go/v3`.
 
 - `format_f64` and `shcl_format_f64` are `format_float`, `SHCL_F64_BUF` is `SHCL_FLOAT_BUF`, and Rust's `ZoneSpec` is `Zone`.
 
@@ -148,8 +146,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Duration and size reads in every binding (`read_duration`, `read_size`), `shcl get --duration` and `--size` with `--unit` and `--decimal`, and schema types `duration` and `size` with `unit`, `decimal`, `min` and `max`. `500ms`, `1h 30m` and `1.5 GiB` read as whole milliseconds or bytes, and a bare number takes its unit from a name such as `timeout-ms`.
 
-- The shell wrappers gain `shcl_duration` and `shcl_size`.
-
 - Hint `H005` for a value in another unit than its field name ends in, as `timeout-ms: 5s`.
 
 - Hints `H006` and `H007` on the info block's Format line when it names a newer or an older format than the reader's. The older one points at `shcl upgrade --from-2x`. Either one changes nothing about the load.
@@ -174,7 +170,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `shcl tokens FILE` shows how the parser splits each line.
 
-- `shcl children` and `shcl paths` list keys and walk a file. The shell wrappers gain `shcl_children` and `shcl_paths`.
+- `shcl children` and `shcl paths` list keys and walk a file.
 
 - `--remove`, `--set-default` and `--set-literal-default` on the CLI.
 
@@ -503,8 +499,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The CLI exits quietly when its reader closes early.
 
 - The C and Python CLIs write LF line endings.
-
-- The PowerShell wrapper works on Windows PowerShell 5.1 again, keeps non-ASCII text through a pipe, and passes pipeline input on when run as a script.
 
 ### Installers and packages
 
