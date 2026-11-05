@@ -532,6 +532,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - With wget, a download redirected to plain http is refused. `install-dev.bash` runs the rustup installer from a file.
 
+- `install-dev.bash` checks every tool the merge gate needs against its pin, and names each one that is missing or at another version, with how to get it.
+
 - `install.ps1` piped into `iex` inside another script no longer ends that script on a failure.
 
 - `install.bash --uninstall` says when there is nothing to remove.

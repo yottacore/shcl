@@ -138,7 +138,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The dev setup script doesn't check everything the merge gate needs
 	- ID: 2026110215285716
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 16
@@ -152,6 +152,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the script names each missing or wrong-version tool, with how to get it.
 	- Origin: Confirmed, by reading.
 	- Estimated effort: Avg
+	- Actual cause: the stocktaking predated those tools. Its version test also split a pin command into words and kept config.bash's `\"` and `\$` as text, which the quoted pins (PSScriptAnalyzer, nfpm, Pillow) can't take.
+	- Actual fix: install-dev.bash checks every pin the merge gate reads against `TOOL_PINS`. It installs cargo-zigbuild, nfpm and PSScriptAnalyzer at their pins, and hints the rest, each marked missing or another version. pwsh is required. The C analyzer, soak and CodeQL tools are asked for only when docker doesn't answer on x86_64, with docker offered in their place. contributing.md lists zig and Pillow.
+	- Decisions:
+		- me: the analyzer tools are left out when docker answers, since cicd.bash runs them in the build image then. zig and Pillow are always checked, since check-readme, check-c-compilers and shell-regress run on the box.
+		- me: Pillow and zig get hints, not installs. A user-space pip install fails on distros that refuse it, and zig's tarball would need its checksum kept here too.
+	- Swept: every pin in `TOOL_PINS` is now checked or installed. The pipeline's own drift warning already ran pin commands through `bash -c`.
+	- Test case: check-install-dev `dewe3` (every tool named, missing or another version, and the three new installs at their pins) and `dewe4` (docker answering leaves the analyzer tools to the image). Both fail on the old script.
+	- Verified: check-install-dev passes whole, and fails `dewe3` and `dewe4` on the old script.
+	- Acceptance signoff: me, the plan's new lines checked against a fixture config. The real installs aren't run here. The nfpm and PSScriptAnalyzer ones are the commands ci.yml uses.
+	- Closed: 20261104-190309
 
 - The default run takes over an hour
 	- ID: 2026110215285706

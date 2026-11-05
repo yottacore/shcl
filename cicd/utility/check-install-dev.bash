@@ -145,12 +145,17 @@ fStub markdownlint-cli2 'echo 9.9.9'
 fStub staticcheck     'echo 9.9.9'
 fStub govulncheck     'echo 9.9.9'
 fStub cargo           'echo 9.9.9'
+fStub shellcheck      'echo "version: 1.0.0"'
+fStub docker-up       'exit 0'
+fStub docker-down     'exit 1'
 # shellcheck disable=SC2016  ## same, and ${work} is spliced in on purpose
-fStub go              'if [ "$1" = env ]; then echo "'"${work}"'/gopath"; else echo 9.9.9; fi'
+## `go version -m` reads a binary, and the nfpm pin names one no box has.
+fStub go              'if [ "$1" = env ]; then echo "'"${work}"'/gopath"; elif [ "$2" = -m ]; then exit 1; else echo 9.9.9; fi'
 
 ## One pin at the fixture version, one drifted, one missing, and a cppcheck
 ## wheel version that is not the binary's - which is the pair the plan has to
-## keep straight.
+## keep straight. The tools that only get a hint answer as missing through
+## commands no box has, and the pwsh pin is quoted as config.bash quotes it.
 cat > "${work}/pins.bash" <<'CFGEOF'
 TOOL_PINS=(
 	"ruff|9.9.9|ruff --version"
@@ -161,12 +166,26 @@ TOOL_PINS=(
 	"staticcheck|9.9.9|staticcheck -version"
 	"govulncheck|9.9.9|govulncheck -version"
 	"cargo-deny|9.9.9|cargo deny --version"
+	"go|9.9.9|go version"
+	"shellcheck|9.9.9|shellcheck --version"
+	"zig|9.9.9|shcl-no-such-zig version"
+	"pillow|9.9.9|shcl-no-such-python3 -c 'import PIL'"
+	"PSScriptAnalyzer|9.9.9|pwsh -NoProfile -Command \"(Get-Module -ListAvailable PSScriptAnalyzer).Version\""
+	"cargo-zigbuild|9.9.9|shcl-no-such-cargo-zigbuild --version"
+	"nfpm|9.9.9|go version -m \"\$(command -v shcl-no-such-nfpm)\""
+	"makensis|9.9.9|shcl-no-such-makensis -VERSION"
+	"gcc|9.9.9|shcl-no-such-gcc --version"
+	"clang|9.9.9|shcl-no-such-clang --version"
+	"clang-tidy|9.9.9|shcl-no-such-clang-tidy --version"
+	"clang-tools|9.9.9|shcl-no-such-clang-extdef-mapping --version"
+	"heaptrack|9.9.9|shcl-no-such-heaptrack --version"
+	"codeql|9.9.9|shcl-no-such-codeql version"
 )
 CPPCHECK_WHEEL="7.7.7"
 CFGEOF
 cp "${work}/pins.bash" "${work}/clone/cicd/config.bash"
 
-( cd "${work}/clone" && HOME="${work}/home" PATH="${stub}:${PATH}" bash "${script}" --yes >"${work}/plan" 2>&1 </dev/null ) \
+( cd "${work}/clone" && HOME="${work}/home" PATH="${stub}:${PATH}" SHCL_DOCKER="${stub}/docker-down" bash "${script}" --yes >"${work}/plan" 2>&1 </dev/null ) \
 	|| fail "the default path failed inside a clone with every install stubbed: $(tail -n 3 "${work}/plan")"
 grep -qF 'cppcheck 9.9.9 (pipx cppcheck==7.7.7, user-space)' "${work}/plan" \
 	|| fail "the plan does not name both cppcheck versions: $(grep -i cppcheck "${work}/plan" | tr '\n' ' ')"
@@ -175,6 +194,46 @@ grep -qF 'ruff 9.9.9' "${work}/plan" && fail "the plan offers to install a tool 
 grep -qF 'STUB pipx install --force cppcheck==7.7.7' "${work}/stub.log" \
 	|| fail "the cppcheck install did not ask for the wheel version"
 grep -qF 'STUB pipx install --force ruff' "${work}/stub.log" && fail "a tool already at its pin was installed anyway"
+
+fTest dewe3 the plan names every tool the merge gate needs, missing or at another version
+## Code review 20261102 item 16: zig, Pillow, docker and the release tools went
+## unchecked, and shellcheck, go and PSScriptAnalyzer were checked for being
+## there, not for their pins. Same run as above, with docker not answering.
+for want in \
+	'zig 9.9.9 (missing) - https://ziglang.org/download/' \
+	'pillow 9.9.9 (missing) - python3 -m pip install --user pillow==9.9.9' \
+	'shellcheck 9.9.9 (another version) - ' \
+	'makensis 9.9.9 (missing) - ' \
+	'heaptrack 9.9.9 (missing) - ' \
+	'codeql 9.9.9 (missing) - the CodeQL bundle 9.9.9' \
+	'cargo-zigbuild 9.9.9 (cargo install, user-space)' \
+	'nfpm 9.9.9 (go install, user-space)' \
+	'PSScriptAnalyzer 9.9.9 (pwsh Install-Module, user-scope)'; do
+	grep -qF -- "${want}" "${work}/plan" || fail "the plan does not say: ${want}"
+done
+grep -qF 'go 9.9.9' "${work}/plan" && fail "the plan names a go already at its pin"
+if [[ "$(uname -m)" == x86_64 ]]; then
+	grep -qF 'docker (missing or not answering)' "${work}/plan" || fail "the plan does not offer docker for the C analyzers"
+fi
+for want in \
+	'STUB cargo install cargo-zigbuild --version 9.9.9 --locked' \
+	'STUB go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v9.9.9' \
+	'STUB pwsh -NoProfile -Command Install-Module PSScriptAnalyzer -RequiredVersion 9.9.9'; do
+	grep -qF -- "${want}" "${work}/stub.log" || fail "not installed as planned: ${want}"
+done
+
+fTest dewe4 with docker answering the C analyzers are left to the build image
+## cicd.bash runs them in the image then, so the box needs none of them. The
+## image is x86_64 only, so elsewhere they are always named.
+( cd "${work}/clone" && HOME="${work}/home" PATH="${stub}:${PATH}" SHCL_DOCKER="${stub}/docker-up" bash "${script}" --yes >"${work}/plan-up" 2>&1 </dev/null ) \
+	|| fail "the default path failed with docker answering: $(tail -n 3 "${work}/plan-up")"
+if [[ "$(uname -m)" == x86_64 ]]; then
+	grep -qE '^  (gcc|clang|clang-tidy|clang-tools|heaptrack|codeql|docker) ' "${work}/plan-up" \
+		&& fail "the plan names a tool the build image covers: $(grep -E '^  (gcc|clang|heaptrack|codeql|docker)' "${work}/plan-up" | head -n 1)"
+else
+	grep -qF 'heaptrack 9.9.9 (missing)' "${work}/plan-up" || fail "off x86_64 the plan leaves out the C analyzer tools"
+fi
+grep -qF 'zig 9.9.9 (missing)' "${work}/plan-up" || fail "with docker answering the plan leaves out zig, which runs on the box"
 
 fTest dd5ha the default path sets the hooks in a worktree
 ## The default path ends on the same hooks setup, behind its own .git test.
@@ -226,7 +285,7 @@ fi
 grep -qF "no CPPCHECK_WHEEL" "${work}/plan2" || fail "a missing CPPCHECK_WHEEL is not named: $(tail -n 2 "${work}/plan2")"
 
 fTestEnd
-(( rc == 0 )) && echo "check-install-dev: OK: --hooks-only sets the hooks path and keepalive, idempotently, and refuses a non-clone; the default path refuses one too, builds its plan off the config's pins, says first that it has no terminal, and hooks up a fresh clone and a worktree"
+(( rc == 0 )) && echo "check-install-dev: OK: --hooks-only sets the hooks path and keepalive, idempotently, and refuses a non-clone; the default path refuses one too, builds its plan off the config's pins, names every tool off its pin, says first that it has no terminal, and hooks up a fresh clone and a worktree"
 exit "${rc}"
 
 
@@ -238,3 +297,5 @@ exit "${rc}"
 ##		- 2026-09-26 JC: A prompt with no terminal, and a fresh clone by a
 ##		                 relative --dir, with git and curl stubbed.
 ##		- 2026-09-26 JC: A worktree, where .git is a file, on both paths.
+##		- 2026-11-05 JC: Every pin the merge gate needs in the plan, and docker
+##		                 standing in for the C analyzer tools.

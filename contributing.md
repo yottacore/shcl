@@ -162,7 +162,9 @@ GitHub CI runs on pushes to `main`, on pull requests, and by hand from the Actio
 
 - PowerShell 7+ - required: the lint stage runs PSScriptAnalyzer through `pwsh` on every run, including `--gate`.
 
-`install-dev.bash` at the repo root sets up as much of this as it can without sudo, and prints package-manager hints for the rest.
+- Zig and Pillow - `check-readme` and `check-c-compilers` build with zig, and `shell-regress` reads the demo gif with Pillow. These run on your box even when docker answers.
+
+`install-dev.bash` at the repo root sets up as much of this as it can without sudo, and prints package-manager hints for the rest. It checks each tool against its pin in `cicd/config.bash`, the cross, packaging and analyzer tools below included, and names each one that is missing or at another version.
 
 A run without `--gate` also wants the cross and packaging tools. `--quick` builds the cross targets too, but no packages:
 

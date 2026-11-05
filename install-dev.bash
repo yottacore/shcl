@@ -21,11 +21,15 @@
 ##		               hooks (for a box that already has the tools).
 ##		--version      print this installer's version and exit.
 ##
-##	What a full dev box needs (see contributing.md "How to develop"):
+##	What a full dev box needs (see contributing.md "How to develop"), each at
+##	its pin in cicd/config.bash:
 ##		gating:   rustup (rustfmt+clippy ride along), go, python3, gcc+g++,
 ##		          shellcheck, ruff, mypy, cppcheck, build, markdownlint-cli2,
-##		          staticcheck, govulncheck, cargo-deny (all at the pinned versions),
-##		          PSScriptAnalyzer (only if pwsh is present)
+##		          staticcheck, govulncheck, cargo-deny, pwsh and
+##		          PSScriptAnalyzer, zig, Pillow
+##		release:  cargo-zigbuild, mingw-w64, nfpm, makensis
+##		analyzers and leak checks: docker, or else gcc-14, clang-19,
+##		          clang-tidy-19, clang-tools-19, heaptrack and CodeQL
 ##		the gate: cicd/cicd.bash --merge-gate
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
@@ -36,7 +40,7 @@
 
 set -euo pipefail
 
-installer_version="1.1.1"
+installer_version="1.2.0"
 REPO_URL="https://github.com/yottacore/shcl"
 clone_dir="./shcl"
 assume_yes=0
@@ -73,11 +77,16 @@ Options:
                  clone: run it inside one, or name one with --dir.
   --version      print this installer's version and exit.
 
-What a full dev box needs (see contributing.md, "How to develop"):
+What a full dev box needs (see contributing.md, "How to develop"), each at its
+pin in cicd/config.bash. Anything missing or at another version is named, with
+how to get it:
   gating:    rustup (rustfmt and clippy ride along), go, python3, gcc and g++,
              shellcheck, ruff, mypy, cppcheck, build, markdownlint-cli2,
-             staticcheck, govulncheck, cargo-deny (all at the pinned versions),
-             PSScriptAnalyzer (only if pwsh is present)
+             staticcheck, govulncheck, cargo-deny, pwsh and PSScriptAnalyzer,
+             zig, Pillow
+  release:   cargo-zigbuild, mingw-w64, nfpm, makensis
+  analyzers and leak checks: docker, or else gcc-14, clang-19,
+             clang-tidy-19, clang-tools-19, heaptrack and CodeQL
   the gate:  cicd/cicd.bash --merge-gate
 
 EOF
@@ -175,10 +184,12 @@ else
 	trap 'rm -f "${pins_file}"' EXIT
 	fFetch "https://raw.githubusercontent.com/yottacore/shcl/main/cicd/config.bash" "${pins_file}" || fDie "cannot fetch cicd/config.bash for the tool pins"
 fi
-## "name|version|command" out of TOOL_PINS -> pin_ver, pin_cmd.
+## "name|version|command" out of TOOL_PINS -> pin_ver, pin_cmd. Each entry is
+## a double-quoted bash string, so its \" and \$ come off here, as bash would
+## take them off; the pwsh and nfpm pins have both.
 fPin() {
 	local line
-	line="$(awk -v name="$1" '/^TOOL_PINS=\(/ { inpins=1; next } inpins && /^\)/ { exit } inpins && index($0, "\"" name "|") { sub(/^[ \t]*"/, ""); sub(/"[ \t]*$/, ""); print; exit }' "${pins_file}")"
+	line="$(awk -v name="$1" '/^TOOL_PINS=\(/ { inpins=1; next } inpins && /^\)/ { exit } inpins && index($0, "\"" name "|") { sub(/^[ \t]*"/, ""); sub(/"[ \t]*$/, ""); gsub(/\\"/, "\""); gsub(/\\\$/, "$"); print; exit }' "${pins_file}")"
 	[[ -n "${line}" ]] || fDie "no TOOL_PINS entry for $1 in cicd/config.bash"
 	pin_ver="${line#*|}"; pin_cmd="${pin_ver#*|}"; pin_ver="${pin_ver%%|*}"
 }
@@ -189,11 +200,21 @@ fCppcheckWheel() {
 	[[ -n "${cppcheck_wheel}" ]] || fDie "no CPPCHECK_WHEEL in cicd/config.bash"
 }
 ## Installed at the pinned version? The same test the pipeline's drift warning
-## makes; missing and drifted both count as "install".
+## makes, through bash -c as it does, since a pin command with quotes in it
+## (pwsh, python3 -c) split into the wrong words. Missing and drifted both
+## count as "install"; pin_have is what answered, empty when nothing did.
 fAtPin() {
 	fPin "$1"
-	# shellcheck disable=SC2086
-	[[ "$(${pin_cmd} 2>/dev/null | head -5 | tr '\n' ' ')" == *"${pin_ver}"* ]]
+	pin_have="$(bash -c "${pin_cmd}" 2>/dev/null | head -5 | tr '\n' ' ' || true)"
+	[[ "${pin_have}" == *"${pin_ver}"* ]]
+}
+## A pinned tool only the user can install: a hint when it's missing or at
+## another version, saying which. {ver} in HOW is the pin.
+fHint() {   ## fHint NAME HOW
+	fAtPin "$1" && return 0
+	local state="another version"
+	[[ -n "${pin_have// /}" ]] || state="missing"
+	hints+=("$1 ${pin_ver} (${state}) - ${2//\{ver\}/${pin_ver}}")
 }
 
 ## Take stock: what gets installed (no sudo), what only gets a hint. The cargo
@@ -203,23 +224,27 @@ orig_path="${PATH}"
 [[ -d "${HOME}/.cargo/bin" ]] && PATH="${HOME}/.cargo/bin:${PATH}"
 gobin=""
 fHave go && gobin="$(go env GOPATH)/bin" && PATH="${gobin}:${PATH}"
-pkg_hint="your package manager"
-if fHave apt-get; then pkg_hint="sudo apt-get install"
-elif fHave dnf; then pkg_hint="sudo dnf install"
-elif fHave pacman; then pkg_hint="sudo pacman -S"
+pkg_hint="your package manager" mingw_pkg="mingw-w64"
+if fHave apt-get; then pkg_hint="sudo apt-get install" mingw_pkg="gcc-mingw-w64-x86-64"
+elif fHave dnf; then pkg_hint="sudo dnf install" mingw_pkg="mingw64-gcc"
+elif fHave pacman; then pkg_hint="sudo pacman -S" mingw_pkg="mingw-w64-gcc"
 elif fHave brew; then pkg_hint="brew install"
 fi
 todo=() hints=()
 need_rustup=0
 if ! fHave cargo && [[ ! -x "${HOME}/.cargo/bin/cargo" ]]; then
 	if fHave curl || fHave wget; then need_rustup=1; todo+=("rustup (official installer, user-space)")
-	else hints+=("curl/wget   - ${pkg_hint} curl  (then re-run for rustup)")
+	else hints+=("curl/wget (missing) - ${pkg_hint} curl, then re-run for rustup")
 	fi
 fi
-fHave go         || hints+=("go          - ${pkg_hint} golang (or https://go.dev/dl)")
-fHave python3    || hints+=("python3     - ${pkg_hint} python3")
-fHave cc         || hints+=("gcc/g++     - ${pkg_hint} build-essential (or gcc gcc-c++)")
-fHave shellcheck || hints+=("shellcheck  - ${pkg_hint} shellcheck")
+fHint go "${pkg_hint} golang if it has {ver}, or the {ver} series from https://go.dev/dl"
+fHave python3 || hints+=("python3 (missing) - ${pkg_hint} python3")
+fHave cc      || hints+=("gcc/g++ (missing) - ${pkg_hint} build-essential (or gcc gcc-c++)")
+fHint shellcheck "${pkg_hint} shellcheck if it has {ver}, or https://github.com/koalaman/shellcheck/releases"
+## check-readme and check-c-compilers build with zig, and shell-regress reads
+## the demo gif with Pillow. All three run on this box even when docker answers.
+fHint zig "https://ziglang.org/download/, unpacked onto PATH"
+fHint pillow "python3 -m pip install --user pillow=={ver}, for the python3 on PATH"
 if fHave pipx; then
 	for t in ruff mypy build; do fAtPin "$t" || todo+=("${t} ${pin_ver} (pipx, user-space)"); done
 	## Both versions, because they are different numbers for one tool: the pin
@@ -228,24 +253,52 @@ if fHave pipx; then
 	## the other, so the two lines disagreed about what was about to happen.
 	fAtPin cppcheck || { fCppcheckWheel; todo+=("cppcheck ${pin_ver} (pipx cppcheck==${cppcheck_wheel}, user-space)"); }
 else
-	hints+=("pipx        - ${pkg_hint} pipx  (then re-run for ruff/mypy/cppcheck/build)")
+	hints+=("pipx (missing) - ${pkg_hint} pipx, then re-run for ruff, mypy, cppcheck and build")
 fi
 if fHave npm; then
 	fAtPin markdownlint-cli2 || todo+=("markdownlint-cli2 ${pin_ver} (npm -g --prefix ~/.local)")
 else
-	hints+=("npm         - ${pkg_hint} npm  (then re-run for markdownlint-cli2)")
+	hints+=("npm (missing) - ${pkg_hint} npm, then re-run for markdownlint-cli2")
 fi
-## The supply-chain trio the gate runs. The Go pair ride the go hint when go is
-## missing; cargo-deny builds through cargo, which may itself arrive this run.
+## The supply-chain trio the gate runs, and nfpm for the packages. The Go ones
+## ride the go hint when go is missing; the cargo ones build through cargo,
+## which may itself arrive this run.
 if fHave go; then
-	for t in staticcheck govulncheck; do fAtPin "$t" || todo+=("${t} ${pin_ver} (go install, user-space)"); done
+	for t in staticcheck govulncheck nfpm; do fAtPin "$t" || todo+=("${t} ${pin_ver} (go install, user-space)"); done
 fi
 if (( need_rustup )) || fHave cargo || [[ -x "${HOME}/.cargo/bin/cargo" ]]; then
 	fAtPin cargo-deny || todo+=("cargo-deny ${pin_ver} (cargo install, user-space - builds from source, takes a while)")
+	fAtPin cargo-zigbuild || todo+=("cargo-zigbuild ${pin_ver} (cargo install, user-space)")
 fi
+## The lint stage runs PSScriptAnalyzer on every run, so pwsh is not optional.
 if fHave pwsh; then
-	pwsh -NoProfile -Command "if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { exit 1 }" >/dev/null 2>&1 \
-		|| todo+=("PSScriptAnalyzer (pwsh Install-Module, user-scope)")
+	fAtPin PSScriptAnalyzer || todo+=("PSScriptAnalyzer ${pin_ver} (pwsh Install-Module, user-scope)")
+else
+	hints+=("pwsh (missing) - PowerShell 7, from https://learn.microsoft.com/powershell/scripting/install/installing-powershell, then re-run for PSScriptAnalyzer")
+fi
+## The merge gate's release and package steps.
+fHave x86_64-w64-mingw32-gcc || hints+=("mingw-w64 (missing) - ${pkg_hint} ${mingw_pkg}, for the Windows builds")
+fHint makensis "${pkg_hint} nsis if it has {ver}, for the Windows setup"
+## The C analyzers, the C soak and CodeQL run in the build image when docker
+## answers on x86_64, the test cicd.bash makes, so only a box without that
+## needs them itself.
+docker_cmd="${SHCL_DOCKER:-docker}" docker_ok=0
+if [[ "$(uname -m)" == x86_64 ]] && fHave "${docker_cmd}"; then
+	if fHave timeout; then timeout 30 "${docker_cmd}" info >/dev/null 2>&1 && docker_ok=1
+	else "${docker_cmd}" info >/dev/null 2>&1 && docker_ok=1
+	fi
+fi
+if (( ! docker_ok )); then
+	n_hints=${#hints[@]}
+	fHint gcc "${pkg_hint} gcc-{ver} g++-{ver}"
+	fHint clang "${pkg_hint} clang-{ver}"
+	fHint clang-tidy "${pkg_hint} clang-tidy-{ver}"
+	fHint clang-tools "${pkg_hint} clang-tools-{ver}"
+	fHint heaptrack "${pkg_hint} heaptrack"
+	fHint codeql "the CodeQL bundle {ver} from https://github.com/github/codeql-action/releases"
+	if (( ${#hints[@]} > n_hints )) && [[ "$(uname -m)" == x86_64 ]]; then
+		hints+=("docker (missing or not answering) - runs the C analyzer, soak and CodeQL tools above in the build image instead: https://docs.docker.com/engine/install/")
+	fi
 fi
 
 ## The plan.
@@ -259,7 +312,7 @@ if (( ${#todo[@]} )); then
 	printf '  %s\n' "${todo[@]}"
 fi
 if (( ${#hints[@]} )); then
-	echo "missing - install these yourself (needs the system package manager):"
+	echo "missing or at another version - install these yourself:"
 	printf '  %s\n' "${hints[@]}"
 fi
 if (( ! ${#todo[@]} && ! ${#hints[@]} )) && (( in_clone )); then
@@ -318,12 +371,14 @@ fi
 if fHave go; then
 	fAtPin staticcheck || go install "honnef.co/go/tools/cmd/staticcheck@${pin_ver}"
 	fAtPin govulncheck || go install "golang.org/x/vuln/cmd/govulncheck@${pin_ver}"
+	fAtPin nfpm || go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@v${pin_ver}"
 fi
 if fHave cargo; then
 	fAtPin cargo-deny || cargo install cargo-deny --version "${pin_ver}" --locked
+	fAtPin cargo-zigbuild || cargo install cargo-zigbuild --version "${pin_ver}" --locked
 fi
 if fHave pwsh; then
-	pwsh -NoProfile -Command "if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force }"
+	fAtPin PSScriptAnalyzer || pwsh -NoProfile -Command "Install-Module PSScriptAnalyzer -RequiredVersion ${pin_ver} -Scope CurrentUser -Force"
 fi
 
 [[ -e "${clone_dir}/.git" ]] && fSetupHooks
@@ -331,7 +386,7 @@ fi
 echo
 echo "done. The gate is:  cicd/cicd.bash --merge-gate"
 echo "(rust-toolchain.toml pins the toolchain; the first cargo run fetches it.)"
-(( ${#hints[@]} )) && echo "note: the hinted packages above are still missing."
+(( ${#hints[@]} )) && echo "note: the tools hinted above are still missing or at another version."
 ## By element, with a trailing slash ignored on either side: the shell
 ## resolves `bin/` fine, and a plain string compare did not.
 fOnPath(){
