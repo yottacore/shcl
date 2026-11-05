@@ -48,121 +48,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Held for v4 (JC, 2026-11-02).
 
-- Go back to docker's default builder for the images
-	- ID: 2026110311291920
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Opened: 20261103-112919
-	- Opened by: JC
-	- Related IDs: 2026110215285719, common 2026110311291900
-	- Requirements:
-		- Build the images on docker's default builder again, and drop `CTR_BUILDER`, `fCtrPrune` and the `shcl-cicd` builder. A run removes that builder once if it finds it.
-		- The pipeline never prunes docker's build cache. Docker trims the cache itself on b23, through `builder.gc` in `/etc/docker/daemon.json`. Cache unused for a week goes first, then the rest is cut to 120 GB, or further when the disk is under 10% free, but never below 20 GB.
-		- contributing.md says a run leaves docker's build cache alone.
-		- Do it once b23's `/etc/docker/daemon.json` has the `builder.gc` block. `grep -q '"gc"' /etc/docker/daemon.json` checks. Until then the own builder stays.
-	- Estimated effort: Low
-	- Progress log:
-		- 20261104: `fCtrBuild` builds on docker's default builder with a plain `docker build`, and makes no builder. `CTR_BUILDER`, `fCtrBuilder` and `fCtrPrune` are gone. At the end of a run in the image, `fCtrOldBuilderGone` removes the old `shcl-cicd` buildx builder with its cache, once, when it finds it and no other run of ours is live. Nothing prunes docker's build cache. contributing.md says so.
-		- Verified: check-push-gate passes, with `desm6` (a build on the default builder, no buildx call, the old builder removed and named on the cleanup line, then nothing on the next run, and nothing with no buildx), `de635` (no prune or removal under a live run), `desm7` and `de8j8` (a failed or stopped run removes the old builder). shellcheck passes over the 4 scripts.
-		- Verified: against real docker, a stopped `shcl-cicd` builder stayed under `keep`, went on the next call, and a third call found nothing.
-	- Decisions:
-		- The own builder was there so a run pruned only its own cache. With docker's GC doing the trimming, nothing needs pruning, and the builder only costs time and disk: a cold build of the 2 GB test image took 299 s against 266 s, and its cache kept a second 3 GB copy of the layers. (JC, me)
-		- 20261104: the old builder goes with `buildx rm`, which takes its cache volume too. It holds a second copy of the layers, and the default builder's cache is the one kept (me).
-		- 20261104: no removal while another run of ours is live, since a run on the scripts from before may be building on it. The next run removes it (me).
-		- 20261104: the cleanup line names the builder but adds no size, since `buildx rm` reports none. docker's volume sizes before and after show it (me).
-	- Swept: every `buildx`, `builder prune`, `CTR_BUILDER` and `fCtrPrune` under `cicd/`, the hook, `.github/` and the docs. fCtrBuild is the one build, used by cicd.bash and fCtrRunSelf. shell-regress copies none of them.
-	- Branch: `r1105`
-	- Test case: check-push-gate `desm6`, plus `de635`, `desm7` and `de8j8`.
-		- 20261104: `de635`'s prune assert went from `buildx prune --builder shcl-cicd -f --filter until=168h` to nothing asked of docker. `desm7`'s went from that prune and `buildx stop shcl-cicd` to `buildx rm shcl-cicd`, and `de8j8`'s from the prune to `buildx rm shcl-cicd`. `ded0y` counts plain builds only.
-	- Acceptance signoff: Self-closed: each requirement has a check that passed, and b23's daemon.json has the `builder.gc` block.
-	- Closed: 20261104-163500
-
-- `--quick` runs every test box
-	- ID: 2026110215285702
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 2
-	- Related IDs: 2026101816034794
-	- Steps to reproduce:
-		- `cicd/cicd.bash --list --quick`.
-	- Incorrect behavior: the box step is listed with all 6 boxes, about 9 minutes, against a quick run's 10.
-	- Expected behavior: `--quick` leaves out a step that reaches another host, as its help and 2026101816034794 say. The hosted macos job is already left out for that reason.
-	- Reproduced: 20261102, by reading `fStepWanted`'s `boxes` arm, which doesn't look at `quick`.
-	- Origin: Confirmed.
-	- Estimated effort: Low
-	- Update: No - `--quick` should not run tests on external hosts.
-	- Actual cause: `--quick`'s cuts emptied the slow lists but left `REMOTE_BOXES` alone, and only `--no-remote` and the run modes turned the box step off.
-	- Actual fix: `--quick` empties `REMOTE_BOXES` and names the box step off with the flag, so the run, `--list` and the first section agree. The help, contributing.md and design.md say so.
-	- Progress log:
-		- 20261104: Verified: `cicd/cicd.bash --list --quick` shows `(none)` under the test boxes, and `--list` still lists all 6.
-		- 20261104: Verified: check-push-gate `dewd9` passes, and fails against the engine from before, which lists the box under `--quick` and runs the step.
-	- Swept: every reader of `REMOTE_BOXES` and `no_remote` in cicd.bash (`fStepWanted`, `--list`, the box step, the GitHub job's off reason). The GitHub job was already off under `--quick`. `--backlog-run-quick` already turned the boxes off as a run mode.
-	- Branch: `r1105`
-	- Test case: check-push-gate `dewd9` (`--list --quick` lists no box, a `--quick` run says the box step is off and doesn't take it, and `--list` alone lists the box).
-	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the expected behavior is the item's own.
-	- Closed: 20261104-184500
-
-- A failed image build stops the run instead of falling back to the host
-	- ID: 2026110215285703
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 3
-	- Related IDs: 2026101920461174
-	- Steps to reproduce:
-		- A recipe change that fails to build, such as a bad package pin, then a run with no flags.
-	- Incorrect behavior: `fDie "could not build ..."` ends the run.
-	- Expected behavior: one line saying the image couldn't be built, then the run goes on on the host, as it does when docker is missing.
-	- Note: JC's 20261019 call in 2026101920461174 covers a docker that answers. A failed build wasn't part of it.
-	- Origin: Confirmed, by reading.
-	- Estimated effort: Low
-	- Actual cause: the image was built inside `fRunContainer`, after the run had committed to the image, so a failed build could only stop the run.
-	- Actual fix: `fCtrImage` builds the image once, after the sync and before stage 1. When a run picked the image itself and the build fails, it prints `note: stages 1-6 run on this box, since the main image could not be built`, checks the tool pins it had skipped for the image, and runs on the host. `--container` still stops with `could not build`.
-	- Progress log:
-		- 20261104: Verified: check-push-gate `dewda` passes, and fails against the engine from before, which exits 1 with no note. shell-regress `dd51q` lifts the pin check from its new function.
-		- 20261104: shell-regress `dd51q` now lifts `fToolPins` rather than the bare `if declare -p TOOL_PINS` block, since the pin check is a function the fallback calls again. What it checks is unchanged.
-	- Decisions:
-		- me: only a run that picked the image itself falls back. `--container` asks for the image by name, and its help says it fails when docker can't, so it still stops.
-		- me: the build moved out of `fRunContainer` to one call before stage 1, after the sync, which can change the recipe. A frozen run asked for the image twice before, once per part.
-		- me: a fallen-back run doesn't tidy docker at the end, since it ran nothing there. The next run in the image sweeps what the failed build left.
-	- Swept: the other image builds. `fCtrRunSelf` in ctr-image.bash, used by analyze-c, soak-c and codeql-scan when their tools are missing here, returns 2 on a failed build. It has no host to fall back to, since it runs only when the tool isn't on this box. Every caller of `fRunContainer` (the 3 dispatch sites) now runs after `fCtrImage`.
-	- Branch: `r1105`
-	- Test case: check-push-gate `dewda` (a run with neither flag whose image fails to build goes on here with one note and records, and `--container` stops with `could not build`).
-	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the expected behavior is the item's own.
-	- Closed: 20261104-184500
-
-- The dev setup script doesn't check everything the merge gate needs
-	- ID: 2026110215285716
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 16
-	- Steps to reproduce:
-		- `install-dev.bash` on a box with only what it checks, then `cicd/cicd.bash --merge-gate --no-remote`, as install.md says.
-	- Incorrect behavior: the gate fails or skips on what the script never checked:
-		- zig 0.16.0 and Pillow 11.1.0, which check-readme and shell-regress need.
-		- docker, which runs the C analyzers, heaptrack and CodeQL.
-		- cargo-zigbuild, mingw, nfpm and makensis, which contributing.md lists.
-		- shellcheck, go and PSScriptAnalyzer are checked for being there, not for the pinned version. PowerShell 7 is treated as optional, where contributing.md says it's needed.
-	- Expected behavior: the script names each missing or wrong-version tool, with how to get it.
-	- Origin: Confirmed, by reading.
-	- Estimated effort: Avg
-	- Actual cause: the stocktaking predated those tools. Its version test also split a pin command into words and kept config.bash's `\"` and `\$` as text, which the quoted pins (PSScriptAnalyzer, nfpm, Pillow) can't take.
-	- Actual fix: install-dev.bash checks every pin the merge gate reads against `TOOL_PINS`. It installs cargo-zigbuild, nfpm and PSScriptAnalyzer at their pins, and hints the rest, each marked missing or another version. pwsh is required. The C analyzer, soak and CodeQL tools are asked for only when docker doesn't answer on x86_64, with docker offered in their place. contributing.md lists zig and Pillow.
-	- Decisions:
-		- me: the analyzer tools are left out when docker answers, since cicd.bash runs them in the build image then. zig and Pillow are always checked, since check-readme, check-c-compilers and shell-regress run on the box.
-		- me: Pillow and zig get hints, not installs. A user-space pip install fails on distros that refuse it, and zig's tarball would need its checksum kept here too.
-	- Swept: every pin in `TOOL_PINS` is now checked or installed. The pipeline's own drift warning already ran pin commands through `bash -c`.
-	- Test case: check-install-dev `dewe3` (every tool named, missing or another version, and the three new installs at their pins) and `dewe4` (docker answering leaves the analyzer tools to the image). Both fail on the old script.
-	- Verified: check-install-dev passes whole, and fails `dewe3` and `dewe4` on the old script.
-	- Acceptance signoff: me, the plan's new lines checked against a fixture config. The real installs aren't run here. The nfpm and PSScriptAnalyzer ones are the commands ci.yml uses.
-	- Closed: 20261104-190309
-
 - The default run takes over an hour
 	- ID: 2026110215285706
 	- Type: Enhancement
@@ -175,71 +60,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
 	- Estimated effort: Avg
-
-- check-migrate diverges on the 2.x Unicode trim fix, and fuzz_00150 changes its exit code
-	- ID: 2026110410134605
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261104-101346
-	- Opened by: round r1104, worker for 2026110312163206
-	- Related IDs: 2026110312163206
-	- Progress log:
-		- 2026-11-04: the trim fix in all 4 bindings is on wip/r1104-2026110312163206 (65e88185). check-migrate diverges on corpus 094, 215 and some fuzz cases, since its pinned build 7be348d0 keeps the blanks 2.0 trimmed. It needs those lines filtered before comparing, as fMidQuote2x does.
-		- fuzz_00150 gives a different exit code from 2.x's result on the wip code. Not looked at yet, so it may be a real regression.
-		- crosscheck, cli-regress and analyze-c weren't run on the wip commit.
-		- 2026-11-04, r1105: the fix cherry-picked onto r1105. check-migrate without the filter diverged on 094, 215 and 15 fuzz documents, all with a blank other than a space, a tab or a CR at a value piece's edge.
-	- Actual cause: the pinned build keeps a blank such as a no-break space at a piece's edge, where 2.0 and the fix trim it, so every line with one reads apart. fuzz_00150 is one of them, not a regression: its `f:` holds only a U+0085, which the pinned build reads as the value (string Good, raw and info BadType 4), and the fix reads as empty (exit 2 for each).
-		- The new corpus case shifts the fuzz seeds, and fuzz_00216 came up: taking out its fence label holding a `#` leaves a raw block open to the end, upgrade closes it, and the old info block in its body counted as a second one.
-	- Actual fix: check-migrate takes out lines with such a blank at a value piece's edge before comparing (`fEdgeBlank2x`), found in the 2.x text by the scan `fMidQuote2x` already used, now shared as `fValue2x`. The White_Space set comes from gen-escapes.py. The info block is counted only at the line start.
-	- Decisions:
-		- Only a blank at a piece's edge takes the line out, not any line holding one, so a no-break space inside a value, such as 215's `mid`, is still compared (me).
-	- Swept: the one count of the info block in check-migrate; fTrim is the one place lines come out.
-	- Verified: check-migrate passes on 652 documents with the filter, `dewb9` included, and diverged on 17 without it. crosscheck (54570 comparisons), cli-regress (651 rows), analyze-c, the 2,000,000 release fuzz (31 tests) and shellcheck pass. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
-	- Branch: `r1105`
-	- Commit: `71783654`
-	- Test case: check-migrate `dewb9` (215's edge lines found) and `dcqf3` over the corpus and fuzz documents.
-	- Acceptance signoff: Self-closed: check-migrate failed on the fix before the filter and passes after.
-	- Closed: 20261104-180734
-
-- `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
-	- ID: 2026110312163206
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261103-121632
-	- Opened by: Code review 20261103 item 6
-	- Related IDs: 2026102620591100
-	- Steps to reproduce:
-		- `printf 'host: example.com\xc2\xa0\nports: 80,\xc2\xa0443\n' > u.shcl`, then `shcl upgrade --write u.shcl`.
-	- Incorrect behavior: exit 0 in all 4. `host` reads `example.com` with a no-break space after it, and `ports` holds the text `"<NBSP>443"`. 2.0.0 read `example.com` and `[80, 443]`. A vertical tab goes the same way.
-	- Expected behavior: spec.md says the conversion writes the file so the current parser reads the tree 2.x read. Failing that, it's a hard case and refused.
-	- Reproduced: 20261103, the dev CLIs against 2.0.0's Python CLI.
-	- Possible cause: the 2.x scan trims only space, tab and CR, where 2.0.0 trimmed all Unicode white space. check-migrate compares with the pinned build `7be348d0`, which came after `0f818d71` changed the trim, so it agrees with the bug.
-	- Origin: Confirmed. The same class as 2026102620591100: the pin isn't 2.0.0, and that item's sweep checked only quotes inside a piece.
-	- Sweep: the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2` and `6b776f9a`. Or compare against `v2.0.0` itself.
-		- That part is in child 2026110409565662.
-	- Decisions: 2.x conversion is low stakes (JC, 20261015). Keep the easy conversions and refuse hard cases.
-		- Convert, not refuse: 2.0 trimmed the full Unicode `White_Space` set at a piece's edges, so the 2.x scan in `migrate` and `upgrade` trims it too, and a run of blanks around a piece that holds one is written as a space, or dropped at the line end. One inside a value stays and gets quoted (me).
-		- The set is Unicode `White_Space`, what 2.0's Rust `trim()` used. 2.0's Python `strip()` also took U+001C to U+001F; those are left alone (me).
-		- Left as is: a no-break space in a name or indent. 2.0 trimmed those too, but no case of it has turned up (me).
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual cause: `0f818d71` cut the trim to a space, a tab and a CR for the current rules, and the 2.x scan kept that, since it copies the pinned build.
-	- Actual fix: under the 2.x rules `scan_piece` counts any `White_Space` character as a blank at a piece's edges, and `value_edits` writes the blanks around a piece that hold one as a space. A 2.x array is rebuilt from its pieces, so it gets the trim with no more. Same change in Rust, Go, Python and C. spec.md, value-syntax.md's Migration table, the changelog and the corpus README say so.
-	- Swept: `scan_piece`, `value_edits` and the open-quote arm in all 4 bindings. `*` items and array elements go through the same scan. Selector bodies do too, but keep the narrow trim, since `migrate` cuts them by their own offsets.
-	- Verified: corpus `215-migrate-unicode-trim` fails on the old C header and passes on the fix in all 4 runners. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
-	- Progress log:
-		- 20261104: the fix is on `wip/r1104-2026110312163206`, not the round branch. check-migrate diverges on 094, 215 and fuzz cases, since the pinned build keeps the edge blanks. It needs those lines taken out before comparing, as `fMidQuote2x` does for a mid-piece quote. fuzz_00150 also differs in exit codes and needs a look. crosscheck, cli-regress and analyze-c not run yet.
-		- 2026-11-04: one try in round r1104, fix held on wip/r1104-2026110312163206 until 2026110410134605 closes.
-		- 2026-11-04, r1105: cherry-picked onto r1105. A value that is only such a blank, as in `f:` and a U+0085, came out as `f: ` with a blank left at the line end. That run is dropped there too now, in all 4. Corpus 215 has the line, and fails without it in Python and C.
-		- Verified on r1105: the 4 conformance suites, the Rust upgrade tests, cli-regress (651 rows), crosscheck (54570 comparisons), check-migrate (652 documents, with 2026110410134605's filter), analyze-c, the 2,000,000 release fuzz (31 tests), clippy, rustfmt, gofmt, go vet, staticcheck, ruff and mypy.
-	- Branch: `r1105`
-	- Commit: `912e864e`, `6c01482a`
-	- Test case: corpus `devxe` (`215-migrate-unicode-trim`) in all 4 runners.
-	- Acceptance signoff: Self-closed: corpus 215 failed before and passes after, and the named gates pass.
-	- Closed: 20261104-180734
-	- Prereq IDs: 2026110410134605
 
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
 	- ID: 2026110408432594
@@ -623,6 +443,186 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- Go back to docker's default builder for the images
+	- ID: 2026110311291920
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261103-112919
+	- Opened by: JC
+	- Related IDs: 2026110215285719, common 2026110311291900
+	- Requirements:
+		- Build the images on docker's default builder again, and drop `CTR_BUILDER`, `fCtrPrune` and the `shcl-cicd` builder. A run removes that builder once if it finds it.
+		- The pipeline never prunes docker's build cache. Docker trims the cache itself on b23, through `builder.gc` in `/etc/docker/daemon.json`. Cache unused for a week goes first, then the rest is cut to 120 GB, or further when the disk is under 10% free, but never below 20 GB.
+		- contributing.md says a run leaves docker's build cache alone.
+		- Do it once b23's `/etc/docker/daemon.json` has the `builder.gc` block. `grep -q '"gc"' /etc/docker/daemon.json` checks. Until then the own builder stays.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261104: `fCtrBuild` builds on docker's default builder with a plain `docker build`, and makes no builder. `CTR_BUILDER`, `fCtrBuilder` and `fCtrPrune` are gone. At the end of a run in the image, `fCtrOldBuilderGone` removes the old `shcl-cicd` buildx builder with its cache, once, when it finds it and no other run of ours is live. Nothing prunes docker's build cache. contributing.md says so.
+		- Verified: check-push-gate passes, with `desm6` (a build on the default builder, no buildx call, the old builder removed and named on the cleanup line, then nothing on the next run, and nothing with no buildx), `de635` (no prune or removal under a live run), `desm7` and `de8j8` (a failed or stopped run removes the old builder). shellcheck passes over the 4 scripts.
+		- Verified: against real docker, a stopped `shcl-cicd` builder stayed under `keep`, went on the next call, and a third call found nothing.
+	- Decisions:
+		- The own builder was there so a run pruned only its own cache. With docker's GC doing the trimming, nothing needs pruning, and the builder only costs time and disk: a cold build of the 2 GB test image took 299 s against 266 s, and its cache kept a second 3 GB copy of the layers. (JC, me)
+		- 20261104: the old builder goes with `buildx rm`, which takes its cache volume too. It holds a second copy of the layers, and the default builder's cache is the one kept (me).
+		- 20261104: no removal while another run of ours is live, since a run on the scripts from before may be building on it. The next run removes it (me).
+		- 20261104: the cleanup line names the builder but adds no size, since `buildx rm` reports none. docker's volume sizes before and after show it (me).
+	- Swept: every `buildx`, `builder prune`, `CTR_BUILDER` and `fCtrPrune` under `cicd/`, the hook, `.github/` and the docs. fCtrBuild is the one build, used by cicd.bash and fCtrRunSelf. shell-regress copies none of them.
+	- Branch: `r1105`
+	- Test case: check-push-gate `desm6`, plus `de635`, `desm7` and `de8j8`.
+		- 20261104: `de635`'s prune assert went from `buildx prune --builder shcl-cicd -f --filter until=168h` to nothing asked of docker. `desm7`'s went from that prune and `buildx stop shcl-cicd` to `buildx rm shcl-cicd`, and `de8j8`'s from the prune to `buildx rm shcl-cicd`. `ded0y` counts plain builds only.
+	- Acceptance signoff: Self-closed: each requirement has a check that passed, and b23's daemon.json has the `builder.gc` block.
+	- Closed: 20261104-163500
+
+- `--quick` runs every test box
+	- ID: 2026110215285702
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 2
+	- Related IDs: 2026101816034794
+	- Steps to reproduce:
+		- `cicd/cicd.bash --list --quick`.
+	- Incorrect behavior: the box step is listed with all 6 boxes, about 9 minutes, against a quick run's 10.
+	- Expected behavior: `--quick` leaves out a step that reaches another host, as its help and 2026101816034794 say. The hosted macos job is already left out for that reason.
+	- Reproduced: 20261102, by reading `fStepWanted`'s `boxes` arm, which doesn't look at `quick`.
+	- Origin: Confirmed.
+	- Estimated effort: Low
+	- Update: No - `--quick` should not run tests on external hosts.
+	- Actual cause: `--quick`'s cuts emptied the slow lists but left `REMOTE_BOXES` alone, and only `--no-remote` and the run modes turned the box step off.
+	- Actual fix: `--quick` empties `REMOTE_BOXES` and names the box step off with the flag, so the run, `--list` and the first section agree. The help, contributing.md and design.md say so.
+	- Progress log:
+		- 20261104: Verified: `cicd/cicd.bash --list --quick` shows `(none)` under the test boxes, and `--list` still lists all 6.
+		- 20261104: Verified: check-push-gate `dewd9` passes, and fails against the engine from before, which lists the box under `--quick` and runs the step.
+	- Swept: every reader of `REMOTE_BOXES` and `no_remote` in cicd.bash (`fStepWanted`, `--list`, the box step, the GitHub job's off reason). The GitHub job was already off under `--quick`. `--backlog-run-quick` already turned the boxes off as a run mode.
+	- Branch: `r1105`
+	- Test case: check-push-gate `dewd9` (`--list --quick` lists no box, a `--quick` run says the box step is off and doesn't take it, and `--list` alone lists the box).
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the expected behavior is the item's own.
+	- Closed: 20261104-184500
+
+- A failed image build stops the run instead of falling back to the host
+	- ID: 2026110215285703
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 3
+	- Related IDs: 2026101920461174
+	- Steps to reproduce:
+		- A recipe change that fails to build, such as a bad package pin, then a run with no flags.
+	- Incorrect behavior: `fDie "could not build ..."` ends the run.
+	- Expected behavior: one line saying the image couldn't be built, then the run goes on on the host, as it does when docker is missing.
+	- Note: JC's 20261019 call in 2026101920461174 covers a docker that answers. A failed build wasn't part of it.
+	- Origin: Confirmed, by reading.
+	- Estimated effort: Low
+	- Actual cause: the image was built inside `fRunContainer`, after the run had committed to the image, so a failed build could only stop the run.
+	- Actual fix: `fCtrImage` builds the image once, after the sync and before stage 1. When a run picked the image itself and the build fails, it prints `note: stages 1-6 run on this box, since the main image could not be built`, checks the tool pins it had skipped for the image, and runs on the host. `--container` still stops with `could not build`.
+	- Progress log:
+		- 20261104: Verified: check-push-gate `dewda` passes, and fails against the engine from before, which exits 1 with no note. shell-regress `dd51q` lifts the pin check from its new function.
+		- 20261104: shell-regress `dd51q` now lifts `fToolPins` rather than the bare `if declare -p TOOL_PINS` block, since the pin check is a function the fallback calls again. What it checks is unchanged.
+	- Decisions:
+		- me: only a run that picked the image itself falls back. `--container` asks for the image by name, and its help says it fails when docker can't, so it still stops.
+		- me: the build moved out of `fRunContainer` to one call before stage 1, after the sync, which can change the recipe. A frozen run asked for the image twice before, once per part.
+		- me: a fallen-back run doesn't tidy docker at the end, since it ran nothing there. The next run in the image sweeps what the failed build left.
+	- Swept: the other image builds. `fCtrRunSelf` in ctr-image.bash, used by analyze-c, soak-c and codeql-scan when their tools are missing here, returns 2 on a failed build. It has no host to fall back to, since it runs only when the tool isn't on this box. Every caller of `fRunContainer` (the 3 dispatch sites) now runs after `fCtrImage`.
+	- Branch: `r1105`
+	- Test case: check-push-gate `dewda` (a run with neither flag whose image fails to build goes on here with one note and records, and `--container` stops with `could not build`).
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the expected behavior is the item's own.
+	- Closed: 20261104-184500
+
+- The dev setup script doesn't check everything the merge gate needs
+	- ID: 2026110215285716
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 16
+	- Steps to reproduce:
+		- `install-dev.bash` on a box with only what it checks, then `cicd/cicd.bash --merge-gate --no-remote`, as install.md says.
+	- Incorrect behavior: the gate fails or skips on what the script never checked:
+		- zig 0.16.0 and Pillow 11.1.0, which check-readme and shell-regress need.
+		- docker, which runs the C analyzers, heaptrack and CodeQL.
+		- cargo-zigbuild, mingw, nfpm and makensis, which contributing.md lists.
+		- shellcheck, go and PSScriptAnalyzer are checked for being there, not for the pinned version. PowerShell 7 is treated as optional, where contributing.md says it's needed.
+	- Expected behavior: the script names each missing or wrong-version tool, with how to get it.
+	- Origin: Confirmed, by reading.
+	- Estimated effort: Avg
+	- Actual cause: the stocktaking predated those tools. Its version test also split a pin command into words and kept config.bash's `\"` and `\$` as text, which the quoted pins (PSScriptAnalyzer, nfpm, Pillow) can't take.
+	- Actual fix: install-dev.bash checks every pin the merge gate reads against `TOOL_PINS`. It installs cargo-zigbuild, nfpm and PSScriptAnalyzer at their pins, and hints the rest, each marked missing or another version. pwsh is required. The C analyzer, soak and CodeQL tools are asked for only when docker doesn't answer on x86_64, with docker offered in their place. contributing.md lists zig and Pillow.
+	- Decisions:
+		- me: the analyzer tools are left out when docker answers, since cicd.bash runs them in the build image then. zig and Pillow are always checked, since check-readme, check-c-compilers and shell-regress run on the box.
+		- me: Pillow and zig get hints, not installs. A user-space pip install fails on distros that refuse it, and zig's tarball would need its checksum kept here too.
+	- Swept: every pin in `TOOL_PINS` is now checked or installed. The pipeline's own drift warning already ran pin commands through `bash -c`.
+	- Test case: check-install-dev `dewe3` (every tool named, missing or another version, and the three new installs at their pins) and `dewe4` (docker answering leaves the analyzer tools to the image). Both fail on the old script.
+	- Verified: check-install-dev passes whole, and fails `dewe3` and `dewe4` on the old script.
+	- Acceptance signoff: me, the plan's new lines checked against a fixture config. The real installs aren't run here. The nfpm and PSScriptAnalyzer ones are the commands ci.yml uses.
+	- Closed: 20261104-190309
+
+- check-migrate diverges on the 2.x Unicode trim fix, and fuzz_00150 changes its exit code
+	- ID: 2026110410134605
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261104-101346
+	- Opened by: round r1104, worker for 2026110312163206
+	- Related IDs: 2026110312163206
+	- Progress log:
+		- 2026-11-04: the trim fix in all 4 bindings is on wip/r1104-2026110312163206 (65e88185). check-migrate diverges on corpus 094, 215 and some fuzz cases, since its pinned build 7be348d0 keeps the blanks 2.0 trimmed. It needs those lines filtered before comparing, as fMidQuote2x does.
+		- fuzz_00150 gives a different exit code from 2.x's result on the wip code. Not looked at yet, so it may be a real regression.
+		- crosscheck, cli-regress and analyze-c weren't run on the wip commit.
+		- 2026-11-04, r1105: the fix cherry-picked onto r1105. check-migrate without the filter diverged on 094, 215 and 15 fuzz documents, all with a blank other than a space, a tab or a CR at a value piece's edge.
+	- Actual cause: the pinned build keeps a blank such as a no-break space at a piece's edge, where 2.0 and the fix trim it, so every line with one reads apart. fuzz_00150 is one of them, not a regression: its `f:` holds only a U+0085, which the pinned build reads as the value (string Good, raw and info BadType 4), and the fix reads as empty (exit 2 for each).
+		- The new corpus case shifts the fuzz seeds, and fuzz_00216 came up: taking out its fence label holding a `#` leaves a raw block open to the end, upgrade closes it, and the old info block in its body counted as a second one.
+	- Actual fix: check-migrate takes out lines with such a blank at a value piece's edge before comparing (`fEdgeBlank2x`), found in the 2.x text by the scan `fMidQuote2x` already used, now shared as `fValue2x`. The White_Space set comes from gen-escapes.py. The info block is counted only at the line start.
+	- Decisions:
+		- Only a blank at a piece's edge takes the line out, not any line holding one, so a no-break space inside a value, such as 215's `mid`, is still compared (me).
+	- Swept: the one count of the info block in check-migrate; fTrim is the one place lines come out.
+	- Verified: check-migrate passes on 652 documents with the filter, `dewb9` included, and diverged on 17 without it. crosscheck (54570 comparisons), cli-regress (651 rows), analyze-c, the 2,000,000 release fuzz (31 tests) and shellcheck pass. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
+	- Branch: `r1105`
+	- Commit: `71783654`
+	- Test case: check-migrate `dewb9` (215's edge lines found) and `dcqf3` over the corpus and fuzz documents.
+	- Acceptance signoff: Self-closed: check-migrate failed on the fix before the filter and passes after.
+	- Closed: 20261104-180734
+
+- `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
+	- ID: 2026110312163206
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261103-121632
+	- Opened by: Code review 20261103 item 6
+	- Related IDs: 2026102620591100
+	- Steps to reproduce:
+		- `printf 'host: example.com\xc2\xa0\nports: 80,\xc2\xa0443\n' > u.shcl`, then `shcl upgrade --write u.shcl`.
+	- Incorrect behavior: exit 0 in all 4. `host` reads `example.com` with a no-break space after it, and `ports` holds the text `"<NBSP>443"`. 2.0.0 read `example.com` and `[80, 443]`. A vertical tab goes the same way.
+	- Expected behavior: spec.md says the conversion writes the file so the current parser reads the tree 2.x read. Failing that, it's a hard case and refused.
+	- Reproduced: 20261103, the dev CLIs against 2.0.0's Python CLI.
+	- Possible cause: the 2.x scan trims only space, tab and CR, where 2.0.0 trimmed all Unicode white space. check-migrate compares with the pinned build `7be348d0`, which came after `0f818d71` changed the trim, so it agrees with the bug.
+	- Origin: Confirmed. The same class as 2026102620591100: the pin isn't 2.0.0, and that item's sweep checked only quotes inside a piece.
+	- Sweep: the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2` and `6b776f9a`. Or compare against `v2.0.0` itself.
+		- That part is in child 2026110409565662.
+	- Decisions: 2.x conversion is low stakes (JC, 20261015). Keep the easy conversions and refuse hard cases.
+		- Convert, not refuse: 2.0 trimmed the full Unicode `White_Space` set at a piece's edges, so the 2.x scan in `migrate` and `upgrade` trims it too, and a run of blanks around a piece that holds one is written as a space, or dropped at the line end. One inside a value stays and gets quoted (me).
+		- The set is Unicode `White_Space`, what 2.0's Rust `trim()` used. 2.0's Python `strip()` also took U+001C to U+001F; those are left alone (me).
+		- Left as is: a no-break space in a name or indent. 2.0 trimmed those too, but no case of it has turned up (me).
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: `0f818d71` cut the trim to a space, a tab and a CR for the current rules, and the 2.x scan kept that, since it copies the pinned build.
+	- Actual fix: under the 2.x rules `scan_piece` counts any `White_Space` character as a blank at a piece's edges, and `value_edits` writes the blanks around a piece that hold one as a space. A 2.x array is rebuilt from its pieces, so it gets the trim with no more. Same change in Rust, Go, Python and C. spec.md, value-syntax.md's Migration table, the changelog and the corpus README say so.
+	- Swept: `scan_piece`, `value_edits` and the open-quote arm in all 4 bindings. `*` items and array elements go through the same scan. Selector bodies do too, but keep the narrow trim, since `migrate` cuts them by their own offsets.
+	- Verified: corpus `215-migrate-unicode-trim` fails on the old C header and passes on the fix in all 4 runners. `--backlog-run-quick` with every area passes, check-docs aside (`dcbc2`, red on dev).
+	- Progress log:
+		- 20261104: the fix is on `wip/r1104-2026110312163206`, not the round branch. check-migrate diverges on 094, 215 and fuzz cases, since the pinned build keeps the edge blanks. It needs those lines taken out before comparing, as `fMidQuote2x` does for a mid-piece quote. fuzz_00150 also differs in exit codes and needs a look. crosscheck, cli-regress and analyze-c not run yet.
+		- 2026-11-04: one try in round r1104, fix held on wip/r1104-2026110312163206 until 2026110410134605 closes.
+		- 2026-11-04, r1105: cherry-picked onto r1105. A value that is only such a blank, as in `f:` and a U+0085, came out as `f: ` with a blank left at the line end. That run is dropped there too now, in all 4. Corpus 215 has the line, and fails without it in Python and C.
+		- Verified on r1105: the 4 conformance suites, the Rust upgrade tests, cli-regress (651 rows), crosscheck (54570 comparisons), check-migrate (652 documents, with 2026110410134605's filter), analyze-c, the 2,000,000 release fuzz (31 tests), clippy, rustfmt, gofmt, go vet, staticcheck, ruff and mypy.
+	- Branch: `r1105`
+	- Commit: `912e864e`, `6c01482a`
+	- Test case: corpus `devxe` (`215-migrate-unicode-trim`) in all 4 runners.
+	- Acceptance signoff: Self-closed: corpus 215 failed before and passes after, and the named gates pass.
+	- Closed: 20261104-180734
+	- Prereq IDs: 2026110410134605
 
 - Fuzz `dd3t9` fails at iteration 32783: a save that keeps lines reloads with an `E011` the document didn't have
 	- ID: 2026110407313888
