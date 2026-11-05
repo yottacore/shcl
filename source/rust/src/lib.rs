@@ -3491,7 +3491,8 @@ fn v2_edge_edits(text: &str, a: usize, b: usize, edits: &mut Vec<Edit>) {
 		i -= c.len_utf8();
 	}
 	if kept(&text[i..a]) {
-		edits.push((i, a, " ".to_string()));
+		let with = if a == text.len() { "" } else { " " };
+		edits.push((i, a, with.to_string()));
 	}
 	let mut j = b;
 	while let Some(c) = text[j..].chars().next().filter(|&c| white_space(c)) {

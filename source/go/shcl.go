@@ -3716,7 +3716,11 @@ func v2EdgeEdits(text string, a, b int, edits *[]edit) {
 		i -= n
 	}
 	if kept(text[i:a]) {
-		*edits = append(*edits, edit{start: i, end: a, with: " "})
+		with := " "
+		if a == len(text) {
+			with = ""
+		}
+		*edits = append(*edits, edit{start: i, end: a, with: with})
 	}
 	j := b
 	for j < len(text) {

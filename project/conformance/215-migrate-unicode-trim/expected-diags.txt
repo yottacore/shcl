@@ -8,4 +8,5 @@ line 6: Error: E025
 line 7: Error: E025
 line 8: Error: E017
 line 10: Error: E013
-failed: 10 diagnostic(s), 9 error(s)
+line 11: Error: E025
+failed: 11 diagnostic(s), 10 error(s)

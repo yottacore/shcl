@@ -3185,7 +3185,7 @@ def _v2_edge_edits(s, a, b, edits):
 		i -= 1
 	run = before[i:]
 	if any(c not in _WSP for c in run):
-		edits.append((a - len(run.encode("utf-8", "surrogatepass")), a, b" "))
+		edits.append((a - len(run.encode("utf-8", "surrogatepass")), a, b"" if a == len(s) else b" "))
 	after = s[b:].decode("utf-8", "surrogatepass")
 	j = 0
 	while j < len(after) and _white_space(after[j]):

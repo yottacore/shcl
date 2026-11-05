@@ -3422,7 +3422,7 @@ static void v2_edge_edits(ShclArena *a, ShclStr text, size_t ea, size_t eb, Shcl
 		if (!is_wsp(c)) kept = 1;
 		i -= n;
 	}
-	if (kept) edit_push(a, edits, i, ea, s_lit(" "));
+	if (kept) edit_push(a, edits, i, ea, s_lit(ea == text.n ? "" : " "));
 	kept = 0;
 	while (j < text.n) {
 		uint32_t c;
