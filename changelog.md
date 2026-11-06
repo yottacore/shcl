@@ -2,6 +2,12 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- The Go library builds for wasm again, `js` and `wasip1`. beta1 used a system constant those targets don't have.
+
 ## v3.0.0-beta1 - 2026-11-05
 
 Format 3. It fixes the 2.x design flaws that heavy use turned up. v4 will keep this format and settle the programming interface.

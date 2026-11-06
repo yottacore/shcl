@@ -1697,13 +1697,14 @@ func readRegular(path string) ([]byte, bool, error) {
 }
 
 // openNoWait opens path to read. Opening a FIFO waits for a writer, and the
-// path can turn into one between the stat and the open. So off windows the
-// open does not wait, and the flag comes straight back off.
+// path can turn into one between the stat and the open. So where the system has
+// the flag the open does not wait, and the flag comes straight back off.
 func openNoWait(path string) (*os.File, error) {
-	if runtime.GOOS == "windows" {
+	flag := noWaitFlag()
+	if flag == 0 {
 		return os.Open(path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|flag, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1718,6 +1719,24 @@ func openNoWait(path string) (*os.File, error) {
 		return nil, &os.PathError{Op: "open", Path: path, Err: err}
 	}
 	return f, nil
+}
+
+// noWaitFlag is O_NONBLOCK, written out because js and wasip1 have no
+// syscall.O_NONBLOCK. 0 means a plain open: windows, wasm, plan9, and any
+// system not listed here.
+func noWaitFlag() int {
+	switch runtime.GOOS {
+	case "linux", "android":
+		if strings.HasPrefix(runtime.GOARCH, "mips") {
+			return 0x80
+		}
+		return 0x800
+	case "solaris", "illumos":
+		return 0x80
+	case "darwin", "ios", "freebsd", "netbsd", "openbsd", "dragonfly", "aix":
+		return 0x4
+	}
+	return 0
 }
 
 // setBlocking clears the flag. syscall.SetNonblock takes an int on POSIX and

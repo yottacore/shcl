@@ -207,6 +207,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/box-suites.bash
 	cicd/utility/check-boxes.bash
 	cicd/utility/check-freebsd.bash
+	cicd/utility/check-go-alone.bash
 	cicd/utility/check-win-release.bash
 	cicd/utility/check-win-setup.bash
 	cicd/utility/check-completions.bash
@@ -505,6 +506,9 @@ CROSS_CHECKS=(
 	## stage's vet and staticcheck - which only ever see the host's GOOS - walk
 	## straight past it. These are the only thing that compiles it at all.
 	"Go library for Windows (build + vet + staticcheck)|( cd source/go && export GOMAXPROCS=\${CPU_CAP}; GOOS=windows go build ./... && GOOS=windows go vet ./... && GOOS=windows staticcheck ./... )"
+	## shcl.go is copied into other programs alone, wasm builds included
+	## (2026110611562400). About 30 s.
+	"shcl.go alone and the Go CLI build for every GOOS|cicd/utility/check-go-alone.bash"
 )
 
 ## Checks over the release binaries, run once they are all built. Same
