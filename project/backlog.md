@@ -457,6 +457,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
 
+- `sign-release.bash` refuses the right key: "install.ps1 has a different key"
+	- ID: 2026110607341200
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261106-073412
+	- Opened by: JC, signing the 3.0.0-beta1 cut
+	- Version and build: `v3.0.0-beta1` at `99a9f7b6`
+	- Problem description: `f3ff00e2` moved install.ps1's `$signingModulus` line into an indented block. The signer read it with a pattern anchored at the line start, got nothing, and refused every key. The modulus in install.ps1 matches `shcl-signing.pub`. shell-regress `dd51p` writes its own one-line installers, so no test read the real layout.
+	- Progress log:
+		- 20261106: the pattern allows leading blanks. The tagged tree keeps the old signer, so the beta1 sums are signed from dev with `--no-tag-check`, where the key copies, Cargo.toml and the artifacts are the tag's.
+	- Swept: the other readers of an installer's key. install.bash's PEM extraction already strips any prefix. shell-regress builds its own copies, and nothing else reads them.
+	- Branch: `signfix`
+	- Test case: shell-regress `deyk6`. It puts the throwaway key into copies of the real installers and key file in place of the real one, and the run has to sign. It failed before the fix with "install.ps1 has a different key".
+	- Acceptance signoff: Self-closed: `deyk6` fails without the fix and passes with it.
+	- Closed: 20261106-074500
+
 - Go back to docker's default builder for the images
 	- ID: 2026110311291920
 	- Type: Enhancement

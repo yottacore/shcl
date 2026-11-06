@@ -1180,6 +1180,42 @@ if fHave openssl; then
 	printf '$signingModulus = '"'%s'"'\n' "x${smod}" > "${skey}/install.ps1"
 	fSignNoXxd
 	[[ "${signOut}" == *"install.ps1 has a different key"* ]] || fBad "sign-release.bash with xxd off the PATH did not refuse a wrong modulus: ${signOut@Q}"
+	fTest deyk6 2026110607341200-sign-release-real-installers
+	##	2026110607341200: install.ps1's modulus moved into an indented block,
+	##	and the signer's pattern wanted it at the line start, so the 3.0.0-beta1
+	##	cut was refused with the right key. dd51p writes its own one-line
+	##	installers, so it never saw the real layout. Here the real installers
+	##	and key file get the throwaway key in place of the real one, as written,
+	##	and the run has to sign.
+	sreal="${tmpDir}/signreal"
+	mkdir -p "${sreal}/cicd/utility" "${sreal}/source/rust" "${tmpDir}/sign6"
+	cp "${repoDir}/cicd/utility/sign-release.bash" "${sreal}/cicd/utility/"
+	cp "${repoDir}/source/rust/Cargo.toml" "${sreal}/source/rust/"
+	cp "${tmpDir}/sign1/"* "${tmpDir}/sign6/"
+	cp "${skey}/shcl-signing.pub" "${sreal}/shcl-signing.pub"
+	rmod="$(openssl rsa -pubin -in "${repoDir}/shcl-signing.pub" -modulus -noout 2>/dev/null | sed 's/^Modulus=//' || true)"
+	rmod="$(python3 -c 'import base64, sys; print(base64.b64encode(bytes.fromhex(sys.argv[1])).decode())' "${rmod}" || true)"
+	## Swap each body once, or the copy no longer holds the real layout and the run proves nothing.
+	if python3 - "${repoDir}" "${sreal}" "${rmod}" "${smod}" <<-'EOF'
+		import sys
+		repo, out, rmod, smod = sys.argv[1:]
+		def body(p):
+		    lines = open(p).read().split('\n')
+		    return '\n'.join(l for l in lines if l and not l.startswith('-----'))
+		swaps = {'install.bash': (body(repo + '/shcl-signing.pub'), body(out + '/shcl-signing.pub')), 'install.ps1': (rmod, smod)}
+		for name, (old, new) in swaps.items():
+		    text = open(repo + '/' + name).read()
+		    if not old or text.count(old) != 1:
+		        sys.exit(name + ': the real key is not there exactly once')
+		    open(out + '/' + name, 'w').write(text.replace(old, new))
+		EOF
+	then
+		signOut="$(bash "${sreal}/cicd/utility/sign-release.bash" --key "${tmpDir}/wrong.pem" --dir "${tmpDir}/sign6" --no-tag-check 2>&1 || true)"
+		[[ "${signOut}" == *"signed  shcl-${sver}-sha256sums.txt"* && -e "${tmpDir}/sign6/shcl-${sver}-sha256sums.txt.sig" ]] \
+			|| fBad "sign-release.bash did not sign with the key in the real installers' layout: ${signOut@Q}"
+	else
+		fBad "could not put the throwaway key into copies of the real installers"
+	fi
 	fTest dd5gv 20260725-37-installers-check-the-signature
 	##	20260725 item 37: nothing in the sums file is trusted until its signature
 	##	checks out against the key the installer has. Each installer's check,
