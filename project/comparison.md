@@ -37,36 +37,36 @@ This test covers the kind of config a person hand-edits. The test data contains 
 | Config file       | JSON      | XML   | TOML  | SHCL    | YAML
 | :--               | :--       | :--   | :--   | :--     | :--
 | File size (KB)    | 2.2       | 3.0   | 1.7   | **1.6** | 1.7
-| Read time (ms)    | **0.008** | 0.016 | 0.024 | 0.037   | 0.068
+| Read time (ms)    | **0.008** | 0.016 | 0.024 | 0.050   | 0.070
 
 Practically nobody chooses a format based on read times that low, except maybe a realtime embedded system whose whole executable is measured in kilobytes. (And one of those would not be linking in any library anyway.)
 
 ### Schema definition
 
-This test covers 197 table definitions, each with typed columns, nullability, defaults, keys, indexes, and comments.
+This test covers 195 table definitions, each with typed columns, nullability, defaults, keys, indexes, and comments.
 
 | Schema file    | JSON    | XML | TOML | SHCL    | YAML
 | :--            | :--     | :-- | :--  | :--     | :--
-| File size (KB) | 431     | 498 | 298  | **262** | 322
-| Read time (ms) | **2.0** | 3.0 | 4.7  | 5.9     | 11.4
+| File size (KB) | 426     | 492 | 294  | **263** | 318
+| Read time (ms) | **1.6** | 3.0 | 4.9  | 7.7     | 12.1
 
-Here SHCL is 39% smaller than JSON and 47% smaller than XML, and still reads in under a hundredth of a second. This is the size SHCL is built for: a big file that people still edit by hand.
+Here SHCL is 38% smaller than JSON and 47% smaller than XML, and still reads in under a hundredth of a second. This is the size SHCL is built for: a big file that people still edit by hand.
 
 ### Unrealistic stress test
 
-Far past anything anyone edits by hand: one array of 302,230 records.
+Far past anything anyone edits by hand: one array of 296,892 records.
 
 | Stress test                | JSON     | XML  | TOML | SHCL    | YAML
 | :--                        | :--      | :--  | :--  | :--     | :--
-| File size (MB)             | 107      | 160  | 77   | **67**  | 80
-| Gzipped (MB)               | 8.9      | 11.0 | 9.3  | 9.1     | 9.4
-| Read time (s)              | **0.60** | 1.30 | 1.99 | 2.97    | 4.47
+| File size (MB)             | 105      | 157  | 75   | **67**  | 78
+| Gzipped (MB)               | 8.7      | 10.8 | 9.1  | 8.9     | 9.3
+| Read time (s)              | **0.63** | 1.40 | 2.07 | 3.92    | 4.76
 | Peak memory (GB)           | **1.1**  | 1.5  | 2.4  | 1.7     | 2.7
 | Keeps your file as written | no       | no   | no   | **yes** | no
 
-`toml_edit` is the only other parser here that keeps the file as written, comments included. It is not in the table. It peaks at 4.3 GB against SHCL's 1.7, and reads in 2.4 s against SHCL's 3.0.
+`toml_edit` is the only other parser here that keeps the file as written, comments included. It is not in the table. It peaks at 4.2 GB against SHCL's 1.7, and reads in 2.5 s against SHCL's 3.9.
 
-Every number above comes from one Rust library per format. A slow library and a slow format are not the same thing, so the same files are read again in Python. Most Python parsers are C underneath (`json`, `ElementTree` and PyYAML all are), while SHCL's Python binding is pure Python. That leaves `tomllib`, also pure Python, as the only fair match. In Python, SHCL reads 4.2 times slower than `tomllib`; in Rust, 1.3 times slower than `toml`. Two languages, two separate implementations, and SHCL is behind in both.
+Every number above comes from one Rust library per format. A slow library and a slow format are not the same thing, so the same files are read again in Python. Most Python parsers are C underneath (`json`, `ElementTree` and PyYAML all are), while SHCL's Python binding is pure Python. That leaves `tomllib`, also pure Python, as the only fair match. In Python, SHCL reads 5.7 times slower than `tomllib`; in Rust, 1.6 times slower than `toml`. Two languages, two separate implementations, and SHCL is behind in both.
 
 TLDR: If you are moving a lot of machine-generated data over a high-bandwidth connection, use JSON. If you want to save developer time, and respect end-user sanity, use SHCL.
 
