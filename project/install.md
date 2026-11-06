@@ -7,7 +7,7 @@
 
 How to get the `shcl` CLI and the libraries, from a package manager to building it yourself, and how to set up a clone for development.
 
-The latest release, `v2.0.0`, has packages, prebuilt CLI binaries, and a checksums file on the [releases page](https://github.com/yottacore/shcl/releases).
+The latest release, `v3.0.0-beta1`, has packages, prebuilt CLI binaries, and a checksums file on the [releases page](https://github.com/yottacore/shcl/releases). It's a beta. The newest full release is still `v2.0.0`, which reads files by the 2.x rules.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -34,14 +34,16 @@ The latest release, `v2.0.0`, has packages, prebuilt CLI binaries, and a checksu
 
 ## Language packages
 
-Each binding is published where its own ecosystem looks for it, all under the name `shcl`: [crates.io](https://crates.io/crates/shcl) for Rust, [PyPI](https://pypi.org/project/shcl/) for Python, and the [Go module](https://pkg.go.dev/github.com/yottacore/shcl/source/go/v2) for Go.
+Each binding is published where its own ecosystem looks for it, all under the name `shcl`: [crates.io](https://crates.io/crates/shcl) for Rust, [PyPI](https://pypi.org/project/shcl/) for Python, and the [Go module](https://pkg.go.dev/github.com/yottacore/shcl/source/go/v3) for Go.
 
 Only the crate includes the CLI as well as the library, which is the easiest way to get the binary on a platform with no prebuilt one - NetBSD and OpenBSD included.
 
 ### Cargo
 
+Cargo skips a beta unless it's named, so a plain `cargo install shcl` gets 2.0.0:
+
 ~~~sh
-cargo install shcl
+cargo install shcl --version 3.0.0-beta1
 ~~~
 
 ### Go module
@@ -49,15 +51,15 @@ cargo install shcl
 The module is the library by itself and installs no command, so this is a dependency, not an installation:
 
 ~~~sh
-go get github.com/yottacore/shcl/source/go/v2
+go get github.com/yottacore/shcl/source/go/v3@v3.0.0-beta1
 ~~~
 
 ### PyPI
 
-The PyPI distribution is likewise the library by itself, so `pip install shcl` is a dependency, not an installation:
+The PyPI distribution is likewise the library by itself, so `pip install shcl` is a dependency, not an installation. pip skips a beta without `--pre`:
 
 ~~~sh
-pip install shcl
+pip install --pre shcl
 ~~~
 
 ### C and C++
@@ -75,13 +77,13 @@ Packages put the binary at `/usr/bin/shcl`, and the drop-in sources under `/usr/
 ### Debian
 
 ~~~sh
-sudo dpkg -i shcl-2.0.0-linux-x86_64.deb
+sudo dpkg -i shcl-3.0.0-beta1-linux-x86_64.deb
 ~~~
 
 ### Fedora, RHEL, openSUSE
 
 ~~~sh
-sudo rpm -i shcl-2.0.0-linux-x86_64.rpm
+sudo rpm -i shcl-3.0.0-beta1-linux-x86_64.rpm
 ~~~
 
 ### FreeBSD
@@ -94,7 +96,7 @@ pkg add shcl-3.0.0-beta1-freebsd-x86_64.pkg
 
 ### Windows setup
 
-Run `shcl-2.0.0-windows-x86_64-setup.exe`. It installs to `C:\Program Files\Shcl`, adds that to `PATH`, and can uninstall itself later.
+Run `shcl-3.0.0-beta1-windows-x86_64-setup.exe`. It installs to `C:\Program Files\Shcl`, adds that to `PATH`, and can uninstall itself later.
 
 ## Install scripts, stable or dev
 
@@ -149,8 +151,8 @@ NetBSD and OpenBSD have no prebuilt binaries yet. Use `cargo install shcl`, a dr
 
 	~~~sh
 	openssl dgst -sha256 -verify shcl-signing.pub \
-		-signature shcl-2.0.0-sha256sums.txt.sig shcl-2.0.0-sha256sums.txt
-	sha256sum -c --ignore-missing shcl-2.0.0-sha256sums.txt
+		-signature shcl-3.0.0-beta1-sha256sums.txt.sig shcl-3.0.0-beta1-sha256sums.txt
+	sha256sum -c --ignore-missing shcl-3.0.0-beta1-sha256sums.txt
 	~~~
 
 	The macOS binary is not notarized by Apple, so one saved from a web browser is quarantined and Gatekeeper refuses to run it. After checking it, clear that with `xattr -d com.apple.quarantine shcl`. The install script fetches with curl, which sets no quarantine.

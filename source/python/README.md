@@ -54,7 +54,7 @@ Python 3.9 or newer.
 
 ## Compatibility
 
-Bindings are versioned in lockstep, so `2.x` is the same behavior in every language. `shcl~=2.0` picks up minor and patch releases on its own and never crosses a major version.
+Bindings are versioned in lockstep, so `3.x` is the same behavior in every language. `shcl~=3.0` picks up minor and patch releases on its own and never crosses a major version. It skips a beta, though, so name this one exactly: `shcl==3.0.0b1`, or `pip install --pre shcl`.
 
 ## The CLI
 

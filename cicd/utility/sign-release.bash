@@ -98,7 +98,7 @@ command -v openssl >/dev/null || fDie "need openssl"
 ## Cargo.toml is the version they were built from. A mistyped tag would sign a
 ## sums file whose entries no download URL can reach, so refuse unless HEAD
 ## is tagged exactly v<version>. `git tag --points-at` rather than `describe`:
-## the cut puts two tags on the commit (v2.0.0 and source/go/v2.0.0).
+## the cut puts two tags on the commit (vX.Y.Z and source/go/vX.Y.Z).
 ver="$(sed -n '/^version *= *"/{ s/^version *= *"\(.*\)".*/\1/p; q; }' "${root}/source/rust/Cargo.toml")"
 [[ -n "${ver}" ]] || fDie "cannot read the version from source/rust/Cargo.toml"
 if (( tagCheck )); then

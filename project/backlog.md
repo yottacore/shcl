@@ -161,6 +161,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever the tail holds.
 
+- Rust parses about a third slower than 2.0.0
+	- ID: 2026110516100001
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261105-161000
+	- Opened by: the comparison rerun for 3.0.0-beta1
+	- Version and build: `cut3b1` at `ae8540e9`
+	- Progress log:
+		- 20261105: comparison run `20261105-155747` against `20261002-210439` (2.0.0), same box. SHCL's read went from 2.97 s to 3.92 s on the records shape, 0.037 to 0.050 ms on the config, and 5.9 to 7.7 ms on the schema. The other parsers read 0 to 8% slower, the box's load. Python moved the same way, 4.2x to 5.7x behind `tomllib`. A profile should find which 3.0 change costs it before any fix.
+
 - A kept index line makes every edit re-emit the whole document
 	- ID: 2026110114020101
 	- Type: Bug
@@ -211,6 +222,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Question: is GitNiblet Enterprise Edition open source?
 		- No
 	- Estimated effort: Low
+	- Progress log:
+		- 20261105: the table cell now says No. The gif is left for its next render.
 
 - Cache cleanup leaves some caches to grow
 	- ID: 2026110215285707

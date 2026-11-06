@@ -59,7 +59,7 @@ def write_failed(e):
 
 
 # Keep in step with source/rust/Cargo.toml, the canonical version source.
-VERSION = "2.0.0"
+VERSION = "3.0.0-beta1"
 
 # The build number, set only for a stamped build. The Rust CLI is the one the
 # pipeline stamps; see its build.rs.

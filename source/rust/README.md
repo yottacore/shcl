@@ -63,7 +63,7 @@ Also here: `merge` for layered config (defaults, site, user), `validate` against
 
 ## Compatibility
 
-Bindings are versioned in lockstep, so `2.x` is the same behavior in every language. `shcl = "2"` picks up minor and patch releases on its own and never crosses a major version.
+Bindings are versioned in lockstep, so `3.x` is the same behavior in every language. `shcl = "3"` picks up minor and patch releases on its own and never crosses a major version. It skips a beta, though, so name this one exactly: `shcl = "3.0.0-beta1"`.
 
 ## Docs
 
