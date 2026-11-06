@@ -48,6 +48,137 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Held for v4 (JC, 2026-11-02).
 
+- A `#` in an unquoted path cuts the path, so `--remove` and the setters act on the field above it
+	- ID: 2026110613470301
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 1
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A file with `colors:`, then `primary: red` and `secondary: blue` under it, then `"colors#primary": x`.
+		- `shcl set --remove='colors#primary' FILE`.
+	- Incorrect behavior: exit 0, and the whole `colors` section is gone. An ops line `string a.b#c V` sets `a.b`. In the library `check_set_path("a.b#c.d")` says Ok and `set_string` writes `a.b`. A read of `colors#primary` reads `colors`.
+	- Expected behavior: `BadPath`. spec.md says a lookup path uses the same syntax and tolerances as the file, and in a file `a#b: 1` is a broken line that binds nothing. design.md's Write outcomes give `BadPath` for a path the scanner refuses, the way `ValueInPath` refuses a `: value` part.
+	- Reproduced: 20261106, all 4 CLIs and the Python library.
+	- Possible cause: `scan_lookup` and its twins read the path with comments on, and nothing refuses the comment it finds.
+	- Origin: `e58fe9f4` (2026-09-07). Not seen by an earlier round. The "finds nothing" rule for a selector body that starts with `#` covers selectors only. Confirmed.
+	- Sweep: every caller of the path scan in all 4 and the C++ interface: the reads, the setters, `check_set_path`, `remove`, `clear_comments`, and the CLIs' `--set`, `--remove`, ops lines and `get --set`.
+	- Estimated effort: Low
+
+- `banner on` and `upgrade` drop an author's line inside the info block
+	- ID: 2026110613470302
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 2
+	- Related IDs: 2026100307163904
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A 3.0 file whose info block has a line added by hand, such as `##    Owner    ops team, call x1234 before changing`.
+		- `printf 'banner\ton\n' | shcl set FILE`.
+	- Incorrect behavior: exit 0, and the Owner line is gone, though the block was already current. `upgrade --from-2x --write` on a 2.x file with such a line in its `#` block drops it the same way, after the backup.
+	- Expected behavior: README says a save never deletes a line you typed unless you ask it to. design.md keeps a Schema line in the block "since the author wrote it there and the block is rewritten whole", and that reason fits any line the block didn't write.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Possible cause: `drop_banners` and its twins keep only a Schema line out of the old block.
+	- Origin: `6c00b70d` (2026-10-03), the fix for 2026100307163904, which kept the comments around the block. Not seen by an earlier round. Confirmed.
+	- Note: `banner on` on a block that's already current could write nothing.
+	- Estimated effort: Low
+
+- The publish script tells the user to drop a stash that has the only copy of their untracked files
+	- ID: 2026110613470303
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 3
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A clone with an untracked `notes.txt`, while the upstream adds its own `notes.txt`.
+		- `cicd/utility/n8git_backup-and-publish`, which stashes with `--include-untracked`, pulls, then pops.
+	- Incorrect behavior: the pop can't put the untracked file back, since the pulled one is in the way, and exits 1. The tracked edits come back with no conflict markers. The script prints "Resolve the conflicts, then 'git stash drop', and re-run", and doing that deletes the only copy. The failed-pull branch gives the same advice.
+	- Expected behavior: say that the untracked files couldn't be put back and are still in the stash, name them, and never advise a drop. The script's history says a pop conflict stops "instead of stranding a half-merged tree".
+	- Reproduced: 20261106, the script's stash, pull and pop run with plain git in a scratch repo. The script itself wasn't run, since it commits and pushes.
+	- Origin: the message is `fa9e2f72` (2026-07-25), `--include-untracked` is `88d6a42b` (2026-07-12), and an untracked file alone starts the stash since `035dfb78` (2026-09-23). The items on a pop conflict and a failed pull don't cover this. Confirmed.
+	- Note: the script is a copy of the shared one. The fix goes in the shared copy first.
+	- Estimated effort: Low
+
+- The parse caps don't count comment lines or kept lines, so a capped parse can still use 100 times the file's size
+	- ID: 2026110613470304
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 4
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A 4 MB file of `#` lines.
+		- `parse_limited` with caps of 10,000 nodes, 1,000 elements and 100 diagnostics.
+	- Incorrect behavior: a peak of 342 MB in Rust, 539 in Go, 357 in C and 436 in Python. A 9.5 MB file of comments takes 849 MB to 1.2 GB, and 2M lines of `a b`, kept as `E014`, take 344 to 654 MB. A file of `kN: 1` lines stops at the cap at about 47 MB.
+		- When the cap is crossed on the file's last line, that line loads, and `E020` goes on it, saying "parse stopped" with nothing lost. The code's comment puts `E020` on the first line not parsed. Under Strict that file fails to load.
+	- Expected behavior: README says the caps mean a hostile file can't run a program out of memory, and spec.md says only counting what the parse builds can bound what a load allocates. Comment and kept lines are built but not counted.
+	- Reproduced: 20261106, all 4 libraries, peak memory by `/usr/bin/time`. The `E020` case in Python and Go.
+	- Possible cause: the node cap counts tree nodes only. Pending comments, orphans and kept lines have no count.
+	- Origin: the node cap is `c1335634` (2026-09-01), the README line `3e798e75` (2026-09-24). Not seen by an earlier round. Confirmed.
+	- Sweep: every place the parse keeps a line with no node, in all 4.
+	- Estimated effort: Avg
+
+- A load that re-opens many blocks takes time in the square of their count since 2026-11-04
+	- ID: 2026110613470305
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 5
+	- Related IDs: 2026110315051536
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- 100,000 blocks `srv: vN`, each with a child, then each one again with another child.
+		- `shcl fmt FILE`.
+	- Incorrect behavior: Go 5.3 s, C 4.0 s, Rust 1.6 s. Go built from before `5922ef64` takes 0.56 s. With a kept line before each re-opened block, Rust at 64,000 blocks went from 0.46 s to 3.3 s.
+	- Expected behavior: the linear time it had before the fold fix. lib.rs says the parse keeps a plain file out of quadratic time.
+	- Reproduced: 20261106, all 4 CLIs, and the old Go and Rust builds for the before numbers. Go's profile puts 91% of the time in `refileFolded`.
+	- Possible cause: every line that binds to an existing node goes in `folded`, kept lines or not, and `refile_folded` scans the parent's whole child list for each one before it checks whether anything has to move. A child-to-index map gave the old Go time, with the same output over the corpus.
+	- Origin: `5922ef64` (2026-11-04), the fix for 2026110315051536. Regression. No perf-gate workload re-opens blocks. Confirmed.
+	- Note: the fix needs a perf-gate workload with a numeric threshold.
+	- Estimated effort: Low
+
+- Python decodes escapes in time in the square of their count
+	- ID: 2026110613470306
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 6
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- `a: "`, then `◉TAB◉` 80,000 times, then `"`.
+		- `shcl check FILE`.
+	- Incorrect behavior: Python takes 3.0 s, against 0.8 s at 40,000. 1M escapes, a 9 MB line, ran past 90 s. At 1M Rust takes 0.09 s, C 0.08 and Go 0.71.
+		- Go and Python build the diagnostic text for every good escape, where Rust builds it only for an error. Building it only when needed took Go from 0.72 s to 0.19 s at 1M.
+	- Expected behavior: README says the parser is safe on untrusted input. The caps can't help, since it's one line.
+	- Reproduced: 20261106, all 4 CLIs, profiled in Python.
+	- Possible cause: `_resolve_marks` copies the rest of the text at each escape, and `_shown` does the same. Finding each mark by index gave 0.25 s at 40,000 and 3.1 s at 1M, with the same `fmt` output.
+	- Origin: `f2b97394` (2026-10-06) for `_resolve_marks`, `1d5f3f2b` (2026-10-10) for `_shown`, `81943546` (2026-10-09) for the text built every time. A drift from the Rust reference. Not seen by an earlier round. Confirmed.
+	- Estimated effort: Low
+
+- Make sign-release.bash refuse a dated build
+	- ID: 2026110613470321
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 21
+	- Problem description: the signer checks that the sums match the files beside them, then signs. Every pipeline run writes the local release folder, and today it has a dated build from a later run, not the beta1 bytes. Signing it with `--no-tag-check`, as beta1 was signed, passes and makes a good signature over bytes that aren't the cut. `release-table.bash --version-of` already refuses a dated build.
+	- Requirements:
+		- Refuse a dated build, or a version other than the tag's, the way release-table does.
+		- Check the binaries, not only the source HEAD.
+	- Reason: a re-sign and re-upload would put a build that isn't the cut behind a valid signature.
+	- Origin: `6d29ef3a` (2026-09-02). Confirmed with a copy of the script and a test key.
+	- Estimated effort: Low
+
 - The default run takes over an hour
 	- ID: 2026110215285706
 	- Type: Enhancement
@@ -60,6 +191,254 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
 	- Estimated effort: Avg
+
+- The changed check misses a file reached through a second spelling of its path
+	- ID: 2026110613470307
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 7
+	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- Load `nodir/../q.shcl` with no `nodir` there.
+		- Another program makes `nodir` and writes `q.shcl`.
+		- Save to `nodir/../q.shcl`.
+	- Incorrect behavior: the save says OK in all 4, and the other program's text is gone.
+	- Expected behavior: spec.md says a file made where the load found nothing is a change, and one file gives one answer however its path is spelled. `nodir/./q.shcl` refuses as it should.
+	- Reproduced: 20261106, library calls in all 4.
+	- Possible cause: the load records the path with `..` kept, since `nodir` wasn't there. At the save the folder exists, so the resolve cancels `..` and gets another path, and the check doesn't run.
+	- Twins, read only, each with a probe kept for the next visit to that box:
+		- Windows Go: `nodir\..\x.shcl` keeps `..` in the record, while Windows cancels it, so a later save to `x.shcl` skips the check.
+		- macOS Go and Python: on a volume that ignores case, a load of `Conf.shcl` and a save to `conf.shcl` skip the check, since `EvalSymlinks` and `realpath` keep the case given. Rust and C get the case on disk from Darwin's `realpath`.
+	- Origin: `2c878191` (2026-11-03) in Go and Python, `2f38f68b` (2026-11-03) in Rust, `0710c634` (2026-11-04) in C. A missed twin of 2026110314240418, which kept `..` as written without the folder showing up later. Confirmed on Linux, Plausible on Windows and macOS.
+	- Note: this class has come back in 3 rounds in a row. A property test that walks path spellings across file system changes between the load and the save would cover the class, where a test per spelling covers one.
+	- Estimated effort: Avg
+
+- A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
+	- ID: 2026110613470308
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 8
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A file `f.shcl`. Save to `f.shcl/` or `f.shcl/.`, and a create-only save to `f.shcl/`.
+		- `set --write f.shcl` with the file swapped for a folder during the wait for ops.
+	- Incorrect behavior: Rust and C give `Changed`, or `Exists` for the create, where Go and Python give `IsDirectory`. The CLIs' swap case gives `FILE: not a regular file` at exit 8, where a folder there from the start gives "is a directory". The C CLI says `Not a directory` for `f.shcl/`.
+	- Expected behavior: design.md's Save outcomes give `IsDirectory` for a path ending in a separator, `.` or `..`, and for a folder, and say the same answer comes from every binding's save and from the CLI's `--write`.
+	- Reproduced: 20261106, library calls and all 4 CLIs. Nothing is written in any case.
+	- Possible cause: the resolve drops the trailing separator before the changed and create checks, and a read that fails with ENOTDIR counts as a change. The CLI's check refuses anything but a regular file with one message.
+	- Origin: `2f38f68b` (2026-11-03) for the library, `c1053f55` (2026-11-04) for the CLI message. Before `2f38f68b` the write said `IsDirectory`. Regression from a fresh fix. Confirmed.
+	- Note: a caller that retries with `force` on `Changed` is misled.
+	- Estimated effort: Low
+
+- C checks a recursive schema in time cubic in the nesting depth
+	- ID: 2026110613470309
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 9
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A schema with `fragment: f` with a `field: a` that inherits `f` and an int `field: leaf`, plus a top-level `field: a` that inherits `f`.
+		- A 41 KB document of 40 lines, each `a(vN).`, then `a.` 509 times, then `leaf: 1`.
+		- `shcl check --schema=SCHEMA FILE`.
+	- Incorrect behavior: C 4.0 s, Python 7.4, Rust 0.56, Go 0.33. Twice the depth costs C 7 times as much, and the others 4 times.
+	- Expected behavior: spec.md says the check's cost is proportional to the document, never the schema's unfolding.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Possible cause: C's candidate loop in `chain_parts_legal` walks to the end of the chain for each candidate at every level, where Rust stops at the path's length. That bound took C to 0.21 s, with the same results over the corpus schema cases. All 4 also rebuild each node's chain from the root in the unknown-field check, which is the square.
+	- Origin: `d61bfc8c` (2026-09-17). Code review 20260905 item 4 removed the doubling per level. perf-gate's `recurse` (`dc81v`) times one 60-level chain. Confirmed.
+	- Estimated effort: Low
+
+- `set_literal` leaves `quoted` false on a value the save writes quoted
+	- ID: 2026110613470310
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 10
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- `set_literal("k", "10:00")`, read the `quoted` flag on `k`, save, reload, and read it again.
+		- The same for `(5)`, `- 5`, `1 200`, `1,2` and `2026-01-01T10:00`.
+	- Incorrect behavior: false before the save and true after it. `set_string` with the same text gives true both times.
+	- Expected behavior: spec.md says a value a setter wrote counts as quoted when a save would quote it, so the flag reads the same before and after the save.
+	- Reproduced: 20261106, Rust, Go, Python and the C++ interface. No typed read differed for these values.
+	- Possible cause: `set_literal` builds its cell from the tokens, not through `new_element`, which every other setter uses since Code review 20260909 item 13.
+	- Origin: `58d8e81e` (2026-09-09). A missed twin of Code review 20260909 item 13. Confirmed.
+	- Estimated effort: Low
+
+- Comments taken off a replaced item list end up above the list's blank line
+	- ID: 2026110613470311
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 11
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- `server:` with `port: 8080`, a blank line, then `items:` with `# first element`, `- one` and `- two  # second`, a blank line, and `z: 1`.
+		- `shcl set --set-literal='items=[one, two]' FILE`.
+	- Incorrect behavior: both comments come out right under `port: 8080`, then the blank line, then `items:`, so they read as part of `server`. `fmt --layer` gives the same. The output is a fixpoint, so it never corrects itself.
+	- Expected behavior: README says comments survive a rewrite attached to what they documented. spec.md's SetComment rule puts a node's blank line above its comment.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Possible cause: `unstack` adds the list's comments to the node's leading comments and leaves its blank line where it was.
+	- Origin: `7c90c42d` (2026-10-05). The same class as Code review 20260904 item 18 and Code review 20260830 item 19. Confirmed.
+	- Note: comment placement under edits has come back one site at a time. A fuzz property that each comment stays on the same side of each blank line would cover the class.
+	- Estimated effort: Low
+
+- Removing one field of a dotted pair writes a bare header line
+	- ID: 2026110613470312
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 12
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: `a.b: 1` and `a.c: 2`, then `shcl set --remove=a.b FILE`.
+	- Incorrect behavior: `a:` then `a.c: 2`. Taking `srv.web.port` out of a dotted pair writes `srv:` and `web:` lines. A blank line above the removed line goes too.
+	- Expected behavior: `a.c: 2` alone. design.md says a remove only takes lines away and writes no line the document didn't write before.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Possible cause: the removed line was the line that opened `a`, so the line-keeping save writes `a` fresh.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Estimated effort: Avg
+
+- `E003` names the capped number, not the index as written
+	- ID: 2026110613470313
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 13
+	- Related IDs: 2026101514324705
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: `c: x`, then `c(99999999999999999999999).d: 2`, and `shcl check FILE`.
+	- Incorrect behavior: `E003 no instance 18446744073709551615 of 'c'`.
+	- Expected behavior: the index as written, the way `H006` and `H007` quote the Format number since 2026101514324705.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Origin: a sibling of 2026101514324705, which fixed the Format number's text only. Confirmed.
+	- Estimated effort: Low
+
+- Some spec sentences don't match what all 4 bindings do
+	- ID: 2026110613470314
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 14
+	- Related IDs: 2026100717500001, 2026100717500010
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: run each case below through the 4 CLIs.
+	- Incorrect behavior:
+		- A lookup path whose bare selector body starts with `#`, or has `E017` or `E023` in it, "finds nothing" in spec.md's Paths section, its `E023` row and its selector bullet, and in grammar.abnf and design.md. Every binding refuses it as `BadPath` at exit 1, since 2026100717500001.
+		- The indent rule says "a proper prefix of the open one is a child". It's the other way round: the open level's indent is a proper prefix of the child's.
+		- The init annotation line is "ASCII only", with a newline written as `\n`. It writes `◉` escapes and other non-ASCII text, such as `a◉NEWLINE◉b`. Rust's `gen_annotation` comment says ASCII too.
+		- A set with no selector over repeated instances is refused "since a read of the path would answer `Multiple` too". With `srv: a`, `srv: b` and `srv.port: 80` the read gives 80 and the set is refused. The refusal is by step, per 2026100717500010, so only the reason is wrong.
+		- `allowed` on a datetime compares in "the coerced space", the moment. `12:00` and `12:00:00` are 2 values to it, on purpose since Code review 20260905 item 8, and the spec doesn't say so.
+	- Expected behavior: the docs say what the code does.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Origin: the "finds nothing" lines are `df0eab64` (2026-10-06), a day before `BadPath`. The indent line is `d5978c0d` (2026-09-20), the annotation line `dd004f13` (2026-09-08, before `◉`), and the set line `a4d2d6b0` (2026-10-08). Confirmed.
+	- Estimated effort: Low
+
+- A document at the 512 depth cap needs about 190 KB of stack in C
+	- ID: 2026110613470315
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 15
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: a 511-deep file with a comment at each level, and `shcl fmt` under smaller and smaller `ulimit -s`.
+	- Incorrect behavior: Rust needs 171 KB and C 187 KB. At 64 KB `fmt`, `--layer` and `set` crash in both. C's `emit_children` takes 368 bytes a level and `v_node` 720. A C program parsing on a musl thread, 128 KB by default, or on a small embedded stack would crash on a hostile file.
+	- Expected behavior: spec.md says recursion linear in the depth can never outrun a thread stack, and README says the C binding builds for embedded targets.
+	- Reproduced: 20261106, the main thread under `ulimit -s` in Rust and C. Go and Python passed every depth-512 operation. The musl thread case is read only.
+	- Origin: the spec line is `8fbc6f6d` (2026-07-25). Confirmed for the stack sizes, Plausible for the musl thread.
+	- Note: either the spec gives the stack a full-depth document needs, or the recursion uses less.
+	- Estimated effort: Avg
+
+- The setup's PATH removal rewrites a machine PATH that doesn't have the folder
+	- ID: 2026110613470316
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 16
+	- Target OS: Windows
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: `cicd/packaging/shclpath.ps1 -Remove` with the folder missing from a machine PATH that ends in `;`.
+	- Incorrect behavior: it writes the machine PATH anyway, with the empty parts dropped.
+	- Expected behavior: no write, the way install.ps1 does since `a30d9b91`, where absent is no write.
+	- Reproduced: 20261106, the same expressions under pwsh on Linux.
+	- Origin: `f66b81f5` (2026-09-17). A missed twin of `a30d9b91` (2026-09-27). Confirmed.
+	- Estimated effort: Low
+
+- install.ps1 calls `tar` by name, so a GNU tar ahead of System32 can't unpack the payload
+	- ID: 2026110613470317
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 17
+	- Target OS: Windows
+	- Needs external testing: b29w, with Git for Windows' `usr\bin` ahead of System32 on PATH.
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: a PATH with Git for Windows' `usr\bin`, MSYS2 or Cygwin ahead of System32, then install.ps1.
+	- Incorrect behavior: GNU tar reads `C:\...` as a remote host and file unless given `--force-local`, so the unpack fails.
+	- Expected behavior: the install works with any PATH order.
+	- Reproduced: no. A probe for b29w is ready.
+	- Possible cause: `tar -xzf ... -C ...` at the unpack, found through `Get-Command tar`.
+	- Origin: Plausible.
+	- Estimated effort: Low
+
+- install.bash fails when a temp folder's name has `..` in it, and the tag filter isn't anchored
+	- ID: 2026110613470318
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 18
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: `TMPDIR` set to a folder named `tmp sp..x`, then install.bash.
+	- Incorrect behavior: the install finishes, then prints `safe-rm: refused, bad path` and exits 1. The temp folder with the binary and payload stays.
+		- The "only vX.Y.Z tags" filter in both installers isn't anchored at the end, so install.bash would take a tag `v2.0.0x`, and install.ps1 throws on it.
+	- Expected behavior: exit 0 and the folder removed. `..` is only unsafe as a whole path part, which is how install.ps1's `Remove-SafeTree` checks it.
+	- Reproduced: 20261106, install.bash in a sandbox, and both tag pickers run on lists of tags.
+	- Origin: `fRmTmp`'s match is `ae548339` (2026-10-31), the tag filter `ce64bbea`. Confirmed.
+	- Estimated effort: Low
+
+- sign-release.bash's key fingerprint check can't fail
+	- ID: 2026110613470319
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 19
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: read `[[ -n "${want}" ]] || fDie "cannot fingerprint the signing key"` in `cicd/utility/sign-release.bash`.
+	- Incorrect behavior: `fFp` ends in `sha256sum`, which prints a hash for empty input too, so `want` is never empty.
+	- Expected behavior: the check fails when the key can't be read. The public key step before it and the compares after it still fail closed, so nothing wrong is signed today.
+	- Reproduced: 20261106, `fFp /dev/null` gives the empty input's hash.
+	- Origin: `7fb1645b` (2026-07-28). Confirmed.
+	- Estimated effort: Low
+
+- comparison.md's peak memory row comes from the 2026-10-02 run
+	- ID: 2026110613470320
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 20
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: compare the stress test table in `project/comparison.md` with `cicd/utility/comparison/results.shcl`.
+	- Incorrect behavior: the read time row is from run `20261105-155747`. The memory row has XML 1.5, TOML 2.4 and YAML 2.7 GB, the 2026-10-02 run's numbers, where the newer run has 1.44, 2.32 and 2.61.
+	- Expected behavior: comparison.md says every number is in results.shcl, so the table is one run.
+	- Reproduced: 20261106, both runs pulled out of results.shcl.
+	- Origin: the memory row is `b30d70a8` (2026-10-14), the read row `ae8540e9` (2026-11-05). Confirmed.
+	- Estimated effort: Low
 
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
 	- ID: 2026110408432594
@@ -192,6 +571,73 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A perf-gate workload with a kept index line and bulk writes. None of today's has a kept line and writes together, so nothing failed.
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
 	- Estimated effort: Avg
+
+- Say so when an installer moves a beta install back to the older stable
+	- ID: 2026110613470322
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 22
+	- Related IDs: 2026110215285718
+	- Problem description: after `--release dev`, a plain run of the one-liner installs 2.0.0, says "updates the existing install" and exits 0. Where 2.0.0 has no drop-in payload, 3.0's `code/`, man page and completions stay next to the older binary. install.md calls a rerun idempotent and tells beta users to add `--release dev`.
+	- Requirements:
+		- Say when an install goes to an older version.
+		- Remove what the older release doesn't have.
+	- Reason: a 3.0 user who reruns the plain one-liner gets 2.x read rules with no word.
+	- Origin: `74c3a5a0` (2026-07-22), `c52fa077` (2026-09-22). Confirmed for install.bash in a sandbox. install.ps1 has the same logic.
+	- Estimated effort: Low
+
+- Make `children` and `instances` exit 3 on a path that isn't there
+	- ID: 2026110613470323
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 23
+	- Related IDs: 2026100818140260
+	- Problem description: the CLI exits 0 with no output both for a missing path and for an empty section, so a script can't tell them apart. The library's `read_children` and `read_instances` give `NotFound` for one and `Good` for the other since 2026100818140260, and `get` exits 3 on a miss.
+	- Requirements: exit 3 on `NotFound`, as `get` does. `count` could do the same.
+	- Origin: Confirmed in all 4 CLIs.
+	- Estimated effort: Low
+
+- Quote the other line breaks in `instances` and `get --array` output
+	- ID: 2026110613470324
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 24
+	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
+	- Requirements: quote a value with any character `fmt` escapes as a line break.
+	- Origin: Confirmed in all 4 CLIs.
+	- Estimated effort: Low
+
+- Make a Go zero-value `Document` usable, or say to use `New()`
+	- ID: 2026110613470325
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 25
+	- Problem description: `var d shcl.Document`, then `d.SetString("a", "b")` or `d.GetStringOr(...)`, panics with an index out of range, and so does `d.Merge(nil)`. Rust has `Default`, Python's `Document()` works, and the C++ comment says a default Document is usable. Go's `Document` doc doesn't say to use `New()`.
+	- Requirements: a usable zero value, or a line on the type that says to use `New()`.
+	- Reason: the same interface in every binding unless idiom makes it surprising, and in Go a usable zero value is the idiom.
+	- Origin: `8bca69bd` (2026-07-12). Not in the v4 design. Confirmed.
+	- Estimated effort: Low
+
+- Give the dogfood launcher's copy its own temp name, and swap its link by rename
+	- ID: 2026110613470326
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 26
+	- Related IDs: 2026110215285714
+	- Problem description: `dogfood_shcl.ps1` copies each new build through one fixed `.partial` name per build stamp, so 2 runs as a build arrives can cut the file under the other's rename. `Update-FixedName` removes the link before it makes the new one, so for a moment there's no `shcl` on PATH.
+	- Requirements: a temp name per process, and the link replaced by a rename.
+	- Origin: `eefd1dba`. Plausible, read only.
+	- Estimated effort: Low
 
 - check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
 	- ID: 2026110409565662
@@ -21407,6 +21853,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Dropped: strictness and on-bad are the consuming program's contract, not the user's. A user-level override would silently weaken guarantees an app makes about its own config handling, and would make the same `shcl` command mean different things on different machines. Nothing else the CLI exposes is presentation-only, so there is nothing left for a config file to hold. Rationale in `design.md`; runtime options and the library's per-document strictness argument stay as they are.
 	- Opened: 20260711-150807
 	- Closed: 20260723-134323
+
+- Code review 20261106:
+	- Decided against: refiling the 20261102 design review's findings, as in 20261103. JC moved all 13 to v4 (2026110217340701 to 13).
+	- Decided against: changing "skipped" in the `E014` and `E018` messages. README says a broken line is skipped with a note: the load passes over it, and the file keeps it.
+	- Decided against: the spec's "adn" and "wiht". They're slips left in on purpose, per the writing rules.
+	- Decided against: writing the set on `srv.port` when only one `srv` has a `port`. 2026100717500010 chose a refusal at any step that matches more than one instance, and 2026110613470314 fixes the spec's reason.
+	- Decided against: C's `migrate` using about 7 times Rust's memory per 2.x bracket selector. It's linear, it runs once per file, and 2.x conversion is low stakes (JC, 2026-10-15).
+	- Decided against: running check-readme on a docs-only push to main. Main gets dev's docs, and dev's gates ran check-readme and check-docs on them.
+	- Decided against: a setter on `k(x)` changing that instance's value, so `k(x)` reads `NotFound` after. 2026110312163204 pins it.
+	- Decided against: Python raising `AttributeError` for a path that isn't a str. The type hints say str, and mypy catches it.
+	- Decided against: bulk sets that fold into instances costing the square of the count. It's the same before and after `cc8d2576`, and comes from the selector lookup in 2026100307163919.
+	- Decided against: the PyPI "Production/Stable" classifier on 3.0.0-beta1. pip takes the beta only with `--pre`, and 2.0.0 is the stable line.
+	- Opened: 20261106-134703
+	- Closed: 20261106-134703
 
 - Code review 20261103:
 	- Decided against: refiling the 20261102 design review's findings on the format against YAML, TOML and JSON, on least surprise, and on the API a junior programmer sees. JC moved all 13 to v4 (2026110217340701 to 13).
