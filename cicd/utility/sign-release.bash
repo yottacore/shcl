@@ -157,10 +157,11 @@ sed -n '/BEGIN PUBLIC KEY/,/END PUBLIC KEY/p' "${root}/install.bash" \
 	| sed "s/^[^-]*'//; s/'[[:space:]]*$//" > "${tmppub}"
 [[ "$(fFp "${tmppub}")" == "${want}" ]] || fDie "install.bash has a different key"
 
-## install.ps1 has the bare modulus, not a PEM - compare that directly.
+## install.ps1 has the bare modulus, not a PEM - compare that directly. The
+## line sits in an indented block, so allow for leading blanks.
 ## openssl gives the modulus as hex; printf turns each pair into its byte and
 ## openssl base64s the result, so no other tool is needed for the round trip.
-psmod="$(sed -n "s/^\$signingModulus = '\(.*\)'.*/\1/p" "${root}/install.ps1")"
+psmod="$(sed -n "s/^[[:space:]]*\$signingModulus = '\(.*\)'.*/\1/p" "${root}/install.ps1")"
 modhex="$(openssl rsa -pubin -in "${pub}" -modulus -noout 2>/dev/null | sed 's/^Modulus=//; s/../\\x&/g' || true)"
 [[ -n "${modhex}" ]] || fDie "cannot read the key's modulus"
 keymod="$(printf '%b' "${modhex}" | openssl enc -base64 -A)"
