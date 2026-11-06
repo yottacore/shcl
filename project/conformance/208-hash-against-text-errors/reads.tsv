@@ -1,0 +1,9 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+pal	string[]	-	NotFound
+two	string	-	NotFound
+tail	string[]	-	NotFound
+gap	string[]	-	NotFound
+ok	int	1	Good

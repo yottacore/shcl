@@ -1,0 +1,20 @@
+# A '#' against text opens a comment, as every '#' outside quotes does, and
+# the load hints H008 so the cut is not silent: text right before it, or an
+# empty value with text right after it. A blank before it, a quoted or
+# bracketed value before it, or a '#' or a blank after it gets none.
+url: "http://h/"  #frag
+color:  #fff
+tight:  #x
+list:
+	- a  #b
+	- ok
+code:  #
+	```c
+	x
+	```
+port: 80  # main
+quoted: "#fff"
+qtight: "a"  #c
+arr: [a, b]  #c
+note:  # after an empty value
+prose:  ##two

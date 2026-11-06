@@ -1,4 +1,5 @@
 query	type	expected	status	level
 -	load	ok	-
-table[t].col	string	a	Good
-table[t].kind	string	b	Good
+-	load	ok	-	strict
+table(t).col	string	a	Good
+table(t).kind	string	b	Good

@@ -1,0 +1,61 @@
+# Every shape here had the generator guess what the scanner would read, and
+# guess wrong. Each selector body and each path is now scanned back as a file
+# line before it is written, and every commented line is read back too.
+
+# Two lines on one path: the first is written, and its value is the instance
+# a child selects.
+field: "a(*)"
+	required: yes
+	default: x
+field: a
+	required: yes
+	default: y
+field: a.port
+	required: yes
+	default: 1
+
+# Two by-value fields with different values are two instances.
+field: "env(prod)"
+	required: yes
+	default: prod
+field: "env(dev)"
+	required: yes
+	default: dev
+field: env.url
+	required: yes
+	default: u
+field: "stage(prod)"
+	default: prod
+field: "stage(dev)"
+	default: dev
+
+# Digits past 64 bits read as an index, so the child quotes the body.
+field: srv
+	required: yes
+	default: "20000000000000000000"
+field: srv.port
+	required: yes
+	default: 2
+
+# A quoted element: the child selected the elements joined. A bare selector
+# body cannot hold the space since the value syntax (2026100207032800), so
+# there is no spelling for it now.
+# field: tags
+# 	required: yes
+# 	default: "a, b", c
+# field: tags.x
+# 	required: yes
+# 	default: 3
+
+# A `#` in a selector body is fine in a lookup and a comment on a file line.
+field: "repo(org/name#123).branch"
+	required: yes
+	default: main
+field: "gh(org/name#9).ref"
+
+# A fragment name holding a line break stays inside the trailing block.
+field: m
+	inherits: "f◉NEWLINE◉b: 1"
+fragment: "f◉NEWLINE◉b: 1"
+	field: x
+		inherits: "f◉NEWLINE◉b: 1"

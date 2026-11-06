@@ -1,0 +1,13 @@
+# A Schema line names the file's schema, and the first one wins
+raw:
+	```
+##    Schema   inside.shcl
+	```
+##    Schema   ./app.schema.shcl
+port: 8080
+
+##
+## This config file format is SHCL.
+##    Format   3
+##    Schema   other.shcl
+##

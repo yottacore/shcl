@@ -1,0 +1,12 @@
+db:
+	host: h
+	port: 1
+	"odd.key": 2
+	port: 3
+web:
+	roots: [/srv, /var]
+	"a b": yes
+server: main
+	bind: 0.0.0.0
+server: alt
+	bind: 127.0.0.1

@@ -1,7 +1,7 @@
 query	type	expected	status	level	slots
 -	load	ok	-
 *.port	int[]	8080|9090|0|0	NotFound	standard	Good|Good|NotFound|NotFound
-server[web1].*	string[]	8080|a.example	Good	standard	Good|Good
+server(web1).*	string[]	8080|a.example	Good	standard	Good|Good
 *	string	-	Multiple
 "*"	string	lit	Good
 *	count	4	-

@@ -1,0 +1,12 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	1	-
+window	children	opacity|columns	-
+window.margin	count	0	-
+window.columns	int	160	Good
+font	children	face	-
+font.size	count	0	-
+a	children	b|f	-
+c.d	int	1	Good
+c.e	count	0	-

@@ -1,0 +1,22 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+log	string	-	NotFound
+nest	string	-	NotFound
+gap	string	-	NotFound
+tail	string	-	NotFound
+lead	string	-	NotFound
+open	string		Empty
+open.under	int	1	Good
+comma	string		Empty
+comma.kid	int	2	Good
+trailing	string	-	NotFound
+alone	string	-	NotFound
+spaced	string	-	NotFound
+quote	string	-	NotFound
+mark	string	-	NotFound
+fine	string[]	[a]|b	Good
+quoted	string	80, 443	Good
+quoted	string[]	80, 443	Good
+last	int	1	Good

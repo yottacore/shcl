@@ -1,0 +1,27 @@
+# Service config, kept by hand.
+name: "Billing Two"  # shown in the UI
+
+server:
+	# public name
+	host: api.example.com
+	port: 9443  # behind the proxy
+	paths:
+		- /v1
+		- /v3
+
+	tls:
+		enabled: false
+		cert: /etc/ssl/billing.pem
+		key: /etc/ssl/billing.key
+
+script:
+	```sh
+	echo stop
+		indented
+	```
+
+retries: 3
+
+log:
+	level: info
+# end of settings

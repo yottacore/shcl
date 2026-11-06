@@ -1,0 +1,5 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+a	raw	never closed	Good
+-	lost	2	-

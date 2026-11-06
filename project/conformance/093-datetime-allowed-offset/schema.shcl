@@ -1,0 +1,24 @@
+field: d1
+	type: datetime
+	allowed: "2026-01-01T12:00:00Z"
+field: d2
+	type: datetime
+	allowed: "2026-01-01T12:00:00Z"
+field: d3
+	type: datetime
+	allowed: "2026-01-01T12:00:00Z"
+field: d4
+	type: datetime
+	allowed: "2026-01-01T12:00:00Z"
+field: t1
+	type: datetime
+	allowed: "12:00:00Z"
+field: t2
+	type: datetime
+	allowed: "12:00:00Z"
+field: wrap
+	type: datetime
+	allowed: "23:30:00Z"
+field: frac
+	type: datetime
+	allowed: "12:00:00.5Z"

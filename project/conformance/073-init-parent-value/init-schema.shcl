@@ -1,0 +1,45 @@
+# A live line with a value materializes an instance carrying that value, so a
+# child under it has to select that instance by the value, or it lands on an
+# empty-valued instance the schema never looks at.
+field: srv
+	type: string
+	required: yes
+	default: web
+
+field: "srv(*).port"
+	type: int
+	repeat: 1
+
+field: srv.host
+	type: string
+	required: yes
+	default: "a b"
+
+field: "srv.host(*).zone"
+	type: string
+	required: yes
+
+field: opt
+	type: string
+	default: x
+
+field: opt.child
+	type: int
+	required: yes
+
+field: odd
+	type: string
+	required: yes
+	default: "a]b"
+
+field: odd.under
+	type: int
+	required: yes
+
+field: bare
+	type: string
+	required: yes
+
+field: bare.leaf
+	type: int
+	required: yes

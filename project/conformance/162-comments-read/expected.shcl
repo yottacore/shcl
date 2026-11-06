@@ -1,0 +1,13 @@
+# The comment lines above a node, each from its # on, the lines
+# clear_comments takes.
+a: 1
+# mine
+	# indented note
+b: 2  # a trailing comment is not one of them
+c:
+	# inner
+	d: 1
+# first e
+e: 1
+# second e
+e: 2

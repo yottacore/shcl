@@ -1,7 +1,7 @@
 # nfpm config template for the .deb/.rpm packages (https://nfpm.goreleaser.com).
 # cicd/utility/package.bash sed-renders the ${SHCL_*} placeholders per build
 # (nfpm does not expand env vars in contents src). SHCL_PAYLOAD = staged
-# code/ + scripts/ trees; payload mirrors install.bash.
+# code/ tree, man page, docs and completions; payload mirrors install.bash.
 name: shcl
 arch: ${SHCL_ARCH}
 platform: linux
@@ -12,31 +12,73 @@ maintainer: Jim Collier <32471972+jim-collier@users.noreply.github.com>
 description: |
   Simple Hierarchical Config Language.
   Reference parser, accessor, writer, and CLI, with drop-in language
-  bindings (Rust, Go, Python, C/C++) and Bash/PowerShell wrappers.
-homepage: https://github.com/jim-collier/shcl
+  bindings (Rust, Go, Python, C/C++).
+homepage: https://github.com/yottacore/shcl
 license: MIT
+# What the binary links against, read off the binary itself by package.bash:
+# the glibc floor is its newest GLIBC_ version, and libgcc joins only when
+# libgcc_s is in NEEDED. Without these a package installs on a system where
+# the binary then dies in the loader.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= ${SHCL_GLIBC})${SHCL_DEB_LIBGCC}
+  rpm:
+    depends:
+      - glibc >= ${SHCL_GLIBC}${SHCL_RPM_LIBGCC}
+rpm:
+  # rpm stamps the building machine's hostname into the package; a fixed name
+  # keeps two builds of one commit byte-identical (the build date comes from
+  # SOURCE_DATE_EPOCH, which package.bash exports).
+  buildhost: localhost
 contents:
   - src: ${SHCL_BIN}
     dst: /usr/bin/shcl
     file_info:
       mode: 0755
+  # rpm owns only what is listed, and a tree's parent is not listed for it, so
+  # removing the package used to leave /usr/share/shcl behind. The deb's own
+  # tree entries include the parent; this makes both formats own it.
+  - dst: /usr/share/shcl
+    type: dir
+    file_info:
+      mode: 0755
   - src: ${SHCL_PAYLOAD}/code
     dst: /usr/share/shcl/code
-    type: tree
-  - src: ${SHCL_PAYLOAD}/scripts
-    dst: /usr/share/shcl/scripts
     type: tree
   - src: ${SHCL_PAYLOAD}/man/shcl.1.gz
     dst: /usr/share/man/man1/shcl.1.gz
     file_info:
       mode: 0644
+  # Debian policy wants both under /usr/share/doc/<package>. The dir entry is
+  # for rpm, the same as /usr/share/shcl above.
+  - dst: /usr/share/doc/shcl
+    type: dir
+    file_info:
+      mode: 0755
+  - src: ${SHCL_PAYLOAD}/doc/copyright
+    dst: /usr/share/doc/shcl/copyright
+    file_info:
+      mode: 0644
+  - src: ${SHCL_PAYLOAD}/doc/changelog.gz
+    dst: /usr/share/doc/shcl/changelog.gz
+    file_info:
+      mode: 0644
   # Completions go to the shell's own directory, not under /usr/share/shcl:
-  # bash-completion and zsh only autoload from theirs.
+  # bash-completion and zsh only autoload from theirs. zsh's differs by
+  # family: Debian's $fpath has vendor-completions and no site-functions,
+  # which is where Fedora and openSUSE look.
   - src: ${SHCL_PAYLOAD}/completions/shcl.bash
     dst: /usr/share/bash-completion/completions/shcl
     file_info:
       mode: 0644
   - src: ${SHCL_PAYLOAD}/completions/_shcl
+    dst: /usr/share/zsh/vendor-completions/_shcl
+    packager: deb
+    file_info:
+      mode: 0644
+  - src: ${SHCL_PAYLOAD}/completions/_shcl
     dst: /usr/share/zsh/site-functions/_shcl
+    packager: rpm
     file_info:
       mode: 0644

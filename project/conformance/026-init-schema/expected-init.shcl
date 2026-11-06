@@ -1,30 +1,43 @@
-# Port the server listens on.
-# int, 1-65535, required
+## Port the server listens on.
+## int, 1-65535, required
 server.port: 8080
 
-# Log verbosity.
-# string, one of: debug, info, warn
-#log.level: info
+## Request timeout in seconds.
+## float, >= 0.5
+# server.timeout:
 
-# Request timeout in seconds.
-# float, >= 0.5
-#server.timeout:
-
-# Enabled feature flags.
-# string-array
-#features:
-
-# Hostname per server.
-# string, required
+## Hostname per server.
+## string, required
 server.host:
 
-# int, repeat 1-5
+## Log verbosity.
+## string, one of: debug, info, warn
+# log.level: info
+
+## Enabled feature flags.
+## string-array
+# features:
+
+## int, repeat 1-5
 replicas:
 
-#
-# This config file format is SHCL.
-# "Simple Hierarchical Config Language"
-#    Home     https://github.com/jim-collier/shcl
-#    Syntax   https://github.com/jim-collier/shcl/blob/main/project/spec.md
-#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.
-#
+## float, 811212085039910.2-1125899906842624.2
+# ratio:
+
+## float, one of: 811212085039910.2, 1125899906842624.2
+# scale:
+
+## int, one of: 3, 7, 1-9
+# tier: 3
+
+## float, one of: 0.5, 1.5, >= 0.5
+# gain:
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

@@ -1,0 +1,33 @@
+# A last-segment by-value selector with a default is spelled as the bare path
+# carrying the default; without a default the selector line stays.
+field: "env(prod)"
+	desc: deployment
+	required: yes
+	default: prod
+
+field: '"data dir"(main)'
+	required: yes
+	default: main
+
+field: "tier(gold)"
+	required: yes
+	default: gold
+
+field: "tier(gold).limit"
+	type: int
+	required: yes
+	default: 10
+
+field: srv
+	required: yes
+	default: web
+
+field: "srv(*).zone(eu)"
+	required: yes
+	default: eu
+
+field: "flag(on)"
+	required: yes
+
+field: "mode(fast)"
+	default: fast

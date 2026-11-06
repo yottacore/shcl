@@ -1,0 +1,15 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+a.d	int	2	Good
+a.d.e	int	3	Good
+a.f	count	0	NotFound
+a.g	count	0	NotFound
+a.g.gg	count	0	NotFound
+a.gg	count	0	NotFound
+a.l	count	0	NotFound
+a.ll	count	0	NotFound
+a.m	count	1	Good
+a	children	d|m	-
+-	paths	a|a.d|a.d.e|a.m	-
+-	lost	4	-

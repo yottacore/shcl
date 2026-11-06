@@ -1,0 +1,3 @@
+query	type	expected	status
+over	string	-	Empty
+-	lost	0	-

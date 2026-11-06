@@ -1,0 +1,35 @@
+## any, required
+a:
+
+## any, required
+a.b: bee
+
+## any, required
+a.b(bee).c:
+
+## any, required
+num: 8
+
+## any, required
+num("8").v:
+
+## any, required
+w: v
+
+## any, required
+star: "*"
+
+## any, required
+star("*").leaf:
+
+## any, required
+"a◉NEWLINE◉b": v
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

@@ -1,0 +1,9 @@
+# about a
+a: 1
+
+# new about b
+b: 2 # same line
+g:
+	k: 3
+	# about m
+	m: 4

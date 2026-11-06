@@ -1,30 +1,37 @@
 .\" SPDX-License-Identifier: MIT
-.\" Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+.\" Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 .\"
-.\" Carries no version string on purpose: the release bump touches eight files
+.\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-08-18 shcl "User Commands"
+.TH SHCL 1 2026-11-03 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
 .SY shcl
-.RI get \ [ type ]
+.B get
+.RI [ type ]
 .RI [ options ]
 .I FILE PATH
 .YS
 .SY shcl
 .B set
-.RB [ \-\-write ]
+.RB [ \-\-write | \-w ]
+.RB [ \-\-lossy ]
+.RB [ \-\-no\-banner ]
 .RI [ options ]
 .I FILE
 .YS
 .SY shcl
 .B fmt
-.RB [ \-\-write ]
+.RB [ \-\-write | \-w | \-\-check ]
+.RB [ \-\-lossy ]
+.RI [ options ]
 .I FILE
 .YS
 .SY shcl
 .B check
+.RB [ \-\-schema=\c
+.IR SCHEMA ]
 .RI [ options ]
 .I FILE
 .YS
@@ -39,7 +46,43 @@ shcl \- read, edit, validate and format Simple Hierarchical Config Language file
 .I FILE PATH
 .YS
 .SY shcl
-.BR help | version | about | donate
+.B children
+.RI [ options ]
+.I FILE
+.RI [ PATH ]
+.YS
+.SY shcl
+.B paths
+.RI [ options ]
+.I FILE
+.YS
+.SY shcl
+.B migrate
+.RB [ \-\-write | \-w | \-\-check ]
+.RB [ \-\-lossy ]
+.RB [ \-\-from\-2x ]
+.I FILE
+.YS
+.SY shcl
+.B upgrade
+.RB [ \-\-write | \-w ]
+.RB [ \-\-from\-2x ]
+.I FILE
+.YS
+.SY shcl
+.B tokens
+.I FILE
+.YS
+.SY shcl
+.B explain
+.RI [ CODE ]
+.YS
+.SY shcl
+.B help
+.RI [ CMD ]
+.YS
+.SY shcl
+.BR \-\-version | \-\-about | \-\-donate
 .YS
 .SH DESCRIPTION
 .B shcl
@@ -68,25 +111,42 @@ Read one value, or an array of them, at
 The type is chosen at the call site with a type option; the default is
 .BR \-\-string .
 A trailing
-.RB [ * ]
+.RB ( * )
 in a path segment fans the read across every instance of that segment.
 .TP
 .B set
 Apply edits to
 .IR FILE ,
-the base document, and print the canonical result \- or rewrite
+the base document, and print the result \- or rewrite
 .I FILE
 in place with
 .BR \-\-write ,
 which creates
 .I FILE
-when nothing is there yet.
-Simple values go in as repeatable
-.B \-\-set
-or
-.B \-\-set\-literal
-options; raw blocks, set-only-if-absent and removal go in as a write-ops script
-on stdin. See
+when nothing is there yet, giving it the same info block
+.B init
+writes unless
+.BR \-\-no\-banner .
+Lines the edits leave alone come back as they were written. With
+.BR \-\-layer ,
+or where the edited text would not load back the same, the whole document
+comes out in canonical form, the way
+.B fmt
+writes it. Without
+.BR \-\-layer ,
+a note on stderr says when that happened.
+Printed or written, a result that would delete lines or values from the file
+is refused at exit 7; see
+.BR "WRITING IN PLACE" .
+Edits go in as the repeatable
+.BR \-\-set ,
+.BR \-\-set\-literal ,
+.BR \-\-set\-default ,
+.B \-\-set\-literal\-default
+and
+.B \-\-remove
+options. Raw blocks go in only as a write-ops script on stdin, which can make
+the other edits too. See
 .B WRITE OPS
 below.
 .TP
@@ -95,6 +155,9 @@ Print the canonical form of
 .IR FILE ,
 or rewrite it in place with
 .BR \-\-write .
+.B \-\-check
+prints nothing and says by the exit code whether a rewrite would change the
+file.
 Comments and their placement survive. With
 .B \-\-layer
 it prints the merged document.
@@ -106,11 +169,21 @@ and print its diagnostics. With
 .BI \-\-schema= SCHEMA
 it also validates the file against a schema, which is itself an ordinary
 .B .shcl
-file. Exits 6 when anything was found at error severity.
+file. Without it, a file that names its schema on a
+.RB \(dq ##\ \ \ \ Schema\ \ \ PATH \(dq
+comment line is validated against that, with a relative path read from the
+file's own directory. A URL there is left to editors and not fetched.
+Each diagnostic is one stdout line that starts with the word
+.B line
+and a number, with its prose on stderr. The last stdout line is a summary.
+Exits 6 when
+anything was found at error severity.
 .TP
 .B init
 Print a commented starter config generated from a schema: required fields live,
-optional ones commented out, wildcard paths noted. The footer naming the format
+optional ones commented out, wildcard paths noted. Prose it writes is prefixed
+with two hashes and a commented-out setting with one; that is a convention, not
+a rule. The info block naming the format
 and pointing at its spec is left out by
 .BR \-\-no\-banner .
 .TP
@@ -121,19 +194,173 @@ Print the number of instances at
 .B instances
 Print the instance values at
 .IR PATH ,
-one per line.
+one per line. A value holding a line break is printed quoted, with the line
+break as the NEWLINE escape the way
+.B fmt
+writes it, so one instance is always one line. With
+.BR \-\-paths ,
+each line is instead the path that reads that one instance, such as
+.BR shard(0) ,
+which a script can hand back to
+.B get
+whatever the values are.
 .TP
-.BR help ", " version ", " about ", " donate
+.B children
+Print the child field names under
+.IR PATH ,
+one per line, in file order and with duplicates kept. With
+.I PATH
+left out, the top level. Each name is printed in the form a path accepts, so a
+name holding a dot or a quote can be spliced straight back into a lookup path.
+A path that resolves to several instances lists the children of each in turn.
+A path that does not resolve and a node with no children both print nothing
+and exit 0; ask
+.B count
+when the difference matters.
+.TP
+.B paths
+Print every field path in the document, one per line, in file order and
+deduplicated \- the whole-document counterpart of
+.BR children .
+With
+.BR \-\-json ,
+every field gets its own line, repeats included.
+.TP
+.B migrate
+Rewrite a file written for shcl 2.x so the current parser reads the same
+tree, and print it (or rewrite
+.I FILE
+with
+.BR \-\-write ,
+through the same gate as
+.BR fmt ).
+Only what the two rule sets read differently is touched, such as a comma
+list, a
+.B *
+item, a selector in brackets, a quote that never closed and the
+.B name:[disc]
+selector sugar. Comments, blank lines, raw bodies and layout come through as
+written. The migrated text's diagnostics are printed, so a line the new rules
+refuse is named rather than silently kept.
+Which file it is looking at cannot be read off the text, so the info block's
+.B Format
+line decides: a file that has it is left alone, and one without it keeps the
+spellings the two rule sets read differently and exits 7 unless
+.B \-\-from\-2x
+says it really is 2.x. A rewritten file is stamped with that line, written
+over an older one where the file has it, and
+.B \-\-write
+says how many lines it rewrote.
+Before it saves a file with a rewritten line,
+.B \-\-write
+copies the original beside it, with a backup tag before the extension:
+.B config.shcl
+keeps its old bytes in
+.BR config_backup_ YYYYmmDD - HHMMSS _format\-v2.shcl ,
+in local time, the number being the format the file was written for.
+It refuses at exit 8 and writes nothing when that name is taken. A file that
+only gains the Format line gets no copy.
+.B \-\-check
+prints nothing and names each line a rewrite would change.
+Printed, the text comes out whole, but the exit is the one
+.B \-\-write
+would give, 7 included.
+.TP
+.B upgrade
+For a program's config file that this shcl cannot load clean: run it through
+.BR migrate ,
+keep each line where it was, blank ones included, add the info block
+.B init
+writes at the end in place of an older one there, and print it (or with
+.BR \-\-write ,
+keep the original under the backup name
+.B migrate \-\-write
+uses and rewrite
+.IR FILE ).
+A whole info block above the first field stays, so a file with its block at
+the top comes out with 2, both naming this format.
+Where the lines can't be kept, or keeping them would keep an error, it is
+written the way
+.B fmt
+writes it.
+A file whose
+.B Format
+line names this format is left alone at exit 0, and so is one that loads with
+no error, so it is safe to run on every start. That includes a file a beta
+build of 3.0 wrote, since it has the same Format line. With
+.BR \-\-from\-2x ,
+which says the file is 2.x, a file that loads clean is still made over when
+.B migrate
+would change it, as it would
+.BR "p: a,b" ,
+an array under 2.x and one string now, and one it would not change whose
+.B Format
+line names an older format gets only that line rewritten to name this one.
+A file naming this format that loads with an error is taken as 2.x too, so give
+.B \-\-from\-2x
+only for a file known to be old: a file this format wrote that picks up an
+error later would be read by 2.x rules too.
+With
+.BR \-\-from\-2x ,
+a file is made over only when the fresh file loads clean. Otherwise it is
+exit 7, nothing is written, and the lines still in error are named, since a
+later run with the flag would read the fresh file by 2.x rules again.
+Values that read two ways, as for
+.BR migrate ,
+are exit 7 unless
+.B \-\-from\-2x
+says the file is 2.x, and nothing is written. Unlike
+.BR migrate ,
+a value or line the fresh file cannot hold does not stop the write, since the
+backup keeps it; it is counted on stderr. A taken backup name is exit 8.
+.TP
+.B tokens
+Print each line's lexical spans, one line of output per input line: the indent
+length, then every name, selector, separator, value, element and comment as
+.IR kind = start - end
+byte offsets from the first character after the indent, with a mark for how a
+piece was quoted, and the fault that made a line malformed. This is the view
+the parser reads a line through, for seeing why it read a line as it did.
+Each line is read on its own, so a raw body line is tokenized as if it were a
+field line.
+.TP
+.B explain
+Print what a diagnostic code means: the code, its severity and the rule behind
+it. With no
+.I CODE
+it lists every code one line each. The codes are the portable half of a
+diagnostic \- the same problem gets the same code in every binding \- so
+this is where to look one up. The prose beside a code on screen is per-binding
+voice and says the same thing at less length.
+For a retired code, one no load reports any more, it says so and names the
+code that replaced it, so a code in an old log can still be looked up.
+.TP
+.BR help ", " \-\-version ", " \-\-about ", " \-\-donate
 Print this command's help, its version, what SHCL is, or where to support it.
-The first two are also
-.BR \-h / \-\-help
+.B help
+with a subcommand name prints that subcommand's usage and options alone, and
+so does
+.B \-\-help
+after a subcommand.
+.B help
+is also
+.BR \-h " or " \-\-help ,
 and
-.BR \-v / \-V / \-\-version ;
-the last two are also
+.B \-\-version
+is also
+.BR \-v " or " \-V .
+The flags are recognized anywhere in option position, after
+.I FILE
+included; only the value of a value-taking option and anything after
+.B \-\-
+are data. Several in one run each print once, in the order given, set off by
+blank lines;
 .B \-\-about
-and
-.BR \-\-donate .
-A bare
+covers
+.BR \-\-version ,
+since it opens with the version line. A lone
+.B \-\-version
+prints its two lines bare, the version line and then the copyright line. A bare
 .B shcl
 with no arguments prints the help and exits 0.
 .SH TYPE OPTIONS
@@ -142,14 +369,36 @@ Valid on
 only. The default is
 .BR \-\-string .
 .TP
-.BR \-\-int ", " \-\-float ", " \-\-bool ", " \-\-datetime ", " \-\-string ", " \-\-raw ", " \-\-rawinfo
+.BR \-\-int ", " \-\-float ", " \-\-bool ", " \-\-datetime ", " \-\-string ", " \-\-raw ", " \-\-rawinfo ", " \-\-duration ", " \-\-size
 Read the value as that type.
 .B \-\-rawinfo
 reads a raw block's info-string \- the tag on its fence line \- rather than its
 content.
+.B \-\-duration
+prints whole milliseconds and
+.B \-\-size
+whole bytes, from spellings such as
+.BR 1h\ 30m ,
+.B 500ms
+and
+.BR 1.5GiB .
+A bare number takes its unit from a field name ending in one after a
+.B \-
+or
+.BR _ ,
+such as
+.B timeout\-ms
+or
+.BR cache_mb ,
+else from
+.BR \-\-unit .
 .TP
 .B \-\-array
-Read the value as an array of the chosen type.
+Read the value as an array of the chosen type, one element per line. As in
+.BR instances ,
+an element holding a line break is printed quoted, with the escapes
+.B fmt
+writes.
 .SH OPTIONS
 The subcommands each option belongs to are named in parentheses. An option a
 subcommand does not use is a usage error, not something quietly ignored.
@@ -158,7 +407,17 @@ subcommand does not use is a usage error, not something quietly ignored.
 .RB ( get )
 Value to print when the read comes back anything but Good. Implies
 .BR \-\-on\-bad=default ;
-for arrays it is substituted per bad slot.
+for arrays it is substituted per bad slot. An array read that resolved no slots
+at all has none to substitute into, so the default prints once and reads exactly
+like a one-element array that happens to equal it; ask
+.B count
+or add
+.B \-\-slots
+to tell the two apart. Giving an explicit
+.B \-\-on\-bad
+other than
+.B default
+alongside it is a usage error rather than a silent win for whichever came last.
 .TP
 .BR \-\-on\-bad= error | default | flag
 .RB ( get )
@@ -168,20 +427,56 @@ fails loudly;
 .B default
 prints the default;
 .B flag
-prints the value anyway and reports through the exit code. The last is the
-default.
+prints the value, or the type's zero
+.RB ( 0 ,
+.B false
+or an empty line) when the read is not Good, and reports through the exit
+code. The last is the default.
 .TP
 .B \-\-slots
 .RB ( get )
 Prefix each output line with its slot status and a tab \- per element for an
-array, per matched instance for a wildcard.
+array, per matched instance for a wildcard. A value holding a line break is
+then printed quoted, with the escapes
+.B fmt
+writes, so each slot stays one line.
+.TP
+.B \-\-json
+.RB ( get ", " instances ", " children ", " paths )
+Print one JSON object per line in place of the plain output. See
+.BR "JSON OUTPUT" .
+.TP
+.B \-\-paths
+.RB ( instances )
+Print the path that reads each instance in place of its value, written as
+.B paths \-\-json
+writes it, with
+.BI ( N )
+on a name its parent repeats.
+.TP
+.BI \-\-unit= UNIT
+.RB ( get )
+The unit a bare number is in when the field name gives none:
+.BR ms ", " s ", " m ", " h " or " d
+for
+.BR \-\-duration ,
+or
+.BR B ", " kB ", " KB ", " MB ", " GB ", " TB ", " KiB ", " MiB ", " GiB " or " TiB
+for
+.BR \-\-size .
+.TP
+.B \-\-decimal
+.RB ( get )
+With
+.BR \-\-size ,
+read KB to TB as powers of 1000 rather than 1024. KiB to TiB are always 1024.
 .TP
 .B \-\-no\-banner
-.RB ( init )
-Leave out the footer naming the format and pointing at its spec.
+.RB ( init ", " "set \-\-write" " creating " FILE )
+Leave out the info block naming the format and pointing at its spec.
 .TP
 .BR \-\-write ", " \-w
-.RB ( fmt ", " set )
+.RB ( fmt ", " set ", " migrate ", " upgrade )
 Rewrite
 .I FILE
 in place instead of printing to stdout. The write goes through a temp file and
@@ -190,19 +485,75 @@ a rename, so an interrupted run cannot truncate the config. On
 a
 .I FILE
 that does not exist yet is created;
-.B fmt
-has nothing to format and reports it missing.
+.BR fmt ,
+.B migrate
+and
+.B upgrade
+have nothing to read and report it missing.
+.B migrate
+and
+.B upgrade
+also keep the original file; see above.
 .TP
 .B \-\-lossy
-.RB ( fmt ", " set )
-With
-.BR \-\-write ,
-rewrite even when the load dropped lines this write would delete. Without it
-the write refuses and nothing is changed.
+.RB ( fmt ", " set ", " migrate )
+Go ahead even when the result would delete lines or values from the file.
+Without it a write refuses at exit 7 and nothing is changed.
+.B set
+and
+.B migrate
+without
+.B \-\-write
+exit 7 the same way;
+.B set
+then prints nothing, and
+.B migrate
+still prints its text, which loses nothing until it is loaded. On
+.B fmt
+it is taken only with
+.BR \-\-write .
+.TP
+.B \-\-from\-2x
+.RB ( migrate ", " upgrade )
+The file really was written for 2.x, so rewrite the spellings the two rule
+sets read differently. Without it those are left as written and the command
+exits 7, because the same bytes mean one thing under each rule set and
+nothing in the file says which one wrote it.
+With it,
+.B upgrade
+writes nothing and exits 7 when the fresh file would still have an error, and
+names those lines.
+On a file not written for 2.x it can change good lines, since it reads them by
+2.x rules; with
+.B \-\-write
+the backup keeps the original.
+.TP
+.B \-\-check
+.RB ( fmt ", " migrate )
+Print nothing. Exit 6 when
+.B fmt
+would change the file or
+.B migrate
+would rewrite a line, and 0 otherwise, so a script can ask which files in a
+tree need formatting or migrating. The
+.B Format
+line a
+.B migrate
+rewrite adds is not a rewritten line, so a file that only lacks it is 0.
+A rewrite the matching
+.B \-\-write
+would refuse is exit 7 instead, since
+.B \-\-check
+asks the same save gate.
+.B migrate
+also names on stderr each line it would change, as
+.IR FILE : LINE .
+It cannot be combined with
+.BR \-\-write .
 .TP
 .BR \-\-strictness= loose | standard | strict
-.RB "(all but " init )
-How much the loader tolerates; also spelled
+.RB ( get ", " set ", " fmt ", " check ", " count ", " instances ", " children ", " paths )
+How much the loader tolerates; also written
 .BR 1 ,
 .B 2
 and
@@ -219,12 +570,12 @@ The schema file. On
 .B check
 it adds
 .BR V ###
-diagnostics; on
+diagnostics, and wins over the file's own Schema line; on
 .B init
 it is what the starter config is generated from.
 .TP
 .BI \-\-layer= FILE
-.RB ( get ", " fmt ", " count ", " instances ", " set )
+.RB ( get ", " fmt ", " count ", " instances ", " children ", " paths ", " set )
 Merge a lower-priority layer under
 .IR FILE .
 Repeatable; earlier means lower priority.
@@ -237,8 +588,12 @@ into
 instead.
 .TP
 .BI \-\-set= PATH = VALUE
-.RB ( get ", " fmt ", " count ", " instances ", " set )
-Override one path as the topmost layer, after every file. Repeatable. On
+.RB ( get ", " fmt ", " count ", " instances ", " children ", " paths ", " set )
+Edit one path, after every file. Repeatable. A path that matches more than
+one field at any step is refused at exit 1, since a read of it would answer
+that it matches several; an index such as
+.B name(0)
+picks one. On
 .B set
 it is an edit to the document itself, so it persists with
 .BR \-\-write .
@@ -246,18 +601,49 @@ it is an edit to the document itself, so it persists with
 goes in as data: its type still follows the text, so
 .B 8
 is an int, but a comma or a quote in it is content rather than syntax.
+.I PATH
+ends at the first
+.B =
+outside quotes and parens, so a selector may hold one.
 .TP
 .BI \-\-set\-literal= PATH = TEXT
-.RB ( get ", " fmt ", " count ", " instances ", " set )
+.RB ( get ", " fmt ", " count ", " instances ", " children ", " paths ", " set )
 As
 .BR \-\-set ,
 except
 .I TEXT
-goes in as value syntax the way a file spells it \- so
-.B ports=80, 443
-writes a two-element array. An unquoted
+goes in as value syntax the way a file writes it \- so
+.B ports=[80, 443]
+writes a two-element array,
+.B title="My App"
+a string and
+.B color=`#FF8800`
+a backtick value. A
 .B #
-ends the value, and text spanning lines is rejected.
+outside quotes ends the value, and text spanning lines is rejected.
+.TP
+.BI \-\-set\-default= PATH = VALUE
+.TQ
+.BI \-\-set\-literal\-default= PATH = TEXT
+.RB ( get ", " fmt ", " count ", " instances ", " children ", " paths ", " set )
+As
+.B \-\-set
+and
+.BR \-\-set\-literal ,
+except the write happens only where the path is missing or has an empty
+value \- the write-out-defaults half of the writer.
+.TP
+.BI \-\-remove= PATH
+.RB ( get ", " fmt ", " count ", " instances ", " children ", " paths ", " set )
+Delete every field
+.I PATH
+reaches, with its subtree: each instance of a repeated name, and each
+wildcard match. Repeatable. Removing nothing is not an error, but a
+.I PATH
+that cannot parse is.
+.PP
+The five options above share one ordered list, so two of them touching the same
+path resolve in the order given. Raw blocks still go in through the ops script.
 .PP
 Value options accept either spelling:
 .BI \-\-default= VALUE
@@ -287,13 +673,175 @@ is the highest file layer and each
 is merged under it in order;
 .B \-\-set
 applies last.
+.PP
+Some combinations are refused outright, each as a usage error.
+.B \-\-write
+with
+.B \-\-layer
+would fold the merged layers into the base file permanently.
+.B \-\-write
+with
+.B \-\-set
+outside
+.B set
+would persist what was given as a read-time override.
+.B \-\-lossy
+on
+.B fmt
+without
+.B \-\-write
+overrides nothing.
+.B \-\-no\-banner
+on
+.B set
+without
+.B \-\-write
+has no file to leave the info block out of.
+.B \-\-check
+with
+.B \-\-write
+asks for both answers at once, and so does
+.B \-\-paths
+with
+.BR \-\-json .
+.B \-\-check
+with
+.B \-\-layer
+or
+.B \-\-set
+has nothing to compare, since the merged or edited document is never
+.IR FILE .
+.B \-\-write
+with a
+.I FILE
+of
+.B \-
+has no file to rewrite.
+.B \-\-default
+with
+.B \-\-on\-bad=error
+or
+.B \-\-on\-bad=flag
+gives a value that neither mode would print, and
+.B \-\-on\-bad=default
+without
+.B \-\-default
+has nothing to print in its place.
+.B \-\-layer=\-
+is not valid on
+.BR set ,
+where stdin already has the ops script or the document.
+.B \-\-unit
+without
+.B \-\-duration
+or
+.BR \-\-size ,
+and
+.B \-\-decimal
+without
+.BR \-\-size ,
+have no number of that kind to read.
+.BR \-\-raw ,
+.BR \-\-rawinfo ,
+.B \-\-duration
+and
+.B \-\-size
+have no
+.B \-\-array
+form. Two options that ask for different answers are refused whichever order
+they came in, and the message names both: two different type options, such as
+.B \-\-int
+with
+.BR \-\-raw ,
+or one value option given two different values, such as
+.B \-\-strictness=loose
+with
+.BR \-\-strictness=strict .
+Repeating an option with the same value is allowed, and
+.B \-\-layer
+and
+.B \-\-set
+are ordered lists, so they repeat. And
+.B \-
+may be named only once across
+.IR FILE ,
+.B \-\-layer
+and
+.B \-\-schema
+\- there is one stdin, so two names for it would each read part of a document.
+A
+.I PATH
+that cannot parse is a usage error too, with
+.B \-\-default
+or without, rather than a path that was not found.
+.SH JSON OUTPUT
+With
+.BR \-\-json ,
+.BR get ,
+.BR instances ,
+.B children
+and
+.B paths
+print one JSON object per line, for
+.B jq
+or PowerShell's
+.BR \%ConvertFrom\-Json .
+The keys always come in this order:
+.TP
+.B path
+The path that reads exactly that field, with
+.BI ( N )
+on each name its parent repeats, so two instances never share one. Empty for a
+wildcard slot that reached nothing, and on a
+.B get
+that reached no field.
+.TP
+.B name
+.B children
+only: the child's name, with no quotes or escapes.
+.TP
+.B value
+Always a string. On
+.BR get ,
+the value read, or the
+.B \-\-default
+in its place. Elsewhere the field's value: an array in brackets, as
+.B fmt
+writes it, a raw block's content, or empty when the field has none.
+.TP
+.B line
+The line the field is on in the file it came from, or 0 for one an edit made.
+Every element of one array has the field's line.
+.TP
+.B status
+.B get \-\-slots
+only: the slot's status, as
+.B \-\-slots
+prints it.
+.PP
+Only what JSON requires is escaped, the way
+.B jq \-c
+writes it, so a line run through
+.B "jq \-c .\&"
+comes back byte for byte.
+.B paths \-\-json
+lists every field, where plain
+.B paths
+lists each path once.
+PowerShell 7 turns a value that looks like a date into a DateTime; on 7.5 and
+later,
+.B \%ConvertFrom\-Json \-DateKind String
+keeps the text.
 .SH WRITE OPS
 .B set
-reads a write-ops script on stdin when no
-.B \-\-set
+reads a write-ops script on stdin when none of
+.BR \-\-set ,
+.BR \-\-set\-literal ,
+.BR \-\-set\-default ,
+.B \-\-set\-literal\-default
 or
-.B \-\-set\-literal
-option carries the edits. One op per line, fields separated by tabs:
+.B \-\-remove
+gives the edits. One op per line, fields separated by tabs:
 .PP
 .RS
 .nf
@@ -301,23 +849,43 @@ int|float|bool|string|datetime<TAB>PATH<TAB>VALUE
 <type>\-array<TAB>PATH<TAB>V1<TAB>V2...
 <type>[\-array]\-default<TAB>...
 literal[\-default]<TAB>PATH<TAB>TEXT
-raw<TAB>PATH<TAB>INFO<TAB>CONTENT
+raw[\-default]<TAB>PATH<TAB>INFO<TAB>CONTENT
 empty<TAB>PATH
 comment<TAB>PATH<TAB>TEXT
+clear\-comments<TAB>PATH
 remove<TAB>PATH
+banner<TAB>on|off
 .fi
 .RE
 .PP
 The
 .B \-default
-forms write only if the path is absent. String and raw values decode
-.BR \en ,
-.B \et
-and
-.BR \e\e ,
-and a line starting with
+forms write where the path is missing, where its value is empty, and where
+the value does not read as the op's type. A value they replace stays above
+the field as a comment saying so. A raw block stays, and a default of another
+type on it is refused. The string and literal forms count any value.
+.B clear\-comments
+takes off the comment lines above the node, all of them, so a comment can be
+replaced instead of added to.
+.B banner on
+puts the info block at the end, taking off an old one first;
+.B banner off
+only takes it off. String and comment values, and a raw op's CONTENT, read
+escapes the way a file does, a name such as
+.B TAB
+or
+.B NEWLINE
+between two U+25C9 marks, so a tab or a line break fits on one op line. A
+backslash is text. A line starting with
 .B #
-is a script comment.
+is a script comment, indented or not. At a terminal,
+.B set
+says on stderr that it is waiting for the ops. A
+.B raw
+op's INFO is taken as written, since a fence label has no escapes. It may not
+hold a line break or a
+.BR # ,
+which would read back as a comment on the fence line.
 .PP
 .I FILE
 given as
@@ -325,18 +893,117 @@ given as
 follows stdin: it is the piped document when an option holds the edits, and an
 empty base when the ops script has stdin instead.
 .SH WRITING IN PLACE
-An in-place write prints whatever the load found to stderr, and refuses
-outright when the load dropped content the rewrite would delete \- a typo does
-not cost the line above it.
+Every subcommand that loads a document prints the load's diagnostics to stderr,
+once per run, so a recovered-from typo is just as visible when the value reads
+back fine and the result goes to stdout. An in-place write also refuses
+outright, at exit 7, when the rewrite would delete lines or values from the
+file
+\- a typo does not cost the line above it.
 .B \-\-lossy
 is how to say it was meant.
+.PP
+.B set
+and
+.B migrate
+without
+.B \-\-write
+exit 7 where the write would refuse, so
+.B "shcl set f ... > f.new && mv f.new f"
+stops at the same point an in-place write does.
+.B set
+prints nothing then.
+.SH MIGRATING FROM 2.X
+The 3.0 lexical rules are smaller than 2.x's, so a file written for 2.x can
+read differently under them.
+.B migrate
+rewrites such a file so the current parser reads the tree 2.x read.
+.PP
+Most of the change is loud: a quote that never closes is
+.BR E017 ,
+bracket text after a colon is
+.BR E019 ,
+a bad escape is
+.BR E023 ,
+a quote other than an apostrophe inside a word, a tab or a bracket in a bare value is
+.BR E025 ,
+a bare comma before a blank is
+.BR E026 ,
+a
+.B *
+item is
+.BR E013 ,
+a selector in brackets is
+.BR E029 ,
+and a line the current rules cannot read at all is a malformed line. A file
+with one of those says so the first time it loads.
+.B migrate
+quotes such a value, writes a
+.B *
+item as a
+.B \-
+item, and writes a selector in parens, so
+.B base[Boston]
+becomes
+.BR base(Boston) .
+.PP
+One change is quiet: a backslash pair was an escape in 2.x and is text now.
+.B migrate
+writes the text 2.x read, a tab or a line break as its escape. A quoted
+name with a backslash pair is left as written, since 1.2 read it as typed
+and 2.0 resolved it.
+.PP
+The comment rule did not change: a
+.B #
+outside quotes opened a comment in 2.x and still does.
+.PP
+Which file it is looking at is the one thing
+.B migrate
+cannot read off the text:
+.B p: a,b
+is written the same way under both rule sets and means two different things,
+so rewriting a 3.0 file would change what it says. The info block has a
+.B Format
+line naming the format's major, and that decides. A file with it has
+nothing to migrate. A file without it keeps those spellings as written and
+exits 7, unless
+.B \-\-from\-2x
+says it really is 2.x. A line the current rules already refuse, such as one
+with a selector in brackets, is rewritten either way. A file
+.B migrate
+rewrites is stamped with the line, so a second run has the answer the first
+one did not. A raw block that never closes leaves the line nowhere to go, so
+.B migrate
+exits 7 and writes nothing until the block is closed.
+.PP
+Bracket text after the colon, a selector holding a comma, a comma list on a
+field with lines under it and a quoted name with a backslash pair are what
+2.x bound that nothing binds now.
+.B migrate
+exits 7 on any of them rather than reporting success;
+.B \-\-lossy
+accepts the loss on a rewrite.
+.PP
+Three edges read differently, and
+.B migrate
+leaves all three as written. A fence label holding a
+.B #
+ran to the end of the line in 2.x and ends at the
+.B #
+now, with the rest as the line's comment; a label has no quoting, so rename it.
+A carriage return in the middle of a line, at the edge of a piece, was content
+in 2.x and is trimmed now. And an indent that matches no open level's column,
+which 2.x placed by a looser comparison, is
+.B E012
+now; re-indent it by hand.
+.B migrate \-\-write
+exits 7 while the migrated text holds such a line.
 .SH EXIT STATUS
 .TP
 .B 0
 Good.
 .TP
 .B 1
-Usage or I/O error.
+Usage error.
 .TP
 .B 2
 The value is empty.
@@ -352,7 +1019,38 @@ Multiple instances matched where one was wanted.
 .TP
 .B 6
 .B check
-found errors, or a strict load failed.
+found errors, a strict load failed,
+.BR init 's
+schema has faults, or
+.B \-\-check
+found a rewrite to make.
+.TP
+.B 7
+A write was refused because the result would delete lines or values from the
+file, or
+.B set
+or
+.B migrate
+without
+.B \-\-write
+would have refused one
+.RB ( \-\-lossy
+overrides), or because the file names a newer format than this shcl reads
+.RB ( H006 ,
+which nothing overrides), or
+.B migrate
+left something behind: values it cannot decide between the two rule sets
+.RB ( \-\-from\-2x
+decides them), a 2.x binding with no spelling here, a line whose indent
+matches no open level, or a raw block that never closes.
+.B upgrade
+exits 7 on the first of those, and with
+.B \-\-from\-2x
+when the fresh file would still have an error.
+.TP
+.B 8
+A file or stream could not be read or written \- it is missing, unreadable,
+not a file, or the target cannot be written.
 .SH EXAMPLES
 Read an int, with a fallback when the field is absent:
 .PP
@@ -368,7 +1066,20 @@ Count repeated fields, then fan one read across every instance:
 .RS
 .nf
 shcl count server.shcl site
-shcl get \-\-array \-\-slots server.shcl 'site[*].tls.hsts'
+shcl get \-\-array \-\-slots server.shcl 'site(*).tls.hsts'
+.fi
+.RE
+.PP
+Walk the instances by path, which stays right when a value is a number or two
+instances share one, or hand every field to
+.BR jq :
+.PP
+.RS
+.nf
+for p in $(shcl instances \-\-paths server.shcl site); do
+    shcl get server.shcl "$p.tls.hsts"
+done
+shcl paths \-\-json server.shcl | jq \-r '.path + " = " + .value'
 .fi
 .RE
 .PP
@@ -403,22 +1114,22 @@ will not do directly:
 .PP
 .RS
 .nf
-shcl fmt \-\-layer=base.shcl site.shcl | shcl check \-\-schema=s.shcl \-
+shcl fmt \-\-layer=base.shcl site.shcl |
+    shcl check \-\-schema=s.shcl \-
 .fi
 .RE
 .SH SEE ALSO
 The language spec, the formal grammar and the Rust, Go, Python and C bindings:
-.UR https://github.com/jim\-collier/shcl
+.UR https://github.com/yottacore/shcl
 .UE
-.PP
-Bash and PowerShell wrappers ship alongside this command and give the same
-reads as shell functions.
 .SH BUGS
 Report them at
-.UR https://github.com/jim\-collier/shcl/issues
+.UR https://github.com/yottacore/shcl/issues
 .UE
 .SH AUTHOR
 Jim Collier
 .SH COPYRIGHT
-Copyright \(co 2026 Jim Collier. Licensed under the MIT License. No warranty.
+Copyright \(co 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
+.br
+Licensed under the MIT License. No warranty.
 SHCL is a trademark of Jim Collier.

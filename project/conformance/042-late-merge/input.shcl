@@ -1,7 +1,7 @@
 # a stacked list that closes onto an earlier instance's value
-dup: x
+dup: [x]
 dup:
-	* x
+	- x
 
 # two filled blocks that match, so their children fold together too
 blk:

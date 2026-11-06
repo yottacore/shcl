@@ -12,8 +12,8 @@ app: demo  # again
 
 items:
 	# first element
-	* one
-	* two  # second
+	- one
+	- two  # second
 
 logs:
 # note between header and fence

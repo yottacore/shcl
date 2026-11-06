@@ -1,0 +1,7 @@
+# One moment spelled several ways, and one that is a different moment.
+utc: "12:00:00Z"
+plus: "12:00:00+00:00"
+minus: "12:00:00-00:00"
+zeros: "12:00:00.000"
+plain: "12:00:00"
+local: "12:00:00"

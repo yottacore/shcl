@@ -1,0 +1,8 @@
+# A block given twice loads as one. The second header has no line of its
+# own in the canonical form, and stays where it was.
+db:
+	host: localhost
+	port: 5432
+	user: app
+retries: 3
+log: info

@@ -2,7 +2,7 @@
 servers: web1
 	host: 10.0.0.5
 	port: 8080
-	tags: fast, "eu, west", cheap
+	tags: [fast, "eu, west", cheap]
 servers: web2
 	host: 10.0.0.6
 	port: 8081

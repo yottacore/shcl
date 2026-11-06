@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+-	load	ok	-	strict
+-	lost	0	-
+hold-ms	duration	50	Good
+wait-seconds	duration@ms	1000	Good
+cache_mb	size	2097152	Good

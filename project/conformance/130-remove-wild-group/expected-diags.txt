@@ -1,0 +1,2 @@
+line 8: Hint: H001
+ok (1 diagnostic(s))

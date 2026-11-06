@@ -2,3 +2,4 @@ query	type	expected	status	level
 -	load	ok	-
 server.host	string	h1	Good
 count	int	2	Good
+-	lost	0	-

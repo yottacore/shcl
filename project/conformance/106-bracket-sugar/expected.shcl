@@ -1,0 +1,5 @@
+base:[Boston]
+	lat: 42
+tags: [prod]
+note: ["a, b"]
+srv:[web].name: [Boston]

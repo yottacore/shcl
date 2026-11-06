@@ -1,0 +1,20 @@
+# Info blocks that were in the footer until fields were added below them
+# by hand. banner takes them off wherever they sit after the first field.
+# A comment nested under a block moves out to the column the block was at.
+a:
+	b: 1
+c: 1
+e:
+
+	# a note of the file's own
+	f: 1
+# a note under the old footer block
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

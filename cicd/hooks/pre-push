@@ -1,16 +1,53 @@
 #!/usr/bin/env bash
 
-##	- Purpose: Run the correctness gate before a push reaches a protected branch,
-##	  so nothing lands on main or dev unverified even outside a full cicd run.
-##	- Feature branches push without waiting: the gate belongs where the work
-##	  integrates, not on every intermediate commit.
-##	- The large-document stage is left out here (minutes, and the hosted workflow
-##	  runs the full gate anyway); this is the fast correctness half.
+##	- Purpose: Run the merge gate, cicd.bash --merge-gate, before a push
+##	  reaches main, so nothing gets there unverified even outside a full cicd
+##	  run. It runs every check of a run with no flags.
+##	- Nothing else waits, dev included. Everyday work would otherwise spend ten
+##	  minutes per push re-running what the branch was already built and tested
+##	  against, and dev is where work collects rather than where it has to be
+##	  right. Build and test before merging; the gate is the last check, not the
+##	  only one.
+##	- The gate runs on the commit being pushed, checked out into a throwaway
+##	  worktree, not on the working tree: an uncommitted fix must not pass a
+##	  broken commit, and an uncommitted breakage must not block a good one.
+##	- The worktree builds into its own persistent cargo target dir
+##	  (source/rust/target-gate in the checkout, gitignored), linked in as
+##	  source/rust/target so the config's relative binary paths still resolve.
+##	  cargo recompiles the crate every run regardless - the fingerprint keys on
+##	  the package path, which is a fresh mktemp dir each time - so sharing the
+##	  checkout's own target dir saved nothing and did harm: the test binaries
+##	  bake CARGO_MANIFEST_DIR and were left pointing at a worktree that no
+##	  longer existed, and the checkout's debug binary was overwritten by the
+##	  pushed commit's build.
+##	- If git cannot create a worktree, the gate runs in place with a warning.
+##	- The gate goes to the build image when docker answers, as any cicd.bash
+##	  run does. The worktree and its target link are mounted at their own
+##	  paths, so the run in there records the tree the same way.
+##	- A commit whose tree a gate already passed goes out without running it
+##	  again. cicd.bash records each tree it passes (utility/green-tree.bash),
+##	  the run this hook starts included, so a full run's own publish push, a
+##	  --no-ff merge of a branch that passed, and a retry after a dropped
+##	  connection all go straight through. SHCL_GATE_RERUN=1 runs it anyway.
+##	- A push to main whose version has reached the tag the banner's Syntax link
+##	  names has to find that tag on the remote, or send it in the same push
+##	  (utility/check-banner-tag.bash). That check runs even when the gate is
+##	  skipped.
+##	- A push to main whose files all match cicd/docs-only-paths.txt, docs and
+##	  art no build reads, skips the gate. It's judged against what the remote's
+##	  main holds, so a new or unknown remote main runs the gate.
+##	- An engine from before --merge-gate gets the gate it knew, --gate or
+##	  --ci, without the large-document stage, as it ran then.
 ##	- Escape hatch: `git push --no-verify`, or SHCL_SKIP_HOOK=1.
 ##	- Installed by pointing git at this directory:
 ##		git config core.hooksPath cicd/hooks
+##	- git opens the ssh session before this hook runs and sends only after it
+##	  returns. The gate takes minutes, GitHub drops an idle session, and the
+##	  push then dies of SIGPIPE (exit 141) right after a green gate. Keepalives
+##	  keep the session up; install-dev.bash sets them when nothing is set:
+##		git config core.sshCommand "ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=30"
 
-##	Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 ##	Licensed under The MIT License (MIT). Full text at:
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
@@ -19,29 +56,146 @@ set -Eeuo pipefail
 
 [[ -n "${SHCL_SKIP_HOOK:-}" ]] && exit 0
 
+## A push from a linked worktree hands the hook GIT_DIR and friends. Passed on,
+## every scratch repo a gate builds with `git -C` or `git init` acts on this
+## one instead: commits on the branch, core.bare set, sshCommand replaced.
+for gitVar in $(git rev-parse --local-env-vars 2>/dev/null || true); do unset "${gitVar}"; done
+
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "${here}/../.." && pwd)"
+# shellcheck disable=SC1091  # the shared worktree and removal helpers, beside the engine
+source "${root}/cicd/utility/include/frozen-tree.bash"
+# shellcheck disable=SC1091
+source "${root}/cicd/utility/include/safe-rm.bash"
 
-## stdin carries "<local ref> <local sha> <remote ref> <remote sha>" per ref.
-## Only a push that would move main or dev is worth the wait.
-## Remember the name inside the loop: the read that ends it clears the vars.
-gatedRef=""
-while read -r _localRef _localSha remoteRef _remoteSha; do
+## stdin gives "<local ref> <local sha> <remote ref> <remote sha>" per ref.
+## Only a push that would move main is worth the wait; the sha bound for it is
+## what gets tested. All zeros means a delete: nothing to test. One push names
+## main at most once, so this collects a single sha, and the loop stays general
+## in case another branch is gated again. Tag refs are collected for the banner
+## tag check. Collected inside the loop: the read that ends it clears the vars.
+gatedShas=(); gatedRefs=(); gatedOld=(); pushedTags=()
+while read -r _localRef localSha remoteRef remoteSha; do
 	case "${remoteRef}" in
-		refs/heads/main|refs/heads/dev) gatedRef="${remoteRef#refs/heads/}" ;;
+		refs/tags/*) pushedTags+=("${remoteRef}=${localSha}") ;;
+		refs/heads/main)
+			[[ "${localSha}" =~ ^0+$ ]] && continue
+			refName="${remoteRef#refs/heads/}"; seen=0
+			for i in "${!gatedShas[@]}"; do
+				[[ "${gatedShas[i]}" == "${localSha}" ]] || continue
+				gatedRefs[i]="${gatedRefs[i]} + ${refName}"; seen=1
+			done
+			((seen)) || { gatedShas+=("${localSha}"); gatedRefs+=("${refName}"); gatedOld+=("${remoteSha}"); } ;;
 	esac
 done
-[[ -n "${gatedRef}" ]] || exit 0
+((${#gatedShas[@]})) || exit 0
 
-echo
-echo "[ pre-push: running the correctness gate before ${gatedRef} ]"
-echo
+## True when every file that differs from OLD to NEW matches the docs-only
+## list. No list, no OLD here, or a file it can't place runs the gate.
+fDocsOnly(){   ## fDocsOnly OLD NEW
+	local list="${root}/cicd/docs-only-paths.txt" line f pat hit want glob
+	local -a pats=() files=()
+	[[ -f "${list}" && ! "$1" =~ ^0+$ ]] || return 1
+	git -C "${root}" cat-file -e "$1^{commit}" 2>/dev/null || return 1
+	while IFS= read -r line; do
+		if [[ -n "${line}" && "${line}" != '#'* ]]; then pats+=("${line}"); fi
+	done < "${list}"
+	mapfile -t files < <(git -C "${root}" diff --name-only --no-renames "$1" "$2" 2>/dev/null || echo ':')
+	((${#files[@]})) || return 1
+	for f in "${files[@]}"; do
+		hit=0
+		for pat in "${pats[@]}"; do
+			want=1; glob="${pat}"
+			if [[ "${glob}" == '!'* ]]; then want=0; glob="${glob#!}"; fi
+			if [[ "${glob}" == */ ]]; then glob+='*'; fi
+			# shellcheck disable=SC2053  # the pattern is a glob on purpose
+			if [[ "${f}" == ${glob} ]]; then hit="${want}"; fi
+		done
+		((hit)) || return 1
+	done
+	return 0
+}
 
-if "${root}/cicd/cicd.bash" --ci --no-largedoc; then
-	exit 0
-fi
+## A detached worktree at the pushed commit, the tree/ of the hook's own temp
+## folder, locked while the gate runs and removed once it's through, so the
+## next sha (if any) starts clean.
+hookTmp=""; tmpTree=""; treeAdded=0
+# shellcheck disable=SC2329  # runs from the EXIT trap as well
+fCleanup(){
+	[[ -n "${tmpTree}" ]] || return 0
+	if ((treeAdded)); then fFrozenRemove "${root}" "${tmpTree}" || true; fi
+	## No prune: it's global, and drops every worktree whose folder is away (2026102021300000).
+	fSafeRmUnder_IfThere "${hookTmp}" "${tmpTree}" || true
+	tmpTree=""; treeAdded=0
+}
+trap 'fCleanup; if [[ -n "${hookTmp}" ]]; then fSafeRm "${hookTmp}" || true; fi' EXIT
 
-echo
-echo "[ pre-push: the gate failed - push refused (--no-verify overrides) ]" >&2
-echo
-exit 1
+for i in "${!gatedShas[@]}"; do
+	sha="${gatedShas[i]}"
+	## Ahead of the skip below, since a tree that passed the gate on dev never
+	## asked about tags.
+	if ! "${root}/cicd/utility/check-banner-tag.bash" "${1:-origin}" "${sha}" ${pushedTags[@]+"${pushedTags[@]}"}; then
+		echo
+		echo "[ pre-push: the tag the banner's Syntax link names will not be on ${1:-origin} - push refused (--no-verify overrides) ]" >&2
+		echo
+		exit 1
+	fi
+	if fDocsOnly "${gatedOld[i]}" "${sha}"; then
+		echo
+		echo "[ pre-push: ${sha:0:12} changes only what cicd/docs-only-paths.txt lists; no merge gate ]"
+		echo
+		continue
+	fi
+	## A failed lookup, or a checkout with no helper, reads as not passed.
+	tree="$(git -C "${root}" rev-parse -q --verify "${sha}^{tree}" || true)"
+	if [[ -n "${tree}" && -z "${SHCL_GATE_RERUN:-}" ]] && "${root}/cicd/utility/green-tree.bash" passed "${root}" "${tree}"; then
+		## The one thing the gate reads from outside the tree is dev's
+		## installers, which it compares against a push to main. The run that
+		## recorded the tree may have stood in for another ref, so that one
+		## comparison is made here, on the tree being pushed (20260926 item 13).
+		drifted=""
+		if [[ "${gatedRefs[i]}" == main ]] && git -C "${root}" rev-parse -q --verify origin/dev >/dev/null; then
+			drifted="$(git -C "${root}" diff --name-only origin/dev "${sha}" -- install.bash install.ps1 install-dev.bash || true)"
+		fi
+		if [[ -z "${drifted}" ]]; then
+			echo
+			echo "[ pre-push: ${sha:0:12} has the same files as a run that passed the gate; not running it again ]"
+			echo
+			continue
+		fi
+		echo
+		echo "[ pre-push: ${sha:0:12} passed a gate, but its installers differ from dev's, which that run did not judge for main ]"
+	fi
+	echo
+	echo "[ pre-push: running the merge gate on ${sha:0:12} before ${gatedRefs[i]} ]"
+	echo
+	if [[ -z "${hookTmp}" ]]; then fSafeTmpDir hookTmp || exit 1; fi
+	tmpTree="${hookTmp}/tree"
+	if fFrozenAdd "${root}" "${tmpTree}" "${sha}" 2>/dev/null; then
+		treeAdded=1
+		gateRoot="${tmpTree}"
+		fFrozenLink "${root}" "${tmpTree}" source/rust/target "${root}/source/rust/target-gate"
+	else
+		echo "[ pre-push: WARNING: could not check ${sha:0:12} out into a worktree; gating the working tree instead ]" >&2
+		gateRoot="${root}"
+	fi
+	## The gate is told which ref it stands in for: the installer drift check
+	## has to judge this tree as main, since git moves origin/main only after
+	## the hook returns.
+	## main's engine knows only --ci until the next cut, and a docs-only merge
+	## to main gates main's tree. Drop the fallbacks then.
+	gateArgs=(--merge-gate)
+	if ! grep -qF -- '--merge-gate)' "${gateRoot}/cicd/cicd.bash" 2>/dev/null; then
+		gateArgs=(--gate --no-largedoc)
+		if ! grep -qF -- '--gate)' "${gateRoot}/cicd/cicd.bash" 2>/dev/null; then gateArgs=(--ci --no-largedoc); fi
+	fi
+	## Already a frozen tree, so the run doesn't make a copy of the copy.
+	if ! SHCL_FROZEN=1 SHCL_GATE_REF="${gatedRefs[i]}" "${gateRoot}/cicd/cicd.bash" "${gateArgs[@]}"; then
+		echo
+		echo "[ pre-push: the gate failed on ${sha:0:12} - push refused (--no-verify overrides) ]" >&2
+		echo
+		exit 1
+	fi
+	fCleanup
+done
+exit 0

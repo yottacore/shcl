@@ -1,0 +1,24 @@
+# A bare name is a letter, then letters, digits, '-' and '_'. One that breaks
+# only that rule still reads, so the lines under it load under it.
+ok-name_1: 1
+enabled
+404: not-found.html
+	page: x
+	code: 5
+-x: y
+_id: 7
+	sub: 8
+user name: alice
+	role: admin
+Straße: 1
+"404": found
+"user name": bob
+a.9b: 2
+	c: 3
+no colon here
+	kid: 4
+a"b: 1
+	lost: 5
+last: 1
+
+"-y": 9

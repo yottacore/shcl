@@ -1,0 +1,9 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+outer.list	string[]	a|b	Good
+other.list	string[]	a|b	Good
+outer.y	int	2	Good
+other.y	int	2	Good
+outer	children	list|y	-

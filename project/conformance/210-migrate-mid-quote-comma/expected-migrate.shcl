@@ -1,0 +1,9 @@
+row: [idx=2, 'title="a, b"', 'description="say "hi""']
+row: [idx=3, 'title="c, d"']
+one: 'x="a, b"'
+hash: 'title="c # d"'
+pair: "it's, they're"
+open: ["don't", stop]
+last: 1
+##    Format   3
+##    Migrated from SHCL 2.x.

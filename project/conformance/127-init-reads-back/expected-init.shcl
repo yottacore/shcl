@@ -1,0 +1,50 @@
+## any, required
+a: x
+
+## any, required
+a(x).port: 1
+
+## any, required
+env: prod
+
+## any, required
+env: dev
+
+## any, required
+env(prod).url: u
+
+## any
+# stage: prod
+
+## any
+# stage: dev
+
+## any, required
+srv: "20000000000000000000"
+
+## any, required
+srv("20000000000000000000").port: 2
+
+## any, required
+repo("org/name#123").branch: main
+
+## any
+# gh("org/name#9").ref:
+
+## any
+# m:
+
+## any
+# m.x:
+
+## Paths needing an instance name (not generated):
+##   m.x   f◉NEWLINE◉b: 1
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

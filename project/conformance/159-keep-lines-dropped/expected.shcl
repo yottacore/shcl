@@ -1,0 +1,8 @@
+# A tab-indented line that steps back to a depth nothing uses is dropped.
+# A save that keeps lines writes it back as it was. A new child of the
+# block above it goes above it, and a new top-level field at the end.
+font:
+	size: 12
+window:
+	margin: 4
+last: 1

@@ -1,0 +1,11 @@
+fragment: node
+	field: child
+		inherits: node
+	field: child.child
+		inherits: node
+	field: "*.tag"
+		type: string
+	field: size
+		type: int
+field: root
+	inherits: node

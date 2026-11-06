@@ -1,0 +1,5 @@
+query	type	expected	status
+-	load	ok	-
+d1	datetime	2026-01-01T13:00:00+01:00	Good
+wrap	datetime	00:30:00+01:00	Good
+-	lost	0	-

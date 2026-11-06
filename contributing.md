@@ -1,9 +1,12 @@
-<!-- omit in toc -->
+<!-- markdownlint-disable MD007 -- Unordered list indentation -->
+<!-- markdownlint-disable MD010 -- hard tabs -->
+<!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
+<!-- TOC ignore:true -->
 # Contributing
 
 First off, thanks for taking the time to contribute!
 
-All types of contributions are encouraged and valued. See the [Table of Contents](#table-of-contents) for different ways to help and details about how this project handles them. Please read the relevant section before making your contribution - it makes things easier on both ends.
+All types of contributions are encouraged and valued. See the [Table of contents](#table-of-contents) for different ways to help and details about how this project handles them. Please read the relevant section before making your contribution - it makes things easier on both ends.
 
 > And if you like the project but don't have time to contribute, that's fine. There are easier ways to support it:
 >
@@ -11,29 +14,43 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 > - Tweet/skeet/post about it
 > - Refer this project in your project's readme
 > - Mention the project to your friends/colleagues
-> - [Sponsor it](https://github.com/sponsors/jim-collier)
+> - Sponsor it on [GitHub](https://github.com/sponsors/jim-collier) or [Ko-fi](https://ko-fi.com/jimcollier)
 
-<!-- omit in toc -->
-## Table of Contents
+<!-- TOC ignore:true -->
+## Table of contents
+
+<!-- TOC -->
 
 - [Code of Conduct](#code-of-conduct)
 - [I Have a Question](#i-have-a-question)
 - [I Want To Contribute](#i-want-to-contribute)
 	- [Reporting Bugs](#reporting-bugs)
+		- [Before Submitting a Bug Report](#before-submitting-a-bug-report)
+		- [How Do I Submit a Good Bug Report?](#how-do-i-submit-a-good-bug-report)
 	- [Suggesting Enhancements](#suggesting-enhancements)
+		- [Before Submitting an Enhancement](#before-submitting-an-enhancement)
+		- [How Do I Submit a Good Enhancement Suggestion?](#how-do-i-submit-a-good-enhancement-suggestion)
 - [How to develop](#how-to-develop)
+	- [Toolchains](#toolchains)
+	- [Build and test](#build-and-test)
+	- [Adding a conformance case](#adding-a-conformance-case)
+	- [Linters](#linters)
+	- [Style](#style)
+	- [Branches](#branches)
+
+<!-- /TOC -->
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by the [SHCL Code of Conduct](https://github.com/jim-collier/shcl/blob/main/code_of_conduct.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to <shcl@ubx9.com>.
+This project and everyone participating in it is governed by the [SHCL Code of Conduct](https://github.com/yottacore/shcl/blob/main/code_of_conduct.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to shclⒶyottacore.com.
 
 ## I Have a Question
 
-Before you ask a question, it is best to search for existing [Issues](https://github.com/jim-collier/shcl/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.
+Before you ask a question, it is best to search for existing [Issues](https://github.com/yottacore/shcl/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.
 
 If you then still feel the need to ask a question and need clarification, we recommend the following:
 
-- Open an [Issue](https://github.com/jim-collier/shcl/issues/new).
+- Open an [Issue](https://github.com/yottacore/shcl/issues/new).
 
 - Provide as much context as you can about what you're running into.
 
@@ -43,22 +60,21 @@ We will then take care of the issue as soon as possible.
 
 ## I Want To Contribute
 
-> ### Legal Notice <!-- omit in toc -->
+> ### Legal Notice
 >
 > When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project license.
 
 ### Reporting Bugs
 
-<!-- omit in toc -->
 #### Before Submitting a Bug Report
 
 A good bug report shouldn't leave others needing to chase you up for more information. Therefore, we ask you to investigate carefully, collect information and describe the issue in detail in your report. Please complete the following steps in advance to help us fix any potential bug as fast as possible.
 
 - Make sure that you are using the latest version.
 
-- Determine if your bug is really a bug and not an error on your side e.g. using incompatible environment components/versions (Make sure that you have read the [documentation](https://github.com/jim-collier/shcl/blob/main/README.md). If you are looking for support, you might want to check [this section](#i-have-a-question)).
+- Determine if your bug is really a bug and not an error on your side e.g. using incompatible environment components/versions (Make sure that you have read the [documentation](https://github.com/yottacore/shcl/blob/main/README.md). If you are looking for support, you might want to check [this section](#i-have-a-question)).
 
-- To see if other users have experienced (and potentially already solved) the same issue you are having, check if there is not already a bug report existing for your bug or error in the [bug tracker](https://github.com/jim-collier/shcl/issues?q=label%3Abug).
+- To see if other users have experienced (and potentially already solved) the same issue you are having, check if there is not already a bug report existing for your bug or error in the [bug tracker](https://github.com/yottacore/shcl/issues?q=label%3Abug).
 
 - Also search the wider internet (Stack Overflow and the like) in case someone outside GitHub has already discussed it.
 
@@ -69,14 +85,13 @@ A good bug report shouldn't leave others needing to chase you up for more inform
 	- Can you reliably reproduce the issue? And can you also reproduce it with older versions?
 	- Steps to cleanly reproduce from scratch.
 
-<!-- omit in toc -->
 #### How Do I Submit a Good Bug Report?
 
-> You must never report security related issues, vulnerabilities or bugs including sensitive information to the issue tracker, or elsewhere in public. Instead sensitive bugs must be sent by email to <shcl@ubx9.com>.
+> You must never report security related issues, vulnerabilities or bugs including sensitive information to the issue tracker, or elsewhere in public. Instead sensitive bugs must be sent by email to shclⒶyottacore.com.
 
 We use GitHub issues to track bugs and errors. If you run into an issue with the project:
 
-- Open an [Issue](https://github.com/jim-collier/shcl/issues/new). (Since we can't be sure at this point whether it is a bug or not, we ask you not to talk about a bug yet and not to label the issue.)
+- Open an [Issue](https://github.com/yottacore/shcl/issues/new). (Since we can't be sure at this point whether it is a bug or not, we ask you not to talk about a bug yet and not to label the issue.)
 
 - Explain the behavior you would expect and the actual behavior.
 
@@ -88,29 +103,27 @@ Once it's filed:
 
 - The project team will label the issue accordingly.
 
-- A team member will try to reproduce the issue with your provided steps. If there are no reproduction steps or no obvious way to reproduce the issue, the team will ask you for those steps and mark the issue as `needs-repro`. Bugs with the `needs-repro` tag will not be addressed until they are reproduced.
+- Someone will try to reproduce the issue from the steps given. Where there are no steps, or no obvious way to reproduce it, they will ask for them, and the issue waits until it reproduces.
 
-- If the team is able to reproduce the issue, it will be marked `needs-fix`, as well as possibly other tags (such as `critical`), and the issue will be left to be [implemented by someone](#how-to-develop).
+- Once it reproduces, the issue is left to be [implemented by someone](#how-to-develop).
 
 ### Suggesting Enhancements
 
 This section guides you through submitting an enhancement suggestion for SHCL, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community to understand your suggestion and find related suggestions.
 
-<!-- omit in toc -->
 #### Before Submitting an Enhancement
 
 - Make sure that you are using the latest version.
 
-- Read the [documentation](https://github.com/jim-collier/shcl/blob/main/README.md) carefully and find out if the functionality is already covered, maybe by an individual configuration.
+- Read the [documentation](https://github.com/yottacore/shcl/blob/main/README.md) carefully and find out if the functionality is already covered, maybe by an individual configuration.
 
-- Perform a [search](https://github.com/jim-collier/shcl/issues) to see if the enhancement has already been suggested. If it has, add a comment to the existing issue instead of opening a new one.
+- Perform a [search](https://github.com/yottacore/shcl/issues) to see if the enhancement has already been suggested. If it has, add a comment to the existing issue instead of opening a new one.
 
 - Find out whether your idea fits with the scope and aims of the project. It's up to you to make a strong case to convince the project's developers of the merits of this feature. Keep in mind that we want features that will be useful to the majority of our users and not just a small subset. If you're just targeting a minority of users, consider writing an add-on/plugin library.
 
-<!-- omit in toc -->
 #### How Do I Submit a Good Enhancement Suggestion?
 
-Enhancement suggestions are tracked as [GitHub issues](https://github.com/jim-collier/shcl/issues).
+Enhancement suggestions are tracked as [GitHub issues](https://github.com/yottacore/shcl/issues).
 
 - Use a **clear and descriptive title** for the issue to identify the suggestion.
 
@@ -122,51 +135,87 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/jim-co
 
 ## How to develop
 
-Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/cicd.bash --ci` run locally is the same gate GitHub CI runs, so if it passes on your box it passes upstream.
+Everything routes through the local pipeline, `cicd/cicd.bash`. A green `cicd/cicd.bash --merge-gate` run locally covers what GitHub CI runs on Linux. GitHub also runs jobs on Windows, Windows on ARM, Linux on ARM, and macOS, which a local run doesn't.
 
 The pipeline fast-forwards from the remote before it builds anything, so what it tests is what you would push. It stops and says so if your branch and its upstream have both moved. `--no-sync` skips that.
 
-There is also a `pre-push` hook that runs the gate for you, but only when the push would move `main` or `dev` - feature branches push straight through. `install-dev.bash` turns it on; to do it by hand:
+There is also a `pre-push` hook that runs the merge gate, `cicd/cicd.bash --merge-gate`, for you, but only when the push would move `main`. It runs every check of a run with no flags, and dogfoods, publishes and rewrites nothing. `--ci` is another name for it. A push that changes only docs and art, the files `cicd/docs-only-paths.txt` lists, goes to `main` without it. Everything else pushes straight through, `dev` and feature branches alike. `install-dev.bash` turns it on; to do it by hand:
 
-```sh
+~~~sh
 git config core.hooksPath cicd/hooks
-```
+~~~
 
-`git push --no-verify` gets past it when you need to.
+It skips the gate for a commit whose files a run already passed. Every `cicd.bash` run that gets through the tests and the cross checks without `--quick`, `--no-fmt`, `--no-lint`, `--no-tests`, `--no-cross`, `--skip` or a skipped tool records the tree it tested. So the push at the end of a full run goes straight out, and so does a `--no-ff` merge of a branch that passed onto a `main` that has not moved since. `SHCL_GATE_RERUN=1` runs the gate anyway, and `git push --no-verify` or `SHCL_SKIP_HOOK=1` gets past it when you need to.
+
+GitHub CI runs on pushes to `main`, on pull requests, and by hand from the Actions tab. Pushes to `dev` do not start it, and nothing gates `dev`, so run `cicd/cicd.bash --gate` on your own box before you merge there.
 
 ### Toolchains
 
 - Rust via rustup - `rust-toolchain.toml` pins the version and cross targets; `rustfmt` and `clippy` come with it.
 	- Only rustup honors that pin. If your distro also packages Rust and its `cargo` wins on `PATH`, the pin is ignored with no warning, and you can end up building at one version while formatting and linting at another. `cicd.bash` prepends `~/.cargo/bin` so the pipeline is safe either way, but a bare `cargo` at the prompt is not. Check with `type -a cargo` and `rustup show active-toolchain`; fix by putting `~/.cargo/bin` ahead of the system directories, not after.
 
-- Go - install a current release; hosted CI uses `stable`. The `go` directive in `source/go/go.mod` is the minimum for a consumer of the library, not enough for the pipeline. `gofmt` and `go vet` are built in.
+- Go - install a current release. Hosted CI pins the 1.26 series rather than `stable`, because `staticcheck` has its own type checker and cannot read a newer Go's export data; the two pins move together (the reason is spelled out in `.github/workflows/ci.yml`). The `go` directive in `source/go/go.mod` is the minimum for a consumer of the library, not enough for the pipeline. `gofmt` and `go vet` are built in.
 
 - Python 3.9+ - the binding and its tests are stdlib-only.
 
-- C - gcc and g++; the build gate is a plain `-std=c11 -Wall -Wextra -Werror` compile.
+- C - gcc and g++; the build gate is a `-std=c11 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror` compile.
 
-- PowerShell 7+ - required: the lint stage runs PSScriptAnalyzer through `pwsh` on every run, including `--ci`.
+- PowerShell 7+ - required: the lint stage runs PSScriptAnalyzer through `pwsh` on every run, including `--gate`.
 
-`install-dev.bash` at the repo root sets up as much of this as it can without sudo, and prints package-manager hints for the rest.
+- Zig and Pillow - `check-readme` and `check-c-compilers` build with zig, and `shell-regress` reads the demo gif with Pillow. These run on your box even when docker answers.
 
-A full (non-`--quick`) pipeline run also wants the cross and packaging tools:
+`install-dev.bash` at the repo root sets up as much of this as it can without sudo, and prints package-manager hints for the rest. It checks each tool against its pin in `cicd/config.bash`, the cross, packaging and analyzer tools below included, and names each one that is missing or at another version.
+
+A run without `--gate` also wants the cross and packaging tools. `--quick` builds the cross targets too, but no packages:
 
 - `cargo-zigbuild` and a mingw toolchain, for the Windows and ARM64 builds. Missing tools fail that stage, so pass `--no-cross` if you do not have them.
 
 - `nfpm` for `.deb`/`.rpm`, and `makensis` for the Windows setup. Either one missing just warns and skips its own packages.
 
-None of this is needed for `--ci`, which is the gate that matters for a pull request.
+None of this is needed for `--gate`.
+
+With docker you may not need any of it.
+
+- When docker answers on an x86_64 box, `cicd/cicd.bash` runs stages 1 to 6 in a Debian image with every tool at its pinned version, and builds the image from `cicd/container/` the first time. Without it, or when the image fails to build, they run on your box, with a one-line note saying why. `--no-container` keeps them on your box anyway, and `--container` fails rather than run without the image. The sync, dogfood, demo gif and publish stages always run on your box. The stage flags pass through, so `cicd/cicd.bash --merge-gate` is the merge gate in the image, and so is the pre-push hook's.
+
+- Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points. Zig's cache is the exception: it's a docker volume of its own, `shcl-zig-cache`, and a run empties it at the end once it's over 2 GB or another Zig version filled it. Your own `~/.cache/zig` is never touched. Cargo's target dirs, `source/rust/target` and `source/rust/target-migrate`, hold a stamp naming the toolchain in `rust-toolchain.toml` and the lockfile that filled them. When either has changed, a run empties the dir before it builds, so an old toolchain's units don't pile up, and an extra image's copy goes the same way. It waits while another run is going.
+
+- What a run starts in docker is labeled `dev.project=shcl`, plus `dev.run` with the name of the run's temp folder, and the run's containers go when it ends, failed or stopped too. A run in the image, failed or stopped too, also removes our image tags but the current one and the one before it. The images build on docker's default builder, and a run leaves docker's build cache alone. Docker can trim that cache itself, through `builder.gc` in `/etc/docker/daemon.json`. A run removes the `shcl-cicd` buildx builder that runs from early November 2026 made, with its cache, the first time it finds it.
+
+- `--keep-temp` keeps the run's temp folder and its containers, and says where they are. `--list` prints the steps the other flags would run, by stage, with the test IDs each step runs under it, and runs nothing.
+
+Stages 2 to 6 run from a copy of the tree taken after the format stage, with your uncommitted edits and any new file git does not ignore in it, so you can keep editing, merging and switching branches while a run goes. The run lists what it copied. `--no-freeze` runs them in the checkout instead.
+
+Two more images are there for now and then:
+
+- `--container=ubuntu` is Ubuntu 24.04 and its gcc 13, like the hosted runner, for a red that only shows up there. It runs the format check, build, tests and cross checks, strict like `--merge-gate`, with no release builds, test boxes or leak checks.
+
+- `--container=alpine` builds on musl and runs the binding suites and the CLI checks.
 
 ### Build and test
 
 - Fast loop: `cargo test --manifest-path source/rust/Cargo.toml` - runs the conformance corpus plus the fuzz smoke against the reference.
 
 - Each binding also tests natively:
-	- Go: `go -C source/go test ./...`
-	- Python: `python3 source/python/tests/conformance.py`
+	- Go: `go -C source/go test -count=1 ./...`. The corpus sits outside the module, so without `-count=1` a cached pass hides a changed case.
+	- Python: `python3 -X dev -W error::ResourceWarning source/python/tests/conformance.py`, so a file left open fails. `tests/soak.py` runs the same way.
 	- C: compile and run `source/c/tests/conformance.c` with `-Isource/c`, passing `project/conformance` as the corpus dir.
 
-- Everything at once: `cicd/cicd.bash --ci` - format check, build, lint, tests, and the cross-binding crosscheck. Every binding must match the reference byte for byte on stdout and exit codes; stderr text is not part of the contract.
+- Everything at once: `cicd/cicd.bash --merge-gate` - format check, build, lint, tests, the cross-binding crosscheck, the release builds and the leak checks. Every binding must match the reference byte for byte on stdout and exit codes; stderr text is not part of the contract.
+
+- In between: `cicd/cicd.bash --quick` runs the lint and test steps that take under a minute, and the cross builds. It leaves out the slow checks, the crosscheck among them, and the ones that fetch from the network. `QUICK_SKIP` in `cicd/config.bash` lists them. It leaves out the test boxes too, since they are other hosts. A quick run never counts as a pass for the hook.
+
+- Before a commit: `cicd/cicd.bash --backlog-run-quick` runs the format check, build, lint, tests and cross checks, less what `--quick` leaves out, with no leak checks or profiler calibration, in about 4 minutes. `--gate` is another name for it. It also leaves out the slow tests `BACKLOG_SKIP` in `cicd/config.bash` lists, and records no tree. Area names after it, such as `--backlog-run-quick go cli`, keep only those areas' tests, `BACKLOG_SKIP`'s included. `--help` lists them, and `BACKLOG_AREAS` says which steps each holds. Its lint and test steps run up to 4 at once, and print in order. `--backlog-run-full`, for a last run before a merge, runs the merge gate's checks. Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts.
+
+- Each run keeps its scratch in a folder of its own, `${HOST_TEMP}/shcl/<YYYYmmDD-HHMMSS>_<NNN>/`, with `TMPDIR`, `TEMP` and `TMP` pointed there. Without `HOST_TEMP` it goes under `TMPDIR`, or `/tmp`. The folder goes when the run ends, failed or stopped too, unless `--keep-temp` was given. A run also removes the run folders under `${HOST_TEMP}/shcl/` more than 2 days old whose run has stopped. A folder with no `run.pid` in it isn't a run's, and stays. A script under `cicd/utility/` run by hand makes a folder of its own the same way, with a `run.pid`, and in a run it works in a folder inside the run's.
+
+- `--skip TEXT` leaves out each lint, test, leak check, cross or release check step whose command holds `TEXT`, and the run records nothing. The hosted workflow runs the merge gate with `--skip=codeql-scan.bash`, since it doesn't install CodeQL.
+
+- A run with no flags, `--long`, `--merge-gate` and `--backlog-run-full` also start the hosted `macos` job on GitHub's arm64 Mac runner, for your branch as pushed, and wait for it at the end. It needs `gh`, and a remote branch at your HEAD, or it's a SKIP that says why. It runs your last commit, not uncommitted edits. `--quick`, `--backlog-run-quick` and `--no-remote` leave it out.
+
+- The leak and memory checks, by how long they take. `--quick` ends its tests with the fast ones, a run with no flags with the slow ones too, and `--long` (or `--slow`) adds the ones that take hours, so a run with no flags stays near an hour. `--backlog-run-quick` leaves them out. `--leakcheck` adds every one, so `cicd/cicd.bash --merge-gate --leakcheck` is the merge gate plus the ones that take hours. `--no-leakcheck` drops every one, the sanitizer runs in the tests too, and can't be given with `--leakcheck`. `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG` in `cicd/config.bash` list them. Every Rust test under Miri is a long one, and takes hours. It needs the dated nightly in `rust-toolchain.toml`, and skips without it. The C analyzer, the C soak and CodeQL run in the build image when their tools aren't on your box and docker answers.
+
+- CodeQL runs each language's security-and-quality suite over all 5, and any finding fails it. Fix it, or put a `codeql[QUERY-ID]` comment with the reason alone on the line above it, `// ...` or `# ...`, and `/* ... */` above commented-out C. A real bug gets a backlog item, and its ID goes in the reason. The databases and SARIF go in `cicd/artifacts/codeql/`.
 
 ### Adding a conformance case
 
@@ -187,11 +236,11 @@ Behavior changes come with a corpus case, or they are not pinned.
 	- `layer*.shcl` + `merge.sets` + `expected-merged.shcl` - layered loading.
 	- `init-schema.shcl` + `expected-init.shcl` - starter-config generation.
 
-- Column meanings and file grammars are in `project/conformance/README.md`. It also carries a short note per case, so add one for yours.
+- Column meanings and file grammars are in `project/conformance/README.md`. It also has a short note per case, so add one for yours.
 
 - Generate the golden files from the Rust reference and eyeball them. Never hand-edit a golden to make a test pass.
 
-- All four runners pick up a new case automatically. Run `cicd/cicd.bash --ci`; every binding must agree on it before it is released.
+- All four runners pick up a new case automatically. Run `cicd/cicd.bash --merge-gate`; every binding must agree on it before it is released.
 
 Behavior the corpus cannot see, because it is not stdout, belongs in `cicd/utility/crosscheck.bash` instead. In-place writes are the current example: the check there compares the file tree a write leaves behind, so all four bindings are held to the same mode, symlink and content outcome.
 
@@ -200,18 +249,23 @@ Behavior the corpus cannot see, because it is not stdout, belongs in `cicd/utili
 - Gating (the lint stage fails the run on any finding):
 	- `rustfmt` + `clippy` - rustup components.
 	- `gofmt` + `go vet` - come with Go.
-	- `shellcheck` - the pipeline's own scripts and the bash wrapper.
+	- `staticcheck` - Go: `go install honnef.co/go/tools/cmd/staticcheck@<pin>`.
+	- `govulncheck` - Go: `go install golang.org/x/vuln/cmd/govulncheck@<pin>`; checks the module graph and the standard library against the vulnerability database.
+	- `cargo-deny` - Rust: `cargo install cargo-deny --version <pin>`; advisories, licenses and duplicate versions over the lockfile, config in `source/rust/deny.toml`.
+	- `shellcheck` - the pipeline's own scripts and the installers.
 	- `ruff` + `mypy` - Python: `pipx install ruff` and `pipx install mypy`; both read their settings from `source/python/pyproject.toml`.
-	- `build` - Python: `pipx install build`. The lint stage builds the wheel and sdist and checks they carry the library alone, since the CLI and the tests must never ship.
+	- `build` - Python: `pipx install build`. The lint stage builds the wheel and sdist and checks they contain the library alone, since the CLI and the tests must never ship.
 	- `cppcheck` - C: `pipx install cppcheck` (PyPI wheel bundles the real binary).
 	- `markdownlint-cli2` - docs: `npm install -g markdownlint-cli2`; repo config in `.markdownlint-cli2.jsonc`.
-	- `PSScriptAnalyzer` - ps1 wrapper: `pwsh -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser'`.
+	- `PSScriptAnalyzer` - the ps1 installer and scripts: `pwsh -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser'`.
 
-- Installed-but-optional: `shfmt` and `clang-tidy`/`clang-format` are useful interactively but do not gate (shfmt's output differs from the house shell style, so it never rewrites files here).
+- Versions: the pipeline pins each of these tools, and hosted CI installs the same versions. The pins live in one place, `TOOL_PINS` in `cicd/config.bash`; install those versions and the run stays quiet (a drifted tool gets a warning at the top of every run, and a lint-stage check fails the run if the workflow file's copy of a pin ever disagrees).
+
+- Installed-but-optional: `shfmt` and `clang-format` are useful interactively but don't gate (shfmt's output differs from the house shell style, so it never rewrites files here). clang-tidy does gate, through `cicd/utility/analyze-c.bash` in the build image.
 
 ### Style
 
-The full rules live in [`style-guide.md`](style-guide.md) - read it before touching a binding. The single most important rule there: every binding deliberately mirrors the Rust reference's structure, function-for-function, even where the host language would idiomatically do it differently. That is what keeps the bindings byte-for-byte identical and a fix portable by mechanical diff. Quick basics:
+The full rules live in [`project/style-guide_code.md`](project/style-guide_code.md) - read it before touching a binding. The single most important rule there: every binding deliberately mirrors the Rust reference's structure, function-for-function, even where the host language would idiomatically do it differently. That is what keeps the bindings byte-for-byte identical and a fix portable by mechanical diff. Quick basics:
 
 - Tabs for indentation, spaces for alignment.
 
@@ -222,8 +276,3 @@ The full rules live in [`style-guide.md`](style-guide.md) - read it before touch
 ### Branches
 
 - Work on a short-named feature branch and PR against `dev`; `main` is release-only.
-
-<!-- omit in toc -->
-## Attribution
-
-This guide is based on the [contributing.md generator](https://contributing.md/generator)!

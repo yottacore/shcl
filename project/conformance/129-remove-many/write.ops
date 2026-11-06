@@ -1,0 +1,4 @@
+remove	grp.*
+remove	srv
+remove	nosuch
+int	grp.n	7

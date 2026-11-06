@@ -9,7 +9,9 @@
 ##		advisory lines so they can be addressed. Two modes: plain (print warnings
 ##		from the newest log) and --check (print only when that log is newer than the
 ##		one last recorded in a local marker, then record it - meant for a per-session
-##		startup look that is a no-op until a new cicd run has happened).
+##		startup look that is a no-op until a new cicd run has happened). A log with
+##		neither the done line nor an abort line reports INCOMPLETE and is not
+##		recorded, so the next look reads it again.
 ##	Syntax:
 ##		lint-report.bash [--check] [--force] [--no-mark] [--dir DIR] [--file LOG]
 ##		  --check     gate on the .lint-seen marker; print SEEN and stop if not newer
@@ -20,7 +22,7 @@
 ##	Exit: 0 normal, 2 skip (no dir / no logs).
 ##	History: At bottom of script.
 
-##	Copyright © 2026 Bubbles (ID: XଌฅრX۳ᛟԃლፀƅꓩหδლც)
+##	Copyright (c) 2026 Bubbles
 ##	Licensed under The MIT License (MIT). Full text at:
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
@@ -66,36 +68,102 @@ else
 	ts="${nb%%$'\t'*}"; log="${nb#*$'\t'}"
 fi
 
+##	How old the log is, in whichever unit reads plainest. Every line below names
+##	the log and says nothing about when it ran, so SEEN and CLEAN look the same
+##	whether the run behind them finished an hour ago or a fortnight ago - and a
+##	stale one has been read as evidence that the tree is clean today.
+fAge() {
+	local secs=$(( $(date +%s) - $(stat -c %Y "$1" 2>/dev/null || echo 0) ))
+	if ((secs < 0)); then secs=0; fi
+	if   ((secs < 5400));   then printf '%dm' $(( secs / 60 ))
+	elif ((secs < 172800)); then printf '%dh' $(( secs / 3600 ))
+	else                         printf '%dd' $(( secs / 86400 )); fi
+}
+age="$(fAge "$log")"
+
+##	SEEN only when the marker names the newest log exactly. A marker ahead of every
+##	log, from a --file run on an old log or a name that sorts high, used to silence
+##	the gate for good. --file is not the newest log, so it never moves the marker.
 marker="${dir}/.lint-seen"
-if ((check)) && ((! force)); then
+if ((check)) && ((! force)) && [[ -z "$file" ]]; then
 	seen=""; [[ -f "$marker" ]] && seen="$(tr -d '[:space:]' < "$marker" 2>/dev/null)"
-	if [[ -n "$ts" && -n "$seen" && ! "$ts" > "$seen" ]]; then
-		echo "SEEN $(basename "$log")  (nothing newer than $seen)"; exit 0
+	if [[ -n "$ts" && "$ts" == "$seen" ]]; then
+		echo "SEEN $(basename "$log")  (nothing newer than $seen, ${age} old)"; exit 0
 	fi
 fi
 
+##	A run is finished when its last line is the done line, or when it printed one of
+##	the pipeline's two abort lines. Anything else is still running or was cut off.
+##	The last line, not any line: a publish echoes the pre-push gate's nested run,
+##	done line and all. An unfinished log never gets the marker, since a look taken
+##	mid-run used to mark it seen and the warnings and abort that followed were
+##	never shown. SKIP lines after it don't count, since older runs recapped the box
+##	skips there.
+lastLine="$(grep -vE '^([[:space:]]*|SKIP .*)$' "$log" 2>/dev/null | tail -n 1 || true)"
+finished=0
+if [[ "$lastLine" == *"CI/CD: done."* ]] || grep -qE '^\[ FAILED: |CICD ABORTED' "$log" 2>/dev/null; then finished=1; fi
+
 ##	Record the marker now (before printing the body) so a caller that pipes stdout
 ##	to head/less and closes it early still records the look.
-if ((check)) && ((! noMark)) && [[ -n "$ts" ]]; then
+if ((check)) && ((! noMark)) && ((finished)) && [[ -z "$file" && "$ts" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
 	printf '%s\n' "$ts" > "$marker" 2>/dev/null || echo "lint-report: could not write marker: $marker" >&2
 fi
 
 ##	Distil warnings/advisories. rustc/clippy/cargo-deny all say "warning"; deny adds
 ##	RUSTSEC ids + vulnerable/unmaintained/yanked. Hard errors only appear in a failed
-##	run's log (a passing run aborts on the first error). Drop the "0 warnings" noise.
-warns="$(grep -inE 'warning|rustsec-|vulnerab|unmaintained|yanked|error\[' "$log" 2>/dev/null \
-	| grep -viE 'generated 0 warnings|: 0 warnings|no warnings|0 warnings emitted' || true)"
+##	run's log (a passing run aborts on the first error). Drop the "0 warnings" noise,
+##	govulncheck's clean-result prose (its "found N vulnerabilities in modules you
+##	require, but your code doesn't appear to call" block is informational and prints
+##	on every run), and the echoed command lines that contain the word: cppcheck's
+##	`--enable=warning`, and clippy's `-D warnings`, which the pre-push gate's
+##	nested run echoes during publish and which used to read as a finding.
+##	`extra: CMD` is the pipeline echoing a step it runs, never tool output, and
+##	python's `-W error::ResourceWarning` hit both scans (2026102019120000).
+##	govulncheck wraps that note, so "vulnerabilities." can end it on a line of
+##	its own; a real finding has its own lines. A git `hint:` is advice, and the
+##	default branch one says "warning" (2026102520122882). Paths don't count, such
+##	as CodeQL's progress lines for its ExtractionWarnings.ql query.
+warns="$(awk '{ s = tolower($0); gsub(/[^[:space:]]*\/[^[:space:]]*/, "", s) }
+	s ~ /warning|rustsec-|vulnerab|unmaintained|yanked/ { print NR ":" $0 }' "$log" 2>/dev/null \
+	| grep -vE '^[0-9]+:(extra|hint): ' \
+	| grep -viE 'generated 0 warnings|: 0 warnings|no warnings|0 warnings emitted' \
+	| grep -viE 'no vulnerabilities found|affected by 0 vulnerabilities|this scan also found|appear to call|^[0-9]+:(these )?vulnerabilities\.$|enable=warning|-D warnings' || true)"
 if [[ -n "$warns" ]]; then n=$(printf '%s\n' "$warns" | grep -c .); else n=0; fi
 
+##	A failed run is never CLEAN. Case-sensitive: each tool prints its failure one
+##	way, and the lower-case words turn up in passing output. The pipeline stops
+##	two ways: an unexpected error raises the ABORTED line, and a check that fails
+##	on purpose prints `[ FAILED: ... ]` and exits.
+errs="$(grep -nE '(^|[^[:alnum:]_-])error(\[|:)|\bSC[0-9]{4}\b|test result: FAILED|^--- FAIL|^FAIL\b|panicked at|^Traceback \(most recent call last\)|CICD ABORTED|^\[ FAILED: ' "$log" 2>/dev/null \
+	| grep -vE '^[0-9]+:extra: ' || true)"
+if [[ -n "$errs" ]]; then e=$(printf '%s\n' "$errs" | grep -c .); else e=0; fi
+
 tag="FLAG"; ((check)) && tag="NEW"
-if ((n)); then
-	echo "${tag} $(basename "$log")  (${n} warning line(s))"
+if ((e)); then
+	echo "FAILED $(basename "$log")  (${e} error line(s), ${n} warning line(s), ${age} old)"
+	echo
+	printf '%s\n' "$errs"
+	if ((n)); then echo; printf '%s\n' "$warns"; fi
+elif ((! finished)); then
+	echo "INCOMPLETE $(basename "$log")  (no done or abort line: still running, or cut off; ${n} warning line(s) so far, ${age} old)"
+	if ((n)); then echo; printf '%s\n' "$warns"; fi
+elif ((n)); then
+	echo "${tag} $(basename "$log")  (${n} warning line(s), ${age} old)"
 	echo
 	printf '%s\n' "$warns"
 else
-	echo "CLEAN $(basename "$log")  (0 warnings)"
+	echo "CLEAN $(basename "$log")  (0 warnings, ${age} old)"
 fi
 
 
 ##	Script history:
 ##		- 20260709: Created.
+##		- 20260902: The echoed `-D warnings` of a nested clippy run is not a finding.
+##		- 20260914: A failed run reports FAILED with its error lines. The marker
+##		  moves only on the newest log, and SEEN needs an exact match.
+##		- 20260919: Every line says how old the log is, so a report standing on a
+##		  fortnight-old run reads as one.
+##		- 20260919: `[ FAILED: ... ]` counts as a failure. A log with no done or
+##		  abort line is INCOMPLETE and never marked seen.
+##		- 20261028: govulncheck's note wrapped to a bare "vulnerabilities." line, and git `hint:` lines,
+##		  are not findings.

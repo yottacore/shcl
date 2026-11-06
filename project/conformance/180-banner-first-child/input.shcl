@@ -1,0 +1,7 @@
+# An info block above the first field's first child stays where it is. A
+# dotted first line puts a block at the top of the file there, and a saved file
+# writes the two alike, so banner on leaves it and writes a new one at the end.
+a:
+	## This config file format is SHCL.
+	##    Format   3
+	b: 1

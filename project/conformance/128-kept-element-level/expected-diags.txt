@@ -1,0 +1,4 @@
+line 7: Error: E001
+line 8: Error: E001
+line 14: Error: E001
+failed: 3 diagnostic(s), 3 error(s)

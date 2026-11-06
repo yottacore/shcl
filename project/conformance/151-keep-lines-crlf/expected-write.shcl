@@ -1,0 +1,6 @@
+# Windows-made file
+root:
+	mode: slow
+	level: 2
+
+other: 2  # last

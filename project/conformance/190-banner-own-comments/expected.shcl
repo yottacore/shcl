@@ -1,0 +1,33 @@
+# A comment written right against an info block is the file's own, and banner
+# keeps it. A block comes off from the lone line above its first line to the
+# next one, or after its last line written the block's way when that is gone.
+# A migrate stamp comes off with its note and leaves the comment above it.
+a: 1
+## Pinned by ops.
+##
+## This config file format is SHCL.
+##    Format   3
+##
+## Ask before you change b.
+b: 2
+## Owner: ops team
+##    Format   3
+##    Migrated from SHCL 2.x.
+c: 3
+##
+## This config file format is SHCL.
+##    Format   3
+## Keep d at 4.
+d: 4
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://example.invalid/shcl
+##    Syntax   https://example.invalid/old/spec.md
+##    Legal    Old legal line.
+##
+## Ops team: do not edit by hand.
+##
+## Pager: 555-0100

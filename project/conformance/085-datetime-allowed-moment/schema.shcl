@@ -1,0 +1,24 @@
+field: utc
+	type: datetime
+	allowed: "12:00:00Z"
+
+field: plus
+	type: datetime
+	allowed: "12:00:00Z"
+
+field: minus
+	type: datetime
+	allowed: "12:00:00Z"
+
+field: zeros
+	type: datetime
+	allowed: "12:00:00"
+
+field: plain
+	type: datetime
+	allowed: "12:00:00.0"
+
+# A floating time is not the UTC one: the only spelling difference that is real.
+field: local
+	type: datetime
+	allowed: "12:00:00Z"

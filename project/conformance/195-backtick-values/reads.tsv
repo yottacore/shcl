@@ -1,0 +1,20 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+color	string	#FF8800	Good
+esc	string	\x7F	Good
+ctab	string	\t	Good
+apos	string	'	Good
+dq	string	"	Good
+comma	string	a, b	Good
+comma	count	1	Good
+mark	string	◉TAB◉	Good
+spaced	string	 padded 	Good
+empty	string		Good
+list	string[]	a|b|c, d	Good
+num	int	80	Good
+open	string	-	Empty
+open.kid	int	1	Good
+mid	string	-	NotFound
+last	int	1	Good

@@ -1,0 +1,13 @@
+tabs:
+	a: 1
+    stray: 1
+	b: 2
+skipped:
+		x: 1
+	y: 2
+spaces:
+    a: 1
+	stray: 1
+    b: 2
+   c: 3
+top: 1

@@ -1,0 +1,6 @@
+string	over	new value
+string	oversq	new value
+string	overdq	new value
+string	esc	has ` tick
+literal	lit	`#00FF00`
+int	num	81

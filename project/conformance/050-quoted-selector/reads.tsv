@@ -1,4 +1,4 @@
 query	type	expected	status	level
 -	load	ok	-
-x["a, b"]	string	a, b	Good
-x[#1]	string	a, b	Good
+x("a, b")	string	a, b	Good
+x(1)	string	[a, b]	Good

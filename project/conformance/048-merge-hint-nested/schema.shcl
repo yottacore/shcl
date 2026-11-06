@@ -1,8 +1,8 @@
 field: table
-	repeat: 1, 99
+	repeat: [1, 99]
 	reopen: true
 field: table.col
-	repeat: 1, 99
+	repeat: [1, 99]
 field: table.meta
 field: table.meta.note
 	type: string

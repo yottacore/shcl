@@ -1,0 +1,2 @@
+query	type	expected	status	level
+a	string	x	Good

@@ -1,3 +1,3 @@
 query	type	expected	status
 -	load	ok	-
-r	raw	line1\n \n\n\nline2	Good
+r	raw	  line1\n   \n\n \n  line2	Good

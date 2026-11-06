@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+srv	string	web	Good
+srv	count	1	Good
+srv(web).port	int	80	Good
+srv(web).note	string	-	Empty
+srv.port	int	80	Good

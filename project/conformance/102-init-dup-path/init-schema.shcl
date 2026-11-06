@@ -1,0 +1,8 @@
+# One field spelled twice in a schema generates one line.
+field: w
+	required: yes
+	default: v
+
+field: "w(*)"
+	required: yes
+	default: v

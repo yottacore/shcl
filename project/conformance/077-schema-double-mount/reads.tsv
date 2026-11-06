@@ -1,0 +1,3 @@
+query	type	expected	status
+-	load	ok	-
+srv	count	2	Good

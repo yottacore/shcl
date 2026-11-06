@@ -1,0 +1,3 @@
+line 2: Error: E002
+line 3: Error: E002
+failed: 2 diagnostic(s), 2 error(s)

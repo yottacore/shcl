@@ -1,12 +1,12 @@
 # Generator edge cases: unwritable paths and smuggled newlines.
-field: "a[#2]"
+field: "a(2)"
 	type: int
 
 field: mode
 	type: string
-	allowed: "x\ny", z
+	allowed: ["x\ny", z]
 	default: "x\ny"
 	required: yes
 
-field: "w[*].x"
+field: "w(*).x"
 	type: int

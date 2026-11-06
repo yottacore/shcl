@@ -3,7 +3,9 @@
 # show= line into the fake terminal, runs run= (default: show) for real, and shows
 # the output. {prog} renders as the program name; {bin} runs as the tested binary
 # path. pause= is the read time in seconds. Paths in run= are relative to the repo
-# root (where cicd runs). Whole loop targets 20-30 seconds including the black tail.
+# root (where cicd runs). Whole loop runs about 33 seconds including the 3 s
+# black tail; the read-time pauses are what add up, and cutting them enough to
+# finish under 30 s left the two screenfuls unreadable.
 
 title = "shcl"
 prog  = "shcl"
@@ -20,19 +22,19 @@ scrollrate = 320                # a long listing; the read time is the pause, no
 pause = 3.0
 
 [[step]]
-show  = "{prog} get --int app.shcl 'servers[web1].port'"
-run   = "{bin} get --int cicd/demo/app.shcl 'servers[web1].port'"
+show  = "{prog} get --int app.shcl 'servers(web1).port'"
+run   = "{bin} get --int cicd/demo/app.shcl 'servers(web1).port'"
 pause = 1.2
 
 [[step]]
 note  = "Bad lines: skipped, not fatal"
 show  = "{prog} check app.shcl"
 run   = "{bin} check cicd/demo/app.shcl"
-expect_exit = 6                 # the demo file carries a deliberate bad line
+expect_exit = 6                 # the demo file has a deliberate bad line
 pause = 1.6
 
 [[step]]
-note  = "Canonical fmt; values verbatim"
+note  = "Canonical fmt; nothing lost"
 show  = "{prog} fmt app.shcl"
 run   = "{bin} fmt cicd/demo/app.shcl"
 scrollrate = 320

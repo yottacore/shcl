@@ -1,0 +1,19 @@
+tilde:[~~~x]
+after-tilde: 1
+tick:[```x]
+after-tick: 1
+run:[~~~~]
+after-run: 1
+bracket:[[x]
+after-bracket: 1
+spaced : [ ~~~y ]
+noted:[~~~z] # kept
+parent:[~~~w]
+	child: 1
+outer:
+	inner:[[v]
+	sibling: 2
+city:[New York]
+plain:[Boston]
+quoted:["~~~q"]
+last: 1

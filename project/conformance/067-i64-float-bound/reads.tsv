@@ -1,0 +1,7 @@
+query	type	expected	status	level
+-	load	ok	-
+over	int	-	BadType	loose
+max	int	-	BadType	loose
+min	int	-9223372036854775808	Good	loose
+plain	int	-	BadType	loose
+over	float	9223372036854776000	Good	loose

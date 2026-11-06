@@ -1,0 +1,6 @@
+# One crossed range must not switch off the unknown-field sweep.
+a: 5
+b: 20
+c: 9.5
+bogus: 1
+other: x

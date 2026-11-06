@@ -1,0 +1,6 @@
+# A selector puts a child under an earlier block, so an edit anywhere
+# gives the canonical form.
+env: prod
+	url: u
+env: dev
+port: 2

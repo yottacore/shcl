@@ -1,6 +1,9 @@
-# Inline and stacked arrays are the same array, two spellings.
-inline: small, medium, "extra, large"
-stacked: small, medium, "extra, large"
+# Bracket and stacked arrays are the same array, two spellings.
+inline: [small, medium, "extra, large"]
+stacked:
+	- small
+	- medium
+	- "extra, large"
 
 # Repeated leaf lines are INSTANCES, not an array - kept separate.
 pet: cat

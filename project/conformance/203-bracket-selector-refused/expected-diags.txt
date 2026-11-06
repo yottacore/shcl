@@ -1,0 +1,8 @@
+line 4: Error: E029
+line 6: Error: E029
+line 7: Error: E029
+line 8: Error: E018
+line 9: Error: E029
+line 10: Error: E025
+line 11: Error: E014
+failed: 7 diagnostic(s), 7 error(s)

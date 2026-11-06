@@ -1,0 +1,4 @@
+query	type	expected	status
+-	load	ok	-
+raw	raw	body	Good
+-	lost	0	-

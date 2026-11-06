@@ -1,0 +1,24 @@
+a: 1
+# b:
+	# c: true
+d: 2
+wallpaper:
+	opacity: 0.2
+	# rotate:
+		# enabled: true
+	blur: 3
+e:
+	f:
+		g: 1
+	# x
+		# y
+h:
+	i: 1
+	# j
+		# k
+			# l
+	# q
+m: 1
+# n:
+	# o:
+		# p: 1

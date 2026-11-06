@@ -1,0 +1,9 @@
+# Two spellings of one value are one instance, and one selector finds it.
+a: 'q"uote'
+	z: 9
+	p: 1
+	q: 2
+b: "tab◉TAB◉here"
+	r: 3
+c: nobs
+	s: 4

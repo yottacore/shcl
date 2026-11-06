@@ -3,3 +3,4 @@ ok	int	1	Good
 a0	string	-	NotFound
 -	load	ok	-
 -	load	fail	-	strict
+-	lost	1	-

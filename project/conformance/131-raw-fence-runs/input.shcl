@@ -1,0 +1,17 @@
+long:
+	`````md
+	```
+	inner ```` run
+	`````
+deep:
+	```
+	x
+		```
+trail:
+	```
+	``` not a closer
+	```
+mixed:
+	~~~
+	```
+	~~~

@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+script	raw	print("top")	Good
+script	rawinfo	python	Good
+ports	int[]	9090	Good
+empty	raw	filled	Good

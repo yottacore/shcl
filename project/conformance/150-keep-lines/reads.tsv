@@ -1,0 +1,5 @@
+query	type	expected	status
+server.port	int	8443	Good
+name	string	Billing	Good
+server.paths	string[]	/v1|/v2	Good
+retries	count	1	Good

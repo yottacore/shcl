@@ -1,26 +1,67 @@
 ## Correctness gate only. Everything else (cross-compile, publish, artifacts)
 ## stays in the local pipeline: cicd/cicd.bash. One definition of "passing" -
-## this just runs the engine's --ci mode.
+## this just runs the engine's --merge-gate mode, as far as the runner can.
+##
+## Not on dev pushes. A branch is built and tested before it merges there, so a
+## hosted run per dev push was the same gate again at half an hour each. main
+## still gets one, pull requests do, and `gh workflow run ci --ref dev` starts
+## one by hand.
 name: ci
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+    ## cicd.bash starts the macos job alone this way, for its branch as pushed.
+    inputs:
+      job:
+        description: "Run only this job (macos); empty runs them all"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  ## A run of the macos job alone doesn't cancel a whole run, or one of it.
+  group: ci-${{ github.ref }}-${{ inputs.job }}
   cancel-in-progress: true
 
 jobs:
+  ## Three parallel parts of the one merge gate. As one job it ran 31 to 50
+  ## minutes and then over the 60-minute limit: lint was 3 minutes plus
+  ## cppcheck's exhaustive pass, 16 to 26 more whenever shcl.h changed, and the
+  ## tests stage with crosscheck and the large document was 20 to 29. By
+  ## 2026-10-29 tests alone was 48, and the release step after it ran out the
+  ## hour (2026102915235852), so the release has its own part. Each part
+  ## runs the engine with stage flags, so what passing means stays in cicd.bash,
+  ## and check-pins.bash fails when the parts stop covering everything the
+  ## merge gate runs here. All install every tool, so a strict skip can't
+  ## come from a tool one part forgot.
+  ##
+  ## What the runner can't: the test boxes are on the LAN (--no-remote), and
+  ## CodeQL's bundle is about 700 MB and 10 minutes more than the tests part
+  ## has (--skip). The cross targets would take another job of their own; the
+  ## macos, linux-arm and windows jobs below build on their own runners instead.
   ci:
+    if: ${{ !inputs.job }}
+    name: ci (${{ matrix.part }})
     runs-on: ubuntu-latest
-    ## 25 was enough until the large-document gate; that adds several minutes of
-    ## single-threaded parsing per binding, and a hosted runner is slower again.
-    timeout-minutes: 45
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          ## The cross checks take half a minute. Lint is the shortest part
+          ## unless the C header changed. The tests part takes the leak checks,
+          ## and the release part the native release, its checks and packages.
+          - part: lint
+            args: --merge-gate --no-tests --no-release --no-remote
+          - part: tests
+            args: --merge-gate --no-lint --no-release --no-cross --no-remote --skip=codeql-scan.bash
+          - part: release
+            args: --merge-gate --no-lint --no-tests --no-cross --no-remote
     steps:
       ## Actions by commit SHA (tag in the comment), so a moved tag cannot
       ## silently change what runs.
@@ -29,7 +70,7 @@ jobs:
       ## toolchain on first cargo call; keep "what passing means" in the engine.
       ## The go.mod directive is the CONSUMER floor (1.20), not the pipeline's
       ## toolchain: cicd's own `go -C` needs a current release. Pinned to a
-      ## series rather than stable, because staticcheck carries its own copy of
+      ## series rather than stable, because staticcheck has its own copy of
       ## the type checker and cannot read export data from a Go newer than the
       ## release it was cut against - stable rolling to 1.27 broke the lint
       ## stage here while the local gate, on 1.26, stayed green. Move this when
@@ -49,18 +90,52 @@ jobs:
       ## the runner's preinstalled pwsh. Versions match cicd/config.bash
       ## TOOL_PINS, so CI and the local gate agree about what "passing" was
       ## tested against. Exception: the cppcheck wheel's own version is not the
-      ## Cppcheck version it carries - package 1.5.1 bundles the 2.17.1 binary
-      ## that TOOL_PINS checks for. Pin the package version here; "2.17.1" is
-      ## not a package that exists.
+      ## Cppcheck version it includes - package 1.5.1 bundles the 2.17.1 binary
+      ## that TOOL_PINS checks for. Pin the package version here (it is
+      ## CPPCHECK_WHEEL in config.bash; the binary version is not a package that
+      ## exists), and keep the binary version in this comment: check-pins.bash
+      ## reads both.
       ##
-      ## shellcheck is preinstalled but at whatever version the image carries,
+      ## shellcheck is preinstalled but at whatever version the image has,
       ## which is not the one the local gate runs - it warns about shapes newer
       ## releases stopped flagging, so a script can pass locally and fail here.
       ## Install the pinned version ahead of the image's copy on PATH.
       - run: |
-          pip install ruff==0.15.22 mypy==2.3.0 cppcheck==1.5.1 build==1.5.0
+          ## The prerelease packaging row in shell-regress needs a NSIS
+          ## compiler, and the completion rows need zsh and bash-completion;
+          ## without any of them the rows used to skip, which under the gate is
+          ## now a failure. All unpinned on purpose: NSIS only has to compile
+          ## the setup script, and the completion rows run the shipped
+          ## completion, so the version a user's own shell would be is the
+          ## right one to answer.
+          ## zig builds the examples doc's Zig example and the C CLI against musl,
+          ## and Pillow loads the demo gif script for its output-order row. Both
+          ## skips fail the gate too.
+          ## The cross checks run in the gate since 20260920, and the first of
+          ## them builds the C library and CLI for windows with mingw's gcc,
+          ## which this image does not have.
+          ## perf-gate counts write calls with strace, and cli-regress holds a
+          ## stat with it for the Schema line FIFO swap.
+          ## The stub-package rows build a .deb and an .rpm and read them back:
+          ## dpkg-deb ships on the image, rpm does not, and nfpm is installed
+          ## with the Go tools below.
+          ## check-doc-examples runs the man page's jq example. The image has
+          ## jq today; named here so a skip can't start failing the gate.
+          ## gcc, g++, clang and clang-tidy are for analyze-c: by the majors in
+          ## TOOL_PINS, with Ubuntu's apt fixing the point release, and g++ at
+          ## gcc's major, since clang takes the C++ headers of the newest gcc
+          ## it finds and fails without them. clang-tools and heaptrack are for
+          ## the fast leak checks the merge gate runs. CodeQL isn't, since its
+          ## bundle is about 700 MB for the step the tests part skips, and
+          ## check-pins fails if a step this workflow runs ever names it.
+          ## qemu, busybox and cpio boot the native release on the old CPUs
+          ## for the CPU floor check, which boots the runner's own kernel. That
+          ## file is root-only on the runner, so it's made readable here.
+          sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19 clang-tools-19 'heaptrack=1.5.0*' qemu-system-x86 busybox cpio
+          sudo chmod a+r "/boot/vmlinuz-$(uname -r)"
+          pip install ruff==0.15.22 mypy==2.3.0 cppcheck==1.5.1 build==1.5.0 pillow==11.1.0
           npm install -g markdownlint-cli2@0.23.1
-          pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -Force -Scope CurrentUser'
+          pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser'
           curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/shellcheck.tar.xz \
             "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
           # sha256 of shellcheck-v0.11.0.linux.x86_64.tar.xz: a gating tool
@@ -70,14 +145,21 @@ jobs:
           tar -xJf /tmp/shellcheck.tar.xz -C /tmp
           sudo install -m 0755 /tmp/shellcheck-v0.11.0/shellcheck /usr/local/bin/shellcheck
           shellcheck --version
+          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/zig-0.16.0.tar.xz \
+            "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig-0.16.0.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/zig-0.16.0.tar.xz -C /tmp
+          echo "/tmp/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
       ## The supply-chain trio gates the lint stage and none of it ships on the
-      ## image. Versions match TOOL_PINS, same as everything above. cargo-deny
+      ## image, and nfpm builds the stub packages shell-regress reads back.
+      ## Versions match TOOL_PINS, same as everything above. cargo-deny
       ## comes as a prebuilt binary rather than a cargo install: building it
       ## from source costs minutes here and pulls a dependency tree the gate has
       ## no reason to compile.
       - run: |
           go install honnef.co/go/tools/cmd/staticcheck@2026.1
           go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/cargo-deny.tar.gz \
             "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-x86_64-unknown-linux-musl.tar.gz"
@@ -86,15 +168,70 @@ jobs:
           echo "f1f8eedc2a3ac297c540873f93785d4104b102c0079506b2a6b3221b7ec956af  /tmp/cargo-deny.tar.gz" | sha256sum -c -
           tar -xzf /tmp/cargo-deny.tar.gz -C /tmp
           sudo install -m 0755 /tmp/cargo-deny-0.19.9-x86_64-unknown-linux-musl/cargo-deny /usr/local/bin/cargo-deny
+      ## The dated nightly under [nightly] in rust-toolchain.toml, for
+      ## sanitize-rust.bash's ASan, TSan and Miri runs. Read from the file, as the
+      ## stable one is, so the pin is in one place.
+      - run: |
+          nightly="$(sed -n '/^\[nightly\]/,/^\[/s/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          comps="$(sed -n '/^\[nightly\]/,/^\[/s/^components = \[\(.*\)\]/\1/p' rust-toolchain.toml | tr -d '" ')"
+          rustup toolchain install "${nightly}" --profile minimal --component "${comps}"
+          cargo "+${nightly}" miri setup
+      ## One per part, since each builds different targets. A first run of a
+      ## part starts from whatever Linux target dir there is.
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             ~/.cargo/registry
             source/rust/target
-          key: ci-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
-      - run: cicd/cicd.bash --ci
+          key: ci-${{ runner.os }}-${{ matrix.part }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
+          restore-keys: ci-${{ runner.os }}-
+      ## cppcheck's result cache, which the lint line keeps in the git dir. A run
+      ## with no C change restores an exact match, and any other starts from the
+      ## last one; cppcheck checks each file's own key before it uses an entry.
+      ## Saved even when the job fails or times out, since the plain cache action
+      ## saves only on success, and a red run used to throw away the 20-odd
+      ## minutes cppcheck had just spent.
+      - if: matrix.part == 'lint'
+        id: cppcache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .git/cppcheck-build
+          key: cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}
+          restore-keys: cppcheck-
+      ## The runner runs nothing else, so the gate gets every core rather than
+      ## the half it leaves free on a workstation.
+      ## Never in the build image, which the runner would build first and which
+      ## wouldn't fit in the hour. The steps above install the same tools.
+      - run: CPU_CAP="$(nproc)" cicd/cicd.bash --no-container ${{ matrix.args }}
+      - if: always() && matrix.part == 'lint' && steps.cppcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .git/cppcheck-build
+          key: cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}
 
-  ## The file tier is the only part of the library carrying real per-platform
+  ## The go.mod directive promises consumers the library builds on that release,
+  ## and the job above runs a current one, whose vet says nothing about a call
+  ## that is newer than the directive. So the library's own tests, and vet over
+  ## both modules, on the exact release go.mod names.
+  go-floor:
+    if: ${{ !inputs.job }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: source/go/go.mod
+          cache: false
+      - run: |
+          go version
+          cd source/go
+          go vet ./...
+          go test -count=1
+          cd cmd
+          go vet ./...
+
+  ## The file tier is the only part of the library with real per-platform
   ## code - the publish step is a different path in all four bindings - and the
   ## job above runs none of it on windows. The python binding threw on every
   ## windows overwrite through a whole release without anything here noticing.
@@ -106,6 +243,7 @@ jobs:
   ## and MSVC has no <dirent.h> for the C runner to walk the corpus with, so gcc
   ## is the compiler; win-runners.bash names the tool if the image ever drops it.
   windows:
+    if: ${{ !inputs.job }}
     runs-on: windows-latest
     timeout-minutes: 25
     ## Git Bash. The runner script is the same one a person runs by hand there.
@@ -129,3 +267,205 @@ jobs:
             source/rust/target
           key: ci-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
       - run: bash cicd/utility/win-runners.bash
+
+  ## The setup runs NSIS's installer code as administrator, and nothing else
+  ## runs it (2026101921290791). So this builds the released windows-x86_64
+  ## target and its setup with stage 6's own package.bash, and the job below
+  ## installs it, runs it from the machine PATH and uninstalls it.
+  setup-build:
+    if: ${{ !inputs.job }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq nsis gcc-mingw-w64-x86-64
+          cargo build --release --manifest-path source/rust/Cargo.toml --target x86_64-pc-windows-gnu
+          ver="$(sed -n 's/^version = "\(.*\)"$/\1/p' source/rust/Cargo.toml | head -n 1)"
+          mkdir -p setup-art
+          cp source/rust/target/x86_64-pc-windows-gnu/release/shcl.exe "setup-art/shcl-${ver}-windows-x86_64.exe"
+          bash cicd/utility/package.bash "${PWD}" "${PWD}/setup-art" "${ver}"
+          mv setup-art/shcl-*-windows-x86_64-setup.exe setup-art/setup.exe
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-setup
+          path: setup-art/setup.exe
+          retention-days: 3
+
+  setup-test:
+    needs: setup-build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-setup
+      - run: bash cicd/utility/check-win-setup.bash setup.exe
+
+  ## The macOS binary is cross-built on Linux in stage 6, where it cannot run,
+  ## and the Mac on hand is Intel. So this builds it on Apple silicon with the
+  ## stage 6 command itself, read out of config.bash, and runs its arm64 half:
+  ## cli-regress, and crosscheck over the corpus against a plain debug build.
+  ## The Rust tests run the corpus against the library here as well.
+  ##
+  ## Not under the merge gate, so a row this host has no device or tool for
+  ## (/dev/full, strace, the page map) is skipped out loud rather than failed. GNU
+  ## coreutils go first on PATH, since the gate scripts use timeout and
+  ## stat -c. cargo-zigbuild is installed without its ziglang dependency, which
+  ## it would take over the pinned zig below.
+  ##
+  ## A cicd.bash run with no flags, --long, --merge-gate and --backlog-run-full
+  ## starts this job alone, through the job input, for its branch as pushed.
+  macos:
+    if: ${{ !inputs.job || inputs.job == 'macos' }}
+    ## The free arm64 runner nearest the release's macOS 13.0 floor. GitHub
+    ## retires macos-14 on 2026-11-02 (2026103014303616).
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - run: |
+          ## /bin/bash is 3.2, no assoc arrays
+          brew install coreutils bash
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+          pip install --no-deps cargo-zigbuild==0.23.0
+      ## A step of its own, so the sha256sum below is the GNU one added above.
+      - run: |
+          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/zig-aarch64-macos-0.16.0.tar.xz \
+            "https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz"
+          echo "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489  /tmp/zig-aarch64-macos-0.16.0.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/zig-aarch64-macos-0.16.0.tar.xz -C /tmp
+          echo "/tmp/zig-aarch64-macos-0.16.0" >> "$GITHUB_PATH"
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            source/rust/target
+          key: ci-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
+      - run: |
+          CPU_CAP="$(nproc)"
+          export CPU_CAP
+          cargo test --manifest-path source/rust/Cargo.toml
+          cargo build --manifest-path source/rust/Cargo.toml
+          art=""
+          # shellcheck source=/dev/null
+          source cicd/config.bash
+          for t in "${CROSS_TARGETS[@]}"; do
+            [[ "${t}" == *"|macos-universal|"* ]] || continue
+            rest="${t#*|}"; rest="${rest#*|}"; art="${rest%%|*}"
+            eval "${rest#*|}"
+          done
+          [[ -n "${art}" && -f "${art}" ]] || { echo "no macOS binary built: ${art}" >&2; exit 1; }
+          lipo -archs "${art}"
+          ## The floor is the build's, not the runner's, so a newer runner can't
+          ## hide a moved one.
+          for arch in x86_64 arm64; do
+            minos="$(vtool -arch "${arch}" -show-build "${art}" | awk '$1 == "minos" && !n++ { print $2 }')"
+            [[ "${minos}" == "${MACOS_FLOOR}" ]] || { echo "the ${arch} half needs macOS ${minos:-unknown}, not ${MACOS_FLOOR}" >&2; exit 1; }
+            echo "${arch}: macOS ${minos} and up"
+          done
+          bash cicd/utility/crosscheck.bash --corpus project/conformance "rust|source/rust/target/debug/shcl" "macos|${art}"
+          bash cicd/utility/cli-regress.bash "macos|${art}"
+
+  ## The linux-arm64 release is cross-built in stage 6 too, and nothing here
+  ## can run it (2026102019500000). So the same way as above: the stage 6
+  ## command on an arm runner, then crosscheck and cli-regress. No cache, since
+  ## its key would match the x86_64 jobs' target dir.
+  linux-arm:
+    if: ${{ !inputs.job }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - run: |
+          pip install --no-deps cargo-zigbuild==0.23.0
+          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/zig-aarch64-linux-0.16.0.tar.xz \
+            "https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz"
+          echo "ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17  /tmp/zig-aarch64-linux-0.16.0.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/zig-aarch64-linux-0.16.0.tar.xz -C /tmp
+          echo "/tmp/zig-aarch64-linux-0.16.0" >> "$GITHUB_PATH"
+      - run: |
+          CPU_CAP="$(nproc)"
+          export CPU_CAP
+          cargo build --manifest-path source/rust/Cargo.toml
+          art=""
+          # shellcheck source=/dev/null
+          source cicd/config.bash
+          for t in "${CROSS_TARGETS[@]}"; do
+            [[ "${t}" == *"|linux-arm64|"* ]] || continue
+            rest="${t#*|}"; rest="${rest#*|}"; art="${rest%%|*}"
+            eval "${rest#*|}"
+          done
+          [[ -n "${art}" && -f "${art}" ]] || { echo "no linux-arm64 binary built: ${art}" >&2; exit 1; }
+          file "${art}"
+          bash cicd/utility/crosscheck.bash --corpus project/conformance "rust|source/rust/target/debug/shcl" "arm64|${art}"
+          bash cicd/utility/cli-regress.bash "arm64|${art}"
+
+  ## The windows-arm64 release is built here on x86_64 with the stage 6
+  ## command, as it is released, and the job below runs cli-regress on it on
+  ## an arm runner.
+  winarm-build:
+    if: ${{ !inputs.job }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - run: |
+          pip install --no-deps cargo-zigbuild==0.23.0
+          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/zig-x86_64-linux-0.16.0.tar.xz \
+            "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig-x86_64-linux-0.16.0.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/zig-x86_64-linux-0.16.0.tar.xz -C /tmp
+          echo "/tmp/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - run: |
+          CPU_CAP="$(nproc)"
+          export CPU_CAP
+          art=""
+          # shellcheck source=/dev/null
+          source cicd/config.bash
+          for t in "${CROSS_TARGETS[@]}"; do
+            [[ "${t}" == *"|windows-arm64|"* ]] || continue
+            rest="${t#*|}"; rest="${rest#*|}"; art="${rest%%|*}"
+            eval "${rest#*|}"
+          done
+          [[ -n "${art}" && -f "${art}" ]] || { echo "no windows-arm64 binary built: ${art}" >&2; exit 1; }
+          file "${art}"
+          mkdir -p winarm-art && cp "${art}" winarm-art/shcl.exe
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-arm64
+          path: winarm-art/shcl.exe
+          retention-days: 3
+
+  winarm-test:
+    needs: winarm-build
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-arm64
+      - run: |
+          uname -m; ./shcl.exe --version
+          bash cicd/utility/cli-regress.bash "arm64|${PWD}/shcl.exe"

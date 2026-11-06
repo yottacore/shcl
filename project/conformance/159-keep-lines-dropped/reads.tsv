@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	1	-
+window.margin	int	4	Good
+window.stray	int	-	NotFound
+last	int	1	Good

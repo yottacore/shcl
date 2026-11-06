@@ -1,0 +1,2 @@
+line 10: Error: E013
+failed: 1 diagnostic(s), 1 error(s)

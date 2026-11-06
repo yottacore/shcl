@@ -1,0 +1,15 @@
+field: 'a."b.c"'
+	repeat: 2
+field: x
+	repeat: 0x2
+field: y
+	repeat: [1, 2, 3]
+field: z
+	reopen: yes
+field: z.p
+field: z.q
+field: w
+	reopen: 0x1
+field: w.p
+field: w.q
+field: k

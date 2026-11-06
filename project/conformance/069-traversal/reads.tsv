@@ -1,0 +1,13 @@
+query	type	expected	status
+	children	db|web|server|server	-
+db	children	host|port|odd.key|port	-
+web	children	roots|a b	-
+nope	children		-
+-	paths	db|db.host|db.port|db."odd.key"|web|web.roots|web."a b"|server|server.bind	-
+db.port	count	2	-
+db."odd.key"	int	2	Good
+server	children	bind|bind	-
+server(*)	children	bind|bind	-
+server(1)	children	bind	-
+-	instance_paths	db|db.host|db.port(0)|db."odd.key"|db.port(1)|web|web.roots|web."a b"|server(0)|server(0).bind|server(1)|server(1).bind	-
+db.port(1)	int	3	Good

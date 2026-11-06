@@ -1,0 +1,15 @@
+# One path matching every child of one parent, and one matching several
+# top-level instances. Each match used to be dropped on its own.
+grp:
+	a: 1
+	b: 2
+		deep: 3
+	a: 4
+keep:
+	a: 9
+	b: 8
+srv: alpha
+	port: 1
+srv: beta
+	port: 2
+zz: 1

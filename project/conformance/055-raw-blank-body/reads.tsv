@@ -1,4 +1,4 @@
 query	type	expected	status
 -	load	ok	-
-r	raw	\t\n\t  	Good
-n	raw	\t 	Good
+r	raw	\n  	Good
+n	raw	 	Good

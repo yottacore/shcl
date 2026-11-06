@@ -1,0 +1,2 @@
+query	type	expected	status
+a	int	1	Good

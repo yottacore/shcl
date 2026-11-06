@@ -1,0 +1,12 @@
+a:
+	c: 1
+	# inside
+	d: 2
+	# note
+k:
+	# only
+b:
+# t
+b: ```sh
+	echo
+	```

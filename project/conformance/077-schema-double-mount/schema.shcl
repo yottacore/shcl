@@ -1,0 +1,8 @@
+fragment: unit
+	field: port
+		type: int
+		required: yes
+field: srv
+	inherits: unit
+field: "srv(*)"
+	inherits: unit

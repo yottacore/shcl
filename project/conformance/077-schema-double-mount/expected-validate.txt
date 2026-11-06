@@ -1,0 +1,3 @@
+line 2: Error: V003
+line 3: Error: V002
+failed: 2 diagnostic(s), 2 error(s)

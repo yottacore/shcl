@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
+
 //! Document generation.
 //!
 //! Every shape is built once as a small abstract model and then encoded by five
@@ -75,7 +78,7 @@ impl Shape {
 		}
 	}
 	/// The four scaling shapes take whatever size the run asks for, because what
-	/// they measure is parser behavior at volume. The two realistic ones carry
+	/// they measure is parser behavior at volume. The two realistic ones have
 	/// their own size instead: a config file is a few kilobytes and a schema
 	/// file a few hundred, and neither says anything useful at 64 MiB.
 	pub fn plan(self, mib: usize) -> Plan {
@@ -166,9 +169,7 @@ pub enum Node {
 	Map(Vec<(String, Node)>),
 }
 
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 // The model, one unit at a time
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 /// One `flat` unit: a single top-level binding, cycling the scalar types so the
 /// measurement is not one code path in each parser repeated a million times.
@@ -211,7 +212,7 @@ fn deep_level(i: usize, level: usize) -> Node {
 }
 
 /// One `records` unit: an instance of the repeated root key, with the mix of
-/// field kinds a real service block carries - including a value holding the
+/// field kinds a real service block has - including a value holding the
 /// separator, so every encoder's quoting rules are exercised.
 pub fn record_unit(i: usize) -> (String, Vec<(String, Node)>) {
 	let name = format!("svc-{i:06}");
@@ -279,7 +280,7 @@ pub fn record_unit(i: usize) -> (String, Vec<(String, Node)>) {
 	(name, fields)
 }
 
-/// One `text` unit: a multi-line blob carrying the characters each format has to
+/// One `text` unit: a multi-line blob with the characters each format has to
 /// escape or fence its way around.
 pub fn text_unit(i: usize) -> (String, Node) {
 	let mut body = String::new();
@@ -292,7 +293,7 @@ pub fn text_unit(i: usize) -> (String, Node) {
 	(format!("doc-{i:06}"), Node::Leaf(Val::Text(body)))
 }
 
-//•••• The two realistic shapes ••••
+// The two realistic shapes
 
 fn s(v: &str) -> Node {
 	Node::Leaf(Val::Str(v.to_string()))
@@ -471,7 +472,7 @@ pub fn config_unit(i: usize) -> (String, Node) {
 }
 
 /// Column templates for the `ddl` shape. A table takes a run of them, so the
-/// definitions vary in width and in which optional clauses they carry, the way
+/// definitions vary in width and in which optional clauses they have, the way
 /// a real schema does. An empty default or comment means the clause is absent
 /// rather than blank.
 #[rustfmt::skip]
@@ -487,7 +488,7 @@ const DDL_COLUMNS: &[(&str, &str, bool, &str, &str)] = &[
 	("currency",   "char(3)",       true,  "'USD'",   "ISO 4217"),
 	("quantity",   "integer",       true,  "0",       ""),
 	("notes",      "text",          true,  "",        "Free text, sometimes long"),
-	("metadata",   "jsonb",         true,  "'{}'",    "Whatever the app has not modelled yet"),
+	("metadata",   "jsonb",         true,  "'{}'",    "Whatever the app has not modeled yet"),
 	("is_deleted", "boolean",       false, "false",   "Soft delete, filtered by every view"),
 	("version",    "integer",       false, "1",       "Optimistic locking"),
 ];
@@ -578,9 +579,7 @@ pub fn ddl_unit(i: usize) -> (String, Vec<(String, Node)>) {
 	(name, fields)
 }
 
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 // Encoders
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 pub struct Gen {
 	pub fmt: Fmt,
@@ -653,8 +652,8 @@ impl Gen {
 	/// One instance of the repeated root key, for the `records` shape.
 	pub fn record(&mut self, o: &mut String, key: &str, name: &str, fields: &[(String, Node)]) {
 		match self.fmt {
-			// The instance label IS the identity; the other four carry it as an
-			// ordinary first field, which is the same data spelled their way.
+			// The instance label IS the identity; the other four store it as an
+			// ordinary first field, which is the same data written their way.
 			Fmt::Shcl => {
 				let _ = writeln!(o, "{}: {}", key, shcl_scalar(&Val::Str(name.to_string())));
 				for (k, v) in fields {
@@ -714,7 +713,7 @@ impl Gen {
 	}
 }
 
-//•••• SHCL ••••
+// SHCL
 
 fn shcl_node(o: &mut String, key: &str, n: &Node, depth: usize) {
 	let pad = "\t".repeat(depth);
@@ -739,43 +738,51 @@ fn shcl_node(o: &mut String, key: &str, n: &Node, depth: usize) {
 	}
 }
 
+/// The value half of a `v: VALUE` line, spelled by the library's own writer so
+/// the quoting and array rules live in one place (value-syntax.md). A string the
+/// canonical emitter would leave bare stays bare here too: quoting more would
+/// inflate SHCL's size against itself.
 fn shcl_scalar(v: &Val) -> String {
-	match v {
-		Val::Str(s) => shcl_string(s),
-		Val::Int(i) => i.to_string(),
-		Val::Float(f) => shcl::format_f64(*f),
-		Val::Bool(b) => b.to_string(),
-		Val::Arr(items) => items.iter().map(shcl_scalar).collect::<Vec<_>>().join(", "),
-		Val::Text(_) => unreachable!("text is fenced, not inline"),
-	}
-}
-
-/// Matches what the canonical emitter itself quotes - the separator, the comment
-/// mark, a quote of its own, a colon, or any whitespace. Quoting less would make
-/// the round-trip column report the generator's spacing rather than the format's;
-/// quoting more would inflate SHCL's own size against itself.
-fn shcl_string(s: &str) -> String {
-	let needs = s.is_empty()
-		|| s.contains([',', '#', '"', ':'])
-		|| s.contains(char::is_whitespace)
-		|| s.starts_with('\'');
-	if !needs {
-		return s.to_string();
-	}
-	let mut out = String::with_capacity(s.len() + 2);
-	out.push('"');
-	for c in s.chars() {
-		match c {
-			'"' => out.push_str("\\\""),
-			'\\' => out.push_str("\\\\"),
-			_ => out.push(c),
+	let mut d = shcl::Document::new();
+	let took = match v {
+		Val::Str(s) => d.set_string("v", s),
+		Val::Int(i) => d.set_int("v", *i),
+		Val::Float(f) => d.set_float("v", *f),
+		Val::Bool(b) => d.set_bool("v", *b),
+		Val::Arr(items) => {
+			let texts: Vec<String> = items.iter().map(shcl_element).collect();
+			let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+			d.set_string_array("v", &refs)
 		}
+		Val::Text(_) => unreachable!("text is fenced, not inline"),
+	};
+	// A refusal means the model holds a value no file can carry; that is a bug
+	// in the model, and a document missing it would compare different data.
+	assert_eq!(
+		took,
+		shcl::SetStatus::Ok,
+		"the SHCL writer refused a generated value"
+	);
+	let line = d.to_canonical();
+	match line.strip_prefix("v: ").and_then(|l| l.strip_suffix('\n')) {
+		Some(text) => text.to_string(),
+		None => unreachable!("one field writes one line: {line:?}"),
 	}
-	out.push('"');
-	out
 }
 
-//•••• JSON ••••
+/// An array element's text before quoting. The writer quotes by text alone,
+/// so an int element spelled out comes back the same as from a typed setter.
+fn shcl_element(v: &Val) -> String {
+	match v {
+		Val::Str(s) => s.clone(),
+		Val::Int(i) => i.to_string(),
+		Val::Float(f) => shcl::format_float(*f),
+		Val::Bool(b) => b.to_string(),
+		Val::Arr(_) | Val::Text(_) => unreachable!("arrays hold scalars"),
+	}
+}
+
+// JSON
 
 /// Pretty-printed, because the premise is a file a person edits and every JSON
 /// formatter in existence produces this. The compact size is recorded separately
@@ -804,7 +811,7 @@ fn json_scalar(v: &Val) -> String {
 	match v {
 		Val::Str(s) | Val::Text(s) => json_string(s),
 		Val::Int(i) => i.to_string(),
-		Val::Float(f) => shcl::format_f64(*f),
+		Val::Float(f) => shcl::format_float(*f),
 		Val::Bool(b) => b.to_string(),
 		Val::Arr(items) => format!(
 			"[{}]",
@@ -833,7 +840,7 @@ fn json_string(s: &str) -> String {
 	out
 }
 
-//•••• YAML ••••
+// YAML
 
 fn yaml_node(o: &mut String, key: &str, n: &Node, depth: usize) {
 	let pad = IND.repeat(depth);
@@ -860,7 +867,7 @@ fn yaml_scalar(v: &Val) -> String {
 	match v {
 		Val::Str(s) => yaml_string(s),
 		Val::Int(i) => i.to_string(),
-		Val::Float(f) => shcl::format_f64(*f),
+		Val::Float(f) => shcl::format_float(*f),
 		Val::Bool(b) => b.to_string(),
 		// Flow style: YAML's own compact spelling for a short list of scalars.
 		Val::Arr(items) => format!(
@@ -891,7 +898,7 @@ fn yaml_string(s: &str) -> String {
 	json_string(s) // double-quoted YAML takes JSON's escapes
 }
 
-//•••• TOML ••••
+// TOML
 
 /// TOML has no nesting without headers, so a map becomes a table and the path
 /// accumulates. Scalars are emitted before any subtable, which the format
@@ -927,7 +934,7 @@ fn toml_scalar(v: &Val) -> String {
 		Val::Str(s) => json_string(s), // TOML basic strings take JSON's escapes
 		Val::Int(i) => i.to_string(),
 		Val::Float(f) => {
-			let t = shcl::format_f64(*f);
+			let t = shcl::format_float(*f);
 			if t.contains('.') { t } else { format!("{t}.0") } // TOML floats need a point
 		}
 		Val::Bool(b) => b.to_string(),
@@ -939,7 +946,7 @@ fn toml_scalar(v: &Val) -> String {
 	}
 }
 
-//•••• XML ••••
+// XML
 
 /// XML has no arrays and no types, so a list becomes repeated child elements and
 /// every scalar is text. That is not a strawman - it is what XML config is.
@@ -975,7 +982,7 @@ fn xml_scalar(v: &Val) -> String {
 	match v {
 		Val::Str(s) => s.clone(),
 		Val::Int(i) => i.to_string(),
-		Val::Float(f) => shcl::format_f64(*f),
+		Val::Float(f) => shcl::format_float(*f),
 		Val::Bool(b) => b.to_string(),
 		Val::Arr(_) | Val::Text(_) => unreachable!("handled by the caller"),
 	}
@@ -992,4 +999,100 @@ fn xml_text(s: &str) -> String {
 		}
 	}
 	out
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn join(path: &str, name: &str) -> String {
+		let seg = shcl::quote_segment(name);
+		if path.is_empty() {
+			seg
+		} else {
+			format!("{path}.{seg}")
+		}
+	}
+
+	/// Every leaf under PATH reads back as the model meant. Returns how many
+	/// were checked, so an empty walk can't pass.
+	fn reads_back(d: &shcl::Document, path: &str, n: &Node, bad: &mut Vec<String>) -> usize {
+		let v = match n {
+			Node::Map(kids) => {
+				return kids
+					.iter()
+					.map(|(k, v)| reads_back(d, &join(path, k), v, bad))
+					.sum();
+			}
+			Node::Leaf(v) => v,
+		};
+		let same = match v {
+			Val::Str(s) => d.read_string(path).value == *s,
+			Val::Int(i) => d.read_int(path).value == *i,
+			Val::Float(f) => d.read_float(path).value == *f,
+			Val::Bool(b) => d.read_bool(path).value == *b,
+			// A raw block is the lines between its fences, so no final line break.
+			Val::Text(t) => d.read_raw(path).value == t.strip_suffix('\n').unwrap_or(t),
+			Val::Arr(items) => {
+				d.read_string_array(path).value
+					== items.iter().map(shcl_element).collect::<Vec<_>>()
+			}
+		};
+		if !same {
+			bad.push(format!("{path}: reads {:?}", d.read_string(path).value));
+		}
+		1
+	}
+
+	#[test]
+	fn shcl_documents_load_clean_and_read_back() {
+		for shape in Shape::all() {
+			let units = shape.verify_units(40);
+			let (text, _) = crate::render(shape, Fmt::Shcl, units, None);
+			let d = shcl::Document::parse(&text);
+			let diags: Vec<String> = d
+				.diagnostics()
+				.iter()
+				.take(5)
+				.map(|g| format!("line {}: {} {}", g.line, g.code, g.message))
+				.collect();
+			assert!(diags.is_empty(), "{}:\n{}", shape.name(), diags.join("\n"));
+
+			let mut bad = Vec::new();
+			let mut checked = 0;
+			for i in 0..units {
+				match shape.list_key() {
+					Some(key) => {
+						let (name, fields) = match shape {
+							Shape::Records => record_unit(i),
+							_ => ddl_unit(i),
+						};
+						let at = format!("{key}({})", shcl::quote_segment(&name));
+						if d.read_string(&at).value != name {
+							bad.push(format!("{at}: no such instance"));
+						}
+						for (k, v) in &fields {
+							checked += reads_back(&d, &join(&at, k), v, &mut bad);
+						}
+					}
+					None => {
+						let (k, n) = match shape {
+							Shape::Flat => flat_unit(i),
+							Shape::Deep => deep_unit(i),
+							Shape::Text => text_unit(i),
+							_ => config_unit(i),
+						};
+						checked += reads_back(&d, &join("", &k), &n, &mut bad);
+					}
+				}
+			}
+			assert!(
+				checked >= units,
+				"{}: only {checked} leaves checked",
+				shape.name()
+			);
+			bad.truncate(5);
+			assert!(bad.is_empty(), "{}:\n{}", shape.name(), bad.join("\n"));
+		}
+	}
 }

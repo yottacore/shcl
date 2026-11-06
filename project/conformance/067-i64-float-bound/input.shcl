@@ -1,0 +1,6 @@
+# i64 range at the loose float fallback. i64::MAX has no exact double, so a
+# `.0` spelling of it lands on 2^63 and cannot be read back as an int.
+over: 9223372036854775808.0
+max: 9223372036854775807.0
+min: -9223372036854775808.0
+plain: 9223372036854775808

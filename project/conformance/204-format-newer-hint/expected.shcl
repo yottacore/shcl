@@ -1,0 +1,12 @@
+# A Format line naming a newer major than this reader's gets a hint (H006),
+# and the load goes on as usual. The Format line inside the raw body is the
+# block's content, not the file's.
+note:
+	~~~
+	##    Format   2
+	~~~
+port: 8080
+##
+## This config file format is SHCL.
+##    Format   4
+##

@@ -1,0 +1,14 @@
+# An optional child of an optional valued field is commented out like its
+# parent. Uncommenting both has to name one instance, so the child selects the
+# parent's default the way it would under a live parent.
+field: srv
+	type: string
+	repeat: [0, 1]
+	default: web
+
+field: srv.port
+	type: int
+	default: 80
+
+field: srv.note
+	type: string

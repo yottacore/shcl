@@ -1,20 +1,35 @@
 // SPDX-License-Identifier: MIT
-// Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 
 //! SHCL reference implementation: parser, accessor, writer/formatter.
 //! Single file on purpose - the drop-in story is "copy this file into your tree".
 //! The language spec lives in project/spec.md; the conformance corpus in
 //! project/conformance/ pins every behavior here.
 //! Every other binding mirrors this file's structure on purpose (parity over
-//! idiom - see style-guide.md), so restructuring here means restructuring all.
+//! idiom - see project/style-guide_code.md), so restructuring here means
+//! restructuring all.
 
-use std::collections::HashMap;
+// The library never gives up on a whole file, so a panic macro outside a test
+// is an invariant waiting to take a caller down. Every public type is Debug.
+#![cfg_attr(
+	not(test),
+	warn(
+		clippy::unwrap_used,
+		clippy::expect_used,
+		clippy::panic,
+		clippy::unreachable
+	)
+)]
+#![warn(missing_debug_implementations)]
+
+use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 
 // ---------------------------------------------------------------------------
 // Public surface
 // ---------------------------------------------------------------------------
 
-/// Per-document forgiveness knob. Set once at load; composes with per-call onBad.
+/// Per-document forgiveness knob. Set once at load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Strictness {
 	Loose,
@@ -42,6 +57,16 @@ pub enum Severity {
 	Hint,
 }
 
+impl std::fmt::Display for Severity {
+	/// `Error` or `Hint`, the way `check` prints it.
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			Severity::Error => "Error",
+			Severity::Hint => "Hint",
+		})
+	}
+}
+
 /// One parser or validator finding, tied to a source line.
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
@@ -53,80 +78,17 @@ pub struct Diagnostic {
 	pub code: &'static str,
 }
 
-/// Map a diagnostic message to its stable code. The one place prose couples to a
-/// code, so the wording stays free everywhere else.
-fn diag_code(msg: &str) -> &'static str {
-	if msg.starts_with("field mixed with list elements") {
-		"E001"
-	} else if msg.starts_with("value after selector on ") {
-		"E002"
-	} else if msg.starts_with("no instance ") {
-		"E003"
-	} else if msg.starts_with("wildcard selector is query-only") {
-		"E004"
-	} else if msg.starts_with("unterminated raw block") {
-		"E005"
-	} else if msg.starts_with("raw block with no parent field") {
-		"E006"
-	} else if msg.starts_with("list element with no parent field") {
-		"E007"
-	} else if msg.starts_with("list element mixed with field children") {
-		"E008"
-	} else if msg.starts_with("empty list element") {
-		"E009"
-	} else if msg.starts_with("bare comma in list element") {
-		"E010"
-	} else if msg.starts_with("field already has a value") {
-		"E011"
-	} else if msg.starts_with("indentation matches no open level") {
-		"E012"
-	} else if msg.starts_with("malformed line skipped") {
-		"E014"
-	} else if msg.starts_with("malformed line: ") {
-		"E013"
-	} else if msg.starts_with("missing colon") {
-		"E015"
-	} else if msg.starts_with("nesting deeper than") {
-		"E016"
-	} else if msg.starts_with("unterminated quote in value") {
-		"E017"
-	} else if msg.starts_with("merged with ") {
-		"H002"
-	} else if msg.starts_with("unknown field ") {
-		"V001"
-	} else if msg.starts_with("required path missing") {
-		"V002"
-	} else if msg.starts_with("wrong type at ") {
-		"V003"
-	} else if msg.starts_with("value not allowed at ") {
-		"V004"
-	} else if msg.starts_with("value below min at ") {
-		"V005"
-	} else if msg.starts_with("value above max at ") {
-		"V006"
-	} else if msg.starts_with("instance count out of bounds at ") {
-		"V007"
-	} else if msg.starts_with("unknown schema key ") {
-		"V090"
-	} else if msg.starts_with("unknown schema type ") {
-		"V091"
-	} else if msg.starts_with("bad schema constraint ") {
-		"V092"
-	} else if msg.starts_with("bad schema path") {
-		"V093"
-	} else if msg.starts_with("bad schema fragment") {
-		"V094"
-	} else if msg.starts_with("unknown schema fragment ") {
-		"V095"
-	} else if msg.starts_with("schema failed to load") {
-		"V099"
-	} else {
-		"E000" // uncategorized error (should not happen; keeps the map total)
+impl std::fmt::Display for Diagnostic {
+	/// The line `format_diagnostic` gives.
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(&format_diagnostic(self))
 	}
 }
 
 /// Read status sentinels. `Empty` is informational - the empty value is still returned.
-/// Ordered by severity so a worst-of aggregate is just `max`.
+/// Ordered by severity so a worst-of aggregate is just `max`. `BadPath` is a
+/// path the scanner refuses or one with a `: value` part, so it never got as
+/// far as the document; `NotFound` is a usable path that matched nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Status {
 	Good,
@@ -134,6 +96,7 @@ pub enum Status {
 	NotFound,
 	BadType,
 	Multiple,
+	BadPath,
 }
 
 impl std::fmt::Display for Status {
@@ -146,31 +109,67 @@ impl std::fmt::Display for Status {
 			Status::NotFound => "NotFound",
 			Status::BadType => "BadType",
 			Status::Multiple => "Multiple",
+			Status::BadPath => "BadPath",
+		})
+	}
+}
+
+/// What the value at a path is, as kind() and read_kind() give it. `Empty`
+/// is a field with nothing after the colon, a section's header included;
+/// `x: []` is an `Array` with no elements. The order is every binding's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueKind {
+	Empty,
+	Scalar,
+	Array,
+	Raw,
+}
+
+impl std::fmt::Display for ValueKind {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			ValueKind::Empty => "Empty",
+			ValueKind::Scalar => "Scalar",
+			ValueKind::Array => "Array",
+			ValueKind::Raw => "Raw",
 		})
 	}
 }
 
 /// What load_file found: the four cases a consumer's own load path otherwise
-/// confuses. Clean and HadErrors both carry a usable document; NotFound and
+/// confuses. Clean and HadErrors both have a usable document; NotFound and
 /// Unreadable come back with an empty one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileStatus {
 	Clean,      // read and parsed, no error diagnostics (hints allowed)
 	HadErrors,  // read and parsed, but error diagnostics are present
 	NotFound,   // no file at the path
-	Unreadable, // exists but could not be read (permissions, a directory, bad encoding)
+	Unreadable, // exists but could not be read (permissions, a directory, bad encoding, past a read_file cap)
 }
 
-/// Why a save did not happen. The two cases need different handling, so they
-/// are separate values rather than two spellings of one message: `Refused` is
+/// Why a save did not happen. The cases need different handling, so they
+/// are separate values rather than spellings of one message: `Refused` is
 /// the lost-content gate, which the caller can reverse with `save_file_lossy`,
-/// and `Io` is the disk's answer, which they cannot.
+/// `Changed` is another program's edit, which `SaveOptions::force` writes
+/// over, `Exists` is the file a create-only save found, `TooNew` a document
+/// read from a newer format, and `Io` is the disk's answer, which they cannot
+/// reverse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveError {
-	/// The load dropped content this save would delete (see `lost_count`).
+	/// This save would delete content from the file (see `lost_count`).
 	Refused { path: String, lost: usize },
-	/// The write itself failed; carries the reported message.
-	Io(String),
+	/// The write itself failed: why, and the message.
+	Io(WriteError),
+	/// The file the document was loaded from no longer holds what the load
+	/// read, or what this document's last save there wrote. Nothing written.
+	Changed { path: String },
+	/// `SaveOptions::create` found a file already there, or another save made
+	/// it first. Nothing written.
+	Exists { path: String },
+	/// The document was read from a newer format than this one (see
+	/// `newer_format`), so a save would write its lines by these rules.
+	/// Nothing written, and no option overrides it.
+	TooNew { path: String },
 }
 
 impl std::fmt::Display for SaveError {
@@ -178,39 +177,231 @@ impl std::fmt::Display for SaveError {
 		match self {
 			SaveError::Refused { path, lost } => write!(
 				f,
-				"{}: refusing to save: load dropped {} line(s)/value(s) this write would delete (see diagnostics; save_file_lossy overrides)",
+				"{}: refusing to save: this write would delete {} line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)",
 				path, lost
 			),
-			SaveError::Io(m) => f.write_str(m),
+			SaveError::Io(e) => std::fmt::Display::fmt(e, f),
+			SaveError::Changed { path } => write!(
+				f,
+				"{}: refusing to save: the file changed since it was loaded; nothing written (force overrides)",
+				path
+			),
+			SaveError::Exists { path } => write!(
+				f,
+				"{}: refusing to save: the file is already there and create asks for a new one; nothing written",
+				path
+			),
+			SaveError::TooNew { path } => write!(
+				f,
+				"{}: refusing to save: the document holds lines from a newer format than this reader's; nothing written",
+				path
+			),
+		}
+	}
+}
+
+/// How `save_file_with` saves. The default is `save_file`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SaveOptions {
+	/// Write even when the save deletes content from the file, as
+	/// `save_file_lossy` does.
+	pub lossy: bool,
+	/// Keep the lines no edit touched, as `save_file_keep_lines` does.
+	pub keep_lines: bool,
+	/// Write over the file the document was loaded from even when it changed
+	/// since, for a caller that means to replace whatever is there.
+	pub force: bool,
+	/// Only make a new file: refuse with `SaveError::Exists` when one is
+	/// there, even one another save makes at the same time.
+	pub create: bool,
+	/// The permission bits (`0o777`) a file this save makes gets, exactly,
+	/// whatever the umask. 0 is an ordinary create's. A file already there
+	/// keeps its own, and windows has no such bits.
+	pub mode: u32,
+}
+
+/// The file a load read, for the save's changed check: where the path
+/// resolved to, and its text, or None when nothing was there.
+#[derive(Debug, Clone)]
+struct LoadedFile {
+	target: std::path::PathBuf,
+	text: Option<String>,
+}
+
+impl LoadedFile {
+	/// A path that resolves to no target, a link cycle, is a save's error
+	/// already, so it gets no check.
+	fn at(path: &str, text: Option<String>) -> Option<Box<LoadedFile>> {
+		let target = resolve_target(path).ok()?;
+		Some(Box::new(LoadedFile { target, text }))
+	}
+
+	/// The file at PATH still holds the text, byte for byte, or is still
+	/// not there. Content only, so a touch alone is no change. Something
+	/// that isn't a regular file is left to the write, which refuses it. A
+	/// file that can't be read is a change, since the rename that replaces it
+	/// needs no read access.
+	fn holds(&self, path: &str) -> bool {
+		match read_regular(path) {
+			Ok(Some(now)) => self.text.as_deref().is_some_and(|t| t.as_bytes() == now),
+			Ok(None) => true,
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.text.is_none(),
+			Err(_) => false,
 		}
 	}
 }
 
 impl std::error::Error for SaveError {}
 
-/// Why a write would fail (`write_reason()`): the distinctions behind a
-/// setter's bare `false`. `Writable` = the path passes the writer's
-/// validation; the rest name the five ways it cannot.
+/// Why a write failed, so a program can tell a missing folder from no
+/// permission or a full disk without parsing the message. `NotFound` and
+/// `Unreadable` are `FileStatus`'s names. `Ok` is a write that went through,
+/// which only C hands back; here a failure is a `WriteError` holding one of
+/// the rest. New values go on the end; the other bindings number them in this
+/// order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WriteReason {
-	Writable,
-	BadPath,     // empty path, the scanner rejected it, or a segment carries a line break
-	ValueInPath, // the path carries a `: value` part; writes take values separately
-	Wildcard,    // wildcard selectors are query-only
-	NoSuchIndex, // a `[#k]` instance that does not (and can never) exist
-	TooDeep,     // deeper than the nesting cap; the writer never creates past it
+pub enum WriteStatus {
+	/// The write went through.
+	Ok,
+	/// The folder it goes in is not there, or part of the path is a file.
+	NotFound,
+	/// `upgrade_file` could not read the file as UTF-8 text.
+	Unreadable,
+	/// No permission to write there, or for `upgrade_file` to read the
+	/// file. On windows, also a file another process holds open.
+	PermissionDenied,
+	/// The disk is full, or the user's quota is.
+	DiskFull,
+	/// A read-only filesystem, or write-protected media.
+	ReadOnly,
+	/// The path names a directory.
+	IsDirectory,
+	/// Something at the path that is not a regular file, such as a FIFO or a
+	/// device.
+	NotRegular,
+	/// Anything else; the message says what.
+	Other,
+}
+
+/// A failed write: why, and the message to show, which names the file and
+/// says what the system reported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteError {
+	pub status: WriteStatus,
+	pub message: String,
+}
+
+impl WriteError {
+	fn new(status: WriteStatus, message: String) -> WriteError {
+		WriteError { status, message }
+	}
+	fn io(file: &str, e: &std::io::Error) -> WriteError {
+		WriteError::new(write_status_of(e), format!("{}: {}", file, e))
+	}
+}
+
+impl std::fmt::Display for WriteError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(&self.message)
+	}
+}
+
+impl std::error::Error for WriteError {}
+
+/// The OS error's reason. On windows the system's own code goes first, from
+/// one table all four bindings share, since each language files a held file
+/// or a missing network path somewhere different.
+fn write_status_of(e: &std::io::Error) -> WriteStatus {
+	use std::io::ErrorKind as K;
+	#[cfg(windows)]
+	if let Some(code) = e.raw_os_error() {
+		match code {
+			2 | 3 | 15 | 53 | 67 | 267 => return WriteStatus::NotFound,
+			5 | 32 | 33 | 1224 => return WriteStatus::PermissionDenied,
+			39 | 112 | 1295 => return WriteStatus::DiskFull,
+			19 => return WriteStatus::ReadOnly,
+			_ => {}
+		}
+	}
+	match e.kind() {
+		K::NotFound | K::NotADirectory => WriteStatus::NotFound,
+		K::PermissionDenied => WriteStatus::PermissionDenied,
+		K::StorageFull | K::QuotaExceeded => WriteStatus::DiskFull,
+		K::ReadOnlyFilesystem => WriteStatus::ReadOnly,
+		K::IsADirectory => WriteStatus::IsDirectory,
+		_ => WriteStatus::Other,
+	}
+}
+
+/// What a setter did: `Ok` when the write applied, or why it wrote nothing.
+/// `check_set_path()` gives the path's half of it, the reasons up to
+/// `UnderArray`, without writing. The rest are about the value, so only a
+/// setter gives them. When both halves are wrong the path's reason wins.
+/// New values go on the end; the other bindings number them in this order.
+#[must_use = "a setter that refuses writes nothing, and the save after it would write a config missing the edit"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetStatus {
+	/// The write applied.
+	Ok,
+	/// An empty path, one the scanner refuses, or one naming a field or
+	/// instance it would create that has no line reading back as itself.
+	BadPath,
+	/// The path has a `: value` part; a write takes its value separately.
+	ValueInPath,
+	/// A wildcard; wildcards are query-only.
+	Wildcard,
+	/// A `(k)` instance that is not there, and a write never creates one.
+	NoSuchIndex,
+	/// Deeper than the nesting cap; the writer never creates past it.
+	TooDeep,
+	/// A step matches more than one field; `(k)` or `(value)` picks one.
+	Multiple,
+	/// A field the write would create under one holding an array, which
+	/// takes no lines under it (E028).
+	UnderArray,
+	/// An array on a field with lines under it, which takes one plain value
+	/// or none (E028).
+	HasChildren,
+	/// A NaN or infinite float.
+	NotFinite,
+	/// A datetime the reader would refuse, such as month 13.
+	BadDateTime,
+	/// A raw block's info string holds a `#` or a line break.
+	BadRawInfo,
+	/// A raw block's body has a line ending in a carriage return.
+	BadRawBody,
+	/// Comment text holding a line break.
+	BadComment,
+	/// `set_literal` text that is not one value.
+	NotOneValue,
+	/// Text that is not valid UTF-8. Never from Rust, whose strings always
+	/// are.
+	NotUtf8,
+	/// An int past the 64-bit range. Never from Rust, whose `i64` cannot
+	/// hold one.
+	OutOfRange,
+	/// Any other value that would not read back as itself. None is known.
+	NoReadBack,
+	/// A default of another type at a field holding a raw block. Replacing
+	/// it would throw the body away, since a body has no one-line comment.
+	RawBlock,
 }
 
 /// Full-tier read result: value plus status plus the original raw text (when the
 /// path resolved), so a caller can always recover what was actually in the file.
-/// Array reads also carry one status per slot (element, or wildcard instance) in
-/// `slots`; `status` is then the worst slot. Scalar reads leave `slots` empty.
+/// Array reads also give one status per slot (element, or wildcard instance) in
+/// `slots`; `status` is then the worst slot. Scalar reads and the status
+/// twins of the plain calls (`read_count`, `read_lines`, `try_remove` and the
+/// rest) leave `slots` empty.
 /// `line` is the 1-based source line of the resolved binding (0 when the path
 /// did not resolve to one node, or the node was writer-built), so a consumer
 /// check the schema cannot express can still cite the line. `quoted` is true
 /// when the read's single scalar element was quoted in the source - the escape
 /// hatch that lets a downstream language reserve `@null` while `"@null"` stays
-/// a plain string. Arrays, raw blocks, and empties leave it false.
+/// a plain string. Arrays, raw blocks, and empties leave it false. A written
+/// value counts as quoted when a save would quote it. `backtick` is true when
+/// that element was a backtick value: raw text the program decodes itself,
+/// which SHCL hands back as written. A backtick value counts as quoted too.
 #[derive(Debug, Clone)]
 pub struct Read<T> {
 	pub value: T,
@@ -219,6 +410,7 @@ pub struct Read<T> {
 	pub slots: Vec<Status>,
 	pub line: usize,
 	pub quoted: bool,
+	pub backtick: bool,
 }
 
 impl<T> Read<T> {
@@ -230,6 +422,7 @@ impl<T> Read<T> {
 			slots: Vec::new(),
 			line: 0,
 			quoted: false,
+			backtick: false,
 		}
 	}
 	fn with_slots(value: T, status: Status, raw: Option<String>, slots: Vec<Status>) -> Read<T> {
@@ -240,11 +433,13 @@ impl<T> Read<T> {
 			slots,
 			line: 0,
 			quoted: false,
+			backtick: false,
 		}
 	}
-	fn at(mut self, line: usize, quoted: bool) -> Read<T> {
+	fn at(mut self, line: usize, element: Option<&Element>) -> Read<T> {
 		self.line = line;
-		self.quoted = quoted;
+		self.quoted = element.is_some_and(Element::quoted);
+		self.backtick = element.is_some_and(|e| e.mark == Mark::Backtick);
 		self
 	}
 	/// Whether the author addressed this field at all: `Good` or `Empty`. Note
@@ -255,6 +450,18 @@ impl<T> Read<T> {
 	pub fn ok(&self) -> bool {
 		matches!(self.status, Status::Good | Status::Empty)
 	}
+}
+
+/// One field as a listing shows it: the path that reads exactly that field,
+/// written the way instance_paths() writes it, the name as stored, the value
+/// as instances() gives it, and the 1-based source line (0 for a node a
+/// setter built).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Field {
+	pub path: String,
+	pub name: String,
+	pub value: String,
+	pub line: usize,
 }
 
 /// A failed strict load: the diagnostics that failed it, plus the recovered tree.
@@ -296,12 +503,70 @@ pub struct ShclDateTime {
 	pub date: Option<(i32, u32, u32)>,         // (year, month, day)
 	pub time: Option<(u32, u32, Option<u32>)>, // (hour, minute, seconds if written)
 	pub frac: Option<String>,                  // fractional-second digits as typed
-	pub zone: Option<ZoneSpec>,
+	pub zone: Option<Zone>,
+}
+
+/// The name the Go binding uses for the same type; either spelling works.
+pub type DateTime = ShclDateTime;
+
+/// Two datetimes name the same moment, whatever the spelling. The struct
+/// mirrors what was written, so `12:00:00Z` and `12:00:00+00:00` are different
+/// values field by field while naming one time, and `12:00:00` and
+/// `12:00:00.0` differ only in written precision. A `(value)` selector matches
+/// on text, but an `allowed` set is about the value, so it compares here. An
+/// absent zone is local and matches no zone at all - that is the one spelling
+/// difference that is a real difference.
+fn same_moment(a: &ShclDateTime, b: &ShclDateTime) -> bool {
+	let frac = |f: &Option<String>| {
+		f.as_deref()
+			.map_or(String::new(), |d| d.trim_end_matches('0').to_string())
+	};
+	let zone = |z: &Option<Zone>| match z {
+		Some(Zone::Utc) | Some(Zone::OffsetMinutes(0)) => Some(0),
+		Some(Zone::OffsetMinutes(m)) => Some(*m),
+		None => None,
+	};
+	if a.date.is_some() != b.date.is_some()
+		|| a.time.is_some() != b.time.is_some()
+		|| a.time.map(|t| t.2) != b.time.map(|t| t.2)
+		|| frac(&a.frac) != frac(&b.frac)
+	{
+		return false;
+	}
+	match (zone(&a.zone), zone(&b.zone)) {
+		(None, None) => a.date == b.date && a.time == b.time,
+		// Zoned values are instants: the written clock less its offset, the
+		// date carrying the day wrap. A time alone lives on a 24-hour cycle.
+		(Some(ao), Some(bo)) => {
+			let minutes = |dt: &ShclDateTime, off: i32| {
+				let hm = dt
+					.time
+					.map_or(0, |(h, m, _)| i64::from(h) * 60 + i64::from(m))
+					- i64::from(off);
+				match dt.date {
+					Some((y, m, d)) => days_from_civil(y, m, d) * 1440 + hm,
+					None => hm.rem_euclid(1440),
+				}
+			};
+			minutes(a, ao) == minutes(b, bo)
+		}
+		_ => false,
+	}
+}
+
+/// Days since 1970-01-01 for a civil date, negative before it.
+fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+	let y = i64::from(if m <= 2 { y - 1 } else { y });
+	let era = y.div_euclid(400);
+	let yoe = y - era * 400;
+	let doy = (153 * i64::from((m + 9) % 12) + 2) / 5 + i64::from(d) - 1;
+	let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+	era * 146_097 + doe - 719_468
 }
 
 /// A datetime's zone suffix as written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ZoneSpec {
+pub enum Zone {
 	Utc,
 	OffsetMinutes(i32),
 }
@@ -324,8 +589,8 @@ impl std::fmt::Display for ShclDateTime {
 			}
 		}
 		match self.zone {
-			Some(ZoneSpec::Utc) => write!(f, "Z")?,
-			Some(ZoneSpec::OffsetMinutes(off)) => {
+			Some(Zone::Utc) => write!(f, "Z")?,
+			Some(Zone::OffsetMinutes(off)) => {
 				let sign = if off < 0 { '-' } else { '+' };
 				let a = off.abs();
 				write!(f, "{}{:02}:{:02}", sign, a / 60, a % 60)?;
@@ -344,8 +609,24 @@ impl std::fmt::Display for ShclDateTime {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Element {
-	text: String, // quote-stripped, escapes NOT applied (applied on string read; names differ - see scan_path_ex)
-	quoted: bool,
+	text: String, // the logical string: quotes stripped, escapes resolved
+	mark: Mark,
+}
+
+/// How an element was written. The writer keeps the author's quote kind
+/// where the text allows it, and a backtick value stays in backticks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mark {
+	Bare,
+	Single,
+	Double,
+	Backtick,
+}
+
+impl Element {
+	fn quoted(&self) -> bool {
+		self.mark != Mark::Bare
+	}
 }
 
 /// One whole-line comment held as trivia, plus whether a blank line preceded
@@ -355,6 +636,17 @@ struct Element {
 struct Lead {
 	text: String,
 	blank_before: bool,
+	// Levels deeper than the place it is emitted at. A comment written under
+	// the one before it keeps that nesting, so a commented-out block comes
+	// back in its shape.
+	depth: usize,
+	// The source line it was read from, for the save that keeps lines; 0 for
+	// one a write made or moved.
+	line: usize,
+	// A misplaced line kept as written that the settle turned into a comment,
+	// since as written it would bind. It is still the user's line, not a
+	// comment, so clear_comments and comments leave it alone.
+	kept: bool,
 }
 
 impl Lead {
@@ -362,23 +654,115 @@ impl Lead {
 		Lead {
 			text,
 			blank_before: false,
+			depth: 0,
+			line: 0,
+			kept: false,
 		}
 	}
+
+	fn is_comment(&self) -> bool {
+		self.text.starts_with('#') && !self.kept
+	}
+
+	/// A line the load kept as written, settled or not. The save gate
+	/// counts these (design.md, Kept lines under edits).
+	fn is_kept_line(&self) -> bool {
+		self.kept || !self.text.starts_with('#')
+	}
+}
+
+/// How many levels past its place a pending line is written: the place's
+/// own level for a comment no deeper than `base`, the place's own indent,
+/// which also starts a new chain; for a deeper one, one level under the
+/// nearest comment before it whose indent its own extends, level with one it
+/// equals, or at the place's level when there is none. `chain` holds those
+/// comments' indents with their depths, innermost last. A field line kept
+/// for its value or name goes by the same rule over `held`, the kept lines
+/// before it: it holds its level on a reload, so it goes deeper only under
+/// one of those, which a reload holds open for it. That line then takes its
+/// place in `chain` at its own level, so a comment nests under it too
+/// (2026100218185700). A misplaced line, which has its own indent, sits at
+/// the place's level and leaves both alone.
+fn comment_depth<'a>(
+	chain: &mut Vec<(&'a str, usize)>,
+	held: &mut Vec<(&'a str, usize)>,
+	base: &str,
+	text: &str,
+	indent: &'a str,
+) -> usize {
+	if text.starts_with([' ', '\t']) {
+		return 0;
+	}
+	if text.starts_with('#') {
+		return chain_depth(chain, base, indent);
+	}
+	let depth = chain_depth(held, base, indent);
+	// It is written at its own level, so on a reload nothing at that level
+	// or deeper is left for a comment after it to nest under.
+	while chain.last().is_some_and(|(ind, d)| {
+		*d >= depth || !(indent.len() > ind.len() && indent.starts_with(*ind))
+	}) {
+		chain.pop();
+	}
+	chain.push((indent, depth));
+	depth
+}
+
+/// comment_depth() over one chain.
+fn chain_depth<'a>(chain: &mut Vec<(&'a str, usize)>, base: &str, indent: &'a str) -> usize {
+	if !(indent.len() > base.len() && indent.starts_with(base)) {
+		chain.clear();
+		chain.push((indent, 0));
+		return 0;
+	}
+	while let Some((ind, depth)) = chain.last() {
+		if *ind == indent {
+			return *depth;
+		}
+		if indent.len() > ind.len() && indent.starts_with(*ind) {
+			break;
+		}
+		chain.pop();
+	}
+	let depth = chain.last().map_or(0, |(_, d)| d + 1);
+	chain.push((indent, depth));
+	depth
+}
+
+/// A pending line kept for what it says, not for where it sits: neither a
+/// comment nor a misplaced line, which has its own indent.
+fn is_field(text: &str) -> bool {
+	!text.starts_with(['#', ' ', '\t'])
+}
+
+/// The last array line a node's level was opened by, and what the node had
+/// before it: its leading line count, whether it had a trailing comment, and
+/// its blank.
+struct ArrayLine {
+	line: usize,
+	leads: usize,
+	trailing: bool,
+	blank: bool,
 }
 
 /// A pending whole-line comment during parse: text, source indent (used only
 /// to decide whether it hangs on a deeper block), and the blank it consumed.
-struct Pend {
+/// `ceiling` is the shortest incoming indent already checked against it: a
+/// later check can only hang it from a shorter one, so a longer one skips it.
+struct Pend<'a> {
 	text: String,
-	indent: String,
+	indent: &'a str,
 	blank_before: bool,
+	ceiling: usize,
+	line: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 enum Value {
 	Empty,
-	Cell(Vec<Element>), // one element = scalar, more = inline array
-	Raw(Box<RawVal>),   // boxed: the four fields would triple the enum's size
+	Cell(Element),       // one scalar
+	Array(Vec<Element>), // `[a, b]` or a stacked list; `[]` is the empty array
+	Raw(Box<RawVal>),    // boxed: the four fields would triple the enum's size
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -390,37 +774,14 @@ struct RawVal {
 }
 
 impl Value {
-	/// Merge key: nodes with equal (name, key) collapse into one.
-	fn key(&self) -> String {
-		match self {
-			Value::Empty => "e".to_string(),
-			Value::Cell(els) => {
-				// Length-prefix each element so the joined key is injective: a bare
-				// NUL separator lets `[a, b]` collide with the single element
-				// "a\0b" (NUL is legal in a quoted string), silently merging them.
-				let mut k = String::from("c:");
-				for e in els {
-					k.push_str(&e.text.len().to_string());
-					k.push(':');
-					k.push_str(&e.text);
-				}
-				k
-			}
-			// Info-string is part of identity (a `sql` and a `python` block are
-			// different values even with equal bodies); fence style is not. Info is
-			// length-prefixed for the same injectivity reason as cell elements.
-			Value::Raw(r) => format!("r:{}:{}{}", r.info.len(), r.info, r.content),
-		}
-	}
 	/// Human/display form; also what selectors match against (case-sensitive).
+	/// An array is its canonical bracket form, so `x: 80` and `x: [80]` never
+	/// display alike.
 	fn display(&self) -> String {
 		match self {
 			Value::Empty => String::new(),
-			Value::Cell(els) => els
-				.iter()
-				.map(|e| e.text.clone())
-				.collect::<Vec<_>>()
-				.join(", "),
+			Value::Cell(e) => e.text.clone(),
+			Value::Array(els) => emit_array(els),
 			Value::Raw(r) => r.content.clone(),
 		}
 	}
@@ -436,9 +797,8 @@ struct NodeData {
 	children: Vec<usize>,
 	parent: usize,
 	line: usize,
-	star_list: bool,  // value built from stacked "* " lines
-	star_mixed: bool, // mix of "* " and field children already diagnosed
-	// Comment trivia, boxed off to the side: most nodes carry none, and the
+	star_list: bool, // value built from stacked "- " lines, and written that way
+	// Comment trivia, boxed off to the side: most nodes have none, and the
 	// four empty containers were a third of every node.
 	trivia: Option<Box<Trivia>>,
 	// Blank-line grouping is the other half of hand-authored layout: set when
@@ -452,10 +812,10 @@ struct NodeData {
 	// was synthesized (writer, stacked list, fence) OR when the spelling is
 	// exactly the display form; raw falls back to the display form either way.
 	src: Option<String>,
-	// The name as the author spelled it (case unfolded, quotes and escapes
+	// The name as the author wrote it (case unfolded, quotes and escapes
 	// resolved) - what authored_name() hands back, via authored(). Merged
 	// instances keep the first binding's spelling, like line() and comments.
-	// Empty = spelled exactly like `name` (the overwhelmingly common case).
+	// Empty = written exactly like `name` (the overwhelmingly common case).
 	name_src: String,
 }
 
@@ -475,6 +835,13 @@ struct Trivia {
 	// could take them - a header whose children are all commented still owns
 	// those lines. Emitted after the subtree one level deeper than this node.
 	inside: Vec<Lead>,
+	// Kept lines that sat among this node's stacked list elements, each with
+	// the number of elements before it. They keep the list stacked on output,
+	// so a line fixed by hand is still inside the list.
+	among: Vec<(usize, Lead)>,
+	// The comment trailing a stacked list item, with the item's index. Like
+	// the lines among the items, they keep the list stacked on output.
+	notes: Vec<(usize, String)>,
 }
 
 impl NodeData {
@@ -489,6 +856,12 @@ impl NodeData {
 	}
 	fn inside(&self) -> &[Lead] {
 		self.trivia.as_deref().map_or(&[], |t| &t.inside)
+	}
+	fn among(&self) -> &[(usize, Lead)] {
+		self.trivia.as_deref().map_or(&[], |t| &t.among)
+	}
+	fn notes(&self) -> &[(usize, String)] {
+		self.trivia.as_deref().map_or(&[], |t| &t.notes)
 	}
 	fn triv_mut(&mut self) -> &mut Trivia {
 		self.trivia.get_or_insert_with(Default::default)
@@ -505,11 +878,11 @@ impl NodeData {
 
 /// Store a name's authored spelling: the empty sentinel when it matches the
 /// folded name, so the duplicate string never gets allocated.
-fn spelled(name: &str, name_src: &str) -> String {
+fn spelled(name: &str, name_src: String) -> String {
 	if name_src == name {
 		String::new()
 	} else {
-		name_src.to_string()
+		name_src
 	}
 }
 
@@ -519,22 +892,8 @@ fn src_matches_display(v: &Value, s: &str) -> bool {
 	match v {
 		Value::Empty => s.is_empty(),
 		Value::Raw(r) => s == r.content,
-		Value::Cell(els) => {
-			let mut rest = s;
-			for (i, e) in els.iter().enumerate() {
-				if i > 0 {
-					match rest.strip_prefix(", ") {
-						Some(r) => rest = r,
-						None => return false,
-					}
-				}
-				match rest.strip_prefix(e.text.as_str()) {
-					Some(r) => rest = r,
-					None => return false,
-				}
-			}
-			rest.is_empty()
-		}
+		Value::Cell(e) => s == e.text,
+		Value::Array(_) => s == v.display(),
 	}
 }
 
@@ -552,9 +911,147 @@ pub struct Document {
 	// Content-malformed lines are NOT counted - they are retained as trivia
 	// and survive a save. lost_count() serves it; save_file() gates on it.
 	lost: usize,
+	// How many kept lines the document must still write: the load's, plus a
+	// merged layer's, less those design.md's kept-lines table lets an edit
+	// take. Fewer in the tree than this counts as lost.
+	kept_owed: usize,
+	// Built on the first path lookup and kept current by the writer (a new
+	// child appends, a removed one unlinks); only a merge drops it. Without it
+	// every lookup scans the parent's children, so a flat document read or
+	// written key by key was quadratic.
+	index: std::sync::OnceLock<Box<NameIndex>>,
+	// Set only on the document a default form checks values against, never on
+	// one a caller holds: set_value stops once the value is judged, so a probe
+	// is never written. Built on the first default form that finds its path
+	// already there.
+	probe: bool,
+	probe_doc: Option<Box<Document>>,
+	// Holds a misplaced line kept as written, so edits have to settle it.
+	kept: bool,
+	// Holds an array line kept for the lines under it (E028), which an edit
+	// can leave with none.
+	arrays: bool,
+	// Every list has been put in brackets by a merge, so the next one only
+	// has the nodes it brings or visits to do.
+	bracketed: bool,
+	// What the last settle's kept lines were modeled through, and a sum of
+	// it, so an edit that changes none of it skips the settle. Removing a
+	// block above all of it goes unseen, which leaves `kept` set with no
+	// such line left: the next check costs the same, and nothing is wrong.
+	kept_near: Vec<(usize, usize)>,
+	kept_sum: u64,
+	// A kept line with an index in its path was judged by the instances
+	// written before it, which can sit anywhere above it, so every edit
+	// settles while one is held.
+	walked: bool,
+	// The parse's multi-line bindings, from the binding line to the last
+	// line each took. Edits leave it alone; only a reparse reads it.
+	ends: Vec<(usize, usize)>,
+	// Each line counted in `lost`, once per count, when the parse was asked
+	// for them. Only a reparse reads it.
+	dropped: Vec<usize>,
+	// The text a load kept for to_text_keep_lines(), and empty when that text
+	// was already canonical, since the canonical form is then the one that
+	// keeps its lines. A merge drops it: the layer's lines are not this text's.
+	source: Option<String>,
+	// The file a load read, which a save over it checks first. A merge keeps
+	// it, since the file under the merged document is still that one.
+	file: Option<Box<LoadedFile>>,
+	// The text named a newer format than this one (H006), so its lines may
+	// read differently there, and a save refuses. A merge takes a layer's.
+	newer: bool,
+}
+
+/// The first child of each (parent, name), chained on to the next same-named
+/// sibling, plus the chain tail so an append is O(1). A hash collision chains
+/// a stranger in; the lookup checks the name, so the chain is only ever a
+/// superset.
+#[derive(Debug, Clone)]
+struct NameIndex {
+	first: U64Map<usize>,
+	last: U64Map<usize>,
+	next_same: Vec<usize>, // per node; NIL ends the chain
+}
+
+const NIL: usize = usize::MAX;
+
+impl NameIndex {
+	fn append(&mut self, key: u64, node: usize) {
+		if self.next_same.len() <= node {
+			self.next_same.resize(node + 1, NIL);
+		}
+		self.next_same[node] = NIL;
+		match self.last.insert(key, node) {
+			Some(prev) => self.next_same[prev] = node,
+			None => {
+				self.first.insert(key, node);
+			}
+		}
+	}
+
+	// Walks the chain to find the predecessor; a chain is one name's siblings.
+	fn unlink(&mut self, key: u64, node: usize) {
+		let Some(&head) = self.first.get(&key) else {
+			return;
+		};
+		let next = self.next_same[node];
+		if head == node {
+			if next == NIL {
+				self.first.remove(&key);
+				self.last.remove(&key);
+			} else {
+				self.first.insert(key, next);
+			}
+		} else {
+			let mut c = head;
+			while c != NIL && self.next_same[c] != node {
+				c = self.next_same[c];
+			}
+			if c == NIL {
+				return;
+			}
+			self.next_same[c] = next;
+			if next == NIL {
+				self.last.insert(key, c);
+			}
+		}
+		self.next_same[node] = NIL;
+	}
+}
+
+fn name_key(parent: usize, name: &str) -> u64 {
+	let mut h = Fnv::new();
+	h.dec(parent);
+	h.byte(0xFF);
+	h.bytes(name.as_bytes());
+	h.0
 }
 
 const ROOT: usize = 0;
+// Stack entry for a binding line that was skipped: it still owns its indent
+// level, so the lines written under it are skipped with it instead of
+// re-parenting one level up.
+const DEAD: usize = usize::MAX;
+// Stack entry for a line whose indent matched no open level (E012): never a
+// level a sibling can bind at, but deeper lines are still under it. It sits
+// on top of the levels open before it without closing any of them.
+const UNOPENED: usize = usize::MAX - 1;
+// Stack entry for a field line refused for its value alone (E017, E019,
+// E023, E025) or for a bare name that still reads (E014): it binds nothing,
+// but its path is fine, so the first line that binds under it opens the path
+// as `name:` would and binds there.
+const LAZY: usize = usize::MAX - 2;
+
+/// A LAZY level's line, for opening it: the stack entry it sits at, its
+/// path, and how many pending lines go with it, its own included.
+struct Lazy<'a> {
+	at: usize,
+	segs: Vec<Segment>,
+	line: usize,
+	indent: &'a str,
+	pend: usize,
+	depth: usize,
+}
 
 /// Merge a later instance into an earlier one under the in-file merge rule:
 /// children and trivia move over, first trailing wins (a second demotes to a
@@ -579,6 +1076,203 @@ fn fold_node_into(arena: &mut [NodeData], survivor: usize, loser: usize) {
 		}
 		st.after.append(&mut lt.after);
 		st.inside.append(&mut lt.inside);
+		st.among.append(&mut lt.among);
+		st.among.sort_by_key(|a| a.0);
+		st.notes.append(&mut lt.notes);
+		st.notes.sort_by_key(|n| n.0);
+	}
+}
+
+/// Where a reload files a block's comments, applied in place. A block's
+/// inside comments are written after its last child's block, at that child's
+/// level, so a reload files them as the last child's own. A child's comments
+/// at its own level sit right above the next sibling, so a reload files them
+/// as that sibling's leading ones, from the first one at that level on. The
+/// load runs this once the tree is final; a merge, a new child and the
+/// writer's fold run it where they change a child list, or the next step
+/// comes out differently depending on whether the file was saved in between. The
+/// text does not move. `from` is the first child whose leading list may
+/// gain, so a new last child costs one pair; it cannot put a fence after an
+/// empty binding either, so only a full pass looks for one. True when a list
+/// joined an empty binding, which moves fields under another parent, so a
+/// caller holding the name index has to drop it.
+fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
+	let mut joined = from <= 1 && settle_fence_trailing(arena, n);
+	settle_pairs(arena, n, from);
+	// A line the pass above moved off an empty binding no longer holds its
+	// join off, and a reload joins it (2026100520243961).
+	if from <= 1 && settle_fence_trailing(arena, n) {
+		joined = true;
+		settle_pairs(arena, n, 1);
+	}
+	// After the join, which can take the last child.
+	settle_inside(arena, n);
+	joined
+}
+
+/// A block's inside comments go to its last child's own, where a reload
+/// files them. A no-op with no children.
+fn settle_inside(arena: &mut [NodeData], n: usize) {
+	let Some(&kid) = arena[n].children.last() else {
+		return;
+	};
+	if let Some(t) = arena[n].trivia.as_deref_mut()
+		&& !t.inside.is_empty()
+	{
+		let moved = std::mem::take(&mut t.inside);
+		arena[kid].triv_mut().after.extend(moved);
+	}
+}
+
+/// A child's comments at its own level go above the next sibling, from
+/// child `from` on.
+fn settle_pairs(arena: &mut [NodeData], n: usize, from: usize) {
+	for i in from.max(1)..arena[n].children.len() {
+		let (prev, next) = (arena[n].children[i - 1], arena[n].children[i]);
+		let Some(t) = arena[prev].trivia.as_deref_mut() else {
+			continue;
+		};
+		let Some(at) = t.after.iter().position(|c| c.depth == 0) else {
+			continue;
+		};
+		let mut moved = t.after.split_off(at);
+		let nt = arena[next].triv_mut();
+		moved.append(&mut nt.leading);
+		nt.leading = moved;
+	}
+}
+
+/// A raw block after an empty binding of its name is written with the fence on
+/// the binding's line, where no comment can follow it, so the emitter writes
+/// its trailing comment on a line of its own above, after the node's blank. A
+/// reload files that line as a leading comment, so file it there now. True
+/// when a list joined an empty binding.
+fn settle_fence_trailing(arena: &mut [NodeData], n: usize) -> bool {
+	let fenced = |nd: &NodeData| matches!(nd.value, Value::Raw(_)) && !nd.trailing().is_empty();
+	if !arena[n]
+		.children
+		.iter()
+		.any(|&c| fenced(&arena[c]) || stacks(&arena[c]))
+	{
+		return false;
+	}
+	let mut empties: HashMap<String, usize> = HashMap::new();
+	let mut folded = Vec::new();
+	for i in 0..arena[n].children.len() {
+		let c = arena[n].children[i];
+		let nd = &mut arena[c];
+		if fenced(nd) && empties.contains_key(&nd.name) {
+			trailing_to_leading(nd);
+		} else if stacks(nd)
+			&& let Some(&e) = empties.get(&nd.name)
+		{
+			if fold_list_into_empty(arena, e, c) {
+				folded.push(c);
+			}
+		} else if nd.value.is_empty() {
+			empties.entry(nd.name.clone()).or_insert(c);
+		}
+	}
+	if folded.is_empty() {
+		return false;
+	}
+	arena[n].children.retain(|c| !folded.contains(c));
+	true
+}
+
+/// A list after an empty binding of its name, which a stacked header would
+/// join on a reload. In brackets when it can be. A list with fields under it
+/// cannot, so it joins that binding here, as a reload joins it, when that
+/// binding has no field the items would land after. True when it
+/// joined, and the caller drops it from its parent's children.
+fn fold_list_into_empty(arena: &mut [NodeData], empty: usize, list: usize) -> bool {
+	unstack(&mut arena[list]);
+	let e = &arena[empty];
+	if !stacks(&arena[list])
+		|| !e.value.is_empty()
+		|| !e.children.is_empty()
+		|| !e.after().is_empty()
+	{
+		return false;
+	}
+	arena[empty].value = std::mem::replace(&mut arena[list].value, Value::Empty);
+	arena[empty].star_list = true;
+	fold_node_into(arena, empty, list);
+	// The binding's lines inside its block now follow the list's fields,
+	// where a reload files them. No merge or remove settles this block
+	// after the join.
+	settle_inside(arena, empty);
+	true
+}
+
+/// Written stacked: a list the file wrote one `- ` item per line, kept that
+/// way like an author's quotes, or one holding a kept line among its items
+/// or a comment on one.
+fn stacks(nd: &NodeData) -> bool {
+	matches!(&nd.value, Value::Array(els) if !els.is_empty())
+		&& (nd.star_list || !nd.among().is_empty() || !nd.notes().is_empty())
+}
+
+/// A list after an empty binding of its name cannot be written stacked: its
+/// bare header would merge into that binding on a reload. It goes in
+/// brackets, and the lines among its elements and the comments on them go
+/// above it, in order, where a reload files what sits there.
+fn unstack(nd: &mut NodeData) {
+	nd.star_list = false;
+	// An item the brackets will quote counts as quoted now, as a setter's
+	// does, so a read gives the same answer before the save as after it.
+	if let Value::Array(els) = &mut nd.value {
+		for el in els.iter_mut().filter(|el| !el.quoted()) {
+			el.mark = writer_mark(&el.text);
+		}
+	}
+	if let Some(t) = nd.trivia.as_deref_mut() {
+		let mut notes = t.notes.drain(..).peekable();
+		for (at, l) in t.among.drain(..) {
+			while let Some((_, n)) = notes.next_if(|n| n.0 < at) {
+				t.leading.push(Lead::plain(n));
+			}
+			t.leading.push(l);
+		}
+		t.leading.extend(notes.map(|n| Lead::plain(n.1)));
+	}
+}
+
+/// A merge writes a list in brackets.
+fn bracket(nd: &mut NodeData) {
+	if nd.star_list || nd.trivia.is_some() {
+		unstack(nd);
+	}
+}
+
+/// The trailing comment becomes the last leading line, taking the node's blank
+/// with it, which is the order the emitter writes them in.
+fn trailing_to_leading(nd: &mut NodeData) {
+	let blank_before = std::mem::take(&mut nd.blank_before);
+	let t = nd.triv_mut();
+	let text = std::mem::take(&mut t.trailing);
+	t.leading.push(Lead {
+		depth: 0,
+		text,
+		blank_before,
+		line: 0,
+		kept: false,
+	});
+}
+
+/// The emitter drops a blank before the first thing it prints, so a document
+/// that kept one there would not survive its own canonical form, and a merge
+/// or a new first line - where it is no longer first - would place a blank
+/// nobody wrote. Clear it wherever output starts.
+fn settle_first_blank(arena: &mut [NodeData], orphans: &mut [Lead]) {
+	if let Some(&first) = arena[ROOT].children.first() {
+		let n = &mut arena[first];
+		match n.trivia.as_mut().and_then(|t| t.leading.first_mut()) {
+			Some(c) => c.blank_before = false,
+			None => n.blank_before = false,
+		}
+	} else if let Some(c) = orphans.first_mut() {
+		c.blank_before = false;
 	}
 }
 
@@ -589,184 +1283,1186 @@ fn fold_node_into(arena: &mut [NodeData], survivor: usize, loser: usize) {
 /// a load fail but never crash the consumer.
 pub const MAX_DEPTH: usize = 512;
 
+/// How much of a file's own name the temporary file beside it borrows, in bytes.
+const TMP_NAME_BYTES: usize = 64;
+
 // ---------------------------------------------------------------------------
-// Lexical helpers
+// Tokenizer - the one place the lexical rules live
 // ---------------------------------------------------------------------------
+//
+// Every reading of a line's parts goes through `tokenize`: the parser's line
+// dispatch, the path scanner behind every lookup and setter, the comment and
+// comma splits, the element cap, the unterminated-quote check, `SetLiteral`
+// and the CLI's `--set` split. Seven scanners used to have their own copy of
+// these rules, and every scanner defect since July was two of them
+// disagreeing. The rules, one sentence each:
+//
+// - A piece (a name, a selector body, a value element) is quoted only when
+//   its first character is a quote and the next matching quote is the last
+//   thing before the piece ends. A backtick quotes a value element the same
+//   way, as a raw value. A backslash is plain text everywhere. A piece that
+//   began with a quote it never closed is kept literally, and the parser
+//   refuses its line (`E017`).
+// - `◉NAME◉` escapes are read in bare and quoted value text, quoted names
+//   and selector bodies, never in a backtick value, a bare name, a comment
+//   or a raw block (`resolve_marks`).
+// - `#` outside quotes and backticks opens a comment, wherever it sits.
+// - A space, a tab and a carriage return are blanks: trimmed at a piece's
+//   edge. A bare value or list item may hold spaces; any other whitespace in
+//   it, and any at all in an array element or selector body, the parser
+//   refuses (`E025`), along with a quote, a bracket, and a colon with a blank
+//   or the end after it (`E027` in a list item).
+// - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
+//   A file line's name that breaks only that rule still reads, up to the
+//   separator, a dot, a bracket or a comment, and is marked `misspelled`
+//   (`E014`). A `(` right after a name opens a selector, whose bare body
+//   runs to the first `)`. A `[` there is the old selector spelling: read
+//   the same way, to its `]`, and noted, so the parser refuses it (`E029`).
+// - A value is split on unquoted commas with a blank, a comment or the end
+//   after them, each piece trimmed; any other comma is text (`rw,noatime`).
+//   More than one piece outside brackets is a bare comma, which the parser
+//   refuses (`E026`). Inside brackets every comma splits.
+// - A value that starts with `[` is a bracket array: its pieces run to the
+//   `]` that closes it, and nothing but a comment may follow. A bare `[` or
+//   `]` inside, an empty piece, or no `]` on the line is malformed, which the
+//   parser refuses (`E019`). `[]` is the empty array.
+//
+// Under `Rules::V2` the tokenizer reads the 2.x spellings instead, for
+// `migrate`: every comma splits, a backslash shields the next character in
+// bare and single-quoted value text, a bare selector body still runs to its
+// first `]`, a separator followed by `[` is the selector sugar, and an open
+// quote swallows the rest of the line.
 
-fn fold_name(s: &str) -> String {
-	s.to_ascii_lowercase() // folds A-Z only; non-ASCII passes through untouched
+/// How a piece was quoted. `Open` is a piece that began with a quote and
+/// never closed with the matching quote as its last character: the whole
+/// piece is kept literally, quotes and all. `Backtick` is a raw value, read
+/// as written: value elements only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quote {
+	None,
+	Single,
+	Double,
+	Backtick,
+	Open,
 }
 
-fn is_bare_name_char(c: char) -> bool {
-	c.is_ascii_alphanumeric() || c == '-' || c == '_'
+/// One piece of the text: byte offsets of its content. For a quoted piece
+/// the quotes sit just outside the span; for an open or bare piece the span
+/// is the trimmed text itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Piece {
+	pub start: usize,
+	pub end: usize,
+	pub quote: Quote,
 }
 
-/// Split off an unquoted trailing comment: (content, comment from `#` on).
-/// A `\` shields the next char throughout. Comments are kept as trivia.
-fn split_comment(s: &str) -> (&str, Option<&str>) {
-	let mut in_quote: Option<char> = None;
-	let mut it = s.char_indices();
-	while let Some((byte, c)) = it.next() {
-		if c == '\\' {
-			it.next();
-			continue;
-		}
-		match in_quote {
-			Some(q) if c == q => in_quote = None,
-			None if c == '"' || c == '\'' => in_quote = Some(c),
-			None if c == '#' => return (&s[..byte], Some(&s[byte..])),
-			_ => {}
+/// One path segment: its name, an optional `(selector)` body, and whether
+/// the name was the bare `*` wildcard (lookups only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SegTok {
+	pub name: Piece,
+	pub selector: Option<Piece>,
+	pub star: bool,
+}
+
+/// The spans of one line, or of one lookup path. Nothing is copied: every
+/// field is an offset into the text that was tokenized.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Tokens {
+	pub segments: Vec<SegTok>,
+	/// Offset of the separator (`:` on a line, `=` in `--set`); None when
+	/// the path ran to the end of the text or into a comment.
+	pub sep: Option<usize>,
+	/// The value: everything after the separator up to the comment, trimmed.
+	pub value: (usize, usize),
+	/// The value's comma-separated pieces, empty ones included, each trimmed.
+	/// For a bracket array, the pieces between the brackets.
+	pub elements: Vec<Piece>,
+	/// Offset of the `[` that opens a bracket array, when the value is one.
+	pub array: Option<usize>,
+	/// Where a bracket array stops being well formed, and why (`E019`).
+	pub array_fault: Option<(usize, &'static str)>,
+	/// Offset of the `#` that opens a trailing comment.
+	pub comment: Option<usize>,
+	/// Where the path stopped making sense, and why. A faulted line is
+	/// malformed as a whole (`E014`).
+	pub fault: Option<(usize, &'static str)>,
+	/// Offset of the first bare name that breaks the spelling rule but still
+	/// reads, such as `404` or `user name` (`E014`, with the level held open).
+	pub misspelled: Option<usize>,
+	/// Offset of the first selector written in brackets, `x[a]`, the old
+	/// spelling (`E029`). Its body is read as a selector all the same.
+	pub bracket_selector: Option<usize>,
+	/// The caller's element cap (0 = none): the scan stops as soon as the
+	/// value holds more elements than this, so a capped parse never builds
+	/// the array it is going to refuse. Kept across `tokenize` calls.
+	pub cap: usize,
+	/// True when the cap stopped the scan; `elements` is then incomplete.
+	pub capped: bool,
+	/// Offset of a `#` that opened a comment against a bare piece's text
+	/// (`H008`): `http://h/#frag`, or `#fff` where the piece is empty.
+	pub glued: Option<usize>,
+}
+
+impl Tokens {
+	fn clear(&mut self) {
+		self.segments.clear();
+		self.sep = None;
+		self.value = (0, 0);
+		self.elements.clear();
+		self.array = None;
+		self.array_fault = None;
+		self.comment = None;
+		self.fault = None;
+		self.misspelled = None;
+		self.bracket_selector = None;
+		self.capped = false;
+		self.glued = None;
+	}
+	/// How many elements the value holds: a quoted piece counts even when
+	/// empty (`""` is a real element), an empty bare slot does not.
+	pub fn element_count(&self) -> usize {
+		self.elements
+			.iter()
+			.filter(|p| p.quote != Quote::None || p.end > p.start)
+			.count()
+	}
+}
+
+/// Which spelling the tokenizer reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rules {
+	/// The current rules, listed at the top of this section.
+	Current,
+	/// The 2.x rules, for `migrate` only.
+	V2,
+}
+
+/// A blank: space, tab, or a carriage return, which is trimmed wherever a
+/// blank is and content in the middle of a piece.
+fn is_wsp_byte(b: u8) -> bool {
+	b == b' ' || b == b'\t' || b == b'\r'
+}
+
+fn is_bare_name_byte(b: u8) -> bool {
+	b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
+}
+
+fn skip_wsp(s: &[u8], pos: &mut usize) {
+	while *pos < s.len() && is_wsp_byte(s[*pos]) {
+		*pos += 1;
+	}
+}
+
+/// Byte length of the blank at `i`, or 0. 2.x trimmed every Unicode
+/// `White_Space` character at a piece's edges, a no-break space and a
+/// vertical tab included, so its rules count those as blanks too.
+fn blank_len(s: &[u8], i: usize, rules: Rules) -> usize {
+	if is_wsp_byte(s[i]) {
+		return 1;
+	}
+	if rules != Rules::V2 || s[i] < 0x0B || (s[i] > 0x0C && s[i] < 0x80) {
+		return 0;
+	}
+	let n = utf8_len(s[i]).min(s.len() - i);
+	match std::str::from_utf8(&s[i..i + n])
+		.ok()
+		.and_then(|c| c.chars().next())
+	{
+		Some(c) if white_space(c) => n,
+		_ => 0,
+	}
+}
+
+fn skip_blank(s: &[u8], pos: &mut usize, rules: Rules) {
+	while *pos < s.len() {
+		match blank_len(s, *pos, rules) {
+			0 => break,
+			n => *pos += n,
 		}
 	}
-	(s, None)
 }
 
-/// Split on unquoted commas; `\` shields the next char.
-fn split_unquoted_commas(s: &str) -> Vec<&str> {
-	let mut parts = Vec::new();
-	let mut in_quote: Option<char> = None;
-	let mut start = 0usize;
-	let mut it = s.char_indices();
-	while let Some((byte, c)) = it.next() {
-		if c == '\\' {
-			it.next();
+/// Byte length of the UTF-8 character that starts with `b`. The scan only
+/// ever compares against ASCII structure characters, which UTF-8 guarantees
+/// cannot appear inside a multibyte sequence, so it advances by whole
+/// characters and every offset it records is a character boundary.
+fn utf8_len(b: u8) -> usize {
+	match b {
+		0..=0x7F => 1,
+		0xC0..=0xDF => 2,
+		0xE0..=0xEF => 3,
+		_ => 4,
+	}
+}
+
+/// Where a file line's bare name that breaks the spelling rule stops.
+fn name_stop(b: u8, sep: u8) -> bool {
+	b == sep
+		|| matches!(
+			b,
+			b'.' | b'(' | b')' | b'[' | b']' | b'#' | b',' | b'"' | b'\'' | b'`' | b'\n'
+		)
+}
+
+/// Offset of the quote that closes the one at `pos`, or None. 2.x read a
+/// backslash as an escape inside quotes; now it is text.
+fn quote_close(s: &[u8], pos: usize, rules: Rules) -> Option<usize> {
+	let q = s[pos];
+	let escapes = rules == Rules::V2;
+	let mut i = pos + 1;
+	while i < s.len() {
+		if escapes && s[i] == b'\\' && i + 1 < s.len() {
+			i += 1 + utf8_len(s[i + 1]);
 			continue;
 		}
-		match in_quote {
-			Some(q) if c == q => in_quote = None,
-			None if c == '"' || c == '\'' => in_quote = Some(c),
-			None if c == ',' => {
-				parts.push(&s[start..byte]);
-				start = byte + 1;
+		if s[i] == q {
+			return Some(i);
+		}
+		i += utf8_len(s[i]);
+	}
+	None
+}
+
+/// True when the byte at `i` opens a comment. Being outside quotes is the
+/// caller's business.
+fn comment_at(s: &[u8], i: usize) -> bool {
+	s[i] == b'#'
+}
+
+const GLUED_HINT: &str =
+	"a '#' against text opens a comment; quote the value if the '#' is part of it";
+
+/// Whether the comment a bare piece ended at, the `#` at `at`, is against
+/// text: the piece's last character sits right before it, or the piece is
+/// empty and a character other than a blank or `#` follows (`H008`).
+/// `port: 80  # main` and `a: # note` are plain comments.
+fn glued_comment(s: &[u8], p: &Piece, at: usize) -> bool {
+	if matches!(p.quote, Quote::Single | Quote::Double | Quote::Backtick) {
+		return false;
+	}
+	if p.end > p.start {
+		return p.end == at;
+	}
+	s.get(at + 1).is_some_and(|&b| !is_wsp_byte(b) && b != b'#')
+}
+
+/// A comma at `at` with a blank, a comment or the end after it. Only that
+/// one splits a value outside brackets; `rw,noatime` is one piece.
+fn loose_comma(s: &[u8], at: usize) -> bool {
+	s.get(at + 1).is_none_or(|&b| is_wsp_byte(b) || b == b'#')
+}
+
+/// One piece from `pos`: a value element up to an unquoted comma or comment,
+/// or a selector body up to an unquoted `)` or `]` (`term`). Returns the
+/// trimmed piece and the offset of what ended it: the terminator, a comment's
+/// `#`, or the end of the text. `comments` is false only for a selector body
+/// in a lookup path, where a `#` opens nothing. In a bracket array
+/// (`array`) the `]` that closes it ends a value element too, and every comma
+/// does; elsewhere only a loose one does, 2.x aside.
+fn scan_piece(
+	s: &[u8],
+	mut pos: usize,
+	term: u8,
+	rules: Rules,
+	comments: bool,
+	array: bool,
+) -> (Piece, usize) {
+	// 2.x's wider trim is taken for a value piece only. The selector arm
+	// of `migrate` cuts a body by its own offsets.
+	let edges = if term == b',' { rules } else { Rules::Current };
+	skip_blank(s, &mut pos, edges);
+	let start = pos;
+	let mut quote = Quote::None;
+	let every_comma = term != b',' || array || rules == Rules::V2;
+	let ends_at = |s: &[u8], i: usize| s[i] == term && (every_comma || loose_comma(s, i));
+	// A backtick quotes a raw value element. 2.x had none, a selector body
+	// takes none, and a run of three opens a raw block instead.
+	let tick =
+		rules == Rules::Current && term == b',' && !s[pos.min(s.len())..].starts_with(b"```");
+	if pos < s.len() && (s[pos] == b'"' || s[pos] == b'\'' || (tick && s[pos] == b'`')) {
+		match quote_close(s, pos, rules) {
+			Some(close) => {
+				// A value piece may also end at a comment or the line end;
+				// a selector body ends at its bracket and nowhere else.
+				let mut i = close + 1;
+				skip_blank(s, &mut i, edges);
+				let ended = if i < s.len() {
+					ends_at(s, i) || (array && s[i] == b']') || (term == b',' && comment_at(s, i))
+				} else {
+					term == b','
+				};
+				if ended {
+					let q = match s[pos] {
+						b'"' => Quote::Double,
+						b'`' => Quote::Backtick,
+						_ => Quote::Single,
+					};
+					return (
+						Piece {
+							start: pos + 1,
+							end: close,
+							quote: q,
+						},
+						i,
+					);
+				}
+				// Text after the closing quote: the quote was a character
+				// after all, and the scan restarts at it. 2.x went on from
+				// the close with the quotes read as a pair.
+				quote = Quote::Open;
+				if rules == Rules::V2 {
+					pos = close + 1;
+				}
 			}
-			_ => {}
-		}
-	}
-	parts.push(&s[start..]);
-	parts
-}
-
-/// A dangling trailing backslash would swallow the separator after it on
-/// re-emit; store the doubled spelling instead (identical on string read).
-fn normalize_dangling_backslash(mut t: String) -> String {
-	let run = t.chars().rev().take_while(|&c| c == '\\').count();
-	if run % 2 == 1 {
-		t.push('\\');
-	}
-	t
-}
-
-/// True when some piece starts with a quote that never closes (the closing
-/// quote missing or escaped). Such a piece stays literal - and a quote-aware
-/// comment strip has already swallowed any trailing `#` comment into it - so
-/// the parser calls it out instead of letting the typo look deliberate.
-/// Mid-text apostrophes (`it's fine`) are legal prose and stay silent.
-fn unterminated_quote(text: &str) -> bool {
-	for piece in split_unquoted_commas(text) {
-		let chars: Vec<char> = piece.trim().chars().collect();
-		let Some(&first) = chars.first() else {
-			continue;
-		};
-		if first != '"' && first != '\'' {
-			continue;
-		}
-		let closed = chars.len() >= 2 && chars[chars.len() - 1] == first && {
-			let mut esc = false;
-			for &c in &chars[1..chars.len() - 1] {
-				esc = c == '\\' && !esc;
+			None => {
+				quote = Quote::Open;
+				if rules == Rules::V2 {
+					// 2.x: an open quote swallowed the rest of the line.
+					let mut end = start;
+					let mut i = start;
+					while i < s.len() {
+						match blank_len(s, i, edges) {
+							0 => {
+								i += utf8_len(s[i]);
+								end = i.min(s.len());
+							}
+							n => i += n,
+						}
+					}
+					return (Piece { start, end, quote }, s.len());
+				}
 			}
-			!esc
+		}
+	}
+	// 2.x shielded a backslash in value text only. A bare selector body ran to
+	// its first `]`, the same as now, so shielding one here would hide the `]`.
+	// Now a backslash is text.
+	let shield = rules == Rules::V2 && term == b',';
+	let mut content_end = start;
+	while pos < s.len() {
+		let b = s[pos];
+		if shield && b == b'\\' && pos + 1 < s.len() {
+			pos += 1 + utf8_len(s[pos + 1]);
+			content_end = pos.min(s.len());
+			continue;
+		}
+		// 2.0 read a quote inside a piece as text, but a comma or a `#`
+		// before its close did not end the piece. One that never closes is
+		// text, as `don't` is.
+		if shield
+			&& (b == b'"' || b == b'\'')
+			&& let Some(close) = quote_close(s, pos, rules)
+		{
+			pos = close + 1;
+			content_end = pos;
+			continue;
+		}
+		if ends_at(s, pos) || (array && b == b']') || (comments && comment_at(s, pos)) {
+			break;
+		}
+		let blank = blank_len(s, pos, edges) > 0;
+		pos += utf8_len(b);
+		if !blank {
+			content_end = pos.min(s.len());
+		}
+	}
+	// 2.x judged a value piece quoted by its shape after the scan: a quote at
+	// both ends, the last one not escaped, however many closes sat between. A
+	// selector body had to close right before its `]`, or the line was E014.
+	if rules == Rules::V2
+		&& term == b','
+		&& quote == Quote::Open
+		&& content_end - start >= 2
+		&& s[content_end - 1] == s[start]
+		&& s[start..content_end - 1]
+			.iter()
+			.rev()
+			.take_while(|&&b| b == b'\\')
+			.count() % 2
+			== 0
+	{
+		let q = if s[start] == b'"' {
+			Quote::Double
+		} else {
+			Quote::Single
 		};
-		if !closed {
-			return true;
+		return (
+			Piece {
+				start: start + 1,
+				end: content_end - 1,
+				quote: q,
+			},
+			pos.min(s.len()),
+		);
+	}
+	(
+		Piece {
+			start,
+			end: content_end,
+			quote,
+		},
+		pos.min(s.len()),
+	)
+}
+
+/// The value half: everything from `from` on, split into pieces, with the
+/// comment found on the way.
+pub fn tokenize_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
+	out.clear();
+	scan_value(text, from, rules, out);
+}
+
+fn scan_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
+	let s = text.as_bytes();
+	let mut pos = from;
+	skip_wsp(s, &mut pos);
+	if rules == Rules::Current && pos < s.len() && s[pos] == b'[' {
+		scan_array(text, from, pos, out);
+		return;
+	}
+	pos = from;
+	let stop_at;
+	let mut count = 0usize;
+	loop {
+		let (piece, stop) = scan_piece(s, pos, b',', rules, true, false);
+		out.elements.push(piece);
+		if piece.quote != Quote::None || piece.end > piece.start {
+			count += 1;
+			if out.cap != 0 && count > out.cap {
+				out.capped = true;
+				out.value = (from, from);
+				return;
+			}
+		}
+		if stop < s.len() && s[stop] == b',' {
+			pos = stop + 1;
+			continue;
+		}
+		if stop < s.len() {
+			out.comment = Some(stop);
+			if glued_comment(s, &piece, stop) {
+				out.glued = Some(stop);
+			}
+		}
+		stop_at = stop;
+		break;
+	}
+	let mut a = from;
+	skip_wsp(s, &mut a);
+	let mut b = stop_at;
+	while b > a && is_wsp_byte(s[b - 1]) {
+		b -= 1;
+	}
+	out.value = (a.min(b), b);
+	if let Some(last) = out.elements.last_mut()
+		&& !matches!(last.quote, Quote::Single | Quote::Double | Quote::Backtick)
+		&& last.end > b
+	{
+		last.end = b.max(last.start);
+	}
+}
+
+/// A bracket array from the `[` at `open`: its pieces, each up to an
+/// unquoted comma or the `]` that closes it, then nothing but a comment. A
+/// fault is noted and the scan goes on, so the comment is still found. Past
+/// the element cap the scan stops, as a bare value's does: the line is
+/// refused for that whatever else is wrong with it.
+fn scan_array(text: &str, from: usize, open: usize, out: &mut Tokens) {
+	let s = text.as_bytes();
+	out.array = Some(open);
+	let mut pos = open + 1;
+	let mut count = 0usize;
+	let mut close = None;
+	let stop_at = loop {
+		let (piece, stop) = scan_piece(s, pos, b',', Rules::Current, true, true);
+		out.elements.push(piece);
+		if piece.quote == Quote::None && piece.end == piece.start {
+			// `[]`, blanks or not, is the empty array; any other empty piece
+			// is a slip.
+			let only = out.elements.len() == 1 && stop < s.len() && s[stop] == b']';
+			if !only {
+				out.array_fault
+					.get_or_insert((piece.start, "an empty element"));
+			}
+		} else {
+			count += 1;
+			if out.cap != 0 && count > out.cap {
+				out.capped = true;
+				out.value = (from, from);
+				return;
+			}
+			if piece.quote == Quote::None
+				&& let Some(k) = s[piece.start..piece.end].iter().position(|&b| b == b'[')
+			{
+				out.array_fault
+					.get_or_insert((piece.start + k, "a '[' inside an array"));
+			}
+		}
+		if stop < s.len() && s[stop] == b',' {
+			pos = stop + 1;
+			continue;
+		}
+		if stop < s.len() && s[stop] == b']' {
+			close = Some(stop);
+		} else if stop < s.len() && glued_comment(s, &piece, stop) {
+			out.glued = Some(stop);
+		}
+		break stop;
+	};
+	let mut end = stop_at;
+	match close {
+		Some(at) => {
+			let mut after = at + 1;
+			skip_wsp(s, &mut after);
+			end = after;
+			if after < s.len() && !comment_at(s, after) {
+				out.array_fault.get_or_insert((after, "text after ']'"));
+				// The comment past the stray text, found the way a value finds it.
+				loop {
+					let (piece, stop) = scan_piece(s, after, b',', Rules::Current, true, false);
+					if stop < s.len() && s[stop] == b',' {
+						after = stop + 1;
+						continue;
+					}
+					if stop < s.len() && glued_comment(s, &piece, stop) {
+						out.glued = Some(stop);
+					}
+					end = stop;
+					break;
+				}
+			}
+		}
+		// The one fault a reader can see from the outside, so it wins.
+		None => out.array_fault = Some((open, "no closing ']' on the line")),
+	}
+	if end < s.len() {
+		out.comment = Some(end);
+	}
+	if let [only] = out.elements.as_slice()
+		&& only.quote == Quote::None
+		&& only.end == only.start
+	{
+		out.elements.clear();
+	}
+	let mut b = end;
+	while b > open && is_wsp_byte(s[b - 1]) {
+		b -= 1;
+	}
+	out.value = (open, b);
+}
+
+/// Tokenize one line (`sep` = `b':'`) or one lookup path (`path`: the bare
+/// `*` name wildcard is admitted, and a `#` in a selector body opens no
+/// comment); the CLI's `--set` passes `b'='`. `out` is
+/// cleared and reused, so a parse allocates once per document rather than
+/// once per line. `text` is the line after its indent, or the path.
+pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens) {
+	out.clear();
+	let s = text.as_bytes();
+	let mut pos = 0usize;
+	loop {
+		skip_wsp(s, &mut pos);
+		if pos >= s.len() {
+			out.fault = Some((pos, "expected a field name"));
+			return;
+		}
+		let mut star = false;
+		let name = if s[pos] == b'"' || s[pos] == b'\'' {
+			let Some(close) = quote_close(s, pos, rules) else {
+				out.fault = Some((pos, "unterminated quote in a field name"));
+				return;
+			};
+			let q = if s[pos] == b'"' {
+				Quote::Double
+			} else {
+				Quote::Single
+			};
+			let piece = Piece {
+				start: pos + 1,
+				end: close,
+				quote: q,
+			};
+			pos = close + 1;
+			piece
+		} else if path && s[pos] == b'*' {
+			star = true;
+			pos += 1;
+			Piece {
+				start: pos - 1,
+				end: pos,
+				quote: Quote::None,
+			}
+		} else {
+			let start = pos;
+			while pos < s.len() && is_bare_name_byte(s[pos]) {
+				pos += 1;
+			}
+			// A file line's name that breaks only the spelling rule still
+			// reads, so the lines under it can load under it (E014). A lookup
+			// path takes the old bare run, any first character. A name led by
+			// a byte order mark does not read: at the start of a file the
+			// load strips the mark, so the line would bind as something else.
+			// One led by a `*` is a list item's line, which never gets here.
+			if !path
+				&& rules == Rules::Current
+				&& !s[start..].starts_with("\u{feff}".as_bytes())
+				&& s[start] != b'*'
+			{
+				let mut end = pos;
+				while pos < s.len() && !name_stop(s[pos], sep) {
+					let b = s[pos];
+					pos = (pos + utf8_len(b)).min(s.len());
+					if !is_wsp_byte(b) {
+						end = pos;
+					}
+				}
+				pos = end;
+				if end > start
+					&& (!s[start].is_ascii_alphabetic()
+						|| !s[start..end].iter().all(|&b| is_bare_name_byte(b)))
+				{
+					out.misspelled.get_or_insert(start);
+				}
+			}
+			if pos == start {
+				out.fault = Some((pos, "expected a field name"));
+				return;
+			}
+			Piece {
+				start,
+				end: pos,
+				quote: Quote::None,
+			}
+		};
+		skip_wsp(s, &mut pos);
+		let mut selector = None;
+		// 2.x wrote a selector in brackets only. Now it is parens, and a
+		// bracket one still reads, to its `]`, so the parser can say why.
+		let mut open = match s.get(pos) {
+			Some(b'(') if rules == Rules::Current => Some((pos, b')')),
+			Some(b'[') => {
+				if rules == Rules::Current {
+					out.bracket_selector.get_or_insert(pos);
+				}
+				Some((pos, b']'))
+			}
+			_ => None,
+		};
+		if open.is_none() && rules == Rules::V2 && pos < s.len() && s[pos] == sep {
+			let mut q = pos + 1;
+			skip_wsp(s, &mut q);
+			if q < s.len() && s[q] == b'[' {
+				open = Some((q, b']'));
+			}
+		}
+		if let Some((at, close)) = open {
+			if star {
+				out.fault = Some((at, "selector on a name wildcard"));
+				return;
+			}
+			let (piece, stop) = scan_piece(s, at + 1, close, rules, !path, false);
+			if !path && stop < s.len() && comment_at(s, stop) && glued_comment(s, &piece, stop) {
+				out.glued = Some(stop);
+			}
+			if stop >= s.len() || s[stop] != close {
+				out.fault = Some((at, "unterminated selector"));
+				return;
+			}
+			if piece.end == piece.start && piece.quote == Quote::None {
+				out.fault = Some((at, "empty selector"));
+				return;
+			}
+			if piece.quote == Quote::Open && rules == Rules::V2 {
+				out.fault = Some((at, "unterminated quote in a selector"));
+				return;
+			}
+			selector = Some(piece);
+			pos = stop + 1;
+			skip_wsp(s, &mut pos);
+		}
+		out.segments.push(SegTok {
+			name,
+			selector,
+			star,
+		});
+		if pos >= s.len() {
+			return;
+		}
+		let b = s[pos];
+		if b == b'.' {
+			pos += 1;
+			continue;
+		}
+		if b == sep {
+			out.sep = Some(pos);
+			scan_value(text, pos + 1, rules, out);
+			return;
+		}
+		if comment_at(s, pos) {
+			out.comment = Some(pos);
+			return;
+		}
+		out.fault = Some((pos, "unexpected character after the path"));
+		return;
+	}
+}
+
+/// Whether a piece's `◉` escapes are read: bare and quoted text. A backtick
+/// value is raw, and an open piece is refused before anything reads it.
+fn decodes(p: &Piece) -> bool {
+	matches!(p.quote, Quote::None | Quote::Single | Quote::Double)
+}
+
+/// The text of a piece as the reader sees it: escapes applied, except in a
+/// backtick value, which is as written. A bare field name takes no escapes
+/// either; `path_of` reads those.
+fn piece_text(p: &Piece, text: &str) -> String {
+	let raw = &text[p.start..p.end];
+	if decodes(p) && raw.contains(ESCAPE_MARK) {
+		resolve_marks(raw).unwrap_or_else(|_| raw.to_string())
+	} else {
+		raw.to_string()
+	}
+}
+
+/// True when a piece reads as this exact text, without building it.
+fn piece_is(p: &Piece, text: &str, want: &str) -> bool {
+	let raw = &text[p.start..p.end];
+	if decodes(p) && raw.contains(ESCAPE_MARK) {
+		resolve_marks(raw).is_ok_and(|t| t == want)
+	} else {
+		raw == want
+	}
+}
+
+/// The element a value piece makes, or None for an empty bare slot (dropped,
+/// never an error).
+fn element_of(p: &Piece, text: &str) -> Option<Element> {
+	if p.quote == Quote::None && p.end == p.start {
+		return None;
+	}
+	Some(Element {
+		text: piece_text(p, text),
+		mark: match p.quote {
+			Quote::Single => Mark::Single,
+			Quote::Double => Mark::Double,
+			Quote::Backtick => Mark::Backtick,
+			Quote::None | Quote::Open => Mark::Bare,
+		},
+	})
+}
+
+/// The value the tokenized pieces give: an array for a bracket array, else
+/// the one element, or Empty. A second piece outside brackets is a bare
+/// comma, which every caller refuses first (`E026`).
+fn cell_of_tokens(tok: &Tokens, text: &str) -> Value {
+	if tok.array.is_some() {
+		return Value::Array(
+			tok.elements
+				.iter()
+				.filter_map(|p| element_of(p, text))
+				.collect(),
+		);
+	}
+	match tok.elements.iter().find_map(|p| element_of(p, text)) {
+		Some(e) => Value::Cell(e),
+		None => Value::Empty,
+	}
+}
+
+/// Folds A-Z only; non-ASCII passes through untouched. Borrowed when there is
+/// nothing to fold, the way piece_text borrows when there is nothing to resolve.
+fn fold_name(s: &str) -> std::borrow::Cow<'_, str> {
+	if s.bytes().any(|b| b.is_ascii_uppercase()) {
+		std::borrow::Cow::Owned(s.to_ascii_lowercase())
+	} else {
+		std::borrow::Cow::Borrowed(s)
+	}
+}
+
+/// The grammar's `wsp`: a space, a tab or a carriage return. The parser trims
+/// with this and nothing wider - a no-break space or a line separator after a
+/// value is content, and a Unicode trim used to delete it with no diagnostic.
+fn is_wsp(c: char) -> bool {
+	c == ' ' || c == '\t' || c == '\r'
+}
+
+fn trim_wsp(s: &str) -> &str {
+	s.trim_matches(is_wsp)
+}
+
+fn trim_wsp_end(s: &str) -> &str {
+	s.trim_end_matches(is_wsp)
+}
+
+/// Value text for a diagnostic message. See `one_line_in`.
+fn one_line(s: &str) -> String {
+	one_line_in(s, "", "")
+}
+
+/// How many characters of a value a message shows. A 5 MB value made a 5 MB
+/// stderr line.
+const DIAG_TEXT_MAX: usize = 200;
+
+/// Value text for a diagnostic message, between `open` and `close`. It stays
+/// one line, and each character shows the way `fmt` writes it in quotes (see
+/// `push_shown`), so nothing in it reads as a 2.x backslash escape. A raw
+/// block's body is the value that made this necessary - it holds its own line
+/// breaks. Past DIAG_TEXT_MAX characters the middle is cut, and the length
+/// goes after `close`.
+fn one_line_in(s: &str, open: &str, close: &str) -> String {
+	let total = s.chars().count();
+	let mut out =
+		String::with_capacity(open.len() + s.len().min(DIAG_TEXT_MAX * 4) + close.len() + 16);
+	out.push_str(open);
+	if total <= DIAG_TEXT_MAX {
+		push_shown(&mut out, s, SHOWN_MARK);
+	} else {
+		let (head, tail) = cut_ends(s, total);
+		push_shown(&mut out, &format!("{}...{}", head, tail), SHOWN_MARK);
+	}
+	out.push_str(close);
+	if total > DIAG_TEXT_MAX {
+		out.push_str(&format!(" ({} chars)", total));
+	}
+	out
+}
+
+/// A real escape mark in a message's value text. `◉ESCAPE_CHAR◉` reads oddly
+/// in an `E023` message about that very mark.
+const SHOWN_MARK: &str = "\u{25C9} (U+25C9)";
+
+/// The first and last DIAG_TEXT_MAX / 2 characters of `s`, which has `total`
+/// of them. Cut on characters, never inside one.
+fn cut_ends(s: &str, total: usize) -> (&str, &str) {
+	let half = DIAG_TEXT_MAX / 2;
+	let head = s.char_indices().nth(half).map_or(s.len(), |(i, _)| i);
+	let tail = s
+		.char_indices()
+		.nth(total - half)
+		.map_or(s.len(), |(i, _)| i);
+	(&s[..head], &s[tail..])
+}
+
+/// `s` the way `fmt` writes it in quotes, less the quotes, with two changes: a
+/// `"` is itself, and a real escape mark is `mark`. The writer's own output is
+/// taken apart rather than a second list kept here, so a message can't drift
+/// from `fmt`.
+fn push_shown(out: &mut String, s: &str, mark: &str) {
+	let written = quote_with(s, '"');
+	let mut rest = &written[1..written.len() - 1];
+	while let Some(at) = rest.find(ESCAPE_MARK) {
+		out.push_str(&rest[..at]);
+		let after = &rest[at + ESCAPE_MARK.len_utf8()..];
+		// The writer closes every escape it opens.
+		let close = after.find(ESCAPE_MARK).unwrap_or(after.len());
+		let name = &after[..close];
+		match ESCAPE_NAMES.iter().find(|(n, _)| *n == name) {
+			Some((_, "\"")) => out.push('"'),
+			Some((_, "\u{25C9}")) => out.push_str(mark),
+			_ => {
+				out.push(ESCAPE_MARK);
+				out.push_str(name);
+				out.push(ESCAPE_MARK);
+			}
+		}
+		rest = after.get(close + ESCAPE_MARK.len_utf8()..).unwrap_or("");
+	}
+	out.push_str(rest);
+}
+
+/// Schema text for a diagnostic or a generated comment: a path or a type as the
+/// schema wrote it, kept to one line, with what `fmt` escapes shown its way. A
+/// `◉` stays as written, since in a path it is the path's own escape.
+fn schema_text(s: &str) -> String {
+	let mut out = String::with_capacity(s.len());
+	push_shown(&mut out, s, "\u{25C9}");
+	out
+}
+
+/// The text of a piece with its `◉NAME◉` escapes resolved. The marks pair up
+/// left to right, and the text between each pair must be a name on the list
+/// or a code point. Err is the message for the first one that is not
+/// (`E023`).
+fn resolve_marks(raw: &str) -> Result<String, String> {
+	let mut out = String::with_capacity(raw.len());
+	let mut rest = raw;
+	while let Some(at) = rest.find(ESCAPE_MARK) {
+		out.push_str(&rest[..at]);
+		let after = &rest[at + ESCAPE_MARK.len_utf8()..];
+		let Some(close) = after.find(ESCAPE_MARK) else {
+			return Err(format!(
+				"a '{m}' with no partner; an escape is {m}NAME{m}, and a real {m} is {m}ESCAPE_CHAR{m}",
+				m = ESCAPE_MARK
+			));
+		};
+		let name = &after[..close];
+		match escape_text(name) {
+			Ok(t) => out.push_str(&t),
+			Err(why) => return Err(why),
+		}
+		rest = &after[close + ESCAPE_MARK.len_utf8()..];
+	}
+	out.push_str(rest);
+	Ok(out)
+}
+
+/// The text one escape name stands for: a name from the list, either case,
+/// or a code point prefix and one to six hex digits.
+fn escape_text(name: &str) -> Result<std::borrow::Cow<'static, str>, String> {
+	let shown = || one_line_in(name, "'\u{25C9}", "\u{25C9}'");
+	if !name.is_empty()
+		&& name
+			.bytes()
+			.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+'))
+	{
+		if let Some((_, text)) = ESCAPE_NAMES
+			.iter()
+			.find(|(n, _)| n.eq_ignore_ascii_case(name))
+		{
+			return Ok(std::borrow::Cow::Borrowed(text));
+		}
+		for prefix in CODE_PREFIXES {
+			let Some(head) = name.get(..prefix.len()) else {
+				continue;
+			};
+			let digits = &name[prefix.len()..];
+			if !head.eq_ignore_ascii_case(prefix)
+				|| digits.is_empty()
+				|| digits.len() > 6
+				|| !digits.bytes().all(|b| b.is_ascii_hexdigit())
+			{
+				continue;
+			}
+			return u32::from_str_radix(digits, 16)
+				.ok()
+				.and_then(char::from_u32)
+				.map(|c| std::borrow::Cow::Owned(c.to_string()))
+				.ok_or_else(|| format!("escape {} names no Unicode character", shown()));
+		}
+	}
+	Err(format!(
+		"unknown escape {}; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}",
+		shown(),
+		m = ESCAPE_MARK
+	))
+}
+
+// gen-escapes.py: begin
+// Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
+#[rustfmt::skip]
+const INVISIBLE: [(u32, u32); 21] = [
+	(0x0000, 0x0008),
+	(0x000B, 0x001F),
+	(0x007F, 0x009F),
+	(0x00AD, 0x00AD),
+	(0x034F, 0x034F),
+	(0x061C, 0x061C),
+	(0x115F, 0x1160),
+	(0x17B4, 0x17B5),
+	(0x180B, 0x180F),
+	(0x200B, 0x200B),
+	(0x200E, 0x200F),
+	(0x2028, 0x202E),
+	(0x2060, 0x206F),
+	(0x3164, 0x3164),
+	(0xFE00, 0xFE0F),
+	(0xFEFF, 0xFEFF),
+	(0xFFA0, 0xFFA0),
+	(0xFFF0, 0xFFFB),
+	(0x1BCA0, 0x1BCA3),
+	(0x1D173, 0x1D17A),
+	(0xE0000, 0xE0FFF),
+];
+#[rustfmt::skip]
+const SELECTORS: [(u32, u32); 4] = [
+	(0x180B, 0x180D),
+	(0x180F, 0x180F),
+	(0xFE00, 0xFE0F),
+	(0xE0100, 0xE01EF),
+];
+#[rustfmt::skip]
+const WHITE_SPACE: [(u32, u32); 10] = [
+	(0x0009, 0x000D),
+	(0x0020, 0x0020),
+	(0x0085, 0x0085),
+	(0x00A0, 0x00A0),
+	(0x1680, 0x1680),
+	(0x2000, 0x200A),
+	(0x2028, 0x2029),
+	(0x202F, 0x202F),
+	(0x205F, 0x205F),
+	(0x3000, 0x3000),
+];
+const ESCAPE_MARK: char = '\u{25C9}';
+#[rustfmt::skip]
+const ESCAPE_NAMES: [(&str, &str); 44] = [
+	("NUL", "\u{0}"),
+	("NULL", "\u{0}"),
+	("BEL", "\u{7}"),
+	("BELL", "\u{7}"),
+	("BACKSPACE", "\u{8}"),
+	("BS", "\u{8}"),
+	("TAB", "\u{9}"),
+	("HT", "\u{9}"),
+	("HORIZONTAL_TAB", "\u{9}"),
+	("NEWLINE", "\u{A}"),
+	("LF", "\u{A}"),
+	("LINEFEED", "\u{A}"),
+	("LINE_FEED", "\u{A}"),
+	("NEW_LINE", "\u{A}"),
+	("VT", "\u{B}"),
+	("VERTICAL_TAB", "\u{B}"),
+	("VERTICALTAB", "\u{B}"),
+	("FF", "\u{C}"),
+	("FORM_FEED", "\u{C}"),
+	("FORMFEED", "\u{C}"),
+	("CR", "\u{D}"),
+	("CARRIAGERETURN", "\u{D}"),
+	("CARRIAGE_RETURN", "\u{D}"),
+	("CRLF", "\u{D}\u{A}"),
+	("CARRIAGERETURN_LINEFEED", "\u{D}\u{A}"),
+	("CARRIAGE_RETURN_LINE_FEED", "\u{D}\u{A}"),
+	("ESC", "\u{1B}"),
+	("ESCAPE", "\u{1B}"),
+	("DEL", "\u{7F}"),
+	("DELETE", "\u{7F}"),
+	("SPACE", "\u{20}"),
+	("SINGLE_QUOTE", "\u{27}"),
+	("SQUOTE", "\u{27}"),
+	("S_QUOTE", "\u{27}"),
+	("SINGLEQUOTE", "\u{27}"),
+	("DOUBLE_QUOTE", "\u{22}"),
+	("DQUOTE", "\u{22}"),
+	("D_QUOTE", "\u{22}"),
+	("DOUBLEQUOTE", "\u{22}"),
+	("BACK_TICK", "\u{60}"),
+	("BACKTICK", "\u{60}"),
+	("TICK", "\u{60}"),
+	("ESCAPE_CHAR", "\u{25C9}"),
+	("FISHEYE", "\u{25C9}"),
+];
+#[rustfmt::skip]
+const CODE_PREFIXES: [&str; 8] = [
+	"U+",
+	"UNICODE+",
+	"UNICODE-",
+	"UNICODE_",
+	"UNICODE",
+	"U-",
+	"U_",
+	"U",
+];
+// gen-escapes.py: end
+
+/// Unicode's White_Space, which a bare value or selector body cannot hold.
+fn white_space(c: char) -> bool {
+	in_ranges(&WHITE_SPACE, c)
+}
+
+/// Characters canonical output writes as an escape, so a reader of the
+/// file sees every character that is there: the controls,
+/// the line and paragraph separators, the interlinear annotation marks, and
+/// what Unicode calls default-ignorable, such as zero-width spaces, direction
+/// marks and tag characters. The zero-width joiner and non-joiner are not in
+/// the list, since emoji and several scripts need them, and `invisible_at`
+/// keeps two more kinds where text needs them.
+fn invisible(c: char) -> bool {
+	!(' '..='~').contains(&c) && in_ranges(&INVISIBLE, c)
+}
+
+fn in_ranges(ranges: &[(u32, u32)], c: char) -> bool {
+	let c = c as u32;
+	ranges.iter().take_while(|r| r.0 <= c).any(|r| c <= r.1)
+}
+
+/// Whether `c`, the character at byte `i` of `t`, is written as an escape. A
+/// variation selector stays as written directly after a visible character,
+/// and the tags of a subdivision flag stay too; anywhere else they hide text.
+fn invisible_at(t: &str, i: usize, c: char) -> bool {
+	if !invisible(c) {
+		return false;
+	}
+	if in_ranges(&SELECTORS, c) {
+		return !t[..i].chars().next_back().is_some_and(selector_base);
+	}
+	if ('\u{E0020}'..='\u{E007F}').contains(&c) {
+		return !flag_tag(t, i);
+	}
+	true
+}
+
+/// A character a variation selector can modify: one written as itself that
+/// is not a blank or a joiner. Another selector is not one, so a run of them
+/// cannot contain hidden text.
+fn selector_base(c: char) -> bool {
+	c > ' ' && c != '\u{200C}' && c != '\u{200D}' && !invisible(c)
+}
+
+/// Whether the tag at byte `i` of `t` is part of a subdivision flag, as UTS #51
+/// defines one: U+1F3F4, three to seven tag digits or lowercase tag letters,
+/// and the cancel tag.
+fn flag_tag(t: &str, i: usize) -> bool {
+	let spec = |c: char| matches!(c, '\u{E0030}'..='\u{E0039}' | '\u{E0061}'..='\u{E007A}');
+	let mut start = i;
+	let mut count = 0;
+	for c in t[..i].chars().rev() {
+		if !spec(c) {
+			break;
+		}
+		count += 1;
+		if count > 7 {
+			return false;
+		}
+		start -= c.len_utf8();
+	}
+	if !t[..start].ends_with('\u{1F3F4}') {
+		return false;
+	}
+	count = 0;
+	for c in t[start..].chars() {
+		if !spec(c) {
+			return c == '\u{E007F}' && count >= 3;
+		}
+		count += 1;
+		if count > 7 {
+			return false;
 		}
 	}
 	false
 }
 
-/// Trim, then strip one matching outer quote pair if present. Unquoted empty
-/// slots return None (dropped, never an error).
-fn parse_element(piece: &str) -> Option<Element> {
-	let t = piece.trim();
-	if t.is_empty() {
-		return None;
-	}
-	let chars: Vec<char> = t.chars().collect();
-	let first = chars[0];
-	if (first == '"' || first == '\'') && chars.len() >= 2 && chars[chars.len() - 1] == first {
-		// The closing quote must not itself be escaped (`"a\"` is not closed).
-		let mut esc = false;
-		for &c in &chars[1..chars.len() - 1] {
-			esc = c == '\\' && !esc;
-		}
-		if !esc {
-			let inner: String = chars[1..chars.len() - 1].iter().collect();
-			return Some(Element {
-				text: inner,
-				quoted: true,
-			});
+/// A character the writer escapes: by its first name when the list has one,
+/// otherwise as a code point with at least four hex digits.
+fn push_escape(out: &mut String, c: char) {
+	use std::fmt::Write;
+	let mut buf = [0u8; 4];
+	let one: &str = c.encode_utf8(&mut buf);
+	out.push(ESCAPE_MARK);
+	match ESCAPE_NAMES.iter().find(|(_, text)| *text == one) {
+		Some((name, _)) => out.push_str(name),
+		None => {
+			let _ = write!(out, "{}{:04X}", CODE_PREFIXES[0], c as u32);
 		}
 	}
-	Some(Element {
-		text: normalize_dangling_backslash(t.to_string()),
-		quoted: false,
-	})
+	out.push(ESCAPE_MARK);
 }
 
-fn parse_cell(text: &str) -> Value {
-	let mut els = Vec::new();
-	for piece in split_unquoted_commas(text) {
-		if let Some(e) = parse_element(piece) {
-			els.push(e);
-		}
-	}
-	if els.is_empty() {
-		Value::Empty
-	} else {
-		Value::Cell(els)
-	}
-}
-
-/// Escape processing (string reads): \t \n \\ \" \'; unknown escapes stay literal.
-fn apply_escapes(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	let mut it = s.chars();
-	while let Some(c) = it.next() {
-		if c != '\\' {
-			out.push(c);
-			continue;
-		}
-		match it.next() {
-			Some('t') => out.push('\t'),
-			Some('n') => out.push('\n'),
-			Some('\\') => out.push('\\'),
-			Some('"') => out.push('"'),
-			Some('\'') => out.push('\''),
-			Some(other) => {
-				out.push('\\');
-				out.push(other);
-			}
-			None => out.push('\\'),
-		}
-	}
-	out
-}
-
-/// The predicate a `[value]` selector matches with: display form with escapes
-/// applied on both sides, so `["q\"uote"]` finds `'q"uote'` - a logical-string
-/// match, not spelling against spelling.
+/// The predicate a `(value)` selector matches with: the display form, which
+/// is built from logical strings, so `("q◉DQUOTE◉uote")` finds `'q"uote'` - a
+/// logical-string match, not spelling against spelling.
 fn disp_key(v: &Value) -> String {
-	apply_escapes(&v.display())
+	v.display()
 }
 
-/// The single-element restriction a QUOTED `[value]` selector adds on top of
-/// the display match: quoting selects the scalar spelling only, so the scalar
-/// "a, b" and the list a, b stop meeting the same selector.
+/// A selector matches one plain value, quoted or not, never an array or a
+/// raw block (value-syntax.md, Selectors and discriminators).
 fn single_scalar(v: &Value) -> bool {
-	matches!(v, Value::Cell(els) if els.len() == 1)
+	matches!(v, Value::Cell(_))
 }
 
-// FNV-1a, fed the same byte sequence the key strings would spell - the
+// FNV-1a, fed the same byte sequence the key strings would contain - the
 // accelerator maps key on a u64 and verify hits against the arena, so the
 // strings themselves never get built. The hash only has to be stable within
 // one parse, not injective; a collision just chains in the slot.
@@ -784,7 +2480,7 @@ impl Fnv {
 			self.byte(b);
 		}
 	}
-	/// A length prefix in decimal, spelled without allocating.
+	/// A length prefix in decimal, written without allocating.
 	fn dec(&mut self, mut n: usize) {
 		let mut buf = [0u8; 20];
 		let mut i = buf.len();
@@ -800,16 +2496,53 @@ impl Fnv {
 	}
 }
 
-/// Hash of the (name, merge-key) pair, spelling what value.key() spells
-/// without building it.
+/// Hasher for maps keyed on an Fnv value, which is a hash already, so running
+/// it through SipHash again is wasted work. Fnv's low bits are its weak ones -
+/// a changed input bit only reaches the bits above it - and the table picks a
+/// bucket from the low bits, so the top half is folded down.
+#[derive(Default, Clone, Copy)]
+struct PreHashed(u64);
+
+impl Hasher for PreHashed {
+	fn finish(&self) -> u64 {
+		self.0
+	}
+	fn write(&mut self, bytes: &[u8]) {
+		for &b in bytes {
+			self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x100_0000_01b3);
+		}
+	}
+	fn write_u64(&mut self, x: u64) {
+		self.0 = x ^ (x >> 32);
+	}
+}
+
+type U64Map<V> = HashMap<u64, V, BuildHasherDefault<PreHashed>>;
+
+/// Hash of the (name, merge-key) pair: nodes with equal pairs collapse into
+/// one. The key is 'e', or each cell element (and the raw info-string)
+/// length-prefixed so the sequence is injective - a bare NUL separator lets
+/// `[a, b]` collide with the single element "a\0b". Elements are the resolved
+/// strings, so two spellings of one string are one instance: names have
+/// followed that rule since 2.0, and a `(value)` selector matches on the
+/// resolved text already. Info-string is part of identity (a `sql` and a
+/// `python` block are different values even with equal bodies); fence style
+/// is not.
 fn merge_hash(name: &str, v: &Value) -> u64 {
 	let mut h = Fnv::new();
 	h.bytes(name.as_bytes());
 	h.byte(0xFF); // separator; equality still verifies both parts
 	match v {
 		Value::Empty => h.byte(b'e'),
-		Value::Cell(els) => {
+		Value::Cell(e) => {
 			h.bytes(b"c:");
+			h.dec(e.text.len());
+			h.byte(b':');
+			h.bytes(e.text.as_bytes());
+		}
+		// Brackets are part of the value, so `[80]` is not the scalar 80.
+		Value::Array(els) => {
+			h.bytes(b"a:");
 			for e in els {
 				h.dec(e.text.len());
 				h.byte(b':');
@@ -840,7 +2573,8 @@ fn merge_eq(name_a: &str, va: &Value, name_b: &str, vb: &Value) -> bool {
 	}
 	match (va, vb) {
 		(Value::Empty, Value::Empty) => true,
-		(Value::Cell(a), Value::Cell(b)) => {
+		(Value::Cell(a), Value::Cell(b)) => a.text == b.text,
+		(Value::Array(a), Value::Array(b)) => {
 			a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.text == y.text)
 		}
 		(Value::Raw(a), Value::Raw(b)) => a.info == b.info && a.content == b.content,
@@ -848,77 +2582,24 @@ fn merge_eq(name_a: &str, va: &Value, name_b: &str, vb: &Value) -> bool {
 	}
 }
 
-/// apply_escapes as a streaming feed into the hash - the same state machine,
-/// one char at a time, no intermediate string.
-struct EscHash {
-	h: Fnv,
-	pending: bool,
-}
-
-impl EscHash {
-	fn emit(&mut self, c: char) {
-		let mut b = [0u8; 4];
-		self.h.bytes(c.encode_utf8(&mut b).as_bytes());
-	}
-	fn push(&mut self, c: char) {
-		if self.pending {
-			self.pending = false;
-			match c {
-				't' => self.emit('\t'),
-				'n' => self.emit('\n'),
-				'\\' => self.emit('\\'),
-				'"' => self.emit('"'),
-				'\'' => self.emit('\''),
-				other => {
-					self.emit('\\');
-					self.emit(other);
-				}
-			}
-		} else if c == '\\' {
-			self.pending = true;
-		} else {
-			self.emit(c);
-		}
-	}
-	fn finish(mut self) -> u64 {
-		if self.pending {
-			self.emit('\\');
-		}
-		self.h.0
-	}
-}
-
-/// Hash of the (name, display-with-escapes-applied) pair a `[value]` selector
-/// matches with - what disp_key would spell, streamed instead of built.
+/// Hash of the (name, display) pair a `(value)` selector matches with - what
+/// disp_key would give, streamed instead of built. Elements hold the logical
+/// string, so the bytes feed straight in.
 fn disp_hash(name: &str, v: &Value) -> u64 {
 	let mut h = Fnv::new();
 	h.bytes(name.as_bytes());
 	h.byte(0xFF);
-	let mut esc = EscHash { h, pending: false };
 	match v {
 		Value::Empty => {}
-		Value::Cell(els) => {
-			for (i, e) in els.iter().enumerate() {
-				if i > 0 {
-					esc.push(',');
-					esc.push(' ');
-				}
-				for c in e.text.chars() {
-					esc.push(c);
-				}
-			}
-		}
-		Value::Raw(r) => {
-			for c in r.content.chars() {
-				esc.push(c);
-			}
-		}
+		Value::Cell(e) => h.bytes(e.text.as_bytes()),
+		Value::Array(_) => h.bytes(v.display().as_bytes()),
+		Value::Raw(r) => h.bytes(r.content.as_bytes()),
 	}
-	esc.finish()
+	h.0
 }
 
-/// The query-side twin of disp_hash: the selector's text already has its
-/// escapes applied, so its bytes feed straight in.
+/// The query-side twin of disp_hash: the selector's logical text, the same
+/// bytes the display would contain.
 fn disp_hash_text(name: &str, want: &str) -> u64 {
 	let mut h = Fnv::new();
 	h.bytes(name.as_bytes());
@@ -966,6 +2647,43 @@ impl Slot {
 	}
 }
 
+/// The fence a field line's value opens, if it opens one. A line that did
+/// not tokenize opens one too when a fence follows its first colon past
+/// where it stopped making sense, with no comment before that colon. Read
+/// as lines, such a body would bind, and its closing fence would open a
+/// block of its own.
+fn line_fence(tok: &Tokens, rest: &str) -> Option<(u8, usize, String)> {
+	if let Some((at, _)) = tok.fault {
+		let s = rest.as_bytes();
+		let sep = (at..s.len())
+			.find(|&k| s[k] == b':' || comment_at(s, k))
+			.filter(|&k| s[k] == b':')?;
+		let mut value = Tokens::default();
+		tokenize_value(rest, sep + 1, Rules::Current, &mut value);
+		return fence_open(&rest[value.value.0..value.value.1]);
+	}
+	tok.sep?;
+	// A capped scan zeroed the value, and a fence is told by its leading run
+	// alone.
+	fence_open(if tok.capped {
+		trim_wsp(&rest[tok.value.0..])
+	} else {
+		&rest[tok.value.0..tok.value.1]
+	})
+}
+
+/// The fence a line opens under the field above it, read as a value.
+fn child_fence(rest: &str, tok: &mut Tokens) -> Option<(u8, usize, String)> {
+	tokenize_value(rest, 0, Rules::Current, tok);
+	// A capped scan zeroed the value, and a fence is told by its leading run
+	// alone.
+	fence_open(if tok.capped {
+		rest
+	} else {
+		&rest[tok.value.0..tok.value.1]
+	})
+}
+
 /// Opening fence: a run of >=3 backticks or tildes, then an optional info-string.
 fn fence_open(rest: &str) -> Option<(u8, usize, String)> {
 	let first = rest.as_bytes().first().copied()?;
@@ -976,18 +2694,30 @@ fn fence_open(rest: &str) -> Option<(u8, usize, String)> {
 	if run < 3 {
 		return None;
 	}
-	Some((first, run, rest[run..].trim().to_string()))
+	Some((first, run, trim_wsp(&rest[run..]).to_string()))
 }
 
+// `min_len` is the opening fence's length, which the grammar puts at three or
+// more, so the length test already rules out the empty line that `all` would
+// otherwise accept.
 fn is_fence_close(line: &str, ch: u8, min_len: usize) -> bool {
-	let t = line.trim();
-	t.len() >= min_len && !t.is_empty() && t.bytes().all(|b| b == ch)
+	// A raw body keeps its carriage returns, so only a space or tab is trimmed.
+	let t = line.trim_matches([' ', '\t']);
+	t.len() >= min_len && t.bytes().all(|b| b == ch)
 }
 
-/// Remove a raw block's common indent from one content line. A whitespace-only
-/// line took no part in computing that indent, so it can be shorter than it -
-/// strip only what it actually shares, rather than blanking it. Blanking drops
-/// author spacing on a line the spec calls verbatim.
+/// The leading space/tab run of a line (the indent).
+fn leading_ws(line: &str) -> &str {
+	let n = line
+		.bytes()
+		.take_while(|&b| b == b' ' || b == b'\t')
+		.count();
+	&line[..n]
+}
+
+/// Remove a raw block's nesting indent from one content line: only what the
+/// line actually shares with it, so a shallower line (whitespace-only, or
+/// written flush left) keeps its own spacing rather than being blanked.
 fn strip_common<'a>(line: &'a str, common: &str) -> &'a str {
 	let mut k = 0;
 	for (a, b) in common.chars().zip(line.chars()) {
@@ -997,6 +2727,1077 @@ fn strip_common<'a>(line: &'a str, common: &str) -> &'a str {
 		k += a.len_utf8();
 	}
 	&line[k..]
+}
+
+// ---------------------------------------------------------------------------
+// Migration: a 2.x document rewritten for the current lexical rules
+// ---------------------------------------------------------------------------
+
+/// What `migrate` produced, and what it could not keep.
+#[derive(Debug)]
+pub struct Migration {
+	pub text: String,
+	/// The file already names its format, so there was nothing to migrate and
+	/// `text` is the input.
+	pub current: bool,
+	/// Pieces both rule sets read cleanly and differently, such as `a,b` or
+	/// an escape, and runs of lines one rule set reads as a raw body and the
+	/// other as fields, which nothing can decide between, left as written.
+	/// Always 0 when the caller said the file is 2.x. A backslash pair 2.x
+	/// resolved is one of them, as in `"C:\\new"`.
+	pub ambiguous: usize,
+	/// Lines 2.x bound a value on that nothing binds now, since there is no
+	/// 3.0 spelling to move to: bracket text after the colon, a selector
+	/// holding a comma, which matched an array value, and a comma list with
+	/// lines under it (`E028` in brackets). Also a quoted name with a
+	/// backslash pair, which 1.2 read as typed and 2.0 resolved, so it is
+	/// kept as written.
+	pub lost: usize,
+}
+
+/// The counters a line rewrite reports back, and the one thing it asks.
+struct Migrating {
+	from_v2: bool,
+	ambiguous: usize,
+	lost: usize,
+	// The line just rewritten put a 2.x comma list in brackets.
+	bracketed: bool,
+	// These rules refuse the line about to be rewritten, so it is not a
+	// correct 3.0 line, whatever the file is.
+	refused_now: bool,
+}
+
+/// The format major a document's `##    Format   N` line names, read the way
+/// `migrate` reads it. None when no line names one, which is every 2.x file
+/// and a current one written without the info block, and when the line names
+/// no number; read_format_version() tells those apart. `migrate` hands a file
+/// back untouched exactly when this is `FORMAT_MAJOR` or more, so a program
+/// can ask before it rewrites anything.
+#[must_use]
+pub fn format_version(text: &str) -> Option<u32> {
+	let r = read_format_version(text);
+	(r.status == Status::Good).then_some(r.value)
+}
+
+/// format_version() with a status: `Good` with the major, `NotFound` when no
+/// line names a format, `Empty` for a Format line with nothing after the
+/// word, or `BadType` for one whose number does not read, such as
+/// `##    Format   3x`, so an unstamped file and a damaged stamp read apart.
+/// `raw` is the text after the head, and `line` the line it is on. The load's
+/// `H006` and `H007` hints come from this same reading, and quote `raw`.
+#[must_use]
+pub fn read_format_version(text: &str) -> Read<u32> {
+	format_line_read(text.strip_prefix('\u{feff}').unwrap_or(text))
+}
+
+/// The Format line's head without the blanks before the number. A line that
+/// is only this names no number.
+const FORMAT_WORD: &str = "##    Format";
+
+/// read_format_version() on text with the BOM already off. Digits that do
+/// not fit 32 bits read as the largest number that does: a format newer than
+/// this one, so the file is left alone like any other newer one.
+///
+/// A Format line pasted into a raw body is that block's content, and taking
+/// it as the file's would rewrite a current file, or leave an old one alone.
+/// Where the blocks are turns on the rules the file was written under, which
+/// is what the line itself says: a line naming this format counts outside the
+/// blocks the parser finds, and an older one outside the blocks the rewrite
+/// skips. The two differ on a single-quoted name ending in a backslash. A file
+/// naming this format on any line has nothing to migrate, so the highest line
+/// decides: the stamp `migrate` adds comes after an older one, and the next
+/// run has to see it. A line that names no number counts where either rule
+/// set reads it outside a block, and only when no line names one.
+fn format_line_read(text: &str) -> Read<u32> {
+	// Most documents have no Format line, and every load asks.
+	if !text.contains(FORMAT_WORD) {
+		return Read::new(0, Status::NotFound, None);
+	}
+	let mut now = RawLines::new(Rules::Current);
+	let mut then = RawLines::new(Rules::V2);
+	let mut found: Option<(u32, usize, &str)> = None;
+	let mut newest: Option<(u32, usize, &str)> = None;
+	let mut unread: Option<(Status, usize, &str)> = None;
+	for (i, line) in text.split('\n').enumerate() {
+		let current = now.step(line);
+		let old = then.step(line);
+		let Some(rest) = current.or(old) else {
+			continue;
+		};
+		let n = match rest.strip_prefix(FORMAT_LINE_HEAD) {
+			Some(n) => n,
+			None if rest == FORMAT_WORD => "",
+			None => continue,
+		};
+		if n.is_empty() || !n.bytes().all(|c| c.is_ascii_digit()) {
+			if unread.is_none() {
+				let st = if n.is_empty() {
+					Status::Empty
+				} else {
+					Status::BadType
+				};
+				unread = Some((st, i + 1, n));
+			}
+			continue;
+		}
+		// Read as this major, a number that doesn't fit would make a file
+		// `upgrade --from-2x` takes for a beta one.
+		let v = n.parse().unwrap_or(u32::MAX);
+		if v >= FORMAT_MAJOR {
+			if current.is_some() && newest.is_none_or(|(f, _, _)| v > f) {
+				newest = Some((v, i + 1, n));
+			}
+		} else if old.is_some() && found.is_none_or(|(f, _, _)| v > f) {
+			found = Some((v, i + 1, n));
+		}
+	}
+	if let Some((v, line, n)) = newest.or(found) {
+		return Read::new(v, Status::Good, Some(n.to_string())).at(line, None);
+	}
+	match unread {
+		Some((st, line, n)) => Read::new(0, st, Some(n.to_string())).at(line, None),
+		None => Read::new(0, Status::NotFound, None),
+	}
+}
+
+/// The text with the Format line read_format_version() found on `line`
+/// naming this format instead, indent and line end kept. None when the new
+/// line would not read as the file's stamp, as when a rewrite left it in a
+/// raw body, so a caller adds the line rather than lose it.
+fn restamp(text: &str, line: usize) -> Option<String> {
+	let (bom, body) = match text.strip_prefix('\u{feff}') {
+		Some(t) => ("\u{feff}", t),
+		None => ("", text),
+	};
+	let mut out = String::with_capacity(text.len() + 4);
+	out.push_str(bom);
+	for (i, l) in body.split('\n').enumerate() {
+		if i > 0 {
+			out.push('\n');
+		}
+		if i + 1 != line {
+			out.push_str(l);
+			continue;
+		}
+		let indent = leading_ws(l);
+		let rest = trim_wsp_end(l[indent.len()..].trim_end_matches('\r'));
+		out.push_str(indent);
+		out.push_str(FORMAT_LINE);
+		out.push_str(&l[indent.len() + rest.len()..]);
+	}
+	let now = format_line_read(&out[bom.len()..]);
+	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
+}
+
+/// The load's hint for a file whose Format line names another major than
+/// this one: `H006` for a newer one, `H007` for an older one. It reads the
+/// line the way read_format_version() does, so the two never disagree. The
+/// number is quoted as written, leading zeros and all, since the read caps
+/// one too big for 32 bits.
+fn stamp_hint(stamp: &Read<u32>) -> Option<Diagnostic> {
+	if stamp.status != Status::Good || stamp.value == FORMAT_MAJOR {
+		return None;
+	}
+	let written = one_line(stamp.raw.as_deref().unwrap_or_default());
+	let (code, message) = if stamp.value > FORMAT_MAJOR {
+		(
+			"H006",
+			format!(
+				"the file names format {}, newer than this reader's format {}, so some lines may read differently than written",
+				written, FORMAT_MAJOR
+			),
+		)
+	} else {
+		(
+			"H007",
+			format!(
+				"the file names format {}, older than this reader's format {}, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+				written, FORMAT_MAJOR
+			),
+		)
+	};
+	Some(Diagnostic {
+		line: stamp.line,
+		severity: Severity::Hint,
+		message,
+		code,
+	})
+}
+
+/// The schema a document's `##    Schema   REF` line names: a path, or a URL
+/// for an editor to fetch. None when no line names one, and when the only
+/// Schema line names nothing; read_schema_ref() tells those apart. The first
+/// line naming one wins, and one inside a raw body is that block's content,
+/// as with the Format line. Either line may be indented, since the formatter
+/// indents a comment to the field below it. A relative path is the caller's
+/// to resolve, from the config file's directory.
+#[must_use]
+pub fn schema_ref(text: &str) -> Option<String> {
+	let r = read_schema_ref(text);
+	(r.status == Status::Good).then_some(r.value)
+}
+
+/// schema_ref() with a status: `Good` with the reference, `NotFound` when no
+/// line names a schema, or `Empty` when a Schema line has nothing after the
+/// word, so an unstamped file and a damaged line read apart. Any other text
+/// is a reference, whether or not it leads anywhere. `line` is the line it
+/// is on.
+#[must_use]
+pub fn read_schema_ref(text: &str) -> Read<String> {
+	let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+	let word = trim_wsp_end(SCHEMA_LINE_HEAD);
+	if !text.contains(word) {
+		return Read::new(String::new(), Status::NotFound, None);
+	}
+	// The Schema line is new in this format, so the blocks are the parser's.
+	let mut lines = RawLines::new(Rules::Current);
+	let mut empty = 0;
+	for (i, line) in text.split('\n').enumerate() {
+		let Some(rest) = lines.step(line) else {
+			continue;
+		};
+		if rest == word {
+			if empty == 0 {
+				empty = i + 1;
+			}
+			continue;
+		}
+		if let Some(r) = rest.strip_prefix(SCHEMA_LINE_HEAD) {
+			let r = trim_wsp(r);
+			if !r.is_empty() {
+				return Read::new(r.to_string(), Status::Good, Some(r.to_string())).at(i + 1, None);
+			}
+		}
+	}
+	if empty == 0 {
+		return Read::new(String::new(), Status::NotFound, None);
+	}
+	Read::new(String::new(), Status::Empty, Some(String::new())).at(empty, None)
+}
+
+/// Walks a document's lines and tells raw-body content from the rest, the
+/// way one rule set reads the file: the current rules find a block where the
+/// parser does, and the 2.x rules where the rewrite does.
+struct RawLines {
+	rules: Rules,
+	tok: Tokens,
+	fence: Option<(u8, usize)>,
+	// Only the blocks a line opens are wanted, not what the rewrite counts.
+	dry: Migrating,
+}
+
+impl RawLines {
+	fn new(rules: Rules) -> Self {
+		RawLines {
+			rules,
+			tok: Tokens::default(),
+			fence: None,
+			dry: Migrating {
+				from_v2: true,
+				ambiguous: 0,
+				lost: 0,
+				bracketed: false,
+				refused_now: false,
+			},
+		}
+	}
+
+	/// The next line's text past its indent, or None when it is part of a
+	/// raw block, fences included.
+	fn step<'t>(&mut self, line: &'t str) -> Option<&'t str> {
+		let body = line.trim_end_matches('\r');
+		if let Some((ch, len)) = self.fence {
+			if is_fence_close(body, ch, len) {
+				self.fence = None;
+			}
+			return None;
+		}
+		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
+		// Only a line with a run of three backticks or tildes can open a
+		// block, so the rest skip the tokenizer.
+		if rest.contains("```") || rest.contains("~~~") {
+			match self.rules {
+				Rules::Current => self.fence = opens_raw(rest, &mut self.tok),
+				Rules::V2 => {
+					migrate_line(rest, &mut self.tok, &mut self.fence, &mut self.dry);
+				}
+			}
+		}
+		Some(rest)
+	}
+}
+
+/// The raw block a line opens under the current rules: a fence line under a
+/// field, or a field line whose value is a fence, read as the parser reads
+/// them. A line refused for where it sits or for its text still takes its
+/// body. A line led by a fence character that opens no fence is a field line
+/// to the parser, as `~x: ~~~` is.
+fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
+	let rest = rest.trim_start_matches(is_wsp);
+	let mut fence = None;
+	if rest.starts_with(['`', '~']) {
+		fence = child_fence(rest, tok);
+	}
+	if fence.is_none() && is_field_text(rest) {
+		tokenize(rest, b':', false, Rules::Current, tok);
+		fence = line_fence(tok, rest);
+	}
+	fence.map(|(ch, len, _)| (ch, len))
+}
+
+/// Rewrite a document written under the 2.x rules so this parser reads the
+/// same tree. Each line is read with the 2.x tokenizer and rewritten only
+/// where the two rule sets disagree (value-syntax.md, Migration). A piece
+/// is written another way only where these rules would read it as other
+/// text than 2.x did: a backslash pair 2.x resolved, such as `\\` or `\t`,
+/// a real `◉`, a quote, tab or bracket in bare text, an open quote, which
+/// is quoted whole. A comma list goes in brackets, a `*` item becomes `- `,
+/// a bare name not led by a letter is quoted, and a selector goes from
+/// brackets to parens, its body quoted where these rules would refuse it
+/// bare. The `name:[disc]` selector sugar loses its colon, and on a last
+/// segment becomes `name: disc`, with `disc` written the way the formatter
+/// writes a value.
+/// Everything else - comments, blank lines, raw bodies, layout, a line 2.x
+/// could not read - comes through as written. One shape has no spelling
+/// here at all: a fence label holding a `#`, which 2.x ran to the end of the
+/// line and which now ends at the `#`. A quoted name with a backslash pair
+/// stays as written and counts in `lost`, since 1.2 read it as typed and 2.0
+/// resolved it.
+///
+/// Which file this is cannot always be read off the text: `p: a,b` is an
+/// array under 2.x and one string under these rules, and a raw block can
+/// open where only one rule set sees it, so rewriting a 3.0 file changes
+/// what it says. So the version line decides. A file that names this format
+/// is returned untouched; one that names an older format, or a caller passing
+/// `from_v2`, gets every rewrite. Anything else leaves those pieces alone
+/// where these rules read the line cleanly, counted in `ambiguous` for the
+/// caller to refuse over. A rewritten file is stamped with the version line,
+/// so the second run has an answer the first one did not. An older Format
+/// line becomes that line where it is; a file with none gets it at the end.
+pub fn migrate(text: &str, from_v2: bool) -> Migration {
+	migrate_text(text, from_v2, true, false)
+}
+
+/// migrate() without the version line or the migrated note, for a program
+/// that writes `GEN_BANNER` itself, which includes the version line. The
+/// next run can tell the result is current only once that is written.
+pub fn migrate_unstamped(text: &str, from_v2: bool) -> Migration {
+	migrate_text(text, from_v2, false, false)
+}
+
+/// The line ending most of the text's lines end with. A tie goes to LF.
+fn majority_eol(text: &str) -> &'static str {
+	let crlf = text.matches("\r\n").count();
+	let lf = text.matches('\n').count() - crlf;
+	if crlf > lf { "\r\n" } else { "\n" }
+}
+
+/// `beta` takes a file naming this format as 2.x too, which only `upgrade`
+/// asks for, once the caller has said so.
+fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool) -> Migration {
+	let (bom, body_text) = match text.strip_prefix('\u{feff}') {
+		Some(t) => ("\u{feff}", t),
+		None => ("", text),
+	};
+	let named = format_line_read(body_text);
+	let version = (named.status == Status::Good).then_some(named.value);
+	if version.is_some_and(|n| n > FORMAT_MAJOR || (n == FORMAT_MAJOR && !beta)) {
+		return Migration {
+			text: text.to_string(),
+			current: true,
+			ambiguous: 0,
+			lost: 0,
+		};
+	}
+	let mut st = Migrating {
+		from_v2: from_v2 || version.is_some(),
+		ambiguous: 0,
+		lost: 0,
+		bracketed: false,
+		refused_now: false,
+	};
+	let mut bracketed: Vec<usize> = Vec::new();
+	// Where a file that does not say it is 2.x might be a 3.0 one, the lines
+	// these rules already refuse are safe to rewrite.
+	let mut refused: Vec<usize> = Vec::new();
+	if !st.from_v2 {
+		refused = Document::parse(body_text)
+			.diagnostics()
+			.iter()
+			.filter(|d| d.severity == Severity::Error)
+			.map(|d| d.line)
+			.collect();
+		refused.sort_unstable();
+	}
+	let mut out = String::with_capacity(body_text.len() + 96);
+	out.push_str(bom);
+	let mut tok = Tokens::default();
+	let mut fence: Option<(u8, usize)> = None;
+	let mut changed = false;
+	// The output as the parser will read it, for where its raw blocks are.
+	let mut now = RawLines::new(Rules::Current);
+	let mut split = false;
+	for (i, line) in body_text.split('\n').enumerate() {
+		if i > 0 {
+			out.push('\n');
+		}
+		let start = out.len();
+		let raw_then = fence.is_some();
+		let body = line.trim_end_matches('\r');
+		let cr = &line[body.len()..];
+		if let Some((ch, len)) = fence {
+			if is_fence_close(body, ch, len) {
+				fence = None;
+			}
+			out.push_str(line);
+		} else {
+			let indent = leading_ws(body);
+			let rest_full = &body[indent.len()..];
+			let rest = trim_wsp_end(rest_full);
+			// `lost` counts lines, and one line can lose several values.
+			let lost_before = st.lost;
+			st.bracketed = false;
+			st.refused_now = refused.binary_search(&(i + 1)).is_ok();
+			let migrated = migrate_line(rest, &mut tok, &mut fence, &mut st);
+			st.lost = lost_before + usize::from(st.lost > lost_before);
+			if st.bracketed {
+				bracketed.push(i + 1);
+			}
+			changed |= migrated != rest;
+			out.push_str(indent);
+			out.push_str(&migrated);
+			out.push_str(&rest_full[rest.len()..]);
+			out.push_str(cr);
+		}
+		// Lines one rule set reads as a raw body and the other as fields are
+		// one more thing that reads two ways, counted once per run of them.
+		let differs = now.step(&out[start..]).is_none() != raw_then;
+		if differs && !split && !st.from_v2 {
+			st.ambiguous += 1;
+		}
+		split = differs;
+	}
+	// 2.x let a comma list head lines of its own, and nothing spells that
+	// now: in brackets it is E028, and as one string it reads as another
+	// value.
+	if !bracketed.is_empty() {
+		st.lost += Document::parse(&out)
+			.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E028" && bracketed.binary_search(&d.line).is_ok())
+			.count();
+	}
+	// Stamping a file whose ambiguous pieces were left alone would claim a
+	// migration that did not finish, and the next run would then skip it. A
+	// document that never closes its raw block has nowhere to put the line
+	// either, under either rule set: appended, it would be another line of the
+	// block's content. The lines end the way most of the file's do. An older
+	// Format line becomes this one where it is, so the file names one format.
+	if stamp && st.ambiguous == 0 && fence.is_none() && now.fence.is_none() {
+		let eol = majority_eol(body_text);
+		let restamped = version.and_then(|_| restamp(&out, named.line));
+		let add_format = restamped.is_none();
+		if let Some(t) = restamped {
+			out = t;
+		}
+		if (add_format || changed) && !out.is_empty() && !out.ends_with('\n') {
+			out.push_str(eol);
+		}
+		if add_format {
+			out.push_str(FORMAT_LINE);
+			out.push_str(eol);
+		}
+		if changed {
+			out.push_str(MIGRATED_LINE);
+			out.push_str(eol);
+		}
+	}
+	Migration {
+		text: out,
+		current: false,
+		ambiguous: st.ambiguous,
+		lost: st.lost,
+	}
+}
+
+/// What `upgrade` made of a document, and `upgrade_file` of a file.
+#[derive(Debug, Clone)]
+pub struct Upgrade {
+	/// The fresh file's text, or the input when `current`, `ambiguous` or
+	/// `errors_left`.
+	pub text: String,
+	/// The input loads with no error under these rules and, with `from_v2`,
+	/// migrates to the same text and names no older format, or it names this
+	/// format, so it is left as it is. A beta build of 3.0 stamped the same
+	/// Format line as a release, so a beta file is current here too, unless
+	/// `from_v2` says a 2.x build wrote it and it loads with an error.
+	pub current: bool,
+	/// The format the input was written for, which goes in the backup's
+	/// name: what its Format line names, else 2.
+	pub format: u32,
+	/// As `Migration::ambiguous`. Nonzero means the text reads two ways and
+	/// nothing is written.
+	pub ambiguous: usize,
+	/// Lines and values of the input the fresh text does not carry over:
+	/// the ones 2.x bound that nothing binds now, and the ones the load of
+	/// the migrated text drops. The backup still has them.
+	pub lost: usize,
+	/// What loading the input found, which is why it needed the upgrade
+	/// unless it loaded clean and `from_v2` said it reads as 2.x. Empty when
+	/// `current`.
+	pub diagnostics: Vec<Diagnostic>,
+	/// Where `upgrade_file` put the original. Empty from `upgrade`, and when
+	/// nothing was written.
+	pub backup: String,
+	/// With `from_v2`, the input's lines still in error once converted.
+	/// Nonempty means nothing is written and `text` is the input, since the
+	/// next run with `from_v2` would take the fresh text for 2.x again.
+	pub errors_left: Vec<usize>,
+}
+
+/// A config file written for an older format, made over for this one: the
+/// input run through `migrate_unstamped`, then saved keeping its lines, so
+/// each line, blank ones included, stays where it was, with the info block
+/// `init` writes at the end in place of an old one there. Where the lines
+/// can't be kept, or keeping them keeps an error, it is written the way `fmt`
+/// writes it. A whole block above the first field stays, so a file with its
+/// block at the top comes out with 2, both naming this format. This is the one
+/// library call that writes the block. A file that names this format comes back
+/// `current` and untouched, and so does one that loads with no error under
+/// these rules, since a program calling this on every start must never rewrite
+/// a good file. `from_v2` is migrate's: the file can only have been written for
+/// 2.x. Then a file that loads clean is still made over when `migrate` would
+/// change it, as it would `p: a,b`, an array under 2.x and one string now. One
+/// it would not change that names an older format gets this format on that
+/// Format line, and nothing else. The one file naming this format that is made
+/// over is one that loads with an error when `from_v2` says a 2.x build wrote
+/// it, as with a beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With
+/// `from_v2`, any file is made over only when the fresh text loads clean; when
+/// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
+/// only for a file known to be old, never on every start: a file this format
+/// wrote that picks up an error later would be read by 2.x rules too.
+pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
+	let named = read_format_version(text);
+	let version = (named.status == Status::Good).then_some(named.value);
+	let mut up = Upgrade {
+		text: text.to_string(),
+		current: true,
+		format: version.unwrap_or(2),
+		ambiguous: 0,
+		lost: 0,
+		diagnostics: Vec::new(),
+		backup: String::new(),
+		errors_left: Vec::new(),
+	};
+	if version.is_some_and(|v| v > FORMAT_MAJOR || (v == FORMAT_MAJOR && !from_v2)) {
+		return up;
+	}
+	let before = Document::parse(text);
+	let clean = before.error_count() == 0;
+	// A beta of 3.0 wrote this format's line too, so only the caller can say
+	// a 2.x build wrote the file. One that loads clean is what an upgrade
+	// leaves, so a second run over its output leaves it alone.
+	if clean && (!from_v2 || version == Some(FORMAT_MAJOR)) {
+		return up;
+	}
+	let m = migrate_text(text, from_v2, false, true);
+	// A 2.x file can load clean and still read differently now, as `a,b`
+	// does. One migrate leaves as it was has nothing to do, but an older
+	// Format line, which would keep the load's H007 hint, becomes this one.
+	if clean && m.text == text {
+		if let Some(t) = version.and_then(|_| restamp(text, named.line)) {
+			up.current = false;
+			up.diagnostics = before.diags;
+			up.text = t;
+		}
+		return up;
+	}
+	up.current = false;
+	up.diagnostics = before.diags;
+	up.ambiguous = m.ambiguous;
+	if m.ambiguous != 0 {
+		return up;
+	}
+	let mut fresh = Document::parse(&m.text);
+	fresh.keep_source(&m.text);
+	let lost = m.lost + fresh.lost_count();
+	// migrate keeps every line where it was, so these are the input's.
+	let left = error_lines(&fresh.diags);
+	fresh.swap_banner(true, true);
+	let made = upgrade_text(&fresh);
+	// With from_v2 it goes only when that leaves it loading clean, or the
+	// next run with it would read the result by 2.x rules again
+	// (2026101515372401). Without, a Format 3 file with an error is current.
+	if from_v2 {
+		let check = Document::parse(&made);
+		if check.error_count() != 0 {
+			// Empty only if a clean text formats to one with an error, and
+			// then the fresh text's own lines are better than none.
+			up.errors_left = if left.is_empty() {
+				error_lines(&check.diags)
+			} else {
+				left
+			};
+			return up;
+		}
+	}
+	up.lost = lost;
+	up.text = made;
+	up
+}
+
+/// The fresh file's text, saved the way `set` saves, so each line of the
+/// input is on the same line here, blank ones included (2026102620591101).
+/// Where the lines can't be kept, or keeping them keeps an error the
+/// canonical form repairs, such as a missing colon, it is the canonical form.
+fn upgrade_text(fresh: &Document) -> String {
+	let canonical = fresh.to_canonical();
+	match fresh.to_text_keep_lines() {
+		(kept, true)
+			if Document::parse(&kept).error_count()
+				<= Document::parse(&canonical).error_count() =>
+		{
+			kept
+		}
+		_ => canonical,
+	}
+}
+
+/// The lines with an error on them, in order, each once.
+fn error_lines(diags: &[Diagnostic]) -> Vec<usize> {
+	let mut lines: Vec<usize> = diags
+		.iter()
+		.filter(|d| d.severity == Severity::Error)
+		.map(|d| d.line)
+		.collect();
+	lines.sort_unstable();
+	lines.dedup();
+	lines
+}
+
+/// One edit to a line: replace `start..end` with the text.
+type Edit = (usize, usize, String);
+
+fn splice(text: &str, mut edits: Vec<Edit>) -> String {
+	edits.sort_by_key(|e| e.0);
+	let mut out = String::with_capacity(text.len() + 8);
+	let mut at = 0;
+	for (start, end, with) in edits {
+		out.push_str(&text[at..start]);
+		out.push_str(&with);
+		at = end;
+	}
+	out.push_str(&text[at..]);
+	out
+}
+
+/// True when the current tokenizer reads this spelling as one whole piece,
+/// quoted the same way, with exactly this text, so nothing has to change.
+fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
+	let mut tok = Tokens::default();
+	tokenize_value(spelling, 0, Rules::Current, &mut tok);
+	tok.elements.len() == 1
+		&& tok.value == (0, spelling.len())
+		&& matches!(tok.elements[0].quote, Quote::Single | Quote::Double) == quoted
+		&& piece_fault(&tok.elements[0], spelling, Bare::Value).is_none()
+		&& piece_text(&tok.elements[0], spelling) == logical
+}
+
+/// How a changed piece is written: the way the writer writes its text, so it
+/// reads back as that text. The text is the one 2.x read (`v2_text`).
+fn migrate_spelling(logical: &str, bare: bool) -> String {
+	if bare && !needs_quotes(logical) {
+		logical.to_string()
+	} else {
+		quote_text(logical)
+	}
+}
+
+/// The text 2.x read for a piece as written: `\t`, `\n`, `\\`, `\"` and `\'`
+/// resolved, in a value, an element and a selector body, bare or quoted. Any
+/// other backslash stays, and so does one at the end.
+fn v2_text(raw: &str) -> String {
+	let mut out = String::with_capacity(raw.len());
+	let mut it = raw.chars();
+	while let Some(c) = it.next() {
+		if c != '\\' {
+			out.push(c);
+			continue;
+		}
+		match it.next() {
+			Some('t') => out.push('\t'),
+			Some('n') => out.push('\n'),
+			Some(q @ ('\\' | '"' | '\'')) => out.push(q),
+			Some(other) => {
+				out.push('\\');
+				out.push(other);
+			}
+			None => out.push('\\'),
+		}
+	}
+	out
+}
+
+/// True when 2.x read this bare `[...]` body as the JSON-habit array rather
+/// than a discriminator: more than one element, where a comma behind a
+/// backslash was not one.
+fn v2_bracket_array(body: &str) -> bool {
+	let mut tok = Tokens::default();
+	tokenize_value(body, 0, Rules::V2, &mut tok);
+	tok.elements.len() > 1
+}
+
+/// The re-spellings a value's pieces need. Each piece is cut the 2.x way (a
+/// backslash shields the next character, an open quote is kept whole, a quote
+/// at both ends makes it quoted) and rewritten only where the current rules
+/// would read it as other text than 2.x did. 2.x resolved a backslash pair,
+/// so `"C:\\new"` is written `"C:\new"` and `C:\temp` gets the tab escape.
+fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
+	for p in &tok.elements {
+		let raw = &text[p.start..p.end];
+		let quoted = matches!(p.quote, Quote::Single | Quote::Double);
+		let (a, b) = if quoted {
+			(p.start - 1, p.end + 1)
+		} else {
+			(p.start, p.end)
+		};
+		v2_edge_edits(text, a, b, edits);
+		// A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
+		if p.quote == Quote::None
+			&& !raw.contains(['\\', ',', '#'])
+			&& !raw.contains(ESCAPE_MARK)
+			&& !raw.is_empty()
+			&& bare_trouble(raw, Bare::Value).is_none()
+		{
+			continue;
+		}
+		let logical = v2_text(raw);
+		if reads_same(&text[a..b], quoted, &logical) {
+			continue;
+		}
+		let spelling = migrate_spelling(&logical, !(quoted || p.quote == Quote::Open));
+		edits.push((a, b, spelling));
+	}
+}
+
+/// 2.x trimmed a blank the current rules keep, such as a no-break space or a
+/// vertical tab, at a piece's edges. A run of blanks on either side of the
+/// piece from `a` to `b` that holds one becomes a space, or nothing at the
+/// end of the line.
+fn v2_edge_edits(text: &str, a: usize, b: usize, edits: &mut Vec<Edit>) {
+	let kept = |run: &str| run.chars().any(|c| !is_wsp(c));
+	let mut i = a;
+	while let Some(c) = text[..i].chars().next_back().filter(|&c| white_space(c)) {
+		i -= c.len_utf8();
+	}
+	if kept(&text[i..a]) {
+		let with = if a == text.len() { "" } else { " " };
+		edits.push((i, a, with.to_string()));
+	}
+	let mut j = b;
+	while let Some(c) = text[j..].chars().next().filter(|&c| white_space(c)) {
+		j += c.len_utf8();
+	}
+	if kept(&text[b..j]) {
+		let with = if j == text.len() { "" } else { " " };
+		edits.push((b, j, with.to_string()));
+	}
+}
+
+/// A 2.x value with a comma in brackets, since 2.x read every comma as an
+/// array. Its empty elements go, as 2.x dropped them. Each element is
+/// written the way the writer writes one inside `[]`, unless its quoted
+/// spelling already reads the same.
+fn v2_array_text(text: &str, tok: &Tokens) -> String {
+	let mut out = String::from("[");
+	for p in tok
+		.elements
+		.iter()
+		.filter(|p| p.quote != Quote::None || p.end > p.start)
+	{
+		if out.len() > 1 {
+			out.push_str(", ");
+		}
+		out.push_str(&v2_element_text(text, p));
+	}
+	out.push(']');
+	out
+}
+
+/// One 2.x element, as the text 2.x read, the way the writer writes it,
+/// unless its quoted spelling already reads the same.
+fn v2_element_text(text: &str, p: &Piece) -> String {
+	let logical = v2_text(&text[p.start..p.end]);
+	let quoted = matches!(p.quote, Quote::Single | Quote::Double);
+	if quoted && reads_same(&text[p.start - 1..p.end + 1], true, &logical) {
+		text[p.start - 1..p.end + 1].to_string()
+	} else if p.quote == Quote::None && !needs_quotes(&logical) {
+		logical
+	} else {
+		quote_text(&logical)
+	}
+}
+
+/// True when the current rules read a value with no fault, as one piece:
+/// then `a,b` is a string now and was an array under 2.x.
+fn reads_clean_now(text: &str, from: usize) -> bool {
+	let mut tok = Tokens::default();
+	tokenize_value(text, from, Rules::Current, &mut tok);
+	tok.array.is_none() && tok.elements.len() == 1 && value_fault(&tok, text).is_none()
+}
+
+/// The name a quoted field name, quotes included, reads as under the
+/// current rules, or None when it does not read as one clean name.
+fn quoted_name_now(spelled: &str) -> Option<String> {
+	let line = format!("{spelled}:");
+	let mut tok = Tokens::default();
+	tokenize(&line, b':', false, Rules::Current, &mut tok);
+	if tok.fault.is_some() || tok.misspelled.is_some() {
+		return None;
+	}
+	match tok.segments.as_slice() {
+		[seg]
+			if seg.selector.is_none()
+				&& matches!(seg.name.quote, Quote::Single | Quote::Double) =>
+		{
+			resolve_marks(&line[seg.name.start..seg.name.end]).ok()
+		}
+		_ => None,
+	}
+}
+
+fn migrate_line(
+	rest: &str,
+	tok: &mut Tokens,
+	fence: &mut Option<(u8, usize)>,
+	st: &mut Migrating,
+) -> String {
+	if rest.is_empty() || rest.starts_with('#') {
+		return rest.to_string();
+	}
+	// A child-indent fence: 2.x read the info string to the end of the line.
+	if let Some((ch, len, _)) = fence_open(rest) {
+		*fence = Some((ch, len));
+		return rest.to_string();
+	}
+	let s = rest.as_bytes();
+	let mut edits: Vec<Edit> = Vec::new();
+	if rest.starts_with('*') && s.get(1).is_some_and(|&b| is_wsp_byte(b)) {
+		edits.push((0, 1, "-".to_string()));
+		tokenize_value(rest, 1, Rules::V2, tok);
+		// A bare comma was refused (E010), so there is nothing to convert.
+		// A value's rules are an item's, and stricter about a colon, so
+		// what reads clean as one reads clean as the other.
+		if tok.elements.len() == 1 {
+			value_edits(rest, tok, &mut edits);
+		}
+	} else {
+		tokenize(rest, b':', false, Rules::V2, tok);
+		if tok.fault.is_some() {
+			return rest.to_string();
+		}
+		let last = tok.segments.len() - 1;
+		// A selector in brackets is E029 now, so its line never reads clean
+		// and is rewritten whatever the file says it is. Only `name:[disc]`
+		// ending the line is a value here.
+		st.refused_now |= tok
+			.segments
+			.iter()
+			.enumerate()
+			.any(|(i, seg)| seg.selector.is_some() && !(i == last && tok.sep.is_none()));
+		for (i, seg) in tok.segments.iter().enumerate() {
+			let name = &rest[seg.name.start..seg.name.end];
+			// A quoted name with a backslash pair read as typed under 1.2 and
+			// resolved under 2.0, so the file can't say which name it meant.
+			// It stays as written and counts as lost. Any other backslash is
+			// text either way. Only a real escape mark needs another
+			// spelling. A bare name not led by a letter goes in quotes, since
+			// `-` then a blank would start a list item now.
+			let spelled = || &rest[seg.name.start - 1..seg.name.end + 1];
+			// A file that does not say it is 2.x could be a 3.0 one. Where it
+			// reads clean under these rules as well, it is left and counted.
+			let (respell, clean_now) = if matches!(seg.name.quote, Quote::Single | Quote::Double) {
+				let pair = v2_text(name) != name;
+				if pair {
+					st.lost += 1;
+				}
+				let now = (!pair && (name.contains('\\') || name.contains(ESCAPE_MARK)))
+					.then(|| quoted_name_now(spelled()));
+				(
+					now.as_ref().is_some_and(|n| n.as_deref() != Some(name)),
+					now.is_some_and(|n| n.is_some()),
+				)
+			} else {
+				// `-` then a blank is a list item now.
+				let item = name == "-" && s.get(seg.name.end).is_none_or(|&b| is_wsp_byte(b));
+				(!name.as_bytes()[0].is_ascii_alphabetic(), item)
+			};
+			if respell && clean_now && !st.from_v2 && !st.refused_now {
+				st.ambiguous += 1;
+			} else if respell {
+				let (a, b) = if seg.name.quote == Quote::None {
+					(seg.name.start, seg.name.end)
+				} else {
+					(seg.name.start - 1, seg.name.end + 1)
+				};
+				edits.push((a, b, escape_name(name).into_owned()));
+			}
+			let Some(sel) = seg.selector else {
+				continue;
+			};
+			let quoted = matches!(sel.quote, Quote::Single | Quote::Double);
+			// Back from the body to the `[`, and forward to the `]`.
+			let mut open = if quoted { sel.start - 1 } else { sel.start };
+			while open > 0 && is_wsp_byte(s[open - 1]) {
+				open -= 1;
+			}
+			open -= 1;
+			let mut close = if quoted { sel.end + 1 } else { sel.end };
+			while s[close] != b']' {
+				close += 1;
+			}
+			let mut colon = None;
+			let mut k = open;
+			while k > 0 && is_wsp_byte(s[k - 1]) {
+				k -= 1;
+			}
+			if k > 0 && s[k - 1] == b':' {
+				colon = Some(k - 1);
+			}
+			let body = &rest[sel.start..sel.end];
+			let spelled = if quoted {
+				&rest[sel.start - 1..sel.end + 1]
+			} else {
+				body
+			};
+			// 2.x matched a selector by its text with the backslash pairs
+			// resolved, as it read a value.
+			let logical = v2_text(body);
+			if i == last && tok.sep.is_none() {
+				if let Some(c) = colon {
+					// `name:[disc]` with nothing after it: 2.x read it as
+					// `name: disc`. Two or more elements in there was refused
+					// as a bracket array - a comma behind a backslash was not
+					// one - and an index or the wildcard was refused as a
+					// selector, so those stay as written. A bare body moves
+					// into a value, where a fence run opens a raw block and a
+					// leading `[` opens an array, so the emitter writes it.
+					if !quoted && (index_shape(body) || body == "*") {
+						return rest.to_string();
+					}
+					// 2.x bound the bracket array, as one folded string. There
+					// is no spelling to move that to - in brackets it is an
+					// array of several now - so the binding goes, and the
+					// caller hears about it rather than reading exit 0.
+					if !quoted && v2_bracket_array(body) {
+						st.lost += 1;
+						return rest.to_string();
+					}
+					// `[a]` is a one-element array now.
+					if !st.from_v2 && !st.refused_now {
+						let mut now = Tokens::default();
+						tokenize_value(rest, c + 1, Rules::Current, &mut now);
+						if now.array.is_some()
+							&& now.array_fault.is_none()
+							&& value_fault(&now, rest).is_none()
+						{
+							st.ambiguous += 1;
+							return rest.to_string();
+						}
+					}
+					let spelling = if !quoted {
+						migrate_spelling(&logical, true)
+					} else if reads_same(spelled, true, &logical) {
+						spelled.to_string()
+					} else {
+						migrate_spelling(&logical, false)
+					};
+					edits.push((c, close + 1, format!(": {}", spelling)));
+					continue;
+				}
+			} else if let Some(c) = colon {
+				// The colon goes, and one space after it when the author
+				// spaced both sides, so `base : [x]` comes out `base (x)`.
+				let spaced = c > 0 && is_wsp_byte(s[c - 1]) && is_wsp_byte(s[c + 1]);
+				edits.push((c, c + 1 + usize::from(spaced), String::new()));
+			}
+			let index = !quoted && (index_shape(body) || body == "*");
+			// 2.x matched an array value by its display form, and a selector
+			// matches one plain value now, so nothing spells this.
+			if !index && !quoted && v2_bracket_array(body) {
+				st.lost += 1;
+				return rest.to_string();
+			}
+			edits.push((open, open + 1, "(".to_string()));
+			edits.push((close, close + 1, ")".to_string()));
+			// A backslash pair 2.x resolved, a quote or a blank the body has
+			// bare, a paren, or a real escape mark needs another spelling.
+			if !index && !selector_reads_back(spelled, &logical, quoted) {
+				let spelling = migrate_spelling(&logical, false);
+				// Nothing reads back as that body, so there is no way to
+				// write it in parens.
+				if !selector_reads_back(&spelling, &logical, true) {
+					st.lost += 1;
+					return rest.to_string();
+				}
+				let (a, b) = if quoted {
+					(sel.start - 1, sel.end + 1)
+				} else {
+					(sel.start, sel.end)
+				};
+				edits.push((a, b, spelling));
+			}
+		}
+		if tok.sep.is_some() {
+			// A same-line fence: the info string ran to the end of the line.
+			if let Some((ch, len, _)) = fence_open(&rest[tok.value.0..]) {
+				*fence = Some((ch, len));
+				return splice(rest, edits);
+			}
+			match tok.sep {
+				Some(sep) if tok.elements.len() > 1 => {
+					// A file that does not say it is 2.x could be a 3.0 one, where
+					// `a,b` is a string. `a, b` is an error there, so it is safe.
+					if st.from_v2 || !reads_clean_now(rest, sep + 1) {
+						let kept = tok.element_count();
+						// Only empty slots, which 2.x dropped: an empty value.
+						if kept == 0 {
+							edits.push((sep + 1, tok.value.1, String::new()));
+						} else if kept == 1 {
+							// One left, which 2.x read as the plain value: `s,`
+							// is `s`, and joins a `k: s` beside it, which `[s]`
+							// would not.
+							if let Some(p) = tok
+								.elements
+								.iter()
+								.find(|p| p.quote != Quote::None || p.end > p.start)
+							{
+								edits.push((tok.value.0, tok.value.1, v2_element_text(rest, p)));
+							}
+						} else {
+							st.bracketed = true;
+							edits.push((tok.value.0, tok.value.1, v2_array_text(rest, tok)));
+						}
+					} else {
+						st.ambiguous += 1;
+					}
+				}
+				Some(sep) => {
+					let before = edits.len();
+					value_edits(rest, tok, &mut edits);
+					if !st.from_v2
+						&& !st.refused_now && edits.len() > before
+						&& reads_clean_now(rest, sep + 1)
+					{
+						edits.truncate(before);
+						st.ambiguous += 1;
+					}
+				}
+				None => {}
+			}
+		}
+	}
+	splice(rest, edits)
 }
 
 // ---------------------------------------------------------------------------
@@ -1016,15 +3817,22 @@ enum Selector {
 
 #[derive(Debug, Clone)]
 struct Segment {
-	name: String,     // folded
-	name_src: String, // as authored: unfolded, quotes stripped, escapes applied
+	name: String,     // folded, escapes resolved
+	name_src: String, // as authored: unfolded, quotes stripped, escapes as written
 	selector: Option<Selector>,
 	star: bool, // bare `*` name wildcard; quoted "*" stays a literal name
 }
 
 struct PathScan {
 	segments: Vec<Segment>,
-	value_text: Option<String>, // text after the separator colon, trimmed
+	value: Option<(usize, usize)>, // span of the text after the separator colon, before any comment, trimmed
+}
+
+/// The spelling of an index selector - an optional `+`, then digits - whatever
+/// its size. The grammar says `1*DIGIT`, with no upper bound.
+fn index_shape(body: &str) -> bool {
+	let b = body.strip_prefix('+').unwrap_or(body);
+	!b.is_empty() && b.bytes().all(|c| c.is_ascii_digit())
 }
 
 /// usize view of a selector index: None when it does not fit the target's
@@ -1034,218 +3842,636 @@ fn index_usize(k: u64) -> Option<usize> {
 	usize::try_from(k).ok()
 }
 
-/// Scan `a . b : [sel] . c : value`. Whitespace around dots/colons/brackets is
-/// insignificant. A colon is a selector colon only when the next non-ws char is
-/// `[`; otherwise it separates the value. Err(reason) means genuinely ambiguous
-/// input, which the caller skips with a diagnostic.
-fn scan_path(input: &str) -> Result<PathScan, String> {
-	scan_path_ex(input, false)
+/// What a selector body means: `*` the wildcard, an index shape an index, a
+/// quoted body a value match, anything else a bare value match.
+fn selector_of(p: &Piece, text: &str) -> Selector {
+	let body = piece_text(p, text);
+	if matches!(p.quote, Quote::Single | Quote::Double) {
+		// quotes force a value match, even numeric - and scalar-only
+		return Selector::ByValue {
+			text: body,
+			quoted: true,
+		};
+	}
+	if body == "*" {
+		return Selector::Wildcard;
+	}
+	if let Ok(n) = body.parse::<u64>() {
+		return Selector::ByIndex(n);
+	}
+	if index_shape(&body) {
+		// All digits but past u64: an index no instance can have, not a
+		// value selector that would create one on a write.
+		return Selector::ByIndex(u64::MAX);
+	}
+	Selector::ByValue {
+		text: body,
+		quoted: false,
+	}
 }
 
-/// Query spelling of scan_path: also accepts a bare `*` segment (the name
-/// wildcard - any child name). Document lines never take it; only lookups
-/// (reads, the writer probe, schema paths) do.
-fn scan_lookup(input: &str) -> Result<PathScan, String> {
-	scan_path_ex(input, true)
+/// Why a line is refused, and whether its name still reads: then the line
+/// holds its level open, so what is written under it loads under that name.
+#[derive(Debug)]
+struct Fault {
+	code: &'static str,
+	msg: String,
+	opens: bool,
+	/// Where on the line it went wrong, as a byte offset into the text after
+	/// the indent, for a message that names the column.
+	at: Option<usize>,
 }
 
-fn scan_path_ex(input: &str, stars: bool) -> Result<PathScan, String> {
-	// Byte cursor with inline char decoding (a Vec<char> per call was a parse
-	// hot spot). Every position the scanner stops on is a char boundary: it
-	// only byte-matches ASCII structure chars, which UTF-8 guarantees cannot
-	// appear inside a multibyte sequence, and otherwise advances by whole
-	// chars. Backslash still shields the next CHAR, multibyte included.
-	let bytes = input.as_bytes();
-	let mut pos = 0usize;
-	// First char at a known boundary; the fallback arm is unreachable (callers
-	// check pos < len first) but keeps the decode total.
-	fn char_at(s: &str, pos: usize) -> char {
-		s[pos..].chars().next().unwrap_or('\u{0}')
-	}
-	fn skip_ws(bytes: &[u8], pos: &mut usize) {
-		while *pos < bytes.len() && (bytes[*pos] == b' ' || bytes[*pos] == b'\t') {
-			*pos += 1;
+impl Fault {
+	fn new(code: &'static str, msg: impl Into<String>, opens: bool) -> Fault {
+		Fault {
+			code,
+			msg: msg.into(),
+			opens,
+			at: None,
 		}
 	}
-	fn read_quoted(s: &str, pos: &mut usize) -> Result<String, String> {
-		let q = char::from(s.as_bytes()[*pos]); // caller checked: ASCII quote
-		*pos += 1;
-		let mut out = String::new();
-		loop {
-			if *pos >= s.len() {
-				return Err("unterminated quote".into());
-			}
-			let c = char_at(s, *pos);
-			if c == '\\' && *pos + 1 < s.len() {
-				let next = char_at(s, *pos + 1);
-				out.push(c);
-				out.push(next);
-				*pos += 1 + next.len_utf8();
-				continue;
-			}
-			*pos += c.len_utf8();
-			if c == q {
-				return Ok(out);
-			}
-			out.push(c);
+}
+
+/// Where a bare piece sits, which sets what it may hold (value-syntax.md,
+/// Specification).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bare {
+	/// A field value: spaces are fine, and a loose comma splits it.
+	Value,
+	/// A `- ` item: as a value, but a loose colon is `E027`, judged later.
+	Item,
+	/// An element in `[]`: no whitespace, and every comma splits.
+	Element,
+	/// A selector body: no whitespace, colon, comma, bracket or paren either,
+	/// and no `#` to start it.
+	Selector,
+}
+
+impl Bare {
+	fn what(self) -> &'static str {
+		match self {
+			Bare::Value => "value",
+			Bare::Item => "list item",
+			Bare::Element => "array element",
+			Bare::Selector => "selector",
 		}
 	}
-	let mut segments: Vec<Segment> = Vec::new();
-	loop {
-		skip_ws(bytes, &mut pos);
-		if pos >= bytes.len() {
-			return Err("empty path".into());
-		}
-		// Field name: quoted, bare, or (lookups only) the `*` name wildcard.
-		let mut star = false;
-		let name = if bytes[pos] == b'"' || bytes[pos] == b'\'' {
-			read_quoted(input, &mut pos)?
-		} else if stars && bytes[pos] == b'*' {
-			pos += 1;
-			star = true;
-			"*".to_string()
-		} else {
-			let start = pos;
-			// Bare-name chars are ASCII, so the byte-as-char view is exact
-			// (bytes >= 0x80 map to chars the predicate rejects either way).
-			while pos < bytes.len() && is_bare_name_char(char::from(bytes[pos])) {
-				pos += 1;
-			}
-			if pos == start {
-				return Err(format!(
-					"expected field name, found '{}'",
-					char_at(input, pos)
+}
+
+/// A colon at `i` of `raw` with whitespace or the end after it: what a
+/// field line run into the one before it looks like.
+fn loose_colon(raw: &str, i: usize) -> bool {
+	raw[i..].starts_with(':') && raw[i + 1..].chars().next().is_none_or(white_space)
+}
+
+/// An apostrophe at `i` of `raw` with text right before and after it, such
+/// as `O'Brien`: bare text in a value or item, since only a first character
+/// opens a quote.
+fn in_word(raw: &str, i: usize) -> bool {
+	let before = raw[..i].chars().next_back();
+	let after = raw[i + 1..].chars().next();
+	before.is_some_and(|c| !white_space(c)) && after.is_some_and(|c| !white_space(c))
+}
+
+/// What a bare piece may not hold (`E025`): the first such character, named
+/// with the fix for the message.
+fn bare_trouble(raw: &str, kind: Bare) -> Option<String> {
+	let what = kind.what();
+	let strict = matches!(kind, Bare::Element | Bare::Selector);
+	// The old `[#N]` index. A file line reads that `#` as a comment, so only
+	// a lookup path gets here with one.
+	if kind == Bare::Selector && raw.starts_with('#') {
+		return Some(
+			"a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted"
+				.to_string(),
+		);
+	}
+	for (i, c) in raw.char_indices() {
+		let trouble = match c {
+			'\'' if !strict && in_word(raw, i) => continue,
+			'\'' | '"' | '`' => "a quote",
+			'[' | ']' => "a bracket",
+			'(' | ')' if kind == Bare::Selector => "a paren",
+			'\t' if !strict => "a tab",
+			' ' if strict => "a space",
+			c if white_space(c) && strict => "whitespace",
+			c if white_space(c) && c != ' ' => "whitespace other than a space",
+			':' | ',' if kind == Bare::Selector => {
+				return Some(format!(
+					"{} in a bare selector; quote it",
+					if c == ':' { "a colon" } else { "a comma" }
 				));
 			}
-			input[start..pos].to_string()
-		};
-		let mut selector: Option<Selector> = None;
-		skip_ws(bytes, &mut pos);
-		// Optional selector, with its optional sugar colon (colon counts as
-		// selector sugar only when the next non-ws char is an open bracket).
-		let mut bracket_at: Option<usize> = None;
-		if pos < bytes.len() && bytes[pos] == b'[' {
-			bracket_at = Some(pos);
-		} else if pos < bytes.len() && bytes[pos] == b':' {
-			let mut q = pos + 1;
-			skip_ws(bytes, &mut q);
-			if q < bytes.len() && bytes[q] == b'[' {
-				bracket_at = Some(q);
-			}
-		}
-		if let Some(b) = bracket_at {
-			pos = b + 1;
-			skip_ws(bytes, &mut pos);
-			if pos < bytes.len() && (bytes[pos] == b'"' || bytes[pos] == b'\'') {
-				let v = read_quoted(input, &mut pos)?;
-				selector = Some(Selector::ByValue {
-					text: v,
-					quoted: true,
-				}); // quotes force a value match, even numeric - and scalar-only
-			} else {
-				let start = pos;
-				while pos < bytes.len() && bytes[pos] != b']' {
-					pos += 1;
-				}
-				let body: String = input[start..pos].trim().to_string();
-				selector = Some(if body == "*" {
-					Selector::Wildcard
-				} else if let Some(n) = body.strip_prefix('#').and_then(|d| d.parse::<u64>().ok()) {
-					Selector::ByIndex(n)
-				} else if let Ok(n) = body.parse::<u64>() {
-					Selector::ByIndex(n)
-				} else if body.is_empty() {
-					return Err("empty selector".into());
+			':' if kind != Bare::Item && loose_colon(raw, i) => {
+				return Some(if i + 1 == raw.len() {
+					format!("a colon at the end of a bare {}; quote it", what)
+				} else if kind == Bare::Value {
+					"a colon then a space in a bare value; put each field on its own line, or quote the value".to_string()
 				} else {
-					Selector::ByValue {
-						text: normalize_dangling_backslash(body),
-						quoted: false,
-					}
+					format!("a colon then a space in a bare {}; quote it", what)
 				});
 			}
-			skip_ws(bytes, &mut pos);
-			if pos >= bytes.len() || bytes[pos] != b']' {
-				return Err("unterminated selector".into());
+			_ => continue,
+		};
+		return Some(format!("{} in a bare {}; quote it", trouble, what));
+	}
+	None
+}
+
+/// What is wrong with one piece of value text: an open quote (`E017`), a bad
+/// escape (`E023`), or what a bare piece of its kind may not hold (`E025`).
+/// A backtick value is raw, so only an open one is wrong.
+fn piece_fault(p: &Piece, text: &str, kind: Bare) -> Option<(&'static str, String)> {
+	let raw = &text[p.start..p.end];
+	match p.quote {
+		Quote::Open => Some(("E017", format!("unterminated quote in {}", kind.what()))),
+		Quote::Backtick => None,
+		Quote::None | Quote::Single | Quote::Double => {
+			if raw.contains(ESCAPE_MARK)
+				&& let Err(msg) = resolve_marks(raw)
+			{
+				return Some(("E023", msg));
 			}
-			pos += 1;
-			skip_ws(bytes, &mut pos);
-		}
-		if star && selector.is_some() {
-			return Err("selector on a name wildcard".into());
-		}
-		segments.push(Segment {
-			// Names resolve escapes, the same rule values follow when they are
-			// compared: two spellings of one name are one name. name_src keeps
-			// the source spelling, which is what `authored_name` hands back.
-			name: fold_name(&apply_escapes(&name)),
-			name_src: name,
-			selector,
-			star,
-		});
-		if pos >= bytes.len() {
-			return Ok(PathScan {
-				segments,
-				value_text: None,
-			});
-		}
-		match bytes[pos] {
-			b'.' => {
-				pos += 1;
+			if p.quote == Quote::None
+				&& let Some(msg) = bare_trouble(raw, kind)
+			{
+				return Some(("E025", msg));
 			}
-			b':' => {
-				pos += 1;
-				return Ok(PathScan {
-					segments,
-					value_text: Some(input[pos..].trim().to_string()),
-				});
-			}
-			_ => return Err(format!("unexpected '{}' after field", char_at(input, pos))),
+			None
 		}
 	}
+}
+
+/// A malformed bracket array (`E019`). Only the value is wrong, so the name
+/// still reads.
+fn array_fault(tok: &Tokens) -> Option<Fault> {
+	tok.array_fault.map(|(_, why)| {
+		Fault::new(
+			"E019",
+			format!("malformed array, {}; quote the value if it is text", why),
+			true,
+		)
+	})
+}
+
+/// The first fault in a value: one of its pieces, then a loose comma outside
+/// brackets (`E026`). A piece first, since an open quote or a space is what
+/// a comma beside it most often means. Only the value is wrong, so the name
+/// still reads.
+fn value_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	let kind = if tok.array.is_some() {
+		Bare::Element
+	} else {
+		Bare::Value
+	};
+	if let Some((code, msg)) = tok.elements.iter().find_map(|p| piece_fault(p, text, kind)) {
+		return Some(Fault::new(code, msg, true));
+	}
+	(tok.array.is_none() && tok.elements.len() > 1).then(|| {
+		Fault::new(
+			"E026",
+			"a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text",
+			true,
+		)
+	})
+}
+
+/// Why a stacked item's value is refused: an array, since arrays do not
+/// nest (`E019`), what a value is refused for, a loose comma (`E026`), or a
+/// colon with whitespace or the end after it, the way YAML starts an object
+/// in a list (`E027`).
+fn item_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	if tok.array.is_some() {
+		return Some(Fault::new(
+			"E019",
+			"a list item is one value, and arrays do not nest; quote the item if it is text",
+			true,
+		));
+	}
+	if let Some((code, msg)) = tok
+		.elements
+		.iter()
+		.find_map(|p| piece_fault(p, text, Bare::Item))
+	{
+		return Some(Fault::new(code, msg, true));
+	}
+	if tok.elements.len() > 1 {
+		return Some(Fault::new(
+			"E026",
+			"a comma then a space or the end in a list item; an item is one value, so quote the text",
+			true,
+		));
+	}
+	if tok
+		.elements
+		.first()
+		.is_some_and(|p| element_of(p, text).is_none())
+	{
+		return Some(Fault::new("E009", "empty list element", true));
+	}
+	match tok.elements.as_slice() {
+		[p] if p.quote == Quote::None && {
+			let raw = &text[p.start..p.end];
+			raw.char_indices().any(|(i, _)| loose_colon(raw, i))
+		} =>
+		{
+			Some(Fault::new(
+				"E027",
+				"a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text",
+				true,
+			))
+		}
+		_ => None,
+	}
+}
+
+/// A fault in a path that leaves its name unread: a bad escape in a quoted
+/// name, or anything a value could have wrong in a selector body. The line
+/// takes its block with it, since there is no name to hold open.
+fn path_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	for seg in &tok.segments {
+		let name = &seg.name;
+		if matches!(name.quote, Quote::Single | Quote::Double)
+			&& let Err(msg) = resolve_marks(&text[name.start..name.end])
+		{
+			return Some(Fault::new("E023", msg, false));
+		}
+		if let Some(sel) = &seg.selector
+			&& let Some((code, msg)) = piece_fault(sel, text, Bare::Selector)
+		{
+			return Some(Fault::new(code, msg, false));
+		}
+	}
+	None
+}
+
+/// Why a field line that scanned is refused: a path that does not read, a
+/// bare name that breaks the spelling rule, a malformed bracket array, a bare
+/// comma, or a value with an open quote, a bad escape, or whitespace or a
+/// quote in bare text. A raw block's info string is not value text, so a
+/// fence line's value is not judged.
+fn line_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	name_fault(tok, text).or_else(|| value_side_fault(tok, text))
+}
+
+/// The half of line_fault judged before the element cap: the path and the
+/// name. A line with no colon that is one name or path, `404` included, is
+/// the missing colon (`E015`), so the name rule asks only of a line that has
+/// one. A blank in a bare name with no colon could be a name and a value, so
+/// that line is not guessed at (spec.md, Error handling philosophy). A
+/// selector in brackets comes first, since it is what most often makes the
+/// rest look wrong. Its line is kept, and holds its level open as the path it
+/// would read as in parens, when that reads.
+fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	if let Some(at) = tok.bracket_selector {
+		let mut f = Fault::new(
+			"E029",
+			"selector in brackets; write it in parens, name(value), since brackets are only for arrays",
+			path_fault(tok, text).is_none(),
+		);
+		f.at = Some(at);
+		return Some(f);
+	}
+	if let Some(f) = path_fault(tok, text) {
+		return Some(f);
+	}
+	if tok.misspelled.is_none() {
+		return wildcard_fault(tok, text);
+	}
+	if tok.sep.is_some() {
+		return Some(Fault::new(
+			"E014",
+			"field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'",
+			true,
+		));
+	}
+	let s = text.as_bytes();
+	let Some(blank) = tok
+		.segments
+		.iter()
+		.filter(|seg| seg.name.quote == Quote::None)
+		.find_map(|seg| (seg.name.start..seg.name.end).find(|&k| is_wsp_byte(s[k])))
+	else {
+		return wildcard_fault(tok, text);
+	};
+	let mut f = Fault::new(
+		"E014",
+		"malformed line skipped: unexpected character after the path",
+		true,
+	);
+	f.at = (blank..s.len()).find(|&k| !is_wsp_byte(s[k]));
+	Some(f)
+}
+
+/// A wildcard selector on a line that would bind (`E004`). Wrong wherever
+/// the line sits, so it is kept and re-diagnoses the same on a reload.
+fn wildcard_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	tok.segments
+		.iter()
+		.filter_map(|seg| seg.selector.as_ref())
+		.any(|p| matches!(selector_of(p, text), Selector::Wildcard))
+		.then(|| Fault::new("E004", "wildcard selector is query-only", false))
+}
+
+/// The half of line_fault judged after the element cap: the value. A line
+/// past the cap is refused for that whatever its value (`E021`).
+fn value_side_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	if let Some(f) = array_fault(tok) {
+		return Some(f);
+	}
+	if line_fence(tok, text).is_some() {
+		return None;
+	}
+	value_fault(tok, text)
+}
+
+/// A path segment a LAZY level can open: no index or wildcard selector,
+/// which could fail to place it.
+fn opens_as_written(seg: &Segment) -> bool {
+	matches!(seg.selector, None | Some(Selector::ByValue { .. }))
+}
+
+/// True when a reload holds this kept line's level open (LAZY): a field
+/// line refused for its value alone, an array kept for the lines under it,
+/// or a bare name that still reads, with a path that opens.
+fn opens_later(text: &str) -> bool {
+	if !is_field_text(text) {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	let Ok(scan) = path_of(&tok, text) else {
+		return false;
+	};
+	scan.segments.iter().all(opens_as_written)
+		&& line_fault(&tok, text).map_or(tok.array.is_some(), |f| f.opens)
+}
+
+/// A kept line that reads clean, so only where it sat refused it: Some(true)
+/// for a field line (E001), Some(false) for a `- ` item (E008).
+fn kept_for_place(text: &str) -> Option<bool> {
+	let mut tok = Tokens::default();
+	if is_item(text) {
+		tokenize_value(text, 1, Rules::Current, &mut tok);
+		return item_fault(&tok, text).is_none().then_some(false);
+	}
+	if !is_field_text(text) {
+		return None;
+	}
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	// An array line is settle_arrays()'s.
+	(tok.array.is_none() && path_of(&tok, text).is_ok() && line_fault(&tok, text).is_none())
+		.then_some(true)
+}
+
+/// The path of a kept field line that reads clean and has an index in it,
+/// array or not. A reload walks it over the instances written before it.
+fn indexed_path(text: &str) -> Option<Vec<Segment>> {
+	if !is_field_text(text) {
+		return None;
+	}
+	let mut tok = Tokens::default();
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	if line_fault(&tok, text).is_some() {
+		return None;
+	}
+	let scan = path_of(&tok, text).ok()?;
+	scan.segments.iter().any(by_index).then_some(scan.segments)
+}
+
+fn by_index(seg: &Segment) -> bool {
+	matches!(seg.selector, Some(Selector::ByIndex(_)))
+}
+
+/// A stacked list item's line: `-` then a blank or the end. The blank is
+/// what keeps `-x: y` a field line (`E014`) and `- -5` the item `-5`.
+fn is_item(text: &str) -> bool {
+	let b = text.as_bytes();
+	b.first() == Some(&b'-') && b.get(1).is_none_or(|&c| is_wsp_byte(c))
+}
+
+/// A line's text after its indent that is read as a field line: not a
+/// comment, a list item, or an old `*` item (`E013`).
+fn is_field_text(text: &str) -> bool {
+	!text.starts_with(['#', '*']) && !is_item(text)
+}
+
+/// The path the tokens give. Err(reason) is the tokenizer's fault: input
+/// that is not a path at all, which the caller skips with a diagnostic.
+fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
+	if let Some((_, reason)) = tok.fault {
+		return Err(reason.to_string());
+	}
+	let mut segments: Vec<Segment> = Vec::with_capacity(tok.segments.len());
+	for seg in &tok.segments {
+		let raw = &text[seg.name.start..seg.name.end];
+		// Names resolve escapes, the same rule values follow when they are
+		// compared: two spellings of one name are one name. name_src keeps
+		// the source spelling, which is what `authored_name` hands back -
+		// empty when it matches, the same sentinel NodeData uses.
+		//
+		// A name with nothing to resolve and no upper case is already its
+		// own resolved, folded spelling, so the source text becomes the name
+		// and nothing else is allocated. That is nearly every name in a
+		// document, and this runs once per segment per line.
+		// A bare name takes no escapes, so only a quoted one resolves them.
+		let quoted = matches!(seg.name.quote, Quote::Single | Quote::Double);
+		let plain =
+			(!quoted || !raw.contains(ESCAPE_MARK)) && !raw.bytes().any(|b| b.is_ascii_uppercase());
+		let (name, name_src) = if plain {
+			(raw.to_string(), String::new())
+		} else if quoted {
+			(
+				fold_name(&piece_text(&seg.name, text)).into_owned(),
+				raw.to_string(),
+			)
+		} else {
+			(fold_name(raw).into_owned(), raw.to_string())
+		};
+		segments.push(Segment {
+			name,
+			name_src,
+			selector: seg.selector.as_ref().map(|p| selector_of(p, text)),
+			star: seg.star,
+		});
+	}
+	Ok(PathScan {
+		segments,
+		value: tok.sep.map(|_| tok.value),
+	})
+}
+
+/// Why a lookup path with a selector in brackets is refused.
+const BRACKET_LOOKUP: &str = "selector in brackets; write it in parens, name(value)";
+
+/// Scan a lookup path `a . b (sel) . c`: the document-line spelling plus
+/// the bare `*` segment (the name wildcard - any child name), which document
+/// lines never take; only lookups (reads, the writer probe, schema paths)
+/// do. Whitespace around dots, colons and parens is insignificant. A path
+/// a file line could not hold is refused the same: a selector in brackets
+/// (`E029`), a bad escape, or a bare selector body with whitespace, a quote,
+/// a colon, a comma, a bracket, a paren or a leading `#` in it (`E025`).
+fn scan_lookup(input: &str) -> Result<PathScan, String> {
+	let mut tok = Tokens::default();
+	tokenize(input, b':', true, Rules::Current, &mut tok);
+	if tok.bracket_selector.is_some() {
+		return Err(BRACKET_LOOKUP.to_string());
+	}
+	if let Some(f) = path_fault(&tok, input) {
+		return Err(f.msg);
+	}
+	path_of(&tok, input)
 }
 
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
 
-struct Parser {
+struct Parser<'a> {
 	arena: Vec<NodeData>,
 	diags: Vec<Diagnostic>,
 	// (indent string, node) for each open level; [0] is the virtual root.
-	stack: Vec<(String, usize)>,
+	stack: Vec<(&'a str, usize)>,
 	// Per-node hash-of-(name, value-key) -> matching children, parallel to
 	// arena and lazily boxed so leaves never allocate one. Pure lookup
 	// accelerator for select_or_create; children keeps the order. No key
 	// strings are stored - a hit is verified against the arena with merge_eq.
 	// The box is the point: an inline Option<HashMap> costs 48 bytes per node.
 	#[allow(clippy::box_collection)]
-	child_map: Vec<Option<Box<HashMap<u64, Slot>>>>,
-	// Per-node hash-of-(name, display) -> first matching child: the `[value]`
+	child_map: Vec<Option<Box<U64Map<Slot>>>>,
+	// Per-node hash-of-(name, display) -> first matching child: the `(value)`
 	// selector accelerator (its predicate is display(), a different and
 	// non-injective key from child_map's). Same first-wins discipline, same
 	// mutation sites; ownership is by hash, and a query verifies its hit.
 	#[allow(clippy::box_collection)]
-	disp_map: Vec<Option<Box<HashMap<u64, usize>>>>,
+	disp_map: Vec<Option<Box<U64Map<usize>>>>,
 	// Whole-line comments waiting for the next line that binds a node. The
 	// source indent is kept only to decide after-attachment (a comment deeper
 	// than the next binding hangs on the block it sits in).
-	pending: Vec<Pend>,
+	pending: Vec<Pend<'a>>,
+	// (end index, indent length): every pending entry before `end` has a
+	// ceiling at or under that length. Lengths rise along the stack, so a
+	// hang check pops the marks above its own indent and walks only what
+	// they covered. Without it a run of retained bad lines is rewalked per
+	// line and a plain text file parses in quadratic time.
+	pend_marks: Vec<(usize, usize)>,
 	saw_blank: bool, // a blank line waits to become the next bound node's blank_before
 	// An open stacked list defers its merge-key remap (rebuilding the key per
 	// element is O(list^2) time); (node, key hash, display hash) at deferral
 	// start, flushed before any map lookup and at end of parse.
 	star_open: Option<(usize, u64, u64)>,
+	// Parents where a remap ended up on a key a sibling already held: the only
+	// places a duplicate can survive the keyed lookup, so the fold starts here.
+	late_dups: Vec<usize>,
+	// Nodes a fold or a re-mention gave a later line's leading lines to,
+	// for refile_folded().
+	folded: Vec<usize>,
 	// Node -> line of the re-open that H002-hinted it. A merge under a hinted
 	// container combines the same two textual regions, so it hints too even
-	// when it lands on the newest child at its own scope - that is how every
+	// when it ends up on the newest child at its own scope - that is how every
 	// merged level reports, not just the outermost. The stored line splits old
 	// children (hint) from ones the re-opened region itself created (silent).
 	reentered: HashMap<usize, usize>,
-	lost: usize, // dropped lines/values canonical output cannot re-emit
+	lost: usize,      // dropped lines/values canonical output cannot re-emit
+	kept_owed: usize, // lines kept as written, one per Retained outcome
+	// Indent of the last E012 line kept as written, while the lines after it
+	// sit under it; those are E018 and are kept as written too.
+	kept_hold: Option<&'a str>,
+	kept_any: bool,
+	kept_arrays: bool,
+	// The text's lines, and the last array line each node's level was
+	// opened by, for one found to have a field under it after it bound
+	// (E028).
+	src: Vec<&'a str>,
+	array_line: HashMap<usize, ArrayLine>,
+	// parse_limited's caps, 0 = uncapped: nodes counted against the arena
+	// (root excluded), elements against a single value's cell, diagnostics
+	// against the list. Past the diagnostic cap nothing is listed, only
+	// counted (errors, hints), for the one tail entry the parse ends with.
+	max_nodes: usize,
+	max_elements: usize,
+	max_diags: usize,
+	unlisted: (usize, usize),
+	// A raw block's or a stacked list's binding line and the last line it
+	// took, for the save that keeps lines.
+	ends: Vec<(usize, usize)>,
+	// Each line counted in `lost`, kept only for the save that keeps lines,
+	// since a capped parse of a huge bad file would hold one per line.
+	track_dropped: bool,
+	dropped: Vec<usize>,
+	lazies: Vec<Lazy<'a>>,
 }
 
-impl Parser {
-	fn new() -> Parser {
+/// resolve_parent() on a level stack, without moving anything: the parent it
+/// hands back, and how it cuts the stack to get there. The emitter runs it on
+/// its model of the stack a reload will have.
+fn locate_in<S: AsRef<str>>(stack: &[(S, usize)], indent: &str) -> (Option<usize>, Cut) {
+	let mut hold = None;
+	for i in (0..stack.len()).rev() {
+		let (ind, node) = (stack[i].0.as_ref(), stack[i].1);
+		if ind == indent {
+			if node == UNOPENED {
+				// Back at a skipped line's column: refused the same way.
+				return (None, Cut::To(i + 1));
+			}
+			// Sibling of stack[i]: its parent is the entry below it.
+			let parent = if i == 0 { ROOT } else { stack[i - 1].1 };
+			// Keep the sentinel; a top-level line resolves to ROOT.
+			return (
+				Some(if parent == UNOPENED { DEAD } else { parent }),
+				Cut::To(i.max(1)),
+			);
+		}
+		if indent.len() > ind.len() && indent.starts_with(ind) {
+			// A skipped line's unopened level sits on top without opening
+			// anything, so it does not count as a level in between.
+			if stack.get(i + 1).is_some_and(|e| e.1 != UNOPENED) {
+				break;
+			}
+			return (
+				Some(if node == UNOPENED { DEAD } else { node }),
+				Cut::To(i + 1),
+			);
+		}
+		if node == UNOPENED {
+			hold = Some(i);
+		}
+	}
+	// Skipped, but it holds its own column: whatever is written deeper is
+	// skipped with it, and a line back at it is refused the same way
+	// instead of binding one level up. It closes nothing, so a later line
+	// that matches a level open before it still binds there, as in 2.0.0.
+	// The hold ends at the first line neither under it nor at it, this one
+	// included, which keeps one on the stack at most.
+	(None, Cut::Hold(hold))
+}
+
+/// How resolve_parent() cuts the stack: back to a length, or past a skipped
+/// line's column to push this one's.
+#[derive(Clone, Copy)]
+enum Cut {
+	To(usize),
+	Hold(Option<usize>),
+}
+
+/// What became of a line the parser did not bind whole. Only the funnel
+/// (`Parser::refuse`) reads it; the count and the level follow from it.
+enum Outcome<'a> {
+	/// The line binds; a value on it has nowhere to go and is gone.
+	ValueDropped,
+	/// Content-malformed: kept verbatim as trivia and written back in place,
+	/// where it re-diagnoses identically and never reads as a binding.
+	Retained { text: String, blank_before: bool },
+	/// Read but not applicable here; re-emitted it could bind elsewhere, so
+	/// it is gone and counts.
+	Dropped,
+	/// The parse stopped before this line; the rest was never read.
+	Stopped(&'a [&'a str]),
+}
+
+impl<'a> Parser<'a> {
+	fn new() -> Parser<'a> {
 		Parser {
 			arena: vec![NodeData {
 				name: String::new(),
@@ -1254,7 +4480,6 @@ impl Parser {
 				parent: 0,
 				line: 0,
 				star_list: false,
-				star_mixed: false,
 				trivia: None,
 				blank_before: false,
 				src_set: false,
@@ -1262,21 +4487,71 @@ impl Parser {
 				name_src: String::new(),
 			}],
 			diags: Vec::new(),
-			stack: vec![(String::new(), ROOT)],
+			stack: vec![("", ROOT)],
 			child_map: vec![None],
 			disp_map: vec![None],
 			pending: Vec::new(),
+			pend_marks: Vec::new(),
 			saw_blank: false,
 			star_open: None,
+			late_dups: Vec::new(),
+			folded: Vec::new(),
 			reentered: HashMap::new(),
 			lost: 0,
+			kept_owed: 0,
+			kept_hold: None,
+			kept_any: false,
+			kept_arrays: false,
+			src: Vec::new(),
+			array_line: HashMap::new(),
+			max_nodes: 0,
+			max_elements: 0,
+			max_diags: 0,
+			unlisted: (0, 0),
+			ends: Vec::new(),
+			track_dropped: false,
+			dropped: Vec::new(),
+			lazies: Vec::new(),
 		}
 	}
 
-	fn err(&mut self, line: usize, msg: impl Into<String>) {
+	fn limited(max_nodes: usize, max_elements: usize, max_diags: usize) -> Parser<'a> {
+		let mut p = Parser::new();
+		p.max_nodes = max_nodes;
+		p.max_elements = max_elements;
+		p.max_diags = max_diags;
+		p
+	}
+
+	/// Every parse diagnostic goes through here, so the cap sees them all.
+	fn diag(&mut self, d: Diagnostic) {
+		if self.max_diags != 0 && self.diags.len() >= self.max_diags {
+			if d.severity == Severity::Error {
+				self.unlisted.0 += 1;
+			} else {
+				self.unlisted.1 += 1;
+			}
+			return;
+		}
+		self.diags.push(d);
+	}
+
+	/// `H008`, from the scan that found the comment. It changes nothing the
+	/// load reads, so it comes first among its line's diagnostics.
+	fn hint_glued(&mut self, line: usize, tok: &Tokens) {
+		if tok.glued.is_some() {
+			self.diag(Diagnostic {
+				line,
+				severity: Severity::Hint,
+				message: GLUED_HINT.to_string(),
+				code: "H008",
+			});
+		}
+	}
+
+	fn err(&mut self, line: usize, code: &'static str, msg: impl Into<String>) {
 		let message = msg.into();
-		let code = diag_code(&message);
-		self.diags.push(Diagnostic {
+		self.diag(Diagnostic {
 			line,
 			severity: Severity::Error,
 			message,
@@ -1284,34 +4559,165 @@ impl Parser {
 		});
 	}
 
+	/// The one exit for a line the parser does not bind whole. An arm says
+	/// what became of the line and nothing else: the lost count and the
+	/// level the line holds follow from the outcome here, so no arm can
+	/// forget either. design.md's outcome table gives each code its row.
+	fn refuse(
+		&mut self,
+		line: usize,
+		code: &'static str,
+		msg: impl Into<String>,
+		outcome: Outcome,
+		indent: &'a str,
+	) {
+		self.err(line, code, msg);
+		let holds = matches!(outcome, Outcome::Retained { .. } | Outcome::Dropped);
+		self.lost += match &outcome {
+			Outcome::ValueDropped | Outcome::Dropped => 1,
+			Outcome::Retained { .. } => 0,
+			Outcome::Stopped(rest) => rest.iter().filter(|l| !trim_wsp(l).is_empty()).count(),
+		};
+		// Which line that was, for the save that keeps lines. Its parse has
+		// no node cap, so it never stops early.
+		if self.track_dropped && matches!(outcome, Outcome::ValueDropped | Outcome::Dropped) {
+			self.dropped.push(line);
+		}
+		if let Outcome::Retained { text, blank_before } = outcome {
+			// One Retained outcome makes one Pend, and each Pend becomes one
+			// Lead, so right after a load kept_lines() equals this. An arm
+			// that files a retained line nowhere breaks that, and the save
+			// gate then refuses even a plain fmt --write, as it should.
+			self.kept_owed += 1;
+			// A line kept as written never hangs on a block: its indent is not
+			// one the output's levels are written with, so the block it would
+			// match here is not the one it matches on a reload. It waits for
+			// the next binding line, as do the pending lines after it.
+			let ceiling = if text.starts_with([' ', '\t']) {
+				0
+			} else {
+				indent.len()
+			};
+			self.pending.push(Pend {
+				text,
+				indent,
+				blank_before,
+				ceiling,
+				line,
+			});
+		}
+		// A refused line owns its indent, so what is written deeper is skipped
+		// with it (E018). An indent that matched no level already holds an
+		// unopened one, which refuses a sibling the same way; that one stays.
+		if holds && !matches!(self.stack.last(), Some((i, n)) if *i == indent && *n == UNOPENED) {
+			self.stack.push((indent, DEAD));
+		}
+	}
+
+	/// A field binds under an array line, which a field with lines under it
+	/// cannot take (E028). The line is kept as written, written in place of
+	/// the field's own, and the field is open with no value, as a line
+	/// refused for its value alone opens it. When the line joined an earlier
+	/// binding of the same value, that one keeps its value and the field
+	/// opens on its own. Returns the field, which takes the level.
+	fn array_under(&mut self, node: usize) -> usize {
+		let mark = self.array_line.remove(&node);
+		let line = mark.as_ref().map_or(self.arena[node].line, |m| m.line);
+		let Some(src) = line.checked_sub(1).and_then(|k| self.src.get(k).copied()) else {
+			return node;
+		};
+		let text = trim_wsp_end(src).trim_start_matches(is_wsp).to_string();
+		self.err(
+			line,
+			"E028",
+			"an array on a field with lines under it; the field takes one plain value or none",
+		);
+		self.kept_owed += 1;
+		self.kept_arrays = true;
+		if let Some(m) = mark.filter(|m| m.line != self.arena[node].line) {
+			let (name, name_src, up) = (
+				self.arena[node].name.clone(),
+				self.arena[node].authored().to_string(),
+				self.arena[node].parent,
+			);
+			// The lines this one brought to the binding it joined go with it,
+			// and so do its blank and its comment, which its kept text has.
+			let nd = &mut self.arena[node];
+			let blank_before = nd.blank_before && !m.blank;
+			nd.blank_before = m.blank;
+			let t = nd.triv_mut();
+			let mut moved = t.leading.split_off(m.leads.min(t.leading.len()));
+			if !m.trailing {
+				t.trailing.clear();
+			} else {
+				let mut tok = Tokens::default();
+				tokenize(&text, b':', false, Rules::Current, &mut tok);
+				if tok.comment.is_some() {
+					moved.pop();
+				}
+			}
+			let open = self.select_or_create(up, name, name_src, Value::Empty, line);
+			moved.push(Lead {
+				depth: 0,
+				text,
+				blank_before,
+				line,
+				kept: false,
+			});
+			self.arena[open].triv_mut().leading.extend(moved);
+			if let Some(level) = self.stack.iter_mut().rev().find(|l| l.1 == node) {
+				level.1 = open;
+			}
+			return open;
+		}
+		let old_key = merge_hash(&self.arena[node].name, &self.arena[node].value);
+		let old_disp = disp_hash(&self.arena[node].name, &self.arena[node].value);
+		let nd = &mut self.arena[node];
+		nd.value = Value::Empty;
+		nd.src = None;
+		nd.src_set = false;
+		let blank_before = std::mem::take(&mut nd.blank_before);
+		let t = nd.triv_mut();
+		t.trailing.clear();
+		t.leading.push(Lead {
+			depth: 0,
+			text,
+			blank_before,
+			line,
+			kept: false,
+		});
+		self.remap_child(node, old_key, old_disp);
+		node
+	}
+
 	/// Find (or create by merge rule) the child of `parent` with this (name, value).
 	fn select_or_create(
 		&mut self,
 		parent: usize,
-		name: &str,
-		name_src: &str,
+		name: String,
+		name_src: String,
 		value: Value,
 		line: usize,
 	) -> usize {
 		self.star_flush();
-		let h = merge_hash(name, &value);
+		let h = merge_hash(&name, &value);
 		if let Some(slot) = self.child_map[parent].as_deref().and_then(|m| m.get(&h))
 			&& let Some(c) = slot
-				.first_match(|c| merge_eq(&self.arena[c].name, &self.arena[c].value, name, &value))
+				.first_match(|c| merge_eq(&self.arena[c].name, &self.arena[c].value, &name, &value))
 		{
 			return c;
 		}
 		let idx = self.arena.len();
-		let hd = disp_hash(name, &value);
+		let hd = disp_hash(&name, &value);
+		let name_src = spelled(&name, name_src);
 		self.arena.push(NodeData {
-			name: name.to_string(),
-			name_src: spelled(name, name_src),
+			name,
+			name_src,
 			value,
 			children: Vec::new(),
 			parent,
 			line,
 			star_list: false,
-			star_mixed: false,
 			trivia: None,
 			blank_before: false,
 			src_set: false,
@@ -1371,6 +4777,8 @@ impl Parser {
 				.entry(new_key)
 				.and_modify(|s| s.push(node))
 				.or_insert(Slot::One(node));
+		} else {
+			self.late_dups.push(parent);
 		}
 		if let Some(m) = self.disp_map[parent].as_deref_mut()
 			&& m.get(&old_disp) == Some(&node)
@@ -1385,55 +4793,120 @@ impl Parser {
 	}
 
 	/// A value that mutates after its sibling group was keyed - an empty field
-	/// filled by a fence, a stacked list closed - can land on a key an earlier
+	/// filled by a fence, a stacked list closed - can end up on a key an earlier
 	/// sibling already holds, which the keyed lookup can no longer catch. Fold
 	/// those pairs so the tree matches a reparse of its own canonical text.
-	/// Depth-first, since folding can carry duplicates down a level.
+	/// Only the parents remap_child flagged can hold one. Shallowest first,
+	/// since a fold hands the survivor more children and the order they
+	/// arrive in decides whose trailing comment wins; folding keeps depths.
 	fn fold_late_dups(&mut self) {
-		let mut stack = vec![ROOT];
+		let mut parents: Vec<(usize, usize)> = std::mem::take(&mut self.late_dups)
+			.into_iter()
+			.map(|p| {
+				let (mut depth, mut n) = (0, p);
+				while n != ROOT {
+					n = self.arena[n].parent;
+					depth += 1;
+				}
+				(depth, p)
+			})
+			.collect();
+		parents.sort_unstable();
+		parents.dedup();
+		for (_, p) in parents {
+			self.fold_dups_from(p);
+		}
+	}
+
+	/// Depth-first below start, and only into survivors: a fold moves the
+	/// loser's children up to join the survivor's, where they can pair. A fold
+	/// hints the way a merge at parse time does (select_or_create): when the
+	/// two were not next to each other, or sit under a hinted re-open
+	/// (20260923 item 11).
+	fn fold_dups_from(&mut self, start: usize) {
+		let mut stack = vec![start];
 		while let Some(parent) = stack.pop() {
 			let kids = std::mem::take(&mut self.arena[parent].children);
-			let mut first: HashMap<u64, Slot> = HashMap::new();
+			// Keyed to positions in keep, so a survivor's grew flag sits beside it.
+			let mut first: U64Map<Slot> =
+				U64Map::with_capacity_and_hasher(kids.len(), Default::default());
 			let mut keep: Vec<usize> = Vec::with_capacity(kids.len());
+			let mut grew: Vec<bool> = Vec::with_capacity(kids.len());
 			for c in kids {
 				let h = merge_hash(&self.arena[c].name, &self.arena[c].value);
-				let survivor = first.get(&h).and_then(|s| {
+				let hit = first.get(&h).and_then(|s| {
 					s.first_match(|x| {
 						merge_eq(
-							&self.arena[x].name,
-							&self.arena[x].value,
+							&self.arena[keep[x]].name,
+							&self.arena[keep[x]].value,
 							&self.arena[c].name,
 							&self.arena[c].value,
 						)
 					})
 				});
-				match survivor {
-					Some(s) => fold_node_into(&mut self.arena, s, c),
+				match hit {
+					Some(i) => {
+						// Apart when a sibling kept since stands between them,
+						// as a merge at parse time asks of the newest child.
+						self.hint_fold(parent, keep[i], c, i + 1 != keep.len());
+						fold_node_into(&mut self.arena, keep[i], c);
+						self.folded.push(keep[i]);
+						grew[i] = true;
+					}
 					None => {
 						first
 							.entry(h)
-							.and_modify(|s| s.push(c))
-							.or_insert(Slot::One(c));
+							.and_modify(|s| s.push(keep.len()))
+							.or_insert(Slot::One(keep.len()));
 						keep.push(c);
+						grew.push(false);
 					}
 				}
 			}
-			stack.extend(keep.iter().copied());
+			for (i, &g) in grew.iter().enumerate() {
+				if g {
+					stack.push(keep[i]);
+				}
+			}
 			self.arena[parent].children = keep;
+		}
+	}
+
+	fn hint_fold(&mut self, parent: usize, kept: usize, gone: usize, apart: bool) {
+		let (at, line) = (self.arena[kept].line, self.arena[gone].line);
+		let cross_region = self.reentered.get(&parent).is_some_and(|&rl| at < rl);
+		if at != line && (apart || cross_region) {
+			let message = format!(
+				"{}line {} (same name and value combine)",
+				h002_head(&self.arena[kept].name),
+				at
+			);
+			self.diag(Diagnostic {
+				line,
+				severity: Severity::Hint,
+				message,
+				code: "H002",
+			});
+			self.reentered.insert(kept, line);
 		}
 	}
 
 	/// Hand pending leading comments (and this line's trailing one) to a node.
 	/// First trailing wins; a later one demotes to leading so nothing is lost.
-	fn attach_trivia(&mut self, node: usize, trailing: Option<&str>) {
+	fn attach_trivia(&mut self, node: usize, indent: &str, trailing: Option<&str>) {
 		if !self.pending.is_empty() {
 			let t = self.arena[node].triv_mut();
+			let (mut chain, mut held) = (Vec::new(), Vec::new());
 			for p in self.pending.drain(..) {
 				t.leading.push(Lead {
+					depth: comment_depth(&mut chain, &mut held, indent, &p.text, p.indent),
 					text: p.text,
 					blank_before: p.blank_before,
+					line: p.line,
+					kept: false,
 				});
 			}
+			self.pend_marks.clear();
 		}
 		if let Some(tr) = trailing {
 			let t = self.arena[node].triv_mut();
@@ -1457,80 +4930,554 @@ impl Parser {
 		if self.pending.is_empty() {
 			return;
 		}
-		let taken = std::mem::take(&mut self.pending);
-		for p in taken {
-			if p.indent.len() > new_indent.len() {
+		let new_len = new_indent.len();
+		// Only entries above the last mark at or under this indent can hang.
+		while self.pend_marks.last().is_some_and(|m| m.1 > new_len) {
+			self.pend_marks.pop();
+		}
+		let start = self.pend_marks.last().map_or(0, |m| m.0);
+		// Filtered in place: a kept entry is swapped back to the write mark,
+		// which never passes the one being read.
+		let mut pending = std::mem::take(&mut self.pending);
+		let mut w = start;
+		// A comment never goes ahead of the one written before it. Once one
+		// stays for the incoming line every later one stays too, and one
+		// whose block would be written out before the last one's goes there
+		// with it instead. What sits before `start` stays, so no comment
+		// after it can hang. A kept field line is the exception below.
+		let mut kept = start > 0;
+		// Where the last comment went: (stack index, node, at its own level).
+		let mut last: Option<(usize, usize, bool)> = None;
+		let mut chain: Vec<(&str, usize)> = Vec::new();
+		let mut held: Vec<(&str, usize)> = Vec::new();
+		let mut last_field: Option<(usize, usize, bool)> = None;
+		for r in start..pending.len() {
+			let p = &mut pending[r];
+			// A kept field line goes to the block it sits in whatever stays
+			// before it, since that block is its parent on a reload. Comments
+			// give way to it.
+			let field = is_field(&p.text);
+			if (!kept || field) && p.ceiling > new_len {
 				// A level shallower than the incoming line stays open and may
 				// still gain children, so a comment must not hang there - it
 				// would emit below the child; keep it pending instead.
 				let target = self
 					.stack
 					.iter()
+					.enumerate()
 					.rev()
-					.find(|(ind, node)| {
+					.find(|(_, (ind, node))| {
 						*node != ROOT
-							&& ind.len() >= new_indent.len()
-							&& p.indent.starts_with(ind.as_str())
+							&& *node != DEAD && *node != UNOPENED
+							&& *node != LAZY && ind.len() >= new_indent.len()
+							&& p.indent.starts_with(*ind)
 					})
-					.map(|(ind, n)| (*n, ind.len() == p.indent.len()));
-				if let Some((n, at_own_level)) = target {
-					let lead = Lead {
-						text: p.text,
+					// A list element's column is an entry with the list's node on
+					// the list's own entry. It is inside the list, not its level.
+					.map(|(si, (ind, n))| {
+						let column = si > 0 && self.stack[si - 1].1 == *n;
+						(si, *n, ind.len() == p.indent.len() && !column)
+					});
+				// A root node's trailing comment emits at column zero, which
+				// is exactly how the document's own trailing comment is
+				// written, so keeping the two apart here made a merge depend on
+				// whether the layer had been formatted first. Let it orphan,
+				// the way a reload of this document's own output reads it. A
+				// comment deeper than the node keeps an indent of its own and
+				// comes back where it was, so it still hangs.
+				let expressible =
+					target.is_some_and(|(_, n, own)| !own || self.arena[n].parent != ROOT);
+				if let (Some(mut at), true) = (target, expressible) {
+					// A deeper block is written out first, and a block's
+					// inside comments before its after ones.
+					if let Some(prev) = last
+						&& !field && (at.0, !at.2) > (prev.0, !prev.2)
+					{
+						at = prev;
+					}
+					if last != Some(at) {
+						chain.clear();
+					}
+					last = Some(at);
+					// A kept line's parent goes to the same block it does,
+					// whatever block the comments between them went to.
+					if field && last_field != Some(at) {
+						held.clear();
+						last_field = Some(at);
+					}
+					let base = self.stack[at.0].0;
+					let mut leads = Vec::new();
+					// The comments that stayed right above it go along, so the
+					// two keep their order and a save can keep both lines.
+					if field {
+						let mut from = w;
+						while from > start && pending[from - 1].text.starts_with('#') {
+							from -= 1;
+						}
+						for c in &mut pending[from..w] {
+							leads.push(Lead {
+								depth: comment_depth(
+									&mut chain, &mut held, base, &c.text, c.indent,
+								),
+								text: std::mem::take(&mut c.text),
+								blank_before: c.blank_before,
+								line: c.line,
+								kept: false,
+							});
+						}
+						w = from;
+						kept = w > 0;
+					}
+					let p = &mut pending[r];
+					leads.push(Lead {
+						depth: comment_depth(&mut chain, &mut held, base, &p.text, p.indent),
+						text: std::mem::take(&mut p.text),
 						blank_before: p.blank_before,
-					};
-					if at_own_level {
-						self.arena[n].triv_mut().after.push(lead);
+						line: p.line,
+						kept: false,
+					});
+					let t = self.arena[at.1].triv_mut();
+					if at.2 {
+						t.after.extend(leads);
 					} else {
-						self.arena[n].triv_mut().inside.push(lead);
+						t.inside.extend(leads);
 					}
 					continue;
 				}
 			}
-			self.pending.push(p);
+			kept = true;
+			p.ceiling = p.ceiling.min(new_len);
+			pending.swap(w, r);
+			w += 1;
+		}
+		pending.truncate(w);
+		self.pending = pending;
+		match self.pend_marks.last_mut() {
+			Some(m) if m.1 == new_len => m.0 = self.pending.len(),
+			_ => self.pend_marks.push((self.pending.len(), new_len)),
 		}
 	}
 
-	/// Resolve which open level this indent belongs to. Child only when the
-	/// current top's indent is a proper prefix; otherwise the indent must equal
-	/// an open level exactly (dedent), else it is a recoverable error.
-	fn resolve_parent(&mut self, indent: &str) -> Option<usize> {
-		let (top_indent, top_node) = match self.stack.last() {
-			Some(t) => t.clone(),
-			None => return None, // sentinel invariant; degrade, never abort
-		};
-		if indent.len() > top_indent.len() && indent.starts_with(&top_indent) {
-			return Some(top_node);
-		}
-		for i in (0..self.stack.len()).rev() {
-			if self.stack[i].0 == indent {
-				// Sibling of stack[i]: its parent is the entry below it.
-				let parent = if i == 0 { ROOT } else { self.stack[i - 1].1 };
-				self.stack.truncate(i.max(1));
-				// Keep the sentinel; a top-level line resolves to ROOT.
-				if i == 0 {
-					self.stack.truncate(1);
+	/// Resolve which open level this indent belongs to, walking down from the
+	/// top. Equal to a level is its sibling. Deeper than a level is its child,
+	/// unless a level opened under that one is still open, in which case the
+	/// line falls between the two. Anything else is a recoverable error.
+	/// `found` is locate() on the same indent, which the line loop has
+	/// already asked.
+	fn resolve_parent(&mut self, indent: &'a str, found: (Option<usize>, Cut)) -> Option<usize> {
+		let (parent, cut) = found;
+		match cut {
+			Cut::To(n) => self.stack.truncate(n),
+			Cut::Hold(h) => {
+				if let Some(h) = h {
+					self.stack.truncate(h);
 				}
-				return Some(parent);
+				self.stack.push((indent, UNOPENED));
 			}
+		}
+		parent
+	}
+
+	/// resolve_parent() without moving anything.
+	fn locate(&self, indent: &str) -> (Option<usize>, Cut) {
+		locate_in(&self.stack, indent)
+	}
+
+	/// A line refused for where it sits rather than for what it says: `E012`,
+	/// or `E018` under one. Written back exactly as it was, it sits the same
+	/// way on a reload, as long as its indent holds a space, since no level
+	/// the emitter opens is written with one. A tab-only indent would bind
+	/// there, and a line opening a raw block would take its body along, so
+	/// those are dropped. An `E018` line is kept only under a kept `E012` one.
+	fn misplaced(
+		&mut self,
+		line: usize,
+		code: &'static str,
+		indent: &'a str,
+		rest: &str,
+		had_blank: bool,
+		raw: bool,
+	) {
+		let keep = !raw
+			&& if code == "E012" {
+				indent.contains(' ')
+			} else {
+				self.kept_hold
+					.is_some_and(|h| indent.len() > h.len() && indent.starts_with(h))
+			};
+		self.kept_any |= keep;
+		let msg = if code == "E012" {
+			self.kept_hold = keep.then_some(indent);
+			"indentation matches no open level"
+		} else {
+			"parent line was skipped; line skipped"
+		};
+		let outcome = if keep {
+			Outcome::Retained {
+				text: format!("{}{}", indent, trim_wsp_end(rest)),
+				blank_before: had_blank,
+			}
+		} else {
+			Outcome::Dropped
+		};
+		self.refuse(line, code, msg, outcome, indent);
+	}
+
+	/// Diagnose a line written under a skipped line, and skip it too. Its own
+	/// level stays dead so deeper lines go the same way.
+	fn skip_under_dead(&mut self, line: usize, indent: &'a str) {
+		self.refuse(
+			line,
+			"E018",
+			"parent line was skipped; line skipped",
+			Outcome::Dropped,
+			indent,
+		);
+	}
+
+	/// A field line refused for its value alone holds its level open for
+	/// what is written under it. Called right after the refusal pushed the
+	/// line's level. A path that could not open, or would open past the
+	/// nesting cap, leaves the level dead.
+	fn hold_open(&mut self, parent: usize, segs: Vec<Segment>, line: usize, indent: &'a str) {
+		let at = self.stack.len() - 1;
+		if self.stack[at] != (indent, DEAD) || !segs.iter().all(opens_as_written) {
+			return;
+		}
+		self.lazies.retain(|l| l.at < at);
+		let mut depth = 0;
+		if parent == LAZY {
+			depth = self.lazies.last().map_or(0, |l| l.depth);
+		} else {
+			let mut up = parent;
+			while up != ROOT {
+				depth += 1;
+				up = self.arena[up].parent;
+			}
+		}
+		if depth + segs.len() > MAX_DEPTH {
+			return;
+		}
+		self.stack[at].1 = LAZY;
+		self.lazies.push(Lazy {
+			at,
+			depth: depth + segs.len(),
+			segs,
+			line,
+			indent,
+			pend: self.pending.len(),
+		});
+	}
+
+	/// The node a line binds under: a LAZY level, and any LAZY one it sits
+	/// under, opens here as an empty field, the way its line would have
+	/// bound with nothing after the colon. Its own line and the comments
+	/// before it go with it.
+	fn open_lazy(&mut self, parent: usize) -> usize {
+		if parent != LAZY {
+			return parent;
+		}
+		let top = self.stack.len() - 1;
+		let mut from = top;
+		while from > 1 && self.stack[from - 1].1 == LAZY {
+			from -= 1;
+		}
+		let mut node = self.stack[from - 1].1;
+		for at in from..=top {
+			let Some(k) = self.lazies.iter().rposition(|l| l.at == at) else {
+				break;
+			};
+			let l = self.lazies.remove(k);
+			let nsegs = l.segs.len();
+			// hold_open() let through only a path that opens.
+			if let Some(n) = self.attach_path(node, l.segs, Value::Empty, l.line, l.indent) {
+				node = n;
+			}
+			self.stack[at].1 = node;
+			let count = l.pend.min(self.pending.len());
+			self.give_pending(self.head_of(node, nsegs), l.indent, count, false);
+		}
+		node
+	}
+
+	/// True when a line binding at `parent` would put a field under stacked
+	/// items: the parent is a list, or a LAZY level held open under one.
+	fn under_items(&self, parent: usize) -> bool {
+		let mut node = parent;
+		if parent == LAZY {
+			let mut from = self.stack.len() - 1;
+			while from > 1 && self.stack[from - 1].1 == LAZY {
+				from -= 1;
+			}
+			node = self.stack[from - 1].1;
+		}
+		self.arena.get(node).is_some_and(|nd| nd.star_list)
+	}
+
+	/// True when a dotted path reaches stacked items through an index before
+	/// its last segment, as `srv(0).tls: on` does after `srv:` and `- a`. Its
+	/// field would go under the list, as the line under `srv(0):` would. Only
+	/// an index selects a list, and it never creates, so a step that finds
+	/// nothing ends the walk.
+	fn through_items(&self, parent: usize, segs: &[Segment]) -> bool {
+		let Some((_, steps)) = segs.split_last() else {
+			return false;
+		};
+		if !steps
+			.iter()
+			.any(|s| matches!(s.selector, Some(Selector::ByIndex(_))))
+		{
+			return false;
+		}
+		let Some(mut node) = self.held_node(parent) else {
+			return false;
+		};
+		for seg in steps {
+			match self.found_step(node, seg) {
+				Some(c) if self.arena[c].star_list => return true,
+				Some(c) => node = c,
+				None => return false,
+			}
+		}
+		false
+	}
+
+	/// The node a line binds under, found without opening it: a LAZY level,
+	/// and any LAZY one it sits under, as open_lazy() would open them. None
+	/// when that would create one.
+	fn held_node(&self, parent: usize) -> Option<usize> {
+		if parent != LAZY {
+			return Some(parent);
+		}
+		let top = self.stack.len() - 1;
+		let mut from = top;
+		while from > 1 && self.stack[from - 1].1 == LAZY {
+			from -= 1;
+		}
+		let mut node = self.stack[from - 1].1;
+		for l in self.lazies.iter().filter(|l| l.at >= from) {
+			for seg in &l.segs {
+				node = self.found_step(node, seg)?;
+			}
+		}
+		Some(node)
+	}
+
+	/// The index segment of a line's path that selects no instance among
+	/// those bound before it (E003), walked as attach_path() will walk it,
+	/// creating nothing. A step that would create a field leaves every
+	/// index after it nothing to select. Judged before anything opens, so a
+	/// kept line opens none of its path's fields.
+	fn index_miss<'s>(&self, parent: usize, segs: &'s [Segment]) -> Option<(u64, &'s str)> {
+		if !segs.iter().any(by_index) {
+			return None;
+		}
+		let mut node = self.held_node(parent).and_then(|n| self.array_opens(n));
+		for (i, seg) in segs.iter().enumerate() {
+			let found = node.and_then(|n| self.found_step(n, seg));
+			let Some(Selector::ByIndex(k)) = seg.selector else {
+				node = found;
+				continue;
+			};
+			let Some(n) = found else {
+				return Some((k, &seg.name));
+			};
+			node = if i + 1 < segs.len() {
+				self.array_opens(n)
+			} else {
+				Some(n)
+			};
 		}
 		None
 	}
 
+	/// The node array_under() leaves a field under `node` to bind in, found
+	/// without moving anything. None when it would create one.
+	fn array_opens(&self, node: usize) -> Option<usize> {
+		let nd = &self.arena[node];
+		if node == ROOT || nd.star_list || !matches!(nd.value, Value::Array(_)) {
+			return Some(node);
+		}
+		match self.array_line.get(&node) {
+			Some(m)
+				if m.line != nd.line
+					&& m.line.checked_sub(1).is_some_and(|k| k < self.src.len()) =>
+			{
+				self.empty_child(nd.parent, &nd.name)
+			}
+			_ => Some(node),
+		}
+	}
+
+	/// The child one path step selects under `cur` without creating it.
+	fn found_step(&self, cur: usize, seg: &Segment) -> Option<usize> {
+		if cur >= self.arena.len() {
+			return None;
+		}
+		match &seg.selector {
+			None => self.empty_child(cur, &seg.name),
+			Some(Selector::ByValue { text, .. }) => self.find_by_value(cur, &seg.name, text),
+			Some(Selector::ByIndex(n)) => index_usize(*n).and_then(|i| {
+				self.arena[cur]
+					.children
+					.iter()
+					.copied()
+					.filter(|&c| self.arena[c].name == seg.name)
+					.nth(i)
+			}),
+			Some(Selector::Wildcard) => None,
+		}
+	}
+
+	/// The child named `name` with no value that select_or_create() would
+	/// select for a path step, without creating it.
+	fn empty_child(&self, cur: usize, name: &str) -> Option<usize> {
+		self.child_map[cur]
+			.as_deref()
+			.and_then(|m| m.get(&merge_hash(name, &Value::Empty)))
+			.and_then(|slot| {
+				slot.first_match(|c| {
+					merge_eq(
+						&self.arena[c].name,
+						&self.arena[c].value,
+						name,
+						&Value::Empty,
+					)
+				})
+			})
+	}
+
+	/// The node a path's first segment bound, from the one its last did.
+	fn head_of(&self, node: usize, nsegs: usize) -> usize {
+		let mut head = node;
+		for _ in 1..nsegs {
+			head = self.arena[head].parent;
+		}
+		head
+	}
+
+	/// The first `count` pending lines become the node's leading lines, or
+	/// the lines inside its block, after its children.
+	fn give_pending(&mut self, node: usize, indent: &str, count: usize, inside: bool) {
+		if count == 0 {
+			return;
+		}
+		let t = self.arena[node].triv_mut();
+		let list = if inside {
+			&mut t.inside
+		} else {
+			&mut t.leading
+		};
+		let (mut chain, mut held) = (Vec::new(), Vec::new());
+		for p in self.pending.drain(..count) {
+			list.push(Lead {
+				depth: comment_depth(&mut chain, &mut held, indent, &p.text, p.indent),
+				text: p.text,
+				blank_before: p.blank_before,
+				line: p.line,
+				kept: false,
+			});
+		}
+		for m in &mut self.pend_marks {
+			m.0 = m.0.saturating_sub(count);
+		}
+		for o in &mut self.lazies {
+			o.pend = o.pend.saturating_sub(count);
+		}
+	}
+
+	/// Where the parse resumes after a refused field line. Every arm that
+	/// skips one comes through here, so a skipped line whose value opens a
+	/// raw block takes the body with it: read as lines, the body would bind
+	/// or be refused line by line, and its closing fence would open a block
+	/// that runs to the end of the file. A line whose path did not parse
+	/// takes it too, when a fence follows its colon (`line_fence`).
+	fn skip_field_line(
+		&mut self,
+		lines: &[&str],
+		i: usize,
+		indent: &str,
+		tok: &Tokens,
+		rest: &str,
+	) -> usize {
+		match line_fence(tok, rest) {
+			Some(fence) => self.consume_raw(lines, i + 1, i + 1, indent, fence).1,
+			None => i + 1,
+		}
+	}
+
+	/// skip_field_line() for a line the refusal just kept: the body is kept
+	/// too, on the end of the line's text, so a save writes it back under its
+	/// line and the load still holds one kept line for it. As in a field's
+	/// block, the closing fence's indent comes off each body line, and the
+	/// body goes one level under the line when it is written. A block that
+	/// never closed gets its closing fence, or whatever a save writes after it
+	/// would read as its body.
+	fn keep_body(
+		&mut self,
+		lines: &[&str],
+		i: usize,
+		indent: &str,
+		tok: &Tokens,
+		rest: &str,
+	) -> usize {
+		let Some(fence) = line_fence(tok, rest) else {
+			return i + 1;
+		};
+		let (ch, len) = (fence.0, fence.1);
+		let next = self.consume_raw(lines, i + 1, i + 1, indent, fence).1;
+		let closed = next > i + 1 && is_fence_close(lines[next - 1], ch, len);
+		let (body, nest, close) = if closed {
+			let fence_line = lines[next - 1];
+			(
+				&lines[i + 1..next - 1],
+				leading_ws(fence_line),
+				fence_line.trim_matches([' ', '\t']).to_string(),
+			)
+		} else {
+			(
+				&lines[i + 1..next],
+				indent,
+				std::iter::repeat_n(char::from(ch), len).collect(),
+			)
+		};
+		let Some(p) = self.pending.last_mut() else {
+			return next;
+		};
+		for l in body {
+			p.text.push('\n');
+			p.text.push_str(strip_common(l, nest));
+		}
+		p.text.push('\n');
+		p.text.push_str(&close);
+		if next > i + 1 {
+			self.ends.push((i + 1, next));
+		}
+		next
+	}
+
 	/// Walk path segments under `parent`, select-or-creating; returns the node
-	/// for the last segment carrying `value`. None aborts the line (diagnosed).
+	/// for the last segment with `value`. None aborts the line (diagnosed).
 	fn attach_path(
 		&mut self,
 		parent: usize,
-		segs: &[Segment],
+		segs: Vec<Segment>,
 		value: Value,
 		line: usize,
+		indent: &'a str,
 	) -> Option<usize> {
+		// Owned here and handed to the last segment once; Option so the loop
+		// can move it out without a clone.
+		let mut value = Some(value);
 		self.star_flush();
-		// Field child under a stacked list: diagnose the mix once, keep the field.
-		if self.arena[parent].star_list && !self.arena[parent].star_mixed {
-			self.arena[parent].star_mixed = true;
-			self.err(line, "field mixed with list elements");
-		}
+		let parent = if parent != ROOT
+			&& !self.arena[parent].star_list
+			&& matches!(self.arena[parent].value, Value::Array(_))
+		{
+			self.array_under(parent)
+		} else {
+			parent
+		};
 		// Nesting cap: parent depth plus the segments this line adds. Checked
 		// before any node is created so a rejected line leaves nothing behind.
 		let mut parent_depth = 0usize;
@@ -1540,93 +5487,118 @@ impl Parser {
 			up = self.arena[up].parent;
 		}
 		if parent_depth + segs.len() > MAX_DEPTH {
-			self.err(
+			self.refuse(
 				line,
+				"E016",
 				format!("nesting deeper than {} levels; line skipped", MAX_DEPTH),
+				Outcome::Dropped,
+				indent,
 			);
-			self.lost += 1;
 			return None;
 		}
 		let mut cur = parent;
-		for (i, seg) in segs.iter().enumerate() {
-			let is_last = i + 1 == segs.len();
-			match (&seg.selector, is_last) {
-				(Some(Selector::ByValue { text, quoted }), _) => {
+		let nsegs = segs.len();
+		for (i, seg) in segs.into_iter().enumerate() {
+			let is_last = i + 1 == nsegs;
+			match (seg.selector, is_last) {
+				(Some(Selector::ByValue { text, .. }), _) => {
 					// Same escape-applied display predicate resolve_from uses, so
 					// a selector also selects an array-valued instance instead of
 					// creating a spurious second one - via the disp_map accelerator
 					// (the inline spelling was quadratic in siblings without it).
-					// Create only when nothing matches. A quoted selector is
-					// scalar-only, and the accelerator keeps just the first
-					// same-display child - a later remap can drop an entry a
-					// different sibling still satisfies - so a non-scalar hit and
-					// an outright miss both fall to the (rare) fallback scan.
-					let want = apply_escapes(text);
-					let found = self.disp_map[cur]
-						.as_deref()
-						.and_then(|m| m.get(&disp_hash_text(&seg.name, &want)))
-						.copied()
-						.filter(|&c| {
-							self.arena[c].name == seg.name && disp_key(&self.arena[c].value) == want
-						})
-						.filter(|&c| !*quoted || single_scalar(&self.arena[c].value))
-						.or_else(|| {
-							if !*quoted {
-								return None;
-							}
-							self.arena[cur].children.iter().copied().find(|&c| {
-								self.arena[c].name == seg.name
-									&& single_scalar(&self.arena[c].value)
-									&& disp_key(&self.arena[c].value) == want
-							})
-						});
+					// Create only when nothing matches.
+					// A quoted selector is scalar-only, so it is the one that needs the
+					// fallback scan: the accelerator keeps just the first same-display
+					// child, which may be the non-scalar one. An unquoted selector takes
+					// whatever the accelerator holds and does not scan, so it can bind a
+					// raw block where a quoted selector picks the scalar sibling.
+					let found = self.find_by_value(cur, &seg.name, &text);
 					cur = match found {
 						Some(c) => c,
 						None => {
-							let disc = Value::Cell(vec![Element {
-								text: text.clone(),
-								quoted: false,
-							}]);
-							self.select_or_create(cur, &seg.name, &seg.name_src, disc, line)
+							let disc = Value::Cell(new_scalar(text));
+							self.select_or_create(
+								cur,
+								seg.name.clone(),
+								seg.name_src.clone(),
+								disc,
+								line,
+							)
 						}
 					};
-					if is_last && !value.is_empty() {
-						// `a.b[X]: v` - the discriminator is the value; a second
+					if is_last && value.as_ref().is_some_and(|v| !v.is_empty()) {
+						// `a.b(X): v` - the discriminator is the value; a second
 						// value has nowhere unambiguous to go.
-						self.err(
+						self.refuse(
 							line,
-							format!("value after selector on '{}' ignored", seg.name),
+							"E002",
+							format!("value after selector on '{}' ignored", diag_name(&seg.name)),
+							Outcome::ValueDropped,
+							indent,
 						);
-						self.lost += 1;
 					}
 				}
 				(Some(Selector::ByIndex(n)), _) => {
-					let matches: Vec<usize> = self.arena[cur]
-						.children
-						.iter()
-						.copied()
-						.filter(|&c| self.arena[c].name == seg.name)
-						.collect();
-					if let Some(&found) = index_usize(*n).and_then(|i| matches.get(i)) {
+					let found = index_usize(n).and_then(|i| {
+						self.arena[cur]
+							.children
+							.iter()
+							.copied()
+							.filter(|&c| self.arena[c].name == seg.name)
+							.nth(i)
+					});
+					if let Some(found) = found {
 						cur = found;
+						// A field through an index onto an array line goes as
+						// one on the line under `srv(0):` does (E028).
+						if !is_last
+							&& !self.arena[cur].star_list
+							&& matches!(self.arena[cur].value, Value::Array(_))
+						{
+							cur = self.array_under(cur);
+						}
 					} else {
-						self.err(line, format!("no instance {} of '{}'", n, seg.name));
-						self.lost += 1;
+						// index_miss() keeps a parsed line with one first (E003).
+						self.refuse(
+							line,
+							"E003",
+							format!("no instance {} of '{}'", n, diag_name(&seg.name)),
+							Outcome::Dropped,
+							indent,
+						);
 						return None;
 					}
+					if is_last && value.as_ref().is_some_and(|v| !v.is_empty()) {
+						// Same as the value selector: the instance is already
+						// chosen, so a trailing value has nowhere to bind.
+						self.refuse(
+							line,
+							"E002",
+							format!("value after selector on '{}' ignored", diag_name(&seg.name)),
+							Outcome::ValueDropped,
+							indent,
+						);
+					}
 				}
+				// name_fault() keeps a parsed line with one first (E004).
 				(Some(Selector::Wildcard), _) => {
-					self.err(line, "wildcard selector is query-only");
-					self.lost += 1;
+					self.refuse(
+						line,
+						"E004",
+						"wildcard selector is query-only",
+						Outcome::Dropped,
+						indent,
+					);
 					return None;
 				}
 				(None, false) => {
-					cur = self.select_or_create(cur, &seg.name, &seg.name_src, Value::Empty, line);
+					cur = self.select_or_create(cur, seg.name, seg.name_src, Value::Empty, line);
 				}
 				(None, true) => {
 					let parent = cur;
 					let before = self.arena.len();
-					cur = self.select_or_create(cur, &seg.name, &seg.name_src, value.clone(), line);
+					let v = value.take().unwrap_or(Value::Empty);
+					cur = self.select_or_create(cur, seg.name, seg.name_src, v, line);
 					// Two separately-written bindings just combined: legal (the
 					// merge rule), but only the parser can see it happened, so
 					// say so. Adjacent re-mentions (still the newest binding at
@@ -1643,15 +5615,15 @@ impl Parser {
 							.is_some_and(|&rl| self.arena[cur].line < rl);
 						if non_last || cross_region {
 							let at = self.arena[cur].line;
-							let name = seg.name.clone();
-							self.diags.push(Diagnostic {
+							let message = format!(
+								"{}line {} (same name and value combine)",
+								h002_head(&self.arena[cur].name),
+								at
+							);
+							self.diag(Diagnostic {
 								line,
 								severity: Severity::Hint,
-								message: format!(
-									"{}line {} (same name and value combine)",
-									h002_head(&name),
-									at
-								),
+								message,
 								code: "H002",
 							});
 							self.reentered.insert(cur, line);
@@ -1663,21 +5635,55 @@ impl Parser {
 		Some(cur)
 	}
 
+	/// The child of `cur` named `name` whose one plain value is the selector
+	/// text (escapes applied), or None.
+	fn find_by_value(&self, cur: usize, name: &str, text: &str) -> Option<usize> {
+		let want = text;
+		self.disp_map[cur]
+			.as_deref()
+			.and_then(|m| m.get(&disp_hash_text(name, want)))
+			.copied()
+			.filter(|&c| self.arena[c].name == name && disp_key(&self.arena[c].value) == want)
+			.filter(|&c| single_scalar(&self.arena[c].value))
+			.or_else(|| {
+				// The display map keeps only the first same-display child, which
+				// may be a raw block where the selector wants the scalar. A
+				// scalar child with this text is exactly the one-element value
+				// the merge map is keyed on, so ask that map: a scan of every
+				// sibling was the same answer, quadratic on the create path.
+				let disc = Value::Cell(new_scalar(want.to_string()));
+				self.child_map[cur]
+					.as_deref()
+					.and_then(|m| m.get(&merge_hash(name, &disc)))
+					.and_then(|slot| {
+						slot.first_match(|c| {
+							merge_eq(&self.arena[c].name, &self.arena[c].value, name, &disc)
+						})
+					})
+			})
+	}
+
 	/// Consume raw-block content after an opening fence. Returns (value, next line
-	/// index). Content keeps relative indentation; the common leading run is stripped.
+	/// index). The closing fence's indent is stripped from each content line
+	/// (the opening line's when the block never closes); the rest is content.
 	fn consume_raw(
 		&mut self,
 		lines: &[&str],
 		mut i: usize,
 		open_line: usize,
-		ch: u8,
-		len: usize,
-		info: String,
+		open_indent: &str,
+		fence: (u8, usize, String),
 	) -> (Value, usize) {
+		let (ch, len, info) = fence;
 		let mut content: Vec<&str> = Vec::new();
+		let mut nest = open_indent;
 		let mut closed = false;
 		while i < lines.len() {
 			if is_fence_close(lines[i], ch, len) {
+				// The closing fence's indent is the nesting; everything a content
+				// line has past it is content, so a body whose lines all
+				// share an indent keeps it (a writer-built block depends on that).
+				nest = leading_ws(lines[i]);
 				closed = true;
 				i += 1;
 				break;
@@ -1686,29 +5692,9 @@ impl Parser {
 			i += 1;
 		}
 		if !closed {
-			self.err(open_line, "unterminated raw block");
+			self.err(open_line, "E005", "unterminated raw block");
 		}
-		// Strip the common leading whitespace (the visual nesting); keep the rest.
-		let mut common: Option<String> = None;
-		for l in content.iter().filter(|l| !l.trim().is_empty()) {
-			let lead: String = l.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
-			common = Some(match common {
-				None => lead,
-				Some(prev) => {
-					let mut p = String::new();
-					for (a, b) in prev.chars().zip(lead.chars()) {
-						if a == b {
-							p.push(a);
-						} else {
-							break;
-						}
-					}
-					p
-				}
-			});
-		}
-		let common = common.unwrap_or_default();
-		let stripped: Vec<&str> = content.iter().map(|l| strip_common(l, &common)).collect();
+		let stripped: Vec<&str> = content.iter().map(|l| strip_common(l, nest)).collect();
 		(
 			Value::Raw(Box::new(RawVal {
 				content: stripped.join("\n"),
@@ -1722,11 +5708,22 @@ impl Parser {
 
 	/// A bare fence line is a value line for its parent field: fills an empty
 	/// value, else creates a new instance of that field (the repeated-leaf rule).
-	/// Returns the node the block landed on (None = no parent, diagnosed).
-	fn bind_block(&mut self, parent: usize, value: Value, line: usize) -> Option<usize> {
+	/// Returns the node the block ended up on (None = no parent, diagnosed).
+	fn bind_block(
+		&mut self,
+		parent: usize,
+		value: Value,
+		line: usize,
+		indent: &'a str,
+	) -> Option<usize> {
 		if parent == ROOT {
-			self.err(line, "raw block with no parent field");
-			self.lost += 1;
+			self.refuse(
+				line,
+				"E006",
+				"raw block with no parent field",
+				Outcome::Dropped,
+				indent,
+			);
 			return None;
 		}
 		if self.arena[parent].value.is_empty() {
@@ -1736,55 +5733,67 @@ impl Parser {
 			self.remap_child(parent, old_key, old_disp);
 			Some(parent)
 		} else {
+			// Copied out: select_or_create takes the arena mutably.
 			let (name, name_src, grandparent) = (
 				self.arena[parent].name.clone(),
 				self.arena[parent].authored().to_string(),
 				self.arena[parent].parent,
 			);
-			Some(self.select_or_create(grandparent, &name, &name_src, value, line))
+			Some(self.select_or_create(grandparent, name, name_src, value, line))
 		}
 	}
 
-	/// One stacked-list element (`* scalar`) appends to the parent's array.
-	fn add_star_element(&mut self, parent: usize, body: &str, line: usize) {
-		if parent == ROOT {
-			self.err(line, "list element with no parent field");
-			self.lost += 1;
-			return;
-		}
-		// Uniform-or-nothing (spec): a mix with field children is not a block array.
-		if !self.arena[parent].children.is_empty() {
-			self.err(line, "list element mixed with field children; ignored");
-			self.lost += 1;
-			return;
-		}
-		let trimmed = body.trim();
-		if trimmed.is_empty() {
-			self.err(line, "empty list element");
-			self.lost += 1;
-			return;
-		}
-		// One scalar per line; a bare comma is an error, not a second element.
-		if split_unquoted_commas(trimmed).len() > 1 {
-			self.err(line, "bare comma in list element (one element per line)");
-			self.lost += 1;
-			return;
-		}
-		if unterminated_quote(trimmed) {
-			self.err(line, "unterminated quote in value");
-		}
-		let el = match parse_element(trimmed) {
-			Some(e) => e,
-			None => {
-				self.err(line, "empty list element");
-				self.lost += 1;
-				return;
-			}
+	/// True when the parent's stacked list already holds as many items as the
+	/// caller's element cap allows, so another item line is refused (`E021`).
+	fn list_full(&self, parent: usize) -> bool {
+		// A held-open level has no node yet, and its index is past the arena.
+		self.max_elements != 0
+			&& parent != ROOT
+			&& self.arena.get(parent).is_some_and(|nd| {
+				nd.children.is_empty()
+					&& nd.star_list && matches!(&nd.value, Value::Array(els) if els.len() >= self.max_elements)
+			})
+	}
+
+	fn refuse_capped(&mut self, line: usize, indent: &'a str) {
+		self.refuse(
+			line,
+			"E021",
+			format!(
+				"array longer than {} elements; line skipped",
+				self.max_elements
+			),
+			Outcome::Dropped,
+			indent,
+		);
+	}
+
+	/// One stacked-list item (`- scalar`) appends to the parent's array.
+	fn add_star_element(
+		&mut self,
+		parent: usize,
+		tok: &Tokens,
+		text: &str,
+		line: usize,
+		indent: &'a str,
+	) -> bool {
+		let piece = tok.elements[0];
+		// item_fault() kept an empty one (E009).
+		let Some(el) = element_of(&piece, text) else {
+			return false;
 		};
+		let clash = unit_clash(&self.arena[parent].name, &el.text);
+		// Element cap: each element line past it is refused on its own, the way
+		// any other bad element line is. Only a line that would join the list:
+		// the item arm kept one under a field with a value (E011), cap or not.
+		if self.list_full(parent) {
+			self.refuse_capped(line, indent);
+			return false;
+		}
 		if self.arena[parent].value.is_empty() {
 			let old_key = merge_hash(&self.arena[parent].name, &self.arena[parent].value);
 			let old_disp = disp_hash(&self.arena[parent].name, &self.arena[parent].value);
-			self.arena[parent].value = Value::Cell(vec![el]);
+			self.arena[parent].value = Value::Array(vec![el]);
 			self.arena[parent].star_list = true;
 			// First element: remap now (Empty -> cell changes both keys), then
 			// open the deferral window with the current keys. Rebuilding the
@@ -1794,21 +5803,59 @@ impl Parser {
 			let k = merge_hash(&self.arena[parent].name, &self.arena[parent].value);
 			let d = disp_hash(&self.arena[parent].name, &self.arena[parent].value);
 			self.star_open = Some((parent, k, d));
-		} else if matches!(self.arena[parent].value, Value::Cell(_)) && self.arena[parent].star_list
-		{
+		} else {
+			// The item arm kept any other value's item (E011).
 			if !matches!(self.star_open, Some((n, _, _)) if n == parent) {
 				self.star_flush();
 				let old_key = merge_hash(&self.arena[parent].name, &self.arena[parent].value);
 				let old_disp = disp_hash(&self.arena[parent].name, &self.arena[parent].value);
 				self.star_open = Some((parent, old_key, old_disp));
 			}
-			if let Value::Cell(els) = &mut self.arena[parent].value {
+			if let Value::Array(els) = &mut self.arena[parent].value {
 				els.push(el);
 			}
-		} else {
-			self.err(line, "field already has a value; list element ignored");
-			self.lost += 1;
 		}
+		if let Some(m) = clash {
+			self.diag(Diagnostic {
+				line,
+				severity: Severity::Hint,
+				message: m,
+				code: "H005",
+			});
+		}
+		// A kept element holds its column as a dropped one does, with the field
+		// as that level's node: a line written deeper binds where it always did,
+		// and a line back at the element's column is its sibling, where no level
+		// had been opened there and every later sibling was E012 (20260918b
+		// item 28).
+		self.stack.push((indent, parent));
+		true
+	}
+
+	/// Lines waiting for the list element that just joined sat among the
+	/// list's elements, so they stay there, comments and kept lines alike.
+	fn keep_among(&mut self, parent: usize, indent: &str) {
+		if self.pending.is_empty() {
+			return;
+		}
+		let before = match &self.arena[parent].value {
+			Value::Array(els) => els.len() - 1,
+			_ => return,
+		};
+		let (mut chain, mut held) = (Vec::new(), Vec::new());
+		for p in self.pending.drain(..) {
+			self.arena[parent].triv_mut().among.push((
+				before,
+				Lead {
+					depth: comment_depth(&mut chain, &mut held, indent, &p.text, p.indent),
+					text: p.text,
+					blank_before: p.blank_before,
+					line: 0,
+					kept: false,
+				},
+			));
+		}
+		self.pend_marks.clear();
 	}
 
 	/// Legal input that looks like a common mistake: a field repeating as a bare
@@ -1816,42 +5863,56 @@ impl Parser {
 	fn emit_repeated_leaf_hints(&mut self) {
 		let mut hints: Vec<(usize, String)> = Vec::new();
 		for parent in 0..self.arena.len() {
+			let children = &self.arena[parent].children;
+			if children.len() < 2 {
+				continue;
+			}
 			// Group by name in first-appearance order: hint order must be
 			// deterministic or the cross-binding check can't compare `check` output.
+			// The member list is made only when a name repeats. Nearly every
+			// name is seen once, and a list per child was most of what this
+			// pass allocated.
 			let mut group_of: HashMap<&str, usize> = HashMap::new();
-			let mut by_name: Vec<(&str, Vec<usize>)> = Vec::new();
-			for &c in &self.arena[parent].children {
+			let mut by_name: Vec<(&str, usize, Vec<usize>)> = Vec::new();
+			for &c in children {
 				let name = self.arena[c].name.as_str();
 				match group_of.get(name) {
-					Some(&g) => by_name[g].1.push(c),
+					Some(&g) => {
+						let grp = &mut by_name[g];
+						if grp.2.is_empty() {
+							grp.2.push(grp.1);
+						}
+						grp.2.push(c);
+					}
 					None => {
 						group_of.insert(name, by_name.len());
-						by_name.push((name, vec![c]));
+						by_name.push((name, c, Vec::new()));
 					}
 				}
 			}
-			for (name, group) in by_name {
-				if group.len() < 2 {
+			for (name, _, group) in by_name {
+				if group.is_empty() {
 					continue;
 				}
 				let all_scalar_leaves = group.iter().all(|&c| {
 					self.arena[c].children.is_empty()
 						&& matches!(self.arena[c].value, Value::Cell(_))
-						&& !self.arena[c].star_list
 				});
 				if all_scalar_leaves {
 					let line = group.iter().map(|&c| self.arena[c].line).max().unwrap_or(0);
-					let joined = group
-						.iter()
-						.map(|&c| self.arena[c].value.display())
-						.collect::<Vec<_>>()
-						.join(", ");
-					hints.push((line, format!("{}{}'?", h001_head(name), joined)));
+					let shown = diag_list(
+						group.iter().map(|&c| diag_value(&self.arena[c].value)),
+						group.len(),
+					);
+					hints.push((
+						line,
+						format!("{}[{}]'?{}", h001_head(name), shown, diag_more(group.len())),
+					));
 				}
 			}
 		}
 		for (line, message) in hints {
-			self.diags.push(Diagnostic {
+			self.diag(Diagnostic {
 				line,
 				severity: Severity::Hint,
 				message,
@@ -1860,25 +5921,61 @@ impl Parser {
 		}
 	}
 
-	fn parse(mut self, text: &str, strictness: Strictness) -> Document {
+	fn parse(mut self, text: &'a str, strictness: Strictness) -> Document {
 		// UTF-8 BOM strip, then split keeping raw lines (CR stripped per line).
 		// Lines borrow `text`: they are only read, so no owned copies needed.
 		// The whole trailing CR run goes, not just one: a raw block keeps its
 		// content untrimmed, so a line left ending in CR would be written back as
 		// CRLF and read as neither - the one shape where the count is visible.
 		let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-		let lines: Vec<&str> = text.split('\n').map(|l| l.trim_end_matches('\r')).collect();
+		let mut lines: Vec<&str> = text.split('\n').map(|l| l.trim_end_matches('\r')).collect();
+		// A newline-terminated text splits into one more piece than it has
+		// lines. An unterminated raw block took that empty tail as a body
+		// line, so the same last line read differently with and without its
+		// newline, which the grammar says are one document.
+		if text.ends_with('\n') {
+			lines.pop();
+		}
+		self.src = lines.clone();
+		let stamp = format_line_read(text);
+		let newer = stamp.status == Status::Good && stamp.value > FORMAT_MAJOR;
+		if let Some(d) = stamp_hint(&stamp) {
+			self.diag(d);
+		}
 		let mut i = 0usize;
+		let mut node_capped = false;
+		let mut tok = Tokens {
+			cap: self.max_elements,
+			..Tokens::default()
+		};
 		while i < lines.len() {
+			// Node cap: reported at the first line not parsed, so the count can
+			// overshoot by at most one line's path. The unparsed remainder counts
+			// as lost, which is what keeps save_file from writing a silently
+			// truncated document.
+			if self.max_nodes != 0 && self.arena.len() - 1 > self.max_nodes {
+				self.refuse(
+					i + 1,
+					"E020",
+					format!("node cap of {} exceeded; parse stopped", self.max_nodes),
+					Outcome::Stopped(&lines[i..]),
+					"",
+				);
+				node_capped = true;
+				break;
+			}
 			let lineno = i + 1;
-			let line = lines[i].trim_end();
+			let line = trim_wsp_end(lines[i]);
 			// Indent chars are ASCII space/tab, so a byte scan slices the same run.
 			let ilen = line
 				.bytes()
 				.take_while(|&b| b == b' ' || b == b'\t')
 				.count();
 			let indent = &line[..ilen];
-			let rest = &line[ilen..];
+			// A carriage return is a blank but never indent, so a run of blanks
+			// holding one comes off the front of the rest instead.
+			let rest = line[ilen..].trim_start_matches(is_wsp);
+			let lead = line.len() - ilen - rest.len();
 			if rest.is_empty() {
 				self.saw_blank = true;
 				i += 1;
@@ -1890,140 +5987,441 @@ impl Parser {
 			if rest.starts_with('#') {
 				self.pending.push(Pend {
 					text: rest.to_string(),
-					indent: indent.to_string(),
+					indent,
 					blank_before: std::mem::take(&mut self.saw_blank),
+					ceiling: indent.len(),
+					line: lineno,
 				});
 				i += 1;
 				continue;
+			}
+			// A kept misplaced line holds only the lines written under it.
+			if self
+				.kept_hold
+				.is_some_and(|h| !(indent.len() > h.len() && indent.starts_with(h)))
+			{
+				self.kept_hold = None;
 			}
 			// Any other line consumes the pending blank; only a field line that
 			// binds turns it into grouping.
 			let had_blank = std::mem::take(&mut self.saw_blank);
 			// A binding line claims the pending comments - but deeper-written
-			// ones hang on their own block first.
-			self.hang_deeper_pending(indent);
-			// Child-indent fence: a value line for its parent field.
-			if let Some((ch, len, info)) = fence_open(rest) {
-				let parent = match self.resolve_parent(indent) {
-					Some(p) => p,
-					None => {
-						self.err(lineno, "indentation matches no open level");
-						self.lost += 1;
-						i += 1;
-						continue;
-					}
+			// ones hang on their own block first. A line refused for where it
+			// sits closes nothing, so it leaves them for the next line: kept,
+			// its indent would measure the levels differently on a reload,
+			// and dropped, a reload never sees it.
+			let found = self.locate(indent);
+			let placed = found.0.is_some_and(|p| p != DEAD);
+			if placed {
+				self.hang_deeper_pending(indent);
+			}
+			// Child-indent fence: a value line for its parent field. The fence
+			// and its info string are the value; a comment may follow them.
+			if rest.starts_with(['`', '~'])
+				&& let Some(fence) = child_fence(rest, &mut tok)
+			{
+				self.hint_glued(lineno, &tok);
+				let comment = tok.comment.map(|c| &rest[c..]);
+				let parent = self.resolve_parent(indent, found);
+				let (value, next) = self.consume_raw(&lines, i + 1, lineno, indent, fence);
+				let Some(parent) = parent else {
+					// The body goes with its fence: parsed live, it would read as
+					// root bindings and the closing fence would open a second block.
+					self.refuse(
+						lineno,
+						"E012",
+						"indentation matches no open level",
+						Outcome::Dropped,
+						indent,
+					);
+					i = next;
+					continue;
 				};
-				let (value, next) = self.consume_raw(&lines, i + 1, lineno, ch, len, info);
-				if let Some(node) = self.bind_block(parent, value, lineno) {
-					self.attach_trivia(node, None);
+				if parent == DEAD {
+					self.skip_under_dead(lineno, indent);
+				} else if tok.capped {
+					// The block goes with its line, or the body would read as
+					// live lines.
+					self.refuse(
+						lineno,
+						"E021",
+						format!(
+							"array longer than {} elements; line skipped",
+							self.max_elements
+						),
+						Outcome::Dropped,
+						indent,
+					);
+				} else if parent == LAZY && self.under_items(parent) {
+					// It would open a field under the list. The block goes with
+					// it, as with a field line there.
+					self.refuse(
+						lineno,
+						"E001",
+						"field mixed with list elements",
+						Outcome::Dropped,
+						indent,
+					);
+				} else {
+					let parent = self.open_lazy(parent);
+					// The fence binds its field again, so a kept field line
+					// before it, which sits under that field, stays in the
+					// block, with the comments before it. A misplaced line
+					// never hangs on a block, so it waits for the next line.
+					if parent != ROOT
+						&& let Some(k) = self.pending.iter().rposition(|p| is_field(&p.text))
+						&& let Some(&(base, _)) =
+							self.stack.iter().rev().find(|(_, n)| *n == parent)
+					{
+						let (mut moved, misplaced): (Vec<_>, Vec<_>) = self
+							.pending
+							.drain(..=k)
+							.partition(|p| !p.text.starts_with([' ', '\t']));
+						let count = moved.len();
+						moved.extend(misplaced);
+						self.pending.splice(0..0, moved);
+						self.give_pending(parent, base, count, true);
+					}
+					if let Some(node) = self.bind_block(parent, value, lineno, indent) {
+						self.ends.push((self.arena[node].line, next));
+						self.attach_trivia(node, indent, comment);
+					}
 				}
 				i = next;
 				continue;
 			}
-			// Stacked-list element: colon-less by construction ('*' can't begin a name).
-			if let Some(after) = rest.strip_prefix('*') {
-				if after.starts_with(' ') || after.starts_with('\t') {
-					let parent = match self.resolve_parent(indent) {
-						Some(p) => p,
-						None => {
-							self.err(lineno, "indentation matches no open level");
-							self.lost += 1;
-							i += 1;
-							continue;
-						}
+			// Stacked-list item: `-` then a blank or the end. A bare name
+			// starts with a letter, so no field line starts that way. A `-`
+			// alone is an empty item (E009), so a kept one, written back with
+			// its blank trimmed, reloads as the same line.
+			let item = is_item(rest);
+			if item || rest.starts_with('*') {
+				if item {
+					tokenize_value(rest, 1, Rules::Current, &mut tok);
+					self.hint_glued(lineno, &tok);
+					let Some(parent) = self.resolve_parent(indent, found) else {
+						self.misplaced(lineno, "E012", indent, rest, had_blank, false);
+						i += 1;
+						continue;
 					};
-					let (body, comment) = split_comment(after);
-					// Elements have no node of their own; trivia rides the field.
-					if parent != ROOT {
-						self.attach_trivia(parent, comment);
+					if parent == DEAD {
+						self.misplaced(lineno, "E018", indent, rest, had_blank, false);
+						i += 1;
+						continue;
 					}
-					self.add_star_element(parent, body, lineno);
+					// An item past the cap is refused for that, whatever its
+					// value. A good one finds out where it would join.
+					if self.list_full(parent) && item_fault(&tok, rest).is_some() {
+						self.refuse_capped(lineno, indent);
+						i += 1;
+						continue;
+					}
+					if let Some(f) = item_fault(&tok, rest) {
+						self.refuse(
+							lineno,
+							f.code,
+							f.msg,
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
+					// Opened here, a line held open under stacked items would be a
+					// field under the list.
+					if parent == LAZY && self.under_items(parent) {
+						self.kept_any = true;
+						self.refuse(
+							lineno,
+							"E001",
+							"field mixed with list elements",
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
+					let parent = self.open_lazy(parent);
+					// Uniform-or-nothing (spec): an item after field children is
+					// kept, as a field after items is (E001).
+					if parent != ROOT && !self.arena[parent].children.is_empty() {
+						self.kept_any = true;
+						self.refuse(
+							lineno,
+							"E008",
+							"list element mixed with field children",
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
+					// No field above it, or one with a value already: kept the same
+					// way. Nothing the item says is wrong, so the emitter asks the
+					// reload before it writes one.
+					let homeless = if parent == ROOT {
+						Some(("E007", "list element with no parent field"))
+					} else {
+						let nd = &self.arena[parent];
+						let joins = nd.value.is_empty()
+							|| nd.star_list && matches!(nd.value, Value::Array(_));
+						(!joins)
+							.then_some(("E011", "field already has a value; list element ignored"))
+					};
+					if let Some((code, msg)) = homeless {
+						self.kept_any = true;
+						self.refuse(
+							lineno,
+							code,
+							msg,
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
+					// Elements have no node of their own; trivia rides the field.
+					let mut comment = tok.comment.map(|c| &rest[c..]);
+					if self.add_star_element(parent, &tok, rest, lineno, indent) {
+						self.keep_among(parent, indent);
+						// A comment on an item stays on its item.
+						if let (Some(c), Value::Array(els)) = (comment, &self.arena[parent].value) {
+							let at = els.len() - 1;
+							self.arena[parent]
+								.triv_mut()
+								.notes
+								.push((at, c.to_string()));
+							comment = None;
+						}
+					}
+					let head = self.arena[parent].line;
+					match self.ends.last_mut() {
+						Some(e) if e.0 == head => e.1 = lineno,
+						_ => self.ends.push((head, lineno)),
+					}
+					self.attach_trivia(parent, indent, comment);
 					i += 1;
 					continue;
 				}
-				self.err(lineno, "malformed line: '*' must be followed by a space");
-				// Content-malformed at any position, so it is safe to retain
-				// verbatim as trivia: re-emitted, it re-diagnoses identically
-				// and can never read as a live binding. A hand-typo no longer
-				// vanishes on the consumer's next save. The BOM exception the
-				// sibling site below carries cannot apply here: this line
+				let Some(parent) = self.resolve_parent(indent, found) else {
+					self.misplaced(lineno, "E012", indent, rest, had_blank, false);
+					i += 1;
+					continue;
+				};
+				if parent == DEAD {
+					self.misplaced(lineno, "E018", indent, rest, had_blank, false);
+					i += 1;
+					continue;
+				}
+				// The old item marker. Content-malformed at any position, so safe
+				// to retain, and the items around it still load. The BOM
+				// exception the field arm makes cannot apply here: this line
 				// starts with the '*' that brought us in.
-				self.pending.push(Pend {
-					text: rest.trim_end().to_string(),
-					indent: indent.to_string(),
-					blank_before: had_blank,
-				});
+				self.refuse(
+					lineno,
+					"E013",
+					"a list item is written '- ' now, not '*'",
+					Outcome::Retained {
+						text: trim_wsp_end(rest).to_string(),
+						blank_before: had_blank,
+					},
+					indent,
+				);
 				i += 1;
 				continue;
 			}
 			// Field line.
-			let (before, comment) = split_comment(rest);
-			let content = before.trim_end();
-			if content.is_empty() {
-				// Only a comment survived (e.g. an escaped lead-in); keep it.
-				if let Some(c) = comment {
-					self.pending.push(Pend {
-						text: c.to_string(),
-						indent: indent.to_string(),
-						blank_before: had_blank,
-					});
-				}
-				i += 1;
+			tokenize(rest, b':', false, Rules::Current, &mut tok);
+			self.hint_glued(lineno, &tok);
+			let comment = tok.comment.map(|c| &rest[c..]);
+			let Some(parent) = self.resolve_parent(indent, found) else {
+				let raw = line_fence(&tok, rest).is_some();
+				self.misplaced(lineno, "E012", indent, rest, had_blank, raw);
+				i = self.skip_field_line(&lines, i, indent, &tok, rest);
+				continue;
+			};
+			if parent == DEAD {
+				let raw = line_fence(&tok, rest).is_some();
+				self.misplaced(lineno, "E018", indent, rest, had_blank, raw);
+				i = self.skip_field_line(&lines, i, indent, &tok, rest);
 				continue;
 			}
-			let parent = match self.resolve_parent(indent) {
-				Some(p) => p,
-				None => {
-					self.err(lineno, "indentation matches no open level");
-					self.lost += 1;
-					i += 1;
-					continue;
-				}
-			};
-			let scan = match scan_path(content) {
+			let scan = match path_of(&tok, rest) {
 				Ok(s) => s,
 				Err(reason) => {
-					self.err(lineno, format!("malformed line skipped: {}", reason));
-					// Content-malformed at any position - retained as trivia,
-					// same rationale (and same BOM exception) as the bad '*'
-					// line above.
-					if rest.starts_with('\u{feff}') {
-						self.lost += 1;
+					// The column counts bytes from the line start, so all four
+					// bindings report it the same on non-ASCII text.
+					let at = tok.fault.map_or(0, |(pos, _)| pos);
+					// Content-malformed at any position, so retained - except a
+					// line led by a BOM, which the file-start strip would rewrite
+					// into something that can bind.
+					let bom = rest.starts_with('\u{feff}');
+					let outcome = if bom {
+						Outcome::Dropped
 					} else {
-						self.pending.push(Pend {
-							text: rest.trim_end().to_string(),
-							indent: indent.to_string(),
+						Outcome::Retained {
+							text: trim_wsp_end(rest).to_string(),
 							blank_before: had_blank,
-						});
-					}
-					i += 1;
+						}
+					};
+					self.refuse(
+						lineno,
+						"E014",
+						format!(
+							"malformed line skipped: {}, at column {}",
+							reason,
+							indent.len() + lead + at + 1
+						),
+						outcome,
+						indent,
+					);
+					i = if bom {
+						self.skip_field_line(&lines, i, indent, &tok, rest)
+					} else {
+						self.keep_body(&lines, i, indent, &tok, rest)
+					};
 					continue;
 				}
 			};
 			let mut next = i + 1;
+			// A line that reads only one way, or no way, is kept verbatim
+			// rather than read with a guess: a value written the way JSON,
+			// TOML and YAML write an array, an open quote, a bad escape, a tab,
+			// a quote or a loose colon, or a bare name that breaks the spelling
+			// rule. The path and the name are judged before the cap, and the
+			// value after it, so a line past the cap is E021 whatever its
+			// value. When the name still reads, the lines under it still load,
+			// under the path opened empty.
+			let fault = match name_fault(&tok, rest) {
+				None if tok.capped => None,
+				None => value_side_fault(&tok, rest),
+				named => named,
+			};
+			let listed = self.under_items(parent) || self.through_items(parent, &scan.segments);
+			if let Some(f) = fault {
+				let msg = match f.at {
+					Some(at) => format!("{}, at column {}", f.msg, indent.len() + lead + at + 1),
+					None => f.msg,
+				};
+				self.refuse(
+					lineno,
+					f.code,
+					msg,
+					Outcome::Retained {
+						text: trim_wsp_end(rest).to_string(),
+						blank_before: had_blank,
+					},
+					indent,
+				);
+				if f.opens {
+					self.hold_open(parent, scan.segments, lineno, indent);
+				}
+				// Only a fault in the name leaves a fence to read here.
+				i = self.keep_body(&lines, i, indent, &tok, rest);
+				continue;
+			}
+			// Element cap: the whole line is refused, so a capped load never
+			// holds a truncated array that would read as the document's
+			// value. The scan stopped at the cap, so nothing past it was
+			// built either, and the value span is empty: this has to come
+			// before the value is read, or the line would bind as Empty.
+			if tok.capped {
+				self.refuse(
+					lineno,
+					"E021",
+					format!(
+						"array longer than {} elements; line skipped",
+						self.max_elements
+					),
+					Outcome::Dropped,
+					indent,
+				);
+				i = self.skip_field_line(&lines, i, indent, &tok, rest);
+				continue;
+			}
+			// A field under stacked items, or one that would open a field there
+			// through a line held open: kept, so a list never has a field under
+			// it. One that opens a raw block is dropped with it, as a misplaced
+			// one is: moved where it binds, it could not be written as a
+			// comment.
+			if listed {
+				let msg = "field mixed with list elements";
+				if line_fence(&tok, rest).is_some() {
+					self.refuse(lineno, "E001", msg, Outcome::Dropped, indent);
+					i = self.skip_field_line(&lines, i, indent, &tok, rest);
+					continue;
+				}
+				self.kept_any = true;
+				self.kept_arrays |= tok.array.is_some();
+				self.refuse(
+					lineno,
+					"E001",
+					msg,
+					Outcome::Retained {
+						text: trim_wsp_end(rest).to_string(),
+						blank_before: had_blank,
+					},
+					indent,
+				);
+				i += 1;
+				continue;
+			}
+			// An index that selects no instance bound before it: kept the same
+			// way, since an instance written above it later would make it bind.
+			if let Some((k, name)) = self.index_miss(parent, &scan.segments) {
+				let msg = format!("no instance {} of '{}'", k, diag_name(name));
+				if line_fence(&tok, rest).is_some() {
+					self.refuse(lineno, "E003", msg, Outcome::Dropped, indent);
+					i = self.skip_field_line(&lines, i, indent, &tok, rest);
+					continue;
+				}
+				self.kept_any = true;
+				self.refuse(
+					lineno,
+					"E003",
+					msg,
+					Outcome::Retained {
+						text: trim_wsp_end(rest).to_string(),
+						blank_before: had_blank,
+					},
+					indent,
+				);
+				i += 1;
+				continue;
+			}
 			// The verbatim value span, kept for reads' `raw` (only the plain
 			// scalar/inline-array case has a one-line source spelling).
-			let mut src_text: Option<String> = None;
-			let value = match &scan.value_text {
+			let mut src_text: Option<&str> = None;
+			let value_text = scan.value.map(|(a, b)| &rest[a..b]);
+			let value = match value_text {
 				None => {
-					// A clean path with no colon is the one defined repair:
-					// the obvious intent is that path with an empty value.
-					self.err(lineno, "missing colon; repaired as an empty value");
+					// A clean path with no colon is the one defined repair: the
+					// obvious intent is that path with an empty value.
+					self.err(lineno, "E015", "missing colon; repaired as an empty value");
 					Value::Empty
 				}
-				Some(v) if v.is_empty() => Value::Empty,
+				Some("") => Value::Empty,
 				Some(v) => {
-					if let Some((ch, len, info)) = fence_open(v) {
+					if let Some(fence) = fence_open(v) {
 						// Same-line fence spelling.
-						let (val, n) = self.consume_raw(&lines, i + 1, lineno, ch, len, info);
+						let (val, n) = self.consume_raw(&lines, i + 1, lineno, indent, fence);
 						next = n;
 						val
 					} else {
-						if unterminated_quote(v) {
-							self.err(lineno, "unterminated quote in value");
-						}
-						src_text = Some(v.clone());
-						parse_cell(v)
+						src_text = Some(v);
+						cell_of_tokens(&tok, rest)
 					}
 				}
 			};
@@ -2031,44 +6429,150 @@ impl Parser {
 			// (a merge into an equal-valued node keeps the first line's span;
 			// a value dropped after a last-segment selector records nothing).
 			let vkey = src_text.as_ref().map(|_| value_hash(&value));
-			if let Some(node) = self.attach_path(parent, &scan.segments, value, lineno) {
+			let parent = self.open_lazy(parent);
+			let nsegs = scan.segments.len();
+			if let Some(node) = self.attach_path(parent, scan.segments, value, lineno, indent) {
+				if src_text.is_some()
+					&& unit_named(&self.arena[node].name)
+					&& let Some(m) = tok
+						.elements
+						.iter()
+						.find_map(|p| unit_clash(&self.arena[node].name, &piece_text(p, rest)))
+				{
+					self.diag(Diagnostic {
+						line: lineno,
+						severity: Severity::Hint,
+						message: m,
+						code: "H005",
+					});
+				}
 				if let (Some(s), Some(k)) = (src_text, vkey)
 					&& !self.arena[node].src_set
 					&& value_hash(&self.arena[node].value) == k
 				{
 					self.arena[node].src_set = true;
-					if !src_matches_display(&self.arena[node].value, &s) {
-						self.arena[node].src = Some(s);
+					if !src_matches_display(&self.arena[node].value, s) {
+						self.arena[node].src = Some(s.to_string());
 					}
 				}
+				// What the node had before this line, for an array line that
+				// turns out to have a field under it.
+				let mark = ArrayLine {
+					line: lineno,
+					leads: self.arena[node].leading().len(),
+					trailing: !self.arena[node].trailing().is_empty(),
+					blank: self.arena[node].blank_before,
+				};
 				if had_blank {
 					self.arena[node].blank_before = true;
 				}
-				self.attach_trivia(node, comment);
-				self.stack.push((indent.to_string(), node));
+				if next > i + 1 {
+					self.ends.push((lineno, next));
+				}
+				// A kept line before a dotted line sits level with its first
+				// segment, so it goes there with the comments before it. Under
+				// the last one it would be written deeper and read as a child.
+				if nsegs > 1
+					&& let Some(k) = self.pending.iter().rposition(|p| is_field(&p.text))
+				{
+					self.give_pending(self.head_of(node, nsegs), indent, k + 1, false);
+				}
+				if self.arena[node].line != lineno {
+					self.folded.push(node);
+				}
+				self.attach_trivia(node, indent, comment);
+				self.stack.push((indent, node));
+				if tok.array.is_some() {
+					self.array_line.insert(node, mark);
+				}
 			}
 			i = next;
 		}
+		// A cap crossed on the document's last line still reports, with nothing
+		// left to skip.
+		if !node_capped && self.max_nodes != 0 && self.arena.len() - 1 > self.max_nodes {
+			self.refuse(
+				lines.len(),
+				"E020",
+				format!("node cap of {} exceeded; parse stopped", self.max_nodes),
+				Outcome::Stopped(&[]),
+				"",
+			);
+		}
 		self.star_flush();
-		self.fold_late_dups();
-		self.emit_repeated_leaf_hints();
 		// Indented tail comments keep their block; only top-level ones orphan.
+		// Before the fold, which moves a dropped instance's comments over to
+		// the one it joins: after it they would hang on the dropped one.
 		self.hang_deeper_pending("");
-		let orphans = self
+		self.fold_late_dups();
+		for n in 0..self.arena.len() {
+			settle_block(&mut self.arena, n, 1);
+		}
+		self.emit_repeated_leaf_hints();
+		// Line order, so a hint found only after the pass (a fold, a repeated
+		// leaf) sits with its line. Stable, so two on one line keep the order
+		// they were found in. Before the cap entry, which ends the list.
+		self.diags.sort_by_key(|d| d.line);
+		let (mut chain, mut held) = (Vec::new(), Vec::new());
+		let mut orphans: Vec<Lead> = self
 			.pending
 			.drain(..)
 			.map(|p| Lead {
+				depth: comment_depth(&mut chain, &mut held, "", &p.text, p.indent),
 				text: p.text,
 				blank_before: p.blank_before,
+				line: p.line,
+				kept: false,
 			})
 			.collect();
-		Document {
+		settle_first_blank(&mut self.arena, &mut orphans);
+		// The one entry past the cap: what was not listed, and whether any
+		// of it was an error, so a consumer scanning the list for errors
+		// still finds one and a Strict load still fails.
+		let (errors, hints) = self.unlisted;
+		if errors + hints > 0 {
+			self.diags.push(Diagnostic {
+				line: 0, // about the list, not a line
+				severity: if errors > 0 {
+					Severity::Error
+				} else {
+					Severity::Hint
+				},
+				code: "E022",
+				message: format!(
+					"diagnostic cap of {} reached; {} more not listed, {} of them errors",
+					self.max_diags,
+					errors + hints,
+					errors
+				),
+			});
+		}
+		let folded = std::mem::take(&mut self.folded);
+		let mut doc = Document {
 			arena: self.arena,
 			diags: self.diags,
 			strictness,
 			orphans,
 			lost: self.lost,
-		}
+			kept_owed: self.kept_owed,
+			index: std::sync::OnceLock::new(),
+			probe: false,
+			probe_doc: None,
+			kept: self.kept_any,
+			arrays: self.kept_arrays,
+			bracketed: false,
+			kept_near: Vec::new(),
+			kept_sum: 0,
+			walked: false,
+			ends: self.ends,
+			dropped: self.dropped,
+			source: None,
+			file: None,
+			newer,
+		};
+		doc.refile_folded(folded);
+		doc.settle_kept();
+		doc
 	}
 }
 
@@ -2084,18 +6588,55 @@ impl Document {
 	}
 
 	/// Parse at a chosen strictness. Only Strict can fail (any error diagnostic);
-	/// the error still carries the parsed document alongside the diagnostics.
+	/// the error still includes the parsed document alongside the diagnostics.
+	// The Err includes the whole document by design (recover-and-continue);
+	// boxing it would change the public shape for a value built once per load.
+	#[allow(clippy::result_large_err)]
 	pub fn parse_with(text: &str, strictness: Strictness) -> Result<Document, LoadError> {
-		let doc = Parser::new().parse(text, strictness);
-		if strictness == Strictness::Strict
-			&& doc.diags.iter().any(|d| d.severity == Severity::Error)
-		{
+		Parser::new().parse(text, strictness).strict_gate()
+	}
+
+	/// The one place Strict fails a load: any error diagnostic on the
+	/// document an entry point is about to hand back. Every entry point that
+	/// takes a strictness goes through here, so moving from one to another
+	/// never loses the failure (2026100717500012).
+	#[allow(clippy::result_large_err)]
+	fn strict_gate(self) -> Result<Document, LoadError> {
+		if self.strictness == Strictness::Strict && self.error_count() > 0 {
 			return Err(LoadError {
-				diagnostics: doc.diags.clone(),
-				document: doc,
+				diagnostics: self.diags.clone(),
+				document: self,
 			});
 		}
-		Ok(doc)
+		Ok(self)
+	}
+
+	/// Parse with resource caps beside the strictness, for input the consumer
+	/// does not control: a document amplifies to many times its byte size in
+	/// memory, so a size cap alone cannot bound what a load allocates.
+	/// `max_nodes` stops the parse once a line takes the node count past it -
+	/// one `E020` error, and the unparsed remainder counts as lost so a save
+	/// cannot silently truncate. `max_elements` refuses any line whose array
+	/// would hold more elements (`E021`, that line alone is skipped).
+	/// `max_diags` bounds the diagnostics list itself - a document of nothing
+	/// but bad lines costs a diagnostic per line - by listing the first that
+	/// many and ending with one `E022` that counts the rest; error_count and
+	/// the Strict gate see that tail as an error whenever an unlisted one was.
+	/// 0 disables a cap, making this parse_with. The caps are parse-time only;
+	/// the write API is the consumer's own arithmetic. As everywhere, the Err
+	/// fires only at Strict, and a cap diagnostic is an error, so a capped
+	/// Strict load fails; at other levels the parsed part stays readable.
+	#[allow(clippy::result_large_err)]
+	pub fn parse_limited(
+		text: &str,
+		strictness: Strictness,
+		max_nodes: usize,
+		max_elements: usize,
+		max_diags: usize,
+	) -> Result<Document, LoadError> {
+		Parser::limited(max_nodes, max_elements, max_diags)
+			.parse(text, strictness)
+			.strict_gate()
 	}
 
 	/// Everything the load recorded (after load_and_validate, validation
@@ -2108,12 +6649,63 @@ impl Document {
 	/// re-emit - bad indentation, an unusable selector, a line past the depth
 	/// cap. Content-malformed lines do NOT count: those are retained as trivia
 	/// and survive a save. Nonzero means a save_file would delete hand-written
-	/// content, so save_file refuses then (save_file_lossy overrides).
+	/// content, so save_file refuses then (save_file_lossy overrides), and
+	/// save_file_keep_lines does when it cannot keep the lines. It also counts
+	/// lines the load kept as written that an edit took and design.md's
+	/// kept-lines table does not let it take.
 	pub fn lost_count(&self) -> usize {
-		self.lost
+		self.lost + self.kept_shortfall()
 	}
 
-	/// How many error-severity diagnostics the document carries - the "did
+	/// The text named a newer format than this reader's, the one `H006` hints
+	/// at, from a load or a parse, or a merged layer's did. Reads work as
+	/// usual, and so do edits, but every save refuses with
+	/// `SaveError::TooNew`, since it would write the lines by these rules.
+	pub fn newer_format(&self) -> bool {
+		self.newer
+	}
+
+	/// Kept lines the document owes and no longer holds. Free on a document
+	/// that never had one.
+	fn kept_shortfall(&self) -> usize {
+		if self.kept_owed == 0 {
+			return 0;
+		}
+		self.kept_owed.saturating_sub(self.kept_lines())
+	}
+
+	/// Kept lines in the live tree and the orphans. From ROOT, since a removed
+	/// node stays in the arena; a stack, since a recursive walk overflowed
+	/// Windows' 1 MB main stack on the deepest legal document.
+	fn kept_lines(&self) -> usize {
+		let mut n = kept_in(&self.orphans);
+		let mut stack = vec![ROOT];
+		while let Some(i) = stack.pop() {
+			n += kept_in_lists(&self.arena[i]);
+			stack.extend_from_slice(&self.arena[i].children);
+		}
+		n
+	}
+
+	/// The kept lines a remove of `node` takes, by design.md's table: every
+	/// one written inside its block, and the one written as its own line.
+	/// Read from where the lines sit before the edit, so a remove that drops
+	/// one beside its target is caught by the gate rather than allowed.
+	fn taken(&self, node: usize) -> usize {
+		let nd = &self.arena[node];
+		let mut n = kept_in(nd.inside()) + nd.among().iter().filter(|a| a.1.is_kept_line()).count();
+		if heads_block(nd) && nd.leading().last().is_some_and(Lead::is_kept_line) {
+			n += 1;
+		}
+		let mut stack = nd.children.clone();
+		while let Some(i) = stack.pop() {
+			n += kept_in_lists(&self.arena[i]);
+			stack.extend_from_slice(&self.arena[i].children);
+		}
+		n
+	}
+
+	/// How many error-severity diagnostics the document has - the "did
 	/// this file have errors?" predicate, so recover-and-continue can't read
 	/// as success by accident. Counts whatever diagnostics() holds (after
 	/// load_and_validate, that includes validation errors).
@@ -2125,36 +6717,54 @@ impl Document {
 	}
 
 	/// One-shot load-and-validate: parse at a strictness, validate against a
-	/// schema, and hand back the document carrying ONE combined diagnostics
+	/// schema, and hand back the document with ONE combined diagnostics
 	/// list (parse first, then validation - the order `check --schema`
 	/// prints), so half the errors can't vanish because a caller forgot one
-	/// of the two lists. Never fails: a strict-failing document comes back as
-	/// the document plus its diagnostics (error_count() answers "did it
-	/// fail"). An empty schema text skips validation entirely. H001 hints the
+	/// of the two lists. As parse_with, only Strict can fail, on any error
+	/// in that combined list, a schema finding included; the Err holds the
+	/// validated document. Below Strict, error_count() answers "did it
+	/// fail". An empty schema text skips validation entirely, and one that
+	/// does not load adds a lone V099, as `validate` does. H001 hints the
 	/// schema disavows (a declared repeat upper bound above 1) are dropped.
-	pub fn load_and_validate(text: &str, schema_text: &str, strictness: Strictness) -> Document {
-		let mut doc = Parser::new().parse(text, strictness);
-		if !schema_text.trim().is_empty() {
-			let schema = Document::parse(schema_text);
-			// A schema that did not load would silently drop the constraints on
-			// its broken lines, or report every field as unknown - either way
-			// blaming the document for the schema. Say so instead, as `check`
-			// does, and validate nothing.
-			if schema.diags.iter().any(|d| d.severity == Severity::Error) {
-				doc.diags.push(Diagnostic {
-					line: 0,
-					severity: Severity::Error,
-					code: "V099",
-					message: "schema failed to load".to_string(),
-				});
-				return doc;
-			}
-			let vdiags = doc.validate(&schema);
-			doc.diags.extend(vdiags);
-			suppress_declared_repeats(&schema, &mut doc.diags);
-			suppress_declared_reopens(&schema, &mut doc.diags);
+	/// The schema text is parsed and handed to load_and_validate_with.
+	#[allow(clippy::result_large_err)]
+	pub fn load_and_validate(
+		text: &str,
+		schema_text: &str,
+		strictness: Strictness,
+	) -> Result<Document, LoadError> {
+		if schema_text.trim().is_empty() {
+			return Parser::new().parse(text, strictness).strict_gate();
 		}
-		doc
+		Document::load_and_validate_with(text, &Document::parse(schema_text), strictness)
+	}
+
+	/// load_and_validate with a schema already parsed, so a program that
+	/// validates on every start parses its schema once. Same combined list,
+	/// same strict rule, same lone V099 for a schema that did not load, and the
+	/// same hints dropped. The schema is always validated against, as
+	/// `validate` does; only the text form skips an empty one. Parse then
+	/// validate is not the same: diagnostics() and error_count() keep the
+	/// load's values, the disavowed hints stay, and Strict fails only on a
+	/// load error.
+	#[allow(clippy::result_large_err)]
+	pub fn load_and_validate_with(
+		text: &str,
+		schema: &Document,
+		strictness: Strictness,
+	) -> Result<Document, LoadError> {
+		let mut doc = Parser::new().parse(text, strictness);
+		// validate() would give the same lone V099; a broken schema disavows
+		// no hints either, so nothing is suppressed.
+		if let Some(fault) = schema_load_fault(schema) {
+			doc.diags.push(fault);
+			return doc.strict_gate();
+		}
+		let vdiags = doc.validate(schema);
+		doc.diags.extend(vdiags);
+		suppress_declared_repeats(schema, &mut doc.diags);
+		suppress_declared_reopens(schema, &mut doc.diags);
+		doc.strict_gate()
 	}
 
 	/// The level the document was loaded at.
@@ -2167,107 +6777,554 @@ impl Document {
 	/// be read), and the status separates the four cases consumers otherwise
 	/// confuse: absent, present-but-unreadable, parsed with errors, clean.
 	pub fn load_file(path: &str) -> (Document, FileStatus) {
-		Document::load_file_with(path, Strictness::Standard)
+		Document::load_file_any(path, Strictness::Standard, false)
 	}
 
-	/// load_file at a chosen strictness. A strict-failing file reports
-	/// HadErrors; the recover-and-continue document still comes back.
-	pub fn load_file_with(path: &str, level: Strictness) -> (Document, FileStatus) {
-		let text = match std::fs::read_to_string(path) {
+	/// load_file at a chosen strictness. As parse_with, only Strict can fail:
+	/// a file that read and parsed with an error diagnostic is an Err holding
+	/// the recover-and-continue document. A file that could not be read has
+	/// no diagnostics, so it comes back Ok with its status at every level.
+	#[allow(clippy::result_large_err)]
+	pub fn load_file_with(
+		path: &str,
+		level: Strictness,
+	) -> Result<(Document, FileStatus), LoadError> {
+		Document::load_file_gated(path, level, false)
+	}
+
+	#[allow(clippy::result_large_err)]
+	fn load_file_gated(
+		path: &str,
+		level: Strictness,
+		keep: bool,
+	) -> Result<(Document, FileStatus), LoadError> {
+		let (doc, st) = Document::load_file_any(path, level, keep);
+		Ok((doc.strict_gate()?, st))
+	}
+
+	fn load_file_any(path: &str, level: Strictness, keep: bool) -> (Document, FileStatus) {
+		let text = match read_file(path, 0) {
 			Ok(t) => t,
-			Err(e) => {
-				let st = if e.kind() == std::io::ErrorKind::NotFound {
-					FileStatus::NotFound
-				} else {
-					FileStatus::Unreadable
-				};
-				return (Parser::new().parse("", level), st);
+			Err(st) => {
+				let mut doc = Parser::new().parse("", level);
+				// A file that could not be read gives a save nothing to compare.
+				if st == FileStatus::NotFound {
+					doc.file = LoadedFile::at(path, None);
+				}
+				return (doc, st);
 			}
 		};
-		let doc = Parser::new().parse(&text, level);
-		let st = if doc.diags.iter().any(|d| d.severity == Severity::Error) {
+		let mut doc = Parser::new().parse(&text, level);
+		let st = if doc.error_count() > 0 {
 			FileStatus::HadErrors
 		} else {
 			FileStatus::Clean
 		};
+		if keep {
+			doc.keep_source(&text);
+		}
+		doc.file = LoadedFile::at(path, Some(text));
 		(doc, st)
 	}
 
 	/// File tier, save half: write this document's canonical text to PATH
 	/// through a temp file in the same directory plus a rename, so an
 	/// interrupted save can never truncate the config it rewrites - the same
-	/// mechanics the CLI's `--write` uses. Refuses when parsing lost content
-	/// that a save would silently delete (see lost_count); save_file_lossy
-	/// writes anyway. The Err tells the two apart without matching on prose:
-	/// SaveError::Refused is the gate, SaveError::Io is the write failing.
-	pub fn save_file(&self, path: &str) -> Result<(), SaveError> {
-		if self.lost > 0 {
-			return Err(SaveError::Refused {
-				path: path.to_string(),
-				lost: self.lost,
-			});
-		}
-		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)
+	/// mechanics the CLI's `--write` uses. Refuses when the write would delete
+	/// content from the file (see lost_count); save_file_lossy writes
+	/// anyway. Over the file a load read, refuses when that file no longer
+	/// holds what the load read, or what this document's last save there
+	/// wrote, so another program's edit is not lost; `SaveOptions::force`
+	/// writes anyway. The Err tells them apart without matching on prose:
+	/// SaveError::Refused is the gate, SaveError::Changed the other program's
+	/// edit, SaveError::TooNew a document from a newer format (see
+	/// newer_format), SaveError::Io the write failing.
+	pub fn save_file(&mut self, path: &str) -> Result<(), SaveError> {
+		self.save_file_with(path, &SaveOptions::default())
+			.map(|_| ())
 	}
 
-	/// save_file without the lost-content gate: writes even when parsing
-	/// dropped lines this save deletes. The caller owns that choice. Only ever
-	/// Errs with SaveError::Io - the gate is the one thing it skips.
-	pub fn save_file_lossy(&self, path: &str) -> Result<(), SaveError> {
-		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)
+	/// save_file without the lost-content gate: writes even when the
+	/// write deletes content from the file. The caller owns that choice. The
+	/// changed check still applies.
+	pub fn save_file_lossy(&mut self, path: &str) -> Result<(), SaveError> {
+		let opts = SaveOptions {
+			lossy: true,
+			..SaveOptions::default()
+		};
+		self.save_file_with(path, &opts).map(|_| ())
+	}
+
+	/// The save the options describe: Ok(true) when it kept the lines, as
+	/// save_file_keep_lines says. All the save calls come here.
+	pub fn save_file_with(&mut self, path: &str, opts: &SaveOptions) -> Result<bool, SaveError> {
+		// First, and no option overrides it: whatever else is true, the save
+		// would write a newer format's lines by these rules.
+		if self.newer {
+			return Err(SaveError::TooNew {
+				path: path.to_string(),
+			});
+		}
+		let lost = self.lost_count();
+		let (text, kept) = if opts.keep_lines {
+			self.to_text_keep_lines()
+		} else {
+			(self.to_canonical(), false)
+		};
+		if !opts.lossy && !kept && lost > 0 {
+			return Err(SaveError::Refused {
+				path: path.to_string(),
+				lost,
+			});
+		}
+		// The file the load read has to be as the load or this document's last
+		// save there left it. That's a check and not a lock: an edit between it
+		// and the rename is still lost.
+		let target = resolve_target(path).ok();
+		// Before the changed check, so a create that loses to another program
+		// is told the file is there.
+		if opts.create
+			&& (link_at(path)
+				|| target
+					.as_ref()
+					.is_some_and(|t| std::fs::symlink_metadata(t).is_ok()))
+		{
+			return Err(SaveError::Exists {
+				path: path.to_string(),
+			});
+		}
+		let over = self
+			.file
+			.as_deref()
+			.filter(|f| target.as_ref().is_some_and(|t| *t == f.target));
+		if let Some(f) = over
+			&& !opts.force
+			&& !f.holds(path)
+		{
+			return Err(SaveError::Changed {
+				path: path.to_string(),
+			});
+		}
+		let over = over.is_some();
+		write_file_how(path, &text, opts.create, opts.mode)?;
+		if over && let Some(f) = self.file.as_deref_mut() {
+			f.text = Some(text);
+		}
+		Ok(kept)
 	}
 
 	/// Canonical form: block layout, tabs, insertion order, minimal quoting,
 	/// redundancy collapsed, comments re-emitted as attached trivia. Scalar
 	/// text is never rewritten.
 	pub fn to_canonical(&self) -> String {
-		let mut out = String::new();
-		self.emit_children(&self.arena[ROOT].children, 0, &mut out);
-		// Comments that never found a following line re-emit at the end.
-		for c in &self.orphans {
-			if c.blank_before && !out.is_empty() {
-				out.push('\n');
+		let mut e = Emit::new(self.arena.len() * 24, false);
+		self.emit_all(&mut e);
+		e.out
+	}
+
+	/// parse_with, keeping the text for to_text_keep_lines(). The document is
+	/// the same one parse_with gives; only the save differs.
+	#[allow(clippy::result_large_err)]
+	pub fn parse_keep_lines(text: &str, strictness: Strictness) -> Result<Document, LoadError> {
+		match Document::parse_with(text, strictness) {
+			Ok(mut d) => {
+				d.keep_source(text);
+				Ok(d)
 			}
-			out.push_str(&c.text);
-			out.push('\n');
+			Err(mut e) => {
+				e.document.keep_source(text);
+				Err(e)
+			}
 		}
-		out
+	}
+
+	fn keep_source(&mut self, text: &str) {
+		self.source = Some(if self.to_canonical() == text {
+			String::new()
+		} else {
+			text.to_string()
+		});
+	}
+
+	/// load_file_with, keeping the text for to_text_keep_lines().
+	#[allow(clippy::result_large_err)]
+	pub fn load_file_keep_lines(
+		path: &str,
+		level: Strictness,
+	) -> Result<(Document, FileStatus), LoadError> {
+		Document::load_file_gated(path, level, true)
+	}
+
+	/// The text a save that keeps lines writes, and whether it kept them.
+	/// Each line the edits did not touch is the loaded text's own line, byte
+	/// for byte; a changed value is written into its line; new lines are
+	/// indented the way the lines around them are. The result has to reload
+	/// as this document. When it does not, or the document was not loaded
+	/// with parse_keep_lines or load_file_keep_lines, or it took a merge, or
+	/// an edit took a kept line it should not have, this is to_canonical()
+	/// and false.
+	pub fn to_text_keep_lines(&self) -> (String, bool) {
+		// The reparse check below cannot see a kept line gone from both the
+		// tree and the text, so falling back leaves it to the lost-count gate.
+		if let Some(src) = &self.source
+			&& self.kept_shortfall() == 0
+			&& let Some(t) = keep_lines(src, self)
+		{
+			return (t, true);
+		}
+		(self.to_canonical(), false)
+	}
+
+	/// save_file with to_text_keep_lines(): Ok(true) when it kept the lines,
+	/// Ok(false) when it wrote the canonical form instead. A line the load
+	/// dropped comes back as written when the lines are kept, so this
+	/// refuses the way save_file does only when it would write canonical.
+	pub fn save_file_keep_lines(&mut self, path: &str) -> Result<bool, SaveError> {
+		let opts = SaveOptions {
+			keep_lines: true,
+			..SaveOptions::default()
+		};
+		self.save_file_with(path, &opts)
+	}
+
+	fn emit_marked(&self) -> Emit {
+		let mut e = Emit::new(self.arena.len() * 24, false);
+		e.lines = true;
+		self.emit_all(&mut e);
+		e
+	}
+
+	fn emit_all(&self, e: &mut Emit) {
+		self.emit_children(&self.arena[ROOT].children, 0, e);
+		// Comments that never found a following line re-emit at the end.
+		e.near(ROOT, 0);
+		push_leads(self, e, &self.orphans, 0, (ROOT, Site::Orphans, 0));
+	}
+
+	/// True when a reload keeps a clean field line with an index in its path
+	/// where the emit model stands, after its resolve found a live parent:
+	/// an index selects none of the instances written before it (E003), or
+	/// one reaches stacked items before the last segment (E001). Lines held
+	/// open since the last binding line are walked first, as the reload opens
+	/// them.
+	fn index_refuses(
+		&self,
+		e: &Emit,
+		open: isize,
+		tail: &[(String, usize)],
+		segs: &[Segment],
+	) -> bool {
+		if tail.iter().any(|t| t.1 != LAZY) {
+			return false;
+		}
+		let base = usize::try_from(open).ok();
+		let Some(mut node) = base.map_or(Some(ROOT), |d| e.lv.get(d).map(|l| l.node)) else {
+			return false;
+		};
+		// Of the first node's children, only those written so far.
+		let mut upto = e.lv.get(base.map_or(0, |d| d + 1)).map_or(0, |l| l.pos + 1);
+		let mut held: Vec<Segment> = Vec::new();
+		for (indent, _) in tail {
+			let Some((_, text)) = e.lazies.iter().rev().find(|l| l.0 == *indent) else {
+				return false;
+			};
+			let mut tok = Tokens::default();
+			tokenize(text, b':', false, Rules::Current, &mut tok);
+			let Ok(scan) = path_of(&tok, text) else {
+				return false;
+			};
+			held.extend(scan.segments);
+		}
+		for seg in &held {
+			match self.written_step(node, upto, seg) {
+				Some(c) => node = c,
+				// Opening it creates a field, with no instance under it.
+				None => return true,
+			}
+			upto = usize::MAX;
+		}
+		let through = segs[..segs.len() - 1].iter().any(by_index);
+		for (i, seg) in segs.iter().enumerate() {
+			let found = self.written_step(node, upto, seg);
+			upto = usize::MAX;
+			match found {
+				Some(c) if through && i + 1 < segs.len() && stacks(&self.arena[c]) => return true,
+				Some(c) => node = c,
+				None if by_index(seg) => return true,
+				// Created, so every index after it selects nothing.
+				None => return segs[i + 1..].iter().any(by_index),
+			}
+		}
+		false
+	}
+
+	/// The child a reload's path step selects under `cur` among its first
+	/// `upto` children, as the parser's found_step() does.
+	fn written_step(&self, cur: usize, upto: usize, seg: &Segment) -> Option<usize> {
+		let kids = &self.arena[cur].children;
+		let mut named = kids[..upto.min(kids.len())]
+			.iter()
+			.copied()
+			.filter(|&c| self.arena[c].name == seg.name);
+		match &seg.selector {
+			None => named.find(|&c| self.arena[c].value.is_empty()),
+			Some(Selector::ByValue { text, .. }) => {
+				named.find(|&c| matches!(&self.arena[c].value, Value::Cell(v) if v.text == *text))
+			}
+			Some(Selector::ByIndex(k)) => index_usize(*k).and_then(|i| named.nth(i)),
+			Some(Selector::Wildcard) => None,
+		}
+	}
+
+	/// Make a misplaced line kept as written into the comment the emitter
+	/// writes it as, wherever it would now bind as written, so the document
+	/// is the one its saved text reloads as and the next edit comes out the same
+	/// either way. One among a list's elements goes above the list, as a
+	/// reload files a comment there. Runs after a load and after each edit,
+	/// and only while the document holds such a line.
+	fn settle_kept(&mut self) {
+		self.settle_arrays();
+		// A line moved out of a list can leave it written inline, which
+		// changes what the lines after it sit under, so go again until
+		// nothing moves.
+		let was = self.kept;
+		while self.kept && self.settle_kept_once() {}
+		if self.kept {
+			self.kept_sum = self.near_sum();
+		}
+		// One of those may have been the line under a kept array.
+		if was {
+			self.settle_arrays();
+		}
+	}
+
+	/// A kept array line stays kept only while it heads a field with fields
+	/// under it (E028). One a merge or an edit leaves anywhere else would
+	/// bind on a reload, so it is written as a comment, the way the settle
+	/// writes a misplaced line that would read differently.
+	fn settle_arrays(&mut self) {
+		if !self.arrays {
+			return;
+		}
+		let mut stack = self.arena[ROOT].children.clone();
+		while let Some(n) = stack.pop() {
+			stack.extend_from_slice(&self.arena[n].children);
+			let heads = heads_block(&self.arena[n]);
+			// Among a stacked list's items and after them, an array line is
+			// kept for where it sits (E001), and a reload keeps it again.
+			let listed = stacks(&self.arena[n]);
+			let Some(t) = self.arena[n].trivia.as_deref_mut() else {
+				continue;
+			};
+			settle_array_run(&mut t.leading, heads);
+			if listed {
+				settle_array_run(&mut t.after, false);
+				continue;
+			}
+			settle_array_run(&mut t.inside, false);
+			settle_array_run(&mut t.after, false);
+			let mut from = 0;
+			while from < t.among.len() {
+				let at = t.among[from].0;
+				let to = from + t.among[from..].iter().take_while(|a| a.0 == at).count();
+				let mut run: Vec<Lead> = t.among[from..to].iter().map(|a| a.1.clone()).collect();
+				settle_array_run(&mut run, false);
+				for (slot, l) in t.among[from..to].iter_mut().zip(run) {
+					slot.1 = l;
+				}
+				from = to;
+			}
+		}
+		settle_array_run(&mut self.orphans, false);
+	}
+
+	/// After an edit. A kept line binds or not by the lines between it and
+	/// the binding line above, so an edit that changed none of the nodes
+	/// those came from cannot move it, and the whole-document emit is
+	/// skipped (20260924d item 2).
+	fn resettle_kept(&mut self) {
+		if self.kept && (self.walked || self.near_sum() != self.kept_sum) {
+			self.settle_kept();
+		} else {
+			self.settle_arrays();
+		}
+	}
+
+	/// Everything the emit model reads from the nodes in `kept_near`: each
+	/// one still at its place in its parent's list, its child count, its
+	/// value's form and its comment lines. A kept line's parent chain needs
+	/// no entry, since a binding line resets the model to its own depth.
+	fn near_sum(&self) -> u64 {
+		let mut h = Fnv::new();
+		let lead = |h: &mut Fnv, l: &Lead| {
+			h.dec(l.depth);
+			h.dec(l.text.len());
+			h.bytes(l.text.as_bytes());
+		};
+		for &(n, pos) in &self.kept_near {
+			let nd = &self.arena[n];
+			h.dec(n);
+			h.dec(nd.children.len());
+			if n == ROOT {
+				h.dec(self.orphans.len());
+				for l in &self.orphans {
+					lead(&mut h, l);
+				}
+				continue;
+			}
+			let linked = self.arena.get(nd.parent).and_then(|p| p.children.get(pos)) == Some(&n);
+			h.byte(u8::from(linked));
+			h.byte(u8::from(stacks(nd)));
+			match &nd.value {
+				Value::Empty => h.byte(0),
+				Value::Cell(_) => h.byte(1),
+				Value::Array(els) => {
+					h.byte(3);
+					h.dec(els.len());
+				}
+				Value::Raw(_) => h.byte(2),
+			}
+			let Some(t) = nd.trivia.as_deref() else {
+				h.byte(0);
+				continue;
+			};
+			for list in [&t.leading, &t.inside, &t.after] {
+				h.dec(list.len());
+				for l in list {
+					lead(&mut h, l);
+				}
+			}
+			h.dec(t.among.len());
+			for (i, l) in &t.among {
+				h.dec(*i);
+				lead(&mut h, l);
+			}
+		}
+		h.0
+	}
+
+	fn settle_kept_once(&mut self) -> bool {
+		let mut e = Emit::new(0, true);
+		self.emit_all(&mut e);
+		self.kept = e.verbatim > 0;
+		self.walked = e.walked;
+		self.kept_near = std::mem::take(&mut e.kept_near);
+		let mut among: Vec<(usize, usize)> = Vec::new();
+		for &(node, site, i, depth) in &e.fell {
+			let list = match site {
+				Site::Orphans => &mut self.orphans,
+				Site::Among => {
+					among.push((node, i));
+					continue;
+				}
+				_ => {
+					let t = self.arena[node].triv_mut();
+					match site {
+						Site::Leading => &mut t.leading,
+						Site::Inside => &mut t.inside,
+						_ => &mut t.after,
+					}
+				}
+			};
+			let l = &mut list[i];
+			l.text = commented(&l.text);
+			l.depth = depth;
+			l.kept = true;
+		}
+		// Out of each list latest first, so a removal leaves the earlier
+		// indices alone, then onto the end of the leading lines in order.
+		let moved_any = !among.is_empty();
+		let mut moved: Vec<Lead> = Vec::new();
+		while let Some((node, i)) = among.pop() {
+			let t = self.arena[node].triv_mut();
+			moved.push(t.among.remove(i).1);
+			if among.last().is_some_and(|a| a.0 == node) {
+				continue;
+			}
+			let depth = t
+				.leading
+				.iter()
+				.rev()
+				.find(|c| !c.text.starts_with([' ', '\t']))
+				.map_or(0, |c| c.depth);
+			for mut l in moved.drain(..).rev() {
+				l.text = commented(&l.text);
+				l.depth = depth;
+				l.line = 0;
+				l.kept = true;
+				t.leading.push(l);
+			}
+		}
+		// A line moved above the first list in the file is now the first
+		// thing written, so its blank goes the way the load's did.
+		if moved_any {
+			settle_first_blank(&mut self.arena, &mut self.orphans);
+		}
+		moved_any
 	}
 
 	/// Emit a sibling run. The parent walk already knows whether an earlier
 	/// same-name sibling is empty (the raw same-line-fence hazard), so one
 	/// seen-empties set here replaces a per-child rescan of the whole run.
-	fn emit_children(&self, kids: &[usize], depth: usize, out: &mut String) {
+	fn emit_children(&self, kids: &[usize], depth: usize, e: &mut Emit) {
 		let mut empties: std::collections::HashSet<&str> = std::collections::HashSet::new();
-		for &c in kids {
+		for (pos, &c) in kids.iter().enumerate() {
 			let n = &self.arena[c];
 			let wm = matches!(n.value, Value::Raw { .. }) && empties.contains(n.name.as_str());
 			if n.value.is_empty() {
 				empties.insert(n.name.as_str());
 			}
-			self.emit_node(c, depth, wm, out);
+			self.emit_node(c, pos, depth, wm, e);
 		}
 	}
 
-	fn emit_node(&self, idx: usize, depth: usize, would_merge: bool, out: &mut String) {
+	fn emit_node(&self, idx: usize, pos: usize, depth: usize, would_merge: bool, e: &mut Emit) {
+		self.emit_line(idx, pos, depth, would_merge, e);
+		self.emit_children(&self.arena[idx].children, depth + 1, e);
+		e.near(idx, pos);
+		// Comments this block owns with no child to take them, one deeper.
+		push_leads(
+			self,
+			e,
+			self.arena[idx].inside(),
+			depth + 1,
+			(idx, Site::Inside, 0),
+		);
+		// Comments that hung on this block after its last child.
+		push_leads(
+			self,
+			e,
+			self.arena[idx].after(),
+			depth,
+			(idx, Site::After, 0),
+		);
+	}
+
+	// Kept out of emit_node, which recurses once per level: its temporaries
+	// would otherwise sit in every frame, and a document at the nesting cap
+	// ran past a 1 MB stack in a debug build.
+	#[inline(never)]
+	fn emit_line(&self, idx: usize, pos: usize, depth: usize, would_merge: bool, e: &mut Emit) {
 		let node = &self.arena[idx];
+		e.near(idx, pos);
 		let pad: String = "\t".repeat(depth);
-		// Same-line fence spelling can't carry an inline comment (an unbalanced
+		// Same-line fence spelling can't have an inline comment (an unbalanced
 		// quote in the info-string could hide the `#` on reparse), so its
 		// trailing comment joins the leading lines instead; the flag comes from
 		// the parent's walk. Each blank rides its own comment (or the binding
 		// line), never as the first output line.
-		for c in node.leading() {
-			if c.blank_before && !out.is_empty() {
-				out.push('\n');
-			}
-			out.push_str(&pad);
-			out.push_str(&c.text);
-			out.push('\n');
+		push_leads(self, e, node.leading(), depth, (idx, Site::Leading, 0));
+		// The kept line just written opens this block on a reload.
+		if heads_block(node) {
+			e.bound(depth, idx, pos);
+			e.near(idx, pos);
+			return;
 		}
-		if node.blank_before && !out.is_empty() {
-			out.push('\n');
+		if node.blank_before && !e.out.is_empty() {
+			e.out.push('\n');
 		}
+		e.mark(node.line);
+		let out = &mut e.out;
 		if would_merge && !node.trailing().is_empty() {
 			out.push_str(&pad);
 			out.push_str(node.trailing());
@@ -2276,21 +7333,79 @@ impl Document {
 		out.push_str(&pad);
 		out.push_str(&emit_name(&node.name));
 		out.push(':');
+		e.bound(depth, idx, pos);
+		e.near(idx, pos);
+		if let Some(l) = e.lv.get_mut(depth) {
+			l.valued = !node.value.is_empty() && !stacks(node);
+		}
 		match &node.value {
 			Value::Empty => {
-				push_trailing(out, node.trailing());
-				out.push('\n');
+				e.span(e.out.len());
+				push_trailing(&mut e.out, node.trailing());
+				e.out.push('\n');
 			}
-			Value::Cell(els) => {
-				out.push(' ');
-				let joined = els.iter().map(emit_element).collect::<Vec<_>>().join(", ");
-				out.push_str(&joined);
-				push_trailing(out, node.trailing());
-				out.push('\n');
+			Value::Array(els) if stacks(node) => {
+				// Stacked, with the kept lines where they sat.
+				push_trailing(&mut e.out, node.trailing());
+				e.out.push('\n');
+				let among = node.among();
+				let mut next = 0;
+				for (i, el) in els.iter().enumerate() {
+					let from = next;
+					while next < among.len() && among[next].0 <= i {
+						next += 1;
+					}
+					for (j, (_, l)) in among[from..next].iter().enumerate() {
+						push_leads(
+							self,
+							e,
+							std::slice::from_ref(l),
+							depth + 1,
+							(idx, Site::Among, from + j),
+						);
+					}
+					let column = "\t".repeat(depth + 1);
+					e.out.push_str(&column);
+					e.out.push_str("- ");
+					e.out.push_str(&emit_scalar(el));
+					for (_, n) in node.notes().iter().filter(|n| n.0 == i) {
+						push_trailing(&mut e.out, n);
+					}
+					e.out.push('\n');
+					e.placed(&column);
+					if let Some(l) = e.lv.get_mut(depth) {
+						l.items = true;
+					}
+				}
+				for (j, (_, l)) in among[next..].iter().enumerate() {
+					push_leads(
+						self,
+						e,
+						std::slice::from_ref(l),
+						depth + 1,
+						(idx, Site::Among, next + j),
+					);
+				}
+			}
+			Value::Cell(el) => {
+				let at = e.out.len();
+				e.out.push(' ');
+				e.out.push_str(&emit_scalar(el));
+				e.span(at);
+				push_trailing(&mut e.out, node.trailing());
+				e.out.push('\n');
+			}
+			Value::Array(els) => {
+				let at = e.out.len();
+				e.out.push(' ');
+				emit_array_into(&mut e.out, els);
+				e.span(at);
+				push_trailing(&mut e.out, node.trailing());
+				e.out.push('\n');
 			}
 			Value::Raw(r) => {
-				let (content, info, fence_char, fence_len) =
-					(&r.content, &r.info, &r.fence_char, &r.fence_len);
+				let out = &mut e.out;
+				let (content, fence_char, fence_len) = (&r.content, &r.fence_char, &r.fence_len);
 				// Child-indent spelling is canonical: bare name line, fenced
 				// block one level deeper, verbatim content. Exception: if an
 				// earlier same-name sibling is empty, the bare `name:` header
@@ -2307,55 +7422,1563 @@ impl Document {
 				if !would_merge {
 					out.push_str(&pad);
 				}
-				out.push_str(&fence);
-				if !info.is_empty() {
-					// An info-string starting with the fence char would extend
-					// the run on reparse; a space keeps the fence length intact.
-					if info.as_bytes()[0] == *fence_char {
-						out.push(' ');
-					}
-					out.push_str(info);
-				}
+				out.push_str(&emit_fence_line(r));
 				out.push('\n');
+				let body = out.len();
 				if !content.is_empty() {
-					// A body with no non-blank line has no common indent for the
-					// reload to strip back off, so indenting it here would add a
-					// level on every pass, without bound. Leave it as it stands.
-					let all_blank = content.split('\n').all(|l| l.trim().is_empty());
 					for l in content.split('\n') {
-						if !l.is_empty() && !all_blank {
+						if !l.is_empty() {
 							out.push_str(&pad);
 						}
 						out.push_str(l);
 						out.push('\n');
 					}
 				}
+				let end = out.len();
 				out.push_str(&pad);
 				out.push_str(&fence);
 				out.push('\n');
+				if e.lines {
+					e.bodies.push((body, end, depth + 1));
+				}
 			}
-		}
-		self.emit_children(&self.arena[idx].children, depth + 1, out);
-		// Comments this block owns with no child to carry them, one deeper.
-		let ipad: String = "\t".repeat(depth + 1);
-		for c in self.arena[idx].inside() {
-			if c.blank_before && !out.is_empty() {
-				out.push('\n');
-			}
-			out.push_str(&ipad);
-			out.push_str(&c.text);
-			out.push('\n');
-		}
-		// Comments that hung on this block after its last child.
-		for c in self.arena[idx].after() {
-			if c.blank_before && !out.is_empty() {
-				out.push('\n');
-			}
-			out.push_str(&pad);
-			out.push_str(&c.text);
-			out.push('\n');
 		}
 	}
+}
+
+/// Canonical text on its way out, with a model of the level stack a reload
+/// of it will have at this point: the sentinel and one level per tab up to
+/// `open`, which the last binding line leaves, then what the lines refused
+/// since then pushed, and the indent of a kept misplaced line that the
+/// lines under it are kept with.
+struct Emit {
+	out: String,
+	open: isize,
+	tail: Vec<(String, usize)>,
+	hold: Option<String>,
+	// settle_kept() only: the lines written as comments, where they sit and
+	// at what depth, and how many went out as written. Then the nodes the
+	// lines since the last binding line came from, each with its place in
+	// its parent's list, and those a kept line was modeled through.
+	record: bool,
+	fell: Vec<(usize, Site, usize, usize)>,
+	verbatim: usize,
+	near: Vec<(usize, usize)>,
+	flushed: usize,
+	kept_near: Vec<(usize, usize)>,
+	// Per binding depth, whether that node has a `- ` item written yet, a
+	// field line under it, and a value an item cannot join, for a kept line
+	// refused only for where it sits, and the node with its place in its
+	// parent's list. Then the text of each kept line held open since the
+	// last binding line, by its indent, and whether a kept line was asked
+	// about the instances written before it.
+	lv: Vec<Lv>,
+	lazies: Vec<(String, String)>,
+	walked: bool,
+	// to_text_keep_lines() only: where the lines from each source line start
+	// (0 for none), each raw body with the tabs its lines are padded with,
+	// and where each value is written on its binding line.
+	lines: bool,
+	marks: Vec<(usize, usize)>,
+	bodies: Vec<(usize, usize, usize)>,
+	spans: Vec<(usize, usize)>,
+}
+
+impl Emit {
+	fn new(cap: usize, record: bool) -> Emit {
+		Emit {
+			out: String::with_capacity(cap),
+			open: -1,
+			tail: Vec::new(),
+			hold: None,
+			record,
+			fell: Vec::new(),
+			verbatim: 0,
+			near: Vec::new(),
+			flushed: 0,
+			kept_near: Vec::new(),
+			lv: Vec::new(),
+			lazies: Vec::new(),
+			walked: false,
+			lines: false,
+			marks: Vec::new(),
+			bodies: Vec::new(),
+			spans: Vec::new(),
+		}
+	}
+
+	fn mark(&mut self, line: usize) {
+		if self.lines {
+			self.marks.push((self.out.len(), line));
+		}
+	}
+
+	/// A value written from `at` to here, the space before it included.
+	fn span(&mut self, at: usize) {
+		if self.lines {
+			self.spans.push((at, self.out.len()));
+		}
+	}
+
+	/// A binding line at this depth: the stack is its levels and nothing else.
+	fn bound(&mut self, depth: usize, node: usize, pos: usize) {
+		self.lv.truncate(depth);
+		if let Some(up) = self.lv.last_mut() {
+			up.fields = true;
+		}
+		self.lv.push(Lv {
+			node,
+			pos,
+			..Lv::default()
+		});
+		self.open = depth as isize;
+		self.tail.clear();
+		self.lazies.clear();
+		self.hold = None;
+		self.near.clear();
+		self.flushed = 0;
+	}
+
+	fn near(&mut self, idx: usize, pos: usize) {
+		if self.record {
+			self.near.push((idx, pos));
+		}
+	}
+
+	/// A line at this indent through the reload's resolve_parent(): the
+	/// parent it finds, and the model as it leaves it, not yet taken.
+	fn resolve(&self, indent: &str) -> (Option<usize>, isize, Vec<(String, usize)>) {
+		let levels = (self.open + 2) as usize;
+		let mut stack: Vec<(String, usize)> = Vec::with_capacity(levels + self.tail.len() + 1);
+		stack.push((String::new(), ROOT));
+		for d in 0..levels - 1 {
+			stack.push(("\t".repeat(d), ROOT));
+		}
+		stack.extend(self.tail.iter().cloned());
+		let (parent, cut) = locate_in(&stack, indent);
+		match cut {
+			Cut::To(n) => stack.truncate(n),
+			Cut::Hold(h) => {
+				if let Some(h) = h {
+					stack.truncate(h);
+				}
+				stack.push((indent.to_string(), UNOPENED));
+			}
+		}
+		if stack.len() <= levels {
+			return (parent, stack.len() as isize - 2, Vec::new());
+		}
+		(parent, self.open, stack.split_off(levels))
+	}
+
+	/// Take a resolve, then the refusal's push: a refused line holds its own
+	/// column unless it already sits there as a skipped line's.
+	fn refused(&mut self, indent: &str, open: isize, tail: Vec<(String, usize)>) {
+		self.open = open;
+		self.tail = tail;
+		if !matches!(self.tail.last(), Some((i, n)) if i == indent && *n == UNOPENED) {
+			self.tail.push((indent.to_string(), DEAD));
+		}
+	}
+
+	/// A line a reload binds, such as a list element: it resolves, then
+	/// holds its column with a live node.
+	fn placed(&mut self, indent: &str) {
+		let (_, open, tail) = self.resolve(indent);
+		self.open = open;
+		self.tail = tail;
+		self.tail.push((indent.to_string(), ROOT));
+		self.hold = None;
+	}
+}
+
+#[derive(Clone, Copy, Default)]
+struct Lv {
+	items: bool,
+	fields: bool,
+	valued: bool,
+	node: usize,
+	pos: usize,
+}
+
+/// Which trivia list a line sits in.
+#[derive(Clone, Copy, PartialEq)]
+enum Site {
+	Leading,
+	Inside,
+	After,
+	Among,
+	Orphans,
+}
+
+/// True when a field's last leading line is one kept for its value alone,
+/// naming just this field, so that line is written in place of the bare
+/// `name:` line: a reload opens the field from it the same way. An empty
+/// block keeps its own line, since nothing would open the field. Only what
+/// a reload restores counts, so a document and its reload agree.
+fn heads_block(node: &NodeData) -> bool {
+	!node.children.is_empty() && opened_by_kept(node)
+}
+
+/// heads_block() but for the children: a field a reload would open only
+/// from the lines under it, so it goes with the last of them.
+fn opened_by_kept(node: &NodeData) -> bool {
+	if !node.value.is_empty() || node.blank_before || !node.trailing().is_empty() {
+		return false;
+	}
+	let Some(l) = node.leading().last() else {
+		return false;
+	};
+	if l.depth != 0 || l.text.starts_with([' ', '\t']) || !opens_later(&l.text) {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(&l.text, b':', false, Rules::Current, &mut tok);
+	path_of(&tok, &l.text).is_ok_and(|scan| {
+		scan.segments.len() == 1
+			&& scan.segments[0].selector.is_none()
+			&& scan.segments[0].name == node.name
+	})
+}
+
+fn kept_in(leads: &[Lead]) -> usize {
+	leads.iter().filter(|l| l.is_kept_line()).count()
+}
+
+/// A reload starts a comment run at 0 and steps one level at a time past
+/// the comment or kept field line before it, so a comment left after the
+/// line it sat under went is pulled back to fit.
+fn restep(leads: &mut [Lead]) {
+	let mut room = 0;
+	for l in leads.iter_mut() {
+		if l.text.starts_with('#') {
+			l.depth = l.depth.min(room);
+			room = l.depth + 1;
+		} else if is_field(&l.text) {
+			room = l.depth + 1;
+		}
+	}
+}
+
+/// The kept lines a load's fold gave this node from a later instance of
+/// it, with the comments before them: what beside_kept() takes, from the
+/// first line read after the node's own. Only a fold puts those there.
+fn folded_kept(nd: &mut NodeData) -> Vec<Lead> {
+	let (line, heads) = (nd.line, heads_block(nd));
+	let Some(t) = nd.trivia.as_deref_mut() else {
+		return Vec::new();
+	};
+	let Some(from) = t.leading.iter().position(|l| l.line > line) else {
+		return Vec::new();
+	};
+	let end = t.leading[..t.leading.len() - usize::from(heads)]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	if end <= from {
+		return Vec::new();
+	}
+	let left = t.leading.drain(from..end).collect();
+	restep(&mut t.leading);
+	left
+}
+
+/// What a remove of this node leaves of its lines, by design.md's kept-lines
+/// table: the kept lines beside it, with the comments that sit with them.
+/// Above it that is everything up to its last kept line, below it everything
+/// from its first, so a comment written against the node goes with it. The
+/// kept line written in place of its `name:` line goes too. What goes stays
+/// on the node, where a fold of two instances still wants it.
+fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
+	let heads = heads_block(nd);
+	let Some(t) = nd.trivia.as_deref_mut() else {
+		return Vec::new();
+	};
+	let mut left = std::mem::take(&mut t.leading);
+	let end = left[..left.len() - usize::from(heads)]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	t.leading = left.split_off(end);
+	let from = t
+		.after
+		.iter()
+		.position(Lead::is_kept_line)
+		.unwrap_or(t.after.len());
+	left.extend(t.after.drain(from..));
+	left
+}
+
+/// Kept lines in all of one node's trivia lists.
+fn kept_in_lists(nd: &NodeData) -> usize {
+	kept_in(nd.leading())
+		+ kept_in(nd.after())
+		+ kept_in(nd.inside())
+		+ nd.among().iter().filter(|a| a.1.is_kept_line()).count()
+}
+
+/// A misplaced line's text as the comment it falls back to.
+fn commented(text: &str) -> String {
+	format!("# {}", &text[leading_ws(text).len()..])
+}
+
+/// Comments out each kept array line in a run but one written in place of
+/// the line of a field with fields under it, the run's last when `heads`
+/// says so. Anywhere else no field binds under it on a reload, so it would
+/// bind itself. What sat under it goes the same way, since a comment holds
+/// no level.
+fn settle_array_run(run: &mut [Lead], heads: bool) {
+	let mut settled = false;
+	for k in 0..run.len() {
+		let l = &run[k];
+		if l.text.starts_with(['#', ' ', '\t'])
+			|| !array_kept(&l.text)
+			|| (heads && k + 1 == run.len())
+		{
+			continue;
+		}
+		let depth = l.depth;
+		let end = run[k + 1..]
+			.iter()
+			.position(|x| !x.text.starts_with('#') && x.depth <= depth)
+			.map_or(run.len(), |e| k + 1 + e);
+		for l in &mut run[k..end] {
+			if !l.text.starts_with('#') {
+				l.text = commented(&l.text);
+				l.kept = true;
+			}
+		}
+		settled = true;
+	}
+	if settled {
+		restep(run);
+	}
+}
+
+/// A field line kept only for the lines under it: a whole array, and
+/// nothing else wrong with it (E028).
+fn array_kept(text: &str) -> bool {
+	if !is_field(text) || !is_field_text(text) {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	// One with an index in its path is the emitter's, which asks the
+	// instances written before it.
+	tok.array.is_some()
+		&& path_of(&tok, text).is_ok_and(|scan| !scan.segments.iter().any(by_index))
+		&& line_fault(&tok, text).is_none()
+}
+
+/// A path in a note, kept to one line, the way `schema_text` shows one.
+fn note_text(s: &str) -> String {
+	schema_text(s)
+}
+
+/// The code and message the load gave a kept line that names just `name`,
+/// at the level of the block it sits in: a field line refused for its value
+/// alone, which a reload would read as another `name` once fixed by hand. A
+/// line with a raw body could not be commented out as one line.
+fn kept_naming(l: &Lead, name: &str) -> Option<(&'static str, String)> {
+	if l.depth != 0
+		|| !is_field_text(&l.text)
+		|| l.text.starts_with([' ', '\t'])
+		|| l.text.contains('\n')
+	{
+		return None;
+	}
+	let mut tok = Tokens::default();
+	tokenize(&l.text, b':', false, Rules::Current, &mut tok);
+	let scan = path_of(&tok, &l.text).ok()?;
+	let [seg] = scan.segments.as_slice() else {
+		return None;
+	};
+	if seg.selector.is_some() || seg.name != name {
+		return None;
+	}
+	line_fault(&tok, &l.text)
+		.filter(|f| f.opens)
+		.map(|f| (f.code, f.msg))
+}
+
+/// A kept line a setter writes as a comment, with the note giving why and
+/// when. It is a plain comment from here on, as a reload reads it.
+fn note_lead(l: &mut Lead, path: &str, code: &str, msg: &str) {
+	// The reason, without the advice after it.
+	let why = msg.split(';').next().unwrap_or_default();
+	l.text = format!(
+		"{}  ## commented out by shcl when setting {}, {}: {code} {why}",
+		commented(&l.text),
+		note_text(path),
+		note_stamp()
+	);
+	l.line = 0;
+	l.kept = false;
+}
+
+/// How many lines after `leads[k]` are written under it: each line deeper
+/// than it up to the next field line that is not, with the comments and
+/// misplaced lines among them, since neither ends the lines it holds open.
+fn run_under(leads: &[Lead], k: usize) -> usize {
+	let depth = leads[k].depth;
+	let mut last = k;
+	for (i, l) in leads.iter().enumerate().skip(k + 1) {
+		// A misplaced line is at depth 0, whatever its own indent.
+		if l.depth > depth {
+			last = i;
+		} else if !l.text.starts_with(['#', ' ', '\t']) {
+			break;
+		}
+	}
+	last - k
+}
+
+/// Local time to the second, with the zone, for a setter's note on a line it
+/// commented out. SHCL_TEST_CLOCK stands in for the system clock and zone, so
+/// tests can pin the text: "YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]".
+fn note_stamp() -> String {
+	let (when, offset, name) = clock_now();
+	format!("{when} {}", zone_label(offset, &name))
+}
+
+/// The local time, its offset and zone name, or SHCL_TEST_CLOCK's.
+fn clock_now() -> (String, i32, String) {
+	std::env::var("SHCL_TEST_CLOCK")
+		.ok()
+		.and_then(|s| test_clock(&s))
+		.unwrap_or_else(local_clock)
+}
+
+/// The clock every unit test runs on, as tests/common pins it for the rest.
+/// Each test_id here calls it first, and the Once holds the other threads back.
+#[cfg(test)]
+fn pin_test_clock() {
+	static ONCE: std::sync::Once = std::sync::Once::new();
+	// SAFETY: nothing reads the environment while the Once holds the other
+	// tests back, and nothing changes it after.
+	ONCE.call_once(|| unsafe {
+		std::env::set_var("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
+	});
+}
+
+fn test_clock(spec: &str) -> Option<(String, i32, String)> {
+	let f: Vec<&str> = spec.split_whitespace().collect();
+	if f.len() != 3 && f.len() != 4 {
+		return None;
+	}
+	let offset = f[2].parse().ok()?;
+	let name = f.get(3).map_or("", |n| n);
+	Some((format!("{} {}", f[0], f[1]), offset, name.to_string()))
+}
+
+/// The zone's short name, such as PDT, or its offset when it has none:
+/// Windows gives only long names, and some zones a number such as `+03`.
+fn zone_label(offset: i32, name: &str) -> String {
+	if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphabetic()) {
+		return name.to_string();
+	}
+	let sign = if offset < 0 { '-' } else { '+' };
+	let m = offset.unsigned_abs();
+	format!("UTC{sign}{:02}:{:02}", m / 60, m % 60)
+}
+
+/// The local time, its offset from UTC in minutes, and the zone's short name.
+/// The offset is the local time less UTC for the same instant, since
+/// `tm_gmtoff` is not in POSIX's `struct tm`.
+#[cfg(unix)]
+fn local_clock() -> (String, i32, String) {
+	use std::ffi::{c_char, c_int};
+	// The nine fields POSIX names, then room for whatever the platform adds,
+	// such as glibc's tm_zone, which strftime's %Z reads.
+	#[repr(C)]
+	#[derive(Clone, Copy)]
+	struct Tm {
+		sec: c_int,
+		min: c_int,
+		hour: c_int,
+		mday: c_int,
+		mon: c_int,
+		year: c_int,
+		wday: c_int,
+		yday: c_int,
+		isdst: c_int,
+		rest: [u64; 8],
+	}
+	// time_t is 64 bits on every target this builds for.
+	unsafe extern "C" {
+		fn tzset();
+		fn localtime_r(t: *const i64, out: *mut Tm) -> *mut Tm;
+		fn gmtime_r(t: *const i64, out: *mut Tm) -> *mut Tm;
+		fn strftime(buf: *mut c_char, max: usize, format: *const c_char, tm: *const Tm) -> usize;
+	}
+	let now = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+	let blank = Tm {
+		sec: 0,
+		min: 0,
+		hour: 0,
+		mday: 1,
+		mon: 0,
+		year: 70,
+		wday: 0,
+		yday: 0,
+		isdst: 0,
+		rest: [0; 8],
+	};
+	let (mut local, mut utc) = (blank, blank);
+	let mut buf = [0 as c_char; 64];
+	// SAFETY: each call writes only into the buffer it is handed, and the
+	// struct is larger than any platform's struct tm.
+	let n = unsafe {
+		tzset();
+		if gmtime_r(&now, &mut utc).is_null() {
+			utc = blank;
+		}
+		if localtime_r(&now, &mut local).is_null() {
+			local = utc;
+		}
+		strftime(buf.as_mut_ptr(), buf.len(), c"%Z".as_ptr(), &local)
+	};
+	let name: String = buf[..n].iter().map(|&b| char::from(b as u8)).collect();
+	let mut days = local.yday - utc.yday;
+	if local.year != utc.year {
+		days = if local.year < utc.year { -1 } else { 1 };
+	}
+	let offset = (days * 24 + local.hour - utc.hour) * 60 + local.min - utc.min;
+	let when = format!(
+		"{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+		local.year + 1900,
+		local.mon + 1,
+		local.mday,
+		local.hour,
+		local.min,
+		local.sec
+	);
+	(when, offset, name)
+}
+
+/// As the unix one. Windows names a zone only in full, such as "Pacific
+/// Daylight Time", so the label is always the offset.
+#[cfg(windows)]
+fn local_clock() -> (String, i32, String) {
+	#[repr(C)]
+	#[derive(Clone, Copy, Default)]
+	struct SystemTime {
+		year: u16,
+		month: u16,
+		weekday: u16,
+		day: u16,
+		hour: u16,
+		minute: u16,
+		second: u16,
+		millis: u16,
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetSystemTimeAsFileTime(out: *mut u64);
+		fn FileTimeToSystemTime(file_time: *const u64, out: *mut SystemTime) -> i32;
+		fn SystemTimeToTzSpecificLocalTime(
+			zone: *const core::ffi::c_void,
+			utc: *const SystemTime,
+			local: *mut SystemTime,
+		) -> i32;
+		fn SystemTimeToFileTime(st: *const SystemTime, out: *mut u64) -> i32;
+	}
+	let (mut utc, mut local) = (SystemTime::default(), SystemTime::default());
+	let (mut now, mut utc_ft, mut local_ft) = (0u64, 0u64, 0u64);
+	// SAFETY: each call writes only into the value it is handed. A FILETIME
+	// is two u32 halves, low first, which is a u64 on this little-endian
+	// target.
+	let ok = unsafe {
+		GetSystemTimeAsFileTime(&mut now);
+		FileTimeToSystemTime(&now, &mut utc) != 0 && {
+			utc.millis = 0;
+			SystemTimeToTzSpecificLocalTime(std::ptr::null(), &utc, &mut local) != 0
+				&& SystemTimeToFileTime(&utc, &mut utc_ft) != 0
+				&& SystemTimeToFileTime(&local, &mut local_ft) != 0
+		}
+	};
+	if !ok {
+		local = utc;
+		local_ft = utc_ft;
+	}
+	// FILETIME counts 100 ns ticks.
+	let ticks = i64::try_from(local_ft).unwrap_or(0) - i64::try_from(utc_ft).unwrap_or(0);
+	let offset = i32::try_from(ticks / 600_000_000).unwrap_or(0);
+	let when = format!(
+		"{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+		local.year, local.month, local.day, local.hour, local.minute, local.second
+	);
+	(when, offset, String::new())
+}
+
+/// Write a run of comments and kept lines, `base` levels deep. A misplaced
+/// line kept as written (its text has its own indent, a comment's never
+/// does) goes back as it was only where a reload keeps it again, which the
+/// model of the reload's stack answers the way the parser will: refused for
+/// its indent, or under the kept line before it. A merge or an edit can
+/// leave it where it would bind, and there it is written as a comment,
+/// which reads the same. `at` names the list and the index of its first
+/// line, for settle_kept().
+fn push_leads(d: &Document, e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize)) {
+	let mut last_comment = 0;
+	for (i, c) in leads.iter().enumerate() {
+		if c.blank_before && !e.out.is_empty() {
+			e.out.push('\n');
+		}
+		// A kept line among list elements is part of the list's run.
+		if at.1 != Site::Among {
+			e.mark(c.line);
+		}
+		if c.text.starts_with([' ', '\t']) {
+			let indent = leading_ws(&c.text);
+			let (parent, open, tail) = e.resolve(indent);
+			let under = e
+				.hold
+				.as_deref()
+				.is_some_and(|h| indent.len() > h.len() && indent.starts_with(h));
+			let keep = match parent {
+				None => indent.contains(' '),
+				Some(DEAD) => under,
+				Some(_) => false,
+			};
+			if keep {
+				if parent.is_none() {
+					e.hold = Some(indent.to_string());
+				}
+				e.refused(indent, open, tail);
+				e.verbatim += 1;
+				if e.record {
+					e.kept_near.extend_from_slice(&e.near[e.flushed..]);
+					e.flushed = e.near.len();
+				}
+				e.out.push_str(&c.text);
+				e.out.push('\n');
+			} else {
+				// Level with the comment or kept field line before it, so the
+				// run's nesting reads back the same.
+				if e.record {
+					e.fell.push((at.0, at.1, at.2 + i, last_comment));
+				}
+				e.out.extend(std::iter::repeat_n('\t', base + last_comment));
+				e.out.push_str(&commented(&c.text));
+				e.out.push('\n');
+			}
+			continue;
+		}
+		let pad = base + c.depth;
+		let before = last_comment;
+		last_comment = c.depth;
+		if !c.text.starts_with('#') {
+			// A kept malformed line resolves and holds its column on a reload,
+			// open for the lines under it when only its value was wrong.
+			let indent = "\t".repeat(pad);
+			let (parent, open, tail) = e.resolve(&indent);
+			// One kept only for where it sat reloads kept only as E001 under a
+			// list with an item written, or under lines held open on one, and
+			// an item only as E008 under a field with a field line written,
+			// E011 under one with a value, or E007 at the root. Anywhere else
+			// it would bind: a comment then.
+			let indexed = indexed_path(&c.text);
+			if let Some(field) = kept_for_place(&c.text).or(indexed.as_ref().map(|_| true)) {
+				let up = (pad > 0 && tail.is_empty() && open == pad as isize - 1)
+					.then(|| e.lv.get(pad - 1))
+					.flatten()
+					.filter(|_| parent.is_some_and(|p| p != DEAD && p != UNOPENED));
+				let held = parent == Some(LAZY)
+					&& tail.iter().all(|t| t.1 == LAZY)
+					&& usize::try_from(open)
+						.ok()
+						.and_then(|d| e.lv.get(d))
+						.is_some_and(|l| l.items);
+				let root = !field && parent == Some(ROOT) && open == -1 && tail.is_empty();
+				let mut stays = root
+					|| held || up
+					.is_some_and(|l| if field { l.items } else { l.fields || l.valued });
+				// One with an index in its path is kept too where the index
+				// selects none of the instances written before it (E003), or
+				// reaches stacked items through one (E001).
+				if let Some(segs) = &indexed
+					&& !stays && parent.is_some_and(|p| p != DEAD && p != UNOPENED)
+				{
+					stays = d.index_refuses(e, open, &tail, segs);
+					e.walked |= stays;
+				}
+				if !stays && !c.text.contains('\n') {
+					// A comment nests at most one level past the line before it,
+					// or a reload reads it shallower.
+					let depth = c.depth.min(before + 1);
+					last_comment = depth;
+					if e.record {
+						e.fell.push((at.0, at.1, at.2 + i, depth));
+					}
+					e.out.extend(std::iter::repeat_n('\t', base + depth));
+					e.out.push_str(&commented(&c.text));
+					e.out.push('\n');
+					continue;
+				}
+				e.verbatim += 1;
+				if e.record {
+					e.kept_near.extend_from_slice(&e.near[e.flushed..]);
+					e.flushed = e.near.len();
+				}
+			}
+			e.hold = None;
+			if parent.is_some_and(|p| p != DEAD) && opens_later(&c.text) {
+				e.open = open;
+				e.tail = tail;
+				e.lazies.push((indent.clone(), c.text.clone()));
+				e.tail.push((indent, LAZY));
+			} else {
+				e.refused(&indent, open, tail);
+			}
+		}
+		e.out.extend(std::iter::repeat_n('\t', pad));
+		push_kept(e, &c.text, pad);
+	}
+}
+
+/// A kept line, and the raw body and fence it took, if any, which go one
+/// level under it, as a field's block does. The body moves with its line.
+fn push_kept(e: &mut Emit, text: &str, pad: usize) {
+	let Some((line, block)) = text.split_once('\n') else {
+		e.out.push_str(text);
+		e.out.push('\n');
+		return;
+	};
+	e.out.push_str(line);
+	e.out.push('\n');
+	let body = e.out.len();
+	let fence = match block.rsplit_once('\n') {
+		Some((lines, fence)) => {
+			for l in lines.split('\n') {
+				if !l.is_empty() {
+					e.out.extend(std::iter::repeat_n('\t', pad + 1));
+				}
+				e.out.push_str(l);
+				e.out.push('\n');
+			}
+			fence
+		}
+		None => block,
+	};
+	let end = e.out.len();
+	e.out.extend(std::iter::repeat_n('\t', pad + 1));
+	e.out.push_str(fence);
+	e.out.push('\n');
+	if e.lines {
+		e.bodies.push((body, end, pad + 1));
+	}
+}
+
+/// A run of canonical lines from one source line on (0: from none), with
+/// the blank lines written before it and the spans of its values. As a
+/// group, `line` is the first source line of its runs and `parts` the runs.
+struct Unit {
+	line: usize,
+	start: usize,
+	end: usize,
+	blanks: usize,
+	spans: std::ops::Range<usize>,
+	parts: std::ops::Range<usize>,
+}
+
+fn units_of(e: &Emit) -> Vec<Unit> {
+	let text = e.out.as_bytes();
+	let mut units: Vec<Unit> = Vec::new();
+	let (mut mi, mut bi, mut tag, mut blanks, mut open) = (0, 0, 0, 0, false);
+	let mut pos = 0;
+	while pos < text.len() {
+		let next = line_end(text, pos);
+		while mi < e.marks.len() && e.marks[mi].0 <= pos {
+			tag = e.marks[mi].1;
+			mi += 1;
+		}
+		while bi < e.bodies.len() && e.bodies[bi].1 <= pos {
+			bi += 1;
+		}
+		let in_body = bi < e.bodies.len() && e.bodies[bi].0 <= pos;
+		match units.last_mut() {
+			_ if text[pos] == b'\n' && !in_body => {
+				blanks += 1;
+				open = false;
+			}
+			Some(u) if open && u.line == tag => u.end = next,
+			_ => {
+				units.push(Unit {
+					line: tag,
+					start: pos,
+					end: next,
+					blanks,
+					spans: 0..0,
+					parts: 0..0,
+				});
+				blanks = 0;
+				open = true;
+			}
+		}
+		pos = next;
+	}
+	let mut si = 0;
+	for u in &mut units {
+		while si < e.spans.len() && e.spans[si].0 < u.start {
+			si += 1;
+		}
+		let from = si;
+		while si < e.spans.len() && e.spans[si].0 < u.end {
+			si += 1;
+		}
+		u.spans = from..si;
+	}
+	for (i, u) in units.iter_mut().enumerate() {
+		u.parts = i..i + 1;
+	}
+	units
+}
+
+/// The runs one source line wrote, and every run between them, as one
+/// group, with a line inside a raw block or a stacked list counted as the
+/// binding line's. A comment the canonical form writes between a dotted
+/// line's block and its child sits inside such a group, and the group is
+/// kept or rewritten whole (20260925b item 2).
+fn group_units(units: &[Unit], owner: &[usize]) -> Vec<Unit> {
+	let of = |u: &Unit| owner.get(u.line).copied().unwrap_or(u.line);
+	let mut last = vec![
+		0;
+		owner
+			.len()
+			.max(units.iter().map(|u| u.line + 1).max().unwrap_or(0))
+	];
+	for (i, u) in units.iter().enumerate() {
+		last[of(u)] = i;
+	}
+	let mut groups = Vec::new();
+	let mut i = 0;
+	while i < units.len() {
+		let (mut j, mut line, mut k) = (i, 0, i);
+		while k <= j {
+			let o = of(&units[k]);
+			if o != 0 {
+				j = j.max(last[o]);
+				line = if line == 0 { o } else { line.min(o) };
+			}
+			k += 1;
+		}
+		groups.push(Unit {
+			line,
+			start: units[i].start,
+			end: units[j].end,
+			blanks: units[i].blanks,
+			spans: units[i].spans.start..units[j].spans.end,
+			parts: i..j + 1,
+		});
+		i = j + 1;
+	}
+	groups
+}
+
+/// Where the line starting at `pos` ends, past its newline.
+fn line_end(text: &[u8], pos: usize) -> usize {
+	text[pos..]
+		.iter()
+		.position(|&b| b == b'\n')
+		.map_or(text.len(), |i| pos + i + 1)
+}
+
+/// The line ending `t` ends with: CRLF, LF or none.
+fn eol_of(t: &str) -> &'static str {
+	if t.ends_with("\r\n") {
+		"\r\n"
+	} else if t.ends_with('\n') {
+		"\n"
+	} else {
+		""
+	}
+}
+
+fn tabs(s: &str) -> usize {
+	s.bytes().take_while(|&b| b == b'\t').count()
+}
+
+/// The indent a new line `depth` levels down gets: the last one written
+/// there, or the nearest shallower one plus a level.
+fn indent_for(indents: &[Option<String>], depth: usize, step: &str) -> String {
+	let mut j = depth;
+	while j > 0 && indents.get(j).is_none_or(|i| i.is_none()) {
+		j -= 1;
+	}
+	let base = indents.get(j).and_then(|i| i.as_deref()).unwrap_or("");
+	format!("{}{}", base, step.repeat(depth - j))
+}
+
+/// A source line written at `depth`. One whose indent does not nest under
+/// the level above it, a dotted path for one, says nothing about the
+/// levels after it.
+fn note_indent(indents: &mut Vec<Option<String>>, depth: usize, indent: &str) {
+	let fits = if depth == 0 {
+		indent.is_empty()
+	} else {
+		!indent.is_empty()
+			&& indents
+				.get(depth - 1)
+				.and_then(|i| i.as_deref())
+				.is_none_or(|up| indent.len() > up.len() && indent.starts_with(up))
+	};
+	if fits {
+		indents.resize(depth + 1, None);
+		indents[depth] = Some(indent.to_string());
+	} else {
+		indents.truncate(1);
+	}
+}
+
+/// A run the edits wrote, indented the way the lines around it are. A raw
+/// body keeps its own tabs past the pad, and a kept line its indent.
+fn write_run(
+	out: &mut String,
+	e: &Emit,
+	(mut pos, end): (usize, usize),
+	indents: &mut Vec<Option<String>>,
+	step: &str,
+	eol: &str,
+) {
+	let text = e.out.as_str();
+	while pos < end {
+		let next = line_end(text.as_bytes(), pos);
+		let line = &text[pos..next - 1];
+		let b = e.bodies.partition_point(|b| b.0 <= pos);
+		match e.bodies[..b].last() {
+			Some(&(_, end, pad)) if pos < end => {
+				if !line.is_empty() {
+					out.push_str(&indent_for(indents, pad, step));
+					out.push_str(&line[pad..]);
+				}
+			}
+			_ => {
+				let depth = tabs(line);
+				if line[depth..].starts_with(' ') {
+					out.push_str(line);
+				} else {
+					let indent = indent_for(indents, depth, step);
+					out.push_str(&indent);
+					out.push_str(&line[depth..]);
+					indents.resize(depth + 1, None);
+					indents[depth] = Some(indent);
+				}
+			}
+		}
+		out.push_str(eol);
+		pos = next;
+	}
+}
+
+/// A binding line the edits rewrote, with the name written the way the
+/// source line wrote it. None unless both lines bind one plain name.
+fn authored_head(src: &str, canon: &str) -> Option<String> {
+	let t = trim_wsp_end(src.strip_suffix('\n').unwrap_or(src));
+	let ilen = t.bytes().take_while(|&b| b == b' ' || b == b'\t').count();
+	let rest = t[ilen..].trim_start_matches(is_wsp);
+	let head = t.len() - rest.len();
+	let c = &canon[tabs(canon)..];
+	let mut tok = Tokens::default();
+	let mut sep = [0; 2];
+	for (k, text) in [rest, c].into_iter().enumerate() {
+		if !is_field_text(text) {
+			return None;
+		}
+		tokenize(text, b':', false, Rules::Current, &mut tok);
+		if tok.segments.len() != 1 || tok.segments[0].selector.is_some() || tok.fault.is_some() {
+			return None;
+		}
+		sep[k] = tok.sep?;
+	}
+	Some(format!("{}{}", &t[..head + sep[0] + 1], &c[sep[1] + 1..]))
+}
+
+/// A run whose only change is its last value, written into the source line
+/// in place of the old one, so the name, spacing and comment stay as they
+/// were. None when anything else changed or the line is not a plain field.
+fn splice_value(line: &str, was: &Emit, w: &Unit, now: &Emit, u: &Unit) -> Option<String> {
+	let (s0, s1) = (&was.spans[w.spans.clone()], &now.spans[u.spans.clone()]);
+	if s0.is_empty() || s0.len() != s1.len() {
+		return None;
+	}
+	let (t0, t1) = (&was.out, &now.out);
+	let (mut p0, mut p1) = (w.start, u.start);
+	for (k, (a, b)) in s0.iter().zip(s1).enumerate() {
+		if t0[p0..a.0] != t1[p1..b.0] || (k + 1 < s0.len() && t0[a.0..a.1] != t1[b.0..b.1]) {
+			return None;
+		}
+		(p0, p1) = (a.1, b.1);
+	}
+	if t0[p0..w.end] != t1[p1..u.end] {
+		return None;
+	}
+	let last = s1[s1.len() - 1];
+	let value = &t1[last.0..last.1];
+	let t = trim_wsp_end(line.strip_suffix('\n').unwrap_or(line));
+	let tail = &line[t.len()..];
+	let ilen = t.bytes().take_while(|&b| b == b' ' || b == b'\t').count();
+	let rest = t[ilen..].trim_start_matches(is_wsp);
+	let head = t.len() - rest.len();
+	if !is_field_text(rest) {
+		return None;
+	}
+	let mut tok = Tokens::default();
+	tokenize(rest, b':', false, Rules::Current, &mut tok);
+	let colon = tok.sep?;
+	let (a, b) = path_of(&tok, rest).ok()?.value?;
+	if fence_open(&rest[a..b]).is_some() || tok.array_fault.is_some() {
+		return None;
+	}
+	// The blanks after the colon stay as they were when there was a value
+	// and still is one; the canonical value comes with one space.
+	let (gap, value, from) = match value.strip_prefix(' ') {
+		Some(v) if a != b => (&rest[colon + 1..a], v, b),
+		_ if a == b => ("", value, colon + 1),
+		_ => ("", value, b),
+	};
+	Some(format!(
+		"{}{}{}{}{}",
+		&t[..head + colon + 1],
+		gap,
+		value,
+		&rest[from..],
+		tail
+	))
+}
+
+/// splice_value() for a group: the runs line up one for one and differ in
+/// one, the last its source line wrote, so the line's last value is its
+/// value. The line and its new text.
+fn splice_group(
+	lines: &[&str],
+	was: &Emit,
+	(wr, w): (&[Unit], &Unit),
+	now: &Emit,
+	(ur, u): (&[Unit], &Unit),
+) -> Option<(usize, String)> {
+	let (a, b) = (&wr[w.parts.clone()], &ur[u.parts.clone()]);
+	if a.len() != b.len() {
+		return None;
+	}
+	let mut hit = None;
+	for (k, (x, y)) in a.iter().zip(b).enumerate() {
+		if x.line != y.line || x.blanks != y.blanks {
+			return None;
+		}
+		if was.out[x.start..x.end] != now.out[y.start..y.end] {
+			if hit.is_some() {
+				return None;
+			}
+			hit = Some(k);
+		}
+	}
+	let k = hit?;
+	if a[k + 1..].iter().any(|x| x.line == a[k].line) {
+		return None;
+	}
+	let line = lines.get(a[k].line.wrapping_sub(1))?;
+	let t = splice_value(line, was, &a[k], now, &b[k])?;
+	Some((a[k].line, t))
+}
+
+/// to_text_keep_lines() on a loaded text: the loaded document's canonical
+/// runs line up with the text by the source line each came from, and the
+/// edited document's runs that match one exactly take that line's text.
+/// None when the result would not reload as `doc`.
+fn keep_lines(src: &str, doc: &Document) -> Option<String> {
+	// A text that was canonical keeps its lines as the canonical form.
+	if src.is_empty() {
+		return Some(doc.to_canonical());
+	}
+	let now = doc.emit_marked();
+	let mut p = Parser::new();
+	p.track_dropped = true;
+	let loaded_doc = p.parse(src, doc.strictness);
+	let loaded = loaded_doc.emit_marked();
+	if now.out == loaded.out {
+		return Some(src.to_string());
+	}
+	let (bom, body) = match src.strip_prefix('\u{feff}') {
+		Some(b) => ("\u{feff}", b),
+		None => ("", src),
+	};
+	let mut lines: Vec<&str> = Vec::new();
+	let mut pos = 0;
+	while pos < body.len() {
+		let next = line_end(body.as_bytes(), pos);
+		lines.push(&body[pos..next]);
+		pos = next;
+	}
+	let n = lines.len();
+	let line = |l: usize| lines[l - 1];
+	let blank = |l: usize| trim_wsp(line(l).trim_end_matches('\n')).is_empty();
+	let indent = |l: usize| {
+		let t = line(l);
+		&t[..t.bytes().take_while(|&b| b == b' ' || b == b'\t').count()]
+	};
+	// The lines each source line stands for: its own, through the end of a
+	// raw block or a stacked list. Ranges that overlap, as a list taken up
+	// again further down, run together, and each line in a run counts as
+	// the run's first line, which stands for the whole run.
+	let mut own: Vec<usize> = (0..n + 2).collect();
+	for &(l, e) in &loaded_doc.ends {
+		if l <= n {
+			own[l] = own[l].max(e.min(n));
+		}
+	}
+	let mut owner: Vec<usize> = (0..n + 2).collect();
+	let mut end = own.clone();
+	let (mut first, mut reach) = (0, 0);
+	for k in 1..=n {
+		if k <= reach {
+			owner[k] = first;
+		} else {
+			first = k;
+		}
+		reach = reach.max(own[k]);
+		end[first] = reach;
+	}
+	let (was_runs, is_runs) = (units_of(&loaded), units_of(&now));
+	let (was, is) = (
+		group_units(&was_runs, &owner),
+		group_units(&is_runs, &owner),
+	);
+	// Each source line's group in the loaded text, and the lines it stands
+	// for, through its last run's.
+	let mut at = vec![NIL; n + 2];
+	for (i, g) in was.iter().enumerate() {
+		if g.line != 0 && g.line <= n {
+			at[g.line] = i;
+			for r in &was_runs[g.parts.clone()] {
+				if r.line != 0 && r.line <= n {
+					end[g.line] = end[g.line].max(end[owner[r.line]]);
+				}
+			}
+		}
+	}
+	let claimed: Vec<usize> = (1..=n).filter(|&l| at[l] != NIL).collect();
+	// The first group after each one's lines, for telling two that sat next
+	// to each other.
+	let mut next = vec![0; n + 2];
+	for &l in &claimed {
+		next[l] = claimed.partition_point(|&c| c <= end[l]);
+		next[l] = claimed.get(next[l]).copied().unwrap_or(n + 1);
+	}
+	// A line no group stands for, as a repeat the load folded away, goes out
+	// only as it was written, between two kept groups or at either end. One
+	// that is not blank and is left out makes the save fall back, since
+	// every line no edit touched has to come back (20260925c item 1).
+	let mut left: Vec<bool> = (0..n + 2)
+		.map(|l| (1..=n).contains(&l) && !blank(l))
+		.collect();
+	for &l in &claimed {
+		left[l..=end[l].min(n)].fill(false);
+	}
+	// A repeat the load folded away goes when the edits took every line
+	// under it, and the blank lines above it go along: the field is still
+	// written where it first was. A remove writes no line the document did
+	// not write before (2026100115323232).
+	let mut present = vec![false; n + 2];
+	for r in &is_runs {
+		if r.line != 0 && r.line <= n {
+			present[owner[r.line]] = true;
+		}
+	}
+	let mut tagged = vec![false; n + 2];
+	for r in &was_runs {
+		if r.line != 0 && r.line <= n {
+			tagged[owner[r.line]] = true;
+		}
+	}
+	let mut dropped = vec![false; n + 2];
+	for &k in &loaded_doc.dropped {
+		if k <= n {
+			dropped[k] = true;
+		}
+	}
+	let mut released = vec![false; n + 2];
+	for h in (1..=n).rev() {
+		if !left[h] || dropped[h] {
+			continue;
+		}
+		let (mut any, mut all) = (false, true);
+		for k in h + 1..=n {
+			if blank(k) {
+				continue;
+			}
+			// A line in a raw body or a stacked list is under h when the line
+			// it belongs to is, whatever its own indent.
+			let o = owner[k];
+			let i = indent(k);
+			if o == k && !(i.len() > indent(h).len() && i.starts_with(indent(h))) {
+				break;
+			}
+			any = true;
+			let gone = released[k] || (tagged[o] && !present[o]);
+			if !gone {
+				all = false;
+				break;
+			}
+		}
+		if any && all {
+			left[h] = false;
+			released[h] = true;
+		}
+	}
+	// New lines end the way most of the file's lines do.
+	let eol = majority_eol(body);
+	// One level of the source's indent: the one most blocks use for a line
+	// one level in, each block counted once, by its first such line. A tie
+	// goes to one tab when that is among them, else to the block first in
+	// the file, so one odd block does not set it (2026100115403386). Failing
+	// that, the first indented line, a list element or a fence.
+	let mut firsts: Vec<usize> = was_runs
+		.iter()
+		.filter(|u| u.line != 0 && u.line <= n && tabs(&loaded.out[u.start..]) == 1)
+		.map(|u| u.line)
+		.filter(|&l| !indent(l).is_empty())
+		.collect();
+	firsts.sort_unstable();
+	let mut steps: Vec<(&str, usize)> = Vec::new();
+	let (mut top, mut block, mut k) = (0, usize::MAX, 1);
+	for &l in &firsts {
+		while k <= l {
+			if owner[k] == k && !blank(k) && indent(k).is_empty() && !line(k).starts_with('#') {
+				top = k;
+			}
+			k += 1;
+		}
+		if block == top {
+			continue;
+		}
+		block = top;
+		match steps.iter_mut().find(|s| s.0 == indent(l)) {
+			Some(s) => s.1 += 1,
+			None => steps.push((indent(l), 1)),
+		}
+	}
+	let most = steps.iter().map(|s| s.1).max().unwrap_or(0);
+	let step = if steps.iter().any(|s| s.1 == most && s.0 == "\t") {
+		"\t"
+	} else {
+		steps
+			.iter()
+			.find(|s| s.1 == most)
+			.map(|s| s.0)
+			.or_else(|| {
+				(1..=n)
+					.filter(|&l| !blank(l))
+					.map(indent)
+					.find(|i| !i.is_empty())
+			})
+			.unwrap_or("\t")
+	};
+	let mut out = String::with_capacity(src.len() + now.out.len() / 8);
+	out.push_str(bom);
+	let break_line = |out: &mut String| {
+		if out.len() > bom.len() && !out.ends_with('\n') {
+			out.push_str(eol);
+		}
+	};
+	// Which source lines went out as written. Every line the load dropped
+	// has to, or the save falls back: a rewritten group can span one, as a
+	// stacked list over a refused element (20260926 item 1).
+	let mut wrote = vec![false; n + 2];
+	// The lines no group stands for that sat right after a kept group, when
+	// the group that followed it then does not follow it now. They go out
+	// before the next source group, a new line not indented past them, or
+	// the end. A new line indented past them goes first, since one written
+	// under a dropped line would be dropped with it. A line the load dropped
+	// comes back this way.
+	let flush =
+		|out: &mut String, left: &mut [bool], wrote: &mut [bool], from: usize, to: usize| {
+			// The blank lines among them stay, up to the last one written.
+			let last = (from..to).rev().find(|&k| left[k]).unwrap_or(0);
+			for (k, l) in left.iter_mut().enumerate().take(to).skip(from) {
+				if *l {
+					out.push_str(line(k));
+					wrote[k] = true;
+					*l = false;
+				} else if k < last && blank(k) {
+					out.push_str(line(k));
+				}
+			}
+		};
+	let mut indents: Vec<Option<String>> = vec![Some(String::new())];
+	// The line of the group just written while it is a source one, and the
+	// end of the last source group met, kept or not.
+	let (mut prev, mut reach) = (0, 0);
+	// The last kept group whose following lines are still to go out.
+	let mut owed = 0;
+	for (i, u) in is.iter().enumerate() {
+		let l = u.line;
+		let known = l != 0 && l <= n && at[l] != NIL;
+		if known {
+			// The canonical form writes this above a source line that sat
+			// above it: blocks folded together from two places, or a
+			// selector's child under an earlier block. Keeping some of the
+			// lines would move the others, so the save falls back.
+			if l <= reach {
+				return None;
+			}
+			reach = end[l];
+		}
+		let from = known.then(|| &was[at[l]]);
+		let same = from.is_some_and(|w| loaded.out[w.start..w.end] == now.out[u.start..u.end]);
+		let spliced = match from {
+			Some(w) if !same => splice_group(&lines, &loaded, (&was_runs, w), &now, (&is_runs, u)),
+			_ => None,
+		};
+		let kept = same || spliced.is_some();
+		// The blank lines above a group stay while it has a blank before it.
+		// The canonical form can write that blank inside a kept group, as a
+		// dotted line's child's, while the source has it above.
+		let blanks_stay = u.blanks > 0
+			|| (kept
+				&& is_runs[u.parts.start + 1..u.parts.end]
+					.iter()
+					.any(|r| r.blanks > 0));
+		// Between two groups that stay next to each other, the source's own
+		// lines: a repeat the load folded away stays, and so do the blank
+		// lines. The same before the first group. Before any other group from
+		// the source, its own blank lines.
+		break_line(&mut out);
+		let depth = tabs(&now.out[u.start..u.end]);
+		if owed != 0
+			&& if known {
+				!(kept && prev == owed && next[prev] == l)
+			} else {
+				let ind = indent_for(&indents, depth, step);
+				(end[owed] + 1..next[owed])
+					.find(|&k| left[k])
+					.is_some_and(|k| ind.len() <= indent(k).len() || !ind.starts_with(indent(k)))
+			} {
+			flush(&mut out, &mut left, &mut wrote, end[owed] + 1, next[owed]);
+			break_line(&mut out);
+			owed = 0;
+		}
+		if known {
+			owed = 0;
+		}
+		if i == 0 {
+			if kept && claimed.first() == Some(&l) {
+				(1..l).for_each(|k| {
+					out.push_str(line(k));
+					wrote[k] = true;
+					left[k] = false;
+				});
+			}
+		} else if kept && prev != 0 && next[prev] == l {
+			let gap = end[prev] + 1..l;
+			let blanks = gap.clone().any(blank);
+			// A blank line above a source line written here stays with it.
+			let last = gap.clone().rev().find(|&k| !blank(k)).unwrap_or(0);
+			for k in gap {
+				if blanks_stay || !blank(k) || k < last {
+					out.push_str(line(k));
+					wrote[k] = true;
+					left[k] = false;
+				}
+			}
+			if !blanks {
+				(0..u.blanks).for_each(|_| out.push_str(eol));
+			}
+		} else if known && blanks_stay && l > 1 && blank(l - 1) {
+			let mut k = l - 1;
+			while k > 1 && blank(k - 1) {
+				k -= 1;
+			}
+			(k..l).for_each(|k| out.push_str(line(k)));
+		} else {
+			(0..u.blanks).for_each(|_| out.push_str(eol));
+		}
+		if kept {
+			// A spliced line's value replaces the lines it took, as a
+			// stacked list's elements.
+			let mut k = l;
+			while k <= end[l] {
+				match &spliced {
+					Some((s, t)) if *s == k => {
+						out.push_str(t);
+						k = own[k];
+					}
+					_ => {
+						out.push_str(line(k));
+						wrote[k] = true;
+					}
+				}
+				k += 1;
+			}
+			// A line kept as written holds no level's indent.
+			if !now.out[u.start + depth..].starts_with(' ') {
+				let head = was_runs[from.map_or(0, |w| w.parts.start)].line;
+				note_indent(&mut indents, depth, indent(head));
+			}
+			prev = l;
+			owed = l;
+		} else {
+			// A binding the edits rewrote keeps its line's indent and name.
+			let mut from = u.start;
+			if known && u.parts.len() == 1 {
+				let first = line_end(now.out.as_bytes(), u.start);
+				if let Some(t) = authored_head(line(l), &now.out[u.start..first - 1]) {
+					out.push_str(&t);
+					// A changed line keeps its own line ending.
+					let own_eol = eol_of(line(l));
+					out.push_str(if own_eol.is_empty() { eol } else { own_eol });
+					note_indent(&mut indents, depth, indent(l));
+					from = first;
+				}
+			}
+			write_run(&mut out, &now, (from, u.end), &mut indents, step, eol);
+			prev = 0;
+		}
+	}
+	if owed != 0 {
+		break_line(&mut out);
+		flush(&mut out, &mut left, &mut wrote, end[owed] + 1, n + 1);
+	}
+	// The blank lines the source ends with stay at the end.
+	break_line(&mut out);
+	let tail = claimed.iter().map(|&l| end[l] + 1).max().unwrap_or(1);
+	if out.len() > bom.len() && (tail..=n).all(blank) {
+		(tail..=n).for_each(|k| out.push_str(line(k)));
+	}
+	if left.contains(&true) || loaded_doc.dropped.iter().any(|&k| !wrote[k]) {
+		return None;
+	}
+	// So does a last line with no newline. The line that ends the text now
+	// can be one kept with the other line ending.
+	if !body.is_empty() && !body.ends_with('\n') {
+		out.truncate(out.len() - eol_of(&out).len());
+	}
+	// The reload has to be the document, and it may not load with an error
+	// the source did not have: a child the edits gave an element list that
+	// stayed stacked reads back the same and is E001 (20260925b item 1). A
+	// line the load dropped went out as written, and the reload has to drop
+	// each one again: one that now binds, even to the same document, reads
+	// differently from how the file had it.
+	let back = Parser::new().parse(&out, doc.strictness);
+	(back.lost == loaded_doc.lost
+		&& back.to_canonical() == now.out
+		&& errors_within(&back, &loaded_doc))
+	.then_some(out)
+}
+
+/// Take the info block out of `leads`, from the lone `##` above its
+/// `This config file format is SHCL.` line to the next lone `##`, and each
+/// version line `migrate` stamped, with the note under it. A block with no
+/// closing `##` ends after its last line written the block's way. A Schema
+/// line in a block stays, and so does any other comment around one, even
+/// written right against it. Returns how many came off, and whether the last
+/// one had a blank above it with no line after it to take that blank. A
+/// `mark` of `#` takes 2.x's block instead, which had no version line. With
+/// `blocks` false a block stays whole, and only a Format line outside one
+/// comes off.
+fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool) {
+	let in_run = |l: &Lead| l.text.starts_with(mark) && !l.blank_before;
+	let title = format!("{mark}{}", &BANNER_TITLE[2..]);
+	let name = format!("{mark}{}", &BANNER_NAME[2..]);
+	let field = format!("{mark}    ");
+	let mut keep: Vec<Lead> = Vec::with_capacity(leads.len());
+	let (mut removed, mut owed, mut prev_kept) = (0, false, false);
+	let mut i = 0;
+	while i < leads.len() {
+		let mut start = i;
+		let mut end = i + 1;
+		if leads[i].text == title {
+			match (end..leads.len())
+				.take_while(|&k| in_run(&leads[k]))
+				.find(|&k| leads[k].text == mark)
+			{
+				Some(close) => end = close + 1,
+				None => {
+					while end < leads.len()
+						&& in_run(&leads[end])
+						&& (leads[end].text.starts_with(&field) || leads[end].text == name)
+					{
+						end += 1;
+					}
+				}
+			}
+			if !blocks {
+				keep.extend_from_slice(&leads[i..end]);
+				prev_kept = true;
+				i = end;
+				continue;
+			}
+			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
+				keep.pop();
+				start = i - 1;
+			}
+		} else if mark == "##" && leads[i].text.starts_with(FORMAT_LINE_HEAD) {
+			if end < leads.len() && in_run(&leads[end]) && leads[end].text == MIGRATED_LINE {
+				end += 1;
+			}
+		} else {
+			keep.push(leads[i].clone());
+			prev_kept = true;
+			i += 1;
+			continue;
+		}
+		// The blank that set the block off moves to whatever followed it, so
+		// the lines around it stay apart. A Schema line in the block is the
+		// author's and stays, with the blank.
+		let blank = leads[start].blank_before;
+		let at = keep.len();
+		keep.extend(
+			leads[start..end]
+				.iter()
+				.filter(|l| l.text.starts_with(SCHEMA_LINE_HEAD))
+				.cloned(),
+		);
+		if let Some(first) = keep.get_mut(at) {
+			first.blank_before = blank;
+		} else {
+			match leads.get_mut(end) {
+				Some(next) => next.blank_before |= blank,
+				None => owed = blank,
+			}
+		}
+		removed += 1;
+		prev_kept = false;
+		i = end;
+	}
+	if removed > 0 {
+		// What followed a block steps up to fit the run.
+		restep(&mut keep);
+		*leads = keep;
+	}
+	(removed, owed)
+}
+
+/// Each error code `d` loads with, `of` loaded with at least as often.
+fn errors_within(d: &Document, of: &Document) -> bool {
+	let codes = |d: &Document| {
+		let mut c: Vec<&str> = d
+			.diags
+			.iter()
+			.filter(|x| x.severity == Severity::Error)
+			.map(|x| x.code)
+			.collect();
+		c.sort_unstable();
+		c
+	};
+	let (mine, theirs) = (codes(d), codes(of));
+	let mut j = 0;
+	for c in mine {
+		while j < theirs.len() && theirs[j] < c {
+			j += 1;
+		}
+		if theirs.get(j) != Some(&c) {
+			return false;
+		}
+		j += 1;
+	}
+	true
 }
 
 /// Inline comment, canonically two spaces before the `#`.
@@ -2367,32 +8990,75 @@ fn push_trailing(out: &mut String, trailing: &str) {
 }
 
 /// Emit a stored (escape-resolved) name in a spelling that reads back as the
-/// same name: bare when it can be, else quoted with the escapes `apply_escapes`
-/// undoes. This is a true inverse of the name parse, which `quote_text` is not -
-/// that one picks a quote style to AVOID escaping and never escapes a
-/// backslash, which is right for a value (stored in its escaped spelling) and
-/// wrong for a name (stored resolved).
-fn escape_name(name: &str) -> String {
-	if !name.is_empty() && name.chars().all(is_bare_name_char) {
-		return name.to_string();
+/// same name: bare when the spelling rule allows it, else quoted the way a
+/// value is, escapes and all.
+fn escape_name(name: &str) -> std::borrow::Cow<'_, str> {
+	if name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+		&& name.bytes().all(is_bare_name_byte)
+	{
+		return std::borrow::Cow::Borrowed(name);
 	}
-	let mut out = String::with_capacity(name.len() + 2);
-	out.push('"');
-	for c in name.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'"' => out.push_str("\\\""),
-			'\t' => out.push_str("\\t"),
-			'\n' => out.push_str("\\n"),
-			_ => out.push(c),
-		}
+	std::borrow::Cow::Owned(quote_text(name))
+}
+
+fn emit_name(name: &str) -> std::borrow::Cow<'_, str> {
+	escape_name(name)
+}
+
+/// A field name for a diagnostic message: put the way the emitter would
+/// write it, so a name with a line break, a dot or a quote cannot pose as
+/// something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
+/// raw line break splits one diagnostic across two.
+fn diag_name(name: &str) -> String {
+	emit_name(name).into_owned()
+}
+
+/// One element of a value, written for a diagnostic message: the emitter's
+/// spelling inside `[]`, the only place a message puts one, so a value with
+/// a line break cannot split one diagnostic across two. A long one is cut
+/// like any value in a message, with its length after it.
+fn diag_element(e: &Element) -> String {
+	let total = e.text.chars().count();
+	if total <= DIAG_TEXT_MAX {
+		return emit_element(e).into_owned();
 	}
-	out.push('"');
+	let (head, tail) = cut_ends(&e.text, total);
+	let cut = Element {
+		text: format!("{}...{}", head, tail),
+		mark: e.mark,
+	};
+	format!("{} ({} chars)", emit_element(&cut), total)
+}
+
+/// A value for a diagnostic message. Only a scalar reaches this today, from
+/// the H001 hint; a raw block has no one-line form worth suggesting.
+fn diag_value(v: &Value) -> String {
+	match v {
+		Value::Cell(e) => diag_element(e),
+		Value::Empty | Value::Array(_) | Value::Raw(_) => v.display(),
+	}
+}
+
+/// How many values a diagnostic lists before it only counts the rest. H001
+/// once listed all 400,000 lines of a repeated field on one stderr line.
+const DIAG_LIST_MAX: usize = 3;
+
+/// The first few of `total` values, comma-separated, with `, ...` when some are
+/// left out. `diag_more` is the count that goes after.
+fn diag_list(items: impl Iterator<Item = String>, total: usize) -> String {
+	let mut out = items.take(DIAG_LIST_MAX).collect::<Vec<_>>().join(", ");
+	if total > DIAG_LIST_MAX {
+		out.push_str(", ...");
+	}
 	out
 }
 
-fn emit_name(name: &str) -> String {
-	escape_name(name)
+fn diag_more(total: usize) -> String {
+	if total > DIAG_LIST_MAX {
+		format!(" (and {} more)", total - DIAG_LIST_MAX)
+	} else {
+		String::new()
+	}
 }
 
 /// Render a float the way the writer and the CLI do: shortest round-trip
@@ -2401,8 +9067,102 @@ fn emit_name(name: &str) -> String {
 /// other three bindings have to implement it, and a consumer building canonical
 /// text by hand should not have to know which of the four they are reading.
 #[must_use]
-pub fn format_f64(v: f64) -> String {
-	format!("{v}")
+pub fn format_float(v: f64) -> String {
+	let s = format!("{v}");
+	if !v.is_finite() || v == 0.0 {
+		return s;
+	}
+	// The shortest spelling that reads back is the same in every binding
+	// except on an exact tie between two spellings of that length, where core
+	// rounds away from zero and Go, Python and C round to even. The correctly
+	// rounded spelling of the same length is the to-even one, so use it when
+	// it reads back; when it does not (a lopsided interval at a power of
+	// two), the shortest one is the only choice and all four agree already.
+	let sig = s
+		.trim_start_matches('-')
+		.replace('.', "")
+		.trim_start_matches('0')
+		.trim_end_matches('0')
+		.len()
+		.max(1);
+	let e = format!("{v:.*e}", sig - 1);
+	if e.parse::<f64>() != Ok(v) {
+		return s;
+	}
+	let (mant, exp) = e.split_once('e').unwrap_or((&e, "0"));
+	let digits: String = mant.chars().filter(char::is_ascii_digit).collect();
+	let point = exp.parse::<i64>().unwrap_or(0) + 1;
+	let mut out = String::new();
+	if v.is_sign_negative() {
+		out.push('-');
+	}
+	if point <= 0 {
+		out.push_str("0.");
+		out.extend(std::iter::repeat_n('0', (-point) as usize));
+		out.push_str(&digits);
+	} else if point as usize >= digits.len() {
+		out.push_str(&digits);
+		out.extend(std::iter::repeat_n('0', point as usize - digits.len()));
+	} else {
+		out.push_str(&digits[..point as usize]);
+		out.push('.');
+		out.push_str(&digits[point as usize..]);
+	}
+	out
+}
+
+/// One value the way `set_string` writes it after the colon of a field it
+/// makes, so `k: 2020`, `k: "a b"`, `k: 1,200`. Every scalar setter writes its
+/// value's text the same way, so `format_value(&format_float(v))` is what
+/// `set_float` writes, and the same goes for an int, a bool or a datetime's
+/// text. An overwrite can keep the old value's quote kind instead. None when
+/// `set_string` would refuse the text (`NoReadBack`).
+#[must_use]
+pub fn format_value(text: &str) -> Option<String> {
+	// The setter's own path: the same element, emitter and read-back check.
+	let v = cell_of(text.to_string());
+	if !value_reads_back(&v) {
+		return None;
+	}
+	emit_value_text(&v)
+}
+
+/// An array the way `set_string_array` writes it after the colon of a field
+/// it makes, brackets and all, so `k: [80, "a b", "1,200"]`. One element is
+/// `[80]` and none is `[]`. An element is quoted where `format_value` would
+/// leave it bare only for a thousands number, whose comma would split it in
+/// brackets. Every typed array setter writes its values' texts the same way.
+/// None when `set_string_array` would refuse the texts (`NoReadBack`).
+#[must_use]
+pub fn format_array(texts: &[&str]) -> Option<String> {
+	// The array setter's own path, as format_value is the scalar one's.
+	let v = array_cell(texts.iter().map(|t| (*t).to_string()).collect());
+	if !value_reads_back(&v) {
+		return None;
+	}
+	emit_value_text(&v)
+}
+
+/// One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
+/// message`. V090 to V095 count lines in the schema file, so theirs reads
+/// `schema line N`. The message is this binding's own prose, and only the code
+/// is the same in all four. With no message the line ends at the code.
+#[must_use]
+pub fn format_diagnostic(d: &Diagnostic) -> String {
+	// V096 and V097 are about generation as a whole and V099 a schema that did
+	// not load, all line 0, which is no schema line.
+	let space = if d.code.starts_with("V09") && !matches!(d.code, "V096" | "V097" | "V099") {
+		"schema line"
+	} else {
+		"line"
+	};
+	if d.message.is_empty() {
+		return format!("{} {}: {}: {}", space, d.line, d.severity, d.code);
+	}
+	format!(
+		"{} {}: {}: {} {}",
+		space, d.line, d.severity, d.code, d.message
+	)
 }
 
 /// Quote one path segment so it can be spliced into a lookup path: a bare name
@@ -2411,7 +9171,293 @@ pub fn format_f64(v: f64) -> String {
 /// path injection - a dotted name silently reads as nesting. Same spelling
 /// `paths()` and the canonical emitter produce.
 pub fn quote_segment(name: &str) -> String {
-	emit_name(name)
+	emit_name(name).into_owned()
+}
+
+/// The file tier's read half on its own: the text of PATH, or the status that
+/// says why not - `NotFound`, or `Unreadable` for everything else (permissions,
+/// a directory, bad encoding, or a file past MAX_BYTES; 0 is no cap).
+/// `load_file` is this plus a parse. A consumer that needs the exact bytes it
+/// last saw - to tell its own save coming back as a change notification from
+/// somebody else's edit - or a bound on how much it will read before a parse,
+/// calls this and parses the text itself.
+pub fn read_file(path: &str, max_bytes: usize) -> Result<String, FileStatus> {
+	use std::io::Read;
+	let f = std::fs::File::open(path).map_err(|e| {
+		if e.kind() == std::io::ErrorKind::NotFound {
+			FileStatus::NotFound
+		} else {
+			FileStatus::Unreadable
+		}
+	})?;
+	// One byte past the cap is read, so a file exactly at it passes and one
+	// over is caught without trusting a length from metadata.
+	let limit = if max_bytes == 0 {
+		u64::MAX
+	} else {
+		(max_bytes as u64).saturating_add(1)
+	};
+	let mut bytes = Vec::new();
+	f.take(limit)
+		.read_to_end(&mut bytes)
+		.map_err(|_| FileStatus::Unreadable)?;
+	if max_bytes != 0 && bytes.len() > max_bytes {
+		return Err(FileStatus::Unreadable);
+	}
+	String::from_utf8(bytes).map_err(|_| FileStatus::Unreadable)
+}
+
+/// What read_named_schema() found. `NotFound` and `Empty` are
+/// read_schema_ref()'s answers; the rest say why a named schema was not read.
+/// New values go on the end; the other bindings number them in this order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaStatus {
+	/// The schema's text was read.
+	Good,
+	/// No line names a schema.
+	NotFound,
+	/// A Schema line with nothing after the word.
+	Empty,
+	/// The line names a URL, which is not fetched.
+	Url,
+	/// On windows, a path starting with two slashes or backslashes, or with
+	/// `\??\`, which names a network share or a device.
+	NetworkPath,
+	/// Nothing at the path.
+	FileNotFound,
+	/// The path names a directory.
+	IsDirectory,
+	/// Something at the path that is not a regular file, such as a FIFO or a
+	/// device.
+	NotRegular,
+	/// A file over 16 MiB.
+	TooLarge,
+	/// The file could not be read: no permission, text that is not UTF-8, or
+	/// another read error.
+	Unreadable,
+}
+
+impl std::fmt::Display for SchemaStatus {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			SchemaStatus::Good => "Good",
+			SchemaStatus::NotFound => "NotFound",
+			SchemaStatus::Empty => "Empty",
+			SchemaStatus::Url => "Url",
+			SchemaStatus::NetworkPath => "NetworkPath",
+			SchemaStatus::FileNotFound => "FileNotFound",
+			SchemaStatus::IsDirectory => "IsDirectory",
+			SchemaStatus::NotRegular => "NotRegular",
+			SchemaStatus::TooLarge => "TooLarge",
+			SchemaStatus::Unreadable => "Unreadable",
+		})
+	}
+}
+
+/// What read_named_schema() gives back. `text` is the schema's text when
+/// `status` is `Good`, else empty. `path` is where the line points: the path
+/// resolved from the config file's directory, or the URL or network path as
+/// written; empty when no line names one. `line` is the Schema line's
+/// number, 0 with none. `message` says why nothing was read, naming the
+/// path, and is empty for `Good`, `NotFound` and `Empty`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedSchema {
+	pub status: SchemaStatus,
+	pub text: String,
+	pub path: String,
+	pub line: usize,
+	pub message: String,
+}
+
+/// The most a Schema line's file may hold. A regular file can still read
+/// without end: the kernel's page map has size 0 and reads as hundreds of GiB.
+const SCHEMA_LINE_MAX: usize = 16 << 20;
+
+/// The schema a config file names on its Schema line, read the way `check`
+/// reads it. `text` is the config's text and `file` its path, which only
+/// says where a relative path starts: the config file's directory, or the
+/// working directory when `file` has none, such as `-` for stdin. A URL is
+/// not fetched, and on windows neither is a network share or a device path.
+/// Only a regular file is read, and none over 16 MiB, so a line in a file
+/// someone else wrote cannot make a program wait on a FIFO or read a device
+/// until memory runs out.
+#[must_use]
+pub fn read_named_schema(text: &str, file: &str) -> NamedSchema {
+	let r = read_schema_ref(text);
+	let mut out = NamedSchema {
+		status: SchemaStatus::NotFound,
+		text: String::new(),
+		path: String::new(),
+		line: r.line,
+		message: String::new(),
+	};
+	match r.status {
+		Status::Good => {}
+		Status::Empty => {
+			out.status = SchemaStatus::Empty;
+			return out;
+		}
+		_ => return out,
+	}
+	let named = r.value;
+	if named.contains("://") {
+		out.status = SchemaStatus::Url;
+		out.message = format!("{}: a schema named by URL is not fetched", named);
+		out.path = named;
+		return out;
+	}
+	let b = named.as_bytes();
+	// Two separators, or the NT prefix, name a share or a device on windows,
+	// and a line in a file someone else wrote must not reach another host.
+	let sep = |c: u8| c == b'/' || c == b'\\';
+	if cfg!(windows) && b.len() >= 2 && ((sep(b[0]) && sep(b[1])) || named.starts_with("\\??\\")) {
+		out.status = SchemaStatus::NetworkPath;
+		out.message = format!(
+			"{}: a Schema line cannot name a network or device path",
+			named
+		);
+		out.path = named;
+		return out;
+	}
+	let absolute = b[0] == b'/'
+		|| (cfg!(windows)
+			&& (b[0] == b'\\' || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')));
+	out.path = if absolute {
+		named
+	} else {
+		match file_name_start(file) {
+			0 => format!("./{}", named),
+			start => format!("{}{}", &file[..start], named),
+		}
+	};
+	match read_schema_file(&out.path) {
+		Ok(t) => {
+			out.status = SchemaStatus::Good;
+			out.text = t;
+		}
+		Err((status, message)) => {
+			out.status = status;
+			out.message = message;
+		}
+	}
+	out
+}
+
+/// The path can turn into a FIFO between the stat and the open, and opening a
+/// FIFO waits for a writer. So on POSIX the open does not wait, and the flag
+/// comes straight back off: only the open waits, and the caller's fstat
+/// refuses a FIFO before any read.
+#[cfg(all(unix, not(miri)))]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	use std::os::fd::AsRawFd;
+	use std::os::unix::fs::OpenOptionsExt;
+	const F_GETFL: i32 = 3;
+	const F_SETFL: i32 = 4;
+	// Linux on mips and sparc has its own values; no release builds for either.
+	#[cfg(any(target_os = "linux", target_os = "android"))]
+	const O_NONBLOCK: i32 = 0o4000;
+	#[cfg(not(any(target_os = "linux", target_os = "android")))]
+	const O_NONBLOCK: i32 = 0x4;
+	unsafe extern "C" {
+		fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+	}
+	let f = std::fs::OpenOptions::new()
+		.read(true)
+		.custom_flags(O_NONBLOCK)
+		.open(path)?;
+	let fd = f.as_raw_fd();
+	// SAFETY: fd is open for as long as f lives, and these two commands take
+	// an int or nothing, so the variadic call passes what fcntl reads.
+	let flags = unsafe { fcntl(fd, F_GETFL) };
+	// SAFETY: as above.
+	if flags == -1 || unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } == -1 {
+		return Err(std::io::Error::last_os_error());
+	}
+	Ok(f)
+}
+// Miri refuses O_NONBLOCK on an open, and its tests make no FIFO.
+#[cfg(any(not(unix), miri))]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	std::fs::File::open(path)
+}
+
+/// The bytes of the regular file at PATH, for a check that it didn't change.
+/// Ok(None) when something else is there, such as a FIFO swapped in, which
+/// the open doesn't wait on.
+fn read_regular(path: &str) -> std::io::Result<Option<Vec<u8>>> {
+	use std::io::Read;
+	if !std::fs::metadata(path)?.is_file() {
+		return Ok(None);
+	}
+	let mut f = open_no_wait(path)?;
+	if !f.metadata()?.is_file() {
+		return Ok(None);
+	}
+	let mut bytes = Vec::new();
+	f.read_to_end(&mut bytes)?;
+	Ok(Some(bytes))
+}
+
+/// read_named_schema()'s read: only a regular file, and no more of it than
+/// SCHEMA_LINE_MAX.
+fn read_schema_file(path: &str) -> Result<String, (SchemaStatus, String)> {
+	use std::io::Read;
+	#[cfg(windows)]
+	if not_a_disk_file(std::path::Path::new(path)) {
+		return Err((
+			SchemaStatus::NotRegular,
+			format!("{}: not a regular file", path),
+		));
+	}
+	let failed = |e: std::io::Error| {
+		let status = if e.kind() == std::io::ErrorKind::NotFound {
+			SchemaStatus::FileNotFound
+		} else {
+			SchemaStatus::Unreadable
+		};
+		(status, format!("{}: {}", path, e))
+	};
+	let regular = |m: std::io::Result<std::fs::Metadata>| match m {
+		Ok(m) if m.is_dir() => Err((
+			SchemaStatus::IsDirectory,
+			format!("{}: Is a directory", path),
+		)),
+		Ok(m) if !m.is_file() => Err((
+			SchemaStatus::NotRegular,
+			format!("{}: not a regular file", path),
+		)),
+		Ok(_) => Ok(()),
+		Err(e) => Err(failed(e)),
+	};
+	// Asked before the open too, since opening a FIFO waits for a writer.
+	regular(std::fs::metadata(path))?;
+	let mut f = open_no_wait(path).map_err(failed)?;
+	regular(f.metadata())?;
+	// Fixed reads, since the page map refuses one that is not a multiple of 8.
+	// One read past the cap is what tells a file at it from one over it.
+	let mut bytes = Vec::new();
+	let mut chunk = vec![0u8; 1 << 16];
+	loop {
+		let n = match f.read(&mut chunk) {
+			Ok(0) => break,
+			Ok(n) => n,
+			Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+			Err(e) => return Err(failed(e)),
+		};
+		bytes.extend_from_slice(&chunk[..n]);
+		if bytes.len() > SCHEMA_LINE_MAX {
+			return Err((
+				SchemaStatus::TooLarge,
+				format!("{}: too large for a schema (over 16 MiB)", path),
+			));
+		}
+	}
+	String::from_utf8(bytes).map_err(|_| {
+		(
+			SchemaStatus::Unreadable,
+			format!("{}: stream did not contain valid UTF-8", path),
+		)
+	})
 }
 
 /// The file tier's write mechanism (also what the CLI's `--write` uses): a
@@ -2424,11 +9470,29 @@ pub fn quote_segment(name: &str) -> String {
 /// real one is left stale) and the original's mode is copied onto the temp file
 /// (otherwise a 600 config comes back at whatever the umask allows). Other hard
 /// links to the old inode cannot survive a rename and keep the old content.
-pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
+pub fn write_file_atomic(file: &str, data: &str) -> Result<(), WriteError> {
+	write_file_how(file, data, false, 0).map_err(|e| match e {
+		SaveError::Io(w) => w,
+		e => WriteError::new(WriteStatus::Other, e.to_string()),
+	})
+}
+
+/// write_file_atomic, plus SaveOptions' create and mode. Only `Io` and
+/// `Exists` come back.
+fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(), SaveError> {
 	use std::io::Write;
-	// canonicalize fails when the target does not exist yet; that is a plain
-	// create, so the path as given is already the right one.
-	let target = std::fs::canonicalize(file).unwrap_or_else(|_| std::path::PathBuf::from(file));
+	let exists = || SaveError::Exists {
+		path: file.to_string(),
+	};
+	if names_a_directory(file) {
+		return Err(SaveError::Io(WriteError::new(
+			WriteStatus::IsDirectory,
+			format!("{}: Is a directory", file),
+		)));
+	}
+	let target = resolve_target(file)
+		.map_err(|(status, why)| WriteError::new(status, format!("{}: {}", file, why)))
+		.map_err(SaveError::Io)?;
 	let dir = match target.parent() {
 		Some(d) if !d.as_os_str().is_empty() => d,
 		_ => std::path::Path::new("."),
@@ -2437,6 +9501,18 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 		.file_name()
 		.map(|b| b.to_string_lossy().into_owned())
 		.unwrap_or_else(|| file.to_string());
+	// At most the first 64 bytes of the name, cut where a character starts, so the
+	// temp's own length is fixed. Keeping the whole name put the temp over the
+	// filesystem's 255 bytes at a target name in the low 240s - and the exact
+	// cut-off moved with the width of the process id, so the same file saved on one
+	// machine and failed on another. Bytes, not characters: 64 characters of four
+	// bytes each put it back over. A truncated name can collide; the exclusive
+	// create and the eight attempts already answer that.
+	let mut cut = base.len().min(TMP_NAME_BYTES);
+	while !base.is_char_boundary(cut) {
+		cut -= 1;
+	}
+	let base = &base[..cut];
 	// Exclusive create: the name is predictable, so anything already sitting
 	// there - including a symlink someone else planted - must make this fail
 	// rather than be written through. Retry past a stale collision, then give
@@ -2445,11 +9521,58 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 	// and the real mode goes on below - the copy is never briefly readable to
 	// anyone the original was not. A file that does not exist yet has no mode to
 	// preserve, so it takes the one an ordinary create would: 0666 narrowed by
-	// the umask, like every other file the user's tools produce.
+	// the umask, like every other file the user's tools produce, unless the
+	// caller gave one.
 	let existing = std::fs::metadata(&target).ok();
+	if new_only
+		&& (existing.is_some() || link_at(file) || std::fs::symlink_metadata(&target).is_ok())
+	{
+		return Err(exists());
+	}
+	let mode = mode & 0o777;
+	#[cfg(windows)]
+	let _ = mode;
+	// Only a regular file is replaced. A rename over a FIFO or a device node
+	// swaps it for a regular file at exit 0. Save outcomes in design.md is the
+	// rule for what a save does with each thing it can find at the path.
+	if let Some(m) = &existing
+		&& !m.is_file()
+	{
+		return Err(SaveError::Io(if m.is_dir() {
+			WriteError::new(
+				WriteStatus::IsDirectory,
+				format!("{}: Is a directory", file),
+			)
+		} else {
+			not_regular(file)
+		}));
+	}
+	// The test above cannot see a windows device name; see not_a_disk_file.
+	#[cfg(windows)]
+	if not_a_disk_file(&target) {
+		return Err(SaveError::Io(not_regular(file)));
+	}
+	// Windows: a read-only file cannot be replaced, and a read-only temp cannot
+	// be removed after a failure, so the attribute comes off the target for the
+	// publish and goes back on the new file after it - the same outcome as
+	// POSIX, where the rename never needed the file writable. Hidden and system
+	// ride back the same way: ReplaceFile's documented preserve list does not
+	// include the basic attributes, and the rename fallback keeps nothing, so
+	// a hidden config came back visible.
+	#[cfg(windows)]
+	let read_only = existing
+		.as_ref()
+		.is_some_and(|m| m.permissions().readonly());
+	#[cfg(windows)]
+	let carried = {
+		use std::os::windows::fs::MetadataExt;
+		existing.as_ref().map_or(0, |m| {
+			m.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)
+		})
+	};
 	let mut file_handle = None;
 	let mut tmp = std::path::PathBuf::new();
-	let mut last = String::new();
+	let mut last = None;
 	for attempt in 0..8 {
 		tmp = dir.join(format!(".{}.tmp{}.{}", base, std::process::id(), attempt));
 		let mut opts = std::fs::OpenOptions::new();
@@ -2457,58 +9580,1138 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 		#[cfg(unix)]
 		{
 			use std::os::unix::fs::OpenOptionsExt;
-			opts.mode(if existing.is_some() { 0o600 } else { 0o666 });
+			opts.mode(if existing.is_some() || mode != 0 {
+				0o600
+			} else {
+				0o666
+			});
 		}
-		match opts.open(&tmp) {
+		#[cfg(windows)]
+		let opened = if existing.is_some() {
+			create_like(&target, &tmp)
+		} else {
+			opts.open(&tmp)
+		};
+		#[cfg(not(windows))]
+		let opened = opts.open(&tmp);
+		match opened {
 			Ok(f) => {
 				file_handle = Some(f);
 				break;
 			}
-			Err(e) => last = e.to_string(),
+			Err(e) => last = Some(e),
 		}
 	}
 	let Some(mut f) = file_handle else {
-		return Err(format!("{}: cannot create temporary file: {}", file, last));
+		let status = last.as_ref().map_or(WriteStatus::Other, write_status_of);
+		let why = last.map(|e| e.to_string()).unwrap_or_default();
+		return Err(SaveError::Io(WriteError::new(
+			status,
+			format!("{}: cannot create temporary file: {}", file, why),
+		)));
 	};
 	let res = (|| -> std::io::Result<()> {
+		f.write_all(data.as_bytes())?;
+		f.sync_all()?;
 		// On the handle, so umask cannot narrow it the way it narrows a create
-		// mode. Best effort: a filesystem that cannot carry the mode is not a
-		// reason to fail a write that otherwise succeeded.
+		// mode, and after the data, because a write by anyone but root clears
+		// setuid/setgid. Best effort: a filesystem that cannot store the mode
+		// is not a reason to fail a write that otherwise succeeded. The whole
+		// mode goes, setuid/setgid/sticky included, as an editor's rewrite
+		// would keep it.
+		#[cfg(unix)]
 		if let Some(m) = &existing {
+			// The group first, because a chown clears setuid/setgid on most
+			// systems. Best effort like the mode: a caller who is not in the
+			// old group keeps its own, which is what it had before this. The
+			// owner is not copied - see the file tier in spec.md.
+			use std::os::unix::fs::MetadataExt;
+			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
 			let _ = f.set_permissions(m.permissions());
 		}
-		f.write_all(data.as_bytes())?;
-		f.sync_all()
+		#[cfg(unix)]
+		if existing.is_none() && mode != 0 {
+			use std::os::unix::fs::PermissionsExt;
+			let _ = f.set_permissions(std::fs::Permissions::from_mode(mode));
+		}
+		Ok(())
 	})();
 	if let Err(e) = res {
 		let _ = std::fs::remove_file(&tmp);
-		return Err(format!("{}: {}", file, e));
+		return Err(SaveError::Io(WriteError::io(file, &e)));
 	}
 	drop(f);
-	publish_file(&tmp, &target).map_err(|e| {
-		let _ = std::fs::remove_file(&tmp);
-		format!("{}: {}", file, e)
+	#[cfg(windows)]
+	if read_only {
+		set_read_only(&target, false);
+	}
+	// Nothing was at the path when the save started, so nothing that turns up
+	// before the publish is written over. A failed replace decides for itself
+	// whether the temp file can go, since on windows it may be all that is left.
+	let published = if existing.is_some() {
+		publish_file(&tmp, &target)
+	} else {
+		publish_new_file(&tmp, &target).inspect_err(|_| {
+			let _ = std::fs::remove_file(&tmp);
+		})
+	};
+	#[cfg(windows)]
+	if carried != 0 {
+		set_attributes(&target, carried); // whether or not the publish went through
+	}
+	#[cfg(windows)]
+	if read_only {
+		set_read_only(&target, true); // whether or not the publish went through
+	}
+	published.map_err(|e| {
+		if new_only && e.kind() == std::io::ErrorKind::AlreadyExists {
+			exists()
+		} else {
+			SaveError::Io(WriteError::io(file, &e))
+		}
 	})?;
 	sync_dir(dir);
 	Ok(())
 }
 
-/// Move the finished temp file over the target. On windows that means
-/// ReplaceFile rather than a rename: a rename publishes a brand-new file and
-/// leaves the destination's ACLs, attributes and named streams behind, which
-/// ReplaceFile carries onto the replacement instead. It needs the destination
-/// to exist, and it fails rather than skip a merge it cannot do (no WRITE_DAC,
-/// say), so a create and any failure fall back to the rename.
-fn publish_file(tmp: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
-	#[cfg(windows)]
-	if target.exists() && windows_replace_file(tmp, target) {
-		return Ok(());
+fn not_regular(file: &str) -> WriteError {
+	WriteError::new(
+		WriteStatus::NotRegular,
+		format!("{}: not a regular file", file),
+	)
+}
+
+/// Why `upgrade_file` or `write_backup` wrote nothing, or not all of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpgradeError {
+	/// Nothing at the path.
+	NotFound(String),
+	/// The file does not say which rules it was written for, and some of it
+	/// reads two ways (`Upgrade::ambiguous`); `from_v2` settles it.
+	Ambiguous { path: String, count: usize },
+	/// Something is already at the backup's name. It is never written over.
+	BackupTaken(String),
+	/// A read or write failed: why, and the message.
+	Io(WriteError),
+	/// With `from_v2`, the fresh text would still have an error on these
+	/// lines of the input (`Upgrade::errors_left`).
+	ErrorsLeft { path: String, lines: Vec<usize> },
+}
+
+impl std::fmt::Display for UpgradeError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			UpgradeError::NotFound(path) => write!(f, "{}: no such file", path),
+			UpgradeError::Ambiguous { path, count } => write!(
+				f,
+				"{}: {} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written",
+				path, count
+			),
+			UpgradeError::BackupTaken(name) => write!(
+				f,
+				"{}: already exists; the original would be kept there, so nothing was written",
+				name
+			),
+			UpgradeError::Io(e) => std::fmt::Display::fmt(e, f),
+			UpgradeError::ErrorsLeft { path, lines } => write!(
+				f,
+				"{}: line(s) {} would still have an error once converted from 2.x; nothing written",
+				path,
+				lines
+					.iter()
+					.map(ToString::to_string)
+					.collect::<Vec<_>>()
+					.join(", ")
+			),
+		}
 	}
-	std::fs::rename(tmp, target)
+}
+
+impl std::error::Error for UpgradeError {}
+
+/// The name a config file's backup gets:
+/// `NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT`, in local time, wiht N the
+/// format the file was written for. The tag goes before the last dot of the
+/// file name, or on the end when it has none, and a leading dot is part of
+/// the name. SHCL_TEST_CLOCK stands in for the clock, as in a setter's note.
+#[must_use]
+pub fn backup_file_name(file: &str, format: u32) -> String {
+	let stamp: String = clock_now()
+		.0
+		.chars()
+		.filter_map(|c| match c {
+			'-' | ':' => None,
+			' ' => Some('-'),
+			c => Some(c),
+		})
+		.collect();
+	let tag = format!("_backup_{stamp}_format-v{format}");
+	let start = file_name_start(file);
+	match file[start..].rfind('.') {
+		Some(dot) if dot > 0 => {
+			let at = start + dot;
+			format!("{}{}{}", &file[..at], tag, &file[at..])
+		}
+		_ => format!("{}{}", file, tag),
+	}
+}
+
+/// Where the file name starts in a path: after the last separator, or on
+/// windows after a drive with no separator (`C:cfg.shcl`). A backslash is a
+/// separator only on windows.
+fn file_name_start(file: &str) -> usize {
+	let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+	let b = file.as_bytes();
+	let drive = if cfg!(windows) && b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+		2
+	} else {
+		0
+	};
+	file.rfind(seps).map_or(drive, |i| (i + 1).max(drive))
+}
+
+/// Keep `text`, the bytes last read from `file`, under `backup_file_name`, before
+/// something replaces them. The create is exclusive, so an earlier backup or
+/// anything else at the name is never written over, and the copy is synced
+/// before this returns. It is born private, then given the original's group
+/// and mode (on windows its DACL), so a private config never has a readable
+/// copy. Returns the backup's name. A file that isn't there is `NotFound`, and
+/// a directory or a FIFO is `Io`, as from `upgrade_file`.
+pub fn write_backup(file: &str, text: &str, format: u32) -> Result<String, UpgradeError> {
+	use std::io::Write;
+	let name = backup_file_name(file, format);
+	check_kept_file(file)?;
+	let mut f = create_backup(file, &name).map_err(|e| {
+		if e.kind() == std::io::ErrorKind::AlreadyExists {
+			UpgradeError::BackupTaken(name.clone())
+		} else {
+			UpgradeError::Io(WriteError::io(&name, &e))
+		}
+	})?;
+	let res = (|| -> std::io::Result<()> {
+		f.write_all(text.as_bytes())?;
+		// The group first, since a chown clears setuid/setgid. Best effort,
+		// the way the save keeps both.
+		#[cfg(unix)]
+		if let Ok(m) = std::fs::metadata(file) {
+			use std::os::unix::fs::MetadataExt;
+			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
+			let _ = f.set_permissions(m.permissions());
+		}
+		f.sync_all()
+	})();
+	if let Err(e) = res {
+		drop(f);
+		let _ = std::fs::remove_file(&name);
+		return Err(UpgradeError::Io(WriteError::io(&name, &e)));
+	}
+	Ok(name)
+}
+
+/// The file `write_backup` or `upgrade_file` keeps is there and is a regular
+/// file. A FIFO or a device would block the read or be replaced by a file, and
+/// text passed where the file goes got a backup named after it
+/// (2026101807501110). Any other failure is left to the read or the create,
+/// whose path shares every folder with this one.
+fn check_kept_file(path: &str) -> Result<(), UpgradeError> {
+	match std::fs::metadata(path) {
+		Ok(m) if !m.is_file() => {
+			let status = if m.is_dir() {
+				WriteStatus::IsDirectory
+			} else {
+				WriteStatus::NotRegular
+			};
+			Err(UpgradeError::Io(WriteError::new(
+				status,
+				format!("{}: not a regular file", path),
+			)))
+		}
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+			Err(UpgradeError::NotFound(path.to_string()))
+		}
+		_ => Ok(()),
+	}
+}
+
+#[cfg(not(windows))]
+fn create_backup(_file: &str, name: &str) -> std::io::Result<std::fs::File> {
+	let mut opts = std::fs::OpenOptions::new();
+	opts.write(true).create_new(true);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::OpenOptionsExt;
+		opts.mode(0o600);
+	}
+	opts.open(name)
+}
+
+/// A new file takes the directory's ACL, so the backup is born with the
+/// original's DACL instead (create_like).
+#[cfg(windows)]
+fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
+	// A NUL would end the name early there, where std refuses it.
+	if name.contains('\0') {
+		return Err(std::io::Error::new(
+			std::io::ErrorKind::InvalidInput,
+			"file name contained an unexpected NUL byte",
+		));
+	}
+	create_like(std::path::Path::new(file), std::path::Path::new(name))
+}
+
+/// `upgrade` on a file, for a program to call when it starts, before its
+/// load. A file that needs it is kept under `backup_file_name` by `write_backup`,
+/// then the fresh text replaces it through `write_file_atomic`, so the path
+/// always holds one or the other. A file `upgrade` finds `current` is not
+/// written at all, and also neither is one that changed after it
+/// was read, that reads two ways, or that `errors_left` says would still
+/// have an error. Opt-in on purpose: a program that keeps its own backups
+/// has no need of it. On success `backup` names the copy when one was made,
+/// and `text` is what the path now holds.
+pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> {
+	check_kept_file(path)?;
+	// Not read_file, whose one status for every failure would hide the
+	// system's reason (2026101514324707).
+	let bytes = match std::fs::read(path) {
+		Ok(b) => b,
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+			return Err(UpgradeError::NotFound(path.to_string()));
+		}
+		Err(e) => return Err(UpgradeError::Io(WriteError::io(path, &e))),
+	};
+	let Ok(text) = String::from_utf8(bytes) else {
+		return Err(UpgradeError::Io(WriteError::new(
+			WriteStatus::Unreadable,
+			format!("{}: cannot be read as UTF-8 text", path),
+		)));
+	};
+	let mut up = upgrade(&text, from_v2);
+	if up.current {
+		return Ok(up);
+	}
+	if up.ambiguous != 0 {
+		return Err(UpgradeError::Ambiguous {
+			path: path.to_string(),
+			count: up.ambiguous,
+		});
+	}
+	if !up.errors_left.is_empty() {
+		return Err(UpgradeError::ErrorsLeft {
+			path: path.to_string(),
+			lines: up.errors_left,
+		});
+	}
+	let same = || matches!(read_regular(path), Ok(Some(now)) if now == text.as_bytes());
+	if !same() {
+		return Err(UpgradeError::Io(WriteError::new(
+			WriteStatus::Other,
+			format!("{}: changed since it was read; nothing written", path),
+		)));
+	}
+	up.backup = write_backup(path, &text, up.format)?;
+	if let Err(e) = write_file_atomic(path, &up.text) {
+		// With the original still in place the backup would only stand in the
+		// way of the next run. A replace that fails part way on windows can
+		// leave nothing at the path, and then the backup is all there is.
+		if same() {
+			let _ = std::fs::remove_file(&up.backup);
+			return Err(UpgradeError::Io(e));
+		}
+		return Err(UpgradeError::Io(WriteError::new(
+			e.status,
+			format!("{}; the original is {}", e, up.backup),
+		)));
+	}
+	Ok(up)
+}
+
+/// A path that names a directory rather than a file: it ends in a separator, or
+/// its last component is `.` or `..`. POSIX refuses to open such a path as a
+/// regular file, but a canonicalize drops the trailing separator first, so a
+/// save through `f/` used to rewrite `f`.
+fn names_a_directory(file: &str) -> bool {
+	let sep = |c: char| c == '/' || (cfg!(windows) && c == '\\');
+	if file.is_empty() {
+		return false;
+	}
+	if file.ends_with(sep) {
+		return true;
+	}
+	let last = file.rsplit(sep).next().unwrap_or("");
+	last == "." || last == ".."
+}
+
+/// A link at the path as given, which a create-only save refuses. The resolve
+/// follows a link to nowhere and finds nothing where it points. Windows is
+/// left as it was (2026110312163207).
+fn link_at(file: &str) -> bool {
+	cfg!(unix) && std::fs::symlink_metadata(file).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// The path a save actually rewrites. A symlink is followed so the write goes
+/// through it; canonicalize does that but needs the target to exist, so a
+/// dangling link is walked by hand and the file is created where it points.
+/// A path that is no link at all is a plain create at the path as given.
+/// A link cycle is an error: silently creating a regular file in its place
+/// would be the exact replacement the symlink walk exists to avoid.
+fn resolve_target(file: &str) -> Result<std::path::PathBuf, (WriteStatus, &'static str)> {
+	if let Ok(p) = std::fs::canonicalize(file) {
+		return Ok(p);
+	}
+	let mut p = std::path::PathBuf::from(file);
+	for _ in 0..40 {
+		let Ok(next) = std::fs::read_link(&p) else {
+			break;
+		};
+		// A link whose text ends in a separator, `.` or `..` can only reach a
+		// directory, and the kernel refuses to create a file through it. The
+		// path join below would drop the separator.
+		if names_a_directory(&next.to_string_lossy()) {
+			return Err((WriteStatus::IsDirectory, "Is a directory"));
+		}
+		p = if next.is_absolute() {
+			next
+		} else {
+			p.parent()
+				.filter(|d| !d.as_os_str().is_empty())
+				.unwrap_or(std::path::Path::new("."))
+				.join(next)
+		};
+	}
+	if std::fs::read_link(&p).is_ok() {
+		return Err((WriteStatus::Other, "too many levels of symbolic links"));
+	}
+	Ok(real_nearest(p))
+}
+
+/// P, with nothing at it, made absolute through the real path of the nearest
+/// folder above it that is there, the rest as written. So one file has one
+/// spelling whether it's there or not, and however the path names it: bare,
+/// `./`, absolute, through a link, or relative to another working folder.
+fn real_nearest(p: std::path::PathBuf) -> std::path::PathBuf {
+	let mut rest = Vec::new();
+	let mut at = p.as_path();
+	while let (Some(d), Some(n)) = (at.parent(), at.file_name()) {
+		rest.push(n);
+		let dir = if d.as_os_str().is_empty() {
+			std::path::Path::new(".")
+		} else {
+			d
+		};
+		if let Ok(real) = std::fs::canonicalize(dir) {
+			return rest.iter().rev().fold(real, |a, n| a.join(n));
+		}
+		at = d;
+	}
+	std::path::absolute(&p).unwrap_or(p)
 }
 
 #[cfg(windows)]
-fn windows_replace_file(tmp: &std::path::Path, target: &std::path::Path) -> bool {
+const FILE_TYPE_DISK: u32 = 0x1;
+
+/// Something is at the path and it is not a disk file: a device name such as
+/// CON, NUL or COM1. `std::fs::metadata` cannot see one - a device answers with
+/// the same ARCHIVE bit an ordinary file does - so a save read it as a file,
+/// tried to replace it, and the refusal came from whichever later step happened
+/// to fail. False for a path with nothing at it, which is a save's ordinary
+/// create.
+#[cfg(windows)]
+fn not_a_disk_file(path: &std::path::Path) -> bool {
+	use std::os::windows::ffi::OsStrExt;
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn CreateFileW(
+			name: *const u16,
+			access: u32,
+			share: u32,
+			sa: *const u8,
+			disp: u32,
+			flags: u32,
+			tmpl: isize,
+		) -> isize;
+		fn GetFileType(handle: isize) -> u32;
+		fn CloseHandle(handle: isize) -> i32;
+		fn GetFullPathNameW(name: *const u16, len: u32, buf: *mut u16, part: *mut *mut u16) -> u32;
+	}
+	const FILE_READ_ATTRIBUTES: u32 = 0x80;
+	const FILE_SHARE_ALL: u32 = 0x7;
+	const OPEN_EXISTING: u32 = 3;
+	const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+	const MAX_PATH: usize = 260;
+	let wide: Vec<u16> = path
+		.as_os_str()
+		.encode_wide()
+		.chain(std::iter::once(0))
+		.collect();
+	// SAFETY: wide is NUL-terminated and outlives every call, the handle is
+	// closed once and not used after, and GetFullPathNameW is told the real
+	// length of full.
+	unsafe {
+		// The handle first, since it is the OS's own answer and it keeps an
+		// exotic but real path (a volume-prefixed `\\.\C:\dir\file`) out of the
+		// device case.
+		let handle = CreateFileW(
+			wide.as_ptr(),
+			FILE_READ_ATTRIBUTES,
+			FILE_SHARE_ALL,
+			std::ptr::null(),
+			OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS,
+			0,
+		);
+		if handle != -1 {
+			let kind = GetFileType(handle);
+			CloseHandle(handle);
+			return kind != FILE_TYPE_DISK;
+		}
+		// CON refuses that open outright (ERROR_INVALID_PARAMETER), and a serial
+		// port nobody has answers not-found, so a failed open cannot mean
+		// "nothing is there". A reserved name resolves into the device namespace
+		// from whatever directory it is typed in, and the full path is where that
+		// shows: `\\.\CON` against a drive path for an ordinary name. A long path
+		// overflows the buffer and falls through to the create, which is what it
+		// did before.
+		let mut full = [0u16; MAX_PATH];
+		let n = GetFullPathNameW(
+			wide.as_ptr(),
+			MAX_PATH as u32,
+			full.as_mut_ptr(),
+			std::ptr::null_mut(),
+		) as usize;
+		// A drive after the prefix is a volume path to a file that is not
+		// there yet, which a create has to be let through (20260926 item 8).
+		let drive =
+			full[4] < 128 && (full[4] as u8).is_ascii_alphabetic() && full[5] == u16::from(b':');
+		n > 0
+			&& n < MAX_PATH
+			&& full[0] == u16::from(b'\\')
+			&& full[1] == u16::from(b'\\')
+			&& full[2] == u16::from(b'.')
+			&& full[3] == u16::from(b'\\')
+			&& !drive
+	}
+}
+
+#[cfg(windows)]
+const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+#[cfg(windows)]
+const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+
+#[cfg(windows)]
+fn set_read_only(path: &std::path::Path, on: bool) {
+	if let Ok(m) = std::fs::metadata(path) {
+		let mut perms = m.permissions();
+		perms.set_readonly(on);
+		let _ = std::fs::set_permissions(path, perms);
+	}
+}
+
+/// Turn attribute bits back on after a publish. std has no setter for the basic
+/// attributes, so this is a few lines of FFI beside the ReplaceFile ones.
+#[cfg(windows)]
+fn set_attributes(path: &std::path::Path, bits: u32) {
+	use std::os::windows::ffi::OsStrExt;
+	use std::os::windows::fs::MetadataExt;
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn SetFileAttributesW(name: *const u16, attrs: u32) -> i32;
+	}
+	let Ok(m) = std::fs::metadata(path) else {
+		return;
+	};
+	let wide: Vec<u16> = path
+		.as_os_str()
+		.encode_wide()
+		.chain(std::iter::once(0))
+		.collect();
+	// SAFETY: wide is a NUL-terminated path that outlives the call.
+	unsafe {
+		SetFileAttributesW(wide.as_ptr(), m.file_attributes() | bits);
+	}
+}
+
+/// The exclusive create of a save's temp file over an existing file. A plain
+/// create takes the directory's ACL, so the new text of a private config sat
+/// where others could read it until the replace, and a fallback move published
+/// that wider ACL. The temp is born with the file's DACL instead. Best effort:
+/// when that cannot be read, the directory's it is, as for a new file.
+#[cfg(windows)]
+fn create_like(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<std::fs::File> {
+	use std::os::windows::ffi::OsStrExt;
+	use std::os::windows::io::FromRawHandle;
+	#[repr(C)]
+	struct SecurityAttributes {
+		length: u32,
+		descriptor: *mut u64,
+		inherit: i32,
+	}
+	#[link(name = "advapi32")]
+	unsafe extern "system" {
+		fn GetFileSecurityW(
+			name: *const u16,
+			info: u32,
+			sd: *mut u64,
+			len: u32,
+			need: *mut u32,
+		) -> i32;
+		fn SetFileSecurityW(name: *const u16, info: u32, sd: *mut u64) -> i32;
+		fn GetSecurityDescriptorControl(sd: *mut u64, control: *mut u16, revision: *mut u32)
+		-> i32;
+		fn SetSecurityDescriptorControl(sd: *mut u64, mask: u16, bits: u16) -> i32;
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn CreateFileW(
+			name: *const u16,
+			access: u32,
+			share: u32,
+			sa: *const u8,
+			disp: u32,
+			flags: u32,
+			tmpl: isize,
+		) -> isize;
+	}
+	const DACL_SECURITY_INFORMATION: u32 = 0x4;
+	const SE_DACL_AUTO_INHERIT_REQ: u16 = 0x0100;
+	const SE_DACL_AUTO_INHERITED: u16 = 0x0400;
+	const GENERIC_WRITE: u32 = 0x4000_0000;
+	const FILE_SHARE_ALL: u32 = 0x7;
+	const CREATE_NEW: u32 = 1;
+	const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+	let wide = |p: &std::path::Path| -> Vec<u16> {
+		p.as_os_str()
+			.encode_wide()
+			.chain(std::iter::once(0))
+			.collect()
+	};
+	let (src, dst) = (wide(from), wide(to));
+	// u64 words, since a security descriptor wants more than byte alignment.
+	let mut sd: Vec<u64> = Vec::new();
+	let mut need = 0u32;
+	// SAFETY: the paths are NUL-terminated, the descriptor buffer is told its
+	// real length, and sa and sd live past the CreateFileW that reads them.
+	// The handle is new and owned by nobody else when File takes it.
+	unsafe {
+		GetFileSecurityW(
+			src.as_ptr(),
+			DACL_SECURITY_INFORMATION,
+			std::ptr::null_mut(),
+			0,
+			&mut need,
+		);
+		if need > 0 {
+			sd.resize((need as usize).div_ceil(8), 0);
+			let len = (sd.len() * 8) as u32;
+			if GetFileSecurityW(
+				src.as_ptr(),
+				DACL_SECURITY_INFORMATION,
+				sd.as_mut_ptr(),
+				len,
+				&mut need,
+			) == 0
+			{
+				sd.clear();
+			}
+		}
+		let sa = SecurityAttributes {
+			length: std::mem::size_of::<SecurityAttributes>() as u32,
+			descriptor: sd.as_mut_ptr(),
+			inherit: 0,
+		};
+		let handle = CreateFileW(
+			dst.as_ptr(),
+			GENERIC_WRITE,
+			FILE_SHARE_ALL,
+			if sd.is_empty() {
+				std::ptr::null()
+			} else {
+				(&raw const sa).cast()
+			},
+			CREATE_NEW,
+			FILE_ATTRIBUTE_NORMAL,
+			0,
+		);
+		if handle == -1 {
+			return Err(std::io::Error::last_os_error());
+		}
+		// A create takes the ACEs but drops the auto-inherited mark, and without
+		// it a later change to the directory's ACL does not reach the file once
+		// a fallback move makes the temp the config. Setting the same DACL again
+		// with the request bit puts it back.
+		let (mut control, mut revision) = (0u16, 0u32);
+		if !sd.is_empty()
+			&& GetSecurityDescriptorControl(sd.as_mut_ptr(), &mut control, &mut revision) != 0
+			&& control & SE_DACL_AUTO_INHERITED != 0
+			&& SetSecurityDescriptorControl(
+				sd.as_mut_ptr(),
+				SE_DACL_AUTO_INHERIT_REQ,
+				SE_DACL_AUTO_INHERIT_REQ,
+			) != 0
+		{
+			SetFileSecurityW(dst.as_ptr(), DACL_SECURITY_INFORMATION, sd.as_mut_ptr());
+		}
+		Ok(std::fs::File::from_raw_handle(handle as _))
+	}
+}
+
+/// Move the finished temp file over the target. On windows that means
+/// ReplaceFile rather than a rename: a rename publishes a brand-new file and
+/// leaves the destination's ACLs, security attributes and named streams behind,
+/// which ReplaceFile copies onto the replacement instead. What it does not
+/// copy is the basic attributes - hidden and system - which the save re-applies
+/// by hand. It needs the destination to exist, and it fails rather than skip a
+/// merge it cannot do (no WRITE_DAC, say), so a create and any failure fall back
+/// to the rename. WRITE_THROUGH is asked for and documented as unsupported by
+/// ReplaceFile, so the durability here rests on the file's own fsync.
+///
+/// A failure removes the temp file, except where nothing is left at the target.
+#[cfg(not(windows))]
+fn publish_file(tmp: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+	std::fs::rename(tmp, target).inspect_err(|_| {
+		let _ = std::fs::remove_file(tmp);
+	})
+}
+
+/// A scanner or an indexer that opens the fresh temp file blocks the replace and
+/// the rename both, for a moment, and one try made that a failed save.
+#[cfg(windows)]
+const PUBLISH_TRIES: u32 = 5;
+#[cfg(windows)]
+const PUBLISH_PAUSE_MS: u64 = 50;
+
+/// ReplaceFile is given a backup name, because without one a failure between
+/// its two moves deletes the old file (1176) or leaves it under a name nobody
+/// is told (1177). With one, 1177 leaves it at the backup and nothing at the
+/// target, so the old file is put back. If even that fails, neither file is
+/// removed and the error says where they are.
+#[cfg(windows)]
+fn publish_file(tmp: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+	let backup = backup_name(tmp);
+	let mut moved_away = false;
+	let mut tries = 0;
+	let err = loop {
+		if !moved_away && target.exists() {
+			// The save has gone through, so a backup that will not come off
+			// is left rather than failing it.
+			if windows_replace_file(tmp, target, &backup) {
+				let _ = std::fs::remove_file(&backup);
+				return Ok(());
+			}
+			moved_away = !target.exists() && backup.exists();
+		}
+		let e = match std::fs::rename(tmp, target) {
+			Ok(()) => {
+				if moved_away {
+					let _ = std::fs::remove_file(&backup);
+				}
+				return Ok(());
+			}
+			Err(e) => e,
+		};
+		tries += 1;
+		if tries == PUBLISH_TRIES {
+			break e;
+		}
+		std::thread::sleep(std::time::Duration::from_millis(PUBLISH_PAUSE_MS));
+	};
+	if target.exists() || (moved_away && publish_new_file(&backup, target).is_ok()) {
+		let _ = std::fs::remove_file(tmp);
+		return Err(err);
+	}
+	let kept = if moved_away {
+		format!(
+			"{}; the old file is left at {} and the new text at {}",
+			err,
+			backup.display(),
+			tmp.display()
+		)
+	} else {
+		format!("{}; the new text is left at {}", err, tmp.display())
+	};
+	Err(std::io::Error::new(err.kind(), kept))
+}
+
+/// The temp name with its `.tmp` swapped for `.bak`, so the two sit side by
+/// side and are the same length. The last `.tmp` is the one the save added.
+#[cfg(windows)]
+fn backup_name(tmp: &std::path::Path) -> std::path::PathBuf {
+	let name = tmp
+		.file_name()
+		.map(|n| n.to_string_lossy().into_owned())
+		.unwrap_or_default();
+	match name.rfind(".tmp") {
+		Some(at) => tmp.with_file_name(format!("{}.bak{}", &name[..at], &name[at + 4..])),
+		None => tmp.with_file_name(format!("{}.bak", name)),
+	}
+}
+
+// Here rather than under tests/, since the publish is private. A save always
+// puts its temp file beside the target, so these call the publish directly.
+#[cfg(all(test, windows))]
+mod windows_publish {
+	use super::publish_file;
+	use std::path::Path;
+
+	fn scratch(tag: &str) -> std::path::PathBuf {
+		let d = std::env::temp_dir().join(format!("shcl-publish-{}-{}", tag, std::process::id()));
+		let _ = std::fs::remove_dir_all(&d);
+		std::fs::create_dir_all(&d).unwrap();
+		d
+	}
+
+	fn text(p: &Path) -> Option<String> {
+		std::fs::read_to_string(p).ok()
+	}
+
+	// The status line tests/common prints, since that module is out of reach.
+	struct TestId(&'static str);
+
+	fn test_id(id: &'static str) -> TestId {
+		crate::pin_test_clock();
+		TestId(id)
+	}
+
+	impl Drop for TestId {
+		fn drop(&mut self) {
+			use std::io::Write;
+			let status = if std::thread::panicking() {
+				"FAIL"
+			} else {
+				"PASS"
+			};
+			let thread = std::thread::current();
+			let name = thread.name().unwrap_or("?");
+			let _ = writeln!(
+				std::io::stderr().lock(),
+				"{:<4} {} rust {}",
+				status,
+				self.0,
+				name
+			);
+		}
+	}
+
+	fn icacls(args: &[&str]) {
+		let ok = std::process::Command::new("icacls")
+			.args(args)
+			.output()
+			.is_ok_and(|o| o.status.success());
+		assert!(ok, "icacls {:?} failed", args);
+	}
+
+	// Taking add-file away from the target's folder, with the temp file in
+	// another, lets ReplaceFile move the old file out to the backup and then
+	// refuses the new one its place: error 1177, with nothing at the target.
+	// Neither the rename nor putting the old file back can get in either.
+	#[test]
+	fn a_failed_publish_loses_neither_file() {
+		let _id = test_id("dcydp");
+		let root = scratch("kept");
+		let (x, y) = (root.join("x"), root.join("y"));
+		std::fs::create_dir_all(&x).unwrap();
+		std::fs::create_dir_all(&y).unwrap();
+		let (target, tmp) = (y.join("t.shcl"), x.join(".t.shcl.tmp1.0"));
+		let backup = x.join(".t.shcl.bak1.0");
+		std::fs::write(&target, "old\n").unwrap();
+		std::fs::write(&tmp, "new\n").unwrap();
+		let ydir = y.to_string_lossy().into_owned();
+		icacls(&[&ydir, "/deny", "*S-1-1-0:(WD)"]);
+		// The hosted runner's administrator is let through anyway, and the
+		// case cannot be set up there.
+		let probe = x.join("probe");
+		std::fs::write(&probe, "").unwrap();
+		if std::fs::rename(&probe, y.join("probe")).is_ok() {
+			icacls(&[&ydir, "/remove:d", "*S-1-1-0"]);
+			eprintln!(
+				"conformance: skipping the failed-publish fixture (a move into a denied folder went through)"
+			);
+			let _ = std::fs::remove_dir_all(&root);
+			return;
+		}
+		let published = publish_file(&tmp, &target);
+		icacls(&[&ydir, "/remove:d", "*S-1-1-0"]);
+		let msg = published.expect_err("the publish went through").to_string();
+		if text(&target).as_deref() == Some("old\n") {
+			assert!(!tmp.exists(), "the temp file was left: {}", msg);
+		} else {
+			assert_eq!(text(&target), None, "{}", msg);
+			assert_eq!(text(&backup).as_deref(), Some("old\n"), "{}", msg);
+			assert_eq!(text(&tmp).as_deref(), Some("new\n"), "{}", msg);
+			assert!(msg.contains(&*backup.to_string_lossy()), "{}", msg);
+			assert!(msg.contains(&*tmp.to_string_lossy()), "{}", msg);
+		}
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	// Anything holding the temp file open without delete sharing fails the
+	// replace and the rename both, the way a scanner looking at a fresh file
+	// does. A hold that ends in a few milliseconds must not fail the save.
+	#[test]
+	fn a_brief_hold_is_waited_out() {
+		let _id = test_id("dcydq");
+		use std::os::windows::fs::OpenOptionsExt;
+		let root = scratch("hold");
+		let (target, tmp) = (root.join("t.shcl"), root.join(".t.shcl.tmp1.0"));
+		std::fs::write(&target, "old\n").unwrap();
+		std::fs::write(&tmp, "new\n").unwrap();
+		let hold = std::fs::OpenOptions::new()
+			.read(true)
+			.share_mode(1) // FILE_SHARE_READ
+			.open(&tmp)
+			.unwrap();
+		let freed = std::thread::spawn(move || {
+			std::thread::sleep(std::time::Duration::from_millis(20));
+			drop(hold);
+		});
+		let published = publish_file(&tmp, &target);
+		freed.join().unwrap();
+		published.unwrap();
+		assert_eq!(text(&target).as_deref(), Some("new\n"));
+		assert!(!tmp.exists());
+		assert!(!root.join(".t.shcl.bak1.0").exists());
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[link(name = "advapi32")]
+	unsafe extern "system" {
+		fn GetFileSecurityW(
+			name: *const u16,
+			info: u32,
+			sd: *mut u64,
+			len: u32,
+			need: *mut u32,
+		) -> i32;
+		fn ConvertSecurityDescriptorToStringSecurityDescriptorW(
+			sd: *mut u64,
+			revision: u32,
+			info: u32,
+			out: *mut *mut u16,
+			len: *mut u32,
+		) -> i32;
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn LocalFree(mem: *mut u16) -> *mut u16;
+		fn GetModuleHandleW(name: *const u16) -> isize;
+		fn GetProcAddress(module: isize, name: *const u8) -> isize;
+	}
+
+	// The file's DACL as SDDL, or None when it cannot be read.
+	fn sddl(p: &Path) -> Option<String> {
+		use std::os::windows::ffi::OsStrExt;
+		const DACL_SECURITY_INFORMATION: u32 = 0x4;
+		const SDDL_REVISION_1: u32 = 1;
+		let wide: Vec<u16> = p
+			.as_os_str()
+			.encode_wide()
+			.chain(std::iter::once(0))
+			.collect();
+		let mut need = 0u32;
+		// SAFETY: wide is NUL-terminated, sd is told its real length, and out
+		// is the OS's NUL-terminated string, read up to the NUL and then freed
+		// once.
+		unsafe {
+			GetFileSecurityW(
+				wide.as_ptr(),
+				DACL_SECURITY_INFORMATION,
+				std::ptr::null_mut(),
+				0,
+				&mut need,
+			);
+			if need == 0 {
+				return None;
+			}
+			let mut sd = vec![0u64; (need as usize).div_ceil(8)];
+			let len = (sd.len() * 8) as u32;
+			if GetFileSecurityW(
+				wide.as_ptr(),
+				DACL_SECURITY_INFORMATION,
+				sd.as_mut_ptr(),
+				len,
+				&mut need,
+			) == 0
+			{
+				return None;
+			}
+			let mut out: *mut u16 = std::ptr::null_mut();
+			if ConvertSecurityDescriptorToStringSecurityDescriptorW(
+				sd.as_mut_ptr(),
+				SDDL_REVISION_1,
+				DACL_SECURITY_INFORMATION,
+				&mut out,
+				std::ptr::null_mut(),
+			) == 0
+			{
+				return None;
+			}
+			let n = (0..).take_while(|&i| *out.add(i) != 0).count();
+			let s = String::from_utf16_lossy(std::slice::from_raw_parts(out, n));
+			LocalFree(out);
+			Some(s)
+		}
+	}
+
+	fn under_wine() -> bool {
+		let ntdll: Vec<u16> = "ntdll.dll"
+			.encode_utf16()
+			.chain(std::iter::once(0))
+			.collect();
+		// SAFETY: both names are NUL-terminated, and the module handle is only
+		// looked at, never freed.
+		unsafe {
+			let m = GetModuleHandleW(ntdll.as_ptr());
+			m != 0 && GetProcAddress(m, c"wine_get_version".as_ptr().cast()) != 0
+		}
+	}
+
+	// A save over a file whose DACL is narrower than its directory's must not
+	// put the new text under the directory's. Holding the target without delete
+	// sharing fails the publish on every try, which keeps the temp file there
+	// long enough for a poller to read its DACL. Same fixture in every runner.
+	#[test]
+	fn temp_file_takes_the_targets_dacl() {
+		let _id = test_id("ddate");
+		use std::os::windows::fs::OpenOptionsExt;
+		use std::sync::atomic::{AtomicBool, Ordering};
+		if under_wine() {
+			eprintln!("conformance: skipping the temp-file DACL fixture (wine keeps no ACLs)");
+			return;
+		}
+		let root = scratch("dacl");
+		let dir = root.to_string_lossy().into_owned();
+		icacls(&[&dir, "/grant", "*S-1-5-32-545:(OI)(CI)(R)"]);
+		let grant = format!("{}:(F)", std::env::var("USERNAME").unwrap());
+		let setups: [(&str, Vec<&str>, &str); 2] = [
+			("a.shcl", vec!["/inheritance:r", "/grant:r", &grant], "D:P"),
+			("b.shcl", vec!["/grant", "*S-1-5-19:(R)"], "D:AI"),
+		];
+		for (name, acl, prefix) in setups {
+			let target = root.join(name);
+			let t = target.to_string_lossy().into_owned();
+			std::fs::write(&target, "a: 1\n").unwrap();
+			let mut args = vec![t.as_str()];
+			args.extend(acl);
+			icacls(&args);
+			let want = sddl(&target).unwrap_or_default();
+			assert!(
+				want.starts_with(prefix),
+				"{}: the fixture did not take: {}",
+				name,
+				want
+			);
+			let tmp = root.join(format!(".{}.tmp{}.0", name, std::process::id()));
+			let hold = std::fs::OpenOptions::new()
+				.read(true)
+				.share_mode(1) // FILE_SHARE_READ
+				.open(&target)
+				.unwrap();
+			let stop = std::sync::Arc::new(AtomicBool::new(false));
+			let poller = {
+				let (stop, tmp) = (stop.clone(), tmp.clone());
+				std::thread::spawn(move || {
+					let mut seen = None;
+					while !stop.load(Ordering::Relaxed) {
+						if let Some(s) = sddl(&tmp) {
+							seen = Some(s);
+						}
+					}
+					seen
+				})
+			};
+			let saved = super::write_file_atomic(&t, "a: 2\n");
+			stop.store(true, Ordering::Relaxed);
+			let seen = poller.join().unwrap();
+			drop(hold);
+			assert!(
+				saved.is_err(),
+				"{}: a save over a held file went through",
+				name
+			);
+			let seen = seen.unwrap_or_else(|| panic!("{}: the temp file was never seen", name));
+			assert_eq!(seen, want, "{}: the temp file's DACL", name);
+			let left: Vec<String> = std::fs::read_dir(&root)
+				.unwrap()
+				.filter_map(|e| e.ok())
+				.map(|e| e.file_name().to_string_lossy().into_owned())
+				.filter(|n| n.contains(".tmp") || n.contains(".bak"))
+				.collect();
+			assert!(left.is_empty(), "{}: left behind: {:?}", name, left);
+			super::write_file_atomic(&t, "a: 2\n").unwrap();
+			assert_eq!(sddl(&target), Some(want), "{}: the saved file's DACL", name);
+		}
+		let fresh = root.join("n.shcl");
+		super::write_file_atomic(&fresh.to_string_lossy(), "a: 2\n").unwrap();
+		let plain = root.join("p.shcl");
+		std::fs::write(&plain, "a: 2\n").unwrap();
+		let born = sddl(&plain);
+		assert!(born.is_some(), "the plain file's DACL could not be read");
+		assert_eq!(sddl(&fresh), born, "a new file's DACL");
+		assert_eq!(
+			std::fs::read(&fresh).unwrap(),
+			std::fs::read(root.join("b.shcl")).unwrap(),
+			"an overwrite and a create wrote different bytes"
+		);
+		// With no DACL to copy, the create still goes through, with the
+		// directory's.
+		let copied = root.join("c.shcl");
+		drop(super::create_like(&root.join("missing.shcl"), &copied).unwrap());
+		assert_eq!(sddl(&copied), born, "a temp file with no DACL to copy");
+		let _ = std::fs::remove_dir_all(&root);
+	}
+}
+
+/// The publish for a save that found nothing at the path, which must not
+/// replace a file that turned up since. A hard link fails on anything at the
+/// target, so the check and the publish are one step, and the temp name comes
+/// off after. The save has gone through by then, so a temp name that will not
+/// come off is left rather than failing it. A filesystem with no hard links
+/// gets a check and a rename, which leaves only that short gap.
+#[cfg(not(windows))]
+fn publish_new_file(tmp: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+	match std::fs::hard_link(tmp, target) {
+		Ok(()) => {
+			let _ = std::fs::remove_file(tmp);
+			Ok(())
+		}
+		Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(e),
+		Err(_) if std::fs::symlink_metadata(target).is_ok() => {
+			Err(std::io::ErrorKind::AlreadyExists.into())
+		}
+		Err(_) => std::fs::rename(tmp, target),
+	}
+}
+
+/// Windows moves without the replace flag, which refuses an existing target the
+/// same way and needs no hard links.
+#[cfg(windows)]
+fn publish_new_file(tmp: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+	use std::os::windows::ffi::OsStrExt;
+	const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+	}
+	let wide = |p: &std::path::Path| -> Vec<u16> {
+		p.as_os_str()
+			.encode_wide()
+			.chain(std::iter::once(0))
+			.collect()
+	};
+	let (from, to) = (wide(tmp), wide(target));
+	// SAFETY: both paths are NUL-terminated and outlive the call.
+	if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) } != 0 {
+		Ok(())
+	} else {
+		Err(std::io::Error::last_os_error())
+	}
+}
+
+#[cfg(windows)]
+fn windows_replace_file(
+	tmp: &std::path::Path,
+	target: &std::path::Path,
+	backup: &std::path::Path,
+) -> bool {
 	use std::os::windows::ffi::OsStrExt;
 	const REPLACEFILE_WRITE_THROUGH: u32 = 0x1;
 	// Declared here rather than pulled from a crate: this file has no
@@ -2530,12 +10733,14 @@ fn windows_replace_file(tmp: &std::path::Path, target: &std::path::Path) -> bool
 			.chain(std::iter::once(0))
 			.collect()
 	}
-	let (replaced, replacement) = (wide(target), wide(tmp));
+	let (replaced, replacement, kept) = (wide(target), wide(tmp), wide(backup));
+	// SAFETY: the 3 paths are NUL-terminated and outlive the call, and the
+	// two pointers it reserves are null as documented.
 	unsafe {
 		ReplaceFileW(
 			replaced.as_ptr(),
 			replacement.as_ptr(),
-			std::ptr::null(),
+			kept.as_ptr(),
 			REPLACEFILE_WRITE_THROUGH,
 			std::ptr::null_mut(),
 			std::ptr::null_mut(),
@@ -2563,9 +10768,10 @@ fn sync_dir(dir: &std::path::Path) {
 /// Diagnostic itself: consumers build Diagnostic literals, so its field set
 /// is frozen.)
 fn h001_head(name: &str) -> String {
+	let shown = diag_name(name);
 	format!(
 		"'{}' repeats as a bare leaf - did you mean '{}: ",
-		name, name
+		shown, shown
 	)
 }
 
@@ -2577,43 +10783,7 @@ fn h001_head(name: &str) -> String {
 /// `check --schema` and load_and_validate; call it wherever doc diagnostics
 /// and a schema meet.
 pub fn suppress_declared_repeats(schema: &Document, diags: &mut Vec<Diagnostic>) {
-	// Top-level fields plus every fragment's fields: a repeat declared inside
-	// a mounted shape disavows the hint the same way.
-	let mut groups: Vec<(String, Vec<String>)> =
-		vec![("field".to_string(), schema.instances("field"))];
-	for k in 0..schema.count("fragment") {
-		let base = format!("fragment[#{}].field", k);
-		let paths = schema.instances(&base);
-		groups.push((base, paths));
-	}
-	let mut names: Vec<String> = Vec::new();
-	for (base, paths) in &groups {
-		for (i, p) in paths.iter().enumerate() {
-			// repeat is a 1-2 element array (`repeat: lo[, hi]`); the bound
-			// that matters here is the last one.
-			let rep = schema.read_int_array(&format!("{}[#{}].repeat", base, i));
-			if rep.status != Status::Good {
-				continue;
-			}
-			match rep.value.last() {
-				Some(&u) if u > 1 => {}
-				_ => continue,
-			}
-			// Leaf name from the parsed path, not a re-split of its text: a
-			// quoted last segment may contain dots (`a."b.c"`). The scanner
-			// folds the name; the doc side stores names folded too.
-			let Ok(scan) = scan_lookup(p) else {
-				continue;
-			};
-			let Some(seg) = scan.segments.last() else {
-				continue;
-			};
-			if seg.star {
-				continue; // name wildcard: no single leaf name to disavow
-			}
-			names.push(seg.name.clone());
-		}
-	}
+	let names = disavowed_names(schema, |c| c.repeat.is_some_and(|(_, hi)| hi > 1));
 	if names.is_empty() {
 		return;
 	}
@@ -2621,10 +10791,30 @@ pub fn suppress_declared_repeats(schema: &Document, diags: &mut Vec<Diagnostic>)
 	diags.retain(|d| d.code != "H001" || !heads.iter().any(|h| d.message.starts_with(h.as_str())));
 }
 
+/// Leaf names of the schema entries `pick` accepts, top-level fields and every
+/// fragment's fields alike. Read through the built schema, so the names are
+/// the ones validation will use (escapes resolved) and an entry whose key
+/// faulted disavows nothing.
+fn disavowed_names(schema: &Document, pick: impl Fn(&Constraint) -> bool) -> Vec<String> {
+	let (def, _) = build_schema(schema);
+	let mut names: Vec<String> = Vec::new();
+	let frags = def.frags.values().flat_map(|v| v.iter());
+	for c in def.cons.iter().chain(frags) {
+		if !pick(c) {
+			continue;
+		}
+		// Name wildcard: no single leaf name to disavow.
+		if let Some(seg) = c.segs.last().filter(|seg| !seg.star) {
+			names.push(seg.name.clone());
+		}
+	}
+	names
+}
+
 /// The single H002 wording site: the merge hint and the schema suppressor
 /// both come here, same discipline as h001_head.
 fn h002_head(name: &str) -> String {
-	format!("merged with '{}' at ", name)
+	format!("merged with '{}' at ", diag_name(name))
 }
 
 /// Drop the H002 hints a schema disavows: a section whose entry declares
@@ -2634,32 +10824,7 @@ fn h002_head(name: &str) -> String {
 /// `check --schema` and load_and_validate; call it wherever doc diagnostics
 /// and a schema meet.
 pub fn suppress_declared_reopens(schema: &Document, diags: &mut Vec<Diagnostic>) {
-	let mut groups: Vec<(String, Vec<String>)> =
-		vec![("field".to_string(), schema.instances("field"))];
-	for k in 0..schema.count("fragment") {
-		let base = format!("fragment[#{}].field", k);
-		let paths = schema.instances(&base);
-		groups.push((base, paths));
-	}
-	let mut names: Vec<String> = Vec::new();
-	for (base, paths) in &groups {
-		for (i, p) in paths.iter().enumerate() {
-			let re = schema.read_bool(&format!("{}[#{}].reopen", base, i));
-			if re.status != Status::Good || !re.value {
-				continue;
-			}
-			let Ok(scan) = scan_lookup(p) else {
-				continue;
-			};
-			let Some(seg) = scan.segments.last() else {
-				continue;
-			};
-			if seg.star {
-				continue; // name wildcard: no single leaf name to disavow
-			}
-			names.push(seg.name.clone());
-		}
-	}
+	let names = disavowed_names(schema, |c| c.reopen);
 	if names.is_empty() {
 		return;
 	}
@@ -2667,100 +10832,284 @@ pub fn suppress_declared_reopens(schema: &Document, diags: &mut Vec<Diagnostic>)
 	diags.retain(|d| d.code != "H002" || !heads.iter().any(|h| d.message.starts_with(h.as_str())));
 }
 
-/// Minimal quoting: bare unless a reserved character (or lookalike hazard) forces it.
-/// One addition: an author-quoted element keeps its quotes unless the text reads as
-/// one of SHCL's own data formats - quoting those is just spelling (readers type the
-/// value either way), but quoting a plain string is the escape and must survive
-/// canonicalization. This clause only ever adds quoting, so a bare emit stays safe.
-fn emit_element(e: &Element) -> String {
+/// Quoting for a value, list item or array element (value-syntax.md,
+/// Canonical output): bare only when the text has no whitespace, none of
+/// the characters that open, split or escape a piece, and needs no escape.
+/// The reader takes spaces and an inner colon or comma bare, as in `2:30PM`
+/// or `rw,noatime`, but the writer quotes them so nobody has to know that.
+fn needs_quotes(t: &str) -> bool {
+	t.is_empty()
+		|| t.char_indices().any(|(i, c)| {
+			white_space(c)
+				|| matches!(
+					c,
+					'#' | '"' | '\'' | '`' | ':' | ',' | '(' | ')' | '[' | ']' | ESCAPE_MARK
+				) || invisible_at(t, i, c)
+		}) || fence_open(t).is_some()
+}
+
+/// A value, list item or array element as written: bare when it can be,
+/// else in the author's quote kind when the text allows it, else the quotes
+/// the writer picks. Quotes are never dropped, a quoted number included,
+/// since quoting it is how a file says it is text. A backtick value stays in
+/// backticks whatever it holds.
+fn emit_element(e: &Element) -> std::borrow::Cow<'_, str> {
 	let t = &e.text;
-	// Edge whitespace beyond the space/tab above still has to force quotes: the
-	// parser trims the full White_Space set, so a bare NBSP (or VT, FF, NEL,
-	// ideographic space) at either end would not survive the reload. Edges only
-	// - interior whitespace is never trimmed and quoting it would move bytes.
-	let needs = t.is_empty()
-		|| t.chars()
-			.any(|c| matches!(c, ' ' | '\t' | ',' | ':' | '#' | '"' | '\'' | '[' | ']'))
-		|| t.starts_with(char::is_whitespace)
-		|| t.ends_with(char::is_whitespace)
-		|| fence_open(t).is_some()
-		|| (e.quoted && !is_data_format(e));
-	if needs { quote_text(t) } else { t.clone() }
-}
-
-/// True when the text reads as an int, float, bool, or datetime at standard
-/// strictness - fixed there deliberately, so canonical form cannot vary with
-/// the load strictness.
-fn is_data_format(e: &Element) -> bool {
-	// One pass over the bytes before any coercion. At Standard the int, float
-	// and datetime forms all require at least one ASCII digit; the only formats
-	// that do not are the boolean words, and the longest of those is "false".
-	// An ordinary quoted string fails both tests, so emit stops running four
-	// full coercions on every quoted element it writes.
-	let t = e.text.trim();
-	if t.bytes().any(|b| b.is_ascii_digit()) {
-		return parse_int_text(e, Strictness::Standard).is_some()
-			|| parse_float_text(e, Strictness::Standard).is_some()
-			|| parse_datetime(&e.text).is_some()
-			|| parse_bool_text(t, Strictness::Standard).is_some();
+	if e.mark == Mark::Backtick && backtick_holds(t) {
+		return std::borrow::Cow::Owned(format!("`{}`", t));
 	}
-	t.len() <= 5 && parse_bool_text(t, Strictness::Standard).is_some()
-}
-
-/// Quote chars that are NOT already escaped in the raw text; escaped ones must
-/// stay untouched or every round-trip would re-escape them.
-fn bare_quote_counts(t: &str) -> (usize, usize) {
-	let (mut dq, mut sq) = (0usize, 0usize);
-	let mut it = t.chars();
-	while let Some(c) = it.next() {
-		match c {
-			'\\' => {
-				it.next();
-			}
-			'"' => dq += 1,
-			'\'' => sq += 1,
-			_ => {}
-		}
+	if !e.quoted() && !needs_quotes(t) {
+		return std::borrow::Cow::Borrowed(t);
 	}
-	(dq, sq)
+	std::borrow::Cow::Owned(match e.mark {
+		Mark::Single if !t.contains('\'') => quote_with(t, '\''),
+		Mark::Double if !t.contains('"') => quote_with(t, '"'),
+		_ => quote_text(t),
+	})
 }
 
+/// A value or `- ` item as written. The same as an array element, but a
+/// bare thousands number stays bare: there is no bracket for its comma to
+/// split, and in quotes Loose would read it as a number (spec.md).
+fn emit_scalar(e: &Element) -> std::borrow::Cow<'_, str> {
+	if !e.quoted() && thousands_number(&e.text).is_some() {
+		return std::borrow::Cow::Borrowed(&e.text);
+	}
+	emit_element(e)
+}
+
+/// Whether text can be a backtick value: no backtick, which would end it,
+/// and nothing the writer would have to escape, since a backtick value has
+/// no escapes.
+fn backtick_holds(t: &str) -> bool {
+	!t.char_indices()
+		.any(|(i, c)| c == '`' || c == '\n' || c == '\r' || invisible_at(t, i, c))
+}
+
+/// An element no source wrote. It counts as quoted when canonical output will
+/// quote it, so the read's `quoted` flag gives the same answer before a save
+/// as after one.
+fn new_element(text: String) -> Element {
+	Element {
+		mark: writer_mark(&text),
+		text,
+	}
+}
+
+/// How the writer marks text it quotes itself: bare when it can be, else in
+/// the quotes it picks.
+fn writer_mark(t: &str) -> Mark {
+	if !needs_quotes(t) {
+		Mark::Bare
+	} else if picks_single(t) {
+		Mark::Single
+	} else {
+		Mark::Double
+	}
+}
+
+/// A value no source wrote, quoted the way emit_scalar writes it.
+fn new_scalar(text: String) -> Element {
+	if thousands_number(&text).is_some() {
+		return Element {
+			text,
+			mark: Mark::Bare,
+		};
+	}
+	new_element(text)
+}
+
+/// The quotes the writer picks: double, or single when the text has a `"`
+/// and no `'`. A backslash plays no part.
+fn picks_single(t: &str) -> bool {
+	t.contains('"') && !t.contains('\'')
+}
+
+/// Quote a logical string so the tokenizer reads it back as the same string,
+/// in the quotes the writer picks.
 fn quote_text(t: &str) -> String {
-	// A dangling trailing backslash would turn the closing quote into an
-	// escape pair - the scanner reads the path back wrong, or not at all.
-	// Store the doubled spelling (identical on string read), the same rule
-	// the element parser applies to bare text.
-	let normalized;
-	let t = if t.ends_with('\\') {
-		normalized = normalize_dangling_backslash(t.to_string());
-		normalized.as_str()
-	} else {
-		t
-	};
-	let (dq, sq) = bare_quote_counts(t);
-	if dq == 0 {
-		format!("\"{}\"", t)
-	} else if sq == 0 {
-		format!("'{}'", t)
-	} else {
-		// Both quote kinds appear bare: escape the doubles, wrap in doubles.
-		let mut out = String::from("\"");
-		let mut it = t.chars();
-		while let Some(c) = it.next() {
-			match c {
-				'\\' => {
-					out.push(c);
-					if let Some(n) = it.next() {
-						out.push(n);
-					}
-				}
-				'"' => out.push_str("\\\""),
-				_ => out.push(c),
-			}
+	quote_with(t, if picks_single(t) { '\'' } else { '"' })
+}
+
+/// The text in quote `q`, with every character a reader could not see or
+/// that would end the piece written as an escape: a line break, a carriage
+/// return or the pair of them, a tab, the other controls on the list by
+/// name, a hidden character by code point, a real escape mark, and `q`
+/// itself.
+fn quote_with(t: &str, q: char) -> String {
+	let mut out = String::with_capacity(t.len() + 2);
+	out.push(q);
+	let mut it = t.char_indices().peekable();
+	while let Some((i, c)) = it.next() {
+		if c == '\r' && it.peek().is_some_and(|&(_, n)| n == '\n') {
+			it.next();
+			out.push(ESCAPE_MARK);
+			out.push_str("CRLF");
+			out.push(ESCAPE_MARK);
+		} else if c == q || c == ESCAPE_MARK || c == '\t' || c == '\n' || invisible_at(t, i, c) {
+			push_escape(&mut out, c);
+		} else {
+			out.push(c);
 		}
-		out.push('"');
-		out
 	}
+	out.push(q);
+	out
+}
+
+// ---------------------------------------------------------------------------
+// The write side's one rule: what is written has to read back
+// ---------------------------------------------------------------------------
+//
+// A setter builds its text through the emitter and reads it back with the
+// tokenizer before the document is touched. If the read does not give the
+// value it was handed, the write is refused and nothing changes. No setter
+// decides for itself what a quote, a `#`, a comma or a carriage return means:
+// twelve review items were one setter's private rule disagreeing with the
+// parser's. The typed setters keep their own render-and-parse-back on top,
+// since a float or a datetime has to read back as that type and not merely as
+// the same text.
+
+/// An array the way `emit_line` writes it: `[a, b]`, and `[]` for none.
+fn emit_array(els: &[Element]) -> String {
+	let mut out = String::new();
+	emit_array_into(&mut out, els);
+	out
+}
+
+fn emit_array_into(out: &mut String, els: &[Element]) {
+	out.push('[');
+	for (i, e) in els.iter().enumerate() {
+		if i > 0 {
+			out.push_str(", ");
+		}
+		out.push_str(&emit_element(e));
+	}
+	out.push(']');
+}
+
+/// The value half of a binding line, the way `emit_line` writes it, or None
+/// for a value with no one-line form.
+fn emit_value_text(v: &Value) -> Option<String> {
+	match v {
+		Value::Cell(e) => Some(emit_scalar(e).into_owned()),
+		Value::Array(els) => Some(emit_array(els)),
+		Value::Empty | Value::Raw(_) => None,
+	}
+}
+
+/// The opening fence line of a raw block: the fence run, then the info string
+/// behind a space when it would otherwise extend the run.
+fn emit_fence_line(r: &RawVal) -> String {
+	let mut out: String = std::iter::repeat_n(r.fence_char as char, r.fence_len).collect();
+	if !r.info.is_empty() {
+		if r.info.as_bytes()[0] == r.fence_char {
+			out.push(' ');
+		}
+		out.push_str(&r.info);
+	}
+	out
+}
+
+/// Scan text as a line's value half, behind the colon a field line puts
+/// there. Returns the line the token spans index into.
+fn value_half(text: &str, out: &mut Tokens) -> String {
+	let line = format!(":{}", text);
+	tokenize_value(&line, 1, Rules::Current, out);
+	line
+}
+
+/// True when a value comes back off the page as itself.
+fn value_reads_back(v: &Value) -> bool {
+	match v {
+		Value::Empty => true,
+		Value::Cell(_) | Value::Array(_) => {
+			let els = match v {
+				Value::Cell(e) => std::slice::from_ref(e),
+				Value::Array(els) => els.as_slice(),
+				_ => return false,
+			};
+			let Some(text) = emit_value_text(v) else {
+				return false;
+			};
+			if text.contains('\n') {
+				return false;
+			}
+			let mut tok = Tokens::default();
+			let line = value_half(&text, &mut tok);
+			if tok.comment.is_some()
+				|| tok.array.is_some() != matches!(v, Value::Array(_))
+				|| array_fault(&tok).is_some()
+				|| value_fault(&tok, &line).is_some()
+			{
+				return false;
+			}
+			// Compared against the pieces rather than against a rebuilt value:
+			// a bulk write runs this per set, and the text is right there.
+			let mut back = tok
+				.elements
+				.iter()
+				.filter(|p| p.quote != Quote::None || p.end > p.start);
+			els.iter()
+				.all(|e| back.next().is_some_and(|p| piece_is(p, &line, &e.text)))
+				&& back.next().is_none()
+		}
+		Value::Raw(r) => {
+			// A body line ending in a carriage return loses it to the load's
+			// line-end trim, and one spelling the closing fence would end the
+			// block early.
+			fence_reads_back(r)
+				&& r.content
+					.split('\n')
+					.all(|l| !l.ends_with('\r') && !is_fence_close(l, r.fence_char, r.fence_len))
+		}
+	}
+}
+
+/// True when a raw block's opening fence line, its info string with it,
+/// comes back off the page as itself.
+fn fence_reads_back(r: &RawVal) -> bool {
+	let line = emit_fence_line(r);
+	if line.contains('\n') {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize_value(&line, 0, Rules::Current, &mut tok);
+	fence_open(&line[tok.value.0..tok.value.1]) == Some((r.fence_char, r.fence_len, r.info.clone()))
+}
+
+/// True when a field name comes back off a line as itself.
+fn name_reads_back(name: &str) -> bool {
+	let text = escape_name(name);
+	if text.contains('\n') {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(&text, b':', false, Rules::Current, &mut tok);
+	tok.fault.is_none()
+		&& tok.segments.len() == 1
+		&& tok.segments[0].selector.is_none()
+		&& piece_is(&tok.segments[0].name, &text, name)
+}
+
+/// The comment line this text is written as, or None when it has no spelling.
+/// A `#` is added when the text has none. The load trims every line's
+/// end, so the trimmed text is what gets written; text holding a line break
+/// is refused rather than cut down to its first line.
+fn comment_line(text: &str) -> Option<String> {
+	if text.contains('\n') {
+		return None;
+	}
+	let t = trim_wsp_end(text);
+	let line = if t.starts_with('#') {
+		t.to_string()
+	} else if t.is_empty() {
+		"#".to_string()
+	} else {
+		format!("# {}", t)
+	};
+	let mut tok = Tokens::default();
+	tokenize_value(&line, 0, Rules::Current, &mut tok);
+	(tok.comment == Some(0) && trim_wsp_end(&line) == line).then_some(line)
 }
 
 // ---------------------------------------------------------------------------
@@ -2772,21 +11121,57 @@ enum Resolved {
 	One(usize),
 	Many(Vec<usize>),
 	// Wildcard: one slot per instance, in file order; Err = why the sub-path
-	// did not land on one node (NotFound missing, Multiple ambiguous).
+	// did not reach one node (NotFound missing, Multiple ambiguous).
 	Slots(Vec<Result<usize, Status>>),
 }
 
 impl Document {
-	fn children_named(&self, parent: usize, name: &str) -> Vec<usize> {
-		self.arena[parent]
-			.children
-			.iter()
-			.copied()
-			.filter(|&c| self.arena[c].name == name)
-			.collect()
+	fn name_index(&self) -> &NameIndex {
+		self.index.get_or_init(|| {
+			// Boxed so the document stays small on the stack (it rides inside
+			// LoadError by value).
+			let mut idx = NameIndex {
+				first: U64Map::default(),
+				last: U64Map::default(),
+				next_same: vec![NIL; self.arena.len()],
+			};
+			// From the root, not across the arena: a removed subtree's nodes
+			// are still there with their child lists intact, so an arena walk
+			// indexes every node the document ever held. Chains stay in file
+			// order - a chain is one parent's same-named children, and each
+			// parent's are appended in its own list order.
+			let mut stack = vec![ROOT];
+			while let Some(p) = stack.pop() {
+				for &c in &self.arena[p].children {
+					idx.append(name_key(p, &self.arena[c].name), c);
+					stack.push(c);
+				}
+			}
+			Box::new(idx)
+		})
 	}
 
-	fn resolve_from(&self, start: &[usize], segs: &[Segment]) -> Resolved {
+	fn children_named(&self, parent: usize, name: &str) -> Vec<usize> {
+		let idx = self.name_index();
+		let mut out = Vec::new();
+		let mut c = idx
+			.first
+			.get(&name_key(parent, name))
+			.copied()
+			.unwrap_or(NIL);
+		while c != NIL {
+			if self.arena[c].name == name && self.arena[c].parent == parent {
+				out.push(c);
+			}
+			c = idx.next_same[c];
+		}
+		out
+	}
+
+	// `group`: a sub-path reaching several nodes joins the slot list instead
+	// of becoming one Multiple slot. Reads want the slot per instance, so they
+	// leave it off; remove and exists want every node behind the wildcard.
+	fn resolve_from(&self, start: &[usize], segs: &[Segment], group: bool) -> Resolved {
 		let mut cur: Vec<usize> = start.to_vec();
 		for (i, seg) in segs.iter().enumerate() {
 			let mut next: Vec<usize> = Vec::new();
@@ -2798,16 +11183,21 @@ impl Document {
 				}
 			}
 			if seg.star {
-				// Name wildcard: same per-slot split as `[*]`, over every child.
+				// Name wildcard: same per-slot split as `(*)`, over every child.
 				let rest = &segs[i + 1..];
 				let mut slots: Vec<Result<usize, Status>> = Vec::new();
 				for inst in next {
 					if rest.is_empty() {
 						slots.push(Ok(inst));
 					} else {
-						match self.resolve_from(&[inst], rest) {
+						match self.resolve_from(&[inst], rest, group) {
 							Resolved::One(x) => slots.push(Ok(x)),
 							Resolved::None => slots.push(Err(Status::NotFound)),
+							// A wildcard after a wildcard: the inner slots join the
+							// outer list, so the two compose into one flat run of
+							// leaves rather than one unreadable slot.
+							Resolved::Slots(inner) => slots.extend(inner),
+							Resolved::Many(v) if group => slots.extend(v.into_iter().map(Ok)),
 							_ => slots.push(Err(Status::Multiple)),
 						}
 					}
@@ -2816,13 +11206,13 @@ impl Document {
 			}
 			match &seg.selector {
 				None => cur = next,
-				Some(Selector::ByValue { text, quoted }) => {
-					let want = apply_escapes(text);
+				Some(Selector::ByValue { text, .. }) => {
+					let want = text.as_str();
 					cur = next
 						.into_iter()
 						.filter(|&c| {
-							disp_key(&self.arena[c].value) == want
-								&& (!quoted || single_scalar(&self.arena[c].value))
+							single_scalar(&self.arena[c].value)
+								&& disp_key(&self.arena[c].value) == want
 						})
 						.collect();
 				}
@@ -2840,9 +11230,14 @@ impl Document {
 						if rest.is_empty() {
 							slots.push(Ok(inst));
 						} else {
-							match self.resolve_from(&[inst], rest) {
+							match self.resolve_from(&[inst], rest, group) {
 								Resolved::One(x) => slots.push(Ok(x)),
 								Resolved::None => slots.push(Err(Status::NotFound)),
+								// A wildcard after a wildcard: the inner slots join the
+								// outer list, so the two compose into one flat run of
+								// leaves rather than one unreadable slot.
+								Resolved::Slots(inner) => slots.extend(inner),
+								Resolved::Many(v) if group => slots.extend(v.into_iter().map(Ok)),
 								_ => slots.push(Err(Status::Multiple)),
 							}
 						}
@@ -2859,20 +11254,43 @@ impl Document {
 	}
 
 	fn resolve(&self, path: &str) -> Result<Resolved, Status> {
-		let scan = scan_lookup(path).map_err(|_| Status::NotFound)?;
-		if scan.value_text.is_some() {
-			return Err(Status::NotFound); // a query has no value part
+		self.resolve_mode(path, false)
+	}
+
+	/// resolve() with every node behind a wildcard slot in the list, for the
+	/// callers that act on the whole match rather than read one value per
+	/// instance.
+	fn resolve_group(&self, path: &str) -> Result<Resolved, Status> {
+		self.resolve_mode(path, true)
+	}
+
+	fn resolve_mode(&self, path: &str, group: bool) -> Result<Resolved, Status> {
+		// The same paths check_set_path calls BadPath or ValueInPath: a query
+		// has no value part, and an empty one names nothing.
+		let scan = scan_lookup(path).map_err(|_| Status::BadPath)?;
+		if scan.value.is_some() || scan.segments.is_empty() {
+			return Err(Status::BadPath);
 		}
-		Ok(self.resolve_from(&[ROOT], &scan.segments))
+		Ok(self.resolve_from(&[ROOT], &scan.segments, group))
 	}
 
 	/// Instance count at a path (0 when nothing matches).
 	pub fn count(&self, path: &str) -> usize {
+		self.read_count(path).value
+	}
+
+	/// count() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, or `BadPath` when it cannot be read as a path. A wildcard
+	/// with no slots matches nothing, as in read_int_array(). `line` is set
+	/// when the path reaches one node.
+	pub fn read_count(&self, path: &str) -> Read<usize> {
 		match self.resolve(path) {
-			Ok(Resolved::None) | Err(_) => 0,
-			Ok(Resolved::One(_)) => 1,
-			Ok(Resolved::Many(v)) => v.len(),
-			Ok(Resolved::Slots(s)) => s.len(),
+			Err(st) => Read::new(0, st, None),
+			Ok(Resolved::None) => Read::new(0, Status::NotFound, None),
+			Ok(Resolved::Slots(s)) if s.is_empty() => Read::new(0, Status::NotFound, None),
+			Ok(Resolved::One(n)) => Read::new(1, Status::Good, None).at(self.arena[n].line, None),
+			Ok(Resolved::Many(v)) => Read::new(v.len(), Status::Good, None),
+			Ok(Resolved::Slots(s)) => Read::new(s.len(), Status::Good, None),
 		}
 	}
 
@@ -2893,7 +11311,7 @@ impl Document {
 		while let Some((node, prefix)) = stack.pop() {
 			let seg = emit_name(&self.arena[node].name);
 			let path = if prefix.is_empty() {
-				seg
+				seg.into_owned()
 			} else {
 				format!("{}.{}", prefix, seg)
 			};
@@ -2912,13 +11330,21 @@ impl Document {
 	/// node, or the node was writer-built. Merged instances cite the first
 	/// binding's line, matching diagnostics.
 	pub fn line(&self, path: &str) -> usize {
-		match self.resolve(path) {
-			Ok(Resolved::One(n)) => self.arena[n].line,
-			_ => 0,
+		self.read_line(path).value
+	}
+
+	/// line() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, `Multiple` when it matches more than one node, as the typed
+	/// reads say, or `BadPath` when it cannot be read as a path. A
+	/// writer-built node is `Good` with 0. `line` is set too.
+	pub fn read_line(&self, path: &str) -> Read<usize> {
+		match self.node_at(path) {
+			Ok(n) => Read::new(self.arena[n].line, Status::Good, None).at(self.arena[n].line, None),
+			Err(st) => Read::new(0, st, None),
 		}
 	}
 
-	/// The field name at a path exactly as the author spelled it (case
+	/// The field name at a path exactly as the author wrote it (case
 	/// unfolded, outer quotes stripped), so a message can echo `SYMBOLS` when
 	/// the file said SYMBOLS. Escape sequences stay as written too: a name is
 	/// stored, compared and emitted with its escapes RESOLVED, so this is the
@@ -2928,9 +11354,44 @@ impl Document {
 	/// binding's spelling; a writer-built node keeps the spelling the setter's
 	/// path used.
 	pub fn authored_name(&self, path: &str) -> String {
-		match self.resolve(path) {
-			Ok(Resolved::One(n)) => self.arena[n].authored().to_string(),
-			_ => String::new(),
+		self.read_authored_name(path).value
+	}
+
+	/// authored_name() with a status, the way read_line() has them:
+	/// `Multiple` for a repeated field, `NotFound` or `BadPath` otherwise.
+	pub fn read_authored_name(&self, path: &str) -> Read<String> {
+		match self.node_at(path) {
+			Ok(n) => Read::new(self.arena[n].authored().to_string(), Status::Good, None)
+				.at(self.arena[n].line, None),
+			Err(st) => Read::new(String::new(), st, None),
+		}
+	}
+
+	/// What the value at a path is: scalar, array, raw block or empty, so a
+	/// generic tool can pick its read without trying each. It answers from
+	/// the stored form, so `x: [80]` is an array though a scalar read takes
+	/// it. `Empty` when the path does not resolve to exactly one node, as
+	/// line() gives 0; read_kind() says which miss it was.
+	pub fn kind(&self, path: &str) -> ValueKind {
+		self.read_kind(path).value
+	}
+
+	/// kind() with a status, the way read_line() has them: `Good`,
+	/// `NotFound`, `Multiple` for a repeated field, or `BadPath`. An empty
+	/// value is `Good` with `ValueKind::Empty`, so a written `x:` and a
+	/// missing field read apart. `line` is set too.
+	pub fn read_kind(&self, path: &str) -> Read<ValueKind> {
+		match self.node_at(path) {
+			Ok(n) => {
+				let kind = match &self.arena[n].value {
+					Value::Empty => ValueKind::Empty,
+					Value::Cell(_) => ValueKind::Scalar,
+					Value::Array(_) => ValueKind::Array,
+					Value::Raw(_) => ValueKind::Raw,
+				};
+				Read::new(kind, Status::Good, None).at(self.arena[n].line, None)
+			}
+			Err(st) => Read::new(ValueKind::Empty, st, None),
 		}
 	}
 
@@ -2939,54 +11400,236 @@ impl Document {
 	/// binding's. Wildcard slots that did not resolve stay in the list as 0,
 	/// and a writer-built node is 0, so indices keep matching count().
 	pub fn lines(&self, path: &str) -> Vec<usize> {
+		self.read_lines(path).value
+	}
+
+	/// lines() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, or `BadPath` when it cannot be read as a path, the way
+	/// read_count() has them. Unresolved wildcard slots stay 0 as in
+	/// lines(), and still count as a match. `line` is set when the path
+	/// reaches one node.
+	pub fn read_lines(&self, path: &str) -> Read<Vec<usize>> {
 		match self.resolve(path) {
-			Ok(Resolved::One(n)) => vec![self.arena[n].line],
-			Ok(Resolved::Many(v)) => v.iter().map(|&n| self.arena[n].line).collect(),
-			Ok(Resolved::Slots(s)) => s
-				.into_iter()
-				.map(|r| match r {
-					Ok(n) => self.arena[n].line,
-					Err(_) => 0,
-				})
-				.collect(),
-			_ => Vec::new(),
+			Err(st) => Read::new(Vec::new(), st, None),
+			Ok(Resolved::None) => Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::Slots(s)) if s.is_empty() => Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::One(n)) => {
+				Read::new(vec![self.arena[n].line], Status::Good, None).at(self.arena[n].line, None)
+			}
+			Ok(Resolved::Many(v)) => Read::new(
+				v.iter().map(|&n| self.arena[n].line).collect(),
+				Status::Good,
+				None,
+			),
+			Ok(Resolved::Slots(s)) => Read::new(
+				s.into_iter()
+					.map(|r| match r {
+						Ok(n) => self.arena[n].line,
+						Err(_) => 0,
+					})
+					.collect(),
+				Status::Good,
+				None,
+			),
 		}
 	}
 
 	/// Child field names under a path, in file order, duplicates included -
 	/// the "what keys are in this section?" question paths() (deduplicated,
-	/// path-shaped) cannot answer. "" enumerates the top level. Names come
-	/// back as stored; quote_segment() makes one splice-safe in a path.
+	/// path-shaped) cannot answer. "" enumerates the top level. A path with
+	/// several instances lists the children of each in turn, the way a dotted
+	/// path reaches all of them. Names come back as stored; quote_segment()
+	/// makes one splice-safe in a path.
 	pub fn children(&self, path: &str) -> Vec<String> {
-		let node = if path.trim().is_empty() {
-			ROOT
+		self.read_children(path).value
+	}
+
+	/// children() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, or `BadPath` when it cannot be read as a path, the way
+	/// read_count() has them. A node with no children is `Good` with an
+	/// empty list, so an empty section and a missing one read differently.
+	/// `line` is set when the path reaches one node.
+	pub fn read_children(&self, path: &str) -> Read<Vec<String>> {
+		let (nodes, line) = if path.trim().is_empty() {
+			(vec![ROOT], 0)
 		} else {
 			match self.resolve(path) {
-				Ok(Resolved::One(n)) => n,
-				_ => return Vec::new(),
+				Err(st) => return Read::new(Vec::new(), st, None),
+				Ok(Resolved::None) => return Read::new(Vec::new(), Status::NotFound, None),
+				Ok(Resolved::Slots(s)) if s.is_empty() => {
+					return Read::new(Vec::new(), Status::NotFound, None);
+				}
+				Ok(Resolved::One(n)) => (vec![n], self.arena[n].line),
+				Ok(Resolved::Many(v)) => (v, 0),
+				Ok(Resolved::Slots(s)) => (s.into_iter().flatten().collect(), 0),
 			}
 		};
-		self.arena[node]
-			.children
+		let names = nodes
 			.iter()
+			.flat_map(|&n| &self.arena[n].children)
 			.map(|&c| self.arena[c].name.clone())
+			.collect();
+		Read::new(names, Status::Good, None).at(line, None)
+	}
+
+	/// paths() one instance at a time: every binding's path in file order,
+	/// with `(i)` on each segment whose name repeats under its parent, so
+	/// each path reads exactly one node and a repeated block is walked
+	/// instance by instance. Segments are written as paths() writes them.
+	pub fn instance_paths(&self) -> Vec<String> {
+		self.instance_walk().into_iter().map(|(_, p)| p).collect()
+	}
+
+	/// instance_paths() as a field list: each binding's path, name, value and
+	/// line, in the same order.
+	pub fn fields(&self) -> Vec<Field> {
+		self.instance_walk()
+			.into_iter()
+			.map(|(n, p)| self.field_of(n, p))
 			.collect()
+	}
+
+	/// read_instances() with each instance's path, name and line beside its
+	/// value. The path is the one instance_paths() writes for that node, so
+	/// two instances with one value still get paths that read one each. An
+	/// unresolved wildcard slot is an all-empty Field, line 0.
+	pub fn read_fields(&self, path: &str) -> Read<Vec<Field>> {
+		let (nodes, line): (Vec<Option<usize>>, usize) = match self.resolve(path) {
+			Err(st) => return Read::new(Vec::new(), st, None),
+			Ok(Resolved::None) => return Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::Slots(s)) if s.is_empty() => {
+				return Read::new(Vec::new(), Status::NotFound, None);
+			}
+			Ok(Resolved::One(n)) => (vec![Some(n)], self.arena[n].line),
+			Ok(Resolved::Many(v)) => (v.into_iter().map(Some).collect(), 0),
+			Ok(Resolved::Slots(s)) => (s.into_iter().map(Result::ok).collect(), 0),
+		};
+		let paths = self.instance_path_index();
+		let fields = nodes
+			.into_iter()
+			.map(|n| n.map_or_else(Field::default, |n| self.field_of(n, paths[n].clone())))
+			.collect();
+		Read::new(fields, Status::Good, None).at(line, None)
+	}
+
+	/// read_children() with each child's path, value and line beside its
+	/// name, paths written as instance_paths() writes them. "" is the top
+	/// level.
+	pub fn read_child_fields(&self, path: &str) -> Read<Vec<Field>> {
+		let (nodes, line) = if path.trim().is_empty() {
+			(vec![ROOT], 0)
+		} else {
+			match self.resolve(path) {
+				Err(st) => return Read::new(Vec::new(), st, None),
+				Ok(Resolved::None) => return Read::new(Vec::new(), Status::NotFound, None),
+				Ok(Resolved::Slots(s)) if s.is_empty() => {
+					return Read::new(Vec::new(), Status::NotFound, None);
+				}
+				Ok(Resolved::One(n)) => (vec![n], self.arena[n].line),
+				Ok(Resolved::Many(v)) => (v, 0),
+				Ok(Resolved::Slots(s)) => (s.into_iter().flatten().collect(), 0),
+			}
+		};
+		let paths = self.instance_path_index();
+		let fields = nodes
+			.iter()
+			.flat_map(|&n| &self.arena[n].children)
+			.map(|&c| self.field_of(c, paths[c].clone()))
+			.collect();
+		Read::new(fields, Status::Good, None).at(line, None)
+	}
+
+	fn field_of(&self, node: usize, path: String) -> Field {
+		let n = &self.arena[node];
+		Field {
+			path,
+			name: n.name.clone(),
+			value: n.value.display(),
+			line: n.line,
+		}
+	}
+
+	/// Each node's instance_paths() path by arena index. The root and nodes
+	/// no longer in the tree stay "". One walk, so a field list costs the
+	/// same however wide its parent is; a lookup per path would scan every
+	/// sibling each time.
+	fn instance_path_index(&self) -> Vec<String> {
+		let mut at = vec![String::new(); self.arena.len()];
+		for (n, p) in self.instance_walk() {
+			at[n] = p;
+		}
+		at
+	}
+
+	/// Every node under the root with its instance path, in file order.
+	fn instance_walk(&self) -> Vec<(usize, String)> {
+		let mut out = Vec::new();
+		let mut stack: Vec<(usize, String)> = vec![(ROOT, String::new())];
+		while let Some((node, prefix)) = stack.pop() {
+			let kids = &self.arena[node].children;
+			let mut total: HashMap<&str, usize> = HashMap::new();
+			for &c in kids {
+				*total.entry(self.arena[c].name.as_str()).or_insert(0) += 1;
+			}
+			let mut at: HashMap<&str, usize> = HashMap::new();
+			let mut paths = Vec::with_capacity(kids.len());
+			for &c in kids {
+				let name = self.arena[c].name.as_str();
+				let mut path = if prefix.is_empty() {
+					emit_name(name).into_owned()
+				} else {
+					format!("{}.{}", prefix, emit_name(name))
+				};
+				if total[name] > 1 {
+					let i = at.entry(name).or_insert(0);
+					path.push_str(&format!("({})", i));
+					*i += 1;
+				}
+				paths.push((c, path));
+			}
+			if node != ROOT {
+				out.push((node, prefix));
+			}
+			stack.extend(paths.into_iter().rev());
+		}
+		out
 	}
 
 	/// Instance values at a path, in file order. Wildcard slots that did not
 	/// resolve stay in the list as "" so indices keep matching count().
 	pub fn instances(&self, path: &str) -> Vec<String> {
+		self.read_instances(path).value
+	}
+
+	/// instances() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, or `BadPath` when it cannot be read as a path, the way
+	/// read_count() has them. Unresolved wildcard slots stay "" as in
+	/// instances(), and still count as a match, as they do in read_count().
+	/// `line` is set when the path reaches one node.
+	pub fn read_instances(&self, path: &str) -> Read<Vec<String>> {
 		match self.resolve(path) {
-			Ok(Resolved::One(n)) => vec![self.arena[n].value.display()],
-			Ok(Resolved::Many(v)) => v.iter().map(|&n| self.arena[n].value.display()).collect(),
-			Ok(Resolved::Slots(s)) => s
-				.into_iter()
-				.map(|r| match r {
-					Ok(n) => self.arena[n].value.display(),
-					Err(_) => String::new(),
-				})
-				.collect(),
-			_ => Vec::new(),
+			Err(st) => Read::new(Vec::new(), st, None),
+			Ok(Resolved::None) => Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::Slots(s)) if s.is_empty() => Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::One(n)) => {
+				Read::new(vec![self.arena[n].value.display()], Status::Good, None)
+					.at(self.arena[n].line, None)
+			}
+			Ok(Resolved::Many(v)) => Read::new(
+				v.iter().map(|&n| self.arena[n].value.display()).collect(),
+				Status::Good,
+				None,
+			),
+			Ok(Resolved::Slots(s)) => Read::new(
+				s.into_iter()
+					.map(|r| match r {
+						Ok(n) => self.arena[n].value.display(),
+						Err(_) => String::new(),
+					})
+					.collect(),
+				Status::Good,
+				None,
+			),
 		}
 	}
 }
@@ -3001,50 +11644,76 @@ impl Document {
 // already gone and is not maintained here.
 
 /// Read text as the value half of a line, for the setters that take value
-/// syntax rather than data. Rejects what could not have come off one line: a
-/// line break, or a quote that never closes. An unquoted `#` ends the value
-/// here exactly as it would in a file.
+/// syntax rather than data: whatever a file line means with this text is
+/// what gets stored, so a trailing blank comes off and a `#` outside quotes
+/// ends the value exactly as they would in a file. What is refused is what
+/// a file reports as an error, since a setter has no diagnostic to report it
+/// with: a line break, which no file line can hold, a malformed bracket
+/// array (E019), and whatever a value is refused for on a line: a loose comma
+/// (E026), an unterminated quote (E017), a bad escape (E023), or what bare
+/// text may not hold (E025). A bracket array is stored as an array.
 fn literal_value(text: &str) -> Option<Value> {
-	if text.contains('\n') || text.contains('\r') {
+	if text.contains('\n') {
 		return None;
 	}
-	let (v, _) = split_comment(text);
-	let v = v.trim();
-	if unterminated_quote(v) {
+	let mut tok = Tokens::default();
+	let line = value_half(text, &mut tok);
+	// A fence opener has no body here, so it is stored as the text it is,
+	// as before backtick values.
+	let fence = fence_open(&line[tok.value.0..tok.value.1]).is_some();
+	if array_fault(&tok).is_some()
+		|| tok.elements.len() > 1 && tok.array.is_none()
+		|| (!fence && value_fault(&tok, &line).is_some())
+	{
 		return None;
 	}
-	Some(parse_cell(v))
+	Some(cell_of_tokens(&tok, &line))
+}
+
+/// An overwrite keeps the quote kind the old value was written in, when the
+/// new text can be written that way (value-syntax.md, Canonical output). The
+/// kind is the one a save writes, so the answer is the same after a reload.
+/// A thousands number stays bare whatever it replaces, since in quotes Loose
+/// would read it as a number (spec.md).
+fn keep_mark(old: &Value, new: &mut Value) {
+	let (Value::Cell(was), Value::Cell(now)) = (old, &mut *new) else {
+		return;
+	};
+	if thousands_number(&now.text).is_some() {
+		return;
+	}
+	let written = match emit_scalar(was).as_bytes().first() {
+		Some(b'\'') => Mark::Single,
+		Some(b'"') => Mark::Double,
+		Some(b'`') if was.mark == Mark::Backtick => Mark::Backtick,
+		_ => Mark::Bare,
+	};
+	let fits = match written {
+		Mark::Bare => return,
+		Mark::Single => !now.text.contains('\''),
+		Mark::Double => !now.text.contains('"'),
+		Mark::Backtick => backtick_holds(&now.text),
+	};
+	if fits {
+		let before = now.mark;
+		now.mark = written;
+		if !value_reads_back(new)
+			&& let Value::Cell(el) = new
+		{
+			el.mark = before;
+		}
+	}
 }
 
 fn cell_of(text: String) -> Value {
-	Value::Cell(vec![Element {
-		text,
-		quoted: false,
-	}])
-}
-
-/// Encode a logical string into stored element text so a scalar read
-/// (apply_escapes) hands it back verbatim and an emit/reparse round-trips. Only
-/// backslash, newline, and tab need encoding; emit_element wraps quote/reserved
-/// chars itself, and reparse strips that wrapping.
-fn encode_string(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\n' => out.push_str("\\n"),
-			'\t' => out.push_str("\\t"),
-			_ => out.push(c),
-		}
-	}
-	out
+	Value::Cell(new_scalar(text))
 }
 
 /// Pick a backtick fence long enough that no content line closes it early.
 fn choose_fence(content: &str) -> (u8, usize) {
 	let mut maxrun = 0usize;
 	for line in content.split('\n') {
-		let t = line.trim();
+		let t = line.trim_matches([' ', '\t']);
 		if !t.is_empty() && t.bytes().all(|b| b == b'`') {
 			maxrun = maxrun.max(t.len());
 		}
@@ -3052,21 +11721,10 @@ fn choose_fence(content: &str) -> (u8, usize) {
 	(b'`', (maxrun + 1).max(3))
 }
 
-/// Inline-array value; the empty array is an empty value (reads back Empty).
+/// An array setter's value: written in brackets whatever its length, so
+/// one element is `[80]` and none is `[]`.
 fn array_cell(texts: Vec<String>) -> Value {
-	if texts.is_empty() {
-		Value::Empty
-	} else {
-		Value::Cell(
-			texts
-				.into_iter()
-				.map(|text| Element {
-					text,
-					quoted: false,
-				})
-				.collect(),
-		)
-	}
+	Value::Array(texts.into_iter().map(new_element).collect())
 }
 
 impl Document {
@@ -3077,16 +11735,20 @@ impl Document {
 	}
 
 	fn new_child(&mut self, parent: usize, name: &str, name_src: &str, value: Value) -> usize {
+		// A list written stacked would get the child after its elements,
+		// which reloads as E001, so it goes inline.
+		if stacks(&self.arena[parent]) {
+			unstack(&mut self.arena[parent]);
+		}
 		let idx = self.arena.len();
 		self.arena.push(NodeData {
 			name: name.to_string(),
-			name_src: spelled(name, name_src),
+			name_src: spelled(name, name_src.to_string()),
 			value,
 			children: Vec::new(),
 			parent,
 			line: 0,
 			star_list: false,
-			star_mixed: false,
 			trivia: None,
 			// Hand-written files separate top-level sections with a blank line;
 			// writer-built ones do the same (the emitter never blanks line 1).
@@ -3095,43 +11757,69 @@ impl Document {
 			src: None,
 		});
 		self.arena[parent].children.push(idx);
+		if let Some(ix) = self.index.get_mut() {
+			ix.append(name_key(parent, name), idx);
+		}
+		// Kept lines that end the block stay where they were, so the new
+		// field goes after the last of them, as a reload files them. The
+		// comments after it stay at the end, and so does a kept line the
+		// settle wrote as a comment, since a reload reads it as one.
+		let tail = if parent == ROOT {
+			Some(&mut self.orphans)
+		} else {
+			self.arena[parent]
+				.trivia
+				.as_deref_mut()
+				.map(|t| &mut t.inside)
+		};
+		if let Some(tail) = tail
+			&& let Some(k) = tail.iter().rposition(|l| !l.text.starts_with('#'))
+		{
+			let rest = tail.split_off(k + 1);
+			let lines = std::mem::replace(tail, rest);
+			restep(tail);
+			self.arena[idx].triv_mut().leading = lines;
+		}
+		let last = self.arena[parent].children.len() - 1;
+		self.settle(parent, last);
 		idx
 	}
 
-	/// Why a write at this path would fail - the reason behind a setter's bare
-	/// `false`, so a consumer's error message need not guess. `Writable` means
-	/// the same validation `place()` runs would pass; nothing is created.
-	pub fn write_reason(&self, path: &str) -> WriteReason {
-		let scan = match scan_lookup(path) {
-			Ok(s) => s,
-			Err(_) => return WriteReason::BadPath,
+	/// Whether a setter could write at this path, and why not when it could
+	/// not, so a consumer's error message need not guess. `Ok` means the same
+	/// validation `place()` runs would pass; nothing is created. It gives only
+	/// the path reasons, `BadPath` to `UnderArray`. A setter can still refuse
+	/// its value on an `Ok` path, and its own status says why.
+	pub fn check_set_path(&self, path: &str) -> SetStatus {
+		let Ok(scan) = scan_lookup(path) else {
+			return SetStatus::BadPath;
 		};
 		self.probe_write(&scan, &mut Vec::new())
 	}
 
-	/// The validation walk `write_reason` and `place` share. `trail` collects
-	/// where each segment landed - `None` from the point the path falls off the
+	/// The validation walk `check_set_path` and `place` share. `trail` collects
+	/// where each segment ended up - `None` from the point the path falls off the
 	/// existing tree - so `place` can create from exactly there instead of
 	/// scanning the path and walking the tree a second time.
-	fn probe_write(&self, scan: &PathScan, trail: &mut Vec<Option<usize>>) -> WriteReason {
+	fn probe_write(&self, scan: &PathScan, trail: &mut Vec<Option<usize>>) -> SetStatus {
 		trail.clear();
-		if scan.value_text.is_some() {
-			return WriteReason::ValueInPath;
+		if scan.value.is_some() {
+			return SetStatus::ValueInPath;
 		}
 		if scan.segments.is_empty() {
-			return WriteReason::BadPath;
+			return SetStatus::BadPath;
 		}
 		// Writer side of the load-time nesting cap: never create deeper.
 		if scan.segments.len() > MAX_DEPTH {
-			return WriteReason::TooDeep;
+			return SetStatus::TooDeep;
 		}
 		// The probe walk place() validates with: once it falls off the existing
-		// tree, a later `[#k]` can never match (fresh intermediates are created
+		// tree, a later `(k)` can never match (fresh intermediates are created
 		// childless), so an index segment past that point is unresolvable.
 		let mut probe = Some(ROOT);
 		for seg in &scan.segments {
 			if seg.star {
-				return WriteReason::Wildcard;
+				return SetStatus::Wildcard;
 			}
 			// A newline in a SELECTOR has no one-line spelling, so the emitted
 			// binding would split across two lines and reparse as neither. The
@@ -3139,65 +11827,101 @@ impl Document {
 			// escapes a line break, so nothing downstream can rescue it - and
 			// the reload loses nothing it can count, so the save gate would not
 			// catch it either. A newline in a NAME is fine: names are stored
-			// escape-resolved and emitted through the name escaper, which spells
-			// a line break `\n` and reads it back as one.
-			if matches!(&seg.selector, Some(Selector::ByValue { text, .. }) if text.contains('\n'))
-			{
-				return WriteReason::BadPath;
-			}
+			// escape-resolved and emitted through the name escaper, which writes
+			// a line break as `\n` and reads it back as one.
 			match &seg.selector {
-				Some(Selector::Wildcard) => return WriteReason::Wildcard,
+				Some(Selector::Wildcard) => return SetStatus::Wildcard,
 				Some(Selector::ByIndex(k)) => {
 					let Some(c) = probe else {
-						return WriteReason::NoSuchIndex;
+						return SetStatus::NoSuchIndex;
 					};
-					let matches: Vec<usize> = self.arena[c]
-						.children
-						.iter()
-						.copied()
-						.filter(|&n| self.arena[n].name == seg.name)
-						.collect();
+					let matches = self.children_named(c, &seg.name);
 					match index_usize(*k).and_then(|i| matches.get(i)) {
 						Some(&m) => probe = Some(m),
-						None => return WriteReason::NoSuchIndex,
+						None => return SetStatus::NoSuchIndex,
 					}
 				}
-				Some(Selector::ByValue { text, quoted }) => {
-					let want = apply_escapes(text);
-					probe = probe.and_then(|c| {
-						self.arena[c].children.iter().copied().find(|&n| {
-							self.arena[n].name == seg.name
+				Some(Selector::ByValue { text, .. }) => {
+					let want = text.as_str();
+					let matches: Vec<usize> = probe
+						.map(|c| self.children_named(c, &seg.name))
+						.unwrap_or_default()
+						.into_iter()
+						.filter(|&n| {
+							single_scalar(&self.arena[n].value)
 								&& disp_key(&self.arena[n].value) == want
-								&& (!quoted || single_scalar(&self.arena[n].value))
 						})
-					});
+						.collect();
+					if matches.len() > 1 {
+						return SetStatus::Multiple;
+					}
+					probe = matches.first().copied();
 				}
 				None => {
-					probe = probe.and_then(|c| {
-						self.arena[c]
-							.children
-							.iter()
-							.copied()
-							.find(|&n| self.arena[n].name == seg.name)
-					});
+					// A write agrees with the read after it, which would say
+					// Multiple, so it never picks one instance for the caller.
+					let matches = probe
+						.map(|c| self.children_named(c, &seg.name))
+						.unwrap_or_default();
+					if matches.len() > 1 {
+						return SetStatus::Multiple;
+					}
+					probe = matches.first().copied();
 				}
 			}
 			trail.push(probe);
 		}
-		WriteReason::Writable
+		// Nothing is created until every segment the write would create is
+		// known to read back: the name through the name escaper, an instance
+		// selector as the value it binds, and the first under a field that
+		// takes a field under it, which an array does not (E028). These come
+		// after the walk, so a reason it finds further on still wins.
+		for (i, seg) in scan.segments.iter().enumerate() {
+			if trail[i].is_some() {
+				continue;
+			}
+			if i > 0
+				&& let Some(up) = trail[i - 1]
+				&& matches!(self.arena[up].value, Value::Array(_))
+			{
+				return SetStatus::UnderArray;
+			}
+			if !name_reads_back(&seg.name) {
+				return SetStatus::BadPath;
+			}
+			if let Some(Selector::ByValue { text, .. }) = &seg.selector
+				&& !value_reads_back(&cell_of(text.clone()))
+			{
+				return SetStatus::BadPath;
+			}
+		}
+		SetStatus::Ok
 	}
 
-	/// Walk (creating as needed) to the node a write targets. A trailing name
-	/// with no selector hits the first same-named instance (or a new one); a
-	/// `[value]` selector selects the matching instance or creates it; `[#k]`
-	/// must already exist. None = path unusable for a write (write_reason()
-	/// says why). Validation runs first, so a doomed path leaves no
-	/// half-created intermediates behind.
-	fn place(&mut self, path: &str) -> Option<usize> {
+	/// The node a write at this path lands on when it is already there.
+	fn write_target(&self, path: &str) -> Option<usize> {
 		let scan = scan_lookup(path).ok()?;
-		let mut trail: Vec<Option<usize>> = Vec::new();
-		if self.probe_write(&scan, &mut trail) != WriteReason::Writable {
+		let mut trail = Vec::new();
+		if self.probe_write(&scan, &mut trail) != SetStatus::Ok {
 			return None;
+		}
+		trail.last().copied().flatten()
+	}
+
+	/// Walk (creating as needed) to the node a write targets. A name with no
+	/// selector hits its one instance (or a new one); a `(value)` selector
+	/// selects the matching instance or creates it; `(k)` must already exist.
+	/// A step that matches more than one instance is refused (Multiple).
+	/// Err = path unusable for a write, with the reason check_set_path gives.
+	/// Validation runs first, so a doomed path leaves no half-created
+	/// intermediates behind. A `setter` creating a field deals
+	/// with the kept lines of its name, as set_child() says.
+	fn place(&mut self, path: &str, setter: bool) -> Result<usize, SetStatus> {
+		let scan = scan_lookup(path).map_err(|_| SetStatus::BadPath)?;
+		let mut trail: Vec<Option<usize>> = Vec::new();
+		let checked = self.probe_write(&scan, &mut trail);
+		if checked != SetStatus::Ok {
+			return Err(checked);
 		}
 		let mut cur = ROOT;
 		for (i, seg) in scan.segments.iter().enumerate() {
@@ -3207,29 +11931,298 @@ impl Document {
 				cur = found;
 				continue;
 			}
-			cur = match &seg.selector {
-				None => self.new_child(cur, &seg.name, &seg.name_src, Value::Empty),
-				Some(Selector::ByValue { text, .. }) => {
-					self.new_child(cur, &seg.name, &seg.name_src, cell_of(text.clone()))
-				}
+			let value = match &seg.selector {
+				None => Value::Empty,
+				Some(Selector::ByValue { text, .. }) => cell_of(text.clone()),
 				// Both are unreachable: probe_write refuses a wildcard outright
 				// and an unresolvable index, so neither reaches an empty trail
 				// slot. Belt only.
-				Some(Selector::ByIndex(_)) | Some(Selector::Wildcard) => return None,
+				Some(Selector::ByIndex(_)) => return Err(SetStatus::NoSuchIndex),
+				Some(Selector::Wildcard) => return Err(SetStatus::Wildcard),
+			};
+			cur = if setter {
+				self.set_child(cur, &seg.name, &seg.name_src, value, path)
+			} else {
+				self.new_child(cur, &seg.name, &seg.name_src, value)
 			};
 		}
-		Some(cur)
+		Ok(cur)
 	}
 
-	fn set_value(&mut self, path: &str, value: Value) -> bool {
-		match self.place(path) {
-			Some(node) => {
+	/// A setter creating a field writes the kept lines of its name in the
+	/// block as comments, and with no other field of that name the new one
+	/// goes right under the first of them (design.md, Kept lines under
+	/// edits).
+	fn set_child(
+		&mut self,
+		parent: usize,
+		name: &str,
+		name_src: &str,
+		value: Value,
+		path: &str,
+	) -> usize {
+		let alone = self.children_named(parent, name).is_empty();
+		match self.comment_out_kept(parent, name, path, alone) {
+			Some(at) => self.new_child_under(parent, name, name_src, value, at),
+			None => self.new_child(parent, name, name_src, value),
+		}
+	}
+
+	fn set_value(&mut self, path: &str, value: Value) -> SetStatus {
+		self.set_value_as(path, value, true)
+	}
+
+	/// A refused value still answers with the path's reason when the path is
+	/// wrong too, as check_set_path would. Asked only once a write has failed,
+	/// so one that applies walks the path once.
+	fn refuse(&self, path: &str, why: SetStatus) -> SetStatus {
+		match self.check_set_path(path) {
+			SetStatus::Ok => why,
+			bad => bad,
+		}
+	}
+
+	/// set_value(), saying whether an overwrite keeps the old value's quote
+	/// kind. A literal says its own quotes, so it does not.
+	fn set_value_as(&mut self, path: &str, mut value: Value, keep_quotes: bool) -> SetStatus {
+		if !value_reads_back(&value) {
+			let why = match &value {
+				Value::Raw(r) if !fence_reads_back(r) => SetStatus::BadRawInfo,
+				Value::Raw(_) => SetStatus::BadRawBody,
+				_ => SetStatus::NoReadBack,
+			};
+			return self.refuse(path, why);
+		}
+		if self.probe {
+			return SetStatus::Ok;
+		}
+		let fresh = self.arena.len();
+		// A field with lines under it takes one plain value or none (E028).
+		// write_target finds it only on a path that checks Ok.
+		if matches!(value, Value::Array(_))
+			&& let Some(n) = self.write_target(path)
+			&& !self.arena[n].children.is_empty()
+		{
+			return SetStatus::HasChildren;
+		}
+		// A new instance with a value one already has would fold into that
+		// one, so the set is a set of that one, which leaves its lines be.
+		let placed = match self.same_instance(path, &value) {
+			Some(n) => Ok(n),
+			None => self.place(path, true),
+		};
+		match placed {
+			Ok(node) => {
+				if keep_quotes {
+					keep_mark(&self.arena[node].value, &mut value);
+				}
+				// A list written stacked stays stacked, as an overwrite keeps
+				// quotes, unless there is nothing left to stack.
+				let stacked = stacks(&self.arena[node])
+					&& matches!(&value, Value::Array(els) if !els.is_empty());
 				self.arena[node].value = value;
 				self.arena[node].src = None; // written value has no source spelling
+				// No longer the list the lines among its elements sat in.
+				unstack(&mut self.arena[node]);
+				self.arena[node].star_list = stacked;
+				// place() has already done it for a field it created. After
+				// the unstack, so a line of its name from among the items,
+				// now above it, is a comment too.
+				if node < fresh && self.kept_owed > 0 {
+					let (parent, name) = (self.arena[node].parent, self.arena[node].name.clone());
+					self.comment_out_kept(parent, &name, path, false);
+				}
+				// An empty binding or a raw block can put a fence after an
+				// empty sibling of its name.
+				let fence_side = matches!(self.arena[node].value, Value::Empty | Value::Raw(_));
+				let parent = self.arena[node].parent;
 				self.collapse_dup(node);
-				true
+				if fence_side {
+					self.settle_fence_name(parent, &self.arena[node].name.clone());
+				}
+				settle_first_blank(&mut self.arena, &mut self.orphans);
+				self.resettle_kept();
+				SetStatus::Ok
 			}
-			None => false,
+			Err(why) => why,
+		}
+	}
+
+	/// The instance a write of `value` at `path` would fold into: one with
+	/// that value, beside the one a `(value)` selector at the end of the path
+	/// would make. None when the selector finds one, or the path is not Ok.
+	fn same_instance(&self, path: &str, value: &Value) -> Option<usize> {
+		let scan = scan_lookup(path).ok()?;
+		let last = scan.segments.last()?;
+		if !matches!(last.selector, Some(Selector::ByValue { .. })) {
+			return None;
+		}
+		let mut trail = Vec::new();
+		if self.probe_write(&scan, &mut trail) != SetStatus::Ok || trail.last()?.is_some() {
+			return None;
+		}
+		let parent = match trail.len() {
+			1 => ROOT,
+			n => trail[n - 2]?,
+		};
+		self.children_named(parent, &last.name)
+			.into_iter()
+			.find(|&c| merge_eq(&self.arena[c].name, &self.arena[c].value, &last.name, value))
+	}
+
+	/// A setter writing a field writes every kept line of its name in the
+	/// block as a comment with a note, the one heading the field included,
+	/// so a hand fix of one later never gives Multiple (design.md, Kept lines
+	/// under edits). Each is no longer owed. With `anchor`, the first one is
+	/// where a new field goes, and is returned, and the kept lines under it
+	/// go under that field. Any other with a kept line under it stays, since
+	/// as a comment it would leave that line under the field above.
+	fn comment_out_kept(
+		&mut self,
+		parent: usize,
+		name: &str,
+		path: &str,
+		anchor: bool,
+	) -> Option<(Site, usize, usize)> {
+		if self.kept_owed == 0 {
+			return None;
+		}
+		let mut first = None;
+		for (site, owner, k, code, msg) in self.kept_named(parent, name) {
+			let leads = self.leads_mut(site, owner);
+			let under = &leads[k + 1..][..run_under(leads, k)];
+			// A misplaced line under it is filed by its own text, so it
+			// cannot move with it either.
+			if under.iter().any(|l| l.text.starts_with([' ', '\t'])) {
+				continue;
+			}
+			if anchor && first.is_none() {
+				first = Some((site, owner, k));
+			} else if under.iter().any(|l| !l.text.starts_with('#')) {
+				continue;
+			}
+			note_lead(&mut leads[k], path, code, &msg);
+			self.kept_owed = self.kept_owed.saturating_sub(1);
+		}
+		first
+	}
+
+	/// The kept lines naming just `name` in the block under `parent`, in the
+	/// order they are written, each with the fault the load gave it.
+	fn kept_named(
+		&self,
+		parent: usize,
+		name: &str,
+	) -> Vec<(Site, usize, usize, &'static str, String)> {
+		let mut out = Vec::new();
+		let mut scan = |site: Site, owner: usize, leads: &[Lead]| {
+			for (k, l) in leads.iter().enumerate() {
+				if let Some((code, msg)) = kept_naming(l, name) {
+					out.push((site, owner, k, code, msg));
+				}
+			}
+		};
+		for &c in &self.arena[parent].children {
+			scan(Site::Leading, c, self.arena[c].leading());
+			scan(Site::After, c, self.arena[c].after());
+		}
+		scan(Site::Inside, parent, self.arena[parent].inside());
+		if parent == ROOT {
+			scan(Site::Orphans, ROOT, &self.orphans);
+		}
+		out
+	}
+
+	fn leads_mut(&mut self, site: Site, owner: usize) -> &mut Vec<Lead> {
+		if site == Site::Orphans {
+			return &mut self.orphans;
+		}
+		let t = self.arena[owner].triv_mut();
+		match site {
+			Site::Leading => &mut t.leading,
+			Site::Inside => &mut t.inside,
+			_ => &mut t.after,
+		}
+	}
+
+	/// A new field right under the kept line at `at`, which a setter just
+	/// wrote as a comment. The lines written under that line go under the
+	/// field, where a reload files them.
+	fn new_child_under(
+		&mut self,
+		parent: usize,
+		name: &str,
+		name_src: &str,
+		value: Value,
+		at: (Site, usize, usize),
+	) -> usize {
+		if stacks(&self.arena[parent]) {
+			unstack(&mut self.arena[parent]);
+		}
+		let (site, owner, k) = at;
+		let leads = self.leads_mut(site, owner);
+		let mut line = leads.split_off(k);
+		let mut rest = line.split_off(1 + run_under(&line, 0));
+		let mut under = line.split_off(1);
+		for l in &mut under {
+			l.depth = l.depth.saturating_sub(1);
+		}
+		restep(&mut under);
+		// Above the field, what was written before the line. After a sibling,
+		// that stays with the sibling and the settle below moves it.
+		let (leading, after) = if site == Site::After {
+			(line, rest)
+		} else {
+			let mut above = std::mem::take(leads);
+			above.append(&mut line);
+			if site == Site::Leading {
+				restep(&mut rest);
+			}
+			*leads = rest;
+			(above, Vec::new())
+		};
+		let kids = &self.arena[parent].children;
+		let pos = match site {
+			Site::Leading => kids.iter().position(|&c| c == owner).unwrap_or(kids.len()),
+			Site::After => kids
+				.iter()
+				.position(|&c| c == owner)
+				.map_or(kids.len(), |p| p + 1),
+			_ => kids.len(),
+		};
+		let idx = self.arena.len();
+		self.arena.push(NodeData {
+			name: name.to_string(),
+			name_src: spelled(name, name_src.to_string()),
+			value,
+			children: Vec::new(),
+			parent,
+			line: 0,
+			star_list: false,
+			trivia: Some(Box::new(Trivia {
+				leading,
+				after,
+				inside: under,
+				..Default::default()
+			})),
+			blank_before: false,
+			src_set: false,
+			src: None,
+		});
+		self.arena[parent].children.insert(pos, idx);
+		// No other field of this name, so the index order holds.
+		if let Some(ix) = self.index.get_mut() {
+			ix.append(name_key(parent, name), idx);
+		}
+		self.settle(parent, pos);
+		idx
+	}
+
+	/// settle_block(), dropping the name index when a list joined an empty
+	/// binding, since that moves fields to another parent.
+	fn settle(&mut self, n: usize, from: usize) {
+		if settle_block(&mut self.arena, n, from) {
+			self.index.take();
 		}
 	}
 
@@ -3239,13 +12232,14 @@ impl Document {
 	/// output stays a formatter fixpoint.
 	fn collapse_dup(&mut self, node: usize) {
 		let parent = self.arena[node].parent;
-		let name = self.arena[node].name.clone();
-		let key = self.arena[node].value.key();
-		let siblings = &self.arena[parent].children;
-		let Some(other) = siblings
-			.iter()
-			.copied()
-			.find(|&c| c != node && self.arena[c].name == name && self.arena[c].value.key() == key)
+		let me = &self.arena[node];
+		let Some(other) = self
+			.children_named(parent, &me.name)
+			.into_iter()
+			.find(|&c| {
+				let o = &self.arena[c];
+				c != node && merge_eq(&o.name, &o.value, &me.name, &me.value)
+			})
 		else {
 			return;
 		};
@@ -3256,90 +12250,673 @@ impl Document {
 				.position(|&c| c == n)
 				.unwrap_or(usize::MAX)
 		};
-		let (survivor, loser) = if pos(other) < pos(node) {
-			(other, node)
+		let (survivor, loser, at) = if pos(other) < pos(node) {
+			(other, node, pos(node))
 		} else {
-			(node, other)
+			(node, other, pos(other))
 		};
+		// The data does not change, so the kept lines beside the loser stay
+		// where they were, as a remove leaves them. Only the comments written
+		// against it go with it.
+		let left = beside_kept(&mut self.arena[loser]);
+		// The fold appends, so what moved is the survivor's new tail.
+		let kept = self.arena[survivor].children.len();
 		fold_node_into(&mut self.arena, survivor, loser);
 		self.arena[parent].children.retain(|&c| c != loser);
+		if !left.is_empty() {
+			match self.arena[parent].children.get(at) {
+				Some(&next) => self.leave_above(next, left),
+				None => self.leave_last(parent, left),
+			}
+		}
+		self.settle(parent, 1);
+		if let Some(ix) = self.index.get_mut() {
+			ix.unlink(name_key(parent, &self.arena[loser].name), loser);
+			for &k in &self.arena[survivor].children[kept..] {
+				let name = &self.arena[k].name;
+				ix.unlink(name_key(loser, name), k);
+				ix.append(name_key(survivor, name), k);
+			}
+		}
+		self.fold_dups_below(survivor);
+	}
+
+	/// The write-side twin of `settle_fence_trailing`: only the written name's
+	/// instances can change, and walking them off the index keeps a write off
+	/// the rest of the block.
+	fn settle_fence_name(&mut self, parent: usize, name: &str) {
+		let mut empty = None;
+		for c in self.children_named(parent, name) {
+			let nd = &mut self.arena[c];
+			if empty.is_some() && matches!(nd.value, Value::Raw(_)) && !nd.trailing().is_empty() {
+				trailing_to_leading(nd);
+			} else if let Some(e) = empty.filter(|_| stacks(nd)) {
+				if fold_list_into_empty(&mut self.arena, e, c) {
+					self.arena[parent].children.retain(|&k| k != c);
+					if let Some(ix) = self.index.get_mut() {
+						ix.unlink(name_key(parent, name), c);
+						// The binding had no fields, so all of them came over.
+						for &k in &self.arena[e].children {
+							let name = &self.arena[k].name;
+							ix.unlink(name_key(c, name), k);
+							ix.append(name_key(e, name), k);
+						}
+					}
+				}
+			} else if nd.value.is_empty() && empty.is_none() {
+				empty = Some(c);
+			}
+		}
+	}
+
+	/// Folding moves the loser's children up a level, where they can collide
+	/// with the survivor's own. The parser's fold is depth-first for the same
+	/// reason; only a node that just received children can hold a new pair.
+	fn fold_dups_below(&mut self, start: usize) {
+		let mut stack = vec![start];
+		while let Some(parent) = stack.pop() {
+			let kids = std::mem::take(&mut self.arena[parent].children);
+			let mut first: U64Map<Slot> =
+				U64Map::with_capacity_and_hasher(kids.len(), Default::default());
+			let mut keep: Vec<usize> = Vec::with_capacity(kids.len());
+			// What a folded node leaves, as in collapse_dup(), for the next
+			// node that stays.
+			let mut left: Vec<Lead> = Vec::new();
+			for c in kids {
+				let h = merge_hash(&self.arena[c].name, &self.arena[c].value);
+				let survivor = first.get(&h).and_then(|s| {
+					s.first_match(|x| {
+						merge_eq(
+							&self.arena[x].name,
+							&self.arena[x].value,
+							&self.arena[c].name,
+							&self.arena[c].value,
+						)
+					})
+				});
+				match survivor {
+					Some(s) => {
+						left.append(&mut beside_kept(&mut self.arena[c]));
+						let kept = self.arena[s].children.len();
+						fold_node_into(&mut self.arena, s, c);
+						if let Some(ix) = self.index.get_mut() {
+							ix.unlink(name_key(parent, &self.arena[c].name), c);
+							for &k in &self.arena[s].children[kept..] {
+								let name = &self.arena[k].name;
+								ix.unlink(name_key(c, name), k);
+								ix.append(name_key(s, name), k);
+							}
+						}
+						stack.push(s);
+					}
+					None => {
+						first
+							.entry(h)
+							.and_modify(|s| s.push(c))
+							.or_insert(Slot::One(c));
+						if !left.is_empty() {
+							self.leave_above(c, std::mem::take(&mut left));
+						}
+						keep.push(c);
+					}
+				}
+			}
+			self.arena[parent].children = keep;
+			if !left.is_empty() {
+				self.leave_last(parent, left);
+			}
+			self.settle(parent, 1);
+		}
+	}
+
+	/// The real nodes a path reaches, every node behind a wildcard slot
+	/// included, for the calls that act on the whole match. `NotFound` when
+	/// there are none, so a wildcard whose slots all miss is `NotFound`
+	/// here, unlike read_count().
+	fn targets_at(&self, path: &str) -> Result<Vec<usize>, Status> {
+		let found: Vec<usize> = match self.resolve_group(path)? {
+			Resolved::None => Vec::new(),
+			Resolved::One(n) => vec![n],
+			Resolved::Many(v) => v,
+			Resolved::Slots(s) => s.into_iter().filter_map(|r| r.ok()).collect(),
+		};
+		if found.is_empty() {
+			return Err(Status::NotFound);
+		}
+		Ok(found)
+	}
+
+	/// A read's `line` for a target list: set when it is one node.
+	fn line_of_one(&self, targets: &[usize]) -> usize {
+		match targets {
+			[n] => self.arena[*n].line,
+			_ => 0,
+		}
 	}
 
 	/// True when the path resolves to at least one real node.
 	pub fn exists(&self, path: &str) -> bool {
-		match self.resolve(path) {
-			Ok(Resolved::One(_)) | Ok(Resolved::Many(_)) => true,
-			Ok(Resolved::Slots(s)) => s.iter().any(|r| r.is_ok()),
-			_ => false,
+		self.read_exists(path).value
+	}
+
+	/// exists() with a status: `Good` when it is true, `NotFound` when the
+	/// path reaches no real node, or `BadPath` when it cannot be read as a
+	/// path. `line` is set when the path reaches one node.
+	pub fn read_exists(&self, path: &str) -> Read<bool> {
+		match self.targets_at(path) {
+			Ok(t) => Read::new(true, Status::Good, None).at(self.line_of_one(&t), None),
+			Err(st) => Read::new(false, st, None),
 		}
 	}
 
 	/// Delete the node(s) at a path (with their subtrees); returns how many.
+	/// Lines kept as written beside a node stay where they were, and a field
+	/// opened only by the lines under it goes with the last of them.
+	/// A removed node's storage is not reclaimed, so a process that adds and removes in a loop grows by a few hundred bytes a pair. Reloading the canonical text gives it back.
 	pub fn remove(&mut self, path: &str) -> usize {
-		let targets: Vec<usize> = match self.resolve(path) {
-			Ok(Resolved::One(n)) => vec![n],
-			Ok(Resolved::Many(v)) => v,
-			Ok(Resolved::Slots(s)) => s.into_iter().filter_map(|r| r.ok()).collect(),
-			_ => Vec::new(),
+		self.try_remove(path).value
+	}
+
+	/// remove() with a status: `Good`, `NotFound` when the path reaches no
+	/// real node, or `BadPath` when it cannot be read as a path, which
+	/// removes nothing. `line` is set when the path reached one node.
+	pub fn try_remove(&mut self, path: &str) -> Read<usize> {
+		let (targets, status) = match self.targets_at(path) {
+			Ok(t) => (t, Status::Good),
+			// A miss still settles below, as it always has.
+			Err(Status::NotFound) => (Vec::new(), Status::NotFound),
+			Err(st) => return Read::new(0, st, None),
 		};
+		let line = self.line_of_one(&targets);
+		// Mark first, rebuild each touched child list once. Dropping one target
+		// at a time rebuilt the same list once per target, which is quadratic
+		// when a path matches many siblings.
+		let mut pairs: Vec<(usize, usize)> = Vec::with_capacity(targets.len());
 		for &t in &targets {
 			let p = self.arena[t].parent;
-			self.arena[p].children.retain(|&c| c != t);
+			// A node already marked would pass DEAD into the rebuild below as
+			// an index, so skip it rather than trust resolve never to name one
+			// twice.
+			if p == DEAD {
+				continue;
+			}
+			if self.kept_owed > 0 {
+				self.kept_owed = self.kept_owed.saturating_sub(self.taken(t));
+			}
+			if let Some(ix) = self.index.get_mut() {
+				ix.unlink(name_key(p, &self.arena[t].name), t);
+			}
+			self.arena[t].parent = DEAD;
+			pairs.push((t, p));
 		}
-		targets.len()
+		// Rebuilding a list puts back the parent of every node it drops, so a
+		// mark still standing is also the answer to "has this parent been done
+		// yet" - no separate pass to dedupe the parents.
+		for &(t, p) in &pairs {
+			if self.arena[t].parent != DEAD {
+				continue;
+			}
+			// A list written stacked for the fields under it stays stacked:
+			// a remove only takes lines away.
+			let stacked = stacks(&self.arena[p]);
+			let kids = std::mem::take(&mut self.arena[p].children);
+			let mut keep: Vec<usize> = Vec::with_capacity(kids.len());
+			let mut left: Vec<Lead> = Vec::new();
+			for c in kids {
+				if self.arena[c].parent == DEAD {
+					self.arena[c].parent = p;
+					left.append(&mut beside_kept(&mut self.arena[c]));
+				} else {
+					if !left.is_empty() {
+						self.leave_above(c, std::mem::take(&mut left));
+					}
+					keep.push(c);
+				}
+			}
+			self.arena[p].children = keep;
+			self.arena[p].star_list |= stacked;
+			// The next merge has a stacked list to put in brackets.
+			self.bracketed &= !stacked;
+			if !left.is_empty() {
+				self.leave_last(p, left);
+			}
+		}
+		// A field opened only by the lines under it goes with the last of
+		// them, and its own kept line stays where it was (escblock).
+		let mut open: Vec<usize> = pairs.iter().map(|&(_, p)| p).collect();
+		let mut emptied = open.clone();
+		while let Some(p) = open.pop() {
+			if p == ROOT
+				|| !self.arena[p].children.is_empty()
+				|| !opened_by_kept(&self.arena[p])
+				|| !self.live(p)
+			{
+				continue;
+			}
+			let pp = self.arena[p].parent;
+			let t = self.arena[p].triv_mut();
+			let mut left = std::mem::take(&mut t.leading);
+			let mut under = std::mem::take(&mut t.inside);
+			for l in &mut under {
+				l.depth += 1;
+			}
+			left.append(&mut under);
+			left.append(&mut t.after);
+			if let Some(ix) = self.index.get_mut() {
+				ix.unlink(name_key(pp, &self.arena[p].name), p);
+			}
+			let at = self.arena[pp]
+				.children
+				.iter()
+				.position(|&c| c == p)
+				.unwrap_or_default();
+			let stacked = stacks(&self.arena[pp]);
+			self.arena[pp].children.remove(at);
+			self.arena[pp].star_list |= stacked;
+			self.bracketed &= !stacked;
+			match self.arena[pp].children.get(at) {
+				Some(&next) => self.leave_above(next, left),
+				None => self.leave_last(pp, left),
+			}
+			open.push(pp);
+			emptied.push(pp);
+		}
+		// An empty binding that lost its last field takes a stacked list of
+		// its name after it, and a list that lost its last field goes in
+		// brackets there, as a reload reads them (2026100520243961).
+		emptied.sort_unstable();
+		emptied.dedup();
+		for p in emptied {
+			if p != ROOT
+				&& self.arena[p].children.is_empty()
+				&& matches!(self.arena[p].value, Value::Empty | Value::Array(_))
+				&& self.live(p)
+			{
+				let name = self.arena[p].name.clone();
+				self.settle_fence_name(self.arena[p].parent, &name);
+			}
+		}
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+		self.resettle_kept();
+		Read::new(targets.len(), status, None).at(line, None)
+	}
+
+	/// A load that folds 2 instances leaves the kept lines read beside the
+	/// later one where they were, as a setter's fold does: above the next
+	/// sibling read after them, or at the end of the block. `folded` holds
+	/// the nodes a fold or a re-mention gave lines to.
+	fn refile_folded(&mut self, mut folded: Vec<usize>) {
+		folded.sort_unstable();
+		folded.dedup();
+		// Parent, the child they go above (past the last, the block's end),
+		// line, the line. All first, since 2 folds can fill one place.
+		let mut moves: Vec<(usize, usize, usize, Lead)> = Vec::new();
+		for c in folded {
+			let p = self.arena[c].parent;
+			let Some(at) = self.arena[p].children.iter().position(|&k| k == c) else {
+				continue;
+			};
+			let (mut j, mut line) = (at + 1, 0);
+			for l in folded_kept(&mut self.arena[c]) {
+				line = line.max(l.line);
+				let kids = &self.arena[p].children;
+				while j < kids.len() && self.arena[kids[j]].line <= line {
+					j += 1;
+				}
+				moves.push((p, j, line, l));
+			}
+		}
+		if moves.is_empty() {
+			return;
+		}
+		// Stable, so the lines of one fold keep their order.
+		moves.sort_by_key(|m| (m.0, m.1, m.2));
+		let mut moves = moves.into_iter().peekable();
+		while let Some((p, j, _, l)) = moves.next() {
+			let mut group = vec![l];
+			while let Some(m) = moves.next_if(|m| m.0 == p && m.1 == j) {
+				group.push(m.3);
+			}
+			match self.arena[p].children.get(j) {
+				Some(&next) => self.leave_above(next, group),
+				None => self.leave_last(p, group),
+			}
+			if moves.peek().is_none_or(|m| m.0 != p) {
+				settle_block(&mut self.arena, p, 1);
+			}
+		}
+		// The first node can have lost the lines above it, and with them the
+		// room for a blank a re-mention left it.
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+	}
+
+	/// Lines a remove left, put above the sibling that followed them.
+	fn leave_above(&mut self, node: usize, mut left: Vec<Lead>) {
+		let t = self.arena[node].triv_mut();
+		left.append(&mut t.leading);
+		t.leading = left;
+		restep(&mut t.leading);
+	}
+
+	/// Lines a remove left after the last of `parent`'s children: the
+	/// document's footer at the top, else after the last child left, else
+	/// inside the block. A misplaced line has no level there, so a reload
+	/// files it with the next binding line, and the comments after it go
+	/// along; kept field lines still go to the block.
+	fn leave_last(&mut self, parent: usize, mut left: Vec<Lead>) {
+		if parent == ROOT {
+			left.append(&mut self.orphans);
+			self.orphans = left;
+			restep(&mut self.orphans);
+			return;
+		}
+		let mut below = Vec::new();
+		if let Some(at) = left.iter().position(|l| l.text.starts_with([' ', '\t'])) {
+			let mut rest = left.split_off(at);
+			let fields: Vec<Lead>;
+			(fields, below) = rest.drain(..).partition(|l| is_field(&l.text));
+			left.extend(fields);
+		}
+		if !left.is_empty() {
+			// Stacked with no kept line among the elements is gone on a
+			// reload, so it may not decide how these lines are written.
+			let stacked = stacks(&self.arena[parent]);
+			self.arena[parent].star_list = stacked;
+			let list = match self.arena[parent].children.last().copied() {
+				Some(last) => &mut self.arena[last].triv_mut().after,
+				None => &mut self.arena[parent].triv_mut().inside,
+			};
+			list.append(&mut left);
+			restep(list);
+		}
+		if !below.is_empty() {
+			self.leave_below(parent, below);
+		}
+	}
+
+	/// Lines a remove left right after `node`'s block: above the next
+	/// binding line, or the footer when there is none.
+	fn leave_below(&mut self, node: usize, mut left: Vec<Lead>) {
+		let mut at = node;
+		while at != ROOT {
+			let up = self.arena[at].parent;
+			let kids = &self.arena[up].children;
+			if let Some(&next) = kids
+				.iter()
+				.position(|&c| c == at)
+				.and_then(|k| kids.get(k + 1))
+			{
+				self.leave_above(next, left);
+				return;
+			}
+			at = up;
+		}
+		left.append(&mut self.orphans);
+		self.orphans = left;
+		restep(&mut self.orphans);
+	}
+
+	/// Still in the tree: each node up to ROOT is in its parent's list. A
+	/// removed node keeps its parent link, so the link alone does not say.
+	fn live(&self, mut node: usize) -> bool {
+		while node != ROOT {
+			let p = self.arena[node].parent;
+			if p == DEAD || !self.arena[p].children.contains(&node) {
+				return false;
+			}
+			node = p;
+		}
+		true
 	}
 
 	/// Attach a leading comment line to the node at a path (creating an empty
 	/// node if it does not exist yet, so a section can be annotated). A missing
-	/// `#` is added; only the first line is kept (a comment is one line).
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_comment(&mut self, path: &str, text: &str) -> bool {
-		match self.place(path) {
-			Some(node) => {
-				let line = text.split('\n').next().unwrap_or("");
-				let c = if line.starts_with('#') {
-					line.to_string()
-				} else {
-					format!("# {}", line)
-				};
-				self.arena[node].triv_mut().leading.push(Lead::plain(c));
-				true
+	/// `#` is added, and trailing whitespace comes off the way the load takes
+	/// it, so text that is blank leaves a bare `#`. Text holding a line break
+	/// is refused (`BadComment`): a comment is one line, and keeping only the
+	/// first would drop the rest with nothing to say so.
+	pub fn set_comment(&mut self, path: &str, text: &str) -> SetStatus {
+		let Some(c) = comment_line(text) else {
+			return self.refuse(path, SetStatus::BadComment);
+		};
+		match self.place(path, false) {
+			Ok(node) => {
+				self.push_comment(node, c);
+				SetStatus::Ok
 			}
-			None => false,
+			Err(why) => why,
 		}
 	}
 
-	/// Bind an integer at a path, creating the path as needed; false = path not
-	/// writable (write_reason says why - same for every setter). The setters are
-	/// must_use because an ignored false means the save that follows writes a
-	/// document missing the edit, and reports success doing it.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_int(&mut self, path: &str, v: i64) -> bool {
+	/// A comment line right above a node, after any already there.
+	fn push_comment(&mut self, node: usize, text: String) {
+		// The node's own blank moves above its first comment; otherwise
+		// the blank would separate the comment from what it annotates.
+		// Above the first one already there, when there is one.
+		let nd = &mut self.arena[node];
+		let mut lead = Lead::plain(text);
+		if nd.blank_before {
+			nd.blank_before = false;
+			match nd.triv_mut().leading.first_mut() {
+				Some(first) => first.blank_before = true,
+				None => lead.blank_before = true,
+			}
+		}
+		nd.triv_mut().leading.push(lead);
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+		self.resettle_kept();
+	}
+
+	/// The comment lines above the node(s) at a path, the ones clear_comments
+	/// takes, in file order, each from its `#` on. A program can tell its own
+	/// comment from one a user wrote there, and set_comment puts a line it
+	/// gave back as it was. Empty when the path reaches nothing.
+	pub fn comments(&self, path: &str) -> Vec<String> {
+		self.read_comments(path).value
+	}
+
+	/// comments() with a status: `Good`, `NotFound` when the path reaches no
+	/// real node, or `BadPath` when it cannot be read as a path. A node with
+	/// no comment above it is `Good` with an empty list. `line` is set when
+	/// the path reaches one node.
+	pub fn read_comments(&self, path: &str) -> Read<Vec<String>> {
+		let targets = match self.targets_at(path) {
+			Ok(t) => t,
+			Err(st) => return Read::new(Vec::new(), st, None),
+		};
+		let found = targets
+			.iter()
+			.filter_map(|&t| self.arena[t].trivia.as_deref())
+			.flat_map(|tr| &tr.leading)
+			.filter(|l| l.is_comment())
+			.map(|l| l.text.clone())
+			.collect();
+		Read::new(found, Status::Good, None).at(self.line_of_one(&targets), None)
+	}
+
+	/// Take off the comment lines above the node(s) at a path, the lines
+	/// `set_comment` adds to, so a program can replace a comment rather than
+	/// stack another one on it. Which lines those are is where the load put
+	/// them: everything between the node and the binding line before it, so a
+	/// heading written for a group of fields goes too. A comment on the
+	/// node's own line stays, and so does a line kept as written for being
+	/// malformed. Returns how many lines came off, 0 when the path reaches
+	/// nothing.
+	pub fn clear_comments(&mut self, path: &str) -> usize {
+		self.try_clear_comments(path).value
+	}
+
+	/// clear_comments() with a status: `Good`, `NotFound` when the path
+	/// reaches no real node, or `BadPath` when it cannot be read as a path.
+	/// A node with no comment above it is `Good` with 0. `line` is set when
+	/// the path reaches one node.
+	pub fn try_clear_comments(&mut self, path: &str) -> Read<usize> {
+		let targets = match self.targets_at(path) {
+			Ok(t) => t,
+			Err(st) => return Read::new(0, st, None),
+		};
+		let line = self.line_of_one(&targets);
+		let mut cleared = 0;
+		for t in targets {
+			let nd = &mut self.arena[t];
+			let Some(tr) = nd.trivia.as_deref_mut() else {
+				continue;
+			};
+			let before = tr.leading.len();
+			// The blank above the run is the one that separates it from what
+			// comes before, so it stays with whatever is now first.
+			let blank = tr.leading.first().is_some_and(|l| l.blank_before);
+			tr.leading.retain(|l| !l.is_comment());
+			let gone = before - tr.leading.len();
+			if gone == 0 {
+				continue;
+			}
+			cleared += gone;
+			// A kept line left in the run may have sat under a comment that
+			// went.
+			restep(&mut tr.leading);
+			if let Some(first) = tr.leading.first_mut() {
+				first.blank_before |= blank;
+			} else {
+				nd.blank_before |= blank;
+			}
+		}
+		if cleared > 0 {
+			settle_first_blank(&mut self.arena, &mut self.orphans);
+			self.resettle_kept();
+		}
+		Read::new(cleared, Status::Good, None).at(line, None)
+	}
+
+	/// Put the info block (`GEN_BANNER`) at the end of the document, or with
+	/// `on` false just take it off. An old block comes off first, found by its
+	/// `This config file format is SHCL.` line, never by its links or Legal
+	/// line, which a later release may word differently. It runs from the
+	/// lone `##` above that line to the next one, so a `##` comment of the
+	/// file's own stays, even written right against it. A version line
+	/// `migrate` stamped comes off too, with the note under it. Both are
+	/// looked for in the footer and above every field but the first one and
+	/// its first child down, since a field added below one by hand takes it
+	/// as its comment. A block at the top of the file is left alone.
+	/// A dotted first line hangs it on its last name, which a saved file
+	/// writes as the first field's first child, so a block there is left
+	/// alone too, however it got there. A lone Format line there comes off with
+	/// `on`, since the new block names the format. A kept block's Format line
+	/// is set to this format too, since it reads first. The library save never
+	/// adds the block by itself; this is for a program that wants it in a file
+	/// it writes. Returns how many old blocks came off.
+	pub fn set_banner(&mut self, on: bool) -> usize {
+		self.swap_banner(on, false)
+	}
+
+	/// set_banner(), and with `v2` the block 2.x's `init` wrote, in `#`
+	/// comments, comes off too. Only `upgrade` asks for that: under these
+	/// rules the old block is a comment of the file's own.
+	fn swap_banner(&mut self, on: bool, v2: bool) -> usize {
+		let marks: &[&str] = if v2 { &["##", "#"] } else { &["##"] };
+		let mut removed = 0;
+		// The first line's comments are the top of the file, on the first
+		// node down, as a dotted line puts them on its last name.
+		let mut top = Vec::new();
+		let mut n = ROOT;
+		while let Some(&c) = self.arena[n].children.first() {
+			top.push(c);
+			n = c;
+		}
+		let mut stack: Vec<usize> = self.arena[ROOT].children.clone();
+		while let Some(n) = stack.pop() {
+			stack.extend_from_slice(&self.arena[n].children);
+			let at_top = top.contains(&n);
+			if at_top && !on {
+				continue;
+			}
+			for mark in marks {
+				let Some(tr) = self.arena[n].trivia.as_deref_mut() else {
+					continue;
+				};
+				let (gone, blank) = drop_banners(&mut tr.leading, mark, !at_top);
+				if gone > 0 {
+					removed += gone;
+					self.arena[n].blank_before |= blank;
+				}
+			}
+		}
+		for mark in marks {
+			removed += drop_banners(&mut self.orphans, mark, true).0;
+		}
+		if on {
+			// A block kept at the top reads before the new one, so it names
+			// this format too (2026102309053667).
+			for &n in &top {
+				if let Some(tr) = self.arena[n].trivia.as_deref_mut() {
+					for l in &mut tr.leading {
+						if l.text.starts_with(FORMAT_LINE_HEAD) && l.text != FORMAT_LINE {
+							l.text = FORMAT_LINE.to_string();
+							l.line = 0;
+						}
+					}
+				}
+			}
+			let open = !self.orphans.is_empty() || !self.arena[ROOT].children.is_empty();
+			for (n, line) in GEN_BANNER.lines().enumerate() {
+				let mut l = Lead::plain(line.to_string());
+				l.blank_before = n == 0 && open;
+				self.orphans.push(l);
+			}
+		}
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+		self.resettle_kept();
+		removed
+	}
+
+	/// Bind an integer at a path, creating the path as needed. A step of the
+	/// path that matches more than one field fails the path check (Multiple),
+	/// since the read after the write would; `port(0)` or `site(1).root` picks
+	/// one. Every setter returns `SetStatus::Ok` when the write applied. Any
+	/// other value means nothing was written, and names why: the path's reason
+	/// when the path is wrong, as check_set_path gives it, else the value's.
+	/// The status is must_use because an ignored refusal means the save that
+	/// follows writes a document missing the edit, and reports success doing
+	/// it.
+	pub fn set_int(&mut self, path: &str, v: i64) -> SetStatus {
 		self.set_value(path, cell_of(v.to_string()))
 	}
-	/// Bind a float at a path, in the canonical shortest spelling.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_float(&mut self, path: &str, v: f64) -> bool {
-		self.set_value(path, cell_of(format_f64(v)))
+	/// Bind a float at a path, in the canonical shortest spelling. An
+	/// infinity or a NaN has no spelling the reader accepts, so it fails the
+	/// write (`NotFinite`) rather than binding a value that cannot read back.
+	pub fn set_float(&mut self, path: &str, v: f64) -> SetStatus {
+		if !v.is_finite() {
+			return self.refuse(path, SetStatus::NotFinite);
+		}
+		self.set_value(path, cell_of(format_float(v)))
 	}
 	/// Bind true/false at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_bool(&mut self, path: &str, v: bool) -> bool {
+	pub fn set_bool(&mut self, path: &str, v: bool) -> SetStatus {
 		self.set_value(path, cell_of(if v { "true" } else { "false" }.to_string()))
 	}
 	/// Bind a string at a path, escaped so it reads back exactly.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_string(&mut self, path: &str, v: &str) -> bool {
-		self.set_value(path, cell_of(encode_string(v)))
+	pub fn set_string(&mut self, path: &str, v: &str) -> SetStatus {
+		self.set_value(path, cell_of(v.to_string()))
 	}
-	/// Bind a datetime at a path, in its canonical spelling.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_datetime(&mut self, path: &str, v: &ShclDateTime) -> bool {
+	/// Bind a datetime at a path, in its canonical spelling. The struct's
+	/// fields are public and have no invariant, so a value the reader would
+	/// refuse (month 13, a fraction with no seconds, an empty struct) fails
+	/// the write (`BadDateTime`) rather than binding text that cannot read
+	/// back.
+	pub fn set_datetime(&mut self, path: &str, v: &ShclDateTime) -> SetStatus {
+		if !datetime_reads_back(v) {
+			return self.refuse(path, SetStatus::BadDateTime);
+		}
 		self.set_value(path, cell_of(v.to_string()))
 	}
 	/// Bind a raw block at a path, picking a fence longer than any content line.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_raw(&mut self, path: &str, content: &str, info: &str) -> bool {
+	/// The info-string is stored as a fence line would read it back (trimmed
+	/// the way the load trims one); one that would not read back whole - it
+	/// holds a line break, or a `#`, which reads as a comment - fails the
+	/// write (`BadRawInfo`), as does a body line ending in CR (`BadRawBody`),
+	/// since the load takes the trailing CR run off every line.
+	pub fn set_raw(&mut self, path: &str, content: &str, info: &str) -> SetStatus {
+		let info = trim_wsp(info);
 		let (fence_char, fence_len) = choose_fence(content);
 		self.set_value(
 			path,
@@ -3352,24 +12929,27 @@ impl Document {
 		)
 	}
 	/// Bind an empty value at a path (distinct from the empty string).
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_empty(&mut self, path: &str) -> bool {
+	pub fn set_empty(&mut self, path: &str) -> SetStatus {
 		self.set_value(path, Value::Empty)
 	}
 
-	/// Bind an inline integer array at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_int_array(&mut self, path: &str, v: &[i64]) -> bool {
+	/// Bind an inline integer array at a path. An array on a field with lines
+	/// under it fails the write (`HasChildren`), from every array setter.
+	pub fn set_int_array(&mut self, path: &str, v: &[i64]) -> SetStatus {
 		self.set_value(path, array_cell(v.iter().map(|x| x.to_string()).collect()))
 	}
 	/// Bind an inline float array at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_float_array(&mut self, path: &str, v: &[f64]) -> bool {
-		self.set_value(path, array_cell(v.iter().map(|x| format_f64(*x)).collect()))
+	pub fn set_float_array(&mut self, path: &str, v: &[f64]) -> SetStatus {
+		if !v.iter().all(|x| x.is_finite()) {
+			return self.refuse(path, SetStatus::NotFinite);
+		}
+		self.set_value(
+			path,
+			array_cell(v.iter().map(|x| format_float(*x)).collect()),
+		)
 	}
 	/// Bind an inline bool array at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_bool_array(&mut self, path: &str, v: &[bool]) -> bool {
+	pub fn set_bool_array(&mut self, path: &str, v: &[bool]) -> SetStatus {
 		self.set_value(
 			path,
 			array_cell(
@@ -3380,127 +12960,233 @@ impl Document {
 		)
 	}
 	/// Bind an inline string array at a path, per-element escaped.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_string_array(&mut self, path: &str, v: &[&str]) -> bool {
-		self.set_value(
-			path,
-			array_cell(v.iter().map(|x| encode_string(x)).collect()),
-		)
+	pub fn set_string_array(&mut self, path: &str, v: &[&str]) -> SetStatus {
+		self.set_value(path, array_cell(v.iter().map(|x| x.to_string()).collect()))
 	}
 	/// Bind an inline datetime array at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_datetime_array(&mut self, path: &str, v: &[ShclDateTime]) -> bool {
+	pub fn set_datetime_array(&mut self, path: &str, v: &[ShclDateTime]) -> SetStatus {
+		if !v.iter().all(datetime_reads_back) {
+			return self.refuse(path, SetStatus::BadDateTime);
+		}
 		self.set_value(path, array_cell(v.iter().map(|x| x.to_string()).collect()))
 	}
 
-	// Default (only-if-absent) forms - the "emit defaults" half of the Writer.
-	/// `set_int` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_int_default(&mut self, path: &str, v: i64) -> bool {
+	// Default forms - the "emit defaults" half of the Writer. Each one makes
+	// sure the field has a usable value of its type: it writes where the path
+	// is missing, where the field is empty, and where its value does not read
+	// as that type by the typed read at the document's strictness. A value it
+	// replaces stays above the field as a comment with a note (design.md,
+	// Default forms). Where the value reads, nothing is written, and the call
+	// still reports what a write there would: the path's verdict, so a
+	// wildcard is refused whether or not its slots happen to resolve, and the
+	// value's, which the same setter gives on the probe document.
+	fn set_default(
+		&mut self,
+		path: &str,
+		what: &str,
+		reads: impl Fn(&Document, &str) -> Status,
+		set: impl Fn(&mut Document, &str) -> SetStatus,
+	) -> SetStatus {
 		if !self.exists(path) {
-			return self.set_int(path, v);
+			return set(self, path);
 		}
-		true
-	}
-	/// `set_float` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_float_default(&mut self, path: &str, v: f64) -> bool {
-		if !self.exists(path) {
-			return self.set_float(path, v);
+		let checked = self.check_set_path(path);
+		if checked != SetStatus::Ok {
+			return checked;
 		}
-		true
-	}
-	/// `set_bool` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_bool_default(&mut self, path: &str, v: bool) -> bool {
-		if !self.exists(path) {
-			return self.set_bool(path, v);
+		let probe = self.probe_doc.get_or_insert_with(|| {
+			Box::new(Document {
+				probe: true,
+				..Document::new()
+			})
+		});
+		let judged = set(probe, "v");
+		if judged != SetStatus::Ok {
+			return judged;
 		}
-		true
-	}
-	/// `set_string` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_string_default(&mut self, path: &str, v: &str) -> bool {
-		if !self.exists(path) {
-			return self.set_string(path, v);
+		match reads(self, path) {
+			Status::Good => SetStatus::Ok,
+			Status::BadType => self.replace_default(path, what, set),
+			_ => set(self, path),
 		}
-		true
 	}
-	/// Write TEXT as value syntax rather than as data: `80, 443` becomes a
+
+	/// A default written over a value that does not read as its type. The
+	/// old line goes above the field as a comment, so nothing typed by hand
+	/// is lost. A raw block stays, since its body has no one-line comment.
+	fn replace_default(
+		&mut self,
+		path: &str,
+		what: &str,
+		set: impl Fn(&mut Document, &str) -> SetStatus,
+	) -> SetStatus {
+		let Some(node) = self.write_target(path) else {
+			return set(self, path);
+		};
+		let nd = &self.arena[node];
+		if matches!(nd.value, Value::Raw(_)) {
+			return SetStatus::RawBlock;
+		}
+		// Written the way the canonical text writes the line, so the note is
+		// the same on a document and on a reload of its text.
+		let value = emit_value_text(&nd.value).unwrap_or_default();
+		let was = format!(
+			"# {}: {value}  ## replaced by shcl when setting a default for {}, {}: not {what}",
+			emit_name(&nd.name),
+			note_text(path),
+			note_stamp()
+		);
+		let (parent, name) = (nd.parent, nd.name.clone());
+		let st = set(self, path);
+		if st != SetStatus::Ok {
+			return st;
+		}
+		// A value equal to another instance's folds the two, and the earlier
+		// one stays. Asked of the name's instances, not every sibling, or N
+		// defaults under one parent cost N squared.
+		let named = self.children_named(parent, &name);
+		let at = if named.contains(&node) {
+			node
+		} else {
+			let v = &self.arena[node].value;
+			named
+				.into_iter()
+				.find(|&c| merge_eq(&self.arena[c].name, &self.arena[c].value, &name, v))
+				.unwrap_or(node)
+		};
+		self.push_comment(at, was);
+		SetStatus::Ok
+	}
+	/// `set_int` unless the field already reads as one. Missing, empty or
+	/// not an int, it gets `v`, and an old value stays above it as a comment.
+	/// A raw block there stays and gives `RawBlock`. The other default forms
+	/// work the same way with their own type.
+	pub fn set_int_default(&mut self, path: &str, v: i64) -> SetStatus {
+		self.set_default(
+			path,
+			"an int",
+			|d, p| d.read_int(p).status,
+			|d, p| d.set_int(p, v),
+		)
+	}
+	/// `set_float` unless the field already reads as that type.
+	pub fn set_float_default(&mut self, path: &str, v: f64) -> SetStatus {
+		self.set_default(
+			path,
+			"a float",
+			|d, p| d.read_float(p).status,
+			|d, p| d.set_float(p, v),
+		)
+	}
+	/// `set_bool` unless the field already reads as that type.
+	pub fn set_bool_default(&mut self, path: &str, v: bool) -> SetStatus {
+		self.set_default(
+			path,
+			"a bool",
+			|d, p| d.read_bool(p).status,
+			|d, p| d.set_bool(p, v),
+		)
+	}
+	/// `set_string` unless the field already has a value, since any value
+	/// reads as a string.
+	pub fn set_string_default(&mut self, path: &str, v: &str) -> SetStatus {
+		self.set_default(
+			path,
+			"a string",
+			|d, p| d.read_string(p).status,
+			|d, p| d.set_string(p, v),
+		)
+	}
+	/// Write TEXT as value syntax rather than as data: `[80, 443]` becomes a
 	/// two-element array where `set_string` would store one string that has to
 	/// be quoted. This is how a caller holding value text - a config line, a
 	/// user's `--set` argument - writes it without knowing its shape first.
-	/// Fails on text that could not be one line's value (see `literal_value`).
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_literal(&mut self, path: &str, text: &str) -> bool {
+	/// Fails on text that could not be one line's value (`NotOneValue`, see
+	/// `literal_value`). An array on a field with lines under it is
+	/// `HasChildren`, as from the array setters.
+	pub fn set_literal(&mut self, path: &str, text: &str) -> SetStatus {
+		// Text that parsed as one value and still has no line that reads
+		// back is still not one value, as far as the caller can tell.
 		match literal_value(text) {
-			Some(v) => self.set_value(path, v),
-			None => false,
+			Some(v) => match self.set_value_as(path, v, false) {
+				SetStatus::NoReadBack => SetStatus::NotOneValue,
+				st => st,
+			},
+			None => self.refuse(path, SetStatus::NotOneValue),
 		}
 	}
-	/// `set_literal` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_literal_default(&mut self, path: &str, text: &str) -> bool {
-		if !self.exists(path) {
-			return self.set_literal(path, text);
-		}
-		true
+	/// `set_literal` unless the field already has a value. Literal text
+	/// names no type, so any value counts.
+	pub fn set_literal_default(&mut self, path: &str, text: &str) -> SetStatus {
+		self.set_default(
+			path,
+			"a string",
+			|d, p| d.read_string(p).status,
+			|d, p| d.set_literal(p, text),
+		)
 	}
-	/// `set_datetime` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_datetime_default(&mut self, path: &str, v: &ShclDateTime) -> bool {
-		if !self.exists(path) {
-			return self.set_datetime(path, v);
-		}
-		true
+	/// `set_datetime` unless the field already reads as that type.
+	pub fn set_datetime_default(&mut self, path: &str, v: &ShclDateTime) -> SetStatus {
+		self.set_default(
+			path,
+			"a datetime",
+			|d, p| d.read_datetime(p).status,
+			|d, p| d.set_datetime(p, v),
+		)
 	}
-	/// `set_raw` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_raw_default(&mut self, path: &str, content: &str, info: &str) -> bool {
-		if !self.exists(path) {
-			return self.set_raw(path, content, info);
-		}
-		true
+	/// `set_raw` unless the field already reads as that type.
+	pub fn set_raw_default(&mut self, path: &str, content: &str, info: &str) -> SetStatus {
+		self.set_default(
+			path,
+			"a raw block",
+			|d, p| d.read_raw(p).status,
+			|d, p| d.set_raw(p, content, info),
+		)
 	}
-	/// `set_int_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_int_array_default(&mut self, path: &str, v: &[i64]) -> bool {
-		if !self.exists(path) {
-			return self.set_int_array(path, v);
-		}
-		true
+	/// `set_int_array` unless the field already reads as that type.
+	pub fn set_int_array_default(&mut self, path: &str, v: &[i64]) -> SetStatus {
+		self.set_default(
+			path,
+			"an int array",
+			|d, p| d.read_int_array(p).status,
+			|d, p| d.set_int_array(p, v),
+		)
 	}
-	/// `set_float_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_float_array_default(&mut self, path: &str, v: &[f64]) -> bool {
-		if !self.exists(path) {
-			return self.set_float_array(path, v);
-		}
-		true
+	/// `set_float_array` unless the field already reads as that type.
+	pub fn set_float_array_default(&mut self, path: &str, v: &[f64]) -> SetStatus {
+		self.set_default(
+			path,
+			"a float array",
+			|d, p| d.read_float_array(p).status,
+			|d, p| d.set_float_array(p, v),
+		)
 	}
-	/// `set_bool_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_bool_array_default(&mut self, path: &str, v: &[bool]) -> bool {
-		if !self.exists(path) {
-			return self.set_bool_array(path, v);
-		}
-		true
+	/// `set_bool_array` unless the field already reads as that type.
+	pub fn set_bool_array_default(&mut self, path: &str, v: &[bool]) -> SetStatus {
+		self.set_default(
+			path,
+			"a bool array",
+			|d, p| d.read_bool_array(p).status,
+			|d, p| d.set_bool_array(p, v),
+		)
 	}
-	/// `set_string_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_string_array_default(&mut self, path: &str, v: &[&str]) -> bool {
-		if !self.exists(path) {
-			return self.set_string_array(path, v);
-		}
-		true
+	/// `set_string_array` unless the field already reads as that type.
+	pub fn set_string_array_default(&mut self, path: &str, v: &[&str]) -> SetStatus {
+		self.set_default(
+			path,
+			"a string array",
+			|d, p| d.read_string_array(p).status,
+			|d, p| d.set_string_array(p, v),
+		)
 	}
-	/// `set_datetime_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
-	pub fn set_datetime_array_default(&mut self, path: &str, v: &[ShclDateTime]) -> bool {
-		if !self.exists(path) {
-			return self.set_datetime_array(path, v);
-		}
-		true
+	/// `set_datetime_array` unless the field already reads as that type.
+	pub fn set_datetime_array_default(&mut self, path: &str, v: &[ShclDateTime]) -> SetStatus {
+		self.set_default(
+			path,
+			"a datetime array",
+			|d, p| d.read_datetime_array(p).status,
+			|d, p| d.set_datetime_array(p, v),
+		)
 	}
 }
 
@@ -3518,15 +13204,92 @@ impl Document {
 	/// rides with each node.
 	/// `Load(defaults, site, user)` is a left fold of this: each later file
 	/// overlaid on the accumulation of the earlier ones.
+	/// The fold is not associative: `(A+B)+C` and `A+(B+C)` differ where a bare
+	/// header meets an overridden leaf, so a cached upper pair is not the same
+	/// document the CLI's left fold produces. self keeps its own strictness,
+	/// so a value from a stricter layer reads with self's coercion. And a
+	/// replaced node is kept until the document is dropped: this costs a pass
+	/// over the touched scopes plus an index rebuild on the next read.
+	/// A document merged onto itself is left as it is. The borrow rules make
+	/// that call impossible here; the other bindings check for it.
 	pub fn merge(&mut self, over: &Document) {
+		self.index.take();
+		self.source = None;
 		self.lost += over.lost;
-		self.overlay(ROOT, over, ROOT);
-		// Layers commonly share a footer; keeping one copy of each keeps a
-		// stack of files from repeating it once per layer.
-		for o in &over.orphans {
-			if !self.orphans.iter().any(|e| e.text == o.text) {
-				self.orphans.push(o.clone());
+		// The layer's lines are in the document now, read by these rules.
+		self.newer |= over.newer;
+		self.kept_owed += over.kept_owed;
+		// The layer's own kept lines were modeled against its own tree.
+		let fresh = over.kept;
+		self.kept |= over.kept;
+		self.arrays |= over.arrays;
+		// Only a block the overlay visited can have a changed child list or
+		// comments; the rest was settled when it was built. Settling the whole
+		// tree made every merge cost the document (20260924 item 6). A block's
+		// settle writes only below it, so the order does not matter.
+		// Every list goes in brackets, whatever form its layers used, so a
+		// merge of the merged text gives the same text. After the first, only
+		// what the overlay brings or visits can be stacked.
+		if !self.bracketed {
+			for nd in &mut self.arena[1..] {
+				bracket(nd);
 			}
+			self.bracketed = true;
+		}
+		let mut touched = Vec::new();
+		self.overlay(ROOT, over, ROOT, &mut touched);
+		for n in touched {
+			self.settle(n, 1);
+		}
+		// Layers commonly share a footer; keeping one copy of each keeps a
+		// stack of files from repeating it once per layer. Only the lines
+		// already here count: a layer's own repeats are its content.
+		let had = self.orphans.len();
+		// A repeat skipped here may be the line the next one sat under, and a
+		// reload puts a comment at most one level past the comment or kept
+		// field line before it, so none goes deeper than that.
+		let mut room = self
+			.orphans
+			.iter()
+			.rev()
+			.find(|l| !l.text.starts_with([' ', '\t']))
+			.map_or(0, |l| l.depth + 1);
+		// A kept line with kept lines under it goes in whole, so none of
+		// them lands under some other line.
+		let mut whole = vec![false; over.orphans.len()];
+		let fields: Vec<usize> = (0..over.orphans.len())
+			.filter(|&i| is_field(&over.orphans[i].text))
+			.collect();
+		for w in fields.windows(2) {
+			if over.orphans[w[1]].depth > 0 {
+				whole[w[0]] = true;
+				whole[w[1]] = true;
+			}
+		}
+		for (i, o) in over.orphans.iter().enumerate() {
+			if whole[i]
+				|| !self.orphans[..had]
+					.iter()
+					.any(|e| e.text == o.text && e.depth == o.depth)
+			{
+				let mut o = o.clone();
+				if o.text.starts_with('#') {
+					o.depth = o.depth.min(room);
+					room = o.depth + 1;
+				} else if is_field(&o.text) {
+					room = o.depth + 1;
+				}
+				self.orphans.push(o);
+			} else if o.is_kept_line() {
+				// The table lets the dedup skip a footer line the base has.
+				self.kept_owed = self.kept_owed.saturating_sub(1);
+			}
+		}
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+		if fresh {
+			self.settle_kept();
+		} else {
+			self.resettle_kept();
 		}
 	}
 
@@ -3552,33 +13315,61 @@ impl Document {
 		}
 		bt.after.extend_from_slice(&st.after);
 		bt.inside.extend_from_slice(&st.inside);
+		bt.among.extend_from_slice(&st.among);
+		bt.among.sort_by_key(|a| a.0);
+		bt.notes.extend_from_slice(&st.notes);
+		bt.notes.sort_by_key(|n| n.0);
 	}
 
-	fn overlay(&mut self, base_parent: usize, over: &Document, over_parent: usize) {
-		let over_kids = over.arena[over_parent].children.clone();
+	fn overlay(
+		&mut self,
+		base_parent: usize,
+		over: &Document,
+		over_parent: usize,
+		touched: &mut Vec<usize>,
+	) {
+		touched.push(base_parent);
+		let over_kids = &over.arena[over_parent].children;
 		// Over side: name -> node bucket, in first-appearance order.
-		let mut order: Vec<String> = Vec::new();
-		let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
-		for &k in &over_kids {
-			let n = &over.arena[k].name;
+		let mut order: Vec<&str> = Vec::new();
+		let mut groups: HashMap<&str, Vec<(usize, usize)>> = HashMap::new();
+		for (pos, &k) in over_kids.iter().enumerate() {
+			let n = over.arena[k].name.as_str();
 			groups
-				.entry(n.clone())
+				.entry(n)
 				.or_insert_with(|| {
-					order.push(n.clone());
+					order.push(n);
 					Vec::new()
 				})
-				.push(k);
+				.push((pos, k));
 		}
 		// Base side, one pass: does the name have a container instance, and
-		// which child carries each (name, key) - every key computed once.
+		// which child has each (name, key) - every key computed once. The
+		// list is cloned because the splices below rewrite it as they go.
 		let base_kids = self.arena[base_parent].children.clone();
 		let mut has_container: HashMap<String, bool> = HashMap::new();
-		let mut by_key: HashMap<(String, String), usize> = HashMap::new();
+		let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
+		// Keyed on the hash of (name, merge key) and verified on a hit, so no
+		// key text is built per child on either side.
+		let mut by_key: U64Map<Slot> =
+			U64Map::with_capacity_and_hasher(base_kids.len(), Default::default());
+		let find = |arena: &[NodeData], by_key: &U64Map<Slot>, h: u64, name: &str, v: &Value| {
+			by_key
+				.get(&h)
+				.and_then(|s| s.first_match(|x| merge_eq(&arena[x].name, &arena[x].value, name, v)))
+		};
 		for &b in &base_kids {
-			let name = self.arena[b].name.clone();
-			let e = has_container.entry(name.clone()).or_insert(false);
-			*e = *e || !self.arena[b].children.is_empty();
-			by_key.entry((name, self.arena[b].value.key())).or_insert(b);
+			let nd = &self.arena[b];
+			let e = has_container.entry(nd.name.clone()).or_insert(false);
+			*e = *e || !nd.children.is_empty();
+			by_name.entry(nd.name.clone()).or_default().push(b);
+			let h = merge_hash(&nd.name, &nd.value);
+			if find(&self.arena, &by_key, h, &nd.name, &nd.value).is_none() {
+				by_key
+					.entry(h)
+					.and_modify(|s| s.push(b))
+					.or_insert(Slot::One(b));
+			}
 		}
 		// Decide per name. A name whose over-side nodes are all leaves is an
 		// override - but only when the base side of the group is leaf-shaped
@@ -3586,52 +13377,128 @@ impl Document {
 		// mention, not a leaf, so it falls through to the instance merge: a
 		// bare section header in a higher layer never wipes the subtree below.
 		// Replaced groups splice in the rebuild; everything appended (unmatched
-		// instances, and replaced names base never had) keeps processing order.
-		let mut replace: HashMap<String, Vec<usize>> = HashMap::new();
-		let mut appended: Vec<usize> = Vec::new();
-		let empty_key = Value::Empty.key();
-		for name in &order {
+		// instances, and replaced names base never had) keeps the over file's
+		// order, which the per-name pass here would otherwise regroup.
+		let mut replace: HashMap<&str, Vec<usize>> = HashMap::new();
+		let mut appended: Vec<(usize, usize)> = Vec::new();
+		for &name in &order {
 			let group = &groups[name];
-			let over_leafy = group.iter().all(|&k| over.arena[k].children.is_empty());
+			let over_leafy = group
+				.iter()
+				.all(|&(_, k)| over.arena[k].children.is_empty());
 			let in_base = has_container.contains_key(name);
 			let base_container = has_container.get(name).copied().unwrap_or(false);
 			if over_leafy && !base_container {
-				let clones: Vec<usize> = group
+				let clones: Vec<(usize, usize)> = group
 					.iter()
-					.map(|&ok| self.clone_subtree(over, ok, base_parent))
+					.map(|&(pos, ok)| (pos, self.clone_subtree(over, ok, base_parent)))
 					.collect();
 				if in_base {
-					replace.insert(name.clone(), clones);
+					// The replaced leaf's comments go with it, which the spec
+					// allows; a content-malformed line retained on it is
+					// content the parser promised to keep, so those move
+					// onto the replacement. A comment starts with `#`, a
+					// retained line never does.
+					let mut kept: Vec<Lead> = Vec::new();
+					let mut inside: Vec<Lead> = Vec::new();
+					// Off the index, not a scan of every base child: N leaves
+					// overridden by the same N names made this quadratic
+					// (20260918b item 58).
+					for &b in by_name.get(name).map_or(&[][..], |v| v.as_slice()) {
+						let nd = &self.arena[b];
+						// The leaf's own comments are the ones a remove would
+						// take: above it those after its last kept line, below
+						// it those before its first. The rest sit with a kept
+						// line beside it and stay. A settled line counts as
+						// the comment a reload reads it as.
+						let leading = nd.leading();
+						let above = leading
+							.iter()
+							.rposition(|l| !l.text.starts_with('#'))
+							.map_or(0, |k| k + 1);
+						let after = nd.after();
+						let below = after
+							.iter()
+							.position(|l| !l.text.starts_with('#'))
+							.unwrap_or(after.len());
+						kept.extend_from_slice(&leading[..above]);
+						let among = nd.among().iter().map(|a| &a.1);
+						// A line kept inside its block stays there, as when a
+						// setter changes the leaf in place.
+						let lines = leading[above..]
+							.iter()
+							.chain(among)
+							.map(|l| (l, false))
+							.chain(nd.inside().iter().map(|l| (l, true)))
+							.chain(after[..below].iter().map(|l| (l, false)));
+						for (l, within) in lines {
+							if !l.text.starts_with('#') {
+								if within {
+									inside.push(l.clone());
+								} else {
+									kept.push(l.clone());
+								}
+							} else if l.kept {
+								// A settled one goes with the leaf's comments
+								// (decided 2026-09-28), so it is no longer owed.
+								self.kept_owed = self.kept_owed.saturating_sub(1);
+							}
+						}
+						kept.extend_from_slice(&after[below..]);
+					}
+					if !kept.is_empty() {
+						let t = self.arena[clones[0].1].triv_mut();
+						kept.append(&mut t.leading);
+						t.leading = kept;
+						// Comments from two sources now share one run.
+						restep(&mut t.leading);
+					}
+					if !inside.is_empty() {
+						let t = self.arena[clones[0].1].triv_mut();
+						inside.append(&mut t.inside);
+						t.inside = inside;
+						restep(&mut t.inside);
+					}
+					replace.insert(name, clones.into_iter().map(|(_, c)| c).collect());
 				} else {
 					appended.extend(clones);
 				}
 			} else {
-				for &ok in group {
-					let okey = over.arena[ok].value.key();
+				for &(pos, ok) in group {
+					let ov = &over.arena[ok].value;
+					let hk = merge_hash(name, ov);
+					let mut target = find(&self.arena, &by_key, hk, name, ov);
 					// A raw block in the higher layer fills a same-named empty
 					// binding below, exactly as a fence line fills one inside a
 					// single file. Without it, merging two documents and parsing
 					// them run together disagree: both bindings survive here and
 					// fold there, so the merged output is not a formatter fixpoint.
-					let mut target = by_key.get(&(name.clone(), okey.clone())).copied();
-					if target.is_none() && matches!(over.arena[ok].value, Value::Raw { .. }) {
-						let empty = (name.clone(), empty_key.clone());
-						let hit = by_key.get(&empty).copied();
-						if let Some(b) = hit {
-							self.arena[b].value = over.arena[ok].value.clone();
-							by_key.remove(&empty);
-							by_key.entry((name.clone(), okey)).or_insert(b);
+					if target.is_none() && matches!(ov, Value::Raw { .. }) {
+						let he = merge_hash(name, &Value::Empty);
+						if let Some(b) = find(&self.arena, &by_key, he, name, &Value::Empty) {
+							self.arena[b].value = ov.clone();
+							if by_key.get_mut(&he).is_some_and(|s| s.remove(b)) {
+								by_key.remove(&he);
+							}
+							by_key
+								.entry(hk)
+								.and_modify(|s| s.push(b))
+								.or_insert(Slot::One(b));
 							target = Some(b);
 						}
 					}
 					match target {
 						Some(b) => {
+							// A stacked spelling no kept line holds is gone on
+							// a reload, so it may not decide how the lines the
+							// other layer brings are written (20260926 item 4).
 							self.adopt_trivia(b, over, ok);
-							self.overlay(b, over, ok);
+							self.overlay(b, over, ok, touched);
+							bracket(&mut self.arena[b]);
 						}
 						None => {
 							let c = self.clone_subtree(over, ok, base_parent);
-							appended.push(c);
+							appended.push((pos, c));
 						}
 					}
 				}
@@ -3640,7 +13507,7 @@ impl Document {
 		if replace.is_empty() && appended.is_empty() {
 			return;
 		}
-		// Rebuild once: each replaced group lands at its name's first original
+		// Rebuild once: each replaced group goes to its name's first original
 		// position (dropped nodes stay in the arena, unreferenced - reads and
 		// emit walk children from the root), appends go at the end.
 		let mut newkids: Vec<usize> = Vec::with_capacity(base_kids.len() + appended.len());
@@ -3656,7 +13523,8 @@ impl Document {
 				None => newkids.push(b),
 			}
 		}
-		newkids.extend(appended.iter().copied());
+		appended.sort_by_key(|&(pos, _)| pos);
+		newkids.extend(appended.iter().map(|&(_, c)| c));
 		self.arena[base_parent].children = newkids;
 	}
 
@@ -3670,7 +13538,6 @@ impl Document {
 			parent,
 			line: src.line,
 			star_list: src.star_list,
-			star_mixed: src.star_mixed,
 			trivia: src.trivia.clone(),
 			blank_before: src.blank_before,
 			src_set: src.src_set,
@@ -3679,11 +13546,11 @@ impl Document {
 		};
 		let idx = self.arena.len();
 		self.arena.push(node);
-		let okids = over.arena[oi].children.clone();
-		for ok in okids {
+		for &ok in &over.arena[oi].children {
 			let c = self.clone_subtree(over, ok, idx);
 			self.arena[idx].children.push(c);
 		}
+		bracket(&mut self.arena[idx]);
 		idx
 	}
 }
@@ -3721,17 +13588,67 @@ const CURRENCY: &[char] = &[
 	'₿',
 ];
 
+/// The remainder after a leading currency symbol, with the space a person
+/// writes after one taken off, so `$ 1200` reads the same as `$1200` in both
+/// the int path and the float path's shape test.
 fn strip_currency(t: &str) -> &str {
 	let mut it = t.chars();
 	match it.next() {
-		Some(c) if CURRENCY.contains(&c) => it.as_str(),
+		Some(c) if CURRENCY.contains(&c) => it.as_str().trim_start(),
 		_ => t,
 	}
+}
+
+/// A thousands number the way Loose reads one in quotes (spec.md): a
+/// currency sign, a sign, 1 to 3 digits then groups of exactly 3 behind
+/// commas, a `.` and any digits, and a `%`, all optional but the digits and
+/// one comma. No blanks anywhere, so the writer can keep a bare one bare.
+/// Gives the number with the commas, the currency and the `%` off, and
+/// whether the `%` was there.
+fn thousands_number(t: &str) -> Option<(String, bool)> {
+	if !t.contains(',') {
+		return None;
+	}
+	let mut it = t.chars();
+	let t = match it.next() {
+		Some(c) if CURRENCY.contains(&c) => it.as_str(),
+		_ => t,
+	};
+	let (t, percent) = match t.strip_suffix('%') {
+		Some(r) => (r, true),
+		None => (t, false),
+	};
+	let body = t.strip_prefix(['+', '-']).unwrap_or(t);
+	let (whole, frac) = match body.split_once('.') {
+		Some((w, f)) => (w, Some(f)),
+		None => (body, None),
+	};
+	let digits = |g: &str| !g.is_empty() && g.bytes().all(|b| b.is_ascii_digit());
+	let mut groups = whole.split(',');
+	let head = groups.next().unwrap_or_default();
+	let mut tail = 0;
+	let grouped = head.len() <= 3
+		&& digits(head)
+		&& groups.all(|g| {
+			tail += 1;
+			g.len() == 3 && digits(g)
+		});
+	// A bare trailing `.` is fine, as on a plain number.
+	let frac_ok = frac.is_none_or(|f| f.bytes().all(|b| b.is_ascii_digit()));
+	(grouped && tail > 0 && frac_ok).then(|| (t.replace(',', ""), percent))
 }
 
 fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 	let mut t = e.text.trim();
 	if level == Strictness::Loose {
+		// A whole thousands number goes in exact. One with a decimal part or
+		// a `%` takes the float path below and rounds.
+		if e.quoted()
+			&& let Some((plain, false)) = thousands_number(t)
+			&& !plain.contains('.')
+		{
+			return plain.parse::<i64>().ok();
+		}
 		t = strip_currency(t);
 	}
 	// Plain decimal.
@@ -3739,19 +13656,16 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 	if !body.is_empty() && body.bytes().all(|b| b.is_ascii_digit()) {
 		return t.parse::<i64>().ok();
 	}
-	// Hex.
-	let (neg, hex) = match t.strip_prefix('-') {
+	// Hex, octal and binary.
+	let (neg, prefixed) = match t.strip_prefix('-') {
 		Some(r) => (true, r),
 		None => (false, t.strip_prefix('+').unwrap_or(t)),
 	};
-	if let Some(h) = hex.strip_prefix("0x").or_else(|| hex.strip_prefix("0X"))
-		&& !h.is_empty()
-		&& h.bytes().all(|b| b.is_ascii_hexdigit())
-	{
+	if let Some((radix, digits)) = radix_body(prefixed) {
 		// Parse the magnitude as u64, then range-check against the sign, so the
 		// negative i64::MIN magnitude (0x8000000000000000) reads like its decimal
 		// spelling instead of overflowing an i64 parse.
-		let m = u64::from_str_radix(h, 16).ok()?;
+		let m = u64::from_str_radix(digits, radix).ok()?;
 		return if neg {
 			if m == (i64::MAX as u64) + 1 {
 				Some(i64::MIN)
@@ -3766,31 +13680,41 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 			None
 		};
 	}
-	// Thousands separators, only inside quotes (bare commas are reserved).
-	if e.quoted && t.contains(',') {
-		let sign_body = t.strip_prefix(['+', '-']).unwrap_or(t);
-		let groups: Vec<&str> = sign_body.split(',').collect();
-		let well_formed = groups.len() > 1
-			&& !groups[0].is_empty()
-			&& groups[0].len() <= 3
-			&& groups[0].bytes().all(|b| b.is_ascii_digit())
-			&& groups[1..]
-				.iter()
-				.all(|g| g.len() == 3 && g.bytes().all(|b| b.is_ascii_digit()));
-		if well_formed {
-			return t.replace(',', "").parse::<i64>().ok();
-		}
-	}
 	// Loose: a float (including %) rounds, half away from zero.
 	if level == Strictness::Loose
 		&& let Some(f) = parse_float_text(e, level)
 	{
 		let r = f.round();
-		if r >= i64::MIN as f64 && r <= i64::MAX as f64 {
+		// i64::MAX has no exact f64 - the cast rounds it up to 2^63 - so a
+		// `<=` against it lets 2^63 in and the cast below saturates to a value
+		// the text never said. Bound on 2^63 itself, exclusively. i64::MIN is
+		// exact, so the low end needs no such care.
+		if r >= i64::MIN as f64 && r < 9_223_372_036_854_775_808.0 {
 			return Some(r as i64);
 		}
 	}
 	None
+}
+
+/// The digits after a `0x`, `0o` or `0b` prefix, either case, with their
+/// radix. A bare leading zero is decimal, so `0o` is the one way to write an
+/// octal mode.
+fn radix_body(t: &str) -> Option<(u32, &str)> {
+	let b = t.as_bytes();
+	if b.len() < 3 || b[0] != b'0' {
+		return None;
+	}
+	let radix = match b[1] {
+		b'x' | b'X' => 16,
+		b'o' | b'O' => 8,
+		b'b' | b'B' => 2,
+		_ => return None,
+	};
+	let digits = &t[2..];
+	digits
+		.bytes()
+		.all(|c| char::from(c).is_digit(radix))
+		.then_some((radix, digits))
 }
 
 fn float_shape_ok(t: &str) -> bool {
@@ -3821,22 +13745,37 @@ fn float_shape_ok(t: &str) -> bool {
 fn parse_float_text(e: &Element, level: Strictness) -> Option<f64> {
 	let mut t = e.text.trim();
 	let mut percent = false;
+	let plain: String;
 	if level == Strictness::Loose {
-		t = strip_currency(t);
-		if let Some(inner) = t.strip_suffix('%') {
-			t = inner.trim_end();
-			percent = true;
+		if e.quoted()
+			&& let Some((p, pct)) = thousands_number(t)
+		{
+			plain = p;
+			t = &plain;
+			percent = pct;
+		} else {
+			t = strip_currency(t);
+			if let Some(inner) = t.strip_suffix('%') {
+				t = inner.trim_end();
+				percent = true;
+			}
 		}
 	}
 	let v = if float_shape_ok(t) {
-		t.parse::<f64>().ok()?
+		// A literal past the double range parses as an infinity, which no
+		// double holds and no setter can write back: BadType, like a text
+		// that is not a number at all.
+		t.parse::<f64>().ok().filter(|v| v.is_finite())?
 	} else {
-		// An integer is a valid float on read (incl. hex and quoted thousands).
+		// An integer is a valid float on read (incl. hex, octal and binary).
 		let el = Element {
 			text: t.to_string(),
-			quoted: e.quoted,
+			mark: e.mark,
 		};
-		parse_int_text_no_loose(&el)? as f64
+		match parse_int_text_no_loose(&el) {
+			Some(i) => i as f64,
+			None => parse_int_text_wide(&el)?,
+		}
 	};
 	Some(if percent { v / 100.0 } else { v })
 }
@@ -3845,6 +13784,27 @@ fn parse_float_text(e: &Element, level: Strictness) -> Option<f64> {
 /// two can't recurse into each other.
 fn parse_int_text_no_loose(e: &Element) -> Option<i64> {
 	parse_int_text(e, Strictness::Standard)
+}
+
+/// The integer spellings the plain float parse does not read - hex, octal and
+/// binary - past the i64 range, as a double: a float read is bounded by the
+/// double, not by the integer type. The number goes in digit by digit in the
+/// double, so every binding rounds the same way; the spellings mirror
+/// parse_int_text.
+fn parse_int_text_wide(e: &Element) -> Option<f64> {
+	let t = e.text.trim();
+	let (neg, body) = match t.strip_prefix('-') {
+		Some(r) => (true, r),
+		None => (false, t.strip_prefix('+').unwrap_or(t)),
+	};
+	let (radix, digits) = radix_body(body)?;
+	let v = digits.bytes().fold(0.0f64, |v, b| {
+		v * f64::from(radix) + f64::from(char::from(b).to_digit(radix).unwrap_or(0))
+	});
+	if !v.is_finite() {
+		return None;
+	}
+	Some(if neg { -v } else { v })
 }
 
 fn parse_bool_text(t: &str, level: Strictness) -> Option<bool> {
@@ -3865,6 +13825,300 @@ fn parse_bool_text(t: &str, level: Strictness) -> Option<bool> {
 		| (Strictness::Loose, "disabled") => Some(false),
 		_ => None,
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Durations and sizes: a number with a unit, or a bare number whose unit the
+// field name or the caller gives
+// ---------------------------------------------------------------------------
+
+/// The unit a duration read gives a bare number, when the field name gives
+/// none. Smallest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DurationUnit {
+	Millis,
+	Seconds,
+	Minutes,
+	Hours,
+	Days,
+}
+
+impl DurationUnit {
+	fn millis(self) -> u64 {
+		match self {
+			DurationUnit::Millis => 1,
+			DurationUnit::Seconds => 1_000,
+			DurationUnit::Minutes => 60_000,
+			DurationUnit::Hours => 3_600_000,
+			DurationUnit::Days => 86_400_000,
+		}
+	}
+
+	/// The spelling a value uses: `ms`, `s`, `m`, `h` or `d`.
+	#[must_use]
+	pub fn spelling(self) -> &'static str {
+		match self {
+			DurationUnit::Millis => "ms",
+			DurationUnit::Seconds => "s",
+			DurationUnit::Minutes => "m",
+			DurationUnit::Hours => "h",
+			DurationUnit::Days => "d",
+		}
+	}
+
+	/// The unit a value spelling names, lower case only.
+	#[must_use]
+	pub fn from_spelling(s: &str) -> Option<DurationUnit> {
+		match s {
+			"ms" => Some(DurationUnit::Millis),
+			"s" => Some(DurationUnit::Seconds),
+			"m" => Some(DurationUnit::Minutes),
+			"h" => Some(DurationUnit::Hours),
+			"d" => Some(DurationUnit::Days),
+			_ => None,
+		}
+	}
+}
+
+/// The unit a size read gives a bare number, when the field name gives none.
+/// `Kilo` to `Tera` are powers of 1024 unless the read asks for decimal;
+/// `Kibi` to `Tebi` always are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SizeUnit {
+	Bytes,
+	Kilo,
+	Mega,
+	Giga,
+	Tera,
+	Kibi,
+	Mebi,
+	Gibi,
+	Tebi,
+}
+
+impl SizeUnit {
+	fn bytes(self, decimal: bool) -> u64 {
+		let k: u64 = if decimal { 1000 } else { 1024 };
+		match self {
+			SizeUnit::Bytes => 1,
+			SizeUnit::Kilo => k,
+			SizeUnit::Mega => k * k,
+			SizeUnit::Giga => k * k * k,
+			SizeUnit::Tera => k * k * k * k,
+			SizeUnit::Kibi => 1 << 10,
+			SizeUnit::Mebi => 1 << 20,
+			SizeUnit::Gibi => 1 << 30,
+			SizeUnit::Tebi => 1 << 40,
+		}
+	}
+
+	/// The spelling a value uses: `B`, `KB`, `MB`, `GB`, `TB`, `KiB`, `MiB`,
+	/// `GiB` or `TiB`.
+	#[must_use]
+	pub fn spelling(self) -> &'static str {
+		match self {
+			SizeUnit::Bytes => "B",
+			SizeUnit::Kilo => "KB",
+			SizeUnit::Mega => "MB",
+			SizeUnit::Giga => "GB",
+			SizeUnit::Tera => "TB",
+			SizeUnit::Kibi => "KiB",
+			SizeUnit::Mebi => "MiB",
+			SizeUnit::Gibi => "GiB",
+			SizeUnit::Tebi => "TiB",
+		}
+	}
+
+	/// The unit a value spelling names. Letter case is read, since `Mb` is
+	/// megabits to most readers; `kB` is the one other spelling taken.
+	#[must_use]
+	pub fn from_spelling(s: &str) -> Option<SizeUnit> {
+		match s {
+			"B" => Some(SizeUnit::Bytes),
+			"KB" | "kB" => Some(SizeUnit::Kilo),
+			"MB" => Some(SizeUnit::Mega),
+			"GB" => Some(SizeUnit::Giga),
+			"TB" => Some(SizeUnit::Tera),
+			"KiB" => Some(SizeUnit::Kibi),
+			"MiB" => Some(SizeUnit::Mebi),
+			"GiB" => Some(SizeUnit::Gibi),
+			"TiB" => Some(SizeUnit::Tebi),
+			_ => None,
+		}
+	}
+}
+
+/// The longest duration a read gives, in milliseconds: Go's `time.Duration`
+/// range, so every binding holds every duration another one reads.
+const DURATION_MAX_MS: u64 = 9_223_372_036_854;
+
+/// Field name endings that give a bare number its unit, after a `-` or `_`.
+/// `min`, `m` and `s` are left out: `retries-min` is a minimum, and a
+/// trailing `s` is usually a plural. A capitalized word (`timeoutMs`) is not
+/// a boundary, since names fold to lower case and `fmt` writes them folded.
+const DURATION_NAMES: [(&str, DurationUnit); 6] = [
+	("ms", DurationUnit::Millis),
+	("sec", DurationUnit::Seconds),
+	("seconds", DurationUnit::Seconds),
+	("minutes", DurationUnit::Minutes),
+	("hours", DurationUnit::Hours),
+	("days", DurationUnit::Days),
+];
+
+const SIZE_NAMES: [(&str, SizeUnit); 9] = [
+	("bytes", SizeUnit::Bytes),
+	("kb", SizeUnit::Kilo),
+	("mb", SizeUnit::Mega),
+	("gb", SizeUnit::Giga),
+	("tb", SizeUnit::Tera),
+	("kib", SizeUnit::Kibi),
+	("mib", SizeUnit::Mebi),
+	("gib", SizeUnit::Gibi),
+	("tib", SizeUnit::Tebi),
+];
+
+/// The unit a field name ends in, from `table`: the ending, in any letter
+/// case, after a `-` or `_`.
+fn name_unit<U: Copy>(name: &str, table: &[(&str, U)]) -> Option<U> {
+	let b = name.as_bytes();
+	table.iter().find_map(|&(end, unit)| {
+		let at = b.len().checked_sub(end.len()).filter(|&at| at > 0)?;
+		(b[at..].eq_ignore_ascii_case(end.as_bytes()) && matches!(b[at - 1], b'-' | b'_'))
+			.then_some(unit)
+	})
+}
+
+/// A decimal number at the start of `s`: digits, then a point and more
+/// digits if there is a point. The two digit runs, and where it ended.
+fn decimal_at(s: &str) -> Option<(&str, &str, usize)> {
+	let b = s.as_bytes();
+	let int = b.iter().take_while(|c| c.is_ascii_digit()).count();
+	if int == 0 {
+		return None;
+	}
+	if b.get(int) != Some(&b'.') {
+		return Some((&s[..int], "", int));
+	}
+	let frac = b[int + 1..]
+		.iter()
+		.take_while(|c| c.is_ascii_digit())
+		.count();
+	if frac == 0 {
+		return None;
+	}
+	Some((&s[..int], &s[int + 1..int + 1 + frac], int + 1 + frac))
+}
+
+/// `int.frac` times `scale`, exactly. None when that is not a whole number
+/// or does not fit, so `1.5s` is 1500 ms and `0.0001s` is refused. At most
+/// 18 digits after the point count, which keeps the sum in 64 bits: the
+/// fraction's share is below `scale`, and dividing out their common factor
+/// first gets it without a wider product.
+fn scaled(int: &str, frac: &str, scale: u64) -> Option<u64> {
+	let int = int.trim_start_matches('0');
+	let frac = frac.trim_end_matches('0');
+	if int.len() > 19 || frac.len() > 18 {
+		return None;
+	}
+	let whole: u64 = if int.is_empty() { 0 } else { int.parse().ok()? };
+	let mut total = whole.checked_mul(scale)?;
+	if !frac.is_empty() {
+		let part: u64 = frac.parse().ok()?;
+		let den = 10u64.pow(frac.len() as u32);
+		let (mut a, mut b) = (scale, den);
+		while b != 0 {
+			(a, b) = (b, a % b);
+		}
+		let step = den / a;
+		if !part.is_multiple_of(step) {
+			return None;
+		}
+		total = total.checked_add(part / step * (scale / a))?;
+	}
+	Some(total)
+}
+
+/// A duration in whole milliseconds, and the units the text used: parts
+/// such as `1h 30m`, largest unit first and each once, with blanks allowed
+/// between a number and its unit and between parts. A bare number takes
+/// `bare`, and is None without one. No sign.
+fn parse_duration_text(t: &str, bare: Option<DurationUnit>) -> Option<(i64, Vec<DurationUnit>)> {
+	let t = trim_wsp(t);
+	if let Some((int, frac, end)) = decimal_at(t)
+		&& end == t.len()
+	{
+		let ms = scaled(int, frac, bare?.millis())?;
+		return (ms <= DURATION_MAX_MS).then(|| (ms as i64, Vec::new()));
+	}
+	let mut rest = t;
+	let mut total: u64 = 0;
+	let mut units: Vec<DurationUnit> = Vec::new();
+	while !rest.is_empty() {
+		let (int, frac, end) = decimal_at(rest)?;
+		rest = rest[end..].trim_start_matches(is_wsp);
+		let n = rest.bytes().take_while(u8::is_ascii_alphabetic).count();
+		let unit = DurationUnit::from_spelling(&rest[..n])?;
+		if units.last().is_some_and(|&u| u <= unit) {
+			return None;
+		}
+		total = total.checked_add(scaled(int, frac, unit.millis())?)?;
+		units.push(unit);
+		rest = rest[n..].trim_start_matches(is_wsp);
+	}
+	if units.is_empty() || total > DURATION_MAX_MS {
+		return None;
+	}
+	Some((total as i64, units))
+}
+
+/// A size in whole bytes, and the unit the text used: a number, blanks
+/// allowed, then a unit. A bare number takes `bare`, and is None without
+/// one. No sign.
+fn parse_size_text(
+	t: &str,
+	bare: Option<SizeUnit>,
+	decimal: bool,
+) -> Option<(i64, Option<SizeUnit>)> {
+	let t = trim_wsp(t);
+	let (int, frac, end) = decimal_at(t)?;
+	let rest = t[end..].trim_start_matches(is_wsp);
+	let unit = if rest.is_empty() {
+		None
+	} else {
+		Some(SizeUnit::from_spelling(rest)?)
+	};
+	let n = scaled(int, frac, unit.or(bare)?.bytes(decimal))?;
+	(n <= i64::MAX as u64).then_some((n as i64, unit))
+}
+
+/// Whether a name ends in a duration or size unit. Asked before a value's
+/// text is built for `unit_clash`, since most names do not.
+fn unit_named(name: &str) -> bool {
+	name_unit(name, &DURATION_NAMES).is_some() || name_unit(name, &SIZE_NAMES).is_some()
+}
+
+/// A value in another unit than the one its field name ends in (`H005`), as
+/// `timeout-ms: 5s`. The value's unit is the one read, so this is a hint.
+fn unit_clash(name: &str, text: &str) -> Option<String> {
+	let said = |v: &str, n: &str| {
+		format!(
+			"value is in {} and the name says {}; the value's unit is the one read",
+			v, n
+		)
+	};
+	if let Some(nu) = name_unit(name, &DURATION_NAMES)
+		&& let Some((_, units)) = parse_duration_text(text, None)
+		&& !units.contains(&nu)
+	{
+		return Some(said(units[0].spelling(), nu.spelling()));
+	}
+	if let Some(nu) = name_unit(name, &SIZE_NAMES)
+		&& let Some((_, Some(vu))) = parse_size_text(text, None, false)
+		&& vu != nu
+	{
+		return Some(said(vu.spelling(), nu.spelling()));
+	}
+	None
 }
 
 // ---------------------------------------------------------------------------
@@ -3933,14 +14187,17 @@ fn parse_date_part(s: &str) -> Option<(i32, u32, u32)> {
 	// Space-separated named-month forms; a comma may follow the day in "Mon DD, YYYY".
 	let toks: Vec<&str> = s.split_whitespace().collect();
 	if toks.len() == 3 {
+		// The day is DD, like every other form's: a plain integer parse takes a
+		// leading '+' and any number of leading zeros, which the whitelist does
+		// not list and the delimited spellings already refuse.
 		if let Some(m) = month_from_name(toks[0]) {
 			let day_tok = toks[1].strip_suffix(',').unwrap_or(toks[1]);
-			let d: u32 = day_tok.parse().ok()?;
+			let d: u32 = parse_num2(day_tok)?;
 			let y: i32 = parse_year4(toks[2])?;
 			return valid_date(y, m, d).then_some((y, m, d));
 		}
 		if let Some(m) = month_from_name(toks[1]) {
-			let d: u32 = toks[0].parse().ok()?;
+			let d: u32 = parse_num2(toks[0])?;
 			let y: i32 = parse_year4(toks[2])?;
 			return valid_date(y, m, d).then_some((y, m, d));
 		}
@@ -3989,18 +14246,18 @@ fn parse_num2(s: &str) -> Option<u32> {
 }
 
 /// (hour, minute, seconds-if-written), fraction digits, zone.
-type TimeParts = ((u32, u32, Option<u32>), Option<String>, Option<ZoneSpec>);
+type TimeParts = ((u32, u32, Option<u32>), Option<String>, Option<Zone>);
 
 /// Time with optional meridiem, fraction, zone: `H:MM[:SS[.f+]][ AM|PM][Z|+HH:MM]`.
 fn parse_time_part(s: &str) -> Option<TimeParts> {
 	let mut t = s.trim();
 	// Zone suffix first (only valid after a time).
-	let mut zone: Option<ZoneSpec> = None;
+	let mut zone: Option<Zone> = None;
 	if let Some(rest) = t.strip_suffix(['Z', 'z']) {
-		zone = Some(ZoneSpec::Utc);
+		zone = Some(Zone::Utc);
 		t = rest.trim_end();
 	} else if t.len() >= 6 {
-		// Byte-wise on purpose: a str slice here can land mid-char and panic when
+		// Byte-wise on purpose: a str slice here can fall mid-char and panic when
 		// the tail holds multibyte text. All-ASCII match implies the cut is a
 		// char boundary, so the later &t[..len-6] is safe.
 		let tail = &t.as_bytes()[t.len() - 6..];
@@ -4019,7 +14276,7 @@ fn parse_time_part(s: &str) -> Option<TimeParts> {
 				if sign == b'-' {
 					off = -off;
 				}
-				zone = Some(ZoneSpec::OffsetMinutes(off));
+				zone = Some(Zone::OffsetMinutes(off));
 				t = t[..t.len() - 6].trim_end();
 			}
 		}
@@ -4084,6 +14341,12 @@ fn parse_time_part(s: &str) -> Option<TimeParts> {
 		}
 	};
 	Some(((h, mi, sec), frac, zone))
+}
+
+/// Whether a datetime's canonical spelling reads back as the same value: the
+/// setter's inverse-of-the-read promise, checked by making the round trip.
+fn datetime_reads_back(v: &ShclDateTime) -> bool {
+	parse_datetime(&v.to_string()).as_ref() == Some(v)
 }
 
 /// Whole-value date/time parse per the whitelist. None = BadType.
@@ -4161,12 +14424,18 @@ impl Document {
 		}
 	}
 
+	/// The one element a scalar read takes: `[80]` reads as 80 and `[]` as
+	/// empty, while two elements are not one scalar.
 	fn scalar_element<'a>(&self, v: &'a Value) -> Result<&'a Element, Status> {
 		match v {
 			Value::Empty => Err(Status::Empty),
 			Value::Raw { .. } => Err(Status::BadType),
-			Value::Cell(els) if els.len() == 1 => Ok(&els[0]),
-			Value::Cell(_) => Err(Status::BadType), // an array is not one scalar
+			Value::Cell(e) => Ok(e),
+			Value::Array(els) => match els.as_slice() {
+				[] => Err(Status::Empty),
+				[e] => Ok(e),
+				_ => Err(Status::BadType),
+			},
 		}
 	}
 
@@ -4184,10 +14453,10 @@ impl Document {
 		let line = self.arena[node].line;
 		match self.scalar_element(value) {
 			Ok(el) => match coerce(el) {
-				Some(v) => Read::new(v, Status::Good, raw).at(line, el.quoted),
-				None => Read::new(T::default(), Status::BadType, raw).at(line, el.quoted),
+				Some(v) => Read::new(v, Status::Good, raw).at(line, Some(el)),
+				None => Read::new(T::default(), Status::BadType, raw).at(line, Some(el)),
 			},
-			Err(st) => Read::new(T::default(), st, raw).at(line, false),
+			Err(st) => Read::new(T::default(), st, raw).at(line, None),
 		}
 	}
 
@@ -4214,8 +14483,50 @@ impl Document {
 		self.read_scalar(path, |e| parse_datetime(&e.text))
 	}
 
+	/// read_scalar with the node's name, for the reads whose bare number
+	/// takes its unit from the name.
+	fn read_named<T: Default>(
+		&self,
+		path: &str,
+		coerce: impl Fn(&Element, &str) -> Option<T>,
+	) -> Read<T> {
+		match self.node_at(path) {
+			Ok(n) => {
+				let name = self.arena[n].name.as_str();
+				self.read_scalar(path, |e| coerce(e, name))
+			}
+			Err(st) => Read::new(T::default(), st, None),
+		}
+	}
+
+	/// Full-tier duration read at a path, in whole milliseconds: `500ms`,
+	/// `30s`, `1h 30m`, `2d`. A bare number takes its unit from the field
+	/// name when the name ends in one (`timeout-ms`, `delay_seconds`), else
+	/// from `unit`, and is BadType with neither.
+	pub fn read_duration(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+	) -> Read<std::time::Duration> {
+		self.read_named(path, |e, name| {
+			let bare = name_unit(name, &DURATION_NAMES).or(unit);
+			parse_duration_text(&e.text, bare)
+				.map(|(ms, _)| std::time::Duration::from_millis(ms as u64))
+		})
+	}
+
+	/// Full-tier size read at a path, in whole bytes: `512MB`, `1.5 GiB`. A
+	/// bare number takes its unit the way a duration does. `KB` to `TB` are
+	/// powers of 1024 unless `decimal` is set.
+	pub fn read_size(&self, path: &str, unit: Option<SizeUnit>, decimal: bool) -> Read<i64> {
+		self.read_named(path, |e, name| {
+			let bare = name_unit(name, &SIZE_NAMES).or(unit);
+			parse_size_text(&e.text, bare, decimal).map(|(n, _)| n)
+		})
+	}
+
 	/// Any value reads as a string: a raw block yields its content, an array its
-	/// canonical inline text. Escapes are applied.
+	/// canonical bracket form. Escapes are applied.
 	pub fn read_string(&self, path: &str) -> Read<String> {
 		let node = match self.node_at(path) {
 			Ok(n) => n,
@@ -4225,19 +14536,12 @@ impl Document {
 		let raw = Some(self.raw_of(node));
 		let line = self.arena[node].line;
 		match value {
-			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, false),
-			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, false),
-			Value::Cell(els) if els.len() == 1 => {
-				Read::new(apply_escapes(&els[0].text), Status::Good, raw).at(line, els[0].quoted)
-			}
-			// Canonical inline form (quoting + escapes intact), so the string
-			// re-parses to the same array - not the bare display join.
-			Value::Cell(els) => Read::new(
-				els.iter().map(emit_element).collect::<Vec<_>>().join(", "),
-				Status::Good,
-				raw,
-			)
-			.at(line, false),
+			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
+			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, None),
+			Value::Cell(e) => Read::new(e.text.clone(), Status::Good, raw).at(line, Some(e)),
+			// Canonical bracket form (quoting + escapes intact), so the string
+			// re-parses to the same array, and `[80]` never reads as `80`.
+			Value::Array(els) => Read::new(emit_array(els), Status::Good, raw).at(line, None),
 		}
 	}
 
@@ -4251,9 +14555,11 @@ impl Document {
 		let raw = Some(self.raw_of(node));
 		let line = self.arena[node].line;
 		match value {
-			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, false),
-			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, false),
-			_ => Read::new(String::new(), Status::BadType, raw).at(line, false),
+			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, None),
+			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
+			Value::Cell(_) | Value::Array(_) => {
+				Read::new(String::new(), Status::BadType, raw).at(line, None)
+			}
 		}
 	}
 
@@ -4265,9 +14571,13 @@ impl Document {
 		};
 		let raw = Some(self.raw_of(node));
 		let line = self.arena[node].line;
+		// An empty binding has no block, so no info string: `Empty`, the same as a `read_raw` on it. Only a value that is there and is not a block is a type mismatch.
 		match &self.arena[node].value {
-			Value::Raw(r) => Read::new(r.info.clone(), Status::Good, raw).at(line, false),
-			_ => Read::new(String::new(), Status::BadType, raw).at(line, false),
+			Value::Raw(r) => Read::new(r.info.clone(), Status::Good, raw).at(line, None),
+			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
+			Value::Cell(_) | Value::Array(_) => {
+				Read::new(String::new(), Status::BadType, raw).at(line, None)
+			}
 		}
 	}
 
@@ -4291,16 +14601,11 @@ impl Document {
 							sts.push(*st);
 						}
 						Ok(n) => match self.scalar_element(&self.arena[*n].value) {
-							Ok(el) => match coerce(el) {
-								Some(v) => {
-									out.push(v);
-									sts.push(Status::Good);
-								}
-								None => {
-									out.push(T::default());
-									sts.push(Status::BadType);
-								}
-							},
+							Ok(el) => {
+								let (v, st) = coerced(&coerce, el);
+								out.push(v);
+								sts.push(st);
+							}
 							Err(st) => {
 								out.push(T::default());
 								sts.push(st);
@@ -4308,8 +14613,10 @@ impl Document {
 						},
 					}
 				}
+				// No slots at all means the wildcard's parent is not there, so
+				// the path did not resolve - Empty is for a node that is.
 				let status = if sts.is_empty() {
-					Status::Empty
+					Status::NotFound
 				} else {
 					sts.iter().copied().max().unwrap_or(Status::Good)
 				};
@@ -4322,27 +14629,28 @@ impl Document {
 				let raw = Some(self.raw_of(n));
 				let line = self.arena[n].line;
 				match value {
-					Value::Empty => Read::new(Vec::new(), Status::Empty, raw).at(line, false),
-					Value::Raw { .. } => {
-						Read::new(Vec::new(), Status::BadType, raw).at(line, false)
-					}
-					Value::Cell(els) => {
+					Value::Empty => Read::new(Vec::new(), Status::Empty, raw).at(line, None),
+					Value::Raw { .. } => Read::new(Vec::new(), Status::BadType, raw).at(line, None),
+					Value::Cell(_) | Value::Array(_) => {
+						let els = match value {
+							Value::Array(els) => els.as_slice(),
+							Value::Cell(e) => std::slice::from_ref(e),
+							_ => &[],
+						};
 						let mut out = Vec::with_capacity(els.len());
 						let mut sts = Vec::with_capacity(els.len());
 						for el in els {
-							match coerce(el) {
-								Some(v) => {
-									out.push(v);
-									sts.push(Status::Good);
-								}
-								None => {
-									out.push(T::default());
-									sts.push(Status::BadType);
-								}
-							}
+							let (v, st) = coerced(&coerce, el);
+							out.push(v);
+							sts.push(st);
 						}
 						let status = sts.iter().copied().max().unwrap_or(Status::Good);
-						Read::with_slots(out, status, raw, sts).at(line, false)
+						// A one-element value has a single scalar element, so
+						// the flag means the same thing here as on the scalar
+						// read of the same node. `[]` is an empty array, which
+						// is Good, where an empty value is Empty.
+						let only = if let [el] = els { Some(el) } else { None };
+						Read::with_slots(out, status, raw, sts).at(line, only)
 					}
 				}
 			}
@@ -4374,7 +14682,7 @@ impl Document {
 
 	/// Full-tier string-array read at a path, escapes applied per element.
 	pub fn read_string_array(&self, path: &str) -> Read<Vec<String>> {
-		self.read_array(path, |e| Some(apply_escapes(&e.text)))
+		self.read_array(path, |e| Some(e.text.clone()))
 	}
 
 	// Full tier, Result form: Ok(value) on Good; the sentinel otherwise. Empty
@@ -4430,9 +14738,48 @@ impl Document {
 		}
 	}
 
+	/// `read_raw_info` reduced to a `Result`.
+	pub fn get_raw_info(&self, path: &str) -> Result<String, Status> {
+		let r = self.read_raw_info(path);
+		if r.status == Status::Good {
+			Ok(r.value)
+		} else {
+			Err(r.status)
+		}
+	}
+
 	/// `read_datetime` reduced to a `Result`.
 	pub fn get_datetime(&self, path: &str) -> Result<ShclDateTime, Status> {
 		let r = self.read_datetime(path);
+		if r.status == Status::Good {
+			Ok(r.value)
+		} else {
+			Err(r.status)
+		}
+	}
+
+	/// `read_duration` reduced to a `Result`.
+	pub fn get_duration(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+	) -> Result<std::time::Duration, Status> {
+		let r = self.read_duration(path, unit);
+		if r.status == Status::Good {
+			Ok(r.value)
+		} else {
+			Err(r.status)
+		}
+	}
+
+	/// `read_size` reduced to a `Result`.
+	pub fn get_size(
+		&self,
+		path: &str,
+		unit: Option<SizeUnit>,
+		decimal: bool,
+	) -> Result<i64, Status> {
+		let r = self.read_size(path, unit, decimal);
 		if r.status == Status::Good {
 			Ok(r.value)
 		} else {
@@ -4498,7 +14845,7 @@ impl Document {
 	// Good. `get_int(p).unwrap_or(0)` says the same thing and still works; these
 	// exist so the spelling that means "with a fallback" is `_or` in every
 	// binding, and a routine ported between two of them cannot keep the call
-	// name while changing which tier it lands on.
+	// name while changing which tier it uses.
 
 	/// The integer at a path, or `def` when the read is not Good.
 	pub fn get_int_or(&self, path: &str, def: i64) -> i64 {
@@ -4525,9 +14872,29 @@ impl Document {
 		self.get_raw(path).unwrap_or(def)
 	}
 
+	/// The raw block's info-string at a path, or `def` when the read is not Good.
+	pub fn get_raw_info_or(&self, path: &str, def: String) -> String {
+		self.get_raw_info(path).unwrap_or(def)
+	}
+
 	/// The datetime at a path, or `def` when the read is not Good.
 	pub fn get_datetime_or(&self, path: &str, def: ShclDateTime) -> ShclDateTime {
 		self.get_datetime(path).unwrap_or(def)
+	}
+
+	/// The duration at a path, or `def` when the read is not Good.
+	pub fn get_duration_or(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+		def: std::time::Duration,
+	) -> std::time::Duration {
+		self.get_duration(path, unit).unwrap_or(def)
+	}
+
+	/// The size at a path, or `def` when the read is not Good.
+	pub fn get_size_or(&self, path: &str, unit: Option<SizeUnit>, decimal: bool, def: i64) -> i64 {
+		self.get_size(path, unit, decimal).unwrap_or(def)
 	}
 
 	/// The integer array at a path, or `def` when the read is not Good.
@@ -4567,13 +14934,15 @@ impl Document {
 // the unknown-field sweep skips only when a fault cost a path spelling. One
 // line-number space per result.
 
-const SCHEMA_TYPES: [&str; 11] = [
+const SCHEMA_TYPES: [&str; 13] = [
 	"int",
 	"float",
 	"bool",
 	"string",
 	"datetime",
 	"raw",
+	"duration",
+	"size",
 	"int-array",
 	"float-array",
 	"bool-array",
@@ -4603,7 +14972,15 @@ struct Constraint {
 	max_i: Option<i64>,
 	min_f: Option<f64>,
 	max_f: Option<f64>,
+	// duration and size: the unit a bare number takes when the field name
+	// gives none, base 10 for KB to TB, and the bounds as the schema wrote
+	// them, since min_i and max_i hold them in milliseconds or bytes.
+	unit_d: Option<DurationUnit>,
+	unit_s: Option<SizeUnit>,
+	decimal: bool,
+	bound_text: (Option<String>, Option<String>),
 	repeat: Option<(u64, u64)>,
+	reopen: bool,             // H002 suppressor only; validation ignores it
 	inherits: Option<String>, // fragment mounted at this path (subtree shape)
 	inherits_line: usize,     // schema line of the `inherits` key, for V095
 	// Generator-only (`shcl init`): validation ignores both.
@@ -4623,8 +15000,16 @@ struct SchemaDef {
 	paths_complete: bool,
 }
 
-fn vdiag(out: &mut Vec<Diagnostic>, line: usize, msg: String) {
-	let code = diag_code(&msg);
+/// One slot of an array read: the coerced value, or the type's default with
+/// BadType.
+fn coerced<T: Default>(coerce: &impl Fn(&Element) -> Option<T>, el: &Element) -> (T, Status) {
+	match coerce(el) {
+		Some(v) => (v, Status::Good),
+		None => (T::default(), Status::BadType),
+	}
+}
+
+fn vdiag(out: &mut Vec<Diagnostic>, line: usize, code: &'static str, msg: String) {
 	out.push(Diagnostic {
 		line,
 		severity: Severity::Error,
@@ -4636,8 +15021,17 @@ fn vdiag(out: &mut Vec<Diagnostic>, line: usize, msg: String) {
 /// One scalar constraint value (escapes applied), or None for anything else.
 fn single_text(v: &Value) -> Option<String> {
 	match v {
-		Value::Cell(els) if els.len() == 1 => Some(apply_escapes(&els[0].text)),
+		Value::Cell(e) => Some(e.text.clone()),
 		_ => None,
+	}
+}
+
+/// A schema value's elements: a scalar's one, or an array's.
+fn elements_of(v: &Value) -> &[Element] {
+	match v {
+		Value::Cell(e) => std::slice::from_ref(e),
+		Value::Array(els) => els,
+		Value::Empty | Value::Raw(_) => &[],
 	}
 }
 
@@ -4664,14 +15058,23 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 			"fragment" => {
 				let name = single_text(&node.value).filter(|n| !n.is_empty());
 				let Some(name) = name else {
-					vdiag(&mut faults, node.line, "bad schema fragment".to_string());
+					vdiag(
+						&mut faults,
+						node.line,
+						"V094",
+						"bad schema fragment".to_string(),
+					);
 					continue;
 				};
+				// Two `fragment` blocks of one name never reach here: the parse
+				// merges them into one node and reports H002. Kept as a guard in
+				// case that changes, which is why no case pins it.
 				if frags.contains_key(&name) {
 					vdiag(
 						&mut faults,
 						node.line,
-						format!("bad schema fragment '{}': duplicate", name),
+						"V094",
+						format!("bad schema fragment '{}': duplicate", diag_name(&name)),
 					);
 					continue;
 				}
@@ -4688,7 +15091,12 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 						vdiag(
 							&mut faults,
 							kid.line,
-							format!("bad schema fragment '{}': unknown key '{}'", name, kid.name),
+							"V094",
+							format!(
+								"bad schema fragment '{}': unknown key '{}'",
+								diag_name(&name),
+								diag_name(&kid.name)
+							),
 						);
 					}
 				}
@@ -4698,7 +15106,8 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 				vdiag(
 					&mut faults,
 					node.line,
-					format!("unknown schema key '{}'", other),
+					"V090",
+					format!("unknown schema key '{}'", diag_name(other)),
 				);
 			}
 		}
@@ -4712,7 +15121,8 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 			vdiag(
 				&mut faults,
 				c.inherits_line,
-				format!("unknown schema fragment '{}'", fr),
+				"V095",
+				format!("unknown schema fragment '{}'", diag_name(fr)),
 			);
 			paths_complete = false;
 		}
@@ -4733,17 +15143,28 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 /// None = faults were reported and the constraint is dropped.
 fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Option<Constraint> {
 	let node = &schema.arena[f];
-	let path = match single_text(&node.value) {
-		Some(p) => p,
-		None => {
-			vdiag(faults, node.line, "bad schema path".to_string());
-			return None;
-		}
+	let Some(path) = single_text(&node.value) else {
+		vdiag(faults, node.line, "V093", "bad schema path".to_string());
+		return None;
 	};
 	let segs = match scan_lookup(&path) {
-		Ok(s) if s.value_text.is_none() => s.segments,
+		Ok(s) if s.value.is_none() => s.segments,
+		Err(why) if why == BRACKET_LOOKUP => {
+			vdiag(
+				faults,
+				node.line,
+				"V093",
+				format!("bad schema path: {}; {}", schema_text(&path), why),
+			);
+			return None;
+		}
 		_ => {
-			vdiag(faults, node.line, format!("bad schema path: {}", path));
+			vdiag(
+				faults,
+				node.line,
+				"V093",
+				format!("bad schema path: {}", schema_text(&path)),
+			);
 			return None;
 		}
 	};
@@ -4757,7 +15178,12 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 		max_i: None,
 		min_f: None,
 		max_f: None,
+		unit_d: None,
+		unit_s: None,
+		decimal: false,
+		bound_text: (None, None),
 		repeat: None,
+		reopen: false,
 		inherits: None,
 		inherits_line: 0,
 		desc: None,
@@ -4767,8 +15193,11 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 	let mut required: Option<bool> = None;
 	let mut reopen_seen = false;
 	let mut allowed_at: Option<usize> = None;
+	let mut default_at: Option<usize> = None;
 	let mut min_at: Option<usize> = None;
 	let mut max_at: Option<usize> = None;
+	let mut unit_at: Option<usize> = None;
+	let mut decimal_at_key: Option<usize> = None;
 	for &k in &schema.arena[f].children {
 		let kid = &schema.arena[k];
 		if kid.value.is_empty() {
@@ -4778,15 +15207,30 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 			"type" => match single_text(&kid.value).map(|t| t.to_ascii_lowercase()) {
 				Some(t) if SCHEMA_TYPES.contains(&t.as_str()) => {
 					if c.ty.is_some() {
-						vdiag(faults, kid.line, "bad schema constraint 'type'".to_string());
+						vdiag(
+							faults,
+							kid.line,
+							"V092",
+							"bad schema constraint 'type'".to_string(),
+						);
 					} else {
 						c.ty = Some(t);
 					}
 				}
 				Some(t) => {
-					vdiag(faults, kid.line, format!("unknown schema type '{}'", t));
+					vdiag(
+						faults,
+						kid.line,
+						"V091",
+						format!("unknown schema type '{}'", schema_text(&t)),
+					);
 				}
-				None => vdiag(faults, kid.line, "bad schema constraint 'type'".to_string()),
+				None => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					"bad schema constraint 'type'".to_string(),
+				),
 			},
 			"required" => {
 				let v =
@@ -4796,43 +15240,87 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 					_ => vdiag(
 						faults,
 						kid.line,
+						"V092",
 						"bad schema constraint 'required'".to_string(),
 					),
 				}
 			}
-			// Consumed by the H002 suppressor (which reads the schema document
-			// directly); validation itself ignores it, but a bad value still
-			// faults so a typo cannot silently disavow nothing.
+			// Consumed by the H002 suppressor; validation itself ignores it,
+			// but a bad value still faults so a typo cannot silently disavow
+			// nothing.
 			"reopen" => {
 				let v =
 					single_text(&kid.value).and_then(|t| parse_bool_text(&t, Strictness::Standard));
 				match v {
-					Some(_) if !reopen_seen => reopen_seen = true,
+					Some(b) if !reopen_seen => {
+						reopen_seen = true;
+						c.reopen = b;
+					}
 					_ => vdiag(
 						faults,
 						kid.line,
+						"V092",
 						"bad schema constraint 'reopen'".to_string(),
 					),
 				}
 			}
 			"allowed" => match &kid.value {
 				Value::Cell(_) if allowed_at.is_none() => allowed_at = Some(k),
+				Value::Array(els) if !els.is_empty() && allowed_at.is_none() => {
+					allowed_at = Some(k)
+				}
 				_ => vdiag(
 					faults,
 					kid.line,
+					"V092",
 					"bad schema constraint 'allowed'".to_string(),
 				),
 			},
 			"min" => match &kid.value {
-				Value::Cell(els) if els.len() == 1 && min_at.is_none() => min_at = Some(k),
-				_ => vdiag(faults, kid.line, "bad schema constraint 'min'".to_string()),
+				Value::Cell(_) if min_at.is_none() => min_at = Some(k),
+				_ => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					"bad schema constraint 'min'".to_string(),
+				),
 			},
 			"max" => match &kid.value {
-				Value::Cell(els) if els.len() == 1 && max_at.is_none() => max_at = Some(k),
-				_ => vdiag(faults, kid.line, "bad schema constraint 'max'".to_string()),
+				Value::Cell(_) if max_at.is_none() => max_at = Some(k),
+				_ => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					"bad schema constraint 'max'".to_string(),
+				),
 			},
-			"repeat" => match &kid.value {
-				Value::Cell(els) if c.repeat.is_none() && matches!(els.len(), 1 | 2) => {
+			"unit" => match &kid.value {
+				Value::Cell(_) if unit_at.is_none() => unit_at = Some(k),
+				_ => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					"bad schema constraint 'unit'".to_string(),
+				),
+			},
+			"decimal" => {
+				let v =
+					single_text(&kid.value).and_then(|t| parse_bool_text(&t, Strictness::Standard));
+				match v {
+					Some(b) if decimal_at_key.is_none() => {
+						decimal_at_key = Some(k);
+						c.decimal = b;
+					}
+					_ => vdiag(
+						faults,
+						kid.line,
+						"V092",
+						"bad schema constraint 'decimal'".to_string(),
+					),
+				}
+			}
+			"repeat" => match elements_of(&kid.value) {
+				els if c.repeat.is_none() && matches!(els.len(), 1 | 2) => {
 					let lo = els[0].text.parse::<u64>().ok();
 					let hi = els.last().and_then(|e| e.text.parse::<u64>().ok());
 					match (lo, hi) {
@@ -4840,6 +15328,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 						_ => vdiag(
 							faults,
 							kid.line,
+							"V092",
 							"bad schema constraint 'repeat'".to_string(),
 						),
 					}
@@ -4847,6 +15336,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				_ => vdiag(
 					faults,
 					kid.line,
+					"V092",
 					"bad schema constraint 'repeat'".to_string(),
 				),
 			},
@@ -4858,36 +15348,119 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				_ => vdiag(
 					faults,
 					kid.line,
+					"V092",
 					"bad schema constraint 'inherits'".to_string(),
 				),
 			},
 			// Generator-only (`shcl init`); validation ignores both. First
-			// occurrence wins (a merged schema could carry two).
+			// occurrence wins (a merged schema could have two).
 			"desc" => {
+				// The comment is prose, so an array's elements are all taken,
+				// kept as written.
 				if c.desc.is_none() {
-					c.desc = single_text(&kid.value);
+					c.desc = match &kid.value {
+						Value::Cell(_) | Value::Array(_) => Some(
+							elements_of(&kid.value)
+								.iter()
+								.map(|e| e.text.clone())
+								.collect::<Vec<_>>()
+								.join(", "),
+						),
+						Value::Empty | Value::Raw(_) => None,
+					};
 				}
 			}
 			"default" => {
 				if c.default_text.is_none() {
 					c.default_text = emit_value_inline(&kid.value);
+					default_at = Some(k);
 				}
 			}
-			other => vdiag(faults, kid.line, format!("unknown schema key '{}'", other)),
+			other => vdiag(
+				faults,
+				kid.line,
+				"V090",
+				format!("unknown schema key '{}'", diag_name(other)),
+			),
 		}
 	}
 	c.required = required.unwrap_or(false);
+	// A raw block has no inline spelling, so a `default` that is one cannot
+	// reach a generated line - it used to be dropped and the field emitted with
+	// no value at all - and a `default` under `type: raw` goes out inline and
+	// then fails its own type check.
+	if let Some(dk) = default_at {
+		let kid = &schema.arena[dk];
+		let raw_default = matches!(kid.value, Value::Raw(_));
+		let raw_typed = c.ty.as_deref().is_some_and(|t| t == "raw");
+		if raw_default || (raw_typed && c.default_text.is_some()) {
+			vdiag(
+				faults,
+				kid.line,
+				"V092",
+				"bad schema constraint 'default'".to_string(),
+			);
+		}
+	}
 	let base =
 		c.ty.as_deref()
 			.map(|t| t.strip_suffix("-array").unwrap_or(t))
 			.unwrap_or("string");
+	// `unit` and `decimal` belong to the types that read a bare number in
+	// one, and a unit has to be one that type takes.
+	if let Some(u) = unit_at {
+		let kid = &schema.arena[u];
+		let text = single_text(&kid.value).unwrap_or_default();
+		match base {
+			"duration" => c.unit_d = DurationUnit::from_spelling(&text),
+			"size" => c.unit_s = SizeUnit::from_spelling(&text),
+			_ => {}
+		}
+		if c.unit_d.is_none() && c.unit_s.is_none() {
+			vdiag(
+				faults,
+				kid.line,
+				"V092",
+				"bad schema constraint 'unit'".to_string(),
+			);
+		}
+	}
+	if let Some(d) = decimal_at_key
+		&& base != "size"
+	{
+		vdiag(
+			faults,
+			schema.arena[d].line,
+			"V092",
+			"bad schema constraint 'decimal'".to_string(),
+		);
+		c.decimal = false;
+	}
+	// A duration or size bound is read the way the document's value is: its
+	// own unit, then the field name's, then the schema's `unit`. A path that
+	// ends in `*` has no one name to give it.
+	let name = c
+		.segs
+		.last()
+		.filter(|seg| !seg.star)
+		.map_or("", |seg| seg.name.as_str());
+	let quantity = |e: &Element| -> Option<i64> {
+		match base {
+			"duration" => {
+				let bare = name_unit(name, &DURATION_NAMES).or(c.unit_d);
+				parse_duration_text(&e.text, bare).map(|(v, _)| v)
+			}
+			"size" => {
+				let bare = name_unit(name, &SIZE_NAMES).or(c.unit_s);
+				parse_size_text(&e.text, bare, c.decimal).map(|(v, _)| v)
+			}
+			_ => None,
+		}
+	};
 	if let Some(a) = allowed_at {
 		let kid = &schema.arena[a];
-		// allowed_at is only ever set for a Cell; if that invariant slips,
-		// skip the constraint rather than abort the consumer.
-		let Value::Cell(els) = &kid.value else {
-			return None;
-		};
+		// allowed_at is only ever set for a scalar or an array.
+		let els = elements_of(&kid.value);
 		// Schema values are read at Standard; only the document's values
 		// coerce at the document's strictness.
 		let set = match base {
@@ -4911,9 +15484,11 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				.map(|e| parse_datetime(&e.text))
 				.collect::<Option<Vec<_>>>()
 				.map(AllowedSet::Dates),
-			"raw" => None, // a raw body has no element space to enumerate
+			// A raw body has no element space to enumerate, and a duration
+			// or size is bounded with min and max rather than listed.
+			"raw" | "duration" | "size" => None,
 			_ => Some(AllowedSet::Strings(
-				els.iter().map(|e| apply_escapes(&e.text)).collect(),
+				els.iter().map(|e| e.text.clone()).collect(),
 			)),
 		};
 		match set {
@@ -4921,6 +15496,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 			None => vdiag(
 				faults,
 				kid.line,
+				"V092",
 				"bad schema constraint 'allowed'".to_string(),
 			),
 		}
@@ -4928,38 +15504,87 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 	for (at, is_min) in [(min_at, true), (max_at, false)] {
 		let Some(m) = at else { continue };
 		let kid = &schema.arena[m];
-		// min/max is only ever a one-element Cell; if that invariant slips,
-		// skip the constraint rather than abort the consumer.
-		let el = match &kid.value {
-			Value::Cell(els) if els.len() == 1 => &els[0],
-			_ => continue,
+		// min/max is only ever a scalar; if that invariant slips, skip the
+		// constraint rather than abort the consumer.
+		let Value::Cell(el) = &kid.value else {
+			continue;
 		};
 		let key = if is_min { "min" } else { "max" };
 		match base {
 			"int" => match parse_int_text(el, Strictness::Standard) {
 				Some(v) if is_min => c.min_i = Some(v),
 				Some(v) => c.max_i = Some(v),
-				None => vdiag(faults, kid.line, format!("bad schema constraint '{}'", key)),
+				None => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					format!("bad schema constraint '{}'", key),
+				),
 			},
 			"float" => match parse_float_text(el, Strictness::Standard) {
 				Some(v) if is_min => c.min_f = Some(v),
 				Some(v) => c.max_f = Some(v),
-				None => vdiag(faults, kid.line, format!("bad schema constraint '{}'", key)),
+				None => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					format!("bad schema constraint '{}'", key),
+				),
 			},
-			_ => vdiag(faults, kid.line, format!("bad schema constraint '{}'", key)),
+			"duration" | "size" => match quantity(el) {
+				Some(v) if is_min => {
+					c.min_i = Some(v);
+					c.bound_text.0 = Some(el.text.clone());
+				}
+				Some(v) => {
+					c.max_i = Some(v);
+					c.bound_text.1 = Some(el.text.clone());
+				}
+				None => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					format!("bad schema constraint '{}'", key),
+				),
+			},
+			_ => vdiag(
+				faults,
+				kid.line,
+				"V092",
+				format!("bad schema constraint '{}'", key),
+			),
 		}
+	}
+	// A lower bound above the upper one admits nothing, so every value fails
+	// twice and the schema, not the config, is what has to change. Reported at
+	// the `max` line, which is the one a reader has to look at with `min`.
+	let crossed = matches!((c.min_i, c.max_i), (Some(lo), Some(hi)) if lo > hi)
+		|| matches!((c.min_f, c.max_f), (Some(lo), Some(hi)) if lo > hi);
+	if crossed {
+		vdiag(
+			faults,
+			max_at.map_or(schema.arena[f].line, |m| schema.arena[m].line),
+			"V092",
+			"bad schema constraint 'max'".to_string(),
+		);
+		// The range goes, not the field: a key-level fault keeps its entry, so
+		// the path still legalizes its name chain for the unknown-field sweep,
+		// and the document is not told off twice per value for a range it
+		// could never have satisfied.
+		c.min_i = None;
+		c.max_i = None;
+		c.min_f = None;
+		c.max_f = None;
+		c.bound_text = (None, None);
 	}
 	Some(c)
 }
 
 /// A schema `default`/`allowed` value re-emitted as an inline value (minimal
-/// quoting, array elements joined by ", "). None for empty or raw - neither has
-/// a usable one-line form. Used by the generator, not the validator.
+/// quoting, an array in brackets). None for empty or raw - neither has a
+/// usable one-line form. Used by the generator, not the validator.
 fn emit_value_inline(v: &Value) -> Option<String> {
-	match v {
-		Value::Cell(els) => Some(els.iter().map(emit_element).collect::<Vec<_>>().join(", ")),
-		_ => None,
-	}
+	emit_value_text(v)
 }
 
 // ---------------------------------------------------------------------------
@@ -4975,7 +15600,7 @@ fn allowed_join(a: &AllowedSet) -> String {
 			.join(", "),
 		AllowedSet::Floats(v) => v
 			.iter()
-			.map(|x| x.to_string())
+			.map(|x| format_float(*x))
 			.collect::<Vec<_>>()
 			.join(", "),
 		AllowedSet::Bools(v) => v
@@ -4995,8 +15620,27 @@ fn allowed_join(a: &AllowedSet) -> String {
 /// The `# type, ...` annotation line summarizing a constraint, ASCII only.
 fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 	let mut parts: Vec<String> = vec![tyname.to_string()];
+	if let Some(u) = c.unit_d {
+		parts[0] = format!("{} in {}", tyname, u.spelling());
+	} else if let Some(u) = c.unit_s {
+		parts[0] = format!("{} in {}", tyname, u.spelling());
+	}
+	if c.decimal {
+		parts.push("KB to TB in powers of 1000".to_string());
+	}
 	if let Some(a) = &c.allowed {
 		parts.push(format!("one of: {}", allowed_join(a)));
+	}
+	// The bounds are their own part of the annotation line, not an alternative
+	// to `allowed`. A field can have both, and the validator enforces both.
+	// A duration or size bound reads the way the schema wrote it.
+	if c.bound_text.0.is_some() || c.bound_text.1.is_some() {
+		parts.push(match &c.bound_text {
+			(Some(lo), Some(hi)) => format!("{}-{}", lo, hi),
+			(Some(lo), None) => format!(">= {}", lo),
+			(None, Some(hi)) => format!("<= {}", hi),
+			(None, None) => String::new(), // guarded above; keep the map total
+		});
 	} else if c.min_i.is_some() || c.max_i.is_some() {
 		parts.push(match (c.min_i, c.max_i) {
 			(Some(lo), Some(hi)) => format!("{}-{}", lo, hi),
@@ -5006,9 +15650,9 @@ fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 		});
 	} else if c.min_f.is_some() || c.max_f.is_some() {
 		parts.push(match (c.min_f, c.max_f) {
-			(Some(lo), Some(hi)) => format!("{}-{}", lo, hi),
-			(Some(lo), None) => format!(">= {}", lo),
-			(None, Some(hi)) => format!("<= {}", hi),
+			(Some(lo), Some(hi)) => format!("{}-{}", format_float(lo), format_float(hi)),
+			(Some(lo), None) => format!(">= {}", format_float(lo)),
+			(None, Some(hi)) => format!("<= {}", format_float(hi)),
 			(None, None) => String::new(), // guarded above; keep the map total
 		});
 	}
@@ -5025,40 +15669,55 @@ fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 	parts.join(", ")
 }
 
-/// A default carrying a literal newline cannot sit on a value line; the quoted
+/// A default with a literal newline cannot sit on a value line; the quoted
 /// escaped spelling reads back to the same string.
 fn gen_default_text(v: &str) -> String {
 	if !v.contains('\n') {
 		return v.to_string();
 	}
-	let mut s = String::from("\"");
-	for ch in v.chars() {
-		match ch {
-			'\\' => s.push_str("\\\\"),
-			'"' => s.push_str("\\\""),
-			'\n' => s.push_str("\\n"),
-			'\t' => s.push_str("\\t"),
-			c => s.push(c),
-		}
-	}
-	s.push('"');
-	s
+	quote_text(v)
+}
+
+/// Whether a V007 from the self-check is the sanctioned kind: its message
+/// ends `: N not in LO..HI`, and LO is 2 or more.
+fn v007_sanctioned(message: &str) -> bool {
+	message
+		.rsplit(" not in ")
+		.next()
+		.and_then(|range| range.split("..").next())
+		.and_then(|lo| lo.parse::<u64>().ok())
+		.is_some_and(|lo| lo >= 2)
 }
 
 /// Emit a commented, typed starter config from a schema (`shcl init --schema`).
 /// Paths that must exist (required, or a repeat lower bound of 1+) are live
 /// (their `default`, or an empty value); optional paths are commented out so
-/// the file is valid and minimal as-is. A must-exist wildcard path whose
+/// the file is valid and minimal as-is. Prose the generator writes is `##`
+/// and a commented-out setting is `# `, so the two read apart; both are
+/// ordinary comments to the language, and nothing reads them back. A must-exist wildcard path whose
 /// parent gets materialized by another live line is generated too, in dotted
 /// form - otherwise the file would fail the very schema that produced it -
-/// and remaining wildcard or `[#N]` paths (which cannot be materialized) are
-/// listed in a trailing comment block. The output always loads clean and
+/// and remaining wildcard or index paths (which cannot be materialized) are
+/// listed in a trailing comment block. A path whose last segment selects by
+/// value is written without that selector when it has a `default`, since a
+/// value after the selector would be ignored: `env(prod)` with `default: prod`
+/// is `env: prod`. The output always loads clean and
 /// validates clean against its schema, except a repeat lower bound of 2+
 /// (identical generated lines would merge, so the shortfall is reported).
+/// The promise is checked against the finished text, both its load and its
+/// validation, so a line that does not load, or a schema whose own `default`
+/// breaks its field's constraints, is a fault (`V097`) instead of a starter
+/// config that fails the first time it is checked.
 /// A footer naming the format and pointing at the spec is written last unless
 /// `no_banner`; the flag is negative so leaving it alone writes the footer.
-/// Err = schema faults (V09x), same as `validate`/`check --schema`.
+/// Err = schema faults (V09x), same as `validate`/`check --schema`; a schema
+/// with a load error of its own is a lone V099, as `init` refuses it.
 pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagnostic>> {
+	// A starter config from what survived a broken load would leave out the
+	// fields on the broken lines with no word about them.
+	if let Some(fault) = schema_load_fault(schema) {
+		return Err(vec![fault]);
+	}
 	// Generation lays the whole schema out, so unlike validation it has no
 	// safe partial mode: any fault fails it.
 	let (def, faults) = build_schema(schema);
@@ -5066,7 +15725,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 		return Err(faults);
 	}
 	let (cons, cuts) = expand_mounts(&def);
-	if cons.len() >= GEN_MAX_FIELDS {
+	if cons.len() > GEN_MAX_FIELDS {
 		return Err(vec![Diagnostic {
 			line: 0,
 			severity: Severity::Error,
@@ -5083,24 +15742,30 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 			.iter()
 			.any(|s| matches!(s.selector, Some(Selector::Wildcard)))
 	};
-	// `[#N]` needs a pre-existing instance and its `#` would start a comment
-	// on a binding line; a path with a literal newline cannot be written at
-	// all. Both go to the trailing note instead of emitting a broken line.
-	// A path deeper than a document may nest cannot be generated either: the
-	// line would draw E016 on the way back in.
-	let unwritable = |c: &Constraint| {
-		c.segs.len() > MAX_DEPTH
-			|| c.segs
-				.iter()
-				.any(|s| matches!(s.selector, Some(Selector::ByIndex(_))) || s.star)
-			|| c.path.contains('\n')
+	// An index selector needs a pre-existing instance, which a starter config
+	// has none of. A path deeper than a document may nest cannot be generated
+	// either: the line would draw E016 on the way back in. A newline in a name
+	// or a by-value selector is writable, since both are written escaped.
+	// The reason doubles as the predicate, so the refusal below can never name a
+	// path for a reason generation did not act on.
+	let why_unwritable = |c: &Constraint| -> &'static str {
+		if c.segs.len() > MAX_DEPTH {
+			return "nests past the depth cap";
+		}
+		for s in &c.segs {
+			if matches!(s.selector, Some(Selector::ByIndex(_))) {
+				return "an index selector needs an instance that does not exist yet";
+			}
+			if s.star {
+				return "a * name segment has no name to write";
+			}
+		}
+		""
 	};
+	let unwritable = |c: &Constraint| !why_unwritable(c).is_empty();
 	// Live concrete paths materialize instances; decide which must-exist
 	// wildcards get filled (their first-wildcard parent chain is a prefix of
 	// some live path). Fixpoint: a fill can materialize another's parent.
-	fn names_of(segs: &[Segment]) -> Vec<&str> {
-		segs.iter().map(|s| s.name.as_str()).collect()
-	}
 	let mut live: Vec<Vec<&str>> = cons
 		.iter()
 		.filter(|c| !has_wild(c) && !unwritable(c) && must_exist(c))
@@ -5121,9 +15786,13 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 				continue;
 			};
 			let parent = names_of(&c.segs[..k + 1]);
-			if live
-				.iter()
-				.any(|p| p.len() >= parent.len() && p[..parent.len()] == parent[..])
+			// A wildcard in the last segment needs no other line to
+			// materialize its parent: the line generated from it is that
+			// instance.
+			if k + 1 == c.segs.len()
+				|| live
+					.iter()
+					.any(|p| p.len() >= parent.len() && p[..parent.len()] == parent[..])
 			{
 				fill[i] = true;
 				live.push(names_of(&c.segs));
@@ -5134,63 +15803,332 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 			break;
 		}
 	}
-	let mut out = String::new();
+	// A live line with a value materializes an instance with that value,
+	// and a dotted child names the empty-valued instance instead - so `srv:
+	// web` followed by `srv.port:` is two `srv` nodes, and the child never
+	// ends up where the schema looks. Any line under such a parent selects it
+	// by its value: `srv(web).port:`.
+	// A filled wildcard emits a valued line of its own, so it belongs here too.
+	// First wins, as the line it selects does: of two lines on one path the
+	// first spelling is the one written, and its value is the instance.
+	let mut parent_values: HashMap<Vec<&str>, &str> = HashMap::new();
+	for (i, c) in cons.iter().enumerate() {
+		if (!has_wild(c) || fill[i])
+			&& !unwritable(c)
+			&& must_exist(c)
+			&& let Some(d) = c.default_text.as_deref()
+		{
+			parent_values.entry(names_of(&c.segs)).or_insert(d);
+		}
+	}
+	// A commented line under a commented valued parent has the same problem
+	// once both are uncommented, so it selects the parent's default too. A
+	// live line keeps the dotted form under a commented parent: selecting by
+	// value would make the optional parent exist.
+	let mut commented_values = parent_values.clone();
+	for c in &cons {
+		if !has_wild(c)
+			&& !unwritable(c)
+			&& !must_exist(c)
+			&& let Some(d) = c.default_text.as_deref()
+		{
+			commented_values.entry(names_of(&c.segs)).or_insert(d);
+		}
+	}
+	// A path that cannot be written at all belongs in the trailing note, but one
+	// that must exist can never be satisfied from there: the self-check would
+	// then report the document as missing a path, which points at the config
+	// rather than at the schema line that cannot be generated.
+	// A repeat lower bound of 2 or more is the one documented shortfall - the
+	// line is emitted once and the count reported - so it is not this fault.
+	// Every such path is named, not just the first: fixing one only to be
+	// refused over the next tells nobody how much is wrong.
+	let cannot_satisfy =
+		|c: &Constraint| c.required || matches!(c.repeat, Some((lo, _)) if lo == 1);
+	let blocked: Vec<Diagnostic> = cons
+		.iter()
+		.filter(|c| cannot_satisfy(c) && unwritable(c) && !has_wild(c))
+		.map(|c| Diagnostic {
+			line: 0,
+			severity: Severity::Error,
+			code: "V097",
+			message: format!(
+				"required path cannot be generated: {} ({})",
+				schema_text(&c.path),
+				why_unwritable(c)
+			),
+		})
+		.collect();
+	if !blocked.is_empty() {
+		return Err(blocked);
+	}
 	let mut wild: Vec<(String, String)> = Vec::new();
-	let mut first = true;
+	// Dropping a trailing `(*)` can render the same line a concrete sibling
+	// already wrote; the first spelling wins. A line from a dropped `(value)`
+	// selector is its own instance, so two of them with different values are
+	// both written: `env(prod)` and `env(dev)` are two `env` lines. Each path
+	// maps to None once a plain line wrote it, or to the values written so far.
+	let mut emitted: HashMap<String, Option<HashSet<String>>> = HashMap::new();
+	// A child whose valued parent has no selector spelling cannot be written.
+	let mut unspellable: Vec<Diagnostic> = Vec::new();
+	// One block per generated line - its desc, annotation and binding - with
+	// the path's names, so the blocks can be laid out in tree order below.
+	let mut blocks: Vec<(Vec<String>, String)> = Vec::new();
+	// An optional field's line goes out commented, with the constraint it came
+	// from, since the self-check below cannot see a comment.
+	let mut commented: Vec<(usize, String)> = Vec::new();
 	for (i, c) in cons.iter().enumerate() {
 		let tyname = c.ty.clone().unwrap_or_else(|| "any".to_string());
 		if unwritable(c) || (has_wild(c) && !fill[i]) {
-			wild.push((c.path.replace('\n', "\\n"), tyname));
+			wild.push((schema_text(&c.path), tyname));
 			continue;
 		}
-		if !first {
-			out.push('\n');
+		// A filled wildcard emits in dotted form, targeting the materialized
+		// instance - by its value when the materializing line has one.
+		// Rebuilt from the parsed segments, not by cutting text out of the
+		// path: the same path can be written several ways, and only the
+		// segments say what it means. Otherwise the schema's own spelling.
+		let values = if must_exist(c) {
+			&parent_values
+		} else {
+			&commented_values
+		};
+		let under_valued_parent = (1..c.segs.len()).any(|k| {
+			c.segs[k - 1].selector.is_none() && values.contains_key(&names_of(&c.segs[..k]))
+		});
+		// A name with a newline has no verbatim spelling on a binding line;
+		// the segment renderer escapes it, so such a path goes through there
+		// whether or not it was filled.
+		// A value after a last-segment selector is ignored, so a default there
+		// goes on the bare path: the line materializes the instance, and
+		// validation below decides whether the default names the one selected.
+		let selects_by_value = c.default_text.is_some()
+			&& matches!(
+				c.segs.last().and_then(|s| s.selector.as_ref()),
+				Some(Selector::ByValue { .. })
+			);
+		// The schema's own spelling is kept when a file line reads it back as
+		// the same path. A selector body holding a `#` is fine in a lookup and
+		// opens a comment on a file line, so that one goes through the renderer.
+		let path = if selects_by_value {
+			let mut segs = c.segs.clone();
+			if let Some(last) = segs.last_mut() {
+				last.selector = None;
+			}
+			gen_path_text(&segs, values)
+		} else if fill[i] || under_valued_parent || !path_reads_back(&c.path, &c.segs) {
+			gen_path_text(&c.segs, values)
+		} else {
+			Some(c.path.clone())
+		};
+		let Some(path) = path else {
+			unspellable.push(Diagnostic {
+				line: 0,
+				severity: Severity::Error,
+				code: "V097",
+				message: format!(
+					"required path cannot be generated: {} (its parent's value has no selector spelling)",
+					schema_text(&c.path)
+				),
+			});
+			continue;
+		};
+		let dup = match (emitted.get_mut(&path), selects_by_value) {
+			(None, _) => {
+				let first = selects_by_value
+					.then(|| HashSet::from([c.default_text.clone().unwrap_or_default()]));
+				emitted.insert(path.clone(), first);
+				false
+			}
+			(Some(Some(vals)), true) => !vals.insert(c.default_text.clone().unwrap_or_default()),
+			(Some(_), _) => true,
+		};
+		if dup {
+			continue;
 		}
-		first = false;
+		let mut block = String::new();
 		if let Some(d) = &c.desc {
 			for line in d.split('\n') {
-				out.push_str("# ");
-				out.push_str(line);
-				out.push('\n');
+				block.push_str(if line.is_empty() { "##" } else { "## " });
+				block.push_str(line);
+				block.push('\n');
 			}
 		}
-		out.push_str("# ");
+		block.push_str("## ");
 		// The annotation is a comment: a newline smuggled in via an allowed
 		// string value must not break out of it.
-		out.push_str(&gen_annotation(c, &tyname).replace('\n', "\\n"));
-		out.push('\n');
-		// A filled wildcard emits in dotted form, targeting the first (the
-		// materialized) instance. Rebuilt from the parsed segments, not by
-		// cutting text out of the path: the same path can be written several
-		// ways, and only the segments say what it means.
-		let path = if fill[i] {
-			gen_path_text(&c.segs)
-		} else {
-			c.path.clone()
-		};
-		let prefix = if must_exist(c) { "" } else { "#" };
+		block.push_str(&schema_text(&gen_annotation(c, &tyname)));
+		block.push('\n');
+		let prefix = if must_exist(c) { "" } else { "# " };
 		match &c.default_text {
-			Some(v) => out.push_str(&format!("{}{}: {}\n", prefix, path, gen_default_text(v))),
-			None => out.push_str(&format!("{}{}:\n", prefix, path)),
+			Some(v) => {
+				let line = format!("{}: {}\n", path, gen_default_text(v));
+				block.push_str(prefix);
+				block.push_str(&line);
+				if !must_exist(c) {
+					commented.push((i, line));
+				}
+			}
+			None => {
+				let line = format!("{}:\n", path);
+				block.push_str(prefix);
+				block.push_str(&line);
+				if !must_exist(c) {
+					commented.push((i, line));
+				}
+			}
 		}
+		let names: Vec<String> = names_of(&c.segs).iter().map(|s| s.to_string()).collect();
+		blocks.push((names, block));
+	}
+	// Tree order, first appearance first. A schema may list `a.host.srv`
+	// before `a`, and emitted as listed with another field between them,
+	// `a: x` re-opens `a` and the load hints it (H002) - in the one file meant
+	// to show the format at its cleanest. Every prefix is ranked by where it
+	// first appears, so a parent's block comes before its children's, siblings
+	// keep schema order, and a schema already in tree order is unchanged.
+	let mut rank: HashMap<&[String], usize> = HashMap::new();
+	for (names, _) in &blocks {
+		for k in 1..=names.len() {
+			let next = rank.len();
+			rank.entry(&names[..k]).or_insert(next);
+		}
+	}
+	// A parent's key is a prefix of its children's, and a shorter key sorts
+	// first; the sort is stable, so two blocks on one path keep their order.
+	let mut order: Vec<usize> = (0..blocks.len()).collect();
+	order.sort_by_cached_key(|&i| {
+		let names = &blocks[i].0;
+		(1..=names.len())
+			.map(|k| rank[&names[..k]])
+			.collect::<Vec<usize>>()
+	});
+	let mut out = String::new();
+	for (n, &i) in order.iter().enumerate() {
+		if n > 0 {
+			out.push('\n');
+		}
+		out.push_str(&blocks[i].1);
 	}
 	// Cycle-cut mounts last: their "type" column names the fragment that
 	// belongs at the path.
 	wild.extend(cuts);
 	if !wild.is_empty() {
-		if !first {
+		if !blocks.is_empty() {
 			out.push('\n');
 		}
-		out.push_str("# Paths needing an instance name (not generated):\n");
+		out.push_str("## Paths needing an instance name (not generated):\n");
 		for (p, t) in &wild {
-			out.push_str(&format!("#   {}   {}\n", p, t));
+			out.push_str(&format!("##   {}   {}\n", p, t));
 		}
+	}
+	if !unspellable.is_empty() {
+		return Err(unspellable);
 	}
 	if !no_banner {
 		if !out.is_empty() {
 			out.push('\n');
 		}
 		out.push_str(GEN_BANNER);
+	}
+	// The output promises to validate clean against the schema that produced
+	// it, so check that here rather than trusting each branch above. A
+	// `default` outside its own field's constraints is the schema's fault, and
+	// the author should hear about it instead of getting a starter config that
+	// fails the first time it is checked. The one sanctioned shortfall is a
+	// V007 for a repeat lower bound of 2+: generating that many identical
+	// lines merges them into one. A lower bound of 1 is a must-exist path
+	// like any other, so its V007 is a fault.
+	// The load comes first, in the order `check --schema` prints: a line that
+	// does not load is refused even when validation happens to pass without it.
+	let gdoc = Document::parse(&out);
+	let mut bad: Vec<Diagnostic> = gdoc
+		.diagnostics()
+		.iter()
+		.filter(|d| d.severity == Severity::Error)
+		.map(|d| Diagnostic {
+			line: 0,
+			severity: Severity::Error,
+			code: "V097",
+			message: format!("generated text does not load: {} {}", d.code, d.message),
+		})
+		.chain(
+			gdoc.validate(schema)
+				.into_iter()
+				.filter(|d| {
+					d.severity == Severity::Error
+						&& !(d.code == "V007" && v007_sanctioned(&d.message))
+				})
+				.map(|d| Diagnostic {
+					line: 0,
+					severity: Severity::Error,
+					code: "V097",
+					message: format!(
+						"generated value fails the schema that produced it: {}",
+						d.message
+					),
+				}),
+		)
+		.collect();
+	// A commented default fails the same check once someone uncomments it. Each
+	// line is read back alone and only its value is checked: uncommenting every
+	// line at once would pair a valued parent with a dotted child, which names
+	// a second instance, and fault a schema whose lines each work. The value is
+	// found through the field's own path, the way validation finds it, so a
+	// default naming another instance than the path selects is caught here
+	// as it is for a required field.
+	for (i, line) in &commented {
+		let one = Document::parse(line);
+		bad.extend(
+			one.diagnostics()
+				.iter()
+				.filter(|d| d.severity == Severity::Error)
+				.map(|d| Diagnostic {
+					line: 0,
+					severity: Severity::Error,
+					code: "V097",
+					message: format!("generated text does not load: {} {}", d.code, d.message),
+				}),
+		);
+		if one.arena[ROOT].children.is_empty() {
+			continue;
+		}
+		let mut ctxs: Vec<(usize, Vec<usize>)> = Vec::new();
+		one.v_contexts(vec![ROOT], &cons[*i].segs, 0, &mut ctxs);
+		let nodes: Vec<usize> = ctxs.into_iter().flat_map(|(_, f)| f).collect();
+		if nodes.is_empty() {
+			bad.push(Diagnostic {
+				line: 0,
+				severity: Severity::Error,
+				code: "V097",
+				message: format!(
+					"generated value fails the schema that produced it: default does not name the instance its path selects: {}",
+					schema_text(&cons[*i].path)
+				),
+			});
+			continue;
+		}
+		let mut found = Vec::new();
+		for n in nodes {
+			one.v_node(&cons[*i], n, &mut found);
+		}
+		bad.extend(
+			found
+				.into_iter()
+				.filter(|d| d.severity == Severity::Error)
+				.map(|d| Diagnostic {
+					line: 0,
+					severity: Severity::Error,
+					code: "V097",
+					message: format!(
+						"generated value fails the schema that produced it: {}",
+						d.message
+					),
+				}),
+		);
+	}
+	if !bad.is_empty() {
+		return Err(bad);
 	}
 	Ok(out)
 }
@@ -5204,21 +16142,57 @@ const GEN_MAX_FIELDS: usize = 10_000;
 /// Footer telling whoever opens the generated file what the format is and
 /// where its spec lives. It is output, so every binding emits these bytes
 /// exactly; the Legal line names SHCL as its subject so it cannot be read as
-/// a claim over the config it sits in.
-const GEN_BANNER: &str = "\
-#
-# This config file format is SHCL.
-# \"Simple Hierarchical Config Language\"
-#    Home     https://github.com/jim-collier/shcl
-#    Syntax   https://github.com/jim-collier/shcl/blob/main/project/spec.md
-#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.
-#
+/// a claim over the config it sits in. Public because a program that creates
+/// a config file of its own writes the same block, and a second copy of a
+/// byte-for-byte contract drifts.
+pub const GEN_BANNER: &str = "\
+##
+## This config file format is SHCL.
+## \"Simple Hierarchical Config Language\"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##
 ";
+
+/// The info block's first two text lines. `set_banner` finds an old block by
+/// the first, which no release has worded differently.
+const BANNER_TITLE: &str = "## This config file format is SHCL.";
+const BANNER_NAME: &str = "## \"Simple Hierarchical Config Language\"";
+
+/// The format major the info block names. Bumped with the format, not with the
+/// crate: a file says which rule set it was written for, and nothing else.
+/// The banner's Syntax link names the tag that opened this major, and moves
+/// with it.
+pub const FORMAT_MAJOR: u32 = 3;
+
+/// The start of the block's version line, up to the number. `migrate` matches
+/// on this and reads the digits after it, so a later major can still tell an
+/// older file from one of its own.
+pub const FORMAT_LINE_HEAD: &str = "##    Format   ";
+
+/// The whole version line, as the block has it. A program writing a config
+/// of its own emits `GEN_BANNER`, which includes this; `migrate` appends this
+/// line on its own to a file it rewrote, since that file has no block to add
+/// it to and inventing one would write bytes the document does not hold.
+pub const FORMAT_LINE: &str = "##    Format   3";
+
+/// The start of a line naming the file's schema, written like the Format line,
+/// for `check` and for editors: `##    Schema   ./app.schema.shcl`.
+pub const SCHEMA_LINE_HEAD: &str = "##    Schema   ";
+
+/// Written under `FORMAT_LINE` on a file `migrate` actually changed. It is a
+/// note for whoever opens the file; nothing reads it back.
+pub const MIGRATED_LINE: &str = "##    Migrated from SHCL 2.x.";
 
 /// Render parsed segments back as a dotted path, dropping wildcard selectors
 /// (a generated line targets the one instance it materializes) and quoting a
 /// name that needs it, so the result is a path the scanner reads back the same.
-fn gen_path_text(segs: &[Segment]) -> String {
+/// A segment whose prefix names a live line with a value selects that
+/// instance by the value, in place of a wildcard or a bare name. None when a
+/// selector has no spelling a file line reads back.
+fn gen_path_text(segs: &[Segment], parent_values: &HashMap<Vec<&str>, &str>) -> Option<String> {
 	let mut out = String::new();
 	for (i, s) in segs.iter().enumerate() {
 		if i > 0 {
@@ -5229,23 +16203,120 @@ fn gen_path_text(segs: &[Segment]) -> String {
 		} else {
 			out.push_str(&emit_name(&s.name));
 		}
+		if i + 1 < segs.len()
+			&& !matches!(s.selector, Some(Selector::ByValue { .. }))
+			&& let Some(v) = parent_values.get(&names_of(&segs[..=i]))
+		{
+			out.push('(');
+			out.push_str(&gen_selector_text(v)?);
+			out.push(')');
+			continue;
+		}
 		match &s.selector {
 			Some(Selector::ByValue { text, quoted }) => {
-				out.push('[');
-				if *quoted {
-					out.push_str(&quote_text(text));
+				// The body as the schema meant it: a quoted one stays quoted,
+				// and a bare one goes bare when a file line reads it back.
+				let quoted_body = quote_text(text);
+				let body = if !*quoted && selector_reads_back(text, text, false) {
+					text.clone()
+				} else if selector_reads_back(&quoted_body, text, true) {
+					quoted_body
 				} else {
-					out.push_str(text);
-				}
-				out.push(']');
+					return None;
+				};
+				out.push('(');
+				out.push_str(&body);
+				out.push(')');
 			}
 			Some(Selector::ByIndex(k)) => {
-				out.push_str(&format!("[#{}]", k));
+				out.push_str(&format!("({})", k));
 			}
 			Some(Selector::Wildcard) | None => {}
 		}
 	}
-	out
+	Some(out)
+}
+
+/// The selector body that picks out the instance a line `name: v` makes, or
+/// None when no body can. It is built from the element the reader takes out
+/// of that line's value, and each candidate is scanned back the way a file
+/// line is scanned, so none of the scanner's rules is copied here to go stale.
+/// That copy was the cause twice: an all-digit body past 64 bits, and a
+/// quoted array element written as the body. The spelling the value was
+/// written in goes first. A selector matches one plain value, never an
+/// array, so an array has no body.
+fn gen_selector_text(v: &str) -> Option<String> {
+	let spelled = gen_default_text(v);
+	let mut tok = Tokens::default();
+	tokenize_value(&spelled, 0, Rules::Current, &mut tok);
+	let [only] = tok.elements.as_slice() else {
+		return None;
+	};
+	if tok.array.is_some() {
+		return None;
+	}
+	let text = piece_text(only, &spelled);
+	let mut tries: Vec<(String, bool)> = Vec::new();
+	if matches!(only.quote, Quote::Single | Quote::Double) {
+		tries.push((spelled[tok.value.0..tok.value.1].to_string(), true));
+	}
+	tries.push((text.clone(), false));
+	tries.push((quote_text(&text), true));
+	tries
+		.into_iter()
+		.find(|(body, quoted)| selector_reads_back(body, &text, *quoted))
+		.map(|(body, _)| body)
+}
+
+/// Whether `body` between parens on a file line reads back as a value
+/// selector for `text`, quoted or bare as asked.
+fn selector_reads_back(body: &str, text: &str, quoted: bool) -> bool {
+	let line = format!("x({}):", body);
+	// The tokenizer reads one line and never sees a line end, so text with a
+	// real line break would read back here and then be written across two lines,
+	// which is not the same path. A file line cannot hold one, so refuse and let
+	// the escaped spelling be tried instead.
+	if line.contains('\n') || line.contains('\r') {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(&line, b':', false, Rules::Current, &mut tok);
+	if tok.comment.is_some() || tok.misspelled.is_some() || path_fault(&tok, &line).is_some() {
+		return false;
+	}
+	path_of(&tok, &line).is_ok_and(|p| {
+		matches!(p.segments.as_slice(), [seg] if seg.selector
+			== Some(Selector::ByValue { text: text.to_string(), quoted }))
+	})
+}
+
+/// Whether a schema path written on a file line reads back as the same
+/// segments. A lookup path takes spellings a file line does not.
+fn path_reads_back(path: &str, segs: &[Segment]) -> bool {
+	let line = format!("{}:", path);
+	// The tokenizer reads one line and never sees a line end, so text with a
+	// real line break would read back here and then be written across two lines,
+	// which is not the same path. A file line cannot hold one, so refuse and let
+	// the escaped spelling be tried instead.
+	if line.contains('\n') || line.contains('\r') {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(&line, b':', false, Rules::Current, &mut tok);
+	if tok.comment.is_some() || tok.misspelled.is_some() || path_fault(&tok, &line).is_some() {
+		return false;
+	}
+	path_of(&tok, &line).is_ok_and(|p| {
+		p.segments.len() == segs.len()
+			&& p.segments
+				.iter()
+				.zip(segs)
+				.all(|(a, b)| a.name == b.name && a.star == b.star && a.selector == b.selector)
+	})
+}
+
+fn names_of(segs: &[Segment]) -> Vec<&str> {
+	segs.iter().map(|s| s.name.as_str()).collect()
 }
 
 /// Inline every fragment mount into a flat constraint list, depth-first in
@@ -5271,7 +16342,7 @@ fn expand_mounts(def: &SchemaDef) -> (Vec<Constraint>, Vec<(String, String)>) {
 			}
 			let path = cc.path.clone();
 			let segs = cc.segs.clone();
-			if out.len() >= GEN_MAX_FIELDS {
+			if out.len() > GEN_MAX_FIELDS {
 				return;
 			}
 			out.push(cc);
@@ -5279,7 +16350,7 @@ fn expand_mounts(def: &SchemaDef) -> (Vec<Constraint>, Vec<(String, String)>) {
 				// A chain long enough to outrun the stack, or a mount that
 				// re-enters, stops here and is noted instead of expanded.
 				if stack.iter().any(|x| x == fr) || stack.len() >= MAX_DEPTH {
-					cuts.push((path.replace('\n', "\\n"), fr.clone()));
+					cuts.push((schema_text(&path), schema_text(fr)));
 				} else if let Some(fcs) = def.frags.get(fr) {
 					stack.push(fr.clone());
 					go(fcs, def, Some((&path, &segs)), stack, out, cuts);
@@ -5295,26 +16366,68 @@ fn expand_mounts(def: &SchemaDef) -> (Vec<Constraint>, Vec<(String, String)>) {
 	(out, cuts)
 }
 
-/// Two-row Levenshtein; powers the "did you mean" prose (never the code).
-fn edit_distance(a: &str, b: &str) -> usize {
+/// Levenshtein distance capped at `cap`, for the "did you mean" prose (never
+/// the code): anything past the cap comes back as `cap + 1`. Only the band
+/// `|i - j| <= cap` of the table is computed, so a pair costs linear time in
+/// the names' length, and a length gap past the cap needs no table at all.
+fn edit_distance(a: &str, b: &str, cap: usize) -> usize {
 	let a: Vec<char> = a.chars().collect();
 	let b: Vec<char> = b.chars().collect();
-	let mut prev: Vec<usize> = (0..=b.len()).collect();
-	let mut cur = vec![0usize; b.len() + 1];
+	let inf = cap + 1;
+	if a.len().abs_diff(b.len()) > cap {
+		return inf;
+	}
+	let mut prev: Vec<usize> = (0..=b.len()).map(|j| j.min(inf)).collect();
+	let mut cur = vec![inf; b.len() + 1];
 	for i in 1..=a.len() {
-		cur[0] = i;
-		for j in 1..=b.len() {
+		cur[0] = i.min(inf);
+		let lo = i.saturating_sub(cap).max(1);
+		let hi = (i + cap).min(b.len());
+		if lo > 1 {
+			cur[lo - 1] = inf;
+		}
+		let mut row_min = cur[0];
+		for j in lo..=hi {
 			let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-			cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+			cur[j] = (prev[j] + 1)
+				.min(cur[j - 1] + 1)
+				.min(prev[j - 1] + cost)
+				.min(inf);
+			row_min = row_min.min(cur[j]);
+		}
+		if hi < b.len() {
+			cur[hi + 1] = inf;
+		}
+		// No cell in a later row can come back under this row's minimum.
+		if row_min > cap {
+			return inf;
 		}
 		std::mem::swap(&mut prev, &mut cur);
 	}
 	prev[b.len()]
 }
 
+/// The lone V099 that every schema entry point gives a schema with load
+/// errors of its own. Validation's own codes are V and are not load errors: a
+/// document that came through `load_and_validate` holds some.
+fn schema_load_fault(schema: &Document) -> Option<Diagnostic> {
+	let broken = schema
+		.diags
+		.iter()
+		.any(|d| d.severity == Severity::Error && !d.code.starts_with('V'));
+	broken.then(|| Diagnostic {
+		line: 0,
+		severity: Severity::Error,
+		code: "V099",
+		message: "schema failed to load".to_string(),
+	})
+}
+
 impl Document {
 	/// Validate this document against a schema document (itself plain SHCL -
 	/// spec.md "Schema validation"). Empty result = the document conforms.
+	/// A schema with a load error of its own gives a lone V099 and checks
+	/// nothing, the same answer as `load_and_validate` and `check --schema`.
 	/// Diagnostic lines are document lines (0 = document scope); schema faults
 	/// (V09x, schema-file lines) come first, and the surviving constraints
 	/// still check the document. The unknown-field sweep runs too, unless a
@@ -5327,10 +16440,20 @@ impl Document {
 	/// `suppress_declared_repeats`/`suppress_declared_reopens` yourself, or use
 	/// `load_and_validate`, which runs both for you.
 	pub fn validate(&self, schema: &Document) -> Vec<Diagnostic> {
+		// A schema that did not load would drop the constraints on its broken
+		// lines, or report every field as unknown - either way blaming the
+		// document for the schema.
+		if let Some(fault) = schema_load_fault(schema) {
+			return vec![fault];
+		}
 		let (def, faults) = build_schema(schema);
 		let mut out = faults;
+		// One mount set for the whole schema: two top-level paths can resolve
+		// to the same node and mount the same fragment there, and the spec
+		// says each fragment runs once per node.
+		let mut mounted = std::collections::HashSet::new();
 		for c in &def.cons {
-			self.v_check(c, &def, &mut out);
+			self.v_check_from(c, &def, ROOT, 0, &mut out, &mut mounted);
 		}
 		if def.paths_complete {
 			self.v_unknown(&def, &mut out);
@@ -5340,7 +16463,7 @@ impl Document {
 
 	// Resolution contexts: the whole document for a plain path; each enclosing
 	// instance for the part of a path after a wildcard. required/repeat evaluate
-	// per context (anchor line 0 = document scope), so `server[*].port` +
+	// per context (anchor line 0 = document scope), so `server(*).port` +
 	// required means a port under EACH server - vacuously true with no servers.
 	fn v_contexts(
 		&self,
@@ -5360,7 +16483,7 @@ impl Document {
 				}
 			}
 			if seg.star {
-				// Name wildcard: same per-instance split as `[*]`, any child name.
+				// Name wildcard: same per-instance split as `(*)`, any child name.
 				let rest = &segs[i + 1..];
 				if rest.is_empty() {
 					out.push((anchor, next));
@@ -5374,13 +16497,13 @@ impl Document {
 			}
 			match &seg.selector {
 				None => cur = next,
-				Some(Selector::ByValue { text, quoted }) => {
-					let want = apply_escapes(text);
+				Some(Selector::ByValue { text, .. }) => {
+					let want = text.as_str();
 					cur = next
 						.into_iter()
 						.filter(|&c| {
-							disp_key(&self.arena[c].value) == want
-								&& (!quoted || single_scalar(&self.arena[c].value))
+							single_scalar(&self.arena[c].value)
+								&& disp_key(&self.arena[c].value) == want
 						})
 						.collect();
 				}
@@ -5407,29 +16530,29 @@ impl Document {
 		out.push((anchor, cur));
 	}
 
-	fn v_check(&self, c: &Constraint, def: &SchemaDef, out: &mut Vec<Diagnostic>) {
-		let mut mounted = std::collections::HashSet::new();
-		self.v_check_from(c, def, ROOT, 0, out, &mut mounted);
-	}
-
 	// A mounted fragment's fields run per resolved node, right after that
 	// node's own checks, in fragment order - depth-first, so diagnostic order
 	// stays derivable. Termination is structural: every mount descends at
 	// least one document level, and the document is finite.
-	fn v_check_from(
+	fn v_check_from<'d>(
 		&self,
-		c: &Constraint,
-		def: &SchemaDef,
+		c: &'d Constraint,
+		def: &'d SchemaDef,
 		start: usize,
 		anchor0: usize,
 		out: &mut Vec<Diagnostic>,
-		mounted: &mut std::collections::HashSet<(String, usize)>,
+		mounted: &mut std::collections::HashSet<(&'d str, usize)>,
 	) {
 		let mut ctxs: Vec<(usize, Vec<usize>)> = Vec::new();
 		self.v_contexts(vec![start], &c.segs, anchor0, &mut ctxs);
 		for (anchor, found) in &ctxs {
 			if c.required && found.is_empty() {
-				vdiag(out, *anchor, format!("required path missing: {}", c.path));
+				vdiag(
+					out,
+					*anchor,
+					"V002",
+					format!("required path missing: {}", schema_text(&c.path)),
+				);
 			}
 			if let Some((lo, hi)) = c.repeat {
 				let n = found.len() as u64;
@@ -5437,9 +16560,13 @@ impl Document {
 					vdiag(
 						out,
 						*anchor,
+						"V007",
 						format!(
 							"instance count out of bounds at '{}': {} not in {}..{}",
-							c.path, n, lo, hi
+							schema_text(&c.path),
+							n,
+							lo,
+							hi
 						),
 					);
 				}
@@ -5454,7 +16581,7 @@ impl Document {
 					// first's work and its diagnostics, and repeating it per
 					// level is what makes a recursive schema cost double per
 					// document level, so each pair is done once.
-					if mounted.insert((fr.clone(), n)) {
+					if mounted.insert((fr.as_str(), n)) {
 						for fc in fcs {
 							self.v_check_from(fc, def, n, self.arena[n].line, out, mounted);
 						}
@@ -5476,9 +16603,10 @@ impl Document {
 			vdiag(
 				out,
 				line,
+				"V003",
 				format!(
 					"wrong type at '{}': value is not a valid {}",
-					c.path,
+					schema_text(&c.path),
 					kind.unwrap_or("string")
 				),
 			);
@@ -5500,123 +16628,271 @@ impl Document {
 					vdiag(
 						out,
 						line,
-						format!("value not allowed at '{}': {}", c.path, content),
+						"V004",
+						format!(
+							"value not allowed at '{}': {}",
+							schema_text(&c.path),
+							one_line(content)
+						),
 					);
 				}
 			}
-			Value::Cell(els) => {
+			Value::Cell(_) | Value::Array(_) => {
+				let els = elements_of(&node.value);
 				if base == "raw" {
 					wrong(out);
 					return;
 				}
+				// A string read of an array is its bracket form, so that is
+				// the text the allowed set sees: `x: 80` and `x: [80]` are two
+				// values.
+				if !is_array && base == "string" && matches!(node.value, Value::Array(_)) {
+					let text = node.value.display();
+					if let Some(AllowedSet::Strings(set)) = &c.allowed
+						&& !set.contains(&text)
+					{
+						// The bracket form, cut short like any list in a message.
+						// The emitter's text is one line already.
+						let shown = format!(
+							"[{}]{}",
+							diag_list(els.iter().map(diag_element), els.len()),
+							diag_more(els.len())
+						);
+						vdiag(
+							out,
+							line,
+							"V004",
+							format!("value not allowed at '{}': {}", schema_text(&c.path), shown),
+						);
+					}
+					return;
+				}
 				// A scalar kind on a multi-element value is the array-where-one-
-				// scalar-expected miss - except string, which reads arrays.
-				if kind.is_some() && !is_array && base != "string" && els.len() > 1 {
+				// scalar-expected miss.
+				if !is_array && els.len() > 1 {
 					wrong(out);
 					return;
 				}
 				match base {
 					"int" => {
-						let mut vals: Vec<i64> = Vec::with_capacity(els.len());
-						for e in els {
-							match parse_int_text(e, self.strictness) {
-								Some(v) => vals.push(v),
-								None => {
-									wrong(out);
-									return;
-								}
-							}
-						}
+						let parsed: Option<Vec<i64>> = els
+							.iter()
+							.map(|e| parse_int_text(e, self.strictness))
+							.collect();
+						let Some(vals) = parsed else {
+							wrong(out);
+							return;
+						};
 						if let Some(AllowedSet::Ints(set)) = &c.allowed
 							&& let Some(i) = vals.iter().position(|v| !set.contains(v))
 						{
 							vdiag(
 								out,
 								line,
-								format!("value not allowed at '{}': {}", c.path, els[i].text),
+								"V004",
+								format!(
+									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
 							);
 						}
 						if let Some(lo) = c.min_i
-							&& vals.iter().any(|v| *v < lo)
+							&& let Some(i) = vals.iter().position(|v| *v < lo)
 						{
-							vdiag(out, line, format!("value below min at '{}'", c.path));
+							vdiag(
+								out,
+								line,
+								"V005",
+								format!(
+									"value below min {} at '{}': {}",
+									lo,
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
 						}
 						if let Some(hi) = c.max_i
-							&& vals.iter().any(|v| *v > hi)
+							&& let Some(i) = vals.iter().position(|v| *v > hi)
 						{
-							vdiag(out, line, format!("value above max at '{}'", c.path));
+							vdiag(
+								out,
+								line,
+								"V006",
+								format!(
+									"value above max {} at '{}': {}",
+									hi,
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
 						}
 					}
 					"float" => {
-						let mut vals: Vec<f64> = Vec::with_capacity(els.len());
-						for e in els {
-							match parse_float_text(e, self.strictness) {
-								Some(v) => vals.push(v),
-								None => {
-									wrong(out);
-									return;
-								}
-							}
-						}
+						let parsed: Option<Vec<f64>> = els
+							.iter()
+							.map(|e| parse_float_text(e, self.strictness))
+							.collect();
+						let Some(vals) = parsed else {
+							wrong(out);
+							return;
+						};
 						if let Some(AllowedSet::Floats(set)) = &c.allowed
 							&& let Some(i) = vals.iter().position(|v| !set.contains(v))
 						{
 							vdiag(
 								out,
 								line,
-								format!("value not allowed at '{}': {}", c.path, els[i].text),
+								"V004",
+								format!(
+									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
 							);
 						}
 						if let Some(lo) = c.min_f
-							&& vals.iter().any(|v| *v < lo)
+							&& let Some(i) = vals.iter().position(|v| *v < lo)
 						{
-							vdiag(out, line, format!("value below min at '{}'", c.path));
+							vdiag(
+								out,
+								line,
+								"V005",
+								format!(
+									"value below min {} at '{}': {}",
+									format_float(lo),
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
 						}
 						if let Some(hi) = c.max_f
-							&& vals.iter().any(|v| *v > hi)
+							&& let Some(i) = vals.iter().position(|v| *v > hi)
 						{
-							vdiag(out, line, format!("value above max at '{}'", c.path));
+							vdiag(
+								out,
+								line,
+								"V006",
+								format!(
+									"value above max {} at '{}': {}",
+									format_float(hi),
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
 						}
 					}
 					"bool" => {
-						let mut vals: Vec<bool> = Vec::with_capacity(els.len());
-						for e in els {
-							match parse_bool_text(&e.text, self.strictness) {
-								Some(v) => vals.push(v),
-								None => {
-									wrong(out);
-									return;
-								}
-							}
-						}
+						let parsed: Option<Vec<bool>> = els
+							.iter()
+							.map(|e| parse_bool_text(&e.text, self.strictness))
+							.collect();
+						let Some(vals) = parsed else {
+							wrong(out);
+							return;
+						};
 						if let Some(AllowedSet::Bools(set)) = &c.allowed
 							&& let Some(i) = vals.iter().position(|v| !set.contains(v))
 						{
 							vdiag(
 								out,
 								line,
-								format!("value not allowed at '{}': {}", c.path, els[i].text),
+								"V004",
+								format!(
+									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
 							);
 						}
 					}
 					"datetime" => {
-						let mut vals: Vec<ShclDateTime> = Vec::with_capacity(els.len());
-						for e in els {
-							match parse_datetime(&e.text) {
-								Some(v) => vals.push(v),
-								None => {
-									wrong(out);
-									return;
-								}
-							}
-						}
+						let parsed: Option<Vec<ShclDateTime>> =
+							els.iter().map(|e| parse_datetime(&e.text)).collect();
+						let Some(vals) = parsed else {
+							wrong(out);
+							return;
+						};
 						if let Some(AllowedSet::Dates(set)) = &c.allowed
+							&& let Some(i) = vals
+								.iter()
+								.position(|v| !set.iter().any(|s| same_moment(s, v)))
+						{
+							vdiag(
+								out,
+								line,
+								"V004",
+								format!(
+									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+					}
+					// A bare number takes its unit from the field name first,
+					// as the read does, then the schema's `unit`.
+					"duration" | "size" => {
+						let name = node.name.as_str();
+						let parsed: Option<Vec<i64>> = els
+							.iter()
+							.map(|e| match base {
+								"duration" => {
+									let bare = name_unit(name, &DURATION_NAMES).or(c.unit_d);
+									parse_duration_text(&e.text, bare).map(|(v, _)| v)
+								}
+								_ => {
+									let bare = name_unit(name, &SIZE_NAMES).or(c.unit_s);
+									parse_size_text(&e.text, bare, c.decimal).map(|(v, _)| v)
+								}
+							})
+							.collect();
+						let Some(vals) = parsed else {
+							wrong(out);
+							return;
+						};
+						if let Some(AllowedSet::Ints(set)) = &c.allowed
 							&& let Some(i) = vals.iter().position(|v| !set.contains(v))
 						{
 							vdiag(
 								out,
 								line,
-								format!("value not allowed at '{}': {}", c.path, els[i].text),
+								"V004",
+								format!(
+									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+						if let (Some(lo), Some(t)) = (c.min_i, &c.bound_text.0)
+							&& let Some(i) = vals.iter().position(|v| *v < lo)
+						{
+							vdiag(
+								out,
+								line,
+								"V005",
+								format!(
+									"value below min {} at '{}': {}",
+									one_line(t),
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+						if let (Some(hi), Some(t)) = (c.max_i, &c.bound_text.1)
+							&& let Some(i) = vals.iter().position(|v| *v > hi)
+						{
+							vdiag(
+								out,
+								line,
+								"V006",
+								format!(
+									"value above max {} at '{}': {}",
+									one_line(t),
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
 							);
 						}
 					}
@@ -5624,15 +16900,17 @@ impl Document {
 					// allowed set can fail, in logical-string space.
 					_ => {
 						if let Some(AllowedSet::Strings(set)) = &c.allowed {
-							let bad = els
-								.iter()
-								.map(|e| apply_escapes(&e.text))
-								.find(|s| !set.contains(s));
+							let bad = els.iter().find(|e| !set.contains(&e.text));
 							if let Some(b) = bad {
 								vdiag(
 									out,
 									line,
-									format!("value not allowed at '{}': {}", c.path, b),
+									"V004",
+									format!(
+										"value not allowed at '{}': {}",
+										schema_text(&c.path),
+										one_line(&b.text)
+									),
 								);
 							}
 						}
@@ -5653,7 +16931,7 @@ impl Document {
 		// Sibling names per parent chain, built once (schema order): v_suggest
 		// used to rebuild every chain per unknown field, which bit hardest on
 		// the wholesale-unmatched documents the feature exists for.
-		let mut siblings: HashMap<String, Vec<String>> = HashMap::new();
+		let mut siblings: HashMap<String, SuggestNames> = HashMap::new();
 		// Paths with a `*` segment can't live in the exact-chain hash; they
 		// match element-wise (a star matches any one name, prefixes included).
 		let mut star_pats: Vec<&[Segment]> = Vec::new();
@@ -5666,14 +16944,29 @@ impl Document {
 				if s.star {
 					break; // no sibling entry for '*'; deeper chains are pattern-only
 				}
-				siblings
-					.entry(chain.clone())
-					.or_default()
-					.push(s.name.clone());
+				siblings.entry(chain.clone()).or_default().push(&s.name);
 				chain_push(&mut chain, &s.name);
 				legal.insert(chain.clone());
 			}
 		}
+		// Both element-wise matchers below used to scan their whole list per
+		// document node, which is quadratic once the schema and the document
+		// grow together. A path can only match a chain whose first part its
+		// own first segment accepts, so one bucket lookup replaces the scan.
+		let star_idx = first_index(star_pats.iter().copied());
+		let set_idx: HashMap<String, FirstIndex> = if has_mounts {
+			// Keyed the way chain_parts_legal's `dead` is: "" for the
+			// top-level list, otherwise the fragment name.
+			std::iter::once((String::new(), first_index(cons.iter().map(|c| &c.segs[..]))))
+				.chain(
+					def.frags
+						.iter()
+						.map(|(k, v)| (k.clone(), first_index(v.iter().map(|c| &c.segs[..])))),
+				)
+				.collect()
+		} else {
+			HashMap::new()
+		};
 		let mut stack: Vec<(usize, String, String)> = self.arena[ROOT]
 			.children
 			.iter()
@@ -5684,17 +16977,23 @@ impl Document {
 			let node = &self.arena[n];
 			let mut chain = pchain.clone();
 			chain_push(&mut chain, &node.name);
+			let seg = diag_name(&node.name);
 			let shown = if pshown.is_empty() {
-				node.name.clone()
+				seg
 			} else {
-				format!("{}.{}", pshown, node.name)
+				format!("{}.{}", pshown, seg)
 			};
 			let known = legal.contains(&chain)
-				|| star_legal(&star_pats, &chain)
-				|| (has_mounts && chain_legal(cons, &def.frags, &chain));
+				|| star_legal(&star_pats, &star_idx, &chain)
+				|| (has_mounts && chain_legal(cons, &def.frags, &set_idx, &chain));
 			if !known {
-				let hint = v_suggest(&siblings, &pchain, &node.name);
-				vdiag(out, node.line, format!("unknown field '{}'{}", shown, hint));
+				let hint = v_suggest(&mut siblings, &pchain, &node.name);
+				vdiag(
+					out,
+					node.line,
+					"V001",
+					format!("unknown field '{}'{}", shown, hint),
+				);
 				continue;
 			}
 			for &k in node.children.iter().rev() {
@@ -5739,12 +17038,13 @@ fn chain_parts(chain: &str) -> Vec<&str> {
 
 /// Element-wise chain match against the star-bearing schema paths: a `*`
 /// segment matches any one name, and every prefix of a path is legal.
-fn star_legal(pats: &[&[Segment]], chain: &str) -> bool {
+fn star_legal(pats: &[&[Segment]], idx: &FirstIndex, chain: &str) -> bool {
 	if pats.is_empty() {
 		return false;
 	}
 	let parts: Vec<&str> = chain_parts(chain);
-	pats.iter().any(|p| {
+	idx.candidates(parts[0]).any(|pi| {
+		let p = pats[pi];
 		p.len() >= parts.len()
 			&& parts
 				.iter()
@@ -5753,52 +17053,767 @@ fn star_legal(pats: &[&[Segment]], chain: &str) -> bool {
 	})
 }
 
+/// Schema paths bucketed by what their first segment accepts. A path can only
+/// match a chain whose first part is that segment's name, or anything at all
+/// when the segment is `*`, so a lookup plus the star bucket is the whole
+/// candidate set. Values are positions in the list the index was built from.
+/// Both callers ask "does any of these match", so bucket order cannot reach
+/// the answer.
+struct FirstIndex {
+	by_name: HashMap<String, Vec<usize>>,
+	stars: Vec<usize>,
+}
+
+impl FirstIndex {
+	fn candidates<'a>(&'a self, part: &str) -> impl Iterator<Item = usize> + 'a {
+		self.by_name
+			.get(part)
+			.into_iter()
+			.flatten()
+			.copied()
+			.chain(self.stars.iter().copied())
+	}
+}
+
+fn first_index<'a>(paths: impl Iterator<Item = &'a [Segment]>) -> FirstIndex {
+	let mut idx = FirstIndex {
+		by_name: HashMap::new(),
+		stars: Vec::new(),
+	};
+	for (i, segs) in paths.enumerate() {
+		// A pathless entry keeps its old place in every candidate set: the
+		// scan it replaces looked at one, and what it then did is unchanged.
+		match segs.first() {
+			Some(s) if !s.star => idx.by_name.entry(s.name.clone()).or_default().push(i),
+			_ => idx.stars.push(i),
+		}
+	}
+	idx
+}
+
 /// Chain legality through fragment mounts: the general matcher - element-wise
 /// like star_legal (stars wild, prefixes legal), and when a mount's whole path
 /// matched with chain left over, the remainder is retried against the mounted
-/// fragment's fields. Terminates: every descent consumes >= 1 part.
-fn chain_legal(cons: &[Constraint], frags: &HashMap<String, Vec<Constraint>>, chain: &str) -> bool {
-	let parts: Vec<&str> = chain_parts(chain);
-	chain_parts_legal(cons, frags, &parts)
-}
-
-fn chain_parts_legal(
+/// fragment's fields. Terminates: every descent consumes >= 1 part. A state
+/// is (fragment, parts consumed), and one that has failed is not walked again:
+/// two mounts of the same fragment at the same depth used to be walked both,
+/// which is 2^depth on a chain that ends unknown.
+fn chain_legal(
 	cons: &[Constraint],
 	frags: &HashMap<String, Vec<Constraint>>,
-	parts: &[&str],
+	set_idx: &HashMap<String, FirstIndex>,
+	chain: &str,
 ) -> bool {
-	for c in cons {
+	let parts: Vec<&str> = chain_parts(chain);
+	let mut dead: std::collections::HashSet<(&str, usize)> = std::collections::HashSet::new();
+	chain_parts_legal(cons, "", frags, set_idx, &parts, 0, &mut dead)
+}
+
+fn chain_parts_legal<'a>(
+	cons: &'a [Constraint],
+	set: &'a str,
+	frags: &'a HashMap<String, Vec<Constraint>>,
+	set_idx: &HashMap<String, FirstIndex>,
+	parts: &[&str],
+	at: usize,
+	dead: &mut std::collections::HashSet<(&'a str, usize)>,
+) -> bool {
+	if dead.contains(&(set, at)) {
+		return false;
+	}
+	let rest = &parts[at..];
+	// The recursion only descends with parts left over, and the sweep never
+	// asks about an empty chain, so `rest` always has a first part to look up.
+	let cand: Vec<usize> = match set_idx.get(set) {
+		Some(idx) => idx.candidates(rest[0]).collect(),
+		None => (0..cons.len()).collect(),
+	};
+	for &ci in &cand {
+		let c = &cons[ci];
 		let n = c.segs.len();
-		let k = parts.len().min(n);
-		if (0..k).all(|i| c.segs[i].star || c.segs[i].name == parts[i]) {
-			if parts.len() <= n {
+		let k = rest.len().min(n);
+		if (0..k).all(|i| c.segs[i].star || c.segs[i].name == rest[i]) {
+			if rest.len() <= n {
 				return true;
 			}
 			if let Some(fr) = &c.inherits
 				&& let Some(fcs) = frags.get(fr)
-				&& chain_parts_legal(fcs, frags, &parts[n..])
+				&& chain_parts_legal(fcs, fr, frags, set_idx, parts, at + n, dead)
 			{
 				return true;
 			}
 		}
 	}
+	dead.insert((set, at));
 	false
 }
 
 /// Closest legal sibling name (same parent chain, schema order, edit distance
 /// <= 2) as "; did you mean 'x'?" - or nothing. Prose only, never contract.
-fn v_suggest(siblings: &HashMap<String, Vec<String>>, parent_chain: &str, name: &str) -> String {
-	let mut best: Option<(usize, &str)> = None;
-	if let Some(names) = siblings.get(parent_chain) {
-		for s in names {
-			let dist = edit_distance(name, s);
-			if dist <= 2 && best.is_none_or(|(bd, _)| dist < bd) {
-				best = Some((dist, s.as_str()));
-			}
+fn v_suggest(
+	siblings: &mut HashMap<String, SuggestNames>,
+	parent_chain: &str,
+	name: &str,
+) -> String {
+	match siblings
+		.get_mut(parent_chain)
+		.and_then(|names| names.closest(name))
+	{
+		Some(n) => format!("; did you mean '{}'?", diag_name(n)),
+		None => String::new(),
+	}
+}
+
+/// The legal names under one parent chain, each once, in schema order. Every
+/// unknown field used to be compared with every sibling, and the list held one
+/// copy per schema field, so a document whose names all miss cost the schema
+/// times the document (20260918b item 10). Past the first few queries on a
+/// chain, each name of up to SUGGEST_INDEXED characters is filed under every
+/// spelling it has with up to two characters deleted. Two names within edit
+/// distance 2 share such a spelling, so a query checks only the names its own
+/// spellings find. A longer name keeps the scan, filtered by length.
+#[derive(Default)]
+struct SuggestNames {
+	names: Vec<String>,
+	seen: HashSet<String>,
+	queries: usize,
+	index: Option<U64Map<Vec<usize>>>,
+	long: Vec<usize>,
+	// The query that last looked at each name, so a name found under several
+	// spellings is measured once.
+	stamp: Vec<usize>,
+}
+
+const SUGGEST_INDEXED: usize = 16;
+/// Queries answered by the scan before a chain gets its index. A few typos in
+/// a large section should not pay for indexing it.
+const SUGGEST_SCANS: usize = 16;
+
+impl SuggestNames {
+	fn push(&mut self, name: &str) {
+		if self.seen.insert(name.to_string()) {
+			self.names.push(name.to_string());
 		}
 	}
-	match best {
-		Some((_, n)) => format!("; did you mean '{}'?", n),
-		None => String::new(),
+
+	fn closest(&mut self, name: &str) -> Option<&str> {
+		self.queries += 1;
+		let mut best: Option<(usize, usize)> = None;
+		let mut consider = |i: usize, names: &[String]| {
+			let dist = edit_distance(name, &names[i], 2);
+			if dist <= 2 && best.is_none_or(|b| (dist, i) < b) {
+				best = Some((dist, i));
+			}
+		};
+		if self.queries <= SUGGEST_SCANS {
+			for i in 0..self.names.len() {
+				consider(i, &self.names);
+			}
+		} else {
+			if self.index.is_none() {
+				let mut index: U64Map<Vec<usize>> = U64Map::default();
+				for (i, n) in self.names.iter().enumerate() {
+					let cs: Vec<char> = n.chars().collect();
+					if cs.len() > SUGGEST_INDEXED {
+						self.long.push(i);
+						continue;
+					}
+					deletion_spellings(&cs, |h| {
+						let list = index.entry(h).or_default();
+						if list.last() != Some(&i) {
+							list.push(i);
+						}
+					});
+				}
+				self.index = Some(index);
+				self.stamp = vec![0; self.names.len()];
+			}
+			let q: Vec<char> = name.chars().collect();
+			let (index, stamp) = (self.index.as_ref()?, &mut self.stamp);
+			if q.len() <= SUGGEST_INDEXED + 2 {
+				deletion_spellings(&q, |h| {
+					for &i in index.get(&h).map_or(&[][..], |v| &v[..]) {
+						if stamp[i] != self.queries {
+							stamp[i] = self.queries;
+							consider(i, &self.names);
+						}
+					}
+				});
+			}
+			for &i in &self.long {
+				if self.names[i].chars().count().abs_diff(q.len()) <= 2 {
+					consider(i, &self.names);
+				}
+			}
+		}
+		best.map(|(_, i)| self.names[i].as_str())
+	}
+}
+
+/// Call `f` with the hash of each spelling of `cs` with none, one or two of
+/// its characters deleted. The same spelling can come up more than once.
+fn deletion_spellings(cs: &[char], mut f: impl FnMut(u64)) {
+	let hash = |skip_a: usize, skip_b: usize| {
+		let mut h = Fnv::new();
+		let mut buf = [0u8; 4];
+		for (k, c) in cs.iter().enumerate() {
+			if k != skip_a && k != skip_b {
+				h.bytes(c.encode_utf8(&mut buf).as_bytes());
+			}
+		}
+		h.0
+	};
+	let none = usize::MAX;
+	f(hash(none, none));
+	for a in 0..cs.len() {
+		f(hash(a, none));
+		for b in a + 1..cs.len() {
+			f(hash(a, b));
+		}
+	}
+}
+
+// The save gate on kept lines, from inside: once the edits that lose one are
+// fixed, no public call reaches the gate, so these take a line out by hand.
+#[cfg(test)]
+mod kept_gate {
+	use super::*;
+
+	// The status line tests/common prints, since that module is out of reach.
+	struct TestId(&'static str);
+
+	fn test_id(id: &'static str) -> TestId {
+		crate::pin_test_clock();
+		TestId(id)
+	}
+
+	impl Drop for TestId {
+		fn drop(&mut self) {
+			use std::io::Write;
+			let status = if std::thread::panicking() {
+				"FAIL"
+			} else {
+				"PASS"
+			};
+			let thread = std::thread::current();
+			let name = thread.name().unwrap_or("?");
+			let _ = writeln!(
+				std::io::stderr().lock(),
+				"{:<4} {} rust {}",
+				status,
+				self.0,
+				name
+			);
+		}
+	}
+
+	const BASE: &str = "x: 1\nr: [1, 2\ny: 3\n";
+
+	#[test]
+	fn a_kept_line_gone_from_the_tree_refuses_the_save() {
+		let _id = test_id("dders");
+		let mut doc = Document::parse_keep_lines(BASE, Strictness::Standard).unwrap();
+		assert_eq!(doc.lost_count(), 0);
+		let y = doc.arena[ROOT]
+			.children
+			.iter()
+			.copied()
+			.find(|&c| doc.arena[c].name == "y")
+			.unwrap();
+		let gone = doc.arena[y].triv_mut().leading.pop().unwrap();
+		assert!(gone.is_kept_line(), "{:?}", gone);
+		assert_eq!(doc.lost_count(), 1);
+		assert!(!doc.to_text_keep_lines().1);
+		let dir = std::env::temp_dir().join(format!("shcl-keptgate-{}", std::process::id()));
+		std::fs::create_dir_all(&dir).unwrap();
+		let path = dir.join("f.shcl");
+		let path = path.to_str().unwrap();
+		std::fs::write(path, BASE).unwrap();
+		let refused = doc.save_file(path).unwrap_err();
+		assert!(matches!(refused, SaveError::Refused { lost: 1, .. }));
+		assert_eq!(
+			refused.to_string(),
+			format!(
+				"{path}: refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)"
+			)
+		);
+		assert!(matches!(
+			doc.save_file_keep_lines(path),
+			Err(SaveError::Refused { lost: 1, .. })
+		));
+		assert_eq!(std::fs::read_to_string(path).unwrap(), BASE);
+		let _ = std::fs::remove_dir_all(&dir);
+	}
+
+	// design.md's table: a remove takes the kept line written as the field's
+	// own line, and nothing beside it.
+	#[test]
+	fn a_remove_takes_the_kept_line_heading_its_field() {
+		let _id = test_id("ddes3");
+		let mut doc = Document::parse("a: [1\n\tb: 2\ny: 3\n");
+		assert_eq!(doc.remove("a"), 1);
+		assert_eq!(doc.lost_count(), 0);
+		assert_eq!(doc.to_canonical(), "y: 3\n");
+	}
+
+	// design.md's table: a remove leaves the kept lines beside its target,
+	// above or below it, with the comments above them (2026100307163901).
+	#[test]
+	fn a_remove_leaves_the_kept_lines_beside_it() {
+		let _id = test_id("ddf8c");
+		for (text, path, want) in [
+			(BASE, "y", "x: 1\nr: [1, 2\n"),
+			("x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"),
+			("j:\n\tr: [1\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"),
+			("j:\n\tq: 1\n\tr: [1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"),
+			(
+				"j:\n\tq: 1\n\tr: [1\n\tw: 3\nz: 2\n",
+				"j.q",
+				"j:\n\tr: [1\n\tw: 3\nz: 2\n",
+			),
+			(
+				"# on r\nr: [1\n# on y\ny: 3\nz: 1\n",
+				"y",
+				"# on r\nr: [1\nz: 1\n",
+			),
+		] {
+			let mut doc = Document::parse(text);
+			assert_eq!(doc.remove(path), 1, "{text:?}");
+			assert_eq!(doc.lost_count(), 0, "{text:?}");
+			let out = doc.to_canonical();
+			assert_eq!(out, want, "{text:?}");
+			assert_eq!(Document::parse(&out).to_canonical(), out, "{text:?}");
+		}
+	}
+
+	// A field opened only by the lines under it goes with the last of them,
+	// and its kept line stays (escblock; 2026100307163907).
+	#[test]
+	fn a_field_opened_by_a_kept_line_goes_with_its_last_line() {
+		let _id = test_id("ddf8d");
+		for (text, path, want) in [
+			("a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"),
+			(
+				"a: [1\n\tb: 2\n\tc: 3\ny: 3\n",
+				"a.b",
+				"a: [1\n\tc: 3\ny: 3\n",
+			),
+			(
+				"a: [1\n\tb: 2\n\tr: [3\ny: 3\n",
+				"a.b",
+				"a: [1\n\tr: [3\ny: 3\n",
+			),
+			(
+				"o: [9\n\ta: [1\n\t\tb: 2\ny: 3\n",
+				"o.a.b",
+				"o: [9\n\ta: [1\ny: 3\n",
+			),
+			("o:\n\ta: [1\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1\n"),
+		] {
+			let mut doc = Document::parse(text);
+			assert_eq!(doc.remove(path), 1, "{text:?}");
+			assert_eq!(doc.lost_count(), 0, "{text:?}");
+			let out = doc.to_canonical();
+			assert_eq!(out, want, "{text:?}");
+			assert_eq!(Document::parse(&out).to_canonical(), out, "{text:?}");
+		}
+	}
+
+	// A setter on a field a kept line opened writes that line as a comment
+	// with a note, so the file has one line for the field (2026100307163907).
+	// The stamp is the real clock's here; the CLI rows pin it.
+	#[test]
+	fn a_setter_comments_out_the_kept_line_heading_its_target() {
+		let _id = test_id("ddgg6");
+		for (text, path, above, line, why, rest) in [
+			(
+				"a: [1\n\tb: 2\ny: 3\n",
+				"a",
+				"",
+				"# a: [1",
+				"E019 malformed array, no closing ']' on the line",
+				"a: 5\n\tb: 2\ny: 3\n",
+			),
+			(
+				"o:\n\ta: \"x◉Q◉\"\n\t\tb: 2\n",
+				"o.a",
+				"o:\n",
+				"\t# a: \"x◉Q◉\"",
+				"E023 unknown escape '◉Q◉'",
+				"\ta: 5\n\t\tb: 2\n",
+			),
+			(
+				"p: host: a.com\n\tq: 1\n",
+				"p",
+				"",
+				"# p: host: a.com",
+				"E025 a colon then a space in a bare value",
+				"p: 5\n\tq: 1\n",
+			),
+			(
+				"r: \"open\n\tq: 1\n",
+				"r",
+				"",
+				"# r: \"open",
+				"E017 unterminated quote in value",
+				"r: 5\n\tq: 1\n",
+			),
+			(
+				"404: x\n\tq: 1\n",
+				"\"404\"",
+				"",
+				"# 404: x",
+				"E014 field name needs quotes",
+				"\"404\": 5\n\tq: 1\n",
+			),
+		] {
+			let mut doc = Document::parse_keep_lines(text, Strictness::Standard)
+				.unwrap_or_else(|e| e.document);
+			assert_eq!(doc.set_int(path, 5), SetStatus::Ok, "{text:?}");
+			assert_eq!(doc.lost_count(), 0, "{text:?}");
+			let out = doc.to_canonical();
+			let (first, after) = out
+				.strip_prefix(above)
+				.and_then(|o| o.split_once('\n'))
+				.unwrap_or_default();
+			let head = format!("{line}  ## commented out by shcl when setting {path}, ");
+			let stamp = first
+				.strip_prefix(&head)
+				.and_then(|s| s.strip_suffix(&format!(": {why}")))
+				.unwrap_or_else(|| panic!("{text:?} wrote {out:?}"));
+			assert!(is_stamp(stamp), "{stamp:?}");
+			assert_eq!(after, rest, "{text:?}");
+			let back = Document::parse(&out);
+			assert!(back.diagnostics().is_empty(), "{out:?}");
+			assert_eq!(back.count(path), 1, "{out:?}");
+			assert_eq!(back.to_canonical(), out);
+			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
+		}
+		// Only the field the kept line opened: a child of it, or a field
+		// beside a kept line, leaves the line as it was.
+		for (path, want) in [
+			("a.c", "a: [1\n\tb: 2\n\tc: 5\n"),
+			("z", "a: [1\n\tb: 2\n\nz: 5\n"),
+		] {
+			let mut doc = Document::parse("a: [1\n\tb: 2\n");
+			assert_eq!(doc.set_int(path, 5), SetStatus::Ok);
+			assert_eq!(doc.to_canonical(), want);
+		}
+	}
+
+	// A setter writing `a` writes every kept line named `a` in that block as
+	// the noted comment, and a field it creates goes right under the first
+	// of them, so a later hand fix never gives Multiple (2026100307163907).
+	#[test]
+	fn a_setter_comments_out_every_kept_line_of_its_name() {
+		let _id = test_id("ddgq1");
+		let note = |path: &str| {
+			format!(
+				"  ## commented out by shcl when setting {path}, STAMP: E019 malformed array, no closing ']' on the line"
+			)
+		};
+		let (na, noa, nac) = (note("a"), note("o.a"), note("a.c"));
+		for (text, path, want, count) in [
+			// No loaded `a`: the new line goes under the first comment.
+			(
+				"a: [1\ny: 3\n",
+				"a",
+				format!("# a: [1{na}\na: 5\ny: 3\n"),
+				1,
+			),
+			(
+				"x: 1\na: [1\ny: 3\na: [2\n",
+				"a",
+				format!("x: 1\n# a: [1{na}\na: 5\ny: 3\n# a: [2{na}\n"),
+				1,
+			),
+			// What was under the line goes under the new one.
+			(
+				"a: [1\n\t# under\n\tb: [2\ny: 3\n",
+				"a",
+				format!("# a: [1{na}\na: 5\n\t# under\n\tb: [2\ny: 3\n"),
+				1,
+			),
+			// At the end of a block.
+			(
+				"o:\n\tx: 1\n\ta: [1\n",
+				"o.a",
+				format!("o:\n\tx: 1\n\t# a: [1{noa}\n\ta: 5\n"),
+				1,
+			),
+			// A field made on the way writes its line too.
+			(
+				"a: [1\ny: 3\n",
+				"a.c",
+				format!("# a: [1{nac}\na:\n\tc: 5\ny: 3\n"),
+				1,
+			),
+			// A loaded `a` changes in place.
+			(
+				"a: 1\nb: [1\na: [2\n",
+				"a",
+				format!("a: 5\nb: [1\n# a: [2{na}\n"),
+				1,
+			),
+			// A kept line with a kept line under it stays as it is, since as
+			// a comment it would leave that line under the field above.
+			// Two valid lines wrote the first one here until a setter on a
+			// repeated path was refused (2026100717500010); the refusal is
+			// checked below.
+			// ("a: 1\na: 2\n", "a", "a: 5\na: 2\n".to_string(), 2),
+			(
+				"a: 1\na: [2\n\tc: [3\n",
+				"a",
+				"a: 5\na: [2\n\tc: [3\n".to_string(),
+				1,
+			),
+		] {
+			let mut doc = Document::parse_keep_lines(text, Strictness::Standard)
+				.unwrap_or_else(|e| e.document);
+			assert_eq!(doc.set_int(path, 5), SetStatus::Ok, "{text:?}");
+			assert_eq!(doc.lost_count(), 0, "{text:?}");
+			let out = doc.to_canonical();
+			assert_eq!(unstamp(&out), want, "{text:?}");
+			let back = Document::parse(&out);
+			assert_eq!(back.count(path), count, "{out:?}");
+			assert_eq!(back.to_canonical(), out);
+			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
+		}
+		// Two valid lines stay as they are: the setter refuses the path.
+		let mut doc = Document::parse_keep_lines("a: 1\na: 2\n", Strictness::Standard)
+			.unwrap_or_else(|e| e.document);
+		assert_ne!(doc.set_int("a", 5), SetStatus::Ok);
+		assert_eq!(doc.to_text_keep_lines(), ("a: 1\na: 2\n".to_string(), true));
+		// set_comment makes the field without touching the line.
+		let mut doc = Document::parse("a: [1\ny: 3\n");
+		assert_eq!(doc.set_comment("a", "n"), SetStatus::Ok);
+		assert_eq!(doc.to_canonical(), "a: [1\ny: 3\n\n# n\na:\n");
+	}
+
+	/// Each note's stamp, checked, as STAMP.
+	fn unstamp(text: &str) -> String {
+		let mut out = String::new();
+		for line in text.split_inclusive('\n') {
+			let Some((head, tail)) = line.split_once("## commented out by shcl when setting ")
+			else {
+				out.push_str(line);
+				continue;
+			};
+			let (path, rest) = tail.split_once(", ").unwrap_or_default();
+			let (stamp, why) = rest.split_once(": ").unwrap_or_default();
+			assert!(is_stamp(stamp), "{line:?}");
+			out.push_str(&format!(
+				"{head}## commented out by shcl when setting {path}, STAMP: {why}"
+			));
+		}
+		out
+	}
+
+	fn is_stamp(s: &str) -> bool {
+		let (when, zone) = s.split_at(s.len().min(19));
+		let digits = when.bytes().enumerate().all(|(k, b)| match k {
+			4 | 7 => b == b'-',
+			10 => b == b' ',
+			13 | 16 => b == b':',
+			_ => b.is_ascii_digit(),
+		});
+		let Some(zone) = zone.strip_prefix(' ') else {
+			return false;
+		};
+		digits
+			&& when.len() == 19
+			&& (zone_label(0, zone) == zone
+				|| zone.len() == 9 && zone.starts_with("UTC") && zone.as_bytes()[6] == b':')
+	}
+
+	// The zone's short name, else its offset; and the test clock's form.
+	#[cfg_attr(miri, ignore = "calls tzset and localtime_r, which Miri can't")]
+	#[test]
+	fn a_note_names_the_zone_or_its_offset() {
+		let _id = test_id("ddgg7");
+		assert_eq!(zone_label(-420, "PDT"), "PDT");
+		assert_eq!(zone_label(-420, ""), "UTC-07:00");
+		assert_eq!(zone_label(240, "+04"), "UTC+04:00");
+		assert_eq!(zone_label(330, "IST"), "IST");
+		assert_eq!(zone_label(-150, "-0230"), "UTC-02:30");
+		assert_eq!(zone_label(0, "Pacific Daylight Time"), "UTC+00:00");
+		assert_eq!(zone_label(0, ""), "UTC+00:00");
+		assert_eq!(
+			test_clock("2026-10-04 00:15:00 -420 PDT"),
+			Some(("2026-10-04 00:15:00".to_string(), -420, "PDT".to_string()))
+		);
+		assert_eq!(
+			test_clock("2026-10-04 00:15:00 60"),
+			Some(("2026-10-04 00:15:00".to_string(), 60, String::new()))
+		);
+		assert_eq!(test_clock("2026-10-04 00:15:00"), None);
+		assert_eq!(test_clock("2026-10-04 00:15:00 x PDT"), None);
+		let (when, offset, name) = local_clock();
+		assert!(
+			is_stamp(&format!("{when} {}", zone_label(offset, &name))),
+			"{when:?} {offset} {name:?}"
+		);
+		assert!(offset.abs() <= 14 * 60, "{offset}");
+	}
+
+	#[test]
+	fn a_merged_layer_owes_its_kept_lines() {
+		let _id = test_id("ddert");
+		let mut doc = Document::parse("a: 1\n");
+		doc.merge(&Document::parse(BASE));
+		assert_eq!(doc.lost_count(), 0);
+		assert!(doc.to_canonical().contains("r: [1, 2\n"));
+		// Owed, not just present: taking it out again is a loss.
+		let y = doc.arena[ROOT]
+			.children
+			.iter()
+			.copied()
+			.find(|&c| doc.arena[c].name == "y")
+			.unwrap();
+		doc.arena[y].triv_mut().leading.pop();
+		assert_eq!(doc.lost_count(), 1);
+	}
+
+	// design.md's table: a settled kept line on a leaf the layer replaces
+	// goes with the leaf's comments, so it is no longer owed.
+	#[test]
+	fn a_replaced_leaf_takes_its_settled_kept_line() {
+		let _id = test_id("ddez2");
+		let mut doc = Document::parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n");
+		assert_eq!(doc.remove("x.c"), 1);
+		assert_eq!(doc.to_canonical(), "x: 0\n# a: 5\nb: 1\n");
+		assert_eq!(doc.lost_count(), 0);
+		doc.merge(&Document::parse("b: 9\n"));
+		assert_eq!(doc.to_canonical(), "x: 0\nb: 9\n");
+		assert_eq!(doc.lost_count(), 0);
+	}
+
+	// design.md's table: the footer dedup skips a layer's kept line the base
+	// already has, so that copy is not owed.
+	#[test]
+	fn a_footer_line_the_base_has_is_not_owed_twice() {
+		let _id = test_id("ddez3");
+		let mut doc = Document::parse("bad name: 1\n");
+		doc.merge(&Document::parse("bad name: 1\n"));
+		assert_eq!(doc.to_canonical(), "bad name: 1\n");
+		assert_eq!(doc.lost_count(), 0);
+	}
+
+	// design.md's table: a replaced leaf takes only its own comments, the
+	// ones a remove would take. A settled line or a comment past a kept line
+	// beside it stays with that line.
+	#[test]
+	fn a_replaced_leaf_leaves_the_lines_beside_it() {
+		let _id = test_id("ddg72");
+		let mut doc = Document::parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n");
+		assert_eq!(
+			doc.to_canonical(),
+			"srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n"
+		);
+		doc.merge(&Document::parse("q: 9\n"));
+		assert_eq!(doc.to_canonical(), "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n");
+		assert_eq!(doc.lost_count(), 0);
+		let mut doc = Document::parse("p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n");
+		doc.merge(&Document::parse("p:\n\tq: 9\n"));
+		assert_eq!(doc.to_canonical(), "p:\n\tb(x): [4\n\t# n\n\tq: 9\n");
+		assert_eq!(doc.lost_count(), 0);
+	}
+}
+
+// The table from an OS error to a write's reason. Most rows can't be made to
+// happen on a test box: a full disk, a read-only mount, a file held open.
+#[cfg(test)]
+mod write_status_map {
+	use super::*;
+
+	struct TestId(&'static str);
+
+	fn test_id(id: &'static str) -> TestId {
+		crate::pin_test_clock();
+		TestId(id)
+	}
+
+	impl Drop for TestId {
+		fn drop(&mut self) {
+			use std::io::Write;
+			let status = if std::thread::panicking() {
+				"FAIL"
+			} else {
+				"PASS"
+			};
+			let thread = std::thread::current();
+			let _ = writeln!(
+				std::io::stderr().lock(),
+				"{:<4} {} rust {}",
+				status,
+				self.0,
+				thread.name().unwrap_or("?")
+			);
+		}
+	}
+
+	#[test]
+	fn os_errors_map_to_one_reason() {
+		let _id = test_id("ddqfs");
+		use std::io::ErrorKind as K;
+		let rows = [
+			(K::NotFound, WriteStatus::NotFound),
+			(K::NotADirectory, WriteStatus::NotFound),
+			(K::PermissionDenied, WriteStatus::PermissionDenied),
+			(K::StorageFull, WriteStatus::DiskFull),
+			(K::QuotaExceeded, WriteStatus::DiskFull),
+			(K::ReadOnlyFilesystem, WriteStatus::ReadOnly),
+			(K::IsADirectory, WriteStatus::IsDirectory),
+			(K::AlreadyExists, WriteStatus::Other),
+			(K::InvalidInput, WriteStatus::Other),
+			(K::Other, WriteStatus::Other),
+		];
+		for (kind, want) in rows {
+			assert_eq!(
+				write_status_of(&std::io::Error::from(kind)),
+				want,
+				"{kind:?}"
+			);
+		}
+		// The numbers POSIX systems share, then the ones they don't.
+		#[cfg(unix)]
+		for (code, want) in [
+			(1, WriteStatus::PermissionDenied),  // EPERM
+			(2, WriteStatus::NotFound),          // ENOENT
+			(5, WriteStatus::Other),             // EIO
+			(13, WriteStatus::PermissionDenied), // EACCES
+			(20, WriteStatus::NotFound),         // ENOTDIR
+			(21, WriteStatus::IsDirectory),      // EISDIR
+			(28, WriteStatus::DiskFull),         // ENOSPC
+			(30, WriteStatus::ReadOnly),         // EROFS
+			(
+				if cfg!(target_os = "linux") { 122 } else { 69 },
+				WriteStatus::DiskFull,
+			), // EDQUOT
+		] {
+			let e = std::io::Error::from_raw_os_error(code);
+			assert_eq!(write_status_of(&e), want, "{code}");
+		}
+		#[cfg(windows)]
+		for (code, want) in [
+			(2, WriteStatus::NotFound),
+			(3, WriteStatus::NotFound),
+			(15, WriteStatus::NotFound),
+			(53, WriteStatus::NotFound),
+			(67, WriteStatus::NotFound),
+			(267, WriteStatus::NotFound),
+			(5, WriteStatus::PermissionDenied),
+			(32, WriteStatus::PermissionDenied),
+			(33, WriteStatus::PermissionDenied),
+			(1224, WriteStatus::PermissionDenied),
+			(39, WriteStatus::DiskFull),
+			(112, WriteStatus::DiskFull),
+			(1295, WriteStatus::DiskFull),
+			(19, WriteStatus::ReadOnly),
+			(1117, WriteStatus::Other), // ERROR_IO_DEVICE
+		] {
+			let e = std::io::Error::from_raw_os_error(code);
+			assert_eq!(write_status_of(&e), want, "{code}");
+		}
 	}
 }

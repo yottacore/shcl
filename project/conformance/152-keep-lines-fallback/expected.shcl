@@ -1,0 +1,7 @@
+db:
+	# A dotted line has no block to add a child to, and a selector names its
+	# instance by value, so these edits write the canonical form.
+	host: localhost
+	port: 5432
+srv: a
+	port: 80

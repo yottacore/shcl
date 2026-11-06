@@ -1,0 +1,9 @@
+# base layer: a raw block, an inline array, a scalar
+script:
+	```sh
+	echo base
+	echo more
+	```
+ports: [80, 443, 8080]
+note: base
+empty:

@@ -1,0 +1,20 @@
+## The build backend check-wheel.bash builds the python artifacts with, pinned
+## to one version. pyproject.toml asks for `setuptools>=77`, which is the
+## contract for whoever builds the sdist; this file is what THIS repo's gate
+## builds with, so the wheel the gate reads was produced by the same backend
+## every time instead of by whatever PyPI served that day.
+##
+## No --hash lines, though a constraints file takes them: a hash anywhere puts
+## pip in --require-hashes mode, and there it refuses any requirement not
+## pinned with `==` - including `setuptools>=77`, which is pyproject.toml's
+## published contract and not this gate's to narrow. pip still checks what it
+## downloads against the index's own digests over TLS, and a PyPI release is
+## immutable, so what is left is the version drift this file closes.
+##
+## Bumping it: change the version here. check-wheel.bash reads the version back
+## out of the built wheel's metadata, so a bump that does not take effect fails
+## the gate rather than passing quietly.
+##
+## Spaces, not tabs, in anything pip parses here: a tab after a line
+## continuation ends up inside the requirement and is a syntax error to it.
+setuptools==78.1.1

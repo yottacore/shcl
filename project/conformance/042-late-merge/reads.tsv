@@ -1,6 +1,6 @@
 query	type	expected	status
 dup	count	1	-
-dup	string	x	Good
+dup	string	[x]	Good
 blk	count	1	-
 blk.kid	count	1	-
 blk.kid	string	same	Good

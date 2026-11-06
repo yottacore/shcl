@@ -1,0 +1,33 @@
+## deployment
+## any, required
+env: prod
+
+## any, required
+"data dir": main
+
+## any, required
+tier: gold
+
+## int, required
+tier(gold).limit: 10
+
+## any, required
+srv: web
+
+## any, required
+srv(web).zone: eu
+
+## any, required
+flag(on):
+
+## any
+# mode: fast
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

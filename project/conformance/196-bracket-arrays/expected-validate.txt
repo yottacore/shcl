@@ -1,0 +1,4 @@
+line 17: Hint: H002
+line 9: Error: V004
+line 16: Error: V004
+failed: 3 diagnostic(s), 2 error(s)

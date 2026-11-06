@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+# Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 
 # shcl CLI - the Python binding's command surface. Flags, output, and exit codes
 # mirror the Rust reference exactly; the cicd cross-binding check compares them
 # byte for byte, so any drift here fails the pipeline.
 
+import errno
+import math
 import os
 import signal
+import stat
 import sys
 
 # The single-file library sits two directories up (lib in source/python/, CLI in
@@ -15,107 +18,300 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 import shcl
 
+class _BestEffort:
+	"""stderr, wrapped so a write that fails is dropped. A stream that cannot
+	be written has nowhere to report that fact, and the document on stdout is
+	still good - where an uncaught OSError would lose that too."""
+
+	def __init__(self, stream):
+		self._stream = stream
+
+	def write(self, text):
+		try:
+			self._stream.write(text)
+		except OSError:
+			# A closed stream drops the text, and the exit code still says how it went.
+			pass
+		return len(text)
+
+	def flush(self):
+		try:
+			self._stream.flush()
+		except OSError:
+			# A closed stream drops the text, and the exit code still says how it went.
+			pass
+
+	def __getattr__(self, name):
+		return getattr(self._stream, name)
+
+
+def write_failed(e):
+	"""A stdout write that failed. A reader that closed early is nothing to
+	report - nobody is there to read it - so that leaves quietly; anything
+	else lost the output, which is the same failure as a file that could not
+	be written. The stream is swapped for a sink so the interpreter's own
+	exit-time flush does not fail again over the top of the exit code."""
+	sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+	if isinstance(e, BrokenPipeError):
+		return 0
+	sys.stderr.write(f"stdout: {e.strerror or e}\n")
+	return 8
+
+
 # Keep in step with source/rust/Cargo.toml, the canonical version source.
-VERSION = "2.0.0"
+VERSION = "3.0.0-beta1"
+
+# The build number, set only for a stamped build. The Rust CLI is the one the
+# pipeline stamps; see its build.rs.
+BUILD = ""
+
+VERSION_LINE = "shcl v" + VERSION + (" build " + BUILD if BUILD else "")
 
 HELP = """shcl - Simple Hierarchical Config Language (reference CLI)
 
 Usage:
   shcl get [type] [options] FILE PATH    read one value (or array) at a path
   shcl set [--write|-w] [options] FILE   apply edits (--set, or ops on stdin);
-                                         print canonical (or rewrite FILE in
-                                         place with --write)
-  shcl fmt [--write|-w] FILE             print (or rewrite in place) the canonical form
+                                         print FILE with the edited lines
+                                         changed (or rewrite FILE in place
+                                         with --write, which creates FILE
+                                         when it is not there yet)
+  shcl fmt [--write|-w] [options] FILE   print the canonical form (or rewrite
+                                         FILE in place with --write)
   shcl check [options] FILE              load and print diagnostics
-                                         (--schema=SCHEMA also validates FILE
-                                         against a schema, itself a .shcl file)
-  shcl init [--no-banner] --schema=S     print a commented starter config from
-                                         a schema (required fields live, optional
-                                         commented, wildcards noted)
+                                         (--schema=SCHEMA, or the file's own
+                                         '##    Schema   PATH' line, also
+                                         validates FILE against a schema)
+  shcl init [--no-banner] --schema=S     print a commented starter config
+                                         from a schema (required fields live,
+                                         optional commented, wildcards noted)
   shcl count [options] FILE PATH         number of instances at a path
   shcl instances [options] FILE PATH     instance values at a path, one per line
-  shcl help | version                    this help, or the version (also -h/--help, -v/-V/--version)
-  shcl about | donate                    what shcl is, or how to support it
-                                         (also --about, --donate)
+  shcl children [options] FILE [PATH]    child field names under a path, one per
+                                         line (the top level when PATH is left
+                                         out)
+  shcl paths [options] FILE              every field path in the document, one
+                                         per line
+  shcl migrate [options] FILE            rewrite a 2.x file for the current
+                                         rules (print it, rewrite FILE with
+                                         --write or -w, keeping a backup of
+                                         the original beside it, or name the
+                                         lines it would change with --check)
+  shcl upgrade [options] FILE            when FILE does not load clean and
+                                         names no format or an older one, or
+                                         with --from-2x reads differently once
+                                         migrated, print it migrated with its
+                                         lines where they were and the info
+                                         block (or back it up and rewrite it
+                                         with --write); anything else is left
+                                         alone
+  shcl tokens FILE                       each line's lexical spans, for seeing
+                                         why the parser read a line as it did
+                                         (every line on its own, raw bodies
+                                         included)
+  shcl explain [CODE]                    what a diagnostic code means (every
+                                         code, one line each, when CODE is
+                                         left out)
+  shcl help [CMD]                        this help (or one subcommand's, with
+                                         CMD); also -h or --help, which after
+                                         CMD give that one's
+  shcl --version                         the version (also -v or -V)
+  shcl --about | --donate                what shcl is, or how to support it
 
-set edits FILE, the base document. Values go in as repeatable --set PATH=VALUE
-(data) or --set-literal PATH=TEXT (value syntax, so arrays work) options, which
-persist with --write; given either, no ops are read from stdin. Raw blocks,
-set-only-if-absent and removal go in as a write-ops script on stdin, one op per
-line, tab-separated. FILE '-' follows stdin: the document when an option holds
-the edits, an empty base when the ops script has stdin instead. With --write,
-a FILE that does not exist yet is created. Ops:
+set edits FILE, the base document. Edits go in as the repeatable --set,
+--set-literal, --set-default, --set-literal-default and --remove options, which
+persist with --write; given any of them, no ops are read from stdin. Raw blocks
+go in only as a write-ops script on stdin, which can make the other edits too,
+one op per line, tab-separated. FILE '-' follows stdin: the document when an
+option holds the edits, an empty base when the ops script has stdin instead.
+With --write, a FILE that does not exist yet is created. Lines the edits leave
+alone come back as they were written; with --layer, or where the edited text
+would not load back the same, the whole document comes out canonical, the way
+fmt writes it, and without --layer a note on stderr says so. A result that
+would delete lines or values from the file is refused at exit 7, printed or
+written (--lossy overrides). PATH ends at the first '=' outside quotes and
+parens, so a selector may hold one. Ops:
   int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar
   <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array
-  <type>[-array]-default<TAB>...                          set only if absent
+  <type>[-array]-default<TAB>...                          set if not that type
   literal[-default]<TAB>PATH<TAB>TEXT                     set from value syntax
-  raw<TAB>PATH<TAB>INFO<TAB>CONTENT                       set a raw block
+  raw[-default]<TAB>PATH<TAB>INFO<TAB>CONTENT             set a raw block
   empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH
-string/raw values decode \\n \\t \\\\; a line starting with # is a script comment.
+  clear-comments<TAB>PATH                                 drop comments above
+  banner<TAB>on|off                                       add or drop info block
+String, comment and raw CONTENT values read escapes as a file does: NEWLINE or
+TAB between two U+25C9 marks. A raw op's INFO is taken as written, since a
+fence label has no escapes. A backslash is text, and a line starting with # is
+a script comment, indented or not.
 
 Types (get only; default --string):
-  --int --float --bool --datetime --string --raw --rawinfo
+  --int --float --bool --datetime --string --raw --rawinfo --duration --size
   --array                                read the value as an array of the type
   --rawinfo reads a raw block's info-string (the fence tag), not its content
+  --duration prints milliseconds and --size bytes; a bare number takes its
+  unit from the field name (timeout-ms, cache_mb), else from --unit
 
 Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) value to print when the read is
                                          not Good (implies --on-bad=default; for
                                          arrays, substituted per bad slot)
-  --on-bad=error|default|flag            (get) error: fail loudly; default: print
-                                         the default; flag: print the value anyway
-                                         and report via exit code (the default)
+  --on-bad=error|default|flag            (get) error: fail loudly; default:
+                                         print the default; flag: print the
+                                         value, or the type's zero (0, false,
+                                         empty) when the read is not Good, and
+                                         report via exit code (the default)
   --slots                                (get) prefix each line with its slot
                                          status and a tab (per element, or per
                                          wildcard slot)
-  --no-banner                            (init) leave out the footer naming the
-                                         format and pointing at its spec
-  --lossy                                (fmt/set) with --write, rewrite even
-                                         when the load dropped lines this write
-                                         would delete; without it the write
-                                         refuses and nothing is changed
-  --strictness=loose|standard|strict     (all but init) or 1|2|3 (default
+  --json                                 (get/instances/children/paths) print
+                                         one JSON object per line, with the
+                                         field's path, value and line; the
+                                         full help has the details
+  --paths                                (instances) print the path that reads
+                                         each instance, such as shard(0), in
+                                         place of its value
+  --unit=UNIT                            (get) the unit a bare number is in,
+                                         for --duration (ms s m h d) or --size
+                                         (B kB KB MB GB TB KiB MiB GiB TiB),
+                                         when the field name gives none
+  --decimal                              (get) --size reads KB to TB as powers
+                                         of 1000, not 1024
+  --no-banner                            (init, and set --write when it creates
+                                         FILE) leave out the info block naming
+                                         the format and pointing at its spec
+  --write                                (fmt/set/migrate/upgrade) rewrite
+                                         FILE in place, written -w too,
+                                         through a temp file and a rename;
+                                         refused with a FILE of '-'
+  --lossy                                (fmt/set/migrate) go ahead even when
+                                         the result would delete lines or
+                                         values from the file. Without it the
+                                         write refuses at exit 7 and changes
+                                         nothing; set and migrate without
+                                         --write exit 7 too, and set prints
+                                         nothing. fmt takes it with --write
+                                         only
+  --from-2x                              (migrate/upgrade) the file was
+                                         written for 2.x, so rewrite the
+                                         spellings the two rule sets read
+                                         differently; without it those are
+                                         left alone and the command exits 7;
+                                         upgrade with it writes nothing and
+                                         exits 7 when the fresh file would
+                                         still have an error, naming the
+                                         lines. On a file not written for
+                                         2.x it can change good lines; with
+                                         --write the backup keeps the
+                                         original
+  --check                                (fmt/migrate) print nothing and exit 6
+                                         when fmt would change the file or
+                                         migrate would rewrite a line (named on
+                                         stderr), or 7 when --write would
+                                         refuse it
+  --strictness=loose|standard|strict     (get/set/fmt/check/count/instances/
+                                         children/paths) or 1|2|3 (default
                                          standard)
   --schema=SCHEMA                        (check/init) validate FILE against a
-                                         schema; adds V### diagnostics
-  --layer=FILE                           (get/fmt/count/instances/set) merge a
-                                         lower-priority layer under FILE;
-                                         repeatable, earlier = lower priority
-  --set=PATH=VALUE                       override one path as the top layer,
-                                         after all files; repeatable. On 'set'
-                                         it is an edit to the document itself,
-                                         so it persists with --write. VALUE
-                                         goes in as data: its type still
+                                         schema; adds V### diagnostics. check
+                                         without it uses FILE's Schema line
+  --layer=FILE                           (get/set/fmt/count/instances/children/
+                                         paths) merge a lower-priority layer
+                                         under FILE; repeatable, earlier =
+                                         lower priority
+  --set=PATH=VALUE                       (get/set/fmt/count/instances/children/
+                                         paths) edit one path, after all files;
+                                         repeatable. A path matching several
+                                         fields is refused; name(0) picks one.
+                                         On 'set' it is an edit to the document
+                                         itself, so it persists with --write.
+                                         VALUE goes in as data: its type still
                                          follows the text (8 is an int), but a
                                          comma or quote in it is content, not
                                          syntax
-  --set-literal=PATH=TEXT                as --set, except TEXT goes in as value
-                                         syntax the way a file spells it, so
-                                         'ports=80, 443' writes a two-element
-                                         array. An unquoted # ends the value;
-                                         text spanning lines is rejected
+  --set-literal=PATH=TEXT                (same subcommands) as --set, except
+                                         TEXT goes in as value
+                                         syntax the way a file writes it, so
+                                         'ports=[80, 443]' writes a two-element
+                                         array, 'title="My App"' a string and
+                                         'color=`#FF8800`' a backtick value. A
+                                         # outside quotes ends the value; text
+                                         spanning lines is rejected
+  --set-default=PATH=VALUE               (same) as --set, but only where the
+  --set-literal-default=PATH=TEXT        path is missing or has an empty
+                                         value - the write-out-defaults half
+                                         of the writer
+  --remove=PATH                          (same) delete every field the path
+                                         reaches, with its subtree: each
+                                         instance of a repeated name, each
+                                         wildcard match. Removing nothing is
+                                         not an error, but a PATH that cannot
+                                         parse is
+The five above share one ordered list, so two of them touching the same path
+resolve in the order given. Raw blocks still go in through the ops script.
+
+With --json, each line is one JSON object, keys in this order: "path", the
+path that reads that one field, with (N) on a name its parent repeats; "name",
+on children only; "value", always a string: on get the value read, or the
+--default in its place, and elsewhere the field's value (an array in brackets,
+a raw block's content, empty when it has none); "line", its line in the file
+it came from (0 for one an edit made); and "status", on get --slots only.
+paths --json lists every field, repeats included. A wildcard slot that reached
+nothing has an empty path and line 0.
 
 Value options accept either spelling: --default=VALUE or --default VALUE. In
 the space form the next argument is taken as the value whatever it looks like,
 so --default --int reads --int as the default. Use -- to end the options when a
-FILE or PATH begins with a dash.
-An option a subcommand does not use is a usage error, not ignored.
-An in-place write prints the load's diagnostics to stderr, and refuses when the
-load dropped content the rewrite would delete (--lossy overrides).
+FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
+--about and --donate count anywhere an option can go. Several in one run each
+print once, in the order given.
+An option a subcommand does not use is a usage error, not ignored. Also refused:
+--write with --layer; --write with --set outside 'set'; --write with a FILE of
+'-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
+--check with --write, --layer or --set; --paths with --json; --layer=- on
+'set'; --array with --raw, --rawinfo, --duration or --size; --default with
+--on-bad=error or --on-bad=flag; --on-bad=default without --default; --unit
+without --duration or --size; --decimal without --size; '-' named more than
+once across FILE, --layer and --schema; a PATH that cannot parse, --default or
+not. Two options that ask for different answers are a usage error whichever
+order they came in, and both are named: two different type options, or one
+value option given two different values.
+Repeating an option with the same value is allowed, and --layer and --set are
+ordered lists, so they repeat.
+Every subcommand that loads a document prints the load's diagnostics to stderr,
+once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
+in-place write also refuses when the rewrite would delete lines or values
+from the file (--lossy overrides), and set and migrate without --write exit 7
+where it would. fmt --write and set refuse a file that names a newer format
+(H006) the same way, with no override. migrate refuses a file that does not
+say which rules it was written for, when the two readings differ (--from-2x
+says it is 2.x), and reports a 2.x binding it cannot convert. With --write,
+migrate and upgrade keep the original beside FILE as
+NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format
+it was written for, and write nothing at exit 8 when that name is taken.
+An upgrade writes even when the fresh file drops lines or values, since the
+backup keeps them.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
 each --layer is merged under it in order; --set applies last. 'fmt' with
 layers prints the merged canonical document.
 
-Exit codes: 0 good, 1 usage or I/O error, 2 empty, 3 not found, 4 bad type,
-5 multiple instances, 6 check failed or strict load failure.
+Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,
+5 multiple instances, 6 check failed, strict load failed, init's schema has
+faults, or --check found a rewrite to make, 7 a result refused for deleting
+lines or values (--lossy overrides) or for a newer format, migrate left
+something behind, or upgrade refused a file that reads two ways or would keep
+an error, 8 a file or stream could not be read or written.
 """
 
 # About and donate are stdout, so they are byte-for-byte contracts across the
 # bindings the same way the help text and the init banner are. The version
-# concatenates from the constant above so it cannot drift from `shcl version`.
-ABOUT = "shcl v" + VERSION + """
-Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞).
-Project: https://github.com/jim-collier/shcl
+# concatenates from the constant above so it cannot drift from `shcl --version`.
+# The second line of --version and --about.
+COPYRIGHT_LINE = "Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]."
+
+# What --version prints, and what --about opens with.
+VERSION_TEXT = VERSION_LINE + "\n" + COPYRIGHT_LINE + "\n"
+
+ABOUT = VERSION_TEXT + """Project: https://github.com/yottacore/shcl
 Licensed under the MIT License. Full text at:
   https://spdx.org/licenses/MIT.html
 No warranty.
@@ -129,9 +325,222 @@ DONATE = """shcl is free software under the MIT License, and stays that way.
 
 If it saves you time and you want to give something back:
   https://github.com/sponsors/jim-collier
+  https://ko-fi.com/jimcollier
 
 A star on the project, a clear bug report, or a mention to someone who needs it
 are worth just as much.
+"""
+
+
+# The diagnostic code table behind `shcl explain`. One entry per code: a
+# `CODE|severity|summary` head line, then its detail indented two spaces.
+# spec.md's diagnostic tables are the long form; this is the same rules cut to
+# what a terminal shows. Like the help text it is byte-for-byte across the
+# bindings, and crosscheck compares every code.
+CODES = """E001|error|field line under a parent holding stacked '- ' list items
+  A parent holds list items or named children, not both. The field line
+  is kept and the items stay.
+E002|error|value after a last-segment selector (a.b(X): v)
+  The selector already says which instance, so the value has nowhere to go
+  and is ignored. Put the value on the line that creates the instance.
+E003|error|selector names an instance that does not exist
+  a(5).b where there is one a. An index selects an existing instance by
+  position and never creates one, so a binding line should select by value
+  instead.
+E004|error|wildcard selector on a binding line
+  Wildcards read every instance, so there is no single one to write to.
+  They are query-only.
+E005|error|unterminated raw block (closing fence never found)
+  The block runs to the end of the file. Close it with a fence at the
+  opening fence's indent.
+E006|error|raw-block fence with no parent field to bind to
+  A raw block is a field's value, so a fence needs a field line above it.
+E007|error|stacked '- ' list item with no parent field
+  A '- value' line is an item of the field above it.
+E008|error|stacked '- ' list item under a parent with field children
+  The parent already holds named children, so the item is kept as
+  written and binds nothing. What is written under it goes with it
+  (E018).
+E009|error|empty stacked '- ' list item
+  A '-' with nothing after it has no value to add.
+E011|error|stacked '- ' item for a field that already has a value
+  The field's value is kept. The item is kept as written and binds
+  nothing. A field is written one way or the other, not both.
+E012|error|indentation matches no open level
+  The line is skipped, and anything written deeper is skipped with it
+  (E018). A save writes them back as they were when the indent holds a
+  space. One indented with tabs alone would bind there, so it is lost.
+  Indent to a column some open parent already uses.
+E013|error|a line starting with '*', the old list item marker
+  A list item is written '- value' now. The line is kept as written and
+  binds nothing, and the other items still load. What is written under it
+  goes with it.
+E014|error|malformed line, or a bare field name that needs quotes
+  A bare name is a letter, then letters, digits, '-' and '_'. One that
+  breaks only that rule, such as 404 or user name, still reads: the line is
+  kept, and the lines under it load under that name. Quote the name to fix
+  it. Any other malformed line is kept as written and the lines under it go
+  with it; the prose names the reason and the byte column. A quote that
+  never closes in a field name arrives here too. A raw block the line opens
+  is kept with it.
+E015|error|missing colon (repaired as an empty value)
+  The name binds with no value rather than the line being dropped.
+E016|error|nesting deeper than the 512-level cap (line skipped)
+  The cap is what makes any loadable document safe to format, merge and
+  copy in every binding.
+E017|error|an open quote or backtick in a value or selector body
+  A piece that starts with a quote must end with the matching one. The line
+  is kept verbatim and binds nothing. In a value, the lines under it still
+  load, under the field with no value. The same typo in a field name is
+  E014.
+E018|error|line written under a line that was skipped
+  It is skipped with it, so a skipped line's block never re-parents one
+  level up. Fix the line above and this one comes back with it.
+E019|error|a bracket array that is not well formed
+  An array is one line, ports: [80, 443], and [] is the empty array. Text
+  after the closing ']', a bare '[' or ']' inside, an empty element, or no
+  closing ']' on the line is malformed. Quote the value if it is text:
+  log: "[INFO] started". A list item that is an array is E019 too, since
+  arrays do not nest. The line is kept verbatim: it binds nothing and
+  nothing counts as lost. The lines under it still load, under the field
+  with no value, so a read on the field is Empty when one of them loads and
+  NotFound when none does.
+E020|error|node cap exceeded (fires only under a caller-supplied cap)
+  The parse stopped there and the unparsed remainder counts as lost, so a
+  later save refuses rather than writing a truncated file.
+E021|error|array longer than the caller-supplied element cap
+  The line is skipped whole rather than truncated to a value the author
+  never wrote. A fence line's info string is split the same way.
+E022|error/hint|the diagnostics list was cut at the caller-supplied cap
+  This entry ends the list and counts what was not listed. An error when
+  any unlisted one was, so a scan for errors still finds one; a hint
+  otherwise.
+E023|error|a bad escape
+  An escape is a name from the escape list between two ◉ marks, such as
+  ◉TAB◉, ◉NEWLINE◉ or ◉U+200B◉, and a real ◉ is written ◉ESCAPE_CHAR◉.
+  Anything else between two marks is an error, and so is a mark with no
+  partner. A backslash is plain text. The line is kept verbatim: it binds
+  nothing and a read on it is NotFound. When only the value is wrong, the
+  lines under it still load, under the field with no value, and a read on the
+  field is Empty once one of them loads. When the name is, a raw block the
+  line opens is kept with it.
+E025|error|a tab, a quote, a bracket or a loose colon in bare text
+  A bare value or list item may hold spaces, kept as typed. A tab or other
+  whitespace, a quote, a bracket, or a colon with a space or the end after
+  it is an error: host: a.com port: 80 is two fields on one line. Put each
+  field on its own line, or quote the value. An apostrophe inside a word,
+  as in O'Brien, is text. An array element or a selector body takes no
+  whitespace or quote, and a selector body no colon, comma or paren either.
+  Whitespace at either end is trimmed first. The line is kept verbatim and
+  binds nothing. In a value, the lines under it still load, under the field
+  with no value.
+E026|error|a bare comma with a space or the end after it
+  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
+  or quote text that has a comma. A comma with text right after it is text,
+  so opts: rw,noatime is one string. The line is kept verbatim and binds
+  nothing. The lines under it still load, under the field with no value. A
+  list item with a bare comma, - a, b, is kept the same way, and the other
+  items still load.
+E027|error|a list item like - name: or - name: value
+  A colon with a space or the end after it is how YAML starts an object in
+  a list, and SHCL writes one as an instance. A colon with text after it is
+  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".
+  The line is kept as written, and the other items still load.
+E028|error|an array on a field with lines under it
+  A field with fields under it takes one plain value or none, so
+  route: [GET, POST] with lines under it is an error. Give the field one
+  value and put the list in a field under it: methods: [GET, POST]. The line
+  is kept verbatim, and the lines under it load under the field with no
+  value.
+E029|error|a selector in brackets, the old spelling
+  Selectors are written in parens: person(Bucky).city, person("New York"),
+  person(0) and person(*). Brackets are only for arrays. The line is kept
+  as written and binds nothing. When it selects by value, the lines under
+  it still load, under the instance it names. On a command line, quote the
+  path, since a bare ( is a syntax error in most shells.
+H001|hint|repeated bare leaf (an array written as repeated lines)
+  Repeated leaves are legal - that is how instances are written - but
+  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
+  which one it read. A schema's repeat bound above 1 disavows it.
+H002|hint|a binding merged with a non-adjacent earlier one
+  Same name and value, so the two combine. Legal, and only the parser can
+  see it happened. The prose names the earlier line, and a schema can
+  disavow it per section with 'reopen: true'.
+H005|hint|a value in another unit than its field name ends in
+  timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
+  wins over the one the name gives a bare number. Legal, and often a slip.
+H006|hint|the file names a newer format than this reader
+  The info block's Format line names a format past the one this shcl reads,
+  so the file may use rules it does not know, and a line can read
+  differently than its author meant. The load goes on as usual, and a save
+  is refused, since it would write each line by these rules. A shcl made
+  for that format reads it as written.
+H007|hint|the file names an older format than this reader
+  The info block's Format line names a format before the one this shcl
+  reads, and some lines read differently now: p: a,b was an array in 2.x
+  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites
+  the file for these rules and keeps the original beside it. A file with
+  nothing else to change gets this format on its Format line.
+H008|hint|a '#' against text opens a comment
+  A '#' outside quotes opens a comment wherever it sits, so
+  url: http://h/#frag reads http://h/, color: #fff reads nothing and
+  lang: c# reads c. Quote the value to keep the '#': color: "#fff". The
+  hint comes when text sits right before the '#' in a bare value, an array
+  element, a selector body or a fence label, or right after it where that
+  piece is empty. A blank before it, as in port: 80  # main, makes a plain
+  comment. A fence label can't hold a '#'.
+V001|error|unknown field
+  No schema path covers it. Only the topmost unknown node is reported; its
+  subtree is skipped. The prose has the did-you-mean suggestion.
+V002|error|required path missing
+  Declared 'required: yes' and nothing in the document resolves it.
+V003|error|wrong type
+  The value does not read as the declared type.
+V004|error|value not in the allowed set
+  The line number is the node, at its first offending element.
+V005|error|below the declared min
+  The prose names the bound and the value that missed it.
+V006|error|above the declared max
+  The prose names the bound and the value that missed it.
+V007|error|instance count out of repeat bounds
+  Too few or too many instances of a field the schema bounds with 'repeat'.
+V090|error|unknown schema key
+  A schema fault: the key is dropped and the rest of the schema still
+  checks the document. The line number is a schema line.
+V091|error|unknown schema type name
+  A schema fault, on a schema line.
+V092|error|bad schema constraint value
+  A schema fault, on a schema line. Also covers min or max without a
+  numeric type, and 'allowed' with 'type: raw'.
+V093|error|bad schema path
+  A schema fault, on a schema line. The path spelling could not be read, so
+  the unknown-field sweep turns off with it.
+V094|error|bad fragment declaration
+  No name, a duplicate, or a non-field key inside. A schema fault, on a
+  schema line.
+V095|error|'inherits' names no declared fragment
+  A schema fault, on a schema line. A mount naming a missing fragment
+  checks nothing at the mount.
+V096|error|schema expands to more fields than generation allows
+  Generation lays every path out flat, so mounts multiply. The line number
+  is 0: this is about the output, not a schema line.
+V097|error|generated output does not load, or fails its own schema
+  init checks its own output before returning it, so a starter config that
+  would fail its first check is a fault instead. A default outside its
+  field's constraints is one cause. A required path nothing can generate is
+  the other, such as one with an index selector, a(0), or a * name. Line 0.
+V099|error|schema failed to load
+  The schema had error diagnostics of its own; they are printed above this
+  with their own line numbers. Line 0.
+"""
+
+# Codes no load reports any more: CODE|severity it had|replacement, with the
+# replacement empty when nothing took its rule. An old log can still name one,
+# so explain says where it went rather than calling it unknown.
+RETIRED = """E010|error|E026
+E024|error|
+H003|hint|
+H004|hint|
 """
 
 
@@ -140,102 +549,338 @@ def status_code(st):
 
 
 class _SetOpt:
-	# One --set/--set-literal override. Both spellings share a list so they apply
-	# in the order given, which is what decides the winner when two target the
-	# same path.
-	__slots__ = ("path", "value", "literal")
+	# One edit from the --set family. All five spellings share a list so they
+	# apply in the order given, which is what decides the winner when two target
+	# the same path.
+	__slots__ = ("path", "value", "kind")
 
-	def __init__(self, path, value, literal):
+	def __init__(self, path, value, kind):
 		self.path = path
 		self.value = value
-		self.literal = literal
+		self.kind = kind
 
 	def apply(self, doc):
-		if self.literal:
+		if self.kind == "--set-literal":
 			return doc.set_literal(self.path, self.value)
+		if self.kind == "--set-default":
+			return doc.set_string_default(self.path, self.value)
+		if self.kind == "--set-literal-default":
+			return doc.set_literal_default(self.path, self.value)
+		if self.kind == "--remove":
+			# Removing nothing is not a failure, the same as the ops script's
+			# `remove`: the point of the option is the path's absence after.
+			doc.remove(self.path)
+			return shcl.SetStatus.Ok
 		return doc.set_string(self.path, self.value)
 
 	def opt(self):
-		return "--set-literal" if self.literal else "--set"
+		return self.kind
 
 
 class _Opts:
-	__slots__ = ("kind", "array", "slots", "default", "on_bad", "strictness", "write", "lossy", "no_banner", "schema", "layers", "sets", "args", "seen")
+	__slots__ = ("kind", "kind_opt", "kind_text", "clash_opt", "clash", "array", "slots", "json", "paths", "default", "on_bad", "on_bad_arg", "on_bad_text", "strictness", "strictness_text", "write", "lossy", "from_2x", "check", "no_banner", "schema", "unit", "decimal", "layers", "sets", "args", "seen", "swallowed")
 
 	def __init__(self):
 		self.kind = "string"     # int|float|bool|datetime|string|raw
+		# Which type option was given, if any. kind cannot answer that, since it
+		# starts at the default type.
+		self.kind_opt = None
+		# As it was typed, for the competing-pair message.
+		self.kind_text = None
+		# The first competing pair the line held. Two options that ask for
+		# different answers are a usage error whichever order they came in, so the
+		# pair is recorded here rather than refused on the spot and the "not valid
+		# for this subcommand" answer still comes first. clash_opt is set when the
+		# pair is one option repeated with a different value, in which case the
+		# two entries are the values; otherwise they are whole option spellings.
+		self.clash_opt = None
+		self.clash = None
 		self.array = False
 		self.slots = False
+		self.json = False
+		self.paths = False
 		self.default = None
 		self.on_bad = "flag"     # error|default|flag
+		# What an explicit --on-bad asked for, whatever the order. --default sets
+		# on_bad too, so without this the two options silently overwrote each
+		# other and which one survived depended on which came last.
+		self.on_bad_arg = None
+		self.on_bad_text = None
 		self.strictness = shcl.Strictness.Standard
+		self.strictness_text = None
 		self.schema = None
+		self.unit = None         # --unit, read against the type at check time
+		self.decimal = False
 		self.write = False
 		self.lossy = False
+		self.from_2x = False
+		self.check = False
 		self.no_banner = False
 		self.layers = []         # lower-priority layers, in listed order
 		self.sets = []           # final override layer: _SetOpt, in the order given
 		self.args = []           # positional: FILE [PATH]
 		self.seen = []           # canonical names of options given, for per-command validation
+		# A value option in space form that took the LAST word on the line. That
+		# word is usually the FILE, and the usage line alone never says so.
+		self.swallowed = None    # (option, value)
+
+
+def _ascii_lower(s):
+	# ASCII-only folding, as the reference's to_ascii_lowercase; str.lower()
+	# folds the whole of Unicode.
+	return "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in s)
+
+
+def _ascii_upper(s):
+	# The other way, as to_ascii_uppercase. str.upper() turns a long s into S,
+	# so a word that is not ASCII could look up or suggest a code.
+	return "".join(chr(ord(c) - 32) if "a" <= c <= "z" else c for c in s)
+
+
+def known_option(name):
+	# A real option by any spelling, -w included. The suggestions draw on
+	# option_names alone, which leaves the short form out.
+	return name == "-w" or name in option_names()
+
+
+def note_clash(o, opt, a, b):
+	# Record the first competing pair. Only the first is kept: the line is already
+	# a usage error, and a second pair would just change which one gets named.
+	if o.clash is None:
+		o.clash_opt = opt
+		o.clash = (a, b)
 
 
 def _set_value_opt(o, name, v):
 	if name == "--default":
+		if o.default is not None and o.default != v:
+			note_clash(o, "--default", o.default, v)
 		o.default = v
 		o.on_bad = "default"
 		o.seen.append("--default")
 	elif name == "--on-bad":
-		if v not in ("error", "default", "flag"):
-			raise ValueError(f"bad --on-bad value: {v}")
-		o.on_bad = v
+		low = _ascii_lower(v)
+		if low not in ("error", "default", "flag"):
+			raise ValueError(f"bad --on-bad value: {v} (see --help)")
+		if o.on_bad_text is not None and o.on_bad_arg != low:
+			note_clash(o, "--on-bad", o.on_bad_text, v)
+		o.on_bad = low
+		o.on_bad_arg = low
+		o.on_bad_text = v
 		o.seen.append("--on-bad")
 	elif name == "--strictness":
 		s = shcl.Strictness.from_arg(v)
 		if s is None:
-			raise ValueError(f"bad --strictness value: {v}")
+			raise ValueError(f"bad --strictness value: {v} (see --help)")
+		if o.strictness_text is not None and o.strictness != s:
+			note_clash(o, "--strictness", o.strictness_text, v)
 		o.strictness = s
+		o.strictness_text = v
 		o.seen.append("--strictness")
 	elif name == "--schema":
+		if o.schema is not None and o.schema != v:
+			note_clash(o, "--schema", o.schema, v)
 		o.schema = v
 		o.seen.append("--schema")
+	elif name == "--unit":
+		if o.unit is not None and o.unit != v:
+			note_clash(o, "--unit", o.unit, v)
+		o.unit = v
+		o.seen.append("--unit")
 	elif name == "--layer":
 		o.layers.append(v)
 		o.seen.append("--layer")
-	elif name in ("--set", "--set-literal"):
-		eq = v.find("=")
-		if eq < 0:
-			raise ValueError(f"bad {name} value (want PATH=VALUE): {v}")
-		o.sets.append(_SetOpt(v[:eq], v[eq + 1:], name == "--set-literal"))
+	elif name == "--remove":
+		if v == "":
+			raise ValueError("bad --remove value (want PATH) (see --help)")
+		if unusable_path(shcl.Document.parse(""), v):
+			raise ValueError(f"bad --remove value ({bad_path(v)}): {v} (see --help)")
+		o.sets.append(_SetOpt(v, "", "--remove"))
+		o.seen.append("--remove")
+	elif name in ("--set", "--set-literal", "--set-default", "--set-literal-default"):
+		ps = split_set(v)
+		if ps is None or ps[0] == "":
+			raise ValueError(f"bad {name} value (want PATH=VALUE, quotes and parens balanced): {v} (see --help)")
+		o.sets.append(_SetOpt(ps[0], ps[1], name))
 		o.seen.append(name)
 
 
+def unusable_path(doc, path):
+	# A path no document can hold, which a remove would take as a miss and
+	# exit 0: one the scanner rejects, or one with a value part. A missing
+	# path or a wildcard is still fine.
+	return doc.check_set_path(path) in (shcl.SetStatus.BadPath, shcl.SetStatus.ValueInPath)
+
+
+def bracket_path(path):
+	# A path with a selector in brackets, the old spelling (E029). A 2.x habit
+	# still types it, so a refusal names it.
+	tok = shcl.Tokens()
+	shcl.tokenize(path, ":", True, shcl.Rules.Current, tok)
+	return tok.bracket_selector is not None
+
+
+BRACKET_PATH = "a selector is written in parens now, name(value)"
+
+
+def bad_path(path):
+	# What a path the scanner refused is called.
+	return BRACKET_PATH if bracket_path(path) else "not a usable path"
+
+
+def refuse_read_path(path):
+	# A read's PATH that cannot parse is a usage error, the same as --remove's.
+	# The library's _or reads give their default for it, so `get --default`
+	# would print the default at exit 0 and a 2.x script would never hear about it.
+	if not unusable_path(shcl.Document.parse(""), path):
+		return False
+	sys.stderr.write(f"bad PATH ({bad_path(path)}): {path} (see --help)\n")
+	return True
+
+
+def split_set(arg):
+	# PATH=VALUE at the first `=` outside quotes and parens, so a selector
+	# holding one (`x(a=b).c=1`) still addresses its instance. The tokenizer
+	# reads the path half with `=` as its separator, so quotes and parens
+	# mean here exactly what they mean in a file; an argument whose path half
+	# is not a path at all has no `=` to split at. The offset is a byte
+	# offset, so the split is made on the bytes.
+	tok = shcl.Tokens()
+	shcl.tokenize(arg, "=", True, shcl.Rules.Current, tok)
+	if tok.sep is None:
+		return None
+	return tok.src[:tok.sep].decode("utf-8"), tok.src[tok.sep + 1:].decode("utf-8")
+
+
 def asked_for(argv):
-	# Did the command line ask for one of the informational outputs? Only tokens
-	# in option position count: a value that happens to read `-h`, and anything
-	# after the file, are data. Scanning the whole line for them let a read of a
-	# missing path answer with the help text and exit 0.
+	# The informational outputs the command line asks for, each once, in the
+	# order first asked. Only tokens in option position count: the value of a
+	# value-taking option and anything after `--` are data (a FILE or PATH
+	# written `-h` needs the `--` anyway, since the option parser would refuse
+	# it). Scanning values too once let a read of a missing path answer with
+	# the help text and exit 0. --about opens with the version line, so it
+	# covers --version.
+	asked = []
 	i = 0
 	while i < len(argv):
 		a = argv[i]
+		want = None
 		if a in ("-h", "--help"):
-			return "help"
-		if a in ("-v", "-V", "--version"):
-			return "version"
-		if a == "--about":
-			return "about"
-		if a == "--donate":
-			return "donate"
-		if a == "--":
-			return None
-		if a in ("--default", "--on-bad", "--strictness", "--schema", "--layer", "--set", "--set-literal"):
+			want = "help"
+		elif a in ("-v", "-V", "--version"):
+			want = "version"
+		elif a == "--about":
+			want = "about"
+		elif a == "--donate":
+			want = "donate"
+		elif a == "--":
+			break
+		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 			i += 1
-		elif a.startswith("-") and len(a) > 1:
-			pass
-		elif i > 0:
-			# The subcommand, then the file: past that everything is a path.
-			return None
+		if want is not None and want not in asked:
+			asked.append(want)
 		i += 1
+	if "about" in asked:
+		asked = [w for w in asked if w != "version"]
+	return asked
+
+
+# The flags that ask for an informational output.
+INFO_FLAGS = ("-h", "--help", "-v", "-V", "--version", "--about", "--donate")
+
+
+# The type options, as one list. kind_from_opt is still the reader; this is for
+# the places that need the spellings themselves - the did-you-mean on a typo,
+# and the per-subcommand help.
+TYPE_OPTS = ("--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo", "--duration", "--size")
+
+
+def kind_from_opt(opt):
+	# The type option's kind, or None when the token is not one.
+	if opt in TYPE_OPTS:
+		return opt[2:]
 	return None
+
+
+def edit_distance(a, b, cap):
+	# Levenshtein distance capped at cap; past it, cap + 1. The validator has one
+	# of these for schema field names, but it is private and the CLI's lists are
+	# a dozen short words, so the CLI computes its own.
+	inf = cap + 1
+	if abs(len(a) - len(b)) > cap:
+		return inf
+	prev = list(range(len(b) + 1))
+	for i in range(1, len(a) + 1):
+		cur = [i] + [0] * len(b)
+		for j in range(1, len(b) + 1):
+			cost = 0 if a[i - 1] == b[j - 1] else 1
+			cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+		prev = cur
+	return min(prev[len(b)], inf)
+
+
+def suggest(cands, word):
+	# "; did you mean 'x'?" for the nearest candidate within two edits, or
+	# nothing. Same wording the validator's unknown-field suggestion uses, and
+	# prose either way - a typo's exit code is 1 whether or not this has an idea.
+	# Every candidate is ASCII, and C counts distance in bytes where the other
+	# three count characters, so a word that is not ASCII gets no suggestion
+	# rather than one the four bindings could disagree on.
+	if not word.isascii():
+		return ""
+	w = _ascii_lower(word)
+	best, best_dist = "", 3
+	for c in cands:
+		d = edit_distance(w, _ascii_lower(c), 2)
+		if d <= 2 and d < best_dist:
+			best, best_dist = c, d
+	return f"; did you mean '{best}'?" if best else ""
+
+
+def help_topic(argv):
+	# The subcommand a help asks about, or None. `shcl help CMD` names it after
+	# the word, which takes one topic at most and the informational flags;
+	# `shcl CMD --help` names it first. A help flag after `help` asks for the
+	# same thing twice, so it is no topic. An empty word is still a topic, as
+	# it is in the reference: `help ''` names no command, which is not the same
+	# as naming none. A usage error comes back as its exit code.
+	if not argv:
+		return None, 0
+	if argv[0] == "help":
+		words = [w for w in argv[1:] if w not in INFO_FLAGS]
+		if len(words) > 1:
+			sys.stderr.write("usage: shcl help [CMD] (see --help)\n")
+			return None, 1
+		topic = words[0] if words else None
+	else:
+		topic = None if argv[0].startswith("-") else argv[0]
+	if topic is None or topic == "help":
+		return None, 0
+	if topic in COMMANDS:
+		return topic, 0
+	sys.stderr.write(f"unknown command: {topic}{suggest(command_names(), topic)} (see --help)\n")
+	return None, 1
+
+
+def command_names():
+	# Every command word, for the same. The informational flags are in the list
+	# too, so a word left over from 2.x, such as `version`, points at its flag.
+	return COMMANDS + ("help", "--version", "--about", "--donate")
+
+
+def option_names():
+	# Every option spelling some subcommand takes. Built from the table
+	# check_opts judges against, so a new option becomes suggestable the moment
+	# it is accepted somewhere. The informational flags are in no subcommand's
+	# table but are options to anyone typing one.
+	v = ["--help", "--version", "--about", "--donate"]
+	for cmd in COMMANDS:
+		for o in allowed_opts(cmd):
+			names = TYPE_OPTS if o == "--<type>" else (o,)
+			for name in names:
+				if name not in v:
+					v.append(name)
+	return v
 
 
 def parse_opts(argv):
@@ -249,29 +894,53 @@ def parse_opts(argv):
 		if a == "--":
 			o.args.extend(argv[i + 1:])
 			return o
-		if a in ("--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo"):
-			o.kind = a[2:]
+		k = kind_from_opt(a)
+		if k is not None:
+			if o.kind_opt is not None and o.kind_opt != k:
+				note_clash(o, None, o.kind_text, a)
+			o.kind = k
+			o.kind_opt = k
+			o.kind_text = a
 			o.seen.append("--<type>")
-		elif a == "--array":
+			i += 1
+			continue
+		if a == "--array":
 			o.array = True
 			o.seen.append("--array")
 		elif a == "--slots":
 			o.slots = True
 			o.seen.append("--slots")
+		elif a == "--json":
+			o.json = True
+			o.seen.append("--json")
+		elif a == "--paths":
+			o.paths = True
+			o.seen.append("--paths")
 		elif a == "--no-banner":
 			o.no_banner = True
 			o.seen.append("--no-banner")
+		elif a == "--decimal":
+			o.decimal = True
+			o.seen.append("--decimal")
 		elif a in ("--write", "-w"):
 			o.write = True
 			o.seen.append("--write")
 		elif a == "--lossy":
 			o.lossy = True
 			o.seen.append("--lossy")
-		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--layer", "--set", "--set-literal"):
+		elif a == "--from-2x":
+			o.from_2x = True
+			o.seen.append("--from-2x")
+		elif a == "--check":
+			o.check = True
+			o.seen.append("--check")
+		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 			i += 1
 			if i >= len(argv):
 				raise ValueError(f"missing value for {a} (try {a}=VALUE)")
 			_set_value_opt(o, a, argv[i])
+			if i + 1 == len(argv):
+				o.swallowed = (a, argv[i])
 		elif a.startswith("--default="):
 			_set_value_opt(o, "--default", a[len("--default="):])
 		elif a.startswith("--on-bad="):
@@ -280,66 +949,216 @@ def parse_opts(argv):
 			_set_value_opt(o, "--strictness", a[len("--strictness="):])
 		elif a.startswith("--schema="):
 			_set_value_opt(o, "--schema", a[len("--schema="):])
+		elif a.startswith("--unit="):
+			_set_value_opt(o, "--unit", a[len("--unit="):])
 		elif a.startswith("--layer="):
 			_set_value_opt(o, "--layer", a[len("--layer="):])
+		elif a.startswith("--set-literal-default="):
+			_set_value_opt(o, "--set-literal-default", a[len("--set-literal-default="):])
 		elif a.startswith("--set-literal="):
 			_set_value_opt(o, "--set-literal", a[len("--set-literal="):])
+		elif a.startswith("--set-default="):
+			_set_value_opt(o, "--set-default", a[len("--set-default="):])
+		elif a.startswith("--remove="):
+			_set_value_opt(o, "--remove", a[len("--remove="):])
 		elif a.startswith("--set="):
 			_set_value_opt(o, "--set", a[len("--set="):])
 		elif a.startswith("-") and len(a) > 1:
-			raise ValueError(f"unknown option: {a}")
+			# The suggestion is against the name half: `--stricness=1` is a typo
+			# in the option, not in a spelling that includes a value.
+			name = a.split("=")[0]
+			# Every value option is matched above, so a real name here is a flag
+			# given a value. Calling it unknown would suggest it back.
+			if known_option(name):
+				raise ValueError(f"option {name} takes no value (see --help)")
+			raise ValueError(f"unknown option: {a}{suggest(option_names(), name)} (see --help)")
 		else:
 			o.args.append(a)
 		i += 1
 	return o
 
 
+# A file or stream that could not be read or written. Its own code since a
+# script's remedy - fix the path, the permissions, the disk - has nothing to do
+# with the remedy for a usage error, which keeps 1.
+EXIT_IO = 8
+
+
+def write_target_ok(file):
+	# A --write FILE is a regular file or nothing yet. Asked before the read,
+	# since reading a FIFO takes what was written to it and the save would then
+	# refuse it anyway, and since a read of windows CON waits on the console
+	# rather than returning. A directory is left to the read, which names it.
+	try:
+		st = os.stat(file)
+	except (OSError, ValueError):
+		# A windows reserved name with no device behind it is not there to
+		# stat, and it still cannot be written. It resolves into the device
+		# namespace from whatever directory it is typed in, which is what the
+		# full path shows.
+		if sys.platform == "win32":
+			try:
+				full = os.path.abspath(file)
+			except (OSError, ValueError):
+				return True
+			# A drive after the prefix is a volume path to a file that is not
+			# there yet, which a create has to be let through (20260926 item 8).
+			drive = len(full) >= 6 and full[4].isascii() and full[4].isalpha() and full[5] == ":"
+			if full.startswith("\\\\.\\") and not drive:
+				sys.stderr.write(f"{file}: not a regular file\n")
+				return False
+		return True
+	if not stat.S_ISREG(st.st_mode) and not stat.S_ISDIR(st.st_mode):
+		sys.stderr.write(f"{file}: not a regular file\n")
+		return False
+	return True
+
+
+def _stdin_unattached(e):
+	# POSIX says EBADF; windows answers invalid handle or invalid function
+	# depending on how the shell closed it.
+	return e.errno in (errno.EBADF, errno.EINVAL) or getattr(e, "winerror", None) in (1, 6)
+
+
 def read_input(file):
 	if file == "-":
-		data = sys.stdin.buffer.read()
+		try:
+			data = sys.stdin.buffer.read()
+		except OSError as e:
+			# A stdin that is not attached at all reads as an empty document.
+			if not _stdin_unattached(e):
+				raise OSError(f"stdin: {e.strerror or e}") from e
+			data = b""
 	else:
-		with open(file, "rb") as f:
-			data = f.read()
+		# The message for reading a directory is the platform's, and windows
+		# puts it four different ways depending on the binding, so all four
+		# print this one instead.
+		if os.path.isdir(file):
+			raise OSError(f"{file}: Is a directory")
+		# FILE: and the system's own message, as the UI guide has it, not
+		# Python's "[Errno 2] ..." form.
+		try:
+			with open(file, "rb") as f:
+				data = f.read()
+		except OSError as e:
+			raise OSError(f"{file}: {e.strerror or e}") from e
 	# The reference reads as UTF-8 and fails on bad bytes; match its exit path.
+	# It names stdin as stdin, as a read error there does.
 	try:
 		return data.decode("utf-8")
 	except UnicodeDecodeError as e:
-		raise ValueError(f"{file}: stream did not contain valid UTF-8") from e
+		who = "stdin" if file == "-" else file
+		raise ValueError(f"{who}: stream did not contain valid UTF-8") from e
 
 
-def load_doc(text, strictness):
+def load_doc_from(file, text, strictness, keep=False):
 	# Returns (doc, None) or (None, code). On strict load failure, prints the
-	# reference's diagnostic lines to stderr and reports code 6.
+	# diagnostic lines to stderr, labeled with the file the text came from so
+	# a strict failure in one layer of a fold says which layer, and reports 6.
 	try:
+		if keep:
+			return shcl.Document.parse_keep_lines(text, strictness), None
 		return shcl.Document.parse_with(text, strictness), None
 	except shcl.LoadError as le:
-		for d in le.diagnostics:
-			sys.stderr.write(f"line {d.line}: {d.severity.name}: {d.message}\n")
-		sys.stderr.write(str(le) + "\n")
+		say_diagnostics_from(file, le.diagnostics)
+		errors = sum(1 for d in le.diagnostics if d.severity == shcl.Severity.Error)
+		sys.stderr.write(f"strict load failed: {errors} error diagnostic(s)\n")
 		return None, 6
 
 
-def write_back(doc, file, o):
-	# The in-place half of fmt/set. Overwriting the source is the one place a
-	# recovered load turns destructive, so the diagnostics go out even though the
-	# command succeeded, and the save runs through the library's own gate rather
-	# than a second copy of the rule - the CLI and a consumer program cannot then
-	# disagree about which rewrites are safe.
-	for d in doc.diagnostics():
-		sys.stderr.write(f"line {d.line}: {d.severity.name}: {d.code} {d.message}\n")
+def unchanged_since_read(file, before):
+	# FILE still holds the bytes the load read. `set` waits on stdin between the
+	# load and the save, and an edit made in that wait was reverted at exit 0.
+	# A gap is left between this read and the publish, the width of one save.
+	# Something swapped in that isn't a regular file gets the save's own error
+	# here, since the write after this may find nothing to do.
 	try:
-		if o.lossy:
+		now = read_regular(file)
+		if now is None:
+			sys.stderr.write(f"{file}: not a regular file\n")
+			return False
+		if now == before.encode("utf-8"):
+			return True
+	except (OSError, ValueError):
+		# A file that can't be read now counts as changed.
+		pass
+	sys.stderr.write(f"{file}: changed since it was read; nothing written\n")
+	return False
+
+
+def read_regular(path):
+	# The bytes of the regular file at PATH, or None when something else is
+	# there, such as a FIFO swapped in, which the open doesn't wait on. Raises
+	# OSError as the open or read does. The library's copy is private.
+	if not stat.S_ISREG(os.stat(path).st_mode):
+		return None
+	no_wait = getattr(os, "O_NONBLOCK", 0)
+	# codeql[py/file-not-closed] the with just below owns the descriptor and closes it
+	fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
+	with open(fd, "rb") as f:
+		if no_wait:
+			os.set_blocking(fd, True)
+		if not stat.S_ISREG(os.fstat(fd).st_mode):
+			return None
+		return f.read()
+
+
+def write_back(doc, file, o, read=None, keep=False):
+	# The in-place half of fmt/set. Overwriting the source is the one place a
+	# recovered load turns destructive, so the save runs through the library's
+	# own gate rather than a second copy of the rule - the CLI and a consumer
+	# program cannot then disagree about which rewrites are safe. read is the
+	# bytes FILE held when the command read it, and None when this write is
+	# creating FILE.
+	# A newer format's lines would go back by these rules whatever the bytes
+	# say, so this refusal comes first, as in the library's save.
+	if doc.newer_format():
+		sys.stderr.write(f"{file}: refusing to rewrite: the document holds lines from a newer format than this reader's (see H006)\n")
+		return 7
+	if read is not None and not unchanged_since_read(file, read):
+		return EXIT_IO
+	# Nothing to write: what the save would publish is already on disk. A
+	# rewrite would give the file a new inode and mtime for nothing, so an
+	# idempotent --set-default in a provisioning script reported a change on
+	# every run, watchers fired, other hard links broke, and a canonical file
+	# in a read-only directory failed. The refusal comes first: a load that
+	# dropped content refuses the write whatever the bytes say, unless the
+	# lines were kept, which writes the dropped lines back as they were.
+	text, kept = doc.to_text_keep_lines() if keep else (doc.to_canonical(), False)
+	if read is not None and (o.lossy or kept or doc.lost_count() == 0) and text == read:
+		return 0
+	# The text is already built, so the line-keeping save writes it rather than
+	# building it again, with the same refusal save_file_keep_lines makes
+	# (20260926 idea 3).
+	try:
+		if o.lossy and keep:
+			shcl.write_file_atomic(file, text)
+		elif o.lossy:
 			doc.save_file_lossy(file)
+		elif keep and not kept and doc.lost_count() > 0:
+			raise shcl.SaveRefused(file, doc.lost_count())
+		elif keep:
+			shcl.write_file_atomic(file, text)
 		else:
 			doc.save_file(file)
+		# A created file is the one write with nothing to compare against
+		# afterwards, and a typo in the name used to end at exit 0 with an
+		# empty stderr and a new file nobody asked for.
+		if read is None:
+			sys.stderr.write(f"{file}: created\n")
+		# A save meant to keep the lines rewrote the whole file, and that is
+		# worth a line (20260926 idea 2).
+		if keep and not kept:
+			sys.stderr.write(f"{file}: rewritten in the canonical form; the lines could not be kept as they were\n")
 		return 0
 	# The rule stays in the library; only the wording is the CLI's, because the
 	# override a user has here is a flag, not a function.
 	except shcl.SaveRefused as e:
-		sys.stderr.write(f"{file}: refusing to rewrite: the load dropped {e.lost} line(s)/value(s) this write would delete (--lossy overrides)\n")
-	except shcl.SaveError as e:
+		sys.stderr.write(f"{file}: refusing to rewrite: this write would delete {e.lost} line(s)/value(s) from the file (--lossy overrides)\n")
+		return 7
+	except (shcl.SaveError, shcl.WriteError) as e:
 		sys.stderr.write(str(e) + "\n")
-	return 1
+	return EXIT_IO
 
 
 def load_layered(o, file):
@@ -347,43 +1166,149 @@ def load_layered(o, file):
 	# overrides on top - the layered-load fold. Every layer parses at the
 	# requested strictness; a strict-load failure on any layer aborts like a
 	# single-file strict failure. Returns (doc, None) or (None, code).
-	texts = []
-	for lf in o.layers:
-		texts.append(read_input(lf))
-	texts.append(read_input(file))
-	doc, code = load_doc(texts[0], o.strictness)
+	# It prints every layer's diagnostics itself, lowest first, before the --set
+	# overrides run: they belong to the load, and a refused edit used to return
+	# with nothing said about them. A merge does not pass diagnostics on, so
+	# reading them off the merged document drops the ones for FILE itself, which
+	# is the one the caller named.
+	doc, _, code = load_layered_from(o, file, None, False)
+	return doc, code
+
+
+def load_layered_from(o, file, given, keep):
+	# The same fold with FILE's text given rather than read, which is how `set`
+	# creates a file or takes an empty document, and FILE's text handed back.
+	# `set` kept its own copy of the fold, and twice a fix to this one missed
+	# it. Returns (doc, text, None) or (None, "", code).
+	texts = [read_input(lf) for lf in o.layers]
+	texts.append(read_input(file) if given is None else given)
+	# Lowest layer first, each labeled with its own file when there is more than
+	# one: the line numbers share a space on the screen otherwise, and two layers
+	# with a bad line 2 printed the same thing twice.
+	names = list(o.layers) + [file]
+	def label(i):
+		return names[i] if len(names) > 1 else ""
+	# Only a document with no layers under it keeps its lines: a merge drops them.
+	doc, code = load_doc_from(label(0), texts[0], o.strictness, keep and len(texts) == 1)
 	if doc is None:
-		return None, code
-	for t in texts[1:]:
-		over, c = load_doc(t, o.strictness)
+		return None, "", code
+	say_diagnostics_from(label(0), doc.diagnostics())
+	for i, t in enumerate(texts[1:]):
+		over, c = load_doc_from(label(i + 1), t, o.strictness)
 		if over is None:
-			return None, c
+			return None, "", c
+		say_diagnostics_from(label(i + 1), over.diagnostics())
 		doc.merge(over)
 	for st in o.sets:
-		if not st.apply(doc):
-			sys.stderr.write(f"shcl: cannot write {st.path} (from {st.opt()})\n")
-			return None, 1
-	return doc, None
+		wrote = st.apply(doc)
+		if wrote is not shcl.SetStatus.Ok:
+			sys.stderr.write(f"{st.opt()}: cannot write {st.path}: {refusal(wrote, st.path)} (see --help)\n")
+			return None, "", 1
+	return doc, texts[-1], None
+
+
+# codeql[py/mixed-tuple-returns] each subcommand's list is as long as its options
+def allowed_opts(cmd):
+	# The options each subcommand takes. check_opts judges against it, the
+	# per-subcommand help is cut from the full help with it, and the shell
+	# completions have the same table (check-completions.bash diffs the two).
+	if cmd == "get":
+		allowed = ("--<type>", "--array", "--slots", "--json", "--unit", "--decimal", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+	elif cmd == "set":
+		allowed = ("--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", "--write", "--lossy", "--no-banner")
+	elif cmd == "fmt":
+		allowed = ("--write", "--lossy", "--check", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+	elif cmd == "check":
+		allowed = ("--strictness", "--schema")
+	elif cmd == "init":
+		allowed = ("--schema", "--no-banner")
+	elif cmd == "migrate":
+		allowed = ("--write", "--lossy", "--from-2x", "--check")
+	elif cmd == "upgrade":
+		allowed = ("--write", "--from-2x")
+	elif cmd in ("tokens", "explain"):
+		allowed = ()
+	elif cmd == "count":
+		allowed = ("--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+	elif cmd == "instances":
+		allowed = ("--paths", "--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+	elif cmd in ("children", "paths"):
+		allowed = ("--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+	else:
+		allowed = ()
+	return allowed
+
+
+def help_for(cmd):
+	# One subcommand's slice of the help: its usage entry, the type block when it
+	# takes one, and the option entries allowed_opts lets it have. Cut from the
+	# full help rather than written out a second time, so the two cannot drift
+	# and the four bindings stay byte-identical for free. An entry keeps the
+	# "(get)" style annotation it has there, which still reads true.
+	lines = HELP.split("\n")
+	out = ["Usage:"]
+	want = f"  shcl {cmd} "
+	taking = False
+	for line in lines:
+		if line.startswith("  shcl "):
+			taking = line.startswith(want)
+		elif taking and not line.startswith("   "):
+			taking = False
+		if taking:
+			out.append(line)
+	# A paragraph of the full help that opens with the subcommand's own name is
+	# that subcommand's - today that is set's write-ops block, which is the half
+	# of set a user most needs in front of them. Its first line only: a wrapped
+	# line inside one can start with any word.
+	for para in HELP.split("\n\n"):
+		if para.startswith(cmd + " "):
+			out.append("")
+			out.extend(para.rstrip("\n").split("\n"))
+			break
+	allowed = allowed_opts(cmd)
+	if "--<type>" in allowed:
+		for i, line in enumerate(lines):
+			if line.startswith("Types ("):
+				out.append("")
+				for t in lines[i:]:
+					if not t:
+						break
+					out.append(t)
+				break
+	# The option entries, in the order the full help lists them. A head line is
+	# `  --name`; the deeper-indented lines under it are its text, and the first
+	# line at column zero ends the block.
+	entries = []
+	in_block = False
+	keep = False
+	for line in lines:
+		if not in_block:
+			in_block = line.startswith("Options (")
+			continue
+		if line.startswith("  --"):
+			name = line[2:].replace("=", " ").split(" ")[0]
+			keep = name in allowed
+		elif not line.startswith("   "):
+			break
+		if keep:
+			entries.append(line)
+	if entries:
+		out.append("")
+		out.append("Options (the subcommands each belongs to are in parentheses):")
+		out.extend(entries)
+	else:
+		out.append("")
+		out.append(f"{cmd} takes no options.")
+	out.append("")
+	out.append("See 'shcl help' for the full text, and 'shcl explain CODE' for a code.")
+	return "\n".join(out) + "\n"
 
 
 def check_opts(cmd, o):
 	# Every option must be meaningful for its subcommand; an option that would be
 	# silently ignored (`set --write` before it existed, `--schema` on `get`) is a
 	# usage error instead. Returns an exit code, or None to proceed.
-	if cmd == "get":
-		allowed = ("--<type>", "--array", "--slots", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal")
-	elif cmd == "set":
-		allowed = ("--strictness", "--layer", "--set", "--set-literal", "--write", "--lossy")
-	elif cmd == "fmt":
-		allowed = ("--write", "--lossy", "--strictness", "--layer", "--set", "--set-literal")
-	elif cmd == "check":
-		allowed = ("--strictness", "--schema")
-	elif cmd == "init":
-		allowed = ("--schema", "--no-banner")
-	elif cmd in ("count", "instances"):
-		allowed = ("--strictness", "--layer", "--set", "--set-literal")
-	else:
-		allowed = ()
+	allowed = allowed_opts(cmd)
 	for s in o.seen:
 		if s not in allowed:
 			if s == "--<type>":
@@ -393,9 +1318,9 @@ def check_opts(cmd, o):
 				# so it always loads at Standard - the same rule `check --schema`
 				# follows for the schema half.
 				sys.stderr.write(
-					"option --strictness not valid for init: a schema always loads at standard strictness, being a program artifact rather than user data\n"
+					"option --strictness not valid for init: a schema always loads at standard strictness, being a program artifact rather than user data (see --help)\n"
 				)
-			elif cmd == "check" and s in ("--layer", "--set", "--set-literal"):
+			elif cmd == "check" and s in ("--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 				# The one refusal a user is likely to want anyway: check reports
 				# line numbers, and a merged document has no single file to
 				# number against. Naming the pipeline turns a dead end into a
@@ -406,6 +1331,31 @@ def check_opts(cmd, o):
 			else:
 				sys.stderr.write(f"option {s} not valid for {cmd} (see --help)\n")
 			return 1
+	# Options that ask for different answers used to resolve last-wins with
+	# nothing said, so which answer you got depended on typing order. Two type
+	# options are one case, one value option given two values the other.
+	# Repeating an option with the same value competes with nothing and stays
+	# allowed, and so do --layer and --set, which are ordered lists.
+	if o.clash is not None:
+		a, b = o.clash
+		if o.clash_opt is not None:
+			sys.stderr.write(f"{o.clash_opt}={a} cannot be combined with {o.clash_opt}={b} (see --help)\n")
+		else:
+			sys.stderr.write(f"{a} cannot be combined with {b} (see --help)\n")
+		return 1
+	# --unit and --decimal say how to read a bare number, which only the
+	# duration and size reads have.
+	if o.unit is not None and o.kind not in ("duration", "size"):
+		sys.stderr.write("--unit needs --duration or --size (see --help)\n")
+		return 1
+	if o.decimal and o.kind != "size":
+		sys.stderr.write("--decimal needs --size (see --help)\n")
+		return 1
+	if o.unit is not None:
+		unit_of = shcl.DurationUnit.from_spelling if o.kind == "duration" else shcl.SizeUnit.from_spelling
+		if unit_of(o.unit) is None:
+			sys.stderr.write(f"bad --unit value for --{o.kind}: {o.unit} (see --help)\n")
+			return 1
 	# Writing back the merged document would fold the lower layers permanently
 	# into the top file, which is the opposite of what layering is for. On 'set'
 	# the --set values are edits to the document rather than a layer over it, so
@@ -414,18 +1364,102 @@ def check_opts(cmd, o):
 		sys.stderr.write("--write cannot be combined with --layer (see --help)\n")
 		return 1
 	if o.write and o.sets and cmd != "set":
-		sys.stderr.write("--write cannot be combined with --set (see --help)\n")
+		sys.stderr.write(f"--write cannot be combined with {o.sets[0].opt()} (see --help)\n")
 		return 1
-	# --lossy only overrides the in-place write's refusal, so on its own it says
-	# nothing and would read as protection the command never had.
-	if o.lossy and not o.write:
+	# --default says "substitute this" and --on-bad=error says "fail instead", so
+	# the two together are a contradiction. Each used to overwrite the other's
+	# mode, which made the answer depend on the order they were typed in.
+	if "--default" in o.seen and o.on_bad_arg is not None and o.on_bad_arg != "default":
+		sys.stderr.write(f"--default cannot be combined with --on-bad={o.on_bad_arg} (see --help)\n")
+		return 1
+	# Without a --default there is nothing to substitute, and a bad read
+	# printed an empty line at exit 0 (2026101407100004).
+	if o.on_bad_arg == "default" and "--default" not in o.seen:
+		sys.stderr.write("--on-bad=default needs --default (see --help)\n")
+		return 1
+	# --lossy only overrides a refusal, and fmt refuses only in place, so there
+	# it would read as protection the command never had. set and migrate ask
+	# the gate on stdout too (2026100717500003).
+	if o.lossy and not o.write and cmd == "fmt":
 		sys.stderr.write("--lossy is only meaningful with --write (see --help)\n")
+		return 1
+	# On set, --no-banner shapes only the file a write creates, so without
+	# --write it would be accepted and do nothing.
+	if o.no_banner and cmd == "set" and not o.write:
+		sys.stderr.write("--no-banner is only meaningful with --write (see --help)\n")
+		return 1
+	if o.check and o.write:
+		sys.stderr.write("--check cannot be combined with --write (see --help)\n")
+		return 1
+	# --check asks whether FILE is canonical, and a merge or an edit is never
+	# FILE, so it said "would rewrite" every time (2026101407100002).
+	if o.check and o.layers:
+		sys.stderr.write("--check cannot be combined with --layer (see --help)\n")
+		return 1
+	if o.check and o.sets:
+		sys.stderr.write(f"--check cannot be combined with {o.sets[0].opt()} (see --help)\n")
+		return 1
+	# Both say what a line holds, and a JSON line already has the path.
+	if o.paths and o.json:
+		sys.stderr.write("--paths cannot be combined with --json (see --help)\n")
 		return 1
 	# The ops script already has stdin, so a layer cannot read it too.
 	if cmd == "set" and any(lf == "-" for lf in o.layers):
-		sys.stderr.write("--layer=- is not valid for set (stdin carries the ops script or the document)\n")
+		sys.stderr.write("--layer=- is not valid for set: stdin already has the ops script or the document (see --help)\n")
+		return 1
+	# Stdin reads once; a second '-' would silently get an empty document.
+	stdin_uses = sum(1 for lf in o.layers if lf == "-") + int(o.schema == "-") + int(bool(o.args) and o.args[0] == "-")
+	if stdin_uses > 1:
+		sys.stderr.write("'-' (stdin) can be named only once across FILE, --layer and --schema (see --help)\n")
 		return 1
 	return None
+
+
+def refusal(st, path):
+	# Why a setter wrote nothing, from the status it gave. The library knows
+	# which rule refused the write, so nothing here works it out again: a copy
+	# of the rule in the CLI is how the two drift. The text is the same in all
+	# four CLIs.
+	S = shcl.SetStatus
+	if st is S.Ok:
+		# Not a refusal; no caller asks.
+		return "written"
+	if st is S.BadPath:
+		return bad_path(path)
+	return {
+		S.ValueInPath: "a path with a value part cannot be written",
+		S.Wildcard: "a wildcard path cannot be written",
+		S.NoSuchIndex: "no instance at that index",
+		S.TooDeep: "deeper than the nesting cap",
+		S.Multiple: "the path matches multiple instances; name(0) picks one",
+		S.UnderArray: "an array takes no lines under it",
+		S.HasChildren: "a field with lines under it takes one plain value or none",
+		S.NotFinite: "a float has to be finite",
+		S.BadDateTime: "the datetime does not read back as the same one",
+		S.BadRawInfo: "the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling",
+		S.BadRawBody: "the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early",
+		S.BadComment: "the comment text is not one line",
+		S.NotOneValue: "the value text is not one value",
+		S.NotUtf8: "the text is not valid UTF-8",
+		S.OutOfRange: "the int is outside the 64-bit range",
+		S.NoReadBack: "the value has no spelling that reads back",
+		S.RawBlock: "a raw block is there, and a default of another type would lose its body",
+	}[st]
+
+
+def say_diagnostics(diags):
+	# The load's diagnostics, one line each, in the shape every command uses.
+	say_diagnostics_from("", diags)
+
+
+def say_diagnostics_from(file, diags):
+	# The same, labeled with the file the diagnostics came from. Under --layer
+	# several files are loaded and their line numbers share one space on the
+	# screen, so two layers with a bad line 2 printed the same thing twice with
+	# nothing to tell them apart.
+	for d in diags:
+		where = f"{file} " if file else ""
+		sys.stderr.write(f"{where}{shcl.format_diagnostic(d)}\n")
 
 
 def _fmt_scalar(kind, value):
@@ -435,20 +1469,24 @@ def _fmt_scalar(kind, value):
 		return shcl.format_float(value)
 	if kind == "bool":
 		return "true" if value else "false"
-	# datetime / string / raw all stringify directly.
+	if kind == "duration":
+		return str(value.days * 86_400_000 + value.seconds * 1000 + value.microseconds // 1000)
+	# datetime / string / raw / size all stringify directly.
 	return str(value)
 
 
 def do_get(o):
 	if len(o.args) != 2:
-		sys.stderr.write("get needs FILE and PATH (see --help)\n")
+		sys.stderr.write("usage: shcl get [type] [options] FILE PATH (see --help)\n")
 		return 1
 	file, path = o.args[0], o.args[1]
+	if refuse_read_path(path):
+		return 1
 	try:
 		doc, code = load_layered(o, file)
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
-		return 1
+		return EXIT_IO
 	if doc is None:
 		return code
 	if o.array:
@@ -464,8 +1502,8 @@ def do_get(o):
 		elif o.kind == "datetime":
 			r = doc.read_datetime_array(path)
 			lines = [str(v) for v in r.value]
-		elif o.kind in ("raw", "rawinfo"):
-			sys.stderr.write(f"--{o.kind} has no --array form\n")
+		elif o.kind in ("raw", "rawinfo", "duration", "size"):
+			sys.stderr.write(f"--{o.kind} has no --array form (see --help)\n")
 			return 1
 		else:
 			r = doc.read_string_array(path)
@@ -485,6 +1523,10 @@ def do_get(o):
 			r = doc.read_raw(path)
 		elif o.kind == "rawinfo":
 			r = doc.read_raw_info(path)
+		elif o.kind == "duration":
+			r = doc.read_duration(path, shcl.DurationUnit.from_spelling(o.unit) if o.unit else None)
+		elif o.kind == "size":
+			r = doc.read_size(path, shcl.SizeUnit.from_spelling(o.unit) if o.unit else None, o.decimal)
 		else:
 			r = doc.read_string(path)
 		if o.kind in ("string", "raw", "rawinfo"):
@@ -498,14 +1540,34 @@ def do_get(o):
 		# Per-line slot status: falls back to the aggregate for scalar reads.
 		return slots[i] if i < len(slots) else status
 
+	# The field each line came from, for --json: one per slot on a wildcard
+	# read, else the one field the read reached, else none.
+	fields = doc.read_fields(path).value if o.json else []
+
+	def json_at(i, value, count, st):
+		f = shcl.Field()
+		if len(fields) == count:
+			if i < len(fields):
+				f = fields[i]
+		elif len(fields) == 1:
+			f = fields[0]
+		return json_line(f.path, None, value, f.line, st if o.slots else None)
+
+	# An array or a slot listing is one line per element, so a value holding a
+	# line break takes its escaped spelling there. A plain scalar read prints the
+	# value as it is, since the whole output is that one value.
 	def emit(lns):
 		for i, ln in enumerate(lns):
-			if o.slots:
-				print(f"{slot_at(i).name}\t{ln}")
+			if o.json:
+				print(json_at(i, ln, len(lns), slot_at(i)))
+			elif o.slots:
+				print(f"{slot_at(i).name}\t{one_line(ln)}")
+			elif o.array:
+				print(one_line(ln))
 			else:
 				print(ln)
 
-	# Why the read failed is worth saying even when the exit code already carries
+	# Why the read failed is worth saying even when the exit code already shows
 	# it: at the default mode the user otherwise gets an empty line, a nonzero
 	# code, and nothing to go on. Stdout is untouched - this only ever goes to
 	# stderr. Two silences are deliberate: default mode, because a caller who
@@ -519,20 +1581,25 @@ def do_get(o):
 	):
 		type_name = f"{o.kind} array" if o.array else o.kind
 		if status == shcl.Status.BadType:
-			raw = doc.read_string(path).raw
+			# The text the typed read parsed: quotes off and escapes read, so a
+			# quoted value is not quoted twice.
+			r = doc.read_string(path)
 			reason = (
-				f'value "{raw}" is not a valid {type_name}'
-				if raw is not None
+				f"value {quoted(r.value)} is not a valid {type_name}"
+				if r.raw is not None
 				else f"value is not a valid {type_name}"
 			)
 		elif status == shcl.Status.NotFound:
 			reason = "no value at that path"
 		elif status == shcl.Status.Empty:
 			reason = "the value is empty"
+		elif status == shcl.Status.BadPath:
+			# Refused before the load, so only a library read meets it.
+			reason = "not a usable path"
 		else:
 			reason = "the path matches multiple instances"
 		sys.stderr.write(
-			f"shcl: cannot read {path} as {type_name}: {reason} (in {file})\n"
+			f"cannot read {path} as {type_name}: {reason} (in {file})\n"
 		)
 	if status == shcl.Status.Good or (status == shcl.Status.Empty and o.on_bad == "flag"):
 		emit(lines)
@@ -542,8 +1609,12 @@ def do_get(o):
 		if slots:
 			# Array read: the default substitutes per bad slot; alignment holds.
 			emit([ln if slot_at(i) == shcl.Status.Good else dv for i, ln in enumerate(lines)])
+		elif o.json:
+			print(json_at(0, dv, len(lines), status))
 		elif o.slots:
-			print(f"{status.name}\t{dv}")
+			print(f"{status.name}\t{one_line(dv)}")
+		elif o.array:
+			print(one_line(dv))
 		else:
 			print(dv)
 		return 0
@@ -551,54 +1622,482 @@ def do_get(o):
 		# The message already went to stderr above; error mode differs only in
 		# printing nothing on stdout.
 		return status_code(status)
-	# flag: print the zero/empty value anyway; the exit code carries the status.
+	# flag: print the zero/empty value anyway; the exit code gives the status.
 	emit(lines)
 	return status_code(status)
 
 
+# How many characters of a value a message shows (_DIAG_TEXT_MAX in the
+# library).
+QUOTED_MAX = 200
+
+
+def quoted(s):
+	# A value's text, quoted for a message, the way the library shows a value:
+	# one line whatever it holds, with each character the way fmt writes it in
+	# quotes (see shown). Past QUOTED_MAX characters the middle is cut, and the
+	# length goes after the closing quote.
+	total = len(s)
+	if total <= QUOTED_MAX:
+		return f'"{shown(s)}"'
+	half = QUOTED_MAX // 2
+	return f'"{shown(s[:half] + "..." + s[total - half:])}" ({total} chars)'
+
+
+def shown(s):
+	# s the way fmt writes it in quotes, less the quotes, with a `"` as itself
+	# and a real escape mark as itself with its code after it, as the library's
+	# messages show one. The writer's own quote_segment does the escaping, so a
+	# message can't drift from fmt; those two are its first names on the escape
+	# list.
+	m = "\u25c9"
+	rest = shcl.quote_segment(s)
+	if rest[:1] in ('"', "'"):
+		rest = rest[1:-1]
+	out = []
+	while True:
+		at = rest.find(m)
+		if at < 0:
+			break
+		out.append(rest[:at])
+		after = rest[at + 1:]
+		# The writer closes every escape it opens.
+		end = after.find(m)
+		if end < 0:
+			end = len(after)
+		name = after[:end]
+		if name == "DOUBLE_QUOTE":
+			out.append('"')
+		elif name == "ESCAPE_CHAR":
+			out.append(f"{m} (U+25C9)")
+		else:
+			out.append(f"{m}{name}{m}")
+		rest = after[end + 1:]
+	out.append(rest)
+	return "".join(out)
+
+
 def do_fmt(o):
 	if len(o.args) != 1:
-		sys.stderr.write("fmt needs FILE (see --help)\n")
+		sys.stderr.write("usage: shcl fmt [--write|-w] [options] FILE (see --help)\n")
 		return 1
 	file = o.args[0]
 	if o.write and file == "-":
 		sys.stderr.write("fmt --write cannot rewrite stdin; drop --write to print, or pass a FILE\n")
 		return 1
+	if o.write and not write_target_ok(file):
+		return EXIT_IO
 	try:
-		doc, code = load_layered(o, file)
+		doc, read, code = load_layered_from(o, file, None, False)
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
-		return 1
+		return EXIT_IO
 	if doc is None:
 		return code
+	# --check is migrate --check's sibling, and the spelling every other
+	# formatter has: print nothing, and say by the exit code whether a rewrite
+	# would change the file. It was `shcl fmt f | cmp -s - f` before.
+	if o.check:
+		# The save gate --write goes through is asked first, so 6 never
+		# promises a rewrite the same command would refuse to make.
+		if doc.newer_format():
+			sys.stderr.write(f"{file}: fmt --write would refuse: the document holds lines from a newer format than this reader's (see H006)\n")
+			return 7
+		if not o.lossy and doc.lost_count() != 0:
+			sys.stderr.write(f"{file}: fmt --write would refuse: it would delete {doc.lost_count()} line(s)/value(s) from the file (--lossy overrides)\n")
+			return 7
+		if doc.to_canonical() == read:
+			return 0
+		sys.stderr.write(f"{file}: not canonical; fmt --write would rewrite it\n")
+		return 6
 	if o.write:
-		return write_back(doc, file, o)
+		return write_back(doc, file, o, read)
 	sys.stdout.write(doc.to_canonical())
 	return 0
 
 
-def _unescape_ops(s):
-	# Decode an ops value: \n \t \\ only; other `\x` stays verbatim.
-	out = []
-	i = 0
-	while i < len(s):
-		c = s[i]
-		if c != "\\" or i + 1 >= len(s):
-			out.append(c)
-			i += 1
-			continue
-		nxt = s[i + 1]
-		if nxt == "n":
-			out.append("\n")
-		elif nxt == "t":
-			out.append("\t")
-		elif nxt == "\\":
-			out.append("\\")
+def rewritten_lines(before, after):
+	# The numbers of the lines migrate writes differently, counted from 1. The
+	# rewrite goes line for line and only appends, so line N of the input is
+	# line N of the output. It never touches a line's carriage returns, but the
+	# stamp ends an unterminated last line the way most lines end, which can
+	# put a CR after it, so those are left out of the compare.
+	if before == "":
+		return []
+	b = before[:-1] if before.endswith("\n") else before
+	return [i + 1 for i, (x, y) in enumerate(zip(b.split("\n"), after.split("\n"))) if x.rstrip("\r") != y.rstrip("\r")]
+
+
+def do_migrate(o):
+	# A 2.x file rewritten for the current rules. The rewrite is text to text;
+	# the load after it is for the diagnostics and the save gate, the same
+	# gate fmt --write goes through.
+	if len(o.args) != 1:
+		sys.stderr.write("usage: shcl migrate [options] FILE (see --help)\n")
+		return 1
+	file = o.args[0]
+	if o.write and file == "-":
+		sys.stderr.write("migrate --write cannot rewrite stdin; drop --write to print, or pass a FILE\n")
+		return 1
+	if o.write and not write_target_ok(file):
+		return EXIT_IO
+	try:
+		text = read_input(file)
+	except (OSError, ValueError) as e:
+		sys.stderr.write(str(e) + "\n")
+		return EXIT_IO
+	m = shcl.migrate(text, o.from_2x)
+	doc, code = load_doc_from("", m.text, o.strictness)
+	if doc is None:
+		return code
+	say_diagnostics_from("", doc.diagnostics())
+	# The file says it was written for these rules, so there is nothing to do
+	# and nothing to write. Saying so beats printing the input back silently.
+	if m.current:
+		sys.stderr.write(f"{file}: nothing to migrate: the file already names its format\n")
+		if not o.write and not o.check:
+			sys.stdout.write(m.text)
+		return 0
+	rc = 0
+	if m.ambiguous != 0:
+		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; left as written (--from-2x rewrites them)\n")
+		rc = 7
+	if m.lost != 0:
+		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector holding a comma, a comma list with lines under it, or a quoted name with a backslash escape (--lossy overrides)\n")
+		if not o.lossy:
+			rc = 7
+	# With nothing ambiguous, the stamp is left off only when a raw block runs
+	# to the end of the file, where the line would be the block's content.
+	# Unstamped, the next run could not tell the file was migrated.
+	if m.ambiguous == 0 and (shcl.format_version(m.text) or 0) < shcl.FORMAT_MAJOR:
+		sys.stderr.write(f"{file}: a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again\n")
+		rc = 7
+	rewritten = rewritten_lines(text, m.text)
+	# A save keeps a line at an indent no level matches, but 2.x placed some
+	# such lines by a looser rule and read them, so a migration that leaves
+	# one has not brought the file across. With nothing lost, every one of
+	# them is kept.
+	misplaced = sum(1 for d in doc.diagnostics() if d.code in ("E012", "E018"))
+	if o.check:
+		for n in rewritten:
+			sys.stderr.write(f"{file}:{n}: migrate would rewrite this line\n")
+		# Same as fmt --check: the save gate --write goes through is asked
+		# before 6, so 6 never promises a rewrite that would be refused.
+		if rc == 0:
+			rc = migrate_would_refuse(file, doc, misplaced, o)
+		if rc == 0 and rewritten:
+			rc = 6
+		return rc
+	if o.write:
+		if rc != 0:
+			sys.stderr.write(f"{file}: refusing to rewrite; nothing changed\n")
+			return rc
+		if doc.lost_count() != 0 and not o.lossy:
+			sys.stderr.write(f"{file}: refusing to rewrite: the migrated text drops {doc.lost_count()} line(s)/value(s) on load (--lossy overrides)\n")
+			return 7
+		if misplaced != 0 and not o.lossy:
+			sys.stderr.write(f"{file}: refusing to rewrite: the migrated text leaves {misplaced} line(s) unread at an indent no open level matches (--lossy overrides)\n")
+			return 7
+		if not unchanged_since_read(file, text):
+			return EXIT_IO
+		# Only a rewrite leaves a 2.x original to keep. A file that just gains
+		# the Format line reads the same either way, and may be a 3.0 file
+		# with no stamp.
+		old = None
+		if rewritten:
+			version = shcl.format_version(text)
+			try:
+				old = shcl.write_backup(file, text, version if version is not None else 2)
+			except shcl.UpgradeError as e:
+				sys.stderr.write(f"{e}\n")
+				return EXIT_IO
+		try:
+			shcl.write_file_atomic(file, m.text)
+		except shcl.WriteError as e:
+			sys.stderr.write(f"{e}\n")
+			# With the original still in place the copy would only stand in
+			# the way of the next run. A replace that fails part way on windows
+			# can leave nothing at FILE, and then the copy is all there is.
+			if old is not None:
+				try:
+					same = read_regular(file) == text.encode("utf-8")
+				except (OSError, ValueError):
+					same = False
+				if same:
+					try:
+						os.remove(old)
+					except OSError:
+						# The old backup stays when it can't come off.
+						pass
+				else:
+					sys.stderr.write(f"{file}: the original is {old}\n")
+			return EXIT_IO
+		if old is not None:
+			sys.stderr.write(f"{file}: migrated, {len(rewritten)} line(s) rewritten; the original is {old}\n")
 		else:
-			out.append("\\")
-			out.append(nxt)
-		i += 2
-	return "".join(out)
+			sys.stderr.write(f"{file}: migrated, {len(rewritten)} line(s) rewritten\n")
+		return 0
+	# The text itself keeps every line, so it prints whatever the gate says,
+	# but the exit is the one --write would give, as for the refusals above
+	# (2026100717500003).
+	if rc == 0:
+		rc = migrate_would_refuse(file, doc, misplaced, o)
+	sys.stdout.write(m.text)
+	return rc
+
+
+def migrate_would_refuse(file, doc, misplaced, o):
+	"""The save gate migrate --write goes through, asked without writing: 7
+	with the reason on stderr when the write would refuse, else 0."""
+	if o.lossy:
+		return 0
+	if doc.lost_count() != 0:
+		sys.stderr.write(f"{file}: migrate --write would refuse: the migrated text drops {doc.lost_count()} line(s)/value(s) on load (--lossy overrides)\n")
+		return 7
+	if misplaced != 0:
+		sys.stderr.write(f"{file}: migrate --write would refuse: the migrated text leaves {misplaced} line(s) unread at an indent no open level matches (--lossy overrides)\n")
+		return 7
+	return 0
+
+
+def do_upgrade(o):
+	# A file this shcl cannot load clean, backed up and written fresh: the
+	# library's upgrade_file with --write, and its text half without, which
+	# prints the fresh text and touches nothing.
+	if len(o.args) != 1:
+		sys.stderr.write("usage: shcl upgrade [options] FILE (see --help)\n")
+		return 1
+	file = o.args[0]
+	if o.write and file == "-":
+		sys.stderr.write("upgrade --write cannot rewrite stdin; drop --write to print, or pass a FILE\n")
+		return 1
+	if o.write and not write_target_ok(file):
+		return EXIT_IO
+	# Read here with --write too, so a file that can't be read says why the
+	# same way either way, and a refusal or a failed save still has the
+	# load's diagnostics to print (2026101514324706).
+	try:
+		text = read_input(file)
+	except (OSError, ValueError) as e:
+		sys.stderr.write(str(e) + "\n")
+		return EXIT_IO
+	if o.write:
+		try:
+			up = shcl.upgrade_file(file, o.from_2x)
+		except shcl.UpgradeError as e:
+			say_diagnostics_from("", shcl.upgrade(text, o.from_2x).diagnostics)
+			if isinstance(e, shcl.UpgradeAmbiguous):
+				sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
+				return 7
+			sys.stderr.write(f"{e}\n")
+			return 7 if isinstance(e, shcl.UpgradeErrorsLeft) else EXIT_IO
+	else:
+		up = shcl.upgrade(text, o.from_2x)
+	if up.current:
+		# diagnostics is empty when current, but the file is still loaded, and
+		# every loading subcommand says what its load found (2026101419280005).
+		say_diagnostics(shcl.Document.parse(up.text).diagnostics())
+		sys.stderr.write(f"{file}: nothing to upgrade, left as is\n")
+		if not o.write:
+			sys.stdout.write(up.text)
+		return 0
+	say_diagnostics_from("", up.diagnostics)
+	if up.ambiguous != 0:
+		sys.stderr.write(f"{shcl.UpgradeAmbiguous(file, up.ambiguous)} (--from-2x rewrites them)\n")
+		return 7
+	if up.errors_left:
+		sys.stderr.write(f"{shcl.UpgradeErrorsLeft(file, up.errors_left)}\n")
+		return 7
+	if up.lost != 0:
+		kept = "; the backup keeps them" if o.write else ""
+		sys.stderr.write(f"{file}: {up.lost} line(s)/value(s) do not carry over to the fresh file{kept}\n")
+	if o.write:
+		sys.stderr.write(f"{file}: upgraded; the original is {up.backup}\n")
+	else:
+		sys.stdout.write(up.text)
+	return 0
+
+
+def _span(p):
+	mark = {shcl.Quote.None_: "", shcl.Quote.Single: "'", shcl.Quote.Double: '"', shcl.Quote.Backtick: "`", shcl.Quote.Open: "?"}[p.quote]
+	return f"{p.start}-{p.end}{mark}"
+
+
+def _push_array(out, tok):
+	# A bracket array's `[` and, when it is malformed, where and why.
+	if tok.array is not None:
+		out.append(f" array={tok.array}")
+	if tok.array_fault is not None:
+		out.append(f" array-fault={tok.array_fault[0]}:{tok.array_fault[1]}")
+
+
+def code_line(head):
+	# `CODE  severity  summary` - the one line both explain forms lead with.
+	f = (head.split("|", 2) + ["", ""])[:3]
+	return f"{f[0]}  {f[1]:<10}  {f[2]}"
+
+
+def code_heads():
+	# The head lines of the code table, in table order.
+	return [line for line in CODES.split("\n") if line and not line.startswith(" ")]
+
+
+def retired_entry(code):
+	# The explain entry for a retired code, or None when the code was never one.
+	for line in RETIRED.rstrip("\n").split("\n"):
+		f = (line.split("|", 2) + ["", ""])[:3]
+		if f[0] != code:
+			continue
+		if not f[2]:
+			return (
+				code_line(f"{code}|retired|{f[1]}, with no replacement")
+				+ f"\n  Loads no longer report {code}, and no other code took its rule.\n"
+			)
+		return (
+			code_line(f"{code}|retired|{f[1]}, replaced by {f[2]}")
+			+ f"\n  Loads no longer report {code}. 'shcl explain {f[2]}' has the rule now.\n"
+		)
+	return None
+
+
+def do_explain(o):
+	if not o.args:
+		heads = "".join(code_line(h) + "\n" for h in code_heads())
+		sys.stdout.write("\nDiagnostic codes:\n\n" + heads + "\n'shcl explain CODE' has the rule behind one of them.\n\n")
+		return 0
+	if len(o.args) > 1:
+		sys.stderr.write("usage: shcl explain [CODE] (see --help)\n")
+		return 1
+	code = _ascii_upper(o.args[0])
+	# The entry runs from its head line to the next one. Built up first, since a
+	# code the table does not have prints nothing at all.
+	body = []
+	found = False
+	for line in CODES.rstrip("\n").split("\n"):
+		if not line.startswith(" "):
+			if found:
+				break
+			found = line.split("|", 1)[0] == code
+			if found:
+				body.append(code_line(line))
+			continue
+		if found:
+			body.append(line)
+	if not found:
+		entry = retired_entry(code)
+		if entry is not None:
+			sys.stdout.write("\n" + entry + "\n")
+			return 0
+		names = [h.split("|", 1)[0] for h in code_heads()]
+		sys.stderr.write(
+			f"unknown diagnostic code: {code}{suggest(names, code)} (shcl explain lists them all)\n"
+		)
+		return 1
+	sys.stdout.write("\n" + "\n".join(body) + "\n\n")
+	return 0
+
+
+def do_tokens(o):
+	# Every line's spans, one line of output per input line: the indent
+	# length, then each token as kind=start-end with a mark for how it was
+	# quoted (', ", a backtick, or ? for a quote that never closed), offsets
+	# counted in bytes from the first character after the indent. A blank line
+	# and a comment line say so; every other line is tokenized on its own, raw
+	# bodies included, since this is the lexical view and not the parse.
+	if len(o.args) != 1:
+		sys.stderr.write("usage: shcl tokens FILE (see --help)\n")
+		return 1
+	try:
+		text = read_input(o.args[0])
+	except (OSError, ValueError) as e:
+		sys.stderr.write(str(e) + "\n")
+		return EXIT_IO
+	if text.startswith("\ufeff"):
+		text = text[1:]
+	lines = [ln.rstrip("\r") for ln in text.split("\n")]
+	if text.endswith("\n"):
+		lines.pop()
+	tok = shcl.Tokens()
+	out = []
+	for i, line in enumerate(lines):
+		rest = line.lstrip(" \t")
+		ilen = len(line) - len(rest)
+		rest = rest.rstrip(" \t\r")
+		out.append(f"{i + 1}:{ilen}")
+		if not rest:
+			out.append(" blank\n")
+			continue
+		# The parser takes a leading carriage return off with the indent's blanks.
+		body = rest.lstrip(" \t\r")
+		lead = len(rest) - len(body)
+		if body.startswith("#"):
+			out.append(" comment\n")
+			continue
+		# A list item and a fence line are value halves on their own. A `-` is
+		# an item when a blank or the end follows it (20260923 item 12).
+		item = body[:1] == "-" and body[1:2] in ("", " ", "\t", "\r")
+		fence = body.startswith("```") or body.startswith("~~~")
+		if item or fence:
+			shcl.tokenize_value(rest, lead + int(item), shcl.Rules.Current, tok)
+			out.append(" item" if item else " fence")
+			out.append(f" value={tok.value[0]}-{tok.value[1]}")
+			_push_array(out, tok)
+			out.extend(f" elem={_span(p)}" for p in tok.elements)
+			if tok.comment is not None:
+				out.append(f" comment={tok.comment}")
+			out.append("\n")
+			continue
+		shcl.tokenize(rest, ":", False, shcl.Rules.Current, tok)
+		for seg in tok.segments:
+			out.append(f" {'star' if seg.star else 'name'}={_span(seg.name)}")
+			if seg.selector is not None:
+				out.append(f" sel={_span(seg.selector)}")
+		if tok.sep is not None:
+			out.append(f" sep={tok.sep} value={tok.value[0]}-{tok.value[1]}")
+			_push_array(out, tok)
+			out.extend(f" elem={_span(p)}" for p in tok.elements)
+		if tok.comment is not None:
+			out.append(f" comment={tok.comment}")
+		if tok.fault is not None:
+			out.append(f" fault={tok.fault[0]}:{tok.fault[1]}")
+		out.append("\n")
+	sys.stdout.write("".join(out))
+	return 0
+
+
+def _op_text(s):
+	# An ops-script value with its escapes resolved, `◉TAB◉` and `◉NEWLINE◉` and
+	# the rest of the file's names, so a tab or a line break can sit on one op
+	# line. A backslash is text, as in a file (2026100717500002). The file's own
+	# reader does it, on the value in quotes, so the two can't drift.
+	# Raises ValueError with the reader's message.
+	if "◉" not in s:
+		return s
+	if '"' in s and "'" not in s:
+		text = f"v: '{s}'\n"
+	else:
+		text = 'v: "' + s.replace('"', "◉DOUBLE_QUOTE◉") + '"\n'
+	doc = shcl.Document.parse(text)
+	for d in doc.diagnostics():
+		if d.severity == shcl.Severity.Error:
+			raise ValueError(d.message)
+	return doc.read_string("v").value
+
+
+def _stdin_is_terminal():
+	# Windows calls NUL a terminal through isatty, so a console mode decides there.
+	try:
+		if sys.stdin is None or not sys.stdin.isatty():
+			return False
+	except (OSError, ValueError):
+		return False
+	if os.name != "nt":
+		return True
+	import ctypes
+	import msvcrt
+	mode = ctypes.c_ulong()
+	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+	return bool(k32.GetConsoleMode(msvcrt.get_osfhandle(sys.stdin.fileno()), ctypes.byref(mode)))  # type: ignore[attr-defined]
 
 
 def _op_dt(s):
@@ -606,6 +2105,14 @@ def _op_dt(s):
 	if dt is None:
 		raise ValueError(f"bad datetime: {s}")
 	return dt
+
+
+def _op_bool(s):
+	if s == "true":
+		return True
+	if s == "false":
+		return False
+	raise ValueError(f"bad bool: {s}")
 
 
 def _op_int(s):
@@ -661,15 +2168,45 @@ def _float_grammar_ok(s):
 
 
 def _op_flt(s):
-	# float() after the grammar gate is safe; overflow (1e400) yields inf,
-	# matching Rust's parse.
+	# The language's own float reader takes inf and nan, and overflow (1e400)
+	# ends up on them too; the document's reader does not, so they are bad
+	# values here, the way a bad datetime is.
 	if not _float_grammar_ok(s):
 		raise ValueError(f"bad float: {s}")
-	return float(s)
+	x = float(s)
+	if not math.isfinite(x):
+		raise ValueError(f"bad float: {s}")
+	return x
+
+
+_OP_FIELDS = {
+	"empty": 2, "remove": 2, "clear-comments": 2, "banner": 2,
+	"raw": 4, "raw-default": 4,
+	"int": 3, "float": 3, "bool": 3, "string": 3, "datetime": 3, "literal": 3, "comment": 3,
+	"int-default": 3, "float-default": 3, "bool-default": 3, "string-default": 3,
+	"datetime-default": 3, "literal-default": 3,
+}
+# Any number of elements, none included, but always a PATH.
+_OP_FIELDS_AT_LEAST = {
+	"int-array": 2, "float-array": 2, "bool-array": 2, "string-array": 2, "datetime-array": 2,
+	"int-array-default": 2, "float-array-default": 2, "bool-array-default": 2,
+	"string-array-default": 2, "datetime-array-default": 2,
+}
 
 
 def apply_op(doc, line):
 	f = line.split("\t")
+	# Every op but the array forms takes a fixed number of tab-separated fields.
+	# Extra ones used to be dropped, so a `raw` whose content held a literal tab
+	# lost everything after it and still reported success; the escape for a tab
+	# inside a value is `◉TAB◉`. Missing ones read as empty, so
+	# `raw<TAB>n<TAB>info` wrote an empty block (2026101407100003).
+	want = _OP_FIELDS.get(f[0])
+	if want is not None and len(f) != want:
+		raise ValueError(f"{f[0]} takes {want} tab-separated field(s), got {len(f)}")
+	least = _OP_FIELDS_AT_LEAST.get(f[0])
+	if least is not None and len(f) < least:
+		raise ValueError(f"{f[0]} takes at least {least} tab-separated field(s), got {len(f)}")
 
 	def get(i):
 		return f[i] if i < len(f) else ""
@@ -677,14 +2214,21 @@ def apply_op(doc, line):
 	path, v = get(1), get(2)
 	arr = f[2:] if len(f) > 2 else []
 	op = f[0]
+
+	def text(s):
+		try:
+			return _op_text(s)
+		except ValueError as e:
+			raise ValueError(f"cannot write {path}: {e}") from None
+
 	if op == "int":
 		wrote = doc.set_int(path, _op_int(v))
 	elif op == "float":
 		wrote = doc.set_float(path, _op_flt(v))
 	elif op == "bool":
-		wrote = doc.set_bool(path, v == "true")
+		wrote = doc.set_bool(path, _op_bool(v))
 	elif op == "string":
-		wrote = doc.set_string(path, _unescape_ops(v))
+		wrote = doc.set_string(path, text(v))
 	elif op == "datetime":
 		wrote = doc.set_datetime(path, _op_dt(v))
 	elif op == "literal":
@@ -696,9 +2240,9 @@ def apply_op(doc, line):
 	elif op == "float-default":
 		wrote = doc.set_float_default(path, _op_flt(v))
 	elif op == "bool-default":
-		wrote = doc.set_bool_default(path, v == "true")
+		wrote = doc.set_bool_default(path, _op_bool(v))
 	elif op == "string-default":
-		wrote = doc.set_string_default(path, _unescape_ops(v))
+		wrote = doc.set_string_default(path, text(v))
 	elif op == "datetime-default":
 		wrote = doc.set_datetime_default(path, _op_dt(v))
 	elif op == "int-array":
@@ -706,9 +2250,9 @@ def apply_op(doc, line):
 	elif op == "float-array":
 		wrote = doc.set_float_array(path, [_op_flt(x) for x in arr])
 	elif op == "bool-array":
-		wrote = doc.set_bool_array(path, [x == "true" for x in arr])
+		wrote = doc.set_bool_array(path, [_op_bool(x) for x in arr])
 	elif op == "string-array":
-		wrote = doc.set_string_array(path, [_unescape_ops(x) for x in arr])
+		wrote = doc.set_string_array(path, [text(x) for x in arr])
 	elif op == "datetime-array":
 		wrote = doc.set_datetime_array(path, [_op_dt(x) for x in arr])
 	elif op == "int-array-default":
@@ -716,143 +2260,247 @@ def apply_op(doc, line):
 	elif op == "float-array-default":
 		wrote = doc.set_float_array_default(path, [_op_flt(x) for x in arr])
 	elif op == "bool-array-default":
-		wrote = doc.set_bool_array_default(path, [x == "true" for x in arr])
+		wrote = doc.set_bool_array_default(path, [_op_bool(x) for x in arr])
 	elif op == "string-array-default":
-		wrote = doc.set_string_array_default(path, [_unescape_ops(x) for x in arr])
+		wrote = doc.set_string_array_default(path, [text(x) for x in arr])
 	elif op == "datetime-array-default":
 		wrote = doc.set_datetime_array_default(path, [_op_dt(x) for x in arr])
 	elif op == "raw":
-		wrote = doc.set_raw(path, _unescape_ops(get(3)), v)
+		wrote = doc.set_raw(path, text(get(3)), v)
 	elif op == "raw-default":
-		wrote = doc.set_raw_default(path, _unescape_ops(get(3)), v)
+		wrote = doc.set_raw_default(path, text(get(3)), v)
 	elif op == "empty":
 		wrote = doc.set_empty(path)
 	elif op == "comment":
-		wrote = doc.set_comment(path, v)
+		wrote = doc.set_comment(path, text(v))
+	elif op in ("remove", "clear-comments") and unusable_path(doc, path):
+		raise ValueError(f"cannot {op} {path}: {bad_path(path)}")
 	elif op == "remove":
 		doc.remove(path)
-		wrote = True
+		wrote = shcl.SetStatus.Ok
+	elif op == "clear-comments":
+		doc.clear_comments(path)
+		wrote = shcl.SetStatus.Ok
+	elif op == "banner":
+		# The second field is on or off, not a path.
+		if path not in ("on", "off"):
+			raise ValueError(f"bad banner: {path} (on or off)")
+		doc.set_banner(path == "on")
+		wrote = shcl.SetStatus.Ok
+	elif op.strip(" \r") == "":
+		# An op indented with a tab has nothing before its first tab, and the
+		# message used to name nothing (2026101514324709).
+		raise ValueError("unknown op: none before the first tab")
 	else:
 		raise ValueError(f"unknown op: {op}")
-	if not wrote:
-		raise ValueError(f"cannot write {path}")
+	if wrote is not shcl.SetStatus.Ok:
+		raise ValueError(f"cannot write {path}: {refusal(wrote, path)}")
 
 
 def do_set(o):
 	if len(o.args) != 1:
-		sys.stderr.write("set needs FILE (ops on stdin; see --help)\n")
+		sys.stderr.write("usage: shcl set [--write|-w] [options] FILE (see --help)\n")
 		return 1
 	file = o.args[0]
 	if o.write and file == "-":
 		sys.stderr.write("set --write cannot rewrite stdin; drop --write to print, or pass a FILE\n")
 		return 1
+	if o.write and not write_target_ok(file):
+		return EXIT_IO
 	# Base doc: with the edits given as options no ops script is read, so a '-'
 	# file is the document on stdin the way it is everywhere else; only when
 	# stdin is the ops script does '-' mean an empty base. Reading neither threw
 	# a piped document away at exit 0.
-	# Any --layer files sit under it and --set overrides sit on top, before ops.
 	# --write names the file this command produces, so a FILE that is not there
-	# yet is a create and the edits land in a new document. Only under --write,
+	# yet is a create and the edits go into a new document. Only under --write,
 	# and only when nothing is at the path at all: without --write there is
 	# nothing to create, and a file that exists but cannot be read is still an
 	# error rather than something to quietly write over.
+	# A created file starts out as the info block, so a new config says what
+	# format it is. Comments in an otherwise empty document are the document's
+	# trailing trivia, so the edits go above it and the write still goes
+	# through the library's save gate.
+	# The --layer files sit under it and --set overrides sit on top, before
+	# ops, through the same fold every other subcommand uses.
 	creating = o.write and file != "-" and not os.path.exists(file)
+	given = None
+	if creating:
+		given = "" if o.no_banner else shcl.GEN_BANNER
+	elif file == "-" and not o.sets:
+		given = ""
 	try:
-		layer_texts = [read_input(lf) for lf in o.layers]
-		base = "" if creating or (file == "-" and not o.sets) else read_input(file)
+		# Lines the edits leave alone are written back as they were, so a
+		# hand-kept file stays the way it was kept. A created file has none.
+		doc, read, code = load_layered_from(o, file, given, not creating)
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
-		return 1
-	layer_texts.append(base)
-	doc, code = load_doc(layer_texts[0], o.strictness)
+		return EXIT_IO
 	if doc is None:
 		return code
-	for t in layer_texts[1:]:
-		over, c = load_doc(t, o.strictness)
-		if over is None:
-			return c
-		doc.merge(over)
-	for st in o.sets:
-		if not st.apply(doc):
-			sys.stderr.write(f"shcl: cannot write {st.path} (from {st.opt()})\n")
-			return 1
-	# --set carries the edits, so stdin is left alone: reading it here would
+	# --set gives the edits, so stdin is left alone: reading it here would
 	# block on the console for anyone who passed edits as options.
 	# The ops script is contract input like the reference's read_to_string:
 	# bad bytes are a hard error, never silently replaced.
 	ops = ""
 	if not o.sets:
-		# Say so before blocking. With nothing on stdin this used to sit there
-		# silently, which reads as a hang rather than as a prompt; the note is
-		# unconditional so a pipeline and a terminal behave identically.
-		sys.stderr.write(
-			"shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n"
-		)
+		# Say so before blocking at a terminal, where nothing on stdin used to
+		# read as a hang. A pipe gets no note, since a script piping ops in
+		# knows (2026100717500018). The program-name prefix marks it as a
+		# notice; errors have none.
+		if _stdin_is_terminal():
+			sys.stderr.write(
+				"shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n"
+			)
+		# Nothing attached is an empty script, as it's an empty document, and a
+		# failed read is stdin's, not stdout's (2026101514324710).
 		try:
-			ops = sys.stdin.buffer.read().decode("utf-8")
+			raw = sys.stdin.buffer.read()
+		except OSError as e:
+			if not _stdin_unattached(e):
+				sys.stderr.write(f"stdin: {e.strerror or e}\n")
+				return EXIT_IO
+			raw = b""
+		try:
+			ops = raw.decode("utf-8")
 		except UnicodeDecodeError:
-			sys.stderr.write("stdin: invalid UTF-8\n")
-			return 1
-	for n, line in enumerate(ops.split("\n")):
+			sys.stderr.write("stdin: stream did not contain valid UTF-8\n")
+			return EXIT_IO
+	# Byte order marks off the front: Windows PowerShell 5.1 puts one or more
+	# before text it pipes to a program (20260924 item 7), and the first op
+	# then read as unknown. No op starts with one.
+	ops = ops.lstrip("\ufeff")
+	pieces = ops.split("\n")
+	for n, line in enumerate(pieces):
+		# One CR off each piece: the CR of a CRLF, or of a CRLF at EOF that lost
+		# its LF. A second one is the value's.
 		line = line[:-1] if line.endswith("\r") else line
-		if line == "" or line.startswith("#"):
+		# A line of blanks is skipped like an empty one, and blanks before a
+		# `#` still make a comment, so an indented here-doc isn't read as ops
+		# with no name (2026101407100005, 2026101419280004).
+		lead = line.lstrip(" \t\r")
+		if lead == "" or lead.startswith("#"):
 			continue
 		try:
 			apply_op(doc, line)
 		except ValueError as e:
-			sys.stderr.write(f"op line {n + 1}: {e}\n")
+			# Every op error is a usage error, so the pointer goes on here
+			# rather than on each message (2026101407100007).
+			sys.stderr.write(f"op line {n + 1}: {e} (see --help)\n")
 			return 1
 	if o.write:
-		return write_back(doc, file, o)
-	sys.stdout.write(doc.to_canonical())
+		# "Create" was decided before the wait on stdin, so a file that turned
+		# up meanwhile is refused rather than replaced.
+		if creating and os.path.exists(file):
+			sys.stderr.write(f"{file}: file exists (it appeared while the edits were read)\n")
+			return EXIT_IO
+		# The banner seeded an empty document, so the blank line above it was
+		# the document's first and the parse drops those on purpose. Put it
+		# back now that the edits sit above it, so a created file reads the
+		# way init's output does.
+		if creating and not o.no_banner:
+			text = doc.to_canonical()
+			if text.endswith(shcl.GEN_BANNER):
+				head = text[: -len(shcl.GEN_BANNER)]
+				if head and not head.endswith("\n\n"):
+					doc = shcl.Document.parse(head + "\n" + shcl.GEN_BANNER)
+		# A file that was there is read again first, for the same wait.
+		return write_back(doc, file, o, None if creating else read, not creating)
+	# `shcl set f ... > f.new && mv f.new f` is a common edit, so the print
+	# answers the way --write would: the same refusal, and the same word when
+	# the lines could not be kept. Only a print with no layers tried to keep
+	# them (2026100717500003).
+	if doc.newer_format():
+		sys.stderr.write(f"{file}: refusing to print: the document holds lines from a newer format than this reader's (see H006)\n")
+		return 7
+	text, kept = doc.to_text_keep_lines()
+	if not kept and not o.lossy and doc.lost_count() > 0:
+		sys.stderr.write(f"{file}: refusing to print: this result would delete {doc.lost_count()} line(s)/value(s) from the file (--lossy overrides)\n")
+		return 7
+	sys.stdout.write(text)
+	if not kept and not o.layers:
+		sys.stderr.write(f"{file}: printed in the canonical form; the lines could not be kept as they were\n")
 	return 0
+
+
+def schema_for(o, file, text):
+	"""The schema check validates against: --schema, else the one the file
+	names on its Schema line, read by the library's rules. A URL is left to
+	editors, since a check that reads the network because of a line in a file
+	is not one to run unattended. None when there is nothing to validate
+	against; an OSError is a schema that cannot be read."""
+	if o.schema is not None:
+		return read_input(o.schema)
+	named = shcl.read_named_schema(text, file)
+	if named.status is shcl.SchemaStatus.Good:
+		return named.text
+	if named.status in (shcl.SchemaStatus.NotFound, shcl.SchemaStatus.Empty):
+		return None
+	if named.status is shcl.SchemaStatus.Url:
+		sys.stderr.write("the file names its schema by URL (" + named.path + "), which check does not fetch; pass --schema=SCHEMA to validate against it\n")
+		return None
+	raise OSError(named.message)
 
 
 def do_check(o):
 	if len(o.args) != 1:
-		sys.stderr.write("check needs FILE (see --help)\n")
+		sys.stderr.write("usage: shcl check [options] FILE (see --help)\n")
 		return 1
 	try:
 		text = read_input(o.args[0])
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
-		return 1
+		return EXIT_IO
+	# A strict load fails and still hands back the document it recovered, which
+	# is what the library's one-shot validate walks. So the schema half runs
+	# either way: at strict a user was getting less out of check than at
+	# standard on the same file, and check writes nothing, so fmt's refusal to
+	# rewrite a strict-failing document does not apply.
 	strict_failed = False
 	try:
 		doc = shcl.Document.parse_with(text, o.strictness)
-		diags = list(doc.diagnostics())
-		# --schema: append validation diagnostics under the same contract. The
-		# schema itself always loads at Standard (a program artifact); one that
-		# does not load cleanly is a single V099 schema fault.
-		if o.schema is not None:
-			try:
-				stext = read_input(o.schema)
-			except (OSError, ValueError) as e:
-				sys.stderr.write(str(e) + "\n")
-				return 1
-			sdoc = shcl.Document.parse(stext)
-			if any(sd.severity == shcl.Severity.Error for sd in sdoc.diagnostics()):
-				for sd in sdoc.diagnostics():
-					sys.stderr.write(f"schema line {sd.line}: {sd.severity.name}: {sd.message}\n")
-				diags.append(shcl.Diagnostic(0, shcl.Severity.Error, "schema failed to load", "V099"))
-			else:
-				diags.extend(doc.validate(sdoc))
-				shcl.suppress_declared_repeats(sdoc, diags)
-				shcl.suppress_declared_reopens(sdoc, diags)
 	except shcl.LoadError as le:
-		diags = le.diagnostics
+		# The library always attaches the recovered document; the type allows
+		# None for a caller building one by hand, so fall back to an empty
+		# document rather than put an assert into the CLI.
+		doc = le.document if le.document is not None else shcl.Document.parse("")
 		strict_failed = True
-	# stdout carries the stable codes - the cross-binding contract. The prose is
+	diags = list(doc.diagnostics())
+	# --schema: append validation diagnostics under the same contract. The
+	# schema itself always loads at Standard (a program artifact); one that
+	# does not load cleanly is a single V099 schema fault.
+	try:
+		stext = schema_for(o, o.args[0], text)
+	except (OSError, ValueError) as e:
+		sys.stderr.write(str(e) + "\n")
+		return EXIT_IO
+	if stext is not None:
+		sdoc = shcl.Document.parse(stext)
+		if any(sd.severity == shcl.Severity.Error for sd in sdoc.diagnostics()):
+			for sd in sdoc.diagnostics():
+				sys.stderr.write(f"schema {shcl.format_diagnostic(sd)}\n")
+			diags.append(shcl.Diagnostic(0, shcl.Severity.Error, "schema failed to load", "V099"))
+		else:
+			# The schema's own load has something to say too: an H001 on a
+			# repeated `allowed` is what explains the V092 below it. On
+			# stderr with the schema's own line numbers, the way a V099's
+			# are - stdout is the code contract.
+			for sd in sdoc.diagnostics():
+				sys.stderr.write(f"schema {shcl.format_diagnostic(sd)}\n")
+			diags.extend(doc.validate(sdoc))
+			shcl.suppress_declared_repeats(sdoc, diags)
+			shcl.suppress_declared_reopens(sdoc, diags)
+	# stdout gets the stable codes - the cross-binding contract. The prose is
 	# per-binding voice and goes to stderr (which the differential check drops).
-	# A V090-V093 line number is a SCHEMA line (the code table says so); the
+	# A V090-V095 line number is a SCHEMA line (the code table says so); the
 	# prose names the file so the two number spaces cannot be confused.
-	errors = 0
 	for d in diags:
 		print(f"line {d.line}: {d.severity.name}: {d.code}")
-		space = "schema line" if d.code.startswith("V09") and d.code != "V099" else "line"
-		sys.stderr.write(f"{space} {d.line}: {d.severity.name}: {d.message}\n")
-		if d.severity == shcl.Severity.Error:
-			errors += 1
+	say_diagnostics(diags)
+	# The codes are the portable half of a diagnostic and nothing else on screen
+	# says where to look one up.
+	if diags:
+		sys.stderr.write("(run 'shcl explain CODE' for the rule behind a code)\n")
+	errors = sum(1 for d in diags if d.severity == shcl.Severity.Error)
 	if strict_failed:
 		print(f"strict load failed: {len(diags)} diagnostic(s)")
 		return 6
@@ -875,44 +2523,153 @@ def do_init(o):
 		stext = read_input(o.schema)
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
-		return 1
+		return EXIT_IO
 	# The schema always loads at Standard - a program artifact, not user data.
 	sdoc = shcl.Document.parse(stext)
 	if any(d.severity == shcl.Severity.Error for d in sdoc.diagnostics()):
 		for d in sdoc.diagnostics():
-			sys.stderr.write(f"schema line {d.line}: {d.severity.name}: {d.message}\n")
+			sys.stderr.write(f"schema {shcl.format_diagnostic(d)}\n")
 		sys.stderr.write("init: schema failed to load\n")
 		# A broken schema is a config-semantics failure, not a usage error:
 		# same exit as `check --schema` reporting it.
 		return 6
 	text, faults = shcl.generate(sdoc, o.no_banner)
 	if faults:
-		for d in faults:
-			sys.stderr.write(f"schema line {d.line}: {d.severity.name}: {d.message}\n")
+		say_diagnostics(faults)
 		sys.stderr.write("init: schema has faults\n")
 		return 6
 	sys.stdout.write(text)
 	return 0
 
 
+def one_line(v):
+	"""A value for a one-per-line listing. instances promises one line per
+	instance, and a value holding a line break broke that, so a caller splitting
+	on newlines counted more instances than count reports. Only such a value
+	changes. It comes out quoted with the writer's escapes, "a◉NEWLINE◉b", as
+	init writes a default. A line break is never bare in a name either, so
+	quote_segment gives exactly that."""
+	if "\n" not in v and "\r" not in v:
+		return v
+	return shcl.quote_segment(v)
+
+
 def do_enum(o, want_count):
 	if len(o.args) != 2:
-		sys.stderr.write("count/instances need FILE and PATH (see --help)\n")
+		name = "count" if want_count else "instances"
+		sys.stderr.write(f"usage: shcl {name} [options] FILE PATH (see --help)\n")
 		return 1
 	file, path = o.args[0], o.args[1]
+	if refuse_read_path(path):
+		return 1
 	try:
 		doc, code = load_layered(o, file)
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
-		return 1
+		return EXIT_IO
 	if doc is None:
 		return code
 	if want_count:
 		print(doc.count(path))
+	elif o.json or o.paths:
+		for f in doc.read_fields(path).value:
+			if o.json:
+				print(json_line(f.path, None, f.value, f.line, None))
+			else:
+				print(f.path)
 	else:
 		for v in doc.instances(path):
-			print(v)
+			print(one_line(v))
 	return 0
+
+
+def json_line(path, name, value, line, st):
+	"""One line of --json output. The keys always come in this order, and only
+	what JSON requires is escaped, the way `jq -c` writes it, so the four CLIs
+	agree byte for byte and a line run through `jq -c .` comes back the same."""
+	out = ['{"path":']
+	push_json(out, path)
+	if name is not None:
+		out.append(',"name":')
+		push_json(out, name)
+	out.append(',"value":')
+	push_json(out, value)
+	out.append(f',"line":{line}')
+	if st is not None:
+		out.append(f',"status":"{st.name}"')
+	out.append("}")
+	return "".join(out)
+
+
+_JSON_SHORT = {'"': '\\"', "\\": "\\\\", "\n": "\\n", "\r": "\\r", "\t": "\\t", "\b": "\\b", "\f": "\\f"}
+
+
+def push_json(out, s):
+	out.append('"')
+	for c in s:
+		if c in _JSON_SHORT:
+			out.append(_JSON_SHORT[c])
+		elif c < " " or c == "\x7f":
+			out.append(f"\\u{ord(c):04x}")
+		else:
+			out.append(c)
+	out.append('"')
+
+
+def do_children(o):
+	# Child field names under a path, one per line, in file order and with
+	# duplicates kept. PATH may be left out to enumerate the top level. Each name
+	# comes out in the form a path accepts, so one holding a dot or a quote
+	# splices back into a path with no further work.
+	if len(o.args) == 1:
+		file, path = o.args[0], ""
+	elif len(o.args) == 2:
+		file, path = o.args[0], o.args[1]
+	else:
+		sys.stderr.write("usage: shcl children [options] FILE [PATH] (see --help)\n")
+		return 1
+	# The empty path is the top level here, as the library documents it.
+	if path != "" and refuse_read_path(path):
+		return 1
+	try:
+		doc, code = load_layered(o, file)
+	except (OSError, ValueError) as e:
+		sys.stderr.write(str(e) + "\n")
+		return EXIT_IO
+	if doc is None:
+		return code
+	if o.json:
+		for f in doc.read_child_fields(path).value:
+			print(json_line(f.path, f.name, f.value, f.line, None))
+		return 0
+	for name in doc.children(path):
+		print(shcl.quote_segment(name))
+	return 0
+
+
+def do_paths(o):
+	# Every field path in the document, one per line, in file order and
+	# deduplicated - the whole-document counterpart of do_children.
+	if len(o.args) != 1:
+		sys.stderr.write("usage: shcl paths [options] FILE (see --help)\n")
+		return 1
+	try:
+		doc, code = load_layered(o, o.args[0])
+	except (OSError, ValueError) as e:
+		sys.stderr.write(str(e) + "\n")
+		return EXIT_IO
+	if doc is None:
+		return code
+	if o.json:
+		for f in doc.fields():
+			print(json_line(f.path, None, f.value, f.line, None))
+		return 0
+	for p in doc.paths():
+		print(p)
+	return 0
+
+
+COMMANDS = ("get", "set", "fmt", "check", "init", "count", "instances", "children", "paths", "migrate", "upgrade", "tokens", "explain")
 
 
 def run(argv):
@@ -925,34 +2682,65 @@ def run(argv):
 			sys.stderr.write("invalid argument encoding (expected UTF-8)\n")
 			return 1
 	asked = asked_for(argv)
-	# One convention: asking for the help - by name, by flag, or by asking for
-	# nothing at all - prints it and succeeds. The blank lines separate the
-	# block from the surrounding prompts. A bare run used to print the same
-	# text unpadded and exit 1, which read as neither a help nor an error.
-	if not argv:
-		sys.stdout.write("\n" + HELP + "\n")
+	# Asking for nothing at all asks for the help, and so does the `help` word,
+	# which comes first on the line when it is there.
+	if (not argv or argv[0] == "help") and "help" not in asked:
+		asked.insert(0, "help")
+	# One convention: each output asked for prints once, in the order asked,
+	# and the run succeeds. Blank lines go before, between and after, to set
+	# the text off from the prompts around it. A lone --version is what a
+	# script reads, so it goes out bare.
+	if asked:
+		blocks = []
+		for want in asked:
+			if want == "help":
+				topic, code = help_topic(argv)
+				if code:
+					return code
+				blocks.append(HELP if topic is None else help_for(topic))
+			elif want == "version":
+				blocks.append(VERSION_TEXT)
+			elif want == "about":
+				blocks.append(ABOUT)
+			else:
+				blocks.append(DONATE)
+		if asked == ["version"]:
+			sys.stdout.write(VERSION_TEXT)
+		else:
+			sys.stdout.write("\n" + "\n".join(blocks) + "\n")
 		return 0
-	if asked == "help" or argv[0] == "help":
-		sys.stdout.write("\n" + HELP + "\n")
-		return 0
-	if asked == "version" or argv[0] == "version":
-		print(f"shcl {VERSION}")
-		return 0
-	if asked == "about" or argv[0] == "about":
-		sys.stdout.write("\n" + ABOUT + "\n")
-		return 0
-	if asked == "donate" or argv[0] == "donate":
-		sys.stdout.write("\n" + DONATE + "\n")
-		return 0
+	cmd = argv[0]
+	if cmd not in COMMANDS:
+		# Before the options are judged, so a typo in the command is reported
+		# as that and not as an option the wrong command cannot take.
+		if cmd.startswith("-") and cmd != "--":
+			name = cmd.split("=")[0]
+			if known_option(name):
+				# It is a real option, just in front of the subcommand. Calling
+				# it unknown and then suggesting the same spelling back says
+				# nothing about what is actually wrong.
+				sys.stderr.write(f"option {name} goes after the subcommand (see --help)\n")
+			else:
+				sys.stderr.write(f"unknown option: {cmd}{suggest(option_names(), name)} (see --help)\n")
+		else:
+			sys.stderr.write(f"unknown command: {cmd}{suggest(command_names(), cmd)} (see --help)\n")
+		return 1
 	try:
 		o = parse_opts(argv[1:])
 	except ValueError as e:
 		sys.stderr.write(str(e) + "\n")
 		return 1
-	cmd = argv[0]
 	code = check_opts(cmd, o)
 	if code is not None:
 		return code
+	# A value option in space form takes the next word, so `check --schema FILE`
+	# leaves no FILE and the usage line alone never says where it went. Judged
+	# after the options, so an option the command does not take is named as
+	# that. init and explain want no FILE.
+	if cmd not in ("init", "explain") and not o.args and o.swallowed is not None:
+		name, value = o.swallowed
+		sys.stderr.write(f"option {name} took '{value}' as its value, so no FILE is left; write it {name}=VALUE\n")
+		return 1
 	if cmd == "get":
 		return do_get(o)
 	if cmd == "set":
@@ -967,7 +2755,23 @@ def run(argv):
 		return do_enum(o, True)
 	if cmd == "instances":
 		return do_enum(o, False)
-	sys.stderr.write(f"unknown command: {cmd} (see --help)\n")
+	if cmd == "children":
+		return do_children(o)
+	if cmd == "paths":
+		return do_paths(o)
+	if cmd == "migrate":
+		return do_migrate(o)
+	if cmd == "upgrade":
+		return do_upgrade(o)
+	if cmd == "tokens":
+		return do_tokens(o)
+	if cmd == "explain":
+		return do_explain(o)
+	# A refusal rather than a fall-through: with one, adding a name to COMMANDS
+	# without adding a branch here quietly ran whichever command the last line
+	# named, with no message. run() gates on COMMANDS first, so this is only
+	# reachable through that mistake.
+	sys.stderr.write(f"{cmd}: no dispatch arm (see --help)\n")
 	return 1
 
 
@@ -978,7 +2782,39 @@ def main():
 	# the other bindings; no BrokenPipeError to catch.
 	if hasattr(signal, "SIGPIPE"):
 		signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-	return run(sys.argv[1:])
+	# A standard stream that was closed before the start (fmt - <&-, fmt FILE
+	# >&-) is None here. The reference reads such a stdin as empty and drops
+	# what it writes to such a stdout or stderr, so each gets the same: an
+	# empty document in, a sink for the output. The stdin one is a text stream
+	# so the .buffer reads below find one.
+	if sys.stdin is None:
+		sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115
+	if sys.stdout is None:
+		sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+	if sys.stderr is None:
+		sys.stderr = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+	# Output is UTF-8 and LF on every platform, as the reference writes it:
+	# the text streams take the locale's encoding, and translate \n to \r\n on
+	# windows, unless told not to. stdin is read through .buffer everywhere,
+	# so it never decodes or translates. A stream that cannot be reconfigured
+	# (replaced, or not a text stream) is left alone.
+	for stream in (sys.stdout, sys.stderr):
+		reconfigure = getattr(stream, "reconfigure", None)
+		if reconfigure is not None:
+			try:
+				reconfigure(encoding="utf-8", newline="\n")
+			except (ValueError, OSError):
+				# A stream that can't be reconfigured keeps its own settings.
+				pass
+	sys.stderr = _BestEffort(sys.stderr)
+	try:
+		code = run(sys.argv[1:])
+		# A tail still sitting in the buffer when the work is done fails the
+		# same way a write does.
+		sys.stdout.flush()
+	except OSError as e:
+		return write_failed(e)
+	return code
 
 
 if __name__ == "__main__":

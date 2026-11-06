@@ -1,0 +1,6 @@
+# head
+base: 1
+s:
+	p: 1
+c: 0
+# foot

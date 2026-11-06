@@ -1,0 +1,20 @@
+# Two wildcards in one path: every child of every instance.
+server: alpha
+	port: 8080
+	host: a.example
+server: beta
+	port: 9090
+server: gamma
+
+pool: p
+	a: 1
+	a: 2
+
+agg: one
+	v: 1
+agg: two
+	v:
+agg: three
+agg: four
+	v: notanint
+	v: alsonot

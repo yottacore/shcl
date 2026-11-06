@@ -1,0 +1,3 @@
+query	type	expected	status
+db.port	int	5432	Good
+db	count	1	Good

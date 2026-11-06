@@ -1,0 +1,3 @@
+query	type	expected	status
+root.mode	string	fast	Good
+other	int	1	Good

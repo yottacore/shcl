@@ -1,0 +1,910 @@
+#!/usr/bin/env bash
+
+#  shellcheck disable=2155  ## 'Declare and assign separately.' Cumbersome and unnecessary here.
+
+##	Purpose:
+##		The migration gate: for every corpus input and every fuzz-dumped
+##		document, the current parser's reading of `migrate`'s output equals the
+##		2.x parser's reading of the original. Read, not canonical text: the two
+##		emitters write a value differently on purpose (single quotes for a
+##		backslash, no `\'`), so the trees are compared through the reads - the
+##		path list, the instance count at every path, and each instance's
+##		string array, raw body and info string. A path is compared by its
+##		names, each read back by the rules of the CLI that printed it. The
+##		2.x side is a build of the last pre-cut dev commit, pinned below by
+##		hash and built into its own gitignored target the way the pre-push
+##		gate builds, so the comparison never rests on whatever `shcl` is on
+##		PATH.
+##
+##		Compared is what 2.x read cleanly. A line it kept as malformed may read
+##		as a binding now, which is a gain, not a migration; a bracket array it
+##		counted lost was refused by 2.x itself; a dropped line of any kind says
+##		nothing. So those lines come out of the document first, and the rest is
+##		compared, as long as 2.x then reads it cleanly. Four more kinds of line
+##		come out the same way: a fence label holding a `#`, which 2.x ran to
+##		the end of the line and which ends at the `#` now, with no quoting to
+##		write it; a carriage return in the middle of a line, which 2.x kept
+##		as content and which is a blank at a piece's edge now; a quote in
+##		the middle of a value piece that closes past a comma or a `#`, which
+##		2.0 read as one piece and the pinned build cut there; and a blank
+##		other than a space, a tab or a CR at a value piece's edge, such as a
+##		no-break space, which 2.0 trimmed and the pinned build kept. These
+##		are found in the 2.x text, never in migrate's output. Each is
+##		asserted on a corpus case, so the list cannot rot. A backslash pair
+##		2.x read as an escape is written as the text 2.x read, so reads
+##		compare exactly.
+##
+##		A compared document also has to migrate at exit 0, unless 2.x read a
+##		raw block that never closes: the Format line would be more of its body,
+##		so migrate refuses that file at 7, and has to. Some lines 2.x read
+##		cleanly have no spelling now either (fLostNow), and come out too. A
+##		document whose only unclean lines are those or bracket arrays has to
+##		be refused over exactly that many lost lines. The corpus half has its
+##		own floor, since the fuzz dump alone can meet the overall one, and so
+##		does the fuzz half, since the corpus alone can meet it too.
+##
+##		Each compared document also goes through `upgrade --write`, with and
+##		without --from-2x. A rewrite leaves the original bytes under the dated
+##		backup name, and a fresh file that loads clean, has the info block
+##		once, reads as the migrated text, and is left alone by a second run.
+##		A file left alone keeps its bytes. One naming format 3 is left alone
+##		too, unless --from-2x vouches for it and it loads with an error. Then
+##		it converts when the fresh file loads clean, and is refused at 7 when
+##		that would keep an error.
+##
+##		A document that names format 3 is not a 2.x file. It is checked for
+##		being left as written by migrate, and by upgrade but for that one case,
+##		and is not compared with 2.x (fNamesFormat3, asserted on a corpus
+##		case).
+##	Syntax:
+##		check-migrate.bash [--corpus DIR] [--iters N] [--min N] [--min-corpus N] [--min-fuzz N]
+##		  --corpus DIR  conformance corpus root (default project/conformance)
+##		  --iters N     fuzz iterations to dump (default 2000)
+##		  --min N       fail unless at least N documents were compared (default 100)
+##		  --min-corpus N  and at least N of them corpus cases (default 80)
+##		  --min-fuzz N  and at least N of them fuzz-dumped (default 200)
+##	Exit: 0 = every compared document equal, 1 = a divergence, 2 = usage or a build failure.
+##	History: At bottom of script.
+
+##	Copyright (c) 2026 Bubbles
+##	Licensed under The MIT License (MIT). Full text at:
+##		https://mit-license.org/
+##	SPDX-License-Identifier: MIT
+
+
+set -Eeuo pipefail
+
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/safe-rm.bash"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/frozen-tree.bash"
+testWhere=check-migrate; testCounter=nBad
+
+meDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd -- "${meDir}/../.." && pwd)"
+corpus="${root}/project/conformance"; declare -i iters=2000 minCompared=100 minCorpus=80 minFuzz=200
+while (($#)); do case "$1" in
+	--corpus)  corpus="${2:-}"; shift 2 ;;
+	--iters)   iters="${2:-2000}"; shift 2 ;;
+	--min)     minCompared="${2:-100}"; shift 2 ;;
+	--min-corpus) minCorpus="${2:-80}"; shift 2 ;;
+	--min-fuzz) minFuzz="${2:-200}"; shift 2 ;;
+	-h|--help) grep -E '^##' "$0" | sed 's/^##\t\?//'; exit 0 ;;
+	*)         echo "check-migrate: unknown argument: $1" >&2; exit 2 ;;
+esac; done
+[[ -d "${corpus}" ]] || { echo "check-migrate: no corpus dir: ${corpus}" >&2; exit 2; }
+
+##	The last dev commit before the lexical cut: the funnel merge.
+pin="7be348d0de309ead4cba9f2fa28650b48b320519"
+if ! git -C "${root}" cat-file -e "${pin}^{commit}" 2>/dev/null; then
+	## A shallow clone (the hosted runner) has no history; a full sha can still
+	## be fetched on its own.
+	git -C "${root}" fetch --depth=1 origin "${pin}" >/dev/null 2>&1 || true
+	git -C "${root}" cat-file -e "${pin}^{commit}" 2>/dev/null \
+		|| { echo "check-migrate: the pinned 2.x commit ${pin:0:12} is not in this clone" >&2; exit 2; }
+fi
+
+tmpDir=''; fSafeTmpDir tmpDir; tree=""
+fCleanup(){
+	##	Never prune: in the image only this tree is mounted, so every other
+	##	worktree reads as gone and loses its entry (2026102021300000).
+	if [[ -n "${tree}" ]]; then fFrozenRemove "${root}" "${tree}" || true; fi
+	fSafeRm "${tmpDir}"
+}
+trap fCleanup EXIT
+
+##	Build the 2.x CLI once per pin; the target dir keeps it across runs.
+oldTarget="${root}/source/rust/target-migrate"
+oldCli="${oldTarget}/debug/shcl"
+if [[ ! -x "${oldCli}" || "$(cat "${oldTarget}/.pin" 2>/dev/null || true)" != "${pin}" ]]; then
+	echo "check-migrate: building the 2.x reference at ${pin:0:12}"
+	tree="${tmpDir}/tree"
+	fFrozenAdd "${root}" "${tree}" "${pin}" 2>/dev/null \
+		|| { echo "check-migrate: cannot check ${pin:0:12} out" >&2; exit 2; }
+	fFrozenLink "${root}" "${tree}" source/rust/target "${oldTarget}"
+	( cd "${tree}/source/rust" && cargo build --quiet ) || { echo "check-migrate: the 2.x build failed" >&2; exit 2; }
+	printf '%s\n' "${pin}" > "${oldTarget}/.pin"
+	fCleanup; tree=""; tmpDir=''; fSafeTmpDir tmpDir
+fi
+newCli="${root}/source/rust/target/debug/shcl"
+[[ -x "${newCli}" ]] || ( cd "${root}/source/rust" && cargo build --quiet )
+
+##	The soup, from the current fuzz generator.
+dump="${tmpDir}/dump"; mkdir -p "${dump}"
+( cd "${root}/source/rust" && SHCL_FUZZ_DUMP="${dump}" SHCL_FUZZ_ITERS="${iters}" SHCL_FUZZ_DUMP_MAX=500 \
+	cargo test --quiet --test fuzz_smoke mutated_inputs >/dev/null 2>&1 ) || { echo "check-migrate: the fuzz dump failed" >&2; exit 2; }
+##	A test filter that matches nothing passes and writes nothing, and the corpus
+##	alone meets the overall floor, so an empty dump has to be caught here.
+nDumped="$(find "${dump}" -maxdepth 1 -name '*.shcl' | wc -l)"
+((nDumped > 0)) || { echo "check-migrate: the fuzz dump wrote no documents" >&2; exit 2; }
+
+##	The corpus spells a selector in parens now, which 2.x refuses, so each
+##	input that has one is also compared as 2.x wrote it, in brackets. Any
+##	text will do as a 2.x document, so a paren pair is swapped wherever it
+##	follows a name, raw bodies and values included. An input that names
+##	format 3 is current to migrate, which leaves it as written, so it gets no
+##	copy.
+brackets="${tmpDir}/brackets"; mkdir -p "${brackets}"
+python3 -c '
+import os, re, sys
+out = sys.argv[1]
+for f in sys.argv[2:]:
+	text = open(f, "rb").read().decode("utf-8", "surrogateescape")
+	swapped = re.sub(r"(?<=[A-Za-z0-9_\x27\"-])\(([^()\r\n]*)\)", r"[\1]", text)
+	if swapped != text and not re.search(r"^##[ \t]+Format[ \t]+[3-9]", text, re.M):
+		name = os.path.basename(os.path.dirname(f))
+		open(os.path.join(out, "brackets_" + name + ".shcl"), "wb").write(swapped.encode("utf-8", "surrogateescape"))
+' "${brackets}" "${corpus}"/*/input.shcl
+
+##	The lines 2.x did not read cleanly, by number. A line is clean when every
+##	code 2.x reports on it binds the line: E005 (fence unterminated, body
+##	kept), E015 (repaired), E017 (kept literally), the two hints, and E019 as a
+##	hint, which is the `name:[x]` sugar read as `name: x`. E019 as an error is
+##	the bracket array. 2.x bound an E001 field too, but the field under the
+##	items is kept and binds nothing now (2026102307143752), so that line is
+##	not clean. Read from what 2.x's `check` printed, so one run of it serves
+##	every question asked of the same bytes.
+fCheck2x(){ "${oldCli}" check "$1" 2>/dev/null || true; }
+##	The current rules' diagnostics on a load. The empty schema keeps `check`
+##	off the file's Schema line, since one naming a missing file exits 8 with
+##	no diagnostics (2026102322233656). 2.x's `check` reads no Schema line,
+##	and neither does `upgrade` or `migrate`.
+fCheckNew(){ "${newCli}" check --schema=/dev/null "$1" 2>/dev/null || true; }
+fUnclean2x(){
+	awk '$1 == "line" {
+		if ($4 ~ /^(E005|E015|E017|H001|H002)$/ || ($4 == "E019" && $3 == "Hint:")) next
+		sub(/:$/, "", $2); print $2 }'
+}
+
+##	The string array goes through `--slots`, one status and one line per element.
+##	2.x prints an element holding a line break as it is, over several lines, and
+##	the current CLI writes it on one, quoted with escapes. The 2.x side is put
+##	back together at each status, and such an element is written by the
+##	current CLI through `--set`, which takes the text as data, so both sides
+##	are spelled by the one writer.
+fOneLine2x(){
+	local line text
+	awk '
+	function put() { if (!have) return; if (v ~ /[\n\r]/) { gsub(/\n/, "\004", v); gsub(/\r/, "\005", v); s = "\003" s } print s "\t" v }
+	/^(Good|Empty|NotFound|BadType|Multiple)\t/ { put(); i = index($0, "\t"); s = substr($0, 1, i - 1); v = substr($0, i + 1); have = 1; next }
+	{ v = v "\n" $0 }
+	END { put() }' | while IFS= read -r line; do
+		if [[ "${line}" != $'\003'* ]]; then printf '%s\n' "${line}"; continue; fi
+		text="${line#*$'\t'}"; text="${text//$'\004'/$'\n'}"; text="${text//$'\005'/$'\r'}"
+		line="${line%%$'\t'*}"
+		text="$("${newCli}" get --string --array --slots --set "v=${text}" - v </dev/null 2>/dev/null || true)"
+		printf '%s\t%s\n' "${line#$'\003'}" "${text#*$'\t'}"
+	done
+}
+
+##	The two CLIs spell a quoted name each by its own rules: 2.x with
+##	backslash escapes, the current one with `◉` escapes and either quote. So
+##	each path is read back to its names, by the rules of the CLI that printed
+##	it, and written one way for both: a bare name as it is, any other in
+##	guillemets, with a character that would not show as %HEX;. fReadTree
+##	marks the lines that hold a path, \x01P before a path line and \x01C
+##	before a count line's path, then a tab and the rest. The escape names
+##	come from gen-escapes.py, so no copy of the list lives here.
+fLogicalPaths(){ python3 -c '
+import importlib.util, re, sys
+side = sys.argv[1]
+spec = importlib.util.spec_from_file_location("gen_escapes", sys.argv[2])
+gen = importlib.util.module_from_spec(spec); spec.loader.exec_module(gen)
+names = {n.upper(): v for n, v in gen.ESCAPE_NAMES}
+mark = chr(gen.ESCAPE_MARK)
+def mark_name(m):
+	n = m.group(1).upper()
+	if n in names:
+		return names[n]
+	for pre in gen.CODE_PREFIXES:
+		if n.startswith(pre) and re.fullmatch(r"[0-9A-F]{1,6}", n[len(pre):]):
+			return chr(int(n[len(pre):], 16))
+	return m.group(0)
+unescape = {"t": "\t", "n": "\n"}
+def read_name(s, i):
+	q = s[i]
+	if side == "2x":
+		j, out = i + 1, []
+		while j < len(s) and s[j] != q:
+			if s[j] == "\\" and j + 1 < len(s):
+				out.append(unescape.get(s[j + 1], s[j + 1])); j += 2
+			else:
+				out.append(s[j]); j += 1
+		return "".join(out), j + 1
+	j = s.find(q, i + 1)
+	j = len(s) if j < 0 else j
+	return re.sub(mark + r"([^" + mark + r"]*)" + mark, mark_name, s[i + 1:j]), j + 1
+def show(name):
+	if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name):
+		return name
+	return "\u00ab" + "".join(c if c.isprintable() and c not in "%\u00ab\u00bb" else "%%%X;" % ord(c) for c in name) + "\u00bb"
+def logical(path):
+	out, i = [], 0
+	while i < len(path):
+		if path[i] in "\"\x27":
+			name, i = read_name(path, i)
+			out.append(show(name))
+		elif path[i] in ".[":
+			k = path.find("]", i) + 1 if path[i] == "[" else i + 1
+			k = len(path) if k <= i else k
+			out.append(path[i:k]); i = k
+		else:
+			k = i
+			while k < len(path) and path[k] not in ".[":
+				k += 1
+			out.append(show(path[i:k])); i = k
+	return "".join(out)
+for line in sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\n"):
+	if line.startswith("\x01P\t"):
+		line = logical(line[3:])
+	elif line.startswith("\x01C\t"):
+		path, _, n = line[3:].partition("\t")
+		line = "count " + logical(path) + " = " + n
+	sys.stdout.buffer.write((line + "\n").encode("utf-8", "surrogateescape"))
+' "$1" "${meDir}/gen-escapes.py"; }
+
+##	Everything a tree is, read through one CLI: the paths, the count at each,
+##	and per instance the string array, the raw body and the info string, with
+##	the exit codes, one line per read. A path holding a tab cannot ride the
+##	loop; those are left to the native runners. A path goes after `--`, since
+##	one led by `-` would read as an option. An instance is `[#N]` to 2.x and
+##	`(N)` now.
+fReadTree(){
+	local cli="$1" doc="$2" p n i q rc side=now
+	if [[ "${cli}" == "${oldCli}" ]]; then side=2x; fi
+	{
+		rc=0; "${cli}" paths "${doc}" > "${tmpDir}/paths" 2>/dev/null || rc=$?
+		sed $'s/^/\x01P\t/' "${tmpDir}/paths"
+		((rc == 0)) || echo "paths exit ${rc}"
+		while IFS= read -r p; do
+			[[ -n "${p}" && "${p}" != *$'\t'* ]] || continue
+			n="$("${cli}" count "${doc}" -- "${p}" 2>/dev/null || true)"
+			printf '\x01C\t%s\t%s\n' "${p}" "${n}"
+			[[ "${n}" =~ ^[0-9]+$ ]] || continue
+			for ((i = 0; i < n; i++)); do
+				if [[ "${side}" == 2x ]]; then q="${p}[#${i}]"; else q="${p}(${i})"; fi
+				rc=0; "${cli}" get --string --array --slots "${doc}" -- "${q}" > "${tmpDir}/array" 2>/dev/null || rc=$?
+				if [[ "${side}" == 2x ]]; then fOneLine2x < "${tmpDir}/array"; else cat "${tmpDir}/array"; fi
+				[[ "${rc}" == 0 ]] || echo "string exit ${rc}"
+				"${cli}" get --raw "${doc}" -- "${q}" 2>/dev/null || echo "raw exit $?"
+				"${cli}" get --rawinfo "${doc}" -- "${q}" 2>/dev/null || echo "rawinfo exit $?"
+			done
+		done < "${tmpDir}/paths"
+	} | fLogicalPaths "${side}"
+}
+
+##	One read answers differently by decision rather than by migration: the info
+##	string of an empty binding was BadType in 2.x and is Empty now, matching the
+##	raw-content read on the same node. The two reads sit next to each other in
+##	the tree above, so the 2.x side's answer is brought forward here rather than
+##	dropping the info string from the comparison entirely.
+##	Each read prints its (empty) value before its status line, so the raw status
+##	sits two lines back.
+fAge2xReads(){ awk '$0 == "rawinfo exit 4" && prev == "" && prev2 == "raw exit 2" { $0 = "rawinfo exit 2" } { print; prev2 = prev; prev = $0 }'; }
+
+##	A NUL-bearing document cannot ride a command substitution; the native
+##	runners pin those.
+fHasNul(){ IFS= read -r -d '' _ <"$1"; }
+
+##	A 2.x fence label with a `#` has no spelling here at all: the `#` opens
+##	the line's comment now, and nothing quotes a label. So `migrate` leaves the
+##	line as written and the reading differs by design. Matched on the text
+##	rather than by file name, because a fuzz document's number moves every time
+##	the corpus grows.
+fInfoHashLabel(){ grep -qE '(```|~~~)[^#]*#' "$1"; }
+
+##	A carriage return with more text after it on its line. At a piece's edge it
+##	was content to 2.x and is trimmed now; in the middle of a piece it reads the
+##	same either way, and the corpus pins that, so matching loosely costs little.
+fCrMidLine(){ grep -q $'\r[^\r]' "$1"; }
+
+##	2.x read the body of a raw block that never closes to the end of the file
+##	(E005, a clean code above). Asked of 2.x, not of migrate's output.
+fRawOpen2x(){ awk '$1 == "line" && $4 == "E005" { found = 1 } END { exit !found }' <<<"$(fCheck2x "$1")"; }
+
+##	An indent 2.x placed and the current rules do not. A decrease has to return
+##	to the exact column of an ancestor now, so a tab followed by a space-tab, or
+##	by two spaces, bound in 2.x and is `E012` here. `migrate` rewrites spellings
+##	and not layout, so the line is left as written and the reading differs by
+##	design. Nothing is damaged quietly: a load that dropped the line makes
+##	`migrate --write` and `fmt --write` refuse at exit 7. Asked of the current
+##	parser rather than matched on the text, since what counts is the column the
+##	indent falls on and not which characters make it up.
+fUnplaced(){
+	fCheckNew "$1" | awk '$1 == "line" && $4 == "E012" { sub(/:$/, "", $2); print $2 }'
+}
+
+##	Lines 2.x read cleanly that nothing spells now, so migrate counts them
+##	lost and refuses: a selector holding a bare comma, which 2.x matched
+##	against an array value by its display form; a quoted name with a
+##	backslash pair, which 1.2 read as typed and 2.0 resolved; and a comma
+##	list on a field with lines under it, which is E028 in brackets and
+##	another value as one string. The first two are found in the 2.x text,
+##	read the way 2.x reads a path: a backslash shields the next character,
+##	and `name:[x]` is a selector too. A raw body is passed over, its block
+##	opened by a fence run after the path's colon or at the start of a line.
+##	The third is asked of the current parser on migrate's output, and kept
+##	only where the 2.x line has a comma.
+fLostNow(){
+	python3 -c '
+import re, sys
+text = open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape")
+fence = None
+def opens(v):
+	m = re.match(r"(`{3,}|~{3,})", v.lstrip(" \t"))
+	return (m.group(1)[0], len(m.group(1))) if m else None
+for n, line in enumerate(text.split("\n"), 1):
+	s, i = line.strip(" \t\r"), 0
+	if fence:
+		if len(s) >= fence[1] and s == fence[0] * len(s):
+			fence = None
+		continue
+	fence = opens(s)
+	while not fence and i < len(s):
+		if s[i] in "\"\x27":
+			q, j = s[i], i + 1
+			while j < len(s) and s[j] != q:
+				j += 2 if s[j] == "\\" else 1
+			if re.search(r"\\[tn\\\x27\"]", s[i + 1:j]):
+				print(n)
+				break
+			i = j + 1
+		else:
+			m = re.match(r"[A-Za-z0-9_-]+", s[i:])
+			if not m:
+				break
+			i += m.end()
+		m = re.match(r"[ \t]*:?[ \t]*\[", s[i:])
+		if m:
+			i += m.end()
+			body = re.match(r"[ \t]*[^\"\x27 \t\]]", s[i:])
+			commas = 0
+			while i < len(s) and s[i] != "]":
+				commas += s[i] == ","
+				i += 2 if s[i] == "\\" else 1
+			if body and commas and i < len(s):
+				print(n)
+				break
+			i += 1
+		m = re.match(r"[ \t]*\.[ \t]*", s[i:])
+		if not m:
+			rest = s[i:].lstrip(" \t")
+			if rest.startswith(":"):
+				fence = opens(rest[1:])
+			break
+		i += m.end()
+' "$1"
+	{ "${newCli}" migrate --from-2x "$1" 2>/dev/null || true; } | fCheckNew - \
+		| awk '$1 == "line" && $4 == "E028" { sub(/:$/, "", $2); print $2 }' \
+		| awk 'NR == FNR { if (index($0, ",")) comma[FNR] = 1; next } comma[$1]' "$1" -
+}
+
+##	Lines where the pinned build and 2.0 read a value apart, found in the 2.x
+##	text the way 2.x reads a value: a backslash shields the next character,
+##	and a quote that opens a piece runs to its close. A raw body is passed
+##	over, as in fLostNow. Two kinds, by the first argument:
+##	  midquote  a quote in the middle of a piece, with a comma or a `#`
+##	            before its close. 2.0 kept the piece whole, and migrate does
+##	            too (2026102620591100), while the pinned build cut it there.
+##	  edge      a run of blanks at a piece's edge holding one other than a
+##	            space, a tab or a CR, such as a no-break space. 2.0 trimmed
+##	            every Unicode White_Space character there, and migrate does
+##	            too (2026110312163206), while the pinned build kept it.
+fValue2x(){
+	python3 -c '
+import importlib.util, re, sys
+mode = sys.argv[1]
+text = open(sys.argv[2], "rb").read().decode("utf-8", "surrogateescape")
+spec = importlib.util.spec_from_file_location("gen_escapes", sys.argv[3])
+gen = importlib.util.module_from_spec(spec); spec.loader.exec_module(gen)
+blank = {chr(c) for lo, hi in gen.WHITE_SPACE for c in range(lo, hi + 1)}
+def edges(s, first, cuts, end):
+	runs = []
+	for a in [first] + [k + 1 for k in cuts]:
+		b = a
+		while b < end and s[b] in blank:
+			b += 1
+		runs.append(s[a:b])
+	for b in cuts + [end]:
+		a = b
+		while a > first and s[a - 1] in blank:
+			a -= 1
+		runs.append(s[a:b])
+	return any(c not in " \t\r" for run in runs for c in run)
+fence = None
+def opens(v):
+	m = re.match(r"(`{3,}|~{3,})", v.lstrip(" \t"))
+	return (m.group(1)[0], len(m.group(1))) if m else None
+def close(s, i):
+	j = i + 1
+	while j < len(s) and s[j] != s[i]:
+		j += 2 if s[j] == "\\" else 1
+	return j if j < len(s) else None
+for n, line in enumerate(text.split("\n"), 1):
+	s = line.strip(" \t\r")
+	if fence:
+		if len(s) >= fence[1] and s == fence[0] * len(s):
+			fence = None
+		continue
+	fence = opens(s)
+	if fence or s.startswith("#"):
+		continue
+	if s.startswith("* "):
+		i = 2
+	else:
+		i = 0
+		while i < len(s) and s[i] != ":":
+			if s[i] in "\"\x27":
+				j = close(s, i)
+				i = len(s) if j is None else j + 1
+			elif s[i] == "[":
+				j = s.find("]", i)
+				i = len(s) if j < 0 else j + 1
+			else:
+				i += 2 if s[i] == "\\" else 1
+		i += 1
+		fence = opens(s[i:])
+		if fence:
+			continue
+	if i > len(s):
+		continue
+	first, start, cuts, end = i, True, [], len(s)
+	while i < len(s):
+		c = s[i]
+		if c == "\\":
+			i, start = i + 2, False
+		elif c == "#":
+			end = i
+			break
+		elif c == ",":
+			cuts.append(i)
+			i, start = i + 1, True
+		elif c in "\"\x27":
+			j = close(s, i)
+			if j is None:
+				if start:
+					break
+				i, start = i + 1, False
+				continue
+			if mode == "midquote" and not start and ("," in s[i + 1:j] or "#" in s[i + 1:j]):
+				print(n)
+				break
+			i, start = j + 1, False
+		else:
+			i, start = i + 1, start and c in " \t"
+	if mode == "edge" and edges(s, first, cuts, end):
+		print(n)
+' "$1" "$2" "${meDir}/gen-escapes.py"
+}
+fMidQuote2x(){ fValue2x midquote "$1"; }
+fEdgeBlank2x(){ fValue2x edge "$1"; }
+
+##	A document that names this format is not a 2.x file, whatever 2.x makes of
+##	it: migrate leaves it as written, and so does upgrade but for one case,
+##	beta files included (value-syntax.md, Migration; fUpFormat3). A fuzz document mutated from a
+##	corpus input with the info block is one. So it is checked for that and
+##	not compared with 2.x. Taken only when the text has the line and migrate
+##	says so too, so a 2.x file migrate wrongly passes over still compares.
+fNamesFormat3(){
+	local err
+	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "$1" || return 1
+	err="$("${newCli}" migrate --from-2x "$1" 2>&1 >/dev/null || true)"
+	[[ "${err}" == *"nothing to migrate: the file already names its format"* ]]
+}
+
+##	Takes out every line above, until 2.x reads what is left cleanly. Fails
+##	when nothing is left, or when taking lines out keeps turning up more. The
+##	first round has the same bytes as the source, so it takes the source's
+##	2.x check as given rather than running it again.
+fTrim(){
+	local src="$1" dst="$2" check2x="$3" lines round
+	cp "${src}" "${dst}"
+	for round in 1 2 3 4; do
+		((round == 1)) || check2x="$(fCheck2x "${dst}")"
+		lines="$( { fUnclean2x <<<"${check2x}"
+			fUnplaced "${dst}"
+			fLostNow "${dst}"
+			fMidQuote2x "${dst}"
+			fEdgeBlank2x "${dst}"
+			grep -anE '(```|~~~)[^#]*#' "${dst}" | cut -d: -f1
+			grep -an $'\r[^\r]' "${dst}" | cut -d: -f1; } | sort -un)"
+		if [[ -z "${lines}" ]]; then [[ -s "${dst}" ]]; return; fi
+		sed "${lines//$'\n'/d;}d" "${dst}" > "${dst}.next"
+		mv "${dst}.next" "${dst}"
+	done
+	return 1
+}
+
+##	`upgrade --write`, the way a program calls it at start, on each compared
+##	document. The backup's name has the test clock's time in it.
+upDir="${tmpDir}/up"; upClock="2026-10-04 00:15:00 -420 PDT"
+upBackup="cfg_backup_20261004-001500_format-v2.shcl"
+declare -i nUpBad=0 nUpRewritten=0 nUpCleanRewritten=0 nUpCurrent=0 nUpPlain=0 nUpAmbiguous=0
+
+##	Errors the current rules find on a load. Hints don't count; `upgrade`
+##	leaves a file with only those alone.
+fErrors(){ fCheckNew "$1" | awk '$1 == "line" && $3 == "Error:" && $4 ~ /^E/ { n++ } END { print n + 0 }'; }
+
+##	Whether `migrate --from-2x` changed anything but the stamp. It adds the
+##	migrated line only then; a refused file gets no stamp, so its text is
+##	compared whole.
+fMigrateChanged(){
+	local last
+	last="$(tail -n 1 "$2")"; last="${last%$'\r'}"
+	[[ "${last}" == "##    Migrated from SHCL 2.x." ]] && return 0
+	[[ "${last}" == "##    Format   "* ]] && return 1
+	! cmp -s "$1" "$2"
+}
+
+##	A fresh dir holding only the document as cfg.shcl, run through `upgrade
+##	--write` and any options given. The exit code is left in upRc.
+fUpgradeRun(){
+	local src="$1"; shift
+	fSafeRmUnder_IfThere "${tmpDir}" "${upDir}"; mkdir -p "${upDir}"; cp "${src}" "${upDir}/cfg.shcl"
+	fUpgradeAgain "$@"
+}
+fUpgradeAgain(){
+	upRc=0
+	SHCL_TEST_CLOCK="${upClock}" "${newCli}" upgrade --write "$@" "${upDir}/cfg.shcl" >/dev/null 2>"${tmpDir}/upgrade.err" || upRc=$?
+}
+fUpBad(){ nUpBad+=1; echo "check-migrate: UPGRADE ${upName}: $*"; }
+declare -i nUpFormat3=0 nUpFormat3Left=0
+fUpEntries(){ find "${upDir}" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' '; }
+
+##	Left alone: exit 0, the same bytes, and no backup.
+fUpUntouched(){
+	((upRc == 0)) || fUpBad "$1: exit ${upRc}, not 0"
+	cmp -s "${upSrc}" "${upDir}/cfg.shcl" || fUpBad "$1: the file was changed"
+	[[ "$(fUpEntries)" == 1 ]] || fUpBad "$1: something was written beside the file"
+}
+
+##	Rewritten: the backup has the original bytes under the dated name, the
+##	fresh file loads clean, has the info block once, and a second run, with
+##	or without --from-2x, leaves it alone.
+fUpRewritten(){
+	local how="$1" fresh="${upDir}/cfg.shcl" n opt
+	((upRc == 0)) || fUpBad "${how}: exit ${upRc}, not 0"
+	cmp -s "${upSrc}" "${upDir}/${upBackup}" || fUpBad "${how}: no backup ${upBackup} with the original bytes"
+	[[ "$(fUpEntries)" == 2 ]] || fUpBad "${how}: $(fUpEntries) entries, not the file and its backup"
+	n="$(fErrors "${fresh}")"; ((n == 0)) || fUpBad "${how}: the fresh file loads with ${n} error(s)"
+	## At the line start only: a raw block 2.x read to the end of the file
+	## can hold an old info block as body, which upgrade closes and indents.
+	n="$(grep -c '^## This config file format is SHCL\.' "${fresh}" || true)"
+	[[ "${n}" == 1 ]] || fUpBad "${how}: the info block is there ${n} time(s)"
+	cp "${fresh}" "${tmpDir}/fresh.again"
+	for opt in --from-2x ""; do
+		fUpgradeAgain ${opt:+"${opt}"}
+		((upRc == 0)) && cmp -s "${tmpDir}/fresh.again" "${fresh}" && [[ "$(fUpEntries)" == 2 ]] \
+			|| fUpBad "${how}: a second upgrade ${opt:-without --from-2x} did not leave it alone (exit ${upRc})"
+	done
+}
+
+##	Whether --from-2x should take a file naming format 3 as 2.x: it loads with
+##	an error, and its text as migrate rewrites a 2.x file, made canonical,
+##	loads clean. migrate passes over a format 3 file, so it's handed one that
+##	names format 2. Worked out from the file, not from what upgrade did.
+fUpConverts3(){
+	local src="$1"
+	[[ "$(fErrors "${src}")" != 0 ]] || return 1
+	grep -qE '^##[[:space:]]+Format[[:space:]]+3[[:space:]]*$' "${src}" || return 1
+	sed -E 's/^(##[[:space:]]+Format[[:space:]]+)3([[:space:]]*)$/\12\2/' "${src}" > "${tmpDir}/as2x.shcl"
+	{ "${newCli}" migrate --from-2x "${tmpDir}/as2x.shcl" 2>/dev/null || true; } \
+		| { "${newCli}" fmt - 2>/dev/null || true; } > "${tmpDir}/as2x.fresh"
+	[[ -s "${tmpDir}/as2x.fresh" && "$(fErrors "${tmpDir}/as2x.fresh")" == 0 ]]
+}
+
+##	A file naming format 3 is left alone without --from-2x. With it, one
+##	fUpConverts3 takes is rewritten and backed up under the format its line
+##	names (2026101407100010). One with an error whose fresh file would keep
+##	one is refused at 7 and left (2026101515372401). Anything else is left
+##	alone. The fresh file loads clean, so a second run, with the flag or not,
+##	leaves it.
+fUpFormat3(){
+	local upBackup="cfg_backup_20261004-001500_format-v3.shcl"
+	fUpgradeRun "${upSrc}" --from-2x
+	if fUpConverts3 "${upSrc}"; then
+		nUpFormat3+=1
+		fUpRewritten "format 3 with an error, with --from-2x"
+	elif [[ "$(fErrors "${upSrc}")" != 0 ]] && grep -qE '^##[[:space:]]+Format[[:space:]]+3[[:space:]]*$' "${upSrc}"; then
+		nUpFormat3Left+=1
+		((upRc == 7)) || fUpBad "format 3 whose fresh file keeps an error, with --from-2x: exit ${upRc}, not 7"
+		upRc=0; fUpUntouched "format 3 whose fresh file keeps an error, with --from-2x"
+	else
+		fUpUntouched "format 3, with --from-2x"
+	fi
+	fUpgradeRun "${upSrc}"
+	fUpUntouched "format 3, without --from-2x"
+}
+
+##	With --from-2x a file is rewritten when it loads with an error, or when
+##	it loads clean and `migrate` would still change it (`p: a,b`); its reads
+##	are the migrated text's. Without, a clean file is current, and one with
+##	an error is either the same fresh file or refused at 7 for text that
+##	reads two ways, as `migrate` refuses it.
+fUpgradeCheck(){
+	upName="$1"; upSrc="$2"
+	local migrated="$3" migReads="$4" errs changed=0 reads
+	errs="$(fErrors "${upSrc}")"
+	fMigrateChanged "${upSrc}" "${migrated}" && changed=1
+	fUpgradeRun "${upSrc}" --from-2x
+	if ((errs || changed)); then
+		nUpRewritten+=1; ((errs)) || nUpCleanRewritten+=1
+		fUpRewritten "--from-2x"
+		reads="$(fReadTree "${newCli}" "${upDir}/cfg.shcl")"
+		if [[ "${reads}" != "${migReads}" ]]; then
+			fUpBad "--from-2x: the fresh file and the migrated text read differently"
+			diff <(printf '%s\n' "${migReads}") <(printf '%s\n' "${reads}") | head -12 || true
+		fi
+		cp "${upDir}/cfg.shcl" "${tmpDir}/fresh.shcl"
+	else
+		nUpCurrent+=1
+		fUpUntouched "--from-2x, a clean file migrate leaves as it is"
+	fi
+	fUpgradeRun "${upSrc}"
+	if ((errs == 0)); then
+		fUpUntouched "a clean file without --from-2x"
+	elif ((upRc == 7)); then
+		nUpAmbiguous+=1; upRc=0
+		fUpUntouched "a refusal at 7"
+		if "${newCli}" migrate "${upSrc}" >/dev/null 2>&1; then fUpBad "refused at 7, and migrate without --from-2x did not refuse"; fi
+	else
+		nUpPlain+=1
+		fUpRewritten "without --from-2x"
+		cmp -s "${tmpDir}/fresh.shcl" "${upDir}/cfg.shcl" || fUpBad "without --from-2x: a fresh file other than the --from-2x one"
+	fi
+}
+
+declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0 nNamed3=0
+fTest dcqf3 corpus and fuzz documents migrate to the tree 2.x read
+for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
+	[[ -f "${f}" ]] || continue
+	name="${f%/input.shcl}"; name="${name##*/}"; name="${name%.shcl}"
+	if fHasNul "${f}"; then nSkipped+=1; continue; fi
+	if fNamesFormat3 "${f}"; then
+		nNamed3+=1
+		rc=0; "${newCli}" migrate --from-2x "${f}" > "${tmpDir}/migrated.shcl" 2>/dev/null || rc=$?
+		if ((rc != 0)) || ! cmp -s "${f}" "${tmpDir}/migrated.shcl"; then
+			nBad+=1
+			echo "check-migrate: DIVERGE ${name}: it names format 3, and migrate exited ${rc} or changed it"
+		fi
+		upName="${name}"; upSrc="${f}"
+		## Wrong since 2026101407100010: a beta file that loads with an error now
+		## converts with --from-2x, so format 3 isn't always left alone. Kept as a
+		## record; don't uncomment.
+		# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
+		# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+		fUpFormat3
+		continue
+	fi
+	## Every document here is a 2.x file by construction, which is exactly what
+	## migrate cannot read off the text: without the flag it leaves the pieces
+	## the two rule sets disagree on and refuses.
+	## When the one thing wrong with the file under 2.x is bracket arrays and
+	## lines nothing spells now, migrate has to refuse over each of them and
+	## nothing else.
+	check2x="$(fCheck2x "${f}")"
+	e019="$(awk '$1 == "line" && $3 == "Error:" && $4 == "E019" { sub(/:$/, "", $2); print $2 }' <<<"${check2x}" | sort -u)"
+	## A line 2.x already refused for anything but a bracket array is not
+	## one of these.
+	refused="$(comm -23 <(fUnclean2x <<<"${check2x}" | sort -u) <(printf '%s\n' "${e019}"))"
+	lostNow="$(awk 'NR == FNR { bad[$1] = 1; next } !bad[$1]' <(printf '%s\n' "${refused}") <(fLostNow "${f}"))"
+	unclean="$( { fUnclean2x <<<"${check2x}"; printf '%s\n' "${lostNow}"; } | grep . | sort -un || true)"
+	arrays="$(printf '%s\n' "${e019}" "${lostNow}" | grep . | sort -un || true)"
+	if [[ -n "${unclean}" && "${unclean}" == "${arrays}" ]]; then
+		lostRc=0; lostOut="$("${newCli}" migrate --from-2x "${f}" 2>&1 >/dev/null)" || lostRc=$?
+		if ((lostRc != 7)); then
+			nBad+=1
+			echo "check-migrate: DIVERGE ${name}: 2.x read a value nothing spells now, and migrate exited ${lostRc}, not the refusal 7"
+		fi
+		wantLost="$(grep -c . <<<"${arrays}" || true)"
+		gotLost="$(sed -n 's/.*: \([0-9][0-9]*\) line(s) bound a value under 2\.x.*/\1/p' <<<"${lostOut}")"
+		nLostChecked+=1
+		if [[ "${gotLost:-0}" != "${wantLost}" ]]; then
+			nBad+=1
+			echo "check-migrate: DIVERGE ${name}: 2.x read ${wantLost} line(s) nothing spells now, migrate counted ${gotLost:-0} lost"
+		fi
+	fi
+	if ! fTrim "${f}" "${tmpDir}/original.shcl" "${check2x}"; then nSkipped+=1; continue; fi
+	cmp -s "${f}" "${tmpDir}/original.shcl" || nTrimmed+=1
+	f="${tmpDir}/original.shcl"
+	rc=0; "${newCli}" migrate --from-2x "${f}" > "${tmpDir}/migrated.shcl" 2>"${tmpDir}/migrate.err" || rc=$?
+	## The refusal still prints the migrated text, so the reads below compare it.
+	if fRawOpen2x "${f}"; then
+		nRawOpen+=1
+		if ((rc != 7)) || ! grep -q 'nowhere to put the Format line' "${tmpDir}/migrate.err"; then
+			nBad+=1
+			echo "check-migrate: DIVERGE ${name}: 2.x read a raw block that never closes, and migrate exited ${rc} without refusing over it"
+		fi
+	elif ((rc != 0)); then
+		nBad+=1
+		echo "check-migrate: DIVERGE ${name}: 2.x read it cleanly, and migrate exited ${rc}"
+	fi
+	old="$(fReadTree "${oldCli}" "${f}")"
+	want="$(fAge2xReads <<<"${old}")"
+	got="$(fReadTree "${newCli}" "${tmpDir}/migrated.shcl")"
+	fUpgradeCheck "${name}" "${f}" "${tmpDir}/migrated.shcl" "${got}"
+	nCompared+=1; [[ "${name}" == fuzz_* ]] || nCorpus+=1
+	if [[ "${want}" != "${got}" ]]; then
+		nBad+=1
+		echo "check-migrate: DIVERGE ${name}: the 2.x reads of the original and the current reads of the migrated text differ"
+		diff <(printf '%s\n' "${want}") <(printf '%s\n' "${got}") | head -12 || true
+	fi
+	## 2026-10-06: the 2.x build no longer reads the migrated text. The output is
+	## written in the new syntax, brackets, `- ` items and `◉` escapes, which 2.x
+	## reads as something else, and the Format line is what stops a second run.
+	## Kept as a record. Don't uncomment, since migrate's output isn't for 2.x.
+	# old2="$(fReadTree "${oldCli}" "${tmpDir}/migrated.shcl")"
+	# if [[ "${old}" != "${old2}" ]]; then
+	# 	nBad+=1
+	# 	echo "check-migrate: DIVERGE ${name}: the 2.x reads of the original and of the migrated text differ"
+	# 	diff <(printf '%s\n' "${old}") <(printf '%s\n' "${old2}") | head -12 || true
+	# fi
+done
+##	The floors are this test's, or its line read ok on a run that then refused
+##	for comparing too little. The exit below still says which floor.
+if ((nCompared < minCompared || nCorpus < minCorpus || nCompared - nCorpus < minFuzz)); then nBad+=1; fi
+
+fTest ddmp7 compared documents upgrade to a fresh file beside a backup of the original
+nBad+=nUpBad
+##	Each way through fUpgradeCheck has to be taken by some document, or one of
+##	its branches checked nothing.
+if ((nUpRewritten == 0 || nUpCleanRewritten == 0 || nUpCurrent == 0 || nUpPlain == 0 || nUpAmbiguous == 0)); then
+	nBad+=1
+	echo "check-migrate: an upgrade case no document reached: ${nUpRewritten} rewritten with --from-2x, ${nUpCleanRewritten} of them clean, ${nUpCurrent} current, ${nUpPlain} rewritten without it, ${nUpAmbiguous} refused at 7" >&2
+fi
+
+##	A file naming format 3 is left alone, but for one that loads with an
+##	error, which --from-2x takes as 2.x when the fresh file loads clean
+##	(2026101407100010). The first file here would keep `b 2`, so it is
+##	refused at 7 and stays (2026101515372401); the other 2 are a beta's comma
+##	list, bare and under the info block the betas wrote.
+fTest ddmp8 a file naming format 3 is upgraded only when --from-2x vouches for it
+printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
+printf 'tags: a, b\n##    Format   3\n' > "${tmpDir}/format3-beta.shcl"
+printf 'tags: a, b\n\n##\n## This config file format is SHCL.\n##    Format   3\n##\n' > "${tmpDir}/format3-beta-block.shcl"
+declare -i nFormat3=0 nUpFormat3Soup=nUpFormat3; nUpBad=0; nUpFormat3=0; nUpFormat3Left=0
+for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format3-beta.shcl" "${tmpDir}/format3-beta-block.shcl"; do
+	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "${f}" || continue
+	upName="${f%/input.shcl}"; upName="${upName##*/}"; upSrc="${f}"; nFormat3+=1
+	## Wrong since 2026101407100010, as in the loop above. Don't uncomment.
+	# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
+	# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+	fUpFormat3
+done
+nBad+=nUpBad
+((nFormat3 > 1)) || { echo "check-migrate: no corpus input names format 3" >&2; nBad+=1; }
+((nUpFormat3 == 2)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 that --from-2x should convert, not the 2 beta files" >&2; nBad+=1; }
+((nUpFormat3Left > 0)) || { echo "check-migrate: no file naming format 3 that --from-2x should refuse at 7" >&2; nBad+=1; }
+
+##	Each named case has to keep its shape, or the exception is stale.
+fTest dcegd 068 still has a fence label holding a hash
+fInfoHashLabel "${corpus}/068-info-hash-spellings/input.shcl" 2>/dev/null \
+	|| { echo "check-migrate: 068-info-hash-spellings no longer has a fence label holding a #" >&2; nBad+=1; }
+## 2026-10-05: migrate leaves a 2.x backslash as written, so a path that held
+## a line break under 2.x reads as the path now and is no longer lost. The
+## exception these two kept from rotting is gone, and fPathBreak with it.
+## Kept as a record. Don't uncomment: nothing defines fPathBreak now.
+# fTest ddcfc 170 still has a path that held a line break
+# [[ -n "$(fPathBreak "${corpus}/170-unknown-escape/input.shcl")" ]] \
+# 	|| { echo "check-migrate: 170-unknown-escape no longer has a path that held a line break" >&2; nBad+=1; }
+# fTest ddg90 the paths that held a line break in 171 are found in its 2.x text
+# ## A drive, a share, and a list element 2.x read as `E:`, a line
+# ## break and `ew`, which double quotes write as `"E:\new"`.
+# breaks171="$(fPathBreak "${corpus}/171-windows-path-escape/input.shcl" | paste -sd ' ')"
+# [[ "${breaks171}" == "3 4 11" ]] \
+# 	|| { echo "check-migrate: 171-windows-path-escape has paths that held a line break on lines '${breaks171}', not '3 4 11'" >&2; nBad+=1; }
+fTest ddg9d 096 is refused for the raw block 2.x read to the end
+rawRc=0; "${newCli}" migrate --from-2x "${corpus}/096-raw-unterminated-eof/input.shcl" >/dev/null 2>"${tmpDir}/migrate.err" || rawRc=$?
+{ fRawOpen2x "${corpus}/096-raw-unterminated-eof/input.shcl" && ((rawRc == 7)) && grep -q 'nowhere to put the Format line' "${tmpDir}/migrate.err"; } \
+	|| { echo "check-migrate: 096-raw-unterminated-eof is no longer an open raw block under 2.x that migrate refuses (exit ${rawRc})" >&2; nBad+=1; }
+fTest dcege 094 still has a mid-line carriage return
+fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
+	|| { echo "check-migrate: 094-unicode-space no longer has a mid-line carriage return" >&2; nBad+=1; }
+fTest dej4h 210 still has a quote in a piece that closes past a comma and a hash
+[[ "$(fMidQuote2x "${corpus}/210-migrate-mid-quote-comma/input.shcl" | paste -sd ' ')" == "1 2 3 4 5" ]] \
+	|| { echo "check-migrate: 210-migrate-mid-quote-comma no longer has a quote in a piece closing past a comma or a # on lines 1 to 5" >&2; nBad+=1; }
+fTest dewb9 215 still has blanks at a piece edge that the pinned build keeps
+## Lines 6 and 9 hold one inside a piece and none at all, and stay compared.
+[[ "$(fEdgeBlank2x "${corpus}/215-migrate-unicode-trim/input.shcl" | paste -sd ' ')" == "1 2 3 4 5 7 8 10 11" ]] \
+	|| { echo "check-migrate: 215-migrate-unicode-trim no longer has blanks at a piece's edge on lines 1 to 5, 7, 8, 10 and 11 only" >&2; nBad+=1; }
+fTest ddrgm 149 names format 3 and is passed over as current
+fNamesFormat3 "${corpus}/149-banner/input.shcl" \
+	|| { echo "check-migrate: 149-banner no longer names format 3 in a way migrate passes over" >&2; nBad+=1; }
+fTest ddrgn a 2.x document is not taken for format 3
+printf 'a: 1\n## Format 3 is in a comment here\n' > "${tmpDir}/not3.shcl"
+! fNamesFormat3 "${tmpDir}/not3.shcl" \
+	|| { echo "check-migrate: a 2.x document with no Format line was taken for format 3" >&2; nBad+=1; }
+##	The third has no corpus case - a new one shifts the fuzz seed set, which
+##	costs a gate round - so it is checked against a document built here: 2.x
+##	reads both elements, the current parser places only the first, and the write
+##	half refuses rather than dropping the second quietly.
+printf 'list:\n\t* one\n \t* two\n' > "${tmpDir}/indent.shcl"
+fTest dcwsk the loose-indent exception fires on a space before a tab
+[[ "$(fUnplaced "${tmpDir}/indent.shcl")" == 3 ]] \
+	|| { echo "check-migrate: the loose-indent exception no longer fires on a space before a tab" >&2; nBad+=1; }
+fTest dcwsm 2.x reads both elements of the loose-indent document
+[[ "$("${oldCli}" get --string --array "${tmpDir}/indent.shcl" list 2>/dev/null | wc -l | tr -d " ")" == 2 ]] \
+	|| { echo "check-migrate: 2.x no longer reads both elements of the loose-indent document" >&2; nBad+=1; }
+fTest dcwsn a rewrite of the loose-indent document is refused at 7
+indentRc=0
+"${newCli}" migrate --from-2x --write "${tmpDir}/indent.shcl" >/dev/null 2>&1 || indentRc=$?
+((indentRc == 7)) \
+	|| { echo "check-migrate: a rewrite of the loose-indent document exited ${indentRc}, not the refusal 7" >&2; nBad+=1; }
+fTestEnd
+if ((nCompared < minCompared || nCorpus < minCorpus || nCompared - nCorpus < minFuzz)); then
+	echo "check-migrate: only ${nCompared} document(s) compared, ${nCorpus} of them corpus cases and $((nCompared - nCorpus)) fuzz-dumped; need ${minCompared}, ${minCorpus} and ${minFuzz} (${nSkipped} skipped)" >&2
+	exit 2
+fi
+if ((nBad)); then
+	echo "check-migrate: ${nBad} divergence(s) over ${nCompared} document(s) (${nSkipped} skipped)" >&2
+	exit 1
+fi
+echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from-2x (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7; ${nUpFormat3Soup} of the ${nNamed3} naming format 3 converted with --from-2x"
+
+##	History:
+##		2026-09-08  Created with the 3.0 lexical cut, pinned on the funnel merge.
+##		2026-09-15  The 2.x build reads the migrated text too.
+##		2026-09-16  Lines 2.x could not read come out rather than the whole
+##		            document; exit code, lost count and a corpus floor checked.
+##		2026-09-18  A floor for the fuzz half and an empty dump refused, after a
+##		            dump that wrote nothing passed on the corpus alone.
+##		2026-09-20  An indent the current parser places nowhere comes out too, and
+##		            the exception is checked against a document built here.
+##		2026-10-04  Paths that held a line break are found in the 2.x text rather
+##		            than in migrate's output, and any document with one has to
+##		            be refused at 7.
+##		2026-10-04  A document 2.x read with a raw block that never closes has to
+##		            be refused at 7 over it, and its reads still compare.
+##		2026-10-05  A backslash 2.x read as an escape reads as text now, so an
+##		            element read may differ in that way alone, and a path that
+##		            held a line break is no longer refused.
+##		2026-10-06  The 2.x build no longer reads the migrated text, which is
+##		            in the new syntax. Paths are compared by name, a quoted
+##		            name may differ by a backslash pair too, and a selector
+##		            with a comma or a comma list over lines counts as lost.
+##		2026-10-06  An instance is read as (N) on the current side, and the
+##		            corpus inputs with a selector are compared in brackets too.
+##		2026-10-07  Each compared document goes through `upgrade --write` too,
+##		            and a file naming format 3 is never upgraded.
+##		2026-10-10  A document naming format 3 is checked for being left as
+##		            written, not compared with 2.x.
+##		2026-10-14  upgrade --from-2x takes a file naming format 3 as 2.x when
+##		            it loads with an error and the fresh file loads clean.
+##		2026-10-15  Whether a format 3 file should convert is worked out from
+##		            the file, not from what upgrade did to it.
+##		2026-10-15  upgrade --from-2x refuses at 7 a format 3 file whose fresh
+##		            file would keep an error.
+##		2026-10-19  migrate writes the text 2.x read for a backslash pair, so
+##		            reads compare exactly, and a quoted name with a pair is
+##		            lost.
+##		2026-10-23  A file's errors are counted past a Schema line naming a
+##		            missing file.
+##		2026-10-28  A quote in the middle of a value piece that closes past a
+##		            comma or a `#` reads as 2.0 read it, so such a line comes
+##		            out of the comparison with the pinned build.
+##		2026-11-04  migrate trims every White_Space character at a value
+##		            piece's edges, as 2.0 did, so a line with one there the
+##		            pinned build keeps comes out of the comparison. An info
+##		            block is counted at the line start only.

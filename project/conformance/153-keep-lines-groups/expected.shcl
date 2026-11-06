@@ -1,0 +1,8 @@
+db:
+	# db settings
+	host: localhost
+port: 1
+repo: org/name
+
+	# the branch
+	branch: main

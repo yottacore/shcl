@@ -1,0 +1,5 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	ok	-	strict
+""	count	2	-
+-	lost	0	-

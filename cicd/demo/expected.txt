@@ -1,0 +1,43 @@
+$ cat app.shcl
+# Deployment config
+servers: web1
+        host: 10.0.0.5
+        port: 8080
+        tags: [fast, "eu, west", cheap]
+servers: web2
+        host: 10.0.0.6
+        port: 8081
+retries 5
+budget: "$1,200"
+window: 2026-07-12T14:30
+motd:
+        ~~~
+        Scheduled maintenance tonight.
+        Expect brief downtime.
+        ~~~
+$ shcl get --int app.shcl 'servers(web1).port'
+line 9: Error: E014 malformed line skipped: unexpected character after the path, at column 9
+8080
+$ shcl check app.shcl
+line 9: Error: E014
+line 9: Error: E014 malformed line skipped: unexpected character after the path, at column 9
+(run 'shcl explain CODE' for the rule behind a code)
+failed: 1 diagnostic(s), 1 error(s)
+$ shcl fmt app.shcl
+line 9: Error: E014 malformed line skipped: unexpected character after the path, at column 9
+# Deployment config
+servers: web1
+        host: 10.0.0.5
+        port: 8080
+        tags: [fast, "eu, west", cheap]
+servers: web2
+        host: 10.0.0.6
+        port: 8081
+retries 5
+budget: "$1,200"
+window: "2026-07-12T14:30"
+motd:
+        ~~~
+        Scheduled maintenance tonight.
+        Expect brief downtime.
+        ~~~

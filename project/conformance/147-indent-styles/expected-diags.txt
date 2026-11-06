@@ -1,0 +1,5 @@
+line 3: Error: E012
+line 7: Error: E012
+line 10: Error: E012
+line 12: Error: E012
+failed: 4 diagnostic(s), 4 error(s)

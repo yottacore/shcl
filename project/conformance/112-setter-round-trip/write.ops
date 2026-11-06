@@ -1,0 +1,3 @@
+comment	a	tail   
+raw	b	 sql	line
+literal	c	"a#b"

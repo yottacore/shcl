@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+a	int	1	Good
+b	int	2	Good
+c	int	3	Good
+d	int	4	Good
+b	comments	## Pinned by ops.|##|## This config file format is SHCL.|##    Format   3|##|## Ask before you change b.	-

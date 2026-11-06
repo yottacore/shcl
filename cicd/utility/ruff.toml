@@ -1,0 +1,8 @@
+# The pipeline's own python (the flamegraph report, the gif renderer, the
+# comparison worker) under the project rule set, so a finding means the same
+# thing here as in the binding. E101 is off for these files only: they indent
+# with tabs and align continuation lines with spaces on purpose.
+extend = "../../source/python/pyproject.toml"
+
+[lint]
+ignore = ["E101"]

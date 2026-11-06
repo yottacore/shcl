@@ -1,0 +1,3 @@
+int	font.size	13
+int	window.x	1
+string	theme	dark

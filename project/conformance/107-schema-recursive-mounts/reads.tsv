@@ -1,0 +1,5 @@
+query	type	expected	status
+-	load	ok	-
+root.child.child.size	int	3	Good
+root.child.child.child.child.child.child.child.any.tag	string	t	Good
+-	lost	0	-

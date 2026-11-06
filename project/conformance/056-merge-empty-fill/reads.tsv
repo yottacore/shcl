@@ -1,5 +1,5 @@
 query	type	expected	status
 -	load	ok	-
-blk	rawinfo	info#hash	Good
+blk	rawinfo	info	Good
 blk.child	int	1	Good
 two	count	1	Good

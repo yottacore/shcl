@@ -1,0 +1,12 @@
+query	type	expected	status	level
+-	load	ok	-	
+-	load	fail	-	strict
+tools.port	int	8080	Good	
+tools.run	string	-	NotFound	
+x	string	-	NotFound	
+deep.after	int	2	Good	
+y	string	-	NotFound	
+z	int	3	Good	
+tail	string	-	NotFound	
+-	lost	1	-	
+-	paths	tools|tools.port|deep|deep.inner|deep.after|a|a.b|z	-	

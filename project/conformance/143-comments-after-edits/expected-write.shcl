@@ -1,0 +1,13 @@
+a:
+	d: 2
+	# note
+k:
+	x: 1
+	# only
+	y: 2
+b: 5
+# t
+b:
+	```sh
+	echo
+	```

@@ -2,6 +2,98 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v3.0.0-beta1 - 2026-11-05
+
+Format 3. It fixes the 2.x design flaws that heavy use turned up. v4 will keep this format and settle the programming interface.
+
+### Upgrading from 2.x
+
+- Run `shcl upgrade --from-2x FILE` or `shcl migrate --from-2x FILE` once on a 2.x file. A program can call `upgrade_file()` on start.
+
+- A backslash is plain text. Escapes are names between two `◉` marks, such as `◉NEWLINE◉`, `◉TAB◉` and `◉U+200B◉`.
+
+- An array is `[80, 443]` or one `- ` item per line. `*` items and comma lists are gone.
+
+- A selector goes in parens, `site(example.com).root`, and an index is `site(0)`. `[#N]` and `field:[disc]` are gone.
+
+- A bare value may hold spaces. A bare name starts with a letter. A value in backticks is raw.
+
+- `fmt` and every canonical save keep a value's quotes, and quote one holding whitespace or punctuation.
+
+- A thousands comma makes a value text at Standard and Strict.
+
+- Exit 1 is a usage error only, 7 a save-gate refusal, and 8 a file that can't be read or written.
+
+- Every setter returns a `SetStatus`, and one whose path matches more than one field writes nothing. `write_reason` is `check_set_path`.
+
+- A Strict load fails the same way from every call that takes a strictness.
+
+- A save refuses a file another program changed since the load. `force` overrides it.
+
+- A failed write gives a `WriteError` with a `WriteStatus` in every binding.
+
+- `shcl set` writes back the lines its edits leave alone. `fmt` still writes the canonical form.
+
+- `shcl --version` prints the build number and the copyright line. The words `version`, `about` and `donate` are gone.
+
+- The project moved to `github.com/yottacore/shcl`. Old links redirect. The Go import path is `github.com/yottacore/shcl/source/go/v3`.
+
+- Renamed: `format_f64` to `format_float`, Rust's `ZoneSpec` to `Zone`, C's unit names, and Python's `Quote` and `Rules` members. Removed: Go's `Read.OK()` and C's `shcl_get_int`, `shcl_get_float` and `shcl_get_bool`.
+
+- C++ no longer includes the C interface.
+
+- The Bash and PowerShell wrappers are retired. Call `shcl` directly.
+
+- The installers default to the newest full release, for the current user.
+
+### New
+
+- Saves that keep every line an edit didn't touch, and `save_file_with()` with the `lossy`, `keep_lines`, `force`, `create` and `mode` options.
+
+- A file that names a newer format is read-only (`newer_format()`).
+
+- `upgrade_file()`, `upgrade()`, `migrate()`, `set_banner()`, the info block, and a Schema line that `check` follows (`read_named_schema()`).
+
+- Status reads for counts, instances, children, lines, kinds and the Format line, with a `BadPath` status.
+
+- `fields()`, `instance_paths()`, `kind()`, `format_value()`, `format_array()`, `format_diagnostic()` and `load_and_validate_with()`.
+
+- Duration and size reads and schema types. Octal and binary ints.
+
+- Hints `H005` to `H008`.
+
+- `shcl explain`, `shcl tokens`, `shcl help CMD`, `children`, `paths`, `instances --paths`, `fmt --check`, `--remove` and the `-default` set flags. A mistyped command or option gets a did-you-mean.
+
+- `ReadFile`, `ParseLimited`, `get_raw_info` and a `DateTime` alias.
+
+- C: `_to` reads, `shcl_compact` and an out-of-memory hook. C++ can write.
+
+- A universal macOS binary for macOS 13 and later, a FreeBSD x86_64 binary, and a FreeBSD package. The installers take `--version`.
+
+### Fixed
+
+- Parsing: lines under a skipped line, raw block fences and nesting, carriage returns, the Unicode trim, quotes inside a bare value or selector, `E003`, `E004`, `E007`, `E009` and `E011` lines kept as written, and diagnostic order and length.
+
+- Reads: wildcards, float and int range, named-month dates, `allowed` on a datetime, and unreadable paths.
+
+- Writes and saves: kept lines moved by a set, a remove or a fold, setter input checks, float rounding, comment order, symlinks, directories, file mode, and long names.
+
+- Merging: layer order, footer comments, and kept lines in a replaced leaf.
+
+- Schema and init: bound messages, `min` above `max`, units on bounds, `init` order and selectors, and schema load errors.
+
+- CLI: `migrate` edge cases, diagnostics under `--layer`, exit codes, flag conflicts, write-op parsing, help and completions, and long values in messages.
+
+- C and C++: leaks, stack use, and `_GNU_SOURCE`.
+
+- Go and Python: copies of diagnostics, UTF-8 checks, close errors, and save messages.
+
+- Windows: file attributes and ACLs, device names, symlinks and long paths in C, and line endings.
+
+- Installers and packages: release picking, uninstall, umask, PowerShell 5.1, glibc and libgcc needs, reproducible packages, and `install-dev.bash` tool checks.
+
+- Performance: formatting, flat-key reads, bulk removes and merges, colon-less lines, and the did-you-mean suggester.
+
 ## v2.0.0 - 2026-08-26
 
 The first major since 1.0.0. Two things change incompatibly, both listed under Changed: escapes now resolve in field names, so `"a\"b"` and `'a"b'` are one field where they used to be two; and the C++ veneer's `read_datetime` returns the structured value every other binding's does, with the textual form moving to `read_datetime_str`. Canonical output also moves for several shapes - in each case one where the old output lost something or would not settle - so a file reformatted by 2.0 can differ from the same file reformatted by 1.2. Go consumers update the import path to `github.com/jim-collier/shcl/source/go/v2`, and anyone who installed the Go CLI switches to the Rust binary, which is the only one distributed now - see Removed. Rust and Python consumers change a version constraint and nothing else.
@@ -12,9 +104,9 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - `LostCount()`, and a save gate built on it: `SaveFile` refuses to write a document that lost content on load, rather than quietly persisting the loss. `SaveFileLossy` is the explicit override, and the refusal is a value the caller can act on - `SaveError::Refused` in Rust, a `*SaveRefused` error type in Go, `SaveRefused`/`SaveFailed` raised from a `SaveError` base in Python, `SHCL_SAVE_REFUSED`/`SHCL_SAVE_FAILED` in C. The gate answers before any I/O, so a lost document saved to an unwritable path still reports the refusal rather than the write failure.
 
-- `AuthoredName(path)`: a name as it was spelled in the source, escapes and all. It is the one accessor that hands back source text - everywhere else a name is stored, compared, emitted and enumerated with its escapes resolved - which is exactly why round-tripping a document that cares about the original spelling needs it.
+- `AuthoredName(path)`: a name as it was written in the source, escapes and all. It is the one accessor that hands back source text - everywhere else a name is stored, compared, emitted and enumerated with its escapes resolved - which is exactly why round-tripping a document that cares about the original spelling needs it.
 
-- A convenience tier spelled `_or` in every binding (`GetIntOr`, `get_int_or`, `shcl_get_int_or`, `get_or<T>`): the value on `Good`, the caller's fallback otherwise. Rust and Python gained eleven each, C three, so a routine ported between two bindings can no longer keep the call name while silently changing tier.
+- A convenience tier named `_or` in every binding (`GetIntOr`, `get_int_or`, `shcl_get_int_or`, `get_or<T>`): the value on `Good`, the caller's fallback otherwise. Rust and Python gained eleven each, C three, so a routine ported between two bindings can no longer keep the call name while silently changing tier.
 
 - `reopen: true` as a schema key, plus `SuppressDeclaredReopens`: a section a config is expected to re-open in several places declares it once, instead of every consumer learning to ignore `H002`.
 
@@ -30,7 +122,7 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - The installer gained `--uninstall`/`-Uninstall`, a sudo pre-check, a working no-terminal guard, and a pastable `export PATH=` line when the install directory is not on the path.
 
-- Windows executables carry the program icon and the metadata the properties panel expects - product name, description, version, company and copyright - on both the x86_64 and ARM64 builds and on the setup. The version is read from the build, so it cannot drift from what `shcl version` reports.
+- Windows executables have the program icon and the metadata the properties panel expects - product name, description, version, company and copyright - on both the x86_64 and ARM64 builds and on the setup. The version is read from the build, so it cannot drift from what `shcl version` reports.
 
 - Release builds are reproducible. On the pinned toolchain, building a given commit produces a byte-identical binary on any machine and from any directory, for all four shipped targets, so the published checksum can be reproduced rather than trusted. README says so beside the checksum instructions.
 
@@ -38,7 +130,7 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 ### Changed
 
-- **Field names resolve their escapes.** `"a\"b"` and `'a"b'` name one field, where each used to be a separate field keyed by its own spelling - which meant two spellings of one name were two names, while the same two spellings as *values* were one string. Names are compared, emitted and enumerated resolved; `AuthoredName` is how the source spelling is still reachable. A line break in a name is writable as a result, since names emit through an escaper that spells it `\n`; in a `[value]` selector it is still refused, because that text is stored raw.
+- **Field names resolve their escapes.** `"a\"b"` and `'a"b'` name one field, where each used to be a separate field keyed by its own spelling - which meant two spellings of one name were two names, while the same two spellings as *values* were one string. Names are compared, emitted and enumerated resolved; `AuthoredName` is how the source spelling is still reachable. A line break in a name is writable as a result, since names emit through an escaper that writes it as `\n`; in a `[value]` selector it is still refused, because that text is stored raw.
 
 - **The C++ veneer's datetime reads swap names.** `read_datetime` returns `Read<Datetime>`, the structured value every other binding's `read_datetime` returns; the textual form it used to return is now `read_datetime_str`. The old pair had the names backwards relative to the rest of the project, and a veneer consumer calling `read_datetime` will get a compile error rather than a silent change of meaning.
 
@@ -50,13 +142,13 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - A line that is malformed in content but positionally sound is retained as inert trivia and written back, instead of vanishing. Lines whose position cannot be recovered still drop and still count toward `LostCount`, which is what the save gate reads. A BOM-led line is deliberately excluded - re-emitting it produces content the parser reads back as live.
 
-- `shcl set --write` consults the save gate. It previously deleted unreadable lines at exit 0 with nothing on stderr; the justification on record - that a human sees the diagnostics anyway - was false at the default strictness, where they see nothing at all.
+- `shcl set --write` consults the save gate. It previously deleted unreadable lines at exit 0 with nothing on stderr; the justification on record - that a person sees the diagnostics anyway - was false at the default strictness, where they see nothing at all.
 
 - `shcl set -` follows stdin: the piped document when the edits come from options, an empty base when the ops script has stdin. The two meanings never compete, so nothing that worked before changed.
 
 - The unknown-field sweep runs through a key-level schema fault instead of skipping wholesale, and skips only where the fault costs the entry its path (`V093`, `V095`).
 
-- `H002` reports at every merged level, not just the first: a re-entered map carries the re-open line down to its children.
+- `H002` reports at every merged level, not just the first: a re-entered map passes the re-open line down to its children.
 
 - A bare `shcl` prints the help and exits 0, the same as `shcl help` - one convention, "asking for help succeeds" - where it used to print the same text and exit 1.
 
@@ -70,13 +162,13 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - The C binding's number parsing and formatting followed the host program's locale. Under a comma-decimal locale the canonical output diverged from the other three bindings, every float read came back `BadType`, and the float formatter truncated `1.5` to `1`. Both sites now translate the decimal point themselves - pinning the locale would have been a process-wide side effect a library has no business causing, and is not thread-safe.
 
-- A setter accepted a path segment or a by-value selector containing a line break, and wrote a document that reparsed to nothing. Both are refused now (a name spells the break instead; see Changed).
+- A setter accepted a path segment or a by-value selector containing a line break, and wrote a document that reparsed to nothing. Both are refused now (a name escapes the break instead; see Changed).
 
 - A value with leading or trailing whitespace outside space and tab was truncated on write. The edge-whitespace quoting rule now covers the whole set all four bindings already agreed on.
 
 - `fmt` emptied a whitespace-only line inside a raw block, and then, once it stopped, grew a raw block whose body has *no* non-blank line by one indent level on every pass, without bound. The common indent is taken from non-blank lines, so such a body has none to strip - and the formatter now adds none back, leaving it byte-for-byte. Normalizing it away would also have ended the growth, but a raw block promising verbatim content is the wrong place to discard a line of non-breaking or ideographic space.
 
-- Merged output was not always a formatter fixpoint: an empty binding in the base and a same-named block in the overlay both survived a merge, where parsing the two run together folds them. Merge adopts the parser's own empty-fill rule now, so the two agree. That also removes the emitter's workaround for the resulting pair, which spelled the fence on the name's line and lost an info string containing `#` outright.
+- Merged output was not always a formatter fixpoint: an empty binding in the base and a same-named block in the overlay both survived a merge, where parsing the two run together folds them. Merge adopts the parser's own empty-fill rule now, so the two agree. That also removes the emitter's workaround for the resulting pair, which wrote the fence on the name's line and lost an info string containing `#` outright.
 
 - A raw block body line ending in more than one carriage return was not a fixpoint: the load stripped one, the write turned the survivor into a line ending, and the reload dropped it. The whole trailing run comes off at load now. A carriage return inside a line is content and still round-trips.
 
@@ -86,9 +178,9 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - The C++ veneer's `Datetime` move operations left the moved-from value holding a view of digits it had handed away, so it formatted a fraction it no longer held. The invariant now lives in the rebind, which cannot be bypassed.
 
-- On Windows an in-place write left the file's ACLs, attributes and alternate data streams behind. A rename publishes a new file, and everything the old one carried outside its contents went with it; the write goes through `ReplaceFile` now, which carries them onto the replacement, and falls back to the old replacing move when the file is being created or the merge cannot be done. On POSIX the containing directory is synced after the rename as well as the file before it, so a power cut can no longer lose the publish itself and leave the old content. What a write still cannot carry - other hard links, POSIX ACLs, extended attributes and the SELinux label among them - is now stated in the spec rather than left to be discovered.
+- On Windows an in-place write left the file's ACLs, attributes and alternate data streams behind. A rename publishes a new file, and everything the old one had outside its contents went with it; the write goes through `ReplaceFile` now, which copies them onto the replacement, and falls back to the old replacing move when the file is being created or the merge cannot be done. On POSIX the containing directory is synced after the rename as well as the file before it, so a power cut can no longer lose the publish itself and leave the old content. What a write still cannot keep - other hard links, POSIX ACLs, extended attributes and the SELinux label among them - is now stated in the spec rather than left to be discovered.
 
-- The PowerShell wrapper needed PowerShell 7. It used one operator that older versions do not have, on the line that forwards the binary's exit code, so it failed outright on the Windows PowerShell 5.1 that ships with the OS. Spelled the long way now, and it runs on both.
+- The PowerShell wrapper needed PowerShell 7. It used one operator that older versions do not have, on the line that forwards the binary's exit code, so it failed outright on the Windows PowerShell 5.1 that ships with the OS. Written the long way now, and it runs on both.
 
 ### Removed
 
@@ -100,7 +192,7 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 ### Added
 
-- `shcl about` and `shcl donate` on the CLI, each also spelled `--about` and `--donate` the way `help` and `version` already are. `about` gives the version, copyright, project home, license and a short description of what SHCL is; `donate` points at the GitHub Sponsors page.
+- `shcl about` and `shcl donate` on the CLI, each also written `--about` and `--donate` the way `help` and `version` already are. `about` gives the version, copyright, project home, license and a short description of what SHCL is; `donate` points at the GitHub Sponsors page.
 
 - `Lines(path)` (each binding's spelling, plus the C++ veneer): the plural of `Line(path)`. A repeated field - the case that most wants a citable line, and the one the singular returns 0 for - yields every binding's line in file order; unresolved wildcard slots stay as 0 so indices keep matching `Count`.
 
@@ -144,9 +236,9 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - `shcl set --write FILE --set PATH=VALUE` writes edits given as options straight back to the file. Previously the only way to persist an edit was a tab-separated op script piped in on stdin, which is awkward to write by hand in any shell and impossible to read once tabs are invisible; edits now need neither a pipe nor a tab. The options are repeatable and apply in the order given.
 
-- `--set-literal=PATH=TEXT` beside it, for the values `--set` cannot spell. A `--set` value is data, so `ports=80, 443` stores one quoted string; the same text through `--set-literal` stores a two-element array, because it goes in as value syntax the way a file spells it. Both share one ordered list, so the last option to touch a path wins. Raw blocks, set-only-if-absent and removal still go in as an op script.
+- `--set-literal=PATH=TEXT` beside it, for the values `--set` cannot write. A `--set` value is data, so `ports=80, 443` stores one quoted string; the same text through `--set-literal` stores a two-element array, because it goes in as value syntax the way a file writes it. Both share one ordered list, so the last option to touch a path wins. Raw blocks, set-only-if-absent and removal still go in as an op script.
 
-- `SetLiteral` and `SetLiteralDefault` in every binding (`set_literal` / `shcl_set_literal`), the library half of the above: they read their argument the way the parser reads the value half of a line, so a consumer holding value text can write it without first working out its shape. Text carrying a line break, or a quote that never closes, is rejected rather than written; an unquoted `#` ends the value as it would in a file. The op script gained a matching `literal` op.
+- `SetLiteral` and `SetLiteralDefault` in every binding (`set_literal` / `shcl_set_literal`), the library half of the above: they read their argument the way the parser reads the value half of a line, so a consumer holding value text can write it without first working out its shape. Text with a line break, or a quote that never closes, is rejected rather than written; an unquoted `#` ends the value as it would in a file. The op script gained a matching `literal` op.
 
 - Generated starter configs (`shcl init --schema`) end with a short footer naming the format and linking its home page and spec, so whoever opens the file next can find out what it is and how to edit it. `--no-banner` leaves it out, and `generate` takes the same flag in every binding.
 
@@ -158,7 +250,7 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - `shcl set` no longer reads a write-ops script from stdin when any `--set` is given. This only affects a command line that passed both, which previously applied the `--set` values and then the piped ops; pass the whole edit one way or the other. The wording of the two `--write` refusals also split, naming just the option that clashed rather than "--layer or --set".
 
-- Writer-created top-level nodes now carry the blank-line grouping a hand-written file would have: one blank line between top-level sections. Written and generated output changes shape accordingly.
+- Writer-created top-level nodes now have the blank-line grouping a hand-written file would have: one blank line between top-level sections. Written and generated output changes shape accordingly.
 
 - Parsing is faster: the reference no longer copies every line and its indent, and three bindings scan paths without building a character list per line. Formatting a large file is roughly 10 percent quicker in the reference, Go and C, and about 12 percent in Python.
 
@@ -166,7 +258,7 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - The canonical formatter no longer loses hand-authored comment layout two ways: a blank line between comment-only regions survives the round-trip, and a comment written deeper than the next binding stays with the block it sits in (re-emitted after that block's last child, at the block's indent) instead of re-attaching dedented to the next field.
 
-- A failed strict load is no longer a dead end: the failure carries the parsed document (Go's `ParseWith` also returns it non-nil alongside the error), and the message names the first few diagnostics instead of a bare count.
+- A failed strict load is no longer a dead end: the failure includes the parsed document (Go's `ParseWith` also returns it non-nil alongside the error), and the message names the first few diagnostics instead of a bare count.
 
 - `Paths()` no longer hides a node whose name needs quoting, nor its subtree. Non-bare segments come back quoted and escaped, so every returned path is a valid lookup path and the enumeration matches the document.
 
@@ -186,7 +278,7 @@ The first major since 1.0.0. Two things change incompatibly, both listed under C
 
 - The C++ wrapper's structured date read handed back a pointer into the document's storage, so the value dangled once the document was gone. It owns its fractional digits now, which changes what `read_datetime_raw` returns.
 
-- Comments were dropped when documents merged: a section present in both layers lost the higher layer's comments, and a write that merged duplicate fields lost any comment hanging below the losing one. A footer several layers share is now carried over once rather than repeated per layer.
+- Comments were dropped when documents merged: a section present in both layers lost the higher layer's comments, and a write that merged duplicate fields lost any comment hanging below the losing one. A footer several layers share is now kept once rather than repeated per layer.
 
 - The one-shot load-and-validate ignored a schema that failed to load, so constraints on its broken lines silently vanished. It reports the schema failure now, like `check --schema` does.
 
@@ -224,7 +316,7 @@ First stable release. The language, the read and write APIs, and the diagnostic 
 
 - `install.bash` now requires `openssl` alongside `curl` or `wget`. There is no unverified-install fallback.
 
-- The trademark policy is now built around conformance: an implementation that passes the published corpus may carry the name, without asking and without affiliation.
+- The trademark policy is now built around conformance: an implementation that passes the published corpus may use the name, without asking and without affiliation.
 
 ## v1.0.0-rc1 - 2026-07-26
 
@@ -296,7 +388,7 @@ First stable release. The language, the read and write APIs, and the diagnostic 
 
 - Comments are preserved through the canonical formatter as node trivia rather than being discarded.
 
-- Stable diagnostic codes (`E###`/`H###`) on `check`, printed as `line N: severity: CODE` on stdout with human prose on stderr.
+- Stable diagnostic codes (`E###`/`H###`) on `check`, printed as `line N: severity: CODE` on stdout with the prose on stderr.
 
 - Convenience read tier with whole-value fallbacks (`get_*_or` / `default=`) across the bindings.
 

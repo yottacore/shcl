@@ -8,4 +8,4 @@ field: indicators.*.period
 	min: 1
 field: indicators.*.source
 	type: string
-	allowed: open, close
+	allowed: [open, close]

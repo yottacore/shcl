@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+list	string[]	a|d	Good
+val	int	1	Good
+-	lost	0	-

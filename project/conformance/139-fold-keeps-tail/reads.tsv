@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+q	int	3	Good
+q	count	1	Good
+-	paths	q	-
+-	lost	0	-

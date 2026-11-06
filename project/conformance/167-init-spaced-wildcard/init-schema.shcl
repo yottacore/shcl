@@ -1,0 +1,12 @@
+# A wildcard spelled with blanks inside its brackets fills like [*].
+field: srv
+	required: yes
+	default: web
+
+field: "srv( * ).port"
+	required: yes
+	default: 80
+
+field: "srv(  *).tls(* ).on"
+	required: yes
+	type: bool

@@ -19,3 +19,17 @@ bad2	datetime	-	BadType
 bad3	datetime	-	BadType
 bad4	datetime	-	BadType
 bad5	datetime	-	BadType
+bad6	datetime	-	BadType
+bad7	datetime	-	BadType
+bad8	datetime	-	BadType
+tol1	datetime	09:30	Good
+tol2	datetime	2026-07-01	Good
+tol3	datetime	14:30Z	Good
+tol4	datetime	2026-07-12T14:30	Good
+tol5	datetime	14:30Z	Good
+tol6	datetime	2026-07-12T14:30	Good
+bad9	datetime	-	BadType
+bad10	datetime	-	BadType
+bare5	datetime	-	NotFound
+bare5	string[]	-	NotFound
+-	lost	0	-

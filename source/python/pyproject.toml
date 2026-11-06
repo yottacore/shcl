@@ -15,7 +15,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shcl"
-version = "2.0.0"
+version = "3.0.0-beta1"
 description = "SHCL - Simple Hierarchical Config Language. Parser, accessor, writer, and formatter."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -36,10 +36,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jim-collier/shcl"
-Source = "https://github.com/jim-collier/shcl"
-Issues = "https://github.com/jim-collier/shcl/issues"
-Changelog = "https://github.com/jim-collier/shcl/blob/main/changelog.md"
+Homepage = "https://github.com/yottacore/shcl"
+Source = "https://github.com/yottacore/shcl"
+Issues = "https://github.com/yottacore/shcl/issues"
+Changelog = "https://github.com/yottacore/shcl/blob/main/changelog.md"
 
 [tool.setuptools]
 py-modules = ["shcl"]
@@ -77,12 +77,12 @@ ignore = [
 ## mypy 2.x dropped 3.9 as a target; ruff still holds the syntax to 3.9, which is
 ## the floor the package actually claims.
 python_version = "3.10"
-files = ["shcl.py", "cmd/shcl/main.py", "tests/conformance.py"]
+files = ["shcl.py", "cmd/shcl/main.py", "tests/conformance.py", "tests/soak.py", "tests/typing_probe.py"]
 check_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
 strict_equality = true
 ## The parser assigns a narrower type back over a wider one in a few places
-## where the reference uses an enum the Python version spells as a union.
+## where the reference uses an enum the Python version writes as a union.
 disable_error_code = ["assignment"]

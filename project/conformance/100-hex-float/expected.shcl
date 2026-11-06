@@ -1,0 +1,8 @@
+# Integers past the i64 range read as floats, whatever their spelling.
+a: 0x8000000000000000
+b: 0xFFFFFFFFFFFFFFFF
+c: "18,446,744,073,709,551,615"
+d: -0xFFFFFFFFFFFFFFFF
+e: 0x10000000000000000
+f: 9223372036854775808
+g: 0xFF

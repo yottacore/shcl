@@ -1,0 +1,10 @@
+# Listed out of tree order: the parent after a child, another field between.
+field: a.host.srv
+	required: yes
+field: zed
+	required: yes
+field: a
+	required: yes
+	default: x
+field: zed.deep
+	type: int

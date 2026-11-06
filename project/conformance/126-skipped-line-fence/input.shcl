@@ -1,0 +1,12 @@
+"serv◉Q◉": a, b
+	script: ```sh
+	echo hi
+	port: 1
+	```
+port: 80
+a:
+		b: 1
+	run: ~~~
+	name: inner
+	~~~
+name: web

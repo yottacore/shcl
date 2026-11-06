@@ -11,6 +11,6 @@ blk:
 
 plain: keep
 # a stacked list that closes onto an earlier instance's value
-dup: x
+dup: [x]
 
 # shared footer

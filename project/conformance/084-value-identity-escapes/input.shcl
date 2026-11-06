@@ -1,0 +1,10 @@
+# Two spellings of one value are one instance, and one selector finds it.
+a: "q◉DOUBLE_QUOTE◉uote"
+	p: 1
+a: 'q"uote'
+	q: 2
+b: "tab◉TAB◉here"
+	r: 3
+c: nobs
+c: 'nobs'
+	s: 4

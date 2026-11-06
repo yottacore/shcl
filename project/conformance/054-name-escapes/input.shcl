@@ -1,7 +1,7 @@
-"a\"b": 1
+"a◉DOUBLE_QUOTE◉b": 1
 'a"b': 2
-"tab\there": 3
-"back\\slash": 4
+"tab◉TAB◉here": 3
+"back\slash": 4
 "it's": 5
 sect:
-	"x\"y": 6
+	"x◉DQUOTE◉y": 6

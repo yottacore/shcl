@@ -1,0 +1,15 @@
+root:
+	child:
+		child:
+			size: 3
+			child:
+				child:
+					child:
+						size: x
+						child:
+							child:
+								size: 1
+								color: red
+								any:
+									tag: t
+									nope: 1

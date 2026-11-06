@@ -3,13 +3,13 @@
 ##	Purpose: Render an animated demo GIF of a CLI program, without recording a
 ##		real terminal (no ttyd, no asciinema, no ffmpeg - just Pillow). A TOML
 ##		scenario file scripts the session; each command is "typed" into a fake
-##		terminal window with human timing (slower digits, a beat before flags,
+##		terminal window with natural timing (slower digits, a beat before flags,
 ##		the occasional corrected typo), then actually executed so the captured
 ##		output can never go stale. Motion runs at exactly 50 fps: the cursor
 ##		glides between cells at sub-pixel resolution rather than teleporting,
 ##		blinks while the prompt sits idle, and a view that has to scroll moves
 ##		a constant number of pixels per frame. Output that fits on
-##		one screen lands at once, the way a real terminal dumps it; only an
+##		one screen shows at once, the way a real terminal dumps it; only an
 ##		overflowing view scrolls. The screen clears between steps, so each
 ##		command starts at the top of an empty terminal.
 ##		The loop boundary cuts to a black hold, then straight back to the first
@@ -28,22 +28,35 @@
 ##	Exit: 0 wrote the GIF, 2 non-fatal skip (no Pillow, bad scenario, cmd failed).
 ##	History: At bottom of script.
 
-##	Copyright © 2026 Bubbles (ID: XଌฅრX۳ᛟԃლፀƅꓩหδლც)
+##	Copyright (c) 2026 Bubbles
 ##	Licensed under The MIT License (MIT). Full text at:
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
 
 
-import argparse, math, os, random, re, shlex, subprocess, sys, unicodedata
+from __future__ import annotations
+
+import argparse
+import math
+import random
+import re
+import shlex
+import subprocess
+import sys
+import unicodedata
+from pathlib import Path
+from typing import Any, NoReturn
 
 try:
 	import tomllib
 except ImportError:
-	sys.stderr.write("gen-demo-gif: needs python 3.11+ (tomllib)\n"); sys.exit(2)
+	sys.stderr.write("gen-demo-gif: needs python 3.11+ (tomllib)\n")
+	sys.exit(2)
 try:
 	from PIL import Image, ImageDraw, ImageFont
 except ImportError:
-	sys.stderr.write("gen-demo-gif: Pillow not installed\n"); sys.exit(2)
+	sys.stderr.write("gen-demo-gif: Pillow not installed\n")
+	sys.exit(2)
 
 
 ##	Canvas and window chrome. 960x540 total; the "window" fills the frame, left
@@ -53,7 +66,7 @@ MARGIN     = 4        # thin black border around the full-bleed window
 TITLE_H    = 34       # title bar height
 PAD        = 12       # text inset inside the terminal area
 
-THEME = {
+THEME: dict[str, Any] = {
 	"outer":    (0, 0, 0),         # black border framing the window
 	"border":   (58, 58, 62),      # 1px window outline
 	"titlebar": (44, 44, 48),
@@ -77,6 +90,12 @@ IDENT_USERS = ["mika", "joss", "arlo", "remy", "kai", "nova", "wren", "finn"]
 IDENT_HOSTS = ["basalt", "kestrel", "onyx", "lyra", "quartz", "mesa", "flint", "juno"]
 
 ##	Typing model. WPM -> ms/char at the usual 5 chars/word.
+##	The numbers below are tuned by watching the result, not derived, and they sit
+##	under a plain typing-speed band on purpose: what reads as natural on screen is
+##	slower than what a person actually types, because the viewer is reading the
+##	command rather than recalling it. Digits are slower again, since a reader
+##	takes them in one at a time. Raise them and the demo reads as a replay of a
+##	script instead of someone at a terminal.
 WPM_LETTERS   = (135, 183)   # per-command draw, then per-char jitter
 WPM_DIGITS    = 63           # default; scenario wpm_digits overrides
 WPM_NOTES     = (233, 263)   # "# comment" lines fly by
@@ -98,19 +117,23 @@ QWERTY_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"]
 ANSI_RE = re.compile(r"\x1b(\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)|.)")
 
 
-def fEmojiInit():
+def fEmojiInit() -> dict[str, Any] | None:
 	##	Color emoji are beyond FreeType-via-Pillow now (Noto ships COLRv1), so
 	##	glyph tiles come from Pango+cairo instead. Everything here is optional:
 	##	if any piece is missing the chars just draw through the monochrome
 	##	fallback like before.
 	try:
-		import gi, cairo
+		import cairo
+		import gi
 		gi.require_version("Pango", "1.0")
 		gi.require_version("PangoCairo", "1.0")
 		from gi.repository import Pango, PangoCairo
-		from fontTools.ttLib import TTFont
+		from fontTools.ttLib import TTFont, TTLibError
 	except (ImportError, ValueError):
 		return None
+	##	fc-match missing or slow, a font file that fails to open or parse, or a
+	##	face with no usable cmap (getBestCmap hands back None): each means no
+	##	emoji face, not a broken run.
 	try:
 		out = subprocess.run(["fc-match", "-f", "%{file}\t%{family}", "emoji"],
 		                     capture_output=True, text=True, timeout=10).stdout
@@ -118,7 +141,7 @@ def fEmojiInit():
 		if "emoji" not in family.lower():
 			return None
 		cmap = set(TTFont(path, lazy=True).getBestCmap())
-	except Exception:
+	except (OSError, subprocess.TimeoutExpired, TTLibError, TypeError):
 		return None
 	return {"Pango": Pango, "PangoCairo": PangoCairo, "cairo": cairo,
 	        "family": family, "cmap": cmap}
@@ -127,33 +150,33 @@ def fEmojiInit():
 EMOJI = fEmojiInit()
 
 
-def fSkip(msg):
+def fSkip(msg: str) -> NoReturn:
 	##	2 = non-fatal skip, same convention as the other cicd utilities: the
 	##	stage warns and the pipeline continues.
 	sys.stderr.write(f"gen-demo-gif: {msg}\n")
 	sys.exit(2)
 
 
-def fGifsicle(path):
+def fGifsicle(path: Path) -> int:
 	##	Pillow writes every frame whole; at 50 fps that is mostly redundant, so
 	##	hand the file to gifsicle for inter-frame diffing + transparency. Exact
 	##	(no lossy, no palette change), and silently skipped when not installed.
 	##	Returns the new size, or 0 if nothing was done.
-	tmp = path + ".opt"
+	tmp = path.with_name(path.name + ".opt")
 	try:
 		rc = subprocess.run(["gifsicle", "-O3", "-w", "--loopcount=forever",
-		                     "-o", tmp, path], timeout=900).returncode
+		                     "-o", str(tmp), str(path)], timeout=900).returncode
 	except (OSError, subprocess.TimeoutExpired):
 		rc = 1
-	if rc == 0 and os.path.exists(tmp) and os.path.getsize(tmp):
-		os.replace(tmp, path)
-		return os.path.getsize(path)
-	if os.path.exists(tmp):
-		os.remove(tmp)
+	if rc == 0 and tmp.exists() and tmp.stat().st_size:
+		tmp.replace(path)
+		return path.stat().st_size
+	if tmp.exists():
+		tmp.unlink()
 	return 0
 
 
-def fFindFont(prefs, size):
+def fFindFont(prefs: list[str], size: int) -> tuple[ImageFont.FreeTypeFont, str]:
 	##	Resolve the first available preference via fc-match. fc-match always
 	##	answers with its best match, so verify the family before trusting it;
 	##	the final fallback takes whatever monospace fontconfig offers.
@@ -175,7 +198,7 @@ def fFindFont(prefs, size):
 	fSkip("no usable monospace font found")
 
 
-def fLoadScenario(path):
+def fLoadScenario(path: str) -> dict[str, Any]:
 	##	Scenario format (TOML):
 	##	  title = "window title"        prog = "name shown in typed commands"
 	##	  font = ["pref1", "pref2"]     seed = 11
@@ -203,13 +226,17 @@ def fLoadScenario(path):
 	return sc
 
 
-def fRunStep(step, prog, binpath):
-	##	Execute the step's command for real; merged stdout+stderr becomes the
-	##	demo output, so notes the program prints on stderr show up too.
+def fRunStep(step: dict[str, Any], prog: str, binpath: str) -> list[str]:
+	##	Execute the step's command for real; stderr goes down the same pipe as
+	##	stdout, so notes the program prints on stderr show up where a terminal
+	##	would show them. Capturing the two separately and concatenating put every
+	##	stderr line after every stdout line, which is an order no terminal
+	##	produces - the stdin note `set` prints came out under its own output.
 	cmd = step.get("run", step["show"])
 	cmd = cmd.replace("{bin}", shlex.quote(binpath)).replace("{prog}", shlex.quote(binpath))
 	try:
-		res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True,
+		res = subprocess.run(["bash", "-c", cmd], stdout=subprocess.PIPE,
+		                     stderr=subprocess.STDOUT, text=True,
 		                     timeout=30, errors="replace")
 	except subprocess.TimeoutExpired:
 		fSkip(f"command timed out: {cmd}")
@@ -219,18 +246,23 @@ def fRunStep(step, prog, binpath):
 	expect = step.get("expect_exit", 0)
 	if res.returncode != expect:
 		fSkip(f"step exited {res.returncode}, expected {expect}: {cmd}")
-	out = ANSI_RE.sub("", res.stdout + res.stderr)
+	out = ANSI_RE.sub("", res.stdout)
 	return [ln.expandtabs(8).rstrip() for ln in out.rstrip("\n").split("\n")]
 
 
-def fTypeEvents(text, rng, wpm_range, typos=True, wpmDigits=WPM_DIGITS):
+Event = tuple[tuple[str, str | None], float]   # ((action, char), delay_ms)
+
+
+def fTypeEvents(text: str, rng: random.Random, wpm_range: tuple[int, int],
+                typos: bool = True, wpmDigits: int = WPM_DIGITS) -> list[Event]:
 	##	Turn a command string into ((action, char), delay_ms) keystroke events.
 	##	Letters ride the per-command WPM draw with per-char jitter, digits get
 	##	their own WPM (slow by default, fast for numbers-heavy demos), a -flag
 	##	token gets a small hesitation, and a couple of seeded typos get noticed
 	##	and backspaced away.
 	wpm = rng.uniform(*wpm_range)
-	events, fixes = [], 0
+	events: list[Event] = []
+	fixes = 0
 	firstSpace = text.find(" ")
 	for i, ch in enumerate(text):
 		if ch.isdigit():
@@ -258,7 +290,7 @@ def fTypeEvents(text, rng, wpm_range, typos=True, wpmDigits=WPM_DIGITS):
 	return events
 
 
-def fNeighborKey(ch, rng):
+def fNeighborKey(ch: str, rng: random.Random) -> str:
 	for row in QWERTY_ROWS:
 		pos = row.find(ch.lower())
 		if pos < 0:
@@ -269,15 +301,18 @@ def fNeighborKey(ch, rng):
 	return ch
 
 
-##	Palette: one shared 256-entry table for every frame. The text colors carry
+##	Palette: one shared 256-entry table for every frame. The text colors have
 ##	short blend ramps toward their background so antialiased edges quantize
 ##	cleanly instead of dithering, and the leftover entries are median-cut from
 ##	the emoji tiles the scenario actually produces. One global table means no
 ##	per-frame palette cost; fades darken it per frame (local palettes), leaving
 ##	pixel indexes untouched.
-def fBuildPalette(userTint, hostTint, emojiTiles):
-	def blend(a, b, k):
-		return tuple(round(a[i] + (b[i] - a[i]) * k) for i in range(3))
+RGB = tuple[int, int, int]
+
+
+def fBuildPalette(userTint: RGB, hostTint: RGB, emojiTiles: list[Image.Image]) -> Image.Image:
+	def blend(a: RGB, b: RGB, k: float) -> RGB:
+		return (round(a[0] + (b[0] - a[0]) * k), round(a[1] + (b[1] - a[1]) * k), round(a[2] + (b[2] - a[2]) * k))
 	t = THEME
 	colors = [(0, 0, 0), t["outer"], t["border"], t["titlebar"],
 	          t["titletxt"], t["bg"], t["fg"], t["gray"], t["dim"],
@@ -417,7 +452,7 @@ class Screen:
 		##	The block at a fractional position: edge pixels take partial coverage
 		##	instead of snapping to the pixel grid, so a 2-3 px/frame glide reads
 		##	as continuous motion rather than a series of small jumps. The blends
-		##	land on the same bg->fg ramp the antialiased text already uses, so
+		##	fall on the same bg->fg ramp the antialiased text already uses, so
 		##	they quantize without dithering.
 		x0, y0 = cx + 1, cy + 1
 		x1, y1 = x0 + self.cw, y0 + self.lh - 3
@@ -556,7 +591,7 @@ class Movie:
 		self._lastBytes = None
 
 	def add(self, img, ms):
-		dur = max(20, int(round(ms / 10.0)) * 10)
+		dur = max(20, round(ms / 10.0) * 10)
 		raw = img.tobytes()                  # kept: the held frame is re-compared every add
 		if raw == self._lastBytes:
 			self.durs[-1] += dur
@@ -566,7 +601,7 @@ class Movie:
 			self._lastBytes = raw
 
 
-def fMain():
+def fMain() -> None:
 	ap = argparse.ArgumentParser(add_help=True)
 	ap.add_argument("--scenario", required=True)
 	ap.add_argument("--out", required=True)
@@ -596,7 +631,7 @@ def fMain():
 	scr = Screen(font, fontName, sc.get("title", prog), prompt, None, sc.get("fontsize", 15))
 
 	##	Run every command up front: the outputs feed the demo AND tell the
-	##	palette which emoji it must carry before the first frame renders.
+	##	palette which emoji it must include before the first frame renders.
 	stepOut = [fRunStep(step, prog, binpath) for step in sc["step"]]
 	emojiSet = sorted({ch for lines in stepOut for ln in lines for ch in ln
 	                   if scr.fIsEmoji(ch)})
@@ -616,7 +651,7 @@ def fMain():
 		##	every frame is exactly 2cs. Where it does not actually move (a
 		##	thinking pause), the frames are identical and Movie.add folds them up.
 		tx, ty = scr.fCursorTarget()
-		steps = max(1, int(round(ms / FRAME_MS)))
+		steps = max(1, round(ms / FRAME_MS))
 		x0, y0 = shown
 		for s in range(1, steps + 1):
 			shown[0] = x0 + (tx - x0) * s / steps
@@ -626,7 +661,7 @@ def fMain():
 	def settle(rate, cursor=True):
 		##	Smooth-scroll the view to rest; the cursor rides along on its line.
 		##	The step is the asked-for rate rounded to an exact divisor of the line
-		##	height, so a line boundary never lands mid-step and every frame
+		##	height, so a line boundary never falls mid-step and every frame
 		##	advances the same distance - constant velocity is what reads as
 		##	smooth, more than raw rate does.
 		step = scr.lh / max(1, round(scr.lh / (rate * FRAME_MS / 1000.0)))
@@ -687,7 +722,7 @@ def fMain():
 			if scr.fRestScroll() > scr.scroll + 0.5:
 				settle(rate, cursor=False)
 			##	A screenful that fits arrives all at once - no frame per line, so
-			##	it lands the instant the command does, like a real terminal.
+			##	it shows the instant the command does, like a real terminal.
 			##	Lines past the bottom are what scroll, and only those.
 			outLines = stepOut[stepIdx]
 			for ln in outLines:
@@ -719,11 +754,12 @@ def fMain():
 	mov.frames.append(black)
 	mov.durs.append(BLACK_HOLD_MS)
 
-	os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
-	mov.frames[0].save(args.out, save_all=True, append_images=mov.frames[1:],
+	out = Path(args.out)
+	out.absolute().parent.mkdir(parents=True, exist_ok=True)
+	mov.frames[0].save(out, save_all=True, append_images=mov.frames[1:],
 	                   duration=mov.durs, loop=0, optimize=False)
-	raw = os.path.getsize(args.out)
-	opt = fGifsicle(args.out)
+	raw = out.stat().st_size
+	opt = fGifsicle(out)
 	if not args.quiet:
 		secs = sum(mov.durs) / 1000.0
 		size = f"{opt // 1024} KiB (from {raw // 1024})" if opt else f"{raw // 1024} KiB"
@@ -748,7 +784,7 @@ if __name__ == "__main__":
 ##		- 20260713: v1.3. Full-bleed window (thin black border, no shadow),
 ##			square corners.
 ##		- 20260711: v1.2. Antialiased text again (ramped 256 palette), color
-##			emoji tiles, prompt hidden until output lands, faster typing and
+##			emoji tiles, prompt hidden until output shows, faster typing and
 ##			scrolling, cell-width wrap.
 ##		- 20260711: v1.1. Pixel-smooth scrolling and cursor glide; scenario
 ##			knobs wpm_digits, scrollrate, linems.

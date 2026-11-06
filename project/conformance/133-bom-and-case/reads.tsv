@@ -1,0 +1,11 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+SRV.HOST	string	example	Good
+srv.PORT	int	80	Good
+Srv.tls	bool	true	Good
+"clé"	count	2	-
+"CLÉ"	int	3	Good
+"clé"	string	-	Multiple
+naïve	string	-	BadPath
+-	paths	srv|srv.host|srv.port|srv.tls|"clé"|"clÉ"	-

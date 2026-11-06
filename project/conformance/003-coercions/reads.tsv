@@ -17,3 +17,12 @@ answer	string	yes	Good	strict
 switch	bool	-	BadType
 switch	bool	true	Good	loose
 switch	string	enabled	Good
+spaced	float	3.14	Good	loose
+spaced	int	3	Good	loose
+spaced	float	-	BadType
+bare	int	1200	Good	loose
+bare	int	-	BadType
+bare	string	$ 1200	Good
+tiedown	int	-3	Good	loose
+tieup	int	4	Good	loose
+-	lost	0	-

@@ -1,28 +1,87 @@
 // SPDX-License-Identifier: MIT
-// Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 
-// C++ typed veneer over the C core (shcl.h). This is NOT a second parser: it
-// wraps the same shcl_* functions and adds a compile-time-typed surface
-// (Read<T>, get<T>()), so it inherits the core's conformance. Drop shcl.h and
-// shcl.hpp into your tree; in one TU, #define SHCL_IMPLEMENTATION before either.
+// SHCL for C++. It is not a second parser: every call goes through the C core
+// in shcl.h, so it reads and writes byte for byte what the other bindings do.
+// The interface mirrors the Rust reference and names nothing from the C one,
+// since this half of the file uses std types only. The calls into C live
+// below, under SHCL_IMPLEMENTATION. Copy shcl.h and shcl.hpp into your tree,
+// and in exactly one .cpp:
+//   #define SHCL_IMPLEMENTATION
+//   #include "shcl.hpp"
+// That file also sees the C interface, so keep it to those two lines, with the
+// include above any system header for the reason shcl.h gives. Define
+// SHCL_NO_FILE_IO in every file or in none.
 
 #ifndef SHCL_HPP
 #define SHCL_HPP
 
+// The C core goes first in the implementation file: its file tier asks for a
+// POSIX level, and that only counts before the first system header.
+#ifdef SHCL_IMPLEMENTATION
 #include "shcl.h"
+#endif
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <utility>
+#include <vector>
 
 namespace shcl {
 
-enum class Strictness { Loose = SHCL_LOOSE, Standard = SHCL_STANDARD, Strict = SHCL_STRICT };
-enum class Status { Good = SHCL_GOOD, Empty = SHCL_EMPTY, NotFound = SHCL_NOT_FOUND, BadType = SHCL_BAD_TYPE, Multiple = SHCL_MULTIPLE };
-enum class WriteReason { Writable = SHCL_W_WRITABLE, BadPath = SHCL_W_BAD_PATH, ValueInPath = SHCL_W_VALUE_IN_PATH, Wildcard = SHCL_W_WILDCARD, NoSuchIndex = SHCL_W_NO_SUCH_INDEX, TooDeep = SHCL_W_TOO_DEEP };
+// The values match the C enums, which the implementation checks at compile time.
+enum class Strictness { Loose, Standard, Strict };
+// Only Error fails a strict load; Hint flags legal but lookalike input.
+enum class Severity { Error, Hint };
+// Empty is informational: the empty value still comes back. BadPath is a path
+// the scanner refused or one with a `: value` part; NotFound is a usable path
+// that matched nothing.
+enum class Status { Good, Empty, NotFound, BadType, Multiple, BadPath };
+// What a setter did: Ok when the write applied, or why it wrote nothing.
+// check_set_path() gives the path's half of it, the reasons up to UnderArray,
+// without writing. The rest are about the value, so only a setter gives them.
+// When both halves are wrong the path's reason wins, and NotUtf8 comes before
+// the other value reasons. The order is every binding's.
+enum class SetStatus {
+	Ok, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep, Multiple, UnderArray,
+	HasChildren, NotFinite, BadDateTime, BadRawInfo, BadRawBody, BadComment, NotOneValue, NotUtf8, OutOfRange, NoReadBack,
+	RawBlock
+};
+// What the value at a path is, as kind() and read_kind() give it. Empty is a
+// field with nothing after the colon, a section's header included; `x: []` is
+// an Array with no elements.
+enum class ValueKind { Empty, Scalar, Array, Raw };
+// The unit a duration or size read gives a bare number, when the field name
+// gives none. Kilo to Tera are powers of 1024 unless the read asks for
+// decimal; Kibi to Tebi always are.
+enum class DurationUnit { Millis, Seconds, Minutes, Hours, Days };
+enum class SizeUnit { Bytes, Kilo, Mega, Giga, Tera, Kibi, Mebi, Gibi, Tebi };
+
+// Nesting cap below the document root, enforced at load and by every setter.
+inline constexpr std::size_t MAX_DEPTH = 512;
+// The format major the info block names. It moves with the format.
+inline constexpr std::uint32_t FORMAT_MAJOR = 3;
+// The info block generate() writes at the bottom unless no_banner, for a
+// program that writes its own config file.
+extern const std::string_view GEN_BANNER;
+// What migrate() matches to find a file's Format line, the line itself, and
+// the note a migrated file gets under it.
+extern const std::string_view FORMAT_LINE_HEAD;
+extern const std::string_view FORMAT_LINE;
+extern const std::string_view MIGRATED_LINE;
+// The start of a line naming the file's schema, written like the Format line.
+extern const std::string_view SCHEMA_LINE_HEAD;
+
+class Document;
+namespace detail {
+struct Access;
+bool status_ok(Status s);
+}
 
 template <class T> struct Read {
 	T value{};
@@ -37,282 +96,1432 @@ template <class T> struct Read {
 	// like any other non-Good read - ok() asks "is this field spoken for",
 	// get_or() asks "do I have a usable value", and an explicitly emptied field
 	// is the case where those two diverge.
-	bool ok() const { return status == Status::Good || status == Status::Empty; }
+	bool ok() const { return detail::status_ok(status); }
 };
 
-struct Diagnostic { std::size_t line; bool is_error; std::string message; std::string code; };
+struct Diagnostic {
+	std::size_t line{}; // 1-based
+	Severity severity{};
+	std::string message{};
+	// Stable machine code (E001.., H001..). The message prose is not a contract.
+	std::string code{};
+};
 
-// Owning structured datetime. The core's shcl_datetime borrows its frac digits
-// from the document's arena; this copies them so the value keeps the veneer's
-// RAII promise and may outlive the Document. Copies and moves re-point the C
-// view at their own storage - a move re-points the source's too, or the
-// moved-from object keeps a view into storage it just handed away.
-class Datetime {
-	shcl_datetime v_{};
-	std::string frac_;
-	// The view always describes this object's own storage, has_frac included -
-	// so a moved-from Datetime, whose string is emptied, cannot go on formatting
-	// a fraction it no longer holds.
-	void rebind() { v_.frac.p = frac_.data(); v_.frac.n = frac_.size(); v_.has_frac = !frac_.empty(); }
-public:
-	Datetime() { v_.zone = SHCL_ZONE_NONE; }
-	explicit Datetime(const shcl_datetime &v) : v_(v), frac_(v.frac.p ? std::string(v.frac.p, v.frac.n) : std::string()) { rebind(); }
-	Datetime(const Datetime &o) : v_(o.v_), frac_(o.frac_) { rebind(); }
-	Datetime &operator=(const Datetime &o) { v_ = o.v_; frac_ = o.frac_; rebind(); return *this; }
-	Datetime(Datetime &&o) noexcept : v_(o.v_), frac_(std::move(o.frac_)) { rebind(); o.rebind(); }
-	Datetime &operator=(Datetime &&o) noexcept { v_ = o.v_; frac_ = std::move(o.frac_); rebind(); o.rebind(); return *this; }
-	// The C view, for shcl_datetime_str and friends: valid as long as *this.
-	const shcl_datetime &c() const noexcept { return v_; }
+// One field as a listing shows it: the path that reads exactly that field,
+// written the way instance_paths() writes it, the name as stored, the value as
+// instances() gives it, and the 1-based source line (0 for a node a setter
+// built).
+struct Field {
+	std::string path{};
+	std::string name{};
+	std::string value{};
+	std::size_t line{};
+};
+inline bool operator==(const Field &a, const Field &b) { return a.path == b.path && a.name == b.name && a.value == b.value && a.line == b.line; }
+
+// A datetime's zone suffix as written: Z, or an offset in minutes.
+enum class ZoneKind { Utc, Offset };
+struct Zone { ZoneKind kind{}; std::int32_t offset_minutes{}; };
+struct Date { std::int32_t year{}; std::uint32_t month{}; std::uint32_t day{}; };
+// second is empty when the seconds were not written.
+struct Time { std::uint32_t hour{}; std::uint32_t minute{}; std::optional<std::uint32_t> second{}; };
+
+// Local (floating) date and time unless a zone suffix was present. The fields
+// mirror what was written, so a date-only value has no time and the other way
+// around. frac holds the fractional-second digits as typed. It owns all of
+// that, so it may outlive the Document it was read from.
+struct DateTime {
+	std::optional<Date> date{};
+	std::optional<Time> time{};
+	std::optional<std::string> frac{};
+	std::optional<Zone> zone{};
 	// The reference's textual form.
-	std::string str() const { char b[64]; return std::string(b, shcl_datetime_str(&v_, b)); }
+	std::string str() const;
 };
 
-inline std::string to_str(shcl_str s) { return std::string(s.p, s.n); }
+// Field by field, as the reference compares them: 12:00:00Z and 12:00:00+00:00
+// are one moment and two values.
+inline bool operator==(const Zone &a, const Zone &b) { return a.kind == b.kind && a.offset_minutes == b.offset_minutes; }
+inline bool operator!=(const Zone &a, const Zone &b) { return !(a == b); }
+inline bool operator==(const Date &a, const Date &b) { return a.year == b.year && a.month == b.month && a.day == b.day; }
+inline bool operator!=(const Date &a, const Date &b) { return !(a == b); }
+inline bool operator==(const Time &a, const Time &b) { return a.hour == b.hour && a.minute == b.minute && a.second == b.second; }
+inline bool operator!=(const Time &a, const Time &b) { return !(a == b); }
+inline bool operator==(const DateTime &a, const DateTime &b) { return a.date == b.date && a.time == b.time && a.frac == b.frac && a.zone == b.zone; }
+inline bool operator!=(const DateTime &a, const DateTime &b) { return !(a == b); }
 
-inline std::vector<Status> to_slots(const shcl_status *s, std::size_t n) {
-	std::vector<Status> v; v.reserve(n);
-	for (std::size_t i = 0; i < n; i++) v.push_back(static_cast<Status>(s[i]));
-	return v;
-}
+// Status as text, for a log line or a message. Static storage.
+const char *to_string(Status s);
+// A setter's status as text, "Ok" to "RawBlock". Static storage.
+const char *to_string(SetStatus s);
+// A value kind as text, "Empty" to "Raw". Static storage.
+const char *to_string(ValueKind k);
+// A severity as text, "Error" or "Hint". Static storage.
+const char *to_string(Severity s);
+// The CLI exit code a read with this status ends on.
+int status_code(Status s);
+// The CLI's strictness spellings, loose|standard|strict or 1|2|3, in any case.
+std::optional<Strictness> strictness_from_arg(std::string_view s);
+// A float in the reference's textual form, the spelling a save writes.
+std::string format_float(double v);
+// One value the way set_string writes it after the colon of a field it makes,
+// so `k: 2020`, `k: "a b"`, `k: 1,200`. A typed setter writes its value's text
+// the same way. Empty when set_string would refuse the text.
+std::optional<std::string> format_value(std::string_view text);
+// An array the way set_string_array writes it after the colon of a field it
+// makes, brackets and all, so `k: [80, "a b", "1,200"]`. A thousands number
+// is quoted in brackets, where format_value leaves it bare. Empty when
+// set_string_array would refuse the texts.
+std::optional<std::string> format_array(const std::vector<std::string> &texts);
+// One diagnostic the way the CLI prints it on stderr: `line N: Error: CODE
+// message`, or `schema line N` for V090 to V095, which count schema lines.
+// Only the code is the same in every binding. With no message the line ends
+// at the code.
+std::string format_diagnostic(const Diagnostic &d);
+// Text to a datetime, per the whitelist. Empty when the text is not one.
+std::optional<DateTime> parse_datetime(std::string_view s);
+// Quote one path segment for splicing into a lookup path, so a user-typed
+// name with a dot in it cannot read as nesting.
+std::string quote_segment(std::string_view name);
 
-// Status as text, for a log line or a message. Borrowed from static storage.
-inline const char *to_string(Status s) { return shcl_status_name(static_cast<shcl_status>(s)); }
+// The tokenizer's view of one line or one lookup path, as `shcl tokens` prints
+// it. Every offset is into the text that was tokenized. Backtick is a raw
+// value, read as written: value elements only.
+enum class Quote { None, Single, Double, Backtick, Open };
+enum class Rules { Current, V2 };
+struct Piece { std::size_t start{}; std::size_t end{}; Quote quote{}; };
+struct SegTok { Piece name{}; std::optional<Piece> selector{}; bool star{}; };
+struct Tokens {
+	std::vector<SegTok> segments{};
+	std::optional<std::size_t> sep{};
+	std::size_t value_start{};
+	std::size_t value_end{};
+	// For a bracket array, the pieces between the brackets.
+	std::vector<Piece> elements{};
+	// The `[` that opens a bracket array, when the value is one.
+	std::optional<std::size_t> array{};
+	// Where a bracket array stops being well formed, and why (E019). Static text.
+	std::optional<std::size_t> array_fault_at{};
+	const char *array_fault_why = nullptr;
+	std::optional<std::size_t> comment{};
+	// Where the path stopped making sense, and why. The reason is static text.
+	std::optional<std::size_t> fault_at{};
+	const char *fault_why = nullptr;
+	// The first bare name that breaks the spelling rule but still reads, such
+	// as 404 or `user name` (E014).
+	std::optional<std::size_t> misspelled{};
+	// The first selector written in brackets, x[a], the old spelling (E029).
+	// Its body is read as a selector all the same.
+	std::optional<std::size_t> bracket_selector{};
+	// The caller's element cap (0 = none), kept across calls. capped says it
+	// stopped the scan, and elements is then incomplete.
+	std::size_t cap{};
+	bool capped{};
 
-class Document {
-	shcl_doc *d_ = nullptr;
-	static Status st(shcl_status s) { return static_cast<Status>(s); }
-public:
-	Document() = default;
-	explicit Document(shcl_doc *d) : d_(d) {}
-	Document(const Document &) = delete;
-	Document &operator=(const Document &) = delete;
-	Document(Document &&o) noexcept : d_(o.d_) { o.d_ = nullptr; }
-	Document &operator=(Document &&o) noexcept { if (this != &o) { if (d_) shcl_free(d_); d_ = o.d_; o.d_ = nullptr; } return *this; }
-	~Document() { if (d_) shcl_free(d_); }
+	// Asked of the core rather than counted here, so what counts as an element
+	// is decided in one place.
+	std::size_t element_count() const;
+};
 
-	static Document parse(std::string_view t) { return Document(shcl_parse(t.data(), t.size())); }
-	static Document parse_with(std::string_view t, Strictness s) { return Document(shcl_parse_with(t.data(), t.size(), static_cast<shcl_strictness>(s))); }
+// Tokenize one line (sep ':') or one lookup path (path: the bare `*` name
+// wildcard is admitted, and a `#` in a selector body opens no comment). text
+// is the line after its indent, or the path. out.cap is read
+// and every other field is replaced.
+void tokenize(std::string_view text, char sep, bool path, Rules rules, Tokens &out);
+// The value half alone: everything from `from` on, split into pieces, with the
+// comment found on the way.
+void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens &out);
+
+// What migrate produced, and what it could not keep: current when the
+// file already names its format, ambiguous for pieces both rule sets read
+// cleanly and differently and nothing can decide between, lost for lines 2.x
+// bound a value on that nothing binds now, or with a quoted name 1.2 and 2.0
+// read two ways.
+struct Migration {
+	std::string text;
+	bool current = false;
+	std::size_t ambiguous = 0;
+	std::size_t lost = 0;
+};
+// A document written under the 2.x lexical rules, rewritten so this parser
+// reads the same tree; text to text, no document involved. from_v2 says the
+// file really was written for 2.x, which is the only thing that can settle the
+// spellings the two rule sets read differently.
+Migration migrate(std::string_view text, bool from_v2);
+// migrate() without the version line or the migrated note, for a program that
+// writes GEN_BANNER itself, which includes the version line.
+Migration migrate_unstamped(std::string_view text, bool from_v2);
+// The format major a document's Format line names, read the way migrate reads
+// it; none when no line names one, or when it names no number. migrate hands a
+// file back untouched exactly when this is FORMAT_MAJOR or more.
+std::optional<std::uint32_t> format_version(std::string_view text);
+// format_version() with a status: Good with the major, NotFound when no line
+// names a format, Empty for a Format line with nothing after the word, or
+// BadType for one whose number does not read, such as `##    Format   3x`.
+// value is 0 unless Good.
+Read<std::uint32_t> read_format_version(std::string_view text);
+// The schema a document's Schema line names, a path or a URL; none when no
+// line names one, or when it names nothing. The first line naming one wins,
+// and a relative path is the caller's to resolve, from the config file's
+// directory.
+std::optional<std::string> schema_ref(std::string_view text);
+// schema_ref() with a status: Good with the reference, NotFound when no line
+// names a schema, or Empty when a Schema line has nothing after the word.
+Read<std::string> read_schema_ref(std::string_view text);
+
+// What upgrade() made of a document, and upgrade_file() of a file. text is
+// the fresh file's text, or the input when current, ambiguous or errors_left.
+// current: the input loads with no error under these rules and, with
+// from_v2, migrates to the same text, or it names this format, so it is left
+// as it is; a beta build of 3.0 stamped the same Format line as a release, so
+// a beta file is current here too, unless from_v2 says it is 2.x and it loads
+// with an error. format: the format the input was written for, which goes in
+// the backup's name. ambiguous as Migration's: nonzero means nothing is
+// written. lost: lines and values the fresh text does not carry over, which
+// the backup still has. diagnostics: what loading the input found, empty when
+// current. backup: where upgrade_file() put the original, empty from
+// upgrade() and when nothing was written. errors_left: with from_v2, the
+// input's lines still in error once converted; any means nothing is written.
+struct Upgrade {
+	std::string text;
+	bool current = false;
+	std::uint32_t format = 2;
+	std::size_t ambiguous = 0;
+	std::size_t lost = 0;
+	std::vector<Diagnostic> diagnostics;
+	std::string backup;
+	std::vector<std::size_t> errors_left;
+};
+// A config file written for an older format, made over for this one: migrated
+// without the stamp, saved keeping its lines, so each line stays where it was,
+// with the info block init writes at the end in place of an old one there.
+// Where the lines can't be kept, or keeping them keeps an error, it is written
+// the way fmt writes it. A whole block above the
+// first field stays, so a file with its block at the top comes out with 2, both
+// naming this format. A file that names this format, or loads with no error
+// under these rules, comes back current and untouched. With from_v2, which says
+// the file can only be 2.x, a clean file is still made over when migrate would
+// change it, as it would `p: a,b`, and any file only when the fresh text loads
+// clean (errors_left). Pass from_v2 only for a file known to be old, never on
+// every start.
+Upgrade upgrade(std::string_view text, bool from_v2);
+// The name a config file's backup gets:
+// NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format
+// the file was written for. SHCL_TEST_CLOCK stands in for the clock.
+std::string backup_file_name(const std::string &file, std::uint32_t format);
+// The unit a value spelling names (ms s m h d; B KB kB MB GB TB KiB MiB GiB
+// TiB, letter case read), and the spelling back.
+std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s);
+std::optional<SizeUnit> size_unit_from_spelling(std::string_view s);
+std::string_view spelling(DurationUnit u);
+std::string_view spelling(SizeUnit u);
 
 #ifndef SHCL_NO_FILE_IO
-	// File tier: load never fails (the document always comes back usable,
-	// empty when the file could not be read; the status separates absent /
-	// unreadable / parsed-with-errors / clean), and save writes canonical
-	// text atomically - the CLI --write mechanics.
-	enum class FileStatus { Clean = SHCL_FILE_CLEAN, HadErrors = SHCL_FILE_HAD_ERRORS, NotFound = SHCL_FILE_NOT_FOUND, Unreadable = SHCL_FILE_UNREADABLE };
-	static Document load_file(const std::string &path, FileStatus *status = nullptr) {
-		// Initialized: an out-parameter the caller reads unconditionally should
-		// never depend on the callee having written it.
-		shcl_file_status cs = SHCL_FILE_UNREADABLE;
-		Document d(shcl_load_file(path.c_str(), &cs));
-		if (status) *status = static_cast<FileStatus>(cs);
-		return d;
-	}
-	// Textual name of a file status, for a log line. Borrowed, static.
-	static const char *to_string(FileStatus s) { return shcl_file_status_name(static_cast<shcl_file_status>(s)); }
-	static Document load_file_with(const std::string &path, Strictness s, FileStatus *status = nullptr) {
-		shcl_file_status cs = SHCL_FILE_UNREADABLE;
-		Document d(shcl_load_file_with(path.c_str(), static_cast<shcl_strictness>(s), &cs));
-		if (status) *status = static_cast<FileStatus>(cs);
-		return d;
-	}
-	enum class SaveResult { Ok = SHCL_SAVE_OK, Refused = SHCL_SAVE_REFUSED, Failed = SHCL_SAVE_FAILED };
-	// Not a bool: Refused is the lost-content gate, which save_file_lossy
-	// overrides, and folding it into a failed write leaves the caller with an
-	// override they cannot tell they need.
-	SaveResult save_file(const std::string &path) const { return static_cast<SaveResult>(shcl_save_file(d_, path.c_str())); }
-	SaveResult save_file_lossy(const std::string &path) const { return static_cast<SaveResult>(shcl_save_file_lossy(d_, path.c_str())); }
+// Why a load came back the way it did. A load never fails on the file's
+// account: the document is always usable, and empty when the file could not
+// be read.
+enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
+// Not a bool: Refused is the lost-content gate, which save_file_lossy
+// overrides, and folding it into a failed write leaves the caller with an
+// override they cannot tell they need. Changed is the file the load read
+// changed since, by another program; nothing was written, and
+// SaveOptions::force overrides. Exists is a file SaveOptions::create found
+// there, or another save made first; nothing was written. TooNew is a document
+// from a newer format (newer_format); nothing was written, and nothing
+// overrides it.
+enum class SaveResult { Ok, Refused, Failed, Changed, Exists, TooNew };
+// How save_file_with saves. The default is save_file.
+struct SaveOptions {
+	bool lossy{};      // write even when the save deletes content, as save_file_lossy
+	bool keep_lines{}; // keep the lines no edit touched, as save_file_keep_lines
+	bool force{};      // write over the file the load read even when it changed since
+	bool create{};     // only make a new file: Exists when one is there, even one another save makes at the same time
+	unsigned mode{};   // the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits
+};
+// Why a write failed, so a program can tell a missing folder from no
+// permission or a full disk. NotFound and Unreadable are FileStatus's names.
+// Unreadable is upgrade_file's, for a file it could not read as UTF-8 text.
+// PermissionDenied on windows is also a file another process holds open.
+// The order is every binding's.
+enum class WriteStatus { Ok, NotFound, Unreadable, PermissionDenied, DiskFull, ReadOnly, IsDirectory, NotRegular, Other };
+// Textual name of a file status, for a log line. Static storage.
+const char *to_string(FileStatus s);
+const char *to_string(WriteStatus s);
+// The file's text and Clean, or an empty text with the status saying why. A
+// file past max_bytes is Unreadable; 0 is no cap. load_file is this plus a parse.
+std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_t max_bytes = 0);
+// The temp-file-and-rename write the saves go through, for bytes that are not
+// a document. Ok, or why it failed.
+WriteStatus write_file_atomic(const std::string &path, std::string_view data);
+// What read_named_schema() found. NotFound and Empty are read_schema_ref()'s
+// answers; the rest say why a named schema was not read. NetworkPath is on
+// windows only: a path starting with two slashes or backslashes, or with
+// `\??\`. TooLarge is a file over 16 MiB. The order is every binding's.
+enum class SchemaStatus { Good, NotFound, Empty, Url, NetworkPath, FileNotFound, IsDirectory, NotRegular, TooLarge, Unreadable };
+const char *to_string(SchemaStatus s);
+// What read_named_schema() gives back. text is the schema's text when Good.
+// path is where the line points: the path resolved from the config file's
+// directory, or the URL or network path as written; empty when no line names
+// one. line is the Schema line's number, 0 with none. message says why
+// nothing was read, naming the path, and is empty for Good, NotFound and
+// Empty.
+struct NamedSchema {
+	SchemaStatus status{};
+	std::string text{};
+	std::string path{};
+	std::size_t line{};
+	std::string message{};
+};
+// The schema a config file names on its Schema line, read the way `check`
+// reads it. file is the config's path, which only says where a relative path
+// starts: its directory, or the working directory when it has none, such as
+// "-" for stdin. A URL is not fetched, and on windows neither is a network
+// share or a device path. Only a regular file is read, and none over 16 MiB.
+NamedSchema read_named_schema(std::string_view text, const std::string &file);
+// Why upgrade_file or write_backup wrote nothing, or not all of it. message
+// is worded as the other bindings word the error; count is
+// Upgrade::ambiguous, for Ambiguous; status says why, for Io; lines is
+// Upgrade::errors_left, for ErrorsLeft.
+enum class UpgradeErrorKind { NotFound, Ambiguous, BackupTaken, Io, ErrorsLeft };
+struct UpgradeError {
+	UpgradeErrorKind kind{};
+	std::string message{};
+	std::size_t count{};
+	WriteStatus status{};
+	std::vector<std::size_t> lines{};
+};
+// Keep text, the bytes last read from file, under backup_file_name, before
+// something replaces them. The create is exclusive, so nothing at the name is
+// ever written over. The copy is born private, then given the original's
+// group and mode (on windows its DACL). The backup's name, or the error. A
+// file that isn't there is NotFound, and a directory or a FIFO is Io, as from
+// upgrade_file.
+std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format);
+// upgrade() on a file, for a program to call when it starts, before its
+// load. A file that needs it is backed up by write_backup, then the fresh
+// text replaces it through write_file_atomic, so the path always holds one or
+// the other. A current file is not written at all, and neither is one that
+// changed after it was read, that reads two ways, or that errors_left says
+// would still have an error.
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2);
 #endif
 
-	// One-shot load-and-validate: parse at a strictness, validate against a
-	// schema, and hand back a document whose diagnostics() serve ONE combined
-	// list (parse first, then validation). Never fails: error_count() answers
-	// "did it fail". An empty schema text skips validation entirely; H001
-	// hints the schema disavows (declared repeat upper bound above 1) are
-	// dropped.
-	static Document load_and_validate(std::string_view text, std::string_view schema, Strictness s) {
-		return Document(shcl_load_and_validate(text.data(), text.size(), schema.data(), schema.size(), static_cast<shcl_strictness>(s)));
-	}
+// A parsed document. Its const members may be called on one Document from
+// several threads at once. A member that changes it needs the caller to keep
+// every other call off that Document meanwhile, as with any std type.
+class Document {
+	// The C document. It is never defined on this side, and the Document owns
+	// it: moves hand it over, copies are deleted, and destruction frees it.
+	struct Handle;
+	struct Free { void operator()(Handle *h) const noexcept; };
+	std::unique_ptr<Handle, Free> d_;
+	explicit Document(Handle *h) noexcept : d_(h) {}
+	friend struct detail::Access;
 
-	bool strict_failed() const { return shcl_strict_failed(d_) != 0; }
-	Strictness strictness() const { return static_cast<Strictness>(shcl_strictness_of(d_)); }
-	std::string to_canonical() const { return to_str(shcl_to_canonical(d_)); }
+public:
+	// An empty document, so a default-constructed Document is usable.
+	Document();
+	Document(const Document &) = delete;
+	Document &operator=(const Document &) = delete;
+	Document(Document &&) noexcept = default;
+	Document &operator=(Document &&) noexcept = default;
 
-	std::vector<Diagnostic> diagnostics() const {
-		std::vector<Diagnostic> v; std::size_t n = shcl_diag_count(d_);
-		for (std::size_t i = 0; i < n; i++)
-			v.push_back({shcl_diag_line(d_, i), shcl_diag_severity(d_, i) == SHCL_SEV_ERROR, to_str(shcl_diag_message(d_, i)), shcl_diag_code(d_, i)});
-		return v;
-	}
+	// False when the parse or load could not allocate and there is no document
+	// to work with, and on a moved-from Document. True on any system that has
+	// not run out of memory; every call below assumes a true one.
+	explicit operator bool() const { return d_ != nullptr; }
 
-	// How many error-severity diagnostics the document carries - the "did
-	// this file have errors?" predicate. After load_and_validate, that
-	// includes validation errors.
-	std::size_t error_count() const { return shcl_error_count(d_); }
+	// A parse never fails on the document's account: bad lines are skipped and
+	// diagnosed. A strict one that found errors says so in strict_failed(), and
+	// so does every other call here that takes a strictness.
+	static Document parse(std::string_view text);
+	static Document parse_with(std::string_view text, Strictness s);
+	// parse_with, keeping a copy of the text for to_text_keep_lines().
+	static Document parse_keep_lines(std::string_view text, Strictness s);
+	// Parse with resource caps (E020 stops the parse past max_nodes, E021
+	// refuses a line whose array would exceed max_elements, E022 ends a
+	// diagnostics list cut at max_diags with a count of the rest; 0 = no cap).
+	static Document parse_limited(std::string_view text, Strictness s, std::size_t max_nodes, std::size_t max_elements, std::size_t max_diags);
 
+	// Parse at a strictness, validate against a schema, and hand back a
+	// document whose diagnostics() serve one combined list, parse first. At
+	// strict, strict_failed() says it failed on any error in that list, a
+	// schema finding included; below strict, error_count(). An empty schema text skips
+	// validation, and one that does not load adds a lone V099, as validate()
+	// does; the H001 and H002 hints the schema disavows are dropped.
+	static Document load_and_validate(std::string_view text, std::string_view schema, Strictness s);
+	// load_and_validate with a schema already parsed, so a program that
+	// validates on every start parses its schema once. Same list, same strict
+	// rule, same V099. The schema is always validated against, as validate()
+	// does; only the text form skips an empty one. parse_with then validate()
+	// is not the same: diagnostics() and error_count() keep the load's values,
+	// the disavowed hints stay, and strict fails only on a load error.
+	static Document load_and_validate_with(std::string_view text, const Document &schema, Strictness s);
+
+#ifndef SHCL_NO_FILE_IO
+	// File tier. The status separates absent, unreadable, parsed with errors
+	// and clean. An allocation failure is the one exception, and shows as a
+	// false document. At strict, strict_failed() says the load failed, as
+	// after parse_with; the status is HadErrors either way.
+	static std::pair<Document, FileStatus> load_file(const std::string &path);
+	static std::pair<Document, FileStatus> load_file_with(const std::string &path, Strictness s);
+	// load_file_with, keeping the text for to_text_keep_lines().
+	static std::pair<Document, FileStatus> load_file_keep_lines(const std::string &path, Strictness s);
+	// Canonical text, written atomically: the CLI --write mechanics.
+	// *why (when given) gets why a Failed save failed, else Ok. Over the file
+	// a load read, Changed when that file no longer holds what the load read,
+	// or what this document's last save there wrote. A save records what it
+	// wrote, so it is a write: not concurrent with another call on the
+	// document.
+	SaveResult save_file(const std::string &path, WriteStatus *why = nullptr);
+	SaveResult save_file_lossy(const std::string &path, WriteStatus *why = nullptr);
+	// save_file with to_text_keep_lines(), and whether it kept the lines or
+	// wrote the canonical form instead. Refuses the way save_file does.
+	std::pair<SaveResult, bool> save_file_keep_lines(const std::string &path, WriteStatus *why = nullptr);
+	// The save the options describe, and whether it kept the lines, as
+	// save_file_keep_lines says. The other three come here.
+	std::pair<SaveResult, bool> save_file_with(const std::string &path, const SaveOptions &opts, WriteStatus *why = nullptr);
+#endif
+
+	// True when a strict load would fail: strict, and an error diagnostic exists.
+	bool strict_failed() const;
+	Strictness strictness() const;
+	std::string to_canonical() const;
+	// The text a save that keeps lines writes, and whether it kept them: each
+	// line the edits did not touch comes back byte for byte, and the canonical
+	// form stands in when the result would not reload as this document, or
+	// the document was not loaded to keep its lines, or it took a merge.
+	std::pair<std::string, bool> to_text_keep_lines() const;
+
+	// Diagnostics in emission order: parse-time ones, then repeated-leaf hints.
+	std::vector<Diagnostic> diagnostics() const;
+	// How many error-severity diagnostics the document has. After
+	// load_and_validate, that includes validation errors.
+	std::size_t error_count() const;
 	// How many lines or values parsing dropped that canonical output cannot
 	// re-emit. Content-malformed lines do NOT count - those survive a save.
 	// Nonzero is why save_file refuses; save_file_lossy is the override.
-	std::size_t lost_count() const { return shcl_lost_count(d_); }
+	std::size_t lost_count() const;
+	// The text named a newer format than this reader's, the one H006 hints
+	// at, or a merged layer's did. Reads and edits work, but every save is
+	// SaveResult::TooNew.
+	bool newer_format() const;
 
 	// Schema validation (spec.md "Schema validation"): empty result = conforms.
+	// A schema with a load error of its own gives a lone V099 and checks
+	// nothing, as load_and_validate and `check --schema` do.
 	// Schema faults (V09x, schema-file lines) come first; the surviving
 	// constraints still check the document, and the unknown-field sweep skips
 	// only when a fault cost a path spelling. The H001/H002 hints a schema
 	// disavows are NOT dropped here - they live on the parse's diagnostics,
 	// which validation does not touch; load_and_validate is the call that
 	// drops them.
-	std::vector<Diagnostic> validate(const Document &schema) const {
-		std::vector<Diagnostic> v;
-		shcl_validation *r = shcl_validate(d_, schema.d_);
-		std::size_t n = shcl_validation_count(r);
-		for (std::size_t i = 0; i < n; i++)
-			v.push_back({shcl_validation_line(r, i), shcl_validation_severity(r, i) == SHCL_SEV_ERROR, to_str(shcl_validation_message(r, i)), shcl_validation_code(r, i)});
-		shcl_validation_free(r);
-		return v;
-	}
+	std::vector<Diagnostic> validate(const Document &schema) const;
 
 	// Layered loading: overlay `over` (a higher-priority layer) onto this doc.
 	// Leaf names in `over` override; container instances merge by (name, value).
-	void merge(const Document &over) { shcl_merge(d_, over.d_); }
+	// A document merged onto itself is left as it is.
+	void merge(const Document &over);
+	// Give back what repeated writes left behind: the document is rebuilt into
+	// fresh storage holding only what it now contains. For a long-running
+	// writer; a write-once consumer never needs it.
+	void compact();
 
-	// Schema-driven generation (`shcl init`): a commented, typed starter config
-	// from this document read as a schema. ok is set false on schema faults;
-	// for the fault list, validate() an empty document against this schema -
-	// it reproduces the same V09x diagnostics. A footer naming the format and
-	// pointing at the spec is written last unless no_banner.
-	std::string generate(bool &ok, bool no_banner = false) const {
-		int iok = 0;
-		std::string s = to_str(shcl_generate(d_, no_banner ? 1 : 0, &iok));
-		ok = iok != 0;
-		return s;
-	}
-
-	std::size_t count(std::string_view p) const { return shcl_count(d_, p.data(), p.size()); }
-	// Every field path, file order, deduplicated (bare-name-safe segments only).
-	// Quote one path segment for splicing into a lookup path (injection-safe).
-	std::string quote_segment(std::string_view name) const { return to_str(shcl_quote_segment(d_, name.data(), name.size())); }
-
-	std::vector<std::string> paths() const {
-		shcl_str *v; std::size_t n = shcl_paths(d_, &v);
-		std::vector<std::string> r; r.reserve(n);
-		for (std::size_t i = 0; i < n; i++) r.push_back(to_str(v[i]));
-		return r;
-	}
-
-	std::vector<std::string> instances(std::string_view p) const {
-		shcl_str *a; std::size_t n = shcl_instances(d_, p.data(), p.size(), &a);
-		std::vector<std::string> v; v.reserve(n);
-		for (std::size_t i = 0; i < n; i++) v.push_back(to_str(a[i]));
-		return v;
-	}
-
+	// Instance count at a path (0 when nothing matches).
+	std::size_t count(std::string_view path) const;
+	// count() with a status: Good, NotFound when the path matches nothing, or
+	// BadPath when it cannot be read as a path. read_instances() and
+	// read_children() give theirs the same way, and none has per-slot
+	// statuses. A node with no children is Good with an empty list.
+	Read<std::size_t> read_count(std::string_view path) const;
+	Read<std::vector<std::string>> read_instances(std::string_view path) const;
+	Read<std::vector<std::string>> read_children(std::string_view path) const;
+	// Every field path, file order, deduplicated. A segment that is not
+	// bare-name-safe comes back quoted, so each path reads back as a lookup.
+	std::vector<std::string> paths() const;
+	// paths() one instance at a time: every binding's path, with (i) on each
+	// segment whose name its parent repeats, so each path reads one node.
+	std::vector<std::string> instance_paths() const;
+	// instance_paths() as a field list: each binding's path, name, value and
+	// line, in the same order.
+	std::vector<Field> fields() const;
+	// read_instances() with each instance's path, name and line beside its
+	// value, the path as instance_paths() writes it. An unresolved wildcard
+	// slot is an all-empty Field.
+	Read<std::vector<Field>> read_fields(std::string_view path) const;
+	// read_children() with each child's path, value and line beside its name.
+	Read<std::vector<Field>> read_child_fields(std::string_view path) const;
+	// The comment lines above the node(s) at a path, the ones clear_comments
+	// takes, each from its `#` on, so a program can tell its own comment from
+	// one a user wrote there.
+	std::vector<std::string> comments(std::string_view path) const;
+	// comments() with a status: Good, NotFound when the path reaches no real
+	// node, or BadPath when it cannot be read as a path. A node with no comment
+	// is Good with an empty list. read_exists(), try_remove() and
+	// try_clear_comments() give theirs the same way.
+	Read<std::vector<std::string>> read_comments(std::string_view path) const;
+	// Instance display values at a path, in file order.
+	std::vector<std::string> instances(std::string_view path) const;
+	// Child field names under a path, file order, duplicates included; "" is
+	// the top level, and a path with several instances lists each one's in
+	// turn. Names as stored - quote_segment() splices one into a path.
+	std::vector<std::string> children(std::string_view path) const;
 	// 1-based source line of the binding at a path; 0 when it does not resolve
 	// to exactly one node or the node was writer-built.
-	std::size_t line(std::string_view p) const { return shcl_line(d_, p.data(), p.size()); }
-
+	std::size_t line(std::string_view path) const;
+	// line() with a status: Good, NotFound when the path matches nothing,
+	// Multiple when it matches more than one node, as the typed reads say, or
+	// BadPath. A writer-built node is Good with 0. read_authored_name() gives
+	// its status the same way.
+	Read<std::size_t> read_line(std::string_view path) const;
+	// The plural line(): every binding's line, in file order. Unresolved
+	// wildcard slots stay in the list as 0; a miss is the empty vector.
+	std::vector<std::size_t> lines(std::string_view path) const;
+	// lines() with a status, the way read_count() has them; an unresolved
+	// wildcard slot still counts as a match.
+	Read<std::vector<std::size_t>> read_lines(std::string_view path) const;
 	// Whether the single scalar value at a path was quoted in the source, so a
 	// quoted plain string is distinguishable from a bare word that happens to
 	// spell a reserved one. False for anything that is not one scalar element.
-	bool quoted(std::string_view p) const { return shcl_quoted(d_, p.data(), p.size()) != 0; }
-
+	// A written value counts as quoted when a save would quote it.
+	bool quoted(std::string_view path) const;
+	// Whether that value was a backtick value: raw text the program decodes
+	// itself, handed back as written. A backtick value counts as quoted too.
+	bool backtick(std::string_view path) const;
+	// The value at a path as written on its line: quotes and backticks kept,
+	// a trailing comment off, so `0x10` where read_int() gives 16. A raw block,
+	// a stacked list or a value a setter wrote reads as its display form.
+	// Empty when the path does not resolve to exactly one node.
+	std::string raw(std::string_view path) const;
+	// raw() with a status, the way read_line() has them. read_raw() is the
+	// other thing, a raw block's content.
+	Read<std::string> read_raw_text(std::string_view path) const;
 	// Whether a path resolves to at least one node.
-	bool exists(std::string_view p) const { return shcl_exists(d_, p.data(), p.size()) != 0; }
-
-	// The field name at a path exactly as the author spelled it (case
+	bool exists(std::string_view path) const;
+	Read<bool> read_exists(std::string_view path) const;
+	// The field name at a path exactly as the author wrote it (case
 	// unfolded, outer quotes stripped - escape sequences stay as written too,
 	// where every other name operation sees them resolved); empty when the path
 	// does not resolve to exactly one node.
-	std::string authored_name(std::string_view p) const { return to_str(shcl_authored_name(d_, p.data(), p.size())); }
+	std::string authored_name(std::string_view path) const;
+	Read<std::string> read_authored_name(std::string_view path) const;
+	// What the value at a path is: scalar, array, raw block or empty, from
+	// the stored form, so `x: [80]` is an Array. Empty when the path does not
+	// resolve to exactly one node.
+	ValueKind kind(std::string_view path) const;
+	// kind() with a status, the way read_line() has them. An empty value is
+	// Good with ValueKind::Empty, so a written `x:` and a missing field read
+	// apart.
+	Read<ValueKind> read_kind(std::string_view path) const;
+	// Whether a setter could write at a path, and why not. Probes only; never
+	// creates. Gives only the path reasons, BadPath to UnderArray.
+	SetStatus check_set_path(std::string_view path) const;
 
-	// The plural line(): 1-based source lines at a path, in file order, so a
-	// repeated field - the case that most wants a citable line - yields every
-	// binding's. Unresolved wildcard slots stay in the list as 0; a miss is
-	// the empty vector.
-	std::vector<std::size_t> lines(std::string_view p) const {
-		std::size_t *a; std::size_t n = shcl_lines(d_, p.data(), p.size(), &a);
-		std::vector<std::size_t> v; v.reserve(n);
-		for (std::size_t i = 0; i < n; i++) v.push_back(a[i]);
-		return v;
-	}
+	// Writes. A setter creates the path as needed and returns Ok when the
+	// write applied. Any other value means nothing was written, and names why:
+	// the path's reason when the path is wrong, as check_set_path() gives it,
+	// such as a step that matches more than one field (port(0) picks one),
+	// else the value's, such as NotFinite for a NaN. An ignored refusal means
+	// the save that follows writes a document missing the edit, hence
+	// nodiscard.
+	[[nodiscard]] SetStatus set_int(std::string_view path, std::int64_t v);
+	[[nodiscard]] SetStatus set_float(std::string_view path, double v);
+	[[nodiscard]] SetStatus set_bool(std::string_view path, bool v);
+	[[nodiscard]] SetStatus set_string(std::string_view path, std::string_view v);
+	[[nodiscard]] SetStatus set_datetime(std::string_view path, const DateTime &v);
+	// A fence longer than any content line is picked for it. A body line ending
+	// in CR fails the write (BadRawBody), since a load takes that CR off.
+	[[nodiscard]] SetStatus set_raw(std::string_view path, std::string_view content, std::string_view info);
+	// An empty value, which is not the empty string.
+	[[nodiscard]] SetStatus set_empty(std::string_view path);
 
-	// Why a write at a path would fail - the reason behind a setter's bare
-	// failure. Probes only; never creates.
-	WriteReason write_reason(std::string_view p) const { return static_cast<WriteReason>(shcl_write_reason_(d_, p.data(), p.size())); }
+	// Arrays, one per call, written in brackets: one element is [80] and none
+	// is []. An array on a field with lines under it is HasChildren.
+	[[nodiscard]] SetStatus set_int_array(std::string_view path, const std::vector<std::int64_t> &v);
+	[[nodiscard]] SetStatus set_float_array(std::string_view path, const std::vector<double> &v);
+	[[nodiscard]] SetStatus set_bool_array(std::string_view path, const std::vector<bool> &v);
+	[[nodiscard]] SetStatus set_string_array(std::string_view path, const std::vector<std::string> &v);
+	[[nodiscard]] SetStatus set_datetime_array(std::string_view path, const std::vector<DateTime> &v);
 
-	// Child field names under a path, file order, duplicates included; "" is
-	// the top level. Names as stored - quote_segment() splices one into a path.
-	std::vector<std::string> children(std::string_view p) const {
-		shcl_str *a; std::size_t n = shcl_children(d_, p.data(), p.size(), &a);
-		std::vector<std::string> v; v.reserve(n);
-		for (std::size_t i = 0; i < n; i++) v.push_back(to_str(a[i]));
-		return v;
-	}
+	// Text bound as value syntax rather than as data, so "[80, 443]" is a
+	// two-element array where set_string would store one string. NotOneValue
+	// for text no single line could hold, a line break, or what a file line is refused
+	// for in a value: a malformed array, a bare comma, a quote that never
+	// closes, a bad escape, or what bare text may not hold. A `#` outside quotes
+	// ends the value as it would in a file.
+	[[nodiscard]] SetStatus set_literal(std::string_view path, std::string_view text);
 
-	Read<int64_t> read_int(std::string_view p) const { auto r = shcl_read_int(d_, p.data(), p.size()); return {r.value, st(r.status)}; }
-	Read<double> read_float(std::string_view p) const { auto r = shcl_read_float(d_, p.data(), p.size()); return {r.value, st(r.status)}; }
-	Read<bool> read_bool(std::string_view p) const { auto r = shcl_read_bool_(d_, p.data(), p.size()); return {r.value != 0, st(r.status)}; }
-	Read<std::string> read_string(std::string_view p) const { auto r = shcl_read_string(d_, p.data(), p.size()); return {to_str(r.value), st(r.status)}; }
-	Read<std::string> read_raw(std::string_view p) const { auto r = shcl_read_raw(d_, p.data(), p.size()); return {to_str(r.value), st(r.status)}; }
-	Read<std::string> read_raw_info(std::string_view p) const { auto r = shcl_read_raw_info(d_, p.data(), p.size()); return {to_str(r.value), st(r.status)}; }
+	// Default forms of the setters above. Each writes unless the field already
+	// reads as its type: missing, empty or not that type, it gets the default,
+	// and an old value stays above it as a comment with a note. A raw block
+	// there stays and gives RawBlock. The string and literal forms count any
+	// value. On a field that reads, nothing is written, and the status is what
+	// the plain setter would give.
+	[[nodiscard]] SetStatus set_int_default(std::string_view path, std::int64_t v);
+	[[nodiscard]] SetStatus set_float_default(std::string_view path, double v);
+	[[nodiscard]] SetStatus set_bool_default(std::string_view path, bool v);
+	[[nodiscard]] SetStatus set_string_default(std::string_view path, std::string_view v);
+	[[nodiscard]] SetStatus set_datetime_default(std::string_view path, const DateTime &v);
+	[[nodiscard]] SetStatus set_literal_default(std::string_view path, std::string_view text);
+	[[nodiscard]] SetStatus set_raw_default(std::string_view path, std::string_view content, std::string_view info);
+	[[nodiscard]] SetStatus set_int_array_default(std::string_view path, const std::vector<std::int64_t> &v);
+	[[nodiscard]] SetStatus set_float_array_default(std::string_view path, const std::vector<double> &v);
+	[[nodiscard]] SetStatus set_bool_array_default(std::string_view path, const std::vector<bool> &v);
+	[[nodiscard]] SetStatus set_string_array_default(std::string_view path, const std::vector<std::string> &v);
+	[[nodiscard]] SetStatus set_datetime_array_default(std::string_view path, const std::vector<DateTime> &v);
 
-	// Datetime as the reference's textual form (the common need).
-	Read<std::string> read_datetime_str(std::string_view p) const {
-		auto r = shcl_read_datetime(d_, p.data(), p.size());
-		char buf[64]; std::size_t k = shcl_datetime_str(&r.value, buf);
-		return {std::string(buf, k), st(r.status)};
-	}
-	// Structured datetime, matching read_datetime in every other binding. Owning
-	// (unlike the core's shcl_read_datetime), so it may outlive the Document.
-	// This used to be spelled read_datetime_raw, with read_datetime returning
-	// the text - backwards twice over, since "raw" means the text exactly as
-	// written everywhere else. Both old spellings are gone as of this major.
-	Read<Datetime> read_datetime(std::string_view p) const { auto r = shcl_read_datetime(d_, p.data(), p.size()); return {Datetime(r.value), st(r.status)}; }
+	// Delete the nodes at a path, subtrees included, and say how many. Lines
+	// kept as written beside a node stay where they were, and a field opened
+	// only by the lines under it goes with the last of them.
+	std::size_t remove(std::string_view path);
+	// remove() with a status; a bad path removes nothing.
+	Read<std::size_t> try_remove(std::string_view path);
+	// A leading comment line on the node at a path, creating an empty node when
+	// there is none so a section can be annotated. A missing `#` is added. Text
+	// holding a line break is refused (BadComment), since a comment is one line.
+	[[nodiscard]] SetStatus set_comment(std::string_view path, std::string_view text);
+	// Take off the comment lines above the nodes at a path, so a comment can be
+	// replaced, and say how many came off.
+	std::size_t clear_comments(std::string_view path);
+	Read<std::size_t> try_clear_comments(std::string_view path);
+	// The info block at the end, an old one taken off first; false only takes
+	// it off. Says how many old blocks came off.
+	std::size_t set_banner(bool on);
 
-	// Array reads carry the per-slot statuses in .slots, so a partly-resolved
+	// Typed reads: the value, and why it is missing or unreadable if it is.
+	Read<std::int64_t> read_int(std::string_view path) const;
+	Read<double> read_float(std::string_view path) const;
+	Read<bool> read_bool(std::string_view path) const;
+	Read<DateTime> read_datetime(std::string_view path) const;
+	Read<std::string> read_string(std::string_view path) const;
+	Read<std::string> read_raw(std::string_view path) const;
+	Read<std::string> read_raw_info(std::string_view path) const;
+	// The datetime as the reference's textual form.
+	Read<std::string> read_datetime_str(std::string_view path) const;
+	// A duration in whole milliseconds and a size in whole bytes. A bare
+	// number takes its unit from the field name when the name ends in one
+	// (`timeout-ms`, `cache_mb`), else from unit, and is BadType with neither.
+	Read<std::chrono::milliseconds> read_duration(std::string_view path, std::optional<DurationUnit> unit = std::nullopt) const;
+	Read<std::int64_t> read_size(std::string_view path, std::optional<SizeUnit> unit = std::nullopt, bool decimal = false) const;
+	std::chrono::milliseconds get_duration_or(std::string_view path, std::optional<DurationUnit> unit, std::chrono::milliseconds def) const;
+	std::int64_t get_size_or(std::string_view path, std::optional<SizeUnit> unit, bool decimal, std::int64_t def) const;
+
+	// Array reads give the per-slot statuses in .slots, so a partly-resolved
 	// array says which slots failed rather than only that the read did.
-	Read<std::vector<int64_t>> read_int_array(std::string_view p) const { auto r = shcl_read_int_array(d_, p.data(), p.size()); return {std::vector<int64_t>(r.values, r.values + r.n), st(r.status), to_slots(r.statuses, r.n)}; }
-	Read<std::vector<double>> read_float_array(std::string_view p) const { auto r = shcl_read_float_array(d_, p.data(), p.size()); return {std::vector<double>(r.values, r.values + r.n), st(r.status), to_slots(r.statuses, r.n)}; }
-	Read<std::vector<bool>> read_bool_array(std::string_view p) const {
-		auto r = shcl_read_bool_array(d_, p.data(), p.size());
-		std::vector<bool> v; v.reserve(r.n); for (std::size_t i = 0; i < r.n; i++) v.push_back(r.values[i] != 0);
-		return {std::move(v), st(r.status), to_slots(r.statuses, r.n)};
-	}
-	Read<std::vector<std::string>> read_string_array(std::string_view p) const {
-		auto r = shcl_read_string_array(d_, p.data(), p.size());
-		std::vector<std::string> v; v.reserve(r.n); for (std::size_t i = 0; i < r.n; i++) v.push_back(to_str(r.values[i]));
-		return {std::move(v), st(r.status), to_slots(r.statuses, r.n)};
-	}
-	// Datetimes as their textual form, matching read_datetime_str; the owning
-	// Datetime form is per-element and stays on the scalar read.
-	Read<std::vector<std::string>> read_datetime_array(std::string_view p) const {
-		auto r = shcl_read_datetime_array(d_, p.data(), p.size());
-		std::vector<std::string> v; v.reserve(r.n);
-		for (std::size_t i = 0; i < r.n; i++) { char buf[64]; std::size_t k = shcl_datetime_str(&r.values[i], buf); v.push_back(std::string(buf, k)); }
-		return {std::move(v), st(r.status), to_slots(r.statuses, r.n)};
-	}
+	Read<std::vector<std::int64_t>> read_int_array(std::string_view path) const;
+	Read<std::vector<double>> read_float_array(std::string_view path) const;
+	Read<std::vector<bool>> read_bool_array(std::string_view path) const;
+	Read<std::vector<DateTime>> read_datetime_array(std::string_view path) const;
+	Read<std::vector<std::string>> read_string_array(std::string_view path) const;
+	// Datetimes as their textual form, matching read_datetime_str.
+	Read<std::vector<std::string>> read_datetime_array_str(std::string_view path) const;
 
-	// Compile-time-typed read: get<int64_t>/get<double>/get<bool>/get<std::string>.
-	// Any other T - a bare `int` included - fails right here with this message,
-	// not as a bare undefined-symbol link error.
+	// Compile-time-typed read over std::int64_t, double, bool, std::string and
+	// DateTime, and a std::vector of any of those. Any other T - a bare `int`
+	// included - fails right here with this message, not as a bare
+	// undefined-symbol link error.
 	template <class T> Read<T> get(std::string_view) const {
 		static_assert(sizeof(T) == 0,
-			"shcl::Document::get<T>: T must be exactly int64_t, double, bool, or std::string");
+			"shcl::Document::get<T>: T must be exactly int64_t, double, bool, std::string or shcl::DateTime, or a std::vector of one");
 		return {};
 	}
 
 	// Convenience tier: the value, or the call-site fallback unless Good - so a
 	// missing/empty/bad/ambiguous read cannot masquerade as a real zero.
-	template <class T> T get_or(std::string_view p, T def) const {
-		auto r = get<T>(p);
-		return r.status == Status::Good ? r.value : def;
+	// get_or<T> covers every get<T> type.
+	template <class T> T get_or(std::string_view path, T def) const {
+		auto r = get<T>(path);
+		if (r.status == Status::Good) return std::move(r.value);
+		return def;
 	}
+	// A raw block and its info string are strings too, so no T can pick them.
+	std::string get_raw_or(std::string_view path, std::string def) const;
+	std::string get_raw_info_or(std::string_view path, std::string def) const;
 };
 
-template <> inline Read<int64_t> Document::get<int64_t>(std::string_view p) const { return read_int(p); }
-template <> inline Read<double> Document::get<double>(std::string_view p) const { return read_float(p); }
-template <> inline Read<bool> Document::get<bool>(std::string_view p) const { return read_bool(p); }
-template <> inline Read<std::string> Document::get<std::string>(std::string_view p) const { return read_string(p); }
+template <> Read<std::int64_t> Document::get<std::int64_t>(std::string_view path) const;
+template <> Read<double> Document::get<double>(std::string_view path) const;
+template <> Read<bool> Document::get<bool>(std::string_view path) const;
+template <> Read<std::string> Document::get<std::string>(std::string_view path) const;
+template <> Read<DateTime> Document::get<DateTime>(std::string_view path) const;
+template <> Read<std::vector<std::int64_t>> Document::get<std::vector<std::int64_t>>(std::string_view path) const;
+template <> Read<std::vector<double>> Document::get<std::vector<double>>(std::string_view path) const;
+template <> Read<std::vector<bool>> Document::get<std::vector<bool>>(std::string_view path) const;
+template <> Read<std::vector<std::string>> Document::get<std::vector<std::string>>(std::string_view path) const;
+template <> Read<std::vector<DateTime>> Document::get<std::vector<DateTime>>(std::string_view path) const;
+
+// Schema-driven generation (`shcl init`): a commented, typed starter config
+// from a schema, and the schema's faults (V09x), which are empty exactly when
+// the text is good. A schema with a load error of its own is a lone V099, as
+// `init` refuses it. A footer naming the format and pointing at the spec is
+// written last unless no_banner. The schema is left as it was.
+std::pair<std::string, std::vector<Diagnostic>> generate(const Document &schema, bool no_banner = false);
+
+// Drop from doc's diagnostics, in place, the hints a schema disavows: H001
+// for a field whose declared repeat upper bound is above 1, H002 for a
+// section marked `reopen: true`. load_and_validate runs both; a parse
+// followed by validate() runs neither.
+void suppress_declared_repeats(const Document &schema, Document &doc);
+void suppress_declared_reopens(const Document &schema, Document &doc);
 
 } // namespace shcl
 
+// ===========================================================================
+#ifdef SHCL_IMPLEMENTATION
+
+#include <cstdlib>
+#include <mutex>
+
+namespace shcl {
+
+static_assert(static_cast<int>(Strictness::Loose) == SHCL_LOOSE && static_cast<int>(Strictness::Standard) == SHCL_STANDARD && static_cast<int>(Strictness::Strict) == SHCL_STRICT, "Strictness drifted from shcl_strictness");
+static_assert(static_cast<int>(Severity::Error) == SHCL_SEV_ERROR && static_cast<int>(Severity::Hint) == SHCL_SEV_HINT, "Severity drifted from shcl_severity");
+static_assert(static_cast<int>(Status::Good) == SHCL_GOOD && static_cast<int>(Status::Empty) == SHCL_EMPTY && static_cast<int>(Status::NotFound) == SHCL_NOT_FOUND
+	&& static_cast<int>(Status::BadType) == SHCL_BAD_TYPE && static_cast<int>(Status::Multiple) == SHCL_MULTIPLE
+	&& static_cast<int>(Status::BadPath) == SHCL_BAD_PATH, "Status drifted from shcl_status");
+static_assert(static_cast<int>(SetStatus::Ok) == SHCL_SET_OK && static_cast<int>(SetStatus::BadPath) == SHCL_SET_BAD_PATH
+	&& static_cast<int>(SetStatus::ValueInPath) == SHCL_SET_VALUE_IN_PATH && static_cast<int>(SetStatus::Wildcard) == SHCL_SET_WILDCARD
+	&& static_cast<int>(SetStatus::NoSuchIndex) == SHCL_SET_NO_SUCH_INDEX && static_cast<int>(SetStatus::TooDeep) == SHCL_SET_TOO_DEEP
+	&& static_cast<int>(SetStatus::Multiple) == SHCL_SET_MULTIPLE && static_cast<int>(SetStatus::UnderArray) == SHCL_SET_UNDER_ARRAY
+	&& static_cast<int>(SetStatus::HasChildren) == SHCL_SET_HAS_CHILDREN && static_cast<int>(SetStatus::NotFinite) == SHCL_SET_NOT_FINITE
+	&& static_cast<int>(SetStatus::BadDateTime) == SHCL_SET_BAD_DATETIME && static_cast<int>(SetStatus::BadRawInfo) == SHCL_SET_BAD_RAW_INFO
+	&& static_cast<int>(SetStatus::BadRawBody) == SHCL_SET_BAD_RAW_BODY && static_cast<int>(SetStatus::BadComment) == SHCL_SET_BAD_COMMENT
+	&& static_cast<int>(SetStatus::NotOneValue) == SHCL_SET_NOT_ONE_VALUE && static_cast<int>(SetStatus::NotUtf8) == SHCL_SET_NOT_UTF8
+	&& static_cast<int>(SetStatus::OutOfRange) == SHCL_SET_OUT_OF_RANGE && static_cast<int>(SetStatus::NoReadBack) == SHCL_SET_NO_READ_BACK
+	&& static_cast<int>(SetStatus::RawBlock) == SHCL_SET_RAW_BLOCK,
+	"SetStatus drifted from shcl_set_status");
+static_assert(static_cast<int>(ValueKind::Empty) == SHCL_KIND_EMPTY && static_cast<int>(ValueKind::Scalar) == SHCL_KIND_SCALAR
+	&& static_cast<int>(ValueKind::Array) == SHCL_KIND_ARRAY && static_cast<int>(ValueKind::Raw) == SHCL_KIND_RAW, "ValueKind drifted from shcl_value_kind");
+static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<int>(Quote::Single) == SHCL_QUOTE_SINGLE
+	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Backtick) == SHCL_QUOTE_BACKTICK
+	&& static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
+static_assert(static_cast<int>(Rules::Current) == SHCL_RULES_CURRENT && static_cast<int>(Rules::V2) == SHCL_RULES_V2, "Rules drifted from shcl_rules");
+// The C enums put NONE first, so each unit sits one past its C value.
+static_assert(static_cast<int>(DurationUnit::Millis) + 1 == SHCL_DURATION_MILLIS && static_cast<int>(DurationUnit::Days) + 1 == SHCL_DURATION_DAYS, "DurationUnit drifted from shcl_duration_unit");
+static_assert(static_cast<int>(SizeUnit::Bytes) + 1 == SHCL_SIZE_BYTES && static_cast<int>(SizeUnit::Tera) + 1 == SHCL_SIZE_TERA
+	&& static_cast<int>(SizeUnit::Kibi) + 1 == SHCL_SIZE_KIBI && static_cast<int>(SizeUnit::Tebi) + 1 == SHCL_SIZE_TEBI, "SizeUnit drifted from shcl_size_unit");
+#ifndef SHCL_NO_FILE_IO
+static_assert(static_cast<int>(FileStatus::Clean) == SHCL_FILE_CLEAN && static_cast<int>(FileStatus::HadErrors) == SHCL_FILE_HAD_ERRORS
+	&& static_cast<int>(FileStatus::NotFound) == SHCL_FILE_NOT_FOUND && static_cast<int>(FileStatus::Unreadable) == SHCL_FILE_UNREADABLE, "FileStatus drifted from shcl_file_status");
+static_assert(static_cast<int>(SaveResult::Ok) == SHCL_SAVE_OK && static_cast<int>(SaveResult::Refused) == SHCL_SAVE_REFUSED
+	&& static_cast<int>(SaveResult::Failed) == SHCL_SAVE_FAILED && static_cast<int>(SaveResult::Changed) == SHCL_SAVE_CHANGED
+	&& static_cast<int>(SaveResult::Exists) == SHCL_SAVE_EXISTS && static_cast<int>(SaveResult::TooNew) == SHCL_SAVE_TOO_NEW,
+	"SaveResult drifted from shcl_save_result");
+static_assert(static_cast<int>(WriteStatus::Ok) == SHCL_WRITE_OK && static_cast<int>(WriteStatus::NotFound) == SHCL_WRITE_NOT_FOUND
+	&& static_cast<int>(WriteStatus::Unreadable) == SHCL_WRITE_UNREADABLE && static_cast<int>(WriteStatus::PermissionDenied) == SHCL_WRITE_PERMISSION_DENIED
+	&& static_cast<int>(WriteStatus::DiskFull) == SHCL_WRITE_DISK_FULL && static_cast<int>(WriteStatus::ReadOnly) == SHCL_WRITE_READ_ONLY
+	&& static_cast<int>(WriteStatus::IsDirectory) == SHCL_WRITE_IS_DIRECTORY && static_cast<int>(WriteStatus::NotRegular) == SHCL_WRITE_NOT_REGULAR
+	&& static_cast<int>(WriteStatus::Other) == SHCL_WRITE_OTHER, "WriteStatus drifted from shcl_write_status");
+static_assert(static_cast<int>(SchemaStatus::Good) == SHCL_SCHEMA_GOOD && static_cast<int>(SchemaStatus::NotFound) == SHCL_SCHEMA_NOT_FOUND
+	&& static_cast<int>(SchemaStatus::Empty) == SHCL_SCHEMA_EMPTY && static_cast<int>(SchemaStatus::Url) == SHCL_SCHEMA_URL
+	&& static_cast<int>(SchemaStatus::NetworkPath) == SHCL_SCHEMA_NETWORK_PATH && static_cast<int>(SchemaStatus::FileNotFound) == SHCL_SCHEMA_FILE_NOT_FOUND
+	&& static_cast<int>(SchemaStatus::IsDirectory) == SHCL_SCHEMA_IS_DIRECTORY && static_cast<int>(SchemaStatus::NotRegular) == SHCL_SCHEMA_NOT_REGULAR
+	&& static_cast<int>(SchemaStatus::TooLarge) == SHCL_SCHEMA_TOO_LARGE && static_cast<int>(SchemaStatus::Unreadable) == SHCL_SCHEMA_UNREADABLE,
+	"SchemaStatus drifted from shcl_schema_status");
+// The C enum puts OK first, so each kind sits one past its C value.
+static_assert(static_cast<int>(UpgradeErrorKind::NotFound) + 1 == SHCL_UPGRADE_NOT_FOUND && static_cast<int>(UpgradeErrorKind::Ambiguous) + 1 == SHCL_UPGRADE_AMBIGUOUS
+	&& static_cast<int>(UpgradeErrorKind::BackupTaken) + 1 == SHCL_UPGRADE_BACKUP_TAKEN && static_cast<int>(UpgradeErrorKind::Io) + 1 == SHCL_UPGRADE_IO
+	&& static_cast<int>(UpgradeErrorKind::ErrorsLeft) + 1 == SHCL_UPGRADE_ERRORS_LEFT, "UpgradeErrorKind drifted from shcl_upgrade_error");
+#endif
+static_assert(MAX_DEPTH == SHCL_MAX_DEPTH && FORMAT_MAJOR == SHCL_FORMAT_MAJOR, "a constant drifted from shcl.h");
+
+// The strings are the C macros themselves, so there is one copy of each.
+const std::string_view GEN_BANNER = SHCL_GEN_BANNER;
+const std::string_view FORMAT_LINE_HEAD = SHCL_FORMAT_LINE_HEAD;
+const std::string_view FORMAT_LINE = SHCL_FORMAT_LINE;
+const std::string_view MIGRATED_LINE = SHCL_MIGRATED_LINE;
+const std::string_view SCHEMA_LINE_HEAD = SHCL_SCHEMA_LINE_HEAD;
+
+namespace detail {
+
+struct Access {
+	static shcl_doc *doc(const Document &d) noexcept { return reinterpret_cast<shcl_doc *>(d.d_.get()); }
+	static Document wrap(shcl_doc *d) noexcept { return Document(reinterpret_cast<Document::Handle *>(d)); }
+};
+
+bool status_ok(Status s) { return shcl_status_ok(static_cast<shcl_status>(s)) != 0; }
+
+// A text result with no document behind it still needs a read arena to live in.
+struct Scratch {
+	shcl_doc *d = shcl_new();
+	Scratch() = default;
+	Scratch(const Scratch &) = delete;
+	Scratch &operator=(const Scratch &) = delete;
+	~Scratch() { shcl_free(d); }
+};
+
+static std::string str(shcl_str s) { return std::string(s.p, s.n); }
+static Status st(shcl_status s) { return static_cast<Status>(s); }
+static std::vector<Status> slots(const shcl_status *s, std::size_t n) {
+	std::vector<Status> v; v.reserve(n);
+	for (std::size_t i = 0; i < n; i++) v.push_back(static_cast<Status>(s[i]));
+	return v;
+}
+static std::vector<std::string> strs(const shcl_str *a, std::size_t n) {
+	std::vector<std::string> v; v.reserve(n);
+	for (std::size_t i = 0; i < n; i++) v.push_back(str(a[i]));
+	return v;
+}
+static std::vector<Field> fields(const shcl_field *a, std::size_t n) {
+	std::vector<Field> v; v.reserve(n);
+	for (std::size_t i = 0; i < n; i++) v.push_back(Field{str(a[i].path), str(a[i].name), str(a[i].value), a[i].line});
+	return v;
+}
+
+// The C view borrows frac from v, so it lives only as long as the call it is for.
+static shcl_datetime to_c(const DateTime &v) {
+	shcl_datetime c{};
+	c.zone = SHCL_ZONE_NONE;
+	if (v.date) { c.has_date = 1; c.year = v.date->year; c.month = v.date->month; c.day = v.date->day; }
+	if (v.time) {
+		c.has_time = 1; c.hour = v.time->hour; c.minute = v.time->minute;
+		if (v.time->second) { c.has_second = 1; c.second = *v.time->second; }
+	}
+	if (v.frac) { c.has_frac = 1; c.frac.p = v.frac->data(); c.frac.n = v.frac->size(); }
+	if (v.zone) { c.zone = v.zone->kind == ZoneKind::Utc ? SHCL_ZONE_UTC : SHCL_ZONE_OFFSET; c.off_min = v.zone->offset_minutes; }
+	return c;
+}
+static DateTime from_c(const shcl_datetime &c) {
+	DateTime v;
+	if (c.has_date) v.date = Date{c.year, c.month, c.day};
+	if (c.has_time) v.time = Time{c.hour, c.minute, c.has_second ? std::optional<std::uint32_t>(c.second) : std::nullopt};
+	if (c.has_frac) v.frac = c.frac.p ? std::string(c.frac.p, c.frac.n) : std::string();
+	if (c.zone != SHCL_ZONE_NONE) v.zone = Zone{c.zone == SHCL_ZONE_UTC ? ZoneKind::Utc : ZoneKind::Offset, c.off_min};
+	return v;
+}
+static std::string dt_str(const shcl_datetime &c) { char b[SHCL_DT_BUF]; return std::string(b, shcl_datetime_str(&c, b)); }
+
+// What the array setters hand the core. Each lives only for the call.
+struct StrArgs { std::vector<const char *> p; std::vector<std::size_t> n; };
+static StrArgs str_args(const std::vector<std::string> &v) {
+	StrArgs a; a.p.reserve(v.size()); a.n.reserve(v.size());
+	for (const std::string &s : v) { a.p.push_back(s.data()); a.n.push_back(s.size()); }
+	return a;
+}
+// std::vector<bool> packs its bits and has no data(), and the core takes ints.
+static std::vector<int> bool_args(const std::vector<bool> &v) { return std::vector<int>(v.begin(), v.end()); }
+static std::vector<shcl_datetime> dt_args(const std::vector<DateTime> &v) {
+	std::vector<shcl_datetime> a; a.reserve(v.size());
+	for (const DateTime &x : v) a.push_back(to_c(x));
+	return a;
+}
+
+// The core's spans live in the read arena, so they are copied before the
+// scratch document behind them goes.
+static void copy_tokens(const shcl_tokens &t, Tokens &out) {
+	auto piece = [](const shcl_piece &p) { return Piece{p.start, p.end, static_cast<Quote>(p.quote)}; };
+	out.segments.clear();
+	out.segments.reserve(t.nseg);
+	for (std::size_t i = 0; i < t.nseg; i++) {
+		const shcl_seg_tok &s = t.segments[i];
+		out.segments.push_back({piece(s.name), s.has_selector ? std::optional<Piece>(piece(s.selector)) : std::nullopt, s.star != 0});
+	}
+	out.sep = t.has_sep ? std::optional<std::size_t>(t.sep) : std::nullopt;
+	out.value_start = t.value_start;
+	out.value_end = t.value_end;
+	out.elements.clear();
+	out.elements.reserve(t.nelem);
+	for (std::size_t i = 0; i < t.nelem; i++) out.elements.push_back(piece(t.elements[i]));
+	out.array = t.has_array ? std::optional<std::size_t>(t.array) : std::nullopt;
+	out.array_fault_at = t.has_array_fault ? std::optional<std::size_t>(t.array_fault_at) : std::nullopt;
+	out.array_fault_why = t.has_array_fault ? t.array_fault_why : nullptr;
+	out.comment = t.has_comment ? std::optional<std::size_t>(t.comment) : std::nullopt;
+	out.fault_at = t.has_fault ? std::optional<std::size_t>(t.fault_at) : std::nullopt;
+	out.fault_why = t.has_fault ? t.fault_why : nullptr;
+	out.misspelled = t.has_misspelled ? std::optional<std::size_t>(t.misspelled) : std::nullopt;
+	out.bracket_selector = t.has_bracket_selector ? std::optional<std::size_t>(t.bracket_selector) : std::nullopt;
+	out.capped = t.capped != 0;
+}
+
+static shcl_doc *doc(const Document &d) noexcept { return Access::doc(d); }
+
+// Every call on the core writes to the document behind it, const or not: the
+// read arena, the scratch arena, the index it builds on first use. A const
+// member is safe from several threads at once, as a C++ reader expects of
+// const, because each holds its document's lock for the whole call (20260926
+// item 7). The locks are a fixed set picked by address, and recursive, since
+// a const member can call another and two documents can share one. A write is
+// not const and is the caller's to keep to one thread, as with any std type.
+static std::recursive_mutex &lock_for(const shcl_doc *p) noexcept {
+	static std::recursive_mutex locks[64];
+	return locks[(reinterpret_cast<std::uintptr_t>(p) >> 4) % 64];
+}
+struct Held {
+	std::unique_lock<std::recursive_mutex> lock;
+	shcl_doc *p;
+	operator shcl_doc *() const noexcept { return p; }
+};
+static Held held(const Document &d) {
+	shcl_doc *p = Access::doc(d);
+	return Held{std::unique_lock<std::recursive_mutex>(lock_for(p)), p};
+}
+// Two documents at once, locked together so two threads taking the same pair
+// the other way round cannot deadlock.
+struct HeldPair {
+	std::unique_lock<std::recursive_mutex> a, b;
+};
+static HeldPair held(const Document &x, const Document &y) {
+	HeldPair h{std::unique_lock<std::recursive_mutex>(lock_for(Access::doc(x)), std::defer_lock), std::unique_lock<std::recursive_mutex>(lock_for(Access::doc(y)), std::defer_lock)};
+	std::lock(h.a, h.b);
+	return h;
+}
+// Each read hands back the previous one's core memory first. Every result is
+// copied into std types, so the arena behind it is dead once the copy is made,
+// and a long-lived Document stays flat instead of holding every result until
+// it goes. The copy is made while the lock is held.
+static Held fresh(const Document &d) {
+	Held h = held(d);
+	shcl_reads_release(h.p);
+	return h;
+}
+
+static Migration migration(shcl_migration m) {
+	// Owned from the call on, so a throw below cannot leak the C buffer.
+	std::unique_ptr<char, void (*)(void *)> p(m.text, &std::free);
+	return Migration{std::string(p.get(), m.len), m.current != 0, m.ambiguous, m.lost};
+}
+
+static std::vector<Diagnostic> diags(const shcl_doc *d) {
+	std::vector<Diagnostic> v; std::size_t n = shcl_diag_count(d);
+	v.reserve(n);
+	for (std::size_t i = 0; i < n; i++)
+		v.push_back({shcl_diag_line(d, i), static_cast<Severity>(shcl_diag_severity(d, i)), str(shcl_diag_message(d, i)), shcl_diag_code(d, i)});
+	return v;
+}
+
+// Owned from the call on, the same way, and freed whatever happens.
+struct UpgradedOwn {
+	shcl_upgraded c{};
+	UpgradedOwn() = default;
+	UpgradedOwn(const UpgradedOwn &) = delete;
+	UpgradedOwn &operator=(const UpgradedOwn &) = delete;
+	~UpgradedOwn() { shcl_upgraded_free(&c); }
+};
+static Upgrade upgraded(const shcl_upgraded &c) {
+	Upgrade u;
+	if (c.text) u.text.assign(c.text, c.len);
+	u.current = c.current != 0;
+	u.format = c.format;
+	u.ambiguous = c.ambiguous;
+	u.lost = c.lost;
+	if (c.diagnostics) u.diagnostics = diags(c.diagnostics);
+	if (c.backup) u.backup = c.backup;
+	if (c.errors_left) u.errors_left.assign(c.errors_left, c.errors_left + c.errors_left_n);
+	return u;
+}
+
+} // namespace detail
+
+using detail::Access;
+
+std::string DateTime::str() const { return detail::dt_str(detail::to_c(*this)); }
+
+const char *to_string(Status s) { return shcl_status_name(static_cast<shcl_status>(s)); }
+const char *to_string(SetStatus s) { return shcl_set_status_name(static_cast<shcl_set_status>(s)); }
+const char *to_string(ValueKind k) { return shcl_value_kind_name(static_cast<shcl_value_kind>(k)); }
+const char *to_string(Severity s) { return shcl_severity_name(static_cast<shcl_severity>(s)); }
+int status_code(Status s) { return shcl_status_code(static_cast<shcl_status>(s)); }
+
+std::optional<Strictness> strictness_from_arg(std::string_view s) {
+	shcl_strictness out = SHCL_STANDARD;
+	if (!shcl_strictness_from_arg(s.data(), s.size(), &out)) return std::nullopt;
+	return static_cast<Strictness>(out);
+}
+
+std::string format_float(double v) { char b[SHCL_FLOAT_BUF]; return std::string(b, shcl_format_float(v, b)); }
+
+std::optional<std::string> format_value(std::string_view text) {
+	std::size_t n = 0;
+	std::unique_ptr<char, void (*)(void *)> p(shcl_format_value(text.data(), text.size(), &n), &std::free);
+	if (!p) return std::nullopt;
+	return std::string(p.get(), n);
+}
+
+std::optional<std::string> format_array(const std::vector<std::string> &texts) {
+	std::size_t n = 0;
+	auto a = detail::str_args(texts);
+	std::unique_ptr<char, void (*)(void *)> p(shcl_format_array(a.p.data(), a.n.data(), texts.size(), &n), &std::free);
+	if (!p) return std::nullopt;
+	return std::string(p.get(), n);
+}
+
+std::string format_diagnostic(const Diagnostic &d) {
+	std::size_t n = 0;
+	shcl_str m = {d.message.data(), d.message.size()};
+	std::unique_ptr<char, void (*)(void *)> p(shcl_format_diagnostic(d.line, static_cast<shcl_severity>(d.severity), d.code.c_str(), m, &n), &std::free);
+	return std::string(p.get(), n);
+}
+
+std::optional<DateTime> parse_datetime(std::string_view s) {
+	shcl_datetime out;
+	if (!shcl_parse_datetime(s.data(), s.size(), &out)) return std::nullopt;
+	return detail::from_c(out);
+}
+
+std::string quote_segment(std::string_view name) {
+	detail::Scratch k;
+	if (!k.d) return std::string();
+	return detail::str(shcl_quote_segment(k.d, name.data(), name.size()));
+}
+
+std::size_t Tokens::element_count() const {
+	std::vector<shcl_piece> e; e.reserve(elements.size());
+	for (const Piece &x : elements) e.push_back({x.start, x.end, static_cast<shcl_quote>(x.quote)});
+	shcl_tokens t{}; t.elements = e.data(); t.nelem = e.size();
+	return shcl_tokens_element_count(&t);
+}
+
+void tokenize(std::string_view text, char sep, bool path, Rules rules, Tokens &out) {
+	detail::Scratch k;
+	shcl_tokens t{}; t.cap = out.cap;
+	if (k.d) shcl_tokenize(k.d, text.data(), text.size(), sep, path ? 1 : 0, static_cast<shcl_rules>(rules), &t);
+	detail::copy_tokens(t, out);
+}
+
+void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens &out) {
+	detail::Scratch k;
+	shcl_tokens t{}; t.cap = out.cap;
+	if (k.d) shcl_tokenize_value(k.d, text.data(), text.size(), from, static_cast<shcl_rules>(rules), &t);
+	detail::copy_tokens(t, out);
+}
+
+Migration migrate(std::string_view text, bool from_v2) { return detail::migration(shcl_migrate(text.data(), text.size(), from_v2 ? 1 : 0)); }
+Migration migrate_unstamped(std::string_view text, bool from_v2) { return detail::migration(shcl_migrate_unstamped(text.data(), text.size(), from_v2 ? 1 : 0)); }
+
+std::optional<std::uint32_t> format_version(std::string_view text) {
+	std::int64_t v = shcl_format_version(text.data(), text.size());
+	if (v < 0) return std::nullopt;
+	return static_cast<std::uint32_t>(v);
+}
+Read<std::uint32_t> read_format_version(std::string_view text) {
+	shcl_read_i64 r = shcl_read_format_version(text.data(), text.size());
+	return {static_cast<std::uint32_t>(r.value), detail::st(r.status)};
+}
+
+std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s) {
+	shcl_duration_unit u = shcl_duration_unit_from_spelling(s.data(), s.size());
+	if (u == SHCL_DURATION_NONE) return std::nullopt;
+	return static_cast<DurationUnit>(static_cast<int>(u) - 1);
+}
+std::optional<SizeUnit> size_unit_from_spelling(std::string_view s) {
+	shcl_size_unit u = shcl_size_unit_from_spelling(s.data(), s.size());
+	if (u == SHCL_SIZE_NONE) return std::nullopt;
+	return static_cast<SizeUnit>(static_cast<int>(u) - 1);
+}
+std::string_view spelling(DurationUnit u) { return shcl_duration_unit_spelling(static_cast<shcl_duration_unit>(static_cast<int>(u) + 1)); }
+std::string_view spelling(SizeUnit u) { return shcl_size_unit_spelling(static_cast<shcl_size_unit>(static_cast<int>(u) + 1)); }
+
+std::optional<std::string> schema_ref(std::string_view text) {
+	std::size_t n = 0;
+	const char *r = shcl_schema_ref(text.data(), text.size(), &n);
+	if (!r) return std::nullopt;
+	return std::string(r, n);
+}
+Read<std::string> read_schema_ref(std::string_view text) {
+	shcl_read_str r = shcl_read_schema_ref(text.data(), text.size());
+	return {std::string(r.value.p, r.value.n), detail::st(r.status)};
+}
+
+Upgrade upgrade(std::string_view text, bool from_v2) {
+	detail::UpgradedOwn own;
+	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0);
+	return detail::upgraded(own.c);
+}
+
+std::string backup_file_name(const std::string &file, std::uint32_t format) {
+	std::unique_ptr<char, void (*)(void *)> p(shcl_backup_file_name(file.c_str(), format), &std::free);
+	return std::string(p.get());
+}
+
+#ifndef SHCL_NO_FILE_IO
+const char *to_string(FileStatus s) { return shcl_file_status_name(static_cast<shcl_file_status>(s)); }
+const char *to_string(WriteStatus s) { return shcl_write_status_name(static_cast<shcl_write_status>(s)); }
+
+namespace detail {
+// A NUL ends a C string, so a path holding one would reach the C call cut
+// short and name another file. Rust, Go and Python refuse such a path, and so
+// does every call here that opens one: unreadable for a read, Other for a
+// write, before the call (2026110312163208).
+static bool cut_short(const std::string &path) { return path.find('\0') != std::string::npos; }
+static SaveResult nul_save(WriteStatus *why) {
+	if (why) *why = WriteStatus::Other;
+	return SaveResult::Failed;
+}
+static UpgradeError nul_in(const std::string &path) {
+	return UpgradeError{UpgradeErrorKind::Io, path + ": file name contained an unexpected NUL byte", 0, WriteStatus::Other, {}};
+}
+} // namespace detail
+
+std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_t max_bytes) {
+	if (detail::cut_short(path)) return {std::string(), FileStatus::Unreadable};
+	// Initialized: the status should never depend on the callee having written it.
+	shcl_file_status cs = SHCL_FILE_UNREADABLE;
+	std::size_t n = 0;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	std::unique_ptr<char, void (*)(void *)> p(shcl_read_file(path.c_str(), max_bytes, &n, &cs), &std::free);
+	if (!p) return {std::string(), static_cast<FileStatus>(cs)};
+	return {std::string(p.get(), n), static_cast<FileStatus>(cs)};
+}
+
+WriteStatus write_file_atomic(const std::string &path, std::string_view data) {
+	if (detail::cut_short(path)) return WriteStatus::Other;
+	shcl_write_status st = SHCL_WRITE_OTHER;
+	shcl_write_file_atomic(path.c_str(), data.data(), data.size(), &st);
+	return static_cast<WriteStatus>(st);
+}
+
+const char *to_string(SchemaStatus s) { return shcl_schema_status_name(static_cast<shcl_schema_status>(s)); }
+
+NamedSchema read_named_schema(std::string_view text, const std::string &file) {
+	// Only file's folder says where a relative path starts. A NUL in it would
+	// reach the C call cut short and start in another folder, so the call gets
+	// no folder, and a relative path's read is refused as the others refuse it
+	// (2026110312163208). A NUL in the name itself changes nothing.
+#ifdef _WIN32
+	const char *seps = "/\\";
+#else
+	const char *seps = "/";
+#endif
+	const std::size_t nul = file.find('\0');
+	const bool cut = nul != std::string::npos && file.find_first_of(seps, nul) != std::string::npos;
+	shcl_named_schema c = shcl_read_named_schema(text.data(), text.size(), cut ? "" : file.c_str());
+	NamedSchema out{static_cast<SchemaStatus>(c.status), std::string(c.text, c.len), std::string(c.path, c.path_len), c.line,
+		std::string(c.message, c.message_len)};
+	shcl_named_schema_free(&c);
+	// With no folder, a relative path comes back under `./`, and an absolute
+	// one never does.
+	if (cut && out.path.rfind("./", 0) == 0) {
+		out.status = SchemaStatus::Unreadable;
+		out.text.clear();
+		out.path = file.substr(0, file.find_last_of(seps) + 1) + out.path.substr(2);
+		out.message = out.path + ": file name contained an unexpected NUL byte";
+	}
+	return out;
+}
+
+std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format) {
+	if (detail::cut_short(file)) return {std::string(), detail::nul_in(file)};
+	char *name = nullptr, *why = nullptr;
+	shcl_write_status st = SHCL_WRITE_OK;
+	shcl_upgrade_error e = shcl_write_backup(file.c_str(), text.data(), text.size(), format, &name, &why, &st);
+	std::unique_ptr<char, void (*)(void *)> n(name, &std::free), w(why, &std::free);
+	if (e != SHCL_UPGRADE_OK) return {std::string(), UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), 0, static_cast<WriteStatus>(st)}};
+	return {std::string(n.get()), std::nullopt};
+}
+
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2) {
+	if (detail::cut_short(path)) return {Upgrade{}, detail::nul_in(path)};
+	detail::UpgradedOwn own;
+	char *why = nullptr;
+	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, &own.c, &why, &st);
+	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
+	if (e != SHCL_UPGRADE_OK) {
+		std::vector<std::size_t> lines;
+		if (own.c.errors_left) lines.assign(own.c.errors_left, own.c.errors_left + own.c.errors_left_n);
+		return {Upgrade{}, UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), own.c.ambiguous, static_cast<WriteStatus>(st), std::move(lines)}};
+	}
+	return {detail::upgraded(own.c), std::nullopt};
+}
+#endif
+
+void Document::Free::operator()(Handle *h) const noexcept { shcl_free(reinterpret_cast<shcl_doc *>(h)); }
+
+Document::Document() : d_(reinterpret_cast<Handle *>(shcl_new())) {}
+
+Document Document::parse(std::string_view text) { return Access::wrap(shcl_parse(text.data(), text.size())); }
+Document Document::parse_with(std::string_view text, Strictness s) { return Access::wrap(shcl_parse_with(text.data(), text.size(), static_cast<shcl_strictness>(s))); }
+Document Document::parse_keep_lines(std::string_view text, Strictness s) { return Access::wrap(shcl_parse_keep_lines(text.data(), text.size(), static_cast<shcl_strictness>(s))); }
+Document Document::parse_limited(std::string_view text, Strictness s, std::size_t max_nodes, std::size_t max_elements, std::size_t max_diags) {
+	return Access::wrap(shcl_parse_limited(text.data(), text.size(), static_cast<shcl_strictness>(s), max_nodes, max_elements, max_diags));
+}
+Document Document::load_and_validate(std::string_view text, std::string_view schema, Strictness s) {
+	return Access::wrap(shcl_load_and_validate(text.data(), text.size(), schema.data(), schema.size(), static_cast<shcl_strictness>(s)));
+}
+Document Document::load_and_validate_with(std::string_view text, const Document &schema, Strictness s) {
+	return Access::wrap(shcl_load_and_validate_with(text.data(), text.size(), detail::held(schema), static_cast<shcl_strictness>(s)));
+}
+
+#ifndef SHCL_NO_FILE_IO
+std::pair<Document, FileStatus> Document::load_file(const std::string &path) {
+	if (detail::cut_short(path)) return {Access::wrap(shcl_parse_with("", 0, SHCL_STANDARD)), FileStatus::Unreadable};
+	shcl_file_status cs = SHCL_FILE_UNREADABLE;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	Document d = Access::wrap(shcl_load_file(path.c_str(), &cs));
+	return {std::move(d), static_cast<FileStatus>(cs)};
+}
+std::pair<Document, FileStatus> Document::load_file_with(const std::string &path, Strictness s) {
+	if (detail::cut_short(path)) return {Access::wrap(shcl_parse_with("", 0, static_cast<shcl_strictness>(s))), FileStatus::Unreadable};
+	shcl_file_status cs = SHCL_FILE_UNREADABLE;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	Document d = Access::wrap(shcl_load_file_with(path.c_str(), static_cast<shcl_strictness>(s), &cs));
+	return {std::move(d), static_cast<FileStatus>(cs)};
+}
+std::pair<Document, FileStatus> Document::load_file_keep_lines(const std::string &path, Strictness s) {
+	// A load that can't read the file keeps no lines, as the C load gives it.
+	if (detail::cut_short(path)) return {Access::wrap(shcl_parse_with("", 0, static_cast<shcl_strictness>(s))), FileStatus::Unreadable};
+	shcl_file_status cs = SHCL_FILE_UNREADABLE;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	Document d = Access::wrap(shcl_load_file_keep_lines(path.c_str(), static_cast<shcl_strictness>(s), &cs));
+	return {std::move(d), static_cast<FileStatus>(cs)};
+}
+SaveResult Document::save_file(const std::string &path, WriteStatus *why) {
+	if (detail::cut_short(path)) return detail::nul_save(why);
+	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	SaveResult r = static_cast<SaveResult>(shcl_save_file(detail::held(*this), path.c_str(), &st));
+	if (why) *why = static_cast<WriteStatus>(st);
+	return r;
+}
+SaveResult Document::save_file_lossy(const std::string &path, WriteStatus *why) {
+	if (detail::cut_short(path)) return detail::nul_save(why);
+	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	SaveResult r = static_cast<SaveResult>(shcl_save_file_lossy(detail::held(*this), path.c_str(), &st));
+	if (why) *why = static_cast<WriteStatus>(st);
+	return r;
+}
+std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &path, WriteStatus *why) {
+	if (detail::cut_short(path)) return {detail::nul_save(why), false};
+	int k = 0;
+	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	SaveResult r = static_cast<SaveResult>(shcl_save_file_keep_lines(detail::held(*this), path.c_str(), &k, &st));
+	if (why) *why = static_cast<WriteStatus>(st);
+	return {r, k != 0};
+}
+std::pair<SaveResult, bool> Document::save_file_with(const std::string &path, const SaveOptions &opts, WriteStatus *why) {
+	if (detail::cut_short(path)) return {detail::nul_save(why), false};
+	shcl_save_options o{};
+	o.lossy = opts.lossy; o.keep_lines = opts.keep_lines; o.force = opts.force;
+	o.create = opts.create; o.mode = opts.mode;
+	int k = 0;
+	shcl_write_status st = SHCL_WRITE_OK;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	SaveResult r = static_cast<SaveResult>(shcl_save_file_with(detail::held(*this), path.c_str(), o, &k, &st));
+	if (why) *why = static_cast<WriteStatus>(st);
+	return {r, k != 0};
+}
+#endif
+
+bool Document::strict_failed() const { return shcl_strict_failed(detail::held(*this)) != 0; }
+Strictness Document::strictness() const { return static_cast<Strictness>(shcl_strictness_of(detail::held(*this))); }
+// The canonical text lives in the read arena like every other result, so a
+// save loop that did not release first would hold every copy.
+std::string Document::to_canonical() const { return detail::str(shcl_to_canonical(detail::fresh(*this))); }
+std::pair<std::string, bool> Document::to_text_keep_lines() const {
+	int k = 0;
+	std::string t = detail::str(shcl_to_text_keep_lines(detail::fresh(*this), &k));
+	return {std::move(t), k != 0};
+}
+
+std::vector<Diagnostic> Document::diagnostics() const {
+	auto d = detail::held(*this);
+	return detail::diags(d);
+}
+std::size_t Document::error_count() const { return shcl_error_count(detail::held(*this)); }
+std::size_t Document::lost_count() const { return shcl_lost_count(detail::held(*this)); }
+bool Document::newer_format() const { return shcl_newer_format(detail::held(*this)) != 0; }
+
+std::vector<Diagnostic> Document::validate(const Document &schema) const {
+	std::vector<Diagnostic> v;
+	// Owned from the call on, so a throw while copying cannot leak it.
+	auto h = detail::held(*this, schema);
+	std::unique_ptr<shcl_validation, void (*)(shcl_validation *)> r(shcl_validate(detail::doc(*this), Access::doc(schema)), &shcl_validation_free);
+	if (!r) return v; // an allocation failed; the document is finished
+	std::size_t n = shcl_validation_count(r.get());
+	v.reserve(n);
+	for (std::size_t i = 0; i < n; i++)
+		v.push_back({shcl_validation_line(r.get(), i), static_cast<Severity>(shcl_validation_severity(r.get(), i)), detail::str(shcl_validation_message(r.get(), i)), shcl_validation_code(r.get(), i)});
+	return v;
+}
+
+void Document::merge(const Document &over) { shcl_merge(detail::doc(*this), detail::held(over)); }
+void Document::compact() { shcl_compact(detail::doc(*this)); }
+
+std::size_t Document::count(std::string_view path) const { return shcl_count(detail::held(*this), path.data(), path.size()); }
+std::vector<std::string> Document::paths() const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_paths(h, &a); return detail::strs(a, n); }
+std::vector<std::string> Document::instance_paths() const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_instance_paths(h, &a); return detail::strs(a, n); }
+std::vector<Field> Document::fields() const { auto h = detail::fresh(*this); shcl_field *a; std::size_t n = shcl_fields(h, &a); return detail::fields(a, n); }
+Read<std::vector<Field>> Document::read_fields(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_fields(h, path.data(), path.size()); return {detail::fields(r.values, r.n), detail::st(r.status)}; }
+Read<std::vector<Field>> Document::read_child_fields(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_child_fields(h, path.data(), path.size()); return {detail::fields(r.values, r.n), detail::st(r.status)}; }
+std::vector<std::string> Document::comments(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_comments(h, path.data(), path.size(), &a); return detail::strs(a, n); }
+Read<std::vector<std::string>> Document::read_comments(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_comments(h, path.data(), path.size()); return {detail::strs(r.values, r.n), detail::st(r.status)}; }
+std::vector<std::string> Document::instances(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_instances(h, path.data(), path.size(), &a); return detail::strs(a, n); }
+std::vector<std::string> Document::children(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_children(h, path.data(), path.size(), &a); return detail::strs(a, n); }
+Read<std::size_t> Document::read_count(std::string_view path) const { auto r = shcl_read_count(detail::held(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+Read<std::vector<std::string>> Document::read_instances(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_instances(h, path.data(), path.size()); return {detail::strs(r.values, r.n), detail::st(r.status)}; }
+Read<std::vector<std::string>> Document::read_children(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_children(h, path.data(), path.size()); return {detail::strs(r.values, r.n), detail::st(r.status)}; }
+std::size_t Document::line(std::string_view path) const { return shcl_line(detail::held(*this), path.data(), path.size()); }
+Read<std::size_t> Document::read_line(std::string_view path) const { auto r = shcl_read_line(detail::held(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+Read<std::vector<std::size_t>> Document::read_lines(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_lines(h, path.data(), path.size());
+	return {std::vector<std::size_t>(r.values, r.values + r.n), detail::st(r.status)};
+}
+std::vector<std::size_t> Document::lines(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	std::size_t *a; std::size_t n = shcl_lines(h, path.data(), path.size(), &a);
+	return std::vector<std::size_t>(a, a + n);
+}
+bool Document::quoted(std::string_view path) const { return shcl_quoted(detail::held(*this), path.data(), path.size()) != 0; }
+bool Document::backtick(std::string_view path) const { return shcl_backtick(detail::held(*this), path.data(), path.size()) != 0; }
+std::string Document::raw(std::string_view path) const { auto h = detail::fresh(*this); return detail::str(shcl_raw_text(h, path.data(), path.size())); }
+Read<std::string> Document::read_raw_text(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_raw_text(h, path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+bool Document::exists(std::string_view path) const { return shcl_exists(detail::held(*this), path.data(), path.size()) != 0; }
+Read<bool> Document::read_exists(std::string_view path) const { auto r = shcl_read_exists(detail::held(*this), path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
+std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }
+Read<std::string> Document::read_authored_name(std::string_view path) const { auto r = shcl_read_authored_name(detail::held(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+ValueKind Document::kind(std::string_view path) const { return static_cast<ValueKind>(shcl_kind(detail::held(*this), path.data(), path.size())); }
+Read<ValueKind> Document::read_kind(std::string_view path) const { auto r = shcl_read_kind(detail::held(*this), path.data(), path.size()); return {static_cast<ValueKind>(r.value), detail::st(r.status)}; }
+SetStatus Document::check_set_path(std::string_view path) const { return static_cast<SetStatus>(shcl_check_set_path(detail::held(*this), path.data(), path.size())); }
+
+SetStatus Document::set_int(std::string_view path, std::int64_t v) { return static_cast<SetStatus>(shcl_set_int(detail::doc(*this), path.data(), path.size(), v)); }
+SetStatus Document::set_float(std::string_view path, double v) { return static_cast<SetStatus>(shcl_set_float(detail::doc(*this), path.data(), path.size(), v)); }
+SetStatus Document::set_bool(std::string_view path, bool v) { return static_cast<SetStatus>(shcl_set_bool(detail::doc(*this), path.data(), path.size(), v ? 1 : 0)); }
+SetStatus Document::set_string(std::string_view path, std::string_view v) { return static_cast<SetStatus>(shcl_set_string(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_datetime(std::string_view path, const DateTime &v) { shcl_datetime c = detail::to_c(v); return static_cast<SetStatus>(shcl_set_datetime(detail::doc(*this), path.data(), path.size(), &c)); }
+SetStatus Document::set_raw(std::string_view path, std::string_view content, std::string_view info) { return static_cast<SetStatus>(shcl_set_raw(detail::doc(*this), path.data(), path.size(), content.data(), content.size(), info.data(), info.size())); }
+SetStatus Document::set_empty(std::string_view path) { return static_cast<SetStatus>(shcl_set_empty(detail::doc(*this), path.data(), path.size())); }
+SetStatus Document::set_int_array(std::string_view path, const std::vector<std::int64_t> &v) { return static_cast<SetStatus>(shcl_set_int_array(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_float_array(std::string_view path, const std::vector<double> &v) { return static_cast<SetStatus>(shcl_set_float_array(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_bool_array(std::string_view path, const std::vector<bool> &v) { auto b = detail::bool_args(v); return static_cast<SetStatus>(shcl_set_bool_array(detail::doc(*this), path.data(), path.size(), b.data(), b.size())); }
+SetStatus Document::set_string_array(std::string_view path, const std::vector<std::string> &v) { auto a = detail::str_args(v); return static_cast<SetStatus>(shcl_set_string_array(detail::doc(*this), path.data(), path.size(), a.p.data(), a.n.data(), v.size())); }
+SetStatus Document::set_datetime_array(std::string_view path, const std::vector<DateTime> &v) { auto a = detail::dt_args(v); return static_cast<SetStatus>(shcl_set_datetime_array(detail::doc(*this), path.data(), path.size(), a.data(), a.size())); }
+SetStatus Document::set_literal(std::string_view path, std::string_view text) { return static_cast<SetStatus>(shcl_set_literal(detail::doc(*this), path.data(), path.size(), text.data(), text.size())); }
+
+SetStatus Document::set_int_default(std::string_view path, std::int64_t v) { return static_cast<SetStatus>(shcl_set_int_default(detail::doc(*this), path.data(), path.size(), v)); }
+SetStatus Document::set_float_default(std::string_view path, double v) { return static_cast<SetStatus>(shcl_set_float_default(detail::doc(*this), path.data(), path.size(), v)); }
+SetStatus Document::set_bool_default(std::string_view path, bool v) { return static_cast<SetStatus>(shcl_set_bool_default(detail::doc(*this), path.data(), path.size(), v ? 1 : 0)); }
+SetStatus Document::set_string_default(std::string_view path, std::string_view v) { return static_cast<SetStatus>(shcl_set_string_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_datetime_default(std::string_view path, const DateTime &v) { shcl_datetime c = detail::to_c(v); return static_cast<SetStatus>(shcl_set_datetime_default(detail::doc(*this), path.data(), path.size(), &c)); }
+SetStatus Document::set_literal_default(std::string_view path, std::string_view text) { return static_cast<SetStatus>(shcl_set_literal_default(detail::doc(*this), path.data(), path.size(), text.data(), text.size())); }
+SetStatus Document::set_raw_default(std::string_view path, std::string_view content, std::string_view info) { return static_cast<SetStatus>(shcl_set_raw_default(detail::doc(*this), path.data(), path.size(), content.data(), content.size(), info.data(), info.size())); }
+SetStatus Document::set_int_array_default(std::string_view path, const std::vector<std::int64_t> &v) { return static_cast<SetStatus>(shcl_set_int_array_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_float_array_default(std::string_view path, const std::vector<double> &v) { return static_cast<SetStatus>(shcl_set_float_array_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_bool_array_default(std::string_view path, const std::vector<bool> &v) { auto b = detail::bool_args(v); return static_cast<SetStatus>(shcl_set_bool_array_default(detail::doc(*this), path.data(), path.size(), b.data(), b.size())); }
+SetStatus Document::set_string_array_default(std::string_view path, const std::vector<std::string> &v) { auto a = detail::str_args(v); return static_cast<SetStatus>(shcl_set_string_array_default(detail::doc(*this), path.data(), path.size(), a.p.data(), a.n.data(), v.size())); }
+SetStatus Document::set_datetime_array_default(std::string_view path, const std::vector<DateTime> &v) { auto a = detail::dt_args(v); return static_cast<SetStatus>(shcl_set_datetime_array_default(detail::doc(*this), path.data(), path.size(), a.data(), a.size())); }
+
+std::size_t Document::remove(std::string_view path) { return shcl_remove(detail::doc(*this), path.data(), path.size()); }
+Read<std::size_t> Document::try_remove(std::string_view path) { auto r = shcl_try_remove(detail::doc(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+SetStatus Document::set_comment(std::string_view path, std::string_view text) { return static_cast<SetStatus>(shcl_set_comment(detail::doc(*this), path.data(), path.size(), text.data(), text.size())); }
+std::size_t Document::clear_comments(std::string_view path) { return shcl_clear_comments(detail::doc(*this), path.data(), path.size()); }
+Read<std::size_t> Document::try_clear_comments(std::string_view path) { auto r = shcl_try_clear_comments(detail::doc(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+std::size_t Document::set_banner(bool on) { return shcl_set_banner(detail::doc(*this), on ? 1 : 0); }
+
+Read<std::int64_t> Document::read_int(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_int(h, path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+Read<double> Document::read_float(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_float(h, path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+Read<bool> Document::read_bool(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_bool_(h, path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
+Read<DateTime> Document::read_datetime(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_datetime(h, path.data(), path.size()); return {detail::from_c(r.value), detail::st(r.status)}; }
+namespace detail {
+inline shcl_duration_unit c_unit(std::optional<DurationUnit> u) { return u ? static_cast<shcl_duration_unit>(static_cast<int>(*u) + 1) : SHCL_DURATION_NONE; }
+inline shcl_size_unit c_unit(std::optional<SizeUnit> u) { return u ? static_cast<shcl_size_unit>(static_cast<int>(*u) + 1) : SHCL_SIZE_NONE; }
+}
+Read<std::chrono::milliseconds> Document::read_duration(std::string_view path, std::optional<DurationUnit> unit) const {
+	auto h = detail::held(*this);
+	auto r = shcl_read_duration(h, path.data(), path.size(), detail::c_unit(unit));
+	return {std::chrono::milliseconds(r.value), detail::st(r.status)};
+}
+Read<std::int64_t> Document::read_size(std::string_view path, std::optional<SizeUnit> unit, bool decimal) const {
+	auto h = detail::held(*this);
+	auto r = shcl_read_size(h, path.data(), path.size(), detail::c_unit(unit), decimal ? 1 : 0);
+	return {r.value, detail::st(r.status)};
+}
+std::chrono::milliseconds Document::get_duration_or(std::string_view path, std::optional<DurationUnit> unit, std::chrono::milliseconds def) const {
+	return std::chrono::milliseconds(shcl_get_duration_or(detail::held(*this), path.data(), path.size(), detail::c_unit(unit), static_cast<std::int64_t>(def.count())));
+}
+std::int64_t Document::get_size_or(std::string_view path, std::optional<SizeUnit> unit, bool decimal, std::int64_t def) const {
+	return shcl_get_size_or(detail::held(*this), path.data(), path.size(), detail::c_unit(unit), decimal ? 1 : 0, def);
+}
+Read<std::string> Document::read_string(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_string(h, path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+Read<std::string> Document::read_raw(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_raw(h, path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+Read<std::string> Document::read_raw_info(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_raw_info(h, path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+Read<std::string> Document::read_datetime_str(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_datetime(h, path.data(), path.size()); return {detail::dt_str(r.value), detail::st(r.status)}; }
+
+Read<std::vector<std::int64_t>> Document::read_int_array(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_int_array(h, path.data(), path.size());
+	return {std::vector<std::int64_t>(r.values, r.values + r.n), detail::st(r.status), detail::slots(r.statuses, r.n)};
+}
+Read<std::vector<double>> Document::read_float_array(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_float_array(h, path.data(), path.size());
+	return {std::vector<double>(r.values, r.values + r.n), detail::st(r.status), detail::slots(r.statuses, r.n)};
+}
+Read<std::vector<bool>> Document::read_bool_array(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_bool_array(h, path.data(), path.size());
+	std::vector<bool> v; v.reserve(r.n); for (std::size_t i = 0; i < r.n; i++) v.push_back(r.values[i] != 0);
+	return {std::move(v), detail::st(r.status), detail::slots(r.statuses, r.n)};
+}
+Read<std::vector<DateTime>> Document::read_datetime_array(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_datetime_array(h, path.data(), path.size());
+	std::vector<DateTime> v; v.reserve(r.n);
+	for (std::size_t i = 0; i < r.n; i++) v.push_back(detail::from_c(r.values[i]));
+	return {std::move(v), detail::st(r.status), detail::slots(r.statuses, r.n)};
+}
+Read<std::vector<std::string>> Document::read_string_array(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_string_array(h, path.data(), path.size());
+	return {detail::strs(r.values, r.n), detail::st(r.status), detail::slots(r.statuses, r.n)};
+}
+Read<std::vector<std::string>> Document::read_datetime_array_str(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_datetime_array(h, path.data(), path.size());
+	std::vector<std::string> v; v.reserve(r.n);
+	for (std::size_t i = 0; i < r.n; i++) v.push_back(detail::dt_str(r.values[i]));
+	return {std::move(v), detail::st(r.status), detail::slots(r.statuses, r.n)};
+}
+
+std::string Document::get_raw_or(std::string_view path, std::string def) const {
+	auto r = read_raw(path);
+	if (r.status == Status::Good) return std::move(r.value);
+	return def;
+}
+std::string Document::get_raw_info_or(std::string_view path, std::string def) const {
+	auto r = read_raw_info(path);
+	if (r.status == Status::Good) return std::move(r.value);
+	return def;
+}
+
+template <> Read<std::int64_t> Document::get<std::int64_t>(std::string_view path) const { return read_int(path); }
+template <> Read<double> Document::get<double>(std::string_view path) const { return read_float(path); }
+template <> Read<bool> Document::get<bool>(std::string_view path) const { return read_bool(path); }
+template <> Read<std::string> Document::get<std::string>(std::string_view path) const { return read_string(path); }
+template <> Read<DateTime> Document::get<DateTime>(std::string_view path) const { return read_datetime(path); }
+template <> Read<std::vector<std::int64_t>> Document::get<std::vector<std::int64_t>>(std::string_view path) const { return read_int_array(path); }
+template <> Read<std::vector<double>> Document::get<std::vector<double>>(std::string_view path) const { return read_float_array(path); }
+template <> Read<std::vector<bool>> Document::get<std::vector<bool>>(std::string_view path) const { return read_bool_array(path); }
+template <> Read<std::vector<std::string>> Document::get<std::vector<std::string>>(std::string_view path) const { return read_string_array(path); }
+template <> Read<std::vector<DateTime>> Document::get<std::vector<DateTime>>(std::string_view path) const { return read_datetime_array(path); }
+
+std::pair<std::string, std::vector<Diagnostic>> generate(const Document &schema, bool no_banner) {
+	auto h = detail::held(schema);
+	shcl_doc *d = h;
+	int ok = 0;
+	shcl_reads_release(d);
+	std::string text = detail::str(shcl_generate(d, no_banner ? 1 : 0, &ok));
+	// The core records its faults on the schema, flagged, after the schema's
+	// own diagnostics. They are taken off again, so the schema reads as it did
+	// before the call and the faults are this call's only.
+	std::vector<Diagnostic> faults;
+	std::size_t w = 0;
+	for (std::size_t i = 0; i < d->diags.len; i++) {
+		const ShclDiag &g = d->diags.data[i];
+		if (!g.generated) { d->diags.data[w++] = g; continue; }
+		faults.push_back({g.line, static_cast<Severity>(g.sev), std::string(g.message.p, g.message.n), g.code});
+	}
+	d->diags.len = w;
+	return {ok ? std::move(text) : std::string(), std::move(faults)};
+}
+
+void suppress_declared_repeats(const Document &schema, Document &doc) { shcl_suppress_declared_repeats(detail::held(schema), Access::doc(doc)); }
+void suppress_declared_reopens(const Document &schema, Document &doc) { shcl_suppress_declared_reopens(detail::held(schema), Access::doc(doc)); }
+
+} // namespace shcl
+
+#endif // SHCL_IMPLEMENTATION
 #endif // SHCL_HPP

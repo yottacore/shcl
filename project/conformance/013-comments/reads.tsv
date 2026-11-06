@@ -3,7 +3,7 @@ query	type	expected	status	level
 -	load	ok	-	loose
 -	load	fail	-	strict
 app	string	-	Multiple
-app[0]	string	demo	Good
+app(0)	string	demo	Good
 app	count	2	Good
 app.deep.path	string	-	Empty
 server.host	string	example.com	Good

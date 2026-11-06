@@ -1,0 +1,6 @@
+script: ```sh
+	echo hi
+```
+city:[Boston]
+path: C:\\temp
+last: 1

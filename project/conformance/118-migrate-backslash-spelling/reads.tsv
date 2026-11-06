@@ -1,0 +1,5 @@
+query	type	expected	status
+path	string	C:\\temp	Good
+bare	string	a\\tb	Good
+last	int	1	Good
+-	lost	0	-

@@ -1,0 +1,9 @@
+int	server.port	9443
+string	name	Billing Two
+bool	server.tls.enabled	false
+string	server.tls.key	/etc/ssl/billing.key
+remove	version
+string	log.level	info
+comment	server.host	public name
+raw	script	sh	echo stop◉NEWLINE◉◉TAB◉indented
+string-array	server.paths	/v1	/v3

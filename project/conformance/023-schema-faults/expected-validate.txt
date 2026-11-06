@@ -7,4 +7,5 @@ line 9: Error: V093
 line 11: Error: V093
 line 15: Error: V092
 line 17: Error: V092
-failed: 9 diagnostic(s), 9 error(s)
+line 21: Error: V092
+failed: 10 diagnostic(s), 10 error(s)

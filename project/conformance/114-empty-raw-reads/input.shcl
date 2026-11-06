@@ -1,0 +1,8 @@
+# An empty binding has no block, so no info string either. A value that is
+# there and is not a block is the type mismatch.
+e:
+c: 5
+b:
+	```txt
+	body
+	```

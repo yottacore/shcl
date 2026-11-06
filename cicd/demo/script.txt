@@ -3,21 +3,21 @@
 @ Gif: 960x540 px, 50 fps, rendered against the fresh release binary.
 @ Everything anonymized - generic user@host prompt, no real paths.
 @ Typing looks like a person: variable speed, the odd fixed typo.
-@ Clear the screen between steps. Whole loop about 30 seconds,
+@ Clear the screen between steps. Whole loop about 33 seconds,
 @ ending on 3 seconds of black to mark the seam.
 
 # A messy config
 cat app.shcl
 	@ pause 3 seconds - a screenful to read
 
-shcl get --int app.shcl 'servers[web1].port'
+shcl get --int app.shcl 'servers(web1).port'
 	@ pause 1.2 seconds
 
 # Bad lines: skipped, not fatal
 shcl check app.shcl
-	@ exits 6 - the demo file carries a deliberate bad line
+	@ exits 6 - the demo file has a deliberate bad line
 	@ pause 1.6 seconds
 
-# Canonical fmt; values verbatim
+# Canonical fmt; nothing lost
 shcl fmt app.shcl
 	@ pause 3.4 seconds

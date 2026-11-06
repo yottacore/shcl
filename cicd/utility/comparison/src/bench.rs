@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
+
 //! One entry per library under test, plus the measurement itself.
 //!
 //! Every library parses to its own ecosystem's in-memory document model and
@@ -66,6 +69,8 @@ pub struct Measured {
 
 /// Kernel peak resident set for this process, in bytes.
 pub fn vmhwm() -> u64 {
+	#[cfg(test)]
+	tests::note_read();
 	let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
 	for line in s.lines() {
 		if let Some(rest) = line.strip_prefix("VmHWM:")
@@ -81,6 +86,11 @@ pub fn vmhwm() -> u64 {
 /// figure with nothing else in flight, then take the best of `iters` runs for
 /// each of parse and emit - best-of rather than mean, because scheduler noise
 /// only ever adds time.
+///
+/// Nothing else in flight includes the caller's validity check. Each entry
+/// checks in an `if let` whose temporary is gone before this runs. The check as
+/// a `match` scrutinee lived until the match ended, after the memory read, and
+/// five entries were measured holding two documents.
 fn measure<D>(
 	src: &str,
 	iters: usize,
@@ -161,7 +171,7 @@ pub fn run(key: &str, src: &str, iters: usize, count: bool, base: u64) -> Measur
 	}
 }
 
-//•••• SHCL ••••
+// SHCL
 
 fn run_shcl(src: &str, iters: usize, count: bool, base: u64) -> Measured {
 	let probe = shcl::Document::parse(src);
@@ -222,7 +232,7 @@ fn shcl_walk(d: &shcl::Document, prefix: &str) -> u64 {
 		let insts = d.instances(&base);
 		if insts.len() > 1 {
 			for v in insts {
-				n += shcl_walk(d, &format!("{base}[{}]", shcl::quote_segment(&v)));
+				n += shcl_walk(d, &format!("{base}({})", shcl::quote_segment(&v)));
 			}
 		} else {
 			n += shcl_walk(d, &base);
@@ -231,21 +241,21 @@ fn shcl_walk(d: &shcl::Document, prefix: &str) -> u64 {
 	n
 }
 
-//•••• JSON ••••
+// JSON
 
 fn run_json(src: &str, iters: usize, count: bool, base: u64) -> Measured {
-	match serde_json::from_str::<serde_json::Value>(src) {
-		Err(e) => failed(e.to_string()),
-		Ok(_) => measure(
-			src,
-			iters,
-			count,
-			base,
-			|s| serde_json::from_str::<serde_json::Value>(s).expect("checked above"),
-			Some(&|v: &serde_json::Value| serde_json::to_string_pretty(v).unwrap_or_default()),
-			json_scalars,
-		),
+	if let Err(e) = serde_json::from_str::<serde_json::Value>(src) {
+		return failed(e.to_string());
 	}
+	measure(
+		src,
+		iters,
+		count,
+		base,
+		|s| serde_json::from_str::<serde_json::Value>(s).expect("checked above"),
+		Some(&|v: &serde_json::Value| serde_json::to_string_pretty(v).unwrap_or_default()),
+		json_scalars,
+	)
 }
 
 fn json_scalars(v: &serde_json::Value) -> u64 {
@@ -256,21 +266,21 @@ fn json_scalars(v: &serde_json::Value) -> u64 {
 	}
 }
 
-//•••• YAML ••••
+// YAML
 
 fn run_yaml(src: &str, iters: usize, count: bool, base: u64) -> Measured {
-	match serde_yaml_ng::from_str::<serde_yaml_ng::Value>(src) {
-		Err(e) => failed(e.to_string()),
-		Ok(_) => measure(
-			src,
-			iters,
-			count,
-			base,
-			|s| serde_yaml_ng::from_str::<serde_yaml_ng::Value>(s).expect("checked above"),
-			Some(&|v: &serde_yaml_ng::Value| serde_yaml_ng::to_string(v).unwrap_or_default()),
-			yaml_scalars,
-		),
+	if let Err(e) = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(src) {
+		return failed(e.to_string());
 	}
+	measure(
+		src,
+		iters,
+		count,
+		base,
+		|s| serde_yaml_ng::from_str::<serde_yaml_ng::Value>(s).expect("checked above"),
+		Some(&|v: &serde_yaml_ng::Value| serde_yaml_ng::to_string(v).unwrap_or_default()),
+		yaml_scalars,
+	)
 }
 
 fn yaml_scalars(v: &serde_yaml_ng::Value) -> u64 {
@@ -281,21 +291,21 @@ fn yaml_scalars(v: &serde_yaml_ng::Value) -> u64 {
 	}
 }
 
-//•••• TOML ••••
+// TOML
 
 fn run_toml(src: &str, iters: usize, count: bool, base: u64) -> Measured {
-	match src.parse::<toml::Table>() {
-		Err(e) => failed(e.to_string()),
-		Ok(_) => measure(
-			src,
-			iters,
-			count,
-			base,
-			|s| s.parse::<toml::Table>().expect("checked above"),
-			Some(&|t: &toml::Table| toml::to_string(t).unwrap_or_default()),
-			|t: &toml::Table| t.values().map(toml_scalars).sum(),
-		),
+	if let Err(e) = src.parse::<toml::Table>() {
+		return failed(e.to_string());
 	}
+	measure(
+		src,
+		iters,
+		count,
+		base,
+		|s| s.parse::<toml::Table>().expect("checked above"),
+		Some(&|t: &toml::Table| toml::to_string(t).unwrap_or_default()),
+		|t: &toml::Table| t.values().map(toml_scalars).sum(),
+	)
 }
 
 fn toml_scalars(v: &toml::Value) -> u64 {
@@ -307,18 +317,18 @@ fn toml_scalars(v: &toml::Value) -> u64 {
 }
 
 fn run_toml_edit(src: &str, iters: usize, count: bool, base: u64) -> Measured {
-	match src.parse::<toml_edit::DocumentMut>() {
-		Err(e) => failed(e.to_string()),
-		Ok(_) => measure(
-			src,
-			iters,
-			count,
-			base,
-			|s| s.parse::<toml_edit::DocumentMut>().expect("checked above"),
-			Some(&|d: &toml_edit::DocumentMut| d.to_string()),
-			|d: &toml_edit::DocumentMut| edit_scalars(d.as_item()),
-		),
+	if let Err(e) = src.parse::<toml_edit::DocumentMut>() {
+		return failed(e.to_string());
 	}
+	measure(
+		src,
+		iters,
+		count,
+		base,
+		|s| s.parse::<toml_edit::DocumentMut>().expect("checked above"),
+		Some(&|d: &toml_edit::DocumentMut| d.to_string()),
+		|d: &toml_edit::DocumentMut| edit_scalars(d.as_item()),
+	)
 }
 
 fn edit_scalars(it: &toml_edit::Item) -> u64 {
@@ -341,12 +351,12 @@ fn edit_value_scalars(v: &toml_edit::Value) -> u64 {
 	}
 }
 
-//•••• XML ••••
+// XML
 
 /// roxmltree borrows the source instead of copying it, which is most of why it
 /// is fast and is a fair thing to show. It has no writer, by design, so the emit
 /// column is empty rather than filled with harness code the other rows do not
-/// carry.
+/// have.
 fn run_roxmltree(src: &str, iters: usize, count: bool, base: u64) -> Measured {
 	if let Err(e) = roxmltree::Document::parse(src) {
 		return failed(e.to_string());
@@ -393,22 +403,22 @@ fn rox_scalars(n: roxmltree::Node) -> u64 {
 }
 
 fn run_xmltree(src: &str, iters: usize, count: bool, base: u64) -> Measured {
-	match xmltree::Element::parse(src.as_bytes()) {
-		Err(e) => failed(e.to_string()),
-		Ok(_) => measure(
-			src,
-			iters,
-			count,
-			base,
-			|s: &str| xmltree::Element::parse(s.as_bytes()).expect("checked above"),
-			Some(&|e: &xmltree::Element| {
-				let mut buf = Vec::new();
-				let _ = e.write(&mut buf);
-				String::from_utf8(buf).unwrap_or_default()
-			}),
-			xt_scalars,
-		),
+	if let Err(e) = xmltree::Element::parse(src.as_bytes()) {
+		return failed(e.to_string());
 	}
+	measure(
+		src,
+		iters,
+		count,
+		base,
+		|s: &str| xmltree::Element::parse(s.as_bytes()).expect("checked above"),
+		Some(&|e: &xmltree::Element| {
+			let mut buf = Vec::new();
+			let _ = e.write(&mut buf);
+			String::from_utf8(buf).unwrap_or_default()
+		}),
+		xt_scalars,
+	)
 }
 
 fn xt_scalars(e: &xmltree::Element) -> u64 {
@@ -417,4 +427,91 @@ fn xt_scalars(e: &xmltree::Element) -> u64 {
 		return 1;
 	}
 	kids.into_iter().map(xt_scalars).sum()
+}
+
+#[cfg(test)]
+mod tests {
+	use std::alloc::{GlobalAlloc, Layout, System};
+	use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+	/// Heap bytes live now, and at the moment the memory figure was read.
+	static LIVE: AtomicUsize = AtomicUsize::new(0);
+	static AT_READ: AtomicUsize = AtomicUsize::new(0);
+
+	struct Counting;
+
+	unsafe impl GlobalAlloc for Counting {
+		unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+			let p = unsafe { System.alloc(l) };
+			if !p.is_null() {
+				LIVE.fetch_add(l.size(), Relaxed);
+			}
+			p
+		}
+		unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+			unsafe { System.dealloc(p, l) };
+			LIVE.fetch_sub(l.size(), Relaxed);
+		}
+		unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+			let q = unsafe { System.realloc(p, l, n) };
+			if !q.is_null() {
+				LIVE.fetch_add(n, Relaxed);
+				LIVE.fetch_sub(l.size(), Relaxed);
+			}
+			q
+		}
+	}
+
+	#[global_allocator]
+	static A: Counting = Counting;
+
+	pub fn note_read() {
+		AT_READ.store(LIVE.load(Relaxed), Relaxed);
+	}
+
+	/// Heap one parsed document holds, parsed with the same call its entry uses.
+	fn one_document(key: &str, src: &str) -> usize {
+		let before = LIVE.load(Relaxed);
+		macro_rules! held {
+			($e:expr) => {{
+				let d = $e;
+				let n = LIVE.load(Relaxed) - before;
+				drop(d);
+				n
+			}};
+		}
+		match key {
+			"shcl" => held!(shcl::Document::parse(src)),
+			"json" => held!(serde_json::from_str::<serde_json::Value>(src).unwrap()),
+			"yaml" => held!(serde_yaml_ng::from_str::<serde_yaml_ng::Value>(src).unwrap()),
+			"toml" => held!(src.parse::<toml::Table>().unwrap()),
+			"toml-edit" => held!(src.parse::<toml_edit::DocumentMut>().unwrap()),
+			"xml" => held!(roxmltree::Document::parse(src).unwrap()),
+			_ => held!(xmltree::Element::parse(src.as_bytes()).unwrap()),
+		}
+	}
+
+	/// The memory figure is "what it costs to hold this document", so when it is
+	/// read exactly one document may be alive. A validity check kept alive past
+	/// the read doubled five of the seven entries.
+	#[test]
+	fn memory_figure_holds_one_document() {
+		let mut over = Vec::new();
+		for e in super::ENTRIES {
+			let fmt = super::source_fmt(e.key);
+			let (src, _) = crate::render(crate::model::Shape::Records, fmt, 2000, None);
+			let one = one_document(e.key, &src);
+			let before = LIVE.load(Relaxed);
+			let m = super::run(e.key, &src, 1, false, 0);
+			assert!(m.failed.is_none(), "{}: {:?}", e.key, m.failed);
+			let held = AT_READ.load(Relaxed).saturating_sub(before);
+			if held >= one + one / 2 {
+				over.push(format!(
+					"{}: {held} bytes live at the read, one document is {one}",
+					e.key
+				));
+			}
+		}
+		assert!(over.is_empty(), "{}", over.join("\n"));
+	}
 }

@@ -1,0 +1,15 @@
+a: 1
+
+## my own notes
+
+##    Format   3
+##    Migrated from SHCL 2.x.
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://example.invalid/shcl
+##    Syntax   https://example.invalid/old/spec.md
+##    Legal    Old legal line.
+##

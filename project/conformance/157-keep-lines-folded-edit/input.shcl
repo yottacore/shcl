@@ -1,0 +1,6 @@
+# A block given twice loads as one. A new child under the last field of
+# the first one goes above the second header, which stays as written.
+db:
+	host: localhost
+db:
+	port:   5432

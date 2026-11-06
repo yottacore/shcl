@@ -1,0 +1,21 @@
+base: 0
+kept: "x "
+inner: "a b"
+
+nbsp_end: "x "
+
+nbsp_start: " x"
+
+vtab: "y◉VT◉"
+
+formfeed: "y◉FF◉"
+
+ideographic: "z　"
+
+nel: "w◉U+0085◉"
+
+enquad: "v "
+
+interior: "a b"
+
+plain: "keep me"

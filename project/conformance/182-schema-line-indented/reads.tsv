@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+-	load	ok	-	strict
+-	schema	./app.schema.shcl	-
+server.port	int	8080	Good
+text	raw	##    Schema   inside.shcl	Good
+note	string	```	Good

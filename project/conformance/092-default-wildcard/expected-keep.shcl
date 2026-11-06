@@ -1,0 +1,6 @@
+# A default form refuses a wildcard whether or not its slots resolve.
+srv: web
+	port: 80
+	host: h1
+srv: db
+	port: 5432

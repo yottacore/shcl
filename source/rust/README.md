@@ -8,20 +8,20 @@ This crate is the reference implementation. Independent Go, Python, and C bindin
 
 ## Install
 
-```sh
+~~~sh
 cargo add shcl
-```
+~~~
 
 Zero dependencies. The crate also includes the CLI:
 
-```sh
+~~~sh
 cargo install shcl
-```
+~~~
 
 ## Use
 
-```rust
-use shcl::{Document, FileStatus};
+~~~rust
+use shcl::{Document, FileStatus, SetStatus};
 
 // Reads and parses in one call, and never fails: the document is usable
 // either way, and the status separates missing from unreadable from
@@ -32,41 +32,43 @@ if file_status == FileStatus::NotFound {
 }
 
 // One call, a typed value, a visible fallback at the call site.
-let limit = doc.get_int("site[example.com].max-upload-mb").unwrap_or(10);
+let limit = doc.get_int_or("site(example.com).max-upload-mb", 10);
 
-// Or ask why a read failed: Good, Empty, NotFound, BadType, Multiple.
-let r = doc.read_int("site[example.com].max-upload-mb");
+// Or ask why a read failed: Good, Empty, NotFound, BadType, Multiple, BadPath.
+let r = doc.read_int("site(example.com).max-upload-mb");
 if !r.ok() {
 	eprintln!("{:?} (raw text was {:?})", r.status, r.raw);
 }
 
 // Wildcards read across instances, with a status per slot.
-let roots = doc.read_string_array("site[*].root");
+let roots = doc.read_string_array("site(*).root");
 
 // Writes through a temp file and a rename, so an interrupted save cannot
-// truncate the config - and refuses if the load dropped a line this write
-// would delete (save_file_lossy is the override).
-// Setters are #[must_use]: a path that cannot be written writes nothing at
-// all, and write_reason names which of the five reasons it hit.
-let path = "site[example.com].max-upload-mb";
-if !doc.set_int(path, limit * 2) {
-	eprintln!("not written: {:?}", doc.write_reason(path));
+// truncate the config - and refuses if this write would delete lines or values
+// from the file (save_file_lossy is the override), if another program
+// changed the file since the load (force in save_file_with's SaveOptions), or
+// if the file names a newer format than this reader's (newer_format).
+// A setter returns Ok, or why it wrote nothing at all, and the status is
+// #[must_use].
+let st = doc.set_int("site(example.com).max-upload-mb", limit * 2);
+if st != SetStatus::Ok {
+	eprintln!("not written: {st:?}");
 }
 doc.save_file("server.shcl").unwrap();
-```
+~~~
 
-`Document::parse` never fails, and neither does `load_file`. When you want a hard error instead, use `Document::parse_with(&text, Strictness::Strict)`.
+`Document::parse` never fails, and neither does `load_file`. When you want a hard error instead, use `Document::parse_with(&text, Strictness::Strict)` or `load_file_with(path, Strictness::Strict)`.
 
 Also here: `merge` for layered config (defaults, site, user), `validate` against a schema that is itself a SHCL file, a full writer, and a canonical formatter that preserves comments.
 
 ## Compatibility
 
-Bindings are versioned in lockstep, so `2.x` is the same behavior in every language. `shcl = "2"` picks up minor and patch releases on its own and never crosses a major version.
+Bindings are versioned in lockstep, so `3.x` is the same behavior in every language. `shcl = "3"` picks up minor and patch releases on its own and never crosses a major version. It skips a beta, though, so name this one exactly: `shcl = "3.0.0-beta1"`.
 
 ## Docs
 
-Language spec, formal grammar, and the other bindings: <https://github.com/jim-collier/shcl>
+Language spec, formal grammar, and the other bindings: <https://github.com/yottacore/shcl>
 
 ## License
 
-MIT. SHCL™ is a trademark of Jim Collier - see the [trademark policy](https://github.com/jim-collier/shcl/blob/main/trademark.md).
+MIT. SHCL™ is a trademark of Jim Collier - see the [trademark policy](https://github.com/yottacore/shcl/blob/main/trademark.md).

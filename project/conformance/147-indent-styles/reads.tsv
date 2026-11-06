@@ -1,0 +1,12 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	2	-
+tabs	children	a|b	-
+tabs.stray	count	0	-
+skipped	children	x	-
+skipped.y	count	0	-
+spaces	children	a|b	-
+spaces.stray	count	0	-
+spaces.c	count	0	-
+top	int	1	Good

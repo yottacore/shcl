@@ -1,0 +1,13 @@
+line 3: Error: E019
+line 4: Error: E019
+line 5: Error: E019
+line 6: Error: E019
+line 7: Error: E019
+line 8: Error: E019
+line 10: Error: E026
+line 12: Error: E026
+line 13: Error: E026
+line 14: Error: E025
+line 15: Error: E017
+line 16: Error: E023
+failed: 12 diagnostic(s), 12 error(s)

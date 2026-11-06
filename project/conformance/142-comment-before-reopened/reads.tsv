@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+-	load	ok	-	strict
+m.s	int	3	Good
+-	paths	m|m.p|m.s	-
+-	lost	0	-

@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: MIT
-// Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 
 //! Conformance-corpus runner. Every shipped binding must pass this corpus;
 //! the Rust reference runs it natively here. Case layout and reads.tsv column
 //! meanings are documented in project/conformance/README.md.
 
-use shcl::{Document, Strictness, generate, parse_datetime, quote_segment};
+mod common;
+
+use common::test_id;
+use shcl::{
+	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, Field, MIGRATED_LINE,
+	Rules, SizeUnit, Status, Strictness, Tokens, format_version, generate, migrate,
+	migrate_unstamped, parse_datetime, quote_segment, read_format_version, read_schema_ref,
+	schema_ref, tokenize,
+};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 fn corpus_dir() -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR")).join("../../project/conformance")
@@ -28,6 +38,8 @@ fn parse_level(s: Option<&str>) -> Strictness {
 
 struct Case {
 	name: String,
+	// The case's test ID, from its test-id file.
+	id: String,
 	input: String,
 	expected_fmt: String,
 	reads: String,
@@ -36,6 +48,8 @@ struct Case {
 	// Write dimension (optional): an ops script and its golden canonical output.
 	write_ops: Option<String>,
 	expected_write: Option<String>,
+	// The same ops through the save that keeps lines.
+	expected_keep: Option<String>,
 	// Bad-op dimension (optional): ops that must each be rejected, applied alone.
 	write_bad_ops: Option<String>,
 	// Schema dimension (optional): a schema and the golden `check --schema` stdout.
@@ -49,62 +63,109 @@ struct Case {
 	// Generation dimension (optional): a schema and the golden `init` output.
 	init_schema: Option<String>,
 	expected_init: Option<String>,
+	// Migration dimension (optional): the golden `migrate` output of the input
+	// and the load diagnostics of that output.
+	expected_migrate: Option<String>,
+	expected_migrate_diags: Option<String>,
 }
 
-/// Decode an ops value: \n \t \\ only, others verbatim (mirrors the CLI).
-fn unescape_ops(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	let mut it = s.chars();
-	while let Some(c) = it.next() {
-		if c != '\\' {
-			out.push(c);
-			continue;
-		}
-		match it.next() {
-			Some('n') => out.push('\n'),
-			Some('t') => out.push('\t'),
-			Some('\\') => out.push('\\'),
-			Some(other) => {
-				out.push('\\');
-				out.push(other);
-			}
-			None => out.push('\\'),
-		}
+/// An ops value with the file's escapes resolved, by the file's reader; a
+/// backslash is text (mirrors the CLI's op_text).
+fn op_text(s: &str) -> Result<String, String> {
+	if !s.contains('◉') {
+		return Ok(s.to_string());
 	}
-	out
+	let text = if s.contains('"') && !s.contains('\'') {
+		format!("v: '{}'\n", s)
+	} else {
+		format!("v: \"{}\"\n", s.replace('"', "◉DOUBLE_QUOTE◉"))
+	};
+	let doc = Document::parse(&text);
+	match doc
+		.diagnostics()
+		.iter()
+		.find(|d| d.severity == shcl::Severity::Error)
+	{
+		Some(d) => Err(d.message.clone()),
+		None => Ok(doc.read_string("v").value),
+	}
 }
 
 /// Apply one write-ops line via the library Writer, with the same value gates
 /// the CLI applies. Err = the op must be rejected (bad value or unusable path).
+/// The error an op name no runner knows comes back as. A write-bad.ops row
+/// spelled wrong is a fixture mistake, and without this it counted as exactly
+/// the refusal the row exists to assert.
+const UNKNOWN_OP: &str = "unknown op: ";
+
 fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 	let f: Vec<&str> = line.split('\t').collect();
+	// The CLI's field count, both ways (2026101407100003).
+	let (want, at_least) = match f[0] {
+		"empty" | "remove" | "clear-comments" | "banner" => (2, false),
+		"raw" | "raw-default" => (4, false),
+		"int" | "float" | "bool" | "string" | "datetime" | "literal" | "comment"
+		| "int-default" | "float-default" | "bool-default" | "string-default"
+		| "datetime-default" | "literal-default" => (3, false),
+		"int-array"
+		| "float-array"
+		| "bool-array"
+		| "string-array"
+		| "datetime-array"
+		| "int-array-default"
+		| "float-array-default"
+		| "bool-array-default"
+		| "string-array-default"
+		| "datetime-array-default" => (2, true),
+		_ => (0, false),
+	};
+	if want != 0 && (f.len() < want || (!at_least && f.len() > want)) {
+		return Err(format!(
+			"{} takes {}{} tab-separated field(s), got {}",
+			f[0],
+			if at_least { "at least " } else { "" },
+			want,
+			f.len()
+		));
+	}
 	let path = f.get(1).copied().unwrap_or("");
 	let v = f.get(2).copied().unwrap_or("");
 	let pint = |s: &str| s.parse::<i64>().map_err(|_| format!("bad int: {}", s));
 	let pflt = |s: &str| s.parse::<f64>().map_err(|_| format!("bad float: {}", s));
 	let ints = |xs: &[&str]| xs.iter().map(|s| pint(s)).collect::<Result<Vec<_>, _>>();
 	let flts = |xs: &[&str]| xs.iter().map(|s| pflt(s)).collect::<Result<Vec<_>, _>>();
-	let bools = |xs: &[&str]| xs.iter().map(|s| *s == "true").collect::<Vec<_>>();
+	let pbool = |s: &str| match s {
+		"true" => Ok(true),
+		"false" => Ok(false),
+		_ => Err(format!("bad bool: {}", s)),
+	};
+	let bools = |xs: &[&str]| xs.iter().map(|s| pbool(s)).collect::<Result<Vec<_>, _>>();
 	let dt = |s: &str| parse_datetime(s).ok_or_else(|| format!("bad datetime: {}", s));
 	let arr = &f[2.min(f.len())..];
+	let texts = || {
+		arr.iter()
+			.map(|s| op_text(s))
+			.collect::<Result<Vec<_>, _>>()
+	};
+	let content = || op_text(f.get(3).copied().unwrap_or(""));
 	let wrote = match f.first().copied().unwrap_or("") {
 		"int" => doc.set_int(path, pint(v)?),
 		"float" => doc.set_float(path, pflt(v)?),
-		"bool" => doc.set_bool(path, v == "true"),
-		"string" => doc.set_string(path, &unescape_ops(v)),
+		"bool" => doc.set_bool(path, pbool(v)?),
+		"string" => doc.set_string(path, &op_text(v)?),
 		"datetime" => doc.set_datetime(path, &dt(v)?),
 		"literal" => doc.set_literal(path, v),
 		"literal-default" => doc.set_literal_default(path, v),
 		"int-default" => doc.set_int_default(path, pint(v)?),
 		"float-default" => doc.set_float_default(path, pflt(v)?),
-		"bool-default" => doc.set_bool_default(path, v == "true"),
-		"string-default" => doc.set_string_default(path, &unescape_ops(v)),
+		"bool-default" => doc.set_bool_default(path, pbool(v)?),
+		"string-default" => doc.set_string_default(path, &op_text(v)?),
 		"datetime-default" => doc.set_datetime_default(path, &dt(v)?),
 		"int-array" => doc.set_int_array(path, &ints(arr)?),
 		"float-array" => doc.set_float_array(path, &flts(arr)?),
-		"bool-array" => doc.set_bool_array(path, &bools(arr)),
+		"bool-array" => doc.set_bool_array(path, &bools(arr)?),
 		"string-array" => {
-			let owned: Vec<String> = arr.iter().map(|s| unescape_ops(s)).collect();
+			let owned = texts()?;
 			doc.set_string_array(path, &owned.iter().map(|s| s.as_str()).collect::<Vec<_>>())
 		}
 		"datetime-array" => {
@@ -113,9 +174,9 @@ fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		}
 		"int-array-default" => doc.set_int_array_default(path, &ints(arr)?),
 		"float-array-default" => doc.set_float_array_default(path, &flts(arr)?),
-		"bool-array-default" => doc.set_bool_array_default(path, &bools(arr)),
+		"bool-array-default" => doc.set_bool_array_default(path, &bools(arr)?),
 		"string-array-default" => {
-			let owned: Vec<String> = arr.iter().map(|s| unescape_ops(s)).collect();
+			let owned = texts()?;
 			doc.set_string_array_default(
 				path,
 				&owned.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -125,22 +186,43 @@ fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 			let dts = arr.iter().map(|s| dt(s)).collect::<Result<Vec<_>, _>>()?;
 			doc.set_datetime_array_default(path, &dts)
 		}
-		"raw" => doc.set_raw(path, &unescape_ops(f.get(3).copied().unwrap_or("")), v),
-		"raw-default" => {
-			doc.set_raw_default(path, &unescape_ops(f.get(3).copied().unwrap_or("")), v)
-		}
+		"raw" => doc.set_raw(path, &content()?, v),
+		"raw-default" => doc.set_raw_default(path, &content()?, v),
 		"empty" => doc.set_empty(path),
-		"comment" => doc.set_comment(path, v),
+		"comment" => doc.set_comment(path, &op_text(v)?),
 		"remove" => {
 			doc.remove(path);
-			true
+			shcl::SetStatus::Ok
 		}
-		other => return Err(format!("unknown op: {}", other)),
+		"clear-comments" => {
+			doc.clear_comments(path);
+			shcl::SetStatus::Ok
+		}
+		"banner" => match path {
+			"on" | "off" => {
+				doc.set_banner(path == "on");
+				shcl::SetStatus::Ok
+			}
+			_ => return Err(format!("bad banner: {}", path)),
+		},
+		other => return Err(format!("{}{}", UNKNOWN_OP, other)),
 	};
-	if !wrote {
-		return Err(format!("cannot write {}", path));
+	if wrote != shcl::SetStatus::Ok {
+		return Err(format!("cannot write {}: {:?}", path, wrote));
 	}
 	Ok(())
+}
+
+/// A line of blanks is skipped like an empty one, as the CLI does
+/// (2026101407100005).
+fn is_blank_op(line: &str) -> bool {
+	line.bytes().all(|b| matches!(b, b' ' | b'\t' | b'\r'))
+}
+
+/// Blanks before a `#` still make a comment line, as the CLI reads it
+/// (2026101419280004).
+fn is_comment_op(line: &str) -> bool {
+	line.trim_start_matches([' ', '\t', '\r']).starts_with('#')
 }
 
 /// Good-path wrapper: the op must apply.
@@ -158,10 +240,11 @@ fn load_cases() -> Vec<Case> {
 		if !path.is_dir() {
 			continue;
 		}
+		// A case directory with no input.shcl is a mistake, not a non-case. The
+		// runners all skipped one without a word while check-docs still wanted
+		// its README note, so the case read as present and asserted nothing.
 		let input = path.join("input.shcl");
-		if !input.exists() {
-			continue;
-		}
+		assert!(input.exists(), "{}: missing input.shcl", path.display());
 		let read_opt = |name: &str| std::fs::read_to_string(path.join(name)).ok();
 		// Layer files: every `layer*.shcl`, read in filename (= priority) order.
 		let mut layer_names: Vec<String> = std::fs::read_dir(&path)
@@ -176,12 +259,14 @@ fn load_cases() -> Vec<Case> {
 			.collect();
 		cases.push(Case {
 			name: path.file_name().unwrap().to_string_lossy().into_owned(),
+			id: read_opt("test-id").map_or_else(|| "-----".to_string(), |s| s.trim().to_string()),
 			input: std::fs::read_to_string(&input).unwrap(),
 			expected_fmt: std::fs::read_to_string(path.join("expected.shcl")).unwrap(),
 			reads: std::fs::read_to_string(path.join("reads.tsv")).unwrap(),
 			expected_diags: std::fs::read_to_string(path.join("expected-diags.txt")).unwrap(),
 			write_ops: read_opt("write.ops"),
 			expected_write: read_opt("expected-write.shcl"),
+			expected_keep: read_opt("expected-keep.shcl"),
 			write_bad_ops: read_opt("write-bad.ops"),
 			schema: read_opt("schema.shcl"),
 			expected_validate: read_opt("expected-validate.txt"),
@@ -190,6 +275,8 @@ fn load_cases() -> Vec<Case> {
 			expected_merged: read_opt("expected-merged.shcl"),
 			init_schema: read_opt("init-schema.shcl"),
 			expected_init: read_opt("expected-init.shcl"),
+			expected_migrate: read_opt("expected-migrate.shcl"),
+			expected_migrate_diags: read_opt("expected-migrate-diags.txt"),
 		});
 	}
 	cases.sort_by(|a, b| a.name.cmp(&b.name));
@@ -201,6 +288,68 @@ fn load_cases() -> Vec<Case> {
 	cases
 }
 
+/// Cases failed so far, and how many of the corpus tests have finished.
+struct Tally {
+	done: usize,
+	failed: BTreeSet<String>,
+}
+
+static TALLY: Mutex<Tally> = Mutex::new(Tally {
+	done: 0,
+	failed: BTreeSet::new(),
+});
+
+/// Runs `check` on every case, going on past one that fails, then fails the
+/// test with the names of those that did. The corpus test to finish last
+/// prints one status line per case, failed if any corpus test failed it.
+fn each_case(check: impl Fn(&Case)) {
+	let cases = load_cases();
+	let mut failed = Vec::new();
+	for case in &cases {
+		if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check(case))).is_err() {
+			failed.push(case.name.clone());
+		}
+	}
+	// Counted off this file, so a new corpus test cannot be left out.
+	let tests = include_str!("conformance.rs")
+		.matches("\teach_case(|case| {")
+		.count();
+	let mut tally = TALLY.lock().unwrap_or_else(|e| e.into_inner());
+	tally.done += 1;
+	tally.failed.extend(failed.iter().cloned());
+	if tally.done == tests {
+		let _hold = std::io::stderr().lock();
+		for case in &cases {
+			let status = if tally.failed.contains(&case.name) {
+				"FAIL"
+			} else {
+				"PASS"
+			};
+			common::status_line(status, &case.id, &format!("corpus/{}", case.name));
+		}
+	}
+	drop(tally);
+	assert!(
+		failed.is_empty(),
+		"{} case(s) failed: {}",
+		failed.len(),
+		failed.join(", ")
+	);
+}
+
+/// A `duration[@UNIT]` or `size[@UNIT][+decimal]` row type, split: the read,
+/// the unit a bare number takes, and whether KB to TB are powers of 1000.
+fn unit_type(kind: &str) -> (&str, Option<&str>, bool) {
+	let (rest, decimal) = match kind.strip_suffix("+decimal") {
+		Some(r) => (r, true),
+		None => (kind, false),
+	};
+	match rest.split_once('@') {
+		Some((base, unit)) => (base, Some(unit), decimal),
+		None => (rest, None, decimal),
+	}
+}
+
 fn doc_for(case: &Case, level: Strictness) -> Document {
 	Document::parse_with(&case.input, level).unwrap_or_else(|e| {
 		panic!(
@@ -210,9 +359,33 @@ fn doc_for(case: &Case, level: Strictness) -> Document {
 	})
 }
 
+// A fixture compared two notes made on the real clock, and failed when the
+// second came a second later (2026101912125490). Same check in every runner.
+#[test]
+fn the_clock_is_pinned_for_every_test() {
+	let _id = test_id("de5g4");
+	let mut doc = Document::parse("a: x\n");
+	assert_eq!(doc.set_int_default("a", 1), shcl::SetStatus::Ok);
+	assert_eq!(
+		std::env::var("SHCL_TEST_CLOCK").as_deref(),
+		Ok("2026-10-04 00:15:00 -420 PDT")
+	);
+	assert!(
+		doc.to_canonical()
+			.contains(", 2026-10-04 00:15:00 PDT: not an int\n"),
+		"{}",
+		doc.to_canonical()
+	);
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn canonical_format_matches_expected() {
-	for case in load_cases() {
+	let _id = test_id("d9tnm");
+	each_case(|case| {
 		let got = Document::parse(&case.input).to_canonical();
 		assert_eq!(
 			got, case.expected_fmt,
@@ -222,50 +395,69 @@ fn canonical_format_matches_expected() {
 		// The formatter must be a fixpoint: canonicalizing its own output changes nothing.
 		let again = Document::parse(&got).to_canonical();
 		assert_eq!(again, got, "{}: formatter is not idempotent", case.name);
-	}
+	});
 }
 
+/// The load diagnostics of `text` at Standard, written the way `check` prints
+/// them: one line per diagnostic, then the summary.
+fn diag_text(text: &str) -> String {
+	let doc = Document::parse(text);
+	let diags = doc.diagnostics();
+	let mut got = String::new();
+	for d in diags {
+		got.push_str(&format!("line {}: {:?}: {}\n", d.line, d.severity, d.code));
+	}
+	let errors = diags
+		.iter()
+		.filter(|d| d.severity == shcl::Severity::Error)
+		.count();
+	if errors > 0 {
+		got.push_str(&format!(
+			"failed: {} diagnostic(s), {} error(s)\n",
+			diags.len(),
+			errors
+		));
+	} else {
+		got.push_str(&format!("ok ({} diagnostic(s))\n", diags.len()));
+	}
+	got
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn diagnostics_match_expected() {
+	let _id = test_id("da8s1");
 	// Pins count, line, severity, and stable code per case - the same shape
 	// `check` prints to stdout at Standard (its cross-binding contract).
-	for case in load_cases() {
-		let doc = Document::parse(&case.input);
-		let diags = doc.diagnostics();
-		let mut got = String::new();
-		for d in diags {
-			got.push_str(&format!("line {}: {:?}: {}\n", d.line, d.severity, d.code));
-		}
-		let errors = diags
-			.iter()
-			.filter(|d| d.severity == shcl::Severity::Error)
-			.count();
-		if errors > 0 {
-			got.push_str(&format!(
-				"failed: {} diagnostic(s), {} error(s)\n",
-				diags.len(),
-				errors
-			));
-		} else {
-			got.push_str(&format!("ok ({} diagnostic(s))\n", diags.len()));
-		}
+	each_case(|case| {
+		let got = diag_text(&case.input);
 		assert_eq!(
 			got, case.expected_diags,
 			"{}: diagnostics differ from expected-diags.txt",
 			case.name
 		);
-	}
+	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn validation_matches_expected() {
+	let _id = test_id("da9w1");
 	// Schema dimension: golden = the exact `check --schema` stdout at Standard
 	// (doc parse diags, then validation diags, then the summary). A schema that
-	// does not load cleanly is a single V099, mirroring the CLI.
-	for case in load_cases() {
+	// does not load cleanly is a single V099, mirroring the CLI. It comes from
+	// validate() itself, and load_and_validate has to give the same list, so
+	// every entry point is held to the one golden.
+	each_case(|case| {
 		let (schema_text, want) = match (&case.schema, &case.expected_validate) {
 			(Some(s), Some(w)) => (s, w),
-			(None, None) => continue,
+			(None, None) => return,
 			_ => panic!(
 				"{}: schema.shcl and expected-validate.txt must come as a pair",
 				case.name
@@ -274,19 +466,12 @@ fn validation_matches_expected() {
 		let doc = Document::parse(&case.input);
 		let mut diags: Vec<shcl::Diagnostic> = doc.diagnostics().to_vec();
 		let sdoc = Document::parse(schema_text);
-		if sdoc
+		diags.extend(doc.validate(&sdoc));
+		if !sdoc
 			.diagnostics()
 			.iter()
 			.any(|d| d.severity == shcl::Severity::Error)
 		{
-			diags.push(shcl::Diagnostic {
-				line: 0,
-				severity: shcl::Severity::Error,
-				message: "schema failed to load".to_string(),
-				code: "V099",
-			});
-		} else {
-			diags.extend(doc.validate(&sdoc));
 			shcl::suppress_declared_repeats(&sdoc, &mut diags);
 			shcl::suppress_declared_reopens(&sdoc, &mut diags);
 		}
@@ -294,6 +479,17 @@ fn validation_matches_expected() {
 		for d in &diags {
 			got.push_str(&format!("line {}: {:?}: {}\n", d.line, d.severity, d.code));
 		}
+		let one_shot =
+			Document::load_and_validate(&case.input, schema_text, Strictness::Standard).unwrap();
+		let mut lv = String::new();
+		for d in one_shot.diagnostics() {
+			lv.push_str(&format!("line {}: {:?}: {}\n", d.line, d.severity, d.code));
+		}
+		assert_eq!(
+			lv, got,
+			"{}: load_and_validate disagrees with parse then validate",
+			case.name
+		);
 		let errors = diags
 			.iter()
 			.filter(|d| d.severity == shcl::Severity::Error)
@@ -312,15 +508,18 @@ fn validation_matches_expected() {
 			"{}: validation output differs from expected-validate.txt",
 			case.name
 		);
-	}
+	});
 }
 
 #[test]
 fn convenience_tier_falls_back_only_on_good() {
+	let _id = test_id("da6yp");
 	// The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	// back to the call-site default, so a real zero can't be faked. This pins the
 	// semantic every port's *Or/get_*(default=) mirrors.
-	let doc = Document::parse("a: 42\nb: not-a-number\ne:\narr: 1, 2, 3\n");
+	let doc = Document::parse(
+		"a: 42\nb: not-a-number\ne:\narr: [1, 2, 3]\nblk:\n\t```html\n\thi\n\t```\n",
+	);
 	assert_eq!(doc.get_int("a").unwrap_or(9), 42); // Good
 	assert_eq!(doc.get_int("b").unwrap_or(9), 9); // BadType
 	assert_eq!(doc.get_int("e").unwrap_or(9), 9); // Empty still falls back
@@ -329,7 +528,7 @@ fn convenience_tier_falls_back_only_on_good() {
 	assert_eq!(doc.get_int_array("missing").unwrap_or(vec![7]), vec![7]);
 	// Same reads under the cross-binding spelling: `_or` means "with a
 	// fallback" everywhere, so a routine ported between two bindings cannot
-	// keep the call name while changing which tier it lands on.
+	// keep the call name while changing which tier it uses.
 	assert_eq!(doc.get_int_or("a", 9), 42);
 	assert_eq!(doc.get_int_or("b", 9), 9);
 	assert_eq!(doc.get_int_or("e", 9), 9);
@@ -337,6 +536,11 @@ fn convenience_tier_falls_back_only_on_good() {
 	assert_eq!(doc.get_int_array_or("arr", vec![7]), vec![1, 2, 3]);
 	assert_eq!(doc.get_int_array_or("missing", vec![7]), vec![7]);
 	assert_eq!(doc.get_string_or("missing", "fb".to_string()), "fb");
+	// The raw block's info-string was the one typed read with no convenience
+	// tier, so it alone forced a caller down to the status tier.
+	assert_eq!(doc.get_raw_info("blk").unwrap(), "html");
+	assert_eq!(doc.get_raw_info_or("blk", "fb".to_string()), "html");
+	assert_eq!(doc.get_raw_info_or("missing", "fb".to_string()), "fb");
 	// ok() and the convenience tier deliberately disagree on an explicitly
 	// emptied field: one asks whether the author spoke for it, the other whether
 	// there is a usable value.
@@ -344,9 +548,14 @@ fn convenience_tier_falls_back_only_on_good() {
 	assert!(!doc.read_int("missing").ok());
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn reads_match_expected() {
-	for case in load_cases() {
+	let _id = test_id("d9tnn");
+	each_case(|case| {
 		for (n, line) in case.reads.lines().enumerate() {
 			if n == 0 || line.trim().is_empty() {
 				continue; // header
@@ -379,17 +588,87 @@ fn reads_match_expected() {
 				continue;
 			}
 
-			let doc = doc_for(&case, level);
+			let doc = doc_for(case, level);
+			if kind == "schema" {
+				let got = schema_ref(&case.input).unwrap_or_else(|| "-".to_string());
+				assert_eq!(got, expected, "{}: schema", at);
+				continue;
+			}
+			if kind == "lost" {
+				let want: usize = expected
+					.parse()
+					.unwrap_or_else(|_| panic!("{}: bad lost count", at));
+				assert_eq!(doc.lost_count(), want, "{}", at);
+				continue;
+			}
 			if kind == "count" {
 				let want: usize = expected
 					.parse()
 					.unwrap_or_else(|_| panic!("{}: bad count", at));
 				assert_eq!(doc.count(query), want, "{}", at);
+				// A status other than `-` pins the read_ twin too.
+				if status != "-" {
+					let r = doc.read_count(query);
+					assert_eq!(
+						(r.value, r.status.to_string().as_str()),
+						(want, status),
+						"{}",
+						at
+					);
+				}
 				continue;
 			}
 			if kind == "instances" {
 				let got = doc.instances(query).join("|");
 				assert_eq!(got, expected, "{}", at);
+				if status != "-" {
+					let r = doc.read_instances(query);
+					assert_eq!(
+						(r.value.join("|"), r.status.to_string()),
+						(got, status.to_string()),
+						"{}",
+						at
+					);
+				}
+				continue;
+			}
+			if kind == "children" {
+				let got = doc.children(query).join("|");
+				assert_eq!(got, expected, "{}", at);
+				if status != "-" {
+					let r = doc.read_children(query);
+					assert_eq!(
+						(r.value.join("|"), r.status.to_string()),
+						(got, status.to_string()),
+						"{}",
+						at
+					);
+				}
+				continue;
+			}
+			if kind == "paths" {
+				let got = doc.paths().join("|");
+				assert_eq!(got, expected, "{}", at);
+				continue;
+			}
+			if kind == "instance_paths" {
+				let got = doc.instance_paths().join("|");
+				assert_eq!(got, expected, "{}", at);
+				continue;
+			}
+			if kind == "comments" {
+				let got = doc.comments(query).join("|");
+				assert_eq!(got, expected, "{}", at);
+				// A status other than `-` pins read_comments too.
+				if status != "-" {
+					let r = doc.read_comments(query);
+					assert_eq!(
+						(r.value.join("|"), r.status.to_string()),
+						(got, status.to_string()),
+						"{}",
+						at
+					);
+				}
 				continue;
 			}
 
@@ -401,7 +680,7 @@ fn reads_match_expected() {
 					}
 					"float" => {
 						let r = doc.read_float(query);
-						(r.value.to_string(), r.status, r.slots)
+						(shcl::format_float(r.value), r.status, r.slots)
 					}
 					"bool" => {
 						let r = doc.read_bool(query);
@@ -423,6 +702,19 @@ fn reads_match_expected() {
 						let r = doc.read_raw_info(query);
 						(tsv_escape(&r.value), r.status, r.slots)
 					}
+					k if k.starts_with("duration") || k.starts_with("size") => {
+						let (base, unit, decimal) = unit_type(k);
+						if base == "duration" {
+							let u = unit
+								.map(|u| DurationUnit::from_spelling(u).expect("duration unit"));
+							let r = doc.read_duration(query, u);
+							(r.value.as_millis().to_string(), r.status, r.slots)
+						} else {
+							let u = unit.map(|u| SizeUnit::from_spelling(u).expect("size unit"));
+							let r = doc.read_size(query, u, decimal);
+							(r.value.to_string(), r.status, r.slots)
+						}
+					}
 					"int[]" => {
 						let r = doc.read_int_array(query);
 						(
@@ -440,7 +732,7 @@ fn reads_match_expected() {
 						(
 							r.value
 								.iter()
-								.map(|v| v.to_string())
+								.map(|v| shcl::format_float(*v))
 								.collect::<Vec<_>>()
 								.join("|"),
 							r.status,
@@ -499,33 +791,55 @@ fn reads_match_expected() {
 				assert_eq!(&got, want_slots, "{}: slots", at);
 			}
 		}
-	}
+	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn write_ops_match_expected() {
-	for case in load_cases() {
-		let (ops, want) = match (&case.write_ops, &case.expected_write) {
-			(Some(o), Some(w)) => (o, w),
-			(None, None) => continue,
+	let _id = test_id("da6qe");
+	each_case(|case| {
+		let (ops, want, keep) = match (&case.write_ops, &case.expected_write, &case.expected_keep) {
+			(Some(o), Some(w), Some(k)) => (o, w, k),
+			(None, None, None) => return,
 			_ => panic!(
-				"{}: write.ops and expected-write.shcl must come as a pair",
+				"{}: write.ops, expected-write.shcl and expected-keep.shcl come together",
 				case.name
 			),
 		};
 		// Base doc loads at Standard; ops build/edit it via the library Writer.
+		// The one that keeps lines is the same document.
 		let mut doc = Document::parse(&case.input);
+		let mut kept = Document::parse_keep_lines(&case.input, Strictness::Standard).unwrap();
 		for (n, line) in ops.lines().enumerate() {
-			if line.is_empty() || line.starts_with('#') {
+			if is_blank_op(line) || is_comment_op(line) {
 				continue;
 			}
-			apply_op(
-				&mut doc,
-				line,
-				&format!("{}: write.ops line {}", case.name, n + 1),
-			);
+			let at = format!("{}: write.ops line {}", case.name, n + 1);
+			apply_op(&mut doc, line, &at);
+			apply_op(&mut kept, line, &at);
 		}
 		let got = doc.to_canonical();
+		let (text, lines) = kept.to_text_keep_lines();
+		assert_eq!(
+			&text, keep,
+			"{}: output differs from expected-keep.shcl",
+			case.name
+		);
+		assert!(
+			lines || text == got,
+			"{}: a save that kept no lines is not canonical",
+			case.name
+		);
+		assert_eq!(
+			Document::parse(&text).to_canonical(),
+			got,
+			"{}: expected-keep.shcl reloads as another document",
+			case.name
+		);
 		assert_eq!(
 			&got, want,
 			"{}: writer output differs from expected-write.shcl",
@@ -538,17 +852,42 @@ fn write_ops_match_expected() {
 			"{}: written output is not a fmt fixpoint",
 			case.name
 		);
-	}
+	});
 }
 
+/// Loaded to keep its lines and saved with no edits, every input is its own
+/// text again, byte for byte.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn keeping_lines_without_edits_writes_the_input() {
+	let _id = test_id("dd3t8");
+	each_case(|case| {
+		let doc = Document::parse_keep_lines(&case.input, Strictness::Standard)
+			.unwrap_or_else(|e| e.document);
+		assert!(
+			doc.to_text_keep_lines() == (case.input.clone(), true),
+			"{}: an unedited save changed the text",
+			case.name
+		);
+	});
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn layered_merge_matches_expected() {
+	let _id = test_id("dab71");
 	// Layered-load dimension: fold the layer files (lowest first) and input.shcl
 	// (highest file layer) via the library `merge`, apply the `path=value`
 	// overrides as the top layer, and match the golden merged canonical.
-	for case in load_cases() {
+	each_case(|case| {
 		let Some(want) = &case.expected_merged else {
-			continue;
+			return;
 		};
 		// Ordered lowest -> highest: the layer*.shcl files, then input.shcl.
 		let mut texts: Vec<&str> = case.layers.iter().map(|s| s.as_str()).collect();
@@ -565,8 +904,9 @@ fn layered_merge_matches_expected() {
 				let (p, v) = line
 					.split_once('=')
 					.unwrap_or_else(|| panic!("{}: bad merge.sets line: {}", case.name, line));
-				assert!(
+				assert_eq!(
 					doc.set_string(p, v),
+					shcl::SetStatus::Ok,
 					"{}: merge.set did not apply: {}",
 					case.name,
 					line
@@ -579,6 +919,45 @@ fn layered_merge_matches_expected() {
 			"{}: merged output differs from expected-merged.shcl",
 			case.name
 		);
+		// Reads answered by the merged document itself, not just its text: a
+		// merged arena holds dropped nodes, a rebuilt index and cloned child
+		// lists, and only a read walks those. `instances` is left out because it
+		// hands back the source spelling, which canonical output may rewrite.
+		// Same fixture in every runner.
+		let back = Document::parse(&got);
+		assert_eq!(doc.paths(), back.paths(), "{}: merged paths", case.name);
+		for p in doc.paths() {
+			assert_eq!(
+				doc.count(&p),
+				back.count(&p),
+				"{}: merged count {}",
+				case.name,
+				p
+			);
+			assert_eq!(
+				doc.children(&p),
+				back.children(&p),
+				"{}: merged children {}",
+				case.name,
+				p
+			);
+			let (x, y) = (doc.read_string(&p), back.read_string(&p));
+			assert_eq!(
+				(x.value, x.status),
+				(y.value, y.status),
+				"{}: merged read {}",
+				case.name,
+				p
+			);
+			let (x, y) = (doc.read_string_array(&p), back.read_string_array(&p));
+			assert_eq!(
+				(x.value, x.status, x.slots),
+				(y.value, y.status, y.slots),
+				"{}: merged array read {}",
+				case.name,
+				p
+			);
+		}
 		// The merged doc must be a formatter fixpoint like any canonical output.
 		let again = Document::parse(&got).to_canonical();
 		assert_eq!(
@@ -586,17 +965,169 @@ fn layered_merge_matches_expected() {
 			"{}: merged output is not a fmt fixpoint",
 			case.name
 		);
-	}
+	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn migrate_matches_expected() {
+	let _id = test_id("dcmf1");
+	// Migration dimension: `migrate` on the input must reproduce the golden
+	// byte for byte, and the golden's load diagnostics are pinned beside it,
+	// so a rewrite that no longer loads cannot pass. A fmt fixpoint is not
+	// required, since migrate keeps the author's layout; the migrate fixpoint
+	// is checked next.
+	each_case(|case| {
+		let (want, want_diags) = match (&case.expected_migrate, &case.expected_migrate_diags) {
+			(Some(w), Some(d)) => (w, d),
+			(None, None) => return,
+			_ => panic!(
+				"{}: expected-migrate.shcl and expected-migrate-diags.txt must come as a pair",
+				case.name
+			),
+		};
+		let got = migrate(&case.input, true).text;
+		assert_eq!(
+			&got, want,
+			"{}: migrate output differs from expected-migrate.shcl",
+			case.name
+		);
+		assert_eq!(
+			&diag_text(&got),
+			want_diags,
+			"{}: migrated text's diagnostics differ from expected-migrate-diags.txt",
+			case.name
+		);
+	});
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn migrate_is_a_fixpoint() {
+	let _id = test_id("dcns5");
+	each_case(|case| {
+		let once = migrate(&case.input, true).text;
+		assert_eq!(
+			migrate(&once, true).text,
+			once,
+			"{}: migrate changes its own output",
+			case.name
+		);
+	});
+}
+
+/// The text with line `line` naming this format, indent and line end kept,
+/// when that reads as the file's stamp. migrate writes its stamp there when
+/// the input names an older format on that line (2026100916475300).
+fn stamped_in_place(text: &str, line: usize) -> Option<String> {
+	let bom = if text.starts_with('\u{feff}') {
+		"\u{feff}"
+	} else {
+		""
+	};
+	let mut lines: Vec<String> = text[bom.len()..].split('\n').map(str::to_string).collect();
+	let was = lines.get(line.checked_sub(1)?)?.clone();
+	let indent = was.len() - was.trim_start_matches([' ', '\t']).len();
+	let body = was[indent..].trim_end_matches([' ', '\t', '\r']);
+	lines[line - 1] = format!(
+		"{}{}{}",
+		&was[..indent],
+		FORMAT_LINE,
+		&was[indent + body.len()..]
+	);
+	let out = format!("{bom}{}", lines.join("\n"));
+	let now = read_format_version(&out);
+	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn migrate_unstamped_is_migrate_without_the_stamp() {
+	let _id = test_id("dd2kj");
+	// Over every input, not only the migrate cases: the stamp is the one
+	// difference, and a file is current exactly when its Format line says so.
+	each_case(|case| {
+		for from_v2 in [true, false] {
+			let full = migrate(&case.input, from_v2);
+			let bare = migrate_unstamped(&case.input, from_v2);
+			assert_eq!(
+				(bare.current, bare.ambiguous, bare.lost),
+				(full.current, full.ambiguous, full.lost),
+				"{}: counts differ without the stamp",
+				case.name
+			);
+			assert!(
+				!bare.text.contains(FORMAT_LINE_HEAD) || case.input.contains(FORMAT_LINE_HEAD),
+				"{}: migrate_unstamped wrote a Format line",
+				case.name
+			);
+			// The stamp's lines end the way most of the input's lines do.
+			let crlf = case.input.matches("\r\n").count();
+			let eol = if crlf > case.input.matches('\n').count() - crlf {
+				"\r\n"
+			} else {
+				"\n"
+			};
+			let mut want = bare.text.clone();
+			if !full.current && full.text != bare.text {
+				let old = read_format_version(&case.input);
+				let in_place = (old.status == Status::Good)
+					.then(|| stamped_in_place(&bare.text, old.line))
+					.flatten();
+				let add = in_place.is_none();
+				if let Some(t) = in_place {
+					want = t;
+				}
+				let changed = bare.text != case.input;
+				if (add || changed) && !want.is_empty() && !want.ends_with('\n') {
+					want.push_str(eol);
+				}
+				if add {
+					want.push_str(FORMAT_LINE);
+					want.push_str(eol);
+				}
+				if changed {
+					want.push_str(MIGRATED_LINE);
+					want.push_str(eol);
+				}
+			}
+			assert_eq!(
+				full.text, want,
+				"{}: the stamp is not the only difference",
+				case.name
+			);
+			assert_eq!(
+				full.current,
+				format_version(&case.input).is_some_and(|v| v >= FORMAT_MAJOR),
+				"{}: current disagrees with format_version",
+				case.name
+			);
+		}
+	});
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn init_generation_matches_expected() {
+	let _id = test_id("dab7m");
 	// Generation dimension: `generate` on the schema must reproduce the golden
 	// starter config, and that output must itself load cleanly.
-	for case in load_cases() {
+	each_case(|case| {
 		let (schema, want) = match (&case.init_schema, &case.expected_init) {
 			(Some(s), Some(w)) => (s, w),
-			(None, None) => continue,
+			(None, None) => return,
 			_ => panic!(
 				"{}: init-schema.shcl and expected-init.shcl must come as a pair",
 				case.name
@@ -623,14 +1154,15 @@ fn init_generation_matches_expected() {
 			"{}: default init output is missing the format footer",
 			case.name
 		);
-		// The generated starter must be valid SHCL (loads with no error diagnostics).
+		// The generated starter must be valid SHCL, and load without so much as
+		// a hint: a starter that hints on its own first lines (H002 from a
+		// parent re-opened after another field) teaches a reader to ignore them.
 		let doc = Document::parse(&got);
 		assert!(
-			!doc.diagnostics()
-				.iter()
-				.any(|d| d.severity == shcl::Severity::Error),
-			"{}: generated starter does not load cleanly",
-			case.name
+			doc.diagnostics().is_empty(),
+			"{}: generated starter does not load cleanly: {:?}",
+			case.name,
+			doc.diagnostics()
 		);
 		// And it must satisfy the very schema that produced it - case 026's
 		// golden once failed its own schema (repeat lower bound and a
@@ -643,11 +1175,16 @@ fn init_generation_matches_expected() {
 			case.name,
 			vs
 		);
-	}
+	});
 }
 
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
 #[test]
 fn depth_cap_boundary_and_writer() {
+	let _id = test_id("dactc");
 	// Exactly at the cap: loads clean, formats, and round-trips.
 	let segs: Vec<String> = (0..shcl::MAX_DEPTH).map(|i| format!("a{}", i)).collect();
 	let at_cap = format!("{}: 1", segs.join("."));
@@ -664,37 +1201,352 @@ fn depth_cap_boundary_and_writer() {
 	// The Writer refuses to create past the cap and stays a no-op.
 	let mut w = Document::new();
 	let deep_path = format!("a.{}", segs.join("."));
-	assert!(!w.set_int(&deep_path, 1), "a too-deep path is not writable");
+	assert_ne!(
+		w.set_int(&deep_path, 1),
+		shcl::SetStatus::Ok,
+		"a too-deep path is not writable"
+	);
 	assert!(
 		!w.exists("a"),
 		"writer must not half-create a too-deep path"
 	);
-	assert!(w.set_int(&segs.join("."), 2));
+	assert_eq!(w.set_int(&segs.join("."), 2), shcl::SetStatus::Ok);
 	assert!(w.exists("a0"), "writer must still create an at-cap path");
 }
 
 #[test]
+fn parse_limited_caps() {
+	let _id = test_id("dc1yg");
+	// The caps exist because a document amplifies to many times its byte size
+	// in memory, so read_file's byte cap alone cannot bound a load. Same
+	// fixture in every runner.
+	use shcl::Strictness;
+	// Node cap: one E020 at the first line not parsed, the remainder counts
+	// as lost, and what parsed before the cap stays readable.
+	let text = "a: 1\nb: 2\nc: 3\nd: 4\n";
+	let doc = Document::parse_limited(text, Strictness::Standard, 2, 0, 0).unwrap();
+	let e020: Vec<_> = doc
+		.diagnostics()
+		.iter()
+		.filter(|d| d.code == "E020")
+		.collect();
+	assert_eq!(e020.len(), 1, "one E020");
+	assert_eq!(e020[0].line, 4);
+	assert_eq!(doc.lost_count(), 1);
+	assert_eq!(doc.get_int("a"), Ok(1));
+	assert!(!doc.exists("d"), "the remainder must not parse");
+	// A cap crossed by the document's last content line still reports.
+	let doc = Document::parse_limited("a: 1\nb: 2\nc: 3", Strictness::Standard, 2, 0, 0).unwrap();
+	assert_eq!(
+		doc.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E020")
+			.count(),
+		1
+	);
+	assert_eq!(doc.lost_count(), 0, "nothing was dropped");
+	// One line may overshoot the cap by its own path; the parse still stops.
+	let doc = Document::parse_limited("x.y.z: 1\n", Strictness::Standard, 1, 0, 0).unwrap();
+	assert_eq!(
+		doc.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E020")
+			.count(),
+		1
+	);
+	assert_eq!(doc.get_int("x.y.z"), Ok(1));
+	// 0 is no cap: identical to parse_with.
+	let doc = Document::parse_limited(text, Strictness::Standard, 0, 0, 0).unwrap();
+	assert!(doc.diagnostics().is_empty());
+	// Element cap, bracket spelling: the whole line is refused, the rest of
+	// the document is untouched.
+	let doc =
+		Document::parse_limited("arr: [1, 2, 3]\nok: 5\n", Strictness::Standard, 0, 2, 0).unwrap();
+	let e021: Vec<_> = doc
+		.diagnostics()
+		.iter()
+		.filter(|d| d.code == "E021")
+		.collect();
+	assert_eq!(e021.len(), 1, "one E021");
+	assert_eq!(e021[0].line, 1);
+	assert!(!doc.exists("arr"));
+	assert_eq!(doc.get_int("ok"), Ok(5));
+	assert_eq!(doc.lost_count(), 1);
+	// Element cap, stacked spelling: each element line past the cap is refused
+	// on its own; the array keeps what fit.
+	let doc = Document::parse_limited("arr:\n\t- 1\n\t- 2\n\t- 3\n", Strictness::Standard, 0, 2, 0)
+		.unwrap();
+	assert_eq!(
+		doc.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E021")
+			.count(),
+		1
+	);
+	assert_eq!(doc.get_int_array("arr"), Ok(vec![1, 2]));
+	// A malformed array past the cap stayed E019 and kept. Since 2026-10-05
+	// the cap wins over a broken value, so this is E021 now: see
+	// a_cap_wins_over_a_broken_value.
+	// let doc = Document::parse_limited(
+	// 	"arr: [1,, 2, 3]\nk: x\n\t- 1\n",
+	// 	Strictness::Standard,
+	// 	0,
+	// 	1,
+	// 	0,
+	// )
+	// .unwrap();
+	// let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	// assert_eq!(codes, vec![(1, "E019"), (3, "E011")]);
+	// assert_eq!(doc.lost_count(), 1);
+	// assert!(doc.to_canonical().contains("arr: [1,, 2, 3]"));
+	// The count the cap judges is the count the array reads back as, spelling
+	// by spelling: quoted commas, a backslash (a character, so it shields
+	// nothing), the empty array, a quoted Unicode blank (content: only a space
+	// or a tab is blank, and bare it is E025). Refused at one under, kept at
+	// exact. A quote that never closes made the comma after it split before
+	// the value syntax; that line is E017 now and binds nothing. An empty slot
+	// is E019 now, and a bare comma E026.
+	#[rustfmt::skip]
+	let counts: &[(&str, usize)] = &[
+		("[1, 2, 3]", 3), ("[\"a, b\", c]", 2), ("[a\\, b, c]", 3), ("[]", 0),
+		("[ ]", 0), (" a ", 1), ("[\"\", '']", 2), ("'a\", b'", 1),
+		// ("\"open, b", 2),
+		("\\", 1), ("[x,\"\u{3000}\"]", 2), ("[x, \"\u{a0}y\"]", 2), ("[80]", 1),
+	];
+	for &(spelling, n) in counts {
+		let text = format!("v: {spelling}\n");
+		let doc = Document::parse_limited(&text, Strictness::Standard, 0, n.max(1), 0).unwrap();
+		assert!(
+			!doc.diagnostics().iter().any(|d| d.code == "E021"),
+			"{spelling:?} at cap {n}"
+		);
+		if n == 0 {
+			assert_eq!(doc.get_string_array("v"), Ok(vec![]), "{spelling:?} empty");
+		} else {
+			assert_eq!(
+				doc.get_string_array("v").map(|a| a.len()),
+				Ok(n),
+				"{spelling:?}"
+			);
+		}
+		if n >= 2 {
+			let doc = Document::parse_limited(&text, Strictness::Standard, 0, n - 1, 0).unwrap();
+			assert_eq!(doc.lost_count(), 1, "{spelling:?} at cap {}", n - 1);
+		}
+	}
+	// An open quote was judged before the cap and kept the line. Since
+	// 2026-10-05 the cap wins: see a_cap_wins_over_a_broken_value.
+	// let doc =
+	// 	Document::parse_limited("v: [a, \"open, b]\n", Strictness::Standard, 0, 1, 0).unwrap();
+	// let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+	// assert_eq!(codes, ["E017"]);
+	// assert_eq!(doc.lost_count(), 0);
+	// A fence whose info string splits past the cap is refused with its block,
+	// in both spellings, so the body never reads as live lines. Same fixture in
+	// every runner. Only a comma with a blank after it splits since 20261006.
+	for text in [
+		"secrets:\n\t```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets: ```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+	] {
+		let doc = Document::parse_limited(text, Strictness::Standard, 0, 3, 0).unwrap();
+		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E021"], "{text:?}");
+		assert!(!doc.exists("secrets.password"), "{text:?}");
+		assert_eq!(doc.get_int("after"), Ok(1), "{text:?}");
+		assert_eq!(doc.lost_count(), 1, "{text:?}");
+	}
+	// Diagnostic cap: the first N are listed and one E022 tail counts the
+	// rest. Its severity is Error when any unlisted one was, so a scan of the
+	// list for errors still finds one and error_count stays nonzero.
+	let bad = "no colon\n".repeat(50);
+	let doc = Document::parse_limited(&bad, Strictness::Standard, 0, 0, 10).unwrap();
+	assert_eq!(doc.diagnostics().len(), 11);
+	assert!(doc.diagnostics()[..10].iter().all(|d| d.code == "E014"));
+	let tail = &doc.diagnostics()[10];
+	assert_eq!(
+		(tail.code, tail.severity, tail.line),
+		("E022", shcl::Severity::Error, 0)
+	);
+	assert_eq!(
+		tail.message,
+		"diagnostic cap of 10 reached; 40 more not listed, 40 of them errors"
+	);
+	assert_eq!(doc.error_count(), 11);
+	assert!(Document::parse_limited(&bad, Strictness::Strict, 0, 0, 10).is_err());
+	// Hints past the cap leave a Hint tail, so a document with no error
+	// still loads at Strict.
+	let hints = "x: 1\nx: 2\ny: 1\ny: 2\n";
+	let doc = Document::parse_limited(hints, Strictness::Strict, 0, 0, 1).unwrap();
+	let codes: Vec<(&str, shcl::Severity)> = doc
+		.diagnostics()
+		.iter()
+		.map(|d| (d.code, d.severity))
+		.collect();
+	assert_eq!(
+		codes,
+		[
+			("H001", shcl::Severity::Hint),
+			("E022", shcl::Severity::Hint)
+		]
+	);
+	assert!(
+		doc.diagnostics()[1]
+			.message
+			.ends_with("1 more not listed, 0 of them errors")
+	);
+	assert_eq!(doc.error_count(), 0);
+	// At the cap exactly, nothing is unlisted and there is no tail.
+	let doc = Document::parse_limited(hints, Strictness::Standard, 0, 0, 2).unwrap();
+	assert_eq!(doc.diagnostics().len(), 2);
+	// A cap diagnostic is an error, so a capped Strict load fails - with the
+	// parsed part still on the error.
+	let err = Document::parse_limited(text, Strictness::Strict, 2, 0, 0).unwrap_err();
+	assert_eq!(err.document.get_int("a"), Ok(1));
+}
+
+/// An item or a line past the caller's element cap is E021 and dropped, even
+/// when its value is broken: the cap wins over a value fault. A fault in the
+/// path or the name still comes first, and a broken item within the cap is
+/// still kept. Same fixture in every runner.
+#[test]
+fn a_cap_wins_over_a_broken_value() {
+	let _id = test_id("ddj1c");
+	use shcl::Strictness;
+	let codes = |text: &str, cap: usize| {
+		let doc = Document::parse_limited(text, Strictness::Standard, 0, cap, 0).unwrap();
+		let c: Vec<(usize, &'static str)> =
+			doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+		(c, doc.lost_count(), doc.to_canonical())
+	};
+	// Bracket arrays: an empty slot, an open quote, no closing bracket, text
+	// after it. Each is E021 at a cap below its length, and its own code at a
+	// cap that fits.
+	for (text, own) in [
+		("arr: [1,, 2, 3]\n", "E019"),
+		("arr: [a, \"open, b]\n", "E017"),
+		("arr: [a, b, c\n", "E019"),
+		("arr: [a, b] c\n", "E019"),
+		("arr: [a, b c, d]\n", "E025"),
+	] {
+		let (c, lost, out) = codes(text, 1);
+		assert_eq!(c, vec![(1, "E021")], "{text:?}");
+		assert_eq!(lost, 1, "{text:?}");
+		assert!(!out.contains("arr"), "{text:?}");
+		let (c, lost, _) = codes(text, 9);
+		assert_eq!(c, vec![(1, own)], "{text:?} under the cap");
+		assert_eq!(lost, 0, "{text:?} under the cap");
+	}
+	// A bare comma outside brackets counts its pieces the same way.
+	assert_eq!(codes("a: x, y, z\n", 2).0, vec![(1, "E021")]);
+	assert_eq!(codes("a: x, y, z\n", 3).0, vec![(1, "E026")]);
+	// A stacked item past the cap is dropped whatever it holds; within the
+	// cap a broken one is kept and the list loads around it.
+	let (c, lost, out) = codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2);
+	assert_eq!(c, vec![(4, "E021"), (5, "E021")]);
+	assert_eq!(lost, 2);
+	assert_eq!(out, "x:\n\t- a\n\t- b\nz: 1\n");
+	let (c, lost, out) = codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2);
+	assert_eq!(c, vec![(3, "E017")]);
+	assert_eq!(lost, 0);
+	assert!(out.contains("- \"open"), "{out:?}");
+	// An element under a field with a value is E011, cap or not.
+	assert_eq!(codes("k: x\n\t- 1\n", 1).0, vec![(2, "E011")]);
+	// The path and the name are judged first.
+	assert_eq!(codes("404: [a, b, c]\n", 1).0, vec![(1, "E014")]);
+}
+
+#[test]
+fn no_colon_repair_stays_narrow() {
+	let _id = test_id("ddj7n");
+	// Only one clean name or path with no colon is repaired (E015), a bad
+	// bare name like 404 included. Anything with a blank in a bare name could
+	// be a name or a name and a value, so it is E014 and kept as written.
+	for (line, quoted) in [
+		("square-miles 300", "\"square-miles 300\""),
+		("this is ! not parseable", "\"this is ! not parseable\""),
+		("user name", "\"user name\""),
+		("user\tname", "\"user◉TAB◉name\""),
+		("a.b c", "a.\"b c\""),
+	] {
+		let doc = Document::parse(&format!("k: 1\n{line}\nz: 2\n"));
+		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E014"], "{line:?}");
+		assert_eq!(doc.lost_count(), 0, "{line:?}");
+		assert_eq!(
+			doc.to_canonical(),
+			format!("k: 1\n{line}\nz: 2\n"),
+			"{line:?}"
+		);
+		assert!(!doc.exists(quoted), "{line:?}");
+	}
+	// The message names where the second word starts, as before chunk A.
+	let doc = Document::parse("a:\n\t  square-miles 300\n");
+	assert_eq!(
+		doc.diagnostics()[0].message,
+		"malformed line skipped: unexpected character after the path, at column 17"
+	);
+	for (line, out) in [
+		("404", "\"404\":"),
+		("-x", "\"-x\":"),
+		("a.9b", "a:\n\t\"9b\":"),
+	] {
+		let doc = Document::parse(&format!("{line}\n"));
+		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E015"], "{line:?}");
+		assert_eq!(doc.to_canonical(), format!("{out}\n"), "{line:?}");
+	}
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
 fn write_bad_ops_are_rejected() {
+	let _id = test_id("dacv9");
 	// Bad-op dimension: each write-bad.ops line, applied alone to the case
 	// input, must be rejected (bad value, bad datetime, or unusable path) and
 	// leave the document unchanged.
-	for case in load_cases() {
+	// The names-no-op guard below is only worth something while a misspelled
+	// op still comes back told apart from an ordinary refusal.
+	let mut probe = Document::parse("a: 1\n");
+	let e = try_apply_op(&mut probe, "itn\ta\t1").unwrap_err();
+	assert!(
+		e.starts_with(UNKNOWN_OP),
+		"a misspelled op read as a refusal: {}",
+		e
+	);
+	let e = try_apply_op(&mut probe, "int\ta\tx").unwrap_err();
+	assert!(
+		!e.starts_with(UNKNOWN_OP),
+		"a refusal read as a misspelled op: {}",
+		e
+	);
+	each_case(|case| {
 		let Some(bad) = &case.write_bad_ops else {
-			continue;
+			return;
 		};
 		for (n, line) in bad.lines().enumerate() {
-			if line.is_empty() || line.starts_with('#') {
+			if is_blank_op(line) || is_comment_op(line) {
 				continue;
 			}
 			let mut doc = Document::parse(&case.input);
 			let before = doc.to_canonical();
-			assert!(
-				try_apply_op(&mut doc, line).is_err(),
-				"{}: write-bad.ops line {} was accepted: {}",
-				case.name,
-				n + 1,
-				line
-			);
+			match try_apply_op(&mut doc, line) {
+				Ok(()) => panic!(
+					"{}: write-bad.ops line {} was accepted: {}",
+					case.name,
+					n + 1,
+					line
+				),
+				Err(e) => assert!(
+					!e.starts_with(UNKNOWN_OP),
+					"{}: write-bad.ops line {} names no op: {}",
+					case.name,
+					n + 1,
+					line
+				),
+			}
 			assert_eq!(
 				doc.to_canonical(),
 				before,
@@ -704,76 +1556,767 @@ fn write_bad_ops_are_rejected() {
 				line
 			);
 		}
-	}
+	});
 }
 
 #[test]
 fn one_shot_load_and_validate() {
+	let _id = test_id("daqvh");
 	// One combined diagnostics list (parse first, then validation) and an
 	// error predicate, so recover-and-continue can't read as success by
 	// accident. Same fixture in every runner.
 	let text = ": nope\nport: x\n";
 	let schema = "field: port\n\ttype: int\n";
-	let doc = shcl::Document::load_and_validate(text, schema, Strictness::Standard);
+	let doc = shcl::Document::load_and_validate(text, schema, Strictness::Standard).unwrap();
 	let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
 	assert_eq!(codes, vec!["E014", "V003"]);
 	assert_eq!(doc.error_count(), 2);
 	assert_eq!(doc.read_string("port").value, "x"); // doc still usable
-	// Strict never throws here; the diagnostics are the answer.
-	let strict = shcl::Document::load_and_validate(text, schema, Strictness::Strict);
-	assert!(strict.error_count() >= 2);
+	// Commented out 2026-10-08: Strict fails here as it does in parse_with
+	// (2026100717500012); strict_fails_the_same_from_every_entry_point has it.
+	// // Strict never throws here; the diagnostics are the answer.
+	// let strict = shcl::Document::load_and_validate(text, schema, Strictness::Strict);
+	// assert!(strict.error_count() >= 2);
+	let strict = shcl::Document::load_and_validate(text, schema, Strictness::Strict).unwrap_err();
+	assert_eq!(strict.document.error_count(), 2);
 	// An empty schema declares nothing and validates nothing.
-	let plain = shcl::Document::load_and_validate("a: 1\n", "", Strictness::Standard);
+	let plain = shcl::Document::load_and_validate("a: 1\n", "", Strictness::Standard).unwrap();
 	assert_eq!((plain.error_count(), plain.diagnostics().len()), (0, 0));
 }
 
 #[test]
-fn write_reason_names_the_failure() {
-	// The reason behind a setter's bare false. Same fixture in every runner.
+fn strict_fails_the_same_from_every_entry_point() {
+	let _id = test_id("ddp9w");
+	// Strict fails the load on any error diagnostic, from every entry point,
+	// with the document inside the error. The file tier and the one-shot gave
+	// a plain document where parse_with failed. Same fixture in every runner.
+	use shcl::{FileStatus, LoadError};
+	let dir = std::env::temp_dir().join(format!("shcl-strictsame-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("t.shcl");
+	let fs = f.to_str().unwrap();
+	let text = ": nope\nport: 1\n";
+	std::fs::write(&f, text).unwrap();
+	let schema = "field: port\n\ttype: int\n";
+	let strict = Strictness::Strict;
+	let runs: Vec<(&str, Result<Document, LoadError>)> = vec![
+		("parse_with", Document::parse_with(text, strict)),
+		(
+			"parse_limited",
+			Document::parse_limited(text, strict, 0, 0, 0),
+		),
+		("parse_keep_lines", Document::parse_keep_lines(text, strict)),
+		(
+			"load_and_validate",
+			Document::load_and_validate(text, schema, strict),
+		),
+		(
+			"load_and_validate_with",
+			Document::load_and_validate_with(text, &Document::parse(schema), strict),
+		),
+		(
+			"load_file_with",
+			Document::load_file_with(fs, strict).map(|r| r.0),
+		),
+		(
+			"load_file_keep_lines",
+			Document::load_file_keep_lines(fs, strict).map(|r| r.0),
+		),
+	];
+	for (name, run) in runs {
+		let Err(e) = run else {
+			panic!("{name}: a strict load with an error came back Ok");
+		};
+		let codes: Vec<&str> = e.diagnostics.iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E014"], "{name}");
+		assert_eq!(
+			e.document.get_int("port"),
+			Ok(1),
+			"{name}: the document comes back"
+		);
+	}
+	// A schema finding is an error in the same list, so it fails the
+	// one-shot at Strict too.
+	let e = Document::load_and_validate("port: x\n", schema, strict).unwrap_err();
+	let codes: Vec<&str> = e.diagnostics.iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V003"]);
+	// Below Strict nothing fails, and the file status says HadErrors.
+	let standard = Strictness::Standard;
+	assert!(Document::parse_with(text, standard).is_ok());
+	assert!(Document::parse_limited(text, standard, 0, 0, 0).is_ok());
+	assert!(Document::parse_keep_lines(text, standard).is_ok());
+	assert_eq!(
+		Document::load_and_validate(text, schema, standard)
+			.unwrap()
+			.error_count(),
+		1
+	);
+	assert_eq!(
+		Document::load_file_with(fs, standard).unwrap().1,
+		FileStatus::HadErrors
+	);
+	assert_eq!(
+		Document::load_file_keep_lines(fs, standard).unwrap().1,
+		FileStatus::HadErrors
+	);
+	// A file that could not be read has no diagnostics, so Strict gives its
+	// status like any other level.
+	let none = dir.join("none.shcl");
+	let none = none.to_str().unwrap();
+	assert_eq!(
+		Document::load_file_with(none, strict).unwrap().1,
+		FileStatus::NotFound
+	);
+	assert_eq!(
+		Document::load_file_keep_lines(none, strict).unwrap().1,
+		FileStatus::NotFound
+	);
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn load_and_validate_with_matches_the_text_form() {
+	let _id = test_id("ddyf0");
+	// The parsed-schema form gives what the text form gives: the same
+	// combined list and the same strict answer, over every corpus schema at
+	// every level, with one schema document reused across the loads. Same
+	// fixture in every runner.
+	fn answer(r: Result<Document, shcl::LoadError>) -> (bool, String, String) {
+		let (failed, doc) = match r {
+			Ok(d) => (false, d),
+			Err(e) => (true, e.document),
+		};
+		let mut got = String::new();
+		for d in doc.diagnostics() {
+			got.push_str(&format!("{}\n", shcl::format_diagnostic(d)));
+		}
+		(failed, got, doc.to_canonical())
+	}
+	let levels = [Strictness::Loose, Strictness::Standard, Strictness::Strict];
+	let mut compared = 0;
+	for case in load_cases() {
+		let Some(schema_text) = &case.schema else {
+			continue;
+		};
+		let schema = Document::parse(schema_text);
+		for level in levels {
+			let want = answer(Document::load_and_validate(&case.input, schema_text, level));
+			let got = answer(Document::load_and_validate_with(
+				&case.input,
+				&schema,
+				level,
+			));
+			assert_eq!(got, want, "{} at {:?}", case.name, level);
+			compared += 1;
+		}
+	}
+	assert!(
+		compared > 30,
+		"only {compared} corpus schema loads compared"
+	);
+	// A validation error alone fails both at Strict, and a schema that does
+	// not load gives both the lone V099.
+	let schema = "field: port\n\ttype: int\n";
+	for (text, schema) in [
+		("port: x\n", schema),
+		(": nope\nport: x\n", schema),
+		("port: 1\n", "field: \"port\n"),
+	] {
+		for level in levels {
+			let want = answer(Document::load_and_validate(text, schema, level));
+			let got = answer(Document::load_and_validate_with(
+				text,
+				&Document::parse(schema),
+				level,
+			));
+			assert_eq!(got, want, "{text:?} against {schema:?} at {level:?}");
+		}
+	}
+	let e =
+		Document::load_and_validate_with("port: x\n", &Document::parse(schema), Strictness::Strict)
+			.unwrap_err();
+	let codes: Vec<&str> = e.diagnostics.iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V003"]);
+	// Only the text form skips an empty schema. An empty schema document
+	// declares nothing, so validate() and this call find every field unknown.
+	let empty =
+		Document::load_and_validate_with("a: 1\n", &Document::parse(""), Strictness::Standard)
+			.unwrap();
+	let codes: Vec<&str> = empty.diagnostics().iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V001"]);
+}
+
+#[test]
+fn check_set_path_names_the_failure() {
+	let _id = test_id("daqta");
+	// The path's half of a setter's status. Same fixture in every runner.
 	let doc = Document::parse("a:\n\tb: 1\n");
-	use shcl::WriteReason::*;
-	assert_eq!(doc.write_reason("a.b"), Writable);
-	assert_eq!(doc.write_reason("a.new[Boston].x"), Writable); // creatable
-	assert_eq!(doc.write_reason(""), BadPath);
-	assert_eq!(doc.write_reason("a..b"), BadPath);
-	assert_eq!(doc.write_reason("a.b: 2"), ValueInPath);
-	assert_eq!(doc.write_reason("a[*].b"), Wildcard);
-	assert_eq!(doc.write_reason("a[#5].b"), NoSuchIndex);
-	assert_eq!(doc.write_reason("nope[#0].b"), NoSuchIndex);
+	use shcl::SetStatus::*;
+	assert_eq!(doc.check_set_path("a.b"), Ok);
+	assert_eq!(doc.check_set_path("a.new(Boston).x"), Ok); // creatable
+	assert_eq!(doc.check_set_path(""), BadPath);
+	assert_eq!(doc.check_set_path("a..b"), BadPath);
+	assert_eq!(doc.check_set_path("a.b: 2"), ValueInPath);
+	assert_eq!(doc.check_set_path("a(*).b"), Wildcard);
+	assert_eq!(doc.check_set_path("a(5).b"), NoSuchIndex);
+	assert_eq!(doc.check_set_path("nope(0).b"), NoSuchIndex);
 	let deep = vec!["d"; 513].join(".");
-	assert_eq!(doc.write_reason(&deep), TooDeep);
-	// A literal line break in a SELECTOR: the binding would emit across two lines
-	// and reparse as neither, and the value emitter never escapes one. In a NAME
-	// it is writable - names emit through the name escaper, which spells a line
-	// break `\n`, so the escaped and literal spellings are one path now. Not
-	// corpus-pinnable - an ops line cannot carry a raw newline.
-	assert_eq!(doc.write_reason("a[\"p\nq\"].b"), BadPath);
-	assert_eq!(doc.write_reason("\"x\ny\".b"), Writable);
-	assert_eq!(doc.write_reason("\"x\\ny\".b"), Writable);
+	assert_eq!(doc.check_set_path(&deep), TooDeep);
+	// A literal line break is writable wherever a path can have one: a name
+	// emits through the name escaper and a selector value through the value
+	// emitter, and both write a break `\n` and read it back as one. The
+	// selector was refused while the value emitter still wrote elements in
+	// their source spelling and had nothing to escape with. Not corpus-pinnable
+	// - an ops line cannot contain a raw newline.
+	assert_eq!(doc.check_set_path("a(\"p\nq\").b"), Ok);
+	assert_eq!(doc.check_set_path("\"x\ny\".b"), Ok);
+	assert_eq!(doc.check_set_path("\"x\\ny\".b"), Ok);
 	// The probe never creates: the doc is unchanged after all of the above.
 	assert_eq!(doc.count("a"), 1);
 	assert_eq!(doc.paths(), vec!["a", "a.b"]);
 }
 
+// The values a setter refuses on a path check_set_path passes. Each one here
+// is refused, writes nothing, and the path checks Ok. Same fixture in every
+// runner. setter_status_names_each_refusal has the status each one gives.
 #[test]
-fn setter_refuses_a_path_it_could_not_write_back() {
-	// The refusal has to bite the setters too, not just the probe: a created
-	// node here would leave a document that no longer parses, and the reload
-	// counts nothing lost, so the save gate would not catch it.
+fn refused_values_pass_the_path_check() {
+	let _id = test_id("ddp7b");
+	let text = "ports: [80, 443]\nsec:\n\tx: 1\n";
+	let month13 = shcl::ShclDateTime {
+		date: Some((2026, 13, 1)),
+		..shcl::ShclDateTime::default()
+	};
+	type Set = Box<dyn Fn(&mut Document) -> shcl::SetStatus>;
+	let cases: Vec<(&str, &str, Set)> = vec![
+		("NaN float", "f", Box::new(|d| d.set_float("f", f64::NAN))),
+		(
+			"infinite float",
+			"f",
+			Box::new(|d| d.set_float("f", f64::INFINITY)),
+		),
+		(
+			"infinite float in an array",
+			"f",
+			Box::new(|d| d.set_float_array("f", &[1.0, f64::NEG_INFINITY])),
+		),
+		(
+			"month 13",
+			"t",
+			Box::new(move |d| d.set_datetime("t", &month13)),
+		),
+		(
+			"raw info with #",
+			"r",
+			Box::new(|d| d.set_raw("r", "body", "sh # x")),
+		),
+		(
+			"raw info with a line break",
+			"r",
+			Box::new(|d| d.set_raw("r", "body", "sh\nx")),
+		),
+		(
+			"raw body line ending in CR",
+			"r",
+			Box::new(|d| d.set_raw("r", "a\r\nb", "")),
+		),
+		(
+			"comment with a line break",
+			"sec.x",
+			Box::new(|d| d.set_comment("sec.x", "a\nb")),
+		),
+		(
+			"literal of two values",
+			"l",
+			Box::new(|d| d.set_literal("l", "a, b")),
+		),
+		(
+			"literal with an open quote",
+			"l",
+			Box::new(|d| d.set_literal("l", "\"abc")),
+		),
+		(
+			"literal with a line break",
+			"l",
+			Box::new(|d| d.set_literal("l", "a\nb")),
+		),
+		(
+			"array on a field with lines under it",
+			"sec",
+			Box::new(|d| d.set_int_array("sec", &[1, 2])),
+		),
+		(
+			"literal array on a field with lines under it",
+			"sec",
+			Box::new(|d| d.set_literal("sec", "[1, 2]")),
+		),
+		// The path check says UnderArray for this one now (2026100907362300),
+		// since no value could go there. setter_status_names_each_refusal
+		// has it.
+		// (
+		// 	"field under an array",
+		// 	"ports.x",
+		// 	Box::new(|d| d.set_int("ports.x", 1)),
+		// ),
+	];
+	for (what, path, set) in &cases {
+		let mut doc = Document::parse(text);
+		assert_ne!(
+			set(&mut doc),
+			shcl::SetStatus::Ok,
+			"{what}: the setter wrote"
+		);
+		assert_eq!(doc.check_set_path(path), shcl::SetStatus::Ok, "{what}");
+		assert_eq!(
+			doc.to_canonical(),
+			Document::parse(text).to_canonical(),
+			"{what}: wrote something"
+		);
+	}
+}
+
+// Every status a setter gives, in the order every binding numbers them. The
+// other three print the same names. Same fixture in every runner.
+#[test]
+fn setter_status_values_in_order() {
+	let _id = test_id("ddq65");
+	use shcl::SetStatus::*;
+	let all = [
+		Ok,
+		BadPath,
+		ValueInPath,
+		Wildcard,
+		NoSuchIndex,
+		TooDeep,
+		Multiple,
+		UnderArray,
+		HasChildren,
+		NotFinite,
+		BadDateTime,
+		BadRawInfo,
+		BadRawBody,
+		BadComment,
+		NotOneValue,
+		NotUtf8,
+		OutOfRange,
+		NoReadBack,
+		RawBlock,
+	];
+	let names: Vec<String> = all.iter().map(|s| format!("{s:?}")).collect();
+	assert_eq!(
+		names,
+		[
+			"Ok",
+			"BadPath",
+			"ValueInPath",
+			"Wildcard",
+			"NoSuchIndex",
+			"TooDeep",
+			"Multiple",
+			"UnderArray",
+			"HasChildren",
+			"NotFinite",
+			"BadDateTime",
+			"BadRawInfo",
+			"BadRawBody",
+			"BadComment",
+			"NotOneValue",
+			"NotUtf8",
+			"OutOfRange",
+			"NoReadBack",
+			"RawBlock",
+		]
+	);
+	for (i, s) in all.iter().enumerate() {
+		assert_eq!(*s as usize, i, "{s:?}");
+	}
+}
+
+// A setter's status names why it wrote nothing. A path reason is the one
+// check_set_path gives, and wins over a value reason when both apply, since
+// the path is what to fix first; a value reason comes with a path that checks
+// Ok. A default form on a path already there writes nothing and gives what
+// the plain setter would. Same fixture in every runner. NotUtf8, OutOfRange
+// and NoReadBack have no case: a Rust string is always UTF-8, an i64 is in
+// range, and no other value is known that fails to read back.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn setter_status_names_each_refusal() {
+	let _id = test_id("ddq64");
+	use shcl::SetStatus::*;
+	let text = "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n";
+	let month13 = shcl::ShclDateTime {
+		date: Some((2026, 13, 1)),
+		..shcl::ShclDateTime::default()
+	};
+	let deep = vec!["d"; 513].join(".");
+	type Set = Box<dyn Fn(&mut Document) -> shcl::SetStatus>;
+	let cases: Vec<(&str, shcl::SetStatus, Set)> = vec![
+		("a.b", Ok, Box::new(|d| d.set_int("a.b", 2))),
+		("a.c", Ok, Box::new(|d| d.set_float("a.c", 2.5))),
+		("a.b", Ok, Box::new(|d| d.set_int_default("a.b", 9))),
+		("", BadPath, Box::new(|d| d.set_int("", 1))),
+		("a..b", BadPath, Box::new(|d| d.set_string("a..b", "v"))),
+		("a.b: 2", ValueInPath, Box::new(|d| d.set_int("a.b: 2", 1))),
+		("a(*).b", Wildcard, Box::new(|d| d.set_int("a(*).b", 1))),
+		("a(5).b", NoSuchIndex, Box::new(|d| d.set_int("a(5).b", 1))),
+		(
+			&deep,
+			TooDeep,
+			Box::new(|d| d.set_int(&vec!["d"; 513].join("."), 1)),
+		),
+		("port", Multiple, Box::new(|d| d.set_int("port", 9))),
+		("ports.x", UnderArray, Box::new(|d| d.set_int("ports.x", 1))),
+		(
+			"ports.x.y",
+			UnderArray,
+			Box::new(|d| d.set_int("ports.x.y", 1)),
+		),
+		(
+			"ports.x",
+			UnderArray,
+			Box::new(|d| d.set_comment("ports.x", "c")),
+		),
+		(
+			"ports.x",
+			UnderArray,
+			Box::new(|d| d.set_int_default("ports.x", 1)),
+		),
+		(
+			"sec",
+			HasChildren,
+			Box::new(|d| d.set_int_array("sec", &[1, 2])),
+		),
+		(
+			"sec",
+			HasChildren,
+			Box::new(|d| d.set_string_array("sec", &["v"])),
+		),
+		(
+			"sec",
+			HasChildren,
+			Box::new(|d| d.set_literal("sec", "[1, 2]")),
+		),
+		("f", NotFinite, Box::new(|d| d.set_float("f", f64::NAN))),
+		(
+			"f",
+			NotFinite,
+			Box::new(|d| d.set_float_array("f", &[1.0, f64::INFINITY])),
+		),
+		(
+			"a.b",
+			NotFinite,
+			Box::new(|d| d.set_float_default("a.b", f64::NAN)),
+		),
+		(
+			"t",
+			BadDateTime,
+			Box::new(move |d| d.set_datetime("t", &month13)),
+		),
+		(
+			"r",
+			BadRawInfo,
+			Box::new(|d| d.set_raw("r", "body", "sh # x")),
+		),
+		(
+			"r",
+			BadRawInfo,
+			Box::new(|d| d.set_raw("r", "body", "sh\nx")),
+		),
+		(
+			"a.b",
+			BadRawInfo,
+			Box::new(|d| d.set_raw_default("a.b", "body", "sh # x")),
+		),
+		("r", BadRawBody, Box::new(|d| d.set_raw("r", "a\r\nb", ""))),
+		(
+			"sec.x",
+			BadComment,
+			Box::new(|d| d.set_comment("sec.x", "a\nb")),
+		),
+		("l", NotOneValue, Box::new(|d| d.set_literal("l", "a, b"))),
+		("l", NotOneValue, Box::new(|d| d.set_literal("l", "\"abc"))),
+		("l", NotOneValue, Box::new(|d| d.set_literal("l", "a\nb"))),
+		(
+			"a.b",
+			NotOneValue,
+			Box::new(|d| d.set_literal_default("a.b", "a, b")),
+		),
+		// Both halves wrong: the path's reason.
+		(
+			"a(*).b",
+			Wildcard,
+			Box::new(|d| d.set_float("a(*).b", f64::NAN)),
+		),
+		(
+			"ports.x",
+			UnderArray,
+			Box::new(|d| d.set_literal("ports.x", "a, b")),
+		),
+		("a..b", BadPath, Box::new(|d| d.set_comment("a..b", "a\nb"))),
+		(
+			"a(5).b",
+			NoSuchIndex,
+			Box::new(|d| d.set_raw("a(5).b", "x", "#")),
+		),
+		(
+			"port",
+			Multiple,
+			Box::new(|d| d.set_int_array("port", &[1])),
+		),
+		(
+			"port",
+			Multiple,
+			Box::new(|d| d.set_float_default("port", f64::NAN)),
+		),
+	];
+	let path_reasons = [
+		BadPath,
+		ValueInPath,
+		Wildcard,
+		NoSuchIndex,
+		TooDeep,
+		Multiple,
+		UnderArray,
+	];
+	for (path, want, set) in &cases {
+		let mut doc = Document::parse(text);
+		let before = doc.to_canonical();
+		let got = set(&mut doc);
+		assert_eq!(got, *want, "{path:?}");
+		let checked = Document::parse(text).check_set_path(path);
+		if path_reasons.contains(want) {
+			assert_eq!(checked, *want, "{path:?}: check_set_path");
+		} else {
+			assert_eq!(checked, Ok, "{path:?}: check_set_path");
+		}
+		if got != Ok {
+			assert_eq!(doc.to_canonical(), before, "{path:?}: wrote something");
+		}
+	}
+}
+
+// A setter on a path that matches more than one field at any step writes
+// nothing and the path checks Multiple, so a write never says true where the
+// read after it would say Multiple. An index or value selector picks one.
+// Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn repeated_path_refuses_a_setter() {
+	let _id = test_id("ddp8e");
+	let text = "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n";
+	type Set = Box<dyn Fn(&mut Document) -> shcl::SetStatus>;
+	let cases: Vec<(&str, Set)> = vec![
+		("port", Box::new(|d| d.set_int("port", 9))),
+		("port", Box::new(|d| d.set_string("port", "9"))),
+		("port", Box::new(|d| d.set_literal("port", "9"))),
+		("port", Box::new(|d| d.set_int_array("port", &[9]))),
+		("port", Box::new(|d| d.set_empty("port"))),
+		("port", Box::new(|d| d.set_raw("port", "x", ""))),
+		("port", Box::new(|d| d.set_comment("port", "c"))),
+		("port", Box::new(|d| d.set_int_default("port", 9))),
+		("port", Box::new(|d| d.set_literal_default("port", "9"))),
+		("site.root", Box::new(|d| d.set_string("site.root", "/z"))),
+		("site.new", Box::new(|d| d.set_string("site.new", "v"))),
+		(
+			"site.new",
+			Box::new(|d| d.set_string_default("site.new", "v")),
+		),
+		("sec.k", Box::new(|d| d.set_int("sec.k", 9))),
+		("sec.k.x", Box::new(|d| d.set_int("sec.k.x", 9))),
+	];
+	for (path, set) in &cases {
+		let mut doc = Document::parse(text);
+		assert_eq!(set(&mut doc), shcl::SetStatus::Multiple, "{path}");
+		assert_eq!(
+			doc.check_set_path(path),
+			shcl::SetStatus::Multiple,
+			"{path}"
+		);
+		assert_eq!(
+			doc.to_canonical(),
+			Document::parse(text).to_canonical(),
+			"{path}: wrote something"
+		);
+	}
+	let mut doc = Document::parse(text);
+	assert_eq!(doc.set_int("port(1)", 9), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("site(1).root", "/z"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("site(a).root", "/w"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("sec.k(0)", 7), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_int_or("port(0)", 0), 1);
+	assert_eq!(doc.get_int_or("port(1)", 0), 9);
+	assert_eq!(doc.get_string_or("site(b).root", String::new()), "/z");
+	assert_eq!(doc.get_string_or("site(a).root", String::new()), "/w");
+	assert_eq!(doc.get_int_or("sec.k(0)", 0), 7);
+	// A remove takes every instance it matches, as a read sees them.
+	assert_eq!(doc.remove("port"), 2);
+	assert_eq!(doc.check_set_path("port"), shcl::SetStatus::Ok);
+}
+
+#[test]
+fn setters_refuse_a_value_the_reader_refuses() {
+	let _id = test_id("dc25t");
+	// Each setter is the inverse of its read, so a value with no spelling the
+	// reader accepts fails the write and leaves the document alone. Same
+	// fixture in every runner.
+	use shcl::{ShclDateTime, Zone};
 	let mut doc = Document::parse("z: 0\n");
-	assert!(!doc.set_int("x[\"p\nq\"].c", 1));
-	assert_eq!(doc.to_canonical(), "z: 0\n");
-	// A line break in a NAME writes and reads back: the two spellings are one
-	// path, and the emitter escapes it rather than splitting the line.
-	assert!(doc.set_int("\"a\nb\".c", 1));
-	let back = Document::parse(&doc.to_canonical());
+	for v in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+		assert_eq!(doc.set_float("f", v), shcl::SetStatus::NotFinite, "{v}");
+		assert_eq!(
+			doc.set_float_default("f", v),
+			shcl::SetStatus::NotFinite,
+			"{v}"
+		);
+		assert_eq!(
+			doc.set_float_array("f", &[1.0, v]),
+			shcl::SetStatus::NotFinite,
+			"{v}"
+		);
+		// A default form on a path that is already there writes nothing, and
+		// still refuses what the plain setter would.
+		assert_eq!(
+			doc.set_float_default("z", v),
+			shcl::SetStatus::NotFinite,
+			"{v}"
+		);
+		assert_eq!(
+			doc.set_float_array_default("z", &[1.0, v]),
+			shcl::SetStatus::NotFinite,
+			"{v}"
+		);
+	}
+	assert_eq!(doc.set_float("f", 2.5), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_float("f"), Ok(2.5));
+	assert_eq!(doc.set_float_default("z", 2.5), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_float("z"), Ok(0.0));
+	let good = |d: Option<(i32, u32, u32)>, t: Option<(u32, u32, Option<u32>)>| ShclDateTime {
+		date: d,
+		time: t,
+		frac: None,
+		zone: None,
+	};
+	let with = |dt: ShclDateTime, frac: Option<&str>, zone: Option<Zone>| ShclDateTime {
+		frac: frac.map(str::to_string),
+		zone,
+		..dt
+	};
+	let bad = [
+		ShclDateTime::default(),                                 // nothing written
+		good(Some((2026, 13, 1)), None),                         // month 13
+		good(Some((2026, 2, 30)), None),                         // February 30
+		good(Some((-1, 1, 1)), None),                            // negative year
+		good(None, Some((24, 0, None))),                         // hour 24
+		with(good(None, Some((1, 2, None))), Some("5"), None),   // fraction with no seconds
+		with(good(None, Some((1, 2, Some(3)))), Some(""), None), // empty fraction
+		with(good(None, Some((1, 2, Some(3)))), Some("12345678901"), None), // 11 digits
+		with(
+			good(None, Some((1, 2, None))),
+			None,
+			Some(Zone::OffsetMinutes(9999)),
+		), // +166:39
+		with(good(Some((2026, 1, 1)), None), None, Some(Zone::Utc)), // zone on a date alone
+	];
+	for dt in &bad {
+		assert_eq!(
+			doc.set_datetime("d", dt),
+			shcl::SetStatus::BadDateTime,
+			"{dt}"
+		);
+		assert_eq!(
+			doc.set_datetime_default("d", dt),
+			shcl::SetStatus::BadDateTime,
+			"{dt}"
+		);
+		assert_eq!(
+			doc.set_datetime_array("d", &[good(Some((2026, 1, 1)), None), dt.clone()]),
+			shcl::SetStatus::BadDateTime,
+			"{dt}"
+		);
+		assert_eq!(
+			doc.set_datetime_default("z", dt),
+			shcl::SetStatus::BadDateTime,
+			"{dt}"
+		);
+		assert_eq!(
+			doc.set_datetime_array_default("z", &[good(Some((2026, 1, 1)), None), dt.clone()]),
+			shcl::SetStatus::BadDateTime,
+			"{dt}"
+		);
+	}
+	let ok = with(
+		good(Some((2026, 1, 2)), Some((3, 4, Some(5)))),
+		Some("60"),
+		Some(Zone::OffsetMinutes(-90)),
+	);
+	assert_eq!(doc.set_datetime("d", &ok), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_datetime("d"), Ok(ok));
+	assert_eq!(
+		doc.to_canonical(),
+		"z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n"
+	);
+}
+
+// A backtick value is raw text the program decodes itself: read as written,
+// with its own flag beside `quoted`. A setter keeps the backticks when the new
+// text fits in them, and the writer picks quotes when it does not.
+#[test]
+fn a_backtick_value_reads_raw_with_its_flag() {
+	let _id = test_id("ddhe0");
+	let mut doc = Document::parse("c: `#FF8800`\nq: \"x\"\nb: x\na: [`1`, b]\nn: `7`\n");
+	let r = doc.read_string("c");
+	assert_eq!(
+		(r.value.as_str(), r.quoted, r.backtick),
+		("#FF8800", true, true)
+	);
+	let r = doc.read_string("q");
+	assert_eq!((r.quoted, r.backtick), (true, false));
+	let r = doc.read_string("b");
+	assert_eq!((r.quoted, r.backtick), (false, false));
+	let r = doc.read_string_array("a");
+	assert_eq!((r.value.len(), r.quoted, r.backtick), (2, false, false));
+	let r = doc.read_int("n");
+	assert_eq!((r.value, r.backtick), (7, true));
+	assert_eq!(doc.set_string("c", "#00FF00"), shcl::SetStatus::Ok);
+	assert!(doc.read_string("c").backtick);
+	assert_eq!(doc.set_string("c", "a`b"), shcl::SetStatus::Ok);
+	assert!(!doc.read_string("c").backtick);
+	assert!(doc.to_canonical().starts_with("c: \"a`b\"\n"));
+}
+
+#[test]
+fn a_line_break_in_a_path_writes_and_reads_back() {
+	let _id = test_id("dcb7v");
+	// Both halves of a path can contain one and write it `◉NEWLINE◉`: a name through the
+	// name escaper, a selector value through the value emitter. The selector
+	// was refused while elements were stored in their source spelling and the
+	// emitter had nothing to escape with. Same fixture in every runner.
+	let mut doc = Document::parse("z: 0\n");
+	assert_eq!(doc.set_int("x(\"p\nq\").c", 1), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("\"a\nb\".c", 1), shcl::SetStatus::Ok);
+	let text = doc.to_canonical();
+	let back = Document::parse(&text);
 	assert_eq!(back.error_count(), 0);
-	assert_eq!(back.read_int("\"a\\nb\".c").value, 1);
+	assert_eq!(back.to_canonical(), text);
+	assert_eq!(back.read_int("x(\"p◉NEWLINE◉q\").c").value, 1);
+	assert_eq!(back.read_int("\"a◉NEWLINE◉b\".c").value, 1);
 	assert_eq!(back.read_int("\"a\nb\".c").value, 1);
 }
 
 #[test]
 fn raw_block_line_endings_normalize_and_round_trip() {
+	let _id = test_id("dbep1");
 	// A raw body is the only content kept untrimmed, so it is the only place a
 	// trailing CR survives the load - and one written back becomes CRLF, which
 	// reads as neither. The whole trailing run comes off instead; a CR inside a
@@ -786,7 +2329,85 @@ fn raw_block_line_endings_normalize_and_round_trip() {
 }
 
 #[test]
+fn children_and_instance_paths_walk_a_repeated_key() {
+	let _id = test_id("dd2kk");
+	// gitsby's report: children() on a repeated key answered nothing, and a
+	// walk had to know to index each instance.
+	let doc =
+		Document::parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n");
+	assert_eq!(doc.children("account(0).email"), vec!["sshkey", "sshkey"]);
+	assert_eq!(doc.children("account.email(1)"), vec!["sshkey"]);
+	assert_eq!(
+		doc.instance_paths(),
+		vec![
+			"account",
+			"account.email(0)",
+			"account.email(0).sshkey",
+			"account.email(1)",
+			"account.email(1).sshkey",
+		]
+	);
+	assert_eq!(
+		doc.get_string("account.email(1).sshkey"),
+		Ok("k2".to_string())
+	);
+}
+
+#[test]
+fn fields_give_each_instance_its_own_path() {
+	let _id = test_id("ddqh3");
+	// The --json listings: each instance, a repeated one included, gets
+	// a path that reads that one, with its name, value and line beside it.
+	let doc = Document::parse("shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n");
+	let all = doc.fields();
+	let paths: Vec<&str> = all.iter().map(|f| f.path.as_str()).collect();
+	assert_eq!(
+		paths,
+		vec![
+			"shard(0)",
+			"shard(0).owner",
+			"shard(1)",
+			"shard(1).owner(0)",
+			"shard(1).owner(1)"
+		]
+	);
+	assert_eq!(paths, doc.instance_paths());
+	let names: Vec<&str> = all.iter().map(|f| f.name.as_str()).collect();
+	assert_eq!(names, vec!["shard", "owner", "shard", "owner", "owner"]);
+	let values: Vec<&str> = all.iter().map(|f| f.value.as_str()).collect();
+	assert_eq!(values, vec!["1", "ann", "0", "bob", "cy"]);
+	let lines: Vec<usize> = all.iter().map(|f| f.line).collect();
+	assert_eq!(lines, vec![1, 2, 3, 4, 5]);
+	for f in &all {
+		assert_eq!(doc.get_string(&f.path), Ok(f.value.clone()), "{}", f.path);
+	}
+	let r = doc.read_fields("shard(1).owner");
+	assert_eq!(r.status, shcl::Status::Good);
+	assert_eq!(r.value, all[3..5].to_vec());
+	assert_eq!(r.line, 0);
+	let r = doc.read_fields("shard(0)");
+	assert_eq!((r.value, r.line), (vec![all[0].clone()], 1));
+	// One slot per instance, and a slot that reached two is all empty.
+	let r = doc.read_fields("shard(*).owner");
+	assert_eq!(r.value, vec![all[1].clone(), Field::default()]);
+	assert_eq!(doc.read_fields("nope").status, shcl::Status::NotFound);
+	assert_eq!(doc.read_fields("a..b").status, shcl::Status::BadPath);
+	let r = doc.read_child_fields("");
+	assert_eq!(r.value, vec![all[0].clone(), all[2].clone()]);
+	let r = doc.read_child_fields("shard");
+	assert_eq!(
+		r.value,
+		vec![all[1].clone(), all[3].clone(), all[4].clone()]
+	);
+	let r = doc.read_child_fields("shard(1)");
+	assert_eq!((r.value.len(), r.line), (2, 3));
+	assert_eq!(doc.read_child_fields("nope").status, shcl::Status::NotFound);
+	assert_eq!(doc.read_child_fields("a..b").status, shcl::Status::BadPath);
+}
+
+#[test]
 fn read_surface_line_quoted_children() {
+	let _id = test_id("daqsz");
 	// line/quoted on the read result, line(path), children(path). Same
 	// fixture in every runner (C pins the same answers on shcl_quoted and
 	// shcl_line; its read structs stay value+status).
@@ -796,6 +2417,16 @@ fn read_surface_line_quoted_children() {
 	assert!(doc.read_string("b").quoted);
 	assert!(!doc.read_string("code").quoted);
 	assert!(!doc.read_string("missing").quoted);
+	// An array read of the same node answers the same: a one-element cell has
+	// a single scalar element, so the flag means what it does on the scalar
+	// read. More than one element, and there is no single element to report.
+	assert!(doc.read_string_array("b").quoted);
+	assert!(!doc.read_string_array("a").quoted);
+	assert!(
+		!Document::parse("m: [\"x\", \"y\"]\n")
+			.read_string_array("m")
+			.quoted
+	);
 	assert_eq!(doc.read_string("b").line, 2);
 	assert_eq!(doc.line("code.done"), 6);
 	assert_eq!(doc.line("code"), 3);
@@ -806,8 +2437,8 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(doc.lines("code.hook"), vec![4, 5]);
 	assert_eq!(doc.lines("code.done"), vec![6]);
 	assert_eq!(doc.lines("a"), vec![1]);
-	assert_eq!(doc.lines("code[*].done"), vec![6]);
-	assert_eq!(doc.lines("code[*].nope"), vec![0]);
+	assert_eq!(doc.lines("code(*).done"), vec![6]);
+	assert_eq!(doc.lines("code(*).nope"), vec![0]);
 	assert!(doc.lines("missing").is_empty());
 	assert_eq!(doc.children("code"), vec!["hook", "hook", "done"]);
 	assert_eq!(doc.children(""), vec!["a", "b", "code"]);
@@ -821,21 +2452,26 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(d2.authored_name("SYMBOLS"), "SYMBOLS");
 	assert_eq!(d2.authored_name("code"), "Code");
 	assert_eq!(d2.authored_name("missing"), "");
-	assert!(d2.set_int("NewTop.n", 1));
+	assert_eq!(d2.set_int("NewTop.n", 1), shcl::SetStatus::Ok);
 	assert_eq!(d2.authored_name("newtop"), "NewTop");
 	// Escapes ARE resolved on a name, so both spellings of the path find the
 	// same node - while authored_name still hands back the source spelling,
 	// which is the one thing it is for. Same fixture in every runner.
-	let d3 = Document::parse("\"Ab\\tCd\": 2\n");
-	assert_eq!(d3.authored_name("\"ab\\tcd\""), "Ab\\tCd");
-	assert_eq!(d3.authored_name("\"ab\tcd\""), "Ab\\tCd");
+	let d3 = Document::parse("\"Ab◉TAB◉Cd\": 2\n");
+	assert_eq!(d3.authored_name("\"ab◉tab◉cd\""), "Ab◉TAB◉Cd");
+	assert_eq!(d3.authored_name("\"ab\tcd\""), "Ab◉TAB◉Cd");
 	assert_eq!(d3.read_int("\"ab\tcd\"").value, 2);
 	// Canonical output folds the case, as it always has, and escapes the tab.
-	assert_eq!(d3.to_canonical(), "\"ab\\tcd\": 2\n");
+	assert_eq!(d3.to_canonical(), "\"ab◉TAB◉cd\": 2\n");
 }
 
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn file_tier_load_save() {
+	let _id = test_id("dbcwv");
 	// load_file/save_file: the status separates absent / unreadable / parsed
 	// with errors / clean, and a save round-trips through the atomic write.
 	// Same fixture in every runner.
@@ -865,7 +2501,17 @@ fn file_tier_load_save() {
 	std::fs::write(&f, "a: 1\nb: x\n").unwrap();
 	let (mut doc, st) = Document::load_file(fs);
 	assert_eq!(st, FileStatus::Clean);
-	assert!(doc.set_int("c", 3));
+	// read_file is the load's read half on its own: the exact bytes, or the
+	// status. The cap counts bytes, and a file exactly at it passes. Same
+	// fixture in every runner.
+	assert_eq!(shcl::read_file(fs, 0), Ok("a: 1\nb: x\n".to_string()));
+	assert_eq!(shcl::read_file(fs, 10), Ok("a: 1\nb: x\n".to_string()));
+	assert_eq!(shcl::read_file(fs, 9), Err(FileStatus::Unreadable));
+	assert_eq!(
+		shcl::read_file(dir.join("none.shcl").to_str().unwrap(), 0),
+		Err(FileStatus::NotFound)
+	);
+	assert_eq!(doc.set_int("c", 3), shcl::SetStatus::Ok);
 	doc.save_file(fs).unwrap();
 	let (back, st) = Document::load_file(fs);
 	assert_eq!(st, FileStatus::Clean);
@@ -879,7 +2525,7 @@ fn file_tier_load_save() {
 	// POSIX-only fixture could ever have caught. Same fixture in every runner.
 	let fresh = dir.join("fresh.shcl");
 	let fresh_s = fresh.to_str().unwrap().to_string();
-	let fdoc = Document::parse("a: 1\n");
+	let mut fdoc = Document::parse("a: 1\n");
 	fdoc.save_file(&fresh_s).unwrap();
 	let (back, st) = Document::load_file(&fresh_s);
 	assert_eq!(st, FileStatus::Clean);
@@ -889,7 +2535,7 @@ fn file_tier_load_save() {
 	assert_eq!(st, FileStatus::Clean);
 	assert_eq!(back.to_canonical(), "a: 1\n");
 
-	// A new file lands where an ordinary create lands - 0666 narrowed by the
+	// A new file ends up where an ordinary create puts one - 0666 narrowed by the
 	// umask - and an existing one keeps the mode it had. Neither is visible on
 	// stdout, so no corpus case can see either, and neither is a windows
 	// concept, so the mode half is POSIX-only.
@@ -906,6 +2552,30 @@ fn file_tier_load_save() {
 		std::fs::set_permissions(&born, std::fs::Permissions::from_mode(0o640)).unwrap();
 		fdoc.save_file(born.to_str().unwrap()).unwrap();
 		assert_eq!(mode_of(&born), 0o640);
+		// setuid and setgid come over too: applying the mode before the data
+		// lets the kernel clear them on the write.
+		let id_of =
+			|p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+		// BSD gives a new file the directory's group, and refuses setgid on a
+		// file whose group the caller is not in. Its own group fixes both.
+		unsafe extern "C" {
+			fn getegid() -> u32;
+		}
+		// SAFETY: getegid takes nothing and can't fail.
+		let _ = std::os::unix::fs::chown(&born, None, Some(unsafe { getegid() }));
+		let set = std::fs::set_permissions(&born, std::fs::Permissions::from_mode(0o6750));
+		if set.is_ok() && id_of(&born) == 0o6750 {
+			fdoc.save_file(born.to_str().unwrap()).unwrap();
+			assert_eq!(id_of(&born), 0o6750, "save dropped a set-id bit");
+		} else {
+			// Setgid is cleared when the file's group is not one of the caller's,
+			// which happens on ordinary boxes. The skip was silent, so this
+			// fixture passed wherever it fired.
+			eprintln!(
+				"conformance: skipping the set-id fixture (mode came back {:o}, want 6750)",
+				id_of(&born)
+			);
+		}
 		let _ = std::fs::remove_file(&probe);
 		let _ = std::fs::remove_file(&born);
 	}
@@ -916,7 +2586,609 @@ fn file_tier_load_save() {
 }
 
 #[test]
+fn read_file_at_the_largest_cap() {
+	let _id = test_id("dbxk0");
+	// A cap given as the type maximum used to overflow the over-cap probe and
+	// read nothing. Same fixture in every runner.
+	let dir = std::env::temp_dir().join(format!("shcl-readcap-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("t.shcl");
+	std::fs::write(&f, "a: 1\n").unwrap();
+	assert_eq!(
+		shcl::read_file(f.to_str().unwrap(), usize::MAX),
+		Ok("a: 1\n".to_string())
+	);
+	let _ = std::fs::remove_file(&f);
+	let _ = std::fs::remove_dir(&dir);
+}
+
+#[test]
+fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
+	let _id = test_id("dbxk1");
+	// The body's shared indent survives a reload (the closing fence's indent is
+	// what comes off), the info-string is stored as a fence line reads it
+	// back, and an info with a line break or a `#` has no spelling and fails
+	// the write. Same fixture in every runner.
+	let mut doc = Document::new();
+	assert_eq!(doc.set_raw("q", "  a\n  b", " sql "), shcl::SetStatus::Ok);
+	let back = Document::parse(&doc.to_canonical());
+	assert_eq!(back.get_raw("q"), Ok("  a\n  b".to_string()));
+	assert_eq!(back.read_raw_info("q").value, "sql");
+	assert_ne!(doc.set_raw("q", "x", "a\nb"), shcl::SetStatus::Ok);
+	// A trailing CR is a blank and comes off, as the load takes it; one
+	// mid-info is content.
+	assert_eq!(doc.set_raw("q", "x", "ab\r"), shcl::SetStatus::Ok);
+	assert_eq!(
+		Document::parse(&doc.to_canonical())
+			.read_raw_info("q")
+			.value,
+		"ab"
+	);
+	assert_eq!(doc.set_raw("q", "x", "a\rb"), shcl::SetStatus::Ok);
+	assert_eq!(
+		Document::parse(&doc.to_canonical())
+			.read_raw_info("q")
+			.value,
+		"a\rb"
+	);
+	assert_ne!(doc.set_raw("q", "x", "a # b"), shcl::SetStatus::Ok);
+	// An info string has no quoting of its own: quotes are characters in it,
+	// so they hide nothing, and a `#` glued to the label opens a comment too.
+	assert_ne!(doc.set_raw("q", "x", "\"a # b\""), shcl::SetStatus::Ok);
+	assert_ne!(doc.set_raw("q", "x", "c#"), shcl::SetStatus::Ok);
+	// A body line ending in CR has no fence spelling: the load takes the whole
+	// trailing CR run off every line, so it is refused rather than lost. A CR
+	// mid-line is content and still round-trips.
+	assert_ne!(doc.set_raw("q", "a\r\nb", ""), shcl::SetStatus::Ok);
+	assert_ne!(doc.set_raw("q", "\r", ""), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_raw("q", "a\rb", ""), shcl::SetStatus::Ok);
+	let back = Document::parse(&doc.to_canonical());
+	assert_eq!(back.get_raw("q"), Ok("a\rb".to_string()));
+}
+
+#[cfg(unix)]
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn save_creates_the_file_behind_a_dangling_symlink() {
+	let _id = test_id("dbxk2");
+	// A link to a file that is not there yet is written through like any other
+	// link: the file appears where the link points and the link stays a link.
+	// Same fixture in every POSIX runner.
+	let dir = std::env::temp_dir().join(format!("shcl-dangling-{}", std::process::id()));
+	std::fs::create_dir_all(dir.join("real")).unwrap();
+	let link = dir.join("c.shcl");
+	std::os::unix::fs::symlink("real/c.shcl", &link).unwrap();
+	let mut doc = Document::parse("a: 1\n");
+	doc.save_file(link.to_str().unwrap()).unwrap();
+	assert!(
+		std::fs::symlink_metadata(&link)
+			.unwrap()
+			.file_type()
+			.is_symlink()
+	);
+	assert_eq!(
+		std::fs::read_to_string(dir.join("real/c.shcl")).unwrap(),
+		"a: 1\n"
+	);
+	let _ = std::fs::remove_file(&link);
+	let _ = std::fs::remove_file(dir.join("real/c.shcl"));
+	let _ = std::fs::remove_dir(dir.join("real"));
+	let _ = std::fs::remove_dir(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
+	let _id = test_id("dbzr9");
+	// Two links pointing at each other resolve to nothing, so the save fails
+	// and says why. It must not "fix" the cycle by dropping a regular file over
+	// one of the links. Same fixture in every POSIX runner.
+	let dir = std::env::temp_dir().join(format!("shcl-cycle-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let (a, b) = (dir.join("a.shcl"), dir.join("b.shcl"));
+	std::os::unix::fs::symlink("b.shcl", &a).unwrap();
+	std::os::unix::fs::symlink("a.shcl", &b).unwrap();
+	let mut doc = Document::parse("a: 1\n");
+	assert!(doc.save_file(a.to_str().unwrap()).is_err());
+	for link in [&a, &b] {
+		assert!(
+			std::fs::symlink_metadata(link)
+				.unwrap()
+				.file_type()
+				.is_symlink(),
+			"a symlink cycle was replaced by a regular file"
+		);
+	}
+	let _ = std::fs::remove_file(&a);
+	let _ = std::fs::remove_file(&b);
+	let _ = std::fs::remove_dir(&dir);
+}
+
+#[cfg(unix)]
+#[cfg_attr(miri, ignore = "starts a process")]
+#[test]
+fn save_replaces_only_a_regular_file() {
+	let _id = test_id("dcvaj");
+	// Save outcomes in design.md, the rows the CLI's own check hides. A FIFO
+	// was swapped for a regular file at exit 0, a link whose text names a
+	// directory made a file of that name, and Go cleaned `lnk/..` as text where
+	// the kernel follows lnk first. Same fixture in every POSIX runner.
+	let dir = std::env::temp_dir().join(format!("shcl-targets-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(dir.join("real/sub")).unwrap();
+	std::fs::create_dir_all(dir.join("top")).unwrap();
+	let mut doc = Document::parse("a: 1\n");
+	let fifo = dir.join("p.shcl");
+	assert!(
+		std::process::Command::new("mkfifo")
+			.arg(&fifo)
+			.status()
+			.unwrap()
+			.success()
+	);
+	assert!(doc.save_file(fifo.to_str().unwrap()).is_err());
+	assert!(
+		std::os::unix::fs::FileTypeExt::is_fifo(
+			&std::fs::symlink_metadata(&fifo).unwrap().file_type()
+		),
+		"a FIFO was replaced by a regular file"
+	);
+	let ldir = dir.join("l.shcl");
+	std::os::unix::fs::symlink("d/", &ldir).unwrap();
+	assert!(doc.save_file(ldir.to_str().unwrap()).is_err());
+	assert!(
+		!dir.join("d").exists(),
+		"a link naming a directory made a file"
+	);
+	std::os::unix::fs::symlink("../real/sub", dir.join("top/lnkdir")).unwrap();
+	std::os::unix::fs::symlink("../x.shcl", dir.join("real/sub/f.shcl")).unwrap();
+	doc.save_file(dir.join("top/lnkdir/f.shcl").to_str().unwrap())
+		.unwrap();
+	assert_eq!(
+		std::fs::read_to_string(dir.join("real/x.shcl")).unwrap(),
+		"a: 1\n"
+	);
+	assert!(!dir.join("top/x.shcl").exists());
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(windows)]
+#[test]
+fn save_rewrites_a_read_only_file() {
+	let _id = test_id("dbxk3");
+	// A read-only target is rewritten, as it is on POSIX, and comes back
+	// read-only; no temp file is left behind. Same fixture in every runner.
+	let dir = std::env::temp_dir().join(format!("shcl-readonly-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("ro.shcl");
+	std::fs::write(&f, "a: 1\n").unwrap();
+	let mut perms = std::fs::metadata(&f).unwrap().permissions();
+	perms.set_readonly(true);
+	std::fs::set_permissions(&f, perms).unwrap();
+	let mut doc = Document::parse("a: 2\n");
+	doc.save_file(f.to_str().unwrap()).unwrap();
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
+	assert!(std::fs::metadata(&f).unwrap().permissions().readonly());
+	let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+	assert_eq!(left.len(), 1);
+	let mut perms = std::fs::metadata(&f).unwrap().permissions();
+	// Windows only: this clears the read-only attribute, not a Unix mode.
+	#[allow(clippy::permissions_set_readonly_false)]
+	perms.set_readonly(false);
+	std::fs::set_permissions(&f, perms).unwrap();
+	// Hidden and system come back too: ReplaceFile's preserve list does not
+	// include the basic attributes and the fallback rename keeps none, so a
+	// hidden config used to come back visible.
+	set_attrs(&f, 0x2 | 0x4);
+	Document::parse("a: 3\n")
+		.save_file(f.to_str().unwrap())
+		.unwrap();
+	let after = {
+		use std::os::windows::fs::MetadataExt;
+		std::fs::metadata(&f).unwrap().file_attributes()
+	};
+	assert!(after & 0x2 != 0, "file did not come back hidden");
+	assert!(after & 0x4 != 0, "file did not come back system");
+	set_attrs(&f, 0x80); // FILE_ATTRIBUTE_NORMAL, so the cleanup below works
+	let _ = std::fs::remove_file(&f);
+	let _ = std::fs::remove_dir(&dir);
+}
+
+#[cfg(windows)]
+fn set_attrs(path: &std::path::Path, attrs: u32) {
+	use std::os::windows::ffi::OsStrExt;
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn SetFileAttributesW(name: *const u16, attrs: u32) -> i32;
+	}
+	let wide: Vec<u16> = path
+		.as_os_str()
+		.encode_wide()
+		.chain(std::iter::once(0))
+		.collect();
+	// SAFETY: wide is a NUL-terminated path that outlives the call.
+	unsafe {
+		SetFileAttributesW(wide.as_ptr(), attrs);
+	}
+}
+
+/// A path that names a directory - it ends in a separator, or its last
+/// component is `.` or `..` - is not a document. A canonicalize drops the
+/// trailing separator first, so `save_file("f/")` used to rewrite `f`. Same
+/// fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn save_refuses_a_directory_shaped_path() {
+	let _id = test_id("dc42j");
+	let dir = std::env::temp_dir().join(format!("shcl-dirpath-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl");
+	std::fs::write(&f, "a: 1\n").unwrap();
+	let mut doc = Document::parse("a: 2\n");
+	for suffix in ["/", "/.", "/.."] {
+		let p = format!("{}{}", f.display(), suffix);
+		assert!(
+			doc.save_file(&p).is_err(),
+			"save through {:?} was accepted",
+			p
+		);
+	}
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 1\n");
+	assert!(doc.save_file(f.to_str().unwrap()).is_ok());
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
+	let _ = std::fs::remove_file(&f);
+	let _ = std::fs::remove_dir(&dir);
+}
+
+// Every reason a write gives, in the order every binding numbers them. The
+// other three print the same names. Same fixture in every runner.
+#[test]
+fn write_status_values_in_order() {
+	let _id = test_id("ddqfq");
+	use shcl::WriteStatus::*;
+	let all = [
+		Ok,
+		NotFound,
+		Unreadable,
+		PermissionDenied,
+		DiskFull,
+		ReadOnly,
+		IsDirectory,
+		NotRegular,
+		Other,
+	];
+	let names: Vec<String> = all.iter().map(|s| format!("{s:?}")).collect();
+	assert_eq!(
+		names,
+		[
+			"Ok",
+			"NotFound",
+			"Unreadable",
+			"PermissionDenied",
+			"DiskFull",
+			"ReadOnly",
+			"IsDirectory",
+			"NotRegular",
+			"Other",
+		]
+	);
+	for (i, s) in all.iter().enumerate() {
+		assert_eq!(*s as usize, i, "{s:?}");
+	}
+}
+
+/// A failed write says why as a value, beside the message it always had: from
+/// `write_file_atomic`, a save, `write_backup` and `upgrade_file`. A full disk
+/// and a read-only filesystem can't be made here without root; the library's
+/// own test maps those. Same fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn write_status_names_each_failure() {
+	let _id = test_id("ddqfr");
+	use shcl::{SaveError, UpgradeError, WriteStatus, upgrade_file, write_file_atomic};
+	let dir = std::env::temp_dir().join(format!("shcl-wrstat-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(dir.join("sub")).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let why = |r: Result<(), shcl::WriteError>| r.err().map(|e| e.status);
+	let mut doc = Document::parse("a: 1\n");
+	assert_eq!(why(write_file_atomic(&at("ok.shcl"), "a: 1\n")), None);
+	let missing = at("nope/t.shcl");
+	let e = write_file_atomic(&missing, "a: 1\n").unwrap_err();
+	assert_eq!(e.status, WriteStatus::NotFound);
+	assert!(e.message.starts_with(&missing), "{}", e.message);
+	assert_eq!(e.to_string(), e.message);
+	match doc.save_file(&missing) {
+		Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::NotFound),
+		other => panic!("save into a missing folder: {other:?}"),
+	}
+	match doc.save_file_lossy(&missing) {
+		Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::NotFound),
+		other => panic!("lossy save into a missing folder: {other:?}"),
+	}
+	match Document::parse_keep_lines("a: 1\n", Strictness::Standard)
+		.unwrap()
+		.save_file_keep_lines(&missing)
+	{
+		Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::NotFound),
+		other => panic!("kept save into a missing folder: {other:?}"),
+	}
+	// Part of the path is a file: the folder isn't there either.
+	assert_eq!(
+		why(write_file_atomic(&at("ok.shcl/t.shcl"), "a: 1\n")),
+		Some(WriteStatus::NotFound)
+	);
+	assert_eq!(
+		why(write_file_atomic(&at("sub"), "a: 1\n")),
+		Some(WriteStatus::IsDirectory)
+	);
+	assert_eq!(
+		why(write_file_atomic(&format!("{}/", at("ok.shcl")), "a: 1\n")),
+		Some(WriteStatus::IsDirectory)
+	);
+	match upgrade_file(&at("sub"), false) {
+		Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory),
+		other => panic!("upgrade of a directory: {other:?}"),
+	}
+	std::fs::write(at("bin.shcl"), b"a: \xff\n").unwrap();
+	match upgrade_file(&at("bin.shcl"), false) {
+		Err(UpgradeError::Io(e)) => {
+			assert_eq!(e.status, WriteStatus::Unreadable);
+			assert!(e.message.contains("UTF-8"), "{}", e.message);
+		}
+		other => panic!("upgrade of a file that is not UTF-8: {other:?}"),
+	}
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let fifo = at("p.shcl");
+		assert!(
+			std::process::Command::new("mkfifo")
+				.arg(&fifo)
+				.status()
+				.unwrap()
+				.success()
+		);
+		assert_eq!(
+			why(write_file_atomic(&fifo, "a: 1\n")),
+			Some(WriteStatus::NotRegular)
+		);
+		match upgrade_file(&fifo, false) {
+			Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::NotRegular),
+			other => panic!("upgrade of a FIFO: {other:?}"),
+		}
+		// root writes anyway, so the rows wait for a probe that is refused.
+		let shut = dir.join("shut");
+		std::fs::create_dir(&shut).unwrap();
+		std::fs::write(shut.join("v2.shcl"), "x: a,b\n").unwrap();
+		std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o500)).unwrap();
+		if std::fs::write(shut.join("probe"), "").is_err() {
+			let f = shut.join("t.shcl");
+			assert_eq!(
+				why(write_file_atomic(f.to_str().unwrap(), "a: 1\n")),
+				Some(WriteStatus::PermissionDenied)
+			);
+			let v2 = shut.join("v2.shcl");
+			match shcl::write_backup(v2.to_str().unwrap(), "x: a,b\n", 2) {
+				Err(UpgradeError::Io(e)) => {
+					assert_eq!(e.status, WriteStatus::PermissionDenied)
+				}
+				other => panic!("backup into a shut folder: {other:?}"),
+			}
+			match upgrade_file(v2.to_str().unwrap(), true) {
+				Err(UpgradeError::Io(e)) => {
+					assert_eq!(e.status, WriteStatus::PermissionDenied)
+				}
+				other => panic!("upgrade in a shut folder: {other:?}"),
+			}
+			// A file it may not read says so, not that it isn't UTF-8
+			// (2026101514324707).
+			let locked = dir.join("locked.shcl");
+			std::fs::write(&locked, "a: 1\nb 2\n").unwrap();
+			std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+			match upgrade_file(locked.to_str().unwrap(), false) {
+				Err(UpgradeError::Io(e)) => {
+					assert_eq!(e.status, WriteStatus::PermissionDenied);
+					assert!(!e.message.contains("UTF-8"), "{}", e.message);
+				}
+				other => panic!("upgrade of a file it may not read: {other:?}"),
+			}
+		}
+		std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o700)).unwrap();
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A written value with both quote kinds is stored the way its own reload
+/// stores it, so `instances` and a read's raw text agree across a save. The
+/// emitter escapes the double quotes; the writer used to keep them bare. Same
+/// fixture in every runner.
+#[test]
+fn written_spelling_matches_its_reload() {
+	let _id = test_id("dc41f");
+	let mut d = Document::parse("x: 1\n");
+	assert_eq!(d.set_string("k", "q\"q'"), shcl::SetStatus::Ok);
+	let back = Document::parse(&d.to_canonical());
+	assert_eq!(back.instances("k"), d.instances("k"));
+	assert_eq!(d.get_string_or("k", String::new()), "q\"q'");
+}
+
+/// The name index used to be rebuilt by walking the arena, which still holds
+/// every node a set-and-remove cycle ever made - so the first read after a
+/// merge grew with the number of edits, not with the document. Timed against
+/// the same document with no dead nodes; the ratio is what matters, since an
+/// absolute figure would be a machine constant. Same fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn index_rebuild_ignores_removed_nodes() {
+	let _id = test_id("dc412");
+	let mut ms = [0.0f64; 2];
+	for (churned, slot) in ms.iter_mut().enumerate() {
+		let mut d = Document::parse("g:\n\tk: 1\n");
+		if churned == 1 {
+			// A subtree per cycle, not a leaf. A removed leaf leaves its
+			// parent's list, so the old walk only stepped over it and cost
+			// three times a sound build. A removed subtree keeps its own list,
+			// and the old walk indexed every dead child.
+			for i in 0..50_000 {
+				assert_eq!(d.set_int("g.tmp.x", i), shcl::SetStatus::Ok);
+				assert_eq!(d.remove("g.tmp"), 1);
+			}
+		}
+		let other = Document::parse("g:\n\tk: 1\n");
+		let t0 = std::time::Instant::now();
+		for _ in 0..2000 {
+			d.merge(&other);
+			assert_eq!(d.get_int_or("g.k", -1), 1);
+		}
+		*slot = t0.elapsed().as_secs_f64() * 1000.0;
+	}
+	// A generous ratio on purpose: the chain array is still sized by the arena,
+	// which is a memset the walk cannot avoid. What the bound catches is the
+	// walk itself going over every dead node, which is orders larger. Two
+	// thousand merges put that cost well past the constant term a shared
+	// runner needs; at two hundred the constant could absorb the defect.
+	// A clock too coarse to see the fresh side leaves the ratio with no
+	// denominator. That used to skip the judgment, and it skipped it silently
+	// on the one platform where it fires - the hosted windows job. The constant
+	// term alone is an absolute figure on whatever machine is running, so it
+	// gets room: the healthy churned side has measured half a second there, and
+	// the defect is tens of seconds.
+	let bound = if ms[0] <= 0.0 {
+		3000.0
+	} else {
+		ms[0] * 25.0 + 1000.0
+	};
+	assert!(
+		ms[1] <= bound,
+		"index rebuild after churn {:.1} ms against {:.1} ms fresh (bound {:.1} ms) - it walks nodes the document no longer holds",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
+/// A merge settles the comments of the blocks it visited, not of the whole
+/// tree: a whole-tree pass made each small merge cost the document, and a
+/// caller folding many layers onto a big one paid it every time. Timed against
+/// the same merges with the big block left out. Same fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn merge_settles_only_what_it_touched() {
+	let _id = test_id("dd29m");
+	let mut ms = [0.0f64; 2];
+	for (big, slot) in ms.iter_mut().enumerate() {
+		let mut text = String::from("g:\n\tk: 1\n");
+		if big == 1 {
+			text.push_str("big:\n");
+			for i in 0..100_000 {
+				text.push_str(&format!("\tc{i}: {i}\n"));
+			}
+		}
+		let mut d = Document::parse(&text);
+		let other = Document::parse("g:\n\tk: 1\n");
+		let t0 = std::time::Instant::now();
+		for _ in 0..2000 {
+			d.merge(&other);
+		}
+		*slot = t0.elapsed().as_secs_f64() * 1000.0;
+		assert_eq!(d.get_int_or("g.k", -1), 1);
+	}
+	// The same bound as the index fixture above: the defect is a walk over a
+	// hundred thousand nodes per merge, seconds past the constant term.
+	let bound = if ms[0] <= 0.0 {
+		3000.0
+	} else {
+		ms[0] * 25.0 + 1000.0
+	};
+	assert!(
+		ms[1] <= bound,
+		"2000 merges beside a big block {:.1} ms against {:.1} ms without it (bound {:.1} ms) - the merge settles blocks it never touched",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
+/// A misplaced line kept as written made every edit and merge re-emit the
+/// whole document to settle it, even one far from the line. Timed against
+/// the same steps on the same document without the line. Same fixture in
+/// every runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn a_far_kept_line_costs_an_edit_nothing() {
+	let _id = test_id("dd2tf");
+	let mut ms = [0.0f64; 2];
+	for (kept, slot) in ms.iter_mut().enumerate() {
+		let mut text = String::from("g:\n\tk: 1\nbig:\n");
+		for i in 0..100_000 {
+			text.push_str(&format!("\tc{i}: {i}\n"));
+		}
+		if kept == 1 {
+			text.push_str(" x: y\n");
+		}
+		let mut d = Document::parse(&text);
+		let other = Document::parse("g:\n\tj: 1\n");
+		let t0 = std::time::Instant::now();
+		// Edits first: a merge drops the name index, and the edit after it
+		// would rebuild it over the whole document either way.
+		for i in 0..500 {
+			assert_eq!(d.set_int("g.k", i), shcl::SetStatus::Ok);
+		}
+		for _ in 0..500 {
+			d.merge(&other);
+		}
+		*slot = t0.elapsed().as_secs_f64() * 1000.0;
+		assert_eq!(d.get_int_or("g.k", -1), 499);
+		assert_eq!(d.to_canonical().ends_with("\n x: y\n"), kept == 1);
+	}
+	let bound = if ms[0] <= 0.0 {
+		3000.0
+	} else {
+		ms[0] * 25.0 + 1000.0
+	};
+	assert!(
+		ms[1] <= bound,
+		"500 edits and merges beside a kept line {:.1} ms against {:.1} ms without it (bound {:.1} ms) - each one settles the whole document",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
+#[test]
 fn standard_trait_surface() {
+	let _id = test_id("dbegt");
 	// Rust-only: the traits a rust user reaches for before reading any docs.
 	// Nothing here is new behavior, so there is no cross-binding fixture - the
 	// other three already export the same capabilities under their own names.
@@ -929,25 +3201,493 @@ fn standard_trait_surface() {
 	);
 	// Clone is a deep copy: editing the copy must not reach the original.
 	let mut copy = doc.clone();
-	assert!(copy.set_int("a", 9));
+	assert_eq!(copy.set_int("a", 9), shcl::SetStatus::Ok);
 	assert_eq!(doc.get_int("a"), Ok(1));
 	assert_eq!(copy.get_int("a"), Ok(9));
 	assert_eq!(shcl::Status::BadType.to_string(), "BadType");
-	assert_eq!(shcl::format_f64(1.5), "1.5");
-	assert_eq!(shcl::format_f64(f64::INFINITY), "inf");
-	assert_eq!(shcl::format_f64(f64::NAN), "NaN");
+	assert_eq!(shcl::format_float(1.5), "1.5");
+	assert_eq!(shcl::format_float(f64::INFINITY), "inf");
+	assert_eq!(shcl::format_float(f64::NAN), "NaN");
+	// Go's name for the datetime type, kept as an alias here and in Python.
+	let _: shcl::DateTime = shcl::ShclDateTime::default();
 }
 
+// The 6 tests below built a list with a field under it, which no load,
+// edit or merge builds now: the field line is kept and binds nothing (E001,
+// 2026102307143752). a_field_under_items_stays_kept pins what each case
+// does now.
+// /// A list with a field under it (E001) after an empty binding of its name
+// /// that has fields: no text loads it back, since a reload joins the list's
+// /// header to that binding and drops its items (E008). The load is left as
+// /// it is; a save that would write it refuses (2026100511210900). An edit and
+// /// a merge can each leave one. Same fixture in every runner.
+// #[cfg_attr(
+// 	miri,
+// 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+// )]
+// #[test]
+// fn a_list_no_text_loads_back_refuses_to_save() {
+// 	let _id = test_id("ddj1h");
+// 	let src = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
+// 	let mut doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
+// 	assert_eq!(doc.lost_count(), 0);
+// 	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
+// 	let text = doc.to_canonical();
+// 	assert_eq!(text, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
+// 	assert_eq!(
+// 		Document::parse(&text).lost_count(),
+// 		2,
+// 		"the reload drops both items"
+// 	);
+// 	assert_eq!(doc.lost_count(), 2);
+// 	assert!(
+// 		!doc.to_text_keep_lines().1,
+// 		"the source was canonical, and still no lines are kept"
+// 	);
+// 	let dir = std::env::temp_dir().join(format!("shcl-unloadable-{}", std::process::id()));
+// 	std::fs::create_dir_all(&dir).unwrap();
+// 	let f = dir.join("t.shcl");
+// 	let fs = f.to_str().unwrap();
+// 	std::fs::write(&f, src).unwrap();
+// 	assert!(matches!(
+// 		doc.save_file(fs),
+// 		Err(shcl::SaveError::Refused { lost: 2, .. })
+// 	));
+// 	assert!(matches!(
+// 		doc.save_file_keep_lines(fs),
+// 		Err(shcl::SaveError::Refused { lost: 2, .. })
+// 	));
+// 	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
+// 	assert!(doc.save_file_lossy(fs).is_ok());
+// 	std::fs::remove_dir_all(&dir).unwrap();
+// 	// The same through a merge: the list arrives over an empty binding.
+// 	let mut merged = Document::parse("x:\n\tf: 1\n");
+// 	merged.merge(&Document::parse("x:\n\t- a\n\t- b\n\tg: 2\n"));
+// 	assert_eq!(merged.lost_count(), 2, "{:?}", merged.to_canonical());
+// 	// An empty binding with no fields takes the list in, so nothing is lost,
+// 	// and a list with no field under it goes in brackets.
+// 	let mut doc = Document::parse("x: v\nx:\n\t- a\n\tg: 2\n");
+// 	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
+// 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
+// 	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n");
+// 	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
+// 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
+// }
+//
+// /// A setter that empties a field joins the stacked list after it, fields
+// /// and all, as a reload would. A read made before the write has the lookup
+// /// built, and the fields that moved still have to be found through it.
+// #[test]
+// fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
+// 	let _id = test_id("ddj2w");
+// 	for (src, path, field, want) in [
+// 		("b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
+// 		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
+// 		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
+// 	] {
+// 		let mut doc = Document::parse(src);
+// 		assert!(doc.get_string(field).is_ok(), "{src:?}");
+// 		assert_eq!(doc.set_empty(path), shcl::SetStatus::Ok, "{src:?}");
+// 		let back = Document::parse(&doc.to_canonical());
+// 		assert_eq!(back.get_string(field).as_deref(), Ok(want), "{src:?}");
+// 		assert_eq!(doc.get_string(field).as_deref(), Ok(want), "{src:?}");
+// 		assert_eq!(doc.paths(), back.paths(), "{src:?}");
+// 	}
+// }
+//
+// /// A merge adds a list with a field under it as a new instance after an
+// /// empty binding of its name. A comment or kept line left after the binding
+// /// held the join off, though a reload joins the two (2026100520243961).
+// #[test]
+// fn a_merged_list_joins_an_empty_field_past_a_comment() {
+// 	let _id = test_id("ddj9k");
+// 	let layer = Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n");
+// 	for base in [
+// 		"p:\n\ts:\n\t# c\n",
+// 		"p:\n\ts:\n\tk: [1\n",
+// 		"p:\n\ts:\n\t# c\n\t\t# d\n",
+// 		"p:\n\ts:\n\t# c\n\tt: 2\n",
+// 	] {
+// 		let mut doc = Document::parse(base);
+// 		doc.merge(&layer);
+// 		let text = doc.to_canonical();
+// 		let back = Document::parse(&text);
+// 		assert_eq!(back.to_canonical(), text, "{base:?}");
+// 		assert_eq!(doc.paths(), back.paths(), "{base:?}");
+// 		assert_eq!(doc.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
+// 		assert_eq!(back.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
+// 		assert_eq!(doc.instances("p.s").len(), 1, "{base:?}");
+// 	}
+// }
+//
+// /// A list that joins an empty binding brings its fields, and the binding's
+// /// own kept line inside its block is written after them. A merge left it
+// /// filed inside the block, so a remove of the last field wrote it before the
+// /// kept line among the items, and a reload after it (2026100914525821).
+// #[test]
+// fn a_joined_list_files_the_bindings_lines_like_a_reload() {
+// 	let _id = test_id("ddqs1");
+// 	let mut doc = Document::parse("srv:\n\t[\n");
+// 	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
+// 	let text = doc.to_canonical();
+// 	assert_eq!(text, "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n");
+// 	let mut back = Document::parse(&text);
+// 	assert_eq!(doc.remove("srv.b"), 1);
+// 	assert_eq!(back.remove("srv.b"), 1);
+// 	assert_eq!(doc.to_canonical(), "srv:\n\t- 1\n\t*\n\t[\n");
+// 	assert_eq!(back.to_canonical(), doc.to_canonical());
+// 	// The write side's join, when a remove empties the binding.
+// 	let mut doc = Document::parse("srv:\n\tx: 1\n\t[\n");
+// 	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
+// 	assert_eq!(doc.remove("srv.x"), 1);
+// 	let mut back = Document::parse(&doc.to_canonical());
+// 	assert_eq!(doc.remove("srv.b"), 1);
+// 	assert_eq!(back.remove("srv.b"), 1);
+// 	assert_eq!(back.to_canonical(), doc.to_canonical());
+// }
+//
+// /// The remove twin: the merge without the gap builds the list no text loads
+// /// back, after a binding with a field. A remove that takes that field joins
+// /// the list, and one that takes the list's field puts it in brackets, as a
+// /// reload reads each.
+// #[test]
+// fn a_remove_settles_a_list_after_an_empty_field() {
+// 	let _id = test_id("ddj9m");
+// 	for (path, want) in [
+// 		("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
+// 		("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
+// 	] {
+// 		let mut doc = Document::parse("p:\n\ts:\n\t\tx: 1\n");
+// 		doc.merge(&Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"));
+// 		assert!(doc.lost_count() > 0, "the list no text loads back");
+// 		assert_eq!(doc.remove(path), 1);
+// 		let text = doc.to_canonical();
+// 		assert_eq!(text, want, "{path}");
+// 		let back = Document::parse(&text);
+// 		assert_eq!(back.to_canonical(), text, "{path}");
+// 		assert_eq!(doc.paths(), back.paths(), "{path}");
+// 		assert_eq!(doc.lost_count(), 0, "{path}");
+// 	}
+// }
+//
+// /// A load can build that list too, under a kept array line (E028). The
+// /// canonical text writes the line as a comment and cannot load the list
+// /// back, so that save refuses. The source text does, so with no edits the
+// /// save that keeps lines writes it as it was.
+// #[cfg_attr(
+// 	miri,
+// 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+// )]
+// #[test]
+// fn a_list_the_source_loads_back_keeps_its_lines() {
+// 	let _id = test_id("ddj53");
+// 	let src = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n";
+// 	let doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
+// 	assert_eq!(doc.lost_count(), 2, "the wildcard line and the item");
+// 	assert_eq!(doc.to_text_keep_lines(), (src.to_string(), true));
+// 	let dir = std::env::temp_dir().join(format!("shcl-sourcelist-{}", std::process::id()));
+// 	std::fs::create_dir_all(&dir).unwrap();
+// 	let f = dir.join("t.shcl");
+// 	let fs = f.to_str().unwrap();
+// 	std::fs::write(&f, src).unwrap();
+// 	assert!(matches!(
+// 		doc.save_file(fs),
+// 		Err(shcl::SaveError::Refused { lost: 2, .. })
+// 	));
+// 	assert!(matches!(doc.save_file_keep_lines(fs), Ok(true)));
+// 	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
+// 	std::fs::remove_dir_all(&dir).unwrap();
+// }
+
+/// A field line under stacked items is kept and binds nothing (E001), and so
+/// is an item after a field line (E008). Where an edit or a merge leaves one
+/// that a reload would bind, it is written as a comment. Same fixture in
+/// every runner.
+#[test]
+fn a_field_under_items_stays_kept() {
+	let _id = test_id("deav2");
+	let check = |doc: &Document, want: &str| {
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(doc.paths(), back.paths(), "{text:?}");
+		assert_eq!(doc.lost_count(), 0, "{text:?}");
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+	};
+	// The load keeps both lines, and the items around them still join.
+	let src = "a:\n\t- x\n\tb: 1\n\t- y\nc:\n\td: 1\n\t- z\n\te: 2\n";
+	let doc = Document::parse(src);
+	let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	assert_eq!(codes, [(3, "E001"), (7, "E008")]);
+	assert_eq!(
+		doc.get_string_array("a"),
+		Ok(vec!["x".to_string(), "y".to_string()])
+	);
+	assert!(doc.get_string("a.b").is_err());
+	assert_eq!(doc.children("c"), ["d", "e"]);
+	check(&doc, src);
+	// A list after an empty binding of its name goes in brackets, so the
+	// field line kept after its items is written as a comment.
+	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
+	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
+	check(&doc, "x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n");
+	let mut doc = Document::parse("p:\n\ts:\n\t\tx: 1\n");
+	doc.merge(&Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"));
+	check(&doc, "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n\t\t# c: 1\n");
+	// A setter that replaces the list moves the kept line above it.
+	let mut doc = Document::parse("a:\n\t- x\n\tb: 1\n\t- y\nd: 1\n");
+	assert_eq!(doc.set_string_array("a", &["p", "q"]), shcl::SetStatus::Ok);
+	check(&doc, "# b: 1\na:\n\t- p\n\t- q\nd: 1\n");
+	// A remove of the field before it leaves the item where it would join.
+	let mut doc = Document::parse("a:\n\tb: 1\n\t- x\n\tc: 2\n");
+	assert_eq!(doc.remove("a.b"), 1);
+	check(&doc, "a:\n\t# - x\n\tc: 2\n");
+	assert_eq!(doc.remove("a.c"), 1);
+	check(&doc, "a:\n\t# - x\n");
+	// A line refused for its value still holds its level open under items,
+	// for what is kept under it. A line that would bind through it is E001.
+	let doc = Document::parse("a:\n\tb: x, , y\n\t\tno colon here\na: 1, , 2\n  - 0\n");
+	check(
+		&doc,
+		"a: 1, , 2\na:\n\t- 0\n\tb: x, , y\n\t\tno colon here\n",
+	);
+	let src = "a:\n\t- 0\n\tb: x, , y\n\t\tc: 1\n\t\t- 2\n";
+	let doc = Document::parse(src);
+	let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	assert_eq!(codes, [(3, "E026"), (4, "E001"), (5, "E001")]);
+	assert_eq!(doc.get_string_array("a"), Ok(vec!["0".to_string()]));
+	check(&doc, src);
+	// Once a merge brackets the list, such a line is a comment, at most one
+	// level past the comment before it.
+	let mut doc = Document::parse("a:\n\t- 0\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t\td: 1\n");
+	doc.merge(&Document::parse("z: 1\n"));
+	check(
+		&doc,
+		"a: [0]\n\tb: x, , y\n\t\tc: p, , q\n\t# note\n\t\t# d: 1\nz: 1\n",
+	);
+}
+
+/// An index can select a list, and a dotted line through it does what the
+/// same field on the line under `srv(0):` does: an array line is kept for
+/// the field (E028), and a field after stacked items is kept (E001). So no
+/// load or merge builds a list with a field under it. Same fixture in every
+/// runner.
+#[test]
+fn an_index_onto_a_list_takes_no_field() {
+	let _id = test_id("decb2");
+	let check = |doc: &Document, want: &str| {
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(doc.paths(), back.paths(), "{text:?}");
+		assert_eq!(doc.lost_count(), 0, "{text:?}");
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+	};
+	let codes = |doc: &Document| -> Vec<(usize, &'static str)> {
+		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect()
+	};
+	let src = "srv: [a]\nsrv(0).tls: on\n";
+	let doc = Document::parse(src);
+	assert_eq!(codes(&doc), [(1, "E028")]);
+	assert_eq!(doc.get_string("srv.tls"), Ok("on".to_string()));
+	assert_eq!(
+		codes(&Document::parse("srv: [a]\nsrv(0):\n\ttls: on\n")),
+		[(1, "E028")]
+	);
+	check(&doc, "srv: [a]\n\ttls: on\n");
+	let src = "srv:\n\t- a\nsrv(0).tls: on\n";
+	let doc = Document::parse(src);
+	assert_eq!(codes(&doc), [(3, "E001")]);
+	assert_eq!(doc.get_string_array("srv"), Ok(vec!["a".to_string()]));
+	assert!(doc.get_string("srv.tls").is_err());
+	// The emitter walks the index now, so the line stays as written, where a
+	// reload keeps it again (2026102821334970, an_index_with_no_instance_stays_kept).
+	// check(&doc, "srv:\n\t- a\n# srv(0).tls: on\n");
+	// The 2M merge fuzz's case: the layer brought the list and the field.
+	let mut doc = Document::parse("m: 1\n");
+	doc.merge(&Document::parse("srv: [a]\nsrv(0).tls: on\n"));
+	check(&doc, "m: 1\nsrv: [a]\n\ttls: on\n");
+	let mut doc = Document::parse("m: 1\n");
+	doc.merge(&Document::parse("srv:\n\t- a\nsrv(0).tls: on\n"));
+	check(&doc, "m: 1\nsrv: [a]\n# srv(0).tls: on\n");
+}
+
+/// An index that selects no instance bound before it is kept (E003): the
+/// line binds nothing, opens none of its path's fields, and nothing is lost.
+/// Where a merge or an edit puts an instance above it, it is written as a
+/// comment. One that opens a raw block is dropped with it. Same fixture in
+/// every runner.
+#[test]
+fn an_index_with_no_instance_stays_kept() {
+	let _id = test_id("dekxz");
+	let codes = |doc: &Document| -> Vec<(usize, &'static str)> {
+		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect()
+	};
+	let check = |doc: &Document, want: &str| {
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(doc.paths(), back.paths(), "{text:?}");
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+	};
+	let src = "a: 1\na(5).b: 2  # c\nx.a(0).b: 1\nh: \"open\n\tb(0).c: 1\na(3).d: [1, 2]\nz: 1\n";
+	let doc = Document::parse(src);
+	assert_eq!(
+		codes(&doc),
+		[
+			(2, "E003"),
+			(3, "E003"),
+			(4, "E017"),
+			(5, "E003"),
+			(6, "E003")
+		]
+	);
+	assert_eq!(doc.lost_count(), 0);
+	assert_eq!(doc.paths(), ["a", "z"]);
+	check(&doc, src);
+	let doc = Document::parse("a: 1\na(5).b: ```\n\tbody: 1\n```\nz: 1\n");
+	assert_eq!(codes(&doc), [(2, "E003")]);
+	assert_eq!(doc.lost_count(), 1);
+	// A dotted line onto stacked items through an index stays as written.
+	let src = "srv:\n\t- a\nsrv(0).tls: on\n";
+	check(&Document::parse(src), src);
+	// A merge brings the instance above it.
+	let mut doc = Document::parse("a: 1\na(1).b: 2\nz: 1\n");
+	doc.merge(&Document::parse("a: 1\na: 2\n"));
+	check(&doc, "a: 1\na: 2\n# a(1).b: 2\nz: 1\n");
+	// An edit far above it gives the index one, and the document settles.
+	let mut doc = Document::parse("p:\n\tx: bar\n\t\ty: 1\nw: 1\np.x(foo).y(0).z: 1\nq: 1\n");
+	assert_eq!(codes(&doc), [(5, "E003")]);
+	assert_eq!(doc.set_string("p.x", "foo"), shcl::SetStatus::Ok);
+	check(
+		&doc,
+		"p:\n\tx: foo\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n",
+	);
+	// It settled to the comment, as a save and a reload would have.
+	assert_eq!(doc.set_string("p.x", "bar"), shcl::SetStatus::Ok);
+	check(
+		&doc,
+		"p:\n\tx: bar\n\t\ty: 1\nw: 1\n# p.x(foo).y(0).z: 1\nq: 1\n",
+	);
+}
+
+/// A set that makes a second instance with a value one already has folds it
+/// into that one. The data is as it was, so the text is too: the kept lines
+/// beside it stay, and only a comment written against it goes along. The
+/// lines that ended the block went above the old instance, where one read as
+/// a comment or bound (2026110312163204). A kept line among a stacked list's
+/// items that names the list goes above it as the noted comment on the first
+/// set, not the second (2026110312163205). Same fixture in every runner.
+#[test]
+fn a_set_that_folds_leaves_kept_lines() {
+	let _id = test_id("detsb");
+	let set = |src: &str, path: &str, text: &str| -> String {
+		let mut doc = Document::parse(src);
+		assert_eq!(doc.set_literal(path, text), shcl::SetStatus::Ok, "{src:?}");
+		let out = doc.to_canonical();
+		let back = Document::parse(&out);
+		assert_eq!(back.to_canonical(), out);
+		assert_eq!(doc.paths(), back.paths(), "{out:?}");
+		assert_eq!(back.lost_count(), 0, "{out:?}");
+		out
+	};
+	for src in [
+		"a:\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a: v\n\tb: y\n\tc: 1\n\t- 1\n",
+		"a:\n\tb: y\n\tc: 1\n\tx(3).y: 1\n",
+		"a:\n\tb: y\n\tc: 1\n\t-\n",
+		"a:\n\tb: y\n\tc: 1\n\tq: [1\n",
+		"a:\n\tb: y\n\tq: [1\n\t# note\nz: 1\n",
+	] {
+		assert_eq!(set(src, "a.b(z)", "y"), src);
+	}
+	let src = "c: 1\nb: y\n\tq: 1\nd: 1\n- 1\n";
+	assert_eq!(set(src, "b(a)", "y"), src);
+	// An instance set to an earlier one's value.
+	assert_eq!(
+		set(
+			"a:\n\tb: y\n\t# note\n\tq: [1\n\t# against\n\tb: x\n\tz: 1\n",
+			"a.b(x)",
+			"y"
+		),
+		"a:\n\t# against\n\tb: y\n\t# note\n\tq: [1\n\tz: 1\n"
+	);
+	// The two instances' fields fold too. A kept line beside one stays
+	// beside it, after the block it folded into.
+	assert_eq!(
+		set(
+			"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\nb: x\n\tp: [2\n\tk:\n\t\tm: 1\n\t\t- 2\n",
+			"b(x)",
+			"y"
+		),
+		"b: y\n\tk:\n\t\tm: 1\n\t\tq: [1\n\t\t- 2\n\tp: [2\n"
+	);
+	let once = set("a:\n\t- 1\n\ta: [1, 2\n\t- 2\n", "a", "1");
+	assert_eq!(
+		once,
+		"# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 1\n"
+	);
+	assert_eq!(set(&once, "a", "1"), once);
+}
+
+/// A line kept in a leaf's block stays in the merged block when the other
+/// layer replaces the leaf, as it does when a setter changes the leaf in
+/// place. It went to the root, above the field, where an item reloaded as
+/// E007. Same fixture in every runner.
+#[test]
+fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
+	let _id = test_id("dekz1");
+	for (src, want, code) in [
+		(
+			"val: 1\n\ta: [1\nz: 2\n",
+			"val: 1\n\ta: [1\n\ta: [1\nz: 2\n",
+			"E019",
+		),
+		(
+			"val: 1\n\t- e\nz: 2\n",
+			"val: 1\n\t- e\n\t- e\nz: 2\n",
+			"E011",
+		),
+	] {
+		let mut doc = Document::parse(src);
+		doc.merge(&Document::parse(src));
+		let text = doc.to_canonical();
+		assert_eq!(text, want);
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text);
+		assert_eq!(back.lost_count(), 0, "{text:?}");
+		let codes: Vec<(usize, &str)> = back
+			.diagnostics()
+			.iter()
+			.map(|d| (d.line, d.code))
+			.collect();
+		assert_eq!(codes, [(2, code), (3, code)]);
+	}
+}
+
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
 #[test]
 fn lost_and_save_gate() {
+	let _id = test_id("dbcxe");
 	// Content-malformed lines are retained as trivia (lost_count 0, the line
 	// survives a save); position-dependent drops count as lost and make
 	// save_file refuse until the caller opts into save_file_lossy. Same
 	// fixture in every runner.
-	let kept = Document::parse("a: 1\nsquare-miles 300\nb: 2\n");
+	let mut kept = Document::parse("a: 1\nsquare-miles 300\nb: 2\n");
 	assert_eq!(kept.lost_count(), 0);
 	assert!(kept.to_canonical().contains("square-miles 300\n"));
-	let lost = Document::parse("a:\n\tb: 1\n  c: 2\n"); // indent matches no level
+	// An indent matching no level is kept as written when it holds a space,
+	// which no level the emitter writes can equal, and lost when it is tabs.
+	let spaced = Document::parse("a:\n\tb: 1\n  c: 2\n\td: 3\n");
+	assert_eq!(spaced.lost_count(), 0);
+	assert_eq!(spaced.to_canonical(), "a:\n\tb: 1\n  c: 2\n\td: 3\n");
+	let mut lost = Document::parse("a:\n\t\tb: 1\n\tc: 2\n");
 	assert_eq!(lost.lost_count(), 1);
 	let dir = std::env::temp_dir().join(format!("shcl-lostgate-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
@@ -968,12 +3708,29 @@ fn lost_and_save_gate() {
 		lost.save_file(bads),
 		Err(shcl::SaveError::Refused { lost: 1, .. })
 	));
+	// A save that keeps lines writes the dropped line back as it was, so it
+	// refuses only when it falls back to canonical. Here removing the line
+	// above it would make it a child of `a`.
+	let mut keep =
+		Document::parse_keep_lines("a:\n\t\tb: 1\n\tc: 2\n", Strictness::Standard).unwrap();
+	assert_eq!(keep.set_int("a.b", 5), shcl::SetStatus::Ok);
+	assert!(matches!(keep.save_file_keep_lines(fs), Ok(true)));
+	assert_eq!(
+		std::fs::read_to_string(fs).unwrap(),
+		"a:\n\t\tb: 5\n\tc: 2\n"
+	);
+	assert_eq!(keep.remove("a.b"), 1);
+	assert!(matches!(
+		keep.save_file_keep_lines(fs),
+		Err(shcl::SaveError::Refused { lost: 1, .. })
+	));
 	let _ = std::fs::remove_file(&f);
 	let _ = std::fs::remove_dir(&dir);
 }
 
 #[test]
 fn strict_failure_carries_document() {
+	let _id = test_id("daqsp");
 	// A failed strict load hands back the document and names the first
 	// failures in the message - the diagnostics are the point.
 	let e = Document::parse_with("ok: 1\n: nope\n", Strictness::Strict).unwrap_err();
@@ -985,27 +3742,36 @@ fn strict_failure_carries_document() {
 
 #[test]
 fn raw_is_source_text() {
-	// raw: the verbatim value span from the source line - not the display
-	// join, which rewrites `{2,3}` to `{2, 3}`. Same fixture in every runner
-	// whose read result exposes raw (the C read structs deliberately do not).
-	let doc = Document::parse("regex: ^\\d{2,3}$\nlist: a,  \"b c\"\n");
-	assert_eq!(doc.read_string("regex").raw.as_deref(), Some("^\\d{2,3}$"));
+	let _id = test_id("daqsg");
+	// raw: the verbatim value span from the source line, quotes and all - not
+	// the canonical form, which rewrites `[a,  "b c"]` to `[a, "b c"]`. Same
+	// fixture in every runner whose read result exposes raw (the C read
+	// structs deliberately do not).
+	let doc = Document::parse("regex: \"^\\d{2,3}$\"\nlist: [a,  \"b c\"]\n");
+	assert_eq!(
+		doc.read_string("regex").raw.as_deref(),
+		Some("\"^\\d{2,3}$\"")
+	);
 	assert_eq!(
 		doc.read_string_array("list").raw.as_deref(),
-		Some("a,  \"b c\"")
+		Some("[a,  \"b c\"]")
 	);
 	// A written value has no source spelling; raw falls back to display. The
-	// selector's escaped spelling must land on the existing instance.
+	// selector's escaped spelling must reach the existing instance.
 	let mut doc2 = Document::parse("who: 'q\"uote'\n");
-	assert!(doc2.set_int("who[\"q\\\"uote\"].n", 5));
+	assert_eq!(
+		doc2.set_int("who(\"q◉DQUOTE◉uote\").n", 5),
+		shcl::SetStatus::Ok
+	);
 	assert_eq!(doc2.count("who"), 1);
-	let r = doc2.read_int("who['q\"uote'].n");
+	let r = doc2.read_int("who('q\"uote').n");
 	assert_eq!((r.value, r.status), (5, shcl::Status::Good));
-	assert_eq!(doc2.read_int("who['q\"uote'].n").raw.as_deref(), Some("5"));
+	assert_eq!(doc2.read_int("who('q\"uote').n").raw.as_deref(), Some("5"));
 }
 
 #[test]
 fn paths_enumeration_shape() {
+	let _id = test_id("dacx2");
 	// paths(): file order, deduplicated, non-bare segments quoted so every
 	// path resolves. Same fixture is pinned in every runner.
 	let doc = Document::parse("a: 1\na.b: 2\n\"q n\": 3\nx:\n\tb: 4\nx.b: 5\n");
@@ -1021,8 +3787,13 @@ fn paths_enumeration_shape() {
 	assert_eq!((r.value, r.status), (3, shcl::Status::Good));
 }
 
+#[cfg_attr(
+	miri,
+	ignore = "a 2000-deep chain never finishes under Miri (2026102106592600)"
+)]
 #[test]
 fn generation_bounds_a_multiplying_schema() {
+	let _id = test_id("das80");
 	// A chain longer than the nesting cap would outrun the stack if it were
 	// followed all the way down; it is noted like a re-entering mount instead.
 	// Too big for a golden, so it is pinned here (like the depth-cap case).
@@ -1063,30 +3834,57 @@ fn generation_bounds_a_multiplying_schema() {
 
 #[test]
 fn one_shot_load_reports_a_broken_schema() {
+	let _id = test_id("das92");
 	// A schema that does not load would otherwise drop the constraints on its
 	// broken lines, or report every field as unknown - blaming the document.
+	// Same fixture in every runner.
 	let schema = "field: apikey\n\ttype: string\n  required: true\n";
-	let doc = Document::load_and_validate("host: example\n", schema, Strictness::Standard);
+	let doc = Document::load_and_validate("host: example\n", schema, Strictness::Standard).unwrap();
 	let ds = doc.diagnostics();
 	assert_eq!(ds.len(), 1, "expected only the schema fault, got {:?}", ds);
 	assert_eq!(ds[0].code, "V099");
 	assert_eq!(doc.error_count(), 1);
 	// A schema that loads still validates normally.
-	let ok = Document::load_and_validate("host: example\n", "field: host\n", Strictness::Standard);
+	let ok = Document::load_and_validate("host: example\n", "field: host\n", Strictness::Standard)
+		.unwrap();
 	assert_eq!(ok.error_count(), 0);
 	// An empty schema still means "skip validation", not "everything unknown".
-	let none = Document::load_and_validate("host: example\n", "", Strictness::Standard);
+	let none = Document::load_and_validate("host: example\n", "", Strictness::Standard).unwrap();
 	assert_eq!(none.error_count(), 0);
 }
 
 #[test]
+fn validate_and_generate_report_a_broken_schema() {
+	let _id = test_id("ddnz8");
+	// The quote never closes, so the max line is lost and a parse then
+	// validate passed 99999 with no word. Same fixture in every runner.
+	let schema = Document::parse("field: port\n\ttype: int\n\tmax: \"65535\n");
+	let vs = Document::parse("port: 99999\n").validate(&schema);
+	let codes: Vec<&str> = vs.iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V099"]);
+	assert_eq!((vs[0].line, vs[0].severity), (0, shcl::Severity::Error));
+	let err = generate(&schema, true).expect_err("a starter from a schema that did not load");
+	let codes: Vec<&str> = err.iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V099"]);
+	// A document that came through load_and_validate holds V codes of its own,
+	// and they are not load errors when it is used as a schema.
+	let checked =
+		Document::load_and_validate("field: port\n", "field: other\n", Strictness::Standard)
+			.unwrap();
+	assert_eq!(checked.diagnostics()[0].code, "V001");
+	assert!(Document::parse("port: 1\n").validate(&checked).is_empty());
+}
+
+#[test]
 fn quote_segment_backslash_round_trips() {
+	let _id = test_id("das9v");
 	// A name ending in a backslash: the quoted spelling must not let the
 	// closing quote be read as an escape pair.
 	let mut doc = Document::new();
 	let p = quote_segment("a\\");
-	assert!(
+	assert_eq!(
 		doc.set_int(&p, 7),
+		shcl::SetStatus::Ok,
 		"path from quote_segment must be writable"
 	);
 	let r = doc.read_int(&p);
@@ -1105,16 +3903,22 @@ fn quote_segment_backslash_round_trips() {
 	for name in ["\\", "a\\\\", "b\\\\\\", "\\.x"] {
 		let mut d2 = Document::new();
 		let q = quote_segment(name);
-		assert!(d2.set_int(&q, 3), "unwritable path for {:?}", name);
+		assert_eq!(
+			d2.set_int(&q, 3),
+			shcl::SetStatus::Ok,
+			"unwritable path for {:?}",
+			name
+		);
 		assert_eq!(d2.read_int(&q).value, 3, "value lost for {:?}", name);
 	}
 }
 
 #[test]
 fn repeat_suppression_uses_parsed_leaf() {
+	let _id = test_id("das9w");
 	// A quoted last segment with a dot must not disavow an unrelated field
-	// that happens to carry the split-off text.
-	let schema = Document::parse("field: a.\"b.c\"\n\trepeat: 0, 5\nfield: c\n");
+	// that happens to have the split-off text.
+	let schema = Document::parse("field: 'a.\"b.c\"'\n\trepeat: [0, 5]\nfield: c\n");
 	let doc = Document::parse("c: 1\nc: 2\n");
 	let mut diags = doc.diagnostics().to_vec();
 	assert_eq!(diags.iter().filter(|d| d.code == "H001").count(), 1);
@@ -1132,32 +3936,302 @@ fn repeat_suppression_uses_parsed_leaf() {
 	assert_eq!(d2.iter().filter(|d| d.code == "H001").count(), 0);
 }
 
+// A path the scanner refuses, or one with a value part, is BadPath on every
+// read with a status, where a path that parses and finds nothing stays
+// NotFound. The no-status calls give their empty answer and `_or` its
+// default. Same fixture in every runner.
+#[test]
+fn bad_path_reads_say_bad_path() {
+	let _id = test_id("ddp69");
+	use shcl::Status::{BadPath, Good, Multiple, NotFound};
+	let doc = Document::parse("site: a\n\tport: 1\n");
+	assert_eq!(doc.read_int("site(0).port").status, Good);
+	assert_eq!(doc.read_int("nope").status, NotFound);
+	let bad = [
+		"site[0].port",
+		"site(.port",
+		"site..port",
+		"",
+		"user name",
+		"site.port: 1",
+		"h:p",
+	];
+	for p in bad {
+		let r = doc.read_int(p);
+		assert_eq!(
+			(r.status, r.value, r.raw.is_none()),
+			(BadPath, 0, true),
+			"{p:?}"
+		);
+		assert_eq!(doc.read_float(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_bool(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_string(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_raw(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_raw_info(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_datetime(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_duration(p, None).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_size(p, None, false).status, BadPath, "{p:?}");
+		let a = doc.read_int_array(p);
+		assert_eq!(
+			(a.status, a.value.len(), a.slots.len()),
+			(BadPath, 0, 0),
+			"{p:?}"
+		);
+		assert_eq!(doc.read_float_array(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_bool_array(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_string_array(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_datetime_array(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.get_int(p), Err(BadPath), "{p:?}");
+		assert_eq!(doc.get_string_array(p), Err(BadPath), "{p:?}");
+		assert_eq!(doc.get_int_or(p, 8), 8, "{p:?}");
+		assert_eq!(doc.count(p), 0, "{p:?}");
+		assert!(doc.instances(p).is_empty(), "{p:?}");
+		if !p.is_empty() {
+			assert!(doc.children(p).is_empty(), "{p:?}");
+		}
+	}
+	// The empty path is the top level for children(), as documented.
+	assert_eq!(doc.children(""), vec!["site".to_string()]);
+	// Last in the order, so a worst-of aggregate puts it on top.
+	assert!(BadPath > Multiple);
+	assert_eq!(BadPath.to_string(), "BadPath");
+}
+
+// The list reads' status twins: BadPath for a path that cannot be read,
+// NotFound for one that matches nothing, Good otherwise, with the value the
+// plain call gives. Same fixture in every runner.
+#[test]
+fn list_reads_say_bad_path() {
+	let _id = test_id("ddq60");
+	use shcl::Status::{BadPath, Good, NotFound};
+	let doc = Document::parse("site: a\n\tport: 1\nsite: b\n");
+	let c = doc.read_count("site");
+	assert_eq!((c.value, c.status, c.line), (2, Good, 0));
+	let c = doc.read_count("site(0)");
+	assert_eq!((c.value, c.status, c.line), (1, Good, 1));
+	// An unresolved wildcard slot still counts, as in count().
+	let c = doc.read_count("site(*).port");
+	assert_eq!((c.value, c.status), (2, Good));
+	assert_eq!(doc.read_count("nope").status, NotFound);
+	assert_eq!(doc.read_count("nope(*)").status, NotFound);
+	let i = doc.read_instances("site");
+	assert_eq!(
+		(i.value, i.status),
+		(vec!["a".to_string(), "b".to_string()], Good)
+	);
+	let i = doc.read_instances("site(*).port");
+	assert_eq!(
+		(i.value, i.status),
+		(vec!["1".to_string(), String::new()], Good)
+	);
+	assert_eq!(doc.read_instances("nope").status, NotFound);
+	let k = doc.read_children("site(0)");
+	assert_eq!(
+		(k.value, k.status, k.line),
+		(vec!["port".to_string()], Good, 1)
+	);
+	// An empty section is Good, a missing one NotFound.
+	let k = doc.read_children("site(1)");
+	assert_eq!((k.value.len(), k.status), (0, Good));
+	assert_eq!(doc.read_children("nope").status, NotFound);
+	let k = doc.read_children("");
+	assert_eq!(
+		(k.value.join("|"), k.status),
+		("site|site".to_string(), Good)
+	);
+	for p in [
+		"site[0].port",
+		"site(.port",
+		"site..port",
+		"",
+		"user name",
+		"site.port: 1",
+		"h:p",
+	] {
+		let c = doc.read_count(p);
+		assert_eq!((c.value, c.status, c.slots.len()), (0, BadPath, 0), "{p:?}");
+		let i = doc.read_instances(p);
+		assert_eq!((i.value.len(), i.status), (0, BadPath), "{p:?}");
+		if !p.is_empty() {
+			let k = doc.read_children(p);
+			assert_eq!((k.value.len(), k.status), (0, BadPath), "{p:?}");
+		}
+	}
+}
+
+// The other path calls' status twins: BadPath for a path that cannot be
+// read, NotFound for one that reaches nothing, Multiple where a single-node
+// call meets several. Same fixture in every runner.
+#[test]
+fn path_twins_say_bad_path() {
+	let _id = test_id("ddrha");
+	use shcl::Status::{BadPath, Good, Multiple, NotFound};
+	let text = "# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n";
+	let mut doc = Document::parse(text);
+	let l = doc.read_line("site(0)");
+	assert_eq!((l.value, l.status, l.line), (2, Good, 2));
+	assert_eq!(
+		(doc.read_line("site").value, doc.read_line("site").status),
+		(0, Multiple)
+	);
+	assert_eq!(doc.read_line("site(*).port").status, Multiple);
+	assert_eq!(doc.read_line("nope").status, NotFound);
+	let a = doc.read_authored_name("name");
+	assert_eq!((a.value.as_str(), a.status, a.line), ("Name", Good, 5));
+	let a = doc.read_authored_name("site");
+	assert_eq!((a.value.as_str(), a.status), ("", Multiple));
+	assert_eq!(doc.read_authored_name("nope").status, NotFound);
+	let l = doc.read_lines("site");
+	assert_eq!((l.value, l.status), (vec![2, 4], Good));
+	// An unresolved wildcard slot still counts, as in read_count().
+	let l = doc.read_lines("site(*).port");
+	assert_eq!((l.value, l.status), (vec![3, 0], Good));
+	assert_eq!(doc.read_lines("nope").status, NotFound);
+	assert_eq!(doc.read_lines("nope(*)").status, NotFound);
+	let c = doc.read_comments("site");
+	assert_eq!(
+		(c.value, c.status),
+		(vec!["# about site".to_string()], Good)
+	);
+	// A node with no comment is Good, a missing one NotFound, and so is a
+	// wildcard whose slots all miss.
+	let c = doc.read_comments("site(1)");
+	assert_eq!((c.value.len(), c.status, c.line), (0, Good, 4));
+	assert_eq!(doc.read_comments("nope").status, NotFound);
+	assert_eq!(doc.read_comments("site(*).nope").status, NotFound);
+	let e = doc.read_exists("site(*).port");
+	assert_eq!((e.value, e.status, e.line), (true, Good, 3));
+	let e = doc.read_exists("site(*).nope");
+	assert_eq!((e.value, e.status), (false, NotFound));
+	assert_eq!(doc.read_exists("nope").status, NotFound);
+	for p in [
+		"site[0].port",
+		"site(.port",
+		"site..port",
+		"",
+		"user name",
+		"site.port: 1",
+		"h:p",
+	] {
+		let l = doc.read_line(p);
+		assert_eq!((l.value, l.status, l.slots.len()), (0, BadPath, 0), "{p:?}");
+		let a = doc.read_authored_name(p);
+		assert_eq!((a.value.as_str(), a.status), ("", BadPath), "{p:?}");
+		let l = doc.read_lines(p);
+		assert_eq!((l.value.len(), l.status), (0, BadPath), "{p:?}");
+		let c = doc.read_comments(p);
+		assert_eq!((c.value.len(), c.status), (0, BadPath), "{p:?}");
+		let e = doc.read_exists(p);
+		assert_eq!((e.value, e.status), (false, BadPath), "{p:?}");
+		let r = doc.try_clear_comments(p);
+		assert_eq!((r.value, r.status), (0, BadPath), "{p:?}");
+		let r = doc.try_remove(p);
+		assert_eq!((r.value, r.status), (0, BadPath), "{p:?}");
+	}
+	assert_eq!(doc.to_canonical(), Document::parse(text).to_canonical());
+	// A node a setter built has no source line, and says Good.
+	assert_eq!(doc.set_int("built", 1), shcl::SetStatus::Ok);
+	let l = doc.read_line("built");
+	assert_eq!((l.value, l.status), (0, Good));
+	let r = doc.try_clear_comments("site(1)");
+	assert_eq!((r.value, r.status, r.line), (0, Good, 4));
+	assert_eq!(doc.try_clear_comments("nope").status, NotFound);
+	let r = doc.try_clear_comments("site");
+	assert_eq!((r.value, r.status), (1, Good));
+	let r = doc.try_remove("site(*).port");
+	assert_eq!((r.value, r.status, r.line), (1, Good, 3));
+	let r = doc.try_remove("site(*).port");
+	assert_eq!((r.value, r.status), (0, NotFound));
+	assert_eq!(doc.try_remove("nope").status, NotFound);
+	let r = doc.try_remove("site");
+	assert_eq!((r.value, r.status), (2, Good));
+}
+
 #[test]
 fn huge_selector_index_is_not_found() {
+	let _id = test_id("das9x");
 	// An index at or past 2^32 must report not-found on every target width,
 	// never wrap into a live element (pins the contract; 64-bit passes either way).
 	let doc = Document::parse("a: 1\na: 2\n");
+	assert_eq!(doc.read_int("a(4294967296)").status, shcl::Status::NotFound);
 	assert_eq!(
-		doc.read_int("a[#4294967296]").status,
+		doc.read_int("a(18446744073709551615)").status,
 		shcl::Status::NotFound
 	);
+	assert_eq!(doc.count("a(4294967296)"), 0);
 	assert_eq!(
-		doc.read_int("a[#18446744073709551615]").status,
-		shcl::Status::NotFound
-	);
-	assert_eq!(doc.count("a[#4294967296]"), 0);
-	assert_eq!(
-		doc.write_reason("a[#4294967296]"),
-		shcl::WriteReason::NoSuchIndex
+		doc.check_set_path("a(4294967296)"),
+		shcl::SetStatus::NoSuchIndex
 	);
 	let mut w = Document::parse("a: 1\na: 2\n");
-	assert!(!w.set_int("a[#4294967296]", 9));
+	assert_ne!(w.set_int("a(4294967296)", 9), shcl::SetStatus::Ok);
 	// In-range still works.
-	assert_eq!(doc.read_int("a[#1]").value, 2);
+	assert_eq!(doc.read_int("a(1)").value, 2);
+}
+
+// A selector is written in parens. One in brackets is the old spelling: a
+// file line is E029 and kept, and a lookup, a setter or a schema path in
+// brackets is refused. A body starting with `#`, the old index, is refused
+// too. Same fixture in every runner.
+#[test]
+fn bracket_selectors_are_the_old_spelling() {
+	let _id = test_id("ddkd4");
+	let mut doc = Document::parse("srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n");
+	let d = doc.diagnostics();
+	assert_eq!((d.len(), d[0].code, d[0].line), (1, "E029", 3), "{d:?}");
+	assert_eq!(doc.lost_count(), 0);
+	assert_eq!(doc.read_string("srv(web).host").value, "h");
+	assert_eq!(doc.count("srv"), 1);
+	// Was NotFound until reads got BadPath (2026100717500001).
+	// assert_eq!(
+	// 	doc.read_string("srv[web].host").status,
+	// 	shcl::Status::NotFound
+	// );
+	assert_eq!(
+		doc.read_string("srv[web].host").status,
+		shcl::Status::BadPath
+	);
+	assert_eq!(doc.count("srv[web]"), 0);
+	assert_eq!(doc.check_set_path("srv[web].x"), shcl::SetStatus::BadPath);
+	assert_eq!(doc.check_set_path("srv(#0).x"), shcl::SetStatus::BadPath);
+	assert_eq!(doc.check_set_path("srv(0).x"), shcl::SetStatus::Ok);
+	assert_ne!(doc.set_int("srv[web].x", 1), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("srv(web).x", 1), shcl::SetStatus::Ok);
+	assert!(doc.to_canonical().starts_with("srv[web]:\nsrv: web\n"));
+	let mut tok = Tokens::default();
+	tokenize("a(x).b[y].c: 1", b':', false, Rules::Current, &mut tok);
+	assert_eq!(tok.bracket_selector, Some(6));
+	tokenize("a(x).b(y).c: 1", b':', false, Rules::Current, &mut tok);
+	assert_eq!(tok.bracket_selector, None);
+	let schema = Document::parse("field: \"srv[*].port\"\n");
+	let v = Document::parse("srv: a\n").validate(&schema);
+	assert!(
+		v.iter()
+			.any(|d| d.code == "V093" && d.message.contains("parens")),
+		"{v:?}"
+	);
+}
+
+// A parent whose default is an array has no selector a child line can use,
+// since a selector matches one plain value. Generation refuses it rather
+// than write a child that makes another instance.
+#[test]
+fn init_refuses_a_child_of_an_array_parent() {
+	let _id = test_id("ddkd5");
+	let schema = Document::parse(
+		"field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n",
+	);
+	let err = generate(&schema, true).expect_err("a child of an array parent generated");
+	assert!(
+		err.iter()
+			.any(|d| d.code == "V097" && d.message.contains("no selector spelling")),
+		"{err:?}"
+	);
 }
 
 #[test]
 fn nul_name_does_not_satisfy_a_dotted_schema_path() {
+	let _id = test_id("dasb1");
 	// The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	// field whose name literally contains a NUL must not impersonate the
 	// two-segment path x.y. Same fixture in every runner.
@@ -1170,4 +4244,2016 @@ fn nul_name_does_not_satisfy_a_dotted_schema_path() {
 	// The genuinely two-segment spelling still validates clean.
 	let ok = Document::parse("x:\n\ty: 1\n");
 	assert!(ok.validate(&schema).is_empty());
+}
+
+/// The alphabet the setter round-trip fixture draws from: every character
+/// that means something to the tokenizer, plus a blank the load trims and a
+/// no-break space it does not. Same fixture in every runner.
+const SETTER_SOUP: &[&str] = &[
+	"\"", "'", "\\", "#", ",", "[", "]", "\r", "\n", " ", "\t", "\u{a0}", "a",
+];
+
+/// Every string of one and two characters over that alphabet, and the empty
+/// string.
+fn soup_inputs() -> Vec<String> {
+	let mut out = vec![String::new()];
+	for a in SETTER_SOUP {
+		out.push((*a).to_string());
+		for b in SETTER_SOUP {
+			out.push(format!("{}{}", a, b));
+		}
+	}
+	out
+}
+
+/// Digits past 32 bits read as the largest 32-bit number, a newer format, in
+/// every binding (20260926 item 9, 2026101514324705).
+#[test]
+fn format_version_caps_at_32_bits() {
+	let _id = test_id("dd6yh");
+	assert_eq!(
+		format_version("##    Format   4294967295\na: 1\n"),
+		Some(4294967295)
+	);
+	// Read as this major until 2026101514324705, which made a file naming
+	// one too big a beta file to `upgrade --from-2x`.
+	// assert_eq!(
+	// 	format_version("##    Format   4294967296\na: 1\n"),
+	// 	Some(FORMAT_MAJOR)
+	// );
+	assert_eq!(
+		format_version("##    Format   4294967296\na: 1\n"),
+		Some(u32::MAX)
+	);
+}
+
+/// The Format and Schema lines read with a status, so an unstamped file and a
+/// damaged stamp read apart, and the load's H006 and H007 hints say the same
+/// as the Format read on every row (2026100912352401, 2026100717500017). The
+/// same rows are in every binding's runner.
+#[test]
+fn stamp_reads_say_why() {
+	let _id = test_id("ddqh8");
+	use shcl::Status::{BadType, Empty, Good, NotFound};
+	let formats = [
+		("a: 1\n", 0, NotFound, 0, ""),
+		("a: 1\n##    Format   3\n", 3, Good, 2, ""),
+		("##    Format   4\na: 1\n", 4, Good, 1, "H006"),
+		("a: 1\n##    Format   2\n", 2, Good, 2, "H007"),
+		("a: 1\n##    Format   3x\n", 0, BadType, 2, ""),
+		("a: 1\n##    Format\n", 0, Empty, 2, ""),
+		("a: 1\n##    Format   \n", 0, Empty, 2, ""),
+		// A number that reads wins over a line that does not.
+		("##    Format   x\n##    Format   2\n", 2, Good, 2, "H007"),
+		// A raw body's content is not the file's stamp.
+		("note: ~~~\n##    Format   4\n~~~\n", 0, NotFound, 0, ""),
+		// Only the head the block writes names a format.
+		("a: 1\n##    Format  3\n", 0, NotFound, 0, ""),
+		("\u{feff}##    Format   5\n", 5, Good, 1, "H006"),
+		// Was this major and no hint until 2026101514324705.
+		// ("##    Format   4294967296\n", FORMAT_MAJOR, Good, 1, ""),
+		("##    Format   4294967296\n", u32::MAX, Good, 1, "H006"),
+		("a:\n\t##    Format   1\n\tb: 1\n", 1, Good, 2, "H007"),
+		// A refused line led by a fence character takes its block, as it
+		// does in the parser (2026101514324701).
+		(
+			"~x: ```\n\tb\n\t```\n##    Format   4\n",
+			4,
+			Good,
+			4,
+			"H006",
+		),
+		("`y: ```\n##    Format   4\n```\n", 0, NotFound, 0, ""),
+		// The highest of several decides, wherever it is (2026110312163203).
+		(
+			"##    Format   3\np: x\n##    Format   4\n",
+			4,
+			Good,
+			3,
+			"H006",
+		),
+		("##    Format   5\n##    Format   4\n", 5, Good, 1, "H006"),
+		(
+			"##    Format   2\n##    Format   4\n##    Format   3\n",
+			4,
+			Good,
+			2,
+			"H006",
+		),
+	];
+	for (text, value, status, line, hint) in formats {
+		let r = read_format_version(text);
+		assert_eq!(
+			(r.value, r.status, r.line),
+			(value, status, line),
+			"{:?}",
+			text
+		);
+		assert_eq!(
+			format_version(text),
+			(status == Good).then_some(value),
+			"{:?}",
+			text
+		);
+		let hints: Vec<(&str, usize)> = Document::parse(text)
+			.diagnostics()
+			.iter()
+			.filter(|d| d.code == "H006" || d.code == "H007")
+			.map(|d| (d.code, d.line))
+			.collect();
+		let want: Vec<(&str, usize)> = if hint.is_empty() {
+			vec![]
+		} else {
+			vec![(hint, line)]
+		};
+		assert_eq!(hints, want, "{:?}", text);
+	}
+	let schemas = [
+		("a: 1\n", "", NotFound, 0),
+		("##    Schema   ./s.shcl\n", "./s.shcl", Good, 1),
+		("##    Schema\na: 1\n", "", Empty, 1),
+		(
+			"##    Schema   \n##    Schema   b.shcl\n",
+			"b.shcl",
+			Good,
+			2,
+		),
+		("x: ~~~\n##    Schema   a\n~~~\n", "", NotFound, 0),
+		("`y: ```\n\t##    Schema   a\n\t```\n", "", NotFound, 0),
+		("~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", Good, 4),
+	];
+	for (text, value, status, line) in schemas {
+		let r = read_schema_ref(text);
+		assert_eq!(
+			(r.value.as_str(), r.status, r.line),
+			(value, status, line),
+			"{:?}",
+			text
+		);
+		assert_eq!(
+			schema_ref(text),
+			(status == Good).then(|| value.to_string()),
+			"{:?}",
+			text
+		);
+	}
+}
+
+/// The H006 and H007 hints quote the Format number as written, leading zeros
+/// and all, while the read keeps its 32-bit cap. A long one is cut the way
+/// any value in a message is (2026101514324705). Same rows in every runner.
+#[test]
+fn stamp_hints_quote_digits() {
+	let _id = test_id("de0zn");
+	let zeros = |n: usize| "0".repeat(n);
+	let rows = [
+		(
+			"##    Format   4\n".to_string(),
+			4,
+			"H006",
+			1,
+			"4".to_string(),
+		),
+		(
+			"##    Format   4294967296\n".to_string(),
+			u32::MAX,
+			"H006",
+			1,
+			"4294967296".to_string(),
+		),
+		(
+			"##    Format   99999999999\n".to_string(),
+			u32::MAX,
+			"H006",
+			1,
+			"99999999999".to_string(),
+		),
+		(
+			"##    Format   0004\n".to_string(),
+			4,
+			"H006",
+			1,
+			"0004".to_string(),
+		),
+		(
+			"a: 1\n##    Format   02\n".to_string(),
+			2,
+			"H007",
+			2,
+			"02".to_string(),
+		),
+		(
+			format!("##    Format   1{}\n", zeros(200)),
+			u32::MAX,
+			"H006",
+			1,
+			format!("1{}...{} (201 chars)", zeros(99), zeros(100)),
+		),
+	];
+	for (text, value, code, line, shown) in rows {
+		assert_eq!(read_format_version(&text).value, value, "{:?}", text);
+		let word = if code == "H006" { "newer" } else { "older" };
+		let want = format!(
+			"the file names format {}, {} than this reader's format {},",
+			shown, word, FORMAT_MAJOR
+		);
+		let doc = Document::parse(&text);
+		let hints: Vec<_> = doc
+			.diagnostics()
+			.iter()
+			.filter(|d| d.code == "H006" || d.code == "H007")
+			.collect();
+		assert_eq!(hints.len(), 1, "{:?}", text);
+		assert_eq!((hints[0].code, hints[0].line), (code, line), "{:?}", text);
+		assert!(
+			hints[0].message.starts_with(&want),
+			"{:?}: {:?}",
+			text,
+			hints[0].message
+		);
+	}
+}
+
+/// A setter writes only what reads back. Each one builds its text through the
+/// emitter and hands it to the tokenizer before the document is touched, so
+/// for every input either the call refuses and the document is byte-identical,
+/// or the canonical text reloads to itself and the read gives the value back.
+/// Twelve review items were one setter's own trim, carriage-return or `#` rule
+/// disagreeing with the parser's. Every accepted write also goes into one
+/// document that is saved and loaded back at the end, since the file tier
+/// checks what an in-memory reload does not: a setter once took bytes the
+/// save wrote and the next load refused. Same fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn setters_write_only_what_reads_back() {
+	let _id = test_id("dcb5r");
+	let mut all = Document::parse("");
+	let mut slot = 0;
+	for s in soup_inputs() {
+		for kind in 0..6 {
+			let mut doc = Document::parse("k: 1\n");
+			let before = doc.to_canonical();
+			let set = |d: &mut Document, p: &str| match kind {
+				0 => d.set_string(p, &s),
+				1 => d.set_literal(p, &s),
+				2 => d.set_comment(p, &s),
+				3 => d.set_raw(p, &s, "t"),
+				4 => d.set_raw(p, "body", &s),
+				_ => d.set_string_array(p, &["x", s.as_str()]),
+			};
+			let applied = set(&mut doc, "k") == shcl::SetStatus::Ok;
+			if applied {
+				slot += 1;
+				assert_eq!(
+					set(&mut all, &format!("k{slot}")),
+					shcl::SetStatus::Ok,
+					"slot {slot} refused what k took (setter {kind}, input {s:?})"
+				);
+			}
+			if !applied {
+				assert_eq!(
+					doc.to_canonical(),
+					before,
+					"a refused write changed the document (setter {}, input {:?})",
+					kind,
+					s
+				);
+				continue;
+			}
+			let text = doc.to_canonical();
+			let back = Document::parse(&text);
+			assert_eq!(
+				back.to_canonical(),
+				text,
+				"written text is not a fixpoint (setter {}, input {:?}):\n{}",
+				kind,
+				s,
+				text
+			);
+			assert_eq!(
+				back.instances("k"),
+				doc.instances("k"),
+				"the value read differs after a reload (setter {}, input {:?}):\n{}",
+				kind,
+				s,
+				text
+			);
+			match kind {
+				0 => assert_eq!(back.read_string("k").value, s, "string {:?}", s),
+				// A comment has no accessor of its own, so the oracle is the
+				// text: whatever the load would keep of what was handed in has
+				// to be in the document, not a shortened form of it.
+				2 => assert!(
+					text.contains(s.trim_end_matches([' ', '\t', '\r'])),
+					"the comment handed in is not in the document ({:?}):\n{}",
+					s,
+					text
+				),
+				3 | 4 => {
+					assert_eq!(back.get_raw("k"), doc.get_raw("k"), "raw body {:?}", s);
+					assert_eq!(
+						back.read_raw_info("k").value,
+						doc.read_raw_info("k").value,
+						"raw info {:?}",
+						s
+					);
+				}
+				5 => assert_eq!(
+					back.read_string_array("k").value,
+					vec!["x".to_string(), s.clone()],
+					"array {:?}",
+					s
+				),
+				_ => {}
+			}
+		}
+		// The same rule for a name: whatever `quote_segment` writes has to come
+		// back as one segment holding that name, or the write is refused.
+		let path = shcl::quote_segment(&s);
+		let mut doc = Document::parse("k: 1\n");
+		let before = doc.to_canonical();
+		let applied = doc.set_string(&path, "v") == shcl::SetStatus::Ok;
+		if applied {
+			assert_eq!(
+				all.set_string(&path, "v"),
+				shcl::SetStatus::Ok,
+				"the name {s:?} was refused the second time"
+			);
+		}
+		if !applied {
+			assert_eq!(
+				doc.to_canonical(),
+				before,
+				"a refused name write changed the document ({:?})",
+				s
+			);
+			continue;
+		}
+		let text = doc.to_canonical();
+		let back = Document::parse(&text);
+		assert_eq!(
+			back.to_canonical(),
+			text,
+			"name {:?} is not a fixpoint:\n{}",
+			s,
+			text
+		);
+		assert_eq!(
+			back.read_string(&path).value,
+			"v",
+			"name {:?} did not read back:\n{}",
+			s,
+			text
+		);
+	}
+	let dir = std::env::temp_dir().join(format!("shcl-setters-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("all.shcl");
+	let fs = f.to_str().unwrap();
+	assert!(
+		all.save_file(fs).is_ok(),
+		"every accepted write together would not save"
+	);
+	let (back, st) = Document::load_file(fs);
+	assert_eq!(
+		st,
+		shcl::FileStatus::Clean,
+		"every accepted write together did not load clean"
+	);
+	assert_eq!(
+		back.to_canonical(),
+		all.to_canonical(),
+		"every accepted write together changed on a save and load"
+	);
+	std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// A comma splits a value outside brackets only with a blank, a comment or
+// the end after it; inside brackets every one does (value-syntax.md,
+// 20261006). 2.x split on every comma, which migrate still reads.
+#[test]
+fn a_comma_splits_a_bare_value_only_before_a_blank() {
+	let _id = test_id("ddjy7");
+	let mut tok = Tokens::default();
+	for (line, pieces) in [
+		("x: rw,noatime", 1),
+		("x: ,a", 1),
+		("x: a,,b", 1),
+		("x: a, b", 2),
+		("x: a,", 2),
+		("x: a,# c", 2),
+		("x: a,\tb", 2),
+		("x: [a,b]", 2),
+		("x: [rw,noatime, c]", 3),
+	] {
+		tokenize(line, b':', false, Rules::Current, &mut tok);
+		assert_eq!(tok.elements.len(), pieces, "{line:?}");
+	}
+	tokenize("x: a,b", b':', false, Rules::V2, &mut tok);
+	assert_eq!(tok.elements.len(), 2);
+}
+
+// Spaces in a bare value or item are fine. A tab, a bracket, a quote, or a
+// colon or comma with a blank or the end after it is one error, and its
+// message says what to do.
+#[test]
+fn bare_spaces_colons_and_commas() {
+	let _id = test_id("ddjy8");
+	for (text, code, fix) in [
+		(
+			"x: host: a.com port: 80\n",
+			"E025",
+			"put each field on its own line",
+		),
+		("x: done:\n", "E025", "quote it"),
+		("x: a\tb\n", "E025", "quote it"),
+		("x: a[b]c\n", "E025", "quote it"),
+		("x: [New York, Boston]\n", "E025", "quote it"),
+		("x: [a:, b]\n", "E025", "quote it"),
+		("x: a,\n", "E026", "write an array in brackets"),
+		("x: 80, 443\n", "E026", "write an array in brackets"),
+		("x: a: b, c\n", "E025", "put each field on its own line"),
+		("x:\n\t- name: value\n", "E027", "as instances"),
+		("x:\n\t- name:\n", "E027", "as instances"),
+		("x:\n\t- a, b\n", "E026", "quote the text"),
+		("x:\n\t- a\tb\n", "E025", "quote it"),
+		("x:\n\t- [a]\n", "E019", "quote the item"),
+		("x(a:b).y: 1\n", "E025", "quote it"),
+		("x(a,b).y: 1\n", "E025", "quote it"),
+		("x(a[b).y: 1\n", "E025", "quote it"),
+		("x(a(b).y: 1\n", "E025", "quote it"),
+	] {
+		let doc = Document::parse(text);
+		let d = doc.diagnostics();
+		assert_eq!(d.len(), 1, "{text:?}: {d:?}");
+		assert_eq!(d[0].code, code, "{text:?}");
+		assert!(d[0].message.contains(fix), "{text:?}: {}", d[0].message);
+	}
+	for (text, path, want) in [
+		("x: My  App\n", "x", "My  App"),
+		("x: rw,noatime\n", "x", "rw,noatime"),
+		("x: :0\n", "x", ":0"),
+		(
+			"x: https://a.com:8080/p?q=1,2\n",
+			"x",
+			"https://a.com:8080/p?q=1,2",
+		),
+		("x: Jul 12 2026  # c\n", "x", "Jul 12 2026"),
+		(
+			"x:\n\t- New  York\n\t- :0\n",
+			"x",
+			"[\"New  York\", \":0\"]",
+		),
+	] {
+		let doc = Document::parse(text);
+		assert!(
+			doc.diagnostics().is_empty(),
+			"{text:?}: {:?}",
+			doc.diagnostics()
+		);
+		assert_eq!(doc.get_string(path).as_deref(), Ok(want), "{text:?}");
+	}
+	assert!(Document::parse("x: 80,443\n").get_int("x").is_err());
+}
+
+// The reader takes a colon or comma bare where it is text, but the writer
+// quotes any whitespace, colon, comma, paren or bracket wherever it sits, so
+// nobody has to know the reader's rules. A quoted value keeps its quotes and
+// its quote kind, a quoted number included.
+#[test]
+fn the_writer_quotes_a_colon_or_comma() {
+	let _id = test_id("ddjy9");
+	let mut doc = Document::new();
+	assert_eq!(doc.set_string("opts", "rw,noatime"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("display", ":0"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("end", "a,"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("title", "My App"), shcl::SetStatus::Ok);
+	assert_eq!(
+		doc.set_string_array("tags", &["rw,noatime", "b"]),
+		shcl::SetStatus::Ok
+	);
+	assert_eq!(doc.set_string("call", "f(x)"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("box", "a[0]"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("tabbed", "a\tb"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("plain", "a-b.c/d"), shcl::SetStatus::Ok);
+	let out = doc.to_canonical();
+	for want in [
+		"opts: \"rw,noatime\"\n",
+		"display: \":0\"\n",
+		"end: \"a,\"\n",
+		"title: \"My App\"\n",
+		"tags: [\"rw,noatime\", b]\n",
+		"call: \"f(x)\"\n",
+		"box: \"a[0]\"\n",
+		"tabbed: \"a◉TAB◉b\"\n",
+		"plain: a-b.c/d\n",
+	] {
+		assert!(out.contains(want), "{want:?} not in {out:?}");
+	}
+	let back = Document::parse(&out);
+	assert_eq!(back.to_canonical(), out);
+	assert_eq!(
+		back.get_string_array("tags"),
+		Ok(vec!["rw,noatime".to_string(), "b".to_string()])
+	);
+	let doc = Document::parse("n: \"1,000\"\n");
+	assert_eq!(doc.to_canonical(), "n: \"1,000\"\n");
+	// 2026101010054746: a quoted thousands number is text, like a bare one.
+	// assert_eq!(doc.get_int("n"), Ok(1000));
+	assert!(doc.get_int("n").is_err());
+	let text = "ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n";
+	let mut doc = Document::parse(text);
+	assert_eq!(
+		doc.to_canonical(),
+		"ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n"
+	);
+	assert_eq!(doc.get_int("ver"), Ok(8));
+	assert_eq!(doc.set_int("ver", 9), shcl::SetStatus::Ok);
+	assert!(doc.to_canonical().starts_with("ver: \"9\"\n"));
+	let doc = Document::parse("t: a,b\nt: c\n");
+	let hint = &doc.diagnostics()[0];
+	assert_eq!(hint.code, "H001");
+	assert!(hint.message.contains("t: [\"a,b\", c]"), "{}", hint.message);
+}
+
+// 2026101309122757: Loose reads a quoted thousands number again, and the
+// writer keeps a bare one bare, so this pins what no longer holds.
+// // A thousands comma is text quoted or bare, so a typed read gives the same
+// // answer before and after the writer quotes it (2026101010054746).
+// #[test]
+// fn a_thousands_comma_reads_the_same_after_a_save() {
+// 	let _id = test_id("ddwhp");
+// 	let mut doc = Document::parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n");
+// 	assert_eq!(doc.set_string("s", "1,000"), shcl::SetStatus::Ok);
+// 	let out = doc.to_canonical();
+// 	assert!(out.starts_with("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n"));
+// 	assert!(out.ends_with("s: \"1,000\"\n"));
+// 	let back = Document::parse(&out);
+// 	for (path, text) in [
+// 		("p", "80,443"),
+// 		("q", "1,000"),
+// 		("r", "-1,234,567"),
+// 		("s", "1,000"),
+// 	] {
+// 		for d in [&doc, &back] {
+// 			assert_eq!(d.read_int(path).status, Status::BadType, "{path} int");
+// 			assert_eq!(d.read_float(path).status, Status::BadType, "{path} float");
+// 			assert_eq!(d.get_string(path).as_deref(), Ok(text), "{path}");
+// 		}
+// 	}
+// 	// The setter's value counts as quoted, as its saved form is.
+// 	assert!(doc.read_string("s").quoted);
+// 	assert!(back.read_string("s").quoted);
+// 	let loose = Document::parse_with("q: \"1,000\"\nc: \"$1,200\"\n", Strictness::Loose).unwrap();
+// 	assert_eq!(loose.read_int("q").status, Status::BadType);
+// 	assert_eq!(loose.read_int("c").status, Status::BadType);
+// }
+
+// Loose reads a quoted thousands number, exact grouping only. Bare stays text
+// at every level, Standard and Strict refuse it, and the writer keeps a bare
+// one bare, so a typed read is the same after a save (2026101309122757).
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn loose_reads_a_quoted_thousands_number() {
+	let _id = test_id("ddwzw");
+	let text = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\ni: \"1,2000\"\nj: \"1234,567\"\nk: \"$ 1,200\"\nm: \".1,200\"\nn: \"1,200%\"\nl:\n\t- 80,443\n";
+	let loose = Document::parse_with(text, Strictness::Loose).unwrap();
+	for (path, want) in [
+		("a", Some(1200)),
+		("b", Some(1200)),
+		("c", Some(1201)),
+		("d", None),
+		("e", None),
+		("f", None),
+		("g", Some(-12_345_678)),
+		("h", Some(9_007_199_254_740_993)),
+		("i", None),
+		("j", None),
+		("k", None),
+		("m", None),
+		("n", Some(12)),
+		("l", None),
+	] {
+		let r = loose.read_int(path);
+		let f = loose.read_float(path);
+		match want {
+			Some(v) => assert_eq!((r.status, r.value), (Status::Good, v), "{path} int"),
+			None => {
+				assert_eq!(r.status, Status::BadType, "{path} int");
+				assert_eq!(f.status, Status::BadType, "{path} float");
+			}
+		}
+	}
+	assert_eq!(loose.read_float("n").value, 12.0);
+	assert_eq!(loose.read_float("c").value, 1200.5);
+	assert_eq!(loose.read_float("b").value, 1200.0);
+	assert_eq!(loose.read_float("d").status, Status::BadType);
+	assert_eq!(loose.get_string("b").as_deref(), Ok("$1,200"));
+	for level in [Strictness::Standard, Strictness::Strict] {
+		let doc = Document::parse_with(text, level).unwrap();
+		for path in ["a", "b", "c", "d", "g", "h", "n"] {
+			assert_eq!(
+				doc.read_int(path).status,
+				Status::BadType,
+				"{path} int {level:?}"
+			);
+			assert_eq!(
+				doc.read_float(path).status,
+				Status::BadType,
+				"{path} float {level:?}"
+			);
+		}
+		assert_eq!(doc.get_string("c").as_deref(), Ok("1,200.50"));
+	}
+	// The bare ones stay bare, so they read as text after a save too.
+	let out = loose.to_canonical();
+	assert!(out.contains("\nd: 1,200\n"), "{out}");
+	assert!(out.contains("\n\t- 80,443\n"), "{out}");
+	assert!(out.starts_with("a: \"1,200\"\n"), "{out}");
+	// A setter's value is written bare, and reads as text before the save.
+	let mut set = Document::parse_with("", Strictness::Loose).unwrap();
+	assert_eq!(set.set_string("s", "1,000"), shcl::SetStatus::Ok);
+	assert_eq!(set.set_string_array("t", &["$1,000"]), shcl::SetStatus::Ok);
+	let out = set.to_canonical();
+	assert!(
+		out.starts_with("s: 1,000\n") && out.ends_with("t: [\"$1,000\"]\n"),
+		"{out}"
+	);
+	assert!(!set.read_string("s").quoted);
+	assert_eq!(set.read_int("s").status, Status::BadType);
+	assert_eq!(set.read_int_array("t").value, vec![1000]);
+	// Over a quoted value too, whatever its quote kind (2026101514324702).
+	let mut over = Document::parse_with("a: \"x\"\nb: 'x'\nc: `x`\n", Strictness::Loose).unwrap();
+	for (path, v) in [("a", "1,200"), ("b", "$1,200"), ("c", "1,200.50")] {
+		assert_eq!(over.set_string(path, v), shcl::SetStatus::Ok);
+		assert!(!over.read_string(path).quoted, "{path}");
+		assert_eq!(over.read_int(path).status, Status::BadType, "{path} int");
+	}
+	assert_eq!(over.to_canonical(), "a: 1,200\nb: $1,200\nc: 1,200.50\n");
+	// A merge puts a stacked list in brackets, which quote its items.
+	let mut merged = Document::parse_with("l:\n\t- 1,200\n", Strictness::Loose).unwrap();
+	assert_eq!(merged.read_int_array("l").status, Status::BadType);
+	merged.merge(&Document::parse("z: 1\n"));
+	assert!(merged.to_canonical().starts_with("l: [\"1,200\"]\n"));
+	assert_eq!(merged.read_int_array("l").value, vec![1200]);
+	for doc in [&loose, &set, &over, &merged] {
+		let back = Document::parse_with(&doc.to_canonical(), Strictness::Loose).unwrap();
+		for path in ["a", "b", "c", "d", "e", "g", "h", "k", "n", "l", "s", "t"] {
+			let (x, y) = (doc.read_int(path), back.read_int(path));
+			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int");
+			let (x, y) = (doc.read_int_array(path), back.read_int_array(path));
+			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int[]");
+			assert_eq!(
+				doc.read_string(path).quoted,
+				back.read_string(path).quoted,
+				"{path}"
+			);
+		}
+	}
+}
+
+// A trailing `.` is fine on a quoted thousands number, as on a plain one. A
+// leading one is not, and a bare one stays bare (2026101318521195).
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn loose_reads_a_quoted_thousands_number_with_a_trailing_dot() {
+	let _id = test_id("ddxej");
+	let text = "a: \"1,200.\"\nb: \"$1,200.\"\nc: \"1,200.%\"\nd: 1,200.\ne: \".1,200\"\nf: \"1,200 .\"\ng: \"1,200..\"\nh: '-1,200.'\nl:\n\t- 9,000.\n";
+	let loose = Document::parse_with(text, Strictness::Loose).unwrap();
+	for (path, want) in [
+		("a", Some(1200)),
+		("b", Some(1200)),
+		("c", Some(12)),
+		("d", None),
+		("e", None),
+		("f", None),
+		("g", None),
+		("h", Some(-1200)),
+	] {
+		let r = loose.read_int(path);
+		let f = loose.read_float(path);
+		match want {
+			Some(v) => {
+				assert_eq!((r.status, r.value), (Status::Good, v), "{path} int");
+				assert_eq!(f.status, Status::Good, "{path} float");
+			}
+			None => {
+				assert_eq!(r.status, Status::BadType, "{path} int");
+				assert_eq!(f.status, Status::BadType, "{path} float");
+			}
+		}
+	}
+	assert_eq!(loose.read_float("a").value, 1200.0);
+	assert_eq!(loose.read_float("c").value, 12.0);
+	assert_eq!(loose.get_string("a").as_deref(), Ok("1,200."));
+	assert_eq!(loose.read_int_array("l").status, Status::BadType);
+	for level in [Strictness::Standard, Strictness::Strict] {
+		let doc = Document::parse_with(text, level).unwrap();
+		for path in ["a", "b", "c", "d", "h"] {
+			assert_eq!(
+				doc.read_int(path).status,
+				Status::BadType,
+				"{path} int {level:?}"
+			);
+			assert_eq!(
+				doc.read_float(path).status,
+				Status::BadType,
+				"{path} float {level:?}"
+			);
+		}
+	}
+	let out = loose.to_canonical();
+	assert!(out.contains("\nd: 1,200.\n"), "{out}");
+	assert!(out.contains("\n\t- 9,000.\n"), "{out}");
+	assert!(out.contains("\ne: \".1,200\"\n"), "{out}");
+	let mut set = Document::parse_with("", Strictness::Loose).unwrap();
+	assert_eq!(set.set_string("s", "1,000."), shcl::SetStatus::Ok);
+	assert!(set.to_canonical().starts_with("s: 1,000.\n"));
+	assert_eq!(set.read_int("s").status, Status::BadType);
+	let mut merged = Document::parse_with(text, Strictness::Loose).unwrap();
+	merged.merge(&Document::parse("z: 1\n"));
+	assert!(merged.to_canonical().contains("\nl: [\"9,000.\"]\n"));
+	assert_eq!(merged.read_int_array("l").value, vec![9000]);
+	for doc in [&loose, &set, &merged] {
+		let back = Document::parse_with(&doc.to_canonical(), Strictness::Loose).unwrap();
+		for path in ["a", "b", "c", "d", "e", "f", "g", "h", "l", "s"] {
+			let (x, y) = (doc.read_int(path), back.read_int(path));
+			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int");
+			let (x, y) = (doc.read_float(path), back.read_float(path));
+			assert_eq!(
+				(x.status, x.value.to_bits()),
+				(y.status, y.value.to_bits()),
+				"{path} float"
+			);
+			let (x, y) = (doc.read_int_array(path), back.read_int_array(path));
+			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int[]");
+		}
+	}
+}
+
+// migrate writes a 2.x comma list in brackets, with or without a blank
+// after the comma, since 2.x read both as arrays. In a file that does not
+// say it is 2.x, `a,b` is a string under these rules, so it is left and
+// counted; `a, b` is an error here, so it converts either way. A lone bare
+// value these rules refuse is quoted.
+#[test]
+fn migrate_brackets_a_2x_comma_list() {
+	let _id = test_id("ddjya");
+	let m = migrate(
+		"x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n",
+		true,
+	);
+	assert_eq!(m.ambiguous, 0);
+	assert!(
+		m.text.starts_with(
+			"x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n"
+		),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	let m = migrate("x: a, b\ny: a,b\n", false);
+	assert_eq!(m.ambiguous, 1);
+	assert!(m.text.starts_with("x: [a, b]\ny: a,b\n"), "{:?}", m.text);
+}
+
+// A 2.x comma list with one element left once the empty slots go was the
+// plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
+// would be two, and `[s]` reads as that string too.
+#[test]
+fn migrate_writes_a_lone_2x_element_plain() {
+	let _id = test_id("ddrgf");
+	let m = migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true);
+	assert_eq!((m.ambiguous, m.lost), (0, 0));
+	assert!(
+		m.text.starts_with("k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.count("k"), 1);
+	assert_eq!(back.get_string("k").as_deref(), Ok("s"));
+}
+
+// A 2.x `*` item becomes `- `, and an item these rules would read as
+// something else is quoted, such as one that looks like `- name: value`.
+#[test]
+fn migrate_writes_star_items_as_dashes() {
+	let _id = test_id("ddk4w");
+	let m = migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true);
+	assert!(
+		m.text
+			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(
+		back.get_string_array("list").unwrap(),
+		["a", "key: value", "c", "O'Brien"]
+	);
+}
+
+// A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0` stay
+// fields rather than reading as list items, and `404` stays a name.
+#[test]
+fn migrate_quotes_a_name_not_led_by_a_letter() {
+	let _id = test_id("ddk4x");
+	let m = migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true);
+	assert!(
+		m.text
+			.starts_with("\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_string("\"-x\"").unwrap(), "y");
+	assert_eq!(back.get_string("l.\"-\"").unwrap(), "0");
+	assert_eq!(back.get_int("a.\"9b\"").unwrap(), 2);
+}
+
+// 2.x read a `◉` as text. A name, a bare value and a selector body holding
+// one get the escape for a real mark, so they still read as that text.
+#[test]
+fn migrate_escapes_a_real_mark() {
+	let _id = test_id("ddk4y");
+	let m = migrate(
+		"\"a\u{25C9}q\u{25C9}\": 1\nbare: My\u{25C9}SPACE\u{25C9}App\ns[x\u{25C9}y].p: 2\n",
+		true,
+	);
+	let back = Document::parse(&m.text);
+	assert!(
+		back.diagnostics().is_empty(),
+		"{:?}\n{}",
+		back.diagnostics(),
+		m.text
+	);
+	assert_eq!(
+		back.paths()[..2],
+		[
+			"\"a\u{25C9}ESCAPE_CHAR\u{25C9}q\u{25C9}ESCAPE_CHAR\u{25C9}\"",
+			"bare"
+		],
+		"{}",
+		m.text
+	);
+	assert_eq!(
+		back.get_string("bare").unwrap(),
+		"My\u{25C9}SPACE\u{25C9}App"
+	);
+	assert_eq!(back.count("s"), 1);
+	assert_eq!(back.get_string("s(0)").unwrap(), "x\u{25C9}y");
+}
+
+// A 2.x selector goes in parens, and a bare body these rules refuse, such
+// as one with a quote or a space, is quoted, so its block still loads.
+#[test]
+fn migrate_quotes_a_bare_selector_these_rules_refuse() {
+	let _id = test_id("ddk4z");
+	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true);
+	assert!(
+		m.text
+			.starts_with("srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.count("srv"), 2);
+}
+
+// Every 2.x selector goes in parens: an index, a value, the sugar on a
+// segment before the last, and a body with a paren in it, quoted. A selector
+// in brackets is `E029` under these rules, so a file that does not say it is
+// 2.x gets the same rewrite, with nothing counted.
+#[test]
+fn migrate_writes_selectors_in_parens() {
+	let _id = test_id("ddke1");
+	let text = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n";
+	let want = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n";
+	for from_v2 in [true, false] {
+		let m = migrate(text, from_v2);
+		assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
+		assert!(m.text.starts_with(want), "{:?}", m.text);
+	}
+	let back = Document::parse(&migrate(text, true).text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_int("c(\"a(b)\").k").unwrap(), 3);
+	assert_eq!(back.get_int("e(f).g").unwrap(), 4);
+	assert_eq!(back.get_int("b(y).k").unwrap(), 2);
+	assert_eq!(back.get_int("r(x).s").unwrap(), 1);
+}
+
+// What 2.x bound and nothing spells now is counted lost, so the CLI
+// refuses at 7: a selector with a comma, which matched an array value, adn
+// a comma list with lines under it. A list of only empty slots, which 2.x
+// read as empty, is an empty value.
+#[test]
+fn migrate_counts_what_nothing_spells() {
+	let _id = test_id("ddk50");
+	let m = migrate("a[x, y].b: 1\n", true);
+	assert_eq!(m.lost, 1);
+	let m = migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true);
+	assert_eq!(m.lost, 1, "{}", m.text);
+	let m = migrate("e: ,\nf: , # c\n", true);
+	assert_eq!(m.lost, 0);
+	assert!(m.text.starts_with("e:\nf: # c\n"), "{:?}", m.text);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_string("e"), Err(shcl::Status::Empty));
+}
+
+// A file that does not say it is 2.x could be a 3.0 one. A piece that reads
+// clean under these rules too, such as an escape, a backtick value, `[a]` or
+// a `- ` item, is left as written and counted, so the CLI asks for
+// --from-2x rather than changing a correct file at exit 0. A selector in
+// brackets is `E029` now, so its line is rewritten the 2.x way.
+#[test]
+fn migrate_leaves_what_reads_clean_now() {
+	let _id = test_id("ddk51");
+	let text = "x: \"a\u{25C9}TAB\u{25C9}b\"\n\"n\u{25C9}TAB\u{25C9}\": 1\nl:\n\t- :0\ns[\"\u{25C9}TAB\u{25C9}\"].p: 1\nb: `abc`\nc: [a]\n";
+	let m = migrate(text, false);
+	assert_eq!(m.ambiguous, 5, "{}", m.text);
+	assert_eq!(
+		m.text,
+		text.replace(
+			"s[\"\u{25C9}TAB\u{25C9}\"]",
+			"s(\"\u{25C9}ESCAPE_CHAR\u{25C9}TAB\u{25C9}ESCAPE_CHAR\u{25C9}\")"
+		)
+	);
+	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
+}
+
+// 2.x resolved a backslash pair in a value, an element, a `*` item, a
+// selector body and the sugar, bare or quoted, so migrate writes the text
+// 2.x read (2026101911300000). Any other backslash was text in 2.x too.
+#[test]
+fn migrate_writes_the_text_2x_read() {
+	let _id = test_id("de60f");
+	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n";
+	let m = migrate(text, true);
+	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
+	assert!(
+		m.text.starts_with(
+			"p: \"C:\\new\"\nt: \"C:\u{25C9}TAB\u{25C9}emp\"\nq: [a, b]\ns: \"it's\"\nl: [\"C:\\a\", \"x\u{25C9}TAB\u{25C9}y\"]\nw: C:\\work\nsrv(\"a\u{25C9}TAB\u{25C9}b\").port: 1\nn: \"C:\\x\"\nlist:\n\t- \"C:\u{25C9}NEWLINE\u{25C9}ew\"\n"
+		),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_string("p").unwrap(), "C:\\new");
+	assert_eq!(back.get_string("t").unwrap(), "C:\temp");
+	assert_eq!(back.get_string("s").unwrap(), "it's");
+	assert_eq!(back.get_string_array("l").unwrap(), ["C:\\a", "x\ty"]);
+	assert_eq!(back.get_string("w").unwrap(), "C:\\work");
+	assert_eq!(back.get_string("srv").unwrap(), "a\tb");
+	assert_eq!(back.get_string("n").unwrap(), "C:\\x");
+	assert_eq!(back.get_string_array("list").unwrap(), ["C:\new"]);
+	// The call from the report. Without from_v2 the file could be a 3.0 one,
+	// so the two values are left and counted.
+	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
+	let up = shcl::upgrade(text, false);
+	assert!(
+		!up.current && up.ambiguous == 2 && up.text == text,
+		"{up:?}"
+	);
+	let up = shcl::upgrade(text, true);
+	assert!(!up.current && up.ambiguous == 0 && up.lost == 0, "{up:?}");
+	let back = Document::parse(&up.text);
+	assert_eq!(back.get_string("p").unwrap(), "C:\\new");
+	assert_eq!(back.get_string("t").unwrap(), "C:\temp");
+}
+
+// A file that does not say it is 2.x could be a 3.0 one, where a backslash
+// is text. A piece that reads clean under these rules too is left and
+// counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+// either way, and converts, and a file that names format 2 converts whole.
+#[test]
+fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {
+	let _id = test_id("de60g");
+	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n";
+	let m = migrate(text, false);
+	assert_eq!((m.ambiguous, m.lost), (2, 0), "{}", m.text);
+	assert_eq!(
+		m.text,
+		"p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u{25C9}TAB\u{25C9}b\", c]\n"
+	);
+	let m = migrate(&format!("{text}##    Format   2\n"), false);
+	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
+	assert!(
+		m.text
+			.starts_with("p: \"C:\\new\"\nt: \"C:\u{25C9}TAB\u{25C9}emp\"\n"),
+		"{:?}",
+		m.text
+	);
+}
+
+// 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
+// a name with one reads two ways across 2.x. It stays as written and counts
+// as lost, with from_v2 or without, and the rest of its line still
+// converts. Any other backslash in a name was text under both.
+#[test]
+fn migrate_counts_a_quoted_name_with_a_backslash_pair_lost() {
+	let _id = test_id("de60h");
+	let text = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n";
+	for from_v2 in [true, false] {
+		let m = migrate(text, from_v2);
+		assert_eq!(m.lost, 2, "from_v2 {from_v2}: {}", m.text);
+		assert_eq!(m.ambiguous, usize::from(!from_v2), "{}", m.text);
+	}
+	let m = migrate(text, true);
+	assert!(
+		m.text.starts_with(
+			"'k\\\\x': \"C:\u{25C9}TAB\u{25C9}emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
+		),
+		"{:?}",
+		m.text
+	);
+	let up = shcl::upgrade(text, true);
+	assert_eq!(up.lost, 2, "{up:?}");
+}
+
+const DEFAULT_TEXT: &str = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
+
+// A default form writes where the field is missing, empty or does not read
+// as its type, and keeps a value it replaces above the field as a comment
+// with a note. A raw block stays (RawBlock), an array on a field with lines
+// under it is refused as from the plain setter, and the value is judged
+// first. The typed read decides, at the document's strictness, so `$5` is
+// an int only when loose. A second call writes nothing, and the canonical
+// text is a fixpoint. Same table in every runner.
+#[test]
+fn default_fills_what_does_not_read() {
+	let _id = test_id("ddrnb");
+	let note = |line: &str, path: &str, what: &str| {
+		format!(
+			"# {line}  ## replaced by shcl when setting a default for {path}, 2026-10-04 00:15:00 PDT: not {what}"
+		)
+	};
+	// op line, status, the note above the field or "", whether it writes.
+	let rows: Vec<(&str, &str, String, bool)> = vec![
+		(
+			"int-default\tport\t9",
+			"Ok",
+			note("port: abc", "port", "an int"),
+			true,
+		),
+		("int-default\tempty\t3", "Ok", String::new(), true),
+		("int-default\tgood\t1", "Ok", String::new(), false),
+		(
+			"int-default\tlist\t1",
+			"Ok",
+			note("list: [80, 443]", "list", "an int"),
+			true,
+		),
+		(
+			"float-default\tlist\t1.5",
+			"Ok",
+			note("list: [80, 443]", "list", "a float"),
+			true,
+		),
+		(
+			"bool-default\tflag\ttrue",
+			"Ok",
+			note("flag: maybe", "flag", "a bool"),
+			true,
+		),
+		(
+			"datetime-default\tport\t2026-01-02",
+			"Ok",
+			note("port: abc", "port", "a datetime"),
+			true,
+		),
+		("int-array-default\tports\t1", "Ok", String::new(), false),
+		(
+			"int-array-default\twords\t1\t2",
+			"Ok",
+			note("words: a", "words", "an int array"),
+			true,
+		),
+		(
+			"raw-default\tport\tsh\techo",
+			"Ok",
+			note("port: abc", "port", "a raw block"),
+			true,
+		),
+		("int-default\tscript\t1", "RawBlock", String::new(), false),
+		(
+			"int-array-default\tscript\t1",
+			"RawBlock",
+			String::new(),
+			false,
+		),
+		("string-default\tscript\tx", "Ok", String::new(), false),
+		("string-default\tempty\tx", "Ok", String::new(), true),
+		("literal-default\tport\t[1, 2]", "Ok", String::new(), false),
+		("int-default\tsrv\t5", "Ok", String::new(), true),
+		(
+			"int-array-default\tsrv\t1",
+			"HasChildren",
+			String::new(),
+			false,
+		),
+		(
+			"int-default\tn\t1",
+			"Ok",
+			note("n: $5", "n", "an int"),
+			true,
+		),
+	];
+	for (op, want, want_note, writes) in &rows {
+		let mut doc = Document::parse(DEFAULT_TEXT);
+		let before = doc.to_canonical();
+		let path = op.split('\t').nth(1).unwrap();
+		let had = doc.comments(path).len();
+		let got = match try_apply_op(&mut doc, op) {
+			Ok(()) => "Ok".to_string(),
+			Err(e) => e.rsplit(": ").next().unwrap_or_default().to_string(),
+		};
+		assert_eq!(&got, want, "{op:?}");
+		let after = doc.to_canonical();
+		assert_eq!(after != before, *writes, "{op:?}:\n{after}");
+		let notes = doc.comments(path);
+		if want_note.is_empty() {
+			assert_eq!(notes.len(), had, "{op:?}: {notes:?}");
+		} else {
+			assert_eq!(notes.len(), had + 1, "{op:?}: {notes:?}");
+			assert_eq!(&notes[had], want_note, "{op:?}");
+			assert!(
+				after.contains(&format!("{}\n", notes[had])),
+				"{op:?}:\n{after}"
+			);
+		}
+		let back = Document::parse(&after);
+		assert_eq!(back.to_canonical(), after, "{op:?}: not a fixpoint");
+		let mut again = Document::parse(&after);
+		try_apply_op(&mut doc, op).ok();
+		try_apply_op(&mut again, op).ok();
+		assert_eq!(doc.to_canonical(), after, "{op:?}: a second call wrote");
+		assert_eq!(
+			again.to_canonical(),
+			after,
+			"{op:?}: a call on the reload wrote"
+		);
+	}
+	let mut nan = Document::parse(DEFAULT_TEXT);
+	assert_eq!(
+		nan.set_float_default("port", f64::NAN),
+		shcl::SetStatus::NotFinite
+	);
+	assert_eq!(
+		nan.to_canonical(),
+		Document::parse(DEFAULT_TEXT).to_canonical()
+	);
+	let mut loose = Document::parse_with(DEFAULT_TEXT, Strictness::Loose).unwrap();
+	let before = loose.to_canonical();
+	assert_eq!(loose.set_int_default("n", 1), shcl::SetStatus::Ok);
+	assert_eq!(loose.to_canonical(), before);
+	assert_eq!(loose.read_int("n").status, Status::Good);
+}
+
+// A replaced line kept as a comment goes through the save that keeps lines,
+// `fmt` and a reload unchanged, and a run of the same defaults on the saved
+// text writes nothing. Same fixture in every runner.
+#[test]
+fn default_replace_round_trips() {
+	let _id = test_id("ddrnf");
+	let text = "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n";
+	let ops = [
+		"int-default\tsrv.port\t9",
+		"int-array-default\tlist\t1\t2",
+		"int-default\tn\t7",
+	];
+	let want = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n";
+	let mut doc = Document::parse_keep_lines(text, Strictness::Standard).unwrap();
+	for op in ops {
+		apply_op(&mut doc, op, op);
+	}
+	let (saved, kept) = doc.to_text_keep_lines();
+	assert!(kept, "fell back to canonical:\n{saved}");
+	assert_eq!(saved, want);
+	let canon = doc.to_canonical();
+	assert_eq!(Document::parse(&saved).to_canonical(), canon);
+	assert_eq!(
+		Document::parse(&canon).to_canonical(),
+		canon,
+		"fmt is not a fixpoint"
+	);
+	let mut back = Document::parse_keep_lines(&saved, Strictness::Standard).unwrap();
+	for op in ops {
+		apply_op(&mut back, op, op);
+	}
+	assert_eq!(back.to_text_keep_lines(), (saved.clone(), true));
+	let notes = back.comments("srv.port");
+	assert_eq!(notes.len(), 1, "{notes:?}");
+	assert!(saved.contains(&notes[0]));
+	assert_eq!(back.get_int("srv.port"), Ok(9));
+	assert_eq!(back.get_int_array("list"), Ok(vec![1, 2]));
+}
+
+// read_named_schema reads a Schema line by check's rules: from the config's
+// directory, or the working directory when the path has none; a URL is never
+// fetched; only a regular file is read, and none over 16 MiB. The CLI's check
+// is this call, so its rows in cli-regress pin the same rules. Same fixture
+// in every runner.
+#[cfg_attr(miri, ignore = "opens with O_NONBLOCK, which Miri can't")]
+#[test]
+fn read_named_schema_follows_check_rules() {
+	let _id = test_id("ddrn7");
+	use shcl::{SchemaStatus as S, read_named_schema};
+	let dir = std::env::temp_dir().join(format!("shcl-namedschema-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(dir.join("sub")).unwrap();
+	let d = dir.to_str().unwrap();
+	let cfg = format!("{}/cfg.shcl", d);
+	std::fs::write(dir.join("s.shcl"), "field: port\n").unwrap();
+	std::fs::write(dir.join("bad.shcl"), b"a: \xff\n").unwrap();
+	std::fs::write(dir.join("big.shcl"), vec![b'a'; (16 << 20) + 1]).unwrap();
+	let line = |r: &str| format!("a: 1\n##    Schema   {}\n", r);
+
+	let r = read_named_schema(&line("s.shcl"), &cfg);
+	assert_eq!(
+		(
+			r.status,
+			r.text.as_str(),
+			r.path.clone(),
+			r.line,
+			r.message.as_str()
+		),
+		(S::Good, "field: port\n", format!("{}/s.shcl", d), 2, "")
+	);
+	let abs = format!("{}/s.shcl", d);
+	assert_eq!(read_named_schema(&line(&abs), "cfg.shcl").path, abs);
+	assert_eq!(read_named_schema(&line(&abs), "cfg.shcl").status, S::Good);
+
+	let r = read_named_schema("a: 1\n", &cfg);
+	assert_eq!((r.status, r.path.as_str(), r.line), (S::NotFound, "", 0));
+	let r = read_named_schema("##    Schema\na: 1\n", &cfg);
+	assert_eq!((r.status, r.path.as_str(), r.line), (S::Empty, "", 1));
+
+	let r = read_named_schema(&line("https://example.com/s.shcl"), &cfg);
+	assert_eq!(
+		(r.status, r.path.as_str(), r.text.as_str()),
+		(S::Url, "https://example.com/s.shcl", "")
+	);
+	assert!(!r.message.is_empty());
+
+	for (file, want) in [
+		("cfg.shcl", "./gone.shcl"),
+		("-", "./gone.shcl"),
+		("", "./gone.shcl"),
+	] {
+		let r = read_named_schema(&line("gone.shcl"), file);
+		assert_eq!(
+			(r.status, r.path.as_str()),
+			(S::FileNotFound, want),
+			"{:?}",
+			file
+		);
+	}
+	let r = read_named_schema(&line("gone.shcl"), &cfg);
+	assert_eq!(r.status, S::FileNotFound);
+	assert!(
+		r.message.starts_with(&format!("{}/gone.shcl: ", d)),
+		"{}",
+		r.message
+	);
+
+	let named = |r: &str| read_named_schema(&line(r), &cfg).status;
+	assert_eq!(named("sub"), S::IsDirectory);
+	assert_eq!(named("big.shcl"), S::TooLarge);
+	assert_eq!(named("bad.shcl"), S::Unreadable);
+	assert_eq!(named("s.shcl\0x"), S::Unreadable);
+	#[cfg(unix)]
+	{
+		assert_eq!(named("/dev/null"), S::NotRegular);
+		let fifo = dir.join("fifo");
+		assert!(
+			std::process::Command::new("mkfifo")
+				.arg(&fifo)
+				.status()
+				.unwrap()
+				.success()
+		);
+		assert_eq!(named("fifo"), S::NotRegular);
+		assert_eq!(named("//host/share/s.shcl"), S::FileNotFound);
+	}
+	#[cfg(windows)]
+	{
+		assert_eq!(named("NUL"), S::NotRegular);
+		for r in [
+			"//host/share/s.shcl",
+			"\\\\host\\share\\s.shcl",
+			"\\??\\C:\\s.shcl",
+		] {
+			let got = read_named_schema(&line(r), &cfg);
+			assert_eq!((got.status, got.path.as_str()), (S::NetworkPath, r));
+		}
+	}
+	assert_eq!(S::FileNotFound.to_string(), "FileNotFound");
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+// kind() and read_kind(): what the value at a path is, from the stored form,
+// with the status read_line() gives. Same fixture in every runner.
+#[test]
+fn kind_reads_say_what_is_there() {
+	let _id = test_id("ddrn3");
+	use shcl::Status::{BadPath, Good, Multiple, NotFound};
+	use shcl::ValueKind::{Array, Empty, Raw, Scalar};
+	let text = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n";
+	let mut doc = Document::parse(text);
+	let k = doc.read_kind("name");
+	assert_eq!((k.value, k.status, k.line), (Scalar, Good, 1));
+	// `[80]` and `[]` are arrays though a scalar read takes them, and a
+	// section header or a line kept for its value is empty.
+	for (p, want) in [
+		("quoted", Scalar),
+		("tags", Array),
+		("one", Array),
+		("none", Array),
+		("list", Array),
+		("notes", Raw),
+		("blank", Empty),
+		("srv", Empty),
+		("srv.host", Scalar),
+		("site(0)", Scalar),
+		("site(0).port", Scalar),
+		("log", Empty),
+		("log.level", Scalar),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status), (want, Good), "{p:?}");
+		assert_eq!(doc.kind(p), want, "{p:?}");
+	}
+	let k = doc.read_kind("notes");
+	assert_eq!(k.line, 9);
+	for (p, want) in [
+		("site", Multiple),
+		("site(*)", Multiple),
+		("site(*).port", Multiple),
+		("*", Multiple),
+		("nope", NotFound),
+		("site(1).port", NotFound),
+		("site(2)", NotFound),
+		("site[0].port", BadPath),
+		("site(.port", BadPath),
+		("site..port", BadPath),
+		("", BadPath),
+		("user name", BadPath),
+		("site.port: 1", BadPath),
+		("h:p", BadPath),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status, k.line), (Empty, want, 0), "{p:?}");
+		assert_eq!(doc.kind(p), Empty, "{p:?}");
+	}
+	let names: Vec<String> = [Empty, Scalar, Array, Raw]
+		.iter()
+		.map(|k| k.to_string())
+		.collect();
+	assert_eq!(names, ["Empty", "Scalar", "Array", "Raw"]);
+	assert_eq!(doc.to_canonical(), Document::parse(text).to_canonical());
+	// A node a setter built has the kind its setter wrote, and no line.
+	assert_eq!(doc.set_int("built", 1), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int_array("arr", &[1]), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_raw("body", "x", ""), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_comment("note", "# c"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("blank", 2), shcl::SetStatus::Ok);
+	for (p, want) in [
+		("built", Scalar),
+		("arr", Array),
+		("body", Raw),
+		("note", Empty),
+		("blank", Scalar),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status), (want, Good), "{p:?}");
+	}
+	assert_eq!(doc.read_kind("built").line, 0);
+}
+
+/// format_diagnostic gives the CLI's stderr line, and Display is the same.
+/// Same fixture in every runner; the prose is each binding's own.
+#[test]
+fn format_diagnostic_is_the_cli_line() {
+	let _id = test_id("ddyef");
+	use shcl::{Diagnostic, Severity, format_diagnostic};
+	let doc = shcl::Document::parse("a: 1\nb: [x\n");
+	let d = &doc.diagnostics()[0];
+	assert_eq!(
+		format_diagnostic(d),
+		format!("line 2: Error: E019 {}", d.message)
+	);
+	assert!(!d.message.is_empty());
+	assert_eq!(d.to_string(), format_diagnostic(d));
+	let made = |line, severity, code, message: &str| Diagnostic {
+		line,
+		severity,
+		code,
+		message: message.to_string(),
+	};
+	for (d, want) in [
+		(made(4, Severity::Hint, "H001", ""), "line 4: Hint: H001"),
+		(
+			made(1, Severity::Error, "V090", "z"),
+			"schema line 1: Error: V090 z",
+		),
+		(
+			made(3, Severity::Error, "V091", "x y"),
+			"schema line 3: Error: V091 x y",
+		),
+		(
+			made(2, Severity::Error, "V092", "z"),
+			"schema line 2: Error: V092 z",
+		),
+		(
+			made(6, Severity::Error, "V093", "z"),
+			"schema line 6: Error: V093 z",
+		),
+		(
+			made(8, Severity::Error, "V094", "z"),
+			"schema line 8: Error: V094 z",
+		),
+		(
+			made(7, Severity::Error, "V095", "z"),
+			"schema line 7: Error: V095 z",
+		),
+		(
+			made(0, Severity::Error, "V096", "z"),
+			"line 0: Error: V096 z",
+		),
+		(
+			made(0, Severity::Error, "V097", "z"),
+			"line 0: Error: V097 z",
+		),
+		(
+			made(0, Severity::Error, "V099", "z"),
+			"line 0: Error: V099 z",
+		),
+		(
+			made(5, Severity::Error, "V001", "z"),
+			"line 5: Error: V001 z",
+		),
+	] {
+		assert_eq!(format_diagnostic(&d), want);
+	}
+	assert_eq!(Severity::Error.to_string(), "Error");
+	assert_eq!(Severity::Hint.to_string(), "Hint");
+}
+
+/// format_value is the text set_string writes after `k: ` in a fresh document,
+/// None exactly where set_string refuses, and it reads back as the text it was
+/// handed. Over the setter soup, the review's examples and the typed setters'
+/// texts. Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn format_value_is_the_setters_text() {
+	let _id = test_id("ddyfm");
+	use shcl::{SetStatus, format_float, format_value};
+	let mut inputs = soup_inputs();
+	for s in FORMAT_VALUE_EXTRA {
+		inputs.push(s.to_string());
+	}
+	for s in &inputs {
+		let mut doc = Document::new();
+		let st = doc.set_string("k", s);
+		let got = format_value(s);
+		if st != SetStatus::Ok {
+			assert_eq!(got, None, "set_string refused {s:?} ({st:?})");
+			continue;
+		}
+		let text = got.unwrap_or_else(|| panic!("no text for {s:?}, which set_string took"));
+		assert_eq!(doc.to_canonical(), format!("k: {text}\n"), "{s:?}");
+		assert_eq!(
+			Document::parse(&format!("k: {text}\n"))
+				.read_string("k")
+				.value,
+			*s,
+			"{s:?} did not read back"
+		);
+	}
+	// Bare where quote_segment quotes them.
+	for s in ["2020", "@null", "1,200", "a.b", "-x"] {
+		assert_eq!(format_value(s).as_deref(), Some(s));
+		assert_ne!(quote_segment(s), s);
+	}
+	assert_eq!(
+		format_value("He said \"hi\", it's").as_deref(),
+		Some("\"He said ◉DOUBLE_QUOTE◉hi◉DOUBLE_QUOTE◉, it's\"")
+	);
+	assert_eq!(format_value("`#FF8800`").as_deref(), Some("\"`#FF8800`\""));
+	// The typed setters write their value's text the way set_string would.
+	let one = |set: &dyn Fn(&mut Document) -> SetStatus| {
+		let mut d = Document::new();
+		assert_eq!(set(&mut d), SetStatus::Ok);
+		d.to_canonical()
+	};
+	let want = |t: &str| format!("k: {}\n", format_value(t).unwrap_or_default());
+	assert_eq!(one(&|d| d.set_int("k", -2020)), want("-2020"));
+	assert_eq!(one(&|d| d.set_float("k", 0.1)), want(&format_float(0.1)));
+	assert_eq!(one(&|d| d.set_bool("k", true)), want("true"));
+	let dt = parse_datetime("2026-07-12T14:30").unwrap_or_default();
+	assert_eq!(one(&|d| d.set_datetime("k", &dt)), want(&dt.to_string()));
+	assert_eq!(want(&dt.to_string()), "k: \"2026-07-12T14:30\"\n");
+}
+
+/// spec.md says a `Document` is `Send` and `Sync`, so threads can read one at
+/// once. A field that isn't stops this compiling (2026101514324720).
+#[test]
+fn document_is_send_and_sync() {
+	let _id = test_id("de18r");
+	fn shared<T: Send + Sync>() {}
+	shared::<Document>();
+}
+
+/// spec.md: `name(` + `quote_segment(value)` + `)` picks the instance holding
+/// that value, numbers included, where `site(0)` is the first instance. Over
+/// the spec's examples and the setter soup, each value written with
+/// format_value under one name (2026101514324720). Same fixture in every
+/// runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn quote_segment_selects_a_held_value() {
+	let _id = test_id("de18m");
+	use shcl::format_value;
+	let mut values: Vec<String> = [
+		"first",
+		"0",
+		"2020",
+		"@null",
+		"a.b",
+		"1,200",
+		"-x",
+		"a b",
+		"x)",
+		"(y",
+		"a=b",
+		"*",
+		"true",
+		"1.5",
+		"2026-07-12",
+	]
+	.iter()
+	.map(|s| s.to_string())
+	.collect();
+	values.extend(soup_inputs());
+	let mut text = String::new();
+	let mut held: Vec<String> = Vec::new();
+	for v in values {
+		if held.contains(&v) {
+			continue;
+		}
+		if let Some(f) = format_value(&v) {
+			text.push_str(&format!("site: {f}\n"));
+			held.push(v);
+		}
+	}
+	let doc = Document::parse(&text);
+	assert_eq!(doc.count("site"), held.len(), "{text}");
+	assert_eq!(doc.read_string("site(0)").value, "first");
+	for v in &held {
+		let path = format!("site({})", quote_segment(v));
+		assert_eq!(doc.count(&path), 1, "{v:?} as {path:?}");
+		let r = doc.read_string(&path);
+		assert_eq!(
+			(r.value.as_str(), r.status),
+			(v.as_str(), shcl::Status::Good),
+			"{v:?} as {path:?}"
+		);
+	}
+}
+
+/// Texts the format_value fixture adds to the setter soup: the review's
+/// examples, thousands numbers, and the typed setters' texts.
+const FORMAT_VALUE_EXTRA: &[&str] = &[
+	"2020",
+	"@null",
+	"1,200",
+	"a.b",
+	"-x",
+	"He said \"hi\", it's",
+	"`#FF8800`",
+	"`",
+	"$1,200",
+	"1,200.50",
+	"-1,200",
+	"80,443",
+	"rw,noatime",
+	"2026-07-12T14:30",
+	"-0.5",
+	"true",
+	"◉",
+	"a◉NEWLINE◉b",
+	"x\u{200b}y",
+];
+
+/// format_array is the text set_string_array writes after `k: ` in a fresh
+/// document, None exactly where set_string_array refuses, and it reads back as
+/// the texts it was handed. Each text of the format_value fixture alone and
+/// after another element, all of them at once, and none; an element is
+/// format_value's text but for a thousands number, which brackets quote; and
+/// the typed array setters' texts. Same fixture in every runner.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn format_array_is_the_setters_text() {
+	let _id = test_id("ddykv");
+	use shcl::{SetStatus, format_array, format_float, format_value};
+	let mut texts = soup_inputs();
+	for s in FORMAT_VALUE_EXTRA {
+		texts.push(s.to_string());
+	}
+	let mut arrays: Vec<Vec<&str>> = texts.iter().map(|s| vec![s.as_str()]).collect();
+	arrays.extend(texts.iter().map(|s| vec!["x", s.as_str()]));
+	arrays.push(FORMAT_VALUE_EXTRA.to_vec());
+	arrays.push(Vec::new());
+	for a in &arrays {
+		let mut doc = Document::new();
+		let st = doc.set_string_array("k", a);
+		let got = format_array(a);
+		if st != SetStatus::Ok {
+			assert_eq!(got, None, "set_string_array refused {a:?} ({st:?})");
+			continue;
+		}
+		let text = got.unwrap_or_else(|| panic!("no text for {a:?}, which set_string_array took"));
+		assert_eq!(doc.to_canonical(), format!("k: {text}\n"), "{a:?}");
+		assert_eq!(
+			Document::parse(&format!("k: {text}\n"))
+				.read_string_array("k")
+				.value,
+			*a,
+			"{a:?} did not read back"
+		);
+	}
+	// One element is format_value's text in brackets, but for a thousands
+	// number.
+	let thousands = ["1,200", "$1,200", "1,200.50", "-1,200", "80,443"];
+	for s in &texts {
+		let (Some(el), Some(one)) = (format_array(&[s.as_str()]), format_value(s)) else {
+			continue;
+		};
+		if thousands.contains(&s.as_str()) {
+			assert_eq!((one.as_str(), el), (s.as_str(), format!("[\"{s}\"]")));
+		} else {
+			assert_eq!(el, format!("[{one}]"), "{s:?}");
+		}
+	}
+	assert_eq!(format_array(&[]).as_deref(), Some("[]"));
+	assert_eq!(format_array(&["80"]).as_deref(), Some("[80]"));
+	assert_eq!(
+		format_array(&["80", "a b", "1,200", "@null"]).as_deref(),
+		Some("[80, \"a b\", \"1,200\", @null]")
+	);
+	// The typed array setters write their values' texts the way
+	// set_string_array would.
+	let one = |set: &dyn Fn(&mut Document) -> SetStatus| {
+		let mut d = Document::new();
+		assert_eq!(set(&mut d), SetStatus::Ok);
+		d.to_canonical()
+	};
+	let want = |t: &[&str]| format!("k: {}\n", format_array(t).unwrap_or_default());
+	assert_eq!(
+		one(&|d| d.set_int_array("k", &[-2020, 80])),
+		want(&["-2020", "80"])
+	);
+	let f = format_float(0.1);
+	assert_eq!(one(&|d| d.set_float_array("k", &[0.1])), want(&[&f]));
+	assert_eq!(
+		one(&|d| d.set_bool_array("k", &[true, false])),
+		want(&["true", "false"])
+	);
+	let dt = parse_datetime("2026-07-12T14:30").unwrap_or_default();
+	let dts = dt.to_string();
+	assert_eq!(
+		one(&|d| d.set_datetime_array("k", std::slice::from_ref(&dt))),
+		want(&[&dts])
+	);
+	assert_eq!(want(&[&dts]), "k: [\"2026-07-12T14:30\"]\n");
+}
+
+/// A save over the file a load read refuses when another program changed it
+/// since, writes nothing, and writes with force. A save elsewhere, and a
+/// document from parse, save as they always did (2026102910482342).
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn a_save_over_a_file_changed_since_the_load_is_refused() {
+	let _id = test_id("dekj6");
+	use shcl::{SaveError, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-changed-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let changed = |p: &str| SaveError::Changed {
+		path: p.to_string(),
+	};
+	let force = SaveOptions {
+		force: true,
+		..SaveOptions::default()
+	};
+	let f = at("f.shcl");
+	std::fs::write(&f, "a: 1\n").unwrap();
+	let (mut doc, _) = Document::load_file(&f);
+	let _ = doc.set_int("a", 2);
+	std::fs::write(&f, "a: 9\n").unwrap();
+	assert_eq!(doc.save_file(&f), Err(changed(&f)));
+	assert_eq!(doc.save_file_lossy(&f), Err(changed(&f)));
+	assert_eq!(read(&f), "a: 9\n");
+	assert_eq!(
+		doc.save_file(&f).unwrap_err().to_string(),
+		format!(
+			"{f}: refusing to save: the file changed since it was loaded; nothing written (force overrides)"
+		)
+	);
+	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
+	assert_eq!(read(&f), "a: 2\n");
+	// The next save is checked against what that one wrote.
+	let _ = doc.set_int("a", 3);
+	assert_eq!(doc.save_file(&f), Ok(()));
+	assert_eq!(read(&f), "a: 3\n");
+	// The same bytes written again are no change.
+	std::fs::write(&f, "a: 3\n").unwrap();
+	assert_eq!(doc.save_file(&f), Ok(()));
+
+	// The line-keeping save, and a link to the file, are checked too.
+	std::fs::write(&f, "a: 1 # one\n").unwrap();
+	let (mut kept, _) = Document::load_file_keep_lines(&f, Strictness::Standard).unwrap();
+	let _ = kept.set_int("a", 2);
+	std::fs::write(&f, "a: 9 # nine\n").unwrap();
+	assert_eq!(kept.save_file_keep_lines(&f), Err(changed(&f)));
+	#[cfg(unix)]
+	{
+		let link = at("link.shcl");
+		std::os::unix::fs::symlink(&f, &link).unwrap();
+		assert_eq!(kept.save_file_keep_lines(&link), Err(changed(&link)));
+	}
+	assert_eq!(read(&f), "a: 9 # nine\n");
+	let keep_force = SaveOptions {
+		keep_lines: true,
+		force: true,
+		..SaveOptions::default()
+	};
+	assert_eq!(kept.save_file_with(&f, &keep_force), Ok(true));
+	assert_eq!(read(&f), "a: 2 # one\n");
+
+	// Gone since the load is a change. So is a file made where none was.
+	let (mut gone, _) = Document::load_file(&f);
+	std::fs::remove_file(&f).unwrap();
+	assert_eq!(gone.save_file(&f), Err(changed(&f)));
+	assert!(!Path::new(&f).exists());
+	let n = at("new.shcl");
+	let (mut fresh, st) = Document::load_file(&n);
+	assert_eq!(st, shcl::FileStatus::NotFound);
+	let _ = fresh.set_int("a", 1);
+	std::fs::write(&n, "b: 2\n").unwrap();
+	assert_eq!(fresh.save_file(&n), Err(changed(&n)));
+	assert_eq!(read(&n), "b: 2\n");
+	std::fs::remove_file(&n).unwrap();
+	assert_eq!(fresh.save_file(&n), Ok(()));
+	assert_eq!(read(&n), "a: 1\n");
+
+	// Elsewhere is not checked, and the load's file still is.
+	let other = at("other.shcl");
+	std::fs::write(&other, "z: 0\n").unwrap();
+	assert_eq!(gone.save_file(&other), Ok(()));
+	assert_eq!(gone.save_file(&f), Err(changed(&f)));
+	// A parse has no file behind it.
+	let mut parsed = Document::parse("a: 5\n");
+	assert_eq!(parsed.save_file(&other), Ok(()));
+	assert_eq!(read(&other), "a: 5\n");
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A create-only save refuses a file that's there, and only one of several
+/// saves at once makes it. A new file takes the mode asked for, whatever the
+/// umask, and one already there keeps its own (2026102910482343).
+#[cfg_attr(
+	miri,
+	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+)]
+#[test]
+fn a_create_only_save_refuses_a_file_already_there() {
+	let _id = test_id("dekm5");
+	use shcl::{SaveError, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-create-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let create = SaveOptions {
+		create: true,
+		..SaveOptions::default()
+	};
+	let f = at("f.shcl");
+	let mut doc = Document::parse("a: 1\n");
+	assert_eq!(doc.save_file_with(&f, &create), Ok(false));
+	assert_eq!(read(&f), "a: 1\n");
+	let _ = doc.set_int("a", 2);
+	let exists = SaveError::Exists { path: f.clone() };
+	assert_eq!(doc.save_file_with(&f, &create), Err(exists.clone()));
+	assert_eq!(
+		exists.to_string(),
+		format!(
+			"{f}: refusing to save: the file is already there and create asks for a new one; nothing written"
+		)
+	);
+	// force is the changed check's override, not this one's.
+	let forced = SaveOptions {
+		force: true,
+		..create
+	};
+	assert_eq!(doc.save_file_with(&f, &forced), Err(exists.clone()));
+	assert_eq!(read(&f), "a: 1\n");
+
+	// A load that found nothing, and another program made the file since.
+	let n = at("n.shcl");
+	let (mut fresh, _) = Document::load_file(&n);
+	let _ = fresh.set_int("a", 1);
+	std::fs::write(&n, "b: 2\n").unwrap();
+	assert_eq!(
+		fresh.save_file_with(&n, &create),
+		Err(SaveError::Exists { path: n.clone() })
+	);
+	assert_eq!(read(&n), "b: 2\n");
+	#[cfg(unix)]
+	{
+		// A link to a file is the file.
+		let link = at("link.shcl");
+		std::os::unix::fs::symlink(&n, &link).unwrap();
+		assert_eq!(
+			fresh.save_file_with(&link, &create),
+			Err(SaveError::Exists { path: link.clone() })
+		);
+		// And a link to nowhere is something at the path, so where it points
+		// isn't made (2026110312163207).
+		let dangling = at("dangling.shcl");
+		let nowhere = at("nowhere.shcl");
+		std::os::unix::fs::symlink(&nowhere, &dangling).unwrap();
+		assert_eq!(
+			fresh.save_file_with(&dangling, &create),
+			Err(SaveError::Exists {
+				path: dangling.clone()
+			})
+		);
+		assert!(std::fs::symlink_metadata(&nowhere).is_err());
+	}
+
+	// Several saves at once: one makes the file and the rest are told it's there.
+	let race = at("race.shcl");
+	let gate = std::sync::Arc::new(std::sync::Barrier::new(8));
+	let saves: Vec<_> = (0..8)
+		.map(|i| {
+			let (gate, race) = (gate.clone(), race.clone());
+			std::thread::spawn(move || {
+				let mut d = Document::parse(&format!("n: {i}\n"));
+				gate.wait();
+				d.save_file_with(&race, &create)
+			})
+		})
+		.collect();
+	let saved: Vec<_> = saves.into_iter().map(|t| t.join().unwrap()).collect();
+	assert_eq!(saved.iter().filter(|r| r.is_ok()).count(), 1);
+	assert!(
+		saved
+			.iter()
+			.all(|r| r.is_ok() || *r == Err(SaveError::Exists { path: race.clone() }))
+	);
+	assert!(read(&race).starts_with("n: "));
+
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let mode = |p: &str| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+		for (name, want) in [("m1.shcl", 0o600), ("m2.shcl", 0o604), ("m3.shcl", 0o666)] {
+			let p = at(name);
+			let opts = SaveOptions {
+				create: true,
+				mode: want,
+				..SaveOptions::default()
+			};
+			assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+			assert_eq!(mode(&p), want, "{name}");
+		}
+		// Only the permission bits; a plain save takes them too.
+		let p = at("m4.shcl");
+		let opts = SaveOptions {
+			mode: 0o4640,
+			..SaveOptions::default()
+		};
+		assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+		assert_eq!(mode(&p), 0o640);
+		// A file already there keeps its own.
+		std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+		let opts = SaveOptions {
+			mode: 0o600,
+			..SaveOptions::default()
+		};
+		assert_eq!(doc.save_file_with(&p, &opts), Ok(false));
+		assert_eq!(mode(&p), 0o644);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A document from a newer format reads and edits as usual, and every save
+/// of it is refused with nothing written, whatever the options, before any
+/// other check. The same reading as H006 decides, and a merge takes a newer
+/// layer's (2026102910482344).
+#[cfg_attr(miri, ignore = "saves to disk")]
+#[test]
+fn a_newer_format_document_saves_nowhere() {
+	let _id = test_id("dekvt");
+	use shcl::{SaveError, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-newer-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let newer = "a: 1\n\n##    Format   4\n";
+	let f = at("f.shcl");
+	std::fs::write(&f, newer).unwrap();
+	let (mut doc, _) = Document::load_file(&f);
+	assert!(doc.newer_format());
+	assert!(doc.diagnostics().iter().any(|d| d.code == "H006"));
+	assert_eq!(doc.get_int("a"), Ok(1));
+	assert_eq!(doc.set_int("a", 2), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_int("a"), Ok(2));
+	let too_new = |p: &str| SaveError::TooNew {
+		path: p.to_string(),
+	};
+	assert_eq!(doc.save_file(&f), Err(too_new(&f)));
+	assert_eq!(
+		too_new(&f).to_string(),
+		format!(
+			"{f}: refusing to save: the document holds lines from a newer format than this reader's; nothing written"
+		)
+	);
+	assert_eq!(doc.save_file_lossy(&f), Err(too_new(&f)));
+	assert_eq!(doc.save_file_keep_lines(&f), Err(too_new(&f)));
+	// No option overrides it, and it comes before create's check.
+	let all = SaveOptions {
+		lossy: true,
+		keep_lines: true,
+		force: true,
+		create: true,
+		mode: 0o600,
+	};
+	assert_eq!(doc.save_file_with(&f, &all), Err(too_new(&f)));
+	assert_eq!(read(&f), newer);
+	// Anywhere else too, and nothing is made there.
+	let other = at("other.shcl");
+	assert_eq!(doc.save_file(&other), Err(too_new(&other)));
+	assert!(!Path::new(&other).exists());
+
+	// A parse reads the text the same way.
+	let mut parsed = Document::parse(newer);
+	assert!(parsed.newer_format());
+	assert_eq!(parsed.save_file(&other), Err(too_new(&other)));
+	// This format, an older one, none, a damaged line, and one in a raw body
+	// save as before.
+	for text in [
+		"a: 1\n##    Format   3\n",
+		"a: 1\n##    Format   2\n",
+		"a: 1\n",
+		"a: 1\n##    Format   4x\n",
+		"note:\n\t```\n##    Format   4\n\t```\n",
+	] {
+		let mut d = Document::parse(text);
+		assert!(!d.newer_format(), "{text:?}");
+		assert_eq!(d.save_file(&other), Ok(()), "{text:?}");
+	}
+	// A merged layer's lines are the document's now.
+	let mut base = Document::parse("b: 2\n");
+	base.merge(&Document::parse(newer));
+	assert!(base.newer_format());
+	assert_eq!(base.save_file(&other), Err(too_new(&other)));
+	let mut under = Document::parse(newer);
+	under.merge(&Document::parse("b: 2\n"));
+	assert!(under.newer_format());
+	let _ = std::fs::remove_dir_all(&dir);
 }

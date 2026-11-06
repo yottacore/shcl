@@ -1,0 +1,6 @@
+# db settings
+db.host: example.com
+port: 2
+
+# the branch
+repo("org/name").branch: dev

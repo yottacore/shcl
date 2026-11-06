@@ -1,37 +1,38 @@
-# any, required
+## any, required
 layout:
 
-# split or pane
-# string, one of: split, pane, required
+## split or pane
+## string, one of: split, pane, required
 layout.kind:
 
-# float
-#layout.ratio: 0.5
+## float
+# layout.ratio: 0.5
 
-# any
-#layout.children:
+## any
+# layout.children:
 
-# any
-#doc.layout:
+## any
+# doc.layout:
 
-# split or pane
-# string, one of: split, pane, required
+## split or pane
+## string, one of: split, pane, required
 doc.layout.kind:
 
-# float
-#doc.layout.ratio: 0.5
+## float
+# doc.layout.ratio: 0.5
 
-# any
-#doc.layout.children:
+## any
+# doc.layout.children:
 
-# Paths needing an instance name (not generated):
-#   layout.children   node
-#   doc.layout.children   node
+## Paths needing an instance name (not generated):
+##   layout.children   node
+##   doc.layout.children   node
 
-#
-# This config file format is SHCL.
-# "Simple Hierarchical Config Language"
-#    Home     https://github.com/jim-collier/shcl
-#    Syntax   https://github.com/jim-collier/shcl/blob/main/project/spec.md
-#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.
-#
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

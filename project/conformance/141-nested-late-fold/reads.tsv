@@ -1,0 +1,9 @@
+query	type	expected	status
+-	load	ok	-
+-	load	ok	-	strict
+x	raw	v	Good
+x	count	1	Good
+x.a	raw	w	Good
+x.a	count	1	Good
+-	paths	x|x.a	-
+-	lost	0	-

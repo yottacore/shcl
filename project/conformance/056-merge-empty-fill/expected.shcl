@@ -1,5 +1,5 @@
-blk:
-	~~~info#hash
+blk:  #hash
+	~~~info
 	body
 	~~~
 	child: 1

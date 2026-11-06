@@ -1,0 +1,2 @@
+line 3: Error: E003
+failed: 1 diagnostic(s), 1 error(s)

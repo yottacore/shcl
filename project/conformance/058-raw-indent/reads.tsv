@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+sql	raw	  SELECT 1\n  FROM t	Good
+sql	rawinfo	sql	Good
+deep	raw	\tx\n y	Good
+flush	raw	x	Good

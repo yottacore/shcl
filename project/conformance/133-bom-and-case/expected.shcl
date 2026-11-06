@@ -1,0 +1,8 @@
+srv:
+	host: example
+	port: 80
+	tls: true
+"clé": 1
+"clé": 2
+"clÉ": 3
+naïve: 4

@@ -1,0 +1,4 @@
+literal	bad	a,
+literal	bad	x: y
+literal	bad	[a b]
+literal	bad	a]

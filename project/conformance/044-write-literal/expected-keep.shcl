@@ -1,0 +1,22 @@
+scalar: 1
+kept: hello
+
+ports: [80, 443]
+
+one: 7
+
+quoted: ["a, b", c]
+
+trimmed: [x, y]
+
+commented: v
+
+hexcolor:
+
+midhash: a
+
+tailhash: x
+
+empty:
+
+fresh: [1, 2]

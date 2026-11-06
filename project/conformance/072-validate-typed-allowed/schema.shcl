@@ -1,0 +1,17 @@
+field: blurb
+	type: string
+	allowed: hi
+field: ratio
+	type: float-array
+	allowed: [1.5, 2.5]
+	min: 1.0
+	max: 3.0
+field: flag
+	type: bool
+	allowed: yes
+field: when
+	type: datetime
+	allowed: 2020-01-01
+field: n
+	type: int-array
+	allowed: [1, 2]

@@ -1,0 +1,6 @@
+line 5: Hint: H008
+line 6: Hint: H008
+line 7: Hint: H008
+line 9: Hint: H008
+line 11: Hint: H008
+ok (5 diagnostic(s))

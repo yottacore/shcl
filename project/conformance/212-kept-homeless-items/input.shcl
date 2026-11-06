@@ -1,0 +1,10 @@
+# An item with no field above it (E007) and one under a field that has a
+# value (E011) are kept as written. Emptied, the field would take the item,
+# so it is written as a comment then.
+- stray  # at the root
+port: 80
+	- 8080
+host: x
+	- y
+list:
+	- a

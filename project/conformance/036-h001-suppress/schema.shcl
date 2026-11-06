@@ -1,5 +1,5 @@
 field: unique
 	type: string
-	repeat: 1, 9
+	repeat: [1, 9]
 field: note
 	type: string

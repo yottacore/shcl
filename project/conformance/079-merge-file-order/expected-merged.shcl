@@ -1,0 +1,17 @@
+# head
+base: 1
+s:
+	p: 1
+	x: 1
+c: 1
+c: 2
+a: q
+	k: 1
+b: 1
+a: r
+	k: 2
+new:
+	y: 1
+# foot
+# more
+# more

@@ -1,0 +1,15 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+sizes	string[]	small|extra large|Bond, James	Good
+sizes	string	[small, "extra large", "Bond, James"]	Good
+same	string	[small, "extra large", "Bond, James"]	Good
+one	int	80	Good
+one	int[]	80	Good
+one	string	[80]	Good
+old	string[]	two|four	Good
+odd	string[]	name:|localhost:8080|-5|extra large|raw, text	Good
+-x.under	int	1	Good
+"-x".under	int	1	Good
+last	int	1	Good

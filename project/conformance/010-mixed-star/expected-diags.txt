@@ -1,4 +1,3 @@
 line 3: Error: E001
-line 4: Error: E008
 line 7: Error: E008
-failed: 3 diagnostic(s), 3 error(s)
+failed: 2 diagnostic(s), 2 error(s)

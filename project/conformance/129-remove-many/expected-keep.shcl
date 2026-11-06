@@ -1,0 +1,8 @@
+# One path matching every child of one parent, and one matching several
+# top-level instances. Each match used to be dropped on its own.
+grp:
+	n: 7
+keep:
+	a: 9
+	b: 8
+zz: 1

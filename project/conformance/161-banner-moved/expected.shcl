@@ -1,0 +1,22 @@
+# Info blocks that were in the footer until fields were added below them
+# by hand. banner takes them off wherever they sit after the first field.
+# A comment nested under a block moves out to the column the block was at.
+a:
+	b: 1
+##
+## This config file format is SHCL.
+##    Format   3
+##
+c: 1
+e:
+
+	##
+	## This config file format is SHCL.
+	##    Format   2
+	##
+	# a note of the file's own
+	f: 1
+##
+## This config file format is SHCL.
+##
+	# a note under the old footer block

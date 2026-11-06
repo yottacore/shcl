@@ -1,0 +1,14 @@
+sql:
+	~~~sql
+	  SELECT 1
+	  FROM t
+	~~~
+deep:
+	~~~
+		x
+	 y
+	~~~
+flush:
+	```
+x
+	```

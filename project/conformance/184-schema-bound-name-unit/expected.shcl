@@ -1,0 +1,9 @@
+hold-ms: 50
+idle-ms: 150
+wait-seconds: 1
+ttl-hours: 0.25
+cache_mb: 2
+limit-kb: 3
+pool: 10s
+slots:
+	a-ms: 5

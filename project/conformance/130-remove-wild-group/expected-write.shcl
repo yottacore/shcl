@@ -1,0 +1,5 @@
+# A wildcard leaf that repeats under one instance. That slot used to be dropped
+# from the remove, so the data stayed and the run still exited 0.
+srv: web1
+srv: web2
+srv: web3

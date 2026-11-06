@@ -1,0 +1,11 @@
+# about a
+a: 1
+
+# group heading
+# about b
+b: 2  # same line
+g:
+	# about k
+	k: 3
+	# about m
+	m: 4

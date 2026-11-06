@@ -1,0 +1,12 @@
+line 22: Error: E023
+line 24: Error: E023
+line 25: Error: E023
+line 26: Error: E023
+line 27: Error: E023
+line 28: Error: E023
+line 29: Error: E023
+line 30: Error: E023
+line 31: Error: E018
+line 32: Error: E023
+line 34: Error: E023
+failed: 11 diagnostic(s), 11 error(s)

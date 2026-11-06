@@ -1,0 +1,4 @@
+query	type	expected	status
+db.port	int	5432	Good
+db.user	string	app	Good
+retries	count	1	Good

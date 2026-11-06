@@ -1,0 +1,7 @@
+# A field given twice at the end loads as one. The repeat stays as
+# written, and a new field goes after it, above the closing comment.
+name: svc
+retries: 3
+
+level: info
+# end of settings

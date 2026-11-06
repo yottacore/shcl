@@ -1,0 +1,5 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+a	string[]	x|y	Good
+b	string[]	p|q	Good

@@ -1,0 +1,8 @@
+int-array	w1	80
+int-array	w0
+int	w2	80
+string-array	w3	a b	c
+int-array	one	81
+int	pair	7
+literal	w4	[1, "two", `3`]
+literal	w5	[]

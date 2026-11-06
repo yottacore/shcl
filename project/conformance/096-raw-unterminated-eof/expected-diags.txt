@@ -1,0 +1,2 @@
+line 1: Error: E005
+failed: 1 diagnostic(s), 1 error(s)

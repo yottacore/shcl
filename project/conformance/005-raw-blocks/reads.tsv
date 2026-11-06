@@ -2,10 +2,10 @@ query	type	expected	status
 config.ddl	raw	CREATE TABLE users (\n  id   INTEGER PRIMARY KEY,\n  name TEXT NOT NULL\n);	Good
 notes	raw	line one, kept verbatim   # not a comment\n  deeper indent preserved	Good
 host	count	2	Good
-host[0]	string	web1	Good
-host[1]	raw	block instance	Good
+host(0)	string	web1	Good
+host(1)	raw	block instance	Good
 host	string	-	Multiple
 misc	count	2	Good
-misc[0]	raw	first block	Good
-misc[1]	raw	second block	Good
+misc(0)	raw	first block	Good
+misc(1)	raw	second block	Good
 misc	raw	-	Multiple

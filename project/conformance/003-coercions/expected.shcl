@@ -4,3 +4,7 @@ ratio: 50%
 threshold: 3.5
 answer: yes
 switch: enabled
+spaced: "$ 3.14"
+bare: "$ 1200"
+tiedown: -2.5
+tieup: 3.5

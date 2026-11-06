@@ -1,0 +1,3 @@
+query	type	expected	status
+-	load	ok	-
+x	count	2	Good

@@ -1,0 +1,8 @@
+server: web1
+	port: 8080
+server: web2
+	port: 9090
+plain: x
+"*": lit
+
+added: ok

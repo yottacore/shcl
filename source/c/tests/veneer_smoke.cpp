@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 
 // Compile + behavior smoke for the C++ veneer. Full behavior is pinned by the C
 // core's conformance runner; this just proves the typed surface builds and
@@ -8,9 +8,16 @@
 #define SHCL_IMPLEMENTATION
 #include "shcl.hpp"
 
+#include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
+#include <limits>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 #ifndef SHCL_NO_FILE_IO
 #include <sys/stat.h>
 #include <unistd.h>
@@ -20,19 +27,521 @@
 #endif
 
 static int fails = 0;
+/* The pipeline's status line for this file's one test, with its test ID. */
+static const char *open_id, *open_name;
+static void test_id(const char *id, const char *name) { open_id = id; open_name = name; } // NOLINT(bugprone-easily-swappable-parameters): the ID first, as in every runner's test_id
+static int test_id_end(int failed) {
+	std::printf("%-4s %s c++ %s\n", failed ? "FAIL" : "PASS", open_id, open_name);
+	std::fflush(stdout);
+	return failed ? 1 : 0;
+}
 #define CHECK(cond) do { if (!(cond)) { std::fprintf(stderr, "veneer FAIL: %s (line %d)\n", #cond, __LINE__); fails++; } } while (0)
 
+// A read's whole answer as text, so 2 threads' answers compare in one go.
+static void put(std::string &o, const std::string &s) { o += '"'; o += s; o += "\" "; }
+static void put(std::string &o, const char *s) { put(o, std::string(s)); }
+static void put(std::string &o, bool b) { o += b ? "T " : "F "; }
+static void put(std::string &o, std::size_t n) { o += std::to_string(n) + ' '; }
+static void put(std::string &o, std::int64_t n) { o += std::to_string(n) + ' '; }
+static void put(std::string &o, double v) { o += shcl::format_float(v) + ' '; }
+static void put(std::string &o, std::chrono::milliseconds ms) { put(o, static_cast<std::int64_t>(ms.count())); }
+static void put(std::string &o, shcl::Status s) { put(o, shcl::to_string(s)); }
+static void put(std::string &o, shcl::SetStatus s) { put(o, shcl::to_string(s)); }
+static void put(std::string &o, shcl::ValueKind k) { put(o, shcl::to_string(k)); }
+static void put(std::string &o, shcl::Strictness s) { put(o, static_cast<std::int64_t>(s)); }
+#ifndef SHCL_NO_FILE_IO
+static void put(std::string &o, shcl::SaveResult r) { put(o, static_cast<std::int64_t>(r)); }
+static void put(std::string &o, shcl::WriteStatus w) { put(o, shcl::to_string(w)); }
+static void put(std::string &o, shcl::FileStatus f) { put(o, shcl::to_string(f)); }
+#endif
+static void put(std::string &o, const shcl::DateTime &dt) { put(o, dt.str()); }
+static void put(std::string &o, const shcl::Diagnostic &d) { put(o, shcl::format_diagnostic(d)); }
+static void put(std::string &o, const shcl::Field &f) { put(o, f.path); put(o, f.name); put(o, f.value); put(o, f.line); }
+template <class T> static void put(std::string &o, const std::vector<T> &v);
+template <class T> static void put(std::string &o, const shcl::Read<T> &r);
+template <class A, class B> static void put(std::string &o, const std::pair<A, B> &p);
+template <class T> static void put(std::string &o, const std::vector<T> &v) {
+	o += "[ ";
+	for (const auto &x : v) put(o, x);
+	o += "] ";
+}
+template <class T> static void put(std::string &o, const shcl::Read<T> &r) { put(o, r.value); put(o, r.status); put(o, r.slots); }
+template <class A, class B> static void put(std::string &o, const std::pair<A, B> &p) { put(o, p.first); put(o, p.second); }
+template <class... Ts> static std::string show(const Ts &...vs) {
+	std::string o;
+	(put(o, vs), ...);
+	return o;
+}
+
+#ifndef SHCL_NO_FILE_IO
+// Each thread saves to a file of its own. Only the slot is thread_local:
+// mingw frees a thread_local's storage before its destructor runs (GCC bug
+// 80816), so a thread_local std::string crashes the thread's exit.
+static std::string saveBase;
+static thread_local int saveSlot = -1;
+static std::string save_path() { return saveBase + (saveSlot < 0 ? std::string("main") : std::to_string(saveSlot)) + ".shcl"; }
+static std::string save_base() {
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	if (!tmp || !*tmp) tmp = "/tmp";
+	return std::string(tmp) + "/shcl-veneer-threads-" + std::to_string(static_cast<long>(getpid())) + "-";
+}
+#endif
+
+// spec.md says threads can share one Document for reads, since each const
+// member holds the document's lock. A member that skips it races, which
+// sanitize-c.bash's -fsanitize=thread build of this file reports.
+static int reads_from_several_threads() {
+	test_id("de1a5", "reads_from_several_threads");
+	using D = shcl::Document;
+#ifndef SHCL_NO_FILE_IO
+	saveBase = save_base();
+#endif
+	const std::string src =
+		"# the app\n"
+		"name: demo\n"
+		"port: 8080\n"
+		"ratio: 3.5\n"
+		"on: yes\n"
+		"when: 2026-10-16T12:34:56Z\n"
+		"tags: [red, green, blue]\n"
+		"ports: [80, 443]\n"
+		"ratios: [1.5, 2]\n"
+		"flags: [yes, no]\n"
+		"days: [2026-01-01, 2026-02-02]\n"
+		"timeout: 30s\n"
+		"cache: 64MiB\n"
+		"notes: ~~~text\n"
+		"\thello\n"
+		"\t~~~\n"
+		"site: a\n"
+		"\t# the first\n"
+		"\tport: 1\n"
+		"site: b\n"
+		"\tport: 2\n"
+		"\"q n\": `raw`\n"
+		"no colon here\n";
+	// The bad type gives generate a fault to put on the schema.
+	const std::string schemaSrc = "field: port\n\ttype: int\n\tmin: 1\nfield: site\nfield: site.port\n\ttype: int\nfield: name\nfield: ratio\n\ttype: bogus\n";
+	auto parse = [&] { return D::parse_keep_lines(src, shcl::Strictness::Standard); };
+	auto one = parse();
+	// Strict, so strict_failed reads the diagnostics too.
+	auto oneSchema = D::parse_with(schemaSrc, shcl::Strictness::Strict);
+
+	std::vector<std::string> queries = {"", "nope", "site(*).port", "site(b).port", "site..port", "city[Boston]", "tags(*)"};
+	for (const auto &p : one.paths()) queries.push_back(p);
+	for (const auto &p : one.instance_paths()) queries.push_back(p);
+
+	// Not const, for the save: it records what it wrote, so it is a write, but
+	// it holds the lock all the same, and a parse has no file to record.
+	using Call = std::function<std::string(D &, const D &)>;
+	std::vector<Call> calls = {
+		[](const D &d, const D &) { return show(d.to_canonical(), d.to_text_keep_lines(), d.strict_failed(), d.strictness()); },
+		[](const D &d, const D &) { return show(d.paths(), d.instance_paths(), d.fields()); },
+		[](const D &d, const D &) { return show(d.diagnostics(), d.error_count(), d.lost_count()); },
+#ifndef SHCL_NO_FILE_IO
+		[](D &d, const D &) {
+			std::string o;
+			const std::string savePath = save_path();
+			shcl::WriteStatus why{};
+			put(o, d.save_file(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			put(o, d.save_file_lossy(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			put(o, d.save_file_keep_lines(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			std::remove(savePath.c_str());
+			return o;
+		},
+#endif
+	};
+	// The calls that read the schema. Fewer of them would seldom overlap, so
+	// 2 go in with each query's.
+	const std::vector<Call> schemaCalls = {
+		// Both ways round, so the pair lock is taken in both orders at once.
+		[](const D &d, const D &s) { return show(d.validate(s), s.validate(d)); },
+		[&src](const D &, const D &s) { return show(D::load_and_validate_with(src, s, shcl::Strictness::Standard).diagnostics()); },
+		// generate writes its faults onto the schema's diagnostics and takes
+		// them off again, so these read the list. One each, as the next call
+		// on the schema that locks hides an unlocked read before it.
+		[](const D &, const D &s) { return show(shcl::generate(s)); },
+		[](const D &, const D &s) { return show(s.diagnostics()); },
+		[](const D &, const D &s) { return show(s.error_count()); },
+		[](const D &, const D &s) { return show(s.strict_failed()); },
+		[](const D &, const D &s) { return show(s.lost_count(), s.strictness()); },
+		[&src](const D &, const D &s) {
+			auto mine = D::parse(src);
+			shcl::suppress_declared_repeats(s, mine);
+			shcl::suppress_declared_reopens(s, mine);
+			return show(mine.diagnostics());
+		},
+	};
+	std::size_t nSchema = 0;
+	// codeql[cpp/unused-local-variable] the lambdas below capture q
+	for (const std::string &q : queries) {
+		calls.push_back(schemaCalls[nSchema++ % schemaCalls.size()]);
+		calls.push_back(schemaCalls[nSchema++ % schemaCalls.size()]);
+		calls.push_back([q](const D &d, const D &) { return show(d.read_string(q), d.read_raw(q), d.read_raw_info(q), d.read_datetime_str(q), d.get_raw_or(q, "x"), d.get_raw_info_or(q, "x")); });
+		calls.push_back([q](const D &d, const D &) { return show(d.read_int(q), d.read_float(q), d.read_bool(q), d.read_datetime(q), d.get_or<std::int64_t>(q, 7), d.get_or<std::string>(q, "x")); });
+		calls.push_back([q](const D &d, const D &) { return show(d.read_string_array(q), d.read_int_array(q), d.read_float_array(q), d.read_bool_array(q), d.read_datetime_array(q), d.read_datetime_array_str(q)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.read_duration(q), d.read_size(q), d.get_duration_or(q, std::nullopt, std::chrono::milliseconds(7)), d.get_size_or(q, std::nullopt, false, 7)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.count(q), d.read_count(q), d.read_instances(q), d.read_children(q), d.instances(q), d.children(q), d.read_fields(q), d.read_child_fields(q)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.line(q), d.read_line(q), d.lines(q), d.read_lines(q), d.kind(q), d.read_kind(q), d.exists(q), d.read_exists(q), d.authored_name(q), d.read_authored_name(q)); });
+		calls.push_back([q](const D &d, const D &) { return show(d.comments(q), d.read_comments(q), d.quoted(q), d.backtick(q), d.raw(q), d.read_raw_text(q), d.check_set_path(q)); });
+	}
+	std::vector<std::string> want;
+	want.reserve(calls.size());
+	for (const auto &call : calls) want.push_back(call(one, oneSchema));
+
+	// A fresh pair each round, so the first reads that build the lookup index
+	// race each other too.
+	constexpr std::size_t nThreads = 8;
+	for (int round = 0; round < 3; round++) {
+		auto shared = parse();
+		auto sharedSchema = D::parse_with(schemaSrc, shcl::Strictness::Strict);
+		std::vector<std::string> bad(nThreads);
+		std::vector<std::thread> threads;
+		for (std::size_t t = 0; t < nThreads; t++) {
+			threads.emplace_back([&, t] {
+#ifndef SHCL_NO_FILE_IO
+				saveSlot = static_cast<int>(t);
+#endif
+				// Each starts at a different call, so the first reads differ.
+				for (std::size_t k = 0; k < calls.size(); k++) {
+					const std::size_t i = (k + t * calls.size() / nThreads) % calls.size();
+					if (calls[i](shared, sharedSchema) != want[i]) {
+						bad[t] = "thread " + std::to_string(t) + ", call " + std::to_string(i) + ": got " + calls[i](shared, sharedSchema) + " want " + want[i];
+						return;
+					}
+				}
+			});
+		}
+		for (auto &th : threads) th.join();
+		for (const auto &msg : bad) {
+			if (msg.empty()) continue;
+			std::fprintf(stderr, "veneer FAIL: round %d, %s\n", round, msg.c_str());
+			fails++;
+		}
+	}
+	return test_id_end(fails);
+}
+
+#ifndef SHCL_NO_FILE_IO
+// A save over the file a load read refuses when another program changed
+// it since, writes nothing, and writes with force. A save elsewhere, and a
+// document from a parse, save as they always did (2026102910482342). The
+// C runner's fixture, through the veneer.
+static int a_save_over_a_file_changed_since_the_load_is_refused() {
+	test_id("dekkn", "a_save_over_a_file_changed_since_the_load_is_refused");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-changed-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	auto put_text = [](const std::string &p, const std::string &t) { CHECK(shcl::write_file_atomic(p, t) == shcl::WriteStatus::Ok); };
+	auto has = [](const std::string &p, const std::string &t) { return shcl::read_file(p) == std::make_pair(t, shcl::FileStatus::Clean); };
+	shcl::SaveOptions force;
+	force.force = true;
+	shcl::SaveOptions keepForce;
+	keepForce.keep_lines = keepForce.force = true;
+	const std::string f = dir + "/f.shcl", n = dir + "/new.shcl", other = dir + "/other.shcl";
+	put_text(f, "a: 1\n");
+	auto doc = shcl::Document::load_file(f).first;
+	CHECK(doc.set_int("a", 2) == shcl::SetStatus::Ok);
+	put_text(f, "a: 9\n");
+	shcl::WriteStatus why = shcl::WriteStatus::Other;
+	CHECK(doc.save_file(f, &why) == R::Changed && why == shcl::WriteStatus::Ok);
+	CHECK(doc.save_file_lossy(f) == R::Changed);
+	CHECK(has(f, "a: 9\n"));
+	CHECK(doc.save_file_with(f, force) == std::make_pair(R::Ok, false));
+	CHECK(has(f, "a: 2\n"));
+	// The next save is checked against what that one wrote.
+	CHECK(doc.set_int("a", 3) == shcl::SetStatus::Ok);
+	CHECK(doc.save_file(f) == R::Ok && has(f, "a: 3\n"));
+	// The same bytes written again are no change.
+	put_text(f, "a: 3\n");
+	CHECK(doc.save_file(f) == R::Ok);
+
+	// The line-keeping save, and a link to the file, are checked too.
+	put_text(f, "a: 1 # one\n");
+	auto kept = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard).first;
+	CHECK(kept.set_int("a", 2) == shcl::SetStatus::Ok);
+	put_text(f, "a: 9 # nine\n");
+	CHECK(kept.save_file_keep_lines(f).first == R::Changed);
+#ifndef _WIN32
+	const std::string link = dir + "/link.shcl";
+	CHECK(symlink(f.c_str(), link.c_str()) == 0);
+	CHECK(kept.save_file_keep_lines(link).first == R::Changed);
+#endif
+	CHECK(has(f, "a: 9 # nine\n"));
+	CHECK(kept.save_file_with(f, keepForce) == std::make_pair(R::Ok, true));
+	CHECK(has(f, "a: 2 # one\n"));
+
+	// Gone since the load is a change. So is a file made where none was.
+	auto gone = shcl::Document::load_file(f).first;
+	std::remove(f.c_str());
+	CHECK(gone.save_file(f) == R::Changed);
+	CHECK(shcl::read_file(f).second == shcl::FileStatus::NotFound);
+	auto [fresh, freshSt] = shcl::Document::load_file(n);
+	CHECK(freshSt == shcl::FileStatus::NotFound);
+	CHECK(fresh.set_int("a", 1) == shcl::SetStatus::Ok);
+	put_text(n, "b: 2\n");
+	CHECK(fresh.save_file(n) == R::Changed && has(n, "b: 2\n"));
+	std::remove(n.c_str());
+	CHECK(fresh.save_file(n) == R::Ok && has(n, "a: 1\n"));
+
+	// Elsewhere is not checked, and the load's file still is.
+	put_text(other, "z: 0\n");
+	CHECK(gone.save_file(other) == R::Ok);
+	CHECK(gone.save_file(f) == R::Changed);
+	// A parse has no file behind it.
+	auto parsed = shcl::Document::parse("a: 5\n");
+	CHECK(parsed.save_file(other) == R::Ok && has(other, "a: 5\n"));
+#ifndef _WIN32
+	std::remove(link.c_str());
+#endif
+	std::remove(n.c_str());
+	std::remove(other.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+#endif
+
+#ifndef SHCL_NO_FILE_IO
+// A bare name is the same file as its absolute spelling, whether it was there
+// at the load or not (2026110312163201). The C runner's fixture, in part,
+// through the veneer.
+static int a_changed_check_knows_its_file_by_any_spelling() {
+	test_id("detps", "a_changed_check_knows_its_file_by_any_spelling");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-spelled-" + std::to_string((long)getpid());
+	char back[1024];
+	using R = shcl::SaveResult;
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+	CHECK(_getcwd(back, sizeof back) && _chdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+	CHECK(getcwd(back, sizeof back) && chdir(dir.c_str()) == 0);
+#endif
+	auto put_text = [](const std::string &p, const std::string &t) { CHECK(shcl::write_file_atomic(p, t) == shcl::WriteStatus::Ok); };
+	auto has = [](const std::string &p, const std::string &t) { return shcl::read_file(p) == std::make_pair(t, shcl::FileStatus::Clean); };
+	// A bare name, gone since the load.
+	put_text("i.shcl", "a: 1\n");
+	auto gone = shcl::Document::load_file("i.shcl").first;
+	std::remove("i.shcl");
+	CHECK(gone.save_file("i.shcl") == R::Changed);
+	CHECK(shcl::read_file("i.shcl").second == shcl::FileStatus::NotFound);
+	// A bare name made where the load found nothing, by any spelling.
+	auto [fresh, freshSt] = shcl::Document::load_file("h.shcl");
+	CHECK(freshSt == shcl::FileStatus::NotFound);
+	CHECK(fresh.set_int("a", 1) == shcl::SetStatus::Ok);
+	put_text("h.shcl", "b: 2\n");
+	CHECK(fresh.save_file("h.shcl") == R::Changed);
+	CHECK(fresh.save_file(dir + "/h.shcl") == R::Changed);
+	CHECK(has("h.shcl", "b: 2\n"));
+	std::remove("h.shcl");
+#ifdef _WIN32
+	CHECK(_chdir(back) == 0);
+	_rmdir(dir.c_str());
+#else
+	CHECK(chdir(back) == 0);
+	rmdir(dir.c_str());
+#endif
+	return test_id_end(fails);
+}
+#endif
+
+#ifndef SHCL_NO_FILE_IO
+// A create-only save refuses a file that's there, and a new file takes the
+// mode asked for while one already there keeps its own (2026102910482343).
+// The C runner's fixture, through the veneer.
+static int a_create_only_save_refuses_a_file_already_there() {
+	test_id("dekmk", "a_create_only_save_refuses_a_file_already_there");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-create-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	auto has = [](const std::string &p, const std::string &t) { return shcl::read_file(p) == std::make_pair(t, shcl::FileStatus::Clean); };
+	shcl::SaveOptions create;
+	create.create = true;
+	shcl::SaveOptions forced = create;
+	forced.force = true;
+	const std::string f = dir + "/f.shcl", m = dir + "/m.shcl";
+	auto doc = shcl::Document::parse("a: 1\n");
+	CHECK(doc.save_file_with(f, create) == std::make_pair(R::Ok, false));
+	CHECK(doc.set_int("a", 2) == shcl::SetStatus::Ok);
+	shcl::WriteStatus why = shcl::WriteStatus::Other;
+	CHECK(doc.save_file_with(f, create, &why).first == R::Exists && why == shcl::WriteStatus::Ok);
+	CHECK(doc.save_file_with(f, forced).first == R::Exists);
+	CHECK(has(f, "a: 1\n"));
+#ifndef _WIN32
+	// A link to nowhere is something at the path, so where it points isn't
+	// made (2026110312163207).
+	const std::string dangling = dir + "/dangling.shcl", nowhere = dir + "/nowhere.shcl";
+	struct stat ns;
+	CHECK(symlink(nowhere.c_str(), dangling.c_str()) == 0);
+	CHECK(doc.save_file_with(dangling, create).first == R::Exists);
+	CHECK(lstat(nowhere.c_str(), &ns) != 0);
+	std::remove(dangling.c_str());
+	shcl::SaveOptions mode = create;
+	mode.mode = 0604;
+	CHECK(doc.save_file_with(m, mode).first == R::Ok);
+	struct stat ms;
+	CHECK(stat(m.c_str(), &ms) == 0 && (ms.st_mode & 07777) == 0604);
+	// A file already there keeps its own.
+	mode.create = false;
+	mode.mode = 0600;
+	CHECK(doc.save_file_with(m, mode).first == R::Ok);
+	CHECK(stat(m.c_str(), &ms) == 0 && (ms.st_mode & 07777) == 0604);
+#endif
+	std::remove(f.c_str());
+	std::remove(m.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+#endif
+
+#ifndef SHCL_NO_FILE_IO
+// A document from a newer format reads and edits as usual, and every save of
+// it is refused with nothing written, whatever the options. The same reading
+// as H006 decides, and a merge takes a newer layer's (2026102910482344). The C
+// runner's fixture, through the veneer.
+static int a_newer_format_document_saves_nowhere() {
+	test_id("dekvy", "a_newer_format_document_saves_nowhere");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-newer-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	const std::string newer = "a: 1\n\n##    Format   4\n";
+	const std::string f = dir + "/f.shcl", other = dir + "/other.shcl";
+	CHECK(shcl::write_file_atomic(f, newer) == shcl::WriteStatus::Ok);
+	auto loaded = shcl::Document::load_file(f);
+	auto &doc = loaded.first;
+	CHECK(doc.newer_format());
+	bool hint = false;
+	for (const auto &d : doc.diagnostics()) hint = hint || d.code == "H006";
+	CHECK(hint);
+	CHECK(doc.read_int("a").value == 1);
+	CHECK(doc.set_int("a", 2) == shcl::SetStatus::Ok);
+	CHECK(doc.read_int("a").value == 2);
+	shcl::WriteStatus why = shcl::WriteStatus::Other;
+	CHECK(doc.save_file(f, &why) == R::TooNew && why == shcl::WriteStatus::Ok);
+	CHECK(doc.save_file_lossy(f) == R::TooNew);
+	CHECK(doc.save_file_keep_lines(f) == std::make_pair(R::TooNew, false));
+	shcl::SaveOptions all;
+	all.lossy = all.keep_lines = all.force = all.create = true;
+	all.mode = 0600;
+	CHECK(doc.save_file_with(f, all).first == R::TooNew);
+	CHECK(shcl::read_file(f) == std::make_pair(newer, shcl::FileStatus::Clean));
+	CHECK(doc.save_file(other) == R::TooNew);
+	CHECK(shcl::read_file(other).second == shcl::FileStatus::NotFound);
+	auto parsed = shcl::Document::parse(newer);
+	CHECK(parsed.newer_format() && parsed.save_file(other) == R::TooNew);
+	auto current = shcl::Document::parse("a: 1\n##    Format   3\n");
+	CHECK(!current.newer_format() && current.save_file(other) == R::Ok);
+	auto base = shcl::Document::parse("b: 2\n");
+	base.merge(parsed);
+	CHECK(base.newer_format() && base.save_file(other) == R::TooNew);
+	std::remove(f.c_str());
+	std::remove(other.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+
+// A path holding a NUL is refused, as Rust, Go and Python refuse it, rather
+// than cut short at the NUL into another file's name (2026110312163208).
+static int a_path_holding_a_nul_is_refused() {
+	test_id("devwa", "a_path_holding_a_nul_is_refused");
+	using namespace std::string_literals;
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-nul-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	using W = shcl::WriteStatus;
+	using F = shcl::FileStatus;
+	const std::string real = dir + "/real.shcl", cut = real + "\0evil"s;
+	auto doc = shcl::Document::parse("a: 1\n");
+	W why = W::Ok;
+	CHECK(doc.save_file(cut, &why) == R::Failed && why == W::Other);
+	CHECK(doc.save_file_lossy(cut) == R::Failed);
+	CHECK(doc.save_file_keep_lines(cut) == std::make_pair(R::Failed, false));
+	why = W::Ok;
+	CHECK(doc.save_file_with(cut, shcl::SaveOptions{}, &why) == std::make_pair(R::Failed, false) && why == W::Other);
+	CHECK(shcl::write_file_atomic(cut, "a: 1\n") == W::Other);
+	CHECK(shcl::read_file(real).second == F::NotFound);
+	// Nor is the file before the NUL read, or kept and replaced.
+	CHECK(shcl::write_file_atomic(real, "b: 2\n") == W::Ok);
+	CHECK(shcl::read_file(cut) == std::make_pair(std::string(), F::Unreadable));
+	for (const auto &loaded : {shcl::Document::load_file(cut), shcl::Document::load_file_with(cut, shcl::Strictness::Strict),
+		     shcl::Document::load_file_keep_lines(cut, shcl::Strictness::Standard)}) {
+		CHECK(loaded.second == F::Unreadable && loaded.first.read_int("b").status == shcl::Status::NotFound);
+	}
+	auto up = shcl::upgrade_file(cut, true).second;
+	CHECK(up && up->kind == shcl::UpgradeErrorKind::Io && up->status == W::Other);
+	auto kept = shcl::write_backup(cut, "b: 2\n", 2).second;
+	CHECK(kept && kept->kind == shcl::UpgradeErrorKind::Io && kept->status == W::Other);
+	CHECK(shcl::read_file(real) == std::make_pair(std::string("b: 2\n"), F::Clean));
+	// A config path with a NUL in its folder doesn't start a Schema line's
+	// relative path in the folder before the NUL. One in the name is no part
+	// of where it starts.
+	const std::string line = "##    Schema   real.shcl\n";
+	auto in = shcl::read_named_schema(line, dir + "\0x/c.shcl"s);
+	CHECK(in.status == shcl::SchemaStatus::Unreadable && in.text.empty() && in.line == 1 && in.path == dir + "\0x/real.shcl"s);
+	CHECK(shcl::read_named_schema("##    Schema   /nowhere.shcl\n", dir + "\0x/c.shcl"s).status == shcl::SchemaStatus::FileNotFound);
+	auto named = shcl::read_named_schema(line, dir + "/c.shcl\0x"s);
+	CHECK(named.status == shcl::SchemaStatus::Good && named.text == "b: 2\n");
+	std::remove(real.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+#endif
+
 int main() {
+	test_id("d9v59", "veneer_smoke");
+	// The clock every runner pins, as conformance.c does.
+#ifdef _WIN32
+	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+	setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
+	using S = shcl::SetStatus;
 	const std::string src =
 		"name: demo\n"
 		"port: 8080\n"
 		"ratio: 3.5\n"
 		"on: yes\n"
-		"tags: red, green, blue\n"
+		"tags: [red, green, blue]\n"
 		"city: Chicago\n"
 		"city: Boston\n";
 
 	auto doc = shcl::Document::parse(src);
+	// False only when the parse could not allocate, so every accessor below
+	// is asking about a document that exists.
+	CHECK(static_cast<bool>(doc));
 
 	auto port = doc.get<int64_t>("port");
 	CHECK(port.ok() && port.status == shcl::Status::Good && port.value == 8080);
@@ -53,8 +562,8 @@ int main() {
 	// Two same-name leaves are instances, not one scalar.
 	CHECK(doc.count("city") == 2);
 
-	CHECK(doc.quote_segment("port") == "port");
-	CHECK(doc.quote_segment("q n") == "\"q n\"");
+	CHECK(shcl::quote_segment("port") == "port");
+	CHECK(shcl::quote_segment("q n") == "\"q n\"");
 	auto cities = doc.instances("city");
 	CHECK(cities.size() == 2 && cities[0] == "Chicago" && cities[1] == "Boston");
 
@@ -65,8 +574,8 @@ int main() {
 	auto kids = doc.children("");
 	CHECK(kids.size() == 7 && kids[0] == "name" && kids[5] == "city" && kids[6] == "city");
 	CHECK(doc.children("nope").empty());
-	CHECK(doc.write_reason("port") == shcl::WriteReason::Writable);
-	CHECK(doc.write_reason("city[*]") == shcl::WriteReason::Wildcard);
+	CHECK(doc.check_set_path("port") == S::Ok);
+	CHECK(doc.check_set_path("city(*)") == S::Wildcard);
 	auto multi = doc.read_string("city");
 	CHECK(multi.status == shcl::Status::Multiple);
 
@@ -82,6 +591,60 @@ int main() {
 
 	auto missing = doc.read_int("nope");
 	CHECK(missing.status == shcl::Status::NotFound);
+	// A path that cannot parse is BadPath, last in the order, and the
+	// fallback still covers it.
+	CHECK(doc.read_int("city[Boston]").status == shcl::Status::BadPath);
+	CHECK(doc.get<std::string>("port: 1").status == shcl::Status::BadPath);
+	CHECK(doc.read_int_array("a..b").status == shcl::Status::BadPath && doc.read_int_array("a..b").slots.empty());
+	CHECK(doc.get_or<int64_t>("city[Boston]", 9) == 9 && doc.count("city[Boston]") == 0);
+	CHECK(std::string(shcl::to_string(shcl::Status::BadPath)) == "BadPath" && shcl::status_code(shcl::Status::BadPath) == 1);
+	CHECK(shcl::Status::BadPath > shcl::Status::Multiple);
+	// The list reads' status twins, on the fixture the runners use.
+	{
+		auto ld = shcl::Document::parse("site: a\n\tport: 1\nsite: b\n");
+		auto lc = ld.read_count("site");
+		CHECK(lc.value == 2 && lc.status == shcl::Status::Good && lc.slots.empty());
+		CHECK(ld.read_count("site(*).port").value == 2 && ld.read_count("site(*).port").status == shcl::Status::Good);
+		CHECK(ld.read_count("nope").status == shcl::Status::NotFound && ld.read_count("nope(*)").status == shcl::Status::NotFound);
+		CHECK(ld.read_count("site[0]").value == 0 && ld.read_count("site[0]").status == shcl::Status::BadPath);
+		auto li = ld.read_instances("site(*).port");
+		CHECK(li.status == shcl::Status::Good && li.value == std::vector<std::string>({"1", ""}));
+		CHECK(ld.read_instances("nope").status == shcl::Status::NotFound);
+		CHECK(ld.read_instances("site..port").status == shcl::Status::BadPath && ld.read_instances("site..port").value.empty());
+		auto lk = ld.read_children("site(0)");
+		CHECK(lk.status == shcl::Status::Good && lk.value == std::vector<std::string>({"port"}));
+		CHECK(ld.read_children("site(1)").status == shcl::Status::Good && ld.read_children("site(1)").value.empty());
+		CHECK(ld.read_children("nope").status == shcl::Status::NotFound);
+		CHECK(ld.read_children("h:p").status == shcl::Status::BadPath);
+		CHECK(ld.read_children("").status == shcl::Status::Good && ld.read_children("").value.size() == 2);
+	}
+	// The other path calls' status twins, on the fixture the runners use.
+	{
+		auto pd = shcl::Document::parse("# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n");
+		auto pl = pd.read_line("site(0)");
+		CHECK(pl.value == 2 && pl.status == shcl::Status::Good && pl.slots.empty());
+		CHECK(pd.read_line("site").status == shcl::Status::Multiple && pd.read_line("nope").status == shcl::Status::NotFound);
+		CHECK(pd.read_line("site..port").value == 0 && pd.read_line("site..port").status == shcl::Status::BadPath);
+		auto pa = pd.read_authored_name("name");
+		CHECK(pa.value == "Name" && pa.status == shcl::Status::Good);
+		CHECK(pd.read_authored_name("site").status == shcl::Status::Multiple && pd.read_authored_name("h:p").status == shcl::Status::BadPath);
+		auto pls = pd.read_lines("site(*).port");
+		CHECK(pls.status == shcl::Status::Good && pls.value == std::vector<std::size_t>({3, 0}));
+		CHECK(pd.read_lines("nope").status == shcl::Status::NotFound && pd.read_lines("site[0]").status == shcl::Status::BadPath);
+		auto pc = pd.read_comments("site");
+		CHECK(pc.status == shcl::Status::Good && pc.value == std::vector<std::string>({"# about site"}));
+		CHECK(pd.read_comments("site(1)").status == shcl::Status::Good && pd.read_comments("site(1)").value.empty());
+		CHECK(pd.read_comments("site(*).nope").status == shcl::Status::NotFound && pd.read_comments("").status == shcl::Status::BadPath);
+		CHECK(pd.read_exists("site(*).port").value && pd.read_exists("site(*).port").status == shcl::Status::Good);
+		CHECK(!pd.read_exists("nope").value && pd.read_exists("nope").status == shcl::Status::NotFound);
+		CHECK(!pd.read_exists("user name").value && pd.read_exists("user name").status == shcl::Status::BadPath);
+		CHECK(pd.try_clear_comments("site.port: 1").status == shcl::Status::BadPath && pd.try_remove("site(.port").status == shcl::Status::BadPath);
+		CHECK(pd.try_clear_comments("nope").status == shcl::Status::NotFound && pd.try_remove("nope").status == shcl::Status::NotFound);
+		auto pr = pd.try_clear_comments("site");
+		CHECK(pr.value == 1 && pr.status == shcl::Status::Good);
+		pr = pd.try_remove("site");
+		CHECK(pr.value == 2 && pr.status == shcl::Status::Good);
+	}
 
 	// Convenience tier: value on Good, call-site fallback otherwise.
 	CHECK(doc.get_or<int64_t>("port", 9) == 8080);
@@ -90,18 +653,139 @@ int main() {
 
 	// The rest of the read surface the veneer used to be missing: the quoted
 	// flag, existence, per-slot array statuses, and the datetime array.
-	auto qd = shcl::Document::parse("a: @null\nb: \"@null\"\nnums: 1, x, 3\nwhen: 2026-08-02, nope\n");
+	auto qd = shcl::Document::parse("a: @null\nb: \"@null\"\nnums: [1, x, 3]\nwhen: [2026-08-02, nope]\nc: `#FF8800`\n");
 	CHECK(!qd.quoted("a") && qd.quoted("b") && !qd.quoted("nope"));
+	CHECK(qd.quoted("c") && qd.backtick("c") && !qd.backtick("b") && qd.read_string("c").value == "#FF8800");
+	CHECK(qd.raw("b") == "\"@null\"" && qd.raw("c") == "`#FF8800`" && qd.raw("nums") == "[1, x, 3]" && qd.raw("nope").empty());
+	CHECK(qd.read_raw_text("b").value == "\"@null\"" && qd.read_raw_text("nope").status == shcl::Status::NotFound);
 	CHECK(qd.exists("a") && !qd.exists("nope"));
 	auto nums = qd.read_int_array("nums");
 	CHECK(nums.slots.size() == 3 && nums.slots[0] == shcl::Status::Good && nums.slots[1] == shcl::Status::BadType);
-	CHECK(qd.read_int("a").slots.empty()); // scalar reads carry no slots
-	auto when = qd.read_datetime_array("when");
+	CHECK(qd.read_int("a").slots.empty()); // scalar reads have no slots
+	auto when = qd.read_datetime_array_str("when");
 	CHECK(when.value.size() == 2 && when.value[0] == "2026-08-02" && when.slots[1] == shcl::Status::BadType);
+	auto whenDt = qd.read_datetime_array("when");
+	CHECK(whenDt.value.size() == 2 && whenDt.value[0].str() == "2026-08-02" && whenDt.slots[1] == shcl::Status::BadType);
 	CHECK(std::string(shcl::to_string(shcl::Status::BadType)) == "BadType");
+	CHECK(shcl::status_code(shcl::Status::Good) == 0 && shcl::status_code(shcl::Status::Multiple) == 5);
+	CHECK(shcl::strictness_from_arg("STRICT") == shcl::Strictness::Strict && shcl::strictness_from_arg("1") == shcl::Strictness::Loose);
+	CHECK(!shcl::strictness_from_arg("4") && !shcl::strictness_from_arg(""));
+	CHECK(shcl::format_float(0.1) == "0.1" && shcl::format_float(-2.5) == "-2.5");
+	// A value as set_string writes it, through the core.
+	{
+		CHECK(shcl::format_value("1,200") == "1,200" && shcl::format_value("a b") == "\"a b\"");
+		CHECK(!shcl::format_value("a\xff" "b"));
+		auto fw = shcl::Document::parse("");
+		CHECK(fw.set_string("k", "x\ty") == shcl::SetStatus::Ok && fw.to_canonical() == "k: " + *shcl::format_value("x\ty") + "\n");
+		// Over a quoted value too, or Loose reads it as a number (2026101514324702).
+		auto fq = shcl::Document::parse_with("k: \"x\"\n", shcl::Strictness::Loose);
+		CHECK(fq.set_string("k", "1,200") == shcl::SetStatus::Ok && !fq.quoted("k") && fq.read_int("k").status == shcl::Status::BadType);
+		CHECK(fq.to_canonical() == "k: " + *shcl::format_value("1,200") + "\n");
+	}
+	// An array as set_string_array writes it, through the core.
+	{
+		CHECK(shcl::format_array({"80", "a b", "1,200"}) == "[80, \"a b\", \"1,200\"]" && shcl::format_array({}) == "[]");
+		CHECK(!shcl::format_array({"x", "a\xff" "b"}));
+		auto fa = shcl::Document::parse("");
+		CHECK(fa.set_string_array("k", {"x\ty", ""}) == shcl::SetStatus::Ok && fa.to_canonical() == "k: " + *shcl::format_array({"x\ty", ""}) + "\n");
+	}
+	// The CLI's stderr line, through the core.
+	{
+		auto fdoc = shcl::Document::parse("a: 1\nb: [x\n");
+		auto fd = fdoc.diagnostics().at(0);
+		CHECK(!fd.message.empty() && shcl::format_diagnostic(fd) == "line 2: Error: E019 " + fd.message);
+		CHECK(shcl::format_diagnostic({4, shcl::Severity::Hint, "", "H001"}) == "line 4: Hint: H001");
+		CHECK(shcl::format_diagnostic({3, shcl::Severity::Error, "x y", "V091"}) == "schema line 3: Error: V091 x y");
+		CHECK(shcl::format_diagnostic({0, shcl::Severity::Error, "z", "V099"}) == "line 0: Error: V099 z");
+		CHECK(shcl::format_diagnostic({1, shcl::Severity::Error, std::string("a\0b", 3), "E001"}) == std::string("line 1: Error: E001 a\0b", 23));
+		CHECK(std::string(shcl::to_string(shcl::Severity::Error)) == "Error" && std::string(shcl::to_string(shcl::Severity::Hint)) == "Hint");
+	}
+	CHECK(shcl::parse_datetime("2026-07-12T09:30Z")->str() == "2026-07-12T09:30Z");
+	// The fields are the reference's: what was written, and nothing else.
+	{
+		auto dt = *shcl::parse_datetime("2026-07-12T09:30:05.250-05:30");
+		const shcl::Date day{2026, 7, 12};
+		const shcl::Time at{9, 30, 5u};
+		CHECK(dt.date == day && dt.time == at && dt.frac == std::string("250"));
+		CHECK(dt.zone && dt.zone->kind == shcl::ZoneKind::Offset && dt.zone->offset_minutes == -330);
+		auto clock = *shcl::parse_datetime("09:30");
+		CHECK(!clock.date && clock.time && !clock.time->second && !clock.frac && !clock.zone);
+		const shcl::Zone utc{shcl::ZoneKind::Utc, 0};
+		CHECK(shcl::parse_datetime("2026-07-12T09:30Z")->zone == utc);
+		shcl::DateTime built;
+		built.date = shcl::Date{2026, 1, 2};
+		built.time = shcl::Time{3, 4, std::nullopt};
+		CHECK(built.str() == "2026-01-02T03:04" && built == *shcl::parse_datetime("2026-01-02T03:04"));
+		CHECK(built != *shcl::parse_datetime("2026-01-02T03:04Z"));
+	}
+	// The format constants are the C macros, so there is one copy of each.
+	CHECK(shcl::MAX_DEPTH == 512 && shcl::FORMAT_MAJOR == 3 && shcl::FORMAT_LINE == "##    Format   3");
+	CHECK(shcl::FORMAT_LINE.substr(0, shcl::FORMAT_LINE_HEAD.size()) == shcl::FORMAT_LINE_HEAD);
+	CHECK(shcl::GEN_BANNER.find(shcl::FORMAT_LINE) != std::string_view::npos && shcl::MIGRATED_LINE == "##    Migrated from SHCL 2.x.");
+	CHECK(!shcl::parse_datetime("notadate") && !shcl::parse_datetime(""));
+
+	// The rest of the surface, item by item: strictness, strict_failed, paths,
+	// authored_name, the raw pair, the float/bool arrays, and the typed get
+	// over double and bool.
+	CHECK(doc.strictness() == shcl::Strictness::Standard);
+	CHECK(!doc.strict_failed());
+	auto strictDoc = shcl::Document::parse_with("x 1\n", shcl::Strictness::Strict);
+	CHECK(strictDoc.strict_failed());
+	// parse_limited: a capped load stops with E020, the parsed part readable.
+	auto capped = shcl::Document::parse_limited("a: 1\nb: 2\nc: 3\nd: 4\n", shcl::Strictness::Standard, 2, 0, 0);
+	CHECK(capped.error_count() == 1 && capped.get_or<std::int64_t>("a", 0) == 1 && !capped.exists("d"));
+	auto elCapped = shcl::Document::parse_limited("arr: 1, 2, 3\n", shcl::Strictness::Standard, 0, 2, 0);
+	CHECK(elCapped.error_count() == 1 && !elCapped.exists("arr"));
+	auto allPaths = doc.paths();
+	CHECK(allPaths.size() == 6 && allPaths[0] == "name" && allPaths[5] == "city");
+	// A repeated key: every instance's children, and a path per instance.
+	auto acct = shcl::Document::parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n");
+	CHECK(acct.children("account.email").size() == 2);
+	auto each = acct.instance_paths();
+	CHECK(each.size() == 5 && each[1] == "account.email(0)" && each[4] == "account.email(1).sshkey");
+	auto acctFields = acct.fields();
+	CHECK(acctFields.size() == 5 && acctFields[4].path == each[4] && acctFields[4].name == "sshkey" && acctFields[4].value == "k2" && acctFields[4].line == 5);
+	auto emails = acct.read_fields("account.email");
+	CHECK(emails.status == shcl::Status::Good && emails.value.size() == 2 && emails.value[1] == acctFields[3]);
+	CHECK(acct.read_fields("account(*).nope").status == shcl::Status::Good && acct.read_fields("account(*).nope").value[0] == shcl::Field{});
+	auto keys = acct.read_child_fields("account.email");
+	CHECK(keys.status == shcl::Status::Good && keys.value.size() == 2 && keys.value[0] == acctFields[2]);
+	CHECK(acct.read_child_fields("h:p").status == shcl::Status::BadPath);
+	auto spelled = shcl::Document::parse("SYMBOLS: 3\n");
+	CHECK(spelled.authored_name("symbols") == "SYMBOLS");
+	CHECK(spelled.authored_name("missing").empty());
+	auto rawDoc = shcl::Document::parse("blk:\n\t```sql\n\tselect 1\n\t```\n");
+	auto rb = rawDoc.read_raw("blk");
+	CHECK(rb.ok() && rb.value == "select 1");
+	CHECK(rawDoc.read_raw_info("blk").value == "sql");
+	CHECK(rawDoc.read_raw("missing").status == shcl::Status::NotFound);
+	auto fa = qd.read_float_array("nums");
+	CHECK(fa.slots.size() == 3 && fa.slots[1] == shcl::Status::BadType && fa.value[2] == 3.0);
+	auto ba = shcl::Document::parse("flags: [true, false, x]\n").read_bool_array("flags");
+	CHECK(ba.value.size() == 3 && ba.value[0] && !ba.value[1] && ba.slots[2] == shcl::Status::BadType);
+	CHECK(doc.get<double>("ratio").value == 3.5);
+	CHECK(doc.get<bool>("on").value == true);
+	CHECK(doc.get_or<double>("ratio", 0.0) == 3.5);
+	CHECK(doc.get_or<double>("nope", 1.25) == 1.25);
+	CHECK(doc.get_or<bool>("on", false) == true);
+	CHECK(doc.get_or<bool>("nope", true) == true);
+	// The rest of the convenience tier, which C leaves out because its reads
+	// borrow memory and the veneer's copy it.
+	CHECK(doc.get_or<std::vector<std::string>>("tags", {}) == std::vector<std::string>({"red", "green", "blue"}));
+	CHECK(doc.get_or<std::vector<int64_t>>("tags", {7}) == std::vector<int64_t>({7}));
+	CHECK(qd.get_or<std::vector<double>>("nums", {}).empty()); // a bad slot is not Good
+	CHECK(doc.get_or<std::vector<bool>>("nope", {true}) == std::vector<bool>({true}));
+	auto oneDay = shcl::Document::parse("d: 2026-08-02\nds: [2026-08-02, 2026-08-03]\n");
+	auto fallbackDay = oneDay.read_datetime("d").value;
+	CHECK(oneDay.get_or<shcl::DateTime>("d", shcl::DateTime()).str() == "2026-08-02");
+	CHECK(oneDay.get_or<shcl::DateTime>("nope", fallbackDay).str() == "2026-08-02");
+	auto days = oneDay.get_or<std::vector<shcl::DateTime>>("ds", {});
+	CHECK(days.size() == 2 && days[1].str() == "2026-08-03");
+	CHECK(rawDoc.get_raw_or("blk", "") == "select 1" && rawDoc.get_raw_info_or("blk", "") == "sql");
+	CHECK(rawDoc.get_raw_or("missing", "fb") == "fb" && rawDoc.get_raw_info_or("missing", "fb") == "fb");
 
 	// Schema validation rides through the veneer: a conforming doc is clean, a
-	// violation carries its stable V-code, and a key-level schema fault still
+	// violation has its stable V-code, and a key-level schema fault still
 	// lets the unknown-field sweep run (the faulted entry keeps its path).
 	auto schema = shcl::Document::parse("field: port\n\ttype: int\n\tmin: 1\nfield: city\nfield: ratio\nfield: name\nfield: on\nfield: tags\n");
 	CHECK(doc.validate(schema).empty());
@@ -111,38 +795,161 @@ int main() {
 	auto broken = shcl::Document::parse("field: port\n\tfrobnicate: 1\n");
 	auto fd = doc.validate(broken);
 	CHECK(fd.size() >= 2 && fd[0].code == "V090" && fd.back().code == "V001");
+	// A schema that does not load is a lone V099 through every entry point,
+	// and a failed generate leaves no fault behind that reads as one.
+	auto noload = shcl::Document::parse("field: port\n\ttype: int\n\tmax: \"65535\n");
+	auto nv = shcl::Document::parse("port: 99999\n").validate(noload);
+	CHECK(nv.size() == 1 && nv[0].code == "V099" && nv[0].line == 0);
+	auto [ntext, nfaults] = shcl::generate(noload, true);
+	CHECK(ntext.empty() && nfaults.size() == 1 && nfaults[0].code == "V099");
+	CHECK(shcl::generate(broken, true).second.size() >= 1);
+	auto fdAgain = doc.validate(broken);
+	CHECK(fdAgain.size() == fd.size() && fdAgain[0].code == "V090");
 
 	// Layered loading: overlay a higher-priority doc; leaf override, container merge.
 	auto base = shcl::Document::parse("port: 8080\nserver: web1\n\tport: 80\n");
 	auto over = shcl::Document::parse("port: 9090\nserver: web1\n\thost: h1\n");
 	base.merge(over);
 	CHECK(base.get_or<int64_t>("port", 0) == 9090);
-	CHECK(base.get_or<int64_t>("server[web1].port", 0) == 80);
-	CHECK(base.get_or<std::string>("server[web1].host", std::string()) == "h1");
+	CHECK(base.get_or<int64_t>("server(web1).port", 0) == 80);
+	CHECK(base.get_or<std::string>("server(web1).host", std::string()) == "h1");
+	// Merged onto itself, a document is left as it is (20260918b item 19).
+	{
+		auto self = shcl::Document::parse("# c\na: 1\nbad line\n");
+		auto before = self.to_canonical();
+		self.merge(self);
+		CHECK(self.to_canonical() == before);
+	}
+	// Compaction: the same document in fresh storage.
+	auto beforeCompact = base.to_canonical();
+	base.compact();
+	CHECK(base.to_canonical() == beforeCompact && base.get_or<int64_t>("port", 0) == 9090);
 
 	// Schema-driven generation: a starter config with a required live field.
 	// The default run appends the format footer; --no-banner is the same bytes
 	// without it.
 	auto gschema = shcl::Document::parse("field: port\n\ttype: int\n\trequired: yes\n\tdefault: 8080\n");
-	bool gok = false;
-	std::string bare = gschema.generate(gok, true);
-	CHECK(gok && bare == "# int, required\nport: 8080\n");
-	std::string starter = gschema.generate(gok);
-	CHECK(gok && starter.rfind(bare, 0) == 0);
+	// The 2.x rewrite comes back as an owned string: the selector sugar loses
+	// its colon and a comma list goes in brackets.
+	// Told the file is 2.x, the list is rewritten and the result is stamped
+	// with the format line, which is what makes a second run a no-op.
+	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
+	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n");
+	CHECK(!mig.current && mig.ambiguous == 0 && mig.lost == 0);
+	CHECK(shcl::migrate(mig.text, true).current);
+	// Not told, and the file does not say: `a,b` reads as an array under 2.x
+	// and one string here, so it is left as written and counted rather than
+	// guessed at.
+	auto amb = shcl::migrate("note: a,b\n", false);
+	CHECK(amb.ambiguous == 1 && amb.text == "note: a,b\n");
+	// Without the stamp, for a program that writes the info block itself; the
+	// Format line is what format_version reads.
+	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
+	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n" && !unst.current);
+	CHECK(shcl::format_version(mig.text) == 3u && !shcl::format_version(unst.text));
+	// The status forms tell an unstamped file from a damaged line, and the
+	// load hints at a stamp naming another major.
+	auto fv = shcl::read_format_version("a: 1\n##    Format   3x\n");
+	CHECK(fv.status == shcl::Status::BadType && fv.value == 0u);
+	CHECK(shcl::read_format_version("a: 1\n").status == shcl::Status::NotFound);
+	CHECK(shcl::read_format_version("##    Format\n").status == shcl::Status::Empty);
+	fv = shcl::read_format_version(mig.text);
+	CHECK(fv.status == shcl::Status::Good && fv.value == 3u);
+	auto older = shcl::Document::parse("a: 1\n##    Format   2\n");
+	CHECK(older.diagnostics().size() == 1 && older.diagnostics()[0].code == "H007" && older.diagnostics()[0].line == 2);
+	auto sr = shcl::read_schema_ref("##    Schema   ./s.shcl\n");
+	CHECK(sr.status == shcl::Status::Good && sr.value == "./s.shcl");
+	CHECK(shcl::read_schema_ref("##    Schema\n").status == shcl::Status::Empty);
+	CHECK(shcl::read_schema_ref("a: 1\n").status == shcl::Status::NotFound && !shcl::schema_ref("##    Schema\n"));
+	// upgrade makes over text that does not load clean, with the info block,
+	// and leaves the result alone the next time.
+	auto up = shcl::upgrade("tags: a, b\n", false);
+	CHECK(!up.current && up.format == 2u && up.lost == 0 && up.backup.empty());
+	CHECK(up.text == "tags: [a, b]\n\n" + std::string(shcl::GEN_BANNER));
+	CHECK(up.diagnostics.size() == 1 && up.diagnostics[0].code == "E026");
+	CHECK(shcl::upgrade(up.text, false).current && shcl::upgrade(up.text, false).diagnostics.empty());
+	CHECK(shcl::upgrade("a: x,y\nb: \"q\n", false).ambiguous == 1);
+	// With from_v2, a fresh text that would keep an error is not made.
+	auto left = shcl::upgrade("a: 1\nb 2\n##    Format   3\n", true);
+	CHECK(!left.current && left.errors_left == std::vector<std::size_t>{2} && left.text == "a: 1\nb 2\n##    Format   3\n");
+	// Durations and sizes: the name's unit, the caller's, and base 10.
+	{
+		shcl::Document ds = shcl::Document::parse("timeout-ms: 1.5s\nwait: 90\ncache-mb: 2\nraw: 64\n");
+		CHECK(ds.read_duration("timeout-ms").value == std::chrono::milliseconds(1500));
+		CHECK(ds.read_duration("wait").status == shcl::Status::BadType);
+		CHECK(ds.read_duration("wait", shcl::DurationUnit::Seconds).value == std::chrono::milliseconds(90000));
+		CHECK(ds.get_duration_or("nope", std::nullopt, std::chrono::milliseconds(7)) == std::chrono::milliseconds(7));
+		CHECK(ds.read_size("cache-mb").value == int64_t{2} * 1024 * 1024);
+		CHECK(ds.read_size("cache-mb", std::nullopt, true).value == 2000000);
+		CHECK(ds.get_size_or("raw", shcl::SizeUnit::Kibi, false, 0) == 65536);
+		CHECK(shcl::duration_unit_from_spelling("h") == shcl::DurationUnit::Hours && !shcl::duration_unit_from_spelling("H"));
+		CHECK(shcl::size_unit_from_spelling("kB") == shcl::SizeUnit::Kilo && !shcl::size_unit_from_spelling("Mb"));
+		CHECK(shcl::spelling(shcl::SizeUnit::Gibi) == "GiB" && shcl::spelling(shcl::DurationUnit::Millis) == "ms");
+	}
+	// The Schema line, first one wins; one in a raw body is content.
+	CHECK(shcl::schema_ref("x: 1\n##    Schema   ./a.shcl  \n##    Schema   b\n") == std::optional<std::string>("./a.shcl"));
+	CHECK(!shcl::schema_ref("r:\n\t```\n##    Schema   a\n\t```\n"));
+	CHECK(std::string(shcl::SCHEMA_LINE_HEAD) + "x" == "##    Schema   x");
+	auto [bare, bareFaults] = shcl::generate(gschema, true);
+	CHECK(bareFaults.empty() && bare == "## int, required\nport: 8080\n");
+	auto [starter, starterFaults] = shcl::generate(gschema);
+	CHECK(starterFaults.empty() && starter.rfind(bare, 0) == 0);
 	CHECK(starter.find("This config file format is SHCL.", bare.size()) != std::string::npos);
+	auto faulty = shcl::generate(shcl::Document::parse("field: port\n\tfrobnicate: 1\n"));
+	CHECK(faulty.first.empty() && !faulty.second.empty() && faulty.second[0].code == "V090");
+	// Generation-only codes come back from the call, the way the reference
+	// returns them, and each call's list is its own. The schema keeps only its
+	// own diagnostics, E014 here.
+	auto genfault = shcl::Document::parse("field: p\n\ttype: int\n\trequired: yes\n\tmin: 1\n\tmax: 10\n\tdefault: 99\nbad line\n");
+	for (int i = 0; i < 3; i++) {
+		auto [gtext, gfaults] = shcl::generate(genfault, true);
+		// The E014 means the schema did not load, and generate answers that
+		// with a lone V099 since 2026100717500004, so V097 is never reached.
+		// CHECK(gtext.empty() && gfaults.size() == 1 && gfaults[0].code == "V097" && gfaults[0].severity == shcl::Severity::Error);
+		CHECK(gtext.empty() && gfaults.size() == 1 && gfaults[0].code == "V099" && gfaults[0].severity == shcl::Severity::Error);
+	}
+	auto genfaultLoads = shcl::Document::parse("field: p\n\ttype: int\n\trequired: yes\n\tmin: 1\n\tmax: 10\n\tdefault: 99\n");
+	for (int i = 0; i < 3; i++) {
+		auto [gtext, gfaults] = shcl::generate(genfaultLoads, true);
+		CHECK(gtext.empty() && gfaults.size() == 1 && gfaults[0].code == "V097" && gfaults[0].severity == shcl::Severity::Error);
+	}
+	CHECK(genfaultLoads.diagnostics().empty());
+	auto ownDiags = genfault.diagnostics();
+	CHECK(ownDiags.size() == 1 && ownDiags[0].code == "E014");
+	// A default-constructed Document is an empty one, not a null handle.
+	shcl::Document blank;
+	CHECK(blank.to_canonical().empty() && blank.count("x") == 0 && blank.diagnostics().empty());
 
 	// One-shot: one combined list (parse then validation), error predicate.
 	auto combined = shcl::Document::load_and_validate(": nope\nport: x\n", "field: port\n\ttype: int\n", shcl::Strictness::Standard);
 	auto cdiags = combined.diagnostics();
 	CHECK(cdiags.size() == 2 && cdiags[0].code == "E014" && cdiags[1].code == "V003");
+	CHECK(cdiags[0].severity == shcl::Severity::Error && cdiags[0].line == 1);
+	auto hinted = shcl::Document::parse("a: 1\na: 2\n").diagnostics();
+	CHECK(hinted.size() == 1 && hinted[0].code == "H001" && hinted[0].severity == shcl::Severity::Hint);
 	CHECK(combined.error_count() == 2);
 	CHECK(combined.get_or<std::string>("port", std::string()) == "x"); // doc still usable
 	auto clean = shcl::Document::load_and_validate("a: 1\n", "", shcl::Strictness::Standard);
 	CHECK(clean.error_count() == 0 && clean.diagnostics().empty());
+	// The parsed-schema form: the same list as the text form, from one schema
+	// document reused, and the same strict answer on a validation error alone.
+	{
+		auto vschema = shcl::Document::parse("field: port\n\ttype: int\n");
+		for (int round = 0; round < 2; round++) {
+			auto viaDoc = shcl::Document::load_and_validate_with(": nope\nport: x\n", vschema, shcl::Strictness::Standard).diagnostics();
+			CHECK(viaDoc.size() == cdiags.size());
+			for (std::size_t i = 0; i < viaDoc.size() && i < cdiags.size(); i++)
+				CHECK(shcl::format_diagnostic(viaDoc[i]) == shcl::format_diagnostic(cdiags[i]));
+		}
+		auto strictWith = shcl::Document::load_and_validate_with("port: x\n", vschema, shcl::Strictness::Strict);
+		CHECK(strictWith.strict_failed() && strictWith.error_count() == 1 && strictWith.diagnostics()[0].code == "V003");
+		auto emptyWith = shcl::Document::load_and_validate_with("a: 1\n", shcl::Document::parse(""), shcl::Strictness::Standard).diagnostics();
+		CHECK(emptyWith.size() == 1 && emptyWith[0].code == "V001");
+	}
 
 	// A read must stay usable after the document it came from is gone; the
 	// datetime one used to hand back a pointer into the freed arena.
-	shcl::Read<shcl::Datetime> outlives;
+	shcl::Read<shcl::DateTime> outlives;
 	{
 		auto tmp = shcl::Document::parse("t: 2026-08-02T10:20:30.123456789Z\n");
 		outlives = tmp.read_datetime("t");
@@ -155,15 +962,134 @@ int main() {
 	auto copied = outlives;
 	CHECK(copied.value.str() == outlives.value.str());
 	auto moved = std::move(copied);
-	CHECK(moved.value.str() == outlives.value.str());
-	// The moved-from half is the half that used to be wrong: it kept a view into
-	// the digits it had just handed away, so it formatted a fraction it no longer
-	// held. Reading it is legal - unspecified value, not undefined behavior.
-	CHECK(copied.value.str() == "2026-08-02T10:20:30Z");
-	shcl::Datetime target;
-	target = std::move(moved.value);
-	CHECK(target.str() == outlives.value.str());
-	CHECK(moved.value.str() == "2026-08-02T10:20:30Z");
+	CHECK(moved.value == outlives.value && moved.value.frac == std::string("123456789"));
+
+	// Writes, each read back through the veneer. A document from a parse could
+	// not be written at all before the veneer had setters.
+	{
+		auto w = shcl::Document::parse("port: 8080\n");
+		CHECK(w.set_int("port", 9090) == S::Ok && w.get_or<int64_t>("port", 0) == 9090);
+		CHECK(w.set_float("ratio", 0.25) == S::Ok && w.get_or<double>("ratio", 0) == 0.25);
+		CHECK(w.set_float("inf", std::numeric_limits<double>::infinity()) == S::NotFinite && !w.exists("inf"));
+		CHECK(w.set_bool("on", true) == S::Ok && w.get_or<bool>("on", false));
+		CHECK(w.set_string("name", "a, b") == S::Ok && w.read_string("name").value == "a, b");
+		CHECK(w.set_raw("q", "select 1", "sql") == S::Ok && w.get_raw_or("q", "") == "select 1" && w.get_raw_info_or("q", "") == "sql");
+		CHECK(w.set_raw("q2", "x", "c#") == S::BadRawInfo && !w.exists("q2"));
+		CHECK(w.set_int_array("ports", {80, 443}) == S::Ok && w.read_int_array("ports").value == std::vector<int64_t>({80, 443}));
+		CHECK(w.set_float_array("fs", {1.5, 2}) == S::Ok && w.read_float_array("fs").value == std::vector<double>({1.5, 2}));
+		CHECK(w.set_bool_array("flags", {true, false, true}) == S::Ok && w.read_bool_array("flags").value == std::vector<bool>({true, false, true}));
+		CHECK(w.set_string_array("tags", {"red", "a,b", ""}) == S::Ok && w.read_string_array("tags").value == std::vector<std::string>({"red", "a,b", ""}));
+		CHECK(w.set_literal("lit", "[80, 443] # two") == S::Ok && w.read_int_array("lit").value == std::vector<int64_t>({80, 443}));
+		CHECK(w.set_literal("lit3", "80, 443") == S::NotOneValue && !w.exists("lit3"));
+		CHECK(w.set_literal("lit2", "\"open") == S::NotOneValue && !w.exists("lit2"));
+		auto stamps = shcl::Document::parse("t: [2026-08-02T10:20:30.5Z, 2026-09-01]\n").read_datetime_array("t");
+		CHECK(stamps.ok() && stamps.value.size() == 2);
+		CHECK(w.set_datetime("when", stamps.value[0]) == S::Ok && w.read_datetime_str("when").value == "2026-08-02T10:20:30.5Z");
+		CHECK(w.set_datetime_array("whens", stamps.value) == S::Ok && w.read_datetime_array_str("whens").value == std::vector<std::string>({"2026-08-02T10:20:30.5Z", "2026-09-01"}));
+		CHECK(w.set_datetime("never", shcl::DateTime()) == S::BadDateTime && w.set_datetime_array("nevers", {stamps.value[1], shcl::DateTime()}) == S::BadDateTime);
+		CHECK(w.set_empty("blank") == S::Ok && w.read_string("blank").status == shcl::Status::Empty);
+		CHECK(w.set_comment("port", "the port") == S::Ok && w.to_canonical().find("# the port\nport: 9090\n") != std::string::npos);
+		CHECK(w.set_comment("port", "two\nlines") == S::BadComment);
+		CHECK(w.clear_comments("port") == 1 && w.to_canonical().find("# the port") == std::string::npos);
+		CHECK(w.set_banner(true) == 0 && w.to_canonical().find("## This config file format is SHCL.\n") != std::string::npos);
+		CHECK(w.set_banner(false) == 1 && w.to_canonical().find("##") == std::string::npos);
+		// The save that keeps lines: an edit touches its own line only, a
+		// document not loaded for it writes the canonical form.
+		auto kept = shcl::Document::parse_keep_lines("Name:   \"x\"   # c\nblock:\n    a: 1\n", shcl::Strictness::Standard);
+		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 1\n"), true));
+		CHECK(kept.set_int("block.a", 2) == S::Ok && kept.set_int("block.b", 3) == S::Ok);
+		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 2\n    b: 3\n"), true));
+		CHECK(w.to_text_keep_lines() == std::make_pair(w.to_canonical(), false));
+		CHECK(w.set_int("a(*)", 1) == S::Wildcard && w.check_set_path("a(*)") == S::Wildcard);
+		CHECK(w.set_int("a[x]", 1) == S::BadPath && w.check_set_path("a[x]") == S::BadPath);
+		// A repeated path is refused; an index picks one.
+		auto twice = shcl::Document::parse("p: 1\np: 2\n");
+		CHECK(twice.set_int("p", 9) == S::Multiple && twice.check_set_path("p") == S::Multiple);
+		CHECK(twice.set_int("p(1)", 9) == S::Ok && twice.get_or<int64_t>("p(1)", 0) == 9);
+		// A refused value leaves the path check at Ok, as the setter notes say.
+		CHECK(w.set_float("nan", std::numeric_limits<double>::quiet_NaN()) == S::NotFinite && w.check_set_path("nan") == S::Ok);
+		CHECK(w.set_literal("lit", "a, b") == S::NotOneValue && w.check_set_path("lit") == S::Ok);
+		CHECK(w.set_string("u8", "a\xff" "b") == S::NotUtf8 && w.check_set_path("u8") == S::Ok);
+		// The two E028 reasons, one from the path and one from the value.
+		CHECK(w.set_int("ports.x", 1) == S::UnderArray && w.check_set_path("ports.x") == S::UnderArray);
+		CHECK(w.set_int("hc.x", 1) == S::Ok && w.set_int_array("hc", {1}) == S::HasChildren);
+		CHECK(std::string(shcl::to_string(S::Ok)) == "Ok" && std::string(shcl::to_string(S::NoReadBack)) == "NoReadBack" && static_cast<int>(S::NoReadBack) == 17);
+		CHECK(std::string(shcl::to_string(S::RawBlock)) == "RawBlock" && static_cast<int>(S::RawBlock) == 18);
+		CHECK(w.remove("blank") == 1 && !w.exists("blank") && w.remove("blank") == 0);
+
+		// A default form leaves a present field alone and still says whether the
+		// value could have been written there.
+		CHECK(w.set_int_default("port", 1) == S::Ok && w.get_or<int64_t>("port", 0) == 9090);
+		CHECK(w.set_float_default("ratio", std::numeric_limits<double>::infinity()) == S::NotFinite && w.get_or<double>("ratio", 0) == 0.25);
+		CHECK(w.set_int_default("d.i", 1) == S::Ok && w.set_float_default("d.f", 0.5) == S::Ok && w.set_bool_default("d.b", false) == S::Ok);
+		CHECK(w.set_string_default("d.s", "x") == S::Ok && w.set_literal_default("d.l", "[1, 2]") == S::Ok && w.set_raw_default("d.r", "body", "") == S::Ok);
+		CHECK(w.set_datetime_default("d.t", stamps.value[1]) == S::Ok && w.set_int_array_default("d.ia", {1}) == S::Ok && w.set_float_array_default("d.fa", {1.5}) == S::Ok);
+		CHECK(w.set_bool_array_default("d.ba", {true}) == S::Ok && w.set_string_array_default("d.sa", {"s"}) == S::Ok && w.set_datetime_array_default("d.ta", stamps.value) == S::Ok);
+		CHECK(w.set_string_default("d.s", "y") == S::Ok && w.get_or<std::string>("d.s", "") == "x");
+
+		// All of it survives a save and a reload.
+		auto back = shcl::Document::parse(w.to_canonical());
+		CHECK(back.to_canonical() == w.to_canonical() && back.error_count() == 0);
+		CHECK(back.get_or<int64_t>("d.i", 0) == 1 && back.get_or<double>("d.f", 0) == 0.5 && !back.get_or<bool>("d.b", true));
+		CHECK(back.get_or<std::vector<int64_t>>("d.l", {}) == std::vector<int64_t>({1, 2}) && back.get_raw_or("d.r", "") == "body");
+		CHECK(back.get_or<std::vector<std::string>>("tags", {}) == std::vector<std::string>({"red", "a,b", ""}));
+		CHECK(back.read_datetime_array_str("d.ta").value == w.read_datetime_array_str("whens").value);
+	}
+
+	// The tokenizer, as `shcl tokens` shows a line.
+	{
+		shcl::Tokens tok;
+		const std::string line = "srv(\"a b\").port: 80, '', , x # note";
+		shcl::tokenize(line, ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.segments.size() == 2 && !tok.fault_at && !tok.capped && !tok.bracket_selector);
+		CHECK(tok.segments[0].selector && tok.segments[0].selector->quote == shcl::Quote::Double);
+		CHECK(line.substr(tok.segments[0].selector->start, tok.segments[0].selector->end - tok.segments[0].selector->start) == "a b");
+		CHECK(line.substr(tok.segments[1].name.start, tok.segments[1].name.end - tok.segments[1].name.start) == "port");
+		CHECK(!tok.segments[1].selector && tok.sep && line[*tok.sep] == ':');
+		CHECK(tok.comment && line[*tok.comment] == '#');
+		CHECK(line.substr(tok.value_start, tok.value_end - tok.value_start) == "80, '', , x");
+		// Four pieces, and the empty bare one is not an element.
+		CHECK(tok.elements.size() == 4 && tok.elements[1].quote == shcl::Quote::Single && tok.element_count() == 3);
+		shcl::tokenize_value(line, *tok.sep + 1, shcl::Rules::Current, tok);
+		CHECK(tok.segments.empty() && tok.elements.size() == 4 && tok.comment && line[*tok.comment] == '#');
+		shcl::tokenize("*.port", '=', true, shcl::Rules::Current, tok);
+		CHECK(tok.segments.size() == 2 && tok.segments[0].star && !tok.sep);
+		shcl::tokenize("a(b: 1", ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.fault_at && std::string(tok.fault_why) == "unterminated selector");
+		tok.cap = 1;
+		shcl::tokenize("a: 1, 2, 3", ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.capped && tok.cap == 1 && !tok.fault_at && tok.fault_why == nullptr);
+		tok.cap = 0;
+		// A bracket array, a backtick value, and a bare name that needs quotes.
+		shcl::tokenize("a: [1, `b`", ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.array && *tok.array == 3 && tok.array_fault_at && std::string(tok.array_fault_why) == "no closing ']' on the line");
+		CHECK(tok.elements.size() == 2 && tok.elements[1].quote == shcl::Quote::Backtick && !tok.misspelled);
+		shcl::tokenize("404: x", ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.misspelled && *tok.misspelled == 0 && !tok.array && !tok.array_fault_at);
+		// A selector in brackets, the old spelling, still reads, and is noted.
+		shcl::tokenize("a(x).b[y].c: 1", ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.bracket_selector && *tok.bracket_selector == 6 && tok.segments.size() == 3 && tok.segments[1].selector);
+	}
+
+	// The hints a schema disavows, dropped from a parsed document by hand.
+	{
+		auto reps = shcl::Document::parse("host: a\nhost: b\n");
+		auto count = [](const shcl::Document &d, const char *code) { std::size_t n = 0; for (const auto &g : d.diagnostics()) if (g.code == code) n++; return n; };
+		CHECK(count(reps, "H001") == 1);
+		shcl::suppress_declared_repeats(shcl::Document::parse("field: host\n\trepeat: [0, 5]\n"), reps);
+		CHECK(count(reps, "H001") == 0);
+		auto parts = shcl::Document::parse("s: a\n\tx: 1\nt: 1\ns: a\n\ty: 2\n");
+		CHECK(count(parts, "H002") == 1);
+		shcl::suppress_declared_reopens(shcl::Document::parse("field: s\n\treopen: true\nfield: s.x\nfield: s.y\nfield: t\n"), parts);
+		CHECK(count(parts, "H002") == 0);
+	}
+
+	// A moved-from Document holds nothing, and says so.
+	{
+		auto given = shcl::Document::parse("port: 1\n");
+		auto taken = std::move(given);
+		CHECK(!given && taken && taken.get_or<int64_t>("port", 0) == 1); // NOLINT(bugprone-use-after-move): the moved-from state is the test
+	}
 
 #ifndef SHCL_NO_FILE_IO
 	// The file tier through the veneer: the load status, the strictness form,
@@ -181,26 +1107,190 @@ int main() {
 		CHECK(mkdir(dir.c_str(), 0700) == 0);
 #endif
 		std::string f = dir + "/t.shcl";
-		auto st = shcl::Document::FileStatus::Clean;
-		auto absent = shcl::Document::load_file(f, &st);
-		CHECK(st == shcl::Document::FileStatus::NotFound);
-		CHECK(std::string(shcl::Document::to_string(st)) == "NotFound");
+		auto [absent, absentSt] = shcl::Document::load_file(f);
+		CHECK(absent && absentSt == shcl::FileStatus::NotFound && absent.to_canonical().empty());
+		CHECK(std::string(shcl::to_string(absentSt)) == "NotFound");
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		{ FILE *fh = std::fopen(f.c_str(), "wb"); CHECK(fh && std::fputs("pct: 50%\n", fh) != EOF && std::fclose(fh) == 0); }
-		auto strict = shcl::Document::load_file_with(f, shcl::Strictness::Loose, &st);
-		CHECK(st == shcl::Document::FileStatus::Clean && strict.read_float("pct").value == 0.5);
+		auto [strict, strictSt] = shcl::Document::load_file_with(f, shcl::Strictness::Loose);
+		CHECK(strictSt == shcl::FileStatus::Clean && strict.read_float("pct").value == 0.5);
+		CHECK(shcl::read_file(f) == std::make_pair(std::string("pct: 50%\n"), shcl::FileStatus::Clean));
+		CHECK(shcl::read_file(f, 8) == std::make_pair(std::string(), shcl::FileStatus::Unreadable));
 		CHECK(strict.lost_count() == 0);
-		CHECK(strict.save_file(f) == shcl::Document::SaveResult::Ok);
-		auto lost = shcl::Document::parse("a:\n\tb: 1\n  c: 2\n"); // indent matches no level
+		CHECK(strict.save_file(f) == shcl::SaveResult::Ok);
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
+		{ FILE *fh = std::fopen(f.c_str(), "wb"); CHECK(fh && std::fputs("a:   1\n", fh) != EOF && std::fclose(fh) == 0); }
+		auto [keeping, keepingSt] = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard);
+		CHECK(keepingSt == shcl::FileStatus::Clean && keeping.set_int("b", 2) == S::Ok);
+		CHECK(keeping.save_file_keep_lines(f) == std::make_pair(shcl::SaveResult::Ok, true));
+		CHECK(shcl::read_file(f).first == "a:   1\n\nb: 2\n");
+		// Strict fails the load from every entry point the same way:
+		// strict_failed() on what each hands back (2026100717500012).
+		{
+			const std::string bad = ": nope\nport: 1\n", sch = "field: port\n\ttype: int\n";
+			CHECK(shcl::write_file_atomic(f, bad) == shcl::WriteStatus::Ok);
+			for (auto lv : {shcl::Strictness::Standard, shcl::Strictness::Strict}) {
+				bool want = lv == shcl::Strictness::Strict;
+				auto [sfd, fst] = shcl::Document::load_file_with(f, lv);
+				auto [kd, kst] = shcl::Document::load_file_keep_lines(f, lv);
+				const shcl::Document *all[] = {&sfd, &kd};
+				auto pw = shcl::Document::parse_with(bad, lv), pl = shcl::Document::parse_limited(bad, lv, 0, 0, 0);
+				auto pk = shcl::Document::parse_keep_lines(bad, lv), lav = shcl::Document::load_and_validate(bad, sch, lv);
+				auto lavw = shcl::Document::load_and_validate_with(bad, shcl::Document::parse(sch), lv);
+				const shcl::Document *more[] = {&pw, &pl, &pk, &lav, &lavw};
+				CHECK(fst == shcl::FileStatus::HadErrors && kst == shcl::FileStatus::HadErrors);
+				for (auto *d : all) CHECK(d->strict_failed() == want && d->error_count() == 1 && d->get_or<std::int64_t>("port", 0) == 1);
+				for (auto *d : more) CHECK(d->strict_failed() == want && d->error_count() == 1 && d->get_or<std::int64_t>("port", 0) == 1);
+			}
+			CHECK(shcl::Document::load_and_validate("port: x\n", sch, shcl::Strictness::Strict).strict_failed());
+			CHECK(shcl::Document::load_and_validate_with("port: x\n", shcl::Document::parse(sch), shcl::Strictness::Strict).strict_failed());
+			auto [nd, nst] = shcl::Document::load_file_with(dir + "/none.shcl", shcl::Strictness::Strict);
+			CHECK(nst == shcl::FileStatus::NotFound && !nd.strict_failed());
+		}
+		// An indent matching no level is lost when it is tabs; one holding a
+		// space is kept as written.
+		CHECK(shcl::Document::parse("a:\n\tb: 1\n  c: 2\n").lost_count() == 0);
+		auto lost = shcl::Document::parse("a:\n\t\tb: 1\n\tc: 2\n");
 		CHECK(lost.lost_count() == 1);
-		CHECK(lost.save_file(f) == shcl::Document::SaveResult::Refused);
-		CHECK(lost.save_file_lossy(f) == shcl::Document::SaveResult::Ok);
-		CHECK(strict.save_file(dir + "/nope/t.shcl") == shcl::Document::SaveResult::Failed);
+		CHECK(lost.save_file(f) == shcl::SaveResult::Refused);
+		CHECK(lost.save_file_lossy(f) == shcl::SaveResult::Ok);
+		CHECK(strict.save_file(dir + "/nope/t.shcl") == shcl::SaveResult::Failed);
+		// A failed write says why, and a refusal is no write failure.
+		shcl::WriteStatus why = shcl::WriteStatus::Other;
+		CHECK(strict.save_file(dir + "/nope/t.shcl", &why) == shcl::SaveResult::Failed && why == shcl::WriteStatus::NotFound);
+		CHECK(strict.save_file_lossy(dir, &why) == shcl::SaveResult::Failed && why == shcl::WriteStatus::IsDirectory);
+		CHECK(keeping.save_file_keep_lines(dir + "/nope/t.shcl", &why).first == shcl::SaveResult::Failed && why == shcl::WriteStatus::NotFound);
+		CHECK(lost.save_file(dir + "/nope/t.shcl", &why) == shcl::SaveResult::Refused && why == shcl::WriteStatus::Ok);
+		CHECK(std::string(shcl::to_string(shcl::WriteStatus::PermissionDenied)) == "PermissionDenied");
+		CHECK(shcl::write_file_atomic(f, "not: a save\n") == shcl::WriteStatus::Ok && shcl::read_file(f).first == "not: a save\n");
+		CHECK(shcl::write_file_atomic(f, "") == shcl::WriteStatus::Ok && shcl::read_file(f) == std::make_pair(std::string(), shcl::FileStatus::Clean));
+		CHECK(shcl::write_file_atomic(dir + "/nope/t.shcl", "x") == shcl::WriteStatus::NotFound);
+		auto dirUp = shcl::upgrade_file(dir, false).second;
+		CHECK(dirUp && dirUp->kind == shcl::UpgradeErrorKind::Io && dirUp->status == shcl::WriteStatus::IsDirectory);
+		// upgrade_file keeps the original under the timestamped name and
+		// writes the fresh text; the name is never written over.
+		CHECK(shcl::write_file_atomic(f, "tags: a, b\n") == shcl::WriteStatus::Ok);
+		std::string bk = dir + "/t_backup_20261004-001500_format-v2.shcl";
+		CHECK(shcl::backup_file_name(f, 2) == bk);
+		auto [upf, upErr] = shcl::upgrade_file(f, false);
+		CHECK(!upErr && upf.backup == bk && shcl::read_file(bk).first == "tags: a, b\n" && shcl::read_file(f).first == upf.text);
+		auto [upAgain, upAgainErr] = shcl::upgrade_file(f, false);
+		CHECK(!upAgainErr && upAgain.current && upAgain.backup.empty());
+		auto [taken, takenErr] = shcl::write_backup(f, "x\n", 2);
+		CHECK(taken.empty() && takenErr && takenErr->kind == shcl::UpgradeErrorKind::BackupTaken && takenErr->message.rfind(bk, 0) == 0);
+		// The file and its text swapped write nothing (2026101807501110), so
+		// the folder the text names stays empty and comes off. Windows takes no
+		// newline or colon in a name, so there the refusal isn't NotFound, and
+		// a read of the backup name fails some other way.
+		std::string swapDir = dir + "/swap";
+#ifdef _WIN32
+		CHECK(_mkdir(swapDir.c_str()) == 0);
+#else
+		CHECK(mkdir(swapDir.c_str(), 0700) == 0);
+#endif
+		std::string swappedText = swapDir + "/port: 80\nhost: x\n";
+		auto [swapped, swappedErr] = shcl::write_backup(swappedText, f, 3);
+		CHECK(swapped.empty() && swappedErr);
+#ifndef _WIN32
+		CHECK(swappedErr && swappedErr->kind == shcl::UpgradeErrorKind::NotFound);
+#endif
+		CHECK(rmdir(swapDir.c_str()) == 0);
+		CHECK(shcl::upgrade_file(dir + "/none.shcl", false).second->kind == shcl::UpgradeErrorKind::NotFound);
+		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n") == shcl::WriteStatus::Ok);
+		auto [amb2, amb2Err] = shcl::upgrade_file(f, false);
+		CHECK(amb2Err && amb2Err->kind == shcl::UpgradeErrorKind::Ambiguous && amb2Err->count == 1 && amb2.text.empty());
+		CHECK(shcl::write_file_atomic(f, "a: 1\nb 2\n##    Format   3\n") == shcl::WriteStatus::Ok);
+		auto [left2, left2Err] = shcl::upgrade_file(f, true);
+		CHECK(left2Err && left2Err->kind == shcl::UpgradeErrorKind::ErrorsLeft && left2Err->lines == std::vector<std::size_t>{2} && left2.text.empty());
+		CHECK(left2Err && left2Err->message == f + ": line(s) 2 would still have an error once converted from 2.x; nothing written");
+		CHECK(shcl::read_file(f).first == "a: 1\nb 2\n##    Format   3\n");
+		std::remove(bk.c_str());
 		std::remove(f.c_str());
 		rmdir(dir.c_str());
 	}
 #endif
 
-	if (fails) { std::fprintf(stderr, "veneer: %d failure(s)\n", fails); return 1; }
-	std::printf("veneer: ok\n");
-	return 0;
+	// The veneer hands the core's read memory back on the next read, so a read
+	// loop on one long-lived Document stays flat instead of climbing until the
+	// Document is destroyed.
+	{
+		auto held = shcl::Document::parse("ports: [80, 443, 8080]\n");
+		for (int i = 0; i < 20000; i++) {
+			auto r = held.read_int_array("ports");
+			CHECK(r.status == shcl::Status::Good && r.value.size() == 3);
+			if (r.status != shcl::Status::Good) break;
+		}
+		std::size_t held_bytes = 0;
+		for (const ShclBlock *b = shcl::detail::Access::doc(held)->reads.head; b; b = b->next) held_bytes += b->used;
+		CHECK(held_bytes <= 4096);
+		// The canonical text is a read result too. 200 copies of a 30 KB
+		// document held at once would be 6 MB; released per call it is one.
+		std::string big;
+		for (int i = 0; i < 2000; i++) big += "key" + std::to_string(i) + ": value" + std::to_string(i) + "\n";
+		auto heldBig = shcl::Document::parse(big);
+		for (int i = 0; i < 200; i++) CHECK(heldBig.to_canonical().size() == big.size());
+		held_bytes = 0;
+		for (const ShclBlock *b = shcl::detail::Access::doc(heldBig)->reads.head; b; b = b->next) held_bytes += b->used;
+		CHECK(held_bytes <= 2 * big.size());
+	}
+
+#ifndef SHCL_NO_FILE_IO
+	// read_named_schema hands the core's answer over whole: status, text,
+	// the resolved path, the line and the message. The rules themselves are
+	// the C runner's to pin.
+	{
+		const char *tmp = std::getenv("TMPDIR");
+		if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+		if (!tmp || !*tmp) tmp = std::getenv("TMP");
+		if (!tmp || !*tmp) tmp = "/tmp";
+		const std::string sp = std::string(tmp) + "/shcl-veneer-named-" + std::to_string(static_cast<long>(getpid())) + ".shcl";
+		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
+		if (std::FILE *sf = std::fopen(sp.c_str(), "wb")) {
+			std::fputs("field: port\n", sf);
+			std::fclose(sf);
+		}
+		auto ns = shcl::read_named_schema("a: 1\n##    Schema   " + sp + "\n", "cfg.shcl");
+		CHECK(ns.status == shcl::SchemaStatus::Good && ns.text == "field: port\n" && ns.path == sp && ns.line == 2 && ns.message.empty());
+		std::remove(sp.c_str());
+		ns = shcl::read_named_schema("a: 1\n##    Schema   gone.shcl\n", "-");
+		CHECK(ns.status == shcl::SchemaStatus::FileNotFound && ns.path == "./gone.shcl" && ns.message.rfind("./gone.shcl: ", 0) == 0);
+		CHECK(shcl::read_named_schema("a: 1\n", "cfg.shcl").status == shcl::SchemaStatus::NotFound);
+		CHECK(shcl::read_named_schema("##    Schema\n", "cfg.shcl").line == 1);
+		CHECK(shcl::read_named_schema("##    Schema   https://x/s\n", "").status == shcl::SchemaStatus::Url);
+		CHECK(std::string(shcl::to_string(shcl::SchemaStatus::TooLarge)) == "TooLarge");
+	}
+#endif
+	// kind() and read_kind() pass the core's answer and status through.
+	{
+		using K = shcl::ValueKind;
+		auto kd = shcl::Document::parse("name: demo\ntags: [a]\nnotes: ~~~\n\tx\n\t~~~\nsrv:\n\thost: h\nsite: a\nsite: b\n");
+		CHECK(kd.kind("name") == K::Scalar && kd.kind("tags") == K::Array && kd.kind("notes") == K::Raw && kd.kind("srv") == K::Empty);
+		auto kr = kd.read_kind("tags");
+		CHECK(kr.value == K::Array && kr.status == shcl::Status::Good);
+		CHECK(kd.read_kind("srv").value == K::Empty && kd.read_kind("srv").status == shcl::Status::Good);
+		CHECK(kd.read_kind("site").value == K::Empty && kd.read_kind("site").status == shcl::Status::Multiple);
+		CHECK(kd.read_kind("nope").status == shcl::Status::NotFound && kd.read_kind("site..port").status == shcl::Status::BadPath);
+		CHECK(kd.kind("nope") == K::Empty);
+		CHECK(std::string(shcl::to_string(K::Empty)) == "Empty" && std::string(shcl::to_string(K::Raw)) == "Raw");
+	}
+
+	if (fails) std::fprintf(stderr, "veneer: %d failure(s)\n", fails);
+	else std::printf("veneer: ok\n");
+	const int smoke = test_id_end(fails);
+	fails = 0;
+	const int threads = reads_from_several_threads();
+	fails = 0;
+#ifndef SHCL_NO_FILE_IO
+	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
+	fails = 0;
+	const int spellings = a_changed_check_knows_its_file_by_any_spelling();
+	fails = 0;
+	const int created = a_create_only_save_refuses_a_file_already_there();
+	fails = 0;
+	const int newer = a_newer_format_document_saves_nowhere();
+	fails = 0;
+	return changed | spellings | created | newer | a_path_holding_a_nul_is_refused() | threads | smoke;
+#else
+	return threads | smoke;
+#endif
 }

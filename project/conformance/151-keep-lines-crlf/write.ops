@@ -1,0 +1,4 @@
+string	root.mode	slow
+int	root.level	2
+remove	root.list
+int	other	2

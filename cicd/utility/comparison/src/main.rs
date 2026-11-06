@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
+
 //! Measures SHCL against JSON, YAML, TOML and XML on documents that hold the
 //! same data in each format.
 //!
@@ -30,7 +33,7 @@ shcl-comparison - measure SHCL against JSON, YAML, TOML and XML
 Usage: shcl-comparison [options]
 
   --mib N          target size of each scaling shape's SHCL encoding (default
-                   16); the config and ddl shapes carry their own realistic size
+                   16); the config and ddl shapes set their own realistic size
   --iters N        timed runs per measurement, best wins (default 3); scaled up
                    on a document small enough to parse in microseconds
   --shape NAME     only this shape; repeatable (flat, deep, records, text,
@@ -166,9 +169,7 @@ fn parse_args(args: &[String]) -> Result<Opts, String> {
 	Ok(o)
 }
 
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 // Generation
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 fn emit_unit(g: &mut Gen, o: &mut String, shape: Shape, i: usize) {
 	match shape {
@@ -186,6 +187,7 @@ fn emit_unit(g: &mut Gen, o: &mut String, shape: Shape, i: usize) {
 		}
 		Shape::Records => {
 			let (name, f) = model::record_unit(i);
+			// Records and Ddl are the two shapes list_key names; the unwrap cannot fail.
 			g.record(o, Shape::Records.list_key().unwrap(), &name, &f);
 		}
 		Shape::Config => {
@@ -194,6 +196,7 @@ fn emit_unit(g: &mut Gen, o: &mut String, shape: Shape, i: usize) {
 		}
 		Shape::Ddl => {
 			let (name, f) = model::ddl_unit(i);
+			// Same as Records: list_key is Some for exactly these two shapes.
 			g.record(o, Shape::Ddl.list_key().unwrap(), &name, &f);
 		}
 	}
@@ -232,9 +235,7 @@ fn scale_iters(iters: usize, bytes: usize) -> usize {
 	iters * ((1 << 20) / bytes.max(1)).clamp(1, 200)
 }
 
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 // Libraries under test
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Tier {
@@ -336,9 +337,7 @@ fn discover_libs(o: &Opts) -> (Vec<Lib>, Vec<String>) {
 	(libs, skipped)
 }
 
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 // Orchestration
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 struct Row {
 	shape: Shape,
@@ -387,7 +386,7 @@ fn orchestrate(o: &Opts) -> i32 {
 	for &shape in &o.shapes {
 		// SHCL sets the unit count by hitting the size target; every other
 		// format then encodes exactly that data, so size is a result rather
-		// than an input. The shapes that carry their own size skip the target
+		// than an input. The shapes that set their own size skip the target
 		// and render a fixed number of units instead.
 		let (shcl_text, units) = match shape.plan(o.mib) {
 			model::Plan::Units(n) => render(shape, Fmt::Shcl, n, None),
@@ -481,15 +480,77 @@ fn orchestrate(o: &Opts) -> i32 {
 	rc
 }
 
+/// The python libraries this box can import, as (key, format). The same
+/// `--list` call `discover_libs` makes, needed here because the pre-flight runs
+/// before the work directory exists.
+fn py_entries() -> Vec<(String, Fmt)> {
+	let mut out = Vec::new();
+	if let Ok(o) = Command::new("python3")
+		.args([&pyworker(), "--list"])
+		.output()
+	{
+		for line in String::from_utf8_lossy(&o.stdout).lines() {
+			let f: Vec<&str> = line.split('|').collect();
+			if let ["available", key, fmt, ..] = f.as_slice() {
+				if let Some(fmt) = Fmt::from_name(fmt) {
+					out.push(((*key).to_string(), fmt));
+				}
+			}
+		}
+	}
+	out
+}
+
+/// One python library's scalar count for a rendered document. `Ok(None)` is a
+/// library the worker could not import after all, which is a skip and not a
+/// disagreement.
+fn py_count(key: &str, path: &str) -> Result<Option<u64>, String> {
+	let out = Command::new("python3")
+		.args([pyworker().as_str(), "--count", key, path])
+		.output()
+		.map_err(|e| format!("cannot run worker: {e}"))?;
+	for line in String::from_utf8_lossy(&out.stdout).lines() {
+		match line.split_once('=') {
+			Some(("scalars", v)) => {
+				return v.parse().map(Some).map_err(|_| format!("bad count {v:?}"));
+			}
+			Some(("skipped", _)) => return Ok(None),
+			Some(("failed", v)) => return Err(v.to_string()),
+			_ => {}
+		}
+	}
+	Err(format!(
+		"worker said nothing (exit {:?})",
+		out.status.code()
+	))
+}
+
 /// Pre-flight: at a small scale, every library has to parse its own file and
 /// find the same number of scalar values in it. Five encoders written from one
 /// model can still disagree through an escaping mistake, and a size or speed
 /// number taken from documents that are not the same data is worthless.
+///
+/// The python tier is asked the same question through its worker, which counts
+/// on request and not while measuring. Without that the check said nothing
+/// about seven libraries.
 fn verify(o: &Opts) -> bool {
 	let mut ok = true;
+	let py = if o.tiers.contains(&Tier::Python) {
+		py_entries()
+	} else {
+		Vec::new()
+	};
+	// The python worker reads a file, so the pre-flight documents get written
+	// out. Nothing here is timed, so a temp directory costs the check nothing.
+	let work = if py.is_empty() { None } else { mktemp().ok() };
+	// A check that cannot run is not a check that passed.
+	if work.is_none() && !py.is_empty() {
+		eprintln!("verify: no temp directory, so the python tier cannot be checked");
+		return false;
+	}
 	for &shape in &o.shapes {
 		let units = shape.verify_units(o.verify_units);
-		let mut counts: Vec<(&str, u64)> = Vec::new();
+		let mut counts: Vec<(&str, String, u64)> = Vec::new();
 		for fmt in Fmt::all() {
 			let (text, _) = render(shape, fmt, units, None);
 			for e in bench::ENTRIES {
@@ -499,15 +560,37 @@ fn verify(o: &Opts) -> bool {
 				let m = bench::run(e.key, &text, 1, true, 0);
 				match m.failed {
 					Some(err) => {
-						eprintln!("verify: {}/{}: {err}", shape.name(), e.key);
+						eprintln!("verify: {}/rust/{}: {err}", shape.name(), e.key);
 						ok = false;
 					}
-					None => counts.push((e.key, m.scalars)),
+					None => counts.push(("rust", e.key.to_string(), m.scalars)),
+				}
+			}
+			let Some(work) = work.as_deref() else {
+				continue;
+			};
+			if !py.iter().any(|(_, f)| *f == fmt) {
+				continue;
+			}
+			let path = format!("{work}/verify-{}.{}", shape.name(), fmt.ext());
+			if let Err(e) = std::fs::write(&path, &text) {
+				eprintln!("verify: cannot write {path}: {e}");
+				ok = false;
+				continue;
+			}
+			for (key, _) in py.iter().filter(|(_, f)| *f == fmt) {
+				match py_count(key, &path) {
+					Ok(Some(n)) => counts.push(("python", key.clone(), n)),
+					Ok(None) => {}
+					Err(err) => {
+						eprintln!("verify: {}/python/{key}: {err}", shape.name());
+						ok = false;
+					}
 				}
 			}
 		}
-		// The four non-SHCL encodings carry the instance label as an ordinary
-		// `name` field, which SHCL spells as the binding's own value. Same data,
+		// The four non-SHCL encodings store the instance label as an ordinary
+		// `name` field, which SHCL writes as the binding's own value. Same data,
 		// one fewer scalar binding.
 		let offset = if shape.list_key().is_some() {
 			units as u64
@@ -516,14 +599,14 @@ fn verify(o: &Opts) -> bool {
 		};
 		let want = counts
 			.iter()
-			.find(|(k, _)| *k == "shcl")
-			.map(|(_, n)| *n + offset);
+			.find(|(_, k, _)| k == "shcl")
+			.map(|(_, _, n)| *n + offset);
 		if let Some(want) = want {
-			for (k, n) in &counts {
-				let got = if *k == "shcl" { *n + offset } else { *n };
+			for (tier, k, n) in &counts {
+				let got = if k == "shcl" { *n + offset } else { *n };
 				if got != want {
 					eprintln!(
-						"verify: {}/{k}: {got} scalars, shcl says {want} - the documents are not the same data",
+						"verify: {}/{tier}/{k}: {got} scalars, shcl says {want} - the documents are not the same data",
 						shape.name()
 					);
 					ok = false;
@@ -532,11 +615,15 @@ fn verify(o: &Opts) -> bool {
 		}
 		if ok {
 			println!(
-				"verify: {} agrees across all encodings ({units} units, {} scalars)",
+				"verify: {} agrees across {} libraries ({units} units, {} scalars)",
 				shape.name(),
+				counts.len(),
 				want.unwrap_or(0)
 			);
 		}
+	}
+	if let Some(work) = work {
+		let _ = std::fs::remove_dir_all(work);
 	}
 	ok
 }
@@ -631,9 +718,7 @@ fn worker(key: &str, path: &str, iters: usize) {
 	println!("base-rss-bytes={}", m.base_rss_bytes);
 }
 
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 // Reporting
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 fn mib(bytes: u64) -> f64 {
 	bytes as f64 / (1024.0 * 1024.0)
@@ -717,9 +802,7 @@ fn print_tables(rows: &[Row], libs: &[Lib]) {
 	}
 }
 
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 // Recording, through this repo's own library
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 fn record(
 	o: &Opts,
@@ -736,7 +819,7 @@ fn record(
 
 	let id = run_id();
 	let vers = lock_versions();
-	let run = format!("run[{id}]");
+	let run = format!("run({id})");
 	macro_rules! set {
 		($path:expr, $v:expr) => {
 			let _ = doc.set_string(&$path, $v);
@@ -770,7 +853,7 @@ libraries ordered by geometric-mean parse time, fastest first; tiers are separat
 	// longer and no more informative.
 	let order = rank(rows);
 	for l in libs {
-		let about = format!("{run}.tier[{}].library[{}]", l.tier.name(), l.key);
+		let about = format!("{run}.tier({}).library({})", l.tier.name(), l.key);
 		set!(format!("{about}.format"), &l.format);
 		set!(format!("{about}.library"), &l.library);
 		set!(format!("{about}.version"), &l.version);
@@ -784,7 +867,7 @@ libraries ordered by geometric-mean parse time, fastest first; tiers are separat
 	}
 
 	for r in rows {
-		let sh = format!("{run}.tier[{}].shape[{}]", r.tier.name(), r.shape.name());
+		let sh = format!("{run}.tier({}).shape({})", r.tier.name(), r.shape.name());
 		let _ = doc.set_int(
 			&format!("{sh}.units"),
 			*units.get(r.shape.name()).unwrap_or(&0) as i64,
@@ -793,7 +876,7 @@ libraries ordered by geometric-mean parse time, fastest first; tiers are separat
 			&format!("{sh}.iterations"),
 			*iters.get(r.shape.name()).unwrap_or(&0) as i64,
 		);
-		let lib = format!("{sh}.library[{}]", r.key);
+		let lib = format!("{sh}.library({})", r.key);
 		if let Some(f) = &r.m.failed {
 			set!(format!("{lib}.failed"), f);
 			continue;
@@ -829,8 +912,13 @@ libraries ordered by geometric-mean parse time, fastest first; tiers are separat
 		);
 	}
 
+	// The setters above drop a refused path without a word, and a path the
+	// reader stops taking would save a file with the run missing.
+	if doc.read_string(&format!("{run}.tool")).status != shcl::Status::Good {
+		return Err(format!("nothing recorded under {run}"));
+	}
 	prune(&mut doc, o.keep_runs);
-	doc.save_file(&o.out).map_err(|e| format!("{e:?}"))?;
+	doc.save_file(&o.out).map_err(|e| e.to_string())?;
 	Ok(id)
 }
 
@@ -846,7 +934,7 @@ fn prune(doc: &mut shcl::Document, keep: usize) {
 	}
 	ids.sort();
 	for id in &ids[..ids.len() - keep] {
-		doc.remove(&format!("run[{id}]"));
+		doc.remove(&format!("run({id})"));
 	}
 }
 
@@ -857,9 +945,7 @@ fn round6(v: f64) -> f64 {
 	(v * 1_000_000.0).round() / 1_000_000.0
 }
 
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 // Environment odds and ends
-//••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 fn shell(cmd: &str, args: &[&str]) -> String {
 	Command::new(cmd)

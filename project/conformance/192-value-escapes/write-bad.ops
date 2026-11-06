@@ -1,0 +1,4 @@
+literal	bad	"◉HELLO◉"
+literal	bad	a◉b
+literal	bad	"◉U+D800◉"
+string	"x◉NOPE◉"	1

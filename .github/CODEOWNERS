@@ -1,7 +1,5 @@
 # Ownership rules for review-gating (needs branch protection "require review from
 # code owners" to enforce). Last match wins.
 
-# Donation page: @jim-collier only for now (money-adjacent, must not be changed loosely).
-/DONATE.md @jim-collier
 /.github/CODEOWNERS  @jim-collier
 /.github/FUNDING.yml  @jim-collier

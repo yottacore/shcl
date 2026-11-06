@@ -1,0 +1,7 @@
+line 5: Error: E008
+line 6: Error: E018
+line 8: Error: E009
+line 9: Error: E018
+line 13: Error: E011
+line 14: Error: E018
+failed: 6 diagnostic(s), 6 error(s)

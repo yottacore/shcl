@@ -1,0 +1,11 @@
+## A push to main whose files all match here skips the merge gate (pre-push).
+## Docs, and art no build reads. One pattern per line, matched as a bash glob
+## against the whole path, where * crosses /. A trailing / takes the folder.
+## A leading ! takes a path back out, and the last match wins.
+*.md
+project/
+!project/conformance/
+!project/grammar.abnf
+assets/demo.gif
+assets/icon.png
+assets/logo.png

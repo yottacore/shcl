@@ -1,0 +1,8 @@
+db:
+	# db settings
+	host: example.com
+port: 2
+repo: org/name
+
+	# the branch
+	branch: dev

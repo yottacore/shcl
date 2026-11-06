@@ -1,0 +1,15 @@
+# An array on a field with fields under it is E028. The line is kept and
+# written in place of the field's own, and the fields under it load under
+# the field with no value. A kept line under an array binds nothing, so the
+# array stands, and an array line that joined an earlier binding of its value
+# leaves that one its value.
+route: [GET, POST]  # methods
+	path: /api
+	methods: [GET, POST]
+plain: [a, b]
+	*kept
+dup: [v]
+dup: [v]
+	q: 1
+none: []
+	x: 1

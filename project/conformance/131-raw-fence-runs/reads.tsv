@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+long	raw	```\ninner ```` run	Good
+long	rawinfo	md	Good
+deep	raw	x	Good
+trail	raw	``` not a closer	Good
+mixed	raw	```	Good

@@ -1,0 +1,8 @@
+line 1: Error: V004
+line 5: Error: V004
+line 5: Error: V005
+line 5: Error: V006
+line 6: Error: V004
+line 7: Error: V004
+line 8: Error: V004
+failed: 7 diagnostic(s), 7 error(s)

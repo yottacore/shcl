@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
+
 // Embeds the Windows icon and version metadata into the executable, so it does
 // not show up as a nameless generic file with an empty properties panel.
 //
@@ -17,6 +20,38 @@ use std::{env, fs};
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-changed=../../assets/shcl.ico");
+
+	// The pipeline stamps every build it makes with a build number worked out
+	// from the commit time, so a rebuild of the same commit gets the same one.
+	// A build outside it, `cargo install` from crates.io included, has none. A bad
+	// value is a pipeline bug, and a wrong number in a release would be worse
+	// than a failed build.
+	println!("cargo:rerun-if-env-changed=SHCL_BUILD");
+	let build = env::var("SHCL_BUILD").unwrap_or_default();
+	assert!(
+		build
+			.chars()
+			.all(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c)),
+		"SHCL_BUILD must be lower-case Crockford base32, got {build:?}"
+	);
+	let suffix = if build.is_empty() {
+		String::new()
+	} else {
+		format!(" build {build}")
+	};
+	println!("cargo:rustc-env=SHCL_BUILD_SUFFIX={suffix}");
+
+	// A stamped build that isn't a release shows its date as well. The CLI
+	// works it out from the build number when it runs, in the local zone of
+	// whoever asks, so only the number is passed on.
+	println!("cargo:rerun-if-env-changed=SHCL_BUILD_DATED");
+	let dated = env::var("SHCL_BUILD_DATED").unwrap_or_default();
+	assert!(
+		dated.is_empty() || (dated == "1" && !build.is_empty()),
+		"SHCL_BUILD_DATED must be empty, or 1 with SHCL_BUILD set, got {dated:?}"
+	);
+	let dated_build = if dated.is_empty() { "" } else { build.as_str() };
+	println!("cargo:rustc-env=SHCL_BUILD_DATED={dated_build}");
 
 	if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
 		return;

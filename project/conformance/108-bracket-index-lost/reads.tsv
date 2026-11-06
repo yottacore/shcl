@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+idx	string	[80]	Good
+w	string[]	*	Good
+ok	int	1	Good
+-	lost	0	-

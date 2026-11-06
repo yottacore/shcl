@@ -2,8 +2,9 @@
 ##
 ## The library itself has no dependencies at all. Everything this walks comes in
 ## through `pprof`, which is optional, feature-gated, and only ever built by the
-## cicd profiler stage - a shipped binary contains none of it. The gate still
-## covers it, because a dev-tooling advisory is worth knowing about.
+## cicd profiler stage - a shipped binary contains none of it - or through
+## `dhat`, a dev-dependency only the soak test links. The gate still covers
+## both, because a dev-tooling advisory is worth knowing about.
 
 [advisories]
 ## A known vulnerability fails the run. Nothing else does: this graph is dev-only
@@ -14,7 +15,7 @@ ignore = [
 	## they stay: nothing here parses XML (inferno only writes the flamegraph
 	## SVG), the whole chain is behind the profiling feature and never ships, and
 	## inferno 0.11 pins quick-xml 0.26 so there is no version to move to. Drop
-	## these the moment pprof carries a newer inferno.
+	## these the moment pprof uses a newer inferno.
 	{ id = "RUSTSEC-2026-0194", reason = "dev-only profiler chain, no XML is parsed, no upgrade path" },
 	{ id = "RUSTSEC-2026-0195", reason = "dev-only profiler chain, no XML is parsed, no upgrade path" },
 ]
@@ -38,6 +39,14 @@ confidence-threshold = 0.9
 ## profiling chain is not ours to flatten.
 multiple-versions = "warn"
 wildcards = "deny"
+## The three duplicates that chain does have today, each the older half of a
+## pair pulled in two places under pprof. Allowed by name so every run's lint
+## report is not the same three warnings; a fourth one still shows up.
+skip = [
+	{ crate = "bitflags@1.3.2", reason = "nix 0.26 under pprof; the profiler chain never ships" },
+	{ crate = "getrandom@0.3.4", reason = "ahash under inferno under pprof; the profiler chain never ships" },
+	{ crate = "r-efi@5.3.0", reason = "getrandom 0.3 under the same chain; the profiler chain never ships" },
+]
 
 [sources]
 unknown-registry = "deny"

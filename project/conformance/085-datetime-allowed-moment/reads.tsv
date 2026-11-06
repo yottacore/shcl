@@ -1,0 +1,4 @@
+query	type	expected	status
+-	load	ok	-
+utc	datetime	12:00:00Z	Good
+-	lost	0	-

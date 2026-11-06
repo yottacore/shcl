@@ -1,0 +1,10 @@
+query	type	expected	status
+-	load	ok	-
+-	lost	0	-
+a	string	[x, y]	Good
+a.c	int	-	NotFound
+a.d	int	-	NotFound
+b	int	2	Good
+list	string[]	one|two|three	Good
+list.deep	int	-	NotFound
+after	int	4	Good

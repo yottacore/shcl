@@ -8,11 +8,11 @@
 
 **Short version:** the code is free, the specification is free, and implementing it needs no permission from anyone. What the name protects is a promise - that a file described as SHCL behaves the same way everywhere. Call your implementation SHCL if it passes the conformance corpus. If it does not, or if you have changed the language itself, please use your own name for it.
 
-We would rather say yes than no. New implementations in new languages are the best thing that can happen to a config format, and nothing here is meant to slow one down. The narrow thing this policy protects is the guarantee that makes SHCL worth adopting at all: that the same file, read by any implementation carrying the name, produces the same result. A format that means slightly different things in different languages is worse than no format, and once that trust is gone it cannot be recovered by fixing code.
+We would rather say yes than no. New implementations in new languages are the best thing that can happen to a config format, and nothing here is meant to slow one down. The narrow thing this policy protects is the guarantee that makes SHCL worth adopting at all: that the same file, read by any implementation using the name, produces the same result. A format that means slightly different things in different languages is worse than no format, and once that trust is gone it cannot be recovered by fixing code.
 
 ## 1. Marks covered
 
-"SHCL", the SHCL logo, and any stylized variants (the "Marks") are trademarks of Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞). We claim these Marks under common law and use them in commerce as SHCL™.
+"SHCL", the SHCL logo, and any stylized variants (the "Marks") are trademarks of Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. We claim these Marks under common law and use them in commerce as SHCL™.
 
 ## 2. Relationship to the software license
 
@@ -26,7 +26,7 @@ A **Conformant Implementation** is one that passes the published conformance cor
 
 The corpus lives at `project/conformance/` in this repository. It is the same corpus every shipped binding is held to, on every build - there is no separate or stricter bar for outside implementations. Conformance is therefore something you can check for yourself, before you ship and without asking us.
 
-Where a claim is honestly narrower than full conformance, say so plainly and it is fine: "a read-only SHCL parser", "a SHCL parser, schema validation not yet implemented", "an in-progress SHCL implementation". What is not fine is a bare claim of SHCL support from something that does not pass, since a user has no way to tell the difference until it breaks.
+Where a claim is narrower than full conformance, say so plainly and it is fine: "a read-only SHCL parser", "a SHCL parser, schema validation not yet implemented", "an in-progress SHCL implementation". What is not fine is a bare claim of SHCL support from something that does not pass, since a user has no way to tell the difference until it breaks.
 
 ## 4. Uses that are always permitted
 
@@ -50,7 +50,7 @@ No permission from us is needed to:
 
 The line this policy draws is between implementing the language and changing it.
 
-- **An implementation that passes the corpus** may carry the name, as described in Section 4. You need not ask, and you need not be affiliated with us.
+- **An implementation that passes the corpus** may use the name, as described in Section 4. You need not ask, and you need not be affiliated with us.
 
 - **An implementation that does not pass** must not be described as SHCL, SHCL-compatible, or SHCL-supporting without qualifying the claim truthfully (Section 3). This is the case the policy exists for.
 
@@ -90,7 +90,7 @@ When using the Marks under Section 4:
 
 **We may revoke permission for any use that damages the Marks or misleads users**. In practice, a good-faith implementation that turns out to fail a corpus case is a bug report, not a dispute - tell us, or fix it, and nothing further is needed. Enforcement is aimed at claims that stay wrong.
 
-We may revise this policy at any time; the current version lives at <https://github.com/jim-collier/shcl/>. Requests for permission, and reports of misuse, go to silktermⒶubx9.com.
+We may revise this policy at any time; the current version lives at <https://github.com/yottacore/shcl/>. Requests for permission, and reports of misuse, go to shclⒶyottacore.com.
 
 ---
 

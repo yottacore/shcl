@@ -3,3 +3,4 @@ query	type	expected	status	level
 -	load	fail	-	strict
 city	count	2	-
 city	instances	Portland|Boston	-
+-	lost	1	-

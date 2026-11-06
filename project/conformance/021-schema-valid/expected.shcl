@@ -3,12 +3,12 @@ launched: 2026-07-01
 server: web1
 	port: 8080
 	host: a.example
-	region: us, eu
+	region: [us, eu]
 server: web2
 	port: 9090
 	host: b.example
 	region: apac
-timeouts: 5, 30, 60
+timeouts: [5, 30, 60]
 motd:
 	```txt
 	Hello there

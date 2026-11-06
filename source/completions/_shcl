@@ -6,30 +6,41 @@
 ##	<datadir>/zsh/site-functions/_shcl, or dropped anywhere on $fpath.
 ##
 ##	The option table below mirrors check_opts() in the CLI, one arm per
-##	subcommand, and is kept line-for-line identical with the bash completion's.
-##	cicd/utility/check-completions.bash diffs all three, so an option added to
-##	the CLI without a line here fails the build.
+##	subcommand; the table itself (not the zsh machinery around it) is kept
+##	line-for-line identical with the bash completion's.
+##	cicd/utility/check-completions.bash diffs all three tables, and the
+##	top-level offers, so an option added to the CLI without a line here fails
+##	the build.
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
-##	Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)
+##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 ##	Licensed under The MIT License (MIT). Full text at:
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
 
-## Type options, valid on `get` only. The table below carries them as the single
+## Type options, valid on `get` only. The table below lists them as the single
 ## token --<type>, exactly as the CLI's own table does.
-_shcl_types='--int --float --bool --datetime --string --raw --rawinfo'
+_shcl_types='--int --float --bool --datetime --string --raw --rawinfo --duration --size'
+
+## Options that take a value, in either spelling. Mirrors the list asked_for()
+## steps over in the CLI; check-completions.bash diffs the two.
+_shcl_valopts='--default --on-bad --strictness --schema --unit --layer --set --set-literal --set-default --set-literal-default --remove'
 
 ## Options each subcommand accepts. Anything else is a usage error to the CLI,
 ## so offering it here would be a lie.
 _shcl_opts() {
 	case "$1" in
-		get)             echo '--<type> --array --slots --default --on-bad --strictness --layer --set --set-literal' ;;
-		set)             echo '--strictness --layer --set --set-literal --write --lossy' ;;
-		fmt)             echo '--write --lossy --strictness --layer --set --set-literal' ;;
+		get)             echo '--<type> --array --slots --json --unit --decimal --default --on-bad --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		set)             echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove --write --lossy --no-banner' ;;
+		fmt)             echo '--write --lossy --check --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		check)           echo '--strictness --schema' ;;
 		init)            echo '--schema --no-banner' ;;
-		count|instances) echo '--strictness --layer --set --set-literal' ;;
+		migrate)         echo '--write --lossy --from-2x --check' ;;
+		upgrade)         echo '--write --from-2x' ;;
+		tokens|explain)  echo '' ;;
+		count)           echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		instances)       echo '--paths --json --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		children|paths)  echo '--json --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		*)               echo '' ;;
 	esac
 }
@@ -40,7 +51,7 @@ _shcl_opts() {
 ## filenames that would always be wrong.
 _shcl_fileslot() {
 	case "$1" in
-		get|set|fmt|check|count|instances) echo 1 ;;
+		get|set|fmt|check|count|instances|children|paths|migrate|upgrade|tokens) echo 1 ;;
 		*)                                 echo 0 ;;
 	esac
 }
@@ -52,21 +63,25 @@ _shcl() {
 
 	cmds=(
 		'get:read one value (or array) at a path'
-		'set:apply edits and print the canonical form'
+		'set:apply edits and print the file with the edited lines changed'
 		'fmt:print the canonical form of a file'
 		'check:load and print diagnostics'
 		'init:print a starter config from a schema'
 		'count:number of instances at a path'
 		'instances:instance values at a path'
+		'children:child field names under a path'
+		'paths:every field path in the document'
+		'migrate:rewrite a 2.x file for the current rules'
+		'upgrade:back up and rewrite an older file that does not load clean'
+		'tokens:the lexical spans of each line'
+		'explain:what a diagnostic code means'
 		'help:the help text'
-		'version:the version'
-		'about:what shcl is'
-		'donate:how to support it'
 	)
 
-	## Word 2 is the subcommand and nothing else.
+	## Word 2 is the subcommand, or an informational flag.
 	if (( CURRENT == 2 )); then
 		_describe -t commands 'shcl subcommand' cmds
+		compadd -- -h --help -v -V --version --about --donate
 		return
 	fi
 	cmd="${words[2]}"
@@ -75,16 +90,21 @@ _shcl() {
 	## Value options in the space form: the next word is the value, whatever it
 	## looks like, so complete for the option rather than for the position.
 	case "${prev}" in
-		--strictness)                  _values 'strictness' loose standard strict 1 2 3; return ;;
-		--on-bad)                      _values 'on-bad' error default flag; return ;;
-		--schema|--layer)              _files; return ;;
-		--default|--set|--set-literal) return ;;
+		--strictness)     _values 'strictness' loose standard strict 1 2 3; return ;;
+		--on-bad)         _values 'on-bad' error default flag; return ;;
+		--unit)           _values 'unit' ms s m h d B kB KB MB GB TB KiB MiB GiB TiB; return ;;
+		--schema|--layer) _files; return ;;
 	esac
+	## The rest take a PATH, or a value nothing here can enumerate.
+	[[ " ${_shcl_valopts} " == *" ${prev} "* ]] && return
 	## Same options in the =VALUE form.
 	if compset -P '--strictness='; then _values 'strictness' loose standard strict 1 2 3; return; fi
 	if compset -P '--on-bad='; then _values 'on-bad' error default flag; return; fi
+	if compset -P '--unit='; then _values 'unit' ms s m h d B kB KB MB GB TB KiB MiB GiB TiB; return; fi
 	if compset -P '--schema=' || compset -P '--layer='; then _files; return; fi
-	if compset -P '--default=' || compset -P '--set=' || compset -P '--set-literal='; then return; fi
+	for word in ${=_shcl_valopts}; do
+		compset -P "${word}=" && return
+	done
 
 	if [[ "${words[CURRENT]}" == -* ]]; then
 		opts="$(_shcl_opts "${cmd}")"
@@ -95,16 +115,29 @@ _shcl() {
 		return
 	fi
 
+	## help takes a subcommand name, the one positional here that can be listed.
+	if [[ "${cmd}" == "help" ]]; then
+		_describe -t commands 'shcl subcommand' cmds
+		return
+	fi
+
 	## A positional. Count the ones already given, skipping options and the
 	## values that follow them in the space form.
+	## `-` is a FILE (stdin), and everything after `--` is a positional whatever
+	## it looks like, so neither is skipped as an option.
 	positional=0
+	local -i ended=0
 	for (( i = 3; i < CURRENT; i++ )); do
 		word="${words[i]}"
-		case "${word}" in
-			--default|--on-bad|--strictness|--schema|--layer|--set|--set-literal) (( i++ )) ;;
-			-*) ;;
-			*) (( positional++ )) ;;
-		esac
+		if (( ended )); then
+			(( positional++ ))
+		elif [[ "${word}" == "--" ]]; then
+			ended=1
+		elif [[ " ${_shcl_valopts} " == *" ${word} "* ]]; then
+			(( i++ ))
+		elif [[ "${word}" == "-" || "${word}" != -* ]]; then
+			(( positional++ ))
+		fi
 	done
 	fileslot="$(_shcl_fileslot "${cmd}")"
 	(( fileslot && positional + 1 == fileslot )) && _files

@@ -1,0 +1,3 @@
+query	type	expected	status
+name	string	svc	Good
+retries	count	1	Good

@@ -1,0 +1,10 @@
+srv:
+  host: a
+  port: 80
+  tls:
+    on: true
+db:
+	name: x
+	sub:
+	  deep: 1
+	  more: 2

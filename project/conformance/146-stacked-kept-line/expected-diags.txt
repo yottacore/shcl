@@ -1,0 +1,6 @@
+line 4: Error: E013
+line 6: Error: E013
+line 8: Error: E019
+line 9: Error: E012
+line 11: Error: E013
+failed: 5 diagnostic(s), 5 error(s)

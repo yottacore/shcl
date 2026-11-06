@@ -1,0 +1,25 @@
+query:
+	```sql
+	SELECT *
+	FROM t
+	WHERE x = 1;
+	```
+
+code:
+	```python
+	print("hi")
+	```
+
+tricky: 'tab◉TAB◉here quote " and backslash \ end'
+
+fence: "```not a real fence```"
+
+emptystr: ""
+
+shortdate: 2026-07-12
+
+neg: -7
+
+big: 100000000000000000000
+
+nums: [-1, 0, 1]

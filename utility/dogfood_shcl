@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+##	Purpose:
+##		Lets 'dogfood_shcl' be typed at a shell without anyone having to know it
+##		is a pwsh script. dogfood_shcl.ps1 takes in a new build, rotates the pool
+##		and prints which one to run, and this runs it in its own place, with
+##		every argument but --no-update as typed. So shcl's exit code comes back,
+##		after a Ctrl+C too. The same file goes in the linux/bash and macos/bash
+##		util dirs; the .ps1 works out the per-platform paths itself.
+##	History: At bottom of script.
+
+##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
+##	Licensed under The MIT License (MIT). Full text at:
+##		https://mit-license.org/
+##	SPDX-License-Identifier: MIT
+
+set -eu
+
+## Resolve through any symlinks, so the sibling lookup works from a link on PATH
+## as well as from the file itself.
+self="${BASH_SOURCE[0]}"
+while [[ -L "${self}" ]]; do
+	target="$(readlink "${self}")"
+	if [[ "${target}" == /* ]]; then self="${target}"
+	else                             self="$(dirname "${self}")/${target}"; fi
+done
+selfDir="$(cd -P "$(dirname "${self}")" && pwd)"
+
+## Two levels under the util dir, beside which 0_crossplatform sits. The repo
+## keeps all three files side by side, and the home-relative spelling is for a
+## copy dropped somewhere else.
+ps1=""
+for candidate in \
+	"${selfDir}/../../0_crossplatform/dogfood_shcl.ps1" \
+	"${selfDir}/dogfood_shcl.ps1" \
+	"${HOME}/synced/0-0/common/exec/util/0_crossplatform/dogfood_shcl.ps1"; do
+	if [[ -f "${candidate}" ]]; then ps1="${candidate}"; break; fi
+done
+[[ -n "${ps1}" ]] || ps1="$(command -v dogfood_shcl.ps1 2>/dev/null || true)"
+if [[ -z "${ps1}" ]]; then
+	echo "dogfood_shcl: dogfood_shcl.ps1 not found" >&2
+	exit 1
+fi
+if ! command -v pwsh >/dev/null 2>&1; then
+	echo "dogfood_shcl: needs PowerShell 7 (pwsh) on PATH" >&2
+	exit 1
+fi
+
+## Not through pwsh, which expands wildcards and ~ in a native call's
+## arguments, and exits 0 when a Ctrl+C stops it. The odd expansions are for
+## an empty array under set -u in bash 3.2, as macOS has.
+noUpdate=()
+passArgs=()
+for arg in "$@"; do
+	if [[ "${arg}" == "--no-update" ]]; then noUpdate=(--no-update); else passArgs+=("${arg}"); fi
+done
+target="$(pwsh -NoProfile -File "${ps1}" --print-path ${noUpdate[@]+"${noUpdate[@]}"} </dev/null)" || exit
+if [[ "${target}" != /* || ! -x "${target}" ]]; then
+	echo "dogfood_shcl: ${ps1} gave no build to run: ${target}" >&2
+	exit 1
+fi
+exec "${target}" ${passArgs[@]+"${passArgs[@]}"}
+
+##	History:
+##		- 2026-09-24 JC: Created.
+##		- 2026-11-02 JC: Runs the build itself, with the arguments as typed.
+##		  The .ps1 only picks it.
