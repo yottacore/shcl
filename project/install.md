@@ -136,6 +136,8 @@ irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1 | iex
 
 The installer unpacks the drop-in payload with `tar`, which Windows 10 1803, Server 2019 and later include. On an older Windows, use the setup `.exe` from the releases page instead.
 
+shcl's messages and `fmt` output write an escape with `◉`, as in `◉NEWLINE◉`. Windows Terminal shows it. Consolas, the old console window's default font, has no `◉`, so switch that window to Cascadia Mono. PowerShell reads a program's output in the console code page, so `$out = shcl fmt app.shcl` turns each `◉` into `Γùë`. Run `[Console]::OutputEncoding = [Text.Encoding]::UTF8` first. Output that cmd sends to a file is fine.
+
 | Target           | Linux, macOS and FreeBSD                                 | Windows
 | :---             | :---                                                     | :---
 | `user` (default) | `~/.local/share/shcl` plus a `~/.local/bin/shcl` symlink | `%LOCALAPPDATA%\Programs\Shcl`, added to your `PATH`

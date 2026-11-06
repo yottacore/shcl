@@ -193,22 +193,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
 	- Estimated effort: Avg
 
-- How `◉` shows in a Windows console
-	- ID: 2026110609135700
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261106-091357
-	- Opened by: gitsby's move to 3.0.0-beta1
-	- Related IDs: 2026100812323841
-	- Target OS: Windows
-	- Problem description: messages and the help show a control character the way the file writes it, such as `◉NEWLINE◉` and `◉ESC◉`. Nobody has looked at that on Windows. b29w's console code page is 437, which has no `◉`, and PowerShell decodes a native program's output with it, as install.ps1's copyright line showed (`des49`).
-	- Requirements:
-		- On b29w, run the Rust CLI's `check` on a file with a control character, in conhost, in Windows Terminal, and captured in pwsh 7 and 5.1. Read the screen buffer the way `private/claude_simple/tools/receipt-probe/` does.
-		- Wrong only through a PowerShell capture: a line in install.md, since every UTF-8 program does that.
-		- Wrong in a plain console: file a Bug.
-	- Estimated effort: Low
-
 - check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
 	- ID: 2026110409565662
 	- Type: Task
@@ -472,6 +456,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- How `◉` shows in a Windows console
+	- ID: 2026110609135700
+	- Type: Task
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261106-091357
+	- Opened by: gitsby's move to 3.0.0-beta1
+	- Related IDs: 2026100812323841
+	- Target OS: Windows
+	- Problem description: messages and the help show a control character the way the file writes it, such as `◉NEWLINE◉` and `◉ESC◉`. Nobody has looked at that on Windows. b29w's console code page is 437, which has no `◉`, and PowerShell decodes a native program's output with it, as install.ps1's copyright line showed (`des49`).
+	- Requirements:
+		- On b29w, run the Rust CLI's `check` on a file with a control character, in conhost, in Windows Terminal, and captured in pwsh 7 and 5.1. Read the screen buffer the way `private/claude_simple/tools/receipt-probe/` does.
+		- Wrong only through a PowerShell capture: a line in install.md, since every UTF-8 program does that.
+		- Wrong in a plain console: file a Bug.
+	- Estimated effort: Low
+	- Result, 20261106, beta1's windows-x86_64 build on b29w, Windows PowerShell 5.1 and pwsh 7.6:
+		- A console of its own: the screen buffer has every `◉` right, in both.
+		- Captured in either PowerShell: each `◉` comes back as `Γùë` (U+0393 U+00F9 U+00EB), since the decode uses code page 437. With `[Console]::OutputEncoding` set to UTF-8 it matches.
+		- cmd's `>` to a file: right.
+		- Fonts: Consolas, Lucida Console and Courier New have no `◉`. Cascadia Mono, Cascadia Code and Segoe UI Symbol do. Consolas is b29w's console font, and its default terminal is "let Windows decide".
+	- Actual fix: nothing wrong in shcl. install.md's Windows section says which fonts show `◉` and how to capture it in PowerShell.
+	- Test case: none, a one-off look with `private/claude_simple/tools/glyph-probe/`.
+	- Acceptance signoff: Self-closed: every case in the requirements ran on b29w.
+	- Closed: 20261106-093500
 
 - `sign-release.bash` refuses the right key: "install.ps1 has a different key"
 	- ID: 2026110607341200
