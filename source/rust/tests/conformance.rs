@@ -3283,6 +3283,45 @@ fn reopened_blocks_load_in_linear_time() {
 	);
 }
 
+/// Decoding a value's escapes cut the rest of the text off at each one in
+/// Python, so the time went with the square of their count
+/// (2026110613470306). Eight times the escapes has to take under 24 times the
+/// time, 3 times the linear growth. Best of 3 each. Same fixture in every
+/// runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn escapes_decode_in_linear_time() {
+	let _id = test_id("df02a");
+	let mut ms = [0.0f64; 2];
+	for (slot, n) in ms.iter_mut().zip([10_000, 80_000]) {
+		let text = format!("a: \"{}\"\n", "\u{25C9}TAB\u{25C9}".repeat(n));
+		*slot = f64::INFINITY;
+		for _ in 0..3 {
+			let t0 = std::time::Instant::now();
+			let d = Document::parse(&text);
+			let got = d.get_string("a");
+			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
+			assert_eq!(got.as_deref(), Ok("\t".repeat(n).as_str()));
+			assert_eq!(d.to_canonical(), text);
+		}
+	}
+	let bound = ms[0].max(1.0) * 24.0;
+	assert!(
+		ms[1] <= bound,
+		"80000 escapes {:.1} ms against {:.1} ms for 10000 (bound {:.1} ms) - escape decoding is not linear",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
 #[test]
 fn standard_trait_surface() {
 	let _id = test_id("dbegt");

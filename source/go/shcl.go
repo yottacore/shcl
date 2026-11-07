@@ -2345,7 +2345,9 @@ func resolveMarks(raw string) (string, error) {
 // either case, or a code point prefix and one to six hex digits.
 func escapeText(name string) (string, error) {
 	m := string(escapeMark)
-	shown := oneLineIn(name, "'"+m, m+"'")
+	// Built only for an error, since a good escape never reads it
+	// (2026110613470306).
+	shown := func() string { return oneLineIn(name, "'"+m, m+"'") }
 	nameChars := name != ""
 	for i := 0; i < len(name) && nameChars; i++ {
 		b := name[i]
@@ -2376,12 +2378,12 @@ func escapeText(name string) (string, error) {
 				continue
 			}
 			if v > unicode.MaxRune || (v >= 0xD800 && v <= 0xDFFF) {
-				return "", errors.New("escape " + shown + " names no Unicode character")
+				return "", errors.New("escape " + shown() + " names no Unicode character")
 			}
 			return string(rune(v)), nil
 		}
 	}
-	return "", errors.New("unknown escape " + shown + "; an escape is a name from the escape list, and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
+	return "", errors.New("unknown escape " + shown() + "; an escape is a name from the escape list, and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
 }
 
 // gen-escapes.py: begin

@@ -3080,6 +3080,53 @@ func TestReopenedBlocksLoadInLinearTime(t *testing.T) {
 	}
 }
 
+// Decoding a value's escapes cut the rest of the text off at each one in
+// Python, so the time went with the square of their count (2026110613470306).
+// Eight times the escapes has to take under 24 times the time, 3 times the
+// linear growth. Best of 3 each. Same fixture in every runner.
+func TestEscapesDecodeInLinearTime(t *testing.T) {
+	defer testID(t, "df028")
+	if raceOn {
+		t.Skip("not timed under -race")
+	}
+	var ms [2]float64
+	for slot, n := range []int{10000, 80000} {
+		text := "a: \"" + strings.Repeat("\u25c9TAB\u25c9", n) + "\"\n"
+		ms[slot] = math.Inf(1)
+		for r := 0; r < 3; r++ {
+			t0 := time.Now()
+			d := Parse(text)
+			got, st := d.GetString("a")
+			ms[slot] = math.Min(ms[slot], float64(time.Since(t0).Microseconds())/1000.0)
+			if st != Good || got != strings.Repeat("\t", n) || d.ToCanonical() != text {
+				t.Fatalf("escape fixture: wrong result")
+			}
+		}
+	}
+	bound := math.Max(ms[0], 1) * 24
+	if ms[1] > bound {
+		t.Errorf("80000 escapes %.1f ms against %.1f ms for 10000 (bound %.1f ms) - escape decoding is not linear", ms[1], ms[0], bound)
+	}
+}
+
+// A good escape built the E023 text it never read, which took 1M escapes from
+// 0.19 s to 0.72 s (2026110613470306). Asserted as an allocation count, as
+// TestAsciiLowerDoesNotCopyAFoldedName is.
+func TestAnEscapeMessageIsBuiltOnlyForAnError(t *testing.T) {
+	defer testID(t, "df029")
+	var sink string
+	// A code point's text is a new string, so only names from the list.
+	for _, name := range []string{"TAB", "tab", "ESCAPE_CHAR"} {
+		if n := testing.AllocsPerRun(200, func() { sink, _ = escapeText(name) }); n != 0 {
+			t.Errorf("escapeText(%q): %v allocations, want 0", name, n)
+		}
+	}
+	_ = sink
+	if _, err := escapeText("NOPE"); err == nil || !strings.Contains(err.Error(), "'\u25c9NOPE\u25c9'") {
+		t.Errorf("unknown escape: %v", err)
+	}
+}
+
 func TestLostAndSaveGate(t *testing.T) {
 	defer testID(t, "dbcxf")
 	// Content-malformed lines are retained as trivia (LostCount 0, the line

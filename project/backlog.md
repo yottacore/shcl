@@ -154,7 +154,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Python decodes escapes in time in the square of their count
 	- ID: 2026110613470306
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -170,7 +170,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: `_resolve_marks` copies the rest of the text at each escape, and `_shown` does the same. Finding each mark by index gave 0.25 s at 40,000 and 3.1 s at 1M, with the same `fmt` output.
 	- Origin: `f2b97394` (2026-10-06) for `_resolve_marks`, `1d5f3f2b` (2026-10-10) for `_shown`, `81943546` (2026-10-09) for the text built every time. A drift from the Rust reference. Not seen by an earlier round. Confirmed.
 	- Regression test: a scaling test in the Python suite, 8 times the escapes decoded in under 3 times the time, and the same test in the other 3 for parity; plus a test that an error's text isn't built when nothing reads it, in Go and Python.
+	- Actual cause: as above. `_resolve_marks` and `_shown` sliced off the rest of the text at each escape, and `_escape_text` in Python and `escapeText` in Go built the `E023` text before knowing there was an error.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- "8 times the escapes in under 3 times the time" read as under 3 times the linear growth, so under 24 times, the bound df010 to df013 use. The old Python walk took 46 times at 10,000 against 80,000 (me).
+		- Go's allocation test checks names from the list only, since a code point's text is a new string either way (me).
+	- Swept: `_one_line_in` and `oneLineIn` callers in Python and Go for other text built ahead of an error (none on a per-escape path); Python's other `rest = rest[...]` loop is the duration parser, bounded by its few units. Rust and C already find marks without copying and build the text lazily.
+	- Actual fix: both Python walks find each mark by index in the one string. Python and Go build the escape's message text only on the error path, as Rust does. At 1M escapes `shcl check` takes 1.8 s in Python (past 90 s before) and 0.20 s in Go (0.71 s).
+	- Verified: df026 and df027 fail on the old Python and pass on the fix; df029 fails on the old Go and passes. df028, df02a and df02b pass. Python, Go full suites, mem_bounds, crosscheck (23529 comparisons), cli-regress (655 rows), perf-gate, test-ids check, ruff, go vet, staticcheck, cargo fmt and clippy pass.
+	- Branch: `r1107b`
+	- Test case: `df026` (Python), `df028` (Go), `df02a` (Rust), `df02b` (C) scaling over 10,000 and 80,000 escapes; `df027` (Python), `df029` (Go) no message text for a good escape.
+	- Acceptance signoff: Self-closed: the scaling and message tests fail on the old code and pass on the fix.
+	- Closed: 20261107-085100
 
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307

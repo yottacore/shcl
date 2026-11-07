@@ -670,6 +670,47 @@ int main(void) {
 #endif
 	}
 
+	/* Decoding a value's escapes cut the rest of the text off at each one in
+	   Python, so the time went with the square of their count
+	   (2026110613470306). Eight times the escapes has to take under 24 times
+	   the time, 3 times the linear growth. Best of 3 each. Same fixture in
+	   every runner. */
+	test_id("df02b", "escapes_decode_in_linear_time");
+	{
+		static const char esc[] = "\xe2\x97\x89TAB\xe2\x97\x89";
+		const size_t el = sizeof esc - 1;
+		double t[2];
+		size_t sizes[2] = {10000, 80000}, cap = 80000 * el + 8;
+		char *etext = (char *)malloc(cap);
+		if (!etext) { fail("escape fixture: no memory"); return test_id_end(1); }
+		for (int side = 0; side < 2; side++) {
+			size_t n = sizes[side], len = 0;
+			memcpy(etext, "a: \"", 4); len = 4;
+			for (size_t i = 0; i < n; i++) { memcpy(etext + len, esc, el); len += el; }
+			memcpy(etext + len, "\"\n", 2); len += 2;
+			t[side] = 1e300;
+			for (int r = 0; r < 3; r++) {
+				double c0 = wall_ms();
+				shcl_doc *ed = shcl_parse(etext, len);
+				shcl_read_str egot = shcl_read_string(ed, "a", 1);
+				double ms = wall_ms() - c0;
+				if (ms < t[side]) t[side] = ms;
+				int ok = egot.status == SHCL_GOOD && egot.value.n == n;
+				for (size_t i = 0; ok && i < n; i++) ok = egot.value.p[i] == '\t';
+				shcl_str canon = shcl_to_canonical(ed);
+				if (!ok || canon.n != len || memcmp(canon.p, etext, len) != 0) fail("escape fixture: wrong result");
+				shcl_free(ed);
+			}
+		}
+		free(etext);
+		printf("mem_bounds: escapes: %.1f ms for 10000, %.1f ms for 80000\n", t[0], t[1]);
+#ifdef SHCL_UNDER_ASAN
+		printf("mem_bounds: escapes ratio not judged under a sanitizer\n");
+#else
+		if (t[1] > (t[0] > 1.0 ? t[0] : 1.0) * 24) fail("escape decoding is not linear");
+#endif
+	}
+
 	int last_failed = failures > open_base;
 	if (!failures) printf("mem_bounds: OK\n");
 	test_id_end(last_failed);

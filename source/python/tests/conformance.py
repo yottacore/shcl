@@ -2641,6 +2641,41 @@ def main():
 	bound = max(ms[0], 1.0) * 24
 	if ms[1] > bound:
 		raise SystemExit(f"24000 re-opened blocks {ms[1]:.1f} ms against {ms[0]:.1f} ms for 3000 (bound {bound:.1f} ms) - the load's refile is not linear")
+	test_id("df026", "escapes_decode_in_linear_time")
+	# Decoding a value's escapes cut the rest of the text off at each one, so
+	# the time went with the square of their count (2026110613470306). Eight
+	# times the escapes has to take under 24 times the time, 3 times the linear
+	# growth, where the old walk took 45 times. Same fixture in every runner,
+	# best of 2 on the big side here rather than 3.
+	ms = []
+	for n, runs in ((10000, 3), (80000, 2)):
+		text = "a: \"" + "\u25c9TAB\u25c9" * n + "\"\n"
+		best = float("inf")
+		for _ in range(runs):
+			t0 = time.perf_counter()
+			edoc = shcl.Document.parse(text)
+			got = edoc.get_string("a")
+			best = min(best, (time.perf_counter() - t0) * 1000.0)
+			if got != "\t" * n or edoc.to_canonical() != text:
+				raise SystemExit("escape fixture: wrong result")
+		ms.append(best)
+	bound = max(ms[0], 1.0) * 24
+	if ms[1] > bound:
+		raise SystemExit(f"80000 escapes {ms[1]:.1f} ms against {ms[0]:.1f} ms for 10000 (bound {bound:.1f} ms) - escape decoding is not linear")
+	test_id("df027", "an_escape_message_is_built_only_for_an_error")
+	# A good escape built the E023 text it never read (2026110613470306).
+	built = []
+	one_line_in = shcl._one_line_in
+	shcl._one_line_in = lambda *a: (built.append(a), one_line_in(*a))[1]
+	try:
+		good = shcl._resolve_marks("x\u25c9TAB\u25c9y\u25c9U+41\u25c9z\u25c9ESCAPE_CHAR\u25c9")
+		if good != ("x\tyAz\u25c9", None) or built:
+			raise SystemExit(f"good escapes: {good!r}, message text built {len(built)} times")
+		bad = shcl._resolve_marks("x\u25c9NOPE\u25c9")
+		if bad[0] is not None or "'\u25c9NOPE\u25c9'" not in (bad[1] or "") or not built:
+			raise SystemExit(f"unknown escape: {bad!r}")
+	finally:
+		shcl._one_line_in = one_line_in
 	test_id("ddes7", "a_kept_line_gone_from_the_tree_refuses_the_save")
 	# The save gate on kept lines, from inside: once the edits that lose one
 	# are fixed, no public call reaches the gate, so this takes a line out by

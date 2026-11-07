@@ -2146,20 +2146,23 @@ def _shown(s, mark):
 	# `"` is itself, and a real escape mark is mark. The writer's own output is
 	# taken apart rather than a second list kept here, so a message can't drift
 	# from fmt.
+	# Walked by index, since a slice of the rest at each escape went with the
+	# square of their count (2026110613470306).
 	m = _ESCAPE_MARK
-	rest = _quote_with(s, '"')[1:-1]
+	text_in = _quote_with(s, '"')
+	stop = len(text_in) - 1
 	out = []
+	pos = 1
 	while True:
-		at = rest.find(m)
+		at = text_in.find(m, pos, stop)
 		if at < 0:
 			break
-		out.append(rest[:at])
-		after = rest[at + 1:]
+		out.append(text_in[pos:at])
 		# The writer closes every escape it opens.
-		end = after.find(m)
+		end = text_in.find(m, at + 1, stop)
 		if end < 0:
-			end = len(after)
-		name = after[:end]
+			end = stop
+		name = text_in[at + 1:end]
 		text = _ESCAPE_TEXT_OF.get(name)
 		if text == '"':
 			out.append('"')
@@ -2167,8 +2170,8 @@ def _shown(s, mark):
 			out.append(mark)
 		else:
 			out.append(f"{m}{name}{m}")
-		rest = after[end + 1:]
-	out.append(rest)
+		pos = end + 1
+	out.append(text_in[pos:stop])
 	return "".join(out)
 
 
@@ -2193,23 +2196,24 @@ def _resolve_marks(raw):
 	The marks pair up left to right, and the text between each pair must be a
 	name on the list or a code point. (None, message) for the first one that
 	is not (E023)."""
+	# Walked by index, since a slice of the rest at each escape went with the
+	# square of their count (2026110613470306).
 	m = _ESCAPE_MARK
 	out = []
-	rest = raw
-	at = rest.find(m)
+	pos = 0
+	at = raw.find(m)
 	while at >= 0:
-		out.append(rest[:at])
-		after = rest[at + 1:]
-		close = after.find(m)
+		out.append(raw[pos:at])
+		close = raw.find(m, at + 1)
 		if close < 0:
 			return None, f"a '{m}' with no partner; an escape is {m}NAME{m}, and a real {m} is {m}ESCAPE_CHAR{m}"
-		text, why = _escape_text(after[:close])
+		text, why = _escape_text(raw[at + 1:close])
 		if text is None:
 			return None, why
 		out.append(text)
-		rest = after[close + 1:]
-		at = rest.find(m)
-	out.append(rest)
+		pos = close + 1
+		at = raw.find(m, pos)
+	out.append(raw[pos:])
 	return "".join(out), None
 
 
@@ -2222,7 +2226,6 @@ def _escape_text(name):
 	list, either case, or a code point prefix and one to six hex digits.
 	(None, message) when it is neither."""
 	m = _ESCAPE_MARK
-	shown = _one_line_in(name, f"'{m}", f"{m}'")
 	if name and _ESCAPE_NAME_CHARS.issuperset(name):
 		upper = name.upper()
 		for n, text in _ESCAPE_NAMES:
@@ -2235,9 +2238,15 @@ def _escape_text(name):
 				continue
 			v = int(digits, 16)
 			if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
-				return None, f"escape {shown} names no Unicode character"
+				return None, f"escape {_escape_name_shown(name)} names no Unicode character"
 			return chr(v), None
-	return None, f"unknown escape {shown}; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}"
+	return None, f"unknown escape {_escape_name_shown(name)}; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}"
+
+
+def _escape_name_shown(name):
+	# An escape name for an E023 message, built only for the error, since a
+	# good escape never reads it (2026110613470306).
+	return _one_line_in(name, f"'{_ESCAPE_MARK}", f"{_ESCAPE_MARK}'")
 
 
 _HEX_CHARS = frozenset("0123456789abcdefABCDEF")
