@@ -65,6 +65,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: `scan_lookup` and its twins read the path with comments on, and nothing refuses the comment it finds.
 	- Origin: `e58fe9f4` (2026-09-07). Not seen by an earlier round. The "finds nothing" rule for a selector body that starts with `#` covers selectors only. Confirmed.
 	- Sweep: every caller of the path scan in all 4 and the C++ interface: the reads, the setters, `check_set_path`, `remove`, `clear_comments`, and the CLIs' `--set`, `--remove`, ops lines and `get --set`.
+	- Regression test: an ops-script case in the shared conformance set, run by all 4 suites, with a `#` in a quoted segment and a bare one: the setter and the remove act on the named field or refuse, and the field above stays, checked as exact text; plus cli-regress rows for `--remove` and `set` with the same paths.
 	- Estimated effort: Low
 
 - `banner on` and `upgrade` drop an author's line inside the info block
@@ -85,6 +86,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: `drop_banners` and its twins keep only a Schema line out of the old block.
 	- Origin: `6c00b70d` (2026-10-03), the fix for 2026100307163904, which kept the comments around the block. Not seen by an earlier round. Confirmed.
 	- Note: `banner on` on a block that's already current could write nothing.
+	- Regression test: an ops-script case for all 4 suites: an info block with an author's line, then `banner on`, `banner off` and `upgrade`, expected text exact with the line in place; plus a cli-regress row for `upgrade` on the same file.
 	- Estimated effort: Low
 
 - The publish script tells the user to drop a stash that has the only copy of their untracked files
@@ -103,6 +105,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, the script's stash, pull and pop run with plain git in a scratch repo. The script itself wasn't run, since it commits and pushes.
 	- Origin: the message is `fa9e2f72` (2026-07-25), `--include-untracked` is `88d6a42b` (2026-07-12), and an untracked file alone starts the stash since `035dfb78` (2026-09-23). The items on a pop conflict and a failed pull don't cover this. Confirmed.
 	- Note: the script is a copy of the shared one. The fix goes in the shared copy first.
+	- Regression test: a shell-regress row that runs the helper in a scratch repo with an untracked file and the stash path taken, and refuses any advice line that says to drop the stash; the row runs against the repo's copy, and the shared n8git copy takes the same fix.
 	- Estimated effort: Low
 
 - The parse caps don't count comment lines or kept lines, so a capped parse can still use 100 times the file's size
@@ -123,6 +126,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the node cap counts tree nodes only. Pending comments, orphans and kept lines have no count.
 	- Origin: the node cap is `c1335634` (2026-09-01), the README line `3e798e75` (2026-09-24). Not seen by an earlier round. Confirmed.
 	- Sweep: every place the parse keeps a line with no node, in all 4.
+	- Regression test: a budget test in all 4 suites: a file of comment lines and kept lines many times the cap, parsed under the cap, asserting the line count and bytes kept stay under it and that `E020` names the first line the parse didn't take; a fuzz guard that counts such inputs each run.
 	- Estimated effort: Avg
 
 - A load that re-opens many blocks takes time in the square of their count since 2026-11-04
@@ -143,6 +147,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: every line that binds to an existing node goes in `folded`, kept lines or not, and `refile_folded` scans the parent's whole child list for each one before it checks whether anything has to move. A child-to-index map gave the old Go time, with the same output over the corpus.
 	- Origin: `5922ef64` (2026-11-04), the fix for 2026110315051536. Regression. No perf-gate workload re-opens blocks. Confirmed.
 	- Note: the fix needs a perf-gate workload with a numeric threshold.
+	- Regression test: a scaling test in all 4 suites, as `dep84` does for the CLI: 8 times the re-opened blocks reads in under 3 times the time, skipped under TSan and Miri like the other timing tests; watched to fail on `5922ef64`.
 	- Estimated effort: Low
 
 - Python decodes escapes in time in the square of their count
@@ -162,6 +167,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, all 4 CLIs, profiled in Python.
 	- Possible cause: `_resolve_marks` copies the rest of the text at each escape, and `_shown` does the same. Finding each mark by index gave 0.25 s at 40,000 and 3.1 s at 1M, with the same `fmt` output.
 	- Origin: `f2b97394` (2026-10-06) for `_resolve_marks`, `1d5f3f2b` (2026-10-10) for `_shown`, `81943546` (2026-10-09) for the text built every time. A drift from the Rust reference. Not seen by an earlier round. Confirmed.
+	- Regression test: a scaling test in the Python suite, 8 times the escapes decoded in under 3 times the time, and the same test in the other 3 for parity; plus a test that an error's text isn't built when nothing reads it, in Go and Python.
 	- Estimated effort: Low
 
 - The changed check misses a file reached through a second spelling of its path
@@ -196,6 +202,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A property test over spellings alone: finds the next spelling, holds nothing. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and a compare of 2 strings resolved at 2 different times breaks on the next event nobody listed.
 		- Canonicalize with realpath and write temp-and-rename over it: already done for the write. It can't help the check, since realpath has no answer for a path that doesn't fully exist yet, which every case in this class is, and a canonical path taken at load isn't canonical at save once a component becomes a link.
 	- Note: still a check, not a lock. An edit between the read and the rename is lost either way, and only a file lock would close that, which is a separate call.
+	- Regression test: 2026110616475901, with the `nodir/..` row and the flipped `detpn` row (a save-as over unread bytes refuses) as fixed cases, in all 4 bindings; watched to fail on `343334df`.
 	- Estimated effort: Avg
 
 - A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
@@ -215,6 +222,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the resolve drops the trailing separator before the changed and create checks, and a read that fails with ENOTDIR counts as a change. The CLI's check refuses anything but a regular file with one message.
 	- Origin: `2f38f68b` (2026-11-03) for the library, `c1053f55` (2026-11-04) for the CLI message. Before `2f38f68b` the write said `IsDirectory`. Regression from a fresh fix. Confirmed.
 	- Note: a caller that retries with `force` on `Changed` is misled.
+	- Regression test: rows in 2026110616475901 with a folder at the save path, for the library save, the changed check and the CLIs' own check, expecting the directory refusal in all 4 and exit 8 with the matching text from each CLI; a cli-regress fixture that puts a folder at the path.
 	- Estimated effort: Low
 
 - C checks a recursive schema in time cubic in the nesting depth
@@ -234,6 +242,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, all 4 CLIs.
 	- Possible cause: C's candidate loop in `chain_parts_legal` walks to the end of the chain for each candidate at every level, where Rust stops at the path's length. That bound took C to 0.21 s, with the same results over the corpus schema cases. All 4 also rebuild each node's chain from the root in the unknown-field check, which is the square.
 	- Origin: `d61bfc8c` (2026-09-17). Code review 20260905 item 4 removed the doubling per level. perf-gate's `recurse` (`dc81v`) times one 60-level chain. Confirmed.
+	- Regression test: a scaling test in the C suite, a recursive schema 8 levels deeper checked in under 3 times the time, and a shared schema case all 4 suites run so the answer at depth is pinned too.
 	- Estimated effort: Low
 
 - `set_literal` leaves `quoted` false on a value the save writes quoted
@@ -252,6 +261,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, Rust, Go, Python and the C++ interface. No typed read differed for these values.
 	- Possible cause: `set_literal` builds its cell from the tokens, not through `new_element`, which every other setter uses since Code review 20260909 item 13.
 	- Origin: `58d8e81e` (2026-09-09). A missed twin of Code review 20260909 item 13. Confirmed.
+	- Regression test: an ops-script case for all 4 suites: `set_literal` with each listed value, the `quoted` flag read before the save and after a reload, both true; watched to fail on `343334df`.
 	- Estimated effort: Low
 
 - Comments taken off a replaced item list end up above the list's blank line
@@ -274,6 +284,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- No fix inside `unstack`. The list replace goes through the one reattach helper 2026110616475902 asks for, and this item closes through that one.
 		- The placement suite 2026110616475903 has this case as a fixed row: both comments directly above `items:`, the blank line above them, in all 4 bindings.
 	- Note: comment placement under edits has come back one site at a time since Code review 20260802. The list of past cases is on 2026110616475903.
+	- Regression test: the fixed row in 2026110616475903's table and its placement property, in all 4 bindings; watched to fail on `343334df`.
 	- Estimated effort: Low
 
 - Removing one field of a dotted pair writes a bare header line
@@ -290,6 +301,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, all 4 CLIs.
 	- Possible cause: the removed line was the line that opened `a`, so the line-keeping save writes `a` fresh.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Regression test: an ops-script case for all 4 suites: remove one field of a dotted pair, expected text exact and the reload equal to the document; plus a cli-regress row for `--remove` on the same file.
 	- Estimated effort: Avg
 
 - `E003` names the capped number, not the index as written
@@ -306,6 +318,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the index as written, the way `H006` and `H007` quote the Format number since 2026101514324705.
 	- Reproduced: 20261106, all 4 CLIs.
 	- Origin: a sibling of 2026101514324705, which fixed the Format number's text only. Confirmed.
+	- Regression test: a corpus case with an index past the cap, whose expected diagnostics name the index as written, run by all 4 suites.
 	- Estimated effort: Low
 
 - Some spec sentences don't match what all 4 bindings do
@@ -327,6 +340,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the docs say what the code does.
 	- Reproduced: 20261106, all 4 CLIs.
 	- Origin: the "finds nothing" lines are `df0eab64` (2026-10-06), a day before `BadPath`. The indent line is `d5978c0d` (2026-09-20), the annotation line `dd004f13` (2026-09-08, before `◉`), and the set line `a4d2d6b0` (2026-10-08). Confirmed.
+	- Regression test: one corpus case per sentence, pinning whichever side was kept (the code or the sentence), with the sentence quoted in the case's notes, so the next edit to either side fails the case.
 	- Estimated effort: Low
 
 - A document at the 512 depth cap needs about 190 KB of stack in C
@@ -343,6 +357,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, the main thread under `ulimit -s` in Rust and C. Go and Python passed every depth-512 operation. The musl thread case is read only.
 	- Origin: the spec line is `8fbc6f6d` (2026-07-25). Confirmed for the stack sizes, Plausible for the musl thread.
 	- Note: either the spec gives the stack a full-depth document needs, or the recursion uses less.
+	- Regression test: a C test that parses a document at the depth cap on a thread with a 64 KB stack (`pthread_attr_setstacksize`, `CreateThread`'s size on Windows), asserting a clean parse; watched to fail on `343334df`.
 	- Estimated effort: Avg
 
 - The setup's PATH removal rewrites a machine PATH that doesn't have the folder
@@ -359,6 +374,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: no write, the way install.ps1 does since `a30d9b91`, where absent is no write.
 	- Reproduced: 20261106, the same expressions under pwsh on Linux.
 	- Origin: `f66b81f5` (2026-09-17). A missed twin of `a30d9b91` (2026-09-27). Confirmed.
+	- Regression test: a winpath-regress.ps1 row: `-Remove` on a machine PATH that lacks the folder leaves the machine PATH byte for byte as it was; runs in win-runners on b29w, and its logic row under pwsh on Linux through the sandbox.
 	- Estimated effort: Low
 
 - install.ps1 calls `tar` by name, so a GNU tar ahead of System32 can't unpack the payload
@@ -377,6 +393,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: no. A probe for b29w is ready.
 	- Possible cause: `tar -xzf ... -C ...` at the unpack, found through `Get-Command tar`.
 	- Origin: Plausible.
+	- Regression test: a win-runners row on b29w that puts a `tar` stub ahead of System32 on PATH and runs install.ps1's unpack; the stub recording a call fails the row. Batched with 2026110408432594's visit.
 	- Estimated effort: Low
 
 - install.bash fails when a temp folder's name has `..` in it, and the tag filter isn't anchored
@@ -393,6 +410,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: exit 0 and the folder removed. `..` is only unsafe as a whole path part, which is how install.ps1's `Remove-SafeTree` checks it.
 	- Reproduced: 20261106, install.bash in a sandbox, and both tag pickers run on lists of tags.
 	- Origin: `fRmTmp`'s match is `ae548339` (2026-10-31), the tag filter `ce64bbea`. Confirmed.
+	- Regression test: shell-regress rows: install.bash run from a temp folder whose name has `..` in it, and a tag list where a longer tag contains the wanted one, asserting the anchored match; both watched to fail on `343334df`.
 	- Estimated effort: Low
 
 - sign-release.bash's key fingerprint check can't fail
@@ -408,6 +426,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the check fails when the key can't be read. The public key step before it and the compares after it still fail closed, so nothing wrong is signed today.
 	- Reproduced: 20261106, `fFp /dev/null` gives the empty input's hash.
 	- Origin: `7fb1645b` (2026-07-28). Confirmed.
+	- Regression test: a shell-regress row that signs with a test key whose fingerprint differs from the one the script expects and asserts a non-zero exit; it passes today, so it's watched to fail first.
 	- Estimated effort: Low
 
 - comparison.md's peak memory row comes from the 2026-10-02 run
@@ -423,6 +442,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: comparison.md says every number is in results.shcl, so the table is one run.
 	- Reproduced: 20261106, both runs pulled out of results.shcl.
 	- Origin: the memory row is `b30d70a8` (2026-10-14), the read row `ae8540e9` (2026-11-05). Confirmed.
+	- Regression test: a check-docs row that refuses a comparison.md row dated older than the table's run date, and the comparison run writes the memory row itself so the two can't drift.
 	- Estimated effort: Low
 
 - Make sign-release.bash refuse a dated build
@@ -438,6 +458,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Check the binaries, not only the source HEAD.
 	- Reason: a re-sign and re-upload would put a build that isn't the cut behind a valid signature.
 	- Origin: `6d29ef3a` (2026-09-02). Confirmed with a copy of the script and a test key.
+	- Regression test: shell-regress rows: the signer on a dated build exits non-zero with the reason, on an undated tag build passes, and on a binary of another version exits non-zero.
 	- Estimated effort: Low
 
 - A filesystem property test for the save's checks, over every past path bug
@@ -451,6 +472,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: every test of the changed, create-only and FIFO checks is a list of examples (`detpn`, `detpp`, `detpq`, `detpr`, `detps`, `dekm5`, `dekmf`, `dd5h4`), each case added after its own bug. The fuzz suite runs on text in memory and never opens a file, so no generated case has a folder, a link or a file appear between the load and the save. 8 items in 2 weeks came from this one class, and each closed one spelling.
 	- Requirements:
 		- A seeded property test that works in a temp folder, each case a pure function of its seed, with a wall-clock budget from an env var, the way the text fuzz does. It runs in all 4 bindings beside the conformance suites, from one set of generator rules, and the cross-binding check holds them to the same answer. A dump of the cases a run drew, as `SHCL_FUZZ_DUMP` does for the kept fuzz, so a failure can be replayed.
+		- The files live on a fresh tmpfs, never the project tree or the host's temp folder: on Linux a folder made under `/dev/shm` when `statfs` says it's tmpfs, else the folder `SHCL_FS_TEST_DIR` names; on macOS a RAM disk from `hdiutil attach -nomount ram://`, which also gives the case-insensitive volume the case rows need; on Windows the temp folder; on FreeBSD a `tmpfs` mount where the box script can make one, else the temp folder. The run prints which it used and removes it at the end through the safe-rm guard.
+		- Reason for the tmpfs: a fresh filesystem per run, so no object left by a past run answers for a new one (a reused folder name gave a false Changed during the review), no disk wear from thousands of small writes, and nothing in the ZFS snapshots.
 		- The load spelling and the save spelling each come from a small grammar: bare name, `./x`, absolute, `//`, `/./`, `dir/../x`, through a link to the folder, a link to the file, a dangling link, a link cycle, from another working folder, a trailing `.` or `..`, and on Windows `\`, mixed separators, an 8.3 short name and a `\\?\` prefix, and on macOS a case variant.
 		- An event between the load and the save, drawn from: nothing, the file rewritten, removed, swapped for a FIFO, made where the load found nothing, a folder on the path made, a link on the path made or pointed elsewhere, the working folder changed, the read bit taken off.
 		- An oracle that doesn't ask the library. Write a marker through the save spelling and read through the load spelling to learn whether the 2 name one file. Then: the save refuses as Changed iff they name one file and its bytes differ from what the load read; refuses as Exists iff create-only and anything is at the path; refuses a FIFO as not regular; and a refused save writes nothing anywhere.
@@ -458,6 +481,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Windows and macOS rows run on b29w with a short-name TEMP and on vmKt6m or b26, through the box step. Until a box runs them, they're skipped by platform, never dropped.
 		- Watched to fail: run it on `343334df` and see the `nodir/..` row and 2026110613470308's folder row go red before 2026110613470307's fix.
 	- Reason: a property over the whole space of spellings and events is the only test that finds the next member of the class before a user does. The example lists found none of the 8.
+	- Regression test: this item is the test. Its rows for every Related ID are the regression tests for those items, each watched to fail in a worktree at the commit before its fix.
 	- Estimated effort: Avg
 
 - One helper reattaches the lines around a node an edit takes away
@@ -478,6 +502,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reason: one place that answers the question can be tested once, and a new edit kind can't get the blank line wrong on its own.
 	- Alternatives:
 		- Fix `unstack` alone. Closes 2026110613470311 and leaves the class open, as every fix before it did.
+	- Regression test: 2026110616475903's property and table are the gate, run against both the old helpers and `adopt` before the old ones go; plus a check-docs row that greps the 4 bindings for the retired helper names, so a second mover can't come back.
 	- Estimated effort: High
 
 - An exhaustive comment placement suite, with a placement property in the fuzz
@@ -496,6 +521,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A fixed table, one row per past case above and each new one, as a before text, an edit and the exact expected text, in one file all 4 conformance suites read, as the corpus is. Watch each row fail in a worktree at the commit before its fix.
 		- Watch the property fail: on `343334df`, 2026110613470311's case goes red.
 	- Reason: an example per bug has found none of the next ones. A property over every comment in every generated edit finds the next site before a review does.
+	- Regression test: this item is the test. Each past case in its table is watched to fail in a worktree at the commit before that case's fix, and the property on `343334df`.
 	- Estimated effort: Avg
 
 - Say so when an installer moves a beta install back to the older stable
@@ -512,6 +538,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Remove what the older release doesn't have.
 	- Reason: a 3.0 user who reruns the plain one-liner gets 2.x read rules with no word.
 	- Origin: `74c3a5a0` (2026-07-22), `c52fa077` (2026-09-22). Confirmed for install.bash in a sandbox. install.ps1 has the same logic.
+	- Regression test: shell-regress rows for install.bash and install.ps1 under pwsh: a newer beta on the box, then a default install, and the output names the move back to the stable version; the receipt line checked exact.
 	- Estimated effort: Low
 
 - Make `children` and `instances` exit 3 on a path that isn't there
@@ -525,6 +552,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: the CLI exits 0 with no output both for a missing path and for an empty section, so a script can't tell them apart. The library's `read_children` and `read_instances` give `NotFound` for one and `Good` for the other since 2026100818140260, and `get` exits 3 on a miss.
 	- Requirements: exit 3 on `NotFound`, as `get` does. `count` could do the same.
 	- Origin: Confirmed in all 4 CLIs.
+	- Regression test: cli-regress rows for `children` and `instances` on a path that isn't there, exit 3 and the same stderr from all 4 CLIs.
 	- Estimated effort: Low
 
 - Quote the other line breaks in `instances` and `get --array` output
@@ -537,6 +565,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
 	- Requirements: quote a value with any character `fmt` escapes as a line break.
 	- Origin: Confirmed in all 4 CLIs.
+	- Regression test: cli-regress rows with U+2028, U+2029 and U+0085 inside a value, for `instances` and `get --array`, output quoted and byte-identical across the 4 CLIs; a crosscheck corpus case with the same values.
 	- Estimated effort: Low
 
 - Make a Go zero-value `Document` usable, or say to use `New()`
@@ -550,6 +579,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: a usable zero value, or a line on the type that says to use `New()`.
 	- Reason: the same interface in every binding unless idiom makes it surprising, and in Go a usable zero value is the idiom.
 	- Origin: `8bca69bd` (2026-07-12). Not in the v4 design. Confirmed.
+	- Regression test: a Go test that calls every public method on a zero-value `Document` and asserts the chosen behavior for each, a working call or the `New()` message; a doc check that the message names `New()`.
 	- Estimated effort: Low
 
 - Give the dogfood launcher's copy its own temp name, and swap its link by rename
@@ -563,6 +593,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `dogfood_shcl.ps1` copies each new build through one fixed `.partial` name per build stamp, so 2 runs as a build arrives can cut the file under the other's rename. `Update-FixedName` removes the link before it makes the new one, so for a moment there's no `shcl` on PATH.
 	- Requirements: a temp name per process, and the link replaced by a rename.
 	- Origin: `eefd1dba`. Plausible, read only.
+	- Regression test: a shell-regress row that starts 2 launchers at once against a slow copy stub, as `desp5` does, and asserts one whole copy at the end and a link that at every poll points at a whole file; a second row for a copy killed midway leaving no `.partial` behind.
 	- Estimated effort: Low
 
 - The default run takes over an hour
