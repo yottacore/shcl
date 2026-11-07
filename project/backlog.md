@@ -51,7 +51,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A `#` in an unquoted path cuts the path, so `--remove` and the setters act on the field above it
 	- ID: 2026110613470301
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: a 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`) and `check-migrate.bash` on `c423e310`, since the new corpus input shifts the seeds. check-migrate didn't finish in 4 minutes here.
 	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 1
@@ -67,6 +68,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every caller of the path scan in all 4 and the C++ interface: the reads, the setters, `check_set_path`, `remove`, `clear_comments`, and the CLIs' `--set`, `--remove`, ops lines and `get --set`.
 	- Regression test: an ops-script case in the shared conformance set, run by all 4 suites, with a `#` in a quoted segment and a bare one: the setter and the remove act on the named field or refuse, and the field above stays, checked as exact text; plus cli-regress rows for `--remove` and `set` with the same paths.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. The path scan stops at a `#` outside quotes and selectors as a comment, and the lookup kept the segments before it.
+	- Actual fix: the lookup path scan refuses a `#` it reads as a comment, in all 4, so every read, setter, remove, comment clear and schema path gets `BadPath` and nothing changes. A quoted name holding one, `"colors#primary"`, still names that field. spec.md says so beside the lookup path rule.
+	- Decisions:
+		- me, 20261106: only a `#` in the path half is refused. One after a `: value` part is the value's comment, and that path is `ValueInPath` as before.
+		- me, 20261106: the CLIs keep their "not a usable path" text for it. The library's reason says a `#` opens a comment.
+	- Swept: `scan_lookup` / `scanLookup` / `_scan_lookup` / `scan_lookup` is the one lookup scan in each binding; reads, setters, `check_set_path`, `remove`, `clear_comments` and schema paths all read through it, and the C++ veneer passes paths through to C. The CLIs' `--remove`, ops lines and read PATH go through `check_set_path`. `--set` splits with its own scan, which already refused `a.b#c=V` as having no `=`. A `#` in a selector body is unchanged (corpus `109`).
+	- Test case: corpus `dez5a` (`216-hash-in-path`, reads, write, keep and bad-op dimensions), cli-regress `dez5f`, `dez5g`, `dez5h`.
+	- Verified: corpus `216` fails in Rust, Python and C on the old libraries (the remove and setters act on `colors`), and `dez5f`, `dez5h` fail on the old C CLI. All pass on the fix. The 4 conformance suites, the whole Rust suite with the quick fuzz, the Go cmd tests, the veneer smoke, cli-regress (655 rows, 4 bindings), crosscheck (23298 comparisons), check-docs, check-abnf, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, lint-report.
+	- Branch: `r1107`
+	- Commit: `c423e310`
 
 - `banner on` and `upgrade` drop an author's line inside the info block
 	- ID: 2026110613470302
@@ -307,7 +319,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `E003` names the capped number, not the index as written
 	- ID: 2026110613470313
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 13
@@ -320,6 +332,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: a sibling of 2026101514324705, which fixed the Format number's text only. Confirmed.
 	- Regression test: a corpus case with an index past the cap, whose expected diagnostics name the index as written, run by all 4 suites.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. The message printed the selector's read value, and an index past u64 reads as the largest one.
+	- Actual fix: the load's `E003` message quotes the index from the line's own text, through each binding's `one_line`, in all 4. The read keeps the cap.
+	- Decisions:
+		- me, 20261106: "as written" keeps leading zeros and a `+`, so `c(007)` shows `007`, as H006 shows `Format 0004`. A number past 200 digits is cut the way any value in a message is.
+		- me, 20261106: the test is a runner check in all 4, not a corpus case, since `expected-diags.txt` holds codes only.
+	- Swept: the `E003` arm in `attach_path` / `attachPath` / `_attach_path` / `attach_path` still prints the read number. A load never reaches it, since `index_miss` refuses the line first. The generated path in `init` writes an index as a number, which reads back as the same index. No other message prints an index.
+	- Test case: `e003_quotes_the_index_as_written` (`dez5b` Rust, `dez5c` Go, `dez5d` Python, `dez5e` C), cli-regress `dez5j`.
+	- Verified: the Rust, Go and C checks fail on the old libraries and `dez5j` on the old C CLI. All pass on the fix, with the same gate list as 2026110613470301.
+	- Branch: `r1107`
+	- Commit: `c423e310`
+	- Acceptance signoff: me, 20261106, each new test failed on the old library and passes on the fix
+	- Closed: 20261106-172859
 
 - Some spec sentences don't match what all 4 bindings do
 	- ID: 2026110613470314
