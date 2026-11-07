@@ -35,6 +35,74 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Spec promises the depth cap keeps every binding inside a thread stack
+	- ID: 2026110713595457
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261107-135954
+	- Opened by: Child of 2026110613470315
+	- Parent ID: 2026110613470315
+	- Prereq IDs: 2026110713595411, 2026110713595434
+	- Steps to reproduce: `fmt`, `--layer` or `set` on a 511-deep document under `ulimit -s 64` with the Rust CLI.
+	- Incorrect behavior: Rust needs about 171 KB at the cap, while spec.md's Limits bullet says depth-linear recursion can never outrun a thread stack.
+	- Expected behavior: the spec says what stack a full-depth document needs in each binding, or Rust's walks stop growing with the depth. Rust's own threads default to 2 MB, so a number in the spec may be enough.
+	- Estimated effort: Low
+
+- C's validate, generate and path walks need stack in proportion to the depth
+	- ID: 2026110713595434
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261107-135954
+	- Opened by: Child of 2026110613470315
+	- Parent ID: 2026110613470315
+	- Steps to reproduce: validate a 511-deep document against a recursive schema, or `init` from a mount chain at the cap, on a thread with a 64 KB stack.
+	- Incorrect behavior: unverified on a small thread. The recursive walks are `v_check_from` with `v_node` (720 bytes a level per the review), `v_contexts`, `g_expand_go` (880), `resolve_from`, `chain_parts_legal` and `shcl_free`.
+	- Expected behavior: each one either fits a small stack at the cap, or is bounded by something other than the depth; the 64 KB thread test covers each op that is depth-linear.
+	- Estimated effort: Avg
+
+- C's overlay and clone walks need stack in proportion to the depth
+	- ID: 2026110713595411
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261107-135954
+	- Opened by: Child of 2026110613470315
+	- Parent ID: 2026110613470315
+	- Steps to reproduce: `shcl_merge` of two documents at the depth cap on a thread with a 64 KB stack.
+	- Incorrect behavior: it overflows the stack. `w_overlay` takes 1104 bytes a level at -O2, and `w_clone_subtree` 400.
+	- Expected behavior: merge and clone at the depth cap fit a small thread stack, as Python's walks already do.
+	- Estimated effort: Avg
+	- Note: the 64 KB thread test and the harness in the tools folder's `deepstack/` come from the first child; add `merge` to the test.
+
+- C's emit walk needs stack in proportion to the depth
+	- ID: 2026110713595389
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261107-135953
+	- Opened by: Child of 2026110613470315
+	- Parent ID: 2026110613470315
+	- Steps to reproduce: a 511-deep document with a comment at each level, and `shcl_to_canonical` on a thread with a 64 KB stack.
+	- Incorrect behavior: it overflows the stack. `emit_children` takes 368 bytes a level at -O2, so the cap needs about 190 KB.
+	- Expected behavior: emit at the depth cap fits a small thread stack.
+	- Estimated effort: Avg
+	- Reproduced: 20261107, a 64 KB pthread running `shcl_to_canonical` at the cap segfaults on `a6e28dfd`, and the CLI's `fmt` needs more than 160 KB under `ulimit -s`.
+	- Actual cause: `emit_children` and `emit_node` recurse once per level.
+	- Actual fix: the emit walk keeps its own stack of steps in the scratch arena, children queued last first and a post step under them for what a node writes after its children, as Python's walk does. Output is unchanged.
+	- Decisions: iterative rather than smaller frames, since a 64 KB stack leaves 128 bytes a level at the cap. A deliberate deviation in the style guide's C section. The CLI's own 64 KB read buffer keeps its `ulimit -s 64` run from starting at all, so the test runs the library on a thread.
+	- Test case: C runner `canonical_at_the_depth_cap_fits_a_64_kb_stack` (`df0c9`), parse and format at the cap on a 64 KB thread (CreateThread's size on Windows), same bytes back. It crashed the runner on the old header and passes now.
+	- Branch: `r1107c`
+	- Acceptance signoff: Self-closed: output unchanged across the crosscheck, and the test was seen to fail first.
+	- Closed: 20261107-142536
+	- Verified: C runner, crosscheck with a fuzz dump, cli-regress, sanitize-c, analyze-c, perf-gate and `--backlog-run-quick c` passed. The Windows branch of the test cross-compiles with mingw.
+	- Swept: the other depth-linear C walks are in 2026110713595411 and 2026110713595434. Python's emit already iterates, Go grows its stack, and Rust is 2026110713595457.
+
 - Removes, folds, merges and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
 	- Type: Enhancement
@@ -374,6 +442,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: either the spec gives the stack a full-depth document needs, or the recursion uses less.
 	- Regression test: a C test that parses a document at the depth cap on a thread with a 64 KB stack (`pthread_attr_setstacksize`, `CreateThread`'s size on Windows), asserting a clean parse; watched to fail on `343334df`.
 	- Estimated effort: Avg
+	- Children: 2026110713595389 (emit), 2026110713595411 (overlay and clone), 2026110713595434 (validate, generate, paths), 2026110713595457 (spec and Rust). The C walks go iterative, as Python's did, since 128 bytes a level is all a 64 KB stack leaves at the cap.
 
 - The setup's PATH removal rewrites a machine PATH that doesn't have the folder
 	- ID: 2026110613470316

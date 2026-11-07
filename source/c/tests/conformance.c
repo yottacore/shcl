@@ -669,6 +669,45 @@ static void *validate_on_small_stack(void *unused) {
 }
 #endif
 
+// A document at the depth cap with a comment at each level, which is already
+// canonical, so a clean round trip gives the same bytes back.
+static char *deep_doc(size_t *len) {
+	size_t levels = SHCL_MAX_DEPTH - 1, cap = (levels + 1) * (levels + 32), n = 0;
+	char *t = xrealloc(NULL, cap);
+	for (size_t i = 0; i < levels; i++) {
+		memset(t + n, '\t', i); n += i;
+		n += (size_t)snprintf(t + n, cap - n, "# c%zu\n", i);
+		memset(t + n, '\t', i); n += i;
+		n += (size_t)snprintf(t + n, cap - n, "k%zu:\n", i);
+	}
+	memset(t + n, '\t', levels); n += levels;
+	n += (size_t)snprintf(t + n, cap - n, "leaf: 1\n");
+	*len = n;
+	return t;
+}
+
+// Parses and formats the document at the depth cap. Nonzero when both were
+// clean; a stack overflow crashes the run instead.
+static int deep_round_trip(void) {
+	size_t n;
+	char *t = deep_doc(&n);
+	shcl_doc *d = shcl_parse(t, n);
+	int ok = d && shcl_diag_count(d) == 0;
+	if (ok) {
+		shcl_str out = shcl_to_canonical(d);
+		ok = out.n == n && memcmp(out.p, t, n) == 0;
+	}
+	shcl_free(d);
+	free(t);
+	return ok;
+}
+
+#ifdef _WIN32
+static DWORD WINAPI deep_on_small_stack(LPVOID unused) { (void)unused; return deep_round_trip() ? 1 : 0; }
+#else
+static void *deep_on_small_stack(void *unused) { (void)unused; return deep_round_trip() ? (void *)1 : NULL; }
+#endif
+
 #ifdef _WIN32
 static int text_is(const char *path, const char *want) {
 	size_t n; char *t = read_file(path, &n);
@@ -4304,6 +4343,39 @@ int main(int argc, char **argv) {
 		pthread_attr_destroy(&at);
 	}
 #endif
+	// Formatting at the depth cap used to recurse once per level, about 190 KB
+	// at -O2, which overflowed a 64 KB thread. musl gives a thread 128 KB, and
+	// an embedded stack is smaller still.
+	test_id("df0c9", "canonical_at_the_depth_cap_fits_a_64_kb_stack");
+	{
+		size_t small = 64 * 1024;
+#ifdef _WIN32
+		HANDLE th = CreateThread(NULL, small, deep_on_small_stack, NULL, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+		if (!th) {
+			fail("deep-stack", "cannot start a 64 KB thread");
+		} else {
+			DWORD res = 0;
+			WaitForSingleObject(th, INFINITE);
+			if (!GetExitCodeThread(th, &res) || res != 1) fail("deep-stack", "parse and format at the depth cap were not clean on a 64 KB stack");
+			CloseHandle(th);
+		}
+#else
+		pthread_attr_t at;
+		pthread_t th;
+		long floorBytes = sysconf(_SC_THREAD_STACK_MIN);
+		if (floorBytes > 0 && (size_t)floorBytes > small) small = (size_t)floorBytes;
+		if (pthread_attr_init(&at) != 0 || pthread_attr_setstacksize(&at, small) != 0) {
+			fail("deep-stack", "cannot make a 64 KB thread attribute");
+		} else if (pthread_create(&th, &at, deep_on_small_stack, NULL) != 0) {
+			fail("deep-stack", "cannot start a 64 KB thread");
+		} else {
+			void *res = NULL;
+			pthread_join(th, &res);
+			if (res == NULL) fail("deep-stack", "parse and format at the depth cap were not clean on a 64 KB stack");
+		}
+		pthread_attr_destroy(&at);
+#endif
+	}
 	/* A path that names a directory - it ends in a separator, or its last
 	   component is `.` or `..` - is not a document. A path cleanup drops the
 	   trailing separator first, so a save through `f/.` used to rewrite `f` in

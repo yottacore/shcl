@@ -10730,12 +10730,18 @@ static void push_leads(shcl_doc *d, ShclEmit *e, const ShclLead *leads, size_t n
 	}
 }
 
-// Emit a sibling run. The parent walk already knows whether an earlier
-// same-name sibling is empty (the raw same-line-fence hazard), so one
-// seen-empties set here replaces a per-child rescan of the whole run.
-static void emit_node(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e);
-static void emit_children(shcl_doc *d, const ShclVecSize *kids, size_t depth, ShclEmit *e) {
+/* One step of the emit walk: a node's line, then its children, or with post
+   set, what the node writes after its children. */
+typedef struct { size_t idx, pos, depth; int would_merge, post; } ShclEmitStep;
+DEFINE_VEC(ShclVecEmitStep, ShclEmitStep)
+
+// Queue a sibling run, last first so the first pops first. The parent walk
+// already knows whether an earlier same-name sibling is empty (the raw
+// same-line-fence hazard), so one seen-empties set here replaces a per-child
+// rescan of the whole run.
+static void emit_children(shcl_doc *d, const ShclVecSize *kids, size_t depth, ShclEmit *e, ShclVecEmitStep *todo) {
 	ShclCMap empties; memset(&empties, 0, sizeof empties);
+	size_t first = todo->len;
 	for (size_t i = 0; i < kids->len; i++) {
 		size_t c = kids->data[i];
 		ShclNode *n = &NODE(d, c);
@@ -10746,27 +10752,43 @@ static void emit_children(shcl_doc *d, const ShclVecSize *kids, size_t depth, Sh
 		int wm = n->value.kind == V_RAW && seen;
 		if (v_is_empty(&n->value) && !seen)
 			cmap_put(&d->scratch, &empties, h, c);
-		emit_node(d, c, i, depth, wm, e);
+		ShclEmitStep s; s.idx = c; s.pos = i; s.depth = depth; s.would_merge = wm; s.post = 0;
+		ShclVecEmitStep_push(e->a, todo, s);
+	}
+	for (size_t lo = first, hi = todo->len; lo + 1 < hi; lo++, hi--) {
+		ShclEmitStep t = todo->data[lo]; todo->data[lo] = todo->data[hi - 1]; todo->data[hi - 1] = t;
 	}
 }
 
 static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e);
-static void emit_node(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e) {
-	emit_line(d, idx, pos, depth, would_merge, e);
-	ShclVecSize ch = NODE(d, idx).children;
-	emit_children(d, &ch, depth + 1, e);
-	emit_near(e, idx, pos);
-	/* Comments this block owns with no child to take them, one deeper. */
-	ShclVecLead ins = triv_inside(&NODE(d, idx));
-	push_leads(d, e, ins.data, ins.len, depth + 1, idx, SITE_INSIDE, 0);
-	/* Comments that hung on this block after its last child. */
-	ShclVecLead aft = triv_after(&NODE(d, idx));
-	push_leads(d, e, aft.data, aft.len, depth, idx, SITE_AFTER, 0);
+/* The reference recurses once per level here. This walks its own stack in
+   the same order, since at the nesting cap the recursion wanted about 190 KB
+   of stack, more than a small thread has. */
+static void emit_tree(shcl_doc *d, ShclEmit *e) {
+	ShclVecEmitStep todo; memset(&todo, 0, sizeof todo);
+	ShclVecSize rc = NODE(d, ROOT).children;
+	emit_children(d, &rc, 0, e, &todo);
+	while (todo.len) {
+		ShclEmitStep s = todo.data[--todo.len];
+		if (s.post) {
+			emit_near(e, s.idx, s.pos);
+			/* Comments this block owns with no child to take them, one deeper. */
+			ShclVecLead ins = triv_inside(&NODE(d, s.idx));
+			push_leads(d, e, ins.data, ins.len, s.depth + 1, s.idx, SITE_INSIDE, 0);
+			/* Comments that hung on this block after its last child. */
+			ShclVecLead aft = triv_after(&NODE(d, s.idx));
+			push_leads(d, e, aft.data, aft.len, s.depth, s.idx, SITE_AFTER, 0);
+			continue;
+		}
+		emit_line(d, s.idx, s.pos, s.depth, s.would_merge, e);
+		/* Under the children, so it pops after them. */
+		s.post = 1;
+		ShclVecEmitStep_push(e->a, &todo, s);
+		ShclVecSize ch = NODE(d, s.idx).children;
+		emit_children(d, &ch, s.depth + 1, e, &todo);
+	}
 }
 
-/* Kept out of emit_node, which recurses once per level: its locals would
-   otherwise sit in every frame, and a document at the nesting cap ran past a
-   1 MB stack in the reference's debug build. */
 static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	/* The whole emit - the output buffer and the quoted/escaped spellings both -
 	   is built in scratch; shcl_to_canonical copies the finished bytes into the
@@ -10865,8 +10887,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 }
 
 static void emit_all(shcl_doc *d, ShclEmit *e) {
-	ShclVecSize rc = NODE(d, ROOT).children;
-	emit_children(d, &rc, 0, e);
+	emit_tree(d, e);
 	/* Comments that never found a following line re-emit at the end. */
 	emit_near(e, ROOT, 0);
 	push_leads(d, e, d->orphans.data, d->orphans.len, 0, ROOT, SITE_ORPHANS, 0);
